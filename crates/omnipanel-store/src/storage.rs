@@ -420,6 +420,80 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_term_hist_sessions_updated
         ON terminal_history_sessions(updated_at);
     "#,
+    // v23 — 资源档案（resource_observations）+ knowledge_entries 加 resource_type/resource_id
+    r#"
+    CREATE TABLE IF NOT EXISTS resource_observations (
+        id              TEXT PRIMARY KEY,
+        resource_type   TEXT NOT NULL,
+        resource_id     TEXT NOT NULL,
+        observation_kind TEXT NOT NULL,
+        payload         TEXT NOT NULL DEFAULT '{}',
+        observed_at     INTEGER NOT NULL,
+        observer        TEXT NOT NULL DEFAULT 'auto'
+    );
+    CREATE INDEX IF NOT EXISTS idx_resource_obs_type_id_kind_time
+        ON resource_observations(resource_type, resource_id, observation_kind, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_resource_obs_type_time
+        ON resource_observations(resource_type, observed_at DESC);
+    ALTER TABLE knowledge_entries ADD COLUMN resource_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE knowledge_entries ADD COLUMN resource_id TEXT NOT NULL DEFAULT '';
+    "#,
+    // v24 — Skill 自我进化（skills / skill_applications / skill_knowledge_links / skill_chunks）
+    r#"
+    CREATE TABLE IF NOT EXISTS skills (
+        id                  TEXT PRIMARY KEY,
+        name                TEXT NOT NULL,
+        description         TEXT NOT NULL DEFAULT '',
+        enabled             INTEGER NOT NULL DEFAULT 1,
+        version             INTEGER NOT NULL DEFAULT 1,
+        parent_version_id   TEXT NOT NULL DEFAULT '',
+        path                TEXT NOT NULL DEFAULT '',
+        success_count       INTEGER NOT NULL DEFAULT 0,
+        failure_count       INTEGER NOT NULL DEFAULT 0,
+        last_applied_at     INTEGER,
+        shareable           INTEGER NOT NULL DEFAULT 0,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_skills_enabled_name ON skills(enabled, name);
+    CREATE INDEX IF NOT EXISTS idx_skills_parent ON skills(parent_version_id);
+
+    CREATE TABLE IF NOT EXISTS skill_applications (
+        id              TEXT PRIMARY KEY,
+        skill_id        TEXT NOT NULL,
+        session_id      TEXT NOT NULL DEFAULT '',
+        resource_type   TEXT NOT NULL DEFAULT '',
+        resource_id     TEXT NOT NULL DEFAULT '',
+        outcome         TEXT NOT NULL DEFAULT 'pending',
+        feedback        TEXT NOT NULL DEFAULT '',
+        applied_at      INTEGER NOT NULL,
+        FOREIGN KEY(skill_id) REFERENCES skills(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_apps_skill_time ON skill_applications(skill_id, applied_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_skill_apps_resource ON skill_applications(resource_type, resource_id);
+
+    CREATE TABLE IF NOT EXISTS skill_knowledge_links (
+        skill_id        TEXT NOT NULL,
+        knowledge_id    TEXT NOT NULL,
+        link_kind       TEXT NOT NULL DEFAULT 'related',
+        created_at      INTEGER NOT NULL,
+        PRIMARY KEY (skill_id, knowledge_id),
+        FOREIGN KEY(skill_id) REFERENCES skills(id) ON DELETE CASCADE,
+        FOREIGN KEY(knowledge_id) REFERENCES knowledge_entries(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_kn_links_knowledge ON skill_knowledge_links(knowledge_id);
+
+    CREATE TABLE IF NOT EXISTS skill_chunks (
+        id              TEXT PRIMARY KEY,
+        skill_id        TEXT NOT NULL,
+        chunk_index     INTEGER NOT NULL,
+        content         TEXT NOT NULL,
+        embedding       TEXT NOT NULL,
+        created_at      INTEGER NOT NULL,
+        FOREIGN KEY(skill_id) REFERENCES skills(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_chunks_skill ON skill_chunks(skill_id);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

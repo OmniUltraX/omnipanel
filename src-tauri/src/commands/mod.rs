@@ -31,6 +31,7 @@ pub mod panel;
 pub mod pool;
 pub mod protocol;
 pub mod proxy;
+pub mod resource_profile;
 pub mod ssh;
 pub mod system;
 pub mod task;

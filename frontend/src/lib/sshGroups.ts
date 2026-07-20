@@ -5,6 +5,54 @@ export const OPENSSH_CONFIG_GROUP = "~/.ssh/config";
 
 const GROUP_ORDER = ["默认", OPENSSH_CONFIG_GROUP];
 
+const MANUAL_GROUPS_STORAGE_KEY = "omnipanel.ssh.manualGroups.v1";
+
+/** 从 localStorage 读取手动新建的空分组列表。 */
+export function loadManualEmptyGroups(): string[] {
+  try {
+    const raw = localStorage.getItem(MANUAL_GROUPS_STORAGE_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** 保存手动新建的空分组列表到 localStorage。 */
+export function saveManualEmptyGroups(groups: string[]): void {
+  try {
+    const normalized = Array.from(new Set(groups.map(normalizeSshGroup).filter(Boolean)));
+    localStorage.setItem(MANUAL_GROUPS_STORAGE_KEY, JSON.stringify(normalized));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 合并连接推导出的分组与手动空分组，返回去重后的完整分组名列表（已排序）。
+ * 当某个手动分组已存在真实连接时，自动从手动列表中剔除（转正）。
+ */
+export function mergeGroupsWithManual(
+  fromConnections: string[],
+  manualGroups: string[],
+): { groups: string[]; staleManual: string[] } {
+  const connSet = new Set(fromConnections);
+  const staleManual: string[] = [];
+  const merged = new Set(fromConnections);
+  for (const g of manualGroups) {
+    const norm = normalizeSshGroup(g);
+    if (connSet.has(norm)) {
+      // 已被真实连接占用，标记为需要从手动列表移除
+      staleManual.push(g);
+      continue;
+    }
+    merged.add(norm);
+  }
+  return { groups: sortSshGroups([...merged]), staleManual };
+}
+
 /** 从已有 SSH 连接收集分组名（用于输入建议，含当前值）。 */
 export function collectSshGroupSuggestions(
   connections: Connection[],

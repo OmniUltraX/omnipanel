@@ -20,6 +20,7 @@ import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTerminalBackendStateStore } from "../stores/terminalBackendStateStore";
+import { useSkillPromptStore } from "../stores/skillPromptStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { isInlineProgressChunk, renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
 import { createBlockId, useBlocksStore } from "../stores/blocksStore";
@@ -795,6 +796,15 @@ export function useTerminal(
                 const finishedBlock = useBlocksStore.getState().findBlockById(blockId);
                 if (finishedBlock) {
                   tryPostShellAiTrigger(sessionId, finishedBlock);
+                }
+                // Skill 自我进化软信号：当前会话累计完成 5+ 条命令时触发一次
+                // （store 内部有 firedThisSession 去重，不会重复触发）
+                const sessionBlocks = useBlocksStore.getState().getBlocks(sessionId);
+                const completedCount = sessionBlocks.filter(
+                  (b) => b.status === "completed" || b.status === "failed",
+                ).length;
+                if (completedCount >= 5) {
+                  useSkillPromptStore.getState().recordSignal("terminal_long_session");
                 }
                 trimXtermAfterBlockEnd(t);
                 clearOutputWatch(sessionId);

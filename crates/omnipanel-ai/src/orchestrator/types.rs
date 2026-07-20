@@ -15,6 +15,10 @@ pub struct AiContextBundle {
     /// 终端环境描述（shell/OS/主机等），注入 ACP client-tools prompt。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_context_append: Option<String>,
+    /// 模块级上下文（数据库连接 / SSH 主机 / Docker 等），由前端 ContextProvider 聚合后注入 system prompt。
+    /// 与 terminal_context_append 互补：后者专给终端，本字段聚合其他模块的结构化上下文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_context_append: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

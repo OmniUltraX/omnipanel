@@ -15,6 +15,7 @@ export {
 } from "./WorkspaceContextProvider";
 export {
   useAiContextRegistry,
+  collectAllModuleAiContextText,
   getAiContextTextForScope,
   getContextProvider,
   getModuleAiContextText,

@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingProviderConfig {
     pub provider_id: String,
@@ -583,6 +583,8 @@ pub async fn knowledge_query_document(
             .get_knowledge(&hit.entry_id)?
             .map(|e| e.title)
             .unwrap_or_default();
+        // Task 1.4：query_document 工具命中后自动 increment_usage
+        let _ = storage.increment_usage(&hit.entry_id);
         results.push(KnowledgeQueryHit {
             entry_id: hit.entry_id,
             title,

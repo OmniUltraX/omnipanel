@@ -33,6 +33,7 @@ import { useI18n } from "../../i18n";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
 import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
+import { useAiContextScopeStore } from "../../stores/aiContextScopeStore";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
 import {
   ActionBarMorePrimitive,
@@ -253,12 +254,18 @@ const ContextBar: FC = () => {
     [location.pathname, workspaceIds],
   );
   const [manualContext, setManualContext] = useState<string | null>(null);
+  const setAiScope = useAiContextScopeStore((s) => s.setScope);
 
   useEffect(() => {
     setManualContext(null);
   }, [location.pathname]);
 
   const context = manualContext ?? routeContext;
+
+  // 同步 ContextBar 选择到全局 store，供 buildAiContext 读取以联动 moduleFilter。
+  useEffect(() => {
+    setAiScope(context ?? "");
+  }, [context, setAiScope]);
 
   return (
     <SelectRoot

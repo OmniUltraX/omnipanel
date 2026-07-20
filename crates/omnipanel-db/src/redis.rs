@@ -418,6 +418,29 @@ impl RedisDriver {
             .map_err(map_redis_err)?;
         parse_slowlog_response(value)
     }
+
+    /// `CLIENT KILL ADDR <ip:port>`，返回被杀掉的客户端数量。
+    pub async fn client_kill_addr(&self, addr: &str) -> OmniResult<u64> {
+        let addr = addr.trim();
+        if addr.is_empty() {
+            return Err(OmniError::invalid_input("Redis CLIENT KILL ADDR 为空"));
+        }
+        // 简单格式校验：必须包含 `:`（ip:port）
+        if !addr.contains(':') {
+            return Err(OmniError::invalid_input(format!(
+                "Redis CLIENT KILL ADDR 格式非法（应为 ip:port）：{addr}"
+            )));
+        }
+        let mut conn = self.conn.clone();
+        let killed: u64 = redis::cmd("CLIENT")
+            .arg("KILL")
+            .arg("ADDR")
+            .arg(addr)
+            .query_async(&mut conn)
+            .await
+            .map_err(map_redis_err)?;
+        Ok(killed)
+    }
 }
 
 async fn memory_usage_bytes(conn: &mut MultiplexedConnection, key: &str) -> OmniResult<u64> {

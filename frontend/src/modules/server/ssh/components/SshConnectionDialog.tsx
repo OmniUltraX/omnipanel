@@ -20,6 +20,8 @@ interface SshConnectionDialogProps {
   onClose: () => void;
   onSaved?: () => void;
   editConnection?: Connection;
+  /** 新建模式下预填的分组名（来自分组右键「新建主机」）。 */
+  presetGroup?: string;
 }
 
 export function SshConnectionDialog({
@@ -27,6 +29,7 @@ export function SshConnectionDialog({
   onClose,
   onSaved,
   editConnection,
+  presetGroup,
 }: SshConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
@@ -72,7 +75,11 @@ export function SshConnectionDialog({
 
   useEffect(() => {
     if (!open) return;
-    setForm(connectionsToForm(editConnection));
+    const base = connectionsToForm(editConnection);
+    if (!editConnection?.id && presetGroup) {
+      base.group = presetGroup;
+    }
+    setForm(base);
     setTags(editConnection?.tags ?? []);
     setError(null);
     setSaving(false);
@@ -82,7 +89,7 @@ export function SshConnectionDialog({
         setKeys(res.data);
       }
     })();
-  }, [open, editConnection]);
+  }, [open, editConnection, presetGroup]);
 
   const update = <K extends keyof UnifiedServerFormData>(
     key: K,

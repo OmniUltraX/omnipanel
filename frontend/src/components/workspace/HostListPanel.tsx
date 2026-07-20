@@ -6,7 +6,10 @@ import { Button } from "../ui/Button";
 import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
 import {
   collectSshGroupSuggestions,
+  loadManualEmptyGroups,
+  mergeGroupsWithManual,
   normalizeSshGroup,
+  saveManualEmptyGroups,
   sanitizeSshGroupInput,
   sortSshGroups,
   sshGroupLabel,
@@ -24,6 +27,7 @@ import {
 import { HostStatusIndicator } from "../../modules/server/ssh/components/HostStatusIndicator";
 import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
 import { useSshHostStore } from "../../stores/sshHostStore";
+import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { SshConnectionDialog } from "../../modules/server/ssh/components/SshConnectionDialog";
 import {
@@ -166,9 +170,23 @@ export function HostListPanel({
   const [listCtxMenu, setListCtxMenu] = useState<HostListCtxMenu | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [editConnection, setEditConnection] = useState<Connection | undefined>(undefined);
+  const [presetGroupForNew, setPresetGroupForNew] = useState<string | undefined>(undefined);
   const [deleting, setDeleting] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
+  const [manualGroups, setManualGroups] = useState<string[]>(() => loadManualEmptyGroups());
+
+  // 当某手动分组下出现真实连接时，自动从手动列表清理（转正）
+  useEffect(() => {
+    const connGroups = resources.map((r) => normalizeSshGroup(r.group));
+    const connSet = new Set(connGroups);
+    const stale = manualGroups.filter((g) => connSet.has(normalizeSshGroup(g)));
+    if (stale.length > 0) {
+      const next = manualGroups.filter((g) => !connSet.has(normalizeSshGroup(g)));
+      setManualGroups(next);
+      saveManualEmptyGroups(next);
+    }
+  }, [resources, manualGroups]);
 
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -196,12 +214,18 @@ export function HostListPanel({
     for (const list of map.values()) {
       list.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
     }
-    return sortSshGroups([...map.keys()]).map((groupKey) => ({
+    // 合并手动空分组（搜索时仅在名称匹配时展示）
+    const connKeys = [...map.keys()];
+    const { groups: mergedKeys } = mergeGroupsWithManual(connKeys, manualGroups);
+    const visibleKeys = q
+      ? mergedKeys.filter((g) => g.toLowerCase().includes(q) || map.has(g))
+      : mergedKeys;
+    return sortSshGroups(visibleKeys).map((groupKey) => ({
       groupKey,
       label: sshGroupLabel(groupKey, t),
       items: map.get(groupKey) ?? [],
     }));
-  }, [resources, query, t]);
+  }, [resources, query, t, manualGroups]);
 
   useEffect(() => {
     if (!query.trim()) return;
@@ -327,7 +351,123 @@ export function HostListPanel({
 
   const handleAdd = () => {
     setEditConnection(undefined);
+    setPresetGroupForNew(undefined);
     setShowDialog(true);
+  };
+
+  const handleNewHostInGroup = () => {
+    if (listCtxMenu?.kind !== "group") return;
+    const { groupKey } = listCtxMenu;
+    setListCtxMenu(null);
+    setEditConnection(undefined);
+    setPresetGroupForNew(groupKey);
+    setShowDialog(true);
+  };
+
+  const handleAddGroup = async () => {
+    const input = await quickInput({
+      title: t("ssh.context.newGroup"),
+      subtitle: t("ssh.context.newGroupPrompt"),
+      validate: (value) => {
+        const norm = sanitizeSshGroupInput(value);
+        if (!norm) return t("ssh.context.renameGroupEmpty");
+        return null;
+      },
+    });
+    if (input == null) return;
+    const norm = sanitizeSshGroupInput(input);
+    setManualGroups((prev) => {
+      if (prev.some((g) => normalizeSshGroup(g) === norm)) return prev;
+      const next = [...prev, norm];
+      saveManualEmptyGroups(next);
+      return next;
+    });
+    setExpandedGroups((prev) => ({ ...prev, [norm]: true }));
+  };
+
+  const handleDeleteGroup = async () => {
+    if (listCtxMenu?.kind !== "group") return;
+    const { groupKey } = listCtxMenu;
+    setListCtxMenu(null);
+    const conns = sshConnectionsInGroup(groupKey);
+    if (conns.length === 0) {
+      // 空分组：仅从手动列表移除
+      setManualGroups((prev) => {
+        const next = prev.filter((g) => normalizeSshGroup(g) !== groupKey);
+        saveManualEmptyGroups(next);
+        return next;
+      });
+      setExpandedGroups((prev) => {
+        if (!(groupKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[groupKey];
+        return next;
+      });
+      return;
+    }
+    const confirmed = await appConfirm(
+      t("ssh.context.deleteGroupConfirm", { name: sshGroupLabel(groupKey, t), count: String(conns.length) }),
+      t("ssh.context.deleteGroup"),
+      { confirmLabel: t("common.continue"), cancelLabel: t("common.cancel") },
+    );
+    if (!confirmed) return;
+    await moveSshConnectionsToGroup(conns.map((c) => c.id), "默认");
+    setManualGroups((prev) => {
+      const next = prev.filter((g) => normalizeSshGroup(g) !== groupKey);
+      saveManualEmptyGroups(next);
+      return next;
+    });
+    setExpandedGroups((prev) => {
+      if (!(groupKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[groupKey];
+      return next;
+    });
+  };
+
+  const openProfile = useResourceProfileNavStore((s) => s.openProfile);
+
+  const handleConnect = (mode: HostDockOpenMode) => {
+    if (listCtxMenu?.kind !== "host") return;
+    const host = listCtxMenu.host;
+    setListCtxMenu(null);
+    if (onSelectHost) {
+      onSelectHost(host.id, mode);
+      return;
+    }
+    selectHost(host);
+  };
+
+  const handleDuplicateHost = () => {
+    if (listCtxMenu?.kind !== "host") return;
+    const host = listCtxMenu.host;
+    setListCtxMenu(null);
+    const conn = connections.find((c) => c.id === host.id);
+    if (!conn) return;
+    const dup: Connection = {
+      ...conn,
+      id: "", // 让后端生成新 id
+      name: `${conn.name} ${t("ssh.context.duplicateSuffix")}`,
+    };
+    setEditConnection(dup);
+    setPresetGroupForNew(undefined);
+    setShowDialog(true);
+  };
+
+  const handleCopySshCommand = async () => {
+    if (listCtxMenu?.kind !== "host") return;
+    const host = listCtxMenu.host;
+    setListCtxMenu(null);
+    const conn = connections.find((c) => c.id === host.id);
+    if (!conn || conn.kind !== "ssh") return;
+    const user = conn.user || "root";
+    const port = conn.port || 22;
+    const cmd = port === 22 ? `ssh ${user}@${conn.host}` : `ssh ${user}@${conn.host} -p ${port}`;
+    try {
+      await navigator.clipboard.writeText(cmd);
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleMoveToGroup = async (targetGroup: string) => {
@@ -394,6 +534,8 @@ export function HostListPanel({
   const buildGroupCtxItems = (groupKey: string): ContextMenuItem[] => {
     const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== groupKey);
     const items: ContextMenuItem[] = [
+      { id: "group-new-host", label: t("ssh.context.newHostHere"), onClick: handleNewHostInGroup },
+      { id: "group-sep-1", separator: true, label: "" },
       { id: "group-edit", label: t("ssh.context.editGroup"), onClick: handleRenameGroup },
     ];
     if (targetGroups.length > 0) {
@@ -409,6 +551,13 @@ export function HostListPanel({
         disabled: true,
       });
     }
+    items.push({ id: "group-sep-2", separator: true, label: "" });
+    items.push({
+      id: "group-delete",
+      label: t("ssh.context.deleteGroup"),
+      onClick: handleDeleteGroup,
+      danger: true,
+    });
     return items;
   };
 
@@ -416,7 +565,14 @@ export function HostListPanel({
     const currentGroup = normalizeSshGroup(host.group);
     const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== currentGroup);
     const items: ContextMenuItem[] = [
+      { id: "host-connect", label: t("ssh.context.connect"), onClick: () => handleConnect("preview") },
+      { id: "host-open-workspace", label: t("ssh.context.openInWorkspace"), onClick: () => handleConnect("permanent") },
+      { id: "host-sep-1", separator: true, label: "" },
       { id: "host-edit", label: t("ssh.dialog.edit"), onClick: handleEdit },
+      { id: "host-duplicate", label: t("ssh.context.duplicate"), onClick: handleDuplicateHost },
+      { id: "host-copy-cmd", label: t("ssh.context.copySshCommand"), onClick: () => void handleCopySshCommand() },
+      { id: "host-view-profile", label: t("resource.profile.viewProfile"), onClick: () => openProfile({ resourceType: "ssh", resourceId: host.id, displayName: host.name }) },
+      { id: "host-sep-2", separator: true, label: "" },
     ];
     if (targetGroups.length > 0) {
       items.push({
@@ -431,6 +587,7 @@ export function HostListPanel({
         disabled: true,
       });
     }
+    items.push({ id: "host-sep-3", separator: true, label: "" });
     items.push({ id: "host-delete", label: t("ssh.dialog.delete"), onClick: handleDelete, danger: true });
     return items;
   };
@@ -479,6 +636,13 @@ export function HostListPanel({
         </Button>
         <Button variant="icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+        </Button>
+        <Button variant="icon" title={t("ssh.context.newGroup")} onClick={() => void handleAddGroup()}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            <line x1="12" y1="11" x2="12" y2="17" />
+            <line x1="9" y1="14" x2="15" y2="14" />
+          </svg>
         </Button>
       </div>
     ),
@@ -570,9 +734,10 @@ export function HostListPanel({
 
       <SshConnectionDialog
         open={showDialog}
-        onClose={() => { setShowDialog(false); setEditConnection(undefined); }}
+        onClose={() => { setShowDialog(false); setEditConnection(undefined); setPresetGroupForNew(undefined); }}
         onSaved={() => useConnectionStore.getState().refresh()}
         editConnection={editConnection}
+        presetGroup={presetGroupForNew}
       />
     </div>
   );

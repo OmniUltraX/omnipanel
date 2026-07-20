@@ -106,3 +106,32 @@ export function getAiContextTextForScope(scope: string): string | null {
   const provider = providers.get(scope as AiContextScope);
   return provider?.getAiContextText() ?? null;
 }
+
+/**
+ * 聚合所有已注册 ContextProvider 的 AI 上下文文本。
+ *
+ * 用于把数据库 / SSH / Docker 等模块的结构化上下文注入 system prompt。
+ * - 按.scope 字典序输出，保证稳定。
+ * - 跳过传入 `excludeScopes` 的 provider（例如 terminal 已有 terminalContextAppend 单独通道）。
+ * - 任意 provider 返回 null/空字符串都不输出对应段落。
+ * - 返回 null 表示无可注入内容，调用方据此把字段置 null。
+ */
+export function collectAllModuleAiContextText(
+  excludeScopes: string[] = [],
+): string | null {
+  const excludeSet = new Set(excludeScopes);
+  const segments: string[] = [];
+  const scopes = Array.from(providers.keys())
+    .filter((scope) => !excludeSet.has(scope))
+    .sort();
+  for (const scope of scopes) {
+    const provider = providers.get(scope);
+    if (!provider) continue;
+    const text = provider.getAiContextText();
+    if (text && text.trim().length > 0) {
+      segments.push(text);
+    }
+  }
+  if (segments.length === 0) return null;
+  return segments.join("\n\n---\n\n");
+}

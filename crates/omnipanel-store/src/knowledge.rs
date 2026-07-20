@@ -38,6 +38,12 @@ pub struct KnowledgeEntry {
     #[serde(default)]
     #[specta(type = f64)]
     pub sort_order: i64,
+    /// 关联资源类型："" / "ssh" / "database" / "docker" / "files"（v23 引入）
+    #[serde(default)]
+    pub resource_type: String,
+    /// 关联资源 id（与 resource_type 配对使用，空字符串表示不关联）
+    #[serde(default)]
+    pub resource_id: String,
 }
 
 fn default_node_type() -> String {
@@ -63,7 +69,7 @@ impl Storage {
         tag: Option<&str>,
     ) -> OmniResult<Vec<KnowledgeEntry>> {
         let mut sql = String::from(
-            "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order
+            "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order, resource_type, resource_id
              FROM knowledge_entries WHERE 1=1",
         );
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -87,7 +93,7 @@ impl Storage {
     pub fn get_knowledge(&self, id: &str) -> OmniResult<Option<KnowledgeEntry>> {
         Ok(self
             .query_knowledge(
-                "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order
+                "SELECT id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order, resource_type, resource_id
                  FROM knowledge_entries WHERE id = ?1",
                 [id],
             )?
@@ -102,8 +108,8 @@ impl Storage {
         })?;
         self.conn()
             .execute(
-                "INSERT INTO knowledge_entries (id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                "INSERT INTO knowledge_entries (id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order, resource_type, resource_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(id) DO UPDATE SET
                     kind = excluded.kind,
                     title = excluded.title,
@@ -117,7 +123,9 @@ impl Storage {
                     updated_at = excluded.updated_at,
                     parent_id = excluded.parent_id,
                     node_type = excluded.node_type,
-                    sort_order = excluded.sort_order",
+                    sort_order = excluded.sort_order,
+                    resource_type = excluded.resource_type,
+                    resource_id = excluded.resource_id",
                 rusqlite::params![
                     entry.id,
                     entry.kind,
@@ -134,6 +142,8 @@ impl Storage {
                     entry.parent_id,
                     entry.node_type,
                     entry.sort_order,
+                    entry.resource_type,
+                    entry.resource_id,
                 ],
             )
             .map_err(map_sqlite)?;
@@ -166,14 +176,14 @@ impl Storage {
             .join(" ");
 
         let sql = if kind.is_some() {
-            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at, e.parent_id, e.node_type, e.sort_order,
+            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at, e.parent_id, e.node_type, e.sort_order, e.resource_type, e.resource_id,
                     snippet(knowledge_fts, 1, '<mark>', '</mark>', '...', 32) as snip
              FROM knowledge_fts f
              JOIN knowledge_entries e ON e.rowid = f.rowid
              WHERE knowledge_fts MATCH ?1 AND e.kind = ?2 AND e.node_type = 'document'
              ORDER BY rank"
         } else {
-            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at, e.parent_id, e.node_type, e.sort_order,
+            "SELECT e.id, e.kind, e.title, e.content, e.tags, e.risk_level, e.source, e.env_tag, e.language, e.usage_count, e.created_at, e.updated_at, e.parent_id, e.node_type, e.sort_order, e.resource_type, e.resource_id,
                     snippet(knowledge_fts, 1, '<mark>', '</mark>', '...', 32) as snip
              FROM knowledge_fts f
              JOIN knowledge_entries e ON e.rowid = f.rowid
@@ -188,7 +198,7 @@ impl Storage {
                 .query_map(rusqlite::params![fts_query, k], |row| {
                     Ok(KnowledgeSearchResult {
                         entry: Self::row_to_entry(row)?,
-                        snippet: row.get::<_, String>(15)?,
+                        snippet: row.get::<_, String>(17)?,
                         score: 0, // 占位，稍后计算
                     })
                 })
@@ -201,7 +211,7 @@ impl Storage {
                 .query_map([fts_query], |row| {
                     Ok(KnowledgeSearchResult {
                         entry: Self::row_to_entry(row)?,
-                        snippet: row.get::<_, String>(15)?,
+                        snippet: row.get::<_, String>(17)?,
                         score: 0, // 占位，稍后计算
                     })
                 })
@@ -304,6 +314,8 @@ impl Storage {
             parent_id: row.get(12)?,
             node_type: row.get(13)?,
             sort_order: row.get(14)?,
+            resource_type: row.get(15)?,
+            resource_id: row.get(16)?,
         })
     }
 
@@ -345,6 +357,8 @@ mod tests {
             parent_id: String::new(),
             node_type: "document".into(),
             sort_order: 0,
+            resource_type: String::new(),
+            resource_id: String::new(),
         }
     }
 

@@ -205,6 +205,8 @@ pub async fn knowledge_import_pdf(
             parent_id: parent,
             node_type: "document".to_string(),
             sort_order,
+            resource_type: String::new(),
+            resource_id: String::new(),
         }
     };
 

@@ -142,5 +142,7 @@ export function createEmptyEntry(
     parentId: normalizeParentId(partial.parentId),
     nodeType: partial.nodeType,
     sortOrder: partial.sortOrder ?? 0,
+    resourceType: partial.resourceType ?? "",
+    resourceId: partial.resourceId ?? "",
   };
 }

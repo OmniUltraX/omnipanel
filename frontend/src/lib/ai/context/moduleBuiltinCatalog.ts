@@ -1,8 +1,11 @@
 import type { ModuleKey } from "../../paths";
 import type { BuiltinToolCatalogEntry, ToolInfo } from "../../../ipc/bindings";
 import { DATABASE_MODULE_TOOLS } from "../../../modules/database/ai/mcpTools";
+import { DOCKER_MODULE_TOOLS } from "../../../modules/docker/ai/mcpTools";
+import { FILES_MODULE_TOOLS } from "../../../modules/files/ai/mcpTools";
 import { TERMINAL_MODULE_TOOLS } from "../../../modules/terminal/ai/mcpTools";
 import { KNOWLEDGE_MODULE_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
+import { SSH_MODULE_TOOLS } from "../../../modules/server/ssh/ai/mcpTools";
 import type { BuiltinToolRegistration } from "./types";
 
 /** 内置工具目录模块键（含无前端路由的 web 模块） */
@@ -45,6 +48,60 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
       throw new Error("请通过 OmniMCP 内置服务调用");
     },
   },
+  {
+    name: "omni_resource_get_profile",
+    description:
+      "获取资源档案：返回指定资源（SSH 主机 / 数据库连接等）的最新观测快照（hardware / services / overview / schema_summary 等各类最新一条）。供 AI 在处理新问题时快速了解资源历史状态。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_resource_find_similar",
+    description:
+      "查找相似资源：基于资源指纹（OS、CPU、运行服务、数据库版本等关键字段）匹配同类型资源，按相似度排序。用于『在 p4 主机解决问题后，在 p7 类似主机上快速召回』的场景。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_resource_update_profile",
+    description:
+      "更新资源档案：手动或由 AI 追加一条观测记录（如部署服务清单、已知问题、运维笔记等）。不会覆盖历史，append-only。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_skill_recall",
+    description:
+      "召回相关 skill：基于自然语言查询匹配已启用的 skill（向量检索 + 关键词），返回 skill 正文供 AI 参考。用于「在 p4 解决问题后，p7 类似主机上快速召回」场景。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_skill_extract_experience",
+    description:
+      "从完成的任务中提取经验并创建 skill：AI 总结问题解决过程，生成结构化的 SKILL.md，可选关联资源和 knowledge 条目。支持基于已有 skill 创建新版本（传入 parent_skill_id）。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_skill_refine",
+    description:
+      "改进已有 skill：基于应用反馈或新发现，创建新版本（原版本 enabled=0 保留历史），版本链通过 parent_version_id 追溯。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
 ];
 
 MODULE_BUILTIN_CATALOG.knowledge = [...KNOWLEDGE_BUILTIN_CATALOG, ...KNOWLEDGE_MODULE_TOOLS];
@@ -80,6 +137,53 @@ const WEB_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
 ];
 
 MODULE_BUILTIN_CATALOG.web = WEB_BUILTIN_CATALOG;
+
+/** Rust 内置 ssh 工具：omni_ssh_list_connections 是 Native（仅查表），需要占位条目让 catalog 完整。
+ *  其余 omni_ssh_* 工具是 UiDelegated，由 SSH_MODULE_TOOLS 提供 handler。 */
+const SSH_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
+  {
+    name: "omni_ssh_list_connections",
+    description: "列出已保存的 SSH 连接（不含凭据与完整 config），供外部 Agent 选择目标主机。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+];
+
+MODULE_BUILTIN_CATALOG.ssh = [...SSH_BUILTIN_CATALOG, ...SSH_MODULE_TOOLS];
+
+/** Rust 内置 docker 工具：omni_docker_list_connections 是 Native（仅查表），需要占位条目让 catalog 完整。
+ *  其余 omni_docker_* 工具是 UiDelegated，由 DOCKER_MODULE_TOOLS 提供 handler。 */
+const DOCKER_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
+  {
+    name: "omni_docker_list_connections",
+    description:
+      "列出已保存的 Docker 连接（含本地 Engine / 远程 Engine / SSH Engine / 1Panel），供外部 Agent 选择目标。本地 Engine 的 connection_id 固定为 'docker-local'。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+];
+
+MODULE_BUILTIN_CATALOG.docker = [...DOCKER_BUILTIN_CATALOG, ...DOCKER_MODULE_TOOLS];
+
+/** Rust 内置 files 工具：omni_files_list_connections 是 Native（仅查表），需要占位条目让 catalog 完整。
+ *  其余 omni_files_* 工具是 UiDelegated，由 FILES_MODULE_TOOLS 提供 handler。 */
+const FILES_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
+  {
+    name: "omni_files_list_connections",
+    description:
+      "列出已保存的文件管理器连接（含本机 / SFTP / FTP / S3）。本机连接 id 固定为 '__local__'。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+];
+
+MODULE_BUILTIN_CATALOG.files = [...FILES_BUILTIN_CATALOG, ...FILES_MODULE_TOOLS];
 
 export function parseModuleKeyFromToolName(toolName: string): ModuleKey | null {
   if (!toolName.startsWith("omni_")) return null;

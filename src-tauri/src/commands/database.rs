@@ -2647,6 +2647,22 @@ pub async fn db_redis_client_list(
         .map(to_db_query_result)
 }
 
+/// Redis `CLIENT KILL ADDR <ip:port>`：终止指定客户端连接，返回被杀掉的客户端数量。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_client_kill(
+    connection: DbConnectionConfig,
+    addr: String,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 CLIENT KILL".to_string());
+    }
+    omnipanel_db::redis_client_kill_addr(&to_params(&connection), &addr)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
 /// Redis 键搜索：SCAN + 类型过滤 + 值预览。
 #[tauri::command]
 #[specta::specta]

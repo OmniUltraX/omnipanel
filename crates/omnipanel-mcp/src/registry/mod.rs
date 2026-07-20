@@ -1,7 +1,10 @@
 pub mod database_tools;
+pub mod docker_tools;
 pub mod external;
+pub mod files_tools;
 pub mod native;
 pub mod omnimcp_execute;
+pub mod ssh_tools;
 pub mod terminal_tools;
 pub mod web;
 pub mod web_tools;
@@ -67,7 +70,10 @@ impl ToolRegistry {
         let mut tools = Vec::new();
         for record in records {
             if let Some(filter) = module_filter {
-                if filter != "master" && record.module_key != filter {
+                // master: 不过滤，全部保留。
+                // 具体模块: 保留该模块工具 + 所有 Native 工具（knowledge/web/ssh 等通用能力不依赖焦点）。
+                let is_native = Self::is_native_tool(&record.tool_name);
+                if filter != "master" && record.module_key != filter && !is_native {
                     continue;
                 }
             }

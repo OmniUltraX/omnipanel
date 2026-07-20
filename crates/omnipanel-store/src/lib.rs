@@ -15,6 +15,9 @@ mod knowledge_todo;
 mod knowledge_vector;
 mod host_resolve_cache;
 mod paths;
+mod resource_profile;
+mod skill;
+mod skill_db;
 mod schema_cache;
 mod schema_filters;
 mod schema_tree_expanded;
@@ -44,6 +47,8 @@ pub use host_resolve_cache::{
     HostResolveEntry,
 };
 pub use paths::default_file_index_storage_dir;
+pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
+pub use skill_db::{SkillApplication, SkillDbRecord, SkillKnowledgeLink};
 pub use database::{
     DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
     save_database_connections,
@@ -86,6 +91,12 @@ pub use schema_filters::{
 pub use schema_tree_expanded::{
     SchemaTreeExpandedSnapshot, load_schema_tree_expanded, prune_connection_expanded,
     save_schema_tree_expanded,
+};
+pub use skill::{
+    build_skills_system_append, extract_skill_body, list_all_skill_records,
+    list_enabled_skill_summaries, load_skill_body, load_skill_record, parse_skill_md,
+    render_skill_md, sanitize_skill_id, skill_dir, skill_file_path, write_skill, ParsedSkill,
+    SkillFrontmatter, SkillRecord,
 };
 pub use storage::{AuditEntry, Storage};
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};

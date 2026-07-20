@@ -1,7 +1,14 @@
-//! 产品级 Skills 管理：`~/.omnipd/skills/<id>/SKILL.md`。
+//! 产品级 Skills Tauri 命令：CRUD + 导入 + 启用切换 + DB 双写。
+//!
+//! 文件层逻辑（解析/读写/路径/enabled 检查）统一在 `omnipanel_store::skill` 模块，
+//! 本文件只保留 Tauri command 的 DTO 与 thin wrapper，避免双实现漂移。
+//!
+//! v24 起引入 DB 元数据层（skills 表），用于版本链 / 应用历史 / 成功率统计。
+//! `skill_create` / `skill_update` / `skill_remove` / `skill_import` 均双写文件 + DB。
+//! 老库首次访问时由 `ensure_skill_db_sync` 懒补齐 DB 记录。
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -9,219 +16,80 @@ use tauri::State;
 
 use crate::state::AppState;
 
+use omnipanel_store::{
+    list_all_skill_records, load_skill_record, parse_skill_md, sanitize_skill_id, skill_dir,
+    skill_file_path, write_skill, SkillApplication, SkillDbRecord, SkillFrontmatter, SkillRecord,
+};
+
 const SKILL_FILE: &str = "SKILL.md";
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillRecord {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub enabled: bool,
-    pub path: String,
-    #[specta(type = f64)]
-    pub created_at: i64,
-    #[specta(type = f64)]
-    pub updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SkillFrontmatter {
-    name: String,
-    description: String,
-    #[serde(default = "default_enabled")]
-    enabled: bool,
-}
-
-fn default_enabled() -> bool {
-    true
-}
-
-#[derive(Debug, Clone)]
-struct ParsedSkill {
-    frontmatter: SkillFrontmatter,
-    body: String,
-}
-
-fn skills_root() -> Result<PathBuf, String> {
-    omnipanel_store::skills_root().map_err(|e| e.to_string())
-}
-
-fn skill_dir(id: &str) -> Result<PathBuf, String> {
-    let id = sanitize_skill_id(id)?;
-    Ok(skills_root()?.join(id))
-}
-
-fn skill_file_path(id: &str) -> Result<PathBuf, String> {
-    Ok(skill_dir(id)?.join(SKILL_FILE))
-}
-
-fn sanitize_skill_id(id: &str) -> Result<String, String> {
-    let trimmed = id.trim();
-    if trimmed.is_empty() {
-        return Err("Skill ID 不能为空".to_string());
-    }
-    if trimmed.contains(['/', '\\', ':']) || trimmed.contains("..") {
-        return Err("Skill ID 包含非法字符".to_string());
-    }
-    Ok(trimmed.to_string())
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn parse_skill_md(raw: &str) -> Result<ParsedSkill, String> {
-    let trimmed = raw.trim_start();
-    if !trimmed.starts_with("---") {
-        return Err("SKILL.md 必须以 YAML frontmatter（---）开头".to_string());
-    }
-    let rest = trimmed.strip_prefix("---").unwrap_or(trimmed).trim_start();
-    let end = rest
-        .find("\n---")
-        .ok_or_else(|| "SKILL.md frontmatter 未闭合".to_string())?;
-    let yaml = &rest[..end];
-    let body = rest[end + 4..].trim_start_matches('\n').trim_start_matches('\r');
-    let frontmatter: SkillFrontmatter = serde_yaml::from_str(yaml)
-        .map_err(|e| format!("解析 SKILL.md frontmatter 失败: {e}"))?;
-    if frontmatter.name.trim().is_empty() {
-        return Err("SKILL.md frontmatter 缺少 name".to_string());
-    }
-    Ok(ParsedSkill {
-        frontmatter,
-        body: body.to_string(),
-    })
-}
-
-fn render_skill_md(frontmatter: &SkillFrontmatter, body: &str) -> String {
-    let yaml = serde_yaml::to_string(frontmatter).unwrap_or_default();
-    format!("---\n{yaml}---\n\n{body}\n")
-}
-
-fn dir_timestamps(path: &Path) -> (i64, i64) {
-    let meta = fs::metadata(path).ok();
-    let created = meta
-        .as_ref()
-        .and_then(|m| m.created().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_else(now_ms);
-    let modified = meta
-        .as_ref()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(created);
-    (created, modified)
-}
-
-fn load_skill_record(id: &str) -> Result<SkillRecord, String> {
-    let id = sanitize_skill_id(id)?;
-    let dir = skill_dir(&id)?;
-    let file = dir.join(SKILL_FILE);
-    if !file.exists() {
-        return Err(format!("Skill 不存在: {id}"));
-    }
-    let raw = fs::read_to_string(&file).map_err(|e| e.to_string())?;
-    let parsed = parse_skill_md(&raw)?;
-    let (created_at, updated_at) = dir_timestamps(&dir);
-    Ok(SkillRecord {
-        id: id.clone(),
-        name: parsed.frontmatter.name,
-        description: parsed.frontmatter.description,
-        enabled: parsed.frontmatter.enabled,
-        path: dir.to_string_lossy().into_owned(),
-        created_at,
-        updated_at,
-    })
-}
-
-fn write_skill(
-    id: &str,
-    frontmatter: SkillFrontmatter,
-    body: &str,
-) -> Result<SkillRecord, String> {
-    let id = sanitize_skill_id(id)?;
-    let dir = skill_dir(&id)?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(SKILL_FILE);
-    let content = render_skill_md(&frontmatter, body);
-    fs::write(&file, content).map_err(|e| e.to_string())?;
-    load_skill_record(&id)
-}
-
-/// 构建注入系统提示的 Skills 摘要。
-pub fn build_skills_system_append() -> Result<String, String> {
-    let skills = list_enabled_skill_summaries()?;
-    if skills.is_empty() {
-        return Ok(String::new());
-    }
-    let mut lines = vec![
-        "## Skills".to_string(),
-        "以下 Skill 可按需通过 load_skill 工具加载完整内容：".to_string(),
-    ];
-    for (id, name, desc) in skills {
-        lines.push(format!("- {name} (id: {id}): {desc}"));
-    }
-    Ok(lines.join("\n"))
-}
-
-/// 读取启用 Skill 的 name+description，供内部编排系统提示注入。
-pub fn list_enabled_skill_summaries() -> Result<Vec<(String, String, String)>, String> {
-    let root = skills_root()?;
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            continue;
-        }
-        let id = entry.file_name().to_string_lossy().into_owned();
-        if let Ok(record) = load_skill_record(&id) {
-            if record.enabled {
-                out.push((record.id, record.name, record.description));
-            }
+/// 懒同步：对没有 DB 记录的文件层 skill 创建 v1 DB 记录。
+/// 用于在 v24 迁移后首次访问老 skill 时补齐 DB 元数据。
+fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
+    let storage = state.storage.blocking_lock();
+    let file_records =
+        list_all_skill_records().map_err(|e| format!("列出 skills 失败: {e}"))?;
+    for fr in file_records {
+        if storage
+            .get_skill_db(&fr.id)
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            let db_rec = SkillDbRecord {
+                id: fr.id.clone(),
+                name: fr.name.clone(),
+                description: fr.description.clone(),
+                enabled: fr.enabled,
+                version: 1,
+                parent_version_id: String::new(),
+                path: fr.path.clone(),
+                success_count: 0,
+                failure_count: 0,
+                last_applied_at: None,
+                shareable: false,
+                created_at: fr.created_at,
+                updated_at: fr.updated_at,
+            };
+            storage
+                .save_skill_db(&db_rec)
+                .map_err(|e| e.to_string())?;
         }
     }
-    out.sort_by(|a, b| a.1.cmp(&b.1));
-    Ok(out)
+    Ok(())
 }
 
-/// 按 name 或 id 加载 Skill 正文（供 load_skill 工具）。
-pub fn load_skill_body(name_or_id: &str) -> Result<String, String> {
-    let key = name_or_id.trim();
-    if key.is_empty() {
-        return Err("skill name 不能为空".to_string());
-    }
-    let root = skills_root()?;
-    if !root.exists() {
-        return Err(format!("未找到 Skill: {key}"));
-    }
-    for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            continue;
+/// 为单个 skill 创建或更新 DB 记录（version=1, parent_version_id=""）。
+/// 用于 skill_create / skill_import：新 skill 总是 v1。
+fn upsert_skill_db_v1(state: &AppState, record: &SkillRecord) -> Result<(), String> {
+    let storage = state.storage.blocking_lock();
+    let existing = storage.get_skill_db(&record.id).map_err(|e| e.to_string())?;
+    let db_rec = if let Some(mut existing) = existing {
+        // 已有 DB 记录：保留 version / parent_version_id / 统计字段，只更新基础字段
+        existing.name = record.name.clone();
+        existing.description = record.description.clone();
+        existing.enabled = record.enabled;
+        existing.path = record.path.clone();
+        existing.updated_at = record.updated_at;
+        existing
+    } else {
+        SkillDbRecord {
+            id: record.id.clone(),
+            name: record.name.clone(),
+            description: record.description.clone(),
+            enabled: record.enabled,
+            version: 1,
+            parent_version_id: String::new(),
+            path: record.path.clone(),
+            success_count: 0,
+            failure_count: 0,
+            last_applied_at: None,
+            shareable: false,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
         }
-        let id = entry.file_name().to_string_lossy().into_owned();
-        let file = entry.path().join(SKILL_FILE);
-        if !file.exists() {
-            continue;
-        }
-        let raw = fs::read_to_string(&file).map_err(|e| e.to_string())?;
-        let parsed = parse_skill_md(&raw)?;
-        if !parsed.frontmatter.enabled {
-            continue;
-        }
-        if id == key || parsed.frontmatter.name == key {
-            return Ok(parsed.body);
-        }
-    }
-    Err(format!("未找到已启用的 Skill: {key}"))
+    };
+    storage.save_skill_db(&db_rec).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -253,23 +121,7 @@ pub async fn skill_get(_state: State<'_, AppState>, id: String) -> Result<SkillD
 #[tauri::command]
 #[specta::specta]
 pub async fn skill_list(_state: State<'_, AppState>) -> Result<Vec<SkillRecord>, String> {
-    let root = skills_root()?;
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-    let mut records = Vec::new();
-    for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            continue;
-        }
-        let id = entry.file_name().to_string_lossy().into_owned();
-        if let Ok(record) = load_skill_record(&id) {
-            records.push(record);
-        }
-    }
-    records.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(records)
+    list_all_skill_records()
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -284,15 +136,22 @@ pub struct SkillCreateInput {
     pub enabled: bool,
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 #[tauri::command]
 #[specta::specta]
-pub async fn skill_create(_state: State<'_, AppState>, input: SkillCreateInput) -> Result<SkillRecord, String> {
+pub async fn skill_create(
+    state: State<'_, AppState>,
+    input: SkillCreateInput,
+) -> Result<SkillRecord, String> {
     let id = sanitize_skill_id(&input.id)?;
     let dir = skill_dir(&id)?;
     if dir.exists() {
         return Err(format!("Skill 已存在: {id}"));
     }
-    write_skill(
+    let record = write_skill(
         &id,
         SkillFrontmatter {
             name: input.name.trim().to_string(),
@@ -304,7 +163,10 @@ pub async fn skill_create(_state: State<'_, AppState>, input: SkillCreateInput) 
         } else {
             input.body.as_str()
         },
-    )
+    )?;
+    // 双写：同步到 DB（v1）
+    upsert_skill_db_v1(&state, &record)?;
+    Ok(record)
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -323,7 +185,10 @@ pub struct SkillUpdateInput {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn skill_update(_state: State<'_, AppState>, input: SkillUpdateInput) -> Result<SkillRecord, String> {
+pub async fn skill_update(
+    state: State<'_, AppState>,
+    input: SkillUpdateInput,
+) -> Result<SkillRecord, String> {
     let file = skill_file_path(&input.id)?;
     let raw = fs::read_to_string(&file).map_err(|e| e.to_string())?;
     let mut parsed = parse_skill_md(&raw)?;
@@ -339,16 +204,22 @@ pub async fn skill_update(_state: State<'_, AppState>, input: SkillUpdateInput) 
     if let Some(body) = input.body {
         parsed.body = body;
     }
-    write_skill(&input.id, parsed.frontmatter, &parsed.body)
+    let record = write_skill(&input.id, parsed.frontmatter, &parsed.body)?;
+    // 双写：同步基础字段到 DB（保留 version / 统计字段）
+    upsert_skill_db_v1(&state, &record)?;
+    Ok(record)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn skill_remove(_state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub async fn skill_remove(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let dir = skill_dir(&id)?;
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     }
+    // 双写：级联删除 DB 记录（applications / links / chunks 通过外键 CASCADE 自动删除）
+    let storage = state.storage.lock().await;
+    storage.delete_skill_db(&id).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -375,10 +246,10 @@ pub async fn skill_set_enabled(
 #[tauri::command]
 #[specta::specta]
 pub async fn skill_import(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     source_path: String,
 ) -> Result<SkillRecord, String> {
-    let source = PathBuf::from(source_path.trim());
+    let source = std::path::PathBuf::from(source_path.trim());
     if !source.exists() {
         return Err("源路径不存在".to_string());
     }
@@ -421,7 +292,10 @@ pub async fn skill_import(
         fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
         fs::copy(&skill_md, dest_dir.join(SKILL_FILE)).map_err(|e| e.to_string())?;
     }
-    load_skill_record(&id)
+    let record = load_skill_record(&id)?;
+    // 双写：导入的 skill 作为 v1 写入 DB
+    upsert_skill_db_v1(&state, &record)?;
+    Ok(record)
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
@@ -439,21 +313,108 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// ── DB 元数据查询命令（供前端 SkillsSection 展示版本链 / 应用历史 / 成功率） ──────
 
-    #[test]
-    fn parse_render_roundtrip() {
-        let fm = SkillFrontmatter {
-            name: "demo".to_string(),
-            description: "desc".to_string(),
-            enabled: true,
-        };
-        let body = "Hello skill";
-        let md = render_skill_md(&fm, body);
-        let parsed = parse_skill_md(&md).unwrap();
-        assert_eq!(parsed.frontmatter.name, "demo");
-        assert_eq!(parsed.body, body);
+/// 获取 skill 的 DB 元数据（版本、统计、parent_version_id 等）。
+/// 如果文件层 skill 存在但 DB 记录缺失，会先懒同步创建 v1 记录。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_get_db(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<SkillDbRecord>, String> {
+    ensure_skill_db_sync(&state)?;
+    let storage = state.storage.lock().await;
+    storage.get_skill_db(&id).map_err(|e| e.to_string())
+}
+
+/// 列出所有 skill 的 DB 元数据（含统计）。
+/// 如果文件层 skill 存在但 DB 记录缺失，会先懒同步创建 v1 记录。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_list_db(state: State<'_, AppState>) -> Result<Vec<SkillDbRecord>, String> {
+    ensure_skill_db_sync(&state)?;
+    let storage = state.storage.lock().await;
+    storage.list_skills_db().map_err(|e| e.to_string())
+}
+
+/// 版本链条目：id + 版本号 + 创建时间。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillVersionChainEntry {
+    pub id: String,
+    #[specta(type = f64)]
+    pub version: i64,
+    #[specta(type = f64)]
+    pub created_at: i64,
+}
+
+/// 获取 skill 的版本链（从当前 id 向前追溯 parent_version_id，最多 50 层）。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_get_version_chain(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<SkillVersionChainEntry>, String> {
+    ensure_skill_db_sync(&state)?;
+    let storage = state.storage.lock().await;
+    let chain = storage
+        .get_skill_version_chain(&id)
+        .map_err(|e| e.to_string())?;
+    Ok(chain
+        .into_iter()
+        .map(|(cid, version, created_at)| SkillVersionChainEntry {
+            id: cid,
+            version,
+            created_at,
+        })
+        .collect())
+}
+
+/// 列出 skill 的应用历史（按时间倒序，可限制条数，默认 20）。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_list_applications(
+    state: State<'_, AppState>,
+    id: String,
+    limit: Option<usize>,
+) -> Result<Vec<SkillApplication>, String> {
+    let limit = limit.unwrap_or(20).clamp(1, 200);
+    let storage = state.storage.lock().await;
+    storage
+        .list_skill_applications(&id, limit)
+        .map_err(|e| e.to_string())
+}
+
+/// 更新 skill 应用记录的 outcome（success/failure/partial）+ feedback。
+/// 供 UI 在用户标记应用结果后调用；调用后会自动重算对应 skill 的统计字段。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_update_application_outcome(
+    state: State<'_, AppState>,
+    application_id: String,
+    outcome: String,
+    feedback: Option<String>,
+) -> Result<(), String> {
+    let outcome_trim = outcome.trim();
+    if !matches!(outcome_trim, "success" | "failure" | "partial" | "pending" | "refined") {
+        return Err(format!(
+            "outcome 非法：{outcome_trim}（应为 success / failure / partial / pending / refined）"
+        ));
     }
+    let feedback = feedback.unwrap_or_default();
+    let storage = state.storage.lock().await;
+    storage
+        .update_skill_application_outcome(&application_id, outcome_trim, &feedback)
+        .map_err(|e| e.to_string())?;
+    // 取出 application 的 skill_id 后重算统计
+    if let Some(app) = storage
+        .get_skill_application(&application_id)
+        .map_err(|e| e.to_string())?
+    {
+        storage
+            .recalc_skill_stats(&app.skill_id)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

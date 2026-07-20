@@ -78,6 +78,7 @@ fn export_ipc_bindings() {
         commands::database::db_redis_config_get,
         commands::database::db_redis_config_get_entries,
         commands::database::db_redis_client_list,
+        commands::database::db_redis_client_kill,
         commands::database::db_redis_search_keys,
         commands::database::db_redis_dbsize,
         commands::database::db_redis_key_detail,
@@ -146,6 +147,7 @@ fn export_ipc_bindings() {
         commands::docker::docker_image_history,
         commands::docker::docker_create_exec_session,
         commands::docker::docker_create_host_shell_session,
+        commands::docker::docker_exec_command,
         commands::docker::docker_exec_write,
         commands::docker::docker_exec_resize,
         commands::docker::docker_exec_close,
@@ -280,6 +282,15 @@ fn export_ipc_bindings() {
         commands::knowledge::knowledge_todo_save,
         commands::knowledge::knowledge_todo_delete,
         commands::knowledge::knowledge_import_pdf,
+        commands::resource_profile::resource_list_profiles,
+        commands::resource_profile::resource_get_profile,
+        commands::resource_profile::resource_find_similar,
+        commands::resource_profile::resource_delete_observations,
+        commands::resource_profile::resource_list_knowledge,
+        commands::resource_profile::resource_save_observation,
+        commands::resource_profile::resource_collect_ssh_snapshot,
+        commands::resource_profile::resource_collect_database_snapshot,
+        commands::resource_profile::resource_compute_observation_diff,
         commands::knowledge_vector::knowledge_vectorize,
         commands::knowledge_vector::knowledge_vector_status,
         commands::knowledge_vector::knowledge_list_chunks,
@@ -393,6 +404,11 @@ fn export_ipc_bindings() {
         commands::skills::skill_remove,
         commands::skills::skill_set_enabled,
         commands::skills::skill_import,
+        commands::skills::skill_get_db,
+        commands::skills::skill_list_db,
+        commands::skills::skill_get_version_chain,
+        commands::skills::skill_list_applications,
+        commands::skills::skill_update_application_outcome,
         // Providers
         commands::providers::registry::provider_registry_load,
         commands::providers::registry::provider_registry_save,
@@ -458,16 +474,36 @@ pub fn run() {
     ensure_rustls_crypto_provider();
     tracing_subscriber::fmt::init();
 
-    #[cfg(debug_assertions)]
-    export_ipc_bindings();
+    // Windows + 大量 invoke_handler 命令注册时，main 线程默认 1MB 栈会溢出
+    // （collect_commands! / generate_handler! 宏把所有命令展开成深层嵌套类型，
+    // 单个 closure 栈帧过大，STATUS_STACK_OVERFLOW 0xc00000fd）。
+    // 把 specta bindings 导出 + tauri builder 都放到 16MB 栈子线程里跑。
+    let runtime = std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(build_and_run_tauri)
+        .expect("failed to spawn tauri runtime thread");
+    runtime.join().expect("tauri runtime thread panicked");
+}
 
-    // 仅生成 IPC bindings 后退出（供脚本调用，不启动窗口）。
+fn build_and_run_tauri() {
+    // 仅在显式请求时生成 IPC bindings（OMNIPANEL_GEN_BINDINGS_ONLY=1）。
+    // collect_commands![...] + .export() 会递归遍历 ~400 个命令的类型树，
+    // 普通启动也跑会栈溢出（即使 16MB 栈都不够）。bindings 由 gen-ipc-bindings.mjs
+    // 脚本或 CI 单独调用生成，提交到 git，dev 启动直接用现成的。
     #[cfg(debug_assertions)]
     if std::env::var("OMNIPANEL_GEN_BINDINGS_ONLY").is_ok() {
+        export_ipc_bindings();
         return;
     }
 
-    tauri::Builder::default()
+    // any_thread(): 允许事件循环在非主线程运行（Windows 默认强制主线程）。
+    // 配合外层 16MB 栈子线程，避免 generate_handler! 宏展开导致 main 线程 1MB 栈溢出。
+    #[cfg(any(windows, target_os = "linux"))]
+    let builder = tauri::Builder::default().any_thread();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let builder = tauri::Builder::default();
+
+    builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -683,6 +719,7 @@ pub fn run() {
             commands::database::db_redis_config_get,
             commands::database::db_redis_config_get_entries,
             commands::database::db_redis_client_list,
+            commands::database::db_redis_client_kill,
             commands::database::db_redis_search_keys,
             commands::database::db_redis_dbsize,
             commands::database::db_redis_key_detail,
@@ -756,6 +793,7 @@ pub fn run() {
             commands::docker::docker_image_history,
             commands::docker::docker_create_exec_session,
             commands::docker::docker_create_host_shell_session,
+            commands::docker::docker_exec_command,
             commands::docker::docker_exec_write,
             commands::docker::docker_exec_resize,
             commands::docker::docker_exec_close,
@@ -896,6 +934,15 @@ pub fn run() {
             commands::knowledge::knowledge_todo_save,
             commands::knowledge::knowledge_todo_delete,
         commands::knowledge::knowledge_import_pdf,
+            commands::resource_profile::resource_list_profiles,
+            commands::resource_profile::resource_get_profile,
+            commands::resource_profile::resource_find_similar,
+            commands::resource_profile::resource_delete_observations,
+            commands::resource_profile::resource_list_knowledge,
+            commands::resource_profile::resource_save_observation,
+            commands::resource_profile::resource_collect_ssh_snapshot,
+            commands::resource_profile::resource_collect_database_snapshot,
+            commands::resource_profile::resource_compute_observation_diff,
             commands::knowledge_vector::knowledge_vectorize,
             commands::knowledge_vector::knowledge_vector_status,
             commands::knowledge_vector::knowledge_list_chunks,
@@ -993,6 +1040,11 @@ pub fn run() {
             commands::skills::skill_remove,
             commands::skills::skill_set_enabled,
             commands::skills::skill_import,
+            commands::skills::skill_get_db,
+            commands::skills::skill_list_db,
+            commands::skills::skill_get_version_chain,
+            commands::skills::skill_list_applications,
+            commands::skills::skill_update_application_outcome,
             // Providers
             commands::providers::registry::provider_registry_load,
             commands::providers::registry::provider_registry_save,

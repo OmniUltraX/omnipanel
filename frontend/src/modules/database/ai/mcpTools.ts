@@ -131,6 +131,292 @@ async function executeSql(args: Record<string, unknown>): Promise<string> {
   return formatQueryResult(result);
 }
 
+/**
+ * 查看数据库当前会话/进程列表。
+ * - MySQL/MariaDB: SELECT * FROM information_schema.PROCESSLIST
+ * - PostgreSQL: SELECT * FROM pg_stat_activity
+ * - Redis: CLIENT LIST
+ */
+async function showProcesslist(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const databaseName = optionalString(args, "database_name");
+  // 复用 resolveConnectionByName 但允许 Redis（processlist 支持 Redis）
+  const connections = await listConnections();
+  const conn = connections.find((item) => item.name === connectionName);
+  if (!conn) {
+    throw new Error(`连接不存在：${connectionName}`);
+  }
+  if (!isConnectionEnabled(conn)) {
+    throw new Error(`连接已禁用：${connectionName}`);
+  }
+  const engine = conn.db_type.toLowerCase();
+  const withDb =
+    databaseName && databaseName.trim()
+      ? connectionWithDatabase(conn, databaseName)
+      : conn;
+
+  if (engine === "redis") {
+    // Redis: 调用 db_redis_client_list 命令
+    const result = await invoke<QueryResult>("db_redis_client_list", {
+      connection: withDb,
+    });
+    return formatQueryResult(result);
+  }
+
+  if (!isSqlCapableConnection(conn)) {
+    throw new Error(`连接 ${connectionName} 不支持 SQL 操作`);
+  }
+
+  let sql: string;
+  if (engine === "mysql" || engine === "mariadb") {
+    sql =
+      "SELECT ID, USER, HOST, DB, COMMAND, TIME, STATE, INFO " +
+      "FROM information_schema.PROCESSLIST ORDER BY TIME DESC";
+  } else if (engine === "postgres" || engine === "postgresql" || engine === "pg") {
+    sql =
+      "SELECT pid, usename AS user_name, datname AS database, " +
+      "client_addr::text AS client_addr, application_name, " +
+      "backend_start, state, query_start, state_change, " +
+      "wait_event_type, wait_event, query " +
+      "FROM pg_stat_activity WHERE state IS NOT NULL " +
+      "ORDER BY query_start DESC NULLS LAST";
+  } else {
+    throw new Error(`暂不支持 ${engine} 的 show_processlist`);
+  }
+
+  const result = await invoke<QueryResult>("db_execute_query", {
+    connection: withDb,
+    sql,
+    runId: makeQueryRunId(),
+    limit: 500,
+    offset: 0,
+  });
+  return formatQueryResult(result);
+}
+
+/**
+ * 终止指定会话/查询。危险操作。
+ * - MySQL/MariaDB: KILL <id>
+ * - PostgreSQL: SELECT pg_terminate_backend(<pid>)
+ * - Redis: CLIENT KILL ADDR <ip:port>
+ */
+async function killQuery(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const queryId = requireString(args, "query_id");
+  const connections = await listConnections();
+  const conn = connections.find((item) => item.name === connectionName);
+  if (!conn) {
+    throw new Error(`连接不存在：${connectionName}`);
+  }
+  if (!isConnectionEnabled(conn)) {
+    throw new Error(`连接已禁用：${connectionName}`);
+  }
+  const engine = conn.db_type.toLowerCase();
+
+  if (engine === "redis") {
+    // Redis: 调用 db_redis_client_kill 命令
+    const killed = await invoke<number>("db_redis_client_kill", {
+      connection: conn,
+      addr: queryId,
+    });
+    return JSON.stringify(
+      {
+        connection: connectionName,
+        query_id: queryId,
+        killed,
+        message:
+          killed > 0 ? "CLIENT KILL 成功" : "未找到匹配的客户端（可能已断开）",
+      },
+      null,
+      2,
+    );
+  }
+
+  if (!isSqlCapableConnection(conn)) {
+    throw new Error(`连接 ${connectionName} 不支持 SQL 操作`);
+  }
+
+  if (engine === "mysql" || engine === "mariadb") {
+    const id = Number.parseInt(queryId, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new Error(`MySQL/MariaDB query_id 必须是正整数（PROCESSLIST_ID）：${queryId}`);
+    }
+    const sql = `KILL ${id}`;
+    const result = await invoke<QueryResult>("db_execute_query", {
+      connection: conn,
+      sql,
+      runId: makeQueryRunId(),
+    });
+    return JSON.stringify(
+      {
+        connection: connectionName,
+        query_id: queryId,
+        rowsAffected: result.rowsAffected,
+        message: "已发送 KILL 命令",
+      },
+      null,
+      2,
+    );
+  }
+
+  if (engine === "postgres" || engine === "postgresql" || engine === "pg") {
+    const pid = Number.parseInt(queryId, 10);
+    if (!Number.isFinite(pid) || pid <= 0) {
+      throw new Error(`PostgreSQL query_id 必须是正整数（pid）：${queryId}`);
+    }
+    const sql = `SELECT pg_terminate_backend(${pid}) AS terminated`;
+    const result = await invoke<QueryResult>("db_execute_query", {
+      connection: conn,
+      sql,
+      runId: makeQueryRunId(),
+    });
+    return JSON.stringify(
+      {
+        connection: connectionName,
+        query_id: queryId,
+        result: JSON.parse(formatQueryResult(result)),
+      },
+      null,
+      2,
+    );
+  }
+
+  throw new Error(`暂不支持 ${engine} 的 kill_query`);
+}
+
+/**
+ * 汇总慢查询日志。
+ * - MySQL/MariaDB: performance_schema.events_statements_summary_by_digest 或 mysql.slow_log
+ * - PostgreSQL: pg_stat_statements
+ * - Redis: SLOWLOG GET <count>
+ */
+async function slowLogSummary(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const databaseName = optionalString(args, "database_name");
+  const countRaw = args.count;
+  const count =
+    typeof countRaw === "number" && Number.isFinite(countRaw)
+      ? Math.max(1, Math.min(100, Math.floor(countRaw)))
+      : 10;
+  const connections = await listConnections();
+  const conn = connections.find((item) => item.name === connectionName);
+  if (!conn) {
+    throw new Error(`连接不存在：${connectionName}`);
+  }
+  if (!isConnectionEnabled(conn)) {
+    throw new Error(`连接已禁用：${connectionName}`);
+  }
+  const engine = conn.db_type.toLowerCase();
+  const withDb =
+    databaseName && databaseName.trim()
+      ? connectionWithDatabase(conn, databaseName)
+      : conn;
+
+  if (engine === "redis") {
+    const entries = await invoke<Array<unknown>>("db_redis_slowlog", {
+      connection: withDb,
+      count,
+    });
+    return JSON.stringify(
+      {
+        connection: connectionName,
+        source: "SLOWLOG GET",
+        entries,
+      },
+      null,
+      2,
+    );
+  }
+
+  if (!isSqlCapableConnection(conn)) {
+    throw new Error(`连接 ${connectionName} 不支持 SQL 操作`);
+  }
+
+  let sql: string;
+  if (engine === "mysql" || engine === "mariadb") {
+    sql =
+      "SELECT SCHEMA_NAME AS db, DIGEST_TEXT AS query, " +
+      "COUNT_STAR AS exec_count, " +
+      "ROUND(SUM_TIMER_WAIT/1000000000000, 3) AS total_sec, " +
+      "ROUND(AVG_TIMER_WAIT/1000000000, 3) AS avg_ms, " +
+      "SUM_ROWS_EXAMINED AS rows_examined, " +
+      "SUM_ROWS_SENT AS rows_sent, " +
+      "FIRST_SEEN, LAST_SEEN " +
+      "FROM performance_schema.events_statements_summary_by_digest " +
+      "WHERE SCHEMA_NAME IS NOT NULL " +
+      `ORDER BY AVG_TIMER_WAIT DESC LIMIT ${count}`;
+  } else if (engine === "postgres" || engine === "postgresql" || engine === "pg") {
+    sql =
+      "SELECT query, calls, round(total_exec_time::numeric, 3) AS total_ms, " +
+      "round(mean_exec_time::numeric, 3) AS mean_ms, " +
+      "rows, shared_blks_hit, shared_blks_read, shared_blks_written " +
+      "FROM pg_stat_statements " +
+      `ORDER BY mean_exec_time DESC LIMIT ${count}`;
+  } else {
+    throw new Error(`暂不支持 ${engine} 的 slow_log_summary`);
+  }
+
+  try {
+    const result = await invoke<QueryResult>("db_execute_query", {
+      connection: withDb,
+      sql,
+      runId: makeQueryRunId(),
+      limit: 500,
+      offset: 0,
+    });
+
+    // MySQL performance_schema 没数据时降级到 mysql.slow_log
+    if (
+      (engine === "mysql" || engine === "mariadb") &&
+      result.rows.length === 0
+    ) {
+      const fallbackSql =
+        "SELECT start_time, user_host, query_time, lock_time, " +
+        "rows_sent, rows_examined, sql_text " +
+        `FROM mysql.slow_log ORDER BY start_time DESC LIMIT ${count}`;
+      try {
+        const fallbackResult = await invoke<QueryResult>("db_execute_query", {
+          connection: withDb,
+          sql: fallbackSql,
+          runId: makeQueryRunId(),
+          limit: 500,
+          offset: 0,
+        });
+        return JSON.stringify(
+          {
+            connection: connectionName,
+            source: "mysql.slow_log",
+            result: JSON.parse(formatQueryResult(fallbackResult)),
+          },
+          null,
+          2,
+        );
+      } catch {
+        // 降级失败，返回原结果（空）
+      }
+    }
+
+    return formatQueryResult(result);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (engine === "postgres" && msg.toLowerCase().includes("pg_stat_statements")) {
+      throw new Error(
+        `pg_stat_statements 扩展未启用：${msg}。请在目标库执行 \`CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\` 并在 postgresql.conf 添加 \`shared_preload_libraries = 'pg_stat_statements'\``,
+      );
+    }
+    if (
+      (engine === "mysql" || engine === "mariadb") &&
+      (msg.toLowerCase().includes("doesn't exist") ||
+        msg.toLowerCase().includes("unknown table"))
+    ) {
+      throw new Error(
+        `性能 schema 不可用：${msg}。请检查 performance_schema 是否启用，或开启 slow_query_log + log_output=TABLE 后用 mysql.slow_log`,
+      );
+    }
+    throw e;
+  }
+}
+
 const connectionNameSchema = {
   type: "string",
   description: "数据库连接名称（与侧栏连接名一致）",
@@ -210,5 +496,65 @@ export const DATABASE_MODULE_TOOLS: BuiltinToolRegistration[] = [
       required: ["connection_name", "database_name", "sql"],
     },
     handler: executeSql,
+  },
+  {
+    name: "omni_database_show_processlist",
+    description:
+      "查看数据库当前会话/进程列表（MySQL/MariaDB 查 information_schema.PROCESSLIST；PostgreSQL 查 pg_stat_activity；Redis 执行 CLIENT LIST），用于排查长运行查询、锁等待。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        database_name: {
+          type: "string",
+          description:
+            "可选，指定数据库上下文（部分引擎需要切换到对应库才能查询元数据视图）",
+        },
+      },
+      required: ["connection_name"],
+    },
+    handler: showProcesslist,
+  },
+  {
+    name: "omni_database_kill_query",
+    description:
+      "终止指定会话/查询（MySQL/MariaDB 执行 KILL；PostgreSQL 调用 pg_terminate_backend；Redis 执行 CLIENT KILL ADDR）。危险操作，请确认 query_id 正确。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        query_id: {
+          type: "string",
+          description:
+            "要终止的会话/查询 ID（MySQL/MariaDB 为 PROCESSLIST_ID 数字，PostgreSQL 为 pid 数字，Redis 为客户端地址 ip:port）",
+        },
+      },
+      required: ["connection_name", "query_id"],
+    },
+    handler: killQuery,
+  },
+  {
+    name: "omni_database_slow_log_summary",
+    description:
+      "汇总慢查询日志（MySQL/MariaDB 查 mysql.slow_log 或 performance_schema；PostgreSQL 查 pg_stat_statements；Redis 执行 SLOWLOG GET），用于性能优化分析。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        database_name: {
+          type: "string",
+          description: "可选，指定数据库上下文",
+        },
+        count: {
+          type: "integer",
+          description: "返回的记录数量上限，默认 10，范围 1~100",
+          default: 10,
+          minimum: 1,
+          maximum: 100,
+        },
+      },
+      required: ["connection_name"],
+    },
+    handler: slowLogSummary,
   },
 ];

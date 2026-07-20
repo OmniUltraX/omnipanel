@@ -28,6 +28,7 @@ import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
+import { SkillEvolutionPrompt } from "./components/feedback/SkillEvolutionPrompt";
 import { Button } from "./components/ui/primitives/Button";
 import { SuspendedModulePanel, OverlayModuleRoutePanel } from "./components/ui/feedback";
 import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
@@ -49,6 +50,7 @@ import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { UserCenterWindow } from "./components/user/UserCenterWindow";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
+import { ResourceProfileSubWindow } from "./lib/resource/ResourceProfileSubWindow";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useSettingsUiStore } from "./stores/settingsUiStore";
 import { useAiStore } from "./stores/aiStore";
@@ -679,10 +681,12 @@ function AppShell() {
       <AppDialogHost />
       <CloseBehaviorDialogHost />
       <ToastHost />
+      <SkillEvolutionPrompt />
       <CrossWindowDragVisualLayer />
       <SettingsWindow />
       <UserCenterWindow />
       <SubWindowMinimizedStack />
+      <ResourceProfileSubWindow />
       {pendingRiskActionId && pendingRiskAction && riskResult && (
         <DangerConfirmDialog
           command={pendingRiskAction.command ?? pendingRiskAction.description}

@@ -233,6 +233,16 @@ fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) 
         lines.push(ctx.to_string());
     }
 
+    // 模块级上下文（数据库连接 / SSH 主机等）：紧随终端上下文之后，让 AI 感知当前活跃模块状态。
+    if let Some(module_ctx) = context
+        .module_context_append
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(String::new());
+        lines.push(module_ctx.to_string());
+    }
+
     if let Some(cwd) = context.cwd.as_deref().filter(|s| !s.trim().is_empty()) {
         lines.push(format!("Current working directory: {cwd}"));
     }

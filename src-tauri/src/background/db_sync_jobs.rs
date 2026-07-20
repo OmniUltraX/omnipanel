@@ -3347,6 +3347,8 @@ mod add_column_position_tests {
             nullable: true,
             is_auto_increment: false,
             comment: None,
+            length: None,
+            default_value: None,
         }
     }
 
