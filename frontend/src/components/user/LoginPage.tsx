@@ -11,9 +11,8 @@ import wechatIcon from "../../assets/icons/login/wechat.svg";
 import githubDarkIcon from "../../assets/icons/login/github_dark.svg";
 import githubLightIcon from "../../assets/icons/login/github_light.svg";
 import emailIcon from "../../assets/icons/login/email.svg";
-import mobileIcon from "../../assets/icons/login/mobile.svg";
 
-type LoginMethod = "wechat" | "github" | "email" | "phone";
+type LoginMethod = "wechat" | "github" | "email";
 
 function useGithubIcon(): string {
   const resolved = useSettingsStore((s) => s.resolved);
@@ -88,70 +87,14 @@ function EmailLoginPanel() {
   );
 }
 
-function PhoneLoginPanel() {
-  const { t } = useI18n();
-  const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
-  const [hint, setHint] = useState<string | null>(null);
-
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    setHint(t("app.login.comingSoon"));
-  };
-
-  return (
-    <form className="login-page__panel login-page__form" onSubmit={onSubmit}>
-      <label className="login-page__field">
-        <span className="login-page__field-label">{t("app.login.phone.label")}</span>
-        <TextInput
-          value={phone}
-          onChange={setPhone}
-          placeholder={t("app.login.phone.placeholder")}
-          autoComplete="tel"
-          inputMode="tel"
-          copyable={false}
-          size="md"
-        />
-      </label>
-      <label className="login-page__field">
-        <span className="login-page__field-label">{t("app.login.phone.code")}</span>
-        <div className="login-page__code-row">
-          <TextInput
-            value={code}
-            onChange={setCode}
-            placeholder={t("app.login.phone.codePlaceholder")}
-            autoComplete="one-time-code"
-            inputMode="numeric"
-            copyable={false}
-            size="md"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setHint(t("app.login.comingSoon"))}
-          >
-            {t("app.login.phone.sendCode")}
-          </Button>
-        </div>
-      </label>
-      <Button type="submit" variant="primary" className="login-page__submit">
-        {t("app.login.phone.action")}
-      </Button>
-      {hint ? <ComingSoonHint>{hint}</ComingSoonHint> : null}
-    </form>
-  );
-}
-
 const METHOD_OPTIONS: {
   id: LoginMethod;
-  labelKey: "app.login.methods.wechat" | "app.login.methods.github" | "app.login.methods.email" | "app.login.methods.phone";
+  labelKey: "app.login.methods.wechat" | "app.login.methods.github" | "app.login.methods.email";
   icon?: string;
 }[] = [
   { id: "wechat", labelKey: "app.login.methods.wechat", icon: wechatIcon },
   { id: "github", labelKey: "app.login.methods.github" },
   { id: "email", labelKey: "app.login.methods.email", icon: emailIcon },
-  { id: "phone", labelKey: "app.login.methods.phone", icon: mobileIcon },
 ];
 
 /** 启动门禁登录页：默认微信扫码，其余方式 UI 占位。 */
@@ -189,7 +132,6 @@ export function LoginPage() {
             {method === "wechat" ? <WechatLoginPanel hideHeader /> : null}
             {method === "github" ? <GithubLoginPanel /> : null}
             {method === "email" ? <EmailLoginPanel /> : null}
-            {method === "phone" ? <PhoneLoginPanel /> : null}
           </div>
 
           <div className="login-page__methods" role="group" aria-label={t("app.login.methodsLabel")}>

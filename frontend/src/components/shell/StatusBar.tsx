@@ -22,7 +22,6 @@ import { StatusBarAiServicesIndicator } from "./StatusBarAiServicesIndicator";
 import { StatusBarLocalRuntimeIndicator } from "./StatusBarLocalRuntimeIndicator";
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
-import { StatusBarUserButton } from "./StatusBarUserButton";
 
 /** 全局后台任务进度（切换模块后仍展示） */
 function StatusBarBackgroundTaskLog() {
@@ -228,8 +227,6 @@ export function StatusBar() {
 
     return (
       <div className="statusbar">
-        <StatusBarUserButton />
-        <span className="statusbar-sep" role="separator" aria-hidden />
         <ConnectionPoolIndicator />
         <StatusBarBackgroundTaskLog />
         <StatusBarModuleLog />
@@ -270,8 +267,6 @@ export function StatusBar() {
 
   return (
     <div className="statusbar">
-      <StatusBarUserButton />
-      <span className="statusbar-sep" role="separator" aria-hidden />
       <ConnectionPoolIndicator />
       <StatusBarBackgroundTaskLog />
       <StatusBarModuleLog />

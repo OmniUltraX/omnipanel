@@ -65,6 +65,31 @@ pub struct AuthDevice {
     pub updated_at: String,
 }
 
+/// 当前用户资料（GET/PATCH /api/me）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthUserProfile {
+    #[specta(type = f64)]
+    pub id: i64,
+    pub openid: String,
+    pub nickname: String,
+    /// 对应接口字段 `avatar_url`。
+    #[serde(rename = "avatarUrl")]
+    pub avatar_url: String,
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiUserResponse {
+    id: Option<i64>,
+    openid: Option<String>,
+    nickname: Option<String>,
+    #[serde(default, alias = "avatarUrl")]
+    avatar_url: Option<String>,
+    email: Option<String>,
+    error: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ApiQrcodeResponse {
     login_id: Option<String>,
@@ -302,6 +327,153 @@ pub async fn auth_list_devices(
         .into_iter()
         .map(map_api_device)
         .collect())
+}
+
+fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
+    AuthUserProfile {
+        id: parsed.id.unwrap_or(0),
+        openid: parsed.openid.unwrap_or_default(),
+        nickname: parsed.nickname.unwrap_or_default(),
+        avatar_url: parsed.avatar_url.unwrap_or_default(),
+        email: parsed.email.unwrap_or_default(),
+    }
+}
+
+fn parse_auth_error(body: &str, fallback: &str) -> OmniError {
+    let msg = serde_json::from_str::<ApiErrorBody>(body)
+        .ok()
+        .and_then(|b| b.error)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| fallback.to_string());
+    OmniError::new(ErrorCode::Auth, msg)
+}
+
+/// 获取当前用户信息（GET /api/me）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_get_me(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/me");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "获取用户信息失败").with_cause(e.to_string())
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取用户信息响应失败").with_cause(e.to_string())
+    })?;
+
+    if status.as_u16() == 401 {
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
+    }
+
+    let parsed: ApiUserResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析用户信息失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.as_ref().filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error.clone()));
+    }
+    if !status.is_success() {
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            format!("获取用户信息失败 (HTTP {status})"),
+        )
+        .with_cause(body));
+    }
+
+    Ok(map_api_user(parsed))
+}
+
+/// 更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_update_profile(
+    state: State<'_, AppState>,
+    token: String,
+    nickname: Option<String>,
+    avatar_url: Option<String>,
+) -> Result<AuthUserProfile, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    if nickname.is_none() && avatar_url.is_none() {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "请至少提供 nickname 或 avatar_url",
+        ));
+    }
+
+    let mut body_json = serde_json::Map::new();
+    if let Some(value) = nickname {
+        body_json.insert("nickname".to_string(), serde_json::Value::String(value));
+    }
+    if let Some(value) = avatar_url {
+        body_json.insert("avatar_url".to_string(), serde_json::Value::String(value));
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/me");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = client
+        .patch(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&body_json)
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "更新用户信息失败").with_cause(e.to_string())
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取更新资料响应失败").with_cause(e.to_string())
+    })?;
+
+    if status.as_u16() == 401 {
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
+    }
+
+    let parsed: ApiUserResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析更新资料响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.as_ref().filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error.clone()));
+    }
+    if !status.is_success() {
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            format!("更新用户信息失败 (HTTP {status})"),
+        )
+        .with_cause(body));
+    }
+
+    Ok(map_api_user(parsed))
 }
 
 /// 获取微信扫码登录二维码。
