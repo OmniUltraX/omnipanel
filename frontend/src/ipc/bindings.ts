@@ -714,6 +714,15 @@ export const commands = {
 	thirdPartyAccountList: () => typedError<ThirdPartyAccount[], string>(__TAURI_INVOKE("third_party_account_list")),
 	thirdPartyAccountUpsert: (input: UpsertThirdPartyAccountInput) => typedError<ThirdPartyAccount, string>(__TAURI_INVOKE("third_party_account_upsert", { input })),
 	thirdPartyAccountDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("third_party_account_delete", { id })),
+	// Local runtime (Ollama / LM Studio) — manually synced from src-tauri commands/local_runtime.rs
+	localRuntimeProbe: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_probe")),
+	localRuntimeRefreshCatalog: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_refresh_catalog")),
+	localRuntimeStartOllama: () => typedError<boolean, string>(__TAURI_INVOKE("local_runtime_start_ollama")),
+	localRuntimeInstallOllama: () => typedError<LocalRuntimeInstallResult, string>(__TAURI_INVOKE("local_runtime_install_ollama")),
+	localRuntimeOllamaPull: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_pull", { model })),
+	localRuntimeOllamaDelete: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_delete", { model })),
+	localRuntimeProbeOpenaiCompat: (baseUrl: string) => typedError<OpenAiCompatProbeResult, string>(__TAURI_INVOKE("local_runtime_probe_openai_compat", { baseUrl })),
+	localRuntimeOllamaDownloadUrl: () => typedError<string, string>(__TAURI_INVOKE("local_runtime_ollama_download_url")),
 };
 
 /* Types */
@@ -792,6 +801,72 @@ export type AuthUserProfile = {
 	nickname: string,
 	avatarUrl: string,
 	email: string,
+};
+
+/* Local runtime types — manually synced from src-tauri commands/local_runtime.rs + ollama_recommend.rs */
+export type LocalRuntimeStatus = "not_installed" | "installed_not_running" | "running";
+
+export type LocalModelInfo = {
+	name: string,
+	sizeBytes: number,
+	digest: string,
+	family: string,
+};
+
+export type OllamaProbeResult = {
+	status: LocalRuntimeStatus,
+	endpoint: string,
+	openaiBaseUrl: string,
+	version: string | null,
+	cliPath: string | null,
+	models: LocalModelInfo[],
+	error: string | null,
+};
+
+export type OpenAiCompatProbeResult = {
+	reachable: boolean,
+	endpoint: string,
+	models: string[],
+	error: string | null,
+};
+
+export type LocalHardwareInfo = {
+	totalMemoryMb: number,
+	vramMb: number,
+	hasDiscreteGpu: boolean,
+	gpuName: string | null,
+	hardwareTier: string,
+	quantPref: string,
+	maxParamB: number,
+};
+
+export type RecommendedModel = {
+	name: string,
+	scenario: string,
+	kind: string,
+	approxSizeGb: number,
+	description: string,
+	tier: string,
+	quantHint: string,
+	pulls: number | null,
+	fromLibrary: boolean,
+};
+
+export type LocalRuntimeProbeResult = {
+	ollama: OllamaProbeResult,
+	lmStudio: OpenAiCompatProbeResult,
+	hardware: LocalHardwareInfo,
+	totalMemoryMb: number,
+	hardwareTier: string,
+	recommendedModels: RecommendedModel[],
+	catalogSource: string,
+};
+
+export type LocalRuntimeInstallResult = {
+	method: string,
+	started: boolean,
+	message: string,
+	manualUrl: string,
 };
 
 export type AgentInstallStatus = {
