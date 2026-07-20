@@ -1,4 +1,4 @@
-//! SSH 宿主机 Docker Engine API：通过 `curl --unix-socket /var/run/docker.sock` 访问。
+//! SSH 宿主机 Docker Engine API：通过 `curl --unix-socket` 访问。
 //!
 //! 读操作走 Engine HTTP API，与本地 `bollard` 返回同构 JSON；写操作仍由 [`crate::ssh`] 使用 `docker` CLI。
 
@@ -7,6 +7,8 @@ use omnipanel_ssh::SshSession;
 use serde::de::DeserializeOwned;
 
 pub const DOCKER_SOCK: &str = "/var/run/docker.sock";
+const DOCKER_SOCK_FALLBACK: &str = "/run/docker.sock";
+const HTTP_STATUS_MARK: &str = "__OMNI_HTTP_STATUS__:";
 
 pub struct SshDockerApi<'a> {
     session: &'a SshSession,
@@ -27,17 +29,88 @@ impl<'a> SshDockerApi<'a> {
     }
 
     async fn curl(&self, method: &str, path_and_query: &str) -> OmniResult<String> {
+        let mut last_err: Option<OmniError> = None;
+        for sock in [DOCKER_SOCK, DOCKER_SOCK_FALLBACK] {
+            match self.curl_on_socket(method, path_and_query, sock).await {
+                Ok(body) => return Ok(body),
+                Err(err) => last_err = Some(err),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            OmniError::new(ErrorCode::Internal, "Docker Engine API 请求失败")
+        }))
+    }
+
+    async fn curl_on_socket(
+        &self,
+        method: &str,
+        path_and_query: &str,
+        sock: &str,
+    ) -> OmniResult<String> {
         let url = format!("http://localhost{path_and_query}");
+        // -w 追加 HTTP 状态码，便于区分「真正空 body」与「连接/权限失败」
         let cmd = format!(
-            "curl -sS -X {method} --unix-socket {} {}",
-            shell_quote(DOCKER_SOCK),
+            "curl -sS -X {method} --unix-socket {} -w '\\n{}%{{http_code}}' {}",
+            shell_quote(sock),
+            HTTP_STATUS_MARK,
             shell_quote(&url)
         );
         let out = self.session.exec_capture(&cmd).await?;
         if out.exit_code != 0 {
-            return Err(map_curl_failure(&out.stderr, &out.stdout, "Docker Engine API 请求失败"));
+            return Err(map_curl_failure(
+                &out.stderr,
+                &out.stdout,
+                "Docker Engine API 请求失败",
+            ));
         }
-        let body = out.stdout;
+
+        let (body, status) = split_curl_http_status(&out.stdout);
+        let Some(status) = status else {
+            // 兼容不支持 -w 的旧 curl：退回整段 stdout
+            if body.trim().is_empty() {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    "Docker Engine API 返回空响应",
+                )
+                .with_cause(format!(
+                    "socket={sock}；请确认远端 Docker 已运行且当前用户可访问该 unix socket"
+                )));
+            }
+            if let Some(err) = docker_api_error_message(body.trim()) {
+                return Err(
+                    OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err)
+                );
+            }
+            return Ok(body);
+        };
+
+        if !(200..300).contains(&status) {
+            if let Some(err) = docker_api_error_message(body.trim()) {
+                return Err(
+                    OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err)
+                );
+            }
+            let detail = if body.trim().is_empty() {
+                format!("HTTP {status}")
+            } else {
+                format!("HTTP {status}: {}", body.trim())
+            };
+            return Err(
+                OmniError::new(ErrorCode::Internal, "Docker Engine API 请求失败").with_cause(detail)
+            );
+        }
+
+        if body.trim().is_empty() {
+            // 成功状态但无 body：常见于 socket 不可用却被错误吞掉，或守护进程异常
+            return Err(OmniError::new(
+                ErrorCode::Internal,
+                "Docker Engine API 返回空响应",
+            )
+            .with_cause(format!(
+                "HTTP {status}，socket={sock}；请确认远端 Docker 已运行且当前用户可访问该 unix socket"
+            )));
+        }
+
         if let Some(err) = docker_api_error_message(body.trim()) {
             return Err(OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err));
         }
@@ -65,7 +138,8 @@ pub fn parse_docker_api_json<T: DeserializeOwned>(body: &str) -> OmniResult<T> {
         return Err(OmniError::new(
             ErrorCode::Internal,
             "Docker Engine API 返回空响应",
-        ));
+        )
+        .with_cause("响应体为空，请确认远端 Docker 守护进程可用"));
     }
     if let Some(err) = docker_api_error_message(trimmed) {
         return Err(OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err));
@@ -74,6 +148,16 @@ pub fn parse_docker_api_json<T: DeserializeOwned>(body: &str) -> OmniResult<T> {
         OmniError::new(ErrorCode::Internal, "解析 Docker Engine API JSON 失败")
             .with_cause(e.to_string())
     })
+}
+
+fn split_curl_http_status(raw: &str) -> (String, Option<u16>) {
+    if let Some(idx) = raw.rfind(HTTP_STATUS_MARK) {
+        let body = raw[..idx].trim_end_matches('\n').trim_end_matches('\r');
+        let code_str = raw[idx + HTTP_STATUS_MARK.len()..].trim();
+        let code = code_str.parse::<u16>().ok();
+        return (body.to_string(), code);
+    }
+    (raw.to_string(), None)
 }
 
 fn docker_api_error_message(body: &str) -> Option<String> {
@@ -94,13 +178,14 @@ fn docker_api_error_message(body: &str) -> Option<String> {
 }
 
 pub fn map_curl_failure(stderr: &str, stdout: &str, context: &str) -> OmniError {
-    if let Some(msg) = docker_api_error_message(stdout.trim()) {
+    let stdout_body = split_curl_http_status(stdout).0;
+    if let Some(msg) = docker_api_error_message(stdout_body.trim()) {
         return OmniError::new(ErrorCode::Internal, context.to_string()).with_cause(msg);
     }
     let detail = if !stderr.trim().is_empty() {
         stderr.trim()
     } else {
-        stdout.trim()
+        stdout_body.trim()
     };
     OmniError::new(ErrorCode::Internal, context.to_string()).with_cause(detail.to_string())
 }
@@ -122,12 +207,16 @@ pub fn classify_docker_api_error(detail: &str) -> (crate::model::DockerConnectio
     {
         (
             crate::model::DockerConnectionStatus::Degraded,
-            "当前用户无权访问 /var/run/docker.sock（需加入 docker 组）".to_string(),
+            "当前用户无权访问 Docker unix socket（需加入 docker 组）".to_string(),
         )
-    } else if lower.contains("no such file or directory") && lower.contains("docker.sock") {
+    } else if lower.contains("空响应")
+        || lower.contains("响应体为空")
+        || (lower.contains("no such file or directory") && lower.contains("docker.sock"))
+        || lower.contains("http 000")
+    {
         (
             crate::model::DockerConnectionStatus::Offline,
-            "远端 Docker 守护进程未运行或未暴露 unix socket".to_string(),
+            "远端 Docker 守护进程未运行或未暴露可用的 unix socket".to_string(),
         )
     } else if lower.contains("cannot connect") || lower.contains("is the docker daemon running") {
         (
@@ -161,5 +250,18 @@ mod tests {
     fn detects_api_error_payload() {
         let msg = docker_api_error_message(r#"{"message":"No such container: foo"}"#);
         assert_eq!(msg.as_deref(), Some("No such container: foo"));
+    }
+
+    #[test]
+    fn splits_http_status_trailer() {
+        let (body, code) = split_curl_http_status("{\"Version\":\"27.0\"}\n__OMNI_HTTP_STATUS__:200");
+        assert_eq!(body, "{\"Version\":\"27.0\"}");
+        assert_eq!(code, Some(200));
+    }
+
+    #[test]
+    fn classifies_empty_response_as_offline() {
+        let (status, _) = classify_docker_api_error("Docker Engine API 返回空响应");
+        assert_eq!(status, crate::model::DockerConnectionStatus::Offline);
     }
 }

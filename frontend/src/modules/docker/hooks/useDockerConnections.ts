@@ -21,6 +21,7 @@ export function useDockerConnections() {
       setLoading(true);
     }
     try {
+      // 后端 list 会并行 probe，回填真实 online/degraded/offline
       const list = await unwrap(commands.dockerListConnections());
       setConnections(list);
       hasLoadedOnceRef.current = true;

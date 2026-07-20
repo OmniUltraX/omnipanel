@@ -1,8 +1,8 @@
 import type { DockerTreeCategory } from "./dockerSidebarNav";
+import dockerBrandIcon from "../../assets/icons/docker.svg";
 import {
   ComposeStackIcon,
   ContainerIcon,
-  DockerWhaleIcon,
   ImageLayersIcon,
 } from "./icons";
 
@@ -28,7 +28,17 @@ export type DockerTreeIconKind =
 export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
   switch (kind) {
     case "connection":
-      return <DockerWhaleIcon size={13} />;
+      return (
+        <img
+          src={dockerBrandIcon}
+          alt=""
+          width={13}
+          height={13}
+          className="docker-tree-brand-icon"
+          aria-hidden
+          draggable={false}
+        />
+      );
     case "images":
       return <ImageLayersIcon size={13} />;
     case "containers":

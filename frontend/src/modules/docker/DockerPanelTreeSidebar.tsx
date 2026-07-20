@@ -45,7 +45,7 @@ import {
 
 function statusDotClass(status: DockerConnectionInfo["status"]): string {
   if (status === "online") return "online";
-  if (status === "degraded") return "warning";
+  if (status === "degraded") return "connecting";
   return "offline";
 }
 
@@ -119,7 +119,6 @@ function DockerTreeBranch({
         containers.length === 0 &&
         error == null
       }
-      error={error}
       isExpanded={isExpanded}
       toggle={toggle}
       ensureExpanded={ensureExpanded}
@@ -301,10 +300,22 @@ export function DockerPanelTreeSidebar({
                   shouldIgnoreClick={(target) =>
                     Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
                   }
+                  prefix={
+                    <span
+                      className={`topbar-tab-dot ${statusDotClass(connection.status)}`}
+                      title={
+                        connection.status === "online"
+                          ? t("docker.sidebar.statusOnline")
+                          : connection.status === "degraded"
+                            ? t("docker.sidebar.statusDegraded")
+                            : t("docker.sidebar.statusOffline")
+                      }
+                      aria-hidden
+                    />
+                  }
                   label={
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{connection.name}</span>
-                      <span className={`status-dot ${statusDotClass(connection.status)}`} />
                       <span className="badge badge-muted docker-tree-source-tag">
                         {dockerSourceLabel(connection.source)}
                       </span>

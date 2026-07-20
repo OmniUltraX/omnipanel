@@ -1203,6 +1203,7 @@ pub async fn compose_action(
 ) -> OmniResult<DockerComposeResult> {
     let sub = match action {
         DockerComposeAction::Up => "up",
+        DockerComposeAction::Stop => "stop",
         DockerComposeAction::Down => "down",
         DockerComposeAction::Restart => "restart",
         DockerComposeAction::Rebuild => "up",

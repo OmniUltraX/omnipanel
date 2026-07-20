@@ -13,6 +13,7 @@ mod container_dir_ls;
 mod daemon_config;
 mod image_search;
 mod log_util;
+mod bollard_error;
 mod stats;
 mod volume_files;
 pub mod local;

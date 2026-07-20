@@ -443,10 +443,12 @@ export function DockerPanel() {
   const connectionByIdRef = useRef(connectionById);
   const activeTabIdRef = useRef(activeTabId);
   const moduleLiveRef = useRef(moduleLive);
+  const reloadConnectionsRef = useRef(reloadConnections);
   dockTabsRef.current = dockTabs;
   connectionByIdRef.current = connectionById;
   activeTabIdRef.current = activeTabId;
   moduleLiveRef.current = moduleLive;
+  reloadConnectionsRef.current = reloadConnections;
 
   const renderDockerPanel = useCallback((tabId: string) => {
     const tab = dockTabsRef.current.find((item) => item.id === tabId);
@@ -478,14 +480,22 @@ export function DockerPanel() {
             />
           </Suspense>
         ) : (
-          <DockerConnectionInfoPanel connection={connection} isActive={isActive} />
+          <DockerConnectionInfoPanel
+            connection={connection}
+            isActive={isActive}
+            onConnectionsNeedReload={() => reloadConnectionsRef.current()}
+          />
         )}
       </div>
     );
   }, []);
 
-  // 仅路由 live 变化时全局 soft；切 Tab 由 DockableWorkspace 局部 soft bump
-  const dockSoftRefreshKey = moduleLive ? "live" : "idle";
+  // 连接状态变化时 soft bump，避免 Dock 缓存仍持有 offline 的 connection 快照
+  const connectionsStatusKey = useMemo(
+    () => connections.map((item) => `${item.connectionId}:${item.status}`).join("|"),
+    [connections],
+  );
+  const dockSoftRefreshKey = `${moduleLive ? "live" : "idle"}:${connectionsStatusKey}`;
 
   const sidebarLinkageValue = useMemo(
     () => ({

@@ -30,9 +30,11 @@ interface IconDropdownButtonProps {
   size?: VariantProps<typeof buttonVariants>["size"];
   className?: string;
   menuMinWidth?: number;
+  /** 菜单相对按钮展开方向；页脚场景用 top */
+  placement?: "bottom" | "top";
 }
 
-/** 图标触发噀+ 下拉菜单，适用于工具栏等紧凑场景　*/
+/** 图标触发器 + 下拉菜单，适用于工具栏等紧凑场景 */
 export function IconDropdownButton({
   title,
   ariaLabel,
@@ -43,6 +45,7 @@ export function IconDropdownButton({
   size = "icon-sm",
   className,
   menuMinWidth = 180,
+  placement = "bottom",
 }: IconDropdownButtonProps) {
   const menuId = useId();
   const [open, setOpen] = useState(false);
@@ -57,20 +60,23 @@ export function IconDropdownButton({
 
   useLayoutEffect(() => {
     if (!open) {
+      setMenuPosition(null);
       return;
     }
 
     const syncMenuPosition = () => {
       const rect = buttonRef.current?.getBoundingClientRect();
       const menuEl = menuRef.current;
-      if (!rect) {
+      if (!rect || !menuEl) {
         return;
       }
 
-      const measuredWidth = menuEl?.getBoundingClientRect().width ?? menuMinWidth;
-      const measuredHeight = menuEl?.getBoundingClientRect().height ?? 0;
+      const measuredWidth = menuEl.getBoundingClientRect().width || menuMinWidth;
+      const measuredHeight = menuEl.getBoundingClientRect().height;
+      const preferredY =
+        placement === "top" ? rect.top - measuredHeight - 4 : rect.bottom + 4;
       const anchor = clampMenuPosition(
-        { x: rect.left, y: rect.bottom + 4 },
+        { x: rect.left, y: preferredY },
         { width: Math.max(measuredWidth, menuMinWidth), height: measuredHeight },
       );
 
@@ -88,7 +94,7 @@ export function IconDropdownButton({
       window.removeEventListener("resize", syncMenuPosition);
       window.removeEventListener("scroll", syncMenuPosition, true);
     };
-  }, [open, items, menuMinWidth]);
+  }, [open, items, menuMinWidth, placement]);
 
   useEffect(() => {
     if (!open) {
@@ -126,46 +132,48 @@ export function IconDropdownButton({
           {icon}
         </Button>
       </div>
-      {open &&
-        menuPosition &&
-        createPortal(
-          <div
-            id={menuId}
-            role="menu"
-            ref={menuRef}
-            className="icon-dropdown-button__menu"
-            style={{
-              position: "fixed",
-              top: menuPosition.top,
-              left: menuPosition.left,
-              minWidth: menuPosition.minWidth,
-              zIndex: "var(--z-popover, 1200)",
-            }}
-          >
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="menuitem"
-                className="icon-dropdown-button__item"
-                disabled={item.disabled}
-                onClick={() => {
-                  if (item.disabled) {
-                    return;
-                  }
-                  item.onSelect();
-                  setOpen(false);
-                }}
-              >
-                <span className="icon-dropdown-button__item-title">{item.label}</span>
-                {item.subtitle ? (
-                  <span className="icon-dropdown-button__item-desc">{item.subtitle}</span>
-                ) : null}
-              </button>
-            ))}
-          </div>,
-          document.body,
-        )}
+      {open
+        ? createPortal(
+            <div
+              id={menuId}
+              role="menu"
+              ref={menuRef}
+              className="icon-dropdown-button__menu"
+              style={{
+                position: "fixed",
+                top: menuPosition?.top ?? 0,
+                left: menuPosition?.left ?? 0,
+                minWidth: menuPosition?.minWidth ?? menuMinWidth,
+                zIndex: "var(--z-popover, 1200)",
+                visibility: menuPosition ? "visible" : "hidden",
+                pointerEvents: menuPosition ? "auto" : "none",
+              }}
+            >
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitem"
+                  className="icon-dropdown-button__item"
+                  disabled={item.disabled}
+                  onClick={() => {
+                    if (item.disabled) {
+                      return;
+                    }
+                    item.onSelect();
+                    setOpen(false);
+                  }}
+                >
+                  <span className="icon-dropdown-button__item-title">{item.label}</span>
+                  {item.subtitle ? (
+                    <span className="icon-dropdown-button__item-desc">{item.subtitle}</span>
+                  ) : null}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

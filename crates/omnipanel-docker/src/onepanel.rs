@@ -1796,10 +1796,12 @@ impl DockerAdapter for OnePanelAdapter {
 
         match action {
             DockerComposeAction::Up
+            | DockerComposeAction::Stop
             | DockerComposeAction::Down
             | DockerComposeAction::Restart => {
                 let operation = match action {
                     DockerComposeAction::Up => "up",
+                    DockerComposeAction::Stop => "stop",
                     DockerComposeAction::Down => "down",
                     DockerComposeAction::Restart => "restart",
                     _ => unreachable!(),
