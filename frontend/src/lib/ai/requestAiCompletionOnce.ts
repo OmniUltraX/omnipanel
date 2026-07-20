@@ -1,4 +1,4 @@
-import { buildBearerAuthorization, fetchWithNetworkHint } from "../fetchHeaders";
+import { withOptionalBearerAuth, fetchWithNetworkHint } from "../fetchHeaders";
 import {
   firstModelSelectionId,
   resolveModelSelection,
@@ -25,7 +25,7 @@ function resolveAiModelConfig(): AiModelConfig | null {
   const selectionId = firstModelSelectionId(providers);
   if (!selectionId) return null;
   const resolved = resolveModelSelection(providers, selectionId);
-  if (!resolved || !resolved.apiKey.trim()) return null;
+  if (!resolved) return null;
   return {
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
@@ -77,10 +77,10 @@ export async function requestAiCompletionOnce(
     try {
       const response = await fetchWithNetworkHint(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: buildBearerAuthorization(config.apiKey),
-        },
+        headers: withOptionalBearerAuth(
+          { "Content-Type": "application/json" },
+          config.apiKey,
+        ),
         body: JSON.stringify({
           model: config.name,
           messages: [

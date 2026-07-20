@@ -114,6 +114,14 @@ export async function submitKnowledgeVectorize(args: unknown): Promise<string> {
   return invoke<string>("bg_task_submit_knowledge_vectorize", { args });
 }
 
+export async function submitOllamaInstall(): Promise<string> {
+  return invoke<string>("bg_task_submit_ollama_install");
+}
+
+export async function submitOllamaPull(model: string): Promise<string> {
+  return invoke<string>("bg_task_submit_ollama_pull", { model });
+}
+
 export async function submitDbSchemaCacheRefresh(
   connectionIds: string[] | null,
 ): Promise<string> {

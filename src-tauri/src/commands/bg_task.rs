@@ -9,6 +9,9 @@ use crate::background::db_sync_jobs::{
     run_db_schema_sync_analysis, run_db_schema_sync_execute,
 };
 use crate::background::knowledge_vector_jobs::run_knowledge_vectorize_background;
+use crate::background::local_runtime_jobs::{
+    run_ollama_install_background, run_ollama_pull_background,
+};
 use crate::background::schema_cache_jobs::run_db_schema_cache_refresh;
 use crate::background::worker_pool::BackgroundTaskInfo;
 use crate::commands::database::is_db_connection_enabled;
@@ -139,6 +142,55 @@ pub async fn bg_task_submit_knowledge_vectorize(
         1,
         move |task_id, cancel, progress| {
             run_knowledge_vectorize_background(app, storage, task_id, args, cancel, progress)
+        },
+    )
+    .await
+}
+
+/// 提交 Ollama 授权安装后台任务。
+#[tauri::command]
+#[specta::specta]
+pub async fn bg_task_submit_ollama_install(
+    state: State<'_, AppState>,
+) -> Result<String, OmniError> {
+    let app = state.app_handle.clone();
+    let pool = state.worker_pool.clone();
+    pool.spawn(
+        app.clone(),
+        "localModels",
+        "ollamaInstall",
+        "安装 Ollama",
+        100,
+        move |task_id, cancel, progress| {
+            run_ollama_install_background(app, task_id, cancel, progress)
+        },
+    )
+    .await
+}
+
+/// 提交 Ollama 模型拉取后台任务。
+#[tauri::command]
+#[specta::specta]
+pub async fn bg_task_submit_ollama_pull(
+    state: State<'_, AppState>,
+    model: String,
+) -> Result<String, OmniError> {
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err(OmniError::invalid_input("模型名不能为空"));
+    }
+    let title = format!("拉取模型：{model}");
+    let app = state.app_handle.clone();
+    let pool = state.worker_pool.clone();
+    let model_for_job = model.clone();
+    pool.spawn(
+        app.clone(),
+        "localModels",
+        "ollamaPull",
+        title,
+        100,
+        move |task_id, cancel, progress| {
+            run_ollama_pull_background(app, task_id, model_for_job, cancel, progress)
         },
     )
     .await

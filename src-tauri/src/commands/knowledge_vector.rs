@@ -4,8 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
-    KnowledgeChunkListResult, KnowledgeChunkRecord, KnowledgeRecallHit,
-    KnowledgeVectorStatus, Storage, chunk_text,
+    chunk_text, load_embedding_provider, save_embedding_provider, KnowledgeChunkListResult,
+    KnowledgeChunkRecord, KnowledgeRecallHit, KnowledgeVectorStatus, Storage,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -14,14 +14,20 @@ use tokio::sync::Mutex;
 
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct EmbeddingProviderConfig {
-    pub provider_id: String,
-    pub model_name: String,
-    pub base_url: String,
-    pub api_key: String,
-    pub api_standard: String,
+pub use omnipanel_store::EmbeddingProviderConfig;
+
+/// 同步前端 embedding 配置到 `~/.omnipd/ai/embedding_provider.json`，供 MCP Skill 向量化读取。
+#[tauri::command]
+#[specta::specta]
+pub async fn embedding_provider_sync(provider: EmbeddingProviderConfig) -> Result<(), OmniError> {
+    save_embedding_provider(&provider).map_err(|e| OmniError::invalid_input(e.user_message()))
+}
+
+/// 读取后端已同步的 embedding 配置。
+#[tauri::command]
+#[specta::specta]
+pub async fn embedding_provider_get() -> Result<Option<EmbeddingProviderConfig>, OmniError> {
+    load_embedding_provider().map_err(|e| OmniError::invalid_input(e.user_message()))
 }
 
 #[derive(Debug, Deserialize, specta::Type)]

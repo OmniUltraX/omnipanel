@@ -16,7 +16,10 @@
 import { useEffect } from "react";
 import { getShortcutKeys, matchesShortcut } from "../stores/shortcutsStore";
 import { useStatusBarActionBarStore } from "../stores/statusBarActionBarStore";
-import { getDockviewInstanceByScope } from "../lib/dockviewRegistry";
+import {
+  getDockviewInstanceByScope,
+  findDockviewInstanceContainingElement,
+} from "../lib/dockviewRegistry";
 import { openLocalTerminalSession } from "../lib/terminalSession";
 import { useCommandRegistry } from "../stores/commandRegistry";
 import { useTerminalStore } from "../stores/terminalStore";
@@ -38,16 +41,23 @@ function resolveModuleFromScope(dockScope: string | undefined): string | null {
   return null;
 }
 
+/** 解析当前应响应 Tab 快捷键的 dockview 实例 */
+function resolveFocusedDockInstance() {
+  const { activeDock } = useStatusBarActionBarStore.getState();
+  if (activeDock?.dockScope) {
+    const byScope = getDockviewInstanceByScope(activeDock.dockScope);
+    if (byScope) return byScope;
+  }
+  // 状态栏未同步时：从焦点元素所属 dock 回退
+  return findDockviewInstanceContainingElement(document.activeElement) ?? null;
+}
+
 /** 在焦点 dock 上执行 tab 操作（close / switch / nth） */
 function actOnFocusedDock(
   action: "close" | "next" | "prev" | "nth",
   n?: number,
 ): boolean {
-  const { activeDock } = useStatusBarActionBarStore.getState();
-  if (!activeDock?.dockScope) return false;
-
-  // 找到焦点 dock 对应的 dockview 实例
-  const instance = getDockviewInstanceByScope(activeDock.dockScope);
+  const instance = resolveFocusedDockInstance();
   if (!instance) return false;
   const api = instance.api;
   const panels = api.panels;
@@ -100,35 +110,70 @@ function tryRunCommandByShortcutId(shortcutId: string): boolean {
   return false;
 }
 
-/** 检测双 Shift（Search Everywhere 触发） */
+/**
+ * 检测双击 Shift（Search Everywhere 触发）。
+ *
+ * 必须用「轻触」语义（keydown → 短按 → keyup），不能只数 keydown：
+ * 长按 Shift 时浏览器会自动重复 keydown（e.repeat），容易在窗口内误判为双击。
+ */
 function useDoubleShiftTrigger(onTrigger: () => void) {
-  const lastShiftRef = { current: 0 };
   const DOUBLE_SHIFT_MS = 350;
+  /** 单次按住超过此时间视为长按，不算 tap */
+  const MAX_TAP_HOLD_MS = 400;
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // 仅响应纯 Shift 按下（无其它修饰键）
-      if (e.key !== "Shift") return;
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
-      // 忽略 xterm / 输入框内的 Shift（避免在终端/编辑器里误触）
-      const target = e.target as HTMLElement;
-      if (target?.closest?.(".xterm")) return;
-      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") {
-        // 允许在已聚焦的输入框里双 Shift（DataGrip 行为），但需更短间隔
-      }
+    let lastTapAt = 0;
+    let shiftDownAt = 0;
+    /** Shift 按住期间按了其它键（组合键/输入），本次不算 tap */
+    let contaminated = false;
 
-      const now = Date.now();
-      if (now - lastShiftRef.current < DOUBLE_SHIFT_MS) {
-        e.preventDefault();
-        e.stopPropagation();
-        lastShiftRef.current = 0; // 防止三连 Shift 再次触发
-        onTrigger();
-      } else {
-        lastShiftRef.current = now;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") {
+        // 忽略长按产生的自动重复
+        if (e.repeat) return;
+        shiftDownAt = Date.now();
+        contaminated = false;
+        return;
+      }
+      if (shiftDownAt > 0) {
+        contaminated = true;
       }
     };
-    document.addEventListener("keydown", handler, true);
-    return () => document.removeEventListener("keydown", handler, true);
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Shift") return;
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      const target = e.target as HTMLElement;
+      if (target?.closest?.(".xterm")) return;
+
+      const downAt = shiftDownAt;
+      shiftDownAt = 0;
+      if (downAt === 0 || contaminated) {
+        contaminated = false;
+        return;
+      }
+
+      // 长按松开：不算一次 tap
+      if (Date.now() - downAt > MAX_TAP_HOLD_MS) return;
+
+      const now = Date.now();
+      if (now - lastTapAt < DOUBLE_SHIFT_MS) {
+        e.preventDefault();
+        e.stopPropagation();
+        lastTapAt = 0; // 防止三连 Shift 再次触发
+        onTrigger();
+      } else {
+        lastTapAt = now;
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [onTrigger]);
 }
 

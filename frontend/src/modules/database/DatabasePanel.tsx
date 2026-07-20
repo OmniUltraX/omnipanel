@@ -469,7 +469,7 @@ export function DatabasePanel() {
     databaseName: string;
   } | null>(null);
   const [importSubmitting, setImportSubmitting] = useState(false);
-  const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
+  // 勿订阅 savedLayout：切 Tab 会频繁写 layout，订阅会拖垮整页（侧栏+面板）
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
   const referencedDatabaseTabIds = useWorkspaceBottomDockStore(
@@ -5504,8 +5504,6 @@ export function DatabasePanel() {
             enabled={moduleLive}
             windowControl
             onCloseTab={handleCloseDockTab}
-            dockLayout={dockLayout}
-            onDockLayoutChange={setDockLayout}
             renderDockPanel={renderDockPanel}
             softRefreshKey={moduleSoftRefreshKey}
             panelContentKeysByTab={panelContentKeysByTab}

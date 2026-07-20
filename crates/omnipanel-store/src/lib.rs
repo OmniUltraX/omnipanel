@@ -13,6 +13,7 @@ mod http;
 mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
+mod embedding_config;
 mod host_resolve_cache;
 mod paths;
 mod resource_profile;
@@ -48,7 +49,13 @@ pub use host_resolve_cache::{
 };
 pub use paths::default_file_index_storage_dir;
 pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
-pub use skill_db::{SkillApplication, SkillDbRecord, SkillKnowledgeLink};
+pub use skill_db::{
+    SkillApplication, SkillDbRecord, SkillKnowledgeLink, SkillVectorHit, SkillVectorStatus,
+};
+pub use embedding_config::{
+    default_ollama_embedding_provider, load_embedding_provider, resolve_embedding_provider_for_backend,
+    save_embedding_provider, EmbeddingProviderConfig,
+};
 pub use database::{
     DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
     save_database_connections,
@@ -58,8 +65,7 @@ pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
 pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
 pub use knowledge_vector::{
     KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
-    KnowledgeVectorHit,
-    KnowledgeVectorStatus, chunk_text,
+    KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text, cosine_similarity,
 };
 pub use http_proxy::{load_http_proxy_config, save_http_proxy_config, HttpProxyConfig};
 pub use web_search::{

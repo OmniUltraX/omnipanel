@@ -3792,7 +3792,8 @@ a {
     flex-shrink: 0;
     cursor: pointer;
     box-sizing: border-box;
-    transition: color 0.12s, border-color 0.12s, background-color 0.12s;
+    /* 不含 border-color：激活指示条必须即时跟上点击，过渡会显得「不跟手」 */
+    transition: color 0.08s, background-color 0.08s;
 }
 
 .dockable-workspace .dv-tab .dv-default-tab:hover {
@@ -5124,9 +5125,16 @@ a {
     background: var(--bg-deeper);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    padding: 2px 8px;
+    padding: 4px 8px;
+    min-height: 28px;
     font-family: var(--font-mono);
     font-size: 12px;
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.advance-terminal-side .sftp-path:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .advance-terminal-side .sftp-path-crumbs {
@@ -5166,19 +5174,45 @@ a {
 
 .advance-terminal-side .sftp-quick-paths--top {
     display: flex;
-    gap: var(--sp-2);
+    gap: 6px;
     flex-shrink: 0;
     flex-wrap: wrap;
 }
 
 .advance-terminal-side .sftp-quick-btn {
     font-size: 11px;
-    padding: 2px 8px;
+    line-height: 1.2;
+    padding: 4px 10px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--r-sm);
+    border-radius: 999px;
     color: var(--fg-2);
     cursor: pointer;
+}
+
+.advance-terminal-side .sftp-quick-btn.is-active {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    font-weight: 600;
+}
+
+.advance-terminal-side .sftp-composer {
+    flex-shrink: 0;
+}
+
+.advance-terminal-side .sftp-composer__body {
+    flex-wrap: wrap;
+}
+
+.advance-terminal-side .sftp-composer__input {
+    flex: 1 1 100%;
+    min-width: 0;
+}
+
+.advance-terminal-side .sftp-composer__actions {
+    flex: 1 1 auto;
+    justify-content: flex-end;
 }
 
 .advance-terminal-side .sftp-table-wrap {
@@ -5223,7 +5257,7 @@ a {
 }
 
 .advance-terminal-side .sftp-col-actions {
-    width: 32px;
+    width: 36px;
     white-space: nowrap;
 }
 
@@ -7330,6 +7364,7 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
         width: 6px;
         height: 6px;
         border-radius: 50%;
+        background: var(--fg-3, var(--meta, #666));
     }
 
     .statusbar-dot.green {
@@ -15851,6 +15886,184 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
 
 .setting-hint--warn {
     color: var(--warn);
+}
+
+.setting-hint--error {
+    color: var(--danger);
+}
+
+.local-runtime-card {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md, 8px);
+    background: color-mix(in oklch, var(--bg-elevated) 80%, transparent);
+}
+
+.local-runtime-card + .local-runtime-card {
+    margin-top: 16px;
+}
+
+.local-runtime-card__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.local-runtime-card h3,
+.local-runtime-card h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.local-runtime-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.local-runtime-models {
+    margin-top: 12px;
+}
+
+.local-runtime-model-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.local-runtime-model-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.local-runtime-model-row:last-child {
+    border-bottom: none;
+}
+
+.local-runtime-model-name {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 13px;
+}
+
+.local-runtime-scenario-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.local-runtime-scenario h4 {
+    margin: 0 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary, inherit);
+}
+
+.local-runtime-task-panel {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md, 8px);
+    background: color-mix(in oklch, var(--accent) 6%, var(--bg-elevated));
+}
+
+.local-runtime-task-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.local-runtime-task-panel__header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.local-runtime-task-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.local-runtime-task-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.local-runtime-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.local-runtime-progress__track {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+}
+
+.local-runtime-progress__fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.2s ease;
+}
+
+.local-runtime-custom-pull {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.local-runtime-custom-pull > :first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.local-runtime-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.local-runtime-badge--ok {
+    color: var(--success);
+    background: color-mix(in oklch, var(--success) 12%, transparent);
+}
+
+.local-runtime-badge--warn {
+    color: var(--warn);
+    background: color-mix(in oklch, var(--warn) 12%, transparent);
+}
+
+.local-runtime-badge--muted {
+    color: var(--fg-2);
+    background: color-mix(in oklch, var(--fg-2) 10%, transparent);
 }
 
 /* Update progress bar */

@@ -106,6 +106,8 @@ fn export_ipc_bindings() {
         commands::bg_task::bg_task_submit_db_schema_sync_execute,
         commands::bg_task::bg_task_submit_db_schema_cache_refresh,
         commands::bg_task::bg_task_submit_knowledge_vectorize,
+        commands::bg_task::bg_task_submit_ollama_install,
+        commands::bg_task::bg_task_submit_ollama_pull,
         commands::db_mysql_export::db_mysql_export_list,
         commands::db_mysql_export::db_mysql_export_save_as,
         commands::db_mysql_export::db_mysql_export_delete,
@@ -297,6 +299,16 @@ fn export_ipc_bindings() {
         commands::knowledge_vector::knowledge_delete_chunks,
         commands::knowledge_vector::knowledge_recall_test,
         commands::knowledge_vector::knowledge_query_document,
+        commands::knowledge_vector::embedding_provider_sync,
+        commands::knowledge_vector::embedding_provider_get,
+        commands::local_runtime::local_runtime_probe,
+        commands::local_runtime::local_runtime_refresh_catalog,
+        commands::local_runtime::local_runtime_start_ollama,
+        commands::local_runtime::local_runtime_install_ollama,
+        commands::local_runtime::local_runtime_ollama_pull,
+        commands::local_runtime::local_runtime_ollama_delete,
+        commands::local_runtime::local_runtime_probe_openai_compat,
+        commands::local_runtime::local_runtime_ollama_download_url,
         commands::workflow::workflow_list,
         commands::workflow::workflow_get,
         commands::workflow::workflow_save,
@@ -412,6 +424,9 @@ fn export_ipc_bindings() {
         commands::skills::skill_get_version_chain,
         commands::skills::skill_list_applications,
         commands::skills::skill_update_application_outcome,
+        commands::skills::skill_vectorize,
+        commands::skills::skill_vector_status,
+        commands::skills::skill_vectorize_all,
         // Providers
         commands::providers::registry::provider_registry_load,
         commands::providers::registry::provider_registry_save,
@@ -491,11 +506,16 @@ pub fn run() {
 fn build_and_run_tauri() {
     // 仅在显式请求时生成 IPC bindings（OMNIPANEL_GEN_BINDINGS_ONLY=1）。
     // collect_commands![...] + .export() 会递归遍历 ~400 个命令的类型树，
-    // 普通启动也跑会栈溢出（即使 16MB 栈都不够）。bindings 由 gen-ipc-bindings.mjs
-    // 脚本或 CI 单独调用生成，提交到 git，dev 启动直接用现成的。
+    // 在常规 16MB 栈上仍可能溢出；导出单独开更大栈。bindings 由
+    // gen-ipc-bindings.mjs 或 CI 生成，dev 启动直接用现成的。
     #[cfg(debug_assertions)]
     if std::env::var("OMNIPANEL_GEN_BINDINGS_ONLY").is_ok() {
-        export_ipc_bindings();
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(export_ipc_bindings)
+            .expect("failed to spawn ipc bindings export thread")
+            .join()
+            .expect("ipc bindings export thread panicked");
         return;
     }
 
@@ -751,6 +771,8 @@ fn build_and_run_tauri() {
         commands::bg_task::bg_task_submit_db_schema_sync_execute,
         commands::bg_task::bg_task_submit_db_schema_cache_refresh,
         commands::bg_task::bg_task_submit_knowledge_vectorize,
+        commands::bg_task::bg_task_submit_ollama_install,
+        commands::bg_task::bg_task_submit_ollama_pull,
         commands::db_mysql_export::db_mysql_export_list,
         commands::db_mysql_export::db_mysql_export_save_as,
         commands::db_mysql_export::db_mysql_export_delete,
@@ -952,6 +974,16 @@ fn build_and_run_tauri() {
         commands::knowledge_vector::knowledge_delete_chunks,
         commands::knowledge_vector::knowledge_recall_test,
         commands::knowledge_vector::knowledge_query_document,
+            commands::knowledge_vector::embedding_provider_sync,
+            commands::knowledge_vector::embedding_provider_get,
+            commands::local_runtime::local_runtime_probe,
+            commands::local_runtime::local_runtime_refresh_catalog,
+            commands::local_runtime::local_runtime_start_ollama,
+            commands::local_runtime::local_runtime_install_ollama,
+            commands::local_runtime::local_runtime_ollama_pull,
+            commands::local_runtime::local_runtime_ollama_delete,
+            commands::local_runtime::local_runtime_probe_openai_compat,
+            commands::local_runtime::local_runtime_ollama_download_url,
             // Workflow（工作流）
             commands::workflow::workflow_list,
             commands::workflow::workflow_get,
@@ -1051,6 +1083,9 @@ fn build_and_run_tauri() {
             commands::skills::skill_get_version_chain,
             commands::skills::skill_list_applications,
             commands::skills::skill_update_application_outcome,
+            commands::skills::skill_vectorize,
+            commands::skills::skill_vector_status,
+            commands::skills::skill_vectorize_all,
             // Providers
             commands::providers::registry::provider_registry_load,
             commands::providers::registry::provider_registry_save,

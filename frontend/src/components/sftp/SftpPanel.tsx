@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { commands } from "../../ipc/bindings";
 import { Button } from "../ui/primitives/Button";
 import { TextInput } from "../ui/form/TextInput";
 import { FileEntryIcon } from "../ui/icons/FileEntryIcon";
+import { ContextMenu } from "../ui/menu/ContextMenu";
 import { useSshDetailNavigationStore } from "../../stores/sshDetailNavigationStore";
 import { useI18n } from "../../i18n";
 import { pathToRemoteDir } from "../../modules/server/ssh/utils/parseCommandPaths";
@@ -15,8 +17,15 @@ import {
   sftpEntryRowClass,
 } from "./sftpEntryDisplay";
 import { FilePreviewSubWindow } from "../../modules/files/FilePreviewSubWindow";
+import { uploadRemote } from "../../modules/files/fileApi";
+import { LOCAL_CONNECTION_ID } from "../../modules/files/utils";
 import type { SftpPanelAdapter } from "./sftpAdapter";
 import { resolveSftpCapabilities } from "./sftpAdapter";
+import { SftpComposer } from "./SftpComposer";
+import {
+  buildFileEntryContextMenuItems,
+  type FileEntryCtxLabels,
+} from "./buildFileEntryContextMenu";
 
 export type SftpPanelProps = {
   resourceId: string | null;
@@ -35,6 +44,35 @@ const QUICK_PATHS = [
   { label: "/home", path: "/home" },
   { label: "/tmp", path: "/tmp" },
 ];
+
+type ComposerMode = "mkdir" | "rename" | "chmod" | null;
+
+function IconUp() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function IconFolderPlus() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <line x1="9" y1="14" x2="15" y2="14" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+    </svg>
+  );
+}
 
 export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPanelProps) {
   const { t } = useI18n();
@@ -65,8 +103,9 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [showMkdir, setShowMkdir] = useState(false);
+  const [composer, setComposer] = useState<ComposerMode>(null);
   const [mkdirName, setMkdirName] = useState("");
+  const [composerBusy, setComposerBusy] = useState(false);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: SftpEntry } | null>(null);
   const [renameTarget, setRenameTarget] = useState<SftpEntry | null>(null);
@@ -87,7 +126,6 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
 
   const canUpload = Boolean(adapter?.writeBytes) || Boolean(resourceId);
 
-  // 双击文件预览：仅预览非目录；目录走 navigateTo
   const [previewEntry, setPreviewEntry] = useState<SftpEntry | null>(null);
   const fullPathOf = useCallback(
     (entry: SftpEntry) => (path === "/" ? `/${entry.name}` : `${path}/${entry.name}`),
@@ -98,6 +136,43 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     setPreviewEntry(entry);
   }, [capabilities.preview]);
   const closePreview = useCallback(() => setPreviewEntry(null), []);
+
+  const closeComposer = useCallback(() => {
+    setComposer(null);
+    setMkdirName("");
+    setRenameTarget(null);
+    setRenameValue("");
+    setChmodTarget(null);
+    setChmodValue("");
+    setComposerBusy(false);
+  }, []);
+
+  const openMkdir = useCallback(() => {
+    setRenameTarget(null);
+    setRenameValue("");
+    setChmodTarget(null);
+    setChmodValue("");
+    setMkdirName("");
+    setComposer("mkdir");
+  }, []);
+
+  const openRename = useCallback((entry: SftpEntry) => {
+    setMkdirName("");
+    setChmodTarget(null);
+    setChmodValue("");
+    setRenameTarget(entry);
+    setRenameValue(entry.name);
+    setComposer("rename");
+  }, []);
+
+  const openChmod = useCallback((entry: SftpEntry) => {
+    setMkdirName("");
+    setRenameTarget(null);
+    setRenameValue("");
+    setChmodTarget(entry);
+    setChmodValue("");
+    setComposer("chmod");
+  }, []);
 
   const loadDir = async (
     dir: string,
@@ -191,7 +266,6 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     void run();
     return () => {
       disposed = true;
-      // 使进行中的 list 失效，避免 StrictMode/重挂载后永久卡在 loading
       loadSeqRef.current += 1;
     };
   }, [adapter, sessionKey, startPath]);
@@ -206,14 +280,6 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       originalPath: pendingSftp.path,
     });
   }, [adapter, pendingSftp, sessionKey]);
-
-  useEffect(() => {
-    const handler = () => setContextMenu(null);
-    if (contextMenu) {
-      document.addEventListener("click", handler);
-      return () => document.removeEventListener("click", handler);
-    }
-  }, [contextMenu]);
 
   const navigateUp = () => {
     if (path === "/") return;
@@ -244,9 +310,98 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     }
   };
 
+  const handleDownload = useCallback(async (entry: SftpEntry) => {
+    if (entry.isDir) return;
+    const remotePath = fullPathOf(entry);
+    const savePath = await saveFileDialog({ defaultPath: entry.name });
+    if (!savePath) return;
+    try {
+      let bytes: number[];
+      if (adapter?.readBytes) {
+        bytes = await adapter.readBytes(remotePath, 512 * 1024 * 1024);
+      } else if (resourceId) {
+        const result = await commands.sftpDownload(resourceId, remotePath);
+        if (result.status !== "ok") {
+          throw new Error(result.error.message || "download failed");
+        }
+        bytes = result.data;
+      } else {
+        return;
+      }
+      await uploadRemote(LOCAL_CONNECTION_ID, savePath, bytes);
+      setInfo(t("files.entryCtx.downloadDone", { name: entry.name }));
+    } catch (e) {
+      setError(fmtSftpError(e));
+    }
+  }, [adapter, fullPathOf, resourceId, t]);
+
+  const ctxLabels = useMemo((): FileEntryCtxLabels => ({
+    open: t("files.entryCtx.open"),
+    openDir: t("files.entryCtx.openDir"),
+    openFile: t("files.entryCtx.openFile"),
+    edit: t("files.entryCtx.edit"),
+    download: t("files.entryCtx.download"),
+    copyName: t("files.entryCtx.copyName"),
+    copyPath: t("files.entryCtx.copyPath"),
+    copyCd: t("files.entryCtx.copyCd"),
+    listDir: t("files.entryCtx.listDir"),
+    viewContent: t("files.entryCtx.viewContent"),
+    showInfo: t("files.entryCtx.showInfo"),
+    revealInSftp: t("files.entryCtx.revealInSftp"),
+    rename: t("files.entryCtx.rename"),
+    chmod: t("files.entryCtx.chmod"),
+    delete: t("files.entryCtx.delete"),
+  }), [t]);
+
+  const contextMenuItems = useMemo(() => {
+    if (!contextMenu) return [];
+    const entry = contextMenu.entry;
+    const absolutePath = fullPathOf(entry);
+    const canDownload = !entry.isDir && (Boolean(adapter?.readBytes) || Boolean(resourceId));
+    return buildFileEntryContextMenuItems({
+      isDir: entry.isDir,
+      labels: ctxLabels,
+      handlers: {
+        onOpen: entry.isDir
+          ? () => navigateTo(entry)
+          : capabilities.preview
+            ? () => openPreview(entry)
+            : undefined,
+        onEdit: entry.isDir || !capabilities.preview
+          ? undefined
+          : () => openPreview(entry),
+        onDownload: canDownload ? () => void handleDownload(entry) : undefined,
+        onCopyName: () => void navigator.clipboard.writeText(entry.name),
+        onCopyPath: () => void navigator.clipboard.writeText(absolutePath),
+        onRename: capabilities.rename ? () => openRename(entry) : undefined,
+        onChmod: capabilities.chmod ? () => openChmod(entry) : undefined,
+        onDelete: capabilities.delete ? () => void handleDelete(entry) : undefined,
+      },
+    });
+  }, [
+    adapter?.readBytes,
+    capabilities.chmod,
+    capabilities.delete,
+    capabilities.preview,
+    capabilities.rename,
+    contextMenu,
+    ctxLabels,
+    fullPathOf,
+    handleDownload,
+    openChmod,
+    openPreview,
+    openRename,
+    resourceId,
+  ]);
+
   const handleMkdir = async () => {
-    if (!sessionKey || !capabilities.mkdir || !mkdirName) return;
-    const fullPath = path === "/" ? `/${mkdirName}` : `${path}/${mkdirName}`;
+    const name = mkdirName.trim();
+    if (!sessionKey || !capabilities.mkdir || !name) {
+      if (!name) setError(t("ssh.sftp.mkdirRequired"));
+      return;
+    }
+    const fullPath = path === "/" ? `/${name}` : `${path}/${name}`;
+    setComposerBusy(true);
     try {
       if (adapter?.mkdir) {
         await adapter.mkdir(fullPath);
@@ -255,11 +410,11 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       } else {
         return;
       }
-      setShowMkdir(false);
-      setMkdirName("");
+      closeComposer();
       void loadDir(path);
     } catch (e) {
       setError(fmtSftpError(e));
+      setComposerBusy(false);
     }
   };
 
@@ -268,6 +423,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     const oldPath = path === "/" ? `/${renameTarget.name}` : `${path}/${renameTarget.name}`;
     const dir = path === "/" ? "" : path;
     const newPath = `${dir}/${renameValue.trim()}`;
+    setComposerBusy(true);
     try {
       if (adapter?.rename) {
         await adapter.rename(oldPath, newPath);
@@ -275,16 +431,17 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
         const res = await commands.sftpRename(resourceId, oldPath, newPath);
         if (res.status !== "ok") {
           setError(res.error.message);
+          setComposerBusy(false);
           return;
         }
       } else {
         return;
       }
-      setRenameTarget(null);
-      setRenameValue("");
+      closeComposer();
       void loadDir(path);
     } catch (e) {
       setError(fmtSftpError(e));
+      setComposerBusy(false);
     }
   };
 
@@ -296,6 +453,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       setError(t("ssh.sftp.invalidChmod"));
       return;
     }
+    setComposerBusy(true);
     try {
       if (adapter?.chmod) {
         await adapter.chmod(fullPath, mode);
@@ -303,16 +461,17 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
         const res = await commands.sftpChmod(resourceId, fullPath, mode);
         if (res.status !== "ok") {
           setError(res.error.message);
+          setComposerBusy(false);
           return;
         }
       } else {
         return;
       }
-      setChmodTarget(null);
-      setChmodValue("");
+      closeComposer();
       void loadDir(path);
     } catch (e) {
       setError(fmtSftpError(e));
+      setComposerBusy(false);
     }
   };
 
@@ -438,15 +597,32 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     if (next !== path) void loadDir(next);
   };
 
+  const isQuickPathActive = (qp: string) => path === qp || (qp !== "/" && path.startsWith(`${qp}/`));
+
   return (
     <div className="sftp-panel">
       <div className="sftp-toolbar">
-        <Button variant="secondary" size="sm" onClick={navigateUp} disabled={path === "/"} title={t("ssh.sftp.up")}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M15 18l-6-6 6-6" /></svg>
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          className="sftp-toolbar-icon-btn"
+          onClick={navigateUp}
+          disabled={path === "/"}
+          title={t("ssh.sftp.up")}
+        >
+          <IconUp />
         </Button>
         {capabilities.mkdir ? (
-          <Button variant="secondary" size="sm" onClick={() => setShowMkdir(true)}>
-            {t("ssh.sftp.mkdir")}
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            className="sftp-toolbar-icon-btn"
+            onClick={openMkdir}
+            title={t("ssh.sftp.mkdir")}
+            aria-label={t("ssh.sftp.mkdir")}
+            aria-pressed={composer === "mkdir"}
+          >
+            <IconFolderPlus />
           </Button>
         ) : null}
         <div className={`sftp-path${pathEditing ? " sftp-path--editing" : ""}`}>
@@ -497,41 +673,65 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
 
       <div className="sftp-quick-paths sftp-quick-paths--top">
         {QUICK_PATHS.map((qp) => (
-          <button key={qp.path} type="button" className="sftp-quick-btn" onClick={() => void loadDir(qp.path)}>
+          <button
+            key={qp.path}
+            type="button"
+            className={`sftp-quick-btn${isQuickPathActive(qp.path) ? " is-active" : ""}`}
+            onClick={() => void loadDir(qp.path)}
+          >
             {qp.label}
           </button>
         ))}
       </div>
 
-      {showMkdir && (
-        <div className="sftp-mkdir-bar">
-          <TextInput className="input input-sm" size="sm" value={mkdirName} onChange={setMkdirName} placeholder={t("ssh.sftp.mkdirPlaceholder")} />
-          <Button variant="primary" size="sm" onClick={() => void handleMkdir()}>{t("ssh.sftp.create")}</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setShowMkdir(false); setMkdirName(""); }}>{t("ssh.keys.cancel")}</Button>
-        </div>
+      {composer === "mkdir" && (
+        <SftpComposer
+          title={t("ssh.sftp.mkdir")}
+          value={mkdirName}
+          onChange={setMkdirName}
+          placeholder={t("ssh.sftp.mkdirPlaceholder")}
+          confirmLabel={t("ssh.sftp.create")}
+          cancelLabel={t("ssh.keys.cancel")}
+          onConfirm={() => void handleMkdir()}
+          onCancel={closeComposer}
+          submitting={composerBusy}
+        />
       )}
-      {renameTarget && (
-        <div className="sftp-mkdir-bar">
-          <span className="text-sm">{t("ssh.sftp.rename")} <code>{renameTarget.name}</code></span>
-          <TextInput className="input input-sm" size="sm" value={renameValue} onChange={setRenameValue} autoFocus onKeyDown={(e) => e.key === "Enter" && void handleRename()} />
-          <Button variant="primary" size="sm" onClick={() => void handleRename()}>{t("ssh.sftp.confirm")}</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setRenameTarget(null); setRenameValue(""); }}>{t("ssh.keys.cancel")}</Button>
-        </div>
+      {composer === "rename" && renameTarget && (
+        <SftpComposer
+          title={t("ssh.sftp.rename")}
+          hint={<code className="sftp-composer__code">{renameTarget.name}</code>}
+          value={renameValue}
+          onChange={setRenameValue}
+          placeholder={renameTarget.name}
+          confirmLabel={t("ssh.sftp.confirm")}
+          cancelLabel={t("ssh.keys.cancel")}
+          onConfirm={() => void handleRename()}
+          onCancel={closeComposer}
+          submitting={composerBusy}
+        />
       )}
-      {chmodTarget && (
-        <div className="sftp-mkdir-bar">
-          <span className="text-sm">{t("ssh.sftp.chmod")} <code>{chmodTarget.name}</code></span>
-          <TextInput className="input input-sm" size="sm" value={chmodValue} onChange={setChmodValue} placeholder="755" autoFocus onKeyDown={(e) => e.key === "Enter" && void handleChmod()} style={{ width: 80 }} />
-          <Button variant="primary" size="sm" onClick={() => void handleChmod()}>{t("ssh.sftp.confirm")}</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setChmodTarget(null); setChmodValue(""); }}>{t("ssh.keys.cancel")}</Button>
-        </div>
+      {composer === "chmod" && chmodTarget && (
+        <SftpComposer
+          title={t("ssh.sftp.chmod")}
+          hint={<code className="sftp-composer__code">{chmodTarget.name}</code>}
+          value={chmodValue}
+          onChange={setChmodValue}
+          placeholder="755"
+          confirmLabel={t("ssh.sftp.confirm")}
+          cancelLabel={t("ssh.keys.cancel")}
+          onConfirm={() => void handleChmod()}
+          onCancel={closeComposer}
+          submitting={composerBusy}
+          inputStyle={{ maxWidth: 96 }}
+        />
       )}
 
       {error && <div className="sftp-error">{error}</div>}
       {info && <div className="sftp-info">{info}</div>}
 
       {!sessionKey ? (
-        <div className="sftp-empty">{adapter?.emptyMessage ?? t("ssh.empty.selectHost")}</div>
+        <div className="sftp-empty sftp-empty--centered">{adapter?.emptyMessage ?? t("ssh.empty.selectHost")}</div>
       ) : (
         <div
           className={`sftp-table-wrap${dragOver ? " sftp-table-wrap--drag-over" : ""}${uploading ? " sftp-table-wrap--uploading" : ""}`}
@@ -546,10 +746,10 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
             </div>
           ) : null}
           {loading ? (
-            <div className="sftp-empty">{t("ssh.sftp.loading")}</div>
+            <div className="sftp-empty sftp-empty--centered">{t("ssh.sftp.loading")}</div>
           ) : entries.length === 0 ? (
-            <div className="sftp-empty">
-              <div>{t("ssh.sftp.emptyDir")}</div>
+            <div className="sftp-empty sftp-empty--centered">
+              <div className="sftp-empty__title">{t("ssh.sftp.emptyDir")}</div>
               {canUpload ? <div className="sftp-empty-hint">{t("ssh.sftp.dropHint")}</div> : null}
             </div>
           ) : (
@@ -594,8 +794,13 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
                       </td>
                       {capabilities.delete ? (
                         <td className="sftp-col-actions">
-                          <button type="button" className="sftp-action-btn" onClick={(e) => { e.stopPropagation(); void handleDelete(entry); }} title={t("ssh.sftp.delete")}>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                          <button
+                            type="button"
+                            className="sftp-action-btn"
+                            onClick={(e) => { e.stopPropagation(); void handleDelete(entry); }}
+                            title={t("ssh.sftp.delete")}
+                          >
+                            <IconTrash />
                           </button>
                         </td>
                       ) : null}
@@ -618,64 +823,13 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
         </div>
       )}
 
-      {contextMenu && (
-        <div
-          className="sftp-context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenu.entry.isDir && (
-            <button
-              type="button"
-              className="sftp-ctx-item"
-              onClick={() => {
-                navigateTo(contextMenu.entry);
-                setContextMenu(null);
-              }}
-            >
-              {t("ssh.sftp.openDir")}
-            </button>
-          )}
-          {capabilities.rename ? (
-            <button
-              type="button"
-              className="sftp-ctx-item"
-              onClick={() => {
-                setRenameTarget(contextMenu.entry);
-                setRenameValue(contextMenu.entry.name);
-                setContextMenu(null);
-              }}
-            >
-              {t("ssh.sftp.rename")}
-            </button>
-          ) : null}
-          {capabilities.chmod ? (
-            <button
-              type="button"
-              className="sftp-ctx-item"
-              onClick={() => {
-                setChmodTarget(contextMenu.entry);
-                setChmodValue("");
-                setContextMenu(null);
-              }}
-            >
-              {t("ssh.sftp.chmod")}
-            </button>
-          ) : null}
-          {capabilities.delete ? (
-            <button
-              type="button"
-              className="sftp-ctx-item sftp-ctx-item--danger"
-              onClick={() => {
-                void handleDelete(contextMenu.entry);
-                setContextMenu(null);
-              }}
-            >
-              {t("ssh.sftp.delete")}
-            </button>
-          ) : null}
-        </div>
-      )}
+      {contextMenu && contextMenuItems.length > 0 ? (
+        <ContextMenu
+          items={contextMenuItems}
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
       <FilePreviewSubWindow
         open={previewEntry != null}
         entry={

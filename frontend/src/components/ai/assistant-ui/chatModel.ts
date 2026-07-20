@@ -1,6 +1,10 @@
 import type { ApiStandard } from "../../../stores/aiModelsStore";
 import type { ModuleKey } from "../../../lib/paths";
-import { buildApiKeyHeader, buildBearerAuthorization, fetchWithNetworkHint } from "../../../lib/fetchHeaders";
+import {
+  buildApiKeyHeader,
+  fetchWithNetworkHint,
+  withOptionalBearerAuth,
+} from "../../../lib/fetchHeaders";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
 import { streamPostViaTauri } from "../../../lib/tauriHttpStream";
 
@@ -184,10 +188,10 @@ export async function* streamOpenAI(
 
   const responseBody = await openStreamingResponseBody(
     url,
-    {
-      "Content-Type": "application/json",
-      Authorization: buildBearerAuthorization(config.apiKey),
-    },
+    withOptionalBearerAuth(
+      { "Content-Type": "application/json" },
+      config.apiKey,
+    ),
     JSON.stringify(body),
     options?.signal,
   );
@@ -217,13 +221,18 @@ export async function* streamAnthropic(
     body.tools = anthropicTools;
   }
 
+  const anthropicHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01",
+  };
+  const anthropicKey = buildApiKeyHeader(config.apiKey);
+  if (anthropicKey) {
+    anthropicHeaders["x-api-key"] = anthropicKey;
+  }
+
   const responseBody = await openStreamingResponseBody(
     url,
-    {
-      "Content-Type": "application/json",
-      "x-api-key": buildApiKeyHeader(config.apiKey),
-      "anthropic-version": "2023-06-01",
-    },
+    anthropicHeaders,
     JSON.stringify(body),
     options?.signal,
   );

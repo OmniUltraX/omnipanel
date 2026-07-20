@@ -17,9 +17,12 @@ use tauri::State;
 use crate::state::AppState;
 
 use omnipanel_store::{
-    list_all_skill_records, load_skill_record, parse_skill_md, sanitize_skill_id, skill_dir,
-    skill_file_path, write_skill, SkillApplication, SkillDbRecord, SkillFrontmatter, SkillRecord,
+    chunk_text, list_all_skill_records, load_skill_body, load_skill_record, parse_skill_md,
+    sanitize_skill_id, skill_dir, skill_file_path, write_skill, SkillApplication, SkillDbRecord,
+    SkillFrontmatter, SkillRecord, SkillVectorStatus,
 };
+
+use crate::commands::knowledge_vector::{fetch_provider_embeddings, EmbeddingProviderConfig};
 
 const SKILL_FILE: &str = "SKILL.md";
 
@@ -417,4 +420,140 @@ pub async fn skill_update_application_outcome(
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Skill 向量化参数。
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillVectorizeArgs {
+    pub skill_id: String,
+    pub provider: EmbeddingProviderConfig,
+    #[serde(default = "default_skill_chunk_size")]
+    pub chunk_size: u32,
+    #[serde(default = "default_skill_chunk_overlap")]
+    pub chunk_overlap: u32,
+}
+
+fn default_skill_chunk_size() -> u32 {
+    800
+}
+fn default_skill_chunk_overlap() -> u32 {
+    120
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillVectorizeResult {
+    pub skill_id: String,
+    #[specta(type = f64)]
+    pub chunk_count: u32,
+}
+
+async fn vectorize_one_skill(
+    state: &AppState,
+    skill_id: &str,
+    provider: &EmbeddingProviderConfig,
+    chunk_size: u32,
+    chunk_overlap: u32,
+) -> Result<SkillVectorizeResult, String> {
+    let record = load_skill_record(skill_id)?;
+    let body = load_skill_body(skill_id)?;
+    let source = format!(
+        "{}\n\n{}\n\n{}",
+        record.name.trim(),
+        record.description.trim(),
+        body.trim()
+    );
+    let chunk_size = chunk_size.clamp(100, 8000) as usize;
+    let overlap = chunk_overlap.clamp(0, chunk_size.saturating_sub(1) as u32) as usize;
+    let pieces = chunk_text(&source, chunk_size, overlap);
+    if pieces.is_empty() {
+        return Err("Skill 内容为空，无法向量化".to_string());
+    }
+    let mut embeddings = Vec::with_capacity(pieces.len());
+    const BATCH: usize = 32;
+    for batch in pieces.chunks(BATCH) {
+        let batch_inputs: Vec<String> = batch.to_vec();
+        let vectors = fetch_provider_embeddings(provider, &batch_inputs).await?;
+        embeddings.extend(vectors);
+    }
+    let chunks: Vec<(String, String, Vec<f32>)> = pieces
+        .into_iter()
+        .enumerate()
+        .zip(embeddings.into_iter())
+        .map(|((index, content), embedding)| {
+            (format!("{skill_id}:chunk:{index}"), content, embedding)
+        })
+        .collect();
+    let chunk_count = chunks.len() as u32;
+    {
+        let storage = state.storage.lock().await;
+        storage
+            .replace_skill_chunks(skill_id, &chunks)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(SkillVectorizeResult {
+        skill_id: skill_id.to_string(),
+        chunk_count,
+    })
+}
+
+/// 将单个 skill 分块向量化写入 skill_chunks。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_vectorize(
+    state: State<'_, AppState>,
+    args: SkillVectorizeArgs,
+) -> Result<SkillVectorizeResult, String> {
+    ensure_skill_db_sync(&state)?;
+    vectorize_one_skill(
+        &state,
+        &args.skill_id,
+        &args.provider,
+        args.chunk_size,
+        args.chunk_overlap,
+    )
+    .await
+}
+
+/// 查询 skill 向量化状态。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_vector_status(
+    state: State<'_, AppState>,
+    skill_id: String,
+) -> Result<Option<SkillVectorStatus>, String> {
+    let storage = state.storage.lock().await;
+    storage
+        .skill_vector_status(&skill_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 对全部已启用 skill 批量向量化（设置页「重建索引」）。
+#[tauri::command]
+#[specta::specta]
+pub async fn skill_vectorize_all(
+    state: State<'_, AppState>,
+    provider: EmbeddingProviderConfig,
+) -> Result<Vec<SkillVectorizeResult>, String> {
+    ensure_skill_db_sync(&state)?;
+    let records = list_all_skill_records()?;
+    let mut out = Vec::new();
+    for rec in records.into_iter().filter(|r| r.enabled) {
+        match vectorize_one_skill(
+            &state,
+            &rec.id,
+            &provider,
+            default_skill_chunk_size(),
+            default_skill_chunk_overlap(),
+        )
+        .await
+        {
+            Ok(r) => out.push(r),
+            Err(e) => {
+                tracing::warn!(skill_id = %rec.id, error = %e, "skill 向量化失败");
+            }
+        }
+    }
+    Ok(out)
 }

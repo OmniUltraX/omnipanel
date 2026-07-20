@@ -144,6 +144,16 @@ const SCHEMA_SKILL_RECALL: &str = r#"{
   "required": ["query"]
 }"#;
 
+const SCHEMA_SKILL_REPORT_OUTCOME: &str = r#"{
+  "type": "object",
+  "properties": {
+    "application_id": { "type": "string", "description": "omni_skill_recall 返回的 application_id" },
+    "outcome": { "type": "string", "description": "应用结果", "enum": ["success", "failure", "partial", "pending"] },
+    "feedback": { "type": "string", "description": "可选，结果说明（失败原因、适用差异等）" }
+  },
+  "required": ["application_id", "outcome"]
+}"#;
+
 const SCHEMA_SKILL_EXTRACT_EXPERIENCE: &str = r#"{
   "type": "object",
   "properties": {
@@ -641,7 +651,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_resource_find_similar",
         module_key: "knowledge",
-        description: "查找相似资源：基于资源指纹（OS、CPU、运行服务、数据库版本等关键字段）匹配同类型资源，按相似度排序。用于『在 p4 主机解决问题后，在 p7 类似主机上快速召回』的场景。",
+        description: "查找相似资源（指纹匹配），并附带 related_skills（同类型经验 Skill）。用于『p4 解决后在 p7 复用』；若 skill 不足可再调 omni_skill_recall。",
         input_schema: SCHEMA_RESOURCE_FIND_SIMILAR,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -658,8 +668,8 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_skill_recall",
         module_key: "knowledge",
         description:
-            "召回相关 skill：基于自然语言查询匹配已启用的 skill（向量检索 + 关键词），\
-             返回 skill 正文供 AI 参考。用于「在 p4 解决问题后，p7 类似主机上快速召回」场景。",
+            "召回相关 skill：混合向量检索 + 关键词匹配已启用的 skill，返回正文与 application_id。\
+             应用后务必调用 omni_skill_report_outcome 回写 success/failure。",
         input_schema: SCHEMA_SKILL_RECALL,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -668,8 +678,8 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_skill_extract_experience",
         module_key: "knowledge",
         description:
-            "从完成的任务中提取经验并创建 skill：AI 总结问题解决过程，生成结构化的 SKILL.md，\
-             可选关联资源和 knowledge 条目。支持基于已有 skill 创建新版本（传入 parent_skill_id）。",
+            "从完成的任务中提取经验并创建 skill：生成 SKILL.md，可选关联资源/knowledge，\
+             并 best-effort 向量化以便后续召回。支持 parent_skill_id 创建新版本。",
         input_schema: SCHEMA_SKILL_EXTRACT_EXPERIENCE,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -678,9 +688,18 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_skill_refine",
         module_key: "knowledge",
         description:
-            "改进已有 skill：基于应用反馈或新发现，创建新版本（原版本 enabled=0 保留历史），\
-             版本链通过 parent_version_id 追溯。",
+            "改进已有 skill：基于应用反馈创建新版本（原版本 enabled=0），复制 knowledge 关联并向量化。",
         input_schema: SCHEMA_SKILL_REFINE,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_skill_report_outcome",
+        module_key: "knowledge",
+        description:
+            "回写 skill 应用结果（success/failure/partial），更新成功率统计。\
+             在按 skill 完成任务后调用；application_id 来自 omni_skill_recall。",
+        input_schema: SCHEMA_SKILL_REPORT_OUTCOME,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
     },

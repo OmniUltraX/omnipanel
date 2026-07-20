@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -418,6 +419,13 @@ export function DockableWorkspace({
   const pendingProgrammaticActiveRef = useRef<string | null>(null);
   /** 程序化 setActive 的兜底重置定时器（防止 dockview 不触发预期事件导致永久阻塞） */
   const programmaticActiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 切 Tab 后把 React 状态同步延后到 paint：dockview / 乐观高亮已更新 DOM，
+   * 若立刻 onActiveTabChange，重型父树会卡住主线程。
+   */
+  const pendingActivePaintNotifyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 切 Tab 触发的 layout toJSON 延后到 paint 之后，避免挡住高亮绘制 */
+  const pendingActiveLayoutPersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
   // 跟踪最近一次主动写回 store 的布局；useEffect 用它来识别"自己写回去"vs"外部变更"
   const lastWrittenLayoutRef = useRef<SerializedDockview | null>(null);
@@ -1152,13 +1160,10 @@ export function DockableWorkspace({
     return () => cancelAnimationFrame(raf);
   }, [windowControl, windowChromeHosts, layoutReady]);
 
-  // 再次点击已激活 tab：以 pointerdown 时的激活态为准。
-  // dockview 会在 click 前完成切换，若只看 click 时的 dv-active-tab，
-  // 点击其它 tab 也会被误判为“当前激活 tab”。
+  // pointerdown：先采样「按下前是否已激活」，再乐观切换高亮（不等 React）。
   useEffect(() => {
-    if (!onTabClick) return;
     const root = wrapperRef.current;
-    if (!root) return;
+    if (!root || !layoutReady) return;
 
     const findTabHeader = (target: EventTarget | null) => {
       if (!(target instanceof HTMLElement)) return null;
@@ -1170,15 +1175,34 @@ export function DockableWorkspace({
 
     const onCapturePointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      const tabHeader = findTabHeader(event.target);
-      if (!tabHeader) return;
-      const tab = tabHeader.closest(".dv-tab");
-      const tabId = tabHeader.dataset.dockTabId;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".dv-default-tab-action")) return;
+
+      const tabHeader = findTabHeader(target);
+      const tabEl = (tabHeader?.closest(".dv-tab") ??
+        target.closest(".dv-tab")) as HTMLElement | null;
+      if (!tabEl || !root.contains(tabEl)) return;
+
+      const tabId = tabHeader?.dataset.dockTabId;
+      // 必须在改 class 之前采样，供「再次点击已激活 tab」判断
       pressedActiveTabIdRef.current =
-        tabId && tab?.classList.contains("dv-active-tab") ? tabId : null;
+        tabId && tabEl.classList.contains("dv-active-tab") ? tabId : null;
+
+      if (tabEl.classList.contains("dv-active-tab")) return;
+
+      const tabsContainer = tabEl.parentElement;
+      if (!tabsContainer) return;
+      for (const sibling of tabsContainer.querySelectorAll(":scope > .dv-tab.dv-active-tab")) {
+        sibling.classList.remove("dv-active-tab");
+        sibling.classList.add("dv-inactive-tab");
+      }
+      tabEl.classList.remove("dv-inactive-tab");
+      tabEl.classList.add("dv-active-tab");
     };
 
     const onCaptureClick = (event: MouseEvent) => {
+      if (!onTabClickRef.current) return;
       if (event.button !== 0) return;
       const tabHeader = findTabHeader(event.target);
       const tabId = tabHeader?.dataset.dockTabId;
@@ -1187,10 +1211,8 @@ export function DockableWorkspace({
         return;
       }
       pressedActiveTabIdRef.current = null;
-      // 不 stopPropagation：点击已激活 tab 时 dockview 本就不会切换，
-      // 无需阻止其默认行为。stopPropagation 会在 dockview pointerdown
-      // 先于 capture 监听器执行时误阻正常 tab 切换。
-      onTabClickRef.current?.(tabId, true);
+      // 不 stopPropagation：点击已激活 tab 时 dockview 本就不会切换
+      onTabClickRef.current(tabId, true);
     };
 
     root.addEventListener("pointerdown", onCapturePointerDown, true);
@@ -1199,7 +1221,7 @@ export function DockableWorkspace({
       root.removeEventListener("pointerdown", onCapturePointerDown, true);
       root.removeEventListener("click", onCaptureClick, true);
     };
-  }, [onTabClick, tabs.length]);
+  }, [layoutReady, tabs.length]);
 
   // 工程工作区 dock：pointerdown 时广播 tab 抓取，供跨窗口拖拽桥接
   useEffect(() => {
@@ -1863,19 +1885,34 @@ export function DockableWorkspace({
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleSyncTabDragAttributes();
         if (isSyncingRef.current || !layoutLoadedRef.current) return;
+        if (lastWrittenFromActiveRef.current) {
+          // 切 Tab：toJSON 较重，延后到 paint 之后再抓布局，避免挡住高亮
+          lastWrittenFromActiveRef.current = false;
+          if (pendingActiveLayoutPersistRef.current) {
+            clearTimeout(pendingActiveLayoutPersistRef.current);
+          }
+          pendingActiveLayoutPersistRef.current = setTimeout(() => {
+            pendingActiveLayoutPersistRef.current = null;
+            const currentApi = apiRef.current;
+            if (!currentApi || isSyncingRef.current || !layoutLoadedRef.current) return;
+            try {
+              const raw = currentApi.toJSON();
+              const normalized = normalizeDockLayout(raw) ?? raw;
+              const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
+              lastWrittenLayoutRef.current = next;
+              // 只防抖持久化，不在此处立刻 onSavedLayoutChange（避免父树重渲染）
+              scheduleLayoutPersist(next, { preserveLastWritten: true });
+            } catch {
+              // 过渡期间 toJSON 可能抛错，忽略
+            }
+          }, 0);
+          return;
+        }
         const raw = api.toJSON();
         const normalized = normalizeDockLayout(raw) ?? raw;
         const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
-        if (lastWrittenFromActiveRef.current) {
-          // onDidActivePanelChange 已同步捕获并持久化此布局变化，
-          // 保留 lastWrittenLayoutRef 引用（避免新对象导致引用不等），
-          // 仅调度延迟 persist 供需要 localStorage 持久化的父组件使用
-          lastWrittenFromActiveRef.current = false;
-          scheduleLayoutPersist(next, { preserveLastWritten: true });
-        } else {
-          lastWrittenLayoutRef.current = next;
-          scheduleLayoutPersist(next);
-        }
+        lastWrittenLayoutRef.current = next;
+        scheduleLayoutPersist(next);
       });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
@@ -1894,27 +1931,13 @@ export function DockableWorkspace({
         onCloseTabRef.current(panel.id);
       });
       const activeDisposable = api.onDidActivePanelChange((panel) => {
-        // dockview 的 onDidLayoutChange 通过 queueMicrotask 异步触发，但
-        // onDidActivePanelChange 是同步的。onActiveTabChange → setActiveSideTab
-        // 会触发 React re-render，其 microtask 可能在 onDidLayoutChange 之前执行。
-        // 必须同步更新 lastWrittenLayoutRef，并同步 onSavedLayoutChange 写回父级 ref/state；
-        // 若只靠 debounce persist，父组件重渲染时 savedLayout 仍是切 tab 前的旧对象，
-        // savedLayout effect 会误 fromJSON → 面板弹回旧 tab（终端侧栏表现为切到「文件」
-        // 却回到「监控」并触发监控刷新）。
+        // dockview 的 onDidActivePanelChange 是同步的；高亮已由 pointerdown 乐观更新 /
+        // dockview 自身 class 完成。此处只做轻量标记，把 toJSON / React 状态放到 paint 后。
         if (!isSyncingRef.current && layoutLoadedRef.current && panel) {
-          try {
-            const raw = api.toJSON();
-            const normalized = normalizeDockLayout(raw) ?? raw;
-            const next = enrichLayoutWithTabMeta(normalized, tabsRef.current);
-            lastWrittenLayoutRef.current = next;
-            lastWrittenFromActiveRef.current = true;
-            pendingLayoutPersistRef.current = next;
-            onSavedLayoutChangeRef.current(next);
-            scheduleLayoutPersist(next, { preserveLastWritten: true });
-          } catch {
-            // 过渡期间 toJSON 可能抛错，忽略
-          }
+          lastWrittenFromActiveRef.current = true;
         }
+
+        let skipActiveTabChange = false;
         if (isProgrammaticActiveRef.current) {
           if (panel && panel.id === pendingProgrammaticActiveRef.current) {
             if (programmaticActiveTimerRef.current) {
@@ -1923,23 +1946,42 @@ export function DockableWorkspace({
             }
             pendingProgrammaticActiveRef.current = null;
             isProgrammaticActiveRef.current = false;
+            skipActiveTabChange = true;
             syncStatusBarActiveDockRef.current(panel?.id ?? null);
-            return;
+          } else {
+            // 程序化 setActive 窗口内出现了非目标 panel：视为用户点击抢先，清旗标后放行
+            if (programmaticActiveTimerRef.current) {
+              clearTimeout(programmaticActiveTimerRef.current);
+              programmaticActiveTimerRef.current = null;
+            }
+            pendingProgrammaticActiveRef.current = null;
+            isProgrammaticActiveRef.current = false;
           }
-          // 程序化 setActive 窗口内出现了非目标 panel：视为用户点击抢先，清旗标后放行
-          if (programmaticActiveTimerRef.current) {
-            clearTimeout(programmaticActiveTimerRef.current);
-            programmaticActiveTimerRef.current = null;
-          }
-          pendingProgrammaticActiveRef.current = null;
-          isProgrammaticActiveRef.current = false;
         }
+
+        const panelId = panel?.id ?? null;
         if (panel) {
-          onActiveTabChangeRef.current(panel.id);
           // 记录最近激活的 tab（供 Ctrl+E 最近项目面板使用）
           recordActiveTabForRecent(panel, tabsRef.current, dockScopeRef.current);
         }
-        syncStatusBarActiveDockRef.current(panel?.id ?? null);
+        if (!skipActiveTabChange) {
+          syncStatusBarActiveDockRef.current(panelId);
+        }
+
+        if (panelId && !skipActiveTabChange) {
+          if (pendingActivePaintNotifyRef.current) {
+            clearTimeout(pendingActivePaintNotifyRef.current);
+          }
+          const notifyActiveId = panelId;
+          pendingActivePaintNotifyRef.current = setTimeout(() => {
+            pendingActivePaintNotifyRef.current = null;
+            // 低优先级更新 React activeTabId，避免与下一次点击抢主线程
+            startTransition(() => {
+              onActiveTabChangeRef.current(notifyActiveId);
+            });
+          }, 0);
+        }
+
         // 用户切换 tab 后，强制 dockview 重新布局，确保 overlay 位置正确。
         // defaultRenderer="always" 下，overlay 的 resize 通过 rAF 异步执行，
         // 在前一个 tab 侧栏展开等场景下可能时序冲突导致内容区域空白。
@@ -2090,6 +2132,18 @@ export function DockableWorkspace({
   // 卸载时清理
   useEffect(() => {
     return () => {
+      if (pendingActivePaintNotifyRef.current) {
+        clearTimeout(pendingActivePaintNotifyRef.current);
+        pendingActivePaintNotifyRef.current = null;
+      }
+      if (pendingActiveLayoutPersistRef.current) {
+        clearTimeout(pendingActiveLayoutPersistRef.current);
+        pendingActiveLayoutPersistRef.current = null;
+      }
+      if (programmaticActiveTimerRef.current) {
+        clearTimeout(programmaticActiveTimerRef.current);
+        programmaticActiveTimerRef.current = null;
+      }
       for (const d of disposablesRef.current) d.dispose();
       disposablesRef.current = [];
       if (dockScopeRef.current) {

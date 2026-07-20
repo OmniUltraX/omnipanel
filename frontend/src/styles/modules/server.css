@@ -1498,13 +1498,20 @@
         background: var(--bg-deeper);
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
-        padding: 2px 8px;
+        padding: 4px 10px;
+        min-height: 30px;
         font-family: var(--font-mono);
         font-size: 12px;
+        transition: border-color 0.12s, box-shadow 0.12s;
+    }
+
+    .sftp-path:focus-within {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
     }
 
     .sftp-path--editing {
-        padding: 1px 8px;
+        padding: 2px 10px;
     }
 
     .sftp-path-crumbs {
@@ -1565,6 +1572,82 @@
         display: flex;
         gap: var(--sp-2);
         align-items: center;
+    }
+
+    /* 内联 Composer：新建 / 重命名 / 权限 */
+    .sftp-composer {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+        padding: var(--sp-2) var(--sp-3);
+        border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+        border-radius: var(--r-md);
+        background:
+            linear-gradient(
+                180deg,
+                color-mix(in srgb, var(--accent) 8%, var(--surface)) 0%,
+                var(--surface) 100%
+            );
+        box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+    .sftp-composer__header {
+        display: flex;
+        align-items: baseline;
+        gap: var(--sp-2);
+        min-width: 0;
+    }
+
+    .sftp-composer__title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg);
+        letter-spacing: 0.01em;
+    }
+
+    .sftp-composer__hint {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        color: var(--meta);
+    }
+
+    .sftp-composer__code {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--fg-2);
+    }
+
+    .sftp-composer__body {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+    }
+
+    .sftp-composer__input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .sftp-composer__actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        flex-shrink: 0;
+    }
+
+    .sftp-toolbar-icon-btn {
+        flex-shrink: 0;
+    }
+
+    .sftp-toolbar-icon-btn[aria-pressed="true"] {
+        color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
     }
 
     .sftp-error {
@@ -1676,7 +1759,7 @@
     }
 
     .sftp-col-actions {
-        width: 32px;
+        width: 36px;
         text-align: center;
     }
 
@@ -1685,9 +1768,16 @@
         border: none;
         color: var(--meta);
         cursor: pointer;
-        padding: 2px;
+        padding: 4px;
         border-radius: var(--r-sm);
-        transition: color 0.12s, background 0.12s;
+        opacity: 0;
+        transition: color 0.12s, background 0.12s, opacity 0.12s;
+    }
+
+    .sftp-table tbody tr:hover .sftp-action-btn,
+    .sftp-table tbody tr.sftp-row-selected .sftp-action-btn,
+    .sftp-action-btn:focus-visible {
+        opacity: 1;
     }
 
     .sftp-action-btn:hover {
@@ -1697,26 +1787,35 @@
 
     .sftp-quick-paths {
         display: flex;
-        gap: var(--sp-2);
+        gap: 6px;
         padding-top: var(--sp-2);
         border-top: 1px solid var(--border);
+        flex-wrap: wrap;
     }
 
     .sftp-quick-btn {
         font-size: 11px;
-        padding: 2px 8px;
+        line-height: 1.2;
+        padding: 4px 10px;
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: var(--r-sm);
+        border-radius: 999px;
         color: var(--fg-2);
         cursor: pointer;
-        transition: all 0.12s;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
     }
 
     .sftp-quick-btn:hover {
         background: var(--hover);
         color: var(--accent);
-        border-color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    }
+
+    .sftp-quick-btn.is-active {
+        color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+        font-weight: 600;
     }
 
     .sftp-quick-paths--top {
@@ -1830,9 +1929,19 @@
         text-align: center;
     }
 
+    .sftp-empty--centered {
+        gap: var(--sp-1);
+    }
+
+    .sftp-empty__title {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--fg-2);
+    }
+
     .sftp-empty-hint {
-        font-size: 12px;
-        color: var(--accent);
+        font-size: 11px;
+        color: var(--meta);
     }
 
     .ssh-tunnel-dialog-form {

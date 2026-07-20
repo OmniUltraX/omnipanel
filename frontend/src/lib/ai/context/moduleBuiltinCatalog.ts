@@ -60,7 +60,7 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_resource_find_similar",
     description:
-      "查找相似资源：基于资源指纹（OS、CPU、运行服务、数据库版本等关键字段）匹配同类型资源，按相似度排序。用于『在 p4 主机解决问题后，在 p7 类似主机上快速召回』的场景。",
+      "查找相似资源（指纹匹配），并附带 related_skills。用于『p4→p7』复用；不足时再调 omni_skill_recall。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");
@@ -78,7 +78,7 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_skill_recall",
     description:
-      "召回相关 skill：基于自然语言查询匹配已启用的 skill（向量检索 + 关键词），返回 skill 正文供 AI 参考。用于「在 p4 解决问题后，p7 类似主机上快速召回」场景。",
+      "召回相关 skill（向量 + 关键词混合），返回正文与 application_id。应用后务必调用 omni_skill_report_outcome。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");
@@ -87,7 +87,7 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_skill_extract_experience",
     description:
-      "从完成的任务中提取经验并创建 skill：AI 总结问题解决过程，生成结构化的 SKILL.md，可选关联资源和 knowledge 条目。支持基于已有 skill 创建新版本（传入 parent_skill_id）。",
+      "从任务经验创建 skill（SKILL.md + 向量化），可选关联资源/knowledge；支持 parent_skill_id 版本迭代。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");
@@ -96,7 +96,16 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_skill_refine",
     description:
-      "改进已有 skill：基于应用反馈或新发现，创建新版本（原版本 enabled=0 保留历史），版本链通过 parent_version_id 追溯。",
+      "改进已有 skill：创建新版本（旧版禁用），复制 knowledge 关联并向量化。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_skill_report_outcome",
+    description:
+      "回写 skill 应用结果（success/failure/partial），更新成功率。application_id 来自 omni_skill_recall。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");

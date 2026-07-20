@@ -2,7 +2,7 @@ import type { ClipboardSnapshot } from "../../../../lib/readLatestClipboard";
 import { firstModelSelectionId, resolveModelSelection } from "../../../../stores/aiModelsStore";
 import type { AiModelProvider } from "../../../../stores/aiModelsStore";
 import type { ModelConfig } from "../../assistant-ui/chatModel";
-import { buildBearerAuthorization } from "../../../../lib/fetchHeaders";
+import { withOptionalBearerAuth } from "../../../../lib/fetchHeaders";
 import type {
   FormFillFieldDef,
   FormFillSimpleAIInput,
@@ -165,10 +165,10 @@ export async function runFormFillSimpleAI(
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: buildBearerAuthorization(modelConfig.apiKey),
-    },
+    headers: withOptionalBearerAuth(
+      { "Content-Type": "application/json" },
+      modelConfig.apiKey,
+    ),
     body: JSON.stringify({
       model: modelConfig.name,
       messages: [

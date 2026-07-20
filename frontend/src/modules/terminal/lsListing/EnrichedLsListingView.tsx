@@ -1,5 +1,11 @@
-import { memo, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import type { TerminalSessionType } from "@/stores/terminalStore";
+import { useI18n } from "@/i18n";
+import {
+  buildFileEntryContextMenuItems,
+  type FileEntryCtxLabels,
+} from "@/components/sftp/buildFileEntryContextMenu";
+import { useSshDetailNavigationStore } from "@/stores/sshDetailNavigationStore";
 import { LsListingView } from "./LsListingView";
 import type { LsEntry, LsListing } from "./parseLsListing";
 import { resolveListingDirectoryForBlock } from "./resolveLsListingDirectory";
@@ -8,6 +14,14 @@ import { useTerminalFilePreviewStore } from "../terminalFilePreviewStore";
 import { joinListingEntryPath } from "./resolveLsListingDirectory";
 import { LOCAL_CONNECTION_ID } from "../../files/utils";
 import { FeedSearchHighlightText } from "../FeedSearchHighlightText";
+import { terminalCdCommand } from "../terminalPathCrumbs";
+import {
+  directoryForReveal,
+  shellListDirCommand,
+  shellStatCommand,
+  shellViewFileCommand,
+} from "./shellPathCommands";
+
 type EnrichedLsListingViewProps = {
   listing: LsListing;
   command: string;
@@ -23,6 +37,14 @@ type EnrichedLsListingViewProps = {
   highlightQuery?: string;
 };
 
+function isLsEntryNavigable(entry: LsEntry): boolean {
+  return entry.navigable ?? entry.kind === "directory";
+}
+
+async function copyText(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text);
+}
+
 function EnrichedLsListingViewInner({
   listing,
   command,
@@ -37,6 +59,7 @@ function EnrichedLsListingViewInner({
   onRunCommand,
   highlightQuery = "",
 }: EnrichedLsListingViewProps) {
+  const { t } = useI18n();
   const listingDirectory = useMemo(
     () => resolveListingDirectoryForBlock(command, cwd, sessionUser, rawOutput),
     [command, cwd, sessionUser, rawOutput],
@@ -54,14 +77,12 @@ function EnrichedLsListingViewInner({
   const lastResolvedRef = useRef<LsListing | null>(null);
 
   const openFilePreview = useTerminalFilePreviewStore((state) => state.open);
+  const revealInSftp = useSshDetailNavigationStore((s) => s.revealInSftp);
+  const revealInFiles = useSshDetailNavigationStore((s) => s.revealInFiles);
 
-  const handleOpenFile = useMemo(
-    () => (entry: LsEntry) => {
+  const handleOpenFile = useCallback(
+    (entry: LsEntry) => {
       const absolutePath = joinListingEntryPath(listingDirectory, entry.name);
-      // 本地 sessionType：connectionId 必须用 LOCAL_CONNECTION_ID（与 Rust file_manager
-      // 严格匹配 "__local__"），resourceId 不传（或传 null），走 file_manager 通道的 local_read
-      // 远端 SSH：connectionId 用 SSH 资源 id（与后端 sftp_download/upload 通道对齐），
-      // 同时把 SSH 资源 id 放在 resourceId 字段供 customIO 走 sftp_xxx 直通通道
       const isLocal = sessionType === "local";
       openFilePreview({
         connectionId: isLocal ? LOCAL_CONNECTION_ID : resourceId ?? "",
@@ -72,6 +93,84 @@ function EnrichedLsListingViewInner({
       });
     },
     [listingDirectory, sessionType, resourceId, openFilePreview],
+  );
+
+  const ctxLabels = useMemo((): FileEntryCtxLabels => ({
+    open: t("files.entryCtx.open"),
+    openDir: t("files.entryCtx.openDir"),
+    openFile: t("files.entryCtx.openFile"),
+    edit: t("files.entryCtx.edit"),
+    download: t("files.entryCtx.download"),
+    copyName: t("files.entryCtx.copyName"),
+    copyPath: t("files.entryCtx.copyPath"),
+    copyCd: t("files.entryCtx.copyCd"),
+    listDir: t("files.entryCtx.listDir"),
+    viewContent: t("files.entryCtx.viewContent"),
+    showInfo: t("files.entryCtx.showInfo"),
+    revealInSftp: t("files.entryCtx.revealInSftp"),
+    rename: t("files.entryCtx.rename"),
+    chmod: t("files.entryCtx.chmod"),
+    delete: t("files.entryCtx.delete"),
+  }), [t]);
+
+  const buildContextMenuItems = useCallback(
+    ({ entry, absolutePath }: { entry: LsEntry; absolutePath: string }) => {
+      const isDir = isLsEntryNavigable(entry);
+      const isLocal = sessionType === "local";
+      const canRevealSftp = !isLocal && Boolean(resourceId);
+
+      return buildFileEntryContextMenuItems({
+        isDir,
+        labels: {
+          ...ctxLabels,
+          revealInSftp: isLocal
+            ? t("files.entryCtx.revealInFiles")
+            : ctxLabels.revealInSftp,
+        },
+        handlers: {
+          onOpen: () => {
+            if (isDir) onRunCommand?.(terminalCdCommand(absolutePath));
+            else handleOpenFile(entry);
+          },
+          onEdit: isDir
+            ? undefined
+            : () => handleOpenFile(entry),
+          onCopyName: () => void copyText(entry.name),
+          onCopyPath: () => void copyText(absolutePath),
+          onCopyCd: isDir
+            ? () => void copyText(terminalCdCommand(absolutePath))
+            : undefined,
+          onListDir: isDir
+            ? () => onRunCommand?.(shellListDirCommand(absolutePath))
+            : undefined,
+          onViewContent: isDir
+            ? undefined
+            : () => onRunCommand?.(shellViewFileCommand(absolutePath)),
+          onShowInfo: () => onRunCommand?.(shellStatCommand(absolutePath)),
+          onRevealInSftp: canRevealSftp
+            ? () => {
+                const dir = directoryForReveal(absolutePath, isDir);
+                revealInSftp(resourceId!, dir);
+              }
+            : isLocal
+              ? () => {
+                  const dir = directoryForReveal(absolutePath, isDir);
+                  revealInFiles(dir);
+                }
+              : undefined,
+        },
+      });
+    },
+    [
+      ctxLabels,
+      handleOpenFile,
+      onRunCommand,
+      resourceId,
+      revealInFiles,
+      revealInSftp,
+      sessionType,
+      t,
+    ],
   );
 
   if (ready && resolved) {
@@ -89,6 +188,7 @@ function EnrichedLsListingViewInner({
         listingDirectory={listingDirectory}
         onRunCommand={onRunCommand}
         onOpenFile={handleOpenFile}
+        buildContextMenuItems={buildContextMenuItems}
         highlightQuery={highlightQuery}
       />
     );
