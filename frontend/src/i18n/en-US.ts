@@ -5461,7 +5461,40 @@ export const enUS: TranslationDict = {
     context: {
       placeholder: "Select context…",
       modules: "Modules",
-      workspaces: "Workspaces",
+      workspaces: "Workspaces (optional pin)",
+      pinWorkspace: "Pin workspace",
+      clearWorkspace: "Unpin workspace (global)",
+    },
+    contextStrip: {
+      empty: "No module context yet. Ask freely, or open Terminal / Database / Docker.",
+      workspace: "Workspace: {name}",
+    },
+    follow: {
+      on: "Follow: on",
+      off: "Follow: off",
+      hint: "When on, the left panels navigate as AI tools run",
+    },
+    promote: {
+      toDock: "Continue in sidebar",
+      done: "Promoted to sidebar conversation",
+    },
+    attach: {
+      terminal: "Attach terminal",
+      clear: "Detach terminal",
+    },
+    task: {
+      running: "Task {done}/{total}",
+      failed: "{count} failed",
+      openPanel: "Open task panel",
+    },
+    draft: {
+      title: "Pending action",
+      confirm: "Confirm",
+      dismiss: "Dismiss",
+    },
+    displayMode: {
+      toDock: "Switch to right sidebar",
+      toSubwindow: "Switch to center popup",
     },
     conversations: {
       toggle: "Conversation list",

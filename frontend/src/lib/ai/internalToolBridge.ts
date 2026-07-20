@@ -16,6 +16,7 @@ import { getResourceById } from "../../lib/resourceRegistry";
 import { appConfirm } from "../appConfirm";
 import { reportToolResultWithRetry } from "./reportToolResult";
 import { getToolHandler } from "./toolHost";
+import { applyUiFollowForTool } from "./uiFollow";
 
 const TERMINAL_TOOL = "omni_terminal_run_terminal_command";
 
@@ -125,6 +126,11 @@ export async function handleInternalPendingTerminalTool(options: {
       useTerminalUiStore.getState().setExpandedAiBlock(options.sessionId, options.blockId);
     }
 
+    applyUiFollowForTool(
+      options.toolName,
+      JSON.stringify({ session_id: options.sessionId, command }),
+    );
+
     await waitForInlineToolDecision(
       options.blockId,
       options.toolCallId,
@@ -186,6 +192,7 @@ export async function handleAssistantPendingTerminalTool(options: {
     }
 
     const mode = resolveTerminalApprovalMode(tabId);
+    applyUiFollowForTool(TERMINAL_TOOL, JSON.stringify({ session_id: tabId, command }));
     if (shouldRequireTerminalApproval(command, mode)) {
       const approved = await appConfirm(
         `AI 请求在终端执行命令：\n\n${command}\n\n是否允许？`,
@@ -259,6 +266,8 @@ async function handleModulePendingTool(options: {
     } catch {
       // 参数解析失败时按空对象处理，交由 handler 校验。
     }
+
+    applyUiFollowForTool(options.toolName, options.argsJson);
 
     const output = await handler(args as never);
     const result = typeof output === "string" ? output : JSON.stringify(output, null, 2);

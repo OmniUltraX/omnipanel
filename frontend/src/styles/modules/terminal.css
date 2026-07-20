@@ -180,8 +180,6 @@
         min-width: 30px;
         padding: 3px 10px;
         border-radius: var(--r-sm);
-        background: var(--accent);
-        color: #fff;
         font-size: 11px;
         line-height: 1;
     }
@@ -317,17 +315,18 @@
         width: 24px;
         height: 24px;
         padding: 0;
-        border: none;
+        border: 1px solid transparent;
         border-radius: var(--r-sm);
         background: transparent;
         color: var(--fg-2);
         cursor: pointer;
-        transition: background var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
+        transition: background var(--anim-fast, 120ms) ease, border-color var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
     }
 
     .term-cmd-action-btn:hover:not(:disabled) {
-        background: var(--surface-hover);
-        color: var(--fg);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+        color: var(--accent);
     }
 
     .term-cmd-action-btn:disabled {
@@ -337,7 +336,8 @@
 
     .term-cmd-action-btn.is-active {
         color: var(--accent);
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        background: transparent;
+        border-color: var(--accent);
     }
 
     .term-cmd-toolbar {
@@ -938,17 +938,18 @@
         width: 26px;
         height: 22px;
         padding: 0;
-        border: none;
+        border: 1px solid transparent;
         border-radius: var(--r-sm, 4px);
         background: transparent;
         color: var(--fg-2);
         cursor: pointer;
-        transition: background var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
+        transition: background var(--anim-fast, 120ms) ease, border-color var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
     }
 
     .term-session-header__action-btn:hover:not(:disabled) {
-        background: var(--surface-hover);
-        color: var(--fg);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+        color: var(--accent);
     }
 
     .term-session-header__action-btn:disabled {
@@ -2945,13 +2946,17 @@
     .term-warp-followup__send {
         flex-shrink: 0;
         padding: 6px 12px;
-        border: 1px solid var(--border-soft);
+        border: 1px solid var(--accent);
         border-radius: var(--r-sm);
-        background: var(--accent);
-        color: var(--bg-deeper, #111);
+        background: transparent;
+        color: var(--accent);
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
+    }
+
+    .term-warp-followup__send:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
 
     .term-warp-followup__send:disabled {
@@ -3108,10 +3113,14 @@
     }
 
     .term-warp-toolcall__run {
-        background: var(--accent);
-        color: var(--bg-deeper, #111);
-        border-color: transparent;
+        background: transparent;
+        color: var(--accent);
+        border-color: var(--accent);
         font-weight: 600;
+    }
+
+    .term-warp-toolcall__run:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
 
     .term-warp-toolcall__result {

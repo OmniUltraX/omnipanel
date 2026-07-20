@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from "react";
 import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
-import { useAiStore } from "../../stores/aiStore";
 import type { TerminalBlock } from "../../stores/blocksStore";
-import { getAiBlockTextForContext, getResolvedAiThread } from "../../modules/terminal/aiThreadBridge";
+import { getAiBlockTextForContext } from "../../modules/terminal/aiThreadBridge";
+import { promoteTerminalInlineToDock } from "../../lib/ai/promoteInlineThread";
+import { sendToAiDock } from "../../lib/ai/sendToAiDock";
 import { useI18n } from "../../i18n";
 
 interface Props {
@@ -11,24 +12,27 @@ interface Props {
   onClose: () => void;
   onRunCommand?: (command: string) => void;
   onReconnect?: () => void;
+  sessionId?: string;
 }
 
-export function BlockContextMenu({ block, position, onClose, onRunCommand, onReconnect }: Props) {
+export function BlockContextMenu({
+  block,
+  position,
+  onClose,
+  onRunCommand,
+  onReconnect,
+  sessionId,
+}: Props) {
   const { t } = useI18n();
-  const createConversation = useAiStore((s) => s.createConversation);
-  const addMessage = useAiStore((s) => s.addMessage);
-  const openDrawer = useAiStore((s) => s.openDrawer);
-  const addContext = useAiStore((s) => s.addContext);
 
   const sendToAI = useCallback(
     (prompt: string) => {
-      const convId = createConversation();
-      addContext(convId, { type: "terminal", label: "Terminal" });
-      addMessage(convId, { role: "user", content: prompt });
-      openDrawer();
+      void sendToAiDock(prompt, {
+        contextChips: [{ type: "terminal", label: "Terminal" }],
+      });
       onClose();
     },
-    [createConversation, addMessage, openDrawer, addContext, onClose],
+    [onClose],
   );
 
   const hasError = block.exitCode !== null && block.exitCode !== 0;
@@ -53,28 +57,17 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand, onRec
       },
     ];
 
-    if (isAiBlock) {
+    if (isAiBlock && sessionId) {
       menu.push({
         id: "continue-in-sidebar",
-        label: "在侧栏继续",
+        label: t("ai.promote.toDock"),
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
           </svg>
         ),
         onClick: () => {
-          const convId = createConversation();
-          addContext(convId, { type: "terminal", label: "终端 AI 卡片" });
-          const thread = getResolvedAiThread(block);
-          for (const item of thread) {
-            if (item.kind === "message") {
-              addMessage(convId, {
-                role: item.role,
-                content: item.content,
-              });
-            }
-          }
-          openDrawer();
+          promoteTerminalInlineToDock({ sessionId, blockId: block.id });
           onClose();
         },
       });
@@ -194,7 +187,19 @@ export function BlockContextMenu({ block, position, onClose, onRunCommand, onRec
     });
 
     return menu;
-  }, [block, hasError, hasOutput, isAiBlock, aiContext, onClose, onRunCommand, onReconnect, sendToAI, t]);
+  }, [
+    block,
+    hasError,
+    hasOutput,
+    isAiBlock,
+    aiContext,
+    onClose,
+    onRunCommand,
+    onReconnect,
+    sendToAI,
+    sessionId,
+    t,
+  ]);
 
   return (
     <ContextMenu

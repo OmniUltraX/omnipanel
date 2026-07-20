@@ -121,14 +121,40 @@ async function executeSql(args: Record<string, unknown>): Promise<string> {
     await resolveConnectionByName(connectionName),
     databaseName,
   );
-  const result = await invoke<QueryResult>("db_execute_query", {
-    connection: conn,
-    sql,
-    runId: makeQueryRunId(),
-    limit: 500,
-    offset: 0,
+
+  const trimmed = sql.trim().toLowerCase();
+  const isRead =
+    trimmed.startsWith("select") ||
+    trimmed.startsWith("show") ||
+    trimmed.startsWith("describe") ||
+    trimmed.startsWith("desc") ||
+    trimmed.startsWith("explain") ||
+    trimmed.startsWith("with");
+
+  const run = async () => {
+    const result = await invoke<QueryResult>("db_execute_query", {
+      connection: conn,
+      sql,
+      runId: makeQueryRunId(),
+      limit: 500,
+      offset: 0,
+    });
+    return formatQueryResult(result);
+  };
+
+  if (isRead) {
+    return run();
+  }
+
+  // 写操作进入 Action Draft，待用户在 Dock 确认
+  const { useActionDraftStore } = await import("../../../stores/actionDraftStore");
+  return useActionDraftStore.getState().enqueueAwaitable({
+    kind: "sql",
+    title: `${connectionName} / ${databaseName}`,
+    preview: sql,
+    conversationId: null,
+    execute: run,
   });
-  return formatQueryResult(result);
 }
 
 /**

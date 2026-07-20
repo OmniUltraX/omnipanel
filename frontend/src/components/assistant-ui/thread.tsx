@@ -34,6 +34,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
 import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
 import { useAiContextScopeStore } from "../../stores/aiContextScopeStore";
+import { useAiStore } from "../../stores/aiStore";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
 import {
   ActionBarMorePrimitive,
@@ -255,6 +256,8 @@ const ContextBar: FC = () => {
   );
   const [manualContext, setManualContext] = useState<string | null>(null);
   const setAiScope = useAiContextScopeStore((s) => s.setScope);
+  const activeConversationId = useAiStore((s) => s.activeConversationId);
+  const pinConversationWorkspace = useAiStore((s) => s.pinConversationWorkspace);
 
   useEffect(() => {
     setManualContext(null);
@@ -267,35 +270,52 @@ const ContextBar: FC = () => {
     setAiScope(context ?? "");
   }, [context, setAiScope]);
 
+  const onContextChange = (value: string) => {
+    setManualContext(value);
+    if (!activeConversationId) return;
+    if (value.startsWith("workspace:")) {
+      // 显式钉住工作区（可选）
+      pinConversationWorkspace(activeConversationId, value.slice("workspace:".length));
+    } else if (value === "workspace:__none__") {
+      pinConversationWorkspace(activeConversationId, null);
+    }
+    // 选模块不自动改 pinnedWorkspaceId
+  };
+
   return (
-    <SelectRoot
-      value={context || undefined}
-      onValueChange={setManualContext}
-    >
-      <SelectTrigger className="h-7 w-40 text-xs" variant="ghost">
-        <SelectValue placeholder={t("ai.context.placeholder")} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          <SelectLabel>{t("ai.context.modules")}</SelectLabel>
-          {moduleKeys.map((key) => (
-            <SelectItem key={key} value={`module:${key}`}>
-              {t(moduleNavI18nKey(key))}
-            </SelectItem>
-          ))}
-        </SelectGroup>
-        {workspaces.length > 0 && (
+    <>
+      <SelectRoot
+        value={context || undefined}
+        onValueChange={onContextChange}
+      >
+        <SelectTrigger className="h-7 w-40 text-xs" variant="ghost">
+          <SelectValue placeholder={t("ai.context.placeholder")} />
+        </SelectTrigger>
+        <SelectContent>
           <SelectGroup>
-            <SelectLabel>{t("ai.context.workspaces")}</SelectLabel>
-            {workspaces.map((ws) => (
-              <SelectItem key={ws.id} value={`workspace:${ws.id}`}>
-                {ws.name}
+            <SelectLabel>{t("ai.context.modules")}</SelectLabel>
+            {moduleKeys.map((key) => (
+              <SelectItem key={key} value={`module:${key}`}>
+                {t(moduleNavI18nKey(key))}
               </SelectItem>
             ))}
           </SelectGroup>
-        )}
-      </SelectContent>
-    </SelectRoot>
+          {workspaces.length > 0 && (
+            <SelectGroup>
+              <SelectLabel>{t("ai.context.workspaces")}</SelectLabel>
+              <SelectItem value="workspace:__none__">
+                {t("ai.context.clearWorkspace")}
+              </SelectItem>
+              {workspaces.map((ws) => (
+                <SelectItem key={ws.id} value={`workspace:${ws.id}`}>
+                  {t("ai.context.pinWorkspace")} · {ws.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          )}
+        </SelectContent>
+      </SelectRoot>
+    </>
   );
 };
 

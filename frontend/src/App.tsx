@@ -290,6 +290,18 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    let unreg: (() => void) | undefined;
+    void import("./lib/ai/uiFollow").then(({ registerUiFollowNavigate }) => {
+      unreg = registerUiFollowNavigate((path) => {
+        navigate(path);
+      });
+    });
+    return () => {
+      unreg?.();
+    };
+  }, [navigate]);
+
   // 当前工作区已弹出为独立窗口时，仅收起主窗底栏；不强制跳转首页。
   useEffect(() => {
     let cancelled = false;

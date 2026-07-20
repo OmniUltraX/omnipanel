@@ -26,6 +26,7 @@ import {
 } from "../../stores/dockerPanelDockStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { EMPTY_DOCKER_SIDEBAR_CONTAINERS } from "./dockerSidebarCache";
+import { DockerModuleContextBridge } from "./ai/DockerModuleContextBridge";
 import {
   connectionSupportsSidebarResources,
   refreshAllDockerSidebarCaches,
@@ -496,8 +497,36 @@ export function DockerPanel() {
     [activeConnectionId, activeNavKey, handleNavigate],
   );
 
+  const dockerAiContext = useMemo(() => {
+    const activeTab = dockTabs.find((t) => t.id === activeTabId) ?? null;
+    const conn = connections.find((c) => c.connectionId === activeConnectionId);
+    const containerId =
+      activeTab && isDockerContainerTab(activeTab) ? activeTab.containerId : null;
+    const containerName =
+      containerId && activeConnectionId
+        ? sidebarContainersForTabs[activeConnectionId]?.find(
+            (c) => c.id === containerId || c.name === containerId,
+          )?.name ?? null
+        : null;
+    return {
+      connectionId: activeConnectionId,
+      connectionName: conn?.name ?? null,
+      containerId,
+      containerName,
+      navKey: activeNavKey,
+    };
+  }, [
+    activeConnectionId,
+    activeNavKey,
+    activeTabId,
+    connections,
+    dockTabs,
+    sidebarContainersForTabs,
+  ]);
+
   return (
     <>
+      <DockerModuleContextBridge active={moduleLive} context={dockerAiContext} />
       <DockerSidebarLinkageProvider value={sidebarLinkageValue}>
         <ModuleWorkspaceLayout
           className="docker-connections-workspace"

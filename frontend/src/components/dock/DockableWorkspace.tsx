@@ -1185,15 +1185,18 @@ export function DockableWorkspace({
       if (!tabEl || !root.contains(tabEl)) return;
 
       const tabId = tabHeader?.dataset.dockTabId;
-      // 必须在改 class 之前采样，供「再次点击已激活 tab」判断
-      pressedActiveTabIdRef.current =
-        tabId && tabEl.classList.contains("dv-active-tab") ? tabId : null;
+      // 只信 React 侧 activeTabId，不读 dv-active-tab 类名：
+      // 竖排 tab / 乐观高亮后类名易漂移，会导致「点其他 tab 却当成再点当前」。
+      const wasActiveAtPointerDown =
+        Boolean(tabId) && activeTabIdRef.current === tabId;
+      pressedActiveTabIdRef.current = wasActiveAtPointerDown && tabId ? tabId : null;
 
-      if (tabEl.classList.contains("dv-active-tab")) return;
+      if (wasActiveAtPointerDown) return;
 
-      const tabsContainer = tabEl.parentElement;
+      const tabsContainer =
+        tabEl.closest(".dv-tabs-container") ?? tabEl.parentElement;
       if (!tabsContainer) return;
-      for (const sibling of tabsContainer.querySelectorAll(":scope > .dv-tab.dv-active-tab")) {
+      for (const sibling of tabsContainer.querySelectorAll(".dv-tab.dv-active-tab")) {
         sibling.classList.remove("dv-active-tab");
         sibling.classList.add("dv-inactive-tab");
       }
@@ -1206,11 +1209,11 @@ export function DockableWorkspace({
       if (event.button !== 0) return;
       const tabHeader = findTabHeader(event.target);
       const tabId = tabHeader?.dataset.dockTabId;
-      if (!tabId || pressedActiveTabIdRef.current !== tabId) {
-        pressedActiveTabIdRef.current = null;
-        return;
-      }
+      const armedId = pressedActiveTabIdRef.current;
       pressedActiveTabIdRef.current = null;
+      if (!tabId || armedId !== tabId) return;
+      // 点击过程中若已切换到别的 tab，绝不能收起
+      if (activeTabIdRef.current !== tabId) return;
       // 不 stopPropagation：点击已激活 tab 时 dockview 本就不会切换
       onTabClickRef.current(tabId, true);
     };

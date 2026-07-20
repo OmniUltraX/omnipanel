@@ -80,8 +80,9 @@ export function SftpComposer({
         />
         <div className="sftp-composer__actions">
           <Button
-            variant="primary"
+            variant="outline"
             size="sm"
+            className="omni-btn-outline-accent"
             disabled={!allowConfirm}
             onClick={() => {
               if (allowConfirm) onConfirm();

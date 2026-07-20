@@ -89,6 +89,9 @@ function resolveActiveModuleFilter(): string {
   if (dockScope) {
     if (dockScope.startsWith("database")) return "database";
     if (dockScope.startsWith("terminal")) return "terminal";
+    if (dockScope.startsWith("docker")) return "docker";
+    if (dockScope.startsWith("files") || dockScope.startsWith("file")) return "files";
+    if (dockScope.startsWith("ssh") || dockScope.startsWith("server")) return "ssh";
   }
   // 3. 回退
   return "master";
@@ -175,9 +178,19 @@ function resolveBackendForGeneration(
 }
 
 function buildAiContext(inline?: InlineTerminalAiTarget) {
+  const activeConv = useAiStore.getState().conversations.find(
+    (c) => c.id === useAiStore.getState().activeConversationId,
+  );
+  const linkedSession = !inline ? activeConv?.linkedTerminalSessionId : null;
   const tab = inline
     ? useTerminalStore.getState().tabs.find((t) => t.id === inline.sessionId)
-    : useTerminalStore.getState().tabs.find((t) => t.id === useTerminalStore.getState().activeTabId);
+    : useTerminalStore
+        .getState()
+        .tabs.find(
+          (t) =>
+            t.id ===
+            (linkedSession || useTerminalStore.getState().activeTabId),
+        );
   const sessionId = inline?.sessionId ?? tab?.id ?? null;
   // 聚合所有非 terminal 模块（database / ssh / docker 等）的 ContextProvider 文本。
   // terminal 模块由 terminalContextAppend 单独通道注入，避免重复。
