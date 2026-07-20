@@ -39,6 +39,10 @@ import {
   renameSessionWithAi,
   subscribeAiNamingState,
 } from "./sessionAutoName";
+import {
+  buildWorkspaceTabMenuItems,
+} from "@/components/ui/menu/contextMenuItems";
+import type { WorkspaceInfo } from "../../stores/workspaceStore";
 
 const EXPANDED_STORAGE_KEY = "omnipanel-terminal-session-tree-expanded";
 const CONNECTION_POINTER_DRAG_THRESHOLD_PX = 6;
@@ -138,12 +142,27 @@ export interface TerminalSessionSidebarProps {
   onSelectSession: (sessionId: string) => void;
   onCreateSession: (resourceId: string, title: string) => void;
   onEndSession: (sessionId: string) => void;
+  /** 会话右键「在工作区打开」：将指定会话移到目标工作区。 */
+  onOpenSessionInWorkspace?: (sessionId: string, workspaceId: string) => void;
+  /** 当前工作区 id（用于「移到当前工作区」菜单项）。 */
+  currentWorkspaceId?: string;
+  /** 可用工作区列表（用于「移到其他工作区」子菜单）。 */
+  workspaces?: WorkspaceInfo[];
+  /** 连接右键「结束所有会话」：批量结束某 resourceId 下所有会话。 */
+  onEndAllSessionsInConnection?: (resourceId: string) => void;
+  /** 连接右键「重命名连接」：修改连接/资源名称。 */
+  onRenameConnection?: (resourceId: string, currentName: string) => void;
 }
 
 export function TerminalSessionSidebar({
   onSelectSession,
   onCreateSession,
   onEndSession,
+  onOpenSessionInWorkspace,
+  currentWorkspaceId,
+  workspaces,
+  onEndAllSessionsInConnection,
+  onRenameConnection,
 }: TerminalSessionSidebarProps) {
   const { t } = useI18n();
   const sessions = useTerminalStore((s) => s.sessions);
@@ -346,6 +365,72 @@ export function TerminalSessionSidebar({
     useTerminalStore.getState().createSession(copyTitle, session.session, newId);
   }, []);
 
+  const handleOpenSessionInWorkspace = useCallback(
+    (sessionId: string, workspaceId: string) => {
+      setSessionCtxMenu(null);
+      onOpenSessionInWorkspace?.(sessionId, workspaceId);
+    },
+    [onOpenSessionInWorkspace],
+  );
+
+  const buildConnectionCtxItems = useCallback(
+    (group: ConnectionGroup): ContextMenuItem[] => {
+      const items: ContextMenuItem[] = [
+        {
+          id: "new-session",
+          label: t("terminal.sessions.newUnderConnection"),
+          onClick: () => onCreateSession(group.resourceId, group.name),
+        },
+        { id: "conn-sep-1", separator: true, label: "" },
+        {
+          id: "conn-expand-all",
+          label: t("terminal.sessions.expandAll"),
+          onClick: () => {
+            setExpandedMap((prev) => {
+              const next = { ...prev, [group.resourceId]: true };
+              writeExpandedMap(next);
+              return next;
+            });
+          },
+        },
+        {
+          id: "conn-collapse-all",
+          label: t("terminal.sessions.collapseAll"),
+          onClick: () => {
+            setExpandedMap((prev) => {
+              const next = { ...prev, [group.resourceId]: false };
+              writeExpandedMap(next);
+              return next;
+            });
+          },
+        },
+      ];
+      if (onRenameConnection) {
+        items.push(
+          { id: "conn-sep-2", separator: true, label: "" },
+          {
+            id: "conn-rename",
+            label: t("terminal.sessions.renameConnection"),
+            onClick: () => onRenameConnection(group.resourceId, group.name),
+          },
+        );
+      }
+      if (onEndAllSessionsInConnection) {
+        items.push(
+          { id: "conn-sep-3", separator: true, label: "" },
+          {
+            id: "conn-end-all",
+            label: t("terminal.sessions.endAllSessions"),
+            danger: true,
+            onClick: () => onEndAllSessionsInConnection(group.resourceId),
+          },
+        );
+      }
+      return items;
+    },
+    [onCreateSession, onEndAllSessionsInConnection, onRenameConnection, t],
+  );
+
   const handleConfirmSessionRename = useCallback(
     (trimmed: string) => {
       if (!renameTarget) return;
@@ -526,13 +611,7 @@ export function TerminalSessionSidebar({
                     onToggle={() => toggleExpanded(group.resourceId)}
                     onActivate={() => toggleExpanded(group.resourceId)}
                     onPointerDown={(event) => handleConnectionPointerDown(event, group.resourceId)}
-                    contextMenuItems={[
-                      {
-                        id: "new-session",
-                        label: t("terminal.sessions.newUnderConnection"),
-                        onClick: () => onCreateSession(group.resourceId, group.name),
-                      },
-                    ]}
+                    contextMenuItems={buildConnectionCtxItems(group)}
                     trailing={<span className="server-tree-badge">{group.sessions.length}</span>}
                   />
                   {expanded ? (
@@ -633,6 +712,20 @@ export function TerminalSessionSidebar({
             label: t("terminal.sessions.copy"),
             onClick: () => handleCopySession(sessionCtxMenu.session),
           },
+        ];
+        if (onOpenSessionInWorkspace && currentWorkspaceId) {
+          items.push(
+            { id: "session-sep-workspace", separator: true, label: "" },
+            ...buildWorkspaceTabMenuItems(t, {
+              showWorkspaceActions: true,
+              currentWorkspaceId,
+              workspaces,
+              onMoveToWorkspace: (wsId) =>
+                handleOpenSessionInWorkspace(sessionCtxMenu.session.id, wsId),
+            }),
+          );
+        }
+        items.push(
           { id: "session-sep-1", separator: true, label: "" },
           {
             id: "session-end",
@@ -643,7 +736,7 @@ export function TerminalSessionSidebar({
               setSessionCtxMenu(null);
             },
           },
-        ];
+        );
         return (
           <ContextMenu
             items={items}

@@ -14325,6 +14325,286 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
         margin-top: var(--sp-3);
     }
 
+    /* === SkillsSection 升级样式 ===
+       复用 ai-provider-card 的卡片骨架，额外追加版本/统计/历史面板专属样式。 */
+    .skill-card {
+        padding: 0;
+    }
+
+    .skill-card .ai-provider-header > div:first-child {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+    }
+
+    .skill-card .ai-provider-header h3 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+    }
+
+    .skill-card .ai-provider-header .section-desc {
+        margin: 0;
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+    /* 版本徽标（v2+ 才显示） */
+    .skill-version-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-family: var(--font-mono, monospace);
+    }
+
+    /* 统计行：横向排列的小 chip */
+    .skill-stats-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--sp-1);
+        margin-top: var(--sp-1);
+    }
+
+    .skill-stat-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        background: var(--surface);
+        color: var(--muted);
+        border: 1px solid var(--border);
+    }
+
+    .skill-stat-chip--success {
+        background: var(--success-soft);
+        color: var(--success);
+        border-color: transparent;
+    }
+
+    .skill-stat-chip--muted {
+        background: var(--surface);
+        color: var(--meta);
+        border-color: var(--border-soft);
+    }
+
+    .skill-stat-chip--parent {
+        background: color-mix(in oklch, var(--accent) 8%, var(--surface));
+        color: var(--accent);
+        border-color: transparent;
+        font-family: var(--font-mono, monospace);
+        cursor: help;
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* 历史面板：展开后位于卡片底部，与 ai-provider-actions 之间留白 */
+    .skill-history-panel {
+        border-top: 1px solid var(--border);
+        padding: var(--sp-3) var(--sp-4) var(--sp-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        background: var(--bg-deeper);
+    }
+
+    .skill-history-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .skill-history-section-title {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg-2);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* 版本链 */
+    .skill-version-chain {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+    }
+
+    .skill-version-chain-item {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-1) var(--sp-2);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+        font-size: 11px;
+        flex-wrap: wrap;
+    }
+
+    .skill-version-chain-item--current {
+        border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
+        background: color-mix(in oklch, var(--accent) 8%, var(--surface));
+    }
+
+    .skill-version-id {
+        font-family: var(--font-mono, monospace);
+        color: var(--fg-2);
+        font-size: 11px;
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .skill-version-label {
+        font-weight: 600;
+        color: var(--accent);
+        font-size: 10px;
+        padding: 0 4px;
+        background: var(--accent-soft);
+        border-radius: var(--r-sm);
+    }
+
+    .skill-version-time {
+        margin-left: auto;
+        color: var(--meta);
+        font-size: 10px;
+    }
+
+    /* 应用历史列表 */
+    .skill-applications-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .skill-application-item {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+    }
+
+    .skill-application-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+    }
+
+    .skill-application-time {
+        color: var(--meta);
+        font-size: 10px;
+        font-family: var(--font-mono, monospace);
+    }
+
+    .skill-application-resource {
+        color: var(--muted);
+        font-size: 10px;
+        font-family: var(--font-mono, monospace);
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .skill-application-feedback {
+        margin: 0;
+        font-size: 11px;
+        color: var(--fg-2);
+        line-height: 1.5;
+        padding: var(--sp-1) var(--sp-2);
+        background: var(--bg-deeper);
+        border-radius: var(--r-sm);
+        border-left: 2px solid var(--border);
+    }
+
+    .skill-application-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        margin-top: var(--sp-1);
+    }
+
+    .skill-application-action-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+    }
+
+    /* outcome 徽标（参考 badge-success/warn/danger/accent/muted 体系） */
+    .skill-outcome-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        background: var(--surface);
+        color: var(--muted);
+        border: 1px solid var(--border);
+    }
+
+    .skill-outcome-badge--success {
+        background: var(--success-soft);
+        color: var(--success);
+        border-color: transparent;
+    }
+
+    .skill-outcome-badge--failure {
+        background: var(--danger-soft);
+        color: var(--danger);
+        border-color: transparent;
+    }
+
+    .skill-outcome-badge--partial {
+        background: var(--warn-soft);
+        color: var(--warn);
+        border-color: transparent;
+    }
+
+    .skill-outcome-badge--refined {
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-color: transparent;
+    }
+
+    .skill-outcome-badge--pending {
+        background: var(--surface);
+        color: var(--meta);
+        border-color: var(--border-soft);
+    }
+
     .ai-model-row-activate {
         color: var(--meta);
     }
@@ -16371,8 +16651,105 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
 }
 
 .app-toast--hidden {
-    animation: toastOut 0.28s ease-in forwards;
-}
+        animation: toastOut 0.28s ease-in forwards;
+    }
+
+    /* ====== Skill Evolution Prompt (bottom-right non-modal card) ====== */
+    .skill-evolution-prompt {
+        position: fixed;
+        right: var(--sp-4);
+        bottom: var(--sp-4);
+        z-index: 9999;
+        width: 360px;
+        max-width: calc(100vw - 32px);
+        padding: var(--sp-3) var(--sp-4);
+        border-radius: var(--r-md);
+        border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--border));
+        background: var(--surface);
+        color: var(--fg);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+        pointer-events: auto;
+        animation: skillPromptIn 0.28s ease-out forwards;
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    @keyframes skillPromptIn {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .skill-evolution-prompt__header {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    .skill-evolution-prompt__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        flex-shrink: 0;
+    }
+
+    .skill-evolution-prompt__title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+        flex: 1;
+        min-width: 0;
+    }
+
+    .skill-evolution-prompt__close {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: var(--r-sm);
+        flex-shrink: 0;
+    }
+
+    .skill-evolution-prompt__close:hover {
+        color: var(--fg);
+        background: var(--surface-hover);
+    }
+
+    .skill-evolution-prompt__body {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--fg-2);
+    }
+
+    .skill-evolution-prompt__actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+    }
+
+    .skill-evolution-prompt__hint {
+        margin: 0;
+        font-size: 10px;
+        color: var(--meta);
+        font-family: var(--font-mono, monospace);
+    }
 
 /* ====== Connection Switch Overlay ====== */
 .docker-switch-overlay {

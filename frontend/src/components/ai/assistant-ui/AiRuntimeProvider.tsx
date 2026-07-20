@@ -44,7 +44,12 @@ import {
   touchInlineAiDelta,
 } from "../../../modules/terminal/inlineAiWatchdog";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
+import { collectAllModuleAiContextText } from "../../../lib/ai/context";
 import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
+import { useStatusBarActionBarStore } from "../../../stores/statusBarActionBarStore";
+import { getAiContextScope } from "../../../stores/aiContextScopeStore";
+import { resolveKnowledgeEmbeddingProvider } from "../../../lib/knowledgeEmbeddingModel";
+import { useSkillPromptStore } from "../../../stores/skillPromptStore";
 
 import {
   aiMessagesToThreadMessages,
@@ -57,6 +62,52 @@ function extractUserContent(message: ThreadMessage | AppendMessage): string {
     if (part.type === "text") return part.text;
   }
   return "";
+}
+
+/**
+ * 根据当前焦点 dock 与 ContextBar 选择解析 AI 工具过滤的 module_key。
+ *
+ * 优先级：
+ * 1. ContextBar 手动选择（`module:database` → `database`）—— 用户显式意图
+ * 2. activeDock.dockScope 前缀推断（焦点在 database dock → `database`）
+ * 3. 回退到 `master`（全部工具）
+ *
+ * workspace:xxx / dashboard / 无焦点 → `master`
+ *
+ * 后端 list_enabled 已保证 Native 工具（knowledge/web/ssh 等通用能力）始终保留，
+ * 因此这里只控制 UiDelegated 工具的模块范围。
+ */
+function resolveActiveModuleFilter(): string {
+  // 1. ContextBar 手动选择
+  const scope = getAiContextScope();
+  if (scope.startsWith("module:")) {
+    const moduleKey = scope.slice("module:".length);
+    if (moduleKey) return moduleKey;
+  }
+  // 2. 焦点 dock 推断
+  const dockScope = useStatusBarActionBarStore.getState().activeDock?.dockScope;
+  if (dockScope) {
+    if (dockScope.startsWith("database")) return "database";
+    if (dockScope.startsWith("terminal")) return "terminal";
+  }
+  // 3. 回退
+  return "master";
+}
+
+/**
+ * 解析知识库 RAG 注入用的 embedding provider 配置。
+ *
+ * 读取 settings + aiModelsStore 的 embedding 配置，未配置时返回 null（跳过 RAG）。
+ * 与 mcpTools.ts 的 queryDocument 路径共用同一份 resolveKnowledgeEmbeddingProvider。
+ */
+function resolveKnowledgeEmbeddingProviderForRag() {
+  const settings = useSettingsStore.getState();
+  const providers = useAiModelsStore.getState().providers;
+  return resolveKnowledgeEmbeddingProvider(providers, {
+    knowledgeEmbeddingModelMode: settings.knowledgeEmbeddingModelMode,
+    knowledgeEmbeddingModelSelectionId: settings.knowledgeEmbeddingModelSelectionId,
+    knowledgeEmbeddingOllamaModel: settings.knowledgeEmbeddingOllamaModel,
+  });
 }
 
 const EMPTY_MESSAGE_LIST: ThreadMessage[] = [];
@@ -128,6 +179,9 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
     ? useTerminalStore.getState().tabs.find((t) => t.id === inline.sessionId)
     : useTerminalStore.getState().tabs.find((t) => t.id === useTerminalStore.getState().activeTabId);
   const sessionId = inline?.sessionId ?? tab?.id ?? null;
+  // 聚合所有非 terminal 模块（database / ssh / docker 等）的 ContextProvider 文本。
+  // terminal 模块由 terminalContextAppend 单独通道注入，避免重复。
+  const moduleContextAppend = collectAllModuleAiContextText(["module:terminal"]);
   if (!sessionId) {
     return {
       cwd: null,
@@ -137,6 +191,7 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
       envTag: null,
       resourceId: null,
       terminalContextAppend: null,
+      moduleContextAppend,
     };
   }
   const bundle = resolveTerminalAiContextBundle(
@@ -152,9 +207,13 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
       envTag: null,
       resourceId: tab?.session.resourceId ?? null,
       terminalContextAppend: buildTerminalAiContextAppend(sessionId),
+      moduleContextAppend,
     };
   }
-  return terminalAiBundleToOrchestratorContext(bundle);
+  return {
+    ...terminalAiBundleToOrchestratorContext(bundle),
+    moduleContextAppend,
+  };
 }
 
 function handleStreamEvent(
@@ -445,6 +504,27 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Skill 自我进化信号：omni_skill_* 工具成功完成时记录硬信号
+      // （skill_recalled → 用户在重复解决问题，提醒提取/沉淀为 skill）
+      if (status === "completed") {
+        const meta = toolMetaRef.current.get(id);
+        if (meta) {
+          if (meta.name === "omni_skill_recall") {
+            useSkillPromptStore.getState().recordSignal("skill_recalled", {
+              contextSummary: meta.args,
+            });
+          } else if (meta.name === "omni_skill_extract_experience") {
+            useSkillPromptStore.getState().recordSignal("skill_extracted", {
+              contextSummary: meta.args,
+            });
+          } else if (meta.name === "omni_skill_refine") {
+            useSkillPromptStore.getState().recordSignal("skill_refined", {
+              contextSummary: meta.args,
+            });
+          }
+        }
+      }
+
       if (inline) {
         useBlocksStore.getState().updateAiThreadItem(inline.blockId, id, {
           status: mapToolStatus(status),
@@ -540,7 +620,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             historyJson: inline
               ? await buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
               : buildHistoryJson(convId),
-            toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: "master" } } : "none",
+            toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: resolveActiveModuleFilter() } } : "none",
+            // 知识库 RAG 自动注入：仅在 HTTP 后端（DirectInject）时生效
+            embeddingProvider:
+              backend.kind === "http" ? resolveKnowledgeEmbeddingProviderForRag() : null,
           },
           signal,
           onEvent: (event) => {

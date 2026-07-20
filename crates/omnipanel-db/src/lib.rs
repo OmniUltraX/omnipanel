@@ -256,6 +256,12 @@ pub async fn redis_slowlog(params: &DbParams, count: usize) -> OmniResult<Vec<Re
     driver.slowlog(count).await
 }
 
+/// Redis `CLIENT KILL ADDR <ip:port>`，返回被杀掉的客户端数量。
+pub async fn redis_client_kill_addr(params: &DbParams, addr: &str) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.client_kill_addr(addr).await
+}
+
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。
 pub(crate) fn is_query(sql: &str) -> bool {
     let s = sql.trim_start().to_lowercase();

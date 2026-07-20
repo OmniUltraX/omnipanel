@@ -40,6 +40,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { getShortcutKeys, matchesShortcut } from "../../stores/shortcutsStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
+import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
@@ -3432,6 +3433,8 @@ export function DatabasePanel() {
     [importDialog, sshConnections, t],
   );
 
+  const openProfile = useResourceProfileNavStore((s) => s.openProfile);
+
   const buildSchemaContextMenuItems = useCallback(
     (item: SchemaTreeItem, context: SchemaContextMenuContext): ContextMenuItem[] => {
       const copyIcon = (
@@ -3641,6 +3644,16 @@ export function DatabasePanel() {
             icon: plusIcon,
             disabled: !connEnabled,
             onClick: () => setCreateDbDialog({ connId: connection.id }),
+          },
+          {
+            id: "view-profile",
+            label: t("resource.profile.viewProfile"),
+            onClick: () =>
+              openProfile({
+                resourceType: "database",
+                resourceId: connection.name,
+                displayName: connection.name,
+              }),
           },
           { id: "sep-delete-connection", label: "", separator: true },
           {

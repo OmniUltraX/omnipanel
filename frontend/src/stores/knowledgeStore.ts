@@ -9,6 +9,7 @@ import {
   nextSortOrder,
   normalizeParentId,
 } from "../modules/knowledge/knowledgeTree";
+import { useSkillPromptStore } from "./skillPromptStore";
 
 interface KnowledgeStore {
   entries: KnowledgeEntry[];
@@ -74,6 +75,15 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                 : [...state.entries, entry];
               return { entries };
             });
+            // Skill 自我进化软信号：用户保存了知识库条目（可能值得转为 skill）
+            // 排除文件夹类型，只对实际内容（document）触发
+            if (entry.nodeType !== "folder") {
+              useSkillPromptStore
+                .getState()
+                .recordSignal("knowledge_saved", {
+                  contextSummary: entry.title,
+                });
+            }
             return true;
           }
           set({ error: res.error.message });

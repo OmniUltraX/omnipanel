@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-import type { AcpStreamEvent } from "../../ipc/bindings";
+import type { AcpStreamEvent, EmbeddingProviderConfig } from "../../ipc/bindings";
 import { commands } from "../../ipc/bindings";
 import { isTauriRuntime } from "../isTauriRuntime";
 
@@ -16,6 +16,7 @@ export interface AiContextBundle {
   envTag?: string | null;
   resourceId?: string | null;
   terminalContextAppend?: string | null;
+  moduleContextAppend?: string | null;
 }
 
 export interface InternalChatRequestPayload {
@@ -26,6 +27,8 @@ export interface InternalChatRequestPayload {
   historyJson?: string | null;
   toolsMode?: "none" | { directInject: { moduleFilter?: string | null } };
   httpProvider?: HttpProviderSnapshot | null;
+  /** 知识库 RAG 自动注入用的 embedding provider 配置；null 跳过 RAG */
+  embeddingProvider?: EmbeddingProviderConfig | null;
 }
 
 export interface RunInternalAiChatOptions {
@@ -72,6 +75,7 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
           envTag: options.request.context.envTag ?? null,
           resourceId: options.request.context.resourceId ?? null,
           terminalContextAppend: options.request.context.terminalContextAppend ?? null,
+          moduleContextAppend: options.request.context.moduleContextAppend ?? null,
         },
         historyJson: options.request.historyJson ?? null,
         toolsMode,
@@ -81,6 +85,15 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
               apiStandard: options.request.httpProvider.apiStandard,
               baseUrl: options.request.httpProvider.baseUrl,
               apiKey: options.request.httpProvider.apiKey,
+            }
+          : null,
+        embeddingProvider: options.request.embeddingProvider
+          ? {
+              providerId: options.request.embeddingProvider.providerId,
+              modelName: options.request.embeddingProvider.modelName.trim(),
+              baseUrl: options.request.embeddingProvider.baseUrl.trim(),
+              apiKey: options.request.embeddingProvider.apiKey.trim(),
+              apiStandard: options.request.embeddingProvider.apiStandard,
             }
           : null,
       },

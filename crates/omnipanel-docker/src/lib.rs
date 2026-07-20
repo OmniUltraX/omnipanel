@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 pub use compose::aggregate_compose;
 pub use daemon_config::remote_engine_daemon_config;
-pub use local::{DockerExecOutput, DockerExecSession, LocalDockerAdapter};
+pub use local::{DockerExecOutput, DockerExecSession, DockerOneShotExecOutput, LocalDockerAdapter};
 pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;
 pub use onepanel::{OnePanelAdapter, OnePanelClient};

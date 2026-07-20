@@ -27,6 +27,30 @@ use tokio::sync::Mutex;
 /// 交互式 exec 会话的输出流（原始终端字节，已从 bollard `LogOutput` 提取）。
 pub type DockerExecOutput = Pin<Box<dyn Stream<Item = OmniResult<Vec<u8>>> + Send>>;
 
+/// 一次性非交互 exec 的结构化结果（stdout/stderr 分流，含 exit_code）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DockerOneShotExecOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i64,
+}
+
+/// 把字节追加到字符串缓冲，超过 `max_bytes` 时截断并返回 `true`。
+fn append_truncated(buf: &mut String, bytes: &[u8], max_bytes: usize) -> bool {
+    if buf.len() >= max_bytes {
+        return true;
+    }
+    let remaining = max_bytes.saturating_sub(buf.len());
+    if bytes.len() <= remaining {
+        buf.push_str(&String::from_utf8_lossy(bytes));
+        false
+    } else {
+        buf.push_str(&String::from_utf8_lossy(&bytes[..remaining]));
+        buf.push_str("\n... [truncated]\n");
+        true
+    }
+}
+
 /// 一个已附加的容器交互终端会话。
 /// 本地 Engine 走 bollard `exec`；SSH 宿主机走 [`SshPtySession`]（远端 `docker exec -it`）。
 pub enum DockerExecSession {
@@ -307,6 +331,73 @@ impl LocalDockerAdapter {
                 Err(OmniError::new(ErrorCode::Internal, "exec 会话未附加到终端"))
             }
         }
+    }
+
+    /// 一次性非交互 exec：在容器内执行命令并捕获 stdout/stderr/exit_code。
+    ///
+    /// 与 [`create_exec`] 不同：
+    /// - `tty: false`，stdout/stderr 分流；
+    /// - 不附加 stdin；
+    /// - 阻塞直到流结束，然后 `inspect_exec` 取 exit_code；
+    /// - 适合 AI 工具的一次性命令调用（如 `nginx -t`、`df -h`、`ls /etc`）。
+    ///
+    /// 输出截断：stdout/stderr 各最多 256 KB（防止 OOM）。
+    pub async fn exec_one_shot(
+        &self,
+        container: &str,
+        cmd: Vec<String>,
+    ) -> OmniResult<DockerOneShotExecOutput> {
+        const MAX_STREAM_BYTES: usize = 256 * 1024;
+
+        let config = CreateExecOptions {
+            attach_stdin: Some(false),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty: Some(false),
+            cmd: Some(cmd),
+            ..Default::default()
+        };
+        let created = self
+            .docker
+            .create_exec(container, config)
+            .await
+            .map_err(map_bollard)?;
+        let started = self
+            .docker
+            .start_exec(&created.id, None::<StartExecOptions>)
+            .await
+            .map_err(map_bollard)?;
+
+        let (mut stdout, mut stderr) = (String::new(), String::new());
+        if let StartExecResults::Attached { output, .. } = started {
+            tokio::pin!(output);
+            while let Some(item) = output.next().await {
+                let log = item.map_err(map_bollard)?;
+                let (stream, bytes) = split_log_output(&log);
+                let truncated = if stream == "stderr" {
+                    append_truncated(&mut stderr, bytes, MAX_STREAM_BYTES)
+                } else {
+                    append_truncated(&mut stdout, bytes, MAX_STREAM_BYTES)
+                };
+                if truncated {
+                    break;
+                }
+            }
+        }
+
+        let exit_code = self
+            .docker
+            .inspect_exec(&created.id)
+            .await
+            .ok()
+            .and_then(|state| state.exit_code)
+            .unwrap_or(0);
+
+        Ok(DockerOneShotExecOutput {
+            stdout,
+            stderr,
+            exit_code,
+        })
     }
 
     /// 流式容器 stats。回调 `sink` 持续接收统计快照，直到 `stop` 置位。

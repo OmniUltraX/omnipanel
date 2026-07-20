@@ -1,6 +1,89 @@
 //! Docker 命令桥接：exec
 use super::*;
 
+/// 一次性 exec 的结构化输出（与 `omnipanel_docker::DockerOneShotExecOutput` 对齐）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerExecOneShotOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i64,
+}
+
+/// 在容器内非交互式执行命令（一次性 capture stdout/stderr/exit_code）。
+///
+/// 与 `docker_create_exec_session` 区别：
+/// - 后者创建交互式 PTY 会话（适合用户终端 attach）；
+/// - 本命令一次性执行并返回结构化结果，适合 AI 工具调用、批处理脚本。
+///
+/// 实现路径：
+/// - Local/Remote Engine：`LocalDockerAdapter::exec_one_shot`（bollard exec API，tty=false）；
+/// - SSH：SSH session 上 `docker exec <container> <cmd>` via `exec_capture`；
+/// - 1Panel：暂不支持（返回 InvalidInput 错误）。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_exec_command(
+    state: State<'_, AppState>,
+    connection_id: String,
+    container_id: String,
+    command: String,
+) -> Result<DockerExecOneShotOutput, OmniError> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "command 不能为空"));
+    }
+    // 简单 shell-injection 防护：禁止 ;、&&、||、`、$() 跨命令拼接。
+    // 如需复杂脚本，建议 AI 在容器内先 `cat > /tmp/x.sh <<EOF ... EOF` 再 `sh /tmp/x.sh`。
+    if trimmed.contains("&&") || trimmed.contains("||") || trimmed.contains(';') {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "command 不支持复合命令（; / && / ||），请单条执行或写入脚本后调用",
+        ));
+    }
+
+    let target = resolve_target(&state, &connection_id).await?;
+
+    match target {
+        DockerTarget::Local => {
+            let local = LocalDockerAdapter::connect()?;
+            let cmd = vec!["sh".to_string(), "-c".to_string(), trimmed.to_string()];
+            let out = local.exec_one_shot(&container_id, cmd).await?;
+            Ok(DockerExecOneShotOutput {
+                stdout: out.stdout,
+                stderr: out.stderr,
+                exit_code: out.exit_code,
+            })
+        }
+        DockerTarget::Remote(docker) => {
+            let local = LocalDockerAdapter::with_docker(docker);
+            let cmd = vec!["sh".to_string(), "-c".to_string(), trimmed.to_string()];
+            let out = local.exec_one_shot(&container_id, cmd).await?;
+            Ok(DockerExecOneShotOutput {
+                stdout: out.stdout,
+                stderr: out.stderr,
+                exit_code: out.exit_code,
+            })
+        }
+        DockerTarget::Ssh(session) => {
+            // SSH 上 Docker：直接 `docker exec <container> sh -c '...'`
+            let docker_cmd = format!(
+                "docker exec --tty=false {container_id} sh -c {cmd:?}",
+                cmd = trimmed
+            );
+            let output = session.exec_capture(&docker_cmd).await?;
+            Ok(DockerExecOneShotOutput {
+                stdout: output.stdout,
+                stderr: output.stderr,
+                exit_code: output.exit_code as i64,
+            })
+        }
+        DockerTarget::OnePanel(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "1Panel 连接暂不支持一次性 exec；请在宿主机 SSH 终端执行",
+        )),
+    }
+}
+
 /// 在容器内创建交互式 exec 会话
 pub(crate) async fn close_docker_exec_for_container(
     state: &AppState,

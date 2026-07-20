@@ -21,6 +21,7 @@ use tauri::{ipc::Channel, AppHandle, State};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::state::AppState;
+use crate::commands::knowledge_vector::{EmbeddingProviderConfig, fetch_provider_embeddings};
 
 struct RegistryToolExecutor {
     mcp_manager: omnipanel_mcp::SharedMcpManager,
@@ -40,17 +41,8 @@ impl ToolExecutor for RegistryToolExecutor {
         if ToolRegistry::is_native_tool(name) {
             let args: serde_json::Value =
                 serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
-            if name == "load_skill" {
-                let skill_name = args
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                return match crate::commands::skills::load_skill_body(skill_name) {
-                    Ok(body) => (body, true),
-                    Err(err) => (format!("Error: {err}"), false),
-                };
-            }
+            // load_skill 与其他 Native 工具一样走标准 ToolRegistry::execute_isolated 路径，
+            // 不再硬编码短路：统一由 omnipanel_store::load_skill_body 实现（含 enabled 检查）。
             // 克隆 storage 句柄后立即释放 McpManager 锁。
             let storage = {
                 let manager = self.mcp_manager.lock().await;
@@ -136,6 +128,10 @@ pub struct InternalChatRequestDto {
     pub tools_mode: InternalToolsModeDto,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_provider: Option<HttpProviderSnapshotDto>,
+    /// 知识库 RAG 自动注入用的 embedding provider 配置。
+    /// 仅在 DirectInject 模式下生效；为 None 时跳过 RAG 注入。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_provider: Option<EmbeddingProviderConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -150,6 +146,8 @@ pub struct AiContextBundleDto {
     pub resource_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_context_append: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_context_append: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -194,6 +192,7 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
                 env_tag: dto.context.env_tag,
                 resource_id: dto.context.resource_id,
                 terminal_context_append: dto.context.terminal_context_append,
+                module_context_append: dto.context.module_context_append,
             },
             history,
             tools_mode: match dto.tools_mode {
@@ -229,6 +228,86 @@ fn resolve_acp_session_cwd(context: &AiContextBundle) -> String {
         .clone()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(crate::commands::acp::default_cwd)
+}
+
+/// 构建知识库 RAG 自动注入文本。
+///
+/// 流程：
+/// 1. 用 embedding provider 把 `user_text` 转成向量
+/// 2. 全库 top_n 向量检索
+/// 3. 过滤 score < min_score 的低质量命中
+/// 4. 对命中条目异步 increment_usage（Task 1.4 接通）
+/// 5. 格式化为 "## Knowledge Context" 段落
+///
+/// 任何步骤失败都返回 Err，调用方静默跳过（不阻塞 AI 请求）。
+async fn build_knowledge_rag_append(
+    state: &AppState,
+    provider: &EmbeddingProviderConfig,
+    user_text: &str,
+    top_n: usize,
+    min_score: f64,
+) -> Result<String, String> {
+    let query_text = user_text.trim();
+    if query_text.is_empty() || query_text.len() < 2 {
+        return Err("query too short".to_string());
+    }
+
+    // 1. 生成 query embedding
+    let query_vectors = fetch_provider_embeddings(provider, &[query_text.to_string()]).await?;
+    let query_embedding = query_vectors
+        .into_iter()
+        .next()
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "query embedding 为空".to_string())?;
+
+    // 2. 向量检索 + 补 title
+    let storage = state.storage.lock().await;
+    let hits = storage
+        .search_knowledge_vectors(&query_embedding, top_n)
+        .map_err(|e| e.to_string())?;
+
+    // 3. 过滤低分命中 + 补 title
+    let mut filtered: Vec<(String, String, String, f64)> = Vec::new();
+    for hit in hits {
+        if hit.score < min_score {
+            continue;
+        }
+        let title = match storage.get_knowledge(&hit.entry_id) {
+            Ok(Some(e)) => e.title,
+            _ => hit.entry_id.clone(),
+        };
+        filtered.push((hit.entry_id.clone(), title, hit.content.clone(), hit.score));
+
+        // 4. Task 1.4：自动 increment_usage（命中即记一次使用）
+        let _ = storage.increment_usage(&hit.entry_id);
+    }
+    drop(storage);
+
+    if filtered.is_empty() {
+        return Ok(String::new());
+    }
+
+    // 5. 格式化为 system prompt 段落
+    let mut lines = vec![
+        "## Knowledge Context".to_string(),
+        "以下是从知识库检索到的相关文档片段（按相似度降序），可结合用户问题参考：".to_string(),
+    ];
+    for (idx, (entry_id, title, content, score)) in filtered.iter().enumerate() {
+        let truncated = truncate_content(content, 600);
+        lines.push(format!(
+            "\n### [{idx}] {title}\n- 文档 ID: {entry_id}\n- 相似度: {score:.3}\n- 内容:\n{truncated}"
+        ));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn truncate_content(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut result: String = s.chars().take(max_chars).collect();
+    result.push_str("\n...(已截断)");
+    result
 }
 
 async fn build_http_provider(
@@ -301,15 +380,43 @@ pub async fn ai_chat_stream(
     request: InternalChatRequestDto,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
+    // 在 move 进 TryFrom 前提取 embedding provider，供 RAG 注入使用。
+    let mut request = request;
+    let embedding_provider = request.embedding_provider.take();
+    let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
     if matches!(
         internal.tools_mode,
         InternalToolsMode::DirectInject { .. }
     ) {
-        let skills_text = crate::commands::skills::build_skills_system_append()
-            .unwrap_or_default();
-        if !skills_text.is_empty() {
-            internal.system_append = Some(skills_text);
+        let mut append_parts: Vec<String> = Vec::new();
+
+        // 1. Skills 摘要（渐进式披露）
+        if let Ok(skills_text) = omnipanel_store::build_skills_system_append() {
+            if !skills_text.is_empty() {
+                append_parts.push(skills_text);
+            }
+        }
+
+        // 2. 知识库 RAG 自动注入：top-3 语义检索
+        if let Some(provider) = embedding_provider.as_ref() {
+            if let Ok(rag_text) = build_knowledge_rag_append(
+                &state,
+                provider,
+                &user_text_for_rag,
+                3,
+                0.35,
+            )
+            .await
+            {
+                if !rag_text.is_empty() {
+                    append_parts.push(rag_text);
+                }
+            }
+        }
+
+        if !append_parts.is_empty() {
+            internal.system_append = Some(append_parts.join("\n\n---\n\n"));
         }
     }
 

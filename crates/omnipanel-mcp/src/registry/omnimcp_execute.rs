@@ -7,7 +7,10 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use super::database_tools;
+use super::docker_tools;
+use super::files_tools;
 use super::native;
+use super::ssh_tools;
 use super::terminal_tools;
 use super::web;
 
@@ -32,11 +35,31 @@ pub async fn execute_omnimcp_tool(
             let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
             Ok(text)
         }
+        "omni_resource_get_profile"
+        | "omni_resource_find_similar"
+        | "omni_resource_update_profile" => {
+            let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
+            Ok(text)
+        }
+        "omni_skill_recall"
+        | "omni_skill_extract_experience"
+        | "omni_skill_refine" => {
+            let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
+            Ok(text)
+        }
         "omni_database_list_connections" => {
             let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
             Ok(text)
         }
         "omni_ssh_list_connections" => {
+            let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
+            Ok(text)
+        }
+        "omni_docker_list_connections" => {
+            let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
+            Ok(text)
+        }
+        "omni_files_list_connections" => {
             let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
             Ok(text)
         }
@@ -48,7 +71,35 @@ pub async fn execute_omnimcp_tool(
         }
         "omni_database_get_table_info" => database_tools::get_table_info(arguments).await,
         "omni_database_execute_sql" => database_tools::execute_sql(arguments).await,
+        "omni_database_show_processlist" => database_tools::show_processlist(arguments).await,
+        "omni_database_kill_query" => database_tools::kill_query(arguments).await,
+        "omni_database_slow_log_summary" => database_tools::slow_log_summary(arguments).await,
         "omni_terminal_run_terminal_command" => terminal_tools::run_terminal_command(arguments).await,
+        "omni_ssh_exec" => ssh_tools::exec_command(arguments, storage).await,
+        "omni_ssh_get_stats" => ssh_tools::get_stats(arguments, storage).await,
+        "omni_ssh_list_tunnels" => Ok(serde_json::to_string(&serde_json::json!({
+            "tunnels": [],
+            "note": "外部 OmniMCP 路径不暴露运行时隧道状态；请在应用内通过内部 AI 调用。"
+        }))
+        .unwrap_or_else(|_| "{}".to_string())),
+        "omni_ssh_create_tunnel" => Err(
+            "SSH 隧道创建依赖应用运行时状态（AppState.ssh_tunnels），外部 OmniMCP 路径暂不支持；\
+             请在应用内通过内部 AI 调用 omni_ssh_create_tunnel。"
+                .to_string(),
+        ),
+        "omni_docker_list_containers" => docker_tools::list_containers(arguments, storage).await,
+        "omni_docker_container_logs" => docker_tools::container_logs(arguments, storage).await,
+        "omni_docker_inspect_container" => {
+            docker_tools::inspect_container(arguments, storage).await
+        }
+        "omni_docker_container_action" => {
+            docker_tools::container_action(arguments, storage).await
+        }
+        "omni_docker_exec" => docker_tools::exec(arguments, storage).await,
+        "omni_files_list" => files_tools::list(arguments, storage).await,
+        "omni_files_read" => files_tools::read(arguments, storage).await,
+        "omni_files_write" => files_tools::write(arguments, storage).await,
+        "omni_files_search" => files_tools::search(arguments, storage).await,
         "omni_web_search" => {
             let proxy = load_http_proxy_config().ok();
             let (text, _) = web::search::dispatch(arguments, storage, proxy).await?;

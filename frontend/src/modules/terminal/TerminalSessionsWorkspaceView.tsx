@@ -6,7 +6,7 @@ import { SshHostSidebar } from "../server/ssh/SshHostSidebar";
 import { SshSidebarLinkageProvider } from "../server/ssh/SshSidebarLinkageContext";
 import { useSshHostWorkspace } from "../server/ssh/hooks/useSshHostWorkspace";
 import { SSH_PATH } from "../server/ssh/constants";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { useSshHostResources } from "../../stores/connectionStore";
 import { useSshSelectionStore } from "../server/ssh/stores/sshSelectionStore";
 import { useTerminalLeftPanelStore } from "./terminalLeftPanelStore";
@@ -55,6 +55,16 @@ export interface TerminalSessionsWorkspaceViewProps {
   onSelectSession: (sessionId: string) => void;
   onCreateSession: (resourceId: string, title: string) => void;
   onEndSession: (sessionId: string) => void;
+  /** 会话右键「在工作区打开」：将指定会话移到目标工作区。 */
+  onOpenSessionInWorkspace?: (sessionId: string, workspaceId: string) => void;
+  /** 当前工作区 id。 */
+  currentWorkspaceId?: string;
+  /** 可用工作区列表。 */
+  workspaces?: WorkspaceInfo[];
+  /** 连接右键「结束所有会话」。 */
+  onEndAllSessionsInConnection?: (resourceId: string) => void;
+  /** 连接右键「重命名连接」。 */
+  onRenameConnection?: (resourceId: string, currentName: string) => void;
   children: ReactNode;
 }
 
@@ -63,6 +73,11 @@ export function TerminalSessionsWorkspaceView({
   onSelectSession,
   onCreateSession,
   onEndSession,
+  onOpenSessionInWorkspace,
+  currentWorkspaceId,
+  workspaces,
+  onEndAllSessionsInConnection,
+  onRenameConnection,
   children,
 }: TerminalSessionsWorkspaceViewProps) {
   const { t } = useI18n();
@@ -91,9 +106,23 @@ export function TerminalSessionsWorkspaceView({
         onSelectSession={onSelectSession}
         onCreateSession={onCreateSession}
         onEndSession={onEndSession}
+        onOpenSessionInWorkspace={onOpenSessionInWorkspace}
+        currentWorkspaceId={currentWorkspaceId}
+        workspaces={workspaces}
+        onEndAllSessionsInConnection={onEndAllSessionsInConnection}
+        onRenameConnection={onRenameConnection}
       />
     ),
-    [onCreateSession, onEndSession, onSelectSession],
+    [
+      onCreateSession,
+      onEndSession,
+      onEndAllSessionsInConnection,
+      onOpenSessionInWorkspace,
+      onRenameConnection,
+      onSelectSession,
+      currentWorkspaceId,
+      workspaces,
+    ],
   );
 
   const sshSidebar = useMemo(

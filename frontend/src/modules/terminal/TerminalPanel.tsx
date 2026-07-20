@@ -451,6 +451,39 @@ export function TerminalPanel() {
     [addLocalTerminalTab, addSshTerminalTab, focusSessionsPanel, selectResource, setActiveTab],
   );
 
+  const handleEndAllSessionsInConnection = useCallback(
+    (resourceId: string) => {
+      const allSessions = useTerminalStore.getState().sessions;
+      for (const session of allSessions) {
+        if (session.lifecycle === "ended") continue;
+        if (session.session.resourceId !== resourceId) continue;
+        handleEndSession(session.id);
+      }
+    },
+    [handleEndSession],
+  );
+
+  const handleRenameConnection = useCallback(
+    async (resourceId: string, currentName: string) => {
+      if (resourceId === LOCAL_TERMINAL_RESOURCE_ID) return;
+      const { quickInput } = await import("../../lib/quickInput");
+      const { t: tt } = await import("../../i18n");
+      const input = await quickInput({
+        title: tt("terminal.sessions.renameConnection"),
+        subtitle: currentName,
+        defaultValue: currentName,
+        validate: (value) => (value.trim() ? null : tt("terminal.sessions.renameConnectionEmpty")),
+      });
+      if (input == null) return;
+      const trimmed = input.trim();
+      if (trimmed === currentName) return;
+      const conn = useConnectionStore.getState().connections.find((c) => c.id === resourceId);
+      if (!conn) return;
+      await useConnectionStore.getState().save({ ...conn, name: trimmed });
+    },
+    [],
+  );
+
   const visibleTabs = useMemo(
     () =>
       tabs.filter(
@@ -709,6 +742,17 @@ export function TerminalPanel() {
     [beginSuppressSshDockActivation, focusSessionsPanel, setActiveTab, setDockLayout],
   );
 
+  const handleOpenSessionInWorkspace = useCallback(
+    (sessionId: string, workspaceId: string) => {
+      if (!workspaceId) return;
+      const store = useTerminalStore.getState();
+      // 确保会话已有 tab（若仅挂起则先 open）
+      const tabId = store.openSessionTab(sessionId);
+      performMoveTabToWorkspace(tabId, workspaceId);
+    },
+    [performMoveTabToWorkspace],
+  );
+
   const handleContextAction = useCallback(
     (action: TabContextMenuAction | "closeAndEnd" | "copy") => {
       if (!ctxMenu) return;
@@ -878,6 +922,11 @@ export function TerminalPanel() {
         onSelectSession={handleSelectSession}
         onCreateSession={handleCreateSession}
         onEndSession={handleEndSession}
+        onOpenSessionInWorkspace={handleOpenSessionInWorkspace}
+        currentWorkspaceId={activeWorkspaceId}
+        workspaces={workspaces}
+        onEndAllSessionsInConnection={handleEndAllSessionsInConnection}
+        onRenameConnection={handleRenameConnection}
       >
         <TerminalModuleDock
           moduleDockProps={{

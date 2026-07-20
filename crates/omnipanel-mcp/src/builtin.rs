@@ -108,6 +108,8 @@ impl OmniMcpHandler {
             parent_id: parent_id.unwrap_or_default(),
             node_type: "document".to_string(),
             sort_order: 0,
+            resource_type: String::new(),
+            resource_id: String::new(),
         };
 
         let storage = self.storage.lock().await;
