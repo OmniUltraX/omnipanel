@@ -218,6 +218,12 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   /** 按 tabId 局部 invalidate；优先于 panelContentKey 的全局 bump */
   panelContentKeysByTab?: Record<string, string>;
   /**
+   * 是否延后通知 React activeTabId（默认 true）。
+   * - true：setTimeout + startTransition（终端等重型父树）
+   * - false：下一帧再通知（数据库等：先让乐观 Tab 高亮 paint，再推侧栏/内容）
+   */
+  deferActiveTabNotify?: boolean;
+  /**
    * dockview panel 渲染策略。
    * - `always`：非激活 panel 也常驻（终端 xterm / 嵌套侧栏等需要）
    * - `onlyWhenVisible`：按需挂载，降低开 Tab 时全量 reconcile（模块工作区默认）
@@ -373,6 +379,7 @@ export function DockableWorkspace({
   panelContentKey = "default",
   softRefreshKey,
   panelContentKeysByTab,
+  deferActiveTabNotify = true,
   defaultRenderer = "always",
   className,
   emptyContent,
@@ -422,8 +429,13 @@ export function DockableWorkspace({
   /**
    * 切 Tab 后把 React 状态同步延后到 paint：dockview / 乐观高亮已更新 DOM，
    * 若立刻 onActiveTabChange，重型父树会卡住主线程。
+   * deferActiveTabNotify=false 时改为「下一帧再通知」，避免挡住乐观高亮首帧。
    */
   const pendingActivePaintNotifyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingActiveNotifyIdRef = useRef<string | null>(null);
+  const deferActiveTabNotifyRef = useRef(deferActiveTabNotify);
+  deferActiveTabNotifyRef.current = deferActiveTabNotify;
+
   /** 切 Tab 触发的 layout toJSON 延后到 paint 之后，避免挡住高亮绘制 */
   const pendingActiveLayoutPersistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSavedLayoutRef = useRef<SerializedDockview | null>(savedLayout);
@@ -451,6 +463,26 @@ export function DockableWorkspace({
   onCloseTabRef.current = onCloseTab;
   const onActiveTabChangeRef = useRef(onActiveTabChange);
   onActiveTabChangeRef.current = onActiveTabChange;
+
+  /**
+   * 乐观高亮之后再通知业务：setTimeout(0) 让出首帧 paint，
+   * 避免 pointerdown 同步重活把 dv-active-tab 卡住。
+   * 不做「同 id 跳过」：clearTimeout 后若仍跳过，通知会永久丢失。
+   */
+  const scheduleAfterPaintActiveTabNotify = useCallback((tabId: string) => {
+    pendingActiveNotifyIdRef.current = tabId;
+    if (pendingActivePaintNotifyRef.current) {
+      clearTimeout(pendingActivePaintNotifyRef.current);
+    }
+    pendingActivePaintNotifyRef.current = setTimeout(() => {
+      pendingActivePaintNotifyRef.current = null;
+      const id = pendingActiveNotifyIdRef.current;
+      pendingActiveNotifyIdRef.current = null;
+      if (id) onActiveTabChangeRef.current(id);
+    }, 0);
+  }, []);
+  const scheduleAfterPaintActiveTabNotifyRef = useRef(scheduleAfterPaintActiveTabNotify);
+  scheduleAfterPaintActiveTabNotifyRef.current = scheduleAfterPaintActiveTabNotify;
   const onSavedLayoutChangeRef = useRef(onSavedLayoutChange);
   onSavedLayoutChangeRef.current = onSavedLayoutChange;
   const createPanelRequestRef = useRef(createPanelRequest);
@@ -1202,6 +1234,11 @@ export function DockableWorkspace({
       }
       tabEl.classList.remove("dv-inactive-tab");
       tabEl.classList.add("dv-active-tab");
+
+      // 先让高亮 paint，下一帧再通知业务（切勿在 pointerdown 里同步 flushSync）
+      if (tabId && !deferActiveTabNotifyRef.current) {
+        scheduleAfterPaintActiveTabNotifyRef.current(tabId);
+      }
     };
 
     const onCaptureClick = (event: MouseEvent) => {
@@ -1972,17 +2009,24 @@ export function DockableWorkspace({
         }
 
         if (panelId && !skipActiveTabChange) {
-          if (pendingActivePaintNotifyRef.current) {
-            clearTimeout(pendingActivePaintNotifyRef.current);
-          }
           const notifyActiveId = panelId;
-          pendingActivePaintNotifyRef.current = setTimeout(() => {
-            pendingActivePaintNotifyRef.current = null;
-            // 低优先级更新 React activeTabId，避免与下一次点击抢主线程
-            startTransition(() => {
-              onActiveTabChangeRef.current(notifyActiveId);
-            });
-          }, 0);
+          if (deferActiveTabNotifyRef.current) {
+            if (pendingActivePaintNotifyRef.current) {
+              clearTimeout(pendingActivePaintNotifyRef.current);
+              pendingActivePaintNotifyRef.current = null;
+            }
+            pendingActiveNotifyIdRef.current = null;
+            pendingActivePaintNotifyRef.current = setTimeout(() => {
+              pendingActivePaintNotifyRef.current = null;
+              // 低优先级更新 React activeTabId，避免与下一次点击抢主线程
+              startTransition(() => {
+                onActiveTabChangeRef.current(notifyActiveId);
+              });
+            }, 0);
+          } else {
+            // 切勿先 clearTimeout：会吃掉 pointerdown 已排的调度，配合去重导致通知永久丢失
+            scheduleAfterPaintActiveTabNotifyRef.current(notifyActiveId);
+          }
         }
 
         // 用户切换 tab 后，强制 dockview 重新布局，确保 overlay 位置正确。

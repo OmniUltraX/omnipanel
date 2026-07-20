@@ -1881,11 +1881,10 @@ export function SchemaBrowser({
     [activeTableKey, activeDatabaseKey, activeConnId],
   );
 
-  const sidebarLinkageRafRef = useRef<number | null>(null);
   const lastLinkageScrollRef = useRef<{ targetId: string; rowIndex: number } | null>(null);
 
-  // 先展开祖先（普通 setState，禁止在 effect 里 flushSync）
-  useEffect(() => {
+  // 先展开祖先（layout 阶段同步，保证随后 scroll 能立刻找到节点）
+  useLayoutEffect(() => {
     if (!sidebarScrollTargetId || loading || search.trim()) {
       return;
     }
@@ -1903,8 +1902,8 @@ export function SchemaBrowser({
     });
   }, [sidebarScrollTargetId, loading, search, updateExpanded]);
 
-  // flatRows 就绪后再滚动定位：仅在「切换目标」且目标不在视口内时最小位移滚入，绝不强制居中
-  useEffect(() => {
+  // flatRows 就绪后立刻定位：仅在「切换目标」且目标不在视口内时最小位移滚入
+  useLayoutEffect(() => {
     if (!sidebarScrollTargetId || loading || search.trim()) {
       lastLinkageScrollRef.current = null;
       return;
@@ -1930,34 +1929,16 @@ export function SchemaBrowser({
       return;
     }
 
-    const scrollIntoView = () => {
-      scrollSchemaFlatRowIntoView(
-        container,
-        flatRowsRef.current,
-        rowIndex,
-        useTreeVirtualization
-          ? (index) =>
-              rowVirtualizerRef.current.scrollToIndex(index, { align: "auto", behavior: "auto" })
-          : undefined,
-      );
-    };
-
-    if (sidebarLinkageRafRef.current != null) {
-      cancelAnimationFrame(sidebarLinkageRafRef.current);
-    }
-
-    sidebarLinkageRafRef.current = requestAnimationFrame(() => {
-      sidebarLinkageRafRef.current = null;
-      scrollIntoView();
-      lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
-    });
-
-    return () => {
-      if (sidebarLinkageRafRef.current != null) {
-        cancelAnimationFrame(sidebarLinkageRafRef.current);
-        sidebarLinkageRafRef.current = null;
-      }
-    };
+    scrollSchemaFlatRowIntoView(
+      container,
+      flatRowsRef.current,
+      rowIndex,
+      useTreeVirtualization
+        ? (index) =>
+            rowVirtualizerRef.current.scrollToIndex(index, { align: "auto", behavior: "auto" })
+        : undefined,
+    );
+    lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
   }, [sidebarScrollTargetId, loading, search, flatRows, useTreeVirtualization]);
 
   const updatePathForNodeId = useCallback((nodeId: string) => {
