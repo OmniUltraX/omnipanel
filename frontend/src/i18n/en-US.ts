@@ -5360,11 +5360,12 @@ export const enUS: TranslationDict = {
   },
   userCenter: {
     title: "User Center",
+    menuLabel: "User menu",
     guest: "Guest",
     openSettings: "Open full settings",
     logout: "Sign out",
     nav: {
-      account: "Account",
+      account: "Profile",
       subscription: "Subscription",
       devices: "Devices",
     },

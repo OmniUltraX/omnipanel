@@ -124,16 +124,43 @@ export interface AuthUserProfile {
   email: string;
 }
 
+const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
+
+/** 将接口返回的 avatar_url（相对路径或绝对 URL）规范为可展示地址。 */
+export function resolveAvatarUrl(url: string | null | undefined): string {
+  const trimmed = (url ?? "").trim();
+  if (!trimmed) return "";
+  if (/^(data:|https?:|blob:)/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("/")) return `${AUTH_ASSET_BASE}${trimmed}`;
+  return `${AUTH_ASSET_BASE}/${trimmed}`;
+}
+
+function mapUserProfile(data: {
+  id: number | null;
+  openid: string;
+  nickname: string;
+  avatarUrl?: string;
+  avatar_url?: string;
+  email: string;
+}): AuthUserProfile {
+  const rawAvatar =
+    (typeof data.avatarUrl === "string" && data.avatarUrl) ||
+    (typeof data.avatar_url === "string" && data.avatar_url) ||
+    "";
+  return {
+    id: data.id ?? 0,
+    openid: data.openid,
+    nickname: data.nickname,
+    avatarUrl: resolveAvatarUrl(rawAvatar),
+    email: data.email,
+  };
+}
+
 /** 经 Tauri 后端代理拉取当前用户资料（GET /api/me）。 */
 export async function fetchMe(token: string): Promise<AuthUserProfile> {
   const data = await unwrapCommand(commands.authGetMe(token));
-  return {
-    id: data.id,
-    openid: data.openid,
-    nickname: data.nickname,
-    avatarUrl: data.avatarUrl,
-    email: data.email,
-  };
+  return mapUserProfile(data);
 }
 
 /** 经 Tauri 后端代理更新当前用户资料（PATCH /api/me）。 */
@@ -148,13 +175,7 @@ export async function updateProfile(
       patch.avatarUrl ?? null,
     ),
   );
-  return {
-    id: data.id,
-    openid: data.openid,
-    nickname: data.nickname,
-    avatarUrl: data.avatarUrl,
-    email: data.email,
-  };
+  return mapUserProfile(data);
 }
 
 export function isAuthSessionError(error: unknown): boolean {

@@ -5304,11 +5304,12 @@ export const zhCN = {
   },
   userCenter: {
     title: "用户中心",
+    menuLabel: "用户菜单",
     guest: "访客",
     openSettings: "打开完整设置",
     logout: "退出登录",
     nav: {
-      account: "账号信息",
+      account: "个人中心",
       subscription: "订阅管理",
       devices: "设备管理",
     },

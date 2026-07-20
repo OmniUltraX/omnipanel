@@ -73,6 +73,8 @@ pub struct AuthUserProfile {
     pub id: i64,
     pub openid: String,
     pub nickname: String,
+    /// 对应接口字段 `avatar_url`。
+    #[serde(rename = "avatarUrl")]
     pub avatar_url: String,
     pub email: String,
 }
@@ -82,6 +84,7 @@ struct ApiUserResponse {
     id: Option<i64>,
     openid: Option<String>,
     nickname: Option<String>,
+    #[serde(default, alias = "avatarUrl")]
     avatar_url: Option<String>,
     email: Option<String>,
     error: Option<String>,
