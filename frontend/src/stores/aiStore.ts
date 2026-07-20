@@ -52,6 +52,12 @@ export interface AiConversation {
   updatedAt: number;
   context?: { type: string; label: string }[];
   contextSnapshot?: WorkspaceContextSnapshot;
+  /** 显式钉住的工作区（可选；null/undefined=全局作用域） */
+  pinnedWorkspaceId?: string | null;
+  /** 附着的终端 session（Dock ↔ 终端互通） */
+  linkedTerminalSessionId?: string | null;
+  /** 由内联 AI Promote 而来的源 block */
+  sourceBlockId?: string | null;
 }
 
 interface AiStore {
@@ -114,6 +120,20 @@ interface AiStore {
   setConversationListWidth: (width: number) => void;
   setConversationModelSelectionId: (conversationId: string, selectionId: string) => void;
   replaceConversationMessages: (conversationId: string, messages: AiMessage[]) => void;
+  /** 显式钉住工作区；传 null 恢复全局作用域 */
+  pinConversationWorkspace: (conversationId: string, workspaceId: string | null) => void;
+  attachTerminalSession: (conversationId: string, sessionId: string | null) => void;
+  /**
+   * 将终端内联 aiThread 投影为 Dock 会话（或写入指定会话）。
+   * 返回目标 conversationId。
+   */
+  promoteInlineThread: (args: {
+    title: string;
+    messages: AiMessage[];
+    terminalSessionId: string;
+    sourceBlockId: string;
+    targetConversationId?: string | null;
+  }) => string;
 }
 
 let idCounter = 0;
@@ -168,8 +188,11 @@ export const useAiStore = create<AiStore>()(
           createdAt: Date.now(),
           updatedAt: Date.now(),
           contextSnapshot: snapshot,
+          // 工作区非必选：仅记录现场快照芯片，不自动 pin 工作区
+          pinnedWorkspaceId: null,
+          linkedTerminalSessionId: null,
+          sourceBlockId: null,
           context: [
-            { type: "workspace", label: snapshot.workspace.name },
             ...(snapshot.activeResource
               ? [{ type: "resource", label: snapshot.activeResource.name }]
               : []),
@@ -371,6 +394,79 @@ export const useAiStore = create<AiStore>()(
               : c,
           ),
         })),
+
+      pinConversationWorkspace: (conversationId, workspaceId) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            const ws = workspaceId
+              ? useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)
+              : null;
+            const context = (c.context || []).filter((ch) => ch.type !== "workspace");
+            if (ws) {
+              context.unshift({ type: "workspace", label: ws.name });
+            }
+            return {
+              ...c,
+              pinnedWorkspaceId: workspaceId,
+              context,
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      attachTerminalSession: (conversationId, sessionId) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, linkedTerminalSessionId: sessionId, updatedAt: Date.now() }
+              : c,
+          ),
+        })),
+
+      promoteInlineThread: ({
+        title,
+        messages,
+        terminalSessionId,
+        sourceBlockId,
+        targetConversationId,
+      }) => {
+        const state = get();
+        if (targetConversationId) {
+          set({
+            conversations: state.conversations.map((c) =>
+              c.id === targetConversationId
+                ? {
+                    ...c,
+                    messages: [...c.messages, ...messages],
+                    linkedTerminalSessionId: terminalSessionId,
+                    sourceBlockId,
+                    title: c.title === "新的对话" ? title : c.title,
+                    updatedAt: Date.now(),
+                  }
+                : c,
+            ),
+            activeConversationId: targetConversationId,
+          });
+          return targetConversationId;
+        }
+        const id = get().createConversation();
+        set((s) => ({
+          conversations: s.conversations.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  title,
+                  messages,
+                  linkedTerminalSessionId: terminalSessionId,
+                  sourceBlockId,
+                  updatedAt: Date.now(),
+                }
+              : c,
+          ),
+        }));
+        return id;
+      },
     }),
     {
       name: "omnipanel-ai-store",

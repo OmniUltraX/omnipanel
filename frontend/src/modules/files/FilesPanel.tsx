@@ -45,6 +45,7 @@ import {
   testFileConnection,
 } from "./fileApi";
 import { LOCAL_CONNECTION_ID } from "./utils";
+import { FilesModuleContextBridge } from "./ai/FilesModuleContextBridge";
 
 type ConnCtxState = { x: number; y: number; conn: FileManagerConnectionInfo } | null;
 
@@ -554,8 +555,17 @@ function FilesBrowserView() {
     return null;
   }
 
+  const filesAiContext = {
+    connectionId: sidebarActiveId,
+    connectionName:
+      connections.find((c) => c.id === sidebarActiveId)?.name ??
+      (sidebarActiveId === LOCAL_CONNECTION_ID ? "本机" : null),
+    currentPath: panelStates[sidebarActiveId]?.currentPath ?? null,
+  };
+
   return (
     <>
+      <FilesModuleContextBridge active={isActiveRoute} context={filesAiContext} />
       <ModuleWorkspaceLayout
         className="files-workspace"
         leftColumnTitle={t("routes.files")}

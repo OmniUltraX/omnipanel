@@ -63,6 +63,8 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
       windowControl={windowControl}
       // 常驻渲染：切 Tab 只切换可见性，避免 onlyWhenVisible 卸载/重挂造成「加载闪一下」
       defaultRenderer="always"
+      // 侧栏连接树联动：下一帧通知（先让乐观 Tab 高亮画出来）
+      deferActiveTabNotify={false}
       tabs={dockTabs}
       activeTabId={activeTabId}
       onActiveTabChange={setActiveTabId}

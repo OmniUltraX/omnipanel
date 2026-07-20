@@ -318,10 +318,14 @@
 .ai-subwindow-header-extra {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-2);
     min-width: 0;
     flex: 1;
     justify-content: flex-end;
+}
+
+.ai-subwindow-header-extra .ai-panel-toolbar-actions {
+    margin-inline-start: auto;
 }
 
 .ai-subwindow .subwindow-title.ai-conversation-title,

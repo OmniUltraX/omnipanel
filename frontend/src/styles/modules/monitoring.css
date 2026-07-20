@@ -74,7 +74,8 @@
 
 .mon-refresh-btn:hover:not(:disabled) {
     border-color: var(--accent);
-    color: var(--fg);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .mon-refresh-btn:disabled {

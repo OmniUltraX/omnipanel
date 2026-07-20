@@ -304,6 +304,51 @@ const SCHEMA_SSH_CREATE_TUNNEL: &str = r#"{
   "required": ["connection_id", "tunnel_type", "local_port"]
 }"#;
 
+const SCHEMA_WORKSPACE_CREATE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "description": "工作区名称" },
+    "description": { "type": "string", "description": "可选描述" },
+    "resource_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "可选，纳入的连接/资源 id 列表"
+    }
+  },
+  "required": ["name"]
+}"#;
+
+const SCHEMA_WORKSPACE_ID: &str = r#"{
+  "type": "object",
+  "properties": {
+    "workspace_id": { "type": "string", "description": "工作区 id" }
+  },
+  "required": ["workspace_id"]
+}"#;
+
+const SCHEMA_WORKSPACE_LIST: &str = r#"{
+  "type": "object",
+  "properties": {
+    "workspace_id": { "type": "string", "description": "可选；省略=全局资源" }
+  }
+}"#;
+
+const SCHEMA_WORKSPACE_MEMBERSHIP: &str = r#"{
+  "type": "object",
+  "properties": {
+    "workspace_id": { "type": "string" },
+    "resource_ids": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["workspace_id", "resource_ids"]
+}"#;
+
+const SCHEMA_SSH_FLEET_HEALTH: &str = r#"{
+  "type": "object",
+  "properties": {
+    "workspace_id": { "type": "string", "description": "可选；限定工作区。省略=会话钉住或全局" }
+  }
+}"#;
+
 const SCHEMA_DOCKER_LIST_CONTAINERS: &str = r#"{
   "type": "object",
   "properties": {
@@ -758,6 +803,57 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         input_schema: SCHEMA_WEB_FETCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_workspace_create",
+        module_key: "ssh",
+        description:
+            "创建业务工作区（可选纳入 resource_ids）。工作区非必选；仅当用户明确要求隔离/整理时调用。",
+        input_schema: SCHEMA_WORKSPACE_CREATE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_workspace_switch",
+        module_key: "ssh",
+        description: "切换到指定工作区（UI）。",
+        input_schema: SCHEMA_WORKSPACE_ID,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_workspace_list_resources",
+        module_key: "ssh",
+        description: "列出资源。不传 workspace_id 时返回全局连接；传入时返回该工作区 membership。",
+        input_schema: SCHEMA_WORKSPACE_LIST,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_workspace_add_resources",
+        module_key: "ssh",
+        description: "将资源 id 纳入指定工作区 membership。",
+        input_schema: SCHEMA_WORKSPACE_MEMBERSHIP,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_workspace_remove_resources",
+        module_key: "ssh",
+        description: "从工作区 membership 移除资源。",
+        input_schema: SCHEMA_WORKSPACE_MEMBERSHIP,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_orchestration_ssh_fleet_health",
+        module_key: "ssh",
+        description:
+            "对全部（或指定工作区内）SSH 主机扇出采集资源占用，返回汇总供优化建议。\
+             适合「给所有 SSH 做体检」；会显示任务进度。",
+        input_schema: SCHEMA_SSH_FLEET_HEALTH,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
     },
 ];
 

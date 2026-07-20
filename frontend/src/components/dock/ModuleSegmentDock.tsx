@@ -70,6 +70,11 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
    * 终端等需要常驻的场景显式传 always。
    */
   defaultRenderer?: "always" | "onlyWhenVisible";
+  /**
+   * 是否延后通知 activeTabId（默认 true）。
+   * 数据库侧栏联动需即时跟随时传 false。
+   */
+  deferActiveTabNotify?: boolean;
 }
 
 const EMPTY_LAYOUT = null;
@@ -104,6 +109,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
   panelContentKeysByTab,
   softRefreshKey,
   defaultRenderer = "onlyWhenVisible",
+  deferActiveTabNotify,
 }: ModuleSegmentDockProps) {
   const layoutRef = useRef(EMPTY_LAYOUT);
   const noopClose = useCallback(() => {}, []);
@@ -176,6 +182,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       panelContentKeysByTab={panelContentKeysByTab}
       softRefreshKey={softRefreshKey}
       defaultRenderer={defaultRenderer}
+      deferActiveTabNotify={deferActiveTabNotify}
     />
   );
 });

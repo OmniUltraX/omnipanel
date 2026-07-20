@@ -882,6 +882,12 @@ a {
 
 .advance-terminal-side-panel-root{
     background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .workspace-component-panel {
@@ -3427,14 +3433,6 @@ a {
     visibility: hidden !important;
 }
 
-.dockable-workspace--recovering.advance-terminal-side-dock
-    .dv-split-view-container
-    > .dv-view-container
-    > .dv-view {
-    width: 100% !important;
-    transform: none !important;
-}
-
 .route-module-fallback {
     flex: 1;
     display: flex;
@@ -3951,14 +3949,14 @@ a {
 }
 
 /* 渚ф爮 Tab锛坙eft/right锛夛細浠呭浘鏍囷紝鏀剁獎瀹藉害锛堢粓绔晶鏍忕敤鍘熺敓 DefaultTab 鍗曠嫭鏍峰紡锛?*/
-.dockable-workspace.dock-header-left:not(.advance-terminal-side-dock) .dv-tabs-and-actions-container,
-.dockable-workspace.dock-header-right:not(.advance-terminal-side-dock) .dv-tabs-and-actions-container {
+.dockable-workspace.dock-header-left .dv-tabs-and-actions-container,
+.dockable-workspace.dock-header-right .dv-tabs-and-actions-container {
     width: 36px;
     min-width: 36px;
 }
 
-.dockable-workspace.dock-header-left:not(.advance-terminal-side-dock) .dock-tab-header-inner,
-.dockable-workspace.dock-header-right:not(.advance-terminal-side-dock) .dock-tab-header-inner {
+.dockable-workspace.dock-header-left .dock-tab-header-inner,
+.dockable-workspace.dock-header-right .dock-tab-header-inner {
     justify-content: center;
     max-width: none;
 }
@@ -4071,6 +4069,19 @@ a {
     position: relative;
     z-index: 5;
     -webkit-app-region: no-drag;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions--chrome-relocated {
+    min-width: 0;
+}
+
+/* AI 右侧 Dock 打开：内容区 tab 栏不再预留窗口三键宽度 */
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
+    min-width: 0;
+}
+
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions:not(.dock-window-title-actions--chrome-relocated) {
+    min-width: 0;
 }
 
 .dockable-workspace.dock-window-control .dock-window-drag-spacer {
@@ -4614,13 +4625,13 @@ a {
     font-size: 13px;
 }
 
-/* AdvanceTerminal锛氱粓绔?+ 鍙嫋鎷藉彸渚у伐鍏锋爮锛圫FTP / 闅ч亾锛?*/
+/* AdvanceTerminal：通栏会话顶 + 终端/侧栏并排 */
 .advance-terminal {
     flex: 1;
     min-height: 0;
     height: 100%;
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     overflow: hidden;
 }
 
@@ -4628,14 +4639,102 @@ a {
     background: var(--bg-deeper);
 }
 
+.advance-terminal-session-chrome {
+    flex: 0 0 auto;
+    min-width: 0;
+    z-index: 2;
+}
+
+.advance-terminal-session-chrome .term-session-header {
+    width: 100%;
+}
+
+.advance-terminal-session-chrome .term-session-header__right {
+    max-width: none;
+    flex: 0 0 auto;
+}
+
+.advance-terminal-body {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+}
+
 .advance-terminal-main {
+    position: relative;
     flex: 1;
     min-width: 0;
     min-height: 0;
     background: var(--bg-deeper);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
+.advance-terminal-main > .term-pane {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
+/* 终端侧栏顶部入口（并入会话栏） */
+.advance-terminal-side-entry {
+    --advance-side-tab-font: 12px;
+    z-index: 6;
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 0;
+    box-sizing: border-box;
+    background: transparent;
+    border: none;
+}
+
+.advance-terminal-side-entry-btn {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--fg-2);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: var(--advance-side-tab-font);
+    font-weight: 400;
+    line-height: 1.2;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 6px;
+    transition: background var(--anim-fast, 120ms) ease, border-color var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
+}
+
+.advance-terminal-side-entry-btn:hover {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.advance-terminal-side-entry-btn.is-active {
+    color: var(--accent);
+    background: transparent;
+    border-color: var(--accent);
+    font-weight: 500;
+}
+
+.advance-terminal-side-entry-label {
+    writing-mode: horizontal-tb;
+    white-space: nowrap;
+}
+
+/* ===== 终端右侧工具面板（无 dockview / 无竖 tab） ===== */
 .advance-terminal-side {
     min-width: 0;
     min-height: 0;
@@ -4647,7 +4746,16 @@ a {
     overflow: hidden;
 }
 
-/* 鎷栨嫿鍒嗛殧鏉★細灞曞紑鎬佹樉绀猴紝鏀惰捣鎬佷笉娓叉煋 */
+.advance-terminal-side-content {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 拖拽分隔条：展开态显示，收起态不渲染 */
 .advance-terminal-side-resizer {
     width: 5px;
     height: 100%;
@@ -4663,201 +4771,8 @@ a {
     background: var(--accent);
 }
 
-/* ===== 鏀惰捣鎬侊細鑷粯绔栨帓 tab 鎸夐挳锛堟棤 dockview 瀹炰緥锛?===== */
-.advance-terminal-side--collapsed {
-    width: 38px !important;
-    min-width: 38px !important;
-    flex: 0 0 38px !important;
-    border-left: 1px solid var(--border);
-}
-
-.advance-terminal-side-rail {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    overflow: hidden auto;
-    box-sizing: border-box;
-    padding: 0;
-}
-
-.advance-terminal-side-rail-btn {
-    appearance: none;
-    -webkit-appearance: none;
-    background: transparent;
-    border: none;
-    border-left: 2px solid transparent;
-    color: var(--fg-2);
-    cursor: pointer;
-    width: 100%;
-    min-height: 56px;
-    padding: 14px 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    font: inherit;
-    font-size: 13px;
-    transition: background var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
-}
-
-.advance-terminal-side-rail-btn:hover {
-    color: var(--fg);
-    background: var(--surface-hover);
-}
-
-.advance-terminal-side-rail-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-}
-
-.advance-terminal-side-rail-label {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    white-space: nowrap;
-    user-select: none;
-}
-
-/* ===== 灞曞紑鎬侊細dockview 瀹炰緥锛堜繚鐣欏師鐢熷垎灞忥級 ===== */
-.advance-terminal-side-dock-wrap {
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-.advance-terminal-side-dock.dockable-workspace {
-    flex: 1;
-    min-height: 0;
-    min-width: 0;
-    height: 100%;
-}
-
-.advance-terminal-side-dock .dv-groupview {
-    height: 100%;
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-}
-/* dockview 鐨?right header 鏄?row-reverse flex銆傞粯璁?content-container
-   娌℃湁 min-width:0锛屽唴閮ㄨ〃鏍?min-width 浼氭妸鏁翠釜 groupview 鎾戝ぇ锛?   瀵艰嚧鎵€鏈?width:100% 閮藉熀浜庨敊璇埗瀹借绠椼€?*/
-.advance-terminal-side-dock .dv-groupview.dv-groupview-header-right > .dv-content-container {
-    flex: 1 1 0;
-    min-width: 0;
-    max-width: calc(100% - 38px);
-    overflow: hidden;
-}
-
-/* header 绔栨潯锛氱獎瀹姐€佸崰婊￠珮搴︺€佽创鍙崇紭 */
-.advance-terminal-side-dock .dv-tabs-and-actions-container.dv-groupview-header-vertical {
-    width: 38px !important;
-    min-width: 38px;
-    height: 100% !important;
-    max-height: 100%;
-    flex-shrink: 0;
-    box-sizing: border-box;
-    border-left: 1px solid var(--border);
-    border-bottom: none;
-}
-
-/* 鍏抽敭锛氱┖鐨?pre-actions / left-actions 鍏ㄥ眬鏈?height:100%锛屽湪 column 甯冨眬涓?   浼氬悆鎺夋暣鍒楅珮搴︼紝鎶?tabs-container 鎸ゆ垚 0 楂樺害锛坱ab 鍏ㄩ儴涓嶅彲瑙侊級銆?   褰掗浂璁╁畠浠寜鍐呭楂樺害锛屾妸绌洪棿鐣欑粰 tabs-container銆?*/
-.advance-terminal-side-dock .dv-groupview-header-vertical .dv-pre-actions-container,
-.advance-terminal-side-dock .dv-groupview-header-vertical .dv-left-actions-container {
-    height: auto;
-    min-height: 0;
-    flex: 0 0 auto;
-}
-
-.advance-terminal-side-dock .dv-groupview-header-vertical .dv-pre-actions-container:empty,
-.advance-terminal-side-dock .dv-groupview-header-vertical .dv-left-actions-container:empty {
-    display: none;
-}
-
-/* 绌虹櫧鎷栨嫿鍖?/ 绔栧悜 right-actions 绾靛悜鍗犱綅锛岄殣钘?*/
-.advance-terminal-side-dock .dv-groupview-header-vertical .dv-void-container,
-.advance-terminal-side-dock .dv-groupview-header-vertical .dv-right-actions-container {
-    display: none;
-}
-
-/* tabs 鍒楋細淇濈暀 dockview 榛樿绔栨帓鏂囧瓧锛堜笉瑕嗙洊 writing-mode锛夛紝鍗犳弧鍓╀綑楂樺害 */
-.advance-terminal-side-dock .dv-tabs-container.dv-tabs-container-vertical {
-    flex: 1 1 auto;
-    width: 100%;
-    height: auto;
-    max-height: 100%;
-    overflow: hidden auto;
-}
-
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-tab {
-    width: 100% !important;
-    flex-shrink: 0;
-    padding: 0;
-    margin: 0;
-}
-
-/* React 鑷畾涔?tab 鐨勫寘瑁瑰眰锛堥珮搴︿緷璧栫埗锛屽己鍒舵寜鍐呭鎾戝紑锛?*/
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-react-part {
-    width: 100%;
-    height: auto !important;
-}
-
-/* 鍗曚釜 tab锛氱珫鎺掓枃瀛椼€佹按骞冲眳涓€佸崰婊″搴︼紝婵€娲绘€佺敤宸︿晶 accent 杈规 */
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-tab .dv-default-tab {
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: auto;
-    min-height: 56px;
-    padding: 14px 0;
-    border-bottom: none;
-    border-left: 2px solid transparent;
-    color: var(--fg-2);
-    font-size: 13px;
-    box-sizing: border-box;
-}
-
-/* 绔栨帓鏂囧瓧涓嶈鍏ㄥ眬 overflow:hidden / max-width 瑁佸垏 */
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-default-tab-content.dock-tab-header-inner,
-.advance-terminal-side-dock .dv-tabs-container-vertical .dock-tab-label {
-    overflow: visible;
-    text-overflow: clip;
-    max-width: none;
-    max-height: none;
-    min-width: 0;
-}
-
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-tab .dv-default-tab:hover {
-    color: var(--fg);
-    background: var(--surface-hover);
-}
-
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-tab.dv-active-tab .dv-default-tab,
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-tab.dv-tab-dragging .dv-default-tab {
-    color: var(--fg);
-    border-bottom-color: transparent;
-    border-left-color: var(--accent);
-}
-
-
-.advance-terminal-side-dock .dv-tabs-container-vertical .dv-default-tab .dv-default-tab-action {
-    display: none;
-}
-
-.advance-terminal-side-dock .dock-pane-surface {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    min-width: 0;
-    width: 100%;
-    max-width: 100%;
-    overflow: hidden;
-}
-
-.advance-terminal-side-dock .advance-terminal-monitor-stack {
+.advance-terminal-side-content .advance-terminal-monitor-stack,
+.advance-terminal-side-content .advance-terminal-side-panel-root {
     flex: 1;
     min-height: 0;
     min-width: 0;
@@ -5086,17 +5001,7 @@ a {
     border-radius: 999px;
 }
 
-.advance-terminal-side-dock:has(.proc-panel) .dock-pane-surface,
-.advance-terminal-side-dock:has(.sftp-panel) .dock-pane-surface,
-.advance-terminal-side-dock:has(.local-file-panel) .dock-pane-surface,
-.advance-terminal-side-dock:has(.tunnel-panel) .dock-pane-surface {
-    padding: 0;
-}
-
-/* 缁堢渚ф爮鍐?SFTP / Tunnel / 鏈湴鏂囦欢闈㈡澘甯冨眬澶嶇敤 */
-.advance-terminal-side-dock .sftp-panel,
-.advance-terminal-side-dock .local-file-panel,
-.advance-terminal-side-dock .tunnel-panel,
+/* 终端侧栏内 SFTP / Tunnel / 本地文件面板布局 */
 .advance-terminal-side .sftp-panel,
 .advance-terminal-side .local-file-panel,
 .advance-terminal-side .tunnel-panel {
@@ -5107,7 +5012,12 @@ a {
     min-height: 0;
 }
 
-.advance-terminal-side-dock .sftp-toolbar,
+.advance-terminal-side .sftp-panel,
+.advance-terminal-side .tunnel-panel {
+    padding: var(--sp-3);
+    box-sizing: border-box;
+}
+
 .advance-terminal-side .sftp-toolbar {
     display: flex;
     align-items: center;
@@ -5192,9 +5102,9 @@ a {
 
 .advance-terminal-side .sftp-quick-btn.is-active {
     color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-    font-weight: 600;
+    border-color: var(--accent);
+    background: transparent;
+    font-weight: 500;
 }
 
 .advance-terminal-side .sftp-composer {
@@ -5535,6 +5445,49 @@ button[data-slot="button"][data-variant="ghost"][data-size^="icon"]:active:not(:
 button[data-slot="button"][data-variant="outline"][data-size^="icon"]:active:not(:disabled),
 button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:disabled) {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* 线框强调按钮（与数据库表工具栏激活态同源：透明底 + accent 边框/文字） */
+.omni-btn-outline-accent,
+button[data-slot="button"].omni-btn-outline-accent {
+    background: transparent !important;
+    border: 1px solid var(--accent) !important;
+    color: var(--accent) !important;
+    box-shadow: none !important;
+}
+.omni-btn-outline-accent:hover:not(:disabled),
+button[data-slot="button"].omni-btn-outline-accent:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+}
+.omni-btn-outline-accent:disabled,
+button[data-slot="button"].omni-btn-outline-accent:disabled {
+    opacity: 0.45;
+}
+
+/* 轻量工具按钮：默认透明边，hover/active 切到线框强调 */
+.omni-btn-tool,
+button.omni-btn-tool {
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--fg-2);
+    box-shadow: none;
+    transition: background var(--anim-fast, 120ms) ease, border-color var(--anim-fast, 120ms) ease, color var(--anim-fast, 120ms) ease;
+}
+.omni-btn-tool:hover:not(:disabled),
+button.omni-btn-tool:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    color: var(--accent);
+}
+.omni-btn-tool.is-active,
+.omni-btn-tool[aria-pressed="true"],
+button.omni-btn-tool.is-active,
+button.omni-btn-tool[aria-pressed="true"] {
+    background: transparent;
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 /* 鈹€鈹€鈹€ Component Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
@@ -6342,52 +6295,147 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
         height: 100%;
     }
 
-    .ai-panel-header {
+    /* 与主窗口 tab 栏等高贯通：仅拖拽区 + 窗口 chrome */
+    .ai-dock-chrome {
         display: flex;
-        align-items: center;
-        padding: var(--sp-3) var(--sp-4);
+        align-items: stretch;
+        flex-shrink: 0;
+        height: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        min-height: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        max-height: var(--shell-dv-tab-bar-h, var(--topbar-h));
         border-bottom: 1px solid var(--border);
-        gap: var(--sp-3);
-        min-width: 0;
+        background: var(--bg);
+        box-sizing: border-box;
     }
 
-    .ai-panel-header h3,
-    .ai-panel-header-title {
-        flex-shrink: 0;
-        max-width: min(240px, 38%);
+    .ai-dock-chrome-drag {
+        flex: 1;
         min-width: 0;
+        -webkit-app-region: drag;
+        cursor: default;
+    }
+
+    .ai-dock-chrome-actions {
+        display: flex;
+        align-items: stretch;
+        flex-shrink: 0;
+        height: 100%;
+        -webkit-app-region: no-drag;
+    }
+
+    .ai-dock-chrome-actions .dock-chrome-ai-btn {
+        width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        height: 100%;
+        min-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        border: none;
+        border-left: 1px solid var(--border);
+        border-radius: 0;
+        background: transparent;
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .ai-dock-chrome-actions .dock-chrome-ai-btn:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+    }
+
+    .ai-dock-chrome-actions .dock-chrome-ai-btn.is-active {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .ai-dock-chrome-actions .ai-dock-win-controls,
+    .ai-dock-chrome-actions .win-controls {
+        display: flex;
+        align-items: stretch;
+        margin-left: 0;
+        height: 100%;
+        flex-shrink: 0;
+    }
+
+    .ai-dock-chrome-actions .win-btn {
+        height: 100%;
+        width: 46px;
+    }
+
+    /* 内容层工具栏：标题 + 聚合操作（在 chrome 之下） */
+    .ai-panel-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border);
+        min-width: 0;
+        flex-shrink: 0;
+        background: var(--bg);
+    }
+
+    .ai-panel-toolbar-title {
+        flex: 1;
+        min-width: 0;
+        max-width: none;
         margin: 0;
         font-size: 13px;
         font-weight: 600;
         color: var(--fg);
-        text-align: start;
     }
 
-    .ai-panel-header-title .ai-conversation-title-button {
+    .ai-panel-toolbar-title .ai-conversation-title-button {
         max-width: 100%;
         justify-content: flex-start;
     }
 
-    .ai-panel-header-left {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-3);
-        min-width: 0;
+    .ai-panel-toolbar-spacer {
         flex: 1;
+        min-width: 0;
     }
 
-    .ai-panel-header-right {
-        display: flex;
+    .ai-panel-toolbar-actions {
+        display: inline-flex;
         align-items: center;
-        gap: var(--sp-1);
+        gap: 2px;
         flex-shrink: 0;
-        margin-inline-start: auto;
+        padding: 2px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface, var(--bg-elevated, transparent));
     }
 
-    .ai-panel-header-left .is-active,
-    .ai-panel-header-right .is-active {
+    .ai-toolbar-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+    }
+
+    .ai-toolbar-btn--icon {
+        width: 28px;
+        padding: 0;
+        justify-content: center;
+    }
+
+    .ai-toolbar-btn:hover {
+        color: var(--fg);
+        background: var(--surface-hover);
+    }
+
+    .ai-toolbar-btn.is-active {
         color: var(--accent);
         background: var(--accent-soft);
+    }
+
+    .ai-toolbar-btn-label {
+        line-height: 1;
     }
 
     .ai-conversation-title {
@@ -10210,16 +10258,20 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
         line-height: 1;
     }
 
-    /* AI SubWindow */
+    /* AI Dock：左边框只画在 chrome 以下，顶栏与主窗口 tab 栏横向贯通 */
     .ai-dockview {
         width: min(var(--ai-dock-w, 0px), 50vw);
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
         background: var(--bg);
-        border-left: 1px solid var(--border);
+        border-left: none;
         min-height: 0;
         overflow: hidden;
+    }
+
+    .ai-dockview.open > .ai-assistant-shell > .ai-assistant-shell-body {
+        border-left: 1px solid var(--border);
     }
 
     .ai-dockview:not(.open) {
@@ -10267,25 +10319,161 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
         min-width: 0;
     }
 
+    .ai-context-strip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border-soft);
+        flex-shrink: 0;
+        min-height: 32px;
+    }
+
+    .ai-context-strip--empty {
+        justify-content: space-between;
+    }
+
+    .ai-context-strip__label {
+        font-size: 11px;
+        color: var(--muted);
+        flex-shrink: 0;
+    }
+
+    .ai-context-strip__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .ai-context-chip {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--accent) 12%, transparent);
+        color: var(--text-secondary, inherit);
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ai-context-chip--workspace {
+        background: color-mix(in oklch, var(--accent) 22%, transparent);
+        font-weight: 500;
+    }
+
+    .ai-follow-toggle {
+        flex-shrink: 0;
+        font-size: 11px !important;
+        height: 24px !important;
+    }
+
+    .ai-task-draft-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border-soft);
+        max-height: 40%;
+        overflow: auto;
+        flex-shrink: 0;
+    }
+
+    .ai-task-card,
+    .ai-draft-card {
+        padding: 8px 10px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md, 8px);
+        background: color-mix(in oklch, var(--bg-elevated) 85%, transparent);
+    }
+
+    .ai-task-card__header {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-bottom: 6px;
+    }
+
+    .ai-task-card__children {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        max-height: 120px;
+        overflow: auto;
+    }
+
+    .ai-task-child-btn {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font-size: 12px;
+        padding: 2px 0;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .ai-task-card__actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    .ai-draft-card__title {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .ai-draft-card__preview {
+        margin: 0;
+        font-size: 11px;
+        max-height: 100px;
+        overflow: auto;
+        white-space: pre-wrap;
+        font-family: var(--font-mono, ui-monospace, monospace);
+    }
+
     .ai-dockview-resize-handle {
         position: relative;
-        width: 8px;
+        width: 0;
         flex-shrink: 0;
         cursor: col-resize;
         z-index: 2;
-        margin-left: -4px;
+        margin: 0;
+        /* 顶栏高度以下才出现，避免标题栏被打断 */
+        margin-top: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        align-self: stretch;
+    }
+
+    /* 热区加宽便于拖拽，高亮仍用细线 */
+    .ai-dockview-resize-handle::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -4px;
+        bottom: 0;
+        width: 8px;
     }
 
     .ai-dockview-resize-handle::after {
         content: "";
         position: absolute;
         top: 0;
-        left: 3px;
+        left: -1px;
         bottom: 0;
         width: 2px;
         border-radius: 1px;
         background: transparent;
         transition: background 0.15s;
+        pointer-events: none;
     }
 
     .ai-dockview-resize-handle:hover::after {

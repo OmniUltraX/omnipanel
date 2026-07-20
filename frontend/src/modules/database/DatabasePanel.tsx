@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -6,6 +7,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -201,6 +203,8 @@ import {
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
+import { resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
+import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
 import { buildSelectAllFromTableSql } from "./grid/tablePreviewFilter";
 import { fetchTablePreviewPage } from "./grid/tablePreviewQuery";
 import {
@@ -524,13 +528,26 @@ export function DatabasePanel() {
     }
   }, [setActiveConnIdIfChanged]);
 
+  const pushSidebarLinkageForTabId = useCallback((tabId: string) => {
+    const tab = tabId
+      ? workspaceTabsRef.current.find((item) => item.id === tabId)
+      : undefined;
+    const linkage = resolveDbSidebarLinkageFromTab(tab, useDbWorkspaceTabStore.getState());
+    // 调用方已在高亮 paint 之后；此处 flush 只推侧栏，不阻塞首帧高亮
+    flushSync(() => {
+      useDbSidebarLinkageStore.getState().setLinkage(linkage);
+    });
+  }, []);
+
   const activateWorkspaceTab = useCallback(
     (tabId: string) => {
-      // 同步更新：侧栏联动依赖 activeWorkspaceTab / activeConnId，不能丢进 transition
-      setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
-      syncConnForTabId(tabId);
+      pushSidebarLinkageForTabId(tabId);
+      startTransition(() => {
+        setActiveWorkspaceTabId((prev) => (prev === tabId ? prev : tabId));
+        syncConnForTabId(tabId);
+      });
     },
-    [syncConnForTabId],
+    [pushSidebarLinkageForTabId, syncConnForTabId],
   );
 
   const syncTasks = useDbSyncTaskStore((s) => s.tasks);
@@ -5389,14 +5406,15 @@ export function DatabasePanel() {
     return activeConnId;
   }, [activeTableKey, activeDatabaseKey, activeConnId]);
 
-  const sidebarLinkageValue = useMemo(
-    () => ({
+  // 兜底同步：树点击 / SQL seed 变化等未走 activateWorkspaceTab 的路径。
+  // setLinkage 自身去重；transition 未 commit 时 deps 不变，不会用旧 key 覆盖 store。
+  useEffect(() => {
+    useDbSidebarLinkageStore.getState().setLinkage({
       activeConnId: sidebarLinkageConnId,
       activeDatabaseKey,
       activeTableKey,
-    }),
-    [sidebarLinkageConnId, activeDatabaseKey, activeTableKey],
-  );
+    });
+  }, [sidebarLinkageConnId, activeDatabaseKey, activeTableKey]);
 
   const panelContentKeysByTab = useMemo(() => {
     const tabState = useDbWorkspaceTabStore.getState();
@@ -5442,7 +5460,7 @@ export function DatabasePanel() {
   return (
     <>
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
-    <DbSidebarLinkageProvider value={sidebarLinkageValue}>
+    <DbSidebarLinkageProvider>
     <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
     <DbSchemaProvider value={schemaContextValue}>
     <ModuleWorkspaceLayout

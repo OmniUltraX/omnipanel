@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import type { TerminalPane, TerminalSessionInfo, TerminalTab } from "../../stores/terminalStore";
@@ -57,6 +58,14 @@ type CommonProps = {
     sessionId: string,
     sender: ((cmd: string) => void) | null,
   ) => void;
+  /** 嵌入会话顶栏右侧（如侧栏入口），与终端信息同一行 */
+  headerAccessory?: ReactNode;
+  /**
+   * 将会话顶栏渲染到外部容器（如 AdvanceTerminal 通栏），
+   * 侧栏内容可与终端区对齐到顶栏下方。
+   * `undefined`：顶栏仍在 pane 内；传入元素（含暂时为 null）则启用外置。
+   */
+  headerPortalHost?: HTMLElement | null;
 };
 
 const ENV_BADGE_LABELS: Record<EnvironmentTag, string> = {
@@ -214,6 +223,7 @@ function TerminalSessionHeader({
   inputMode,
   onToggleInputMode,
   onRunCommand,
+  headerAccessory,
 }: {
   paneId: string;
   resource: WorkspaceResource | null;
@@ -222,6 +232,7 @@ function TerminalSessionHeader({
   inputMode: TerminalInputMode;
   onToggleInputMode: () => void;
   onRunCommand?: (command: string) => void;
+  headerAccessory?: ReactNode;
 }) {
   const { t } = useI18n();
   const stats = useTerminalSessionStats(session.resourceId, connected);
@@ -385,6 +396,7 @@ function TerminalSessionHeader({
       {rightMetaLine ? (
         <span className="term-session-meta">{rightMetaLine}</span>
       ) : null}
+      {headerAccessory}
     </div>
   );
 
@@ -438,6 +450,8 @@ function PaneViewBody(
     onSendCommand,
     onSenderChange,
     currentResourceId,
+    headerAccessory,
+    headerPortalHost,
   }: CommonProps & { currentResourceId: string },
   ref: React.ForwardedRef<TerminalPaneViewHandle>,
 ) {
@@ -495,21 +509,32 @@ function PaneViewBody(
     setReconnectKey((value) => value + 1);
   }, []);
 
+  const sessionHeader = (
+    <TerminalSessionHeader
+      paneId={paneId}
+      resource={resource}
+      session={session}
+      connected={connected}
+      inputMode={inputMode}
+      onToggleInputMode={toggleInputMode}
+      onRunCommand={onSendCommand}
+      headerAccessory={headerAccessory}
+    />
+  );
+  const useExternalHeader = headerPortalHost !== undefined;
+  const externalHeader =
+    useExternalHeader && headerPortalHost
+      ? createPortal(sessionHeader, headerPortalHost)
+      : null;
+
   return (
     <div
-      className={`term-pane term-pane-leaf${isActive ? " is-active" : ""}`}
+      className={`term-pane term-pane-leaf${isActive ? " is-active" : ""}${useExternalHeader ? " term-pane--external-header" : ""}`}
       data-pane-id={paneId}
       onMouseDown={onActivate}
     >
-      <TerminalSessionHeader
-        paneId={paneId}
-        resource={resource}
-        session={session}
-        connected={connected}
-        inputMode={inputMode}
-        onToggleInputMode={toggleInputMode}
-        onRunCommand={onSendCommand}
-      />
+      {externalHeader}
+      {!useExternalHeader ? sessionHeader : null}
       <div
         className={`terminal-area term-terminal-shell${inputMode === "external" ? " term-terminal-shell--warp" : ""}`}
         tabIndex={-1}
@@ -587,6 +612,7 @@ function PaneViewBody(
           onClose={() => setBlockMenu(null)}
           onRunCommand={onSendCommand}
           onReconnect={handleReconnect}
+          sessionId={paneId}
         />
       ) : null}
     </div>

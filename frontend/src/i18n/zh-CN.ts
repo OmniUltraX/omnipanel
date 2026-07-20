@@ -5477,7 +5477,36 @@ export const zhCN = {
     context: {
       placeholder: "选择上下文…",
       modules: "模块",
-      workspaces: "工作区",
+      workspaces: "工作区（可选钉住）",
+      pinWorkspace: "钉住工作区",
+      clearWorkspace: "清除工作区钉住（全局）",
+    },
+    contextStrip: {
+      empty: "未检测到模块现场；可直接提问，或打开终端/数据库/Docker 等面板。",
+      workspace: "工作区：{name}",
+    },
+    follow: {
+      on: "跟随：开",
+      off: "跟随：关",
+      hint: "开启后，AI 调用工具时左侧会自动跳转到对应面板",
+    },
+    promote: {
+      toDock: "在侧栏继续",
+      done: "已提升到侧栏会话",
+    },
+    attach: {
+      terminal: "附着终端",
+      clear: "取消附着",
+    },
+    task: {
+      running: "任务进行中 {done}/{total}",
+      failed: "失败 {count}",
+      openPanel: "打开任务面板",
+    },
+    draft: {
+      title: "待确认操作",
+      confirm: "确认执行",
+      dismiss: "忽略",
     },
     conversations: {
       toggle: "会话列表",
@@ -5494,6 +5523,10 @@ export const zhCN = {
       timeMinutesAgo: "{n} 分钟前",
       timeHoursAgo: "{n} 小时前",
       timeDaysAgo: "{n} 天前",
+    },
+    displayMode: {
+      toDock: "切换为右侧边栏",
+      toSubwindow: "切换为居中弹窗",
     },
   },
   userCenter: {

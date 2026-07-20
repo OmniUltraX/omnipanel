@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
+import { useAiDockOpen } from "../../lib/ai/useAiDockOpen";
 import { WinControls } from "../shell/WinControls";
 import { AiChromeButton } from "../shell/AiChromeButton";
 import type { DockWindowChromeActionsProps } from "./dockWindowChromeActions";
@@ -44,6 +45,9 @@ function DockWindowDragSpacer() {
 
 /** 嵌入 dockview tab 栏右侧：按布局挂载拖拽区与/或窗口控制按钮 */
 export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeActionsProps) {
+  // AI 右侧 Dock 打开时，窗口三键 / AI 入口迁到 AI header，避免夹在中间
+  const chromeRelocated = useAiDockOpen();
+
   const handleDoubleClick = async (event: React.MouseEvent) => {
     if (mode === "controls") return;
     const target = event.target as HTMLElement;
@@ -58,11 +62,15 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
   };
 
   const showDrag = mode === "drag" || mode === "both";
-  const showControls = mode === "controls" || mode === "both";
+  const showControls = (mode === "controls" || mode === "both") && !chromeRelocated;
+
+  if (!showDrag && !showControls && !leftActions) {
+    return null;
+  }
 
   return (
     <div
-      className={`dock-window-title-actions drag-ignore${showControls && !showDrag ? " dock-window-title-actions--controls-only" : ""}`}
+      className={`dock-window-title-actions drag-ignore${showControls && !showDrag ? " dock-window-title-actions--controls-only" : ""}${chromeRelocated ? " dock-window-title-actions--chrome-relocated" : ""}`}
       data-tauri-drag-region="false"
       onDoubleClick={handleDoubleClick}
     >

@@ -2,6 +2,7 @@ import { IconQuote } from "../../components/ui/icons/Icons";
 import { useI18n } from "../../i18n";
 import type { TerminalBlock } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
+import { promoteTerminalInlineToDock } from "../../lib/ai/promoteInlineThread";
 import { attachBlockToAiInput } from "./terminalBlockAiAttach";
 import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
 
@@ -20,7 +21,7 @@ export function BlockAttachToAiButton({
 }: BlockAttachToAiButtonProps) {
   const { t } = useI18n();
 
-  const handleClick = () => {
+  const handleAttach = () => {
     const result = attachBlockToAiInput(sessionId, block, onFocusInput);
     if (result === "empty") {
       showToast(t("terminal.command.attachEmpty"));
@@ -35,13 +36,26 @@ export function BlockAttachToAiButton({
     showToast(t("terminal.command.attachSuccess"));
   };
 
+  const handlePromote = () => {
+    const id = promoteTerminalInlineToDock({ sessionId, blockId: block.id });
+    if (id) {
+      showToast(t("ai.promote.done"));
+    }
+  };
+
+  const isAi = block.kind === "ai";
+
   return (
     <button
       type="button"
       className={className}
-      title={t("terminal.command.attachToAi")}
-      aria-label={t("terminal.command.attachToAi")}
-      onClick={handleClick}
+      title={isAi ? t("ai.promote.toDock") : t("terminal.command.attachToAi")}
+      aria-label={isAi ? t("ai.promote.toDock") : t("terminal.command.attachToAi")}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (isAi) handlePromote();
+        else handleAttach();
+      }}
     >
       <IconQuote size={14} />
     </button>

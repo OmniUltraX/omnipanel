@@ -811,8 +811,9 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
             {lastError ? (
               <>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="xs"
+                  className="omni-btn-tool"
                   title={t("terminal.command.explainError")}
                   onClick={() => openAiWithPrompt(buildExplainErrorPrompt(lastError))}
                   type="button"
@@ -820,8 +821,9 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
                   !
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="xs"
+                  className="omni-btn-tool"
                   title={t("terminal.command.fixError")}
                   onClick={() => openAiWithPrompt(buildFixErrorPrompt(lastError))}
                   type="button"
@@ -831,9 +833,9 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
               </>
             ) : null}
             <Button
-              variant="primary"
+              variant="outline"
               size="xs"
-              className="term-cmd-send"
+              className="term-cmd-send omni-btn-outline-accent"
               onClick={submit}
               title={t("terminal.command.send")}
               type="button"

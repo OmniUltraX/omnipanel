@@ -154,7 +154,7 @@ export function TunnelPanel({ activeResource }: TunnelPanelProps) {
             />
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="btn btn-primary btn-sm" onClick={handleCreate}>
+            <button className="btn btn-sm omni-btn-outline-accent" onClick={handleCreate}>
               {t("ssh.tunnels.create")}
             </button>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowCreate(false)}>

@@ -94,8 +94,8 @@ export type DetailPanelMode = "drawer" | "floating";
 
 export type TerminalCursorStyle = "block" | "bar" | "underline";
 
-export const AI_DOCK_WIDTH_MIN = 300;
-export const AI_DOCK_WIDTH_DEFAULT = 480;
+export const AI_DOCK_WIDTH_MIN = 280;
+export const AI_DOCK_WIDTH_DEFAULT = 380;
 
 export const KNOWLEDGE_CHUNK_SIZE = {
   min: 200,
@@ -515,8 +515,8 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "omnipanel-settings",
-      version: 1,
-      migrate: (persistedState) => {
+      version: 2,
+      migrate: (persistedState, version) => {
         const state = { ...(persistedState as Record<string, unknown>) };
         const migrated = migrateLegacyEmbeddingSettings(state);
         if (migrated) {
@@ -528,6 +528,10 @@ export const useSettingsStore = create<SettingsState>()(
         delete state.knowledgeEmbeddingCustomModel;
         if (!state.knowledgeEmbeddingOllamaModel) {
           state.knowledgeEmbeddingOllamaModel = { ...DEFAULT_KNOWLEDGE_EMBEDDING_OLLAMA_MODEL };
+        }
+        // 旧默认 480 偏宽，迁移到新默认以收窄右侧 AI Dock
+        if (version < 2 && state.aiDockWidth === 480) {
+          state.aiDockWidth = AI_DOCK_WIDTH_DEFAULT;
         }
         return state;
       },

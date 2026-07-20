@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { appConfirm } from "../../../lib/appConfirm";
 import { useI18n } from "../../../i18n";
 import { useAiStore } from "../../../stores/aiStore";
+import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { Button } from "../../ui/primitives/Button";
 import { IconPlus, IconXCircle } from "../../ui/icons/Icons";
 
@@ -26,6 +27,7 @@ export function AiConversationList() {
   const createConversation = useAiStore((s) => s.createConversation);
   const setActiveConversation = useAiStore((s) => s.setActiveConversation);
   const deleteConversation = useAiStore((s) => s.deleteConversation);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
 
   const handleCreate = useCallback(() => {
     createConversation();
@@ -63,7 +65,6 @@ export function AiConversationList() {
         ) : (
           conversations.map((conv) => {
             const active = conv.id === activeConversationId;
-            const workspaceLabel = conv.contextSnapshot?.workspace.name ?? conv.context?.[0]?.label;
             return (
               <button
                 key={conv.id}
@@ -74,10 +75,19 @@ export function AiConversationList() {
                 <div className="ai-session-row-main">
                   <div className="ai-session-row-title">{conv.title}</div>
                   <div className="ai-session-row-meta">
-                    {workspaceLabel ? (
-                      <span className="ai-session-row-workspace">{workspaceLabel}</span>
+                    {conv.pinnedWorkspaceId ? (
+                      <span className="ai-session-row-workspace">
+                        {workspaces.find((w) => w.id === conv.pinnedWorkspaceId)?.name ??
+                          conv.pinnedWorkspaceId}
+                      </span>
                     ) : null}
-                    {workspaceLabel ? <span className="ai-session-row-dot">·</span> : null}
+                    {conv.pinnedWorkspaceId ? <span className="ai-session-row-dot">·</span> : null}
+                    {conv.linkedTerminalSessionId ? (
+                      <span className="ai-session-row-workspace">term</span>
+                    ) : null}
+                    {conv.linkedTerminalSessionId ? (
+                      <span className="ai-session-row-dot">·</span>
+                    ) : null}
                     <span>{formatConversationTime(conv.updatedAt, t)}</span>
                   </div>
                 </div>

@@ -5372,9 +5372,7 @@
         font-variant-numeric: tabular-nums;
     }
 
-    /* 顶部工具栏「高亮/激活态」按钮（default variant）—— 线框形式（透明背景 + accent 边框）。
-       普通态/激活态/hover 已由全局 icon 按钮线框规则覆盖，此处仅把 default 的实心填充改为线框。
-       用 !important 覆盖 Button 上 Tailwind utility（@layer utilities 高于 @layer components） */
+    /* 顶部工具栏「高亮/激活态」按钮 —— 复用全局线框强调（透明底 + accent 边框） */
     .db-table-topbar button[data-variant="default"] {
         background: transparent !important;
         border-color: var(--accent) !important;
@@ -5382,6 +5380,7 @@
         box-shadow: none !important;
     }
     .db-table-topbar button[data-variant="default"]:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
         border-color: var(--accent) !important;
     }
 
