@@ -18,8 +18,17 @@ function formatConversationTime(ts: number, t: (key: string, params?: Record<str
   return t("knowledge.time.daysAgo", { n: days });
 }
 
-/** 右侧会话列表面板 */
-export function AiConversationList() {
+/** 会话列表面板（右侧栏或下拉内嵌） */
+export function AiConversationList({
+  compact = false,
+  showCreateButton = true,
+  onItemActivate,
+}: {
+  compact?: boolean;
+  /** 外层已有「新建」时关掉，避免重复入口 */
+  showCreateButton?: boolean;
+  onItemActivate?: () => void;
+} = {}) {
   const { t } = useI18n();
   const conversations = useAiStore((s) => s.conversations);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
@@ -31,7 +40,8 @@ export function AiConversationList() {
 
   const handleCreate = useCallback(() => {
     createConversation();
-  }, [createConversation]);
+    onItemActivate?.();
+  }, [createConversation, onItemActivate]);
 
   const handleDelete = useCallback(
     async (id: string, e: React.MouseEvent) => {
@@ -44,20 +54,22 @@ export function AiConversationList() {
   );
 
   return (
-    <>
+    <div className={`ai-session-list-inner${compact ? " ai-session-list-inner--compact" : ""}`}>
       <div className="ai-session-list-header">
         <span className="ai-session-list-title">{t("ai.conversations.listTitle")}</span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="ai-session-list-add"
-          onClick={handleCreate}
-          disabled={isGenerating}
-          aria-label={t("ai.conversations.new")}
-          title={t("ai.conversations.new")}
-        >
-          <IconPlus size={14} />
-        </Button>
+        {showCreateButton ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="ai-session-list-add"
+            onClick={handleCreate}
+            disabled={isGenerating}
+            aria-label={t("ai.conversations.new")}
+            title={t("ai.conversations.new")}
+          >
+            <IconPlus size={14} />
+          </Button>
+        ) : null}
       </div>
       <div className="ai-session-list-body">
         {conversations.length === 0 ? (
@@ -70,7 +82,10 @@ export function AiConversationList() {
                 key={conv.id}
                 type="button"
                 className={`ai-session-row${active ? " active" : ""}`}
-                onClick={() => setActiveConversation(conv.id)}
+                onClick={() => {
+                  setActiveConversation(conv.id);
+                  onItemActivate?.();
+                }}
               >
                 <div className="ai-session-row-main">
                   <div className="ai-session-row-title">{conv.title}</div>
@@ -112,6 +127,6 @@ export function AiConversationList() {
           })
         )}
       </div>
-    </>
+    </div>
   );
 }

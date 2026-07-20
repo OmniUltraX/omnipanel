@@ -40,6 +40,9 @@ export interface AiMessage {
 /** 推理强度（OpenAI / DeepSeek 等兼容 API 的 reasoning_effort） */
 export type ReasoningEffortLevel = "default" | "low" | "medium" | "high";
 
+/** 会话列表展示位置 */
+export type ConversationListPlacement = "dropdown" | "right";
+
 export interface AiConversation {
   id: string;
   title: string;
@@ -76,6 +79,8 @@ interface AiStore {
   connectedMcpServices: AgentMcpConnection[];
   /** 右侧会话列表面板是否展开 */
   conversationListOpen: boolean;
+  /** 会话列表展示位置：下拉菜单 / 右侧边栏 */
+  conversationListPlacement: ConversationListPlacement;
   /** 会话列表面板宽度（px） */
   conversationListWidth: number;
 
@@ -117,6 +122,7 @@ interface AiStore {
   setConnectedMcpServices: (connections: AgentMcpConnection[]) => void;
   toggleConversationList: () => void;
   setConversationListOpen: (open: boolean) => void;
+  setConversationListPlacement: (placement: ConversationListPlacement) => void;
   setConversationListWidth: (width: number) => void;
   setConversationModelSelectionId: (conversationId: string, selectionId: string) => void;
   replaceConversationMessages: (conversationId: string, messages: AiMessage[]) => void;
@@ -155,6 +161,7 @@ export const useAiStore = create<AiStore>()(
       reasoningEffort: "medium",
       connectedMcpServices: [],
       conversationListOpen: false,
+      conversationListPlacement: "dropdown",
       conversationListWidth: 240,
 
       toggleDrawer: () =>
@@ -165,8 +172,13 @@ export const useAiStore = create<AiStore>()(
       closeDrawer: () => set({ drawerOpen: false }),
 
       createConversation: (provider, model) => {
-        const id = genId("conv");
         const state = get();
+        const active = state.conversations.find((c) => c.id === state.activeConversationId);
+        // 当前已是空白新会话时不再叠开一个
+        if (active && active.messages.length === 0) {
+          return active.id;
+        }
+        const id = genId("conv");
         const snapshot = useWorkspaceStore.getState().getSnapshot();
         const providers = useAiModelsStore.getState().providers;
         const modelSelectionId = resolveScenarioModelSelectionId(
@@ -364,6 +376,13 @@ export const useAiStore = create<AiStore>()(
 
       setConversationListOpen: (open) => set({ conversationListOpen: open }),
 
+      setConversationListPlacement: (placement) =>
+        set((state) => ({
+          conversationListPlacement: placement,
+          // 切到下拉时收起右侧面板；切到右侧时默认打开
+          conversationListOpen: placement === "right" ? true : false,
+        })),
+
       setConversationListWidth: (width) =>
         set({ conversationListWidth: Math.max(180, Math.min(420, width)) }),
 
@@ -478,6 +497,7 @@ export const useAiStore = create<AiStore>()(
         currentModelSelectionId: state.currentModelSelectionId,
         reasoningEffort: state.reasoningEffort,
         conversationListOpen: state.conversationListOpen,
+        conversationListPlacement: state.conversationListPlacement,
         conversationListWidth: state.conversationListWidth,
       }),
     }

@@ -10,12 +10,18 @@ export interface AiConversationTitleProps {
   id?: string;
   /** 用于 ai-panel-header 的 h3，SubWindow 标题区等 */
   as?: "h2" | "h3" | "div";
+  /**
+   * false：仅展示标题文本（外层已是下拉触发器，避免套一层 button）
+   * true：点击进入重命名（默认）
+   */
+  interactive?: boolean;
 }
 
 export function AiConversationTitle({
   className,
   id,
   as: Tag = "div",
+  interactive = true,
 }: AiConversationTitleProps) {
   const { t } = useI18n();
   const conversations = useAiStore((s) => s.conversations);
@@ -45,7 +51,7 @@ export function AiConversationTitle({
     setEditing(false);
   }, [activeConv, editValue, renameConversation]);
 
-  if (editing) {
+  if (editing && interactive) {
     return (
       <Tag id={id} className={cn("ai-conversation-title", className)}>
         <TextInput
@@ -68,15 +74,21 @@ export function AiConversationTitle({
 
   return (
     <Tag id={id} className={cn("ai-conversation-title", className)}>
-      <button
-        type="button"
-        onClick={startEditing}
-        className="ai-conversation-title-button"
-        title={t("ai.conversations.rename")}
-        disabled={!activeConv}
-      >
-        <span className="truncate">{displayTitle}</span>
-      </button>
+      {interactive ? (
+        <button
+          type="button"
+          onClick={startEditing}
+          className="ai-conversation-title-button"
+          title={t("ai.conversations.rename")}
+          disabled={!activeConv}
+        >
+          <span className="truncate">{displayTitle}</span>
+        </button>
+      ) : (
+        <span className="ai-conversation-title-text truncate" title={displayTitle}>
+          {displayTitle}
+        </span>
+      )}
     </Tag>
   );
 }

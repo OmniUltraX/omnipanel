@@ -1,7 +1,9 @@
 import { useAiStore } from "../../stores/aiStore";
 import { AiAssistantBody } from "./assistant-ui/AiAssistantBody";
-import { AiAssistantHeaderToolbar } from "./assistant-ui/AiAssistantHeaderActions";
-import { AiConversationTitle } from "./assistant-ui/AiConversationTitle";
+import {
+  AiAssistantHeaderToolbar,
+  AiConversationSwitcher,
+} from "./assistant-ui/AiAssistantHeaderActions";
 import { SubWindow } from "../ui/window/SubWindow";
 
 export function AiDrawer() {
@@ -11,13 +13,7 @@ export function AiDrawer() {
   return (
     <SubWindow
       open={drawerOpen}
-      title={
-        <AiConversationTitle
-          as="h2"
-          id="subwindow-title"
-          className="subwindow-title"
-        />
-      }
+      title={<AiConversationSwitcher />}
       onClose={closeDrawer}
       className="ai-subwindow"
       widthRatio={0.82}
@@ -25,7 +21,7 @@ export function AiDrawer() {
       headerExtra={<AiAssistantHeaderToolbar />}
     >
       <div className="ai-subwindow-content ai-assistant-shell aui-shell">
-        <AiAssistantBody />
+        <AiAssistantBody showSideConversationList />
       </div>
     </SubWindow>
   );

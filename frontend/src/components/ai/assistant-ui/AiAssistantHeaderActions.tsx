@@ -1,4 +1,16 @@
+import { createPortal } from "react-dom";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "../../ui/Button";
+import { clampMenuPosition } from "../../../lib/contextMenuPosition";
 import { useI18n } from "../../../i18n";
 import { useUiFollowStore } from "../../../lib/ai/uiFollow";
 import { useAiStore } from "../../../stores/aiStore";
@@ -6,26 +18,22 @@ import {
   useSettingsStore,
   type AiDisplayMode,
 } from "../../../stores/settingsStore";
+import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
 
-function ConversationListIcon() {
+function ChevronIcon() {
   return (
     <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
+      className="ai-toolbar-chevron"
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
       aria-hidden
     >
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M15 3v18" />
-      <path d="M8 7h.01" />
-      <path d="M8 12h.01" />
-      <path d="M8 17h.01" />
+      <path d="M4 6l4 4 4-4" />
     </svg>
   );
 }
@@ -64,11 +72,206 @@ function DockIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 function toggleAiDisplayMode(mode: AiDisplayMode): AiDisplayMode {
   return mode === "dockview" ? "subwindow" : "dockview";
 }
 
-/** 跟随开关（工具栏聚合入口） */
+function useToolbarDropdown(menuMinWidth: number) {
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+    minWidth: number;
+  } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const syncMenuPosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      const menuEl = menuRef.current;
+      if (!rect) return;
+
+      const measuredWidth = menuEl?.getBoundingClientRect().width ?? menuMinWidth;
+      const measuredHeight = menuEl?.getBoundingClientRect().height ?? 0;
+      const anchor = clampMenuPosition(
+        { x: rect.left, y: rect.bottom + 4 },
+        { width: Math.max(measuredWidth, menuMinWidth), height: measuredHeight },
+      );
+
+      setMenuPosition({
+        top: anchor.y,
+        left: anchor.x,
+        minWidth: Math.max(measuredWidth, menuMinWidth),
+      });
+    };
+
+    syncMenuPosition();
+    window.addEventListener("resize", syncMenuPosition);
+    window.addEventListener("scroll", syncMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", syncMenuPosition);
+      window.removeEventListener("scroll", syncMenuPosition, true);
+    };
+  }, [open, menuMinWidth]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: Event) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !wrapRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return {
+    menuId,
+    open,
+    setOpen,
+    menuPosition,
+    wrapRef,
+    buttonRef,
+    menuRef,
+  };
+}
+
+function ToolbarDropdownShell({
+  open,
+  menuId,
+  menuPosition,
+  menuRef,
+  className,
+  children,
+}: {
+  open: boolean;
+  menuId: string;
+  menuPosition: { top: number; left: number; minWidth: number } | null;
+  menuRef: RefObject<HTMLDivElement | null>;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!open || !menuPosition) return null;
+  return createPortal(
+    <div
+      id={menuId}
+      role="menu"
+      ref={menuRef}
+      className={className}
+      style={{
+        position: "fixed",
+        top: menuPosition.top,
+        left: menuPosition.left,
+        minWidth: menuPosition.minWidth,
+        zIndex: 1200,
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * 当前会话标题下拉：新建 + 历史切换（唯一会话入口）。
+ * 不再单独放「会话列表」按钮，避免职责重叠。
+ */
+export function AiConversationSwitcher() {
+  const { t } = useI18n();
+  const isGenerating = useAiStore((s) => s.isGenerating);
+  const createConversation = useAiStore((s) => s.createConversation);
+  const {
+    menuId,
+    open,
+    setOpen,
+    menuPosition,
+    wrapRef,
+    buttonRef,
+    menuRef,
+  } = useToolbarDropdown(280);
+
+  const handleCreate = useCallback(() => {
+    createConversation();
+    setOpen(false);
+  }, [createConversation, setOpen]);
+
+  return (
+    <div className="ai-toolbar-dropdown" ref={wrapRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`ai-toolbar-trigger ai-toolbar-trigger--title${open ? " is-open" : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        title={t("ai.conversations.switcherHint")}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <AiConversationTitle as="div" className="ai-panel-toolbar-title" interactive={false} />
+        <ChevronIcon />
+      </button>
+      <ToolbarDropdownShell
+        open={open}
+        menuId={menuId}
+        menuPosition={menuPosition}
+        menuRef={menuRef}
+        className="ai-toolbar-menu ai-toolbar-menu--switcher"
+      >
+        <button
+          type="button"
+          role="menuitem"
+          className="ai-toolbar-menu-item ai-toolbar-menu-item--accent"
+          disabled={isGenerating}
+          onClick={handleCreate}
+        >
+          <PlusIcon />
+          <span>{t("ai.conversations.new")}</span>
+        </button>
+        <div className="ai-toolbar-menu-divider" />
+        <div className="ai-toolbar-menu-sessions-body">
+          <AiConversationList
+            compact
+            showCreateButton={false}
+            onItemActivate={() => setOpen(false)}
+          />
+        </div>
+      </ToolbarDropdownShell>
+    </div>
+  );
+}
+
+/** 跟随开关 */
 export function AiFollowToggle() {
   const { t } = useI18n();
   const followEnabled = useUiFollowStore((s) => s.followAiActions);
@@ -119,33 +322,15 @@ export function AiDisplayModeToggle() {
   );
 }
 
-/** 会话列表折叠 */
+/** @deprecated 会话列表入口已合并到标题下拉 */
 export function AiConversationListToggle() {
-  const { t } = useI18n();
-  const conversationListOpen = useAiStore((s) => s.conversationListOpen);
-  const toggleConversationList = useAiStore((s) => s.toggleConversationList);
-
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className={`ai-toolbar-btn${conversationListOpen ? " is-active" : ""}`}
-      title={t("ai.conversations.toggle")}
-      aria-label={t("ai.conversations.toggle")}
-      aria-pressed={conversationListOpen}
-      onClick={toggleConversationList}
-    >
-      <ConversationListIcon />
-      <span className="ai-toolbar-btn-label">{t("ai.conversations.toggle")}</span>
-    </Button>
-  );
+  return null;
 }
 
-/** 聚合操作：会话列表 / 跟随 / 显示模式 */
+/** 右侧轻量操作：跟随 / 显示模式 */
 export function AiPanelToolbarActions() {
   return (
     <div className="ai-panel-toolbar-actions" role="toolbar" aria-label="AI">
-      <AiConversationListToggle />
       <AiFollowToggle />
       <AiDisplayModeToggle />
     </div>
@@ -153,14 +338,13 @@ export function AiPanelToolbarActions() {
 }
 
 /**
- * 内容层工具栏（在窗口 chrome 之下）：
- * 会话标题 + 聚合操作按钮。
+ * 内容层工具栏：标题下拉（新建+历史）+ 右侧轻量操作。
  */
 export function AiPanelToolbar({ showTitle = true }: { showTitle?: boolean }) {
   return (
     <div className="ai-panel-toolbar">
       {showTitle ? (
-        <AiConversationTitle as="h3" className="ai-panel-toolbar-title" />
+        <AiConversationSwitcher />
       ) : (
         <div className="ai-panel-toolbar-spacer" />
       )}
