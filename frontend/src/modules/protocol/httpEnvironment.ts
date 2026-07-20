@@ -96,3 +96,21 @@ export function writeStoredActiveEnvironmentId(id: string | null): void {
     // ignore quota / private mode
   }
 }
+
+/** 请求面板认证优先；未配置时回退到环境默认认证。 */
+export function resolveEffectiveAuth(
+  requestAuthType: string | null | undefined,
+  requestAuthValue: string | null | undefined,
+  envAuthType?: string | null,
+  envAuthValue?: string | null,
+): { authType: string | null; authValue: string | null } {
+  const requestValue = requestAuthValue?.trim() ?? "";
+  if (requestAuthType && requestValue) {
+    return { authType: requestAuthType, authValue: requestValue };
+  }
+  const environmentValue = envAuthValue?.trim() ?? "";
+  if (envAuthType && environmentValue) {
+    return { authType: envAuthType, authValue: environmentValue };
+  }
+  return { authType: null, authValue: null };
+}

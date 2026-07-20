@@ -84,7 +84,7 @@ export async function waitForLogin(
       throw new DOMException("Aborted", "AbortError");
     }
 
-    // 流被对端/代理断开：可刷新二维码恢复，不当作硬错误刷屏
+    // 流被对端/代理断开：可刷新二维码恢复
     if (
       code === "timeout" ||
       message.includes("已断开") ||
@@ -95,11 +95,6 @@ export async function waitForLogin(
       throw Object.assign(new Error(message), { code: "timeout", name: "LoginWaitDisconnected" });
     }
 
-    console.error("[auth] login wait failed:", {
-      loginId,
-      message,
-      code,
-    });
     throw error instanceof Error ? error : new Error(message);
   } finally {
     options?.signal?.removeEventListener("abort", onAbort);

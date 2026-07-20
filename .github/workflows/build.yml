@@ -142,3 +142,34 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+      - name: Broadcast version to WeChat via OmniServer
+        if: success()
+        env:
+          BASE_URL: ${{ secrets.OMNISERVER_BASE_URL }}
+          TOKEN: ${{ secrets.OMNISERVER_ADMIN_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ] || [ -z "${TOKEN:-}" ]; then
+            echo "缺少 OMNISERVER_BASE_URL / OMNISERVER_ADMIN_TOKEN"
+            exit 1
+          fi
+          CHANGELOG="$(git log -1 --pretty=%B | sed -e 's/[[:space:]]*$//')"
+          BODY=$(jq -nc \
+            --arg version "${VERSION}" \
+            --arg changelog "${CHANGELOG}" \
+            --arg url "https://github.com/${REPO}/commit/${SHA}" \
+            --arg title "新版本发布：${VERSION}" \
+            '{
+              version: $version,
+              title: $title,
+              changelog: $changelog,
+              content_url: $url,
+              dry_run: false
+            }')
+          curl -fsS -X POST "${BASE_URL%/}/broadcast/version" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${BODY}"

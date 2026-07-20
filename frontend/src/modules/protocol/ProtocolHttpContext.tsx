@@ -61,6 +61,25 @@ export function isWebSocketMethod(method: string): boolean {
 export type BodyType = "JSON" | "Form" | "Multipart" | "Raw" | "Binary";
 export type AuthType = "Bearer Token" | "Basic Auth" | "API Key" | "OAuth 2.0" | "Authorization";
 
+export const AUTH_TYPES: AuthType[] = [
+  "Bearer Token",
+  "Basic Auth",
+  "API Key",
+  "OAuth 2.0",
+  "Authorization",
+];
+
+export const AUTH_TYPE_I18N_KEYS: Record<
+  AuthType,
+  "bearerToken" | "basicAuth" | "apiKey" | "oauth2" | "authorization"
+> = {
+  "Bearer Token": "bearerToken",
+  "Basic Auth": "basicAuth",
+  "API Key": "apiKey",
+  "OAuth 2.0": "oauth2",
+  Authorization: "authorization",
+};
+
 export interface HttpKvPair {
   key: string;
   value: string;

@@ -23,14 +23,20 @@ function appendAuthHeaders(
   }
   const next = { ...headers };
   switch (authType) {
+    case "Bearer Token":
     case "Bearer":
       next.Authorization = `Bearer ${trimmed}`;
       break;
+    case "Basic Auth":
     case "Basic":
       next.Authorization = `Basic ${trimmed}`;
       break;
     case "API Key":
       next["X-API-Key"] = trimmed;
+      break;
+    case "Authorization":
+    case "OAuth 2.0":
+      next.Authorization = trimmed;
       break;
     default:
       next.Authorization = trimmed;

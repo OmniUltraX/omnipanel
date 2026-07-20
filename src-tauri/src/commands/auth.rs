@@ -667,7 +667,7 @@ async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLogin
         .map_err(|e| {
             let cause = e.to_string();
             if is_benign_sse_disconnect(&cause) {
-                OmniError::new(ErrorCode::Timeout, "登录等待已断开，请刷新二维码").with_cause(cause)
+                OmniError::new(ErrorCode::Timeout, "登录等待已断开，请刷新二维码")
             } else {
                 OmniError::new(ErrorCode::Connection, "连接登录等待通道失败").with_cause(cause)
             }
@@ -691,9 +691,9 @@ async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLogin
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| {
             let cause = e.to_string();
-            // 取消/代理中断/服务端提前关流时常见，按可恢复断开处理
+            // 取消/代理中断/服务端提前关流时常见，按可恢复断开处理（不附带底层 cause，避免控制台刷屏）
             if is_benign_sse_disconnect(&cause) {
-                OmniError::new(ErrorCode::Timeout, "登录等待已断开，请刷新二维码").with_cause(cause)
+                OmniError::new(ErrorCode::Timeout, "登录等待已断开，请刷新二维码")
             } else {
                 OmniError::new(ErrorCode::Io, "读取登录等待流失败").with_cause(cause)
             }
