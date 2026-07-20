@@ -4,19 +4,21 @@ import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
 import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 
-/** 状态栏最左侧：未登录显示「登录」，已登录显示用户名；点击打开用户中心 */
+/** 状态栏最左侧：未登录显示「登录」，已登录显示昵称；点击打开用户中心 */
 export function StatusBarUserButton() {
   const { t } = useI18n();
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const openid = useAuthStore((s) => s.openid);
-  const displayName = useUserProfileStore((s) => s.displayName);
+  const nickname = useUserProfileStore((s) => s.nickname);
+  const avatarUrl = useUserProfileStore((s) => s.avatarUrl);
   const openUserCenter = useUserCenterUiStore((s) => s.openUserCenter);
 
   const label = isLoggedIn
-    ? displayName.trim() || openid?.slice(0, 8) || t("userCenter.guest")
+    ? nickname.trim() || openid?.slice(0, 8) || t("userCenter.guest")
     : t("userCenter.login.signIn");
 
   const title = isLoggedIn ? t("userCenter.title") : t("userCenter.login.title");
+  const letter = (nickname.trim() || openid || "?").slice(0, 1).toUpperCase();
 
   const handleOpen = useCallback(() => {
     openUserCenter();
@@ -42,7 +44,20 @@ export function StatusBarUserButton() {
       onClick={handleOpen}
       onKeyDown={handleKeyDown}
     >
-      {label}
+      {isLoggedIn ? (
+        <span className="statusbar-user__identity">
+          <span className="statusbar-user__avatar" aria-hidden>
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" className="statusbar-user__avatar-img" />
+            ) : (
+              letter
+            )}
+          </span>
+          <span className="statusbar-user__name">{label}</span>
+        </span>
+      ) : (
+        label
+      )}
     </span>
   );
 }

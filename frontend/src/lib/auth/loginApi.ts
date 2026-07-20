@@ -116,6 +116,47 @@ export async function fetchDevices(token: string): Promise<AuthDevice[]> {
   return unwrapCommand(commands.authListDevices(token));
 }
 
+export interface AuthUserProfile {
+  id: number;
+  openid: string;
+  nickname: string;
+  avatarUrl: string;
+  email: string;
+}
+
+/** 经 Tauri 后端代理拉取当前用户资料（GET /api/me）。 */
+export async function fetchMe(token: string): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(commands.authGetMe(token));
+  return {
+    id: data.id,
+    openid: data.openid,
+    nickname: data.nickname,
+    avatarUrl: data.avatarUrl,
+    email: data.email,
+  };
+}
+
+/** 经 Tauri 后端代理更新当前用户资料（PATCH /api/me）。 */
+export async function updateProfile(
+  token: string,
+  patch: { nickname?: string; avatarUrl?: string },
+): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(
+    commands.authUpdateProfile(
+      token,
+      patch.nickname ?? null,
+      patch.avatarUrl ?? null,
+    ),
+  );
+  return {
+    id: data.id,
+    openid: data.openid,
+    nickname: data.nickname,
+    avatarUrl: data.avatarUrl,
+    email: data.email,
+  };
+}
+
 export function isAuthSessionError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;

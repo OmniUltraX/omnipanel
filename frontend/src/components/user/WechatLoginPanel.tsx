@@ -3,6 +3,7 @@ import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
 import {
   fetchLoginQrcode,
+  fetchMe,
   waitForLogin,
   type LoginQrcodeResponse,
 } from "../../lib/auth/loginApi";
@@ -72,9 +73,17 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
         if (waitAbort.signal.aborted || fetchAbort.signal.aborted) return;
 
         setSession({ token: payload.token, openid: payload.openid });
-        const profile = useUserProfileStore.getState();
-        if (!profile.displayName.trim() && payload.openid) {
-          profile.setDisplayName(payload.openid.slice(0, 8));
+        try {
+          const me = await fetchMe(payload.token);
+          useUserProfileStore.getState().setProfile({
+            nickname: me.nickname,
+            avatarUrl: me.avatarUrl,
+          });
+        } catch {
+          const profile = useUserProfileStore.getState();
+          if (!profile.nickname.trim() && payload.openid) {
+            profile.setNickname(payload.openid.slice(0, 8));
+          }
         }
       } catch (error) {
         if (fetchAbort.signal.aborted) return;
