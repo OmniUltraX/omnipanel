@@ -53,7 +53,7 @@ export async function fetchDockerContainerStats(
   });
   try {
     const result = await withTimeout(
-      unwrap(listStats(connectionId, containerIds)),
+      unwrap(listStats(connectionId, containerIds), { quiet: true }),
       DOCKER_STATS_REQUEST_TIMEOUT_MS,
       "dockerListContainerStats",
     );

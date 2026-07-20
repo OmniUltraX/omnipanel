@@ -1,5 +1,10 @@
 //! Docker 命令桥接：connection
 use super::*;
+use futures::future::join_all;
+use std::time::Duration;
+
+/// 列表探测超时：避免单个不可达主机拖死侧栏加载。
+const LIST_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// 卷详情（`docker volume inspect`）。
 #[tauri::command]
@@ -58,6 +63,7 @@ pub async fn docker_list_connections(
             connection_id: conn.id,
             name: conn.name,
             source,
+            // 占位；下方并行 probe 回填真实状态
             status: DockerConnectionStatus::Offline,
             host_label,
             environment: conn.env_tag,
@@ -68,6 +74,41 @@ pub async fn docker_list_connections(
             warning_message,
             bound_ssh_connection_id: cfg.bound_ssh_connection_id,
         });
+    }
+
+    // 并行探测各实例，回填 status / 版本信息（侧栏 topbar-tab-dot 依赖此字段）
+    let probe_results = join_all(out.iter().map(|info| {
+        let connection_id = info.connection_id.clone();
+        async {
+            let probed = tokio::time::timeout(LIST_PROBE_TIMEOUT, async {
+                with_adapter(&state, &connection_id, |a| async move { a.probe().await }).await
+            })
+            .await;
+            match probed {
+                Ok(Ok(probe)) => Some((connection_id, probe)),
+                Ok(Err(_)) | Err(_) => None,
+            }
+        }
+    }))
+    .await;
+
+    for (connection_id, probe) in probe_results.into_iter().flatten() {
+        let Some(info) = out
+            .iter_mut()
+            .find(|item| item.connection_id == connection_id)
+        else {
+            continue;
+        };
+        info.status = probe.status;
+        if info.engine_version.is_none() {
+            info.engine_version = probe.engine_version;
+        }
+        if info.api_version.is_none() {
+            info.api_version = probe.api_version;
+        }
+        if info.warning_message.is_none() {
+            info.warning_message = probe.warning_message;
+        }
     }
 
     Ok(out)

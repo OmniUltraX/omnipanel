@@ -53,7 +53,7 @@ export function DockerContainerDockPanel({
   const { t } = useI18n();
   const { items, loading, error, refreshNow } = useDockerContainerGrid(
     connection.connectionId,
-    isActive,
+    isActive && connection.status !== "offline",
   );
   const [openSubWindow, setOpenSubWindow] = useState<OpenContainerSubWindow | null>(null);
   const [pendingActions, setPendingActions] = useState<Record<string, true>>({});

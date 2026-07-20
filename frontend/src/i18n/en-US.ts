@@ -3128,6 +3128,9 @@ export const enUS: TranslationDict = {
       startDocker: "Start Docker",
       startingDocker: "Starting Docker…",
       startFailed: "Failed to start Docker",
+      startSuccess: "Docker started",
+      manualStartHint:
+        "In-app start is not supported here. Please start Docker Desktop or the local Docker service manually.",
     },
     toolbar: {
       hint: "Containers, logs, Compose and server context in one place.",
@@ -3171,6 +3174,9 @@ export const enUS: TranslationDict = {
       searchNoResults: "No matches",
       treeShowMoreLeaves: "Show {count} more",
       treeCollapseLeaves: "Show less",
+      statusOnline: "Docker online",
+      statusDegraded: "Docker degraded / permission limited",
+      statusOffline: "Docker offline",
     },
     resourceOverview: {
       title: "Resource overview",
@@ -3314,6 +3320,32 @@ export const enUS: TranslationDict = {
       subwindowTypeDir: "Directory",
       subwindowTypeFile: "File",
       subwindowTypeLink: "Symlink",
+      createMenu: {
+        title: "Create",
+        createContainer: "Create container",
+        runCompose: "Run Docker Compose",
+        createCompose: "New Docker Compose",
+      },
+      createContainer: {
+        title: "Create container",
+        run: "Run",
+        running: "Creating…",
+        success: "Container created and started",
+        invalidJson: "Invalid JSON",
+        imageRequired: "image is required",
+      },
+      createCompose: {
+        title: "New Docker Compose",
+        run: "Run",
+        running: "Running…",
+        saveTitle: "Save Compose file",
+        empty: "Compose content cannot be empty",
+        success: "Saved and started project “{project}”",
+      },
+      runCompose: {
+        pickTitle: "Select Docker Compose file",
+        success: "Started project “{project}”",
+      },
     },
     containerPanel: {
       execTitle: "Container shell",
@@ -3328,6 +3360,8 @@ export const enUS: TranslationDict = {
       noResults: "No matching containers",
       standalone: "Standalone",
       composeCount: "{count} · {running} running",
+      collapseAll: "Collapse all",
+      expandAll: "Expand all",
       column: {
         name: "Name",
         id: "ID",
@@ -3403,11 +3437,22 @@ export const enUS: TranslationDict = {
       loadingFiles: "Loading project files…",
       logsFailed: "Failed to fetch logs",
       restart: "Restart",
+      start: "Start",
+      starting: "Starting…",
+      stop: "Stop",
+      stopping: "Stopping…",
       rebuilding: "Rebuilding…",
       restarting: "Restarting…",
       rebuild: "Rebuild",
+      startConfirm: "Start all services in project \"{project}\"?",
+      stopConfirm:
+        "Stop all services in project \"{project}\"? Containers will stop but will not be removed.",
+      restartConfirm:
+        "Restart all services in project \"{project}\"? Running services will be interrupted briefly.",
       rebuildConfirm:
         "Rebuild project \"{project}\"? Images will be rebuilt and containers recreated.",
+      started: "Project services started",
+      stopped: "Project services stopped",
       restarted: "Project restarted",
       rebuilt: "Project rebuilt",
       actionFailed: "Compose action failed",

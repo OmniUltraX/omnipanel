@@ -473,7 +473,7 @@ impl LocalDockerAdapter {
 
 /// bollard 连接类错误 → OmniError（连通性问题）。
 fn map_bollard_connect(err: bollard::errors::Error) -> OmniError {
-    OmniError::new(ErrorCode::Connection, "无法连接本地 Docker Engine").with_cause(err.to_string())
+    crate::bollard_error::map_bollard_error(err, "无法连接本地 Docker Engine")
 }
 
 /// 解析 ISO-8601 时间字符串为 Unix 毫秒。
@@ -499,13 +499,7 @@ fn parse_iso_to_unix_ms(s: Option<&str>) -> i64 {
 
 /// bollard 操作类错误 → OmniError。
 fn map_bollard(err: bollard::errors::Error) -> OmniError {
-    let msg = err.to_string();
-    // Docker 守护进程不可用时归类为连接错误，其余归类内部错误。
-    if msg.contains("error trying to connect") || msg.contains("No such file or directory") {
-        OmniError::new(ErrorCode::Connection, "Docker 未安装或未启动").with_cause(msg)
-    } else {
-        OmniError::new(ErrorCode::Internal, "Docker 操作失败").with_cause(msg)
-    }
+    crate::bollard_error::map_bollard_error(err, "Docker 操作失败")
 }
 
 fn map_disk_usage_item(
@@ -1134,6 +1128,7 @@ impl DockerAdapter for LocalDockerAdapter {
         }
         let sub = match action {
             DockerComposeAction::Up => "up",
+            DockerComposeAction::Stop => "stop",
             DockerComposeAction::Down => "down",
             DockerComposeAction::Restart => "restart",
             DockerComposeAction::Rebuild => "up",

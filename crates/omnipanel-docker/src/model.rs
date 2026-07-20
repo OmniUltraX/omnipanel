@@ -509,6 +509,8 @@ pub struct DockerBuildResult {
 pub enum DockerComposeAction {
     #[default]
     Up,
+    /// 停止服务容器（`compose stop`），不删除容器与网络。
+    Stop,
     Down,
     Restart,
     /// 重新构建镜像并拉起服务（`compose up -d --build --force-recreate`）。

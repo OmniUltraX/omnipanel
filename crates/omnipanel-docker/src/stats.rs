@@ -428,7 +428,7 @@ fn blkio_stats_from_engine(s: &bollard::models::ContainerStatsResponse) -> (i64,
 }
 
 fn map_bollard_err(e: bollard::errors::Error) -> OmniError {
-    OmniError::new(ErrorCode::Internal, "Docker Engine 请求失败").with_cause(e.to_string())
+    crate::bollard_error::map_bollard_error(e, "Docker Engine 请求失败")
 }
 
 // ── 过滤（前端 ID 匹配用） ───────────────────────────────────────────────────

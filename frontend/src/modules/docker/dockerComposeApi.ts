@@ -144,7 +144,7 @@ export async function writeComposeProjectFiles(
 
 export async function runComposeAction(
   connectionId: string,
-  action: "up" | "down" | "restart" | "rebuild" | "pull" | "logs",
+  action: "up" | "stop" | "down" | "restart" | "rebuild" | "pull" | "logs",
   request: DockerComposeRequest,
 ): Promise<DockerComposeResult> {
   return unwrap(commands.dockerComposeAction(connectionId, action, request));

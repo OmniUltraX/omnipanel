@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useMemo, type MouseEvent, type ReactNode } from "react";
 import {
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
@@ -25,7 +25,7 @@ import {
   type DockerContainerLifecycleAction,
 } from "./dockerContainerLifecycle";
 import type { DockerContainerGridItem } from "./hooks/useDockerContainerGrid";
-import { ComposeStackIcon, DirectoryIcon, LogsIcon, ParamsIcon } from "./icons";
+import { ComposeStackIcon, DirectoryIcon, LogsIcon, ParamsIcon, PlayIcon, RestartIcon, StopIcon } from "./icons";
 import type { DockerContainerSubWindowKind } from "./DockerDockPanel";
 
 async function writeToClipboard(text: string): Promise<boolean> {
@@ -94,9 +94,16 @@ function TableMetricCell({
   );
 }
 
+export type DockerComposeGroupAction = "up" | "stop" | "restart";
+
 type DockerContainerListTableProps = {
   items: DockerContainerGridItem[];
   pendingActions: Record<string, true>;
+  /** 正在执行编排操作的项目名 → 动作 */
+  pendingComposeProjects?: Record<string, DockerComposeGroupAction>;
+  /** 折叠中的 Compose 项目名；未列出则默认展开 */
+  collapsedProjects: ReadonlySet<string>;
+  onToggleProject: (project: string) => void;
   sortColumnId: DockerContainerTableSortColumn;
   sortDirection: DbTablesPanelGridSortDirection;
   onSortColumn: (sortId: string) => void;
@@ -106,18 +113,24 @@ type DockerContainerListTableProps = {
     action: DockerContainerLifecycleAction,
     event: MouseEvent<HTMLButtonElement>,
   ) => void;
+  onComposeGroupAction?: (
+    project: string,
+    action: DockerComposeGroupAction,
+    event: MouseEvent<HTMLButtonElement>,
+  ) => void;
 };
 
 function normalizeContainerKey(containerId: string): string {
   return containerId.trim().toLowerCase();
 }
 
-/** 按 Compose 项目分组；组内顺序沿用外部已排序的 items。 */
+/** 按 Compose 项目分组；组内顺序与分组顺序均沿用外部已排序的 items（按首次出现）。 */
 function partitionComposeItems(items: DockerContainerGridItem[]): {
   composeGroups: Array<{ project: string; items: DockerContainerGridItem[] }>;
   standalone: DockerContainerGridItem[];
 } {
   const groupMap = new Map<string, DockerContainerGridItem[]>();
+  const projectOrder: string[] = [];
   const standalone: DockerContainerGridItem[] = [];
   for (const item of items) {
     const project = resolveComposeProjectName(item.container);
@@ -126,12 +139,17 @@ function partitionComposeItems(items: DockerContainerGridItem[]): {
       continue;
     }
     const bucket = groupMap.get(project);
-    if (bucket) bucket.push(item);
-    else groupMap.set(project, [item]);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      groupMap.set(project, [item]);
+      projectOrder.push(project);
+    }
   }
-  const composeGroups = [...groupMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }))
-    .map(([project, groupItems]) => ({ project, items: groupItems }));
+  const composeGroups = projectOrder.map((project) => ({
+    project,
+    items: groupMap.get(project) ?? [],
+  }));
   return { composeGroups, standalone };
 }
 
@@ -184,15 +202,17 @@ function bodyCellClassName(
 export function DockerContainerListTable({
   items,
   pendingActions,
+  pendingComposeProjects = {},
+  collapsedProjects,
+  onToggleProject,
   sortColumnId,
   sortDirection,
   onSortColumn,
   onOpenAction,
   onLifecycleAction,
+  onComposeGroupAction,
 }: DockerContainerListTableProps) {
   const { t } = useI18n();
-  /** 折叠中的 Compose 项目名；未列出则默认展开 */
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
 
   const columns = useMemo((): DbTablesPanelGridColumn<DockerContainerGridItem>[] => {
     return [
@@ -431,15 +451,6 @@ export function DockerContainerListTable({
     },
   );
 
-  const toggleProject = useCallback((project: string) => {
-    setCollapsedProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(project)) next.delete(project);
-      else next.add(project);
-      return next;
-    });
-  }, []);
-
   const renderContainerRow = (item: DockerContainerGridItem, nested: boolean): ReactNode => (
     <tr
       key={item.container.id}
@@ -526,20 +537,24 @@ export function DockerContainerListTable({
             {composeGroups.map((group) => {
               const expanded = !collapsedProjects.has(group.project);
               const runningCount = group.items.filter((item) => item.container.running).length;
+              const composeBusy = pendingComposeProjects[group.project] != null;
+              const allRunning = runningCount === group.items.length && group.items.length > 0;
+              const allStopped = runningCount === 0;
+              const trailingColSpan = Math.max(columns.length - 2, 1);
               return (
                 <Fragment key={`compose:${group.project}`}>
                   <tr
                     className="docker-container-panel__group-row"
-                    onClick={() => toggleProject(group.project)}
+                    onClick={() => onToggleProject(group.project)}
                   >
-                    <td colSpan={columns.length}>
+                    <td data-col-id="name" className="docker-container-panel__group-name-cell">
                       <button
                         type="button"
                         className="docker-container-panel__group-toggle"
                         aria-expanded={expanded}
                         onClick={(event) => {
                           event.stopPropagation();
-                          toggleProject(group.project);
+                          onToggleProject(group.project);
                         }}
                       >
                         <IconChevronDown
@@ -558,6 +573,75 @@ export function DockerContainerListTable({
                         </span>
                       </button>
                     </td>
+                    <td
+                      data-col-id="status"
+                      className="docker-container-panel__group-status-cell"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {onComposeGroupAction ? (
+                        <div className="docker-container-table__status-cell docker-container-panel__group-actions">
+                          {composeBusy ? (
+                            <span className="docker-container-card__lifecycle-spinner" aria-hidden>
+                              <svg
+                                viewBox="0 0 16 16"
+                                width="13"
+                                height="13"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                              >
+                                <path d="M8 2a6 6 0 0 1 5.2 9" />
+                              </svg>
+                            </span>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                variant="icon"
+                                size="icon-xs"
+                                className="docker-container-card__lifecycle-btn docker-container-card__lifecycle-btn--danger"
+                                title={t("docker.composePanel.stop")}
+                                aria-label={t("docker.composePanel.stop")}
+                                disabled={allStopped}
+                                onClick={(event) =>
+                                  onComposeGroupAction(group.project, "stop", event)
+                                }
+                              >
+                                <StopIcon />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="icon"
+                                size="icon-xs"
+                                className="docker-container-card__lifecycle-btn"
+                                title={t("docker.composePanel.start")}
+                                aria-label={t("docker.composePanel.start")}
+                                disabled={allRunning}
+                                onClick={(event) =>
+                                  onComposeGroupAction(group.project, "up", event)
+                                }
+                              >
+                                <PlayIcon />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="icon"
+                                size="icon-xs"
+                                className="docker-container-card__lifecycle-btn"
+                                title={t("docker.composePanel.restart")}
+                                aria-label={t("docker.composePanel.restart")}
+                                onClick={(event) =>
+                                  onComposeGroupAction(group.project, "restart", event)
+                                }
+                              >
+                                <RestartIcon />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+                    </td>
+                    {trailingColSpan > 0 ? <td colSpan={trailingColSpan} /> : null}
                   </tr>
                   {expanded ? group.items.map((item) => renderContainerRow(item, true)) : null}
                 </Fragment>

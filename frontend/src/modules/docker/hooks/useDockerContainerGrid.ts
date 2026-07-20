@@ -88,7 +88,9 @@ export function useDockerContainerGrid(
     const refreshContainers = async (initial: boolean) => {
       if (initial) setLoading(true);
       try {
-        const list = await unwrap(commands.dockerListContainers(connectionId, null));
+        const list = await unwrap(commands.dockerListContainers(connectionId, null), {
+          quiet: true,
+        });
         if (cancelled) return;
         startTransition(() => {
           setContainers(list);

@@ -27,7 +27,6 @@ type DockerContainersTreeBranchProps = {
   searchQuery: string;
   connectionNameMatch: boolean;
   loading: boolean;
-  error: string | null;
   isExpanded: (key: string) => boolean;
   toggle: (key: string) => void;
   ensureExpanded: (key: string) => void;
@@ -42,7 +41,6 @@ export function DockerContainersTreeBranch({
   searchQuery,
   connectionNameMatch,
   loading,
-  error,
   isExpanded,
   toggle,
   ensureExpanded,
@@ -158,9 +156,7 @@ export function DockerContainersTreeBranch({
   if (loading && containers.length === 0) {
     return <SidebarTreeEmpty>{t("docker.sidebar.treeLoading")}</SidebarTreeEmpty>;
   }
-  if (error && containers.length === 0) {
-    return <SidebarTreeEmpty>{error}</SidebarTreeEmpty>;
-  }
+  // 无法连接时不展示具体错误文案，与无数据同一空态
   if (containers.length === 0) {
     return <SidebarTreeEmpty>{t("docker.sidebar.treeEmpty")}</SidebarTreeEmpty>;
   }

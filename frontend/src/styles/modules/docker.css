@@ -319,6 +319,35 @@
         color: var(--accent);
     }
 
+    .docker-sidebar-tree .docker-tree-brand-icon {
+        display: block;
+        width: 13px;
+        height: 13px;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+
+    .docker-sidebar-tree .topbar-tab-dot {
+        flex-shrink: 0;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--meta);
+    }
+
+    .docker-sidebar-tree .topbar-tab-dot.online,
+    .docker-sidebar-tree .topbar-tab-dot.connected {
+        background: var(--success);
+    }
+
+    .docker-sidebar-tree .topbar-tab-dot.connecting {
+        background: var(--warn);
+    }
+
+    .docker-sidebar-tree .topbar-tab-dot.offline {
+        background: var(--danger);
+    }
+
     .docker-sidebar-tree .docker-tree-node--images .tree-icon {
         color: var(--info, var(--accent));
     }
@@ -407,6 +436,17 @@
 
     .docker-connection-info-header__text {
         min-width: 0;
+    }
+
+    .docker-connection-info-header__actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+    }
+
+    .docker-connection-info-header__actions .is-spinning {
+        animation: docker-dock-panel-refresh-spin 0.8s linear infinite;
     }
 
     .docker-connection-info-header__title {
@@ -621,6 +661,34 @@
 
     .docker-connection-info-error {
         color: var(--danger);
+    }
+
+    .docker-connection-info-start {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--sp-4);
+        padding: 32px 24px;
+        text-align: center;
+    }
+
+    .docker-connection-info-start__hint {
+        margin: 0;
+        max-width: 420px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--muted);
+    }
+
+    .docker-connection-info-start__manual {
+        margin: 0;
+        max-width: 420px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--muted);
     }
 
     .docker-daemon-config-tab {
@@ -872,6 +940,59 @@
 
     .docker-dock-panel__refresh-btn .is-spinning {
         animation: docker-dock-panel-refresh-spin 0.8s linear infinite;
+    }
+
+    .docker-dock-panel__expand-collapse-icon {
+        display: block;
+        transition: transform 0.15s ease;
+    }
+
+    .docker-dock-panel__expand-collapse-icon--collapse {
+        transform: rotate(180deg);
+    }
+
+    .docker-create-editor-subwindow .subwindow-body {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .docker-create-editor-subwindow__body {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        gap: var(--sp-2);
+        padding: var(--sp-3);
+    }
+
+    .docker-create-editor-subwindow__error {
+        flex-shrink: 0;
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--r-sm);
+        border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+        background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+        color: var(--danger);
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .docker-create-editor-subwindow__editor {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        overflow: hidden;
+    }
+
+    .docker-create-editor-subwindow__code {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
     }
 
     @keyframes docker-dock-panel-refresh-spin {
@@ -3581,6 +3702,15 @@
     .docker-container-panel__group-row td {
         padding: 6px 10px !important;
         border-bottom: 1px solid var(--border-subtle, var(--border, #333));
+        vertical-align: middle;
+    }
+
+    .docker-container-panel__group-name-cell {
+        min-width: 0;
+    }
+
+    .docker-container-panel__group-status-cell {
+        white-space: nowrap;
     }
 
     .docker-container-panel__group-toggle {
@@ -3599,6 +3729,11 @@
 
     .docker-container-panel__group-toggle--static {
         cursor: default;
+    }
+
+    .docker-container-panel__group-actions {
+        justify-content: flex-start;
+        gap: 2px;
     }
 
     .docker-container-panel__group-chevron {

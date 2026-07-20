@@ -114,9 +114,9 @@ export function DockerComposePanel({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [composeActionPending, setComposeActionPending] = useState<"restart" | "rebuild" | null>(
-    null,
-  );
+  const [composeActionPending, setComposeActionPending] = useState<
+    "stop" | "restart" | "rebuild" | null
+  >(null);
   const [logsText, setLogsText] = useState(panelCache?.logsText ?? "");
   const [logEnabledByService, setLogEnabledByService] = useState<Record<string, boolean>>(
     () => panelCache?.logEnabledByService ?? {},
@@ -305,14 +305,26 @@ export function DockerComposePanel({
   );
 
   const handleComposeLifecycle = useCallback(
-    (action: "restart" | "rebuild") => {
+    (action: "stop" | "restart" | "rebuild") => {
       void (async () => {
-        if (action === "rebuild") {
-          const confirmed = await appConfirm(
-            t("docker.composePanel.rebuildConfirm", { project: composeProject }),
-          );
-          if (!confirmed) return;
-        }
+        const confirmMessage =
+          action === "stop"
+            ? t("docker.composePanel.stopConfirm", { project: composeProject })
+            : action === "restart"
+              ? t("docker.composePanel.restartConfirm", { project: composeProject })
+              : t("docker.composePanel.rebuildConfirm", { project: composeProject });
+        const confirmTitle =
+          action === "stop"
+            ? t("docker.composePanel.stop")
+            : action === "restart"
+              ? t("docker.composePanel.restart")
+              : t("docker.composePanel.rebuild");
+        const confirmed = await appConfirm(confirmMessage, confirmTitle, {
+          kind: "warning",
+          confirmLabel: confirmTitle,
+        });
+        if (!confirmed) return;
+
         setActionError(null);
         setComposeActionPending(action);
         try {
@@ -322,9 +334,11 @@ export function DockerComposePanel({
             throw new Error(detail || t("docker.composePanel.actionFailed"));
           }
           showActionToast(
-            action === "restart"
-              ? t("docker.composePanel.restarted")
-              : t("docker.composePanel.rebuilt"),
+            action === "stop"
+              ? t("docker.composePanel.stopped")
+              : action === "restart"
+                ? t("docker.composePanel.restarted")
+                : t("docker.composePanel.rebuilt"),
           );
           setContainersRefreshToken((n) => n + 1);
         } catch (e) {
@@ -432,6 +446,16 @@ export function DockerComposePanel({
           </span>
         </h2>
         <div className="docker-compose-panel__header-actions">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={composeActionPending != null}
+            onClick={() => handleComposeLifecycle("stop")}
+          >
+            {composeActionPending === "stop"
+              ? t("docker.composePanel.stopping")
+              : t("docker.composePanel.stop")}
+          </Button>
           <Button
             size="sm"
             variant="secondary"
