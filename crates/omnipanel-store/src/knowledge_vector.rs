@@ -101,7 +101,8 @@ pub fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> 
     chunks
 }
 
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+/// 余弦相似度（相同维度；非法输入返回 0）。
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }

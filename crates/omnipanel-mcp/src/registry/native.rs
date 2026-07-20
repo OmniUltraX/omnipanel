@@ -61,6 +61,7 @@ pub async fn execute(
         "omni_skill_recall" => skill_recall(arguments, storage).await,
         "omni_skill_extract_experience" => skill_extract_experience(arguments, storage).await,
         "omni_skill_refine" => skill_refine(arguments, storage).await,
+        "omni_skill_report_outcome" => skill_report_outcome(arguments, storage).await,
         "omni_web_search" => super::web::search::dispatch(arguments, storage, proxy).await,
         "omni_zhihu_search" => {
             super::web::search::dispatch_zhihu_only(arguments, storage, proxy).await
@@ -309,6 +310,7 @@ async fn resource_get_profile(
 }
 
 /// 查找相似资源（同 resource_type、按指纹相似度排序）。
+/// 同时附带同类型相关 Skill（混合召回），便于「p4→p7」复用经验。
 async fn resource_find_similar(
     arguments: Value,
     storage: Arc<Mutex<Storage>>,
@@ -320,12 +322,38 @@ async fn resource_find_similar(
         .and_then(|v| v.as_i64())
         .unwrap_or(5)
         .clamp(1, 20) as usize;
-    let storage = storage.lock().await;
-    let similar = storage
-        .find_similar_resources(&resource_type, &resource_id, limit)
-        .map_err(|e| e.to_string())?;
+
+    let similar = {
+        let storage = storage.lock().await;
+        storage
+            .find_similar_resources(&resource_type, &resource_id, limit)
+            .map_err(|e| e.to_string())?
+    };
+
+    // 自动附带相关 skill（不写 application，避免污染统计）
+    let skill_query = format!(
+        "{resource_type} {resource_id} 相似资源运维经验排障部署"
+    );
+    let related_skills = match recall_skills_hybrid(
+        storage.clone(),
+        &skill_query,
+        Some(&resource_type),
+        3,
+        false,
+    )
+    .await
+    {
+        Ok(hits) => hits,
+        Err(_) => Vec::new(),
+    };
+
     Ok((
-        serde_json::to_string(&similar).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::json!({
+            "similar": similar,
+            "related_skills": related_skills,
+            "hint": "若 related_skills 不足，请调用 omni_skill_recall；应用后用 omni_skill_report_outcome 回写结果",
+        })
+        .to_string(),
         true,
     ))
 }
@@ -480,8 +508,222 @@ fn now_millis_i64() -> i64 {
         .as_millis() as i64
 }
 
-/// 召回相关 skill：基于自然语言查询匹配已启用的 skill。
-/// 当前实现：关键词匹配（向量检索待 Phase 5+）。
+/// 混合召回命中（供 skill_recall / resource_find_similar 复用）。
+#[derive(Serialize)]
+struct SkillRecallHit {
+    id: String,
+    name: String,
+    description: String,
+    body: String,
+    score: f64,
+    keyword_score: f64,
+    vector_score: f64,
+    match_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    application_id: Option<String>,
+}
+
+/// 关键词分（归一化到约 0~1+）。
+fn keyword_score_for_skill(
+    query_lower: &str,
+    query_terms: &[&str],
+    name: &str,
+    desc: &str,
+    body: &str,
+) -> f64 {
+    let text = format!("{name} {desc} {body}").to_ascii_lowercase();
+    let mut score: f64 = 0.0;
+    for term in query_terms {
+        if text.contains(term) {
+            score += 1.0;
+        }
+    }
+    if text.contains(query_lower) {
+        score += 3.0;
+    }
+    if name.to_ascii_lowercase() == query_lower {
+        score += 5.0;
+    }
+    // 粗归一：典型满分约 5+3+terms
+    let denom = (query_terms.len() as f64 + 8.0).max(1.0);
+    (score / denom).min(1.5)
+}
+
+fn resource_type_matches(rt: &str, name: &str, desc: &str, body: &str) -> bool {
+    let rt_keywords: &[&str] = match rt {
+        "ssh" => &["ssh", "shell", "linux", "server", "host", "remote"],
+        "database" => &["database", "mysql", "postgres", "sql", "table", "db"],
+        "docker" => &["docker", "container", "image", "compose", "podman"],
+        "files" => &["file", "sftp", "directory", "path", "folder"],
+        _ => &[],
+    };
+    let text = format!("{name} {desc} {body}").to_ascii_lowercase();
+    rt_keywords.iter().any(|k| text.contains(k))
+}
+
+/// 混合召回：向量（若可用）+ 关键词；可选写入 pending application。
+async fn recall_skills_hybrid(
+    storage: Arc<Mutex<Storage>>,
+    query: &str,
+    resource_type: Option<&str>,
+    top_k: usize,
+    record_applications: bool,
+) -> Result<Vec<SkillRecallHit>, String> {
+    let summaries =
+        omnipanel_store::list_enabled_skill_summaries().map_err(|e| e.to_string())?;
+    let query_lower = query.to_ascii_lowercase();
+    let query_terms: Vec<&str> = query_lower
+        .split_whitespace()
+        .filter(|s| s.len() >= 2)
+        .collect();
+
+    // 关键词分
+    let mut keyword_map: std::collections::HashMap<String, (String, String, String, f64)> =
+        std::collections::HashMap::new();
+    for (id, name, desc) in &summaries {
+        let body = match load_skill_body(id) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if let Some(rt) = resource_type {
+            if !resource_type_matches(rt, name, desc, &body) {
+                continue;
+            }
+        }
+        let kw = keyword_score_for_skill(&query_lower, &query_terms, name, desc, &body);
+        if kw > 0.0 {
+            keyword_map.insert(id.clone(), (name.clone(), desc.clone(), body, kw));
+        }
+    }
+
+    // 向量分（best-effort）
+    let mut vector_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut vector_mode = "keyword_only";
+    {
+        let guard = storage.lock().await;
+        let has_chunks = guard.has_any_skill_chunks().unwrap_or(false);
+        drop(guard);
+        if has_chunks {
+            let provider = omnipanel_store::resolve_embedding_provider_for_backend();
+            match crate::embedding::fetch_provider_embeddings(&provider, &[query.to_string()]).await
+            {
+                Ok(vectors) => {
+                    if let Some(qe) = vectors.into_iter().next() {
+                        let guard = storage.lock().await;
+                        if let Ok(hits) = guard.search_skill_vectors_aggregated(&qe, top_k * 4) {
+                            for (id, score, _) in hits {
+                                // 可选 resource_type 过滤：若关键词表没有但向量命中，仍需检查正文
+                                if let Some(rt) = resource_type {
+                                    if let Ok(body) = load_skill_body(&id) {
+                                        let name = summaries
+                                            .iter()
+                                            .find(|(sid, _, _)| sid == &id)
+                                            .map(|(_, n, _)| n.as_str())
+                                            .unwrap_or("");
+                                        let desc = summaries
+                                            .iter()
+                                            .find(|(sid, _, _)| sid == &id)
+                                            .map(|(_, _, d)| d.as_str())
+                                            .unwrap_or("");
+                                        if !resource_type_matches(rt, name, desc, &body) {
+                                            continue;
+                                        }
+                                    }
+                                }
+                                vector_map.insert(id, score);
+                            }
+                            vector_mode = "hybrid";
+                        }
+                    }
+                }
+                Err(_) => {
+                    // embedding 不可用时静默回退关键词
+                }
+            }
+        }
+    }
+
+    // 合并：final = 0.4 * keyword + 0.6 * vector（缺侧按另一侧）
+    let mut all_ids: std::collections::HashSet<String> = keyword_map.keys().cloned().collect();
+    all_ids.extend(vector_map.keys().cloned());
+
+    let mut merged: Vec<SkillRecallHit> = Vec::new();
+    for id in all_ids {
+        let (name, desc, body, kw) = if let Some(v) = keyword_map.remove(&id) {
+            v
+        } else {
+            let body = load_skill_body(&id).unwrap_or_default();
+            let (name, desc) = summaries
+                .iter()
+                .find(|(sid, _, _)| sid == &id)
+                .map(|(_, n, d)| (n.clone(), d.clone()))
+                .unwrap_or_else(|| (id.clone(), String::new()));
+            (name, desc, body, 0.0)
+        };
+        let vs = vector_map.get(&id).copied().unwrap_or(0.0);
+        let score = if vs > 0.0 && kw > 0.0 {
+            0.4 * kw + 0.6 * vs
+        } else if vs > 0.0 {
+            vs
+        } else {
+            kw
+        };
+        if score <= 0.0 {
+            continue;
+        }
+        let match_mode = if vs > 0.0 && kw > 0.0 {
+            "hybrid"
+        } else if vs > 0.0 {
+            "vector"
+        } else {
+            "keyword"
+        }
+        .to_string();
+        merged.push(SkillRecallHit {
+            id,
+            name,
+            description: desc,
+            body,
+            score,
+            keyword_score: kw,
+            vector_score: vs,
+            match_mode,
+            application_id: None,
+        });
+    }
+    merged.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    merged.truncate(top_k);
+
+    if record_applications && !merged.is_empty() {
+        let guard = storage.lock().await;
+        ensure_skill_db_sync(&guard)?;
+        let now = now_millis_i64();
+        for hit in &mut merged {
+            let app_id = format!("app_{}_{now}", hit.id);
+            let app = SkillApplication {
+                id: app_id.clone(),
+                skill_id: hit.id.clone(),
+                session_id: String::new(),
+                resource_type: resource_type.unwrap_or("").to_string(),
+                resource_id: String::new(),
+                outcome: "pending".to_string(),
+                feedback: format!("query: {query}; mode: {vector_mode}"),
+                applied_at: now,
+            };
+            let _ = guard.save_skill_application(&app);
+            hit.application_id = Some(app_id);
+        }
+    }
+
+    let _ = vector_mode;
+    Ok(merged)
+}
+
+/// 召回相关 skill：向量检索 + 关键词混合。
 async fn skill_recall(
     arguments: Value,
     storage: Arc<Mutex<Storage>>,
@@ -512,105 +754,114 @@ async fn skill_recall(
         .unwrap_or(3)
         .clamp(1, 10) as usize;
 
-    // 1. 获取所有已启用 skill 摘要（文件层）
-    let summaries =
-        omnipanel_store::list_enabled_skill_summaries().map_err(|e| e.to_string())?;
+    let results = recall_skills_hybrid(
+        storage,
+        &query,
+        resource_type.as_deref(),
+        top_k,
+        true,
+    )
+    .await?;
 
-    // 2. 加载每个 skill 的正文并计算匹配分数
-    let query_lower = query.to_ascii_lowercase();
-    let query_terms: Vec<&str> = query_lower
-        .split_whitespace()
-        .filter(|s| s.len() >= 2)
-        .collect();
-
-    #[allow(clippy::type_complexity)]
-    let mut scored: Vec<(String, String, String, String, i64)> = Vec::new();
-    for (id, name, desc) in summaries {
-        let body = match load_skill_body(&id) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        // 如果指定 resource_type，检查 skill 文本是否提及该类型相关关键词
-        if let Some(rt) = &resource_type {
-            let rt_keywords: Vec<&str> = match rt.as_str() {
-                "ssh" => vec!["ssh", "shell", "linux", "server", "host", "remote"],
-                "database" => vec!["database", "mysql", "postgres", "sql", "table", "db"],
-                "docker" => vec!["docker", "container", "image", "compose", "podman"],
-                "files" => vec!["file", "sftp", "directory", "path", "folder"],
-                _ => vec![],
-            };
-            let text = format!("{} {} {}", name, desc, body).to_ascii_lowercase();
-            if !rt_keywords.iter().any(|k| text.contains(k)) {
-                continue;
-            }
-        }
-        let text = format!("{} {} {}", name, desc, body).to_ascii_lowercase();
-        let mut score: i64 = 0;
-        for term in &query_terms {
-            if text.contains(term) {
-                score += 1;
-            }
-        }
-        // 完整 query 子串匹配加分
-        if text.contains(&query_lower) {
-            score += 3;
-        }
-        // name 完全匹配 query 加大分
-        if name.to_ascii_lowercase() == query_lower {
-            score += 5;
-        }
-        if score > 0 {
-            scored.push((id, name, desc, body, score));
-        }
-    }
-
-    // 3. 按分数倒序，取 top_k
-    scored.sort_by(|a, b| b.4.cmp(&a.4));
-    let results: Vec<_> = scored.into_iter().take(top_k).collect();
-
-    // 4. 为每个命中的 skill 记录一条 pending 应用记录（便于后续追踪）
-    let storage = storage.lock().await;
-    ensure_skill_db_sync(&storage)?;
-    let now = now_millis_i64();
-    let session_id = arguments
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let mut json_results = Vec::new();
-    for (id, name, desc, body, score) in &results {
-        let app_id = format!("app_{id}_{now}");
-        let app = SkillApplication {
-            id: app_id.clone(),
-            skill_id: id.clone(),
-            session_id: session_id.clone(),
-            resource_type: resource_type.clone().unwrap_or_default(),
-            resource_id: String::new(),
-            outcome: "pending".to_string(),
-            feedback: format!("query: {query}"),
-            applied_at: now,
-        };
-        let _ = storage.save_skill_application(&app);
-        json_results.push(serde_json::json!({
-            "id": id,
-            "name": name,
-            "description": desc,
-            "body": body,
-            "score": score,
-            "application_id": app_id,
-        }));
-    }
+    let mode = if results.iter().any(|r| r.match_mode == "hybrid" || r.match_mode == "vector")
+    {
+        "hybrid"
+    } else {
+        "keyword_only"
+    };
 
     Ok((
         serde_json::json!({
             "query": query,
             "resource_type": resource_type,
-            "results": json_results,
-            "count": json_results.len(),
+            "mode": mode,
+            "results": results,
+            "count": results.len(),
+            "hint": "应用 skill 后请调用 omni_skill_report_outcome(application_id, outcome) 回写成功/失败",
         })
         .to_string(),
         true,
     ))
+}
+
+/// 回写 skill 应用结果并重算成功率。
+async fn skill_report_outcome(
+    arguments: Value,
+    storage: Arc<Mutex<Storage>>,
+) -> Result<(String, bool), String> {
+    let application_id = arguments
+        .get("application_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "application_id 不能为空".to_string())?
+        .to_string();
+    let outcome = arguments
+        .get("outcome")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "outcome 不能为空".to_string())?
+        .to_string();
+    if !matches!(
+        outcome.as_str(),
+        "success" | "failure" | "partial" | "pending"
+    ) {
+        return Err(format!(
+            "outcome 非法：{outcome}（应为 success / failure / partial / pending）"
+        ));
+    }
+    let feedback = arguments
+        .get("feedback")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let storage = storage.lock().await;
+    let app = storage
+        .get_skill_application(&application_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("application 不存在: {application_id}"))?;
+    storage
+        .update_skill_application_outcome(&application_id, &outcome, &feedback)
+        .map_err(|e| e.to_string())?;
+    storage
+        .recalc_skill_stats(&app.skill_id)
+        .map_err(|e| e.to_string())?;
+    let stats = storage
+        .get_skill_db(&app.skill_id)
+        .map_err(|e| e.to_string())?;
+
+    Ok((
+        serde_json::json!({
+            "application_id": application_id,
+            "skill_id": app.skill_id,
+            "outcome": outcome,
+            "stats": stats,
+            "updated": true,
+        })
+        .to_string(),
+        true,
+    ))
+}
+
+/// best-effort 向量化；失败不阻断主流程。
+async fn try_vectorize_skill_after_write(
+    storage: Arc<Mutex<Storage>>,
+    skill_id: &str,
+    title: &str,
+    description: &str,
+    body: &str,
+) -> Option<u32> {
+    match crate::embedding::vectorize_skill_text(&storage, skill_id, title, description, body)
+        .await
+    {
+        Ok(n) => Some(n),
+        Err(e) => {
+            tracing::warn!(skill_id, error = %e, "skill 向量化失败（已跳过）");
+            None
+        }
+    }
 }
 
 /// 从完成的任务中提取经验并创建 skill。
@@ -769,6 +1020,15 @@ async fn skill_extract_experience(
         }
     };
 
+    let chunk_count = try_vectorize_skill_after_write(
+        storage,
+        &new_id,
+        &title,
+        &description,
+        &body,
+    )
+    .await;
+
     Ok((
         serde_json::json!({
             "id": new_id,
@@ -778,6 +1038,7 @@ async fn skill_extract_experience(
             "description": description,
             "knowledge_ids_linked": knowledge_ids.len(),
             "case_knowledge_id": case_knowledge_id,
+            "vectorized_chunks": chunk_count,
             "created": true,
         })
         .to_string(),
@@ -822,110 +1083,128 @@ async fn skill_refine(
     let parent_record =
         load_skill_record(&skill_id).map_err(|e| e.to_string())?;
 
-    let storage = storage.lock().await;
-    ensure_skill_db_sync(&storage)?;
-    let parent_db = storage
-        .get_skill_db(&skill_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("skill DB 记录不存在: {skill_id}"))?;
-
-    let new_version = parent_db.version + 1;
-    let slug = slugify(&parent_record.name);
-    let candidate_id = generate_skill_id(&slug, Some(new_version));
-    let now = now_millis_i64();
-    // 如果 id 冲突，加时间戳后缀
-    let new_id = if load_skill_record(&candidate_id).is_ok() {
-        format!("{candidate_id}-{now}")
-    } else {
-        candidate_id
-    };
-
-    // 禁用父版本（文件 + DB）
-    disable_skill_file(&skill_id)?;
-    let mut disabled_parent = parent_db.clone();
-    disabled_parent.enabled = false;
-    disabled_parent.updated_at = now;
-    storage.save_skill_db(&disabled_parent).map_err(|e| e.to_string())?;
-
-    // 写入新版本 SKILL.md（在 body 末尾追加改进说明作为 HTML 注释）
     let final_body = format!("{new_body}\n\n<!-- improvements: {improvements} -->\n");
     let final_description = new_description.unwrap_or_else(|| parent_record.description.clone());
-    let new_record = write_skill(
-        &new_id,
-        SkillFrontmatter {
+
+    let (new_id, new_version, app_id, chain_json, parent_name) = {
+        let storage = storage.lock().await;
+        ensure_skill_db_sync(&storage)?;
+        let parent_db = storage
+            .get_skill_db(&skill_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("skill DB 记录不存在: {skill_id}"))?;
+
+        let new_version = parent_db.version + 1;
+        let slug = slugify(&parent_record.name);
+        let candidate_id = generate_skill_id(&slug, Some(new_version));
+        let now = now_millis_i64();
+        let new_id = if load_skill_record(&candidate_id).is_ok() {
+            format!("{candidate_id}-{now}")
+        } else {
+            candidate_id
+        };
+
+        disable_skill_file(&skill_id)?;
+        let mut disabled_parent = parent_db.clone();
+        disabled_parent.enabled = false;
+        disabled_parent.updated_at = now;
+        storage
+            .save_skill_db(&disabled_parent)
+            .map_err(|e| e.to_string())?;
+
+        let new_record = write_skill(
+            &new_id,
+            SkillFrontmatter {
+                name: parent_record.name.clone(),
+                description: final_description.clone(),
+                enabled: true,
+            },
+            &final_body,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let new_db_rec = SkillDbRecord {
+            id: new_id.clone(),
             name: parent_record.name.clone(),
             description: final_description.clone(),
             enabled: true,
-        },
+            version: new_version,
+            parent_version_id: skill_id.clone(),
+            path: new_record.path.clone(),
+            success_count: 0,
+            failure_count: 0,
+            last_applied_at: None,
+            shareable: parent_db.shareable,
+            created_at: new_record.created_at,
+            updated_at: new_record.updated_at,
+        };
+        storage
+            .save_skill_db(&new_db_rec)
+            .map_err(|e| e.to_string())?;
+
+        let parent_links = storage
+            .list_knowledge_for_skill(&skill_id)
+            .map_err(|e| e.to_string())?;
+        for link in parent_links {
+            let _ = storage.link_skill_knowledge(&new_id, &link.knowledge_id, &link.link_kind);
+        }
+
+        let app_id = format!("app_{new_id}_{now}");
+        let app = SkillApplication {
+            id: app_id.clone(),
+            skill_id: new_id.clone(),
+            session_id: String::new(),
+            resource_type: String::new(),
+            resource_id: String::new(),
+            outcome: "refined".to_string(),
+            feedback: improvements.clone(),
+            applied_at: now,
+        };
+        let _ = storage.save_skill_application(&app);
+
+        let chain = storage
+            .get_skill_version_chain(&new_id)
+            .map_err(|e| e.to_string())?;
+        let chain_json: Vec<_> = chain
+            .into_iter()
+            .map(|(id, version, created_at)| {
+                serde_json::json!({
+                    "id": id,
+                    "version": version,
+                    "created_at": created_at,
+                })
+            })
+            .collect();
+
+        (
+            new_id,
+            new_version,
+            app_id,
+            chain_json,
+            parent_record.name.clone(),
+        )
+    };
+
+    let chunk_count = try_vectorize_skill_after_write(
+        storage,
+        &new_id,
+        &parent_name,
+        &final_description,
         &final_body,
     )
-    .map_err(|e| e.to_string())?;
-
-    // 保存新版本 DB 记录
-    let new_db_rec = SkillDbRecord {
-        id: new_id.clone(),
-        name: parent_record.name.clone(),
-        description: final_description.clone(),
-        enabled: true,
-        version: new_version,
-        parent_version_id: skill_id.clone(),
-        path: new_record.path.clone(),
-        success_count: 0,
-        failure_count: 0,
-        last_applied_at: None,
-        shareable: parent_db.shareable,
-        created_at: new_record.created_at,
-        updated_at: new_record.updated_at,
-    };
-    storage.save_skill_db(&new_db_rec).map_err(|e| e.to_string())?;
-
-    // 复制父版本的 knowledge 关联到新版本
-    let parent_links = storage
-        .list_knowledge_for_skill(&skill_id)
-        .map_err(|e| e.to_string())?;
-    for link in parent_links {
-        let _ = storage.link_skill_knowledge(&new_id, &link.knowledge_id, &link.link_kind);
-    }
-
-    // 记录一条 refined 应用记录
-    let app_id = format!("app_{new_id}_{now}");
-    let app = SkillApplication {
-        id: app_id.clone(),
-        skill_id: new_id.clone(),
-        session_id: String::new(),
-        resource_type: String::new(),
-        resource_id: String::new(),
-        outcome: "refined".to_string(),
-        feedback: improvements.clone(),
-        applied_at: now,
-    };
-    let _ = storage.save_skill_application(&app);
-
-    // 获取版本链
-    let chain = storage
-        .get_skill_version_chain(&new_id)
-        .map_err(|e| e.to_string())?;
-    let chain_json: Vec<_> = chain
-        .into_iter()
-        .map(|(id, version, created_at)| {
-            serde_json::json!({
-                "id": id,
-                "version": version,
-                "created_at": created_at,
-            })
-        })
-        .collect();
+    .await;
 
     Ok((
         serde_json::json!({
             "id": new_id,
             "version": new_version,
             "parent_version_id": skill_id,
-            "name": parent_record.name,
+            "name": parent_name,
             "description": final_description,
             "improvements": improvements,
             "application_id": app_id,
             "version_chain": chain_json,
+            "vectorized_chunks": chunk_count,
             "created": true,
         })
         .to_string(),

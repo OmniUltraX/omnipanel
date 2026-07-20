@@ -162,10 +162,6 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
 
     if (isEdit && editProvider) {
       const effectiveKey = apiKey || editProvider.apiKey;
-      if (!effectiveKey) {
-        setError(t("settings.aiModels.errors.apiKeyRequired"));
-        return;
-      }
 
       setSaving(true);
       setError(null);
@@ -192,11 +188,6 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
       });
       onSaved?.(editProvider.id);
       onClose();
-      return;
-    }
-
-    if (!apiKey) {
-      setError(t("settings.aiModels.errors.apiKeyRequired"));
       return;
     }
 

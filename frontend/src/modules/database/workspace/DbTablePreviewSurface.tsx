@@ -53,7 +53,10 @@ import { showToast } from "../../../stores/toastStore";
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
-  /** 非活动 Tab 不挂载重型网格，避免 keep-alive 拖垮侧栏滚动 */
+  /**
+   * 是否为当前激活 Tab（快捷键 / 侧栏联动等）。
+   * 网格与详情面板在 keep-alive 下保持挂载，切 Tab 才能瞬间切换。
+   */
   active?: boolean;
 }
 
@@ -636,7 +639,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const enableFilter = Boolean(previewConnection && previewConnection.db_type !== "redis");
 
-  const detailPanel = active ? (
+  // 勿用 active 卸载网格/详情：Dock keep-alive 下卸载再挂载会明显「闪加载」
+  const detailPanel = (
     <TableDetailPanel
       activeTab={detailTab}
       onActiveTabChange={setDetailTab}
@@ -656,17 +660,17 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       columnType={editorSelectionCount > 1 ? "text" : (activeColumnMeta?.type ?? "text")}
       currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
       selectionCount={editorSelectionCount}
-      editorOpen={!detailCollapsed}
+      editorOpen={Boolean(active) && !detailCollapsed}
       rowIndex={activeCell?.rowIndex ?? null}
       valueColumnMeta={editorSelectionCount > 1 ? null : (activeColumnMeta ?? null)}
       dbType={previewConnection?.db_type}
       onValueApply={handlePreviewCellApply}
       onValueSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
     />
-  ) : null;
+  );
 
   const previewGrid =
-    active && preview?.data && canRefresh && showPreviewGrid ? (
+    preview?.data && canRefresh && showPreviewGrid ? (
     <TableDataGrid
       columns={previewColumns}
       rows={previewDisplayRows}

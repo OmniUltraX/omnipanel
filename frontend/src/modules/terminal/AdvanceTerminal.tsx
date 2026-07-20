@@ -193,7 +193,10 @@ export function AdvanceTerminal({
   }, []);
 
   const requestSftp = useSshDetailNavigationStore((s) => s.requestSftp);
+  const pendingSideFocus = useSshDetailNavigationStore((s) => s.pendingSideFocus);
+  const consumeSideFocus = useSshDetailNavigationStore((s) => s.consumeSideFocus);
   const lastSyncedSftpCwdRef = useRef<string | null>(null);
+  const handledSideFocusNonceRef = useRef<number | null>(null);
 
   useEffect(() => {
     lastSyncedSftpCwdRef.current = null;
@@ -207,6 +210,44 @@ export function AdvanceTerminal({
     lastSyncedSftpCwdRef.current = sftpPath;
     requestSftp(resource.id, sftpPath);
   }, [isRemoteSsh, resource?.id, tab?.status, tab?.session.cwd, requestSftp]);
+
+  // 从 ls block 右键「在 SFTP / 文件面板中显示」展开侧栏并聚焦
+  useEffect(() => {
+    if (!pendingSideFocus) return;
+    if (handledSideFocusNonceRef.current === pendingSideFocus.nonce) return;
+    if (!isActive) return;
+
+    if (pendingSideFocus.panel === "sftp") {
+      if (!isRemoteSsh || !resource?.id || pendingSideFocus.resourceId !== resource.id) return;
+      const consumed = consumeSideFocus(resource.id);
+      if (!consumed) return;
+      handledSideFocusNonceRef.current = consumed.nonce;
+      lastSyncedSftpCwdRef.current = consumed.path;
+      activeSideTabRef.current = "sftp";
+      setActiveSideTab("sftp");
+      setSideDockMounted(true);
+      setSideCollapsed(false);
+      return;
+    }
+
+    if (pendingSideFocus.panel === "files") {
+      if (!isLocal) return;
+      const consumed = consumeSideFocus(null);
+      if (!consumed || consumed.panel !== "files") return;
+      handledSideFocusNonceRef.current = consumed.nonce;
+      activeSideTabRef.current = "files";
+      setActiveSideTab("files");
+      setSideDockMounted(true);
+      setSideCollapsed(false);
+    }
+  }, [
+    pendingSideFocus,
+    isActive,
+    isRemoteSsh,
+    isLocal,
+    resource?.id,
+    consumeSideFocus,
+  ]);
 
   const resolveSidePanelSpec = useCallback(
     (sideTabId: string): SidePanelWorkspaceSpec | null => {

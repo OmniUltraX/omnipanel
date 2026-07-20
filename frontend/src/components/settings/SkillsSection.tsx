@@ -9,6 +9,8 @@ import {
   type SkillRecord,
   type SkillVersionChainEntry,
 } from "../../ipc/bindings";
+import { useKnowledgeEmbeddingProviderConfig } from "../knowledge/KnowledgeEmbeddingModelSelect";
+import { syncEmbeddingProviderToBackend } from "../../lib/syncEmbeddingProvider";
 import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { TextInput } from "../ui/form/TextInput";
@@ -77,6 +79,9 @@ export function SkillsSection() {
 
   // 展开历史面板的 skill id
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reindexing, setReindexing] = useState(false);
+  const [infoHint, setInfoHint] = useState<string | null>(null);
+  const embeddingProvider = useKnowledgeEmbeddingProviderConfig();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -203,6 +208,32 @@ export function SkillsSection() {
     setExpandedId((cur) => (cur === id ? null : id));
   };
 
+  const handleReindex = async () => {
+    setReindexing(true);
+    setError(null);
+    setInfoHint(null);
+    try {
+      const provider =
+        embeddingProvider ?? (await syncEmbeddingProviderToBackend());
+      if (!provider) {
+        setError(t("settings.skills.reindexNeedEmbedding"));
+        return;
+      }
+      await syncEmbeddingProviderToBackend();
+      const res = await commands.skillVectorizeAll(provider);
+      if (res.status !== "ok") {
+        setError(res.error || t("settings.skills.reindexFailed"));
+        return;
+      }
+      await refresh();
+      setInfoHint(t("settings.skills.reindexDone", { count: res.data.length }));
+    } catch (e) {
+      setError(String(e) || t("settings.skills.reindexFailed"));
+    } finally {
+      setReindexing(false);
+    }
+  };
+
   return (
     <div className="settings-subsection">
       <div className="settings-section-header">
@@ -210,6 +241,14 @@ export function SkillsSection() {
           <p className="setting-hint settings-subsection-desc">{t("settings.skills.desc")}</p>
         </div>
         <div className="settings-section-actions">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={reindexing || skills.length === 0}
+            onClick={() => void handleReindex()}
+          >
+            {reindexing ? t("settings.skills.reindexing") : t("settings.skills.reindex")}
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => void handleImport()}>
             {t("settings.skills.import")}
           </Button>
@@ -220,6 +259,7 @@ export function SkillsSection() {
       </div>
 
       {error ? <p className="setting-hint setting-hint--error">{error}</p> : null}
+      {infoHint ? <p className="setting-hint">{infoHint}</p> : null}
 
       {showCreate ? (
         <div className="settings-form-card">

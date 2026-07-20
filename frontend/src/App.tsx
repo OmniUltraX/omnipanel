@@ -203,6 +203,13 @@ function AppShell() {
     };
   }, []);
 
+  // 启动时同步 embedding 配置，供 Skill MCP 向量化 / 混合召回使用
+  useEffect(() => {
+    void import("./lib/syncEmbeddingProvider").then(({ syncEmbeddingProviderToBackend }) => {
+      void syncEmbeddingProviderToBackend();
+    });
+  }, []);
+
   // 主窗口：与工作区独立窗口保持同步（打开/关闭时更新 poppedOut 集合）。
   useEffect(() => {
     let cleanup: (() => void) | null = null;

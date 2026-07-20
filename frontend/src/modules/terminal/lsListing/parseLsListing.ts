@@ -269,6 +269,15 @@ function tryParseWindowsDirListing(lines: string[]): LsListing | null {
   return { entries, layout: "long" };
 }
 
+/**
+ * conda / venv / virtualenv 提示符片段，如 `(base)` `(.venv)` `(my-env)`。
+ * 常混进 ls 捕获尾部，且无扩展名会被误判为目录。
+ */
+function isShellEnvPromptToken(token: string): boolean {
+  const name = normalizeLsEntryName(unquoteName(token));
+  return /^\([A-Za-z0-9._+-]+\)$/.test(name);
+}
+
 function isGridNoiseToken(token: string): boolean {
   if (isWindowsModeToken(token)) return true;
   if (/^-{3,}$/.test(token)) return true;
@@ -285,6 +294,7 @@ function isGridNoiseToken(token: string): boolean {
   if (/^cd$/i.test(token)) return true;
   if (/^[^\s]+@[^\s]+:/.test(token)) return true;
   if (/^行:\d+$/i.test(token) || /^字符:\d+$/i.test(token)) return true;
+  if (isShellEnvPromptToken(token)) return true;
   return false;
 }
 
@@ -313,7 +323,13 @@ function classifyPlainName(raw: string): LsEntry {
     kind = classifyByExtension(name);
   }
 
-  const entry: LsEntry = { name: unquoteName(name), kind };
+  name = unquoteName(name);
+  // 剥掉 ls -F 的 / 后若是 (base) 等环境提示符，勿当成可 cd 目录
+  if (isShellEnvPromptToken(name)) {
+    return { name, kind: "file" };
+  }
+
+  const entry: LsEntry = { name, kind };
   if (kind === "directory" || kind === "symlink") {
     return { ...entry, navigable: true };
   }

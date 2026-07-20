@@ -2,6 +2,7 @@ pub mod db_sync_jobs;
 pub mod gpu_local;
 pub mod knowledge_vector_jobs;
 pub mod local_ports;
+pub mod local_runtime_jobs;
 pub mod local_system;
 pub mod mysql_export_jobs;
 pub mod schema_cache_jobs;

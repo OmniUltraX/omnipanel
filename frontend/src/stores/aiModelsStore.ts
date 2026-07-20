@@ -46,6 +46,11 @@ interface PersistedLegacyAiModelConfig {
 interface AiModelsState {
   providers: AiModelProvider[];
   addProvider: (input: Omit<AiModelProvider, "id" | "createdAt">) => AiModelProvider;
+  /** 按固定 id 创建或更新（用于 local-ollama 等系统托管 Provider） */
+  upsertProviderById: (
+    id: string,
+    input: Omit<AiModelProvider, "id" | "createdAt">,
+  ) => AiModelProvider;
   removeProvider: (id: string) => void;
   updateProvider: (
     id: string,
@@ -388,6 +393,28 @@ export const useAiModelsStore = create<AiModelsState>()(
     void persistProviders(next);
     return provider;
   },
+  upsertProviderById: (id, input) => {
+    const existing = get().providers.find((p) => p.id === id);
+    const provider: AiModelProvider = {
+      id,
+      providerName: normalizeProviderName(input.providerName),
+      apiStandard: input.apiStandard,
+      baseUrl: normalizeBaseUrl(input.baseUrl),
+      apiKey: input.apiKey.trim(),
+      modelNames: normalizeModelNames(input.modelNames),
+      manualModelNames: normalizeManualModelNames(input.manualModelNames),
+      excludedModelNames: existing?.excludedModelNames,
+      disabledModelNames: normalizeDisabledModelNames(input.disabledModelNames),
+      apiModelMeta: input.apiModelMeta ?? existing?.apiModelMeta,
+      createdAt: existing?.createdAt ?? Date.now(),
+    };
+    const next = existing
+      ? get().providers.map((p) => (p.id === id ? provider : p))
+      : [provider, ...get().providers];
+    set({ providers: next });
+    void persistProviders(next);
+    return provider;
+  },
   removeProvider: (id) => {
     const next = get().providers.filter((p) => p.id !== id);
     set({ providers: next });
@@ -561,10 +588,8 @@ export const useAiModelsStore = create<AiModelsState>()(
     if (!provider) {
       return { ok: false, error: "not_found" };
     }
-    if (!provider.apiKey.trim()) {
-      return { ok: false, error: "no_api_key" };
-    }
 
+    // 本地 Ollama / LM Studio 等可不填 API Key；云端缺 Key 会由 HTTP 401 体现
     const fetched = await fetchProviderModelList(provider.baseUrl, provider.apiKey);
     if (!fetched.ok) {
       return { ok: false, error: fetched.error };

@@ -702,7 +702,8 @@ export function RedisConnectionInfoPanel({
 
   const renderPanelMainContent = () => (
     <>
-      {capable && active ? renderCliSession() : null}
+      {/* keep-alive：勿按 active 卸载 CLI，切回 Tab 才能瞬间显示 */}
+      {capable ? renderCliSession() : null}
       {subTab === "connections"
         ? renderClientsTable()
         : subTab === "status"

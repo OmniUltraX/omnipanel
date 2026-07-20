@@ -1072,7 +1072,7 @@ export function DatabaseConnectionInfoPanel({
       deploymentLoading={deploymentLoading}
       sshConnections={sshConnections}
       panelActive={active}
-      visible={active && subTab === "cli"}
+      visible={subTab === "cli"}
     />
   );
 

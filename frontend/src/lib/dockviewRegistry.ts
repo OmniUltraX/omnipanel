@@ -151,6 +151,23 @@ export function getDockviewInstanceByScope(
   return undefined;
 }
 
+/** 焦点/事件目标落在哪个 dockview 容器内（快捷键关 Tab 等回退定位） */
+export function findDockviewInstanceContainingElement(
+  el: Element | null,
+): (DockviewInstanceScope & { viewId: string }) | undefined {
+  if (!el) return undefined;
+  for (const [viewId, instance] of instancesByViewId) {
+    const container =
+      instance.getContainer?.() ??
+      (instance.api as DockviewApi & { element?: HTMLElement }).element ??
+      null;
+    if (container?.contains(el)) {
+      return { ...instance, viewId };
+    }
+  }
+  return undefined;
+}
+
 /** 在终端/数据库等模块 dock 中查找 panel 所在实例。 */
 export function findModuleDockPanelById(
   panelId: string,

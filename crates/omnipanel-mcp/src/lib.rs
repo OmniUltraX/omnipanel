@@ -1,5 +1,6 @@
 mod builtin;
 mod client;
+mod embedding;
 mod exposed_tools;
 mod manager;
 mod omni_module;

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/primitives/Button";
 import { TextInput } from "../ui/form/TextInput";
 import { FileEntryIcon } from "../ui/icons/FileEntryIcon";
+import { ContextMenu } from "../ui/menu/ContextMenu";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
 import {
@@ -19,6 +20,33 @@ import {
   parentPath,
   sortFileEntries,
 } from "../../modules/files/utils";
+import { SftpComposer } from "../sftp/SftpComposer";
+import {
+  buildFileEntryContextMenuItems,
+  type FileEntryCtxLabels,
+} from "../sftp/buildFileEntryContextMenu";
+import { useSshDetailNavigationStore } from "../../stores/sshDetailNavigationStore";
+import { useTerminalFilePreviewStore } from "../../modules/terminal/terminalFilePreviewStore";
+
+type ComposerMode = "mkdir" | "rename" | null;
+
+function IconUp() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function IconFolderPlus() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <line x1="9" y1="14" x2="15" y2="14" />
+    </svg>
+  );
+}
 
 function splitLocalBreadcrumb(path: string): { label: string; path: string }[] {
   if (!path) return [{ label: "~", path: "" }];
@@ -50,8 +78,9 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showMkdir, setShowMkdir] = useState(false);
+  const [composer, setComposer] = useState<ComposerMode>(null);
   const [mkdirName, setMkdirName] = useState("");
+  const [composerBusy, setComposerBusy] = useState(false);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
@@ -67,6 +96,25 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
   const pathEditSkipCommitRef = useRef(false);
   const loadSeqRef = useRef(0);
   const initRef = useRef(false);
+  const handledLocalNavNonceRef = useRef<number | null>(null);
+  const openFilePreview = useTerminalFilePreviewStore((s) => s.open);
+  const pendingLocalNavigate = useSshDetailNavigationStore((s) => s.pendingLocalNavigate);
+  const consumeLocalNavigate = useSshDetailNavigationStore((s) => s.consumeLocalNavigate);
+
+  const closeComposer = useCallback(() => {
+    setComposer(null);
+    setMkdirName("");
+    setRenameTarget(null);
+    setRenameValue("");
+    setComposerBusy(false);
+  }, []);
+
+  const openMkdir = useCallback(() => {
+    setRenameTarget(null);
+    setRenameValue("");
+    setMkdirName("");
+    setComposer("mkdir");
+  }, []);
 
   const loadDir = async (dir: string, seq?: number) => {
     const currentSeq = seq ?? ++loadSeqRef.current;
@@ -104,12 +152,13 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
   }, []);
 
   useEffect(() => {
-    const handler = () => setContextMenu(null);
-    if (contextMenu) {
-      document.addEventListener("click", handler);
-      return () => document.removeEventListener("click", handler);
-    }
-  }, [contextMenu]);
+    if (!pendingLocalNavigate) return;
+    if (handledLocalNavNonceRef.current === pendingLocalNavigate.nonce) return;
+    const consumed = consumeLocalNavigate();
+    if (!consumed) return;
+    handledLocalNavNonceRef.current = consumed.nonce;
+    void loadDir(consumed.path);
+  }, [pendingLocalNavigate, consumeLocalNavigate]);
 
   const navigateUp = () => {
     if (isLocalRoot(path)) return;
@@ -121,6 +170,17 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     void loadDir(entry.path);
   };
 
+  const openLocalFile = useCallback((entry: FileEntry) => {
+    if (entry.kind === "dir") return;
+    openFilePreview({
+      connectionId: LOCAL_CONNECTION_ID,
+      absolutePath: entry.path,
+      name: entry.name,
+      resourceId: null,
+      sessionType: "local",
+    });
+  }, [openFilePreview]);
+
   const handleDelete = async (entry: FileEntry) => {
     try {
       await deleteRemote(LOCAL_CONNECTION_ID, entry.path);
@@ -131,15 +191,19 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
   };
 
   const handleMkdir = async () => {
-    if (!mkdirName.trim()) return;
+    if (!mkdirName.trim()) {
+      setError(t("ssh.sftp.mkdirRequired"));
+      return;
+    }
     const fullPath = joinRemotePath(path, mkdirName.trim(), "local");
+    setComposerBusy(true);
     try {
       await mkdirRemote(LOCAL_CONNECTION_ID, fullPath);
-      setShowMkdir(false);
-      setMkdirName("");
+      closeComposer();
       void loadDir(path);
     } catch (e) {
       setError(fmtError(e));
+      setComposerBusy(false);
     }
   };
 
@@ -147,14 +211,22 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     if (!renameTarget || !renameValue.trim()) return;
     const dir = parentPath(renameTarget.path, "local");
     const newPath = joinRemotePath(dir, renameValue.trim(), "local");
+    setComposerBusy(true);
     try {
       await renameRemote(LOCAL_CONNECTION_ID, renameTarget.path, newPath);
-      setRenameTarget(null);
-      setRenameValue("");
+      closeComposer();
       void loadDir(path);
     } catch (e) {
       setError(fmtError(e));
+      setComposerBusy(false);
     }
+  };
+
+  const isQuickPathActive = (qp: string) => {
+    if (!qp) return !path;
+    if (path === qp) return true;
+    const sep = qp.includes("\\") ? "\\" : "/";
+    return path.startsWith(qp.endsWith(sep) ? qp : `${qp}${sep}`);
   };
 
   const handleContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
@@ -199,20 +271,73 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
       ]
     : [];
 
+  const ctxLabels = useMemo((): FileEntryCtxLabels => ({
+    open: t("files.entryCtx.open"),
+    openDir: t("files.entryCtx.openDir"),
+    openFile: t("files.entryCtx.openFile"),
+    edit: t("files.entryCtx.edit"),
+    download: t("files.entryCtx.download"),
+    copyName: t("files.entryCtx.copyName"),
+    copyPath: t("files.entryCtx.copyPath"),
+    copyCd: t("files.entryCtx.copyCd"),
+    listDir: t("files.entryCtx.listDir"),
+    viewContent: t("files.entryCtx.viewContent"),
+    showInfo: t("files.entryCtx.showInfo"),
+    revealInSftp: t("files.entryCtx.revealInSftp"),
+    rename: t("files.entryCtx.rename"),
+    chmod: t("files.entryCtx.chmod"),
+    delete: t("files.entryCtx.delete"),
+  }), [t]);
+
+  const contextMenuItems = useMemo(() => {
+    if (!contextMenu) return [];
+    const entry = contextMenu.entry;
+    const isDir = entry.kind === "dir";
+    return buildFileEntryContextMenuItems({
+      isDir,
+      labels: ctxLabels,
+      handlers: {
+        onOpen: () => {
+          if (isDir) navigateTo(entry);
+          else openLocalFile(entry);
+        },
+        onEdit: isDir ? undefined : () => openLocalFile(entry),
+        onCopyName: () => void navigator.clipboard.writeText(entry.name),
+        onCopyPath: () => void navigator.clipboard.writeText(entry.path),
+        onRename: () => {
+          setMkdirName("");
+          setRenameTarget(entry);
+          setRenameValue(entry.name);
+          setComposer("rename");
+        },
+        onDelete: () => void handleDelete(entry),
+      },
+    });
+  }, [contextMenu, ctxLabels, openLocalFile]);
+
   return (
     <div className="sftp-panel local-file-panel">
       <div className="sftp-toolbar">
         <Button
           variant="secondary"
-          size="sm"
+          size="icon-sm"
+          className="sftp-toolbar-icon-btn"
           onClick={navigateUp}
           disabled={isLocalRoot(path)}
           title={t("files.toolbar.up")}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><path d="M15 18l-6-6 6-6" /></svg>
+          <IconUp />
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => setShowMkdir(true)}>
-          {t("ssh.sftp.mkdir")}
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          className="sftp-toolbar-icon-btn"
+          onClick={openMkdir}
+          title={t("ssh.sftp.mkdir")}
+          aria-label={t("ssh.sftp.mkdir")}
+          aria-pressed={composer === "mkdir"}
+        >
+          <IconFolderPlus />
         </Button>
         <div className={`sftp-path${pathEditing ? " sftp-path--editing" : ""}`}>
           {pathEditing ? (
@@ -268,7 +393,7 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
             <button
               key={qp.path}
               type="button"
-              className="sftp-quick-btn"
+              className={`sftp-quick-btn${isQuickPathActive(qp.path) ? " is-active" : ""}`}
               onClick={() => void loadDir(qp.path)}
             >
               {qp.label}
@@ -277,42 +402,43 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
         </div>
       )}
 
-      {showMkdir && (
-        <div className="sftp-mkdir-bar">
-          <TextInput
-            className="input input-sm"
-            size="sm"
-            value={mkdirName}
-            onChange={setMkdirName}
-            placeholder={t("ssh.sftp.mkdirPlaceholder")}
-          />
-          <Button variant="primary" size="sm" onClick={() => void handleMkdir()}>{t("ssh.sftp.create")}</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setShowMkdir(false); setMkdirName(""); }}>{t("ssh.keys.cancel")}</Button>
-        </div>
+      {composer === "mkdir" && (
+        <SftpComposer
+          title={t("ssh.sftp.mkdir")}
+          value={mkdirName}
+          onChange={setMkdirName}
+          placeholder={t("ssh.sftp.mkdirPlaceholder")}
+          confirmLabel={t("ssh.sftp.create")}
+          cancelLabel={t("ssh.keys.cancel")}
+          onConfirm={() => void handleMkdir()}
+          onCancel={closeComposer}
+          submitting={composerBusy}
+        />
       )}
-      {renameTarget && (
-        <div className="sftp-mkdir-bar">
-          <span className="text-sm">{t("ssh.sftp.rename")} <code>{renameTarget.name}</code></span>
-          <TextInput
-            className="input input-sm"
-            size="sm"
-            value={renameValue}
-            onChange={setRenameValue}
-            autoFocus
-            onKeyDown={(e) => e.key === "Enter" && void handleRename()}
-          />
-          <Button variant="primary" size="sm" onClick={() => void handleRename()}>{t("ssh.sftp.confirm")}</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setRenameTarget(null); setRenameValue(""); }}>{t("ssh.keys.cancel")}</Button>
-        </div>
+      {composer === "rename" && renameTarget && (
+        <SftpComposer
+          title={t("ssh.sftp.rename")}
+          hint={<code className="sftp-composer__code">{renameTarget.name}</code>}
+          value={renameValue}
+          onChange={setRenameValue}
+          placeholder={renameTarget.name}
+          confirmLabel={t("ssh.sftp.confirm")}
+          cancelLabel={t("ssh.keys.cancel")}
+          onConfirm={() => void handleRename()}
+          onCancel={closeComposer}
+          submitting={composerBusy}
+        />
       )}
 
       {error && <div className="sftp-error">{error}</div>}
 
       <div className="sftp-table-wrap">
         {loading ? (
-          <div className="sftp-empty">{t("files.loading")}</div>
+          <div className="sftp-empty sftp-empty--centered">{t("files.loading")}</div>
         ) : entries.length === 0 ? (
-          <div className="sftp-empty">{t("files.empty")}</div>
+          <div className="sftp-empty sftp-empty--centered">
+            <div className="sftp-empty__title">{t("files.empty")}</div>
+          </div>
         ) : (
           <table className="sftp-table">
             <thead>
@@ -334,7 +460,10 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
                       selected ? "sftp-row-selected" : "",
                     ].filter(Boolean).join(" ")}
                     onClick={() => setSelectedName(entry.name)}
-                    onDoubleClick={() => isDir && navigateTo(entry)}
+                    onDoubleClick={() => {
+                      if (isDir) navigateTo(entry);
+                      else openLocalFile(entry);
+                    }}
                     onContextMenu={(e) => handleContextMenu(e, entry)}
                   >
                     <td className="sftp-col-name">
@@ -372,47 +501,13 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
         </div>
       )}
 
-      {contextMenu && (
-        <div
-          className="sftp-context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenu.entry.kind === "dir" && (
-            <button
-              type="button"
-              className="sftp-ctx-item"
-              onClick={() => {
-                navigateTo(contextMenu.entry);
-                setContextMenu(null);
-              }}
-            >
-              {t("ssh.sftp.openDir")}
-            </button>
-          )}
-          <button
-            type="button"
-            className="sftp-ctx-item"
-            onClick={() => {
-              setRenameTarget(contextMenu.entry);
-              setRenameValue(contextMenu.entry.name);
-              setContextMenu(null);
-            }}
-          >
-            {t("ssh.sftp.rename")}
-          </button>
-          <button
-            type="button"
-            className="sftp-ctx-item sftp-ctx-item--danger"
-            onClick={() => {
-              void handleDelete(contextMenu.entry);
-              setContextMenu(null);
-            }}
-          >
-            {t("ssh.sftp.delete")}
-          </button>
-        </div>
-      )}
+      {contextMenu && contextMenuItems.length > 0 ? (
+        <ContextMenu
+          items={contextMenuItems}
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

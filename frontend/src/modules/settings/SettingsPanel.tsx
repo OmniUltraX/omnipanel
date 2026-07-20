@@ -56,6 +56,7 @@ import { ModulesSettingsSection } from "../../components/settings/ModulesSetting
 import { AiToolsSection } from "../../components/settings/AiToolsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
+import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
 import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
 import { Button } from "../../components/ui/primitives/Button";
@@ -68,7 +69,7 @@ import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
 
-type Section = "general" | "system" | "appearance" | "keybindings" | "ai" | "aiTools" | "aiServices" | "security" | "accounts" | "terminal" | "database" | "files" | "protocol" | "knowledge" | "data";
+type Section = "general" | "system" | "appearance" | "keybindings" | "ai" | "localModels" | "aiTools" | "aiServices" | "security" | "accounts" | "terminal" | "database" | "files" | "protocol" | "knowledge" | "data";
 
 interface NavItem {
   id: Section;
@@ -125,6 +126,19 @@ const NAV_ITEMS: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
         <path d="M12 17v4M8 21h8" />
+      </svg>
+    ),
+  },
+  {
+    id: "localModels",
+    label: "本地模型",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8M12 17v4" />
+        <circle cx="8" cy="10" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="10" r="1.5" fill="currentColor" stroke="none" />
       </svg>
     ),
   },
@@ -1398,6 +1412,12 @@ export function SettingsPanel() {
 
         {/* AI (Models / Scenarios / Other) */}
         {activeSection === "ai" && <AiSection />}
+
+        {activeSection === "localModels" && (
+          <div className="settings-panel active">
+            <LocalModelsSection />
+          </div>
+        )}
 
         {activeSection === "aiTools" && (
           <div className="settings-panel active">

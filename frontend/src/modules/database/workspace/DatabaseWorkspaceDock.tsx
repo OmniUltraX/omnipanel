@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from "react";
-import type { SerializedDockview } from "dockview-core";
 import { useDbWorkspaceActiveTab } from "../../../contexts/DbWorkspaceContext";
+import { useDbDockLayoutStore } from "../../../stores/dbDockLayoutStore";
 import { ModuleSegmentDock, type DockableTab } from "../../../components/dock";
 import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
@@ -9,8 +9,6 @@ export interface DatabaseWorkspaceDockProps {
   workspaceInitialized: boolean;
   dockTabs: DockableTab[];
   onCloseTab: (tabId: string) => void;
-  dockLayout: SerializedDockview | null;
-  onDockLayoutChange: (layout: SerializedDockview | null) => void;
   renderDockPanel: (tabId: string) => ReactNode;
   softRefreshKey?: string;
   panelContentKeysByTab?: Record<string, string>;
@@ -31,8 +29,6 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
   workspaceInitialized,
   dockTabs,
   onCloseTab,
-  dockLayout,
-  onDockLayoutChange,
   renderDockPanel,
   softRefreshKey,
   panelContentKeysByTab,
@@ -49,6 +45,9 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
 }: DatabaseWorkspaceDockProps) {
   const { t } = useI18n();
   const { activeTabId, setActiveTabId } = useDbWorkspaceActiveTab();
+  // 布局订阅放在 Dock 内：切 Tab 写 layout 时不要拖垮 DatabasePanel（侧栏/整页）
+  const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
+  const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
   if (!workspaceInitialized) {
     return null;
@@ -62,12 +61,14 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
       moduleTitle={moduleTitle}
       enabled={enabled}
       windowControl={windowControl}
+      // 常驻渲染：切 Tab 只切换可见性，避免 onlyWhenVisible 卸载/重挂造成「加载闪一下」
+      defaultRenderer="always"
       tabs={dockTabs}
       activeTabId={activeTabId}
       onActiveTabChange={setActiveTabId}
       onCloseTab={onCloseTab}
       savedLayout={dockLayout}
-      onSavedLayoutChange={onDockLayoutChange}
+      onSavedLayoutChange={setDockLayout}
       renderPanel={renderDockPanel}
       softRefreshKey={softRefreshKey}
       panelContentKeysByTab={panelContentKeysByTab}

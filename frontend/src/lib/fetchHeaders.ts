@@ -21,20 +21,33 @@ export function assertIso8859HeaderValue(fieldLabel: string, value: string): str
   return normalized;
 }
 
-export function buildBearerAuthorization(apiKey: string): string {
+/**
+ * 构建 Bearer 头。API Key 可为空（本地 Ollama / LM Studio 等通常不需要）。
+ * 为空时返回 `null`，调用方应省略 Authorization。
+ */
+export function buildBearerAuthorization(apiKey: string): string | null {
   const key = assertIso8859HeaderValue("API Key", apiKey);
-  if (!key) {
-    throw new Error("API Key 为空，请在 **设置 → AI 模型** 中配置 API Key。");
-  }
+  if (!key) return null;
   return `Bearer ${key}`;
 }
 
-export function buildApiKeyHeader(apiKey: string): string {
+/**
+ * Anthropic 风格 x-api-key。为空时返回 `null`（本地兼容端点通常不需要）。
+ */
+export function buildApiKeyHeader(apiKey: string): string | null {
   const key = assertIso8859HeaderValue("API Key", apiKey);
-  if (!key) {
-    throw new Error("API Key 为空，请在 **设置 → AI 模型** 中配置 API Key。");
-  }
+  if (!key) return null;
   return key;
+}
+
+/** 仅在有 API Key 时附加 Authorization / 其它鉴权头。 */
+export function withOptionalBearerAuth(
+  headers: Record<string, string>,
+  apiKey: string,
+): Record<string, string> {
+  const auth = buildBearerAuthorization(apiKey);
+  if (!auth) return headers;
+  return { ...headers, Authorization: auth };
 }
 
 /** 将浏览器泛化的 Failed to fetch 转为可操作的提示。 */

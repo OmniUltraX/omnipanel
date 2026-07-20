@@ -15,6 +15,14 @@ type PendingTerminal = {
   nonce: number;
 };
 
+/** 请求展开并聚焦终端侧栏某个面板（如 SFTP） */
+type PendingSideFocus = {
+  resourceId: string;
+  panel: "sftp" | "files";
+  path: string;
+  nonce: number;
+};
+
 export type SftpCache = {
   path: string;
   entries: SftpEntry[];
@@ -23,17 +31,27 @@ export type SftpCache = {
 type SshDetailNavigationState = {
   pendingSftp: PendingSftp | null;
   pendingTerminal: PendingTerminal | null;
+  pendingSideFocus: PendingSideFocus | null;
+  pendingLocalNavigate: { path: string; nonce: number } | null;
   sftpCaches: Record<string, SftpCache>;
   requestSftp: (resourceId: string, path: string) => void;
+  /** 打开侧栏 SFTP 并跳到指定路径 */
+  revealInSftp: (resourceId: string, path: string) => void;
+  /** 打开侧栏本地文件并跳到指定路径 */
+  revealInFiles: (path: string) => void;
   requestTerminal: (resourceId: string, path: string) => void;
   consumeSftpPath: (resourceId: string) => PendingSftp | null;
   consumeTerminalCommand: (resourceId: string) => PendingTerminal | null;
+  consumeSideFocus: (resourceId: string | null) => PendingSideFocus | null;
+  consumeLocalNavigate: () => { path: string; nonce: number } | null;
   setSftpCache: (resourceId: string, cache: SftpCache) => void;
 };
 
 export const useSshDetailNavigationStore = create<SshDetailNavigationState>((set, get) => ({
   pendingSftp: null,
   pendingTerminal: null,
+  pendingSideFocus: null,
+  pendingLocalNavigate: null,
   sftpCaches: {},
   requestSftp: (resourceId, path) => {
     set({
@@ -41,6 +59,26 @@ export const useSshDetailNavigationStore = create<SshDetailNavigationState>((set
         resourceId,
         path: pathToRemoteDir(path),
         nonce: Date.now(),
+      },
+    });
+  },
+  revealInSftp: (resourceId, path) => {
+    const dir = pathToRemoteDir(path);
+    const nonce = Date.now();
+    set({
+      pendingSftp: { resourceId, path: dir, nonce },
+      pendingSideFocus: { resourceId, panel: "sftp", path: dir, nonce },
+    });
+  },
+  revealInFiles: (path) => {
+    const nonce = Date.now();
+    set({
+      pendingLocalNavigate: { path, nonce },
+      pendingSideFocus: {
+        resourceId: "__local__",
+        panel: "files",
+        path,
+        nonce,
       },
     });
   },
@@ -63,6 +101,21 @@ export const useSshDetailNavigationStore = create<SshDetailNavigationState>((set
     const pending = get().pendingTerminal;
     if (!pending || pending.resourceId !== resourceId) return null;
     set({ pendingTerminal: null });
+    return pending;
+  },
+  consumeSideFocus: (resourceId) => {
+    const pending = get().pendingSideFocus;
+    if (!pending) return null;
+    if (pending.panel === "sftp") {
+      if (!resourceId || pending.resourceId !== resourceId) return null;
+    }
+    set({ pendingSideFocus: null });
+    return pending;
+  },
+  consumeLocalNavigate: () => {
+    const pending = get().pendingLocalNavigate;
+    if (!pending) return null;
+    set({ pendingLocalNavigate: null });
     return pending;
   },
   setSftpCache: (resourceId, cache) => {

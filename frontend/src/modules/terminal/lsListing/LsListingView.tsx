@@ -1,4 +1,5 @@
-import { memo, useCallback, useMemo, type CSSProperties } from "react";
+import { memo, useCallback, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu/ContextMenu";
 import { FeedSearchHighlightText } from "../FeedSearchHighlightText";
 import type { LsEntry, LsListing } from "./parseLsListing";
 import { joinListingEntryPath } from "./resolveLsListingDirectory";
@@ -59,6 +60,11 @@ type LsListingViewProps = {
   onRunCommand?: (command: string) => void;
   /** 点击"文件"项时触发（kind 非 directory/symlink 等 navigable 项时） */
   onOpenFile?: (entry: LsEntry) => void;
+  /** 右键菜单项构建；返回空数组则不弹出 */
+  buildContextMenuItems?: (request: {
+    entry: LsEntry;
+    absolutePath: string;
+  }) => ContextMenuItem[];
   highlightQuery?: string;
 };
 
@@ -84,6 +90,7 @@ function LsEntryName({
   title,
   onRunCommand,
   onOpenFile,
+  onContextMenu,
   cdCommand,
   highlightQuery = "",
 }: {
@@ -92,6 +99,7 @@ function LsEntryName({
   title: string;
   onRunCommand?: (command: string) => void;
   onOpenFile?: (entry: LsEntry) => void;
+  onContextMenu?: (e: MouseEvent) => void;
   cdCommand: string;
   highlightQuery?: string;
 }) {
@@ -109,17 +117,22 @@ function LsEntryName({
     }
   }, [navigable, onRunCommand, onOpenFile, cdCommand, entry]);
 
-  // 目录/可导航的项走 cd；其他文件走预览——两者都是可点击的 button
   if (navigable || onOpenFile) {
     return (
-      <button type="button" className={className} title={title} onClick={handleClick}>
+      <button
+        type="button"
+        className={className}
+        title={title}
+        onClick={handleClick}
+        onContextMenu={onContextMenu}
+      >
         {nameNode}
       </button>
     );
   }
 
   return (
-    <span className={className} title={title}>
+    <span className={className} title={title} onContextMenu={onContextMenu}>
       {nameNode}
     </span>
   );
@@ -133,6 +146,7 @@ function LsLongRow({
   legacyWidths,
   onRunCommand,
   onOpenFile,
+  onEntryContextMenu,
   highlightQuery = "",
 }: {
   entry: LsEntry;
@@ -142,12 +156,16 @@ function LsLongRow({
   legacyWidths: LongColumnWidths;
   onRunCommand?: (command: string) => void;
   onOpenFile?: (entry: LsEntry) => void;
+  onEntryContextMenu?: (e: MouseEvent, entry: LsEntry, absolutePath: string) => void;
   highlightQuery?: string;
 }) {
   const navigable = isLsEntryNavigable(entry);
   const className = `term-ls-entry ${KIND_CLASS[entry.kind]}${navigable ? " term-ls-entry--clickable" : ""}${!navigable && onOpenFile ? " term-ls-entry--openable" : ""}`;
   const absolutePath = joinListingEntryPath(listingDirectory, entry.name);
   const cdCommand = terminalCdCommand(absolutePath);
+  const handleCtx = onEntryContextMenu
+    ? (e: MouseEvent) => onEntryContextMenu(e, entry, absolutePath)
+    : undefined;
 
   const nameNode = (
     <LsEntryName
@@ -156,6 +174,7 @@ function LsLongRow({
       title={navigable ? cdCommand : `打开文件：${entry.name}`}
       onRunCommand={onRunCommand}
       onOpenFile={onOpenFile}
+      onContextMenu={handleCtx}
       cdCommand={cdCommand}
       highlightQuery={highlightQuery}
     />
@@ -229,12 +248,14 @@ function LsGridColumnView({
   listingDirectory,
   onRunCommand,
   onOpenFile,
+  onEntryContextMenu,
   highlightQuery = "",
 }: {
   column: { entries: LsEntry[]; width: number };
   listingDirectory: string;
   onRunCommand?: (command: string) => void;
   onOpenFile?: (entry: LsEntry) => void;
+  onEntryContextMenu?: (e: MouseEvent, entry: LsEntry, absolutePath: string) => void;
   highlightQuery?: string;
 }) {
   return (
@@ -256,6 +277,11 @@ function LsGridColumnView({
               title={navigable ? cdCommand : `打开文件：${entry.name}`}
               onRunCommand={onRunCommand}
               onOpenFile={onOpenFile}
+              onContextMenu={
+                onEntryContextMenu
+                  ? (e) => onEntryContextMenu(e, entry, absolutePath)
+                  : undefined
+              }
               cdCommand={cdCommand}
               highlightQuery={highlightQuery}
             />
@@ -271,10 +297,16 @@ function LsListingViewInner({
   listingDirectory,
   onRunCommand,
   onOpenFile,
+  buildContextMenuItems,
   highlightQuery = "",
 }: LsListingViewProps) {
   const isGrid = listing.layout === "grid";
   const { containerRef, widthCh, isMeasured } = useLsGridTerminalWidth(isGrid);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
 
   const legacyWidths = useMemo(
     () => (listing.layout === "long" ? computeLongColumnWidths(listing.entries) : null),
@@ -308,8 +340,20 @@ function LsListingViewInner({
     return undefined;
   }, [listing.layout, legacyWidths, longFieldWidths]);
 
-  if (listing.layout === "grid") {
-    return (
+  const onEntryContextMenu = useCallback(
+    (e: MouseEvent, entry: LsEntry, absolutePath: string) => {
+      if (!buildContextMenuItems) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const items = buildContextMenuItems({ entry, absolutePath });
+      if (items.length === 0) return;
+      setCtxMenu({ x: e.clientX, y: e.clientY, items });
+    },
+    [buildContextMenuItems],
+  );
+
+  const listingBody =
+    listing.layout === "grid" ? (
       <div
         ref={containerRef}
         className="term-ls-listing term-ls-listing--grid"
@@ -329,35 +373,47 @@ function LsListingViewInner({
                 listingDirectory={listingDirectory}
                 onRunCommand={onRunCommand}
                 onOpenFile={onOpenFile}
+                onEntryContextMenu={buildContextMenuItems ? onEntryContextMenu : undefined}
                 highlightQuery={highlightQuery}
               />
             ))
           : null}
       </div>
+    ) : (
+      <div
+        className={`term-ls-listing term-ls-listing--${listing.layout}`}
+        style={style}
+        role="list"
+        aria-label="目录列表"
+      >
+        {listing.entries.map((entry, index) => (
+          <LsLongRow
+            key={`${entry.name}-${index}`}
+            entry={entry}
+            listingDirectory={listingDirectory}
+            fieldWidths={longFieldWidths}
+            fieldFormat={longFieldFormat}
+            legacyWidths={legacyWidths ?? computeLongColumnWidths([entry])}
+            onRunCommand={onRunCommand}
+            onOpenFile={onOpenFile}
+            onEntryContextMenu={buildContextMenuItems ? onEntryContextMenu : undefined}
+            highlightQuery={highlightQuery}
+          />
+        ))}
+      </div>
     );
-  }
 
   return (
-    <div
-      className={`term-ls-listing term-ls-listing--${listing.layout}`}
-      style={style}
-      role="list"
-      aria-label="目录列表"
-    >
-      {listing.entries.map((entry, index) => (
-        <LsLongRow
-          key={`${entry.name}-${index}`}
-          entry={entry}
-          listingDirectory={listingDirectory}
-          fieldWidths={longFieldWidths}
-          fieldFormat={longFieldFormat}
-          legacyWidths={legacyWidths ?? computeLongColumnWidths([entry])}
-          onRunCommand={onRunCommand}
-          onOpenFile={onOpenFile}
-          highlightQuery={highlightQuery}
+    <>
+      {listingBody}
+      {ctxMenu ? (
+        <ContextMenu
+          items={ctxMenu.items}
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          onClose={() => setCtxMenu(null)}
         />
-      ))}
-    </div>
+      ) : null}
+    </>
   );
 }
 

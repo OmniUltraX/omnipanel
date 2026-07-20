@@ -55,29 +55,29 @@ export interface ShortcutDef {
 /** 内置的快捷键定义。新增条目时同步加进两端 i18n。 */
 export const SHORTCUT_DEFS: ShortcutDef[] = [
   // ─── general ────────────────────────────────────────────────────
-  { id: "command-palette", category: "general", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "K"] },
+  { id: "command-palette", category: "general", labelKey: "settings.keybindings.items.commandPalette", defaultKeys: ["Mod", "KeyK"] },
   { id: "search-everywhere", category: "general", labelKey: "settings.keybindings.items.searchEverywhere", defaultKeys: ["Shift", "Shift"], nonRecordable: true },
   { id: "recent-items", category: "general", labelKey: "settings.keybindings.items.recentItems", defaultKeys: ["Mod", "KeyE"] },
   { id: "open-settings", category: "general", labelKey: "settings.keybindings.items.openSettings", defaultKeys: ["Mod", ","] },
 
   // ─── tabs ──────────────────────────────────────────────────────
-  { id: "close-tab", category: "tabs", labelKey: "settings.keybindings.items.closeTab", defaultKeys: ["Mod", "W"] },
+  { id: "close-tab", category: "tabs", labelKey: "settings.keybindings.items.closeTab", defaultKeys: ["Mod", "KeyW"] },
   { id: "switch-tab", category: "tabs", labelKey: "settings.keybindings.items.switchTab", defaultKeys: ["Mod", "Tab"], defaultAltKeys: [["Mod", "PageDown"]] },
   { id: "switch-tab-prev", category: "tabs", labelKey: "settings.keybindings.items.switchTabPrev", defaultKeys: ["Mod", "Shift", "Tab"], defaultAltKeys: [["Mod", "PageUp"]] },
   { id: "switch-nth-tab", category: "tabs", labelKey: "settings.keybindings.items.switchNthTab", defaultKeys: ["Mod", "1-9"], nonRecordable: true },
   { id: "rename-tab", category: "tabs", labelKey: "settings.keybindings.items.renameTab", defaultKeys: ["F2"] },
 
   // ─── terminal ──────────────────────────────────────────────────
-  { id: "new-terminal", category: "terminal", labelKey: "settings.keybindings.items.newTerminal", defaultKeys: ["Mod", "T"] },
+  { id: "new-terminal", category: "terminal", labelKey: "settings.keybindings.items.newTerminal", defaultKeys: ["Mod", "KeyT"] },
   { id: "split-vertical", category: "terminal", labelKey: "settings.keybindings.items.splitVertical", defaultKeys: ["Mod", "Backslash"] },
   { id: "split-horizontal", category: "terminal", labelKey: "settings.keybindings.items.splitHorizontal", defaultKeys: ["Mod", "Shift", "Backslash"] },
-  { id: "search-terminal", category: "terminal", labelKey: "settings.keybindings.items.searchTerminal", defaultKeys: ["Mod", "F"] },
+  { id: "search-terminal", category: "terminal", labelKey: "settings.keybindings.items.searchTerminal", defaultKeys: ["Mod", "KeyF"] },
   { id: "clear-terminal", category: "terminal", labelKey: "settings.keybindings.items.clearTerminal", defaultKeys: ["Mod", "KeyL"], defaultAltKeys: [["Mod", "Shift", "KeyK"]] },
   { id: "copy-terminal", category: "terminal", labelKey: "settings.keybindings.items.copyTerminal", defaultKeys: ["Mod", "Shift", "KeyC"] },
   { id: "paste-terminal", category: "terminal", labelKey: "settings.keybindings.items.pasteTerminal", defaultKeys: ["Mod", "Shift", "KeyV"] },
   { id: "scroll-terminal-top", category: "terminal", labelKey: "settings.keybindings.items.scrollTerminalTop", defaultKeys: ["Mod", "Home"] },
   { id: "scroll-terminal-bottom", category: "terminal", labelKey: "settings.keybindings.items.scrollTerminalBottom", defaultKeys: ["Mod", "End"] },
-  { id: "new-ssh", category: "ssh", labelKey: "settings.keybindings.items.newSsh", defaultKeys: ["Mod", "N"] },
+  { id: "new-ssh", category: "ssh", labelKey: "settings.keybindings.items.newSsh", defaultKeys: ["Mod", "KeyN"] },
 
   // ─── ai / workspace ────────────────────────────────────────────
   { id: "toggle-ai", category: "ai", labelKey: "settings.keybindings.items.toggleAi", defaultKeys: ["Alt", "Backquote"] },
@@ -348,6 +348,12 @@ function mainKeyMatches(e: KeyboardEvent, main: string): boolean {
   }
   if (/^Digit\d$/.test(main) && (e.code === main || e.key === main.slice(5))) {
     return true;
+  }
+  // 历史单字母写法（"W"/"K"）：Ctrl+字母时 e.key 多为小写，须忽略大小写；并兼容 KeyW
+  if (main.length === 1 && /[a-zA-Z]/.test(main)) {
+    const upper = main.toUpperCase();
+    if (e.code === `Key${upper}`) return true;
+    if (e.key.toUpperCase() === upper) return true;
   }
   if (e.key === main || e.key === prettyKey(main)) return true;
   return false;

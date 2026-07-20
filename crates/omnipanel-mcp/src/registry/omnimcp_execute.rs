@@ -43,7 +43,8 @@ pub async fn execute_omnimcp_tool(
         }
         "omni_skill_recall"
         | "omni_skill_extract_experience"
-        | "omni_skill_refine" => {
+        | "omni_skill_refine"
+        | "omni_skill_report_outcome" => {
             let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
             Ok(text)
         }

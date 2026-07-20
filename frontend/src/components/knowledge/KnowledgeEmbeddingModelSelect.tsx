@@ -16,6 +16,7 @@ import {
   parseModelSelectionId,
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
+import { syncEmbeddingProviderToBackend } from "../../lib/syncEmbeddingProvider";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Button } from "../ui/primitives/Button";
 import { Select } from "../ui/form/Select";
@@ -82,6 +83,11 @@ export function KnowledgeEmbeddingModelSelect({
     }
     void refreshOllamaModels();
   }, [mode, ollamaModel.baseUrl, refreshOllamaModels]);
+
+  // 设置变更后同步到后端，供 Skill MCP 向量化读取
+  useEffect(() => {
+    void syncEmbeddingProviderToBackend();
+  }, [mode, selectionId, ollamaModel.baseUrl, ollamaModel.modelName, providers]);
 
   const updateOllamaModel = (patch: Partial<typeof ollamaModel>) => {
     setKnowledgeSettings({
