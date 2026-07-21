@@ -17,7 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          # 仅初始化本仓库依赖的 agent；miniapp 为独立项目，不作为 submodule 拉取
+          submodules: false
+
+      - name: Init agent submodule
+        run: git submodule update --init --depth=1 agent
 
       - name: Install Linux system dependencies
         run: |
