@@ -2,6 +2,7 @@ import {
   useBlocksStore,
   type TerminalBlock,
 } from "../../stores/blocksStore";
+import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import {
   isCdNavigationCommand,
   stripAutoLsSuffix,
@@ -15,6 +16,7 @@ import {
 } from "./terminalOutputText";
 import { isResidualShellNoise } from "./terminalCommandEcho";
 import { renderLiveOutputText } from "./terminalOutputModel";
+import { noteRestoredSessionBlocks } from "./terminalHistorySync";
 
 function blockRawOutput(block: TerminalBlock): string {
   return renderLiveOutputText(block.liveOutput, block.output);
@@ -130,7 +132,13 @@ function clearMatchingBlocks(
   const blocks = useBlocksStore.getState().getBlocks(sessionId);
   const kept = blocks.filter((block) => !predicate(block));
   const removed = blocks.length - kept.length;
-  if (removed > 0) {
+  if (removed === 0) return 0;
+
+  if (kept.length === 0) {
+    // 全部删光：显式清库（reconcile 对整会话空态不再自动删 SQLite）
+    void useTerminalHistoryStore.getState().clearSession(sessionId);
+    noteRestoredSessionBlocks(sessionId, []);
+  } else {
     useBlocksStore.getState().replaceSessionBlocks(sessionId, kept);
   }
   return removed;
@@ -149,5 +157,7 @@ export function clearFailedShellBlocks(sessionId: string): number {
 }
 
 export function clearAllSessionBlocks(sessionId: string): void {
-  useBlocksStore.getState().clearBlocks(sessionId);
+  // historyStore.clearSession：清内存 + 删 SQLite（reconcile 不再因空态自动 clearSession）
+  void useTerminalHistoryStore.getState().clearSession(sessionId);
+  noteRestoredSessionBlocks(sessionId, []);
 }

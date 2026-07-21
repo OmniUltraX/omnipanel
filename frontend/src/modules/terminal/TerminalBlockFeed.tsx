@@ -122,11 +122,8 @@ function shouldRenderBlock(block: TerminalBlock): boolean {
   if (shouldUseDirectoryPreview(block)) return true;
   const cmd = block.command.trim();
   if (!cmd) return false;
-  const out = shellOutput(block);
-  if (block.status === "running") {
-    return true;
-  }
-  return out.length > 0 || block.status === "failed";
+  // 有命令即展示：避免 cd / 空输出命令在刷新恢复后因无 liveOutput 被隐藏
+  return true;
 }
 
 /** 用于检测 Feed 内容变化（新块、输出增长、AI 流式等） */

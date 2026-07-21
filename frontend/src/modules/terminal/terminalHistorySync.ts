@@ -25,12 +25,17 @@ let blocksSubscription: (() => void) | null = null;
 let migrating: Promise<void> | null = null;
 
 function blockFingerprint(block: TerminalBlock): string {
+  const liveLen = block.liveOutput
+    ? block.liveOutput.lines.reduce((n, line) => n + line.length, 0) +
+      block.liveOutput.currentLine.length
+    : 0;
   return [
     block.status,
     block.exitCode ?? "",
     block.completedAt ?? "",
     block.command.length,
     block.output.length,
+    liveLen,
     block.reasoning?.length ?? 0,
     block.aiThread?.length ?? 0,
     block.title ?? "",
@@ -99,10 +104,12 @@ async function flushSession(sessionId: string): Promise<void> {
   try {
     await terminalHistoryRepo.upsertBlocks(sessionId, toWrite);
     useTerminalHistoryStore.getState().cacheSessionBlocks(sessionId, blocks);
+    noteRestoredSessionBlocks(sessionId, blocks);
     void useTerminalHistoryStore.getState().refreshCounts();
   } catch (err) {
     // 写失败则重新标记，下次再试
     for (const id of ids) markDirty(sessionId, id);
+    scheduleFlush(sessionId, LIFECYCLE_FLUSH_MS);
     console.warn("[terminal-history] upsert 失败", err);
   }
 }
@@ -191,27 +198,26 @@ function reconcileSession(sessionId: string, blocks: TerminalBlock[]): void {
     prevIds.delete(block.id);
   }
 
-  // 被删除的块
-  for (const removedId of prevIds) {
-    if (shouldPersistTerminalHistory()) {
-      void terminalHistoryRepo.removeBlock(sessionId, removedId).catch(() => undefined);
+  // 被删除的块：仅「部分删除」时写库。
+  // 整会话内存清空时禁止在此删 SQLite——否则短暂空态 / StrictMode 会误清已落盘历史。
+  // 用户「清除全部」走 clearAllSessionBlocks → historyStore.clearSession。
+  const sessionEmptied = prevMap.size > 0 && blocks.length === 0;
+  if (!sessionEmptied) {
+    for (const removedId of prevIds) {
+      if (shouldPersistTerminalHistory()) {
+        void terminalHistoryRepo.removeBlock(sessionId, removedId).catch(() => undefined);
+      }
+      const cached = useTerminalHistoryStore.getState().bySession[sessionId];
+      if (cached) {
+        useTerminalHistoryStore.setState((state) => ({
+          bySession: {
+            ...state.bySession,
+            [sessionId]: (state.bySession[sessionId] ?? []).filter((b) => b.id !== removedId),
+          },
+        }));
+      }
     }
-    const cached = useTerminalHistoryStore.getState().bySession[sessionId];
-    if (cached) {
-      useTerminalHistoryStore.setState((state) => ({
-        bySession: {
-          ...state.bySession,
-          [sessionId]: (state.bySession[sessionId] ?? []).filter((b) => b.id !== removedId),
-        },
-      }));
-    }
-  }
-
-  // 会话被清空
-  if (prevMap.size > 0 && blocks.length === 0) {
-    if (shouldPersistTerminalHistory()) {
-      void terminalHistoryRepo.clearSession(sessionId).catch(() => undefined);
-    }
+  } else {
     useTerminalHistoryStore.setState((state) => {
       const next = { ...state.bySession };
       delete next[sessionId];
@@ -244,7 +250,20 @@ export function startTerminalHistorySync(): () => void {
     }
   });
 
+  // 订阅不会回放当前快照：启动时把已有块纳入 known/dirty，避免 StrictMode 重挂后漏写
+  seedExistingBlocks();
+
+  const onPageHide = () => {
+    void flushAllSessionsNow();
+  };
+  window.addEventListener("pagehide", onPageHide);
+  window.addEventListener("beforeunload", onPageHide);
+
   return () => {
+    window.removeEventListener("pagehide", onPageHide);
+    window.removeEventListener("beforeunload", onPageHide);
+    // 停订阅前尽量落盘，避免 React StrictMode / 热更新丢掉防抖中的脏块
+    void flushAllSessionsNow();
     if (blocksSubscription) {
       blocksSubscription();
       blocksSubscription = null;
@@ -257,6 +276,31 @@ export function startTerminalHistorySync(): () => void {
     dirtyBlockIds.clear();
     knownBlocks.clear();
   };
+}
+
+/** 将 store 中已有会话块登记为 dirty 并调度 flush（不预写 known，交给 flush/reconcile） */
+function seedExistingBlocks(): void {
+  const all = useBlocksStore.getState().blocks;
+  for (const [sessionId, blocks] of Object.entries(all)) {
+    if (!blocks?.length) continue;
+    if (knownBlocks.has(sessionId)) continue;
+    for (const block of blocks) {
+      markDirty(sessionId, block.id);
+    }
+    const hasRunning = blocks.some((b) => b.status === "running");
+    scheduleFlush(sessionId, hasRunning ? RUNNING_FLUSH_MS : LIFECYCLE_FLUSH_MS);
+  }
+}
+
+/** 强制刷新所有有脏块或内存中可持久化块的会话（退出 / F5 / 停同步前） */
+export async function flushAllSessionsNow(): Promise<void> {
+  const sessionIds = new Set<string>([
+    ...dirtyBlockIds.keys(),
+    ...Object.keys(useBlocksStore.getState().blocks),
+  ]);
+  for (const sessionId of sessionIds) {
+    await flushSessionNow(sessionId);
+  }
 }
 
 function ensureHistoryMigrated(): Promise<void> {
