@@ -67,6 +67,7 @@ export function VirtualFileList({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => LIST_ROW_HEIGHT,
     overscan: 16,
+    useFlushSync: false,
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
   const paddingTop = virtualItems.length > 0 ? virtualItems[0]!.start : 0;
@@ -178,6 +179,7 @@ export function VirtualFileGrid({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => GRID_ROW_HEIGHT,
     overscan: 2,
+    useFlushSync: false,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;

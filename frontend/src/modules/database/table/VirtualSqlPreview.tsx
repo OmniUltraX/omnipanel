@@ -23,6 +23,7 @@ export function VirtualSqlPreview({ ddl }: VirtualSqlPreviewProps) {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
+    useFlushSync: false,
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();

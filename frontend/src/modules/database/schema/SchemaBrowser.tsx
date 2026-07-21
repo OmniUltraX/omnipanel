@@ -1855,6 +1855,8 @@ export function SchemaBrowser({
     getItemKey: (index) => flatRowsRef.current[index]?.key ?? index,
     // 视口外多渲缓冲行，快滚时仍用完整 TreeNode（与静止态同样式）
     overscan: 48,
+    // 底部工作区在看板页仍可能保活挂载；layout 内 flushSync 会刷控制台告警
+    useFlushSync: false,
   });
   const rowVirtualizerRef = useRef(rowVirtualizer);
   rowVirtualizerRef.current = rowVirtualizer;

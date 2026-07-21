@@ -2085,6 +2085,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     },
     horizontal: true,
     overscan: COLUMN_VIRTUALIZE_OVERSCAN,
+    useFlushSync: false,
   });
 
   const columnVirtualItems = useColumnVirtualization

@@ -14,6 +14,7 @@ import type { DockerContainerLifecycleAction } from "./dockerContainerLifecycle"
 import { containerRowLabel } from "./dockerResourceLabels";
 import { useDockerContainerGrid } from "./hooks/useDockerContainerGrid";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
+import { useDockerLiveConnection } from "./DockerSidebarLinkageContext";
 import type { DockerContainerSubWindowKind } from "./DockerDockPanel";
 
 type OpenContainerSubWindow = {
@@ -46,11 +47,12 @@ function subWindowTitle(kind: DockerContainerSubWindowKind, t: (key: string) => 
 }
 
 export function DockerContainerDockPanel({
-  connection,
+  connection: connectionProp,
   containerId,
   isActive,
 }: DockerContainerDockPanelProps) {
   const { t } = useI18n();
+  const connection = useDockerLiveConnection(connectionProp);
   const { items, loading, error, refreshNow } = useDockerContainerGrid(
     connection.connectionId,
     isActive && connection.status !== "offline",

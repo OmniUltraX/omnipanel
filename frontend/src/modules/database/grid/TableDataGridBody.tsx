@@ -623,6 +623,7 @@ export const TableDataGridVirtualBody = forwardRef<
     estimateSize: getRowHeight,
     overscan: ROW_VIRTUALIZE_OVERSCAN,
     getItemKey: (index) => tableRows[index]?.id ?? String(index),
+    useFlushSync: false,
   });
 
   useLayoutEffect(() => {

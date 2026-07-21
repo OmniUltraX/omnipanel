@@ -159,17 +159,25 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     syncEmbeddedWorkspacePanelVisibility(workspace.id);
   }, [workspace.id, isCurrentWorkspacePoppedOut, isFullscreen]);
 
-  const [keepBottomMounted, setKeepBottomMounted] = useState(
-    () =>
-      useBottomPanelStore.getState().workspaceMode !== "hidden" ||
-      useBottomPanelStore.getState().isFullscreen,
-  );
+  const [keepBottomMounted, setKeepBottomMounted] = useState(() => {
+    const state = useBottomPanelStore.getState();
+    if (state.isFullscreen) return true;
+    // 首屏看板 forceCollapsed：勿保活底部 dock（否则 Schema/表格虚拟列表仍会跑并触发 flushSync 告警）
+    if (typeof window !== "undefined" && isDashboardPath(window.location.pathname)) {
+      return false;
+    }
+    return state.workspaceMode !== "hidden";
+  });
 
   useEffect(() => {
     if (isBottomPanelOpen || isFullscreen) {
       setKeepBottomMounted(true);
+      return;
     }
-  }, [isBottomPanelOpen, isFullscreen]);
+    if (isHomeRoute) {
+      setKeepBottomMounted(false);
+    }
+  }, [isBottomPanelOpen, isFullscreen, isHomeRoute]);
 
   const rootClass = [
     "workspace-preview",
@@ -181,8 +189,8 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     .filter(Boolean)
     .join(" ");
 
-  // dockview 始终挂载，用 CSS display 控制显隐（零 unmount）
-  // 首页通过 forceCollapsed 把底部高度压到 0，避免空工作区壳占位
+  // 非首页：底部 dock 保活，用 CSS display 控制显隐（零 unmount）
+  // 首页 forceCollapsed：卸载底部 dock，避免保活面板在看板空跑
   const showBottomStack = keepBottomMounted;
   const dockVisible = (showSplitWindow || isFullscreen) && !isCurrentWorkspacePoppedOut;
 

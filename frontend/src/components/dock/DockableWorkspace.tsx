@@ -752,14 +752,22 @@ export function DockableWorkspace({
       }
       prevPanelContentKeysByTabRef.current = { ...panelContentKeysByTab };
       if (changedTabIds.length > 0) {
-        bumpPanelContentRevForTabIds(api, changedTabIds);
+        queueMicrotask(() => {
+          const currentApi = apiRef.current;
+          if (!currentApi || !layoutLoadedRef.current) return;
+          bumpPanelContentRevForTabIds(currentApi, changedTabIds);
+        });
       }
       return;
     }
 
     if (lastBumpedPanelContentKeyRef.current === panelContentKey) return;
     lastBumpedPanelContentKeyRef.current = panelContentKey;
-    bumpPanelContentRev(api);
+    queueMicrotask(() => {
+      const currentApi = apiRef.current;
+      if (!currentApi || !layoutLoadedRef.current) return;
+      bumpPanelContentRev(currentApi);
+    });
   }, [panelContentKey, panelContentKeysByTab, layoutReady, bumpPanelContentRev, bumpPanelContentRevForTabIds]);
 
   // softRefreshKey：仅用于真正的全局软刷新（如路由 live）；勿把 activeTabId 塞进来
@@ -769,7 +777,12 @@ export function DockableWorkspace({
     if (softRefreshKey === undefined) return;
     if (lastBumpedSoftRefreshKeyRef.current === softRefreshKey) return;
     lastBumpedSoftRefreshKeyRef.current = softRefreshKey;
-    bumpPanelSoftRev(api);
+    // 推迟到微任务，避免与当前 React commit/layout 叠加以触发 flushSync 警告
+    queueMicrotask(() => {
+      const currentApi = apiRef.current;
+      if (!currentApi || !layoutLoadedRef.current) return;
+      bumpPanelSoftRev(currentApi);
+    });
   }, [softRefreshKey, layoutReady, bumpPanelSoftRev]);
 
   // 切 Tab：只 soft bump 旧/新 active，让 renderPanel 内 isActive 更新，避免全量 reconcile
@@ -781,10 +794,12 @@ export function DockableWorkspace({
     const next = activeTabId || null;
     if (prev === next) return;
     lastSoftActiveTabIdRef.current = next;
-    bumpPanelSoftRevForTabIds(
-      api,
-      [prev, next].filter((id): id is string => Boolean(id)),
-    );
+    const tabIds = [prev, next].filter((id): id is string => Boolean(id));
+    queueMicrotask(() => {
+      const currentApi = apiRef.current;
+      if (!currentApi || !layoutLoadedRef.current) return;
+      bumpPanelSoftRevForTabIds(currentApi, tabIds);
+    });
   }, [activeTabId, layoutReady, bumpPanelSoftRevForTabIds]);
 
   // 自定义 tab：元数据通过 panel params + DockWorkspaceTabHeader 内 liveMeta 同步
@@ -1651,8 +1666,9 @@ export function DockableWorkspace({
 
   const tabIdsKey = useMemo(() => tabs.map((tab) => tab.id).join("\0"), [tabs]);
 
-  // 仅 meta 变更（label / preview / dirty 等）：layout 阶段同步 panel params，Tab 头早一帧更新
-  useLayoutEffect(() => {
+  // 仅 meta 变更（label / preview / dirty 等）：effect 阶段同步 panel params。
+  // 勿用 useLayoutEffect：dockview updateParameters 可能间接触发 flushSync，与 React commit 冲突。
+  useEffect(() => {
     const api = apiRef.current;
     if (!api || !layoutLoadedRef.current) {
       return;

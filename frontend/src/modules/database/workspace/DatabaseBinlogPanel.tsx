@@ -736,6 +736,7 @@ export function DatabaseBinlogPanel({
     estimateSize: () => BINLOG_TIMELINE_ROW_HEIGHT,
     getItemKey: (index) => eventsRef.current[index]?.id ?? index,
     overscan: 12,
+    useFlushSync: false,
   });
 
   const renderTimelineRow = (ev: BinlogTimelineEvent) => {

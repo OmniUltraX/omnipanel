@@ -38,6 +38,7 @@ export function RedisKeyBrowserList({
     estimateSize: () => REDIS_KEY_ROW_HEIGHT,
     getItemKey: (index) => rowsRef.current[index]?.key ?? index,
     overscan: 16,
+    useFlushSync: false,
   });
 
   useEffect(() => {

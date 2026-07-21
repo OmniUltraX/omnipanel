@@ -491,20 +491,18 @@ export function DockerPanel() {
     );
   }, []);
 
-  // 连接状态变化时 soft bump，避免 Dock 缓存仍持有 offline 的 connection 快照
-  const connectionsStatusKey = useMemo(
-    () => connections.map((item) => `${item.connectionId}:${item.status}`).join("|"),
-    [connections],
-  );
-  const dockSoftRefreshKey = `${moduleLive ? "live" : "idle"}:${connectionsStatusKey}`;
+  // 仅路由 live 变化时全局 soft；切 Tab 由 DockableWorkspace 局部 soft bump
+  // 连接 status 变更勿写入 softRefreshKey：会在 React commit 中触发 dockview flushSync
+  const dockSoftRefreshKey = moduleLive ? "live" : "idle";
 
   const sidebarLinkageValue = useMemo(
     () => ({
       activeConnectionId,
       activeNavKey,
       onNavigate: handleNavigate,
+      connectionById,
     }),
-    [activeConnectionId, activeNavKey, handleNavigate],
+    [activeConnectionId, activeNavKey, connectionById, handleNavigate],
   );
 
   const dockerAiContext = useMemo(() => {

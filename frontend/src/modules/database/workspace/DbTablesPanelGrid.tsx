@@ -302,6 +302,8 @@ export function DbTablesPanelGrid<T>({
     estimateSize: () => virtualRowHeight,
     // 快速滚动缓冲：上下各多渲约 40 行，避免出现空白带
     overscan: 40,
+    // 避免在 React commit/layout 期间 flushSync（Docker 等模块状态更新会连带重渲表格）
+    useFlushSync: false,
   });
 
   const virtualItems = useVirtual ? rowVirtualizer.getVirtualItems() : null;

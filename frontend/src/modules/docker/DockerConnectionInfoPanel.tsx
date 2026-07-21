@@ -19,7 +19,7 @@ import { DockerHostTerminalPanel } from "./DockerHostTerminalPanel";
 import { restartDockerDaemon } from "./dockerDaemonConfigApi";
 import { isLocalDockerSource, normalizeDockerSource } from "./dockerConnectionSource";
 import { makeDockerTreeKey } from "./dockerResourceLabels";
-import { useDockerSidebarLinkage } from "./DockerSidebarLinkageContext";
+import { useDockerLiveConnection, useDockerSidebarLinkage } from "./DockerSidebarLinkageContext";
 
 const DockerImagePanel = lazy(() =>
   import("./DockerImagePanel").then((mod) => ({ default: mod.DockerImagePanel })),
@@ -98,12 +98,14 @@ function PanelFallback() {
 }
 
 export function DockerConnectionInfoPanel({
-  connection,
+  connection: connectionProp,
   isActive,
   onConnectionsNeedReload,
 }: DockerConnectionInfoPanelProps) {
   const { t } = useI18n();
   const { activeNavKey } = useDockerSidebarLinkage();
+  // Dock 面板 props 可能滞后；用联动上下文中的最新连接状态
+  const connection = useDockerLiveConnection(connectionProp);
   const [subTab, setSubTab] = usePersistedModuleTab(
     `docker-connection-${connection.connectionId}`,
     "containers",

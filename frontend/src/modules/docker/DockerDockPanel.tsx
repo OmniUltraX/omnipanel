@@ -29,6 +29,7 @@ import { formatDockerNetworks } from "./dockerContainerCardFormat";
 import { dockerContainerMatchesSearch } from "./dockerTreeSearch";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import type { DockerContainerGridItem } from "./hooks/useDockerContainerGrid";
+import { useDockerLiveConnection } from "./DockerSidebarLinkageContext";
 import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
 import { DockerCreateComposeSubWindow } from "./subwindows/DockerCreateComposeSubWindow";
 import { DockerCreateContainerSubWindow } from "./subwindows/DockerCreateContainerSubWindow";
@@ -139,7 +140,7 @@ function subWindowTitle(kind: DockerContainerSubWindowKind, t: (key: string) => 
 }
 
 export function DockerDockPanel({
-  connection,
+  connection: connectionProp,
   isActive,
   embedded = false,
   panelTitle,
@@ -147,6 +148,7 @@ export function DockerDockPanel({
   containerIds,
 }: DockerDockPanelProps) {
   const { t } = useI18n();
+  const connection = useDockerLiveConnection(connectionProp);
   const { items, loading, error, refreshNow } = useDockerContainerGrid(
     connection.connectionId,
     // 离线时停容器列表 / stats 轮询，避免本机 Engine 未启动时反复刷 Connect 错误
