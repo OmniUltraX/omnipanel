@@ -1,5 +1,6 @@
 pub mod ir;
 pub mod orchestrator;
+pub mod prompts;
 pub mod provider;
 pub mod providers;
 pub mod routing;

@@ -81,7 +81,7 @@ export const TERMINAL_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: OMNI_TERMINAL_RUN_TERMINAL_COMMAND,
     description:
-      "在当前终端会话执行 shell 命令并返回退出码与输出。不支持交互式/TUI/流式命令（如 top、vim、tail -f、claude）；请改用批处理替代（如 top -bn1 | head、tail -n 100）。安装类长任务（npm/docker/apt）可执行但可能耗时较长。",
+      "在当前终端会话执行 shell 命令并返回退出码与输出（运维、本地状态、用户明确的 CLI 工作流）。不支持交互式/TUI/流式命令（如 top、vim、tail -f、claude）；请改用批处理替代（如 top -bn1 | head、tail -n 100）。安装类长任务（npm/docker/apt）可执行但可能耗时较长。",
     inputSchema: {
       type: "object",
       properties: {

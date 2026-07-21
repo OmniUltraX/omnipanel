@@ -120,7 +120,7 @@ const WEB_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_web_search",
     description:
-      "全网搜索，默认 scope=web。涉及中文经验/讨论/评测类问题，或全网结果不满意时，可改用 omni_zhihu_search 穿插补充。",
+      "全网搜索公开信息；检索/查阅意图优先用本工具。默认 scope=web。涉及中文经验/讨论/评测，或全网结果不满意时，可改用 omni_zhihu_search 补充。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");
@@ -137,7 +137,8 @@ const WEB_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   },
   {
     name: "omni_web_fetch",
-    description: "抓取指定 URL 的网页正文（默认本地直连转 Markdown，失败时降级 Jina Reader）。",
+    description:
+      "抓取指定 URL 的网页正文；已知链接或需阅读某页全文时优先用本工具，可与 search 配合先搜后抓。默认本地直连转 Markdown，失败时降级 Jina Reader。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");

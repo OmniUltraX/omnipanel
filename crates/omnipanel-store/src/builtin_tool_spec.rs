@@ -616,7 +616,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_terminal_run_terminal_command",
         module_key: "terminal",
-        description: "在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
+        description: "在当前活动终端会话中执行 shell 命令（运维、本地状态、用户明确的 CLI 工作流）。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
         input_schema: SCHEMA_TERMINAL_RUN,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
@@ -783,7 +783,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_web_search",
         module_key: "web",
-        description: "联网搜索公开网页信息；query 宜具体可检索。默认 scope=web，中文讨论可改 zhihu 或 omni_zhihu_search。",
+        description: "联网搜索公开网页信息；检索/查阅意图优先用本工具。query 宜具体可检索。默认 scope=web，中文讨论可改 zhihu 或 omni_zhihu_search。",
         input_schema: SCHEMA_WEB_SEARCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -799,7 +799,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_web_fetch",
         module_key: "web",
-        description: "抓取指定 URL 的网页正文（默认本地直连转 Markdown，失败时降级 Jina Reader）。",
+        description: "抓取指定 URL 的网页正文（已知链接或需阅读某页全文时优先用本工具；可与 search 配合：先搜后抓）。默认本地直连转 Markdown，失败时降级 Jina Reader。",
         input_schema: SCHEMA_WEB_FETCH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
