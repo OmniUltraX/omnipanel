@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FC } from "react";
+import { useRef, useState, type FC } from "react";
 import { PlusIcon } from "lucide-react";
 import { ComposerPrimitive } from "@assistant-ui/react";
 

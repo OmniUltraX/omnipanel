@@ -813,7 +813,7 @@ export class OnePanelClient {
     // 浏览器直连：仅小文件走单次 multipart（大文件请走 Tauri）
     const binary = base64ToUint8Array(params.contentBase64);
     const form = new FormData();
-    form.append("file", new Blob([binary]), params.filename);
+    form.append("file", new Blob([new Uint8Array(binary)]), params.filename);
     form.append("path", params.path.endsWith("/") ? params.path : `${params.path}/`);
     form.append("overwrite", params.overwrite === false ? "False" : "True");
 

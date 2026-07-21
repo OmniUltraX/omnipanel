@@ -137,6 +137,10 @@ export const commands = {
 	bgTaskSubmitDbSchemaCacheRefresh: (connectionIds: string[] | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_schema_cache_refresh", { connectionIds })),
 	/**  提交知识库文档向量化后台任务。 */
 	bgTaskSubmitKnowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_knowledge_vectorize", { args })),
+	/**  提交 Ollama 授权安装后台任务。 */
+	bgTaskSubmitOllamaInstall: () => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_ollama_install")),
+	/**  提交 Ollama 模型拉取后台任务。 */
+	bgTaskSubmitOllamaPull: (model: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_ollama_pull", { model })),
 	/**  列出指定 MySQL 连接的数据库导出记录。 */
 	dbMysqlExportList: (connectionId: string) => typedError<MysqlExportRecord_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("db_mysql_export_list", { connectionId })),
 	/**  将导出文件复制到用户指定路径（需已通过 save 对话框授权）。 */
@@ -523,6 +527,10 @@ export const commands = {
 	resourceComputeObservationDiff: (resourceType: string, resourceId: string, observationKind: string) => typedError<Record<string, unknown>, OmniError_Serialize>(__TAURI_INVOKE("resource_compute_observation_diff", { resourceType, resourceId, observationKind })),
 	/**  将知识条目分块并向量化存储（同步命令，供兼容调用）。 */
 	knowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<KnowledgeVectorizeResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vectorize", { args })),
+	/**  同步前端 embedding 配置到后端（Skill MCP 向量化 / 混合召回）。 */
+	embeddingProviderSync: (provider: EmbeddingProviderConfig) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_sync", { provider })),
+	/**  读取后端已同步的 embedding 配置。 */
+	embeddingProviderGet: () => typedError<EmbeddingProviderConfig | null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_get")),
 	/**  查询条目的向量化状态。 */
 	knowledgeVectorStatus: (entryId: string) => typedError<{
 	entryId: string,
@@ -685,6 +693,8 @@ export const commands = {
 	skillListApplications: (id: string, limit: number | null) => typedError<SkillApplication[], string>(__TAURI_INVOKE("skill_list_applications", { id, limit })),
 	/** 更新 skill 应用记录的 outcome（success/failure/partial）+ feedback。 */
 	skillUpdateApplicationOutcome: (applicationId: string, outcome: string, feedback: string | null) => typedError<null, string>(__TAURI_INVOKE("skill_update_application_outcome", { applicationId, outcome, feedback })),
+	/** 对全部已启用 skill 批量向量化（设置页「重建索引」）。 */
+	skillVectorizeAll: (provider: EmbeddingProviderConfig) => typedError<SkillVectorizeResult[], string>(__TAURI_INVOKE("skill_vectorize_all", { provider })),
 	providerRegistryLoad: () => typedError<ProvidersFile, string>(__TAURI_INVOKE("provider_registry_load")),
 	providerRegistrySave: (file: ProvidersFile) => typedError<null, string>(__TAURI_INVOKE("provider_registry_save", { file })),
 	cliProviderListCmd: () => typedError<CliProviderRecord[], string>(__TAURI_INVOKE("cli_provider_list_cmd")),
@@ -1513,7 +1523,7 @@ export type DockerCapabilities = {
 };
 
 /**  Compose 生命周期动作。 */
-export type DockerComposeAction = "up" | "down" | "restart" | 
+export type DockerComposeAction = "up" | "down" | "restart" | "stop" |
 /**  重新构建镜像并拉起服务（`compose up -d --build --force-recreate`）。 */
 "rebuild" | "pull" | "logs";
 
@@ -2387,11 +2397,14 @@ export type HttpCollection = {
 	updatedAt: number | null,
 };
 
-/**  HTTP 调试环境（基地址）。 */
+/**  HTTP 调试环境（基地址 + 可选默认认证）。 */
 export type HttpEnvironment = {
 	id: string,
 	name: string,
 	baseUrl: string,
+	/**  与请求面板一致；空/null 表示无认证。 */
+	authType: string | null,
+	authValue: string | null,
 	createdAt: number | null,
 	updatedAt: number | null,
 };
@@ -3259,6 +3272,12 @@ export type SkillApplication = {
 	outcome: string,
 	feedback: string,
 	appliedAt: number,
+};
+
+/**  单个 skill 向量化结果。 */
+export type SkillVectorizeResult = {
+	skillId: string,
+	chunkCount: number,
 };
 
 /**  版本链条目：id + 版本号 + 创建时间。 */

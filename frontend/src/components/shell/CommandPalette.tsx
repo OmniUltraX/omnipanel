@@ -7,7 +7,6 @@ import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
 import {
-  formatShortcut,
   getShortcutKeys,
   matchesShortcut,
   useShortcutsStore,

@@ -38,6 +38,9 @@ export interface DatabaseWorkspaceContextHandlers {
   handleDesignTable: DbWorkspaceSharedContextValue["openTableDesigner"];
   openTableQuery: DbWorkspaceSharedContextValue["openTableQuery"];
   commitTabDirty: DbWorkspaceSharedContextValue["commitTabDirty"];
+  rollbackTabDirty: DbWorkspaceSharedContextValue["rollbackTabDirty"];
+  undoTabDirty: DbWorkspaceSharedContextValue["undoTabDirty"];
+  redoTabDirty: DbWorkspaceSharedContextValue["redoTabDirty"];
   openExportMenu: DbWorkspaceSharedContextValue["openExportMenu"];
   resolveSqlTabConnection: DbWorkspaceSharedContextValue["resolveSqlTabConnection"];
   getSqlTabDatabases: DbWorkspaceSharedContextValue["getSqlTabDatabases"];
@@ -90,6 +93,9 @@ export function useDatabaseWorkspaceContextValue(
       openTableQuery: (...args) => handlersRef.current.openTableQuery(...args),
       setTabMode: (id, mode) => useDbWorkspaceTabStore.getState().setTabMode(id, mode),
       commitTabDirty: (...args) => handlersRef.current.commitTabDirty(...args),
+      rollbackTabDirty: (...args) => handlersRef.current.rollbackTabDirty(...args),
+      undoTabDirty: (...args) => handlersRef.current.undoTabDirty(...args),
+      redoTabDirty: (...args) => handlersRef.current.redoTabDirty(...args),
       openExportMenu: (...args) => handlersRef.current.openExportMenu(...args),
       sqlConnections: data.sqlConnections,
       groupConnections: data.groupConnections,

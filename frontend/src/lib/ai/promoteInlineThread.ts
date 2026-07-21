@@ -1,4 +1,3 @@
-import type { AiMessage } from "../../stores/aiStore";
 import { normalizeAiMessage, useAiStore } from "../../stores/aiStore";
 import {
   aiThreadToAiMessages,

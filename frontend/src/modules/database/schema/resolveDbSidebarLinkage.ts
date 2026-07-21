@@ -49,7 +49,9 @@ export function resolveDbSidebarLinkageFromTab(
   if (tab.kind === "database" || tab.kind === "redis-query") {
     return {
       activeConnId,
-      activeDatabaseKey: makeDatabaseTabKey(tab.connId, tab.dbName),
+      activeDatabaseKey: tab.dbName
+        ? makeDatabaseTabKey(tab.connId, tab.dbName)
+        : null,
       activeTableKey: null,
     };
   }
