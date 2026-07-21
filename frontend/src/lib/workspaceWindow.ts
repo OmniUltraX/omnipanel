@@ -15,6 +15,11 @@ import {
 import { showToast } from "../stores/toastStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { WORKSPACE_PATHS } from "./paths";
+import {
+  flushWindowBoundsNow,
+  loadPersistedWorkspaceBounds,
+  startWindowBoundsTracking,
+} from "./windowBoundsPersist";
 
 const WORKSPACE_WINDOW_FLAG = "workspace";
 const WORKSPACE_WINDOW_LABEL_PREFIX = "workspace-";
@@ -106,6 +111,7 @@ export async function listOpenWorkspaceWindowIds(): Promise<string[]> {
 export async function dockWorkspaceWindowToMain(workspaceId: string): Promise<void> {
   if (!isTauriRuntime()) return;
   try {
+    await flushWindowBoundsNow({ role: "workspace", workspaceId });
     await writeWorkspaceWindowCloseHandoff(workspaceId);
     await emit(WORKSPACE_WINDOW_CLOSED_EVENT, {
       workspaceId,
@@ -136,9 +142,18 @@ export async function openWorkspaceWindow(
   hideMainWindowWorkspaceEmbedding(workspaceId);
 
   try {
-    // 从 workspaceStore 读取上次窗口位置和大小，缺失时由后端使用默认值居中
+    // 共享文件优先，其次 workspaceStore（主窗 localStorage）
     const ws = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId);
-    const bounds = ws?.windowBounds ?? null;
+    const persisted = await loadPersistedWorkspaceBounds(workspaceId);
+    const bounds = persisted ?? ws?.windowBounds ?? null;
+    if (bounds) {
+      useWorkspaceStore.getState().setWorkspaceBounds(workspaceId, {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      });
+    }
 
     const label = await invoke<string>("open_workspace_window", {
       workspaceId,
@@ -341,6 +356,11 @@ export async function initWorkspaceWindowLifecycle(
   );
   void emit(WORKSPACE_WINDOW_OPENED_EVENT, payload).catch(() => {});
 
+  const stopBoundsTracking = startWindowBoundsTracking({
+    role: "workspace",
+    workspaceId,
+  });
+
   let unlistenClose: UnlistenFn | null = null;
   try {
     unlistenClose = await getCurrentWindow().onCloseRequested(
@@ -353,6 +373,9 @@ export async function initWorkspaceWindowLifecycle(
           const confirmed = await confirmClose(workspaceId);
           if (!confirmed) return;
         }
+
+        // 关闭前落盘几何，供下次弹出恢复
+        await flushWindowBoundsNow({ role: "workspace", workspaceId });
 
         // 工作区独立窗：收回主窗（handoff），不弹「托盘 / 退出应用」
         try {
@@ -380,6 +403,7 @@ export async function initWorkspaceWindowLifecycle(
   }
 
   return () => {
+    stopBoundsTracking();
     unlistenClose?.();
   };
 }

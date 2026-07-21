@@ -19,6 +19,8 @@ import { Bootstrap } from "./Bootstrap";
 import { WorkspaceWindowRoot } from "./WorkspaceWindowRoot";
 import { parseWorkspaceWindowParams, workspaceWindowDebugLog } from "./lib/workspaceWindow";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
+import { restoreMainWindowBounds } from "./lib/windowBoundsPersist";
+import { isTauriRuntime } from "./lib/isTauriRuntime";
 
 initProductionDiagnostics();
 initDesktopShell();
@@ -28,9 +30,9 @@ dismissHtmlBootSplash();
 
 const workspaceWindow = parseWorkspaceWindowParams();
 
-// 工作区独立窗口不走 Bootstrap，必须在此去掉 index.html 内联 splash，否则会盖住整窗
-if (workspaceWindow) {
-  dismissHtmlBootSplash();
+// 主窗尽早恢复几何，减少先闪默认尺寸再跳变
+if (!workspaceWindow && isTauriRuntime()) {
+  void restoreMainWindowBounds();
 }
 
 void workspaceWindowDebugLog(

@@ -13,6 +13,18 @@ export type WindowCloseRole = "main" | "workspace";
 
 async function quitApplication(): Promise<void> {
   try {
+    const { flushAllSessionsNow } = await import("../modules/terminal/terminalHistorySync");
+    await flushAllSessionsNow();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { flushWindowBoundsNow } = await import("./windowBoundsPersist");
+    await flushWindowBoundsNow({ role: "main" });
+  } catch {
+    /* ignore */
+  }
+  try {
     await invoke("close_all_workspace_windows");
   } catch {
     /* ignore */

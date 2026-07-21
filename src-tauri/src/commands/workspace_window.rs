@@ -332,13 +332,282 @@ fn window_z_order_impl(_app: &AppHandle) -> Vec<String> {
     Vec::new()
 }
 
-/// 独立窗口的位置和大小（物理像素），用于恢复上次窗口几何。
-#[derive(serde::Deserialize)]
+/// 窗口位置和大小（逻辑像素 + 可选多屏物理坐标/显示器名）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WindowBounds {
     pub x: f64,
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    #[serde(default)]
+    pub maximized: bool,
+    /// 所在显示器名称（多屏恢复时优先匹配）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor_name: Option<String>,
+    /// 窗口外框左上角物理像素（虚拟桌面坐标，跨 DPI/多屏更稳）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_y: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_height: Option<u32>,
+}
+
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowBoundsStoreFile {
+    #[serde(default)]
+    main: Option<WindowBounds>,
+    #[serde(default)]
+    workspaces: std::collections::HashMap<String, WindowBounds>,
+}
+
+fn window_bounds_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位 app_data_dir: {e}"))?;
+    let _ = std::fs::create_dir_all(&dir);
+    Ok(dir.join("window-bounds.json"))
+}
+
+fn read_window_bounds_store(app: &AppHandle) -> WindowBoundsStoreFile {
+    let Ok(path) = window_bounds_store_path(app) else {
+        return WindowBoundsStoreFile::default();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return WindowBoundsStoreFile::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn write_window_bounds_store(app: &AppHandle, store: &WindowBoundsStoreFile) -> Result<(), String> {
+    let path = window_bounds_store_path(app)?;
+    let raw = serde_json::to_string_pretty(store).map_err(|e| format!("序列化窗口几何失败: {e}"))?;
+    std::fs::write(&path, raw).map_err(|e| format!("写入窗口几何失败: {e}"))
+}
+
+fn sanitize_bounds(bounds: &WindowBounds) -> Option<WindowBounds> {
+    if !bounds.width.is_finite()
+        || !bounds.height.is_finite()
+        || !bounds.x.is_finite()
+        || !bounds.y.is_finite()
+    {
+        return None;
+    }
+    if bounds.width < 400.0 || bounds.height < 300.0 {
+        return None;
+    }
+    Some(WindowBounds {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width.clamp(400.0, 10000.0),
+        height: bounds.height.clamp(300.0, 10000.0),
+        maximized: bounds.maximized,
+        monitor_name: bounds
+            .monitor_name
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        physical_x: bounds.physical_x,
+        physical_y: bounds.physical_y,
+        physical_width: bounds.physical_width.filter(|&w| w >= 400),
+        physical_height: bounds.physical_height.filter(|&h| h >= 300),
+    })
+}
+
+fn monitor_contains_point(mon: &tauri::Monitor, px: i32, py: i32) -> bool {
+    let pos = mon.position();
+    let size = mon.size();
+    px >= pos.x
+        && py >= pos.y
+        && px < pos.x.saturating_add(size.width as i32)
+        && py < pos.y.saturating_add(size.height as i32)
+}
+
+fn clamp_physical_to_monitor(
+    px: i32,
+    py: i32,
+    pw: u32,
+    ph: u32,
+    mon: &tauri::Monitor,
+) -> (i32, i32, u32, u32) {
+    let pos = mon.position();
+    let size = mon.size();
+    let min_visible = 80i32;
+    let max_x = (pos.x + size.width as i32 - min_visible).max(pos.x);
+    let max_y = (pos.y + size.height as i32 - min_visible).max(pos.y);
+    let x = px.clamp(pos.x, max_x);
+    let y = py.clamp(pos.y, max_y);
+    let w = pw.clamp(400, size.width.max(400));
+    let h = ph.clamp(300, size.height.max(300));
+    (x, y, w, h)
+}
+
+fn pick_target_monitor<'a>(
+    app: &AppHandle,
+    bounds: &WindowBounds,
+    monitors: &'a [tauri::Monitor],
+    px: i32,
+    py: i32,
+) -> Option<&'a tauri::Monitor> {
+    if let Some(name) = bounds.monitor_name.as_deref() {
+        if let Some(m) = monitors.iter().find(|m| m.name().map(|n| n.as_str()) == Some(name)) {
+            return Some(m);
+        }
+    }
+    if let Some(m) = monitors.iter().find(|m| monitor_contains_point(m, px, py)) {
+        return Some(m);
+    }
+    if let Ok(Some(primary)) = app.primary_monitor() {
+        let pname = primary.name().cloned();
+        if let Some(name) = pname {
+            if let Some(m) = monitors.iter().find(|m| m.name() == Some(&name)) {
+                return Some(m);
+            }
+        }
+    }
+    monitors.first()
+}
+
+/// 按当前可用显示器解析/钳位几何：优先恢复到记忆的屏幕；显示器缺失时落到仍可见区域。
+fn resolve_bounds_for_current_displays(app: &AppHandle, bounds: &WindowBounds) -> WindowBounds {
+    let Ok(monitors) = app.available_monitors() else {
+        return bounds.clone();
+    };
+    if monitors.is_empty() {
+        return bounds.clone();
+    }
+
+    let scale_guess = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0)
+        .max(0.1);
+
+    let mut px = bounds
+        .physical_x
+        .unwrap_or_else(|| (bounds.x * scale_guess).round() as i32);
+    let mut py = bounds
+        .physical_y
+        .unwrap_or_else(|| (bounds.y * scale_guess).round() as i32);
+    let pw = bounds
+        .physical_width
+        .unwrap_or_else(|| (bounds.width * scale_guess).round() as u32)
+        .max(400);
+    let ph = bounds
+        .physical_height
+        .unwrap_or_else(|| (bounds.height * scale_guess).round() as u32)
+        .max(300);
+
+    let Some(target) = pick_target_monitor(app, bounds, &monitors, px, py) else {
+        return bounds.clone();
+    };
+
+    let on_any = monitors.iter().any(|m| monitor_contains_point(m, px, py));
+    if !on_any {
+        // 原屏幕已断开：落到目标屏工作区左上附近
+        px = target.position().x + 40;
+        py = target.position().y + 40;
+    } else if let Some(name) = bounds.monitor_name.as_deref() {
+        // 记忆屏仍在但当前物理点在别的屏：按相对偏移迁回记忆屏
+        if target.name().map(|n| n.as_str()) == Some(name) {
+            if let Some(from) = monitors.iter().find(|m| monitor_contains_point(m, px, py)) {
+                if from.name() != target.name() {
+                    let rel_x = px - from.position().x;
+                    let rel_y = py - from.position().y;
+                    px = target.position().x + rel_x;
+                    py = target.position().y + rel_y;
+                }
+            }
+        }
+    }
+
+    let (cx, cy, cw, ch) = clamp_physical_to_monitor(px, py, pw, ph, target);
+    let scale = target.scale_factor().max(0.1);
+    WindowBounds {
+        x: cx as f64 / scale,
+        y: cy as f64 / scale,
+        width: cw as f64 / scale,
+        height: ch as f64 / scale,
+        maximized: bounds.maximized,
+        monitor_name: target.name().cloned(),
+        physical_x: Some(cx),
+        physical_y: Some(cy),
+        physical_width: Some(cw),
+        physical_height: Some(ch),
+    }
+}
+
+fn apply_bounds_to_window(window: &tauri::WebviewWindow, bounds: &WindowBounds) {
+    if let (Some(px), Some(py)) = (bounds.physical_x, bounds.physical_y) {
+        let _ = window.set_position(tauri::PhysicalPosition::new(px, py));
+    } else {
+        let _ = window.set_position(tauri::LogicalPosition::new(bounds.x, bounds.y));
+    }
+    if let (Some(pw), Some(ph)) = (bounds.physical_width, bounds.physical_height) {
+        let _ = window.set_size(tauri::PhysicalSize::new(pw, ph));
+    } else {
+        let _ = window.set_size(tauri::LogicalSize::new(bounds.width, bounds.height));
+    }
+    if bounds.maximized {
+        let _ = window.maximize();
+    }
+}
+
+/// 读取主窗口上次几何。
+#[tauri::command]
+pub fn window_bounds_get_main(app: AppHandle) -> Result<Option<WindowBounds>, String> {
+    Ok(read_window_bounds_store(&app).main)
+}
+
+/// 写入主窗口几何。
+#[tauri::command]
+pub fn window_bounds_set_main(app: AppHandle, bounds: WindowBounds) -> Result<(), String> {
+    let Some(bounds) = sanitize_bounds(&bounds) else {
+        return Ok(());
+    };
+    let mut store = read_window_bounds_store(&app);
+    store.main = Some(bounds);
+    write_window_bounds_store(&app, &store)
+}
+
+/// 读取工作区独立窗口上次几何。
+#[tauri::command]
+pub fn window_bounds_get_workspace(
+    app: AppHandle,
+    workspace_id: String,
+) -> Result<Option<WindowBounds>, String> {
+    if workspace_id.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(read_window_bounds_store(&app)
+        .workspaces
+        .get(&workspace_id)
+        .cloned())
+}
+
+/// 写入工作区独立窗口几何。
+#[tauri::command]
+pub fn window_bounds_set_workspace(
+    app: AppHandle,
+    workspace_id: String,
+    bounds: WindowBounds,
+) -> Result<(), String> {
+    if workspace_id.trim().is_empty() {
+        return Ok(());
+    }
+    let Some(bounds) = sanitize_bounds(&bounds) else {
+        return Ok(());
+    };
+    let mut store = read_window_bounds_store(&app);
+    store.workspaces.insert(workspace_id, bounds);
+    write_window_bounds_store(&app, &store)
 }
 
 /// 打开（或聚焦）工作区独立窗口。
@@ -425,7 +694,19 @@ pub async fn open_workspace_window(
         // Windows WebView2：关闭「保存的信息」等原生自动填充建议
         .general_autofill_enabled(false);
 
-    if let Some(ref b) = bounds {
+    // 优先用调用方传入的 bounds；否则读持久化；再否则默认居中
+    let restored = bounds
+        .as_ref()
+        .and_then(sanitize_bounds)
+        .or_else(|| {
+            read_window_bounds_store(&app)
+                .workspaces
+                .get(&workspace_id)
+                .and_then(sanitize_bounds)
+        })
+        .map(|b| resolve_bounds_for_current_displays(&app, &b));
+
+    if let Some(ref b) = restored {
         builder = builder
             .inner_size(b.width, b.height)
             .position(b.x, b.y);
@@ -442,6 +723,11 @@ pub async fn open_workspace_window(
             append_log(&app, &msg);
             msg
         })?;
+
+    // 用物理坐标再落一次，确保多屏/混合 DPI 下回到记忆屏幕
+    if let Some(ref b) = restored {
+        apply_bounds_to_window(&window, b);
+    }
 
     let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
     #[cfg(windows)]

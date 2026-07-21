@@ -1030,6 +1030,10 @@ fn build_and_run_tauri() {
             commands::workspace_window::workspace_window_debug_log_path,
             commands::workspace_window::window_label_at_screen_point,
             commands::workspace_window::window_z_order,
+            commands::workspace_window::window_bounds_get_main,
+            commands::workspace_window::window_bounds_set_main,
+            commands::workspace_window::window_bounds_get_workspace,
+            commands::workspace_window::window_bounds_set_workspace,
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,

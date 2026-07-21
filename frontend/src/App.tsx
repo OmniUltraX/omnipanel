@@ -85,7 +85,13 @@ import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath, moduleK
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { SshToTerminalRedirect } from "./modules/terminal/SshToTerminalRedirect";
 import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
-import { startTerminalHistorySync } from "./modules/terminal/terminalHistorySync";
+import {
+  bootstrapTerminalHistory,
+  startTerminalHistorySync,
+} from "./modules/terminal/terminalHistorySync";
+import { useTerminalStore } from "./stores/terminalStore";
+import { useTerminalHistoryStore } from "./stores/terminalHistoryStore";
+import { startWindowBoundsTracking } from "./lib/windowBoundsPersist";
 import {
   LazyDashboardPage,
   LazyDatabasePanel,
@@ -203,6 +209,43 @@ function AppShell() {
     };
   }, []);
 
+  // 等 terminalStore 水合后再灌历史，避免 sessions 仍为空时错过恢复
+  useEffect(() => {
+    let cancelled = false;
+    let lastKey = "";
+
+    const runBootstrap = () => {
+      if (cancelled) return;
+      const sessionIds = useTerminalStore
+        .getState()
+        .sessions.filter((session) => session.lifecycle !== "ended")
+        .map((session) => session.id);
+      const key = sessionIds.join("\0");
+      if (key === lastKey) return;
+      lastKey = key;
+      if (sessionIds.length === 0) return;
+      bootstrapTerminalHistory(sessionIds);
+      const activeId = useTerminalStore.getState().activeSessionId;
+      if (activeId) {
+        void useTerminalHistoryStore.getState().restoreSession(activeId);
+      }
+    };
+
+    if (useTerminalStore.persist.hasHydrated()) {
+      runBootstrap();
+    }
+    const unsubHydration = useTerminalStore.persist.onFinishHydration(runBootstrap);
+    const unsubSessions = useTerminalStore.subscribe((state, prev) => {
+      if (state.sessions === prev.sessions) return;
+      runBootstrap();
+    });
+    return () => {
+      cancelled = true;
+      unsubHydration();
+      unsubSessions();
+    };
+  }, []);
+
   // 启动时同步 embedding 配置，供 Skill MCP 向量化 / 混合召回使用
   useEffect(() => {
     void import("./lib/syncEmbeddingProvider").then(({ syncEmbeddingProviderToBackend }) => {
@@ -237,6 +280,12 @@ function AppShell() {
       });
     return () => unlisten?.();
   }, [t]);
+
+  // 主窗口几何记忆
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    return startWindowBoundsTracking({ role: "main" });
+  }, []);
 
   useEffect(() => {
     return subscribePersistStoreCrossWindow("omnipanel-settings", useSettingsStore);
