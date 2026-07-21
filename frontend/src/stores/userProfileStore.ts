@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { resolveAvatarUrl } from "../lib/auth/loginApi";
 
 export interface UserProfileState {
   nickname: string;
@@ -22,11 +23,14 @@ export const useUserProfileStore = create<UserProfileState>()(
       nickname: "",
       avatarUrl: "",
       setNickname: (nickname) => set({ nickname }),
-      setAvatarUrl: (avatarUrl) => set({ avatarUrl }),
+      setAvatarUrl: (avatarUrl) => set({ avatarUrl: resolveAvatarUrl(avatarUrl) }),
       setProfile: (profile) =>
         set((state) => ({
           nickname: profile.nickname ?? state.nickname,
-          avatarUrl: profile.avatarUrl ?? state.avatarUrl,
+          avatarUrl:
+            profile.avatarUrl !== undefined
+              ? resolveAvatarUrl(profile.avatarUrl)
+              : state.avatarUrl,
         })),
       clearProfile: () => set({ nickname: "", avatarUrl: "" }),
     }),
@@ -38,18 +42,22 @@ export const useUserProfileStore = create<UserProfileState>()(
         if (fromVersion < 2) {
           return {
             nickname: (raw.nickname ?? raw.displayName ?? "").trim(),
-            avatarUrl: (raw.avatarUrl ?? "").trim(),
+            avatarUrl: resolveAvatarUrl(raw.avatarUrl ?? ""),
           };
         }
         return {
           nickname: (raw.nickname ?? "").trim(),
-          avatarUrl: (raw.avatarUrl ?? "").trim(),
+          avatarUrl: resolveAvatarUrl(raw.avatarUrl ?? ""),
         };
       },
       partialize: (state) => ({
         nickname: state.nickname,
         avatarUrl: state.avatarUrl,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        state.avatarUrl = resolveAvatarUrl(state.avatarUrl);
+      },
     },
   ),
 );

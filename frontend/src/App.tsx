@@ -49,6 +49,7 @@ import {
 import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { UserCenterWindow } from "./components/user/UserCenterWindow";
+import { AuthProfileSync } from "./components/user/AuthProfileSync";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
 import { ResourceProfileSubWindow } from "./lib/resource/ResourceProfileSubWindow";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
@@ -753,6 +754,7 @@ function AppShell() {
       <CrossWindowDragVisualLayer />
       <SettingsWindow />
       <UserCenterWindow />
+      <AuthProfileSync />
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
       {pendingRiskActionId && pendingRiskAction && riskResult && (
