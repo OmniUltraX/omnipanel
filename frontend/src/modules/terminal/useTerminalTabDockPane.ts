@@ -4,7 +4,9 @@ import {
   resolveResourceById,
 } from "../../stores/connectionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { useTerminalLeftPanelStore } from "./terminalLeftPanelStore";import { useI18n } from "../../i18n";
+import { useTerminalLeftPanelStore } from "./terminalLeftPanelStore";
+import { useI18n } from "../../i18n";
+import { showToast } from "../../stores/toastStore";
 import { requestTerminalExecution } from "./executeTerminalCommand";
 import { tryOpenSshFromTerminalCommand } from "./openSshFromTerminalCommand";
 import { registerUserShellCommand } from "./postShellAiTrigger";
@@ -12,6 +14,7 @@ import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import {
   setTerminalPaneSender,
 } from "./terminalPaneSenders";
+import { useTerminalRunStateStore } from "./terminalRunStateStore";
 
 export function useTerminalTabDockPane(
   tabId: string,
@@ -24,7 +27,8 @@ export function useTerminalTabDockPane(
       if (item.id === tabId) return item;
     }
     return null;
-  });  const resource = useMemo(
+  });
+  const resource = useMemo(
     () => resolveResourceById(tab?.session.resourceId ?? null) ?? null,
     [tab?.session.resourceId],
   );
@@ -39,6 +43,10 @@ export function useTerminalTabDockPane(
   const handleSendCommand = useCallback(
     (command: string) => {
       if (!tab) return;
+      if (useTerminalRunStateStore.getState().isCommandBarBusy(tabId)) {
+        showToast(t("terminal.command.busyHint"));
+        return;
+      }
       void tryOpenSshFromTerminalCommand(
         command,
         {
@@ -58,6 +66,10 @@ export function useTerminalTabDockPane(
         { sourceSessionId: tabId },
       ).then((handled) => {
         if (handled) return;
+        if (useTerminalRunStateStore.getState().isCommandBarBusy(tabId)) {
+          showToast(t("terminal.command.busyHint"));
+          return;
+        }
         registerUserShellCommand(tabId, command);
         const targetResource =
           resolveResourceById(tab.session.resourceId) ??

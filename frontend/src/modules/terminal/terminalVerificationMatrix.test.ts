@@ -215,6 +215,58 @@ describe("terminalOutputModel", () => {
       '5.21/stable  55% 4.12MB/s 14.0s Download snap "lxd"',
     );
   });
+
+  it("折叠 docker compose 多行进度帧，避免无限刷屏", () => {
+    let model = createEmptyOutputModel();
+    model = ingestTerminalOutputChunk(
+      model,
+      "[+] up 0/1\n ⠋ Image ghcr.io/m1k1o/neko/google-chrome:latest Pulling\n",
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      "[+] up 0/1\n ⠋ Image ghcr.io/m1k1o/neko/google-chrome:latest Pulling\n",
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      "[+] up 21/23\n ⠋ Image ghcr.io/m1k1o/neko/google-chrome:latest [##########............] 96.44MB / 332.8MB Pulling\n",
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      "[+] up 21/23\n ⠋ Image ghcr.io/m1k1o/neko/google-chrome:latest [##########............] 96.98MB / 332.8MB Pulling\n",
+    );
+    expect(flattenOutputModel(model)).toBe(
+      "[+] up 21/23\n ⠋ Image ghcr.io/m1k1o/neko/google-chrome:latest [##########............] 96.98MB / 332.8MB Pulling",
+    );
+  });
+
+  it("compose 多镜像帧内明细不被互相覆盖", () => {
+    let model = createEmptyOutputModel();
+    model = ingestTerminalOutputChunk(
+      model,
+      "[+] up 1/2\n ⠋ Image a:latest Pulling\n ⠋ Image b:latest Pulling\n",
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      "[+] up 2/2\n ✔ Image a:latest Pulled\n ✔ Image b:latest Pulled\n",
+    );
+    expect(flattenOutputModel(model)).toBe(
+      "[+] up 2/2\n ✔ Image a:latest Pulled\n ✔ Image b:latest Pulled",
+    );
+  });
+
+  it("剥离 CSI 后的 compose 进度帧仍可折叠", () => {
+    let model = createEmptyOutputModel();
+    // 模拟 TTY 光标上移重绘：CSI 被剥离后变成纯文本追加
+    model = ingestTerminalOutputChunk(
+      model,
+      "\x1b[1A\x1b[2K[+] up 0/1\n\x1b[1A\x1b[2K ⠋ Image demo:latest Pulling\n",
+    );
+    model = ingestTerminalOutputChunk(
+      model,
+      "\x1b[1A\x1b[2K[+] up 1/1\n\x1b[1A\x1b[2K ✔ Image demo:latest Pulled\n",
+    );
+    expect(flattenOutputModel(model)).toBe("[+] up 1/1\n ✔ Image demo:latest Pulled");
+  });
 });
 
 describe("terminalRunStateStore", () => {

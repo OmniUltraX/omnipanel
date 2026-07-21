@@ -26,6 +26,7 @@ import { AiDockResizeHandle } from "./AiDockResizeHandle";
 import { DEFAULT_AI_DOCK_HEIGHT } from "./terminalAiDock";
 import { useStickyAiBlockId } from "./useStickyAiBlockId";
 import { cancelInlineAiBlock } from "./warpInlineAi";
+import { interruptShell } from "./terminalShellRecovery";
 import { useI18n } from "../../i18n";
 import { stripAutoLsSuffix } from "./terminalAutoLs";
 import { shouldUseDirectoryPreview } from "./terminalDirectoryPreview";
@@ -248,6 +249,26 @@ async function copyBlockText(text: string, okMsg: string) {
   }
 }
 
+function ShellBlockStopButton({ sessionId, running }: { sessionId: string; running: boolean }) {
+  const { t } = useI18n();
+  if (!running) return null;
+
+  return (
+    <button
+      type="button"
+      className="term-warp-block__stop"
+      aria-label={t("terminal.feed.stop")}
+      title={t("terminal.feed.stop")}
+      onClick={(event) => {
+        event.stopPropagation();
+        void interruptShell(sessionId);
+      }}
+    >
+      ■
+    </button>
+  );
+}
+
 function ShellBlockToolbar({
   block,
   sessionId,
@@ -265,6 +286,7 @@ function ShellBlockToolbar({
 }) {
   const { t } = useI18n();
   const removeBlock = useBlocksStore((s) => s.removeBlock);
+  const running = block.status === "running";
 
   const handleDelete = async () => {
     const ok = await appConfirm(
@@ -279,6 +301,7 @@ function ShellBlockToolbar({
 
   return (
     <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
+      <ShellBlockStopButton sessionId={sessionId} running={running} />
       <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
       <button
         type="button"
@@ -745,6 +768,7 @@ function ShellBlockCard({
             <FeedSearchHighlightText text={cmd} query={searchHighlightQuery} />
           </span>
           {duration ? <span className="term-warp-prompt-line__dur">{duration}</span> : null}
+          {running ? <ShellBlockStopButton sessionId={sessionId} running /> : null}
           {running && !directoryPreview && !output && !block.attachedListing ? (
             <span className="term-warp-prompt-line__spinner" aria-label="执行中" />
           ) : null}

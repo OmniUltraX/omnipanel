@@ -22,6 +22,13 @@ describe("fuzzyMatch", () => {
     expect(exact).toBeGreaterThan(loose);
   });
 
+  it("ranks prefix matches above mid-string hits", () => {
+    expect(fuzzyMatchScore("a", "apps")).toBeGreaterThan(fuzzyMatchScore("a", "cloudcanal_home"));
+    expect(fuzzyMatchScore("con", "containerd")).toBeGreaterThan(
+      fuzzyMatchScore("con", "cloudcanal_home"),
+    );
+  });
+
   it("highlights matched characters for path initials", () => {
     const indices = fuzzyHighlightIndices("cnpm", "cd /dev/prod/m");
     expect(indices).toContain(0);
