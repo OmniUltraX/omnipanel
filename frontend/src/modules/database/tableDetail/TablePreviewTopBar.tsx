@@ -30,6 +30,10 @@ export interface TablePreviewTopBarProps {
   onUndo: () => void;
   onRedo: () => void;
   onCommit: () => void;
+  /** 工具栏悬停提示中的快捷键文案，如 "Ctrl+S" */
+  saveShortcutHint?: string;
+  undoShortcutHint?: string;
+  redoShortcutHint?: string;
   onExport: (clientX: number, clientY: number) => void;
   onTransposeToggle: () => void;
   onToggleColSidebar: () => void;
@@ -155,6 +159,9 @@ export function TablePreviewTopBar({
   onUndo,
   onRedo,
   onCommit,
+  saveShortcutHint,
+  undoShortcutHint,
+  redoShortcutHint,
   onExport,
   onTransposeToggle,
   onToggleColSidebar,
@@ -169,6 +176,15 @@ export function TablePreviewTopBar({
   const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
   const showingTo = Math.min((page + 1) * pageSize, totalRows);
   const canDiscard = dirtyCount > 0 && !isCommitting;
+  const undoTitle = undoShortcutHint
+    ? `${t("database.results.undo")} (${undoShortcutHint})`
+    : t("database.results.undo");
+  const redoTitle = redoShortcutHint
+    ? `${t("database.results.redo")} (${redoShortcutHint})`
+    : t("database.results.redo");
+  const commitTitle = saveShortcutHint
+    ? `${t("database.results.commitDirty", { count: dirtyCount })} (${saveShortcutHint})`
+    : t("database.results.commitDirty", { count: dirtyCount });
 
   return (
     <div className="db-table-topbar">
@@ -288,8 +304,8 @@ export function TablePreviewTopBar({
             variant="ghost"
             size="icon-sm"
             disabled={!canUndoDirty || isCommitting}
-            title={t("database.results.undo")}
-            aria-label={t("database.results.undo")}
+            title={undoTitle}
+            aria-label={undoTitle}
             onClick={onUndo}
           >
             <IconUndo />
@@ -298,8 +314,8 @@ export function TablePreviewTopBar({
             variant="ghost"
             size="icon-sm"
             disabled={!canRedoDirty || isCommitting}
-            title={t("database.results.redo")}
-            aria-label={t("database.results.redo")}
+            title={redoTitle}
+            aria-label={redoTitle}
             onClick={onRedo}
           >
             <IconRedo />
@@ -310,8 +326,8 @@ export function TablePreviewTopBar({
             variant={dirtyCount > 0 ? "primary" : "ghost"}
             size="icon-sm"
             disabled={dirtyCount === 0 || isCommitting}
-            title={t("database.results.commitDirty", { count: dirtyCount })}
-            aria-label={t("database.results.commitDirty", { count: dirtyCount })}
+            title={commitTitle}
+            aria-label={commitTitle}
             onClick={onCommit}
           >
             <IconCheck />

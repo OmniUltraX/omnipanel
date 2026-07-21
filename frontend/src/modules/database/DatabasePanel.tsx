@@ -53,6 +53,7 @@ import { quickInput } from "../../lib/quickInput";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
 import { isSqlEditorFocused, sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
+import { escapeSqlLiteral } from "./sql/escapeSqlLiteral";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
 import {
@@ -2114,11 +2115,7 @@ export function DatabasePanel() {
         }
       } else {
         const pkNames = pkCols.map((c) => c.name);
-        const escape = (v: unknown): string => {
-          if (v === null || v === undefined) return "NULL";
-          if (typeof v === "number") return String(v);
-          return `'${String(v).replace(/'/g, "\\'")}'`;
-        };
+        const escape = escapeSqlLiteral;
         for (const [rowKey, changes] of Object.entries(dirty)) {
           if (rowKey.startsWith(DELETED_ROW_KEY_PREFIX)) {
             const originalKey = rowKey.slice(DELETED_ROW_KEY_PREFIX.length);

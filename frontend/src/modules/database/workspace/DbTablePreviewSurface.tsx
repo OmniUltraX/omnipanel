@@ -50,6 +50,12 @@ import {
   relationSourceColumn,
 } from "../grid/tableColumnRelation";
 import { showToast } from "../../../stores/toastStore";
+import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
+import {
+  formatShortcutList,
+  getShortcutKeys,
+  matchesShortcut,
+} from "../../../stores/shortcutsStore";
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
@@ -58,6 +64,17 @@ interface DbTablePreviewSurfaceProps {
    * 网格与详情面板在 keep-alive 下保持挂载，切 Tab 才能瞬间切换。
    */
   active?: boolean;
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT" ||
+    target.isContentEditable ||
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+  );
 }
 
 function selectionTargetCount(key: string | undefined): number {
@@ -497,6 +514,48 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+
+      if (matchesShortcut(event, getShortcutKeys("save-table-data"))) {
+        if (useDbWorkspaceTabStore.getState().committingTabs.has(tab.id)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        // 先让内联/侧栏编辑器把当前值写入 dirty，再提交
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        cellEditorRef.current?.commitIfDirty();
+        window.setTimeout(() => {
+          const dirty = useDbWorkspaceTabStore.getState().tabDirtyRows[tab.id];
+          if (!dirty || Object.keys(dirty).length === 0) return;
+          if (useDbWorkspaceTabStore.getState().committingTabs.has(tab.id)) return;
+          void ws.commitTabDirty(tab.id).catch(() => {});
+        }, 0);
+        return;
+      }
+
+      if (matchesShortcut(event, getShortcutKeys("undo-table-data"))) {
+        if (isEditableKeyboardTarget(event.target)) return;
+        if (useDbWorkspaceTabStore.getState().committingTabs.has(tab.id)) return;
+        const history = useDbWorkspaceTabStore.getState().tabDirtyHistory[tab.id];
+        if (!history?.past.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        ws.undoTabDirty(tab.id);
+        return;
+      }
+
+      if (matchesShortcut(event, getShortcutKeys("redo-table-data"))) {
+        if (isEditableKeyboardTarget(event.target)) return;
+        if (useDbWorkspaceTabStore.getState().committingTabs.has(tab.id)) return;
+        const history = useDbWorkspaceTabStore.getState().tabDirtyHistory[tab.id];
+        if (!history?.future.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        ws.redoTabDirty(tab.id);
+        return;
+      }
+
       if (event.key !== "Escape") return;
       if (document.querySelector(".db-cell-preview-subwindow.subwindow-panel")) {
         return;
@@ -530,7 +589,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [active, detailCollapsed, gridActionsRef]);
+  }, [active, detailCollapsed, gridActionsRef, tab.id, ws]);
+
+  const saveShortcutLabel = formatShortcutList(getShortcutKeys("save-table-data"));
+  const undoShortcutLabel = formatShortcutList(getShortcutKeys("undo-table-data"));
+  const redoShortcutLabel = formatShortcutList(getShortcutKeys("redo-table-data"));
 
   const handlePositionChange = useCallback(
     (position: DatabaseTableDetailPosition) => {
@@ -798,6 +861,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             onCommit={() => {
               ws.commitTabDirty(tab.id).catch(() => {});
             }}
+            saveShortcutHint={saveShortcutLabel}
+            undoShortcutHint={undoShortcutLabel}
+            redoShortcutHint={redoShortcutLabel}
             onExport={(x, y) => ws.openExportMenu(x, y, tab.id)}
             onTransposeToggle={() => handleTransposedChange(!preview.transposed)}
             onToggleColSidebar={() => {

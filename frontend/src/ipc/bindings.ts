@@ -275,7 +275,7 @@ export const commands = {
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerBuildImage: (connectionId: string, context: DockerBuildContext, progressChannel: string) => typedError<DockerBuildResult, OmniError_Serialize>(__TAURI_INVOKE("docker_build_image", { connectionId, context, progressChannel })),
 	/**  在连接对应宿主机上执行 `docker …` CLI。 */
-	dockerHostRunCli: (connectionId: string, command: string) => typedError<DockerHostCliResult, OmniError_Serialize>(__TAURI_INVOKE("docker_host_run_cli", { connectionId, command })),
+	dockerHostRunCli: (connectionId: string, command: string, progressChannel: string) => typedError<DockerHostCliResult, OmniError_Serialize>(__TAURI_INVOKE("docker_host_run_cli", { connectionId, command, progressChannel })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerStreamStats: (connectionId: string, containerId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_stats", { connectionId, containerId })),
 	/**  卷详情（`docker volume inspect`）。 */

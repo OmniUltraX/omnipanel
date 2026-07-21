@@ -20,7 +20,8 @@ export type ShortcutCategory =
   | "ssh"
   | "ai"
   | "workspace"
-  | "sqlEditor";
+  | "sqlEditor"
+  | "database";
 
 /** 设置页快捷键折叠面板的显示顺序 */
 export const SHORTCUT_CATEGORY_ORDER: ShortcutCategory[] = [
@@ -31,6 +32,7 @@ export const SHORTCUT_CATEGORY_ORDER: ShortcutCategory[] = [
   "ai",
   "workspace",
   "sqlEditor",
+  "database",
 ];
 
 /** 单个可配置的快捷键定义 */
@@ -93,6 +95,11 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "format-sql-statement", category: "sqlEditor", labelKey: "settings.keybindings.items.formatSqlStatement", defaultKeys: ["Alt", "Shift", "KeyF"] },
   { id: "switch-connection", category: "sqlEditor", labelKey: "settings.keybindings.items.switchConnection", defaultKeys: ["Mod", "Shift", "KeyC"] },
   { id: "switch-database", category: "sqlEditor", labelKey: "settings.keybindings.items.switchDatabase", defaultKeys: ["Mod", "Shift", "KeyD"] },
+
+  // ─── database（表数据面板）─────────────────────────────────────
+  { id: "save-table-data", category: "database", labelKey: "settings.keybindings.items.saveTableData", defaultKeys: ["Mod", "KeyS"] },
+  { id: "undo-table-data", category: "database", labelKey: "settings.keybindings.items.undoTableData", defaultKeys: ["Mod", "KeyZ"] },
+  { id: "redo-table-data", category: "database", labelKey: "settings.keybindings.items.redoTableData", defaultKeys: ["Mod", "KeyY"], defaultAltKeys: [["Mod", "Shift", "KeyZ"]] },
 ];
 
 const SHORTCUT_DEFS_BY_ID: Record<string, ShortcutDef> = Object.fromEntries(

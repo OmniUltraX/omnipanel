@@ -175,17 +175,25 @@ pub async fn docker_build_image(
 }
 
 /// 在连接对应宿主机上执行 `docker …` CLI（搜索页「运行容器」等）。
+/// `progress_channel`：按行推送 stdout/stderr，便于前端实时展示。
 #[tauri::command]
 #[specta::specta]
 pub async fn docker_host_run_cli(
+    app: AppHandle,
     state: State<'_, AppState>,
     connection_id: String,
     command: String,
+    progress_channel: String,
 ) -> Result<DockerHostCliResult, OmniError> {
     let target = resolve_target(&state, &connection_id).await?;
+    let app_for_cb = app.clone();
+    let channel = progress_channel.clone();
+    let on_line = move |line: String| {
+        let _ = app_for_cb.emit(&channel, &line);
+    };
     match target {
-        DockerTarget::Local => run_local_docker_cli(&command).await,
-        DockerTarget::Ssh(session) => run_ssh_docker_cli(&session, &command).await,
+        DockerTarget::Local => run_local_docker_cli(&command, on_line).await,
+        DockerTarget::Ssh(session) => run_ssh_docker_cli(&session, &command, on_line).await,
         DockerTarget::Remote(_) => Err(OmniError::new(
             ErrorCode::InvalidInput,
             "远程 Engine 连接不支持在宿主机执行 docker CLI，请改用 SSH / 本地连接",

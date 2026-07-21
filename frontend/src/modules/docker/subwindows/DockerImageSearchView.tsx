@@ -11,6 +11,10 @@ import {
 import { formatIpcError, unwrapCommand } from "../../../ipc/result";
 import { showToast } from "../../../stores/toastStore";
 import { buildDockerImageHomepageUrl } from "../dockerImageHomepageUrl";
+import {
+  ensureDockerRunPullNever,
+  extractDockerRunImage,
+} from "../dockerRunCommand";
 import { DownloadIcon, ImageLayersIcon, PlayIcon, StarIcon } from "../icons";
 import { DockerImageLogDialog } from "./DockerImageLogDialog";
 import { DockerImageRunCommandDialog } from "./DockerImageRunCommandDialog";
@@ -64,6 +68,23 @@ function formatProgressLine(p: DockerImageProgress): string {
   }
   if (p.id) parts.push(`[${p.id}]`);
   return parts.filter(Boolean).join(" ");
+}
+
+/** 本地是否已有该镜像（`redis` 与 `redis:latest` 互通）。 */
+async function hasLocalDockerImage(connectionId: string, imageRef: string): Promise<boolean> {
+  const refs = [imageRef];
+  if (!imageRef.includes(":") && !imageRef.includes("@")) {
+    refs.push(`${imageRef}:latest`);
+  }
+  for (const ref of refs) {
+    try {
+      await unwrapCommand(commands.dockerInspectImage(connectionId, ref));
+      return true;
+    } catch {
+      // try next
+    }
+  }
+  return false;
 }
 
 function BackIcon() {
@@ -203,13 +224,47 @@ export function DockerImageSearchView({
         setRunLogTitle(t("docker.imagesPanel.runLogTitle"));
         setRunLog(`$ ${command}\n\n`);
         setRunStatus({ kind: "info", message: t("docker.imagesPanel.running") });
+
+        let pullUnlisten: (() => void) | undefined;
+        let runUnlisten: (() => void) | undefined;
         try {
-          const result = await unwrapCommand(commands.dockerHostRunCli(connectionId, command));
-          const chunks: string[] = [];
-          if (result.stdout?.trim()) chunks.push(result.stdout.trimEnd());
-          if (result.stderr?.trim()) chunks.push(result.stderr.trimEnd());
-          chunks.push(`\n[exit ${result.exitCode}]`);
-          setRunLog((prev) => `${prev}${chunks.join("\n")}\n`);
+          // 仅在本地确实没有镜像时才 pull；已有镜像时强制 pull 只会掩盖真正的 CLI 挂起问题。
+          // 仍注入 --pull=never，避免 docker CLI 再去探测 Hub。
+          const imageRef = extractDockerRunImage(command);
+          if (imageRef) {
+            const present = await hasLocalDockerImage(connectionId, imageRef);
+            if (present) {
+              setRunLog((prev) => `${prev}${t("docker.imagesPanel.runPullSkip")}\n`);
+            } else {
+              setRunStatus({ kind: "info", message: t("docker.imagesPanel.runPulling") });
+              setRunLog((prev) => `${prev}${t("docker.imagesPanel.runPulling")}\n`);
+              const pullChannel = `docker-run-pull-${Date.now()}`;
+              pullUnlisten = await listen<DockerImageProgress>(pullChannel, (event) => {
+                const line = formatProgressLine(event.payload);
+                if (!line.trim()) return;
+                setRunLog((prev) => `${prev}${line}\n`);
+              });
+              await unwrapCommand(commands.dockerPullImage(connectionId, imageRef, pullChannel));
+              pullUnlisten?.();
+              pullUnlisten = undefined;
+              setRunLog((prev) => `${prev}${t("docker.imagesPanel.runPullDone")}\n`);
+            }
+          }
+
+          const runCmd = ensureDockerRunPullNever(command);
+          setRunLog((prev) => `${prev}\n$ ${runCmd}\n`);
+          setRunStatus({ kind: "info", message: t("docker.imagesPanel.running") });
+
+          const runChannel = `docker-run-cli-${Date.now()}`;
+          runUnlisten = await listen<string>(runChannel, (event) => {
+            const line = event.payload;
+            if (!line?.trim()) return;
+            setRunLog((prev) => `${prev}${line}\n`);
+          });
+          const result = await unwrapCommand(
+            commands.dockerHostRunCli(connectionId, runCmd, runChannel),
+          );
+          setRunLog((prev) => `${prev}\n[exit ${result.exitCode}]\n`);
           if (result.exitCode === 0) {
             setRunStatus({ kind: "success", message: t("docker.imagesPanel.runSuccess") });
             showToast(t("docker.imagesPanel.runSuccess"));
@@ -225,6 +280,8 @@ export function DockerImageSearchView({
           setRunLog((prev) => `${prev}${detail}\n`);
           setRunStatus({ kind: "error", message: detail });
         } finally {
+          pullUnlisten?.();
+          runUnlisten?.();
           setRunBusy(false);
         }
       })();
