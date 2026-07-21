@@ -9,7 +9,7 @@ use std::time::Duration;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::Deserialize;
 
-use crate::model::DockerImageSearchResult;
+use crate::model::{DockerImageSearchPage, DockerImageSearchResult};
 
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -98,14 +98,15 @@ struct HubV2SearchItem {
 }
 
 /// 按 registry-mirrors 顺序尝试 Hub 兼容搜索；全部失败则返回错误。
+/// 成功时 `source_mirror` 为实际命中的 mirror base。
 pub async fn search_via_registry_mirrors(
     mirrors: &[String],
     term: &str,
     limit: u32,
-) -> OmniResult<Vec<DockerImageSearchResult>> {
+) -> OmniResult<DockerImageSearchPage> {
     let term = term.trim();
     if term.is_empty() {
-        return Ok(Vec::new());
+        return Ok(DockerImageSearchPage::default());
     }
     if mirrors.is_empty() {
         return Err(OmniError::new(
@@ -129,7 +130,10 @@ pub async fn search_via_registry_mirrors(
             Ok(mut rows) => {
                 // v1 通常无 pull_count：短超时尝试 Hub v2 补全（失败则忽略）
                 enrich_pull_counts_from_hub_v2(&client, term, limit, &mut rows).await;
-                return Ok(rows);
+                return Ok(DockerImageSearchPage {
+                    results: rows,
+                    source_mirror: Some(mirror.clone()),
+                });
             }
             Err(err) => errors.push(format!("{mirror}: {err}")),
         }
@@ -322,26 +326,34 @@ fn urlencoding_encode(value: &str) -> String {
 }
 
 /// 有 mirrors 则走镜像站；否则执行 fallback。
+/// 镜像站命中时带上 `source_mirror`；Hub/CLI 回退时为 None。
 pub async fn search_images_prefer_mirrors<F, Fut>(
     daemon_json: &str,
     term: &str,
     limit: u32,
     fallback: F,
-) -> OmniResult<Vec<DockerImageSearchResult>>
+) -> OmniResult<DockerImageSearchPage>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = OmniResult<Vec<DockerImageSearchResult>>>,
 {
     let mirrors = parse_registry_mirrors(daemon_json);
     if mirrors.is_empty() {
-        return fallback().await;
+        let results = fallback().await?;
+        return Ok(DockerImageSearchPage {
+            results,
+            source_mirror: None,
+        });
     }
     match search_via_registry_mirrors(&mirrors, term, limit).await {
-        Ok(rows) => Ok(rows),
+        Ok(page) => Ok(page),
         Err(mirror_err) => {
             // 镜像站全失败时再降级 Hub（可能仍然超时，但给出完整 cause）
             match fallback().await {
-                Ok(rows) if !rows.is_empty() => Ok(rows),
+                Ok(rows) if !rows.is_empty() => Ok(DockerImageSearchPage {
+                    results: rows,
+                    source_mirror: None,
+                }),
                 Ok(_) => Err(mirror_err),
                 Err(hub_err) => Err(OmniError::new(
                     ErrorCode::Connection,

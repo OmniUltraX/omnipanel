@@ -21,7 +21,7 @@ import {
   containersForImage,
   groupContainersByImageId,
 } from "./dockerImageContainers";
-import { DockerImageSearchSubWindow } from "./subwindows/DockerImageSearchSubWindow";
+import { DockerImageSearchView } from "./subwindows/DockerImageSearchView";
 import { dockerContainerMatchesSearch, dockerImageMatchesSearch } from "./dockerTreeSearch";
 import { formatBytes } from "../../stores/sshStatsStore";
 import { containerRowLabel, imageRowLabel, imageRowSizeLabel } from "./dockerResourceLabels";
@@ -32,6 +32,8 @@ export interface DockerImagePanelProps {
   /** 当前 Tab 是否处于激活态；激活时自动拉取镜像列表。 */
   isActive?: boolean;
 }
+
+type PanelView = "list" | "search";
 
 type SortColumn = "name" | "size" | "created" | "containers";
 type SortDirection = "asc" | "desc";
@@ -124,7 +126,7 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   );
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [view, setView] = useState<PanelView>("list");
   const [pendingRemove, setPendingRemove] = useState<Record<string, boolean>>({});
 
   const refreshSidebarImages = useCallback(() => {
@@ -369,44 +371,47 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
       value={search}
       onChange={setSearch}
       placeholder={t("docker.imagesPanel.search")}
-      enabled
+      enabled={view === "list"}
     >
-      <div className="db-tables-panel-body">
-        <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
-      </div>
-      <div className="db-tables-panel-meta">
-        <div className="docker-image-panel__meta-left">
-          <Button
-            type="button"
-            variant="icon"
-            size="icon-xs"
-            title={t("docker.imagesPanel.pull")}
-            aria-label={t("docker.imagesPanel.pull")}
-            disabled={loading}
-            onClick={() => setSearchOpen(true)}
-          >
-            <IconSearch size={14} />
-          </Button>
-          <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
-          <span className="db-tables-panel-meta-text">
-            {loading
-              ? t("common.loading")
-              : t("docker.imagesPanel.count", { count: sortedImages.length })}
-          </span>
-          {!loading && sortedImages.length > 0 ? (
-            <span className="db-tables-panel-meta-text docker-image-panel__meta-size">
-              {t("docker.imagesPanel.totalSize", { size: totalSizeLabel })}
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <DockerImageSearchSubWindow
-        open={searchOpen}
-        connectionId={connection.connectionId}
-        onClose={() => setSearchOpen(false)}
-        onPulled={() => void refresh()}
-      />
+      {view === "search" ? (
+        <DockerImageSearchView
+          connectionId={connection.connectionId}
+          onBack={() => setView("list")}
+          onImagesChanged={() => void refresh()}
+        />
+      ) : (
+        <>
+          <div className="db-tables-panel-body">
+            <div className="db-tables-panel-grid-wrap">{renderTable()}</div>
+          </div>
+          <div className="db-tables-panel-meta">
+            <div className="docker-image-panel__meta-left">
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                title={t("docker.imagesPanel.pull")}
+                aria-label={t("docker.imagesPanel.pull")}
+                disabled={loading}
+                onClick={() => setView("search")}
+              >
+                <IconSearch size={14} />
+              </Button>
+              <DbPanelMetaRefreshButton onClick={() => void refresh()} disabled={loading} busy={loading} />
+              <span className="db-tables-panel-meta-text">
+                {loading
+                  ? t("common.loading")
+                  : t("docker.imagesPanel.count", { count: sortedImages.length })}
+              </span>
+              {!loading && sortedImages.length > 0 ? (
+                <span className="db-tables-panel-meta-text docker-image-panel__meta-size">
+                  {t("docker.imagesPanel.totalSize", { size: totalSizeLabel })}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </>
+      )}
     </ScopedSearch>
   );
 }

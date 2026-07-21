@@ -80,7 +80,7 @@ pub async fn docker_search_images(
     connection_id: String,
     term: String,
     limit: u32,
-) -> Result<Vec<DockerImageSearchResult>, OmniError> {
+) -> Result<DockerImageSearchPage, OmniError> {
     resolve_adapter(&state, &connection_id)
         .await?
         .search_images(&term, limit)
@@ -172,4 +172,27 @@ pub async fn docker_build_image(
         let _ = app_for_cb.emit(&channel, &p);
     };
     adapter.build_image(&context, Some(Box::new(cb) as _)).await
+}
+
+/// 在连接对应宿主机上执行 `docker …` CLI（搜索页「运行容器」等）。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_host_run_cli(
+    state: State<'_, AppState>,
+    connection_id: String,
+    command: String,
+) -> Result<DockerHostCliResult, OmniError> {
+    let target = resolve_target(&state, &connection_id).await?;
+    match target {
+        DockerTarget::Local => run_local_docker_cli(&command).await,
+        DockerTarget::Ssh(session) => run_ssh_docker_cli(&session, &command).await,
+        DockerTarget::Remote(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "远程 Engine 连接不支持在宿主机执行 docker CLI，请改用 SSH / 本地连接",
+        )),
+        DockerTarget::OnePanel(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "1Panel 连接暂不支持在宿主机执行 docker CLI",
+        )),
+    }
 }

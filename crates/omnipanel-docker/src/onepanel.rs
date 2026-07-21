@@ -23,7 +23,7 @@ use crate::{
     DockerContainerAction, DockerContainerDetail, DockerContainerLogInfo, DockerContainerStats,
     DockerContainerSummary, DockerCreateContainerRequest, DockerCreateNetworkRequest,
     DockerCreateServiceRequest, DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail,
-    DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchResult, DockerImageSummary,
+    DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchPage, DockerImageSummary,
     DockerKeyValue, DockerLogLine, DockerLogQuery, DockerNetworkContainer, DockerNetworkDetail,
     DockerNetworkSubnet, DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe,
     DockerPruneResult, DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary,
@@ -1711,10 +1711,10 @@ impl DockerAdapter for OnePanelAdapter {
         &self,
         term: &str,
         limit: u32,
-    ) -> OmniResult<Vec<DockerImageSearchResult>> {
+    ) -> OmniResult<DockerImageSearchPage> {
         let term = term.trim();
         if term.is_empty() {
-            return Ok(Vec::new());
+            return Ok(DockerImageSearchPage::default());
         }
         let limit = limit.max(1).min(100);
         // 1Panel：优先读面板上的 daemon.json registry-mirrors，再由本机访问镜像站搜索

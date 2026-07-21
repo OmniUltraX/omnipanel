@@ -11,6 +11,7 @@ mod compose;
 mod compose_files;
 mod container_dir_ls;
 mod daemon_config;
+mod host_cli;
 mod image_search;
 mod log_util;
 mod bollard_error;
@@ -30,6 +31,7 @@ use std::sync::Arc;
 
 pub use compose::aggregate_compose;
 pub use daemon_config::remote_engine_daemon_config;
+pub use host_cli::{run_local_docker_cli, run_ssh_docker_cli, validate_docker_cli_command};
 pub use local::{DockerExecOutput, DockerExecSession, DockerOneShotExecOutput, LocalDockerAdapter};
 pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;
@@ -110,7 +112,7 @@ pub trait DockerAdapter: Send + Sync {
         &self,
         term: &str,
         limit: u32,
-    ) -> OmniResult<Vec<DockerImageSearchResult>>;
+    ) -> OmniResult<DockerImageSearchPage>;
     /// Compose 项目识别。
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>>;
     /// 拉取镜像。`progress` 回调（可选）逐条上报拉取阶段。

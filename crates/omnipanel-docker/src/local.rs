@@ -910,10 +910,10 @@ impl DockerAdapter for LocalDockerAdapter {
         &self,
         term: &str,
         limit: u32,
-    ) -> OmniResult<Vec<DockerImageSearchResult>> {
+    ) -> OmniResult<DockerImageSearchPage> {
         let term = term.trim();
         if term.is_empty() {
-            return Ok(Vec::new());
+            return Ok(DockerImageSearchPage::default());
         }
         let limit = limit.max(1).min(100);
         let daemon = self.read_daemon_config().await.ok();

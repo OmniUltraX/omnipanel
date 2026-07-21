@@ -18,13 +18,14 @@ use omnipanel_docker::{
     DockerCreateContainerRequest, DockerCreateNetworkRequest, DockerCreateServiceRequest,
     DockerCreateVolumeRequest, DockerComposeProjectFiles, DockerComposeReadFilesRequest,
     DockerComposeWriteFilesRequest, DockerDaemonConfigFile, DockerFileEntry, DockerImageDetail,
-    DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchResult, DockerImageSummary,
-    DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
+    DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchPage, DockerImageSummary,
+    DockerHostCliResult, DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
     DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
     DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
     DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, LocalDockerAdapter,
     OnePanelAdapter, OnePanelClient, SshDockerAdapter, bollard, local_engine_status,
-    remote_engine_daemon_config, restart_local_engine, start_local_engine,
+    remote_engine_daemon_config, restart_local_engine, run_local_docker_cli, run_ssh_docker_cli,
+    start_local_engine,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshConfig, SshSession};

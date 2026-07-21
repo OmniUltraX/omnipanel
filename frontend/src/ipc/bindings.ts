@@ -216,7 +216,7 @@ export const commands = {
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerPruneImages: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_images", { connectionId })),
 	/**  搜索镜像仓库（`docker search`）。 */
-	dockerSearchImages: (connectionId: string, term: string, limit: number) => typedError<DockerImageSearchResult[], OmniError_Serialize>(__TAURI_INVOKE("docker_search_images", { connectionId, term, limit })),
+	dockerSearchImages: (connectionId: string, term: string, limit: number) => typedError<DockerImageSearchPage, OmniError_Serialize>(__TAURI_INVOKE("docker_search_images", { connectionId, term, limit })),
 	/**  清理构建缓存。 */
 	dockerPruneBuildCache: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_build_cache", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -274,6 +274,8 @@ export const commands = {
 	dockerTagImage: (connectionId: string, source: string, target: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_tag_image", { connectionId, source, target })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerBuildImage: (connectionId: string, context: DockerBuildContext, progressChannel: string) => typedError<DockerBuildResult, OmniError_Serialize>(__TAURI_INVOKE("docker_build_image", { connectionId, context, progressChannel })),
+	/**  在连接对应宿主机上执行 `docker …` CLI。 */
+	dockerHostRunCli: (connectionId: string, command: string) => typedError<DockerHostCliResult, OmniError_Serialize>(__TAURI_INVOKE("docker_host_run_cli", { connectionId, command })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerStreamStats: (connectionId: string, containerId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_stats", { connectionId, containerId })),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -1797,6 +1799,13 @@ export type DockerImageSearchResult = {
 	isAutomated: boolean,
 };
 
+/**  镜像搜索整页结果：条目列表 + 本次实际命中的 registry-mirrors base。 */
+export type DockerImageSearchPage = {
+	results: DockerImageSearchResult[],
+	/**  本次搜索实际命中的 mirror（如 `https://docker.1ms.run`）；Hub/CLI 回退时为 null。 */
+	sourceMirror: string | null,
+};
+
 /**  镜像列表项。 */
 export type DockerImageSummary = {
 	id: string,
@@ -1952,6 +1961,21 @@ export type DockerPullResult = {
 	image: string,
 	tag: string,
 	digest: string | null,
+};
+
+/**  宿主机一次性执行 `docker …` CLI 的结果。 */
+export type DockerHostCliResult = {
+	stdout: string,
+	stderr: string,
+	exitCode: number,
+};
+
+/**  镜像拉取/推送/构建的进度事件。 */
+export type DockerImageProgress = {
+	id: string,
+	status: string,
+	progress: number | null,
+	detail: string | null,
 };
 
 /**  资源统计（总览页）。 */

@@ -74,7 +74,7 @@ impl DockerAdapter for SshDockerAdapter {
         &self,
         term: &str,
         limit: u32,
-    ) -> OmniResult<Vec<DockerImageSearchResult>> {
+    ) -> OmniResult<DockerImageSearchPage> {
         search_images(&*self.session, term, limit).await
     }
     async fn inspect_image(&self, id: &str) -> OmniResult<DockerImageDetail> {
@@ -576,10 +576,10 @@ pub async fn search_images(
     session: &SshSession,
     term: &str,
     limit: u32,
-) -> OmniResult<Vec<DockerImageSearchResult>> {
+) -> OmniResult<DockerImageSearchPage> {
     let term = term.trim();
     if term.is_empty() {
-        return Ok(Vec::new());
+        return Ok(DockerImageSearchPage::default());
     }
     let limit = limit.max(1).min(100);
     let daemon = crate::daemon_config::read_ssh_daemon_config(session)

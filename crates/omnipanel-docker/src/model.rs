@@ -368,6 +368,15 @@ pub struct DockerImageSearchResult {
     pub is_automated: bool,
 }
 
+/// 镜像搜索整页结果：条目列表 + 本次实际命中的 registry-mirrors base。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerImageSearchPage {
+    pub results: Vec<DockerImageSearchResult>,
+    /// 本次搜索实际命中的 mirror（如 `https://docker.1ms.run`）；Hub/CLI 回退时为 null。
+    pub source_mirror: Option<String>,
+}
+
 /// 容器日志文件信息（日志路径 + 可选文件大小）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -493,6 +502,15 @@ pub struct DockerPullResult {
     pub image: String,
     pub tag: String,
     pub digest: Option<String>,
+}
+
+/// 宿主机一次性执行 `docker …` CLI 的结果（用于搜索页「运行容器」等）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerHostCliResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
 }
 
 /// 镜像构建结果。
