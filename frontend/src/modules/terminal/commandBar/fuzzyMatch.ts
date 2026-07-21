@@ -170,10 +170,15 @@ export function fuzzyMatchScore(query: string, target: string): number {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return 1;
   const lower = target.toLowerCase();
-  return Math.max(
+  let score = Math.max(
     scoreSubsequence(normalized, lower),
     scoreSubsequence(normalized, collapsedText(target)),
     scoreSubsequence(normalized, pathInitials(target)),
     scorePathInitialsLoose(normalized, target),
   );
+  // 前缀匹配显著优先于中间命中（如 `a` → apps 高于 cloudcanal）
+  if (score > 0 && lower.startsWith(normalized)) {
+    score += 100;
+  }
+  return score;
 }

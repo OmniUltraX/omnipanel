@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CompletionCandidate, TerminalCompletionContext } from "./types";
 import { suggestHistory } from "./providers/historyProvider";
 import { suggestTemplates } from "./providers/templateProvider";
-import { suggestPaths, suggestWorkspaceResources } from "./providers/pathProvider";
+import {
+  suggestPaths,
+  suggestPathsCached,
+  suggestWorkspaceResources,
+} from "./providers/pathProvider";
 
 function mergeCandidates(lists: CompletionCandidate[][]): CompletionCandidate[] {
   const seen = new Set<string>();
@@ -23,17 +27,22 @@ function mergeCandidates(lists: CompletionCandidate[][]): CompletionCandidate[] 
 }
 
 interface UseCommandCompletionOptions {
-  /** 仅在用户打开补全浮层（如按 Tab）时请求路径列表，避免每次按键打 IPC */
+  /** 浮层未打开时不做任何补全计算，避免连续输入卡顿 */
+  enabled?: boolean;
+  /** 仅在补全浮层打开时请求路径列表（配合目录缓存） */
   fetchPaths?: boolean;
 }
+
+/** 缓存未命中时的路径 IPC 防抖 */
+const PATH_FETCH_DEBOUNCE_MS = 80;
 
 export function useCommandCompletion(
   ctx: TerminalCompletionContext | null,
   options: UseCommandCompletionOptions = {},
 ) {
-  const { fetchPaths = false } = options;
+  const { fetchPaths = false, enabled = true } = options;
   const [candidates, setCandidates] = useState<CompletionCandidate[]>([]);
-  const [loading, setLoading] = useState(false);
+  const seqRef = useRef(0);
 
   const ctxKey = useMemo(
     () =>
@@ -43,30 +52,56 @@ export function useCommandCompletion(
     [ctx, fetchPaths],
   );
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    if (!enabled) return;
+
     if (!ctx) {
       setCandidates([]);
       return;
     }
-    setLoading(true);
-    try {
-      const sync = [
-        suggestHistory(ctx),
-        suggestTemplates(ctx),
-        suggestWorkspaceResources(ctx),
-      ];
-      const paths = fetchPaths ? await suggestPaths(ctx) : [];
-      setCandidates(mergeCandidates([...sync, paths]));
-    } finally {
-      setLoading(false);
+
+    const seq = ++seqRef.current;
+    let cancelled = false;
+
+    const syncLists = [
+      suggestHistory(ctx),
+      suggestTemplates(ctx),
+      suggestWorkspaceResources(ctx),
+    ];
+
+    if (!fetchPaths) {
+      setCandidates(mergeCandidates(syncLists));
+      return;
     }
-  }, [ctx, fetchPaths]);
 
-  useEffect(() => {
-    void refresh();
-  }, [ctxKey, refresh]);
+    const cachedPaths = suggestPathsCached(ctx);
+    if (cachedPaths) {
+      setCandidates(mergeCandidates([...syncLists, cachedPaths]));
+      return;
+    }
 
-  return { candidates, loading, refresh };
+    // 缓存未命中：先展示同步候选，路径请求防抖合并
+    setCandidates(mergeCandidates(syncLists));
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const paths = await suggestPaths(ctx);
+          if (cancelled || seq !== seqRef.current) return;
+          setCandidates(mergeCandidates([...syncLists, paths]));
+        } catch {
+          /* 保持同步候选 */
+        }
+      })();
+    }, PATH_FETCH_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [ctx, ctxKey, enabled, fetchPaths]);
+
+  return { candidates };
 }
 
 export function applyCompletionCandidate(

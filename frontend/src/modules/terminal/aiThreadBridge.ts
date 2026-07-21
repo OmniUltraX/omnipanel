@@ -1,5 +1,10 @@
 import type { ThreadMessage } from "@assistant-ui/react";
-import type { AiMessage, ToolCallState } from "../../stores/aiStore";
+import {
+  normalizeAiMessage,
+  type AiMessage,
+  type AiMessagePart,
+  type ToolCallState,
+} from "../../stores/aiStore";
 import { aiMessagesToThreadMessages } from "../../components/ai/assistant-ui/messageBridge";
 import type { AiThreadItem, AiThreadMessage, AiThreadToolCall, TerminalBlock } from "../../stores/blocksStore";
 import { isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
@@ -79,7 +84,35 @@ function mapToolStatus(status: AiThreadToolCall["status"]): ToolCallState["statu
   return "failed";
 }
 
-/** 将终端 AI 线程转为侧栏 AI 助手同款 AiMessage 列表 */
+function toolCallToPart(toolCall: AiThreadToolCall): AiMessagePart {
+  return {
+    type: "tool-call",
+    id: toolCall.id,
+    name: toolCall.toolName,
+    arguments: toolCall.args,
+    result: toolCall.result,
+    status: mapToolStatus(toolCall.status),
+  };
+}
+
+function assistantMessageParts(
+  item: AiThreadMessage,
+  followingTools: AiThreadToolCall[],
+): AiMessagePart[] {
+  const parts: AiMessagePart[] = [];
+  if (item.reasoning?.trim()) {
+    parts.push({ type: "reasoning", text: item.reasoning.trim() });
+  }
+  if (item.content) {
+    parts.push({ type: "text", text: item.content });
+  }
+  for (const tool of followingTools) {
+    parts.push(toolCallToPart(tool));
+  }
+  return parts;
+}
+
+/** 将终端 AI 线程转为侧栏 AI 助手同款 AiMessage 列表（保序 parts） */
 export function aiThreadToAiMessages(
   thread: AiThreadItem[],
   options?: { isStreaming?: boolean },
@@ -103,62 +136,55 @@ export function aiThreadToAiMessages(
     const item = items[index];
     if (isAiThreadMessage(item)) {
       if (item.role === "user") {
-        messages.push({
-          id: item.id,
-          role: "user",
-          content: item.content,
-          timestamp: item.timestamp ?? Date.now(),
-        });
+        messages.push(
+          normalizeAiMessage({
+            id: item.id,
+            role: "user",
+            content: item.content,
+            parts: item.content ? [{ type: "text", text: item.content }] : [],
+            timestamp: item.timestamp ?? Date.now(),
+          }),
+        );
         index += 1;
         continue;
       }
 
-      const toolCalls: ToolCallState[] = [];
+      const followingTools: AiThreadToolCall[] = [];
       index += 1;
       while (index < items.length && isAiThreadToolCall(items[index])) {
-        const toolCall = items[index] as AiThreadToolCall;
-        toolCalls.push({
-          id: toolCall.id,
-          name: toolCall.toolName,
-          arguments: toolCall.args,
-          result: toolCall.result,
-          status: mapToolStatus(toolCall.status),
-        });
+        followingTools.push(items[index] as AiThreadToolCall);
         index += 1;
       }
 
-      messages.push({
-        id: item.id,
-        role: "assistant",
-        content: item.content,
-        reasoningContent: item.reasoning?.trim() || undefined,
-        timestamp: item.timestamp ?? Date.now(),
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        isStreaming: item.id === streamingAssistantId,
-        isReasoningStreaming:
-          item.id === streamingAssistantId &&
-          !item.content.trim() &&
-          (Boolean(item.reasoning?.trim()) || Boolean(options?.isStreaming)),
-      });
+      const parts = assistantMessageParts(item, followingTools);
+      messages.push(
+        normalizeAiMessage({
+          id: item.id,
+          role: "assistant",
+          content: item.content,
+          reasoningContent: item.reasoning?.trim() || undefined,
+          parts,
+          timestamp: item.timestamp ?? Date.now(),
+          isStreaming: item.id === streamingAssistantId,
+          isReasoningStreaming:
+            item.id === streamingAssistantId &&
+            !item.content.trim() &&
+            (Boolean(item.reasoning?.trim()) || Boolean(options?.isStreaming)),
+        }),
+      );
       continue;
     }
 
     if (isAiThreadToolCall(item)) {
-      messages.push({
-        id: `tool-wrap-${item.id}`,
-        role: "assistant",
-        content: "",
-        timestamp: Date.now(),
-        toolCalls: [
-          {
-            id: item.id,
-            name: item.toolName,
-            arguments: item.args,
-            result: item.result,
-            status: mapToolStatus(item.status),
-          },
-        ],
-      });
+      messages.push(
+        normalizeAiMessage({
+          id: `tool-wrap-${item.id}`,
+          role: "assistant",
+          content: "",
+          parts: [toolCallToPart(item)],
+          timestamp: Date.now(),
+        }),
+      );
       index += 1;
       continue;
     }
@@ -206,12 +232,13 @@ export function aiThreadToThreadMessages(
           index += 1;
           continue;
         }
-        const aiMsg: AiMessage = {
+        const aiMsg = normalizeAiMessage({
           id: item.id,
           role: "user",
           content: item.content,
+          parts: item.content ? [{ type: "text", text: item.content }] : [],
           timestamp: item.timestamp ?? Date.now(),
-        };
+        });
         const threadMsg = aiMessagesToThreadMessages([aiMsg])[0];
         threadMessageCache.set(signature, threadMsg);
         messages.push(threadMsg);
@@ -224,29 +251,22 @@ export function aiThreadToThreadMessages(
         const signature = buildAiThreadItemSignature(item);
         let cached = threadMessageCache.get(signature);
         if (!cached) {
-          const toolCalls: ToolCallState[] = [];
+          const followingTools: AiThreadToolCall[] = [];
           let scan = index + 1;
           while (scan < items.length && isAiThreadToolCall(items[scan])) {
-            const toolCall = items[scan] as AiThreadToolCall;
-            toolCalls.push({
-              id: toolCall.id,
-              name: toolCall.toolName,
-              arguments: toolCall.args,
-              result: toolCall.result,
-              status: mapToolStatus(toolCall.status),
-            });
+            followingTools.push(items[scan] as AiThreadToolCall);
             scan += 1;
           }
-          const aiMsg: AiMessage = {
+          const aiMsg = normalizeAiMessage({
             id: item.id,
             role: "assistant",
             content: item.content,
             reasoningContent: item.reasoning?.trim() || undefined,
+            parts: assistantMessageParts(item, followingTools),
             timestamp: item.timestamp ?? Date.now(),
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             isStreaming: false,
             isReasoningStreaming: false,
-          };
+          });
           cached = aiMessagesToThreadMessages([aiMsg])[0];
           threadMessageCache.set(signature, cached);
         }
@@ -269,21 +289,13 @@ export function aiThreadToThreadMessages(
       const signature = buildAiThreadItemSignature(item);
       let cached = threadMessageCache.get(signature);
       if (!cached) {
-        const aiMsg: AiMessage = {
+        const aiMsg = normalizeAiMessage({
           id: `tool-wrap-${item.id}`,
           role: "assistant",
           content: "",
+          parts: [toolCallToPart(item)],
           timestamp: Date.now(),
-          toolCalls: [
-            {
-              id: item.id,
-              name: item.toolName,
-              arguments: item.args,
-              result: item.result,
-              status: mapToolStatus(item.status),
-            },
-          ],
-        };
+        });
         cached = aiMessagesToThreadMessages([aiMsg])[0];
         threadMessageCache.set(signature, cached);
       }

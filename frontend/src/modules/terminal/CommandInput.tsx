@@ -49,8 +49,6 @@ import { findTerminalPane, useTerminalStore } from "../../stores/terminalStore";
 import { blockContextLabel } from "./formatTerminalBlockForAiContext";
 import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
 import { useTerminalAiInputContextStore } from "./terminalAiInputContextStore";
-import { isPathCompletionInput } from "./commandBar/providers/pathProvider";
-
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
 const EMPTY_ATTACHED_BLOCK_IDS: string[] = [];
@@ -101,6 +99,9 @@ export type CommandInputProps = {
   sessionType?: "local" | "remote";
   lastError?: TerminalBlock | null;
   disabled?: boolean;
+  /** 有命令在 PTY 上运行时：禁止发送，主按钮改为停止。 */
+  commandBusy?: boolean;
+  onStop?: () => void;
 };
 
 export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
@@ -114,6 +115,8 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       sessionType = "local",
       lastError = null,
       disabled = false,
+      commandBusy = false,
+      onStop,
     },
     ref,
   ) {
@@ -189,13 +192,10 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       };
     }, [cursor, disabled, resourceId, sessionCwd, sessionId, sessionType, value]);
 
-    const wantsPathCompletion = useMemo(
-      () => (completionCtx ? isPathCompletionInput(completionCtx) : false),
-      [completionCtx],
-    );
-
     const { candidates } = useCommandCompletion(completionCtx, {
-      fetchPaths: completionOpen || wantsPathCompletion,
+      // 浮层关闭时不跑补全；路径列举仅在打开时请求（目录有缓存）
+      enabled: completionOpen,
+      fetchPaths: completionOpen,
     });
 
     const filteredCandidates = useMemo(
@@ -359,6 +359,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
     );
 
     const submit = useCallback(() => {
+      if (commandBusy) return;
       const trimmed = value.trim();
       if (!trimmed) return;
 
@@ -400,7 +401,16 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       closeHistory();
       resetBrowse();
       return;
-    }, [closeCompletion, closeHistory, cwd, onSend, resetBrowse, submitInlineAi, value]);
+    }, [
+      closeCompletion,
+      closeHistory,
+      commandBusy,
+      cwd,
+      onSend,
+      resetBrowse,
+      submitInlineAi,
+      value,
+    ]);
 
     useLayoutEffect(() => {
       const element = textareaRef.current;
@@ -764,10 +774,11 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
 
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
+                  if (commandBusy) return;
                   submit();
                 }
               }}
-              placeholder={placeholder}
+              placeholder={commandBusy ? t("terminal.command.busyHint") : placeholder}
               rows={1}
               spellCheck={false}
             />
@@ -783,7 +794,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
               onHighlightIndex={(index) => setGlobalPopoverIndex(popoverPageStart + index)}
               onSelect={(index) => applyPopoverSelection(popoverPageStart + index)}
               onNavigateKeyDown={handlePopoverKeyDown}
-              visible={popoverOpen}
+              visible={popoverOpen && !commandBusy}
             />
           </div>
           <div className="term-cmd-actions">
@@ -792,7 +803,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
               className={`term-cmd-action-btn${historyOpen ? " is-active" : ""}`}
               title={t("terminal.command.openHistory")}
               aria-label={t("terminal.command.openHistory")}
-              disabled={disabled}
+              disabled={disabled || commandBusy}
               onClick={openHistory}
             >
               <IconCommandHistory />
@@ -802,12 +813,12 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
               className={`term-cmd-action-btn${completionOpen ? " is-active" : ""}`}
               title={t("terminal.command.openCompletion")}
               aria-label={t("terminal.command.openCompletion")}
-              disabled={disabled}
+              disabled={disabled || commandBusy}
               onClick={openCompletion}
             >
               <IconCommandCompletion />
             </button>
-            <TerminalCommandBarControls disabled={disabled} />
+            <TerminalCommandBarControls disabled={disabled || commandBusy} />
             {lastError ? (
               <>
                 <Button
@@ -832,17 +843,32 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
                 </Button>
               </>
             ) : null}
-            <Button
-              variant="outline"
-              size="xs"
-              className="term-cmd-send omni-btn-outline-accent"
-              onClick={submit}
-              title={t("terminal.command.send")}
-              type="button"
-              disabled={disabled}
-            >
-              ↵
-            </Button>
+            {commandBusy ? (
+              <Button
+                variant="outline"
+                size="xs"
+                className="term-cmd-send term-cmd-stop omni-btn-outline-accent"
+                onClick={() => onStop?.()}
+                title={t("terminal.command.stop")}
+                aria-label={t("terminal.command.stop")}
+                type="button"
+                disabled={disabled}
+              >
+                ■
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="xs"
+                className="term-cmd-send omni-btn-outline-accent"
+                onClick={submit}
+                title={t("terminal.command.send")}
+                type="button"
+                disabled={disabled}
+              >
+                ↵
+              </Button>
+            )}
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import type { CompletionCandidate, TerminalCompletionContext } from "../types";
 import { buildReplacementRange, parseCommandLineForCompletion } from "../parseCommandLine";
+import { isPathCompletionInput } from "./pathProvider";
 
 const STATIC_COMMANDS = [
   "ls", "cd", "pwd", "cat", "grep", "find", "chmod", "chown", "mkdir", "rm", "cp", "mv",
@@ -20,6 +21,9 @@ const COMMAND_TEMPLATES: Record<string, string[]> = {
 };
 
 export function suggestTemplates(ctx: TerminalCompletionContext): CompletionCandidate[] {
+  // 路径命令场景交给 path provider，避免 Tab 混入命令名/历史式候选
+  if (isPathCompletionInput(ctx)) return [];
+
   const parsed = parseCommandLineForCompletion(ctx.input, ctx.cursor);
   const token = parsed.activeToken;
   if (!token) return [];

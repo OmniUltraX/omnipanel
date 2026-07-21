@@ -1,5 +1,4 @@
 import {
-  ComposerAddAttachment,
   ComposerAttachments,
   UserMessageAttachments,
 } from "@/components/assistant-ui/attachment";
@@ -20,22 +19,11 @@ import {
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import {
-  SelectRoot,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-  SelectGroup,
-  SelectLabel,
-  SelectValue,
-} from "@/components/assistant-ui/select";
 import { useI18n } from "../../i18n";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
-import { aiContextValueFromPath, moduleNavI18nKey } from "../../lib/workspaceModuleRoutes";
-import { useAiContextScopeStore } from "../../stores/aiContextScopeStore";
-import { useAiStore } from "../../stores/aiStore";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
+import { ComposerAddContextButton } from "../ai/assistant-ui/ComposerAddContextButton";
+import { ComposerContextChips } from "../ai/assistant-ui/ComposerContextChips";
+import { ComposerInputWithMention } from "../ai/assistant-ui/ComposerInputWithMention";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -68,15 +56,11 @@ import {
 import {
   createContext,
   useContext,
-  useEffect,
   useMemo,
-  useState,
   type ComponentType,
   type FC,
   type PropsWithChildren,
 } from "react";
-import { useLocation } from "react-router-dom";
-
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
 /**
@@ -240,87 +224,7 @@ const ThreadSuggestionItem: FC = () => {
   );
 };
 
-const ContextBar: FC = () => {
-  const { t } = useI18n();
-  const location = useLocation();
-  const modules = useAppModuleStore((s) => s.modules);
-  const moduleKeys = useMemo(() => getNavVisibleModuleKeys(), [modules]);
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const workspaceIds = useMemo(
-    () => workspaces.map((ws) => ws.id),
-    [workspaces],
-  );
-  const routeContext = useMemo(
-    () => aiContextValueFromPath(location.pathname, workspaceIds),
-    [location.pathname, workspaceIds],
-  );
-  const [manualContext, setManualContext] = useState<string | null>(null);
-  const setAiScope = useAiContextScopeStore((s) => s.setScope);
-  const activeConversationId = useAiStore((s) => s.activeConversationId);
-  const pinConversationWorkspace = useAiStore((s) => s.pinConversationWorkspace);
-
-  useEffect(() => {
-    setManualContext(null);
-  }, [location.pathname]);
-
-  const context = manualContext ?? routeContext;
-
-  // 同步 ContextBar 选择到全局 store，供 buildAiContext 读取以联动 moduleFilter。
-  useEffect(() => {
-    setAiScope(context ?? "");
-  }, [context, setAiScope]);
-
-  const onContextChange = (value: string) => {
-    setManualContext(value);
-    if (!activeConversationId) return;
-    if (value.startsWith("workspace:")) {
-      // 显式钉住工作区（可选）
-      pinConversationWorkspace(activeConversationId, value.slice("workspace:".length));
-    } else if (value === "workspace:__none__") {
-      pinConversationWorkspace(activeConversationId, null);
-    }
-    // 选模块不自动改 pinnedWorkspaceId
-  };
-
-  return (
-    <>
-      <SelectRoot
-        value={context || undefined}
-        onValueChange={onContextChange}
-      >
-        <SelectTrigger className="h-7 w-40 text-xs" variant="ghost">
-          <SelectValue placeholder={t("ai.context.placeholder")} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            <SelectLabel>{t("ai.context.modules")}</SelectLabel>
-            {moduleKeys.map((key) => (
-              <SelectItem key={key} value={`module:${key}`}>
-                {t(moduleNavI18nKey(key))}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-          {workspaces.length > 0 && (
-            <SelectGroup>
-              <SelectLabel>{t("ai.context.workspaces")}</SelectLabel>
-              <SelectItem value="workspace:__none__">
-                {t("ai.context.clearWorkspace")}
-              </SelectItem>
-              {workspaces.map((ws) => (
-                <SelectItem key={ws.id} value={`workspace:${ws.id}`}>
-                  {t("ai.context.pinWorkspace")} · {ws.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-        </SelectContent>
-      </SelectRoot>
-    </>
-  );
-};
-
 const Composer: FC = () => {
-  const { t } = useI18n();
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <ComposerPrimitive.AttachmentDropzone asChild>
@@ -328,14 +232,9 @@ const Composer: FC = () => {
           data-slot="aui_composer-shell"
           className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-bg p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-bg))] dark:shadow-none"
         >
+          <ComposerContextChips />
           <ComposerAttachments />
-          <ComposerPrimitive.Input
-            placeholder={t("ai.composer.placeholder")}
-            className="aui-composer-input placeholder:text-muted-foreground/80 max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none"
-            rows={1}
-            autoFocus
-            aria-label={t("ai.composer.placeholder")}
-          />
+          <ComposerInputWithMention />
           <ComposerAction />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
@@ -349,8 +248,7 @@ const ComposerAction: FC = () => {
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1 min-w-0">
-        <ComposerAddAttachment />
-        <ContextBar />
+        <ComposerAddContextButton />
         <AiConversationModelSelect />
       </div>
       <div className="flex items-center gap-1.5">

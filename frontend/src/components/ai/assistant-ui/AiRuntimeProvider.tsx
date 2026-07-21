@@ -44,13 +44,19 @@ import {
   touchInlineAiDelta,
 } from "../../../modules/terminal/inlineAiWatchdog";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
-import { collectAllModuleAiContextText } from "../../../lib/ai/context";
+import { getModuleAiContextText } from "../../../lib/ai/context";
+import {
+  buildComposerExplicitContextAppend,
+  mergeAiContextAppend,
+} from "../../../lib/ai/composerContextAppend";
+import { resolveFocusModuleKey } from "../../../lib/ai/resolveFocusModuleKey";
 import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
-import { useStatusBarActionBarStore } from "../../../stores/statusBarActionBarStore";
-import { getAiContextScope } from "../../../stores/aiContextScopeStore";
+import {
+  clearComposerContextItems,
+  getComposerContextItems,
+} from "../../../stores/aiComposerContextStore";
 import { resolveKnowledgeEmbeddingProvider } from "../../../lib/knowledgeEmbeddingModel";
 import { useSkillPromptStore } from "../../../stores/skillPromptStore";
-
 import {
   aiMessagesToThreadMessages,
   threadMessagesToAiMessages,
@@ -65,12 +71,11 @@ function extractUserContent(message: ThreadMessage | AppendMessage): string {
 }
 
 /**
- * 根据当前焦点 dock 与 ContextBar 选择解析 AI 工具过滤的 module_key。
+ * 根据当前焦点 dock 解析 AI 工具过滤的 module_key。
  *
  * 优先级：
- * 1. ContextBar 手动选择（`module:database` → `database`）—— 用户显式意图
- * 2. activeDock.dockScope 前缀推断（焦点在 database dock → `database`）
- * 3. 回退到 `master`（全部工具）
+ * 1. activeDock.dockScope 前缀推断（焦点在 database dock → `database`）
+ * 2. 回退到 `master`（全部工具）
  *
  * workspace:xxx / dashboard / 无焦点 → `master`
  *
@@ -78,23 +83,7 @@ function extractUserContent(message: ThreadMessage | AppendMessage): string {
  * 因此这里只控制 UiDelegated 工具的模块范围。
  */
 function resolveActiveModuleFilter(): string {
-  // 1. ContextBar 手动选择
-  const scope = getAiContextScope();
-  if (scope.startsWith("module:")) {
-    const moduleKey = scope.slice("module:".length);
-    if (moduleKey) return moduleKey;
-  }
-  // 2. 焦点 dock 推断
-  const dockScope = useStatusBarActionBarStore.getState().activeDock?.dockScope;
-  if (dockScope) {
-    if (dockScope.startsWith("database")) return "database";
-    if (dockScope.startsWith("terminal")) return "terminal";
-    if (dockScope.startsWith("docker")) return "docker";
-    if (dockScope.startsWith("files") || dockScope.startsWith("file")) return "files";
-    if (dockScope.startsWith("ssh") || dockScope.startsWith("server")) return "ssh";
-  }
-  // 3. 回退
-  return "master";
+  return resolveFocusModuleKey() ?? "master";
 }
 
 /**
@@ -192,9 +181,17 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
             (linkedSession || useTerminalStore.getState().activeTabId),
         );
   const sessionId = inline?.sessionId ?? tab?.id ?? null;
-  // 聚合所有非 terminal 模块（database / ssh / docker 等）的 ContextProvider 文本。
-  // terminal 模块由 terminalContextAppend 单独通道注入，避免重复。
-  const moduleContextAppend = collectAllModuleAiContextText(["module:terminal"]);
+
+  // 焦点模块自动上下文（terminal 走 terminalContextAppend，避免重复）。
+  const focusModule = resolveFocusModuleKey();
+  const focusModuleAppend =
+    focusModule && focusModule !== "terminal"
+      ? getModuleAiContextText(focusModule)
+      : null;
+  // Composer 显式多选芯片（发送时注入）。
+  const explicitAppend = buildComposerExplicitContextAppend(getComposerContextItems());
+  const moduleContextAppend = mergeAiContextAppend(focusModuleAppend, explicitAppend);
+
   if (!sessionId) {
     return {
       cwd: null,
@@ -318,6 +315,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const updateMessage = useAiStore((s) => s.updateMessage);
   const appendStreamContent = useAiStore((s) => s.appendStreamContent);
   const appendStreamReasoning = useAiStore((s) => s.appendStreamReasoning);
+  const upsertStreamToolCall = useAiStore((s) => s.upsertStreamToolCall);
+  const updateStreamToolCall = useAiStore((s) => s.updateStreamToolCall);
   const setIsGenerating = useAiStore((s) => s.setIsGenerating);
   const createConversation = useAiStore((s) => s.createConversation);
   const replaceConversationMessages = useAiStore((s) => s.replaceConversationMessages);
@@ -428,6 +427,17 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     };
 
     const aiContext = buildAiContext(inline);
+    // 显式芯片已写入本次请求上下文，发送后清空（与附件行为一致）。
+    const explicitItems = getComposerContextItems();
+    if (!inline && explicitItems.length > 0) {
+      for (const item of explicitItems) {
+        useAiStore.getState().addContext(convId, {
+          type: item.kind,
+          label: item.label,
+        });
+      }
+    }
+    clearComposerContextItems();
 
     const tryDispatchTool = (id: string) => {
       if (pendingToolBridgeRef.current.has(id)) return;
@@ -481,20 +491,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (!assistantMsgId) return;
-      const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
-      const msg = conv?.messages.find((m) => m.id === assistantMsgId);
-      const existing = msg?.toolCalls ?? [];
-      if (existing.some((tc) => tc.id === id)) {
-        updateMessage(convId, assistantMsgId, {
-          toolCalls: existing.map((tc) =>
-            tc.id === id ? { ...tc, name, arguments: args } : tc,
-          ),
-        });
-        return;
-      }
-      updateMessage(convId, assistantMsgId, {
-        toolCalls: [...existing, { id, name, arguments: args, status: "running" }],
-      });
+      upsertStreamToolCall(convId, assistantMsgId, id, name, args);
       if (waitingToolDispatchRef.current.has(id)) {
         tryDispatchTool(id);
       }
@@ -546,21 +543,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (!assistantMsgId) return;
-      updateMessage(convId, assistantMsgId, {
-        toolCalls: useAiStore
-          .getState()
-          .conversations.find((c) => c.id === convId)
-          ?.messages.find((m) => m.id === assistantMsgId)
-          ?.toolCalls?.map((tc) =>
-            tc.id === id
-              ? {
-                  ...tc,
-                  status: mapToolStatus(status),
-                  result,
-                }
-              : tc,
-          ),
-      });
+      updateStreamToolCall(convId, assistantMsgId, id, mapToolStatus(status), result);
     };
 
     setIsGenerating(true);

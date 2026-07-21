@@ -1,16 +1,24 @@
 import { useMemo } from "react";
 
 import { useI18n } from "../../i18n";
-import { collectAllModuleAiContextText, useAiContextRegistry } from "../../lib/ai/context";
+import { getModuleAiContextText, useAiContextRegistry } from "../../lib/ai/context";
+import { parseModuleContextChipLabel } from "../../lib/ai/parseModuleContextChip";
+import { resolveFocusModuleKey } from "../../lib/ai/resolveFocusModuleKey";
+import { resolveResourceById } from "../../stores/connectionStore";
 import { useAiStore } from "../../stores/aiStore";
+import { useStatusBarActionBarStore } from "../../stores/statusBarActionBarStore";
+import { useTerminalStore } from "../../stores/terminalStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 /**
- * Dock 现场摘要：仅展示上下文芯片（跟随等操作已聚合到上方工具栏）。
+ * Dock 现场摘要：仅展示与当前焦点模块相关的自动上下文（含钉住工作区）。
  */
 export function AiContextStrip() {
   const { t } = useI18n();
   const revision = useAiContextRegistry((s) => s.revision);
+  const activeDock = useStatusBarActionBarStore((s) => s.activeDock);
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
+  const tabs = useTerminalStore((s) => s.tabs);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const conversations = useAiStore((s) => s.conversations);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -23,28 +31,36 @@ export function AiContextStrip() {
 
   const chips = useMemo(() => {
     void revision;
-    const text = collectAllModuleAiContextText(["module:terminal"]) ?? "";
-    const terminalText = collectAllModuleAiContextText([]) ?? "";
+    const focusModule = resolveFocusModuleKey(activeDock?.dockScope);
     const out: { key: string; label: string }[] = [];
-    const sections = `${text}\n\n${terminalText}`.split(/\n---\n|\n## /);
-    for (const section of sections) {
-      const title = section.match(/^(Docker|数据库|文件|SSH|终端)[^\n]*/)?.[0];
-      if (!title) continue;
-      const conn =
-        section.match(/连接名称[：:]\s*(.+)/)?.[1]?.trim() ||
-        section.match(/连接 ID[：:]\s*(.+)/)?.[1]?.trim();
-      const extra =
-        section.match(/当前数据库[：:]\s*(.+)/)?.[1]?.trim() ||
-        section.match(/容器名称[：:]\s*(.+)/)?.[1]?.trim() ||
-        section.match(/当前路径[：:]\s*(.+)/)?.[1]?.trim() ||
-        section.match(/主机[：:]\s*(.+)/)?.[1]?.trim();
-      const label = [title.replace(/^#+ /, ""), conn, extra].filter(Boolean).join(" · ");
-      if (label && !out.some((c) => c.label === label)) {
-        out.push({ key: label, label });
+
+    if (focusModule === "terminal") {
+      const tab = tabs.find((item) => item.id === activeTabId);
+      if (tab) {
+        const resource = resolveResourceById(tab.session.resourceId);
+        const extra =
+          tab.session.cwd?.trim() ||
+          resource?.name ||
+          resource?.subtitle ||
+          null;
+        const label = ["终端", tab.title, extra].filter(Boolean).join(" · ");
+        out.push({ key: `terminal:${tab.id}`, label });
+      }
+      return out;
+    }
+
+    if (focusModule) {
+      const text = getModuleAiContextText(focusModule);
+      if (text) {
+        const label = parseModuleContextChipLabel(text);
+        if (label) {
+          out.push({ key: `module:${focusModule}`, label });
+        }
       }
     }
-    return out.slice(0, 6);
-  }, [revision]);
+
+    return out;
+  }, [revision, activeDock?.dockScope, activeTabId, tabs]);
 
   if (!pinnedWorkspace && chips.length === 0) {
     return (

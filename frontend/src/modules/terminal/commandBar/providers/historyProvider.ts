@@ -1,8 +1,12 @@
 import type { CompletionCandidate, TerminalCompletionContext } from "../types";
 import { listSessionCommandHistoryEntriesFast } from "../useSessionCommandHistory";
 import { buildReplacementRange, parseCommandLineForCompletion } from "../parseCommandLine";
+import { isPathCompletionInput } from "./pathProvider";
 
 export function suggestHistory(ctx: TerminalCompletionContext): CompletionCandidate[] {
+  // 路径补全场景（cd/ls/vim 等）由路径 provider 负责，避免 Tab 被历史命令刷屏
+  if (isPathCompletionInput(ctx)) return [];
+
   const parsed = parseCommandLineForCompletion(ctx.input, ctx.cursor);
   const token = parsed.activeToken;
   if (!token || token.kind === "path" || token.kind === "resource") return [];

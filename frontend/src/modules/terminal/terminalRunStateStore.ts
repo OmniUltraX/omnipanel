@@ -33,6 +33,17 @@ const ACTIVE_RUN_STATES: ReadonlySet<TerminalRunState> = new Set([
   "full-terminal",
 ]);
 
+/** Command Bar / Block 模式下禁止再发新命令的运行态（不含 full-terminal）。 */
+const COMMAND_BAR_BUSY_STATES: ReadonlySet<TerminalRunState> = new Set([
+  "block-running",
+  "ai-tool-running",
+  "inline-running",
+]);
+
+export function isCommandBarBusyState(state: TerminalRunState): boolean {
+  return COMMAND_BAR_BUSY_STATES.has(state);
+}
+
 interface TerminalRunStateStore {
   sessions: Record<string, TerminalRunSessionMeta>;
 
@@ -53,6 +64,8 @@ interface TerminalRunStateStore {
   clearSession: (sessionId: string) => void;
 
   isCommandLive: (sessionId: string) => boolean;
+  /** block/inline/ai-tool 运行中（不含 full-terminal）：应拒绝新命令。 */
+  isCommandBarBusy: (sessionId: string) => boolean;
   isFullTerminal: (sessionId: string) => boolean;
   isAiToolRunning: (sessionId: string) => boolean;
   shouldCaptureBlockOutput: (sessionId: string, hasBoundBlock: boolean) => boolean;
@@ -148,6 +161,9 @@ export const useTerminalRunStateStore = create<TerminalRunStateStore>((set, get)
     }),
 
   isCommandLive: (sessionId) => ACTIVE_RUN_STATES.has(get().getRunState(sessionId)),
+
+  isCommandBarBusy: (sessionId) =>
+    isCommandBarBusyState(get().getRunState(sessionId)),
 
   isFullTerminal: (sessionId) => get().getRunState(sessionId) === "full-terminal",
 

@@ -39,6 +39,7 @@ import {
   clearFailedShellBlocks,
   clearNoisyShellBlocks,
 } from "./terminalBlockActions";
+import { interruptShell } from "./terminalShellRecovery";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -469,11 +470,18 @@ function PaneViewBody(
   const fullTerminal = useTerminalRunStateStore(
     (state) => state.getRunState(paneId) === "full-terminal",
   );
+  const commandBusy = useTerminalRunStateStore((state) =>
+    state.isCommandBarBusy(paneId),
+  );
   const lastError = useBlocksStore((state) => state.getLastError(paneId));
   const parsed = parseSshSubtitle(resource?.subtitle);
   const promptSymbol = resolveCommandPromptSymbol(session, parsed.user, resource);
   const sessionUser = parsed.user ?? (session.type === "local" ? null : "root");
   const liveNative = inputMode === "external" && fullTerminal;
+
+  const handleStopCommand = useCallback(() => {
+    void interruptShell(paneId);
+  }, [paneId]);
 
   useImperativeHandle(ref, () => ({
     focusInput: () => {
@@ -603,6 +611,8 @@ function PaneViewBody(
           resourceId={session.resourceId}
           sessionType={session.type}
           lastError={lastError}
+          commandBusy={commandBusy}
+          onStop={handleStopCommand}
         />
       ) : null}
       {blockMenu ? (

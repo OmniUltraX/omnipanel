@@ -16,6 +16,8 @@ export interface IconDropdownButtonItem {
   id: string;
   label: string;
   subtitle?: string;
+  /** 分组标题；与上一项不同时渲染分隔组头 */
+  group?: string;
   disabled?: boolean;
   onSelect: () => void;
 }
@@ -142,27 +144,37 @@ export function IconDropdownButton({
               zIndex: "var(--z-popover, 1200)",
             }}
           >
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="menuitem"
-                className="icon-dropdown-button__item"
-                disabled={item.disabled}
-                onClick={() => {
-                  if (item.disabled) {
-                    return;
-                  }
-                  item.onSelect();
-                  setOpen(false);
-                }}
-              >
-                <span className="icon-dropdown-button__item-title">{item.label}</span>
-                {item.subtitle ? (
-                  <span className="icon-dropdown-button__item-desc">{item.subtitle}</span>
-                ) : null}
-              </button>
-            ))}
+            {items.map((item, index) => {
+              const prevGroup = index > 0 ? items[index - 1]?.group : undefined;
+              const showGroup = Boolean(item.group) && item.group !== prevGroup;
+              return (
+                <div key={item.id}>
+                  {showGroup ? (
+                    <div className="icon-dropdown-button__group" role="presentation">
+                      {item.group}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="icon-dropdown-button__item"
+                    disabled={item.disabled}
+                    onClick={() => {
+                      if (item.disabled) {
+                        return;
+                      }
+                      item.onSelect();
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="icon-dropdown-button__item-title">{item.label}</span>
+                    {item.subtitle ? (
+                      <span className="icon-dropdown-button__item-desc">{item.subtitle}</span>
+                    ) : null}
+                  </button>
+                </div>
+              );
+            })}
           </div>,
           document.body,
         )}
