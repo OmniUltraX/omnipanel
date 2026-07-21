@@ -127,6 +127,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 使用仓库内已提交的 bindings.ts，避免 Windows 上 prebuild→cargo run 栈溢出
+          SKIP_GEN_BINDINGS: "1"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'OmniPanel v${{ steps.version.outputs.version }}'
