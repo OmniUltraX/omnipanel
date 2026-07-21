@@ -328,19 +328,14 @@
     margin-inline-start: auto;
 }
 
-.ai-subwindow .subwindow-title.ai-conversation-title,
-.ai-subwindow h2.subwindow-title.ai-conversation-title {
+.ai-subwindow .ai-toolbar-dropdown {
     flex: 1;
     min-width: 0;
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--fg);
+    max-width: min(420px, 52vw);
 }
 
-.ai-subwindow h2.subwindow-title.ai-conversation-title .ai-conversation-title-button {
-    width: 100%;
-    justify-content: flex-start;
+.ai-subwindow .ai-toolbar-trigger--title {
+    max-width: 100%;
 }
 
 .ai-mcp-connections {

@@ -10,6 +10,8 @@ import {
   useProtocolHttp,
   HTTP_METHOD_OPTIONS,
   isWebSocketMethod,
+  AUTH_TYPES,
+  AUTH_TYPE_I18N_KEYS,
   type AuthType,
   type BodyType,
   type HttpMethod,
@@ -22,7 +24,7 @@ import { HttpResponseSessionsDock } from "./HttpResponseSessionsDock";
 import { HttpWebSocketPanel } from "./HttpWebSocketPanel";
 import { useWebSocketSession } from "./useWebSocketSession";
 import type { HttpResponseData } from "./httpResponseState";
-import { resolveHttpRequestUrl } from "./httpEnvironment";
+import { resolveEffectiveAuth, resolveHttpRequestUrl } from "./httpEnvironment";
 import {
   extractPathParamNames,
   hasUnresolvedPathParams,
@@ -31,25 +33,6 @@ import {
 import type { HttpPathParamPair } from "./httpPathParams";
 
 type ReqTab = "path" | "params" | "headers" | "body" | "auth" | "scripts";
-
-const AUTH_TYPE_KEYS: Record<
-  AuthType,
-  "bearerToken" | "basicAuth" | "apiKey" | "oauth2" | "authorization"
-> = {
-  "Bearer Token": "bearerToken",
-  "Basic Auth": "basicAuth",
-  "API Key": "apiKey",
-  "OAuth 2.0": "oauth2",
-  Authorization: "authorization",
-};
-
-const AUTH_TYPES: AuthType[] = [
-  "Bearer Token",
-  "Basic Auth",
-  "API Key",
-  "OAuth 2.0",
-  "Authorization",
-];
 
 interface HttpInvokeResponse {
   status: number;
@@ -230,15 +213,24 @@ export function HttpPanel() {
 
       const headerMap = await buildHeaderMap(headers);
 
-      const trimmedAuthValue = authValue.trim();
+      const activeEnv =
+        (environmentId ? environments.find((item) => item.id === environmentId) : null) ??
+        environments[0] ??
+        null;
+      const effectiveAuth = resolveEffectiveAuth(
+        authType,
+        authValue,
+        activeEnv?.authType,
+        activeEnv?.authValue,
+      );
       const curlCommand = buildHttpCurlCommand({
         method,
         url: resolvedRequestUrl,
         headers: headerMap,
         queryParams,
         body: bodyType !== "Binary" ? body : null,
-        authType: trimmedAuthValue ? authType : null,
-        authValue: trimmedAuthValue || null,
+        authType: effectiveAuth.authType,
+        authValue: effectiveAuth.authValue,
       });
       const config = {
         method,
@@ -247,8 +239,8 @@ export function HttpPanel() {
         query_params: queryParams,
         body: bodyType !== "Binary" ? body : null,
         body_type: bodyType.toLowerCase(),
-        auth_type: trimmedAuthValue ? authType : null,
-        auth_value: trimmedAuthValue || null,
+        auth_type: effectiveAuth.authType,
+        auth_value: effectiveAuth.authValue,
         timeout_ms: 30000,
       };
 
@@ -289,6 +281,7 @@ export function HttpPanel() {
     method,
     resolvedRequestUrl,
     environmentId,
+    environments,
     params,
     headers,
     body,
@@ -707,7 +700,7 @@ export function HttpPanel() {
                     }}
                     onClick={() => setAuthType(auth)}
                   >
-                    {t(`protocol.http.authTypes.${AUTH_TYPE_KEYS[auth]}`)}
+                    {t(`protocol.http.authTypes.${AUTH_TYPE_I18N_KEYS[auth]}`)}
                   </span>
                 ))}
               </div>

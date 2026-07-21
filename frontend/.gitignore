@@ -12,9 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Generated IPC bindings
-src/ipc/bindings.ts
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

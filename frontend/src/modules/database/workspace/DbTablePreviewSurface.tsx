@@ -91,6 +91,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const detailSizePxByPositionRef = useRef<Record<DatabaseTableDetailPosition, number>>({
     ...DETAIL_DEFAULT_SIZE_PX,
   });
+  /** 程序化 collapse/expand 期间忽略 onResize 反写，避免挂载竞态把默认收起冲掉 */
+  const detailCollapseSyncingRef = useRef(false);
   const gridActionsRef = useRef<TableDataGridActions | null>(null);
   const [detailCollapsed, setDetailCollapsed] = useState(true);
   const [colSidebarCollapsed, setColSidebarCollapsed] = useState(false);
@@ -422,15 +424,22 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       setDetailCollapsed((prev) => !prev);
       return;
     }
-    if (handle.isCollapsed()) {
-      // expand() 无记忆尺寸时会落到 minSize，必须再 resize 到已存 px
-      handle.expand();
-      handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
-      setDetailCollapsed(false);
-    } else {
-      cellEditorRef.current?.commitIfDirty();
-      handle.collapse();
-      setDetailCollapsed(true);
+    detailCollapseSyncingRef.current = true;
+    try {
+      if (handle.isCollapsed()) {
+        // expand() 无记忆尺寸时会落到 minSize，必须再 resize 到已存 px
+        handle.expand();
+        handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
+        setDetailCollapsed(false);
+      } else {
+        cellEditorRef.current?.commitIfDirty();
+        handle.collapse();
+        setDetailCollapsed(true);
+      }
+    } finally {
+      queueMicrotask(() => {
+        detailCollapseSyncingRef.current = false;
+      });
     }
   }, [effectiveDetailPosition]);
 
@@ -441,8 +450,15 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       return;
     }
     if (handle.isCollapsed()) {
-      handle.expand();
-      handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
+      detailCollapseSyncingRef.current = true;
+      try {
+        handle.expand();
+        handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
+      } finally {
+        queueMicrotask(() => {
+          detailCollapseSyncingRef.current = false;
+        });
+      }
     }
     setDetailCollapsed(false);
   }, [effectiveDetailPosition]);
@@ -463,6 +479,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const handleDetailPanelResize = useCallback(
     (panelSize: PanelSize) => {
+      // 布局同步中的 onResize 勿反写 React 态，否则会把「默认收起」冲成展开
+      if (detailCollapseSyncingRef.current) {
+        return;
+      }
       const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
       setDetailCollapsed(collapsed);
       const minPx = DETAIL_MIN_SIZE_PX[effectiveDetailPosition];
@@ -562,11 +582,18 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     if (!showPreviewGrid || !active) return;
     const handle = detailPanelRef.current;
     if (!handle) return;
-    if (detailCollapsed) {
-      handle.collapse();
-    } else {
-      handle.expand();
-      handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
+    detailCollapseSyncingRef.current = true;
+    try {
+      if (detailCollapsed) {
+        handle.collapse();
+      } else {
+        handle.expand();
+        handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
+      }
+    } finally {
+      queueMicrotask(() => {
+        detailCollapseSyncingRef.current = false;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/激活时同步，保留当前 collapsed
   }, [effectiveDetailPosition, showPreviewGrid, active]);
@@ -804,7 +831,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             </DockPanel>
             <DockHandle direction={splitDirection} />
             <DockPanel
-              defaultSize={detailDefaultSize}
+              // 默认收起时必须以 0 挂载；若用 detailDefaultSize，首帧会展开并由 onResize 把状态冲成打开
+              defaultSize={detailCollapsed ? 0 : detailDefaultSize}
               minSize={detailMinSize}
               collapsible
               collapsedSize={0}

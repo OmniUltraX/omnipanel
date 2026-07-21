@@ -494,6 +494,11 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_skill_chunks_skill ON skill_chunks(skill_id);
     "#,
+    // v25 — HTTP 环境默认认证
+    r#"
+    ALTER TABLE http_environments ADD COLUMN auth_type TEXT;
+    ALTER TABLE http_environments ADD COLUMN auth_value TEXT;
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -650,11 +655,24 @@ impl Storage {
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     base_url TEXT NOT NULL,
+                    auth_type TEXT,
+                    auth_value TEXT,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );",
             )
             .map_err(map_sqlite)?;
+        for column_sql in [
+            "ALTER TABLE http_environments ADD COLUMN auth_type TEXT",
+            "ALTER TABLE http_environments ADD COLUMN auth_value TEXT",
+        ] {
+            if let Err(err) = self.conn.execute(column_sql, []) {
+                let msg = err.to_string();
+                if !msg.contains("duplicate column") {
+                    return Err(map_sqlite(err));
+                }
+            }
+        }
         self.conn
             .execute_batch(
                 "CREATE INDEX IF NOT EXISTS idx_http_history_request ON http_history(request_id, created_at);",

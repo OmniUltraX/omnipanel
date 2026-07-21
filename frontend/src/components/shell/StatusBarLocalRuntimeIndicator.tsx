@@ -21,10 +21,11 @@ export function StatusBarLocalRuntimeIndicator() {
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
+    const probe = commands.localRuntimeProbe;
+    if (typeof probe !== "function") return;
 
     const check = () => {
-      void commands
-        .localRuntimeProbe()
+      void probe()
         .then((res) => {
           if (res.status !== "ok") {
             setOllamaStatus(null);

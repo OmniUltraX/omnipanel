@@ -6,13 +6,16 @@ use serde::{Deserialize, Serialize};
 
 use super::storage::Storage;
 
-/// HTTP 调试环境（基地址）。
+/// HTTP 调试环境（基地址 + 可选默认认证）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HttpEnvironment {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    /// 与请求面板一致：Bearer Token / Basic Auth / API Key / OAuth 2.0 / Authorization；空表示无认证。
+    pub auth_type: Option<String>,
+    pub auth_value: Option<String>,
     #[specta(type = f64)]
     pub created_at: i64,
     #[specta(type = f64)]
@@ -249,8 +252,16 @@ impl Storage {
 
     pub fn http_save_environment(&self, env: &HttpEnvironment) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT OR REPLACE INTO http_environments (id, name, base_url, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![env.id, env.name, env.base_url, env.created_at, env.updated_at],
+            "INSERT OR REPLACE INTO http_environments (id, name, base_url, auth_type, auth_value, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                env.id,
+                env.name,
+                env.base_url,
+                env.auth_type,
+                env.auth_value,
+                env.created_at,
+                env.updated_at
+            ],
         ).map_err(|e| OmniError::new(ErrorCode::Database, "保存 HTTP 环境失败").with_cause(e.to_string()))?;
         Ok(())
     }
@@ -258,7 +269,7 @@ impl Storage {
     pub fn http_list_environments(&self) -> OmniResult<Vec<HttpEnvironment>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, base_url, created_at, updated_at FROM http_environments ORDER BY name",
+            "SELECT id, name, base_url, auth_type, auth_value, created_at, updated_at FROM http_environments ORDER BY name",
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -266,8 +277,10 @@ impl Storage {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     base_url: row.get(2)?,
-                    created_at: row.get(3)?,
-                    updated_at: row.get(4)?,
+                    auth_type: row.get(3)?,
+                    auth_value: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;

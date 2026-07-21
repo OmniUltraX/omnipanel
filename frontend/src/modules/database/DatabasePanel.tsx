@@ -7,7 +7,6 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { flushSync } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -533,10 +532,9 @@ export function DatabasePanel() {
       ? workspaceTabsRef.current.find((item) => item.id === tabId)
       : undefined;
     const linkage = resolveDbSidebarLinkageFromTab(tab, useDbWorkspaceTabStore.getState());
-    // 调用方已在高亮 paint 之后；此处 flush 只推侧栏，不阻塞首帧高亮
-    flushSync(() => {
-      useDbSidebarLinkageStore.getState().setLinkage(linkage);
-    });
+    // 不用 flushSync：关 Tab 会在 useEffect / setState 更新器里走到这里，flush 会报错。
+    // zustand + useSyncExternalStore 仍是默认优先级，会先于下方 startTransition 的内容更新。
+    useDbSidebarLinkageStore.getState().setLinkage(linkage);
   }, []);
 
   const activateWorkspaceTab = useCallback(
