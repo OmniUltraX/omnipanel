@@ -30,8 +30,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        # 不递归 submodules：miniapp 为独立项目，构建不需要
+
+      - name: Init agent submodule
+        run: git submodule update --init --depth 1 agent
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

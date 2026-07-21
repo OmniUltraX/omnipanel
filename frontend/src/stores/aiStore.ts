@@ -470,7 +470,7 @@ export const useAiStore = create<AiStore>()(
       setConversationListOpen: (open) => set({ conversationListOpen: open }),
 
       setConversationListPlacement: (placement) =>
-        set((state) => ({
+        set(() => ({
           conversationListPlacement: placement,
           // 切到下拉时收起右侧面板；切到右侧时默认打开
           conversationListOpen: placement === "right" ? true : false,

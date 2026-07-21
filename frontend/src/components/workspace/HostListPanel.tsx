@@ -460,9 +460,19 @@ export function HostListPanel({
     setListCtxMenu(null);
     const conn = connections.find((c) => c.id === host.id);
     if (!conn || conn.kind !== "ssh") return;
-    const user = conn.user || "root";
-    const port = conn.port || 22;
-    const cmd = port === 22 ? `ssh ${user}@${conn.host}` : `ssh ${user}@${conn.host} -p ${port}`;
+    let user = "root";
+    let port = 22;
+    let sshHost = "";
+    try {
+      const cfg = conn.config ? (JSON.parse(conn.config) as Record<string, unknown>) : {};
+      if (typeof cfg.user === "string" && cfg.user.trim()) user = cfg.user.trim();
+      if (typeof cfg.port === "number" && Number.isFinite(cfg.port)) port = cfg.port;
+      if (typeof cfg.host === "string") sshHost = cfg.host;
+    } catch {
+      /* ignore invalid config */
+    }
+    if (!sshHost) return;
+    const cmd = port === 22 ? `ssh ${user}@${sshHost}` : `ssh ${user}@${sshHost} -p ${port}`;
     try {
       await navigator.clipboard.writeText(cmd);
     } catch {

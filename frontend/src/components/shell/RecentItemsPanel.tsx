@@ -18,7 +18,6 @@ import {
   useRecentCommands,
   useCommandRegistry,
   getCommandShortcutLabel,
-  type CommandItem,
 } from "../../stores/commandRegistry";
 import { useRecentTabs, type ActiveTabEntry } from "../../stores/recentTabs";
 import { useDbWorkspaceSessionStore } from "../../stores/dbWorkspaceSessionStore";
@@ -171,8 +170,20 @@ export function RecentItemsPanel() {
           run: () => {
             // 恢复 tab 到当前工作区 dock + 移除 recentClosed 条目 + 导航到看板
             const ws = useWorkspaceStore.getState().workspace;
-            useWorkspaceBottomDockStore.getState().addMirroredTab(wsId, ws, entry.tab);
-            useWorkspaceBottomDockStore.getState().removeRecentClosedTab(wsId, entry.closedAt);
+            const dock = useWorkspaceBottomDockStore.getState();
+            const closedTab = entry.tab;
+            if (closedTab.kind === "payload" && closedTab.payload) {
+              dock.addPayloadTab(wsId, ws, {
+                ...closedTab,
+                payload: closedTab.payload,
+              });
+            } else {
+              dock.addMirroredTab(wsId, ws, {
+                ...closedTab,
+                kind: "mirrored",
+              });
+            }
+            dock.removeRecentClosedTab(wsId, entry.closedAt);
             navigateToFeature(DASHBOARD_PATH, navigate);
           },
         });

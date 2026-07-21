@@ -16,8 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        # miniapp / agent 均为独立仓库；本 job 只测 frontend，不拉子模块
 
       - name: Install Linux system dependencies
         run: |

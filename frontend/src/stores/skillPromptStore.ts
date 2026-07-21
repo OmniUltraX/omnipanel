@@ -63,10 +63,6 @@ const HARD_SIGNALS: SkillSignalKind[] = [
   "skill_extracted",
   "skill_refined",
 ];
-const SOFT_SIGNALS: SkillSignalKind[] = [
-  "terminal_long_session",
-  "knowledge_saved",
-];
 const SOFT_THRESHOLD = 2;
 const MAX_WEEKLY_DISMISS = 3;
 

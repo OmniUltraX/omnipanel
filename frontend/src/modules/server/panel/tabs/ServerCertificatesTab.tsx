@@ -197,7 +197,7 @@ export function ServerCertificatesTab({ server }: Props) {
         const safeName =
           filename.trim() ||
           `${row.domain.replace(/[^\w.-]+/g, "_") || `ssl-${row.certId}`}.zip`;
-        const blob = new Blob([bytes], { type: "application/zip" });
+        const blob = new Blob([new Uint8Array(bytes)], { type: "application/zip" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
