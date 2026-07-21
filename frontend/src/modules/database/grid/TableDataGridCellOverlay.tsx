@@ -160,12 +160,13 @@ export function TableDataGridCellOverlay({
     layoutOverlay();
   }, [layoutOverlay, overlay?.editText, editKind]);
 
+  // 仅在进入某个单元格的编辑会话时 focus + 全选；
+  // 不可依赖整个 overlay（editText 每键一变会反复 select，导致只能输入一个字符）。
+  const editSessionKey =
+    overlay?.mode === "edit" ? `${overlay.rowIndex}\0${overlay.column}` : null;
+
   useEffect(() => {
-    if (!overlay || overlay.mode !== "edit") return;
-    const scrollEl = document.querySelector(".db-data-table-wrap");
-    const relayout = () => layoutOverlay();
-    scrollEl?.addEventListener("scroll", relayout, { passive: true });
-    window.addEventListener("resize", relayout);
+    if (!editSessionKey) return;
 
     const control = usesTextarea
       ? textareaRef.current
@@ -178,12 +179,19 @@ export function TableDataGridCellOverlay({
         control.select();
       }
     }
+  }, [editSessionKey, editKind, usesTextarea]);
 
+  useEffect(() => {
+    if (!overlay || overlay.mode !== "edit") return;
+    const scrollEl = document.querySelector(".db-data-table-wrap");
+    const relayout = () => layoutOverlay();
+    scrollEl?.addEventListener("scroll", relayout, { passive: true });
+    window.addEventListener("resize", relayout);
     return () => {
       scrollEl?.removeEventListener("scroll", relayout);
       window.removeEventListener("resize", relayout);
     };
-  }, [overlay, layoutOverlay, editKind, usesTextarea]);
+  }, [overlay?.mode, layoutOverlay]);
 
   const handleTextareaKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
