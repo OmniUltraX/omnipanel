@@ -3,11 +3,23 @@
  * 生成 frontend/src/ipc/bindings.ts（tauri-specta）。
  * 需在 debug 配置下运行：export_ipc_bindings 仅 #[cfg(debug_assertions)] 启用。
  * 必须 `cargo run`（不是 check）：导出发生在 `omnipanel_lib::run()` 入口。
+ *
+ * CI / SKIP_GEN_BINDINGS=1 时直接跳过（使用仓库内已提交的 bindings.ts）。
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const skip =
+  process.env.CI === "true" ||
+  process.env.SKIP_GEN_BINDINGS === "1" ||
+  process.env.SKIP_GEN_BINDINGS === "true";
+
+if (skip) {
+  console.log("[gen:bindings] 跳过（CI 或 SKIP_GEN_BINDINGS），使用已提交的 bindings.ts");
+  process.exit(0);
+}
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tauriDir = path.join(repoRoot, "src-tauri");
