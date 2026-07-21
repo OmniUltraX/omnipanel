@@ -1,10 +1,10 @@
 import type { AiMessage } from "../../stores/aiStore";
-import { useAiStore } from "../../stores/aiStore";
+import { normalizeAiMessage, useAiStore } from "../../stores/aiStore";
 import {
+  aiThreadToAiMessages,
   getResolvedAiThread,
 } from "../../modules/terminal/aiThreadBridge";
 import { useBlocksStore } from "../../stores/blocksStore";
-import { isAiThreadMessage, isAiThreadToolCall } from "../../stores/blocksStore";
 
 /** 将终端内联 aiThread 提升为 Dock assistant-ui 会话。 */
 export function promoteTerminalInlineToDock(args: {
@@ -15,38 +15,8 @@ export function promoteTerminalInlineToDock(args: {
   const block = useBlocksStore.getState().findBlockById(args.blockId);
   if (!block) return null;
   const thread = getResolvedAiThread(block);
-  const messages: AiMessage[] = [];
-  for (const item of thread) {
-    if (isAiThreadMessage(item)) {
-      messages.push({
-        id: item.id,
-        role: item.role === "assistant" ? "assistant" : "user",
-        content: item.content,
-        reasoningContent: item.reasoning,
-        timestamp: item.timestamp ?? Date.now(),
-      });
-    } else if (isAiThreadToolCall(item)) {
-      // 工具调用挂到最近一条 assistant 消息上
-      const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-      if (lastAssistant) {
-        lastAssistant.toolCalls = [
-          ...(lastAssistant.toolCalls ?? []),
-          {
-            id: item.id,
-            name: item.toolName,
-            arguments: item.args ?? "",
-            result: item.result,
-            status:
-              item.status === "completed"
-                ? "completed"
-                : item.status === "failed"
-                  ? "failed"
-                  : "running",
-          },
-        ];
-      }
-    }
-  }
+  // 保序 parts：不再把后续 tool 压扁挂到 lastAssistant 后再经旧 bridge 打乱
+  const messages = aiThreadToAiMessages(thread).map((m) => normalizeAiMessage(m));
 
   const title =
     block.title?.trim() ||

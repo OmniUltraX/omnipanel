@@ -9,14 +9,21 @@ import {
 } from "./aiModelsStore";
 import { useSettingsStore } from "./settingsStore";
 import { resolveScenarioModelSelectionId } from "../lib/aiScenarioModels";
+import {
+  appendTextLikePart,
+  deriveCompatFields,
+  partsFromFlatFields,
+  updateToolCallInParts,
+  upsertToolCallInParts,
+  type AiMessagePart,
+  type ToolCallState,
+} from "../lib/ai/aiMessageParts";
 
-export interface ToolCallState {
-  id: string;
-  name: string;
-  arguments: string;
-  result?: string;
-  status: "pending" | "running" | "completed" | "failed";
-}
+export type { AiMessagePart, ToolCallState } from "../lib/ai/aiMessageParts";
+export {
+  deriveCompatFields,
+  partsFromFlatFields,
+} from "../lib/ai/aiMessageParts";
 
 export interface AgentMcpConnection {
   serviceId: string;
@@ -28,13 +35,28 @@ export interface AgentMcpConnection {
 export interface AiMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
+  /** 权威有序片段；缺省时由扁平字段 migrate */
+  parts?: AiMessagePart[];
   content: string;
-  /** 推理模型返回的思考过程（reasoning_content） */
+  /** 推理模型返回的思考过程（兼容：reasoning parts 拼接） */
   reasoningContent?: string;
   timestamp: number;
+  /** 兼容：从 tool-call parts 派生 */
   toolCalls?: ToolCallState[];
   isStreaming?: boolean;
   isReasoningStreaming?: boolean;
+}
+
+/** 规范化消息：确保 parts 存在并与兼容字段一致 */
+export function normalizeAiMessage(msg: AiMessage): AiMessage {
+  const parts = partsFromFlatFields(msg);
+  const compat = deriveCompatFields(parts);
+  return { ...msg, parts, ...compat };
+}
+
+function withUpdatedParts(msg: AiMessage, parts: AiMessagePart[], extra?: Partial<AiMessage>): AiMessage {
+  const compat = deriveCompatFields(parts);
+  return { ...msg, parts, ...compat, ...extra };
 }
 
 /** 推理强度（OpenAI / DeepSeek 等兼容 API 的 reasoning_effort） */
@@ -109,6 +131,22 @@ interface AiStore {
     conversationId: string,
     messageId: string,
     chunk: string
+  ) => void;
+  /** 流式 upsert tool-call part（同 id 更新，否则按序追加） */
+  upsertStreamToolCall: (
+    conversationId: string,
+    messageId: string,
+    id: string,
+    name: string,
+    args: string,
+  ) => void;
+  /** 流式更新 tool-call part 的 status/result */
+  updateStreamToolCall: (
+    conversationId: string,
+    messageId: string,
+    id: string,
+    status: ToolCallState["status"],
+    result?: string,
   ) => void;
   setCurrentProvider: (provider: string, model: string) => void;
   setCurrentModelSelectionId: (id: string | null) => void;
@@ -251,11 +289,17 @@ export const useAiStore = create<AiStore>()(
 
       addMessage: (conversationId, msg) => {
         const msgId = genId("msg");
-        const fullMsg: AiMessage = {
+        const seedParts =
+          msg.parts ??
+          (msg.content
+            ? ([{ type: "text", text: msg.content }] as AiMessagePart[])
+            : []);
+        const fullMsg = normalizeAiMessage({
           ...msg,
+          parts: seedParts,
           id: msgId,
           timestamp: Date.now(),
-        };
+        });
         set((state) => ({
           conversations: state.conversations.map((c) => {
             if (c.id !== conversationId) return c;
@@ -282,9 +326,14 @@ export const useAiStore = create<AiStore>()(
             if (c.id !== conversationId) return c;
             return {
               ...c,
-              messages: c.messages.map((m) =>
-                m.id === messageId ? { ...m, ...update } : m
-              ),
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const merged = { ...m, ...update };
+                if (update.parts) {
+                  return withUpdatedParts(m, update.parts, update);
+                }
+                return merged;
+              }),
               updatedAt: Date.now(),
             };
           }),
@@ -296,15 +345,17 @@ export const useAiStore = create<AiStore>()(
             if (c.id !== conversationId) return c;
             return {
               ...c,
-              messages: c.messages.map((m) =>
-                m.id === messageId
-                  ? {
-                      ...m,
-                      content: m.content + chunk,
-                      isReasoningStreaming: chunk ? false : m.isReasoningStreaming,
-                    }
-                  : m
-              ),
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = appendTextLikePart(
+                  partsFromFlatFields(m),
+                  "text",
+                  chunk,
+                );
+                return withUpdatedParts(m, parts, {
+                  isReasoningStreaming: chunk ? false : m.isReasoningStreaming,
+                });
+              }),
             };
           }),
         })),
@@ -315,15 +366,57 @@ export const useAiStore = create<AiStore>()(
             if (c.id !== conversationId) return c;
             return {
               ...c,
-              messages: c.messages.map((m) =>
-                m.id === messageId
-                  ? {
-                      ...m,
-                      reasoningContent: (m.reasoningContent ?? "") + chunk,
-                      isReasoningStreaming: true,
-                    }
-                  : m
-              ),
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = appendTextLikePart(
+                  partsFromFlatFields(m),
+                  "reasoning",
+                  chunk,
+                );
+                return withUpdatedParts(m, parts, { isReasoningStreaming: true });
+              }),
+            };
+          }),
+        })),
+
+      upsertStreamToolCall: (conversationId, messageId, toolCallId, name, args) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = upsertToolCallInParts(
+                  partsFromFlatFields(m),
+                  toolCallId,
+                  name,
+                  args,
+                );
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      updateStreamToolCall: (conversationId, messageId, toolCallId, status, result) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = updateToolCallInParts(
+                  partsFromFlatFields(m),
+                  toolCallId,
+                  status,
+                  result,
+                );
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
             };
           }),
         })),
@@ -409,7 +502,11 @@ export const useAiStore = create<AiStore>()(
         set((state) => ({
           conversations: state.conversations.map((c) =>
             c.id === conversationId
-              ? { ...c, messages: [...messages], updatedAt: Date.now() }
+              ? {
+                  ...c,
+                  messages: messages.map((m) => normalizeAiMessage(m)),
+                  updatedAt: Date.now(),
+                }
               : c,
           ),
         })),
@@ -451,13 +548,14 @@ export const useAiStore = create<AiStore>()(
         targetConversationId,
       }) => {
         const state = get();
+        const normalized = messages.map((m) => normalizeAiMessage(m));
         if (targetConversationId) {
           set({
             conversations: state.conversations.map((c) =>
               c.id === targetConversationId
                 ? {
                     ...c,
-                    messages: [...c.messages, ...messages],
+                    messages: [...c.messages, ...normalized],
                     linkedTerminalSessionId: terminalSessionId,
                     sourceBlockId,
                     title: c.title === "新的对话" ? title : c.title,
@@ -476,7 +574,7 @@ export const useAiStore = create<AiStore>()(
               ? {
                   ...c,
                   title,
-                  messages,
+                  messages: normalized,
                   linkedTerminalSessionId: terminalSessionId,
                   sourceBlockId,
                   updatedAt: Date.now(),
@@ -489,6 +587,24 @@ export const useAiStore = create<AiStore>()(
     }),
     {
       name: "omnipanel-ai-store",
+      version: 2,
+      migrate: (persisted, version) => {
+        const state = persisted as {
+          conversations?: AiConversation[];
+          [key: string]: unknown;
+        };
+        if (!state || typeof state !== "object") return persisted as AiStore;
+        if (version < 2 && Array.isArray(state.conversations)) {
+          return {
+            ...state,
+            conversations: state.conversations.map((c) => ({
+              ...c,
+              messages: (c.messages ?? []).map((m) => normalizeAiMessage(m)),
+            })),
+          } as AiStore;
+        }
+        return persisted as AiStore;
+      },
       partialize: (state) => ({
         conversations: state.conversations,
         activeConversationId: state.activeConversationId,

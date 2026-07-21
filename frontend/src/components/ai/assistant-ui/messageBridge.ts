@@ -4,39 +4,43 @@ import type {
   ThreadUserMessage,
 } from "@assistant-ui/react";
 
-import type { AiMessage, ToolCallState } from "../../../stores/aiStore";
+import {
+  deriveCompatFields,
+  normalizeAiMessage,
+  partsFromFlatFields,
+  type AiMessage,
+  type AiMessagePart,
+  type ToolCallState,
+} from "../../../stores/aiStore";
 
 const completedThreadMessageCache = new Map<string, ThreadMessage>();
 
 function aiMessageCacheKey(msg: AiMessage): string {
-  const toolSig = msg.toolCalls
-    ?.map((tc) => `${tc.id}:${tc.status}:${tc.result?.length ?? 0}`)
-    .join(",");
-  return `${msg.id}:${msg.role}:${msg.content.length}:${msg.reasoningContent?.length ?? 0}:${toolSig ?? ""}`;
+  const parts = partsFromFlatFields(msg);
+  const partSig = parts
+    .map((p) => {
+      if (p.type === "text" || p.type === "reasoning") {
+        return `${p.type}:${p.text.length}`;
+      }
+      return `tool:${p.id}:${p.status}:${p.result?.length ?? 0}:${p.arguments.length}`;
+    })
+    .join("|");
+  return `${msg.id}:${msg.role}:${partSig}:s=${msg.isStreaming ? 1 : 0}`;
 }
 
-function extractThreadText(message: ThreadMessage): string {
+function extractThreadParts(message: ThreadAssistantMessage): AiMessagePart[] {
+  const parts: AiMessagePart[] = [];
   for (const part of message.content) {
     if (part.type === "text") {
-      return part.text;
+      const text = (part as { type: "text"; text: string }).text;
+      if (text) parts.push({ type: "text", text });
+      continue;
     }
-  }
-  return "";
-}
-
-function extractThreadReasoning(message: ThreadAssistantMessage): string {
-  let text = "";
-  for (const part of message.content) {
     if (part.type === "reasoning") {
-      text += (part as { type: "reasoning"; text: string }).text;
+      const text = (part as { type: "reasoning"; text: string }).text;
+      if (text) parts.push({ type: "reasoning", text });
+      continue;
     }
-  }
-  return text;
-}
-
-function extractThreadToolCalls(message: ThreadAssistantMessage): ToolCallState[] {
-  const toolCalls: ToolCallState[] = [];
-  for (const part of message.content) {
     if (part.type !== "tool-call") continue;
     const tc = part as {
       type: "tool-call";
@@ -47,7 +51,8 @@ function extractThreadToolCalls(message: ThreadAssistantMessage): ToolCallState[
       result?: unknown;
       isError?: boolean;
     };
-    toolCalls.push({
+    parts.push({
+      type: "tool-call",
       id: tc.toolCallId,
       name: tc.toolName,
       arguments: tc.argsText ?? JSON.stringify(tc.args ?? {}),
@@ -60,19 +65,20 @@ function extractThreadToolCalls(message: ThreadAssistantMessage): ToolCallState[
             : "running",
     });
   }
-  return toolCalls;
+  return parts;
 }
 
 export function aiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
-  if (!msg.isStreaming) {
-    const cacheKey = aiMessageCacheKey(msg);
+  const normalized = normalizeAiMessage(msg);
+  if (!normalized.isStreaming) {
+    const cacheKey = aiMessageCacheKey(normalized);
     const cached = completedThreadMessageCache.get(cacheKey);
     if (cached) return cached;
-    const built = buildAiMessageToThreadMessage(msg);
+    const built = buildAiMessageToThreadMessage(normalized);
     completedThreadMessageCache.set(cacheKey, built);
     return built;
   }
-  return buildAiMessageToThreadMessage(msg);
+  return buildAiMessageToThreadMessage(normalized);
 }
 
 function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
@@ -89,28 +95,30 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
     } satisfies ThreadUserMessage;
   }
 
+  const ordered = partsFromFlatFields(msg);
   const parts: ThreadAssistantMessage["content"][number][] = [];
-  if (msg.reasoningContent) {
-    parts.push({
-      type: "reasoning",
-      text: msg.reasoningContent,
-    } as ThreadAssistantMessage["content"][number]);
-  }
-  if (msg.content) {
-    parts.push({ type: "text", text: msg.content } as ThreadAssistantMessage["content"][number]);
-  }
-  if (msg.toolCalls?.length) {
-    for (const tc of msg.toolCalls) {
+  for (const part of ordered) {
+    if (part.type === "reasoning") {
+      parts.push({
+        type: "reasoning",
+        text: part.text,
+      } as ThreadAssistantMessage["content"][number]);
+    } else if (part.type === "text") {
+      parts.push({
+        type: "text",
+        text: part.text,
+      } as ThreadAssistantMessage["content"][number]);
+    } else if (part.type === "tool-call") {
       const toolCallId =
-        tc.id === msg.id ? `${msg.id}::tool::${tc.id}` : tc.id;
+        part.id === msg.id ? `${msg.id}::tool::${part.id}` : part.id;
       parts.push({
         type: "tool-call",
         toolCallId,
-        toolName: tc.name,
-        args: safeParseJson(tc.arguments),
-        argsText: tc.arguments,
-        ...(tc.result !== undefined
-          ? { result: tc.result, isError: tc.status === "failed" }
+        toolName: part.name,
+        args: safeParseJson(part.arguments),
+        argsText: part.arguments,
+        ...(part.result !== undefined
+          ? { result: part.result, isError: part.status === "failed" }
           : {}),
       } as unknown as ThreadAssistantMessage["content"][number]);
     }
@@ -134,26 +142,30 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
 
 export function threadMessageToAiMessage(msg: ThreadMessage): AiMessage | null {
   if (msg.role === "user") {
-    return {
+    const content =
+      msg.content.find((p) => p.type === "text")?.text ??
+      "";
+    return normalizeAiMessage({
       id: msg.id,
       role: "user",
-      content: extractThreadText(msg),
+      content,
+      parts: content ? [{ type: "text", text: content }] : [],
       timestamp: msg.createdAt?.getTime() ?? Date.now(),
-    };
+    });
   }
 
   if (msg.role === "assistant") {
-    const toolCalls = extractThreadToolCalls(msg);
+    const parts = extractThreadParts(msg);
+    const compat = deriveCompatFields(parts);
     return {
       id: msg.id,
       role: "assistant",
-      content: extractThreadText(msg),
-      reasoningContent: extractThreadReasoning(msg) || undefined,
+      parts,
+      ...compat,
       timestamp: msg.createdAt?.getTime() ?? Date.now(),
-      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       isStreaming: msg.status?.type === "running",
       isReasoningStreaming:
-        msg.status?.type === "running" && !extractThreadText(msg).trim(),
+        msg.status?.type === "running" && !compat.content.trim(),
     };
   }
 
@@ -184,8 +196,14 @@ export function aiMessagesToThreadMessages(messages: readonly AiMessage[]): Thre
       }
       seenMessageIds.add(messageId);
 
-      const threadMsg = aiMessageToThreadMessage({ ...msg, id: messageId });
-      if (threadMsg.role !== "assistant" || !msg.toolCalls?.length) {
+      const normalized = normalizeAiMessage({ ...msg, id: messageId });
+      const threadMsg = aiMessageToThreadMessage(normalized);
+      if (threadMsg.role !== "assistant") {
+        return threadMsg;
+      }
+
+      const hasTools = partsFromFlatFields(normalized).some((p) => p.type === "tool-call");
+      if (!hasTools) {
         return threadMsg;
       }
 
@@ -210,4 +228,21 @@ function safeParseJson(text: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/** 供测试 / 调试：从 ThreadMessage 抽出 tool 列表 */
+export function extractToolCallsFromThread(message: ThreadAssistantMessage): ToolCallState[] {
+  return extractThreadParts(message).flatMap((p) =>
+    p.type === "tool-call"
+      ? [
+          {
+            id: p.id,
+            name: p.name,
+            arguments: p.arguments,
+            result: p.result,
+            status: p.status,
+          },
+        ]
+      : [],
+  );
 }
