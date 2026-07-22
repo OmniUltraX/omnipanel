@@ -139,7 +139,9 @@ jobs:
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
       - name: Broadcast version to WeChat via OmniServer
-        if: success()
+        # 仅在 Windows 产物构建成功后广播一次，避免矩阵多平台重复通知
+        if: success() && matrix.platform == 'windows-latest'
+        shell: bash
         env:
           BASE_URL: ${{ secrets.OMNISERVER_BASE_URL }}
           TOKEN: ${{ secrets.OMNISERVER_ADMIN_TOKEN }}
