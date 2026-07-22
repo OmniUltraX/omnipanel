@@ -183,6 +183,6 @@ jobs:
           cat /tmp/broadcast-resp.json || true
           echo
           if [ "${HTTP_CODE}" != "200" ]; then
-            echo "::error::OmniServer 广播失败 HTTP ${HTTP_CODE}（常见原因：封面 assets/default_avatar.png 缺失，或微信群发接口拒绝）"
+            echo "::error::OmniServer 广播失败 HTTP ${HTTP_CODE}（常见原因：封面缺失、草稿箱权限未开，或服务仍调用已下线的 material/add_news）"
             exit 1
           fi
