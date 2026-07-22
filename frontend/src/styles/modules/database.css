@@ -1773,6 +1773,53 @@
         overflow: auto;
     }
 
+    .db-tables-panel-grid-host--canvas {
+        --db-grid-header-height: 28px;
+        --panel-grid-content-width: 100%;
+        position: relative;
+    }
+
+    .db-tables-panel-grid-host--canvas .db-tables-panel-grid--canvas-chrome {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        table-layout: fixed;
+        width: var(--panel-grid-content-width);
+        min-width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        background: var(--bg-deeper);
+    }
+
+    .db-tables-panel-grid-host--canvas .db-tables-panel-grid--canvas-chrome thead th {
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: none;
+    }
+
+    .db-tables-panel-grid-host--canvas .db-tables-panel-grid--canvas-chrome col {
+        box-sizing: border-box;
+    }
+
+    .db-tables-panel-grid-canvas-sizer {
+        position: relative;
+        flex-shrink: 0;
+        width: var(--panel-grid-content-width);
+        min-width: 100%;
+        pointer-events: none;
+    }
+
+    .db-tables-panel-grid-canvas {
+        position: sticky;
+        top: var(--db-grid-header-height, 28px);
+        left: 0;
+        display: block;
+        z-index: 1;
+        pointer-events: auto;
+        touch-action: none;
+    }
+
     .db-tables-panel-grid__spacer td {
         line-height: 0;
         font-size: 0;
@@ -6386,6 +6433,47 @@
         overflow-anchor: none;
     }
 
+    .db-data-table-wrap--canvas {
+        --db-grid-header-height: 28px;
+        position: relative;
+    }
+
+    /* Canvas 模式：表头单独 sticky，body 用 sizer + sticky canvas */
+    .db-data-table-wrap--canvas .db-data-table--canvas-chrome {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background: var(--surface);
+    }
+
+    .db-data-table-canvas-sizer {
+        position: relative;
+        flex-shrink: 0;
+        min-width: 100%;
+        pointer-events: none;
+    }
+
+    .db-data-table-canvas {
+        position: sticky;
+        top: var(--db-grid-header-height, 28px);
+        left: 0;
+        display: block;
+        z-index: 1;
+        pointer-events: auto;
+        touch-action: none;
+    }
+
+    .db-data-table-wrap--canvas.db-data-table-wrap--loading .db-data-table-canvas {
+        pointer-events: none;
+    }
+
+    .db-grid-render-mode-toggle {
+        font-size: 10px;
+        min-width: 52px;
+        font-variant: all-small-caps;
+        letter-spacing: 0.04em;
+    }
+
     .db-data-table {
         table-layout: fixed;
         border-collapse: collapse;
@@ -7547,7 +7635,8 @@
         pointer-events: none;
     }
 
-    .db-data-table-th--selected {
+    .db-data-table-th--selected,
+    .db-data-table-th--drag-selected {
         background: color-mix(in srgb, var(--accent) 18%, var(--surface)) !important;
         color: var(--accent);
     }

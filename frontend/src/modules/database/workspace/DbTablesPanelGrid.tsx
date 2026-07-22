@@ -4,12 +4,19 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+import {
+  PanelGridCanvasBody,
+  readStoredPanelGridRenderMode,
+  type CanvasGridRenderMode,
+  type PanelGridColumnSpec,
+} from "../../../components/ui/canvas-grid";
 import {
   useResizableTableColumns,
   type ResizableColumnDef,
@@ -235,6 +242,30 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+function resolveDisplayText<T>(
+  column: DbTablesPanelGridColumn<T>,
+  row: T,
+  rowIndex: number,
+): string {
+  if (isActionColumn(column as DbTablesPanelGridColumn<unknown>)) {
+    return "";
+  }
+  const fromCopy = column.getCopyValue?.(row);
+  if (fromCopy != null && fromCopy !== "") return fromCopy;
+  const fromTitle = column.getTitle?.(row);
+  if (fromTitle != null && fromTitle !== "") return fromTitle;
+  const node = column.render(row, rowIndex);
+  if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
+    return String(node);
+  }
+  return "";
+}
+
+function defaultColumnWidth<T>(column: DbTablesPanelGridColumn<T>): number {
+  if (isActionColumn(column as DbTablesPanelGridColumn<unknown>)) return 36;
+  return column.defaultWidth ?? (column.nameCell ? 180 : 120);
+}
+
 /** 数据库侧栏/连接信息面板共用的对齐表格。 */
 export function DbTablesPanelGrid<T>({
   columns,
@@ -264,9 +295,14 @@ export function DbTablesPanelGrid<T>({
   const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const [selectedCell, setSelectedCell] = useState<CellSelection | null>(null);
+  const [hostWidth, setHostWidth] = useState(0);
   const resizeEnabled = Boolean(columnResizeStorageKey);
   const useVirtual =
     virtualizeRows === true || (virtualizeRows !== false && rows.length >= VIRTUALIZE_THRESHOLD);
+  const [panelGridRenderMode] = useState<CanvasGridRenderMode>(() =>
+    readStoredPanelGridRenderMode(),
+  );
+  const useCanvasBody = useVirtual && panelGridRenderMode === "canvas";
 
   const resizeColumnDefs = useMemo(
     () => (resizeEnabled ? toResizeColumnDefs(columns) : []),
@@ -297,7 +333,7 @@ export function DbTablesPanelGrid<T>({
   }, [columnWidths, resizeColumnDefs, resizeEnabled]);
 
   const rowVirtualizer = useVirtualizer({
-    count: useVirtual ? rows.length : 0,
+    count: useVirtual && !useCanvasBody ? rows.length : 0,
     getScrollElement: () => hostRef.current,
     estimateSize: () => virtualRowHeight,
     // 快速滚动缓冲：上下各多渲约 40 行，避免出现空白带
@@ -306,12 +342,79 @@ export function DbTablesPanelGrid<T>({
     useFlushSync: false,
   });
 
-  const virtualItems = useVirtual ? rowVirtualizer.getVirtualItems() : null;
+  const virtualItems = useVirtual && !useCanvasBody ? rowVirtualizer.getVirtualItems() : null;
   const paddingTop = virtualItems && virtualItems.length > 0 ? virtualItems[0]!.start : 0;
   const paddingBottom =
     virtualItems && virtualItems.length > 0
       ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1]!.end
       : 0;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !useCanvasBody) return;
+    const update = () => setHostWidth(host.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [useCanvasBody]);
+
+  const canvasColumns = useMemo((): PanelGridColumnSpec[] => {
+    const base = columns.map((column) => {
+      const width = resizeEnabled
+        ? (columnWidths[column.id] ?? defaultColumnWidth(column))
+        : defaultColumnWidth(column);
+      return {
+        id: column.id,
+        width,
+        pinned: false,
+        mono: Boolean(column.nameCell),
+        copyable: isColumnCopyable(column),
+      };
+    });
+    if (hostWidth <= 0) return base;
+    const total = base.reduce((sum, col) => sum + col.width, 0);
+    if (hostWidth <= total) return base;
+    const stretch = hostWidth - total;
+    // 优先扩展名称列，其次第一个非操作列
+    let target = base.findIndex((col) => {
+      const column = columns.find((c) => c.id === col.id);
+      return Boolean(column?.nameCell);
+    });
+    if (target < 0) {
+      target = base.findIndex((col) => {
+        const column = columns.find((c) => c.id === col.id);
+        return column != null && !isActionColumn(column as DbTablesPanelGridColumn<unknown>);
+      });
+    }
+    if (target < 0) return base;
+    return base.map((col, index) =>
+      index === target ? { ...col, width: col.width + stretch } : col,
+    );
+  }, [columnWidths, columns, hostWidth, resizeEnabled]);
+
+  const canvasContentWidth = useMemo(
+    () => canvasColumns.reduce((total, col) => total + col.width, 0),
+    [canvasColumns],
+  );
+
+  const selectedCellForCanvas = useMemo(() => {
+    if (!selectedCell) return null;
+    const rowIndex = rows.findIndex(
+      (row, index) => rowKey(row, index) === selectedCell.rowKey,
+    );
+    if (rowIndex < 0) return null;
+    return { rowIndex, columnId: selectedCell.columnId };
+  }, [rowKey, rows, selectedCell]);
+
+  const getCanvasCellText = useCallback(
+    (row: T, columnId: string, rowIndex: number) => {
+      const column = columns.find((col) => col.id === columnId);
+      if (!column) return "";
+      return resolveDisplayText(column, row, rowIndex);
+    },
+    [columns],
+  );
 
   const isRowSelected = useCallback(
     (key: string | number) => {
@@ -321,6 +424,11 @@ export function DbTablesPanelGrid<T>({
       return selectedRowKey != null && selectedRowKey === key;
     },
     [selectedRowKey, selectedRowKeys],
+  );
+
+  const isCanvasRowSelected = useCallback(
+    (row: T, rowIndex: number) => isRowSelected(rowKey(row, rowIndex)),
+    [isRowSelected, rowKey],
   );
 
   const resolveCopyText = useCallback(
@@ -515,22 +623,53 @@ export function DbTablesPanelGrid<T>({
       className={[
         "db-tables-panel-grid-host",
         useVirtual ? "db-tables-panel-grid-host--virtual" : "",
+        useCanvasBody ? "db-tables-panel-grid-host--canvas" : "",
         resizeEnabled && resizingColumnId ? "db-tables-panel-grid-host--col-resizing" : "",
       ]
         .filter(Boolean)
         .join(" ")}
+      style={
+        useCanvasBody
+          ? ({
+              ["--panel-grid-content-width" as string]: `${Math.max(canvasContentWidth, 1)}px`,
+            } as CSSProperties)
+          : undefined
+      }
       tabIndex={0}
       onKeyDown={handleHostKeyDown}
     >
       <table
         ref={tableRef}
-        className={tableClassName(variant, className, resizeEnabled)}
-        style={tableMinWidth != null ? { minWidth: tableMinWidth } : undefined}
+        className={[
+          tableClassName(variant, className, resizeEnabled),
+          useCanvasBody ? "db-tables-panel-grid--canvas-chrome" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={
+          useCanvasBody
+            ? {
+                width: Math.max(canvasContentWidth, 1),
+                minWidth: "100%",
+                tableLayout: "fixed",
+              }
+            : tableMinWidth != null
+              ? { minWidth: tableMinWidth }
+              : undefined
+        }
       >
-        {resizeEnabled ? (
+        {resizeEnabled || useCanvasBody ? (
           <colgroup>
-            {columns.map((column) => (
-              <col key={column.id} data-col-id={column.id} style={getColumnStyle(column.id)} />
+            {(useCanvasBody ? canvasColumns : columns).map((column) => (
+              <col
+                key={column.id}
+                data-col-id={column.id}
+                style={
+                  useCanvasBody
+                    ? { width: (column as PanelGridColumnSpec).width }
+                    : getColumnStyle(column.id)
+                }
+              />
             ))}
           </colgroup>
         ) : null}
@@ -540,6 +679,7 @@ export function DbTablesPanelGrid<T>({
               const sortId = column.sortId ?? column.id;
               const sortable = column.sortable && onSortColumn != null;
               const canResize = resizeEnabled && isColumnResizable(column.id);
+              const canvasCol = canvasColumns.find((c) => c.id === column.id);
               return (
                 <th
                   key={column.id}
@@ -556,7 +696,13 @@ export function DbTablesPanelGrid<T>({
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  style={resizeEnabled ? getColumnStyle(column.id) : undefined}
+                  style={
+                    useCanvasBody && canvasCol
+                      ? { width: canvasCol.width, minWidth: canvasCol.width }
+                      : resizeEnabled
+                        ? getColumnStyle(column.id)
+                        : undefined
+                  }
                   onClick={sortable ? () => onSortColumn(sortId) : undefined}
                   aria-sort={
                     sortable && sortColumnId === sortId
@@ -595,33 +741,76 @@ export function DbTablesPanelGrid<T>({
             })}
           </tr>
         </thead>
-        <tbody>
-          {useVirtual && virtualItems ? (
-            <>
-              {paddingTop > 0 ? (
-                <tr className="db-tables-panel-grid__spacer" aria-hidden>
-                  <td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: "none" }} />
-                </tr>
-              ) : null}
-              {virtualItems.map((virtualRow) => {
-                const row = rows[virtualRow.index];
-                if (row == null) return null;
-                return renderRow(row, virtualRow.index);
-              })}
-              {paddingBottom > 0 ? (
-                <tr className="db-tables-panel-grid__spacer" aria-hidden>
-                  <td
-                    colSpan={colSpan}
-                    style={{ height: paddingBottom, padding: 0, border: "none" }}
-                  />
-                </tr>
-              ) : null}
-            </>
-          ) : (
-            rows.map((row, rowIndex) => renderRow(row, rowIndex))
-          )}
-        </tbody>
+        {useCanvasBody ? null : (
+          <tbody>
+            {useVirtual && virtualItems ? (
+              <>
+                {paddingTop > 0 ? (
+                  <tr className="db-tables-panel-grid__spacer" aria-hidden>
+                    <td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: "none" }} />
+                  </tr>
+                ) : null}
+                {virtualItems.map((virtualRow) => {
+                  const row = rows[virtualRow.index];
+                  if (row == null) return null;
+                  return renderRow(row, virtualRow.index);
+                })}
+                {paddingBottom > 0 ? (
+                  <tr className="db-tables-panel-grid__spacer" aria-hidden>
+                    <td
+                      colSpan={colSpan}
+                      style={{ height: paddingBottom, padding: 0, border: "none" }}
+                    />
+                  </tr>
+                ) : null}
+              </>
+            ) : (
+              rows.map((row, rowIndex) => renderRow(row, rowIndex))
+            )}
+          </tbody>
+        )}
       </table>
+      {useCanvasBody ? (
+        <PanelGridCanvasBody
+          scrollElementRef={hostRef}
+          columns={canvasColumns}
+          rows={rows}
+          rowHeight={virtualRowHeight}
+          getCellText={getCanvasCellText}
+          isRowSelected={isCanvasRowSelected}
+          selectedCell={selectedCellForCanvas}
+          drawStyle="list"
+          sizerClassName="db-tables-panel-grid-canvas-sizer"
+          canvasClassName="db-tables-panel-grid-canvas"
+          onCellClick={(row, rowIndex, columnId, event) => {
+            const key = rowKey(row, rowIndex);
+            setSelectedCell({ rowKey: key, columnId });
+            onRowClick?.(row, event);
+          }}
+          onRowClick={(row, _rowIndex, event) => {
+            onRowClick?.(row, event);
+          }}
+          onRowDoubleClick={(row, rowIndex, columnId, event) => {
+            if (onRowDoubleClick) {
+              onRowDoubleClick(row, event);
+              return;
+            }
+            const column = columns.find((col) => col.id === columnId);
+            if (!column || !isColumnCopyable(column)) return;
+            const text = resolveCopyText(row, column);
+            if (!text) return;
+            void writeToClipboard(text).then((ok) => {
+              if (ok) showToast(t("common.copied"));
+            });
+            setSelectedCell({ rowKey: rowKey(row, rowIndex), columnId });
+          }}
+          onRowContextMenu={(row, _rowIndex, event) => {
+            if (!onRowContextMenu) return;
+            event.preventDefault();
+            onRowContextMenu(row, event);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -82,6 +82,16 @@ import {
   type TableDataGridVirtualBodyHandle,
 } from "./TableDataGridBody";
 import {
+  TableDataGridCanvasBody,
+  type TableDataGridCanvasBodyHandle,
+} from "./canvas/TableDataGridCanvasBody";
+import type { BuildGridSnapshotInput } from "./canvas/buildGridSnapshot";
+import {
+  readStoredGridRenderMode,
+  writeStoredGridRenderMode,
+} from "./canvas/gridRenderMode";
+import type { GridRenderMode } from "./canvas/gridRenderTypes";
+import {
   buildCellRangeClipboardText,
   buildSelectedRowsClipboardText,
   extractRowValuesFromIndex,
@@ -112,6 +122,7 @@ import {
   buildColumnVirtualizationLayout,
   buildVirtualizableColumnIndices,
   COLUMN_VIRTUALIZE_OVERSCAN,
+  isPinnedGridColumn,
   shouldVirtualizeGridColumns,
 } from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
@@ -119,6 +130,7 @@ import {
   applyColumnWidthDom,
   buildColumnCellStyle,
   resetStuckPointerHover,
+  scrollColumnToCenter,
   scrollElementToCenter,
 } from "./tableDataGridLayout";
 import {
@@ -439,6 +451,15 @@ export const TableDataGrid = memo(function TableDataGrid({
   } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const virtualBodyRef = useRef<TableDataGridVirtualBodyHandle | null>(null);
+  const canvasBodyRef = useRef<TableDataGridCanvasBodyHandle | null>(null);
+  const dragRowHeightRef = useRef<{ rowIndex: number; height: number } | null>(null);
+  const dragColumnWidthRef = useRef<{ columnId: string; width: number } | null>(null);
+  const [gridRenderMode, setGridRenderMode] = useState<GridRenderMode>(() =>
+    readStoredGridRenderMode(),
+  );
+  const gridRenderModeRef = useRef(gridRenderMode);
+  gridRenderModeRef.current = gridRenderMode;
+  const useCanvasBody = gridRenderMode === "canvas";
   const [containerWidth, setContainerWidth] = useState(0);
   const savedScrollRef = useRef({ left: 0, top: 0 });
   const restoreScrollAfterPageChangeRef = useRef(false);
@@ -452,8 +473,16 @@ export const TableDataGrid = memo(function TableDataGrid({
   const cellAnchorRef = useRef<CellPos | null>(null);
   const cellDragRef = useRef<{ active: boolean; start: CellPos } | null>(null);
   const rowDragRef = useRef<{ active: boolean; startRow: number; maxCol: number } | null>(null);
+  const columnDragRef = useRef<{ active: boolean; startCol: number; maxRow: number } | null>(
+    null,
+  );
+  const columnAnchorRef = useRef<number | null>(null);
   const pendingDragRangeRef = useRef<CellRange | null>(null);
   const dragSelectionRafRef = useRef<number | null>(null);
+  const leafColumnsRef = useRef<{ id: string }[]>([]);
+  const tableRowCountRef = useRef(0);
+  const columnWidthAtRef = useRef<(colIndex: number) => number>(() => 0);
+  const transposedRef = useRef(false);
   const bodyActionsRef = useRef<TableDataGridBodyActions | null>(null);
   const hoverResetPendingRef = useRef(false);
   const copiedRowRef = useRef<Record<string, unknown> | null>(null);
@@ -488,7 +517,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       !cellRangeRef.current &&
       selectedRowsRef.current.size === 0 &&
       !cellDragRef.current &&
-      !rowDragRef.current
+      !rowDragRef.current &&
+      !columnDragRef.current
     ) {
       return;
     }
@@ -496,8 +526,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     setSelectedRows(new Set());
     rowAnchorRef.current = null;
     cellAnchorRef.current = null;
+    columnAnchorRef.current = null;
     cellDragRef.current = null;
     rowDragRef.current = null;
+    columnDragRef.current = null;
     pendingDragRangeRef.current = null;
     activeCellNotifyKeyRef.current = undefined;
     selectedCellsNotifyKeyRef.current = undefined;
@@ -657,10 +689,25 @@ export const TableDataGrid = memo(function TableDataGrid({
   const filterColumnNames = useMemo(() => getFilterColumnNames(filter), [filter]);
   const canFilter = enableFilter && Boolean(onFilterChange && columnMeta?.length);
 
-  const openFilterPopover = useCallback((anchor: HTMLElement, lockedField: string) => {
-    setFilterAnchorRect(anchor.getBoundingClientRect());
-    setFilterLockedField(lockedField);
-    setFilterOpen(true);
+  const openFilterPopover = useCallback(
+    (anchor: HTMLElement | CellOverlayAnchor, lockedField: string) => {
+      if (anchor instanceof HTMLElement) {
+        setFilterAnchorRect(anchor.getBoundingClientRect());
+      } else {
+        setFilterAnchorRect(new DOMRect(anchor.left, anchor.top, anchor.width, anchor.height));
+      }
+      setFilterLockedField(lockedField);
+      setFilterOpen(true);
+    },
+    [],
+  );
+
+  const toggleGridRenderMode = useCallback(() => {
+    setGridRenderMode((prev) => {
+      const next: GridRenderMode = prev === "canvas" ? "dom" : "canvas";
+      writeStoredGridRenderMode(next);
+      return next;
+    });
   }, []);
 
   const openRelationDialog = useCallback((columnName: string) => {
@@ -1291,9 +1338,11 @@ export const TableDataGrid = memo(function TableDataGrid({
       const wrap = wrapRef.current;
       const measured =
         rowHeights[rowIndex] ??
-        wrap
-          ?.querySelector<HTMLTableRowElement>(`tr[data-row-index="${rowIndex}"]`)
-          ?.getBoundingClientRect().height ??
+        (useCanvasBody
+          ? DEFAULT_ROW_HEIGHT
+          : wrap
+              ?.querySelector<HTMLTableRowElement>(`tr[data-row-index="${rowIndex}"]`)
+              ?.getBoundingClientRect().height) ??
         DEFAULT_ROW_HEIGHT;
       dragRef.current = {
         rowIndex,
@@ -1301,12 +1350,16 @@ export const TableDataGrid = memo(function TableDataGrid({
         startHeight: measured,
         lastHeight: measured,
       };
+      dragRowHeightRef.current = { rowIndex, height: measured };
       wrap?.classList.add("db-data-table-wrap--resizing");
-      wrap
-        ?.querySelector(`tr[data-row-index="${rowIndex}"]`)
-        ?.classList.add("db-data-table-row--resizing");
+      if (!useCanvasBody) {
+        wrap
+          ?.querySelector(`tr[data-row-index="${rowIndex}"]`)
+          ?.classList.add("db-data-table-row--resizing");
+      }
+      canvasBodyRef.current?.invalidate();
     },
-    [rowHeights],
+    [rowHeights, useCanvasBody],
   );
 
   useEffect(() => {
@@ -1335,7 +1388,99 @@ export const TableDataGrid = memo(function TableDataGrid({
       const pending = pendingDragRangeRef.current;
       if (!wrap || !pending) return;
       cellRangeRef.current = pending;
-      paintDragSelection(wrap, pending);
+      // 表头始终在 DOM，列拖选时需要同步高亮
+      paintDragSelection(wrap, pending, tableRowCountRef.current);
+      if (gridRenderModeRef.current === "canvas") {
+        canvasBodyRef.current?.invalidate();
+      }
+    };
+
+    const resolveDragHit = (clientX: number, clientY: number) => {
+      if (gridRenderModeRef.current === "canvas") {
+        const hit = canvasBodyRef.current?.hitTestClientPoint(clientX, clientY);
+        if (!hit) return null;
+        return { rowIndex: hit.rowIndex, colIndex: hit.colIndex };
+      }
+      const el = document.elementFromPoint(clientX, clientY);
+      const td = el?.closest("td");
+      if (td) {
+        const tr = td.closest("tr");
+        if (tr) {
+          const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
+          const colIndex = Number((td as HTMLElement).dataset.colIndex);
+          if (!Number.isNaN(rowIndex) && !Number.isNaN(colIndex)) {
+            return { rowIndex, colIndex };
+          }
+        }
+      }
+      const tr = el?.closest("tr");
+      if (tr instanceof HTMLTableRowElement) {
+        const rowIndex = Number(tr.dataset.rowIndex);
+        if (!Number.isNaN(rowIndex)) {
+          return { rowIndex, colIndex: null as number | null };
+        }
+      }
+      return null;
+    };
+
+    const isSelectableDataColumn = (colIndex: number): boolean => {
+      const col = leafColumnsRef.current[colIndex];
+      if (!col) return false;
+      if (col.id === ROW_NUM_COL_ID || col.id === TRANSPOSE_FIELD_COL) return false;
+      return true;
+    };
+
+    /** 列拖选：优先命中表头，其次表体，最后按列宽几何计算（兼容列虚拟化） */
+    const resolveColumnDragCol = (clientX: number, clientY: number): number | null => {
+      const el = document.elementFromPoint(clientX, clientY);
+      const th = el?.closest("th[data-col-id]");
+      if (th instanceof HTMLElement) {
+        const fromIndex = Number(th.dataset.colIndex);
+        if (!Number.isNaN(fromIndex) && isSelectableDataColumn(fromIndex)) {
+          return fromIndex;
+        }
+        const colId = th.dataset.colId;
+        if (colId) {
+          const idx = leafColumnsRef.current.findIndex((c) => c.id === colId);
+          if (idx >= 0 && isSelectableDataColumn(idx)) return idx;
+        }
+      }
+      const hit = resolveDragHit(clientX, clientY);
+      if (hit?.colIndex != null && isSelectableDataColumn(hit.colIndex)) {
+        return hit.colIndex;
+      }
+
+      const wrap = wrapRef.current;
+      if (!wrap) return null;
+      const rect = wrap.getBoundingClientRect();
+      const localX = clientX - rect.left;
+      const cols = leafColumnsRef.current;
+      if (cols.length === 0) return null;
+
+      let pinnedWidth = 0;
+      const widths = cols.map((col, index) => {
+        const width = columnWidthAtRef.current(index);
+        if (isPinnedGridColumn(col.id, transposedRef.current)) {
+          pinnedWidth += width;
+        }
+        return width;
+      });
+
+      const contentX = localX < pinnedWidth ? localX : localX + wrap.scrollLeft;
+      let x = 0;
+      for (let i = 0; i < cols.length; i += 1) {
+        const width = widths[i] ?? 0;
+        if (contentX >= x && contentX < x + width) {
+          return isSelectableDataColumn(i) ? i : null;
+        }
+        x += width;
+      }
+      if (contentX >= x) {
+        for (let i = cols.length - 1; i >= 0; i -= 1) {
+          if (isSelectableDataColumn(i)) return i;
+        }
+      }
+      return null;
     };
 
     const onMouseMove = (event: MouseEvent) => {
@@ -1345,16 +1490,31 @@ export const TableDataGrid = memo(function TableDataGrid({
       const rowDrag = rowDragRef.current;
       if (rowDrag?.active) {
         scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
-        const el = document.elementFromPoint(event.clientX, event.clientY);
-        const tr = el?.closest("tr");
-        if (tr instanceof HTMLTableRowElement) {
-          const rowIndex = Number(tr.dataset.rowIndex);
-          if (!Number.isNaN(rowIndex)) {
-            pendingDragRangeRef.current = {
-              start: { row: rowDrag.startRow, col: 0 },
-              end: { row: rowIndex, col: rowDrag.maxCol },
-            };
-          }
+        const hit = resolveDragHit(event.clientX, event.clientY);
+        if (hit) {
+          pendingDragRangeRef.current = {
+            start: { row: rowDrag.startRow, col: 0 },
+            end: { row: hit.rowIndex, col: rowDrag.maxCol },
+          };
+        }
+        if (dragSelectionRafRef.current == null) {
+          dragSelectionRafRef.current = requestAnimationFrame(() => {
+            dragSelectionRafRef.current = null;
+            flushDragSelectionPaint();
+          });
+        }
+        return;
+      }
+
+      const columnDrag = columnDragRef.current;
+      if (columnDrag?.active) {
+        scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
+        const colIndex = resolveColumnDragCol(event.clientX, event.clientY);
+        if (colIndex != null) {
+          pendingDragRangeRef.current = {
+            start: { row: 0, col: columnDrag.startCol },
+            end: { row: columnDrag.maxRow, col: colIndex },
+          };
         }
         if (dragSelectionRafRef.current == null) {
           dragSelectionRafRef.current = requestAnimationFrame(() => {
@@ -1368,20 +1528,12 @@ export const TableDataGrid = memo(function TableDataGrid({
       const cellDrag = cellDragRef.current;
       if (cellDrag?.active) {
         scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
-        const el = document.elementFromPoint(event.clientX, event.clientY);
-        const td = el?.closest("td");
-        if (td) {
-          const tr = td.closest("tr");
-          if (tr) {
-            const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
-            const colIndex = Number((td as HTMLElement).dataset.colIndex);
-            if (!Number.isNaN(rowIndex) && !Number.isNaN(colIndex)) {
-              pendingDragRangeRef.current = {
-                start: cellDrag.start,
-                end: { row: rowIndex, col: colIndex },
-              };
-            }
-          }
+        const hit = resolveDragHit(event.clientX, event.clientY);
+        if (hit && hit.colIndex != null) {
+          pendingDragRangeRef.current = {
+            start: cellDrag.start,
+            end: { row: hit.rowIndex, col: hit.colIndex },
+          };
         }
         if (dragSelectionRafRef.current == null) {
           dragSelectionRafRef.current = requestAnimationFrame(() => {
@@ -1400,6 +1552,11 @@ export const TableDataGrid = memo(function TableDataGrid({
         );
         if (next === drag.lastHeight) return;
         drag.lastHeight = next;
+        dragRowHeightRef.current = { rowIndex: drag.rowIndex, height: next };
+        if (gridRenderModeRef.current === "canvas") {
+          canvasBodyRef.current?.invalidate();
+          return;
+        }
         const row = wrap.querySelector<HTMLElement>(`tr[data-row-index="${drag.rowIndex}"]`);
         if (row) {
           row.style.height = `${next}px`;
@@ -1414,12 +1571,22 @@ export const TableDataGrid = memo(function TableDataGrid({
         const newWidth = Math.max(COLUMN_MIN_WIDTH, col.startWidth + diff);
         if (newWidth === col.lastWidth) return;
         col.lastWidth = newWidth;
+        dragColumnWidthRef.current = { columnId: col.columnId, width: newWidth };
         applyColumnWidthDom(wrap, col.columnId, newWidth);
+        if (gridRenderModeRef.current === "canvas") {
+          canvasBodyRef.current?.invalidate();
+        }
       }
     };
 
     const onScrollDuringDrag = () => {
-      if (!cellDragRef.current?.active && !rowDragRef.current?.active) return;
+      if (
+        !cellDragRef.current?.active &&
+        !rowDragRef.current?.active &&
+        !columnDragRef.current?.active
+      ) {
+        return;
+      }
       if (dragSelectionRafRef.current == null) {
         dragSelectionRafRef.current = requestAnimationFrame(() => {
           dragSelectionRafRef.current = null;
@@ -1432,6 +1599,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       const wrap = wrapRef.current;
       const wasCellDrag = Boolean(cellDragRef.current?.active);
       const wasRowDrag = Boolean(rowDragRef.current?.active);
+      const wasColumnDrag = Boolean(columnDragRef.current?.active);
       const pendingDragRange = pendingDragRangeRef.current;
 
       if (cellDragRef.current) {
@@ -1439,6 +1607,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
       if (rowDragRef.current) {
         rowDragRef.current = null;
+      }
+      if (columnDragRef.current) {
+        columnDragRef.current = null;
       }
       pendingDragRangeRef.current = null;
       if (dragSelectionRafRef.current != null) {
@@ -1451,7 +1622,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       }
 
       // 拖选过程只刷 DOM；抬起时一次性提交 React 选区
-      if ((wasCellDrag || wasRowDrag) && pendingDragRange) {
+      if ((wasCellDrag || wasRowDrag || wasColumnDrag) && pendingDragRange) {
         cellRangeRef.current = pendingDragRange;
         setCellRange(pendingDragRange);
       }
@@ -1476,15 +1647,23 @@ export const TableDataGrid = memo(function TableDataGrid({
 
       dragRef.current = null;
       colResizeRef.current = null;
+      dragRowHeightRef.current = null;
+      dragColumnWidthRef.current = null;
+      canvasBodyRef.current?.invalidate();
       wrap?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || reserveSelectionOnEscapeRef.current) return;
       if (cellPreviewOpenRef.current) return;
-      if (cellDragRef.current?.active || rowDragRef.current?.active) {
+      if (
+        cellDragRef.current?.active ||
+        rowDragRef.current?.active ||
+        columnDragRef.current?.active
+      ) {
         cellDragRef.current = null;
         rowDragRef.current = null;
+        columnDragRef.current = null;
         pendingDragRangeRef.current = null;
         if (dragSelectionRafRef.current != null) {
           cancelAnimationFrame(dragSelectionRafRef.current);
@@ -1515,6 +1694,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const totalTableWidth = table.getTotalSize();
   const leafColumns = table.getAllLeafColumns();
+  leafColumnsRef.current = leafColumns;
   const lastColumnId = leafColumns[leafColumns.length - 1]?.id ?? "";
   const fillDelta =
     containerWidth > 0 ? Math.max(0, containerWidth - totalTableWidth) : 0;
@@ -1524,6 +1704,12 @@ export const TableDataGrid = memo(function TableDataGrid({
       fillDelta > 0 && columnId === lastColumnId ? baseSize + fillDelta : baseSize,
     [fillDelta, lastColumnId],
   );
+  columnWidthAtRef.current = (colIndex) => {
+    const column = leafColumns[colIndex];
+    if (!column) return 0;
+    return resolveColumnWidth(column.id, column.getSize());
+  };
+  transposedRef.current = transposed;
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -1545,6 +1731,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const allColumnsHidden = sidebarColumns.length > 0 && visibleColumns.length === 0;
   const tableRows = table.getRowModel().rows;
+  tableRowCountRef.current = tableRows.length;
   const leafColumnCount = table.getAllLeafColumns().length;
 
   const selectedRowIndices = useMemo(
@@ -1854,7 +2041,9 @@ export const TableDataGrid = memo(function TableDataGrid({
         if (rowIdx < 0) {
           return;
         }
-        if (useRowVirtualization) {
+        if (useCanvasBody) {
+          canvasBodyRef.current?.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
+        } else if (useRowVirtualization) {
           virtualBodyRef.current?.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
         } else {
           const tr = wrap.querySelector<HTMLElement>(`tr[data-row-index="${rowIdx}"]`);
@@ -1880,10 +2069,27 @@ export const TableDataGrid = memo(function TableDataGrid({
         return;
       }
 
-      const th = wrap.querySelector<HTMLElement>(`th[data-col-id="${CSS.escape(columnName)}"]`);
-      if (th) {
-        scrollElementToCenter(wrap, th);
+      // 列虚拟化下远列表头不在 DOM，不能依赖 th.getBoundingClientRect
+      let columnOffset = 0;
+      for (let i = 0; i < colIdx; i += 1) {
+        const column = leafColumns[i]!;
+        columnOffset += resolveColumnWidth(column.id, column.getSize());
       }
+      const targetColumn = leafColumns[colIdx]!;
+      const columnWidth = resolveColumnWidth(targetColumn.id, targetColumn.getSize());
+      let totalWidth = columnOffset + columnWidth;
+      for (let i = colIdx + 1; i < leafColumns.length; i += 1) {
+        const column = leafColumns[i]!;
+        totalWidth += resolveColumnWidth(column.id, column.getSize());
+      }
+      scrollColumnToCenter(wrap, {
+        columnOffset,
+        columnWidth,
+        totalWidth,
+        pinned: isPinnedGridColumn(targetColumn.id, transposed),
+        behavior: "smooth",
+      });
+      canvasBodyRef.current?.invalidate();
 
       const maxRow = tableRows.length - 1;
       if (maxRow >= 0) {
@@ -1903,6 +2109,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       leafColumnCount,
       tableRows.length,
       useRowVirtualization,
+      useCanvasBody,
+      resolveColumnWidth,
     ],
   );
 
@@ -1955,15 +2163,75 @@ export const TableDataGrid = memo(function TableDataGrid({
     (colId: string) => {
       const colIdx = leafColumns.findIndex((c) => c.id === colId);
       if (colIdx < 0) return;
+      if (colId === ROW_NUM_COL_ID || colId === TRANSPOSE_FIELD_COL) return;
       const maxRow = tableRows.length - 1;
       if (maxRow < 0) return;
       setSelectedRows(new Set());
+      cellDragRef.current = null;
+      rowDragRef.current = null;
+      columnDragRef.current = null;
       rowAnchorRef.current = 0;
+      columnAnchorRef.current = colIdx;
       cellAnchorRef.current = { row: 0, col: colIdx };
       setCellRange({
         start: { row: 0, col: colIdx },
         end: { row: maxRow, col: colIdx },
       });
+    },
+    [leafColumns, tableRows.length],
+  );
+
+  /** 表头拖选整列，交互对齐行号拖选 */
+  const handleColumnBandSelect = useCallback(
+    (colId: string, event: ReactMouseEvent) => {
+      if (event.button !== 0) return;
+      if (event.target instanceof Element) {
+        if (
+          event.target.closest(
+            ".db-col-resize-handle, .db-data-table-th-actions, .db-data-table-th-relation, .db-data-table-th-relation-display-actions-wrap, .db-data-table-filter-btn, .db-data-table-sort-indicator",
+          )
+        ) {
+          return;
+        }
+      }
+      const colIdx = leafColumns.findIndex((c) => c.id === colId);
+      if (colIdx < 0) return;
+      if (colId === ROW_NUM_COL_ID || colId === TRANSPOSE_FIELD_COL) return;
+      const maxRow = tableRows.length - 1;
+      if (maxRow < 0) return;
+
+      if (event.shiftKey && columnAnchorRef.current != null) {
+        const anchor = columnAnchorRef.current;
+        const minCol = Math.min(anchor, colIdx);
+        const maxCol = Math.max(anchor, colIdx);
+        setSelectedRows(new Set());
+        cellDragRef.current = null;
+        rowDragRef.current = null;
+        columnDragRef.current = null;
+        pendingDragRangeRef.current = null;
+        setCellRange({
+          start: { row: 0, col: minCol },
+          end: { row: maxRow, col: maxCol },
+        });
+        return;
+      }
+
+      // 普通按下：开始列拖选（左右拖动多选整列）
+      event.preventDefault();
+      setSelectedRows(new Set());
+      cellDragRef.current = null;
+      rowDragRef.current = null;
+      columnAnchorRef.current = colIdx;
+      rowAnchorRef.current = 0;
+      cellAnchorRef.current = { row: 0, col: colIdx };
+      const range = {
+        start: { row: 0, col: colIdx },
+        end: { row: maxRow, col: colIdx },
+      };
+      columnDragRef.current = { active: true, startCol: colIdx, maxRow };
+      pendingDragRangeRef.current = range;
+      wrapRef.current?.classList.add("db-data-table-wrap--cell-dragging");
+      setCellRange(range);
     },
     [leafColumns, tableRows.length],
   );
@@ -1995,6 +2263,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         setSelectedRows(new Set());
         cellDragRef.current = null;
         rowDragRef.current = null;
+        columnDragRef.current = null;
         setCellRange({
           start: { row: minRow, col: 0 },
           end: { row: maxRow, col: maxCol },
@@ -2018,6 +2287,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         setCellRange(null);
         cellDragRef.current = null;
         rowDragRef.current = null;
+        columnDragRef.current = null;
         rowAnchorRef.current = rowIndex;
         cellAnchorRef.current = null;
         onRowBandSelect?.();
@@ -2027,6 +2297,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       // 普通按下：开始行拖选（上下拖动多选整行）
       setSelectedRows(new Set());
       cellDragRef.current = null;
+      columnDragRef.current = null;
       rowAnchorRef.current = rowIndex;
       cellAnchorRef.current = { row: rowIndex, col: 0 };
       const range = {
@@ -2244,6 +2515,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       event.stopPropagation();
       setSelectedRows(new Set());
       rowDragRef.current = null;
+      columnDragRef.current = null;
       cellDragRef.current = { active: true, start: { row: ctx.rowIndex, col: ctx.colIndex } };
       cellAnchorRef.current = { row: ctx.rowIndex, col: ctx.colIndex };
       rowAnchorRef.current = ctx.rowIndex;
@@ -2598,6 +2870,9 @@ export const TableDataGrid = memo(function TableDataGrid({
           onSelectColumn: () => {
             const maxRow = Math.max(0, tableRows.length - 1);
             setSelectedRows(new Set());
+            columnAnchorRef.current = menu.colIndex;
+            cellAnchorRef.current = { row: 0, col: menu.colIndex };
+            rowAnchorRef.current = 0;
             setCellRange({
               start: { row: 0, col: menu.colIndex },
               end: { row: maxRow, col: menu.colIndex },
@@ -2682,6 +2957,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           setSelectedRows(new Set());
           cellDragRef.current = null;
           rowDragRef.current = null;
+          columnDragRef.current = null;
           const anchor = { row: ctx.rowIndex, col: ctx.colIndex };
           cellAnchorRef.current = anchor;
           rowAnchorRef.current = ctx.rowIndex;
@@ -2727,6 +3003,103 @@ export const TableDataGrid = memo(function TableDataGrid({
     ],
   );
 
+  const canvasSnapshotInput = useMemo((): BuildGridSnapshotInput => {
+    return {
+      leafColumns: leafColumns.map((col) => ({
+        id: col.id,
+        getSize: () => col.getSize(),
+      })),
+      tableRows: tableRows.map((row) => ({
+        index: row.index,
+        original: row.original,
+      })),
+      resolveColumnWidth,
+      rowHeights,
+      defaultRowHeight: DEFAULT_ROW_HEIGHT,
+      transposed,
+      columnMetaMap,
+      pkCols,
+      displayCellOverrides: displayCellOverrides ?? null,
+      displayDirtyRowKeys: displayDirtyRowKeys ?? null,
+      deletedRowKeys: deletedRowKeys ?? null,
+      cellRange,
+      dragRange: null,
+      selectedRows,
+      hoverRow: null,
+      hoverCol: null,
+      page,
+      pageSize,
+      hasCellEdit: Boolean(onCellEdit || onCellCommit),
+      enableValuePanelAffordance: Boolean(onCellEditorFocusRequest),
+      relationHighlightColumnIds,
+      enableSort,
+      sortColumn: sort?.column ?? null,
+      sortDirection: sort?.direction ?? null,
+      canFilter,
+      filterColumnNames,
+      autoIncrementPlaceholder,
+      nullLabel: t("database.results.columnNullableShort"),
+      emptyLabel: t("database.results.columnEmptyShort"),
+    };
+  }, [
+    leafColumns,
+    tableRows,
+    resolveColumnWidth,
+    rowHeights,
+    transposed,
+    columnMetaMap,
+    pkCols,
+    displayCellOverrides,
+    displayDirtyRowKeys,
+    deletedRowKeys,
+    cellRange,
+    selectedRows,
+    page,
+    pageSize,
+    onCellEdit,
+    onCellCommit,
+    onCellEditorFocusRequest,
+    relationHighlightColumnIds,
+    enableSort,
+    sort,
+    canFilter,
+    filterColumnNames,
+    autoIncrementPlaceholder,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (!useCanvasBody) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    const syncOverlayAnchor = () => {
+      const overlay = cellOverlayRef.current;
+      if (!overlay) return;
+      // overlay 始终使用展示坐标（转置后的行列）
+      const targetCol = leafColumns.findIndex((col) => col.id === overlay.column);
+      const targetRow = overlay.rowIndex;
+      if (targetRow < 0 || targetCol < 0) return;
+      const rect = canvasBodyRef.current?.getCellViewportRect(targetRow, targetCol);
+      if (!rect) return;
+      setCellOverlay((prev) => {
+        if (!prev) return prev;
+        if (
+          prev.left === rect.left &&
+          prev.top === rect.top &&
+          prev.width === rect.width &&
+          prev.height === rect.height
+        ) {
+          return prev;
+        }
+        return { ...prev, ...rect };
+      });
+    };
+
+    wrap.addEventListener("scroll", syncOverlayAnchor, { passive: true });
+    return () => wrap.removeEventListener("scroll", syncOverlayAnchor);
+  }, [useCanvasBody, leafColumns, cellOverlay]);
+
   if (effectiveColumns.length === 0) {
     return null;
   }
@@ -2759,10 +3132,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     ) : (
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap${useRowVirtualization ? " db-data-table-wrap--virtual" : ""}${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}${isPaging ? " db-data-table-wrap--paging" : ""}`}
+      className={`db-data-table-wrap${useCanvasBody ? " db-data-table-wrap--canvas" : ""}${!useCanvasBody && useRowVirtualization ? " db-data-table-wrap--virtual" : ""}${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}${isPaging ? " db-data-table-wrap--paging" : ""}`}
     >
       <table
-        className="db-data-table"
+        className={`db-data-table${useCanvasBody ? " db-data-table--canvas-chrome" : ""}`}
         style={{ width: fillDelta > 0 ? "100%" : totalTableWidth, minWidth: "100%" }}
       >
         <colgroup>
@@ -2897,12 +3270,16 @@ export const TableDataGrid = memo(function TableDataGrid({
                 <th
                   key={header.id}
                   data-col-id={colId}
+                  data-col-index={headerColIdx}
                   style={buildColumnCellStyle(colId, baseSize, lastColumnId, fillDelta)}
                   className={`${table.getState().columnSizingInfo?.isResizingColumn === colId ? "db-data-table-th-resizing" : ""}${canSort ? " db-data-table-th--sortable" : ""}${isSelectAllHeader || colId !== ROW_NUM_COL_ID ? " db-data-table-th--selectable" : ""}${isSelectAllHeader ? " db-data-table-th--select-all" : ""}${thSelected ? " db-data-table-th--selected" : ""}${sortClass}${filterClass}${relationActive ? " db-data-table-th--relation" : ""}${isRelationDisplayCol ? " db-data-table-th--relation-display" : ""}`}
-                  onClick={
+                  onClick={isSelectAllHeader ? handleSelectAll : undefined}
+                  onMouseDown={
                     isSelectAllHeader
-                      ? handleSelectAll
-                      : () => handleColumnSelect(colId)
+                      ? undefined
+                      : (event) => {
+                          handleColumnBandSelect(colId, event);
+                        }
                   }
                   onDoubleClick={(e) => handleTransposeRowHeaderDoubleClick(colId, e)}
                   title={headerTitle}
@@ -2992,6 +3369,7 @@ export const TableDataGrid = memo(function TableDataGrid({
                           startWidth,
                           lastWidth: startWidth,
                         };
+                        dragColumnWidthRef.current = { columnId: colId, width: startWidth };
                         wrapRef.current?.classList.add("db-data-table-wrap--col-resizing");
                         wrapRef.current
                           ?.querySelector(`th[data-col-id="${CSS.escape(colId)}"]`)
@@ -3007,7 +3385,7 @@ export const TableDataGrid = memo(function TableDataGrid({
             </tr>
           ))}
         </thead>
-        {useRowVirtualization ? (
+        {useCanvasBody ? null : useRowVirtualization ? (
           <TableDataGridVirtualBody
             ref={virtualBodyRef}
             scrollElementRef={wrapRef}
@@ -3028,6 +3406,20 @@ export const TableDataGrid = memo(function TableDataGrid({
           />
         )}
       </table>
+      {useCanvasBody ? (
+        <TableDataGridCanvasBody
+          ref={canvasBodyRef}
+          scrollElementRef={wrapRef}
+          snapshotInput={canvasSnapshotInput}
+          dragRangeRef={pendingDragRangeRef}
+          dragRowHeightRef={dragRowHeightRef}
+          dragColumnWidthRef={dragColumnWidthRef}
+          bodyActionsRef={bodyActionsRef}
+          resolveCellContext={resolveBodyCellContext}
+          onFieldSortClick={handleColumnSortClick}
+          onFieldFilterOpen={openFilterPopover}
+        />
+      ) : null}
       <TableDataGridCellOverlay
         overlay={cellOverlay}
         onEditChange={handleCellOverlayEditChange}
@@ -3142,6 +3534,25 @@ export const TableDataGrid = memo(function TableDataGrid({
             </svg>
           </Button>
         )}
+        <Button
+          variant={useCanvasBody ? "default" : "ghost"}
+          size="sm"
+          className="db-grid-render-mode-toggle"
+          title={
+            useCanvasBody
+              ? "当前：Canvas 渲染（点击切换为 DOM）"
+              : "当前：DOM 渲染（点击切换为 Canvas）"
+          }
+          aria-label={
+            useCanvasBody
+              ? "当前：Canvas 渲染（点击切换为 DOM）"
+              : "当前：DOM 渲染（点击切换为 Canvas）"
+          }
+          aria-pressed={useCanvasBody}
+          onClick={toggleGridRenderMode}
+        >
+          {useCanvasBody ? "Canvas" : "DOM"}
+        </Button>
         {canCopyPreviewSql && (
           <Button
             variant={copySqlHint ? "default" : "ghost"}
