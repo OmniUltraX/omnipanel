@@ -31,6 +31,21 @@ pub struct AiTraceRecord {
     pub ts: i64,
 }
 
+/// 内置工具审计记录（对应 builtin_tool_audit 表）
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinToolAuditRecord {
+    #[specta(type = f64)]
+    pub id: i64,
+    pub source: String,
+    pub tool_name: String,
+    pub duration_ms: i64,
+    pub success: bool,
+    pub detail: String,
+    #[specta(type = f64)]
+    pub ts: i64,
+}
+
 impl Storage {
     pub fn ai_session_upsert(&self, session: &AiSessionRecord) -> OmniResult<()> {
         self.conn()
@@ -187,5 +202,34 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
         Ok(())
+    }
+
+    /// 读取最近的内置工具审计记录（按时间倒序）。
+    pub fn builtin_tool_audit_list(&self, limit: u32) -> OmniResult<Vec<BuiltinToolAuditRecord>> {
+        let mut stmt = self
+            .conn()
+            .prepare(
+                "SELECT id, source, tool_name, duration_ms, success, detail, ts
+                 FROM builtin_tool_audit ORDER BY ts DESC, id DESC LIMIT ?1",
+            )
+            .map_err(map_sqlite)?;
+        let rows = stmt
+            .query_map([limit], |row| {
+                Ok(BuiltinToolAuditRecord {
+                    id: row.get(0)?,
+                    source: row.get(1)?,
+                    tool_name: row.get(2)?,
+                    duration_ms: row.get(3)?,
+                    success: row.get::<_, i64>(4)? != 0,
+                    detail: row.get(5)?,
+                    ts: row.get(6)?,
+                })
+            })
+            .map_err(map_sqlite)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_sqlite)?);
+        }
+        Ok(out)
     }
 }

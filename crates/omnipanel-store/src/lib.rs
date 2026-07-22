@@ -31,7 +31,7 @@ mod http_proxy;
 mod web_search;
 mod workflow;
 
-pub use ai_trace::{AiSessionRecord, AiTraceRecord};
+pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
 pub use builtin_tool::{BuiltinToolCatalogEntry, BuiltinToolRecord};
 pub use builtin_tool_spec::{
     builtin_tool_is_native, builtin_tool_module_key, builtin_tool_omnimcp_backend,

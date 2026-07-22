@@ -2,7 +2,7 @@ import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import type { WorkspaceAction } from "../../../stores/actionStore";
 import type { TerminalBlock } from "../../../stores/blocksStore";
 import { requireString } from "../../../lib/ai/mcpToolArgs";
-import { useTerminalStore } from "../../../stores/terminalStore";
+import { useTerminalStore, findTerminalPane } from "../../../stores/terminalStore";
 import { resolveResourceById } from "../../../stores/connectionStore";
 import { executeAiTerminalCommand } from "../executeAiTerminalCommand";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../paneResource";
@@ -35,15 +35,15 @@ export async function executeTerminalCommandCore(
     throw new Error("当前没有活动的终端会话");
   }
 
-  const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
+  const pane = findTerminalPane(tabId);
   const resource =
-    resolveResourceById(tab?.session.resourceId ?? null) ??
+    resolveResourceById(pane?.resourceId ?? null) ??
     resolveResourceById(LOCAL_TERMINAL_RESOURCE_ID);
 
   const result = await executeAiTerminalCommand({
     tabId,
     command,
-    resourceId: resource?.id ?? tab?.session.resourceId,
+    resourceId: resource?.id ?? pane?.resourceId,
   });
 
   if (result.rejected) {

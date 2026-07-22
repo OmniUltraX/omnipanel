@@ -1,9 +1,10 @@
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { HostDetailPanel } from "./components/HostDetailPanel";
 import { useSshActiveHostStore } from "./stores/sshActiveHostStore";
+import { useUiFollowConsumer } from "../../../lib/ai/uiFollow";
 import { SSH_PATH } from "./constants";
 
 type Props = {
@@ -23,6 +24,25 @@ export const SshWorkspacePanel = memo(function SshWorkspacePanel({
   const { t } = useI18n();
   const rememberedHostId = useWorkspaceStore((s) => s.selectedResourceByPath[SSH_PATH]);
   const activeHostId = useSshActiveHostStore((s) => s.activeHostId) ?? rememberedHostId ?? null;
+  const setActiveHostId = useSshActiveHostStore((s) => s.setActiveHostId);
+
+  // === AI Follow 消费者注册 ===
+  // 处理 openConnection / revealSftpPath intent：同步 activeHostId，避免被旧值覆盖
+  useUiFollowConsumer("ssh", useCallback((intent) => {
+    switch (intent.type) {
+      case "openConnection": {
+        setActiveHostId(intent.resourceId);
+        return true;
+      }
+      case "revealSftpPath": {
+        // 切到对应主机，SFTP 路径定位由终端面板的 SFTP 集成处理
+        setActiveHostId(intent.resourceId);
+        return true;
+      }
+      default:
+        return false;
+    }
+  }, [setActiveHostId]));
 
   const panelBody = useMemo(() => {
     return (

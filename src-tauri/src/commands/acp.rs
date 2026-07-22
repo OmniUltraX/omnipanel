@@ -152,7 +152,12 @@ fn parse_command_line(command_line: &str) -> Result<(String, Vec<String>), Strin
     if trimmed.is_empty() {
         return Err("ACP 可执行命令不能为空".to_string());
     }
-    let parts: Vec<String> = trimmed.split_whitespace().map(String::from).collect();
+    // 用 shell-words 解析，支持引号包裹的参数（如 "C:\Program Files\agent.exe" --flag "value with space"）。
+    let parts = shell_words::split(trimmed)
+        .map_err(|e| format!("解析 ACP 命令行失败: {e}"))?;
+    if parts.is_empty() {
+        return Err("ACP 可执行命令不能为空".to_string());
+    }
     let binary = parts[0].clone();
     let args = parts.into_iter().skip(1).collect();
     Ok((binary, args))
@@ -321,6 +326,16 @@ pub async fn connect_agent(
     state: &AppState,
     spec: AgentLaunchSpec,
 ) -> Result<AcpStatus, String> {
+    connect_agent_with_acp_state(app, &state.acp_state, spec).await
+}
+
+/// `connect_agent` 的变体：直接接收 `acp_state` 而非完整 `AppState`，
+/// 供 Gateway resolver 等不持有 `AppState` 引用的调用方使用。
+pub async fn connect_agent_with_acp_state(
+    app: &AppHandle,
+    acp_state: &Arc<tokio::sync::Mutex<AcpState>>,
+    spec: AgentLaunchSpec,
+) -> Result<AcpStatus, String> {
     let config_path = agent_config_path(app)?;
     // 外部 Agent（Cursor / OpenCode / Qwen）使用各自 CLI 鉴权，不依赖配置文件。
     let spawn_env = if config_path.exists() {
@@ -329,7 +344,7 @@ pub async fn connect_agent(
         HashMap::new()
     };
     let spawn_cwd = spec.cwd.as_ref().map(|p| p.to_string_lossy().into_owned());
-    let mut acp = state.acp_state.lock().await;
+    let mut acp = acp_state.lock().await;
 
     if let Some(ref manager) = acp.manager {
         manager.disconnect().await.map_err(|e| e.to_string())?;

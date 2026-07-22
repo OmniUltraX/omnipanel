@@ -70,6 +70,7 @@ toml = "0.8"
 md5 = "0.7"
 pdf-extract = "0.7"
 regex = "1"
+shell-words = "1.1"
 suppaftp = { version = "6", default-features = false, features = ["rustls"] }
 rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
 

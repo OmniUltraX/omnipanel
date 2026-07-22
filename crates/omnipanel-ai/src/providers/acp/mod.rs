@@ -2,6 +2,7 @@ pub mod client;
 pub mod client_tools;
 pub mod native_tools;
 pub mod translate;
+pub mod turn_runner;
 pub mod types;
 
 use anyhow::{Result, bail};
@@ -27,6 +28,10 @@ pub struct PromptOptions {
     pub content_hold: bool,
     /// 与 `content_hold` 配合使用；prompt 结束后由调用方读取并处理。
     pub content_buffer: Option<Arc<StdMutex<String>>>,
+    /// 抑制所有原生工具调用（不映射、不透传），仅保留 client-tools prompt 注入的工具。
+    /// 用于 gateway 路径：外部客户端（cline/aider）无法执行 OmniPanel 映射工具，
+    /// 所以将 agent 原生工具全部静默丢弃，强制 agent 只使用 prompt 注入的客户端工具。
+    pub suppress_all_native: bool,
 }
 
 impl Default for PromptOptions {
@@ -36,8 +41,17 @@ impl Default for PromptOptions {
             emit_done: true,
             content_hold: false,
             content_buffer: None,
+            suppress_all_native: false,
         }
     }
+}
+
+/// 会话缓存：记录创建时使用的 cwd 和 model，用于检测参数变更并重建会话。
+#[derive(Clone)]
+struct SessionCache {
+    session_id: String,
+    cwd: String,
+    model: Option<String>,
 }
 
 /// Manages a long-lived ACP agent subprocess and conversation sessions.
@@ -45,7 +59,7 @@ pub struct AcpManager {
     client: Arc<AcpClient>,
     initialized: AtomicBool,
     agent_name: Mutex<Option<String>>,
-    conversation_sessions: Mutex<HashMap<String, String>>,
+    conversation_sessions: Mutex<HashMap<String, SessionCache>>,
     /// 已发送过首轮完整 client-tools prompt 的 conversation_id。
     prompted_conversations: Mutex<HashSet<String>>,
 }
@@ -161,13 +175,61 @@ impl AcpManager {
         mcp_servers: Vec<serde_json::Value>,
         model: Option<&str>,
     ) -> Result<String> {
+        let normalized_model = model
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty() && m != "auto");
+
+        // 检查缓存的会话是否仍可用（cwd/model 是否变更）
         {
             let sessions = self.conversation_sessions.lock().await;
-            if let Some(sid) = sessions.get(conversation_id) {
-                return Ok(sid.clone());
+            if let Some(cached) = sessions.get(conversation_id) {
+                if cached.cwd == cwd {
+                    let session_id = cached.session_id.clone();
+                    let model_changed = cached.model != normalized_model;
+                    drop(sessions);
+
+                    // cwd 未变：model 变更可热更新，无需重建会话
+                    if model_changed {
+                        if let Some(ref requested) = normalized_model {
+                            // 尝试 session/set_model 热更新
+                            let set_ok = try_set_config_option(
+                                &self.client,
+                                &session_id,
+                                "model",
+                                requested,
+                                &[],
+                            )
+                            .await;
+                            if !set_ok {
+                                let _ = self
+                                    .client
+                                    .request(
+                                        "session/set_model",
+                                        Some(serde_json::to_value(&SetModelParams {
+                                            session_id: session_id.clone(),
+                                            model_id: requested.clone(),
+                                        })?),
+                                    )
+                                    .await;
+                            }
+                        }
+                        self.conversation_sessions
+                            .lock()
+                            .await
+                            .entry(conversation_id.to_string())
+                            .and_modify(|c| c.model = normalized_model.clone());
+                    }
+                    return Ok(session_id);
+                }
+                // cwd 变更 → 必须重建会话（ACP cwd 在 session/new 时固定，不可热更新）
+                tracing::info!(
+                    "ACP session cwd changed: {} -> {}, recreating session for conversation {}",
+                    cached.cwd, cwd, conversation_id
+                );
             }
         }
 
+        // 创建新会话
         let params = SessionNewParams {
             cwd: cwd.to_string(),
             mcp_servers,
@@ -182,14 +244,19 @@ impl AcpManager {
             .await?;
 
         let new_result: SessionNewResult = serde_json::from_value(result)?;
-        if let Some(requested) = model.filter(|m| !m.trim().is_empty() && *m != "auto") {
+        if let Some(requested) = &normalized_model {
             apply_session_model(&self.client, &new_result, requested).await;
         }
-        self.conversation_sessions
-            .lock()
-            .await
-            .insert(conversation_id.to_string(), new_result.session_id.clone());
-        Ok(new_result.session_id)
+        let session_id = new_result.session_id.clone();
+        self.conversation_sessions.lock().await.insert(
+            conversation_id.to_string(),
+            SessionCache {
+                session_id: session_id.clone(),
+                cwd: cwd.to_string(),
+                model: normalized_model,
+            },
+        );
+        Ok(session_id)
     }
 
     pub async fn cancel_prompt(&self, conversation_id: &str) -> Result<()> {
@@ -198,7 +265,7 @@ impl AcpManager {
             .lock()
             .await
             .get(conversation_id)
-            .cloned()
+            .map(|c| c.session_id.clone())
             .ok_or_else(|| anyhow::anyhow!("No ACP session for conversation"))?;
 
         self.client
@@ -242,7 +309,7 @@ impl AcpManager {
         }];
 
         let client = self.client.clone();
-        let translate_options = TranslateOptions::new(options.client_tools);
+        let translate_options = TranslateOptions::new(options.client_tools, options.suppress_all_native);
         let client_tools = options.client_tools;
         let content_hold = options.content_hold;
         let content_buffer = options.content_buffer.clone();
@@ -522,6 +589,7 @@ pub use client_tools::{
     pick_terminal_tool_call, prompt_expects_tool_retry, prompt_has_tool_results,
 };
 pub use native_tools::TERMINAL_CLIENT_TOOL as ACP_TERMINAL_CLIENT_TOOL;
+pub use turn_runner::AcpRoundRunner;
 
 fn parse_stop_reason(raw: Option<&str>) -> StopReason {
     match raw {

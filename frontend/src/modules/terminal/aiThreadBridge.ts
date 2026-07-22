@@ -99,6 +99,12 @@ function assistantMessageParts(
   item: AiThreadMessage,
   followingTools: AiThreadToolCall[],
 ): AiMessagePart[] {
+  // parts 存在且非空时直接使用（保序：思考→文本→工具→再思考→再文本）
+  // tool-call 边界已在流式写入时以 tool-call part 形式插入 parts，无需再追加 followingTools
+  if (item.parts && item.parts.length > 0) {
+    return item.parts;
+  }
+  // 回退：旧数据无 parts，按固定顺序拼 reasoning + content + tools
   const parts: AiMessagePart[] = [];
   if (item.reasoning?.trim()) {
     parts.push({ type: "reasoning", text: item.reasoning.trim() });

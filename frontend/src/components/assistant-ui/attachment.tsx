@@ -155,7 +155,7 @@ const AttachmentUI: FC = () => {
         <AttachmentPreviewDialog>
           <TooltipTrigger asChild>
             <div
-              className="aui-attachment-tile bg-muted size-14 cursor-pointer overflow-hidden rounded-[calc(var(--composer-radius)-var(--composer-padding))] border transition-opacity hover:opacity-75"
+              className="aui-attachment-tile bg-muted size-14 cursor-pointer overflow-hidden rounded-md border transition-opacity hover:opacity-75"
               role="button"
               tabIndex={0}
               aria-label={`${typeLabel} attachment`}
@@ -215,7 +215,7 @@ export const ComposerAddAttachment: FC = () => {
         side="bottom"
         variant="ghost"
         size="icon"
-        className="aui-composer-add-attachment hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-7 rounded-full p-1 text-xs font-semibold"
+        className="aui-composer-add-attachment hover:bg-muted-foreground/15 dark:border-muted-foreground/15 dark:hover:bg-muted-foreground/30 size-7 rounded-md p-1 text-xs font-semibold"
         aria-label="Add Attachment"
       >
         <PlusIcon className="aui-attachment-add-icon size-4.5 stroke-[1.5px]" />

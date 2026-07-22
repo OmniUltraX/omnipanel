@@ -61,6 +61,11 @@ export const LazyFilesPanel = lazyNamedModule(
   "FilesPanel",
 );
 
+export const LazyTaskCenterPanel = lazyNamedModule(
+  () => import("../modules/tasks/TaskCenterPanel"),
+  "TaskCenterPanel",
+);
+
 export const LazyDashboardPage = lazyNamedModule(
   () => import("../modules/workspace/DashboardPage"),
   "DashboardPage",
@@ -81,6 +86,7 @@ const IDLE_CHUNK_KEYS: OverlayModuleKey[] = [
   "protocol",
   "workflow",
   "knowledge",
+  "tasks",
 ];
 
 const EXTRA_IDLE_LOADERS = [

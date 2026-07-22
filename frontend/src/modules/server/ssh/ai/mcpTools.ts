@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../../lib/ai/context";
 import { optionalString, requireString } from "../../../../lib/ai/mcpToolArgs";
+import { evaluateToolRisk } from "../../../../lib/ai/toolRisk";
+import { useActionDraftStore } from "../../../../stores/actionDraftStore";
 import type {
   HostSystemStats,
   SshExecOutput,
@@ -34,6 +36,40 @@ interface SshExecInvokeArgs {
 async function sshExec(args: Record<string, unknown>): Promise<string> {
   const resource_id = requireString(args, "resource_id");
   const command = requireString(args, "command");
+
+  // 风险评估：高风险命令走审批队列
+  const risk = evaluateToolRisk("omni_ssh_exec", JSON.stringify(args), resource_id);
+  if (risk.needsApproval) {
+    const result = await useActionDraftStore.getState().enqueueAwaitable({
+      kind: "ssh",
+      title: `SSH 执行: ${command.slice(0, 80)}`,
+      preview: `主机: ${resource_id}\n命令: ${command}\n风险: ${risk.risk}${risk.riskCheck?.matches.length ? `\n警告: ${risk.riskCheck.matches.map((m) => m.desc).join(", ")}` : ""}`,
+      execute: async () => {
+        const output = await invoke<SshExecOutput>("ssh_pool_exec_command", {
+          resourceId: resource_id,
+          command,
+        } satisfies SshExecInvokeArgs);
+        return JSON.stringify(
+          {
+            resourceId: resource_id,
+            command,
+            stdout: output.stdout,
+            stderr: output.stderr,
+            exitCode: output.exitCode,
+          },
+          null,
+          2,
+        );
+      },
+      risk: risk.risk,
+      riskCheck: risk.riskCheck,
+      environment: risk.environment,
+      toolName: "omni_ssh_exec",
+      resourceId: resource_id,
+    });
+    return result;
+  }
+
   const output = await invoke<SshExecOutput>("ssh_pool_exec_command", {
     resourceId: resource_id,
     command,

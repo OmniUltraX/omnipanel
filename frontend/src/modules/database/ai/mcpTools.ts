@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
+import { errorToString } from "../../../lib/errorToString";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
 import {
   introspectTable,
@@ -424,7 +425,7 @@ async function slowLogSummary(args: Record<string, unknown>): Promise<string> {
 
     return formatQueryResult(result);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = errorToString(e);
     if (engine === "postgres" && msg.toLowerCase().includes("pg_stat_statements")) {
       throw new Error(
         `pg_stat_statements 扩展未启用：${msg}。请在目标库执行 \`CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\` 并在 postgresql.conf 添加 \`shared_preload_libraries = 'pg_stat_statements'\``,

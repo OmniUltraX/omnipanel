@@ -181,7 +181,7 @@ fn list_models_args_for(kind: AgentKind) -> Vec<String> {
 }
 
 fn builtin_cli_providers() -> Vec<CliProviderRecord> {
-    detect_all_agents_sync()
+    detect_all_agents_sync(None)
         .into_iter()
         .map(|agent| {
             let id = agent_kind_key(agent.kind);
