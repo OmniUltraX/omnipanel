@@ -20,6 +20,9 @@ use crate::state::AppState;
 const AUTH_API_BASE: &str = "https://mp.99.protected.fun";
 const AUTH_MODULE_DIR: &str = "auth";
 const DEVICE_IDENTITY_FILE: &str = "device.json";
+/// OmniPanel 桌面端固定身份（落库 / 出码均需）。
+const CLIENT_APP_ID: &str = "omni-client";
+const CLIENT_APP_ROLE: &str = "client";
 
 static LOGIN_WAIT_CANCELS: LazyLock<Mutex<HashMap<String, oneshot::Sender<()>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -63,6 +66,24 @@ pub struct AuthDevice {
     pub user_agent: String,
     pub created_at: String,
     pub updated_at: String,
+    /// `client` | `assistant`
+    pub role: String,
+    pub app_id: String,
+}
+
+/// 绑定助手端：本地画码用的 payload（非微信小程序码）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthBindingsQrcode {
+    pub bind_id: String,
+    pub qr_payload: String,
+    pub expire_in_sec: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthBindingsBound {
+    pub bind_id: String,
 }
 
 /// 当前用户资料（GET/PATCH /api/me）。
@@ -128,10 +149,66 @@ struct ApiDeviceView {
     user_agent: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
+    role: Option<String>,
+    app_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiBindingsQrcodeResponse {
+    bind_id: Option<String>,
+    qr_payload: Option<String>,
+    expire_in_sec: Option<u32>,
+    error: Option<String>,
 }
 
 fn auth_url(path: &str) -> String {
     format!("{}{}", AUTH_API_BASE.trim_end_matches('/'), path)
+}
+
+/// 客户端身份 Header（登录落库 / 绑定出码共用）。
+fn apply_client_identity_headers(
+    req: reqwest::RequestBuilder,
+    identity: &AuthDeviceIdentity,
+) -> reqwest::RequestBuilder {
+    req.header("X-App-Id", CLIENT_APP_ID)
+        .header("X-App-Role", CLIENT_APP_ROLE)
+        .header("X-Device-Id", &identity.device_id)
+        // HeaderValue 仅允许可见 ASCII；中文主机名等需降级，避免请求构建失败
+        .header("X-Device-Name", ascii_header_value(&identity.device_name, "OmniPanel"))
+        .header("X-Device-OS", ascii_header_value(&identity.os_type, "unknown"))
+}
+
+fn ascii_header_value(raw: &str, fallback: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return fallback.to_string();
+    }
+    if trimmed.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+        return trimmed.to_string();
+    }
+    let filtered: String = trimmed
+        .chars()
+        .map(|c| if c.is_ascii() && !c.is_control() { c } else { '_' })
+        .collect();
+    let filtered = filtered.trim_matches('_').trim();
+    if filtered.is_empty() {
+        fallback.to_string()
+    } else {
+        filtered.to_string()
+    }
+}
+
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = std::error::Error::source(err);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !parts.iter().any(|p| p == &text) {
+            parts.push(text);
+        }
+        source = cause.source();
+    }
+    parts.join(" | ")
 }
 
 fn device_identity_path() -> Result<PathBuf, OmniError> {
@@ -226,6 +303,11 @@ fn save_device_identity(identity: &AuthDeviceIdentity) -> Result<(), OmniError> 
 }
 
 fn map_api_device(item: ApiDeviceView) -> AuthDevice {
+    let role = item
+        .role
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "client".to_string());
     AuthDevice {
         id: item.id.unwrap_or(0),
         device_id: item.device_id.unwrap_or_default(),
@@ -236,6 +318,12 @@ fn map_api_device(item: ApiDeviceView) -> AuthDevice {
         user_agent: item.user_agent.unwrap_or_default(),
         created_at: item.created_at.unwrap_or_default(),
         updated_at: item.updated_at.unwrap_or_default(),
+        role,
+        app_id: item
+            .app_id
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "default".to_string()),
     }
 }
 
@@ -277,19 +365,24 @@ pub async fn auth_list_devices(
     }
 
     let proxy_config = state.proxy_config.lock().await.clone();
+    let identity = load_or_create_device_identity()?;
     let url = auth_url("/api/devices");
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
 
-    let resp = client
-        .get(&url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
-        .send()
-        .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "获取设备列表失败").with_cause(e.to_string())
-        })?;
+    let resp = apply_client_identity_headers(
+        client
+            .get(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        &identity,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "获取设备列表失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
 
     let status = resp.status();
     let body = resp.text().await.map_err(|e| {
@@ -347,19 +440,24 @@ pub async fn auth_delete_device(
     }
 
     let proxy_config = state.proxy_config.lock().await.clone();
+    let identity = load_or_create_device_identity()?;
     let url = auth_url(&format!("/api/devices/{}", urlencoding_encode(&device_id)));
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
 
-    let resp = client
-        .delete(&url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
-        .send()
-        .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "删除设备失败").with_cause(e.to_string())
-        })?;
+    let resp = apply_client_identity_headers(
+        client
+            .delete(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        &identity,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "删除设备失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
 
     let status = resp.status();
     let body = resp.text().await.map_err(|e| {
@@ -552,14 +650,13 @@ pub async fn auth_login_qrcode(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
 
-    let resp = client
-        .get(&url)
-        .header("X-Device-Id", &identity.device_id)
-        .header("X-Device-Name", &identity.device_name)
-        .header("X-Device-OS", &identity.os_type)
+    let resp = apply_client_identity_headers(client.get(&url), &identity)
         .send()
         .await
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "获取登录二维码失败").with_cause(e.to_string()))?;
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "获取登录二维码失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
 
     let status = resp.status();
     let body = resp
@@ -643,6 +740,134 @@ pub async fn auth_login_wait(
 #[specta::specta]
 pub async fn auth_login_cancel_wait(login_id: String) -> Result<(), OmniError> {
     if let Some(tx) = take_cancel(&login_id) {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+/// 申请绑定助手端二维码 payload（客户端本地画码，非微信小程序码）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_bindings_qrcode(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthBindingsQrcode, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+
+    let identity = load_or_create_device_identity()?;
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/bindings/qrcode");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = apply_client_identity_headers(
+        client
+            .post(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        &identity,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "获取绑定二维码失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取绑定二维码响应失败").with_cause(e.to_string())
+    })?;
+
+    if status.as_u16() == 401 {
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
+    }
+
+    let parsed: ApiBindingsQrcodeResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析绑定二维码响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error));
+    }
+    if !status.is_success() {
+        let msg = serde_json::from_str::<ApiErrorBody>(&body)
+            .ok()
+            .and_then(|b| b.error)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("获取绑定二维码失败 (HTTP {status})"));
+        return Err(OmniError::new(ErrorCode::Connection, msg).with_cause(body));
+    }
+
+    let bind_id = parsed
+        .bind_id
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 bind_id"))?;
+    let qr_payload = parsed
+        .qr_payload
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| bind_id.clone());
+
+    Ok(AuthBindingsQrcode {
+        bind_id,
+        qr_payload,
+        expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
+    })
+}
+
+/// 通过后端代理 SSE，等待小程序扫码确认绑定（事件 `bound`）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_bindings_wait(
+    state: State<'_, AppState>,
+    token: String,
+    bind_id: String,
+    expire_in_sec: Option<u32>,
+) -> Result<AuthBindingsBound, OmniError> {
+    let token = token.trim().to_string();
+    let bind_id = bind_id.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    if bind_id.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "bind_id 不能为空"));
+    }
+
+    let identity = load_or_create_device_identity()?;
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url(&format!(
+        "/api/bindings/wait?id={}",
+        urlencoding_encode(&bind_id)
+    ));
+    let timeout_secs = u64::from(expire_in_sec.unwrap_or(300).saturating_add(30).max(60));
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(timeout_secs))
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
+        })?;
+
+    let cancel_rx = register_cancel(&bind_id);
+
+    let result = tokio::select! {
+        biased;
+        _ = cancel_rx => {
+            Err(OmniError::new(ErrorCode::Internal, "绑定等待已取消"))
+        }
+        outcome = wait_sse_bound(&client, &url, &token, &identity, &bind_id) => outcome,
+    };
+
+    let _ = take_cancel(&bind_id);
+    result
+}
+
+/// 取消进行中的绑定等待（刷新二维码 / 关闭弹窗时调用）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_bindings_cancel_wait(bind_id: String) -> Result<(), OmniError> {
+    if let Some(tx) = take_cancel(&bind_id) {
         let _ = tx.send(());
     }
     Ok(())
@@ -753,6 +978,110 @@ async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLogin
     Err(OmniError::new(
         ErrorCode::Timeout,
         "登录等待已结束，请刷新二维码",
+    ))
+}
+
+async fn wait_sse_bound(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+    identity: &AuthDeviceIdentity,
+    bind_id: &str,
+) -> Result<AuthBindingsBound, OmniError> {
+    let resp = apply_client_identity_headers(
+        client
+            .get(url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(reqwest::header::ACCEPT, "text/event-stream"),
+        identity,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        let cause = e.to_string();
+        if is_benign_sse_disconnect(&cause) {
+            OmniError::new(ErrorCode::Timeout, "绑定等待已断开，请刷新二维码")
+        } else {
+            OmniError::new(ErrorCode::Connection, "连接绑定等待通道失败").with_cause(cause)
+        }
+    })?;
+
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
+    }
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        let msg = serde_json::from_str::<ApiErrorBody>(&body)
+            .ok()
+            .and_then(|b| b.error)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("绑定等待失败 (HTTP {status})"));
+        return Err(OmniError::new(ErrorCode::Connection, msg).with_cause(body));
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+    let mut event_name = String::new();
+    let mut data_lines: Vec<String> = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| {
+            let cause = e.to_string();
+            if is_benign_sse_disconnect(&cause) {
+                OmniError::new(ErrorCode::Timeout, "绑定等待已断开，请刷新二维码")
+            } else {
+                OmniError::new(ErrorCode::Io, "读取绑定等待流失败").with_cause(cause)
+            }
+        })?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+        while let Some(idx) = buffer.find('\n') {
+            let mut line = buffer[..idx].to_string();
+            buffer.drain(..=idx);
+            if line.ends_with('\r') {
+                line.pop();
+            }
+
+            if line.is_empty() {
+                let data = data_lines.join("\n");
+                let name = if event_name.is_empty() {
+                    "message".to_string()
+                } else {
+                    std::mem::take(&mut event_name)
+                };
+                data_lines.clear();
+
+                if name == "bound" {
+                    return Ok(AuthBindingsBound {
+                        bind_id: bind_id.to_string(),
+                    });
+                }
+                if name == "timeout" || name == "fail" {
+                    return Err(OmniError::new(
+                        ErrorCode::Timeout,
+                        if data.is_empty() {
+                            "绑定等待已结束，请刷新二维码".to_string()
+                        } else {
+                            data
+                        },
+                    ));
+                }
+                continue;
+            }
+
+            if let Some(rest) = line.strip_prefix("event:") {
+                event_name = rest.trim().to_string();
+            } else if let Some(rest) = line.strip_prefix("data:") {
+                data_lines.push(rest.trim_start().to_string());
+            }
+        }
+    }
+
+    Err(OmniError::new(
+        ErrorCode::Timeout,
+        "绑定等待已结束，请刷新二维码",
     ))
 }
 

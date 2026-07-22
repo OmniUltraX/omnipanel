@@ -5593,6 +5593,37 @@
         height: 100%;
     }
 
+    .db-table-detail-ddl {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .db-table-detail-ddl__title {
+        flex-shrink: 0;
+        padding: var(--sp-2) var(--sp-3);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg);
+        border-bottom: 1px solid var(--border);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .db-table-detail-ddl__body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .db-table-detail-ddl__body .table-ddl-viewer {
+        height: 100%;
+    }
+
     .db-table-detail-empty {
         display: flex;
         align-items: center;
@@ -9898,6 +9929,129 @@
     gap: 12px;
     min-height: 320px;
 }
+
+.db-csv-export-subwindow .subwindow-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0;
+}
+
+.db-csv-export-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    height: 100%;
+    min-height: 0;
+    padding: var(--sp-3) var(--sp-4);
+    box-sizing: border-box;
+}
+
+.db-csv-export-dialog__layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+}
+
+.db-csv-export-dialog__config {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow: auto;
+}
+
+.db-csv-export-dialog__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.db-csv-export-dialog__label {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.db-csv-export-dialog__checks {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0 2px;
+}
+
+.db-csv-export-dialog__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--fg);
+    cursor: pointer;
+    user-select: none;
+}
+
+.db-csv-export-dialog__check input {
+    margin: 0;
+}
+
+.db-csv-export-dialog__path-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.db-csv-export-dialog__path-row .input-field,
+.db-csv-export-dialog__path-row .input {
+    flex: 1;
+    min-width: 0;
+}
+
+.db-csv-export-dialog__preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.db-csv-export-dialog__preview-title {
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+
+.db-csv-export-dialog__preview-body {
+    margin: 0;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md, 8px);
+    background: var(--bg-elevated, var(--bg));
+    color: var(--fg);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre;
+}
+
+.db-csv-export-dialog__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+    width: 100%;
+    flex-shrink: 0;
+}
+
+@media (max-width: 720px) {
+    .db-csv-export-dialog__layout {
+        grid-template-columns: 1fr;
+    }
+}
+
 
 .db-import-preview-toolbar {
     display: flex;

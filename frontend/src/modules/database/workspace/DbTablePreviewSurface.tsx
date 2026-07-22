@@ -28,7 +28,7 @@ import {
   type TableColumnRelationConfig,
 } from "./dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
-import { connectionHasTableSchemaChildren } from "../api";
+import { connectionHasTableSchemaChildren, fetchTableDdl } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 import { useTreeChartDatabaseSchema } from "../treeChart/useTreeChartDatabaseSchema";
 import {
@@ -37,10 +37,13 @@ import {
 } from "../../../stores/settingsStore";
 import {
   TableDetailPanel,
+  type TableDetailDdlState,
   type TableDetailTab,
 } from "../tableDetail/TableDetailPanel";
 import { TablePreviewTopBar } from "../tableDetail/TablePreviewTopBar";
 import { TablePreviewQueryBar } from "../tableDetail/TablePreviewQueryBar";
+import { formatSqlDdl } from "../sql/formatSqlDdl";
+import { readTableDdlCache, writeTableDdlCache } from "./tableDdlCache";
 import {
   buildTablePreviewSql,
   buildTablePreviewSqlWithRelations,
@@ -119,6 +122,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const [selectedCells, setSelectedCells] = useState<TableDataGridActiveCell[]>([]);
   const [copySqlHint, setCopySqlHint] = useState(false);
   const [changeRowFilter, setChangeRowFilter] = useState<PreviewChangeRowFilter>("all");
+  const [ddlEntry, setDdlEntry] = useState<TableDetailDdlState>({ status: "idle" });
   const copySqlHintTimerRef = useRef<number | null>(null);
 
   const detailPosition = useSettingsStore((s) => s.databaseTableDetailPosition);
@@ -633,6 +637,76 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   }, [canRefresh, previewConnection, tab.connId, tab.dbName, tab.tableName, ws]);
 
   const canDesignTable = Boolean(previewConnection && supportsTableDesign(previewConnection));
+  const canShowDdl = Boolean(canRefresh && previewConnection);
+  const ddlOpen = !detailCollapsed && detailTab === "ddl";
+
+  const handleToggleDdl = useCallback(() => {
+    if (ddlOpen) {
+      handleDetailCollapsedChange();
+      return;
+    }
+    setDetailTab("ddl");
+    if (detailCollapsed) {
+      expandDetailPanel();
+    }
+  }, [ddlOpen, detailCollapsed, expandDetailPanel, handleDetailCollapsedChange]);
+
+  // 切换表时清空 DDL，打开 DDL 页签时再拉
+  useEffect(() => {
+    setDdlEntry({ status: "idle" });
+  }, [tab.connId, tab.dbName, tab.tableName]);
+
+  useEffect(() => {
+    if (!ddlOpen || !previewConnection || !tab.connId || !tab.dbName || !tab.tableName) {
+      return;
+    }
+
+    let cancelled = false;
+    const cached = readTableDdlCache(tab.connId, tab.dbName, tab.tableName, previewConnection);
+    if (cached) {
+      setDdlEntry({ status: "loaded", ddl: cached });
+      return;
+    }
+
+    setDdlEntry({ status: "loading" });
+    void (async () => {
+      try {
+        const raw = await fetchTableDdl(previewConnection, tab.dbName, tab.tableName);
+        if (cancelled) return;
+        const formatted = formatSqlDdl(raw, previewConnection.db_type);
+        writeTableDdlCache(
+          tab.connId,
+          tab.dbName,
+          tab.tableName,
+          previewConnection,
+          formatted,
+        );
+        setDdlEntry({ status: "loaded", ddl: formatted });
+      } catch (err) {
+        if (cancelled) return;
+        setDdlEntry({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ddlOpen, previewConnection, tab.connId, tab.dbName, tab.tableName]);
+
+  const handleCopyDdl = useCallback(async () => {
+    if (ddlEntry.status !== "loaded" || !ddlEntry.ddl) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(ddlEntry.ddl);
+      showToast(t("database.contextMenu.copyDdlDone"));
+    } catch {
+      showToast(t("database.contextMenu.copyDdlFailed"));
+    }
+  }, [ddlEntry, t]);
 
   const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
 
@@ -756,6 +830,14 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       dbType={previewConnection?.db_type}
       onValueApply={handlePreviewCellApply}
       onValueSetNull={activeCell ? handlePreviewCellSetNullActive : undefined}
+      showDdlTab={canShowDdl}
+      ddlTitle={
+        tab.dbName && tab.tableName
+          ? `${tab.dbName}.${tab.tableName}`
+          : tab.tableName || undefined
+      }
+      ddlState={ddlEntry}
+      onCopyDdl={() => void handleCopyDdl()}
     />
   );
 
@@ -871,6 +953,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
               setColSidebarCollapsed((prev) => !prev);
             }}
             onToggleDetail={handleDetailCollapsedChange}
+            ddlOpen={ddlOpen}
+            canShowDdl={canShowDdl}
+            onToggleDdl={handleToggleDdl}
             onOpenTableDesign={handleOpenTableDesign}
             onCreateTableQuery={handleCreateTableQuery}
             onCopyPreviewSql={() => void handleCopyPreviewSql()}

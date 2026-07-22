@@ -7,13 +7,15 @@ import {
 } from "../api";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import { mergeConnectionSchemaCacheEntry, mergeDatabaseSchemaCacheEntry } from "./schemaCache";
-import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";import type { SchemaTreeItem } from "./schemaTreeItem";
+import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";
+import type { SchemaTreeItem } from "./schemaTreeItem";
 import {
   parseDatabaseNodeId,
   parseTableNodeId,
   parseUserNodeId,
   parseViewNodeId,
 } from "./schemaTreeIds";
+import { schemaRefreshDebug } from "./schemaRefreshDebug";
 
 export type SchemaNodeRefreshResult =
   | {
@@ -43,7 +45,12 @@ export type SchemaNodeRefreshResult =
 
 export interface SchemaTreeRefreshHooks {
   syncDatabaseFilter?: (connId: string, names: string[]) => void;
-  syncTableFilter?: (connId: string, dbName: string, names: string[]) => void;
+  syncTableFilter?: (
+    connId: string,
+    dbName: string,
+    names: string[],
+    options?: { showAll?: boolean },
+  ) => void;
   onConnectionPatched?: (connId: string, entry: SchemaCacheConnectionEntry) => void;
 }
 
@@ -81,6 +88,52 @@ function patchTableInDatabase(
     tables.push(table);
   }
   return { ...db, tables, loadError: undefined, objectsLoaded: true };
+}
+
+/** 把 IPC 结果整理成便于阅读的摘要（表/库名列表等）。 */
+function summarizeRefreshResult(result: SchemaNodeRefreshResult): Record<string, unknown> {
+  if (result.scope === "connection") {
+    return {
+      scope: result.scope,
+      databases: result.databases.map((db) => ({
+        name: db.name,
+        tableCount: db.tables.length,
+        viewCount: db.views?.length ?? 0,
+        tables: db.tables.map((table) => table.name),
+        views: (db.views ?? []).map((view) => view.name),
+      })),
+      users: (result.users ?? []).map((user) =>
+        user.host ? `${user.name}@${user.host}` : user.name,
+      ),
+    };
+  }
+  if (result.scope === "database") {
+    return {
+      scope: result.scope,
+      name: result.name,
+      tableCount: result.tables.length,
+      viewCount: result.views?.length ?? 0,
+      routineCount: result.routines?.length ?? 0,
+      tables: result.tables.map((table) => table.name),
+      views: (result.views ?? []).map((view) => view.name),
+      routines: (result.routines ?? []).map((routine) => routine.name),
+      loadError: result.loadError,
+      objectsLoaded: result.objectsLoaded,
+    };
+  }
+  if (result.scope === "table") {
+    return {
+      scope: result.scope,
+      databaseName: result.databaseName,
+      objectKind: result.objectKind,
+      table: result.table.name,
+      columns: result.table.columns?.map((col) => col.name) ?? [],
+    };
+  }
+  return {
+    scope: result.scope,
+    users: result.users.map((user) => (user.host ? `${user.name}@${user.host}` : user.name)),
+  };
 }
 
 export async function applySchemaNodeRefreshResult(
@@ -126,7 +179,7 @@ export async function applySchemaNodeRefreshResult(
       ? current.databases.map((db) => (db.name === result.name ? nextDb : db))
       : [...current.databases, nextDb];
     next = { ...current, databases, refreshedAt };
-  } else {
+  } else if (result.scope === "table") {
     const databases = current.databases.some((db) => db.name === result.databaseName)
       ? current.databases.map((db) =>
           db.name === result.databaseName
@@ -143,6 +196,8 @@ export async function applySchemaNodeRefreshResult(
           ),
         ];
     next = { ...current, databases, refreshedAt };
+  } else {
+    return current;
   }
 
   await store.patchConnection(connId, next);
@@ -152,14 +207,18 @@ export async function applySchemaNodeRefreshResult(
     hooks?.syncDatabaseFilter?.(connId, next.databases.map((db) => db.name));
     for (const db of next.databases) {
       if (db.tables.length > 0) {
-        hooks?.syncTableFilter?.(connId, db.name, db.tables.map((table) => table.name));
+        hooks?.syncTableFilter?.(connId, db.name, db.tables.map((table) => table.name), {
+          showAll: true,
+        });
       }
     }
   } else if (result.scope === "database") {
     hooks?.syncDatabaseFilter?.(connId, next.databases.map((db) => db.name));
     const db = next.databases.find((item) => item.name === result.name);
     if (db?.tables.length) {
-      hooks?.syncTableFilter?.(connId, db.name, db.tables.map((table) => table.name));
+      hooks?.syncTableFilter?.(connId, db.name, db.tables.map((table) => table.name), {
+        showAll: true,
+      });
     }
   } else if (result.scope === "table") {
     const db = next.databases.find((item) => item.name === result.databaseName);
@@ -169,7 +228,7 @@ export async function applySchemaNodeRefreshResult(
           ? (db.views ?? []).map((item) => item.name)
           : db.tables.map((item) => item.name);
       if (names.length > 0) {
-        hooks?.syncTableFilter?.(connId, db.name, names);
+        hooks?.syncTableFilter?.(connId, db.name, names, { showAll: true });
       }
     }
   }
@@ -271,8 +330,17 @@ export async function refreshAndApplySchemaTreeNode(
   }
   const store = useDbSchemaCacheStore.getState();
   store.setNodeRefreshing(item.id, true);
+  schemaRefreshDebug("点击节点", {
+    id: item.id,
+    type: item.type,
+    label: item.label,
+    connId: item.connId ?? connection.id,
+    dbName: item.dbName,
+    tableName: item.tableName,
+  });
   try {
     const result = await refreshSchemaNode(connection, item.type, item.id);
+    schemaRefreshDebug("请求数据", summarizeRefreshResult(result));
     await applySchemaNodeRefreshResult(connection.id, result, hooks);
   } finally {
     store.setNodeRefreshing(item.id, false);

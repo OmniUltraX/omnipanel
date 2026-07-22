@@ -5,8 +5,15 @@ import type { DbColumnMeta } from "../api";
 import { CellEditorPanel, type CellEditorPanelHandle } from "../cell_editor";
 import type { DatabaseTableDetailPosition } from "../../../stores/settingsStore";
 import { RecordPreviewTab } from "./RecordPreviewTab";
+import { TableDdlViewer } from "../table/TableDdlViewer";
 
-export type TableDetailTab = "record" | "value";
+export type TableDetailTab = "record" | "value" | "ddl";
+
+export type TableDetailDdlState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "loaded"; ddl: string }
+  | { status: "error"; message: string };
 
 export interface TableDetailPanelProps {
   activeTab: TableDetailTab;
@@ -35,6 +42,11 @@ export interface TableDetailPanelProps {
   dbType?: string;
   onValueApply: (payload: { rawText: string; parsed: unknown }) => void;
   onValueSetNull?: () => void;
+  /** DDL Tab */
+  showDdlTab?: boolean;
+  ddlTitle?: string;
+  ddlState?: TableDetailDdlState;
+  onCopyDdl?: () => void;
   headerExtra?: ReactNode;
 }
 
@@ -63,19 +75,27 @@ export function TableDetailPanel({
   dbType,
   onValueApply,
   onValueSetNull,
+  showDdlTab = false,
+  ddlTitle,
+  ddlState = { status: "idle" },
+  onCopyDdl,
   headerExtra,
 }: TableDetailPanelProps) {
   const { t } = useI18n();
   const nextPosition: DatabaseTableDetailPosition = position === "right" ? "bottom" : "right";
 
-  const tabs = useMemo(
-    () =>
-      [
-        { id: "record" as const, label: t("database.tableDetail.recordTab") },
-        { id: "value" as const, label: t("database.tableDetail.valueTab") },
-      ] as const,
-    [t],
-  );
+  const tabs = useMemo(() => {
+    const list: Array<{ id: TableDetailTab; label: string }> = [
+      { id: "record", label: t("database.tableDetail.recordTab") },
+      { id: "value", label: t("database.tableDetail.valueTab") },
+    ];
+    if (showDdlTab) {
+      list.push({ id: "ddl", label: t("database.tableDetail.ddlTab") });
+    }
+    return list;
+  }, [showDdlTab, t]);
+
+  const canCopyDdl = ddlState.status === "loaded" && Boolean(ddlState.ddl);
 
   return (
     <div className={`db-table-detail-panel db-table-detail-panel--${position}`}>
@@ -95,6 +115,21 @@ export function TableDetailPanel({
           ))}
         </div>
         <div className="db-table-detail-panel-actions">
+          {activeTab === "ddl" && onCopyDdl ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={t("database.contextMenu.copyDdl")}
+              aria-label={t("database.contextMenu.copyDdl")}
+              disabled={!canCopyDdl}
+              onClick={onCopyDdl}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+                <rect x="5" y="5" width="9" height="9" rx="1.5" />
+                <path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" />
+              </svg>
+            </Button>
+          ) : null}
           {headerExtra}
           <Button
             variant="ghost"
@@ -148,7 +183,7 @@ export function TableDetailPanel({
             onApply={onRecordFieldApply}
             onSetNull={onRecordFieldSetNull}
           />
-        ) : (
+        ) : activeTab === "value" ? (
           <CellEditorPanel
             ref={cellEditorRef}
             cellKey={cellKey}
@@ -163,6 +198,23 @@ export function TableDetailPanel({
             onApply={onValueApply}
             onSetNull={onValueSetNull}
           />
+        ) : (
+          <div className="db-table-detail-ddl">
+            {ddlTitle ? <div className="db-table-detail-ddl__title">{ddlTitle}</div> : null}
+            <div className="db-table-detail-ddl__body">
+              {ddlState.status === "loading" || ddlState.status === "idle" ? (
+                <div className="db-tables-panel-ddl-status">{t("database.tablesPanel.ddlLoading")}</div>
+              ) : null}
+              {ddlState.status === "error" ? (
+                <div className="db-tables-panel-ddl-status db-tables-panel-ddl-status--error">
+                  {t("database.tablesPanel.ddlFailed", { message: ddlState.message })}
+                </div>
+              ) : null}
+              {ddlState.status === "loaded" && ddlState.ddl ? (
+                <TableDdlViewer ddl={ddlState.ddl} />
+              ) : null}
+            </div>
+          </div>
         )}
       </div>
     </div>

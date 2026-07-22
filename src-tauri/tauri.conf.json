@@ -55,8 +55,9 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYzN0I1NTMwNDAxMjk4RDQKUldUVW1CSkFNRlY3WS93eHV1UFhObjliRzFJMnFhaldpMnpBYnNTVFdoNEhYSHlKS2g1Z2MzZEIK",
       "endpoints": [
-        "https://xget.xi-xu.me/gh/chaojimct/omnipanel/releases/latest/download/latest.json",
-        "https://github.com/chaojimct/omnipanel/releases/latest/download/latest.json"
+        "https://omnipanel.oss-cn-hangzhou.aliyuncs.com/omnipanel/releases/latest.json",
+        "https://xget.xi-xu.me/gh/OmniUltraX/omnipanel/releases/latest/download/latest.json",
+        "https://github.com/OmniUltraX/omnipanel/releases/latest/download/latest.json"
       ]
     }
   }

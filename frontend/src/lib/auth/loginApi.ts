@@ -30,6 +30,15 @@ export interface AuthDevice {
   userAgent: string;
   createdAt: string;
   updatedAt: string;
+  /** `client` | `assistant` */
+  role: string;
+  appId: string;
+}
+
+export interface BindingsQrcodeResponse {
+  bind_id: string;
+  qr_payload: string;
+  expire_in_sec: number;
 }
 
 /** 经 Tauri 后端代理获取登录二维码（绕过 WebView CORS）。 */
@@ -107,13 +116,80 @@ export async function fetchDeviceIdentity(): Promise<DeviceIdentity> {
 }
 
 /** 经 Tauri 后端代理拉取当前用户设备列表。 */
-export async function fetchDevices(token: string): Promise<AuthDevice[]> {
-  return unwrapCommand(commands.authListDevices(token));
+export async function fetchDevices(
+  token: string,
+  options?: { quiet?: boolean },
+): Promise<AuthDevice[]> {
+  return unwrapCommand(commands.authListDevices(token), {
+    quiet: options?.quiet,
+    logLabel: "[auth]",
+  });
 }
 
 /** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}）。 */
 export async function deleteDevice(token: string, deviceId: string): Promise<void> {
   await unwrapCommand(commands.authDeleteDevice(token, deviceId));
+}
+
+/** 申请绑定助手端二维码 payload（本地画码）。 */
+export async function fetchBindingsQrcode(token: string): Promise<BindingsQrcodeResponse> {
+  const data = await unwrapCommand(commands.authBindingsQrcode(token));
+  return {
+    bind_id: data.bindId,
+    qr_payload: data.qrPayload,
+    expire_in_sec: data.expireInSec,
+  };
+}
+
+/**
+ * 经 Tauri 后端代理 SSE 等待助手端扫码确认绑定。
+ * abort 时会调用 authBindingsCancelWait 打断后端连接。
+ */
+export async function waitForBindings(
+  token: string,
+  bindId: string,
+  options?: { signal?: AbortSignal; expireInSec?: number },
+): Promise<void> {
+  const onAbort = () => {
+    void unwrapCommand(commands.authBindingsCancelWait(bindId), { quiet: true }).catch(() => {});
+  };
+
+  if (options?.signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+  options?.signal?.addEventListener("abort", onAbort);
+
+  try {
+    await unwrapCommand(
+      commands.authBindingsWait(token, bindId, options?.expireInSec ?? null),
+      { quiet: true },
+    );
+  } catch (error) {
+    if (options?.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const message = error instanceof Error ? error.message : formatIpcError(error as never);
+    const code =
+      error instanceof Error ? ((error as Error & { code?: string }).code ?? null) : null;
+
+    if (message.includes("已取消")) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    if (
+      code === "timeout" ||
+      message.includes("已断开") ||
+      message.includes("已结束") ||
+      message.includes("decoding response body") ||
+      message.includes("读取绑定等待流失败")
+    ) {
+      throw Object.assign(new Error(message), { code: "timeout", name: "BindingsWaitDisconnected" });
+    }
+
+    throw error instanceof Error ? error : new Error(message);
+  } finally {
+    options?.signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 export interface AuthUserProfile {
@@ -158,8 +234,14 @@ function mapUserProfile(data: {
 }
 
 /** 经 Tauri 后端代理拉取当前用户资料（GET /api/me）。 */
-export async function fetchMe(token: string): Promise<AuthUserProfile> {
-  const data = await unwrapCommand(commands.authGetMe(token));
+export async function fetchMe(
+  token: string,
+  options?: { quiet?: boolean },
+): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(commands.authGetMe(token), {
+    quiet: options?.quiet,
+    logLabel: "[auth]",
+  });
   return mapUserProfile(data);
 }
 

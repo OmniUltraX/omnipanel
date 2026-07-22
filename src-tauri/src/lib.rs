@@ -404,6 +404,9 @@ fn export_ipc_bindings() {
         commands::auth::auth_login_qrcode,
         commands::auth::auth_login_wait,
         commands::auth::auth_login_cancel_wait,
+        commands::auth::auth_bindings_qrcode,
+        commands::auth::auth_bindings_wait,
+        commands::auth::auth_bindings_cancel_wait,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -1068,6 +1071,9 @@ fn build_and_run_tauri() {
             commands::auth::auth_login_qrcode,
             commands::auth::auth_login_wait,
             commands::auth::auth_login_cancel_wait,
+            commands::auth::auth_bindings_qrcode,
+            commands::auth::auth_bindings_wait,
+            commands::auth::auth_bindings_cancel_wait,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,

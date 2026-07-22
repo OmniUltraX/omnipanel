@@ -10,7 +10,59 @@ permissions:
   contents: write
 
 jobs:
+  # 发版前先确认 OSS secrets + 写权限 + 公网可读，避免矩阵构建完成后才发现无法同步更新包
+  check-oss:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require Aliyun OSS secrets
+        shell: bash
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            ALIYUN_OSS_ACCESS_KEY_ID \
+            ALIYUN_OSS_ACCESS_KEY_SECRET \
+            ALIYUN_OSS_BUCKET \
+            ALIYUN_OSS_ENDPOINT \
+            ALIYUN_OSS_PUBLIC_BASE_URL
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::缺少 OSS secrets（发版前必须配置）: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Install ali-oss
+        run: npm install --no-save ali-oss@6
+
+      - name: Probe Aliyun OSS (write + public read)
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: node scripts/check-aliyun-oss.mjs
+
   build:
+    needs: check-oss
     strategy:
       fail-fast: false
       matrix:
@@ -123,6 +175,32 @@ jobs:
           KEY_PASSWORD: ${{ secrets.UPDATER_PRIVATE_KEY_PASSWORD }}
         run: bash scripts/prepare-tauri-signing-key.sh
 
+      # 将 OSS 公网 latest.json 写入 updater.endpoints 首项（与 ALIYUN_OSS_PUBLIC_BASE_URL 一致）
+      - name: Inject OSS updater endpoint
+        shell: bash
+        env:
+          PUBLIC_BASE: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PUBLIC_BASE:-}" ]; then
+            echo "::error::缺少 secret ALIYUN_OSS_PUBLIC_BASE_URL（客户端 updater 首项依赖此值）"
+            exit 1
+          fi
+          node <<'EOF'
+          const fs = require('fs');
+          const base = process.env.PUBLIC_BASE.replace(/\/+$/, '');
+          const oss = `${base}/omnipanel/releases/latest.json`;
+          const p = 'src-tauri/tauri.conf.json';
+          const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+          conf.plugins.updater.endpoints = [
+            oss,
+            'https://xget.xi-xu.me/gh/chaojimct/omnipanel/releases/latest/download/latest.json',
+            'https://github.com/OmniUltraX/omnipanel/releases/latest/download/latest.json',
+          ];
+          fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
+          console.log('updater endpoints:', conf.plugins.updater.endpoints);
+          EOF
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -171,3 +249,70 @@ jobs:
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"
+
+  # 全平台构建成功后，将 Release 资产同步到阿里云 OSS（客户端优先从此下载）
+  publish-oss:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require Aliyun OSS secrets
+        shell: bash
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            ALIYUN_OSS_ACCESS_KEY_ID \
+            ALIYUN_OSS_ACCESS_KEY_SECRET \
+            ALIYUN_OSS_BUCKET \
+            ALIYUN_OSS_ENDPOINT \
+            ALIYUN_OSS_PUBLIC_BASE_URL
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::缺少 OSS secrets（发版不可静默跳过）: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Download GitHub Release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --dir release-assets
+          ls -la release-assets
+
+      - name: Install ali-oss
+        run: npm install --no-save ali-oss@6
+
+      - name: Publish updater assets to Aliyun OSS
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: |
+          node scripts/publish-updater-to-aliyun-oss.mjs \
+            --dir release-assets \
+            --tag "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}"

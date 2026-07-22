@@ -38,6 +38,10 @@ export interface TablePreviewTopBarProps {
   onTransposeToggle: () => void;
   onToggleColSidebar: () => void;
   onToggleDetail: () => void;
+  /** 查看表 DDL（右侧面板） */
+  ddlOpen?: boolean;
+  canShowDdl?: boolean;
+  onToggleDdl?: () => void;
   onOpenTableDesign?: () => void;
   onCreateTableQuery?: () => void;
   onCopyPreviewSql?: () => void;
@@ -131,6 +135,18 @@ function IconNewQuery() {
   );
 }
 
+/** 查看 DDL：代码文档 */
+function IconDdl() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
+      <path d="M4 2.5h5.5L12.5 5.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
+      <path d="M9 2.5V5.5h3" strokeLinejoin="round" />
+      <path d="M5.5 9h1.5M5.5 11.5H9" strokeLinecap="round" />
+      <path d="M10.5 9.25 12 10.75 10.5 12.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function TablePreviewTopBar({
   loading,
   page,
@@ -166,6 +182,9 @@ export function TablePreviewTopBar({
   onTransposeToggle,
   onToggleColSidebar,
   onToggleDetail,
+  ddlOpen = false,
+  canShowDdl = false,
+  onToggleDdl,
   onOpenTableDesign,
   onCreateTableQuery,
   onCopyPreviewSql,
@@ -423,6 +442,20 @@ export function TablePreviewTopBar({
             onClick={(e) => onExport(e.clientX, e.clientY)}
           >
             <IconDownload />
+          </Button>
+        ) : null}
+        {canShowDdl && onToggleDdl ? (
+          <Button
+            variant={ddlOpen ? "default" : "ghost"}
+            size="icon-sm"
+            disabled={loading}
+            title={ddlOpen ? t("database.results.ddlCollapse") : t("database.results.ddlExpand")}
+            aria-label={ddlOpen ? t("database.results.ddlCollapse") : t("database.results.ddlExpand")}
+            aria-pressed={ddlOpen}
+            aria-expanded={ddlOpen}
+            onClick={onToggleDdl}
+          >
+            <IconDdl />
           </Button>
         ) : null}
         <Button

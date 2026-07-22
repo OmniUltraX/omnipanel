@@ -90,6 +90,41 @@ export function databaseOtherFolderId(connId: string, dbName: string) {
   return `other:${connId}:${dbName}`;
 }
 
+/** 从刷新节点 id 解析受影响的库（db / tbls / views / other / tbl / view 等）。 */
+export function parseSchemaRefreshDbTarget(
+  nodeId: string,
+): { connId: string; dbName: string } | null {
+  const db = parseDatabaseNodeId(nodeId);
+  if (db) {
+    return db;
+  }
+  for (const prefix of ["tbls:", "views:", "other:"] as const) {
+    if (!nodeId.startsWith(prefix)) {
+      continue;
+    }
+    const rest = nodeId.slice(prefix.length);
+    const colon = rest.indexOf(":");
+    if (colon <= 0) {
+      return null;
+    }
+    const connId = rest.slice(0, colon);
+    const dbName = rest.slice(colon + 1);
+    if (!connId || !dbName) {
+      return null;
+    }
+    return { connId, dbName };
+  }
+  const table = parseTableNodeId(nodeId);
+  if (table) {
+    return { connId: table.connId, dbName: table.dbName };
+  }
+  const view = parseViewNodeId(nodeId);
+  if (view) {
+    return { connId: view.connId, dbName: view.dbName };
+  }
+  return null;
+}
+
 export function makeViewNodeId(connId: string, dbName: string, viewName: string) {
   return `view:${connId}:${dbName}:${viewName}`;
 }

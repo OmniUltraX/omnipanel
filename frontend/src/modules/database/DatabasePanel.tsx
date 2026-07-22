@@ -10,7 +10,6 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
@@ -46,7 +45,7 @@ import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedS
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { getVisibleNames, mergeFilter } from "./schema/DatabaseFilterDialog";
+import { getVisibleNames, makeTableFilterKey, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../lib/quickInput";
@@ -102,6 +101,7 @@ import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
 import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
 import { CreateDatabaseDialog } from "./workspace/CreateDatabaseDialog";
+import { CsvExportDialog } from "./workspace/CsvExportDialog";
 import {
   probeMysqlDeployment,
 } from "./mysqlDeploymentDetect";
@@ -1502,6 +1502,7 @@ export function DatabasePanel() {
   const databaseFilters = useDbSchemaFilterStore((s) => s.databaseFilters);
   const hydrateSchemaFilters = useDbSchemaFilterStore((s) => s.hydrate);
   const setDatabaseFilters = useDbSchemaFilterStore((s) => s.setDatabaseFilters);
+  const setTableFilters = useDbSchemaFilterStore((s) => s.setTableFilters);
   const filtersHydrated = useDbSchemaFilterStore((s) => s.hydrated);
   const hydrateSchemaCache = useDbSchemaCacheStore((s) => s.hydrate);
   const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
@@ -3027,8 +3028,27 @@ export function DatabasePanel() {
   const resolveTabExportData = useCallback(
     async (tabId: string, sessionId?: string) => {
       const { sqlTabStates, tablePreviews } = useDbWorkspaceTabStore.getState();
-      const tabState = sqlTabStates[tabId] ?? createDefaultSqlTabState();
       const preview = tablePreviews[tabId];
+
+      // 表数据面板：优先导出当前预览页（此前只走 SQL Tab 路径，导致「保存为文件」无反应）
+      if (preview?.data && preview.data.columns.length > 0) {
+        const baseName =
+          preview.dbName && preview.tableName
+            ? `${preview.dbName}_${preview.tableName}`
+            : preview.tableName || preview.data.name || "table";
+        const sourceLabel =
+          preview.dbName && preview.tableName
+            ? `${preview.dbName}.${preview.tableName}`
+            : preview.tableName || preview.data.name || baseName;
+        return {
+          columns: preview.data.columns,
+          rows: preview.data.rows,
+          baseName,
+          sourceLabel,
+        };
+      }
+
+      const tabState = sqlTabStates[tabId] ?? createDefaultSqlTabState();
       const connId = preview?.connId ?? sqlTabStates[tabId]?.connId;
       const baseConn = connId ? connections.find((c) => c.id === connId) : null;
       if (!baseConn || !tabState.database.trim()) {
@@ -3046,7 +3066,12 @@ export function DatabasePanel() {
         const baseName = tabState.database.trim()
           ? `${tabState.database}_query`
           : "query";
-        return { columns: targetSession.result.columns, rows, baseName };
+        return {
+          columns: targetSession.result.columns,
+          rows,
+          baseName,
+          sourceLabel: tabState.database.trim() || baseName,
+        };
       }
 
       const conn = { ...baseConn, database: tabState.database };
@@ -3065,7 +3090,11 @@ export function DatabasePanel() {
                 : tabState.database.trim()
                   ? `${tabState.database}_query`
                   : "query";
-            return { columns: queryResult.columns, rows, baseName };
+            const sourceLabel =
+              preview?.dbName && preview?.tableName
+                ? `${preview.dbName}.${preview.tableName}`
+                : tabState.database.trim() || baseName;
+            return { columns: queryResult.columns, rows, baseName, sourceLabel };
           }
         } catch {
           return null;
@@ -3077,29 +3106,51 @@ export function DatabasePanel() {
     [connections],
   );
 
-  const exportTabResultToCsv = useCallback(
+  const [csvExportDialog, setCsvExportDialog] = useState<{
+    sourceLabel: string;
+    baseName: string;
+    columns: string[];
+    rows: Record<string, unknown>[];
+  } | null>(null);
+
+  const openCsvExportDialog = useCallback(
     async (tabId: string, sessionId?: string) => {
-      const payload = await resolveTabExportData(tabId, sessionId);
-      if (!payload) return;
-      const csv = toCsv(payload.columns, payload.rows);
-      const filePath = await save({
-        title: t("database.results.exportCsv"),
-        defaultPath: `${payload.baseName}.csv`,
-        filters: [{ name: "CSV", extensions: ["csv"] }],
-      });
-      if (!filePath) return;
-      await invoke("write_text_file", { path: filePath, contents: csv });
+      try {
+        const payload = await resolveTabExportData(tabId, sessionId);
+        if (!payload) {
+          showToast(t("database.results.exportEmpty"));
+          return;
+        }
+        setCsvExportDialog(payload);
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : t("database.results.exportFailed"),
+        );
+      }
     },
     [resolveTabExportData, t],
   );
 
   const copyTabResultToClipboard = useCallback(
     async (tabId: string, sessionId?: string) => {
-      const payload = await resolveTabExportData(tabId, sessionId);
-      if (!payload) return;
-      const ok = await writeToClipboard(toCsv(payload.columns, payload.rows));
-      if (ok) {
-        showToast(t("common.copied"));
+      try {
+        const payload = await resolveTabExportData(tabId, sessionId);
+        if (!payload) {
+          showToast(t("database.results.exportEmpty"));
+          return;
+        }
+        const ok = await writeToClipboard(toCsv(payload.columns, payload.rows));
+        if (ok) {
+          showToast(t("common.copied"));
+        } else {
+          showToast(t("database.results.exportFailed"));
+        }
+      } catch (err) {
+        showToast(
+          err instanceof Error
+            ? err.message
+            : t("database.results.exportFailed"),
+        );
       }
     },
     [resolveTabExportData, t],
@@ -3109,6 +3160,8 @@ export function DatabasePanel() {
     { x: number; y: number; tabId: string; sessionId?: string } | null
   >(null);
   const buildExportMenuItems = useCallback(() => {
+    const tabId = exportMenu?.tabId;
+    const sessionId = exportMenu?.sessionId;
     const clipboardIcon = (
       <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
         <rect x="5" y="5" width="9" height="9" rx="1.5" />
@@ -3127,9 +3180,8 @@ export function DatabasePanel() {
         label: t("database.results.exportToClipboard"),
         icon: clipboardIcon,
         onClick: () => {
-          const tabId = exportMenu?.tabId;
           if (!tabId) return;
-          void copyTabResultToClipboard(tabId, exportMenu.sessionId);
+          void copyTabResultToClipboard(tabId, sessionId);
         },
       },
       {
@@ -3137,13 +3189,12 @@ export function DatabasePanel() {
         label: t("database.results.exportToFile"),
         icon: fileIcon,
         onClick: () => {
-          const tabId = exportMenu?.tabId;
           if (!tabId) return;
-          void exportTabResultToCsv(tabId, exportMenu.sessionId);
+          void openCsvExportDialog(tabId, sessionId);
         },
       },
     ];
-  }, [copyTabResultToClipboard, exportTabResultToCsv, exportMenu, t]);
+  }, [copyTabResultToClipboard, openCsvExportDialog, exportMenu, t]);
 
   const handleDesignTable = useCallback(
     (selection: SchemaTableSelection) => {
@@ -3712,8 +3763,24 @@ export function DatabasePanel() {
         ...prev,
         [connId]: mergeFilter(prev[connId], names),
       }));
+      // 库内新建表刷新后，同步表过滤可见集，避免侧栏仍按旧名单隐藏新表
+      setTableFilters((prev) => {
+        const next = { ...prev };
+        for (const db of entry.databases) {
+          if (db.tables.length === 0) {
+            continue;
+          }
+          const key = makeTableFilterKey(connId, db.name);
+          next[key] = mergeFilter(
+            prev[key],
+            db.tables.map((table) => table.name),
+            { showAll: true },
+          );
+        }
+        return next;
+      });
     },
-    [setDatabaseFilters],
+    [setDatabaseFilters, setTableFilters],
   );
 
   const refreshConnDatabases = useCallback(
@@ -5635,6 +5702,11 @@ export function DatabasePanel() {
         onClose={() => setExportMenu(null)}
       />
     )}
+    <CsvExportDialog
+      open={csvExportDialog != null}
+      payload={csvExportDialog}
+      onClose={() => setCsvExportDialog(null)}
+    />
     </>
   );
 }

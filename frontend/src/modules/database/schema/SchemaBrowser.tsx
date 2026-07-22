@@ -786,13 +786,16 @@ export function SchemaBrowser({
     }));
   }, []);
 
-  const syncTableFilter = useCallback((connId: string, dbName: string, names: string[]) => {
-    const key = makeTableFilterKey(connId, dbName);
-    setTableFilters((prev) => ({
-      ...prev,
-      [key]: mergeFilter(prev[key], names),
-    }));
-  }, []);
+  const syncTableFilter = useCallback(
+    (connId: string, dbName: string, names: string[], options?: { showAll?: boolean }) => {
+      const key = makeTableFilterKey(connId, dbName);
+      setTableFilters((prev) => ({
+        ...prev,
+        [key]: mergeFilter(prev[key], names, options),
+      }));
+    },
+    [],
+  );
 
   const schemaRefreshHooks = useMemo<SchemaTreeRefreshHooks>(
     () => ({

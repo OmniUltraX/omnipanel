@@ -19885,6 +19885,50 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     gap: var(--sp-3);
 }
 
+.user-center-devices__header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-shrink: 0;
+}
+
+.user-center-devices__group {
+    margin-top: var(--sp-4);
+}
+
+.user-center-devices__group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+}
+
+.user-center-devices__group-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+}
+
+.user-center-devices__group-count {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+}
+
+.user-center-devices__group-empty {
+    margin: var(--sp-2) 0 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.user-center-bind-dialog__qr {
+    margin: var(--sp-3) auto;
+}
+
 .user-center-devices__hint,
 .user-center-devices__error {
     margin: 0;

@@ -669,6 +669,9 @@ export const commands = {
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
 	authLoginCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_cancel_wait", { loginId })),
+	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
+	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
+	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -793,18 +796,32 @@ export type AuthDeviceIdentity = {
 	osType: string,
 };
 
-/**  已授权设备列表条目。 */
-export type AuthDevice = {
-	id: number,
-	deviceId: string,
-	deviceName: string,
-	osType: string,
-	ip: string,
-	lastLoginAt: string,
-	userAgent: string,
-	createdAt: string,
-	updatedAt: string,
-};
+	/**  已授权设备列表条目。 */
+	export type AuthDevice = {
+		id: number,
+		deviceId: string,
+		deviceName: string,
+		osType: string,
+		ip: string,
+		lastLoginAt: string,
+		userAgent: string,
+		createdAt: string,
+		updatedAt: string,
+		role: string,
+		appId: string,
+	};
+
+	/**  绑定助手端二维码 payload（客户端本地画码）。 */
+	export type AuthBindingsQrcode = {
+		bindId: string,
+		qrPayload: string,
+		expireInSec: number,
+	};
+
+	/**  绑定助手端成功。 */
+	export type AuthBindingsBound = {
+		bindId: string,
+	};
 
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {

@@ -161,4 +161,4 @@
 
 ## [0.4.0]
 
-详见 [GitHub Release v0.4.0](https://github.com/chaojimct/omnipanel/releases/tag/v0.4.0)。
+详见 [GitHub Release v0.4.0](https://github.com/OmniUltraX/omnipanel/releases/tag/v0.4.0)。

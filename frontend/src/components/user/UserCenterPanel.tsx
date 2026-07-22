@@ -57,7 +57,7 @@ export function UserCenterPanel() {
     let cancelled = false;
     void (async () => {
       try {
-        const me = await fetchMe(token);
+        const me = await fetchMe(token, { quiet: true });
         if (cancelled) return;
         setProfile({
           nickname: me.nickname,
@@ -70,6 +70,7 @@ export function UserCenterPanel() {
           logout();
           showToast(t("userCenter.profile.sessionExpired"));
         }
+        // 网络不可达：保留本地资料，不刷 IPC 红字
       }
     })();
     return () => {

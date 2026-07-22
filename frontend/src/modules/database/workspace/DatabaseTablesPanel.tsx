@@ -10,6 +10,8 @@ import { makeQueryRunId } from "../sql";
 import type { SchemaDatabaseSelection, SchemaTableSelection } from "../schema/SchemaBrowser";
 import { TableDdlViewer } from "../table/TableDdlViewer";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
+import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
+import { makeTableFilterKey, mergeFilter } from "../schema/DatabaseFilterDialog";
 import { getCachedTableCommentMap, getCachedTableNames } from "../schema/schemaCacheMerge";
 import { buildDatabaseTreeItem } from "../schema/schemaTreeItem";
 import { refreshAndApplySchemaTreeNode } from "../schema/schemaTreeRefresh";
@@ -585,7 +587,15 @@ export function DatabaseTablesPanel({
     setSchemaRefreshing(true);
     try {
       const dbItem = buildDatabaseTreeItem(selection.connId, selection.dbName);
-      await refreshAndApplySchemaTreeNode(selection.connection, dbItem);
+      await refreshAndApplySchemaTreeNode(selection.connection, dbItem, {
+        syncTableFilter: (connId, dbName, names, options) => {
+          const key = makeTableFilterKey(connId, dbName);
+          useDbSchemaFilterStore.getState().setTableFilters((prev) => ({
+            ...prev,
+            [key]: mergeFilter(prev[key], names, options),
+          }));
+        },
+      });
       try {
         const list = await listDatabasesWithStats(selection.connection, { quiet: true });
         setDbMeta(findDatabaseMeta(list, selection.dbName));
