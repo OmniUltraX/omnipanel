@@ -2,8 +2,8 @@ import { commands } from "../../ipc/bindings";
 import { executeTerminalCommandCore } from "../../modules/terminal/ai/mcpTools";
 import { resolveTerminalApprovalMode } from "../../modules/terminal/terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "../../modules/terminal/terminalApprovalPolicy";
-import { useTerminalStore } from "../../stores/terminalStore";
 import { useBlocksStore } from "../../stores/blocksStore";
+import { findTerminalPane } from "../../stores/terminalStore";
 import { getResolvedAiThread } from "../../modules/terminal/aiThreadBridge";
 import {
   createInlineTerminalToolCall,
@@ -14,9 +14,9 @@ import { useTerminalUiStore } from "../../modules/terminal/terminalUiStore";
 import { checkCommand, type DangerLevel } from "../../lib/commandGuard";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { appConfirm } from "../appConfirm";
+import { errorToString } from "../errorToString";
 import { reportToolResultWithRetry } from "./reportToolResult";
 import { getToolHandler } from "./toolHost";
-import { applyUiFollowForTool } from "./uiFollow";
 
 const TERMINAL_TOOL = "omni_terminal_run_terminal_command";
 
@@ -60,8 +60,8 @@ export async function handleInternalPendingTerminalTool(options: {
   try {
     const block = useBlocksStore.getState().findBlockById(options.blockId);
     const command = parseCommand(options.argsJson);
-    const tab = useTerminalStore.getState().tabs.find((t) => t.id === options.sessionId);
-    const resourceId = tab?.session.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
+    const pane = findTerminalPane(options.sessionId);
+    const resourceId = pane?.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
     const exists =
       block &&
       getResolvedAiThread(block).some(
@@ -126,10 +126,7 @@ export async function handleInternalPendingTerminalTool(options: {
       useTerminalUiStore.getState().setExpandedAiBlock(options.sessionId, options.blockId);
     }
 
-    applyUiFollowForTool(
-      options.toolName,
-      JSON.stringify({ session_id: options.sessionId, command }),
-    );
+    // 跟随在工具 completed 时触发（见 AiRuntimeProvider.updateToolCall），不在 pending 时切面板
 
     await waitForInlineToolDecision(
       options.blockId,
@@ -180,8 +177,8 @@ export async function handleAssistantPendingTerminalTool(options: {
       return;
     }
 
-    const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
-    if (!tab) {
+    const pane = findTerminalPane(tabId);
+    if (!pane) {
       await commands.aiChatToolResult(
         options.conversationId,
         options.toolCallId,
@@ -192,7 +189,7 @@ export async function handleAssistantPendingTerminalTool(options: {
     }
 
     const mode = resolveTerminalApprovalMode(tabId);
-    applyUiFollowForTool(TERMINAL_TOOL, JSON.stringify({ session_id: tabId, command }));
+    // 跟随在工具 completed 时触发（见 AiRuntimeProvider.updateToolCall），不在 pending 时切面板
     if (shouldRequireTerminalApproval(command, mode)) {
       const approved = await appConfirm(
         `AI 请求在终端执行命令：\n\n${command}\n\n是否允许？`,
@@ -221,7 +218,7 @@ export async function handleAssistantPendingTerminalTool(options: {
       !coreResult.rejected,
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorToString(err);
     await commands.aiChatToolResult(
       options.conversationId,
       options.toolCallId,
@@ -267,7 +264,7 @@ async function handleModulePendingTool(options: {
       // 参数解析失败时按空对象处理，交由 handler 校验。
     }
 
-    applyUiFollowForTool(options.toolName, options.argsJson);
+    // 跟随在工具 completed 时触发（见 AiRuntimeProvider.updateToolCall），不在 pending 时切面板
 
     const output = await handler(args as never);
     const result = typeof output === "string" ? output : JSON.stringify(output, null, 2);
@@ -279,7 +276,7 @@ async function handleModulePendingTool(options: {
       success,
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorToString(err);
     await commands
       .aiChatToolResult(options.conversationId, options.toolCallId, message, false)
       .catch(() => {});

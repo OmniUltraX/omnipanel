@@ -571,12 +571,13 @@ async fn run_acp_internal_turn(
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
     use omnipanel_ai::providers::acp::{
-        PromptOptions, build_client_tools_prompt, build_incremental_client_tools_prompt,
-        format_client_tool_result_prompt, looks_like_pending_tool_calls_json,
-        parse_client_tool_calls, pick_terminal_tool_call, prompt_expects_tool_retry,
-        prompt_has_tool_results,
+        AcpRoundRunner, build_client_tools_prompt, build_incremental_client_tools_prompt,
+        format_client_tool_result_prompt, parse_client_tool_calls, pick_terminal_tool_call,
+        prompt_expects_tool_retry, prompt_has_tool_results,
     };
-    use omnipanel_ai::providers::acp::native_tools::TERMINAL_CLIENT_TOOL;
+    use omnipanel_ai::providers::acp::native_tools::{
+        TERMINAL_CLIENT_TOOL, WEB_FETCH_CLIENT_TOOL, WEB_SEARCH_CLIENT_TOOL,
+    };
     use omnipanel_ai::ToolStatus;
 
     let backend_id = internal.backend_id.clone();
@@ -604,6 +605,8 @@ async fn run_acp_internal_turn(
         )
         .await
         .map_err(|e| e.to_string())?;
+
+    let runner = AcpRoundRunner::new(manager.clone(), session_id.clone());
 
     let terminal_context = internal
         .context
@@ -657,36 +660,26 @@ async fn run_acp_internal_turn(
 
         let is_tool_continuation = client_tools && prompt_has_tool_results(&prompt_text);
         let expects_tool_retry = client_tools && prompt_expects_tool_retry(&prompt_text);
-        let content_buffer: Option<Arc<std::sync::Mutex<String>>> = if client_tools
-            && (!is_tool_continuation || expects_tool_retry)
-        {
-            Some(Arc::new(std::sync::Mutex::new(String::new())))
-        } else {
-            None
-        };
-        let content_hold = content_buffer.is_some();
+        let content_buffer = AcpRoundRunner::maybe_content_buffer(
+            AcpRoundRunner::should_hold_content(
+                client_tools,
+                is_tool_continuation,
+                expects_tool_retry,
+            ),
+        );
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
         let pending_tool: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<(String, bool)>>>> =
             Arc::new(Mutex::new(None));
         let pending_tool_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        // Native 工具（WebSearch/WebFetch）后端直执结果：(tool_name, result, approved)
+        let mut native_tool_result: Option<(String, String, bool)> = None;
 
-        let manager_bg = manager.clone();
-        let session_id_bg = session_id.clone();
-        let prompt_text_bg = prompt_text.clone();
-        let prompt_options = PromptOptions {
+        let (mut rx, prompt_handle) = runner.start_round(
+            &prompt_text,
             client_tools,
-            emit_done: false,
-            content_hold,
-            content_buffer: content_buffer.clone(),
-        };
-
-        let prompt_handle = tokio::spawn(async move {
-            manager_bg
-                .prompt(&session_id_bg, &prompt_text_bg, tx, prompt_options)
-                .await
-                .map_err(|e| e.to_string())
-        });
+            content_buffer.clone(),
+            false, // suppress_all_native: internal chat maps native tools, doesn't suppress all
+        );
 
         while let Some(event) = rx.recv().await {
             if client_tools {
@@ -702,6 +695,50 @@ async fn run_acp_internal_turn(
                         *pending_tool.lock().await = Some(tool_rx);
                         *pending_tool_id.lock().await = Some(id.clone());
                         let _ = arguments;
+                    } else if name == WEB_SEARCH_CLIENT_TOOL || name == WEB_FETCH_CLIENT_TOOL {
+                        // Native 工具后端直执（与 RegistryToolExecutor 同路径）
+                        let storage = {
+                            let manager = state.mcp_manager.lock().await;
+                            manager.tool_registry.storage_handle()
+                        };
+                        let proxy = {
+                            let p = state.proxy_config.lock().await;
+                            omnipanel_store::HttpProxyConfig {
+                                enabled: p.enabled,
+                                protocol: p.protocol.clone(),
+                                host: p.host.clone(),
+                                port: p.port,
+                                username: p.username.clone(),
+                                password: p.password.clone(),
+                            }
+                        };
+                        let args: serde_json::Value =
+                            serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
+                        let (result, success) =
+                            match ToolRegistry::execute_isolated(storage, name, args, Some(proxy))
+                                .await
+                            {
+                                Ok(pair) => pair,
+                                Err(err) => (format!("Error: {err}"), false),
+                            };
+                        native_tool_result = Some((name.clone(), result.clone(), success));
+                        let update = StreamEvent::ToolCallUpdate {
+                            id: id.clone(),
+                            status: if success {
+                                ToolStatus::Completed
+                            } else {
+                                ToolStatus::Failed
+                            },
+                            result: Some(result),
+                        };
+                        record_internal_trace(
+                            state,
+                            conversation_id,
+                            &backend_id,
+                            turn_index,
+                            &update,
+                        );
+                        let _ = on_event.send(update);
                     }
                 }
             }
@@ -728,6 +765,13 @@ async fn run_acp_internal_turn(
 
         // 路径 B：ACP 原生 tool_call 已被 translate 映射并在流中注册 pending
         if client_tools {
+            // Native 工具（WebSearch/WebFetch）已在事件循环中后端直执，直接格式化结果续轮
+            if let Some((tool_name, result, _success)) = native_tool_result.take() {
+                prompt_text = format_client_tool_result_prompt(&tool_name, &result, true);
+                turn_index += 1;
+                continue;
+            }
+
             if pending_tool.lock().await.is_none() {
                 if let Some(buf) = &content_buffer {
                     let text = buf.lock().map(|g| g.clone()).unwrap_or_default();
@@ -772,10 +816,9 @@ async fn run_acp_internal_turn(
                             &tool_pending,
                         );
                         let _ = on_event.send(tool_pending);
-                    } else if !text.trim().is_empty() && !looks_like_pending_tool_calls_json(&text)
-                    {
+                    } else if let Some(plain) = AcpRoundRunner::drain_held_content(buf) {
                         // 纯文本回答：冲刷缓冲内容
-                        let content = StreamEvent::ContentDelta { text };
+                        let content = StreamEvent::ContentDelta { text: plain };
                         record_internal_trace(
                             state,
                             conversation_id,
@@ -1018,18 +1061,13 @@ fn flush_held_content(
     backend_id: &str,
     turn_index: i32,
 ) {
-    use omnipanel_ai::providers::acp::looks_like_pending_tool_calls_json;
+    use omnipanel_ai::providers::acp::AcpRoundRunner;
 
-    let text = content_buffer
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default();
-    if text.trim().is_empty() || looks_like_pending_tool_calls_json(&text) {
-        return;
+    if let Some(text) = AcpRoundRunner::drain_held_content(content_buffer) {
+        let event = StreamEvent::ContentDelta { text };
+        record_internal_trace(state, conversation_id, backend_id, turn_index, &event);
+        let _ = on_event.send(event);
     }
-    let event = StreamEvent::ContentDelta { text };
-    record_internal_trace(state, conversation_id, backend_id, turn_index, &event);
-    let _ = on_event.send(event);
 }
 
 #[tauri::command]
@@ -1053,6 +1091,45 @@ pub async fn ai_list_session_traces(
     let storage = state.storage.lock().await;
     storage
         .ai_trace_list(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 读取最近的内置工具审计记录（任务中心 History tab 使用）。
+#[tauri::command]
+#[specta::specta]
+pub async fn builtin_tool_audit_list(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+) -> Result<Vec<omnipanel_store::BuiltinToolAuditRecord>, String> {
+    let storage = state.storage.lock().await;
+    storage
+        .builtin_tool_audit_list(limit.unwrap_or(200))
+        .map_err(|e| e.to_string())
+}
+
+/// 读取最近的全局审计日志（任务中心 History tab 使用）。
+#[tauri::command]
+#[specta::specta]
+pub async fn audit_log_recent(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+) -> Result<Vec<omnipanel_store::AuditEntry>, String> {
+    let storage = state.storage.lock().await;
+    storage
+        .recent_audit(limit.unwrap_or(200))
+        .map_err(|e| e.to_string())
+}
+
+/// 追加一条全局审计日志（AI 工具审批通过后写入）。
+#[tauri::command]
+#[specta::specta]
+pub async fn audit_log_append(
+    state: State<'_, AppState>,
+    entry: omnipanel_store::AuditEntry,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage
+        .append_audit(&entry)
         .map_err(|e| e.to_string())
 }
 
@@ -1085,6 +1162,17 @@ pub async fn ai_gateway_configure(
     let host = if bind_lan { "0.0.0.0" } else { "127.0.0.1" };
     let port = if port == 0 { 8765 } else { port };
     let bind = format!("{host}:{port}");
+
+    // Build the ACP resolver so the gateway can serve CLI backends
+    // (Cursor / OpenCode / Qwen / OmniAgent) via /v1/chat/completions.
+    let acp_resolver: Arc<dyn omnipanel_gateway::AcpResolver> = Arc::new(
+        crate::agent::GatewayAcpResolver::new(
+            state.app_handle.clone(),
+            state.agent_registry.clone(),
+            state.acp_state.clone(),
+        ),
+    );
+
     let handle = omnipanel_gateway::spawn_gateway(
         omnipanel_gateway::GatewayConfig {
             bind_addr: bind,
@@ -1092,6 +1180,7 @@ pub async fn ai_gateway_configure(
         },
         state.ai_registry.clone(),
         Some(state.storage.clone()),
+        Some(acp_resolver),
     );
     *state.gateway_handle.lock().await = Some(handle);
     Ok(())

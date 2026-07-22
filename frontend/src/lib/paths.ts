@@ -12,6 +12,7 @@ export const MODULE_PATHS = {
   workflow: `${MODULE_PREFIX}/workflow`,
   knowledge: `${MODULE_PREFIX}/knowledge`,
   files: `${MODULE_PREFIX}/files`,
+  tasks: `${MODULE_PREFIX}/tasks`,
 } as const;
 
 export type ModuleKey = keyof typeof MODULE_PATHS;

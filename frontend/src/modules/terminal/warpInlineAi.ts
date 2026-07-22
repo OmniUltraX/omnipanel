@@ -2,6 +2,7 @@ import { submitAiPrompt } from "../../lib/ai/submitAiPrompt";
 import { cancelAiGeneration } from "../../lib/ai/cancelAiGeneration";
 import { commands } from "../../ipc/bindings";
 import { createBlockId, isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
+import { errorToString } from "../../lib/errorToString";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { buildNaturalLanguagePrompt } from "./warpExperience";
 import { resolveInlineConversationId } from "./terminalAiContextBundle";
@@ -108,7 +109,7 @@ export async function submitInlineNaturalLanguage(
       inline: { sessionId, blockId },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorToString(err);
     pushAssistantErrorMessage(blockId, message || "AI 请求失败");
     useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
   }
@@ -143,7 +144,7 @@ export async function submitInlineFollowUp(
       inline: { sessionId, blockId, continueThread: true },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorToString(err);
     pushAssistantErrorMessage(blockId, message || "AI 请求失败");
     useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
   }

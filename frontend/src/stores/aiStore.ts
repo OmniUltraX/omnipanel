@@ -14,12 +14,14 @@ import {
   deriveCompatFields,
   partsFromFlatFields,
   updateToolCallInParts,
+  upsertPlanInParts,
   upsertToolCallInParts,
   type AiMessagePart,
+  type PlanData,
   type ToolCallState,
 } from "../lib/ai/aiMessageParts";
 
-export type { AiMessagePart, ToolCallState } from "../lib/ai/aiMessageParts";
+export type { AiMessagePart, PlanData, ToolCallState } from "../lib/ai/aiMessageParts";
 export {
   deriveCompatFields,
   partsFromFlatFields,
@@ -147,6 +149,12 @@ interface AiStore {
     id: string,
     status: ToolCallState["status"],
     result?: string,
+  ) => void;
+  /** 流式 upsert plan part（同 planId 更新，否则追加） */
+  upsertStreamPlan: (
+    conversationId: string,
+    messageId: string,
+    plan: PlanData,
   ) => void;
   setCurrentProvider: (provider: string, model: string) => void;
   setCurrentModelSelectionId: (id: string | null) => void;
@@ -414,6 +422,22 @@ export const useAiStore = create<AiStore>()(
                   status,
                   result,
                 );
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      upsertStreamPlan: (conversationId, messageId, plan) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = upsertPlanInParts(partsFromFlatFields(m), plan);
                 return withUpdatedParts(m, parts);
               }),
               updatedAt: Date.now(),

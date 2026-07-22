@@ -1,4 +1,5 @@
 import { checkCommand, type DangerLevel } from "../../lib/commandGuard";
+import { errorToString } from "../../lib/errorToString";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { reportToolResultWithRetry } from "../../lib/ai/reportToolResult";
 import {
@@ -7,7 +8,7 @@ import {
   type AiThreadToolCall,
 } from "../../stores/blocksStore";
 import { pushAssistantErrorMessage } from "./aiThreadBridge";
-import { useTerminalStore } from "../../stores/terminalStore";
+import { findTerminalPane } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
 import { cancelTerminalExecution } from "./executeTerminalCommand";
 import { executeAiTerminalCommand } from "./executeAiTerminalCommand";
@@ -95,8 +96,8 @@ export function createInlineTerminalToolCall(
   argsJson: string,
 ): { toolCallId: string; command: string; riskLevel: DangerLevel } {
   const command = parseCommandFromArgs(argsJson);
-  const tab = useTerminalStore.getState().tabs.find((t) => t.id === sessionId);
-  const resourceId = tab?.session.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
+  const pane = findTerminalPane(sessionId);
+  const resourceId = pane?.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
   const riskLevel = assessRisk(command, resourceId);
 
   useBlocksStore.getState().pushAiThreadItem(blockId, {
@@ -121,9 +122,9 @@ export function waitForInlineToolDecision(
   command: string,
   conversationId: string,
 ): Promise<InlineToolDecision> {
-  const tab = useTerminalStore.getState().tabs.find((t) => t.id === sessionId);
+  const pane = findTerminalPane(sessionId);
   const resource =
-    resolveResourceById(tab?.session.resourceId ?? null) ??
+    resolveResourceById(pane?.resourceId ?? null) ??
     resolveResourceById(LOCAL_TERMINAL_RESOURCE_ID);
 
   return new Promise((resolve) => {
@@ -131,7 +132,7 @@ export function waitForInlineToolDecision(
       blockId,
       sessionId,
       tabId: sessionId,
-      resourceId: resource?.id ?? tab?.session.resourceId,
+      resourceId: resource?.id ?? pane?.resourceId,
       command,
       conversationId,
       resolve,
@@ -225,7 +226,7 @@ export async function approveInlineTerminalTool(
         };
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorToString(err);
       useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
         status: "failed",
         result: message,

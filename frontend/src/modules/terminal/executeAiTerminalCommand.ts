@@ -1,6 +1,6 @@
 import type { WorkspaceAction } from "../../stores/actionStore";
 import { useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
-import { useTerminalStore } from "../../stores/terminalStore";
+import { findTerminalPane } from "../../stores/terminalStore";
 import {
   getOutputWatchText,
   requestTerminalExecution,
@@ -76,13 +76,13 @@ export async function executeAiTerminalCommand(
   const mergedBlock = mergeBlockWithWatch(rawBlock, options.tabId);
   const storeBlock = resolveStoredBlock(mergedBlock);
 
-  const tab = useTerminalStore.getState().tabs.find((item) => item.id === options.tabId);
+  const pane = findTerminalPane(options.tabId);
   const payload = buildToolResultFromBlock({
     command,
     block: storeBlock,
     watchOutput: getOutputWatchText(options.tabId),
     profile,
-    cwd: tab?.session.cwd ?? "",
+    cwd: pane?.cwd ?? "",
     startedAt,
   });
 

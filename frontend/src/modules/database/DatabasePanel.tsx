@@ -41,6 +41,7 @@ import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { getShortcutKeys, matchesShortcut } from "../../stores/shortcutsStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
+import { useUiFollowConsumer } from "../../lib/ai/uiFollow";
 import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
@@ -3271,6 +3272,41 @@ export function DatabasePanel() {
     [activateWorkspaceTab, setActiveConnIdIfChanged, setSqlTabStates, setTabModes],
   );
 
+  /**
+   * 打开 SQL 草稿 tab（空白或预填 SQL），供 AI Follow openSqlDraft 意图调用。
+   * 参考 openTableQuery 的结构，去掉 buildSelectAllFromTableSql。
+   */
+  const openSqlDraftTab = useCallback(
+    (connId: string, dbName?: string | null, sql?: string | null) => {
+      const connection = connections.find((c) => c.id === connId);
+      if (!connection) return;
+      const db = dbName ?? connection.database ?? "";
+      const tabId = makeSqlTabId();
+      const tab: SqlWorkspaceTab = {
+        id: tabId,
+        kind: "sql",
+        label: makeSqlTabLabel({
+          database: db,
+          connection: connection.name,
+        }),
+      };
+      const initialSql = sql?.trim() ?? "";
+      setSqlTabStates((prev) => ({
+        ...prev,
+        [tabId]: {
+          ...createDefaultSqlTabState(db, connId),
+          sql: initialSql,
+          cursorOffset: initialSql.length,
+        },
+      }));
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+      setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
+      setActiveConnIdIfChanged(connId);
+    },
+    [activateWorkspaceTab, connections, setActiveConnIdIfChanged, setSqlTabStates, setTabModes],
+  );
+
   const openSlowQueryLogTab = useCallback(
     (connection: DbConnectionConfig, availability: SlowLogAvailability) => {
       if (!availability.enabled || !availability.sshConnectionId || !availability.logFilePath) {
@@ -4572,6 +4608,43 @@ export function DatabasePanel() {
     ],
   );
   openConnectionInfoTabRef.current = handleSelectConnection;
+
+  // === AI Follow 消费者注册 ===
+  // 处理来自 AI 工具完成的 follow intent：openSqlDraft / selectTable / selectDatabase / openConnection
+  // 必须在 handleSelectConnection/handleSelectTable/handleSelectDatabase 定义之后注册，
+  // 否则 TDZ（暂时性死区）错误。
+  useUiFollowConsumer("database", useCallback((intent) => {
+    switch (intent.type) {
+      case "openSqlDraft": {
+        openSqlDraftTab(intent.connectionId, intent.database, intent.sql);
+        return true;
+      }
+      case "selectTable": {
+        const connection = connections.find((c) => c.id === intent.connectionId);
+        if (!connection) return false;
+        handleSelectTable(
+          { connId: intent.connectionId, dbName: intent.database, tableName: intent.table, connection },
+          "permanent",
+        );
+        return true;
+      }
+      case "selectDatabase": {
+        const connection = connections.find((c) => c.id === intent.connectionId);
+        if (!connection) return false;
+        handleSelectDatabase(
+          { connId: intent.connectionId, dbName: intent.database, connection },
+          "permanent",
+        );
+        return true;
+      }
+      case "openConnection": {
+        handleSelectConnection(intent.resourceId, "permanent");
+        return true;
+      }
+      default:
+        return false;
+    }
+  }, [connections, handleSelectConnection, handleSelectDatabase, handleSelectTable, openSqlDraftTab]));
 
   const runQuery = useCallback(async (
     sqlOverride?: string,

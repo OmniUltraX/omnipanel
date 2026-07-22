@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import type { IMarker } from "@xterm/xterm";
 import type { DangerLevel } from "../lib/commandGuard";
+import {
+  appendTextLikePart,
+  upsertPlanInParts,
+  type AiMessagePart,
+  type ToolCallState,
+} from "../lib/ai/aiMessageParts";
 import { recordTerminalSessionActivity } from "./terminalSessionActivity";
 import {
   createEmptyOutputModel,
@@ -24,6 +30,8 @@ export interface AiThreadMessage {
   role: "user" | "assistant";
   content: string;
   reasoning?: string;
+  /** 有序片段（含 tool-call 边界）；存在时为渲染真相源，保留思考→文本→工具→再思考的交错顺序 */
+  parts?: AiMessagePart[];
   timestamp: number;
 }
 
@@ -116,6 +124,30 @@ interface BlocksState {
     messageId: string,
     field: "content" | "reasoning",
     chunk: string,
+  ) => void;
+  /** 向 assistant message 的 parts 数组追加一个片段（tool-call 边界标记 / 新 text/reasoning 段） */
+  appendAiThreadMessagePart: (
+    blockId: string,
+    messageId: string,
+    part: AiMessagePart,
+  ) => void;
+  /** 更新 assistant message parts 内的 tool-call 片段（status / result 等同步） */
+  updateAiThreadToolCallPart: (
+    blockId: string,
+    messageId: string,
+    toolCallId: string,
+    patch: Partial<{
+      name: string;
+      arguments: string;
+      result: string | undefined;
+      status: ToolCallState["status"];
+    }>,
+  ) => void;
+  /** upsert plan part 到 assistant message parts（同 planId 更新，否则追加） */
+  upsertAiThreadPlanPart: (
+    blockId: string,
+    messageId: string,
+    plan: import("../lib/ai/aiMessageParts").PlanData,
   ) => void;
   findBlockById: (blockId: string) => TerminalBlock | null;
   getBlocks: (sessionId: string) => TerminalBlock[];
@@ -224,13 +256,16 @@ function appendAiThreadMessageFieldToThread(
       if (content.length > MAX_BLOCK_OUTPUT_CHARS) {
         content = `…[输出已截断]\n${content.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
       }
-      return { ...item, content };
+      // parts 存在时同步追加（appendTextLikePart: 同类型合并、不同类型/工具后 push 新 part）
+      const parts = item.parts ? appendTextLikePart(item.parts, "text", chunk) : item.parts;
+      return { ...item, content, parts };
     }
     let reasoning = (item.reasoning ?? "") + chunk;
     if (reasoning.length > MAX_BLOCK_OUTPUT_CHARS) {
       reasoning = `…[推理已截断]\n${reasoning.slice(-MAX_BLOCK_OUTPUT_CHARS)}`;
     }
-    return { ...item, reasoning };
+    const parts = item.parts ? appendTextLikePart(item.parts, "reasoning", chunk) : item.parts;
+    return { ...item, reasoning, parts };
   });
 }
 
@@ -383,6 +418,50 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
   appendAiThreadMessageField: (blockId, messageId, field, chunk) => {
     get().appendAiThreadMessageFieldSync(blockId, messageId, field, chunk);
   },
+
+  appendAiThreadMessagePart: (blockId, messageId, part) =>
+    set((state) => {
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
+        thread.map((item) => {
+          if (item.id !== messageId || item.kind !== "message") return item;
+          return { ...item, parts: [...(item.parts ?? []), part] };
+        }),
+      );
+      return nextBlocks ? { blocks: nextBlocks } : state;
+    }),
+
+  updateAiThreadToolCallPart: (blockId, messageId, toolCallId, patch) =>
+    set((state) => {
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
+        thread.map((item) => {
+          if (item.id !== messageId || item.kind !== "message" || !item.parts) return item;
+          const parts = item.parts.map((p) => {
+            if (p.type !== "tool-call" || p.id !== toolCallId) return p;
+            return {
+              ...p,
+              ...(patch.name !== undefined ? { name: patch.name } : {}),
+              ...(patch.arguments !== undefined ? { arguments: patch.arguments } : {}),
+              ...(patch.result !== undefined ? { result: patch.result } : {}),
+              ...(patch.status !== undefined ? { status: patch.status } : {}),
+            };
+          });
+          return { ...item, parts };
+        }),
+      );
+      return nextBlocks ? { blocks: nextBlocks } : state;
+    }),
+
+  upsertAiThreadPlanPart: (blockId, messageId, plan) =>
+    set((state) => {
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
+        thread.map((item) => {
+          if (item.id !== messageId || item.kind !== "message") return item;
+          const parts = upsertPlanInParts(item.parts ?? [], plan);
+          return { ...item, parts };
+        }),
+      );
+      return nextBlocks ? { blocks: nextBlocks } : state;
+    }),
 
   findBlockById: (blockId) => {
     for (const blocks of Object.values(get().blocks)) {

@@ -16,6 +16,7 @@ export const DEFAULT_MODULE_STATUS: Record<ModuleKey, AppModuleStatus> = {
   protocol: "open",
   workflow: "disabled",
   knowledge: "open",
+  tasks: "open",
 };
 
 function isModuleKey(key: string): key is ModuleKey {

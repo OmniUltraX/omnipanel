@@ -22,6 +22,9 @@ function aiMessageCacheKey(msg: AiMessage): string {
       if (p.type === "text" || p.type === "reasoning") {
         return `${p.type}:${p.text.length}`;
       }
+      if (p.type === "plan") {
+        return `plan:${p.plan.id}:${p.plan.status}:${p.plan.steps.length}:${p.plan.updatedAt}`;
+      }
       return `tool:${p.id}:${p.status}:${p.result?.length ?? 0}:${p.arguments.length}`;
     })
     .join("|");
@@ -39,6 +42,13 @@ function extractThreadParts(message: ThreadAssistantMessage): AiMessagePart[] {
     if (part.type === "reasoning") {
       const text = (part as { type: "reasoning"; text: string }).text;
       if (text) parts.push({ type: "reasoning", text });
+      continue;
+    }
+    if (part.type === "data") {
+      const data = (part as { type: "data"; data?: unknown }).data;
+      if (data && typeof data === "object" && data !== null && "id" in data && "steps" in data) {
+        parts.push({ type: "plan", plan: data as import("../../../lib/ai/aiMessageParts").PlanData });
+      }
       continue;
     }
     if (part.type !== "tool-call") continue;
@@ -120,6 +130,11 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
         ...(part.result !== undefined
           ? { result: part.result, isError: part.status === "failed" }
           : {}),
+      } as unknown as ThreadAssistantMessage["content"][number]);
+    } else if (part.type === "plan") {
+      parts.push({
+        type: "data",
+        data: part.plan,
       } as unknown as ThreadAssistantMessage["content"][number]);
     }
   }

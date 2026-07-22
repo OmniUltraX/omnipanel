@@ -30,6 +30,8 @@ import {
   useActiveServerPanelId,
   useServerPanelDockStore,
 } from "../../stores/serverPanelDockStore";
+import { useUiFollowConsumer } from "../../lib/ai/uiFollow";
+import type { ServerPanelResourceKind } from "./panel/serverPanelWorkspaceTabs";
 
 export function ServerPanel() {
   const { t } = useI18n();
@@ -61,6 +63,27 @@ export function ServerPanel() {
   const setActiveTabId = useServerPanelDockStore((s) => s.setActiveTabId);
   const setDockLayout = useServerPanelDockStore((s) => s.setDockLayout);
   const removeServerTabs = useServerPanelDockStore((s) => s.removeServerTabs);
+
+  // === AI Follow 消费者注册 ===
+  // 处理 selectServer / openConnection intent：定位到指定 server 或其子资源
+  useUiFollowConsumer("server", useCallback((intent) => {
+    switch (intent.type) {
+      case "selectServer": {
+        if (intent.kind) {
+          selectServerResource(intent.serverId, intent.kind as ServerPanelResourceKind, "permanent");
+        } else {
+          selectServer(intent.serverId, "permanent");
+        }
+        return true;
+      }
+      case "openConnection": {
+        selectServer(intent.resourceId, "permanent");
+        return true;
+      }
+      default:
+        return false;
+    }
+  }, [selectServer, selectServerResource]));
 
   const activeServerId = useActiveServerPanelId();
 

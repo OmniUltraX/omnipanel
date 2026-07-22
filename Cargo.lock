@@ -4236,6 +4236,7 @@ dependencies = [
  "serde_yaml",
  "serialport",
  "sha1 0.10.6",
+ "shell-words",
  "specta",
  "specta-typescript",
  "sqlx",
@@ -4348,6 +4349,7 @@ name = "omnipanel-gateway"
 version = "0.0.5"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "futures",
  "omnipanel-ai",

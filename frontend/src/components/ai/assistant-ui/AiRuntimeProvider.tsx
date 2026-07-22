@@ -16,7 +16,7 @@ import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioMode
 import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
-import { useTerminalStore } from "../../../stores/terminalStore";
+import { useTerminalStore, findTerminalPane } from "../../../stores/terminalStore";
 import { registerAiPromptSubmit, type InlineTerminalAiTarget } from "../../../lib/ai/submitAiPrompt";
 import { registerAiGenerationCancel } from "../../../lib/ai/cancelAiGeneration";
 import { useBlocksStore, isAiThreadMessage } from "../../../stores/blocksStore";
@@ -44,13 +44,15 @@ import {
   touchInlineAiDelta,
 } from "../../../modules/terminal/inlineAiWatchdog";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
+import { applyUiFollowForTool } from "../../../lib/ai/uiFollow";
+import { errorToString } from "../../../lib/errorToString";
 import { getModuleAiContextText } from "../../../lib/ai/context";
 import {
   buildComposerExplicitContextAppend,
   mergeAiContextAppend,
 } from "../../../lib/ai/composerContextAppend";
 import { resolveFocusModuleKey } from "../../../lib/ai/resolveFocusModuleKey";
-import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
+import { useAiStore, type PlanData, type ToolCallState } from "../../../stores/aiStore";
 import {
   clearComposerContextItems,
   getComposerContextItems,
@@ -171,16 +173,11 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
     (c) => c.id === useAiStore.getState().activeConversationId,
   );
   const linkedSession = !inline ? activeConv?.linkedTerminalSessionId : null;
-  const tab = inline
-    ? useTerminalStore.getState().tabs.find((t) => t.id === inline.sessionId)
-    : useTerminalStore
-        .getState()
-        .tabs.find(
-          (t) =>
-            t.id ===
-            (linkedSession || useTerminalStore.getState().activeTabId),
-        );
-  const sessionId = inline?.sessionId ?? tab?.id ?? null;
+  const resolvedSessionId = inline
+    ? inline.sessionId
+    : (linkedSession || useTerminalStore.getState().activeTabId);
+  const pane = resolvedSessionId ? findTerminalPane(resolvedSessionId) : undefined;
+  const sessionId = inline?.sessionId ?? resolvedSessionId ?? null;
 
   // 焦点模块自动上下文（terminal 走 terminalContextAppend，避免重复）。
   const focusModule = resolveFocusModuleKey();
@@ -213,9 +210,9 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
       cwd: null,
       workspaceId: null,
       terminalSessionId: sessionId,
-      terminalSessionType: tab?.session.type ?? null,
+      terminalSessionType: pane?.type ?? null,
       envTag: null,
-      resourceId: tab?.session.resourceId ?? null,
+      resourceId: pane?.resourceId ?? null,
       terminalContextAppend: buildTerminalAiContextAppend(sessionId),
       moduleContextAppend,
     };
@@ -476,6 +473,15 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             toolName: name,
             args,
           });
+          // 同步更新 assistant message parts 内的 tool-call 片段
+          if (inline.assistantTurnId) {
+            useBlocksStore.getState().updateAiThreadToolCallPart(
+              inline.blockId,
+              inline.assistantTurnId,
+              id,
+              { name, arguments: args },
+            );
+          }
         } else {
           useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
             kind: "tool_call",
@@ -484,6 +490,14 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             args,
             status: "running",
           });
+          // 在 assistant message parts 里插入 tool-call 边界，后续 content/reasoning delta 会 push 新 part
+          if (inline.assistantTurnId) {
+            useBlocksStore.getState().appendAiThreadMessagePart(
+              inline.blockId,
+              inline.assistantTurnId,
+              { type: "tool-call", id, name, arguments: args, status: "running" },
+            );
+          }
         }
         if (waitingToolDispatchRef.current.has(id)) {
           tryDispatchTool(id);
@@ -532,6 +546,58 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
               contextSummary: meta.args,
             });
           }
+
+          // 结果导向跟随：工具 completed 时切到对应模块面板 + 定位资源
+          // 此时工具已有结果，用户切过去能直接看到执行结果（而非空状态闪烁）
+          // 传入 result 用于结果感知推断（如 create_database 返回的库名）
+          applyUiFollowForTool(meta.name, meta.args, result);
+
+          // 知识库相关工具完成时，通知知识库面板刷新并尝试打开/关闭对应 tab。
+          // 旧的 CustomEvent + localStorage 模式已迁移到统一的 useUiFollowConsumer
+          // + pendingFollowIntentsStore 机制，此处仅保留事件派发作为兼容兜底
+          // （KnowledgePanel 的旧 listener 仍在工作，新 listener 通过 registry 注册）。
+          if (meta.name.startsWith("omni_knowledge_")) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel:ai-knowledge-tool-completed", {
+                detail: {
+                  toolName: meta.name,
+                  args: meta.args,
+                  result: result ?? null,
+                  ts: Date.now(),
+                },
+              }),
+            );
+          }
+
+          // Plan 工具完成时：将 plan 数据注入到当前消息的 parts 中，
+          // 使 PlanView 组件能在消息流中渲染。PlanView 读取 orchestration
+          // store 的实时数据，后续 step 更新无需再次注入。
+          if (
+            meta.name === "omni_plan_create" ||
+            meta.name === "omni_plan_update_step" ||
+            meta.name === "omni_plan_add_step"
+          ) {
+            try {
+              const parsed = JSON.parse(result ?? "{}") as { plan?: PlanData };
+              if (parsed.plan) {
+                if (inline?.assistantTurnId) {
+                  useBlocksStore.getState().upsertAiThreadPlanPart(
+                    inline.blockId,
+                    inline.assistantTurnId,
+                    parsed.plan,
+                  );
+                } else if (assistantMsgId) {
+                  useAiStore.getState().upsertStreamPlan(
+                    convId,
+                    assistantMsgId,
+                    parsed.plan,
+                  );
+                }
+              }
+            } catch {
+              // result 解析失败时忽略
+            }
+          }
         }
       }
 
@@ -540,6 +606,15 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           status: mapToolStatus(status),
           result,
         });
+        // 同步更新 assistant message parts 内的 tool-call 片段
+        if (inline.assistantTurnId) {
+          useBlocksStore.getState().updateAiThreadToolCallPart(
+            inline.blockId,
+            inline.assistantTurnId,
+            id,
+            { status: mapToolStatus(status), result },
+          );
+        }
         return;
       }
       if (!assistantMsgId) return;
@@ -647,7 +722,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       if (signal.aborted) {
         finishGeneration(true, true);
       } else {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorToString(err);
         appendText(`\n\nError: ${message}`);
         if (inline && !inlineHasAssistantContent(inline.blockId)) {
           pushAssistantErrorMessage(inline.blockId, message || "AI 请求失败");
@@ -700,6 +775,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         role: "assistant",
         content: "",
         reasoning: "",
+        parts: [],
       });
 
       useTerminalUiStore.getState().setExpandedAiBlock(sessionId, blockId);

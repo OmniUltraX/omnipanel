@@ -13,6 +13,7 @@ const OVERLAY_CHUNK_LOADERS: Record<OverlayModuleKey, ModuleChunkLoader> = {
   protocol: () => import("../modules/protocol/ProtocolPanel"),
   workflow: () => import("../modules/workflow/WorkflowPanel"),
   knowledge: () => import("../modules/knowledge/KnowledgePanel"),
+  tasks: () => import("../modules/tasks/TaskCenterPanel"),
 };
 
 const chunkInflight = new Map<OverlayModuleKey, Promise<void>>();

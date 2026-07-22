@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
+import { evaluateToolRisk } from "../../../lib/ai/toolRisk";
+import { useActionDraftStore } from "../../../stores/actionDraftStore";
 import type {
   FileEntry,
   FileListDirResult,
@@ -142,40 +144,63 @@ async function filesWrite(args: Record<string, unknown>): Promise<string> {
   const path = requireString(args, "path");
   const content = requireString(args, "content");
   const append = args.append === true;
-  // src-tauri 的 file_upload_file 是覆盖写；append 模式下先读旧内容再拼接
-  let data: number[];
-  if (append) {
-    let existing = "";
-    try {
-      const existingBytes = await invoke<number[]>("file_read_file", {
-        connectionId: connection_id,
-        path,
-        maxBytes: MAX_READ_BYTES,
-      } satisfies FileReadFileInvokeArgs);
-      existing = decodeBytesAsUtf8(existingBytes);
-    } catch {
-      // 文件不存在时忽略错误，等价于新建
+
+  // 风险评估：写入系统关键路径走审批
+  const risk = evaluateToolRisk("omni_files_write", JSON.stringify(args), connection_id);
+
+  const doWrite = async (): Promise<string> => {
+    // src-tauri 的 file_upload_file 是覆盖写；append 模式下先读旧内容再拼接
+    let data: number[];
+    if (append) {
+      let existing = "";
+      try {
+        const existingBytes = await invoke<number[]>("file_read_file", {
+          connectionId: connection_id,
+          path,
+          maxBytes: MAX_READ_BYTES,
+        } satisfies FileReadFileInvokeArgs);
+        existing = decodeBytesAsUtf8(existingBytes);
+      } catch {
+        // 文件不存在时忽略错误，等价于新建
+      }
+      data = encodeStringToBytes(existing + content);
+    } else {
+      data = encodeStringToBytes(content);
     }
-    data = encodeStringToBytes(existing + content);
-  } else {
-    data = encodeStringToBytes(content);
-  }
-  await invoke<void>("file_upload_file", {
-    connectionId: connection_id,
-    path,
-    data,
-  } satisfies FileUploadFileInvokeArgs);
-  return JSON.stringify(
-    {
+    await invoke<void>("file_upload_file", {
       connectionId: connection_id,
       path,
-      append,
-      bytesWritten: data.length,
-      applied: true,
-    },
-    null,
-    2,
-  );
+      data,
+    } satisfies FileUploadFileInvokeArgs);
+    return JSON.stringify(
+      {
+        connectionId: connection_id,
+        path,
+        append,
+        bytesWritten: data.length,
+        applied: true,
+      },
+      null,
+      2,
+    );
+  };
+
+  if (risk.needsApproval) {
+    const result = await useActionDraftStore.getState().enqueueAwaitable({
+      kind: "files",
+      title: `写入文件: ${path.slice(0, 80)}`,
+      preview: `连接: ${connection_id}\n路径: ${path}\n模式: ${append ? "追加" : "覆盖"}\n风险: ${risk.risk}${risk.riskCheck?.matches.length ? `\n警告: ${risk.riskCheck.matches.map((m) => m.desc).join(", ")}` : ""}`,
+      execute: doWrite,
+      risk: risk.risk,
+      riskCheck: risk.riskCheck,
+      environment: risk.environment,
+      toolName: "omni_files_write",
+      resourceId: connection_id,
+    });
+    return result;
+  }
+
+  return doWrite();
 }
 
 async function filesSearch(args: Record<string, unknown>): Promise<string> {

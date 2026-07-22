@@ -216,6 +216,7 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
       - name: Broadcast version to WeChat via OmniServer
         # 仅在 Windows 产物构建成功后广播一次，避免矩阵多平台重复通知
         if: success() && matrix.platform == 'windows-latest'
@@ -223,21 +224,26 @@ jobs:
         env:
           BASE_URL: ${{ secrets.OMNISERVER_BASE_URL }}
           TOKEN: ${{ secrets.OMNISERVER_ADMIN_TOKEN }}
-          VERSION: ${{ github.ref_name }}
+          # 使用无 v 前缀的 semver（与 OmniServer README 示例一致）
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          CHANGELOG: ${{ steps.changelog.outputs.body }}
         run: |
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ] || [ -z "${TOKEN:-}" ]; then
             echo "缺少 OMNISERVER_BASE_URL / OMNISERVER_ADMIN_TOKEN"
             exit 1
           fi
-          CHANGELOG="$(git log -1 --pretty=%B | sed -e 's/[[:space:]]*$//')"
+          if [ -z "${CHANGELOG:-}" ]; then
+            echo "缺少 CHANGELOG 正文（请确认 CHANGELOG.md 含 ## [${VERSION}] 段落）"
+            exit 1
+          fi
           BODY=$(jq -nc \
             --arg version "${VERSION}" \
             --arg changelog "${CHANGELOG}" \
-            --arg url "https://github.com/${REPO}/commit/${SHA}" \
-            --arg title "新版本发布：${VERSION}" \
+            --arg url "https://github.com/${REPO}/releases/tag/${TAG_NAME}" \
+            --arg title "OmniPanel ${VERSION}" \
             '{
               version: $version,
               title: $title,
@@ -245,7 +251,9 @@ jobs:
               content_url: $url,
               dry_run: false
             }')
-          curl -fsS -X POST "${BASE_URL%/}/broadcast/version" \
+          echo "Broadcast payload version=${VERSION}"
+          HTTP_CODE=$(curl -sS -o /tmp/broadcast-resp.json -w "%{http_code}" \
+            -X POST "${BASE_URL%/}/broadcast/version" \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"

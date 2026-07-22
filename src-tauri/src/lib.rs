@@ -455,6 +455,9 @@ fn export_ipc_bindings() {
         commands::ai_chat::ai_list_backends,
         commands::ai_chat::ai_list_sessions,
         commands::ai_chat::ai_list_session_traces,
+        commands::ai_chat::builtin_tool_audit_list,
+        commands::ai_chat::audit_log_recent,
+        commands::ai_chat::audit_log_append,
         commands::ai_chat::ai_gateway_configure,
         commands::ai_chat::ai_services_probe,
         
@@ -629,6 +632,9 @@ fn build_and_run_tauri() {
             commands::ai_chat::ai_list_backends,
             commands::ai_chat::ai_list_sessions,
             commands::ai_chat::ai_list_session_traces,
+            commands::ai_chat::builtin_tool_audit_list,
+            commands::ai_chat::audit_log_recent,
+            commands::ai_chat::audit_log_append,
             commands::ai_chat::ai_gateway_configure,
             commands::ai_chat::ai_services_probe,
             // ACP agent

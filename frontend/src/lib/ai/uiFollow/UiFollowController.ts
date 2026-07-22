@@ -1,3 +1,19 @@
+/**
+ * Follow 意图控制器。
+ *
+ * 重构后的架构：
+ * 1. 路由切换：所有 intent 先 navigate 到目标模块（确保面板挂载）
+ * 2. Registry 分发：通过 followRegistry 向已挂载的面板分发 intent
+ * 3. Pending 兜底：如果面板未挂载（无 handler 响应），入 pending 队列
+ * 4. 面板挂载时通过 useUiFollowConsumer 自动消费 pending
+ *
+ * 对比旧方案：
+ * - 旧：Controller 硬编码每个模块的 store 调用（6 个 if/else 分支）
+ * - 新：Controller 只做 navigate + dispatch，面板自洽处理资源定位
+ *
+ * 兼容性：Terminal/Docker/Files 的直接 store 调用保留为「内置 handler」，
+ * 因为这些模块的 store API 稳定且无需面板挂载即可调用。
+ */
 import { MODULE_PATHS } from "../../paths";
 import { useDockerPanelDockStore } from "../../../stores/dockerPanelDockStore";
 import { useFilesWorkspaceSessionStore } from "../../../stores/filesWorkspaceSessionStore";
@@ -5,7 +21,9 @@ import { useTerminalStore } from "../../../stores/terminalStore";
 import { useTerminalUiStore } from "../../../modules/terminal/terminalUiStore";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { fileConnPanelId } from "../../../modules/files/filesWorkspacePanels";
-import type { UiFollowIntent } from "./types";
+import { dispatchFollow } from "./followRegistry";
+import { resolveIntentModule, type FollowModuleKey, type UiFollowIntent } from "./types";
+import { usePendingFollowIntentsStore } from "./pendingFollowIntentsStore";
 import { isFollowAiActionsEnabled } from "./uiFollowStore";
 
 type NavigateFn = (path: string) => void;
@@ -26,68 +44,44 @@ function navigateTo(path: string): void {
   }
 }
 
-/**
- * 执行跟随意图。Follow 关闭时 no-op。
- * 写操作确认不在此层处理。
- */
-export function followAiIntent(intent: UiFollowIntent): void {
-  if (!isFollowAiActionsEnabled()) return;
+function navigateToModule(module: FollowModuleKey): void {
+  const path = MODULE_PATHS[module];
+  if (path) navigateTo(path);
+}
 
+/**
+ * 内置 handler：Terminal/Docker/Files 的直接 store 调用。
+ * 这些模块的 store API 稳定且无需面板挂载即可调用，
+ * 保留为内置逻辑避免面板必须挂载才能 follow。
+ */
+function builtinHandle(intent: UiFollowIntent): boolean {
   switch (intent.type) {
-    case "focusModule": {
-      const path = MODULE_PATHS[intent.module];
-      if (path) navigateTo(path);
-      break;
-    }
-    case "openConnection": {
-      if (intent.module === "docker") {
-        navigateTo(MODULE_PATHS.docker);
-        useDockerPanelDockStore.getState().selectConnection(intent.resourceId);
-      } else if (intent.module === "files") {
-        navigateTo(MODULE_PATHS.files);
-        useFilesWorkspaceSessionStore.getState().openConnection(intent.resourceId);
-      } else if (intent.module === "ssh" || intent.module === "database") {
-        const path = MODULE_PATHS[intent.module];
-        navigateTo(path);
-        useWorkspaceStore.getState().selectResource(intent.resourceId, path);
-      }
-      break;
-    }
-    case "selectContainer": {
-      navigateTo(MODULE_PATHS.docker);
-      useDockerPanelDockStore
-        .getState()
-        .selectContainer(intent.connectionId, intent.containerId);
-      break;
-    }
-    case "openSqlDraft": {
-      navigateTo(MODULE_PATHS.database);
-      useWorkspaceStore
-        .getState()
-        .selectResource(intent.connectionId, MODULE_PATHS.database);
-      if (intent.sql?.trim()) {
-        window.dispatchEvent(
-          new CustomEvent("omnipanel:ai-open-sql-draft", {
-            detail: {
-              connectionId: intent.connectionId,
-              database: intent.database ?? null,
-              sql: intent.sql,
-            },
-          }),
-        );
-      }
-      break;
-    }
     case "revealTerminal": {
-      navigateTo(MODULE_PATHS.terminal);
       useTerminalStore.getState().setActiveTab(intent.sessionId);
       if (intent.blockId) {
         useTerminalUiStore.getState().setExpandedAiBlock(intent.sessionId, intent.blockId);
       }
-      break;
+      return true;
+    }
+    case "selectContainer": {
+      useDockerPanelDockStore
+        .getState()
+        .selectContainer(intent.connectionId, intent.containerId);
+      return true;
+    }
+    case "openConnection": {
+      if (intent.module === "docker") {
+        useDockerPanelDockStore.getState().selectConnection(intent.resourceId);
+        return true;
+      }
+      if (intent.module === "files") {
+        useFilesWorkspaceSessionStore.getState().openConnection(intent.resourceId);
+        return true;
+      }
+      // ssh/database/server 走 registry（面板需要挂载才能处理）
+      return false;
     }
     case "openFile": {
-      navigateTo(MODULE_PATHS.files);
       const files = useFilesWorkspaceSessionStore.getState();
       files.openConnection(intent.connectionId);
       files.setActivePanelId(fileConnPanelId(intent.connectionId));
@@ -99,14 +93,47 @@ export function followAiIntent(intent: UiFollowIntent): void {
         history: prev?.history ?? [intent.path],
         historyIndex: prev?.historyIndex ?? 0,
       });
-      break;
+      return true;
     }
     case "switchWorkspace": {
       useWorkspaceStore.getState().switchWorkspace(intent.workspaceId);
-      break;
+      return true;
     }
     default:
-      break;
+      return false;
+  }
+}
+
+/**
+ * 执行跟随意图。Follow 关闭时 no-op。
+ *
+ * 流程：
+ * 1. navigate 到目标模块（确保面板挂载）
+ * 2. 先尝试内置 handler（Terminal/Docker/Files/Workspace）
+ * 3. 再尝试 registry 分发到面板注册的 handler
+ * 4. 都没处理 → 入 pending 队列，面板挂载时消费
+ */
+export function followAiIntent(intent: UiFollowIntent): void {
+  if (!isFollowAiActionsEnabled()) return;
+
+  // 1. 路由切换
+  const module = resolveIntentModule(intent);
+  if (module) {
+    navigateToModule(module);
+  } else if (intent.type === "switchWorkspace") {
+    // switchWorkspace 不需要 navigate
+  }
+
+  // 2. 内置 handler（无需面板挂载的稳定 store 调用）
+  if (builtinHandle(intent)) return;
+
+  // 3. Registry 分发（面板注册的 handler）
+  if (module) {
+    const handled = dispatchFollow(module, intent);
+    if (handled) return;
+
+    // 4. 未挂载 → 入 pending 队列
+    usePendingFollowIntentsStore.getState().enqueue(module, intent);
   }
 }
 
