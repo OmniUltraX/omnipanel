@@ -706,6 +706,9 @@ export const commands = {
 	aiListBackends: () => typedError<BackendInfo[], string>(__TAURI_INVOKE("ai_list_backends")),
 	aiListSessions: (source: string | null) => typedError<AiSessionRecord[], string>(__TAURI_INVOKE("ai_list_sessions", { source })),
 	aiListSessionTraces: (sessionId: string) => typedError<AiTraceRecord[], string>(__TAURI_INVOKE("ai_list_session_traces", { sessionId })),
+	builtinToolAuditList: (limit: number | null) => typedError<BuiltinToolAuditRecord[], string>(__TAURI_INVOKE("builtin_tool_audit_list", { limit })),
+	auditLogRecent: (limit: number | null) => typedError<AuditEntry[], string>(__TAURI_INVOKE("audit_log_recent", { limit })),
+	auditLogAppend: (entry: AuditEntry) => typedError<null, string>(__TAURI_INVOKE("audit_log_append", { entry })),
 	/**
 	 *  应用前端 Agent Router（Gateway）配置：停旧实例并按开关/端口/Key/LAN 重启。
 	 *  前端在启动时与设置变更时调用，使 :8765 相关设置真正生效。
@@ -962,6 +965,28 @@ export type AiTraceRecord = {
 	eventType: string,
 	payload: string,
 	ts: number | null,
+};
+
+/** 内置工具审计记录（对应 builtin_tool_audit 表） */
+export type BuiltinToolAuditRecord = {
+	id: number,
+	source: string,
+	toolName: string,
+	durationMs: number,
+	success: boolean,
+	detail: string,
+	ts: number,
+};
+
+/** 全局审计日志条目（对应 audit_log 表） */
+export type AuditEntry = {
+	ts: number,
+	action: string,
+	target: string,
+	envTag: string,
+	risk: string,
+	status: string,
+	detail: string,
 };
 
 /**  接口 /models 返回的单条模型元数据。 */

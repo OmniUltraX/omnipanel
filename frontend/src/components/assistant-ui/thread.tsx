@@ -61,7 +61,25 @@ import {
   type FC,
   type PropsWithChildren,
 } from "react";
+import { PlanView } from "../ai/PlanView";
+import type { PlanData } from "../../lib/ai/aiMessageParts";
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
+
+/** 从 data part 提取 plan 数据；非 plan 返回 null */
+function extractPlanFromDataPart(part: { type: string; data?: unknown }): PlanData | null {
+  if (part.type !== "data" || !part.data) return null;
+  const data = part.data;
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "id" in data &&
+    "steps" in data &&
+    "title" in data
+  ) {
+    return data as PlanData;
+  }
+  return null;
+}
 
 /**
  * Optional component overrides for the thread. `AssistantMessage` and
@@ -115,7 +133,8 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
       className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
       style={{
         ["--thread-max-width" as string]: "44rem",
-        ["--composer-radius" as string]: "1.5rem",
+        // 对齐模块面板风格：8px 圆角（var(--r-lg)）替代默认 24px 大圆角
+        ["--composer-radius" as string]: "8px",
         ["--composer-padding" as string]: "8px",
       }}
     >
@@ -179,7 +198,7 @@ const ThreadScrollToBottom: FC = () => {
       <TooltipIconButton
         tooltip={t("ai.composer.buttonScrollToBottom")}
         variant="outline"
-        className="aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center rounded-full p-4 disabled:invisible"
+        className="aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center rounded-md p-2 disabled:invisible"
       >
         <ArrowDownIcon />
       </TooltipIconButton>
@@ -214,7 +233,7 @@ const ThreadSuggestionItem: FC = () => {
       <SuggestionPrimitive.Trigger send asChild>
         <Button
           variant="ghost"
-          className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
+          className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border h-auto gap-1.5 rounded-md border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
         >
           <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
           <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 empty:hidden" />
@@ -230,7 +249,7 @@ const Composer: FC = () => {
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
-          className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-bg p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-bg))] dark:shadow-none"
+          className="border-border data-[dragging=true]:border-ring focus-within:border-[var(--accent)] flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-bg p-(--composer-padding) shadow-sm transition-[border-color,box-shadow] focus-within:border-[var(--accent)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-bg))] dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30"
         >
           <ComposerContextChips />
           <ComposerAttachments />
@@ -261,7 +280,7 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-dictate size-7 rounded-full"
+                className="aui-composer-dictate size-7 rounded-md"
                 aria-label={t("ai.composer.buttonVoice")}
               >
                 <MicIcon className="aui-composer-dictate-icon size-4" />
@@ -276,7 +295,7 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
+                className="aui-composer-stop-dictation text-destructive size-7 rounded-md"
                 aria-label={t("ai.composer.buttonStopGenerating")}
               >
                 <SquareIcon className="aui-composer-stop-dictation-icon size-3.5 animate-pulse fill-current" />
@@ -305,7 +324,7 @@ const ComposerAction: FC = () => {
               type="button"
               variant="default"
               size="icon"
-              className="aui-composer-cancel size-7 rounded-full"
+              className="aui-composer-cancel size-7 rounded-md"
               aria-label={t("ai.composer.buttonStopGenerating")}
             >
               <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />
@@ -382,8 +401,13 @@ const TerminalAssistantMessage: FC = () => {
                 return <Reasoning {...part} />;
               case "tool-call":
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
-              case "data":
+              case "data": {
+                const planData = extractPlanFromDataPart(part as { type: string; data?: unknown });
+                if (planData) {
+                  return <PlanView planId={planData.id} snapshot={planData} />;
+                }
                 return part.dataRendererUI;
+              }
               case "indicator":
                 return (
                   <span
@@ -514,8 +538,13 @@ const AssistantMessage: FC = () => {
                 return <Reasoning {...part} />;
               case "tool-call":
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
-              case "data":
+              case "data": {
+                const planData = extractPlanFromDataPart(part as { type: string; data?: unknown });
+                if (planData) {
+                  return <PlanView planId={planData.id} snapshot={planData} />;
+                }
                 return part.dataRendererUI;
+              }
               case "indicator":
                 return (
                   <span
@@ -581,10 +610,10 @@ const AssistantActionBar: FC = () => {
           side="bottom"
           align="start"
           sideOffset={6}
-          className="aui-action-bar-more-content bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-[var(--z-subwindow-popover)] min-w-[8rem] overflow-hidden rounded-xl border p-1.5 shadow-lg backdrop-blur-sm"
+          className="aui-action-bar-more-content bg-popover/95 text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-[var(--z-subwindow-popover)] min-w-[8rem] overflow-hidden rounded-md border p-1 shadow-lg backdrop-blur-sm"
         >
           <ActionBarPrimitive.ExportMarkdown asChild>
-            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
+            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-1.5 text-sm outline-none select-none">
               <DownloadIcon className="size-4" />
               {t("ai.composer.buttonExport")}
             </ActionBarMorePrimitive.Item>
@@ -605,7 +634,7 @@ const UserMessage: FC = () => {
       <UserMessageAttachments />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-xl px-4 py-2 wrap-break-word empty:hidden">
+        <div className="aui-user-message-content peer bg-muted text-foreground rounded-lg px-4 py-2 wrap-break-word empty:hidden">
           <MessagePrimitive.Parts />
         </div>
         <div className="aui-user-action-bar-wrapper absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 peer-empty:hidden rtl:translate-x-full">
@@ -648,7 +677,7 @@ const EditComposer: FC = () => {
       data-slot="aui_edit-composer-wrapper"
       className="flex flex-col px-2"
     >
-      <ComposerPrimitive.Root className="aui-edit-composer-root border-border/60 dark:border-muted-foreground/15 ms-auto flex w-full max-w-[85%] flex-col rounded-(--composer-radius) border bg-background shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none">
+      <ComposerPrimitive.Root className="aui-edit-composer-root border-border dark:border-muted-foreground/15 ms-auto flex w-full max-w-[85%] flex-col rounded-(--composer-radius) border bg-background shadow-sm dark:shadow-none">
         <ComposerPrimitive.Input
           className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
           autoFocus
@@ -658,13 +687,13 @@ const EditComposer: FC = () => {
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 rounded-full px-3.5"
+              className="h-8 rounded-md px-3.5"
             >
               {t("ai.composer.buttonCancel")}
             </Button>
           </ComposerPrimitive.Cancel>
           <ComposerPrimitive.Send asChild>
-            <Button size="sm" className="h-8 rounded-full px-3.5">
+            <Button size="sm" className="h-8 rounded-md px-3.5">
               {t("ai.composer.buttonUpdate")}
             </Button>
           </ComposerPrimitive.Send>

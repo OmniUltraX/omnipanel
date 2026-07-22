@@ -214,6 +214,52 @@ const SCHEMA_KNOWLEDGE_LIST: &str = r#"{
   }
 }"#;
 
+const SCHEMA_PLAN_CREATE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "description": "计划标题，概括整体任务目标" },
+    "steps": {
+      "type": "array",
+      "description": "初始步骤列表，按执行顺序排列",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "步骤唯一 ID（如 step_1, step_2）" },
+          "title": { "type": "string", "description": "步骤标题" },
+          "tool_name": { "type": "string", "description": "预计使用的工具名（如 omni_ssh_exec）" }
+        },
+        "required": ["id", "title"]
+      }
+    }
+  },
+  "required": ["title", "steps"]
+}"#;
+
+const SCHEMA_PLAN_UPDATE_STEP: &str = r#"{
+  "type": "object",
+  "properties": {
+    "plan_id": { "type": "string", "description": "计划 ID" },
+    "step_id": { "type": "string", "description": "步骤 ID" },
+    "status": { "type": "string", "enum": ["in_progress", "completed", "failed", "skipped"], "description": "新状态" },
+    "summary": { "type": "string", "description": "步骤执行摘要（完成后填写）" },
+    "error": { "type": "string", "description": "错误信息（失败时填写）" },
+    "tool_call_id": { "type": "string", "description": "关联的工具调用 ID" }
+  },
+  "required": ["plan_id", "step_id", "status"]
+}"#;
+
+const SCHEMA_PLAN_ADD_STEP: &str = r#"{
+  "type": "object",
+  "properties": {
+    "plan_id": { "type": "string", "description": "计划 ID" },
+    "step_id": { "type": "string", "description": "新步骤的唯一 ID" },
+    "title": { "type": "string", "description": "步骤标题" },
+    "tool_name": { "type": "string", "description": "预计使用的工具名" },
+    "after_step_id": { "type": "string", "description": "在此步骤 ID 之后插入；不指定则追加到末尾" }
+  },
+  "required": ["plan_id", "step_id", "title"]
+}"#;
+
 const SCHEMA_LIST_CONNECTIONS: &str = r#"{
   "type": "object",
   "properties": {
@@ -779,6 +825,35 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         input_schema: SCHEMA_LOAD_SKILL,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_plan_create",
+        module_key: "orchestration",
+        description:
+            "创建多步骤任务计划。在执行复杂任务（需要 3+ 步骤）前调用此工具规划步骤，\
+             让用户看到进度。创建后按步骤顺序执行，每步完成后调 omni_plan_update_step。",
+        input_schema: SCHEMA_PLAN_CREATE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_plan_update_step",
+        module_key: "orchestration",
+        description:
+            "更新计划步骤状态。在步骤开始执行时标记 in_progress，完成时标记 completed（附摘要），\
+             失败时标记 failed（附错误）。整体状态自动推断。",
+        input_schema: SCHEMA_PLAN_UPDATE_STEP,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_plan_add_step",
+        module_key: "orchestration",
+        description:
+            "向已有计划追加新步骤。在执行中发现需要额外步骤时调用（如发现新问题需要处理）。",
+        input_schema: SCHEMA_PLAN_ADD_STEP,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
     },
     BuiltinToolSpec {
         tool_name: "omni_web_search",

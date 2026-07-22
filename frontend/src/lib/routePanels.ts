@@ -17,6 +17,7 @@ export const OVERLAY_MODULE_KEYS = [
   "protocol",
   "workflow",
   "knowledge",
+  "tasks",
 ] as const satisfies readonly ModuleKey[];
 
 export type OverlayModuleKey = (typeof OVERLAY_MODULE_KEYS)[number];

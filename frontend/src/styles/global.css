@@ -10593,7 +10593,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     .ai-context-chip {
         font-size: 11px;
         padding: 2px 8px;
-        border-radius: 999px;
+        border-radius: var(--r-sm);
         background: color-mix(in oklch, var(--accent) 12%, transparent);
         color: var(--text-secondary, inherit);
         max-width: 220px;
@@ -10628,7 +10628,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     .ai-draft-card {
         padding: 8px 10px;
         border: 1px solid var(--border-soft);
-        border-radius: var(--radius-md, 8px);
+        border-radius: var(--r-md);
         background: color-mix(in oklch, var(--bg-elevated) 85%, transparent);
     }
 
@@ -10682,6 +10682,496 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: auto;
         white-space: pre-wrap;
         font-family: var(--font-mono, ui-monospace, monospace);
+    }
+
+    /* ================================================================
+     * Task Center 任务中心
+     * ================================================================ */
+
+    .task-center-panel {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        width: 100%;
+    }
+
+    .task-center-workspace {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .task-center-module-dock {
+        height: 100%;
+    }
+
+    .task-center-list {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px 20px;
+        height: 100%;
+        overflow: auto;
+    }
+
+    .task-center-section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .task-center-section__title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary, inherit);
+    }
+
+    .task-center-section__count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background: color-mix(in oklch, var(--accent, #4a9) 25%, transparent);
+        color: var(--accent, #4a9);
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .task-center-section__action {
+        margin-left: auto;
+    }
+
+    .task-center-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    /* === Task Card 通用 === */
+    .task-card {
+        padding: 10px 12px;
+        border: 1px solid var(--border-soft, #333);
+        border-radius: var(--radius-md, 8px);
+        background: color-mix(in oklch, var(--bg-elevated, #1a1a1a) 90%, transparent);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .task-card__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .task-card__title {
+        font-size: 13px;
+        font-weight: 600;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .task-card__status,
+    .task-card__risk {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 10px;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .task-card__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        font-size: 11px;
+        color: var(--text-muted, #888);
+    }
+
+    .task-card__preview {
+        margin: 0;
+        padding: 6px 8px;
+        font-size: 11px;
+        max-height: 160px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: var(--font-mono, ui-monospace, monospace);
+        background: color-mix(in oklch, var(--bg-base, #000) 50%, transparent);
+        border-radius: var(--radius-sm, 4px);
+    }
+
+    .task-card__children {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .task-card__child {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .task-card__child-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font-size: 12px;
+        padding: 4px 6px;
+        cursor: pointer;
+        text-align: left;
+        border-radius: var(--radius-sm, 4px);
+    }
+
+    .task-card__child-btn:hover:not(:disabled) {
+        background: color-mix(in oklch, var(--accent, #4a9) 10%, transparent);
+    }
+
+    .task-card__child-btn:disabled {
+        cursor: default;
+        opacity: 0.7;
+    }
+
+    .task-card__child-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .task-card__child-status,
+    .task-card__child-error,
+    .task-card__child-summary {
+        font-size: 11px;
+        color: var(--text-muted, #888);
+        padding-left: 6px;
+    }
+
+    .task-card__child-error {
+        color: var(--danger, #e44);
+    }
+
+    .task-card__summary {
+        font-size: 12px;
+        padding: 4px 6px;
+        background: color-mix(in oklch, var(--accent, #4a9) 8%, transparent);
+        border-radius: var(--radius-sm, 4px);
+    }
+
+    .task-card__actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    .task-card__progress {
+        position: relative;
+        height: 18px;
+        background: color-mix(in oklch, var(--bg-base, #000) 50%, transparent);
+        border-radius: var(--radius-sm, 4px);
+        overflow: hidden;
+    }
+
+    .task-card__progress-bar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        background: color-mix(in oklch, var(--accent, #4a9) 60%, transparent);
+        transition: width 0.2s ease;
+    }
+
+    .task-card__progress-text {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-primary, #fff);
+    }
+
+    .task-card__error {
+        font-size: 11px;
+        color: var(--danger, #e44);
+        padding: 4px 6px;
+        background: color-mix(in oklch, var(--danger, #e44) 10%, transparent);
+        border-radius: var(--radius-sm, 4px);
+    }
+
+    .task-card__risk-reasons {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .task-card__risk-reason {
+        font-size: 11px;
+        color: var(--warn, #e80);
+        padding: 2px 0;
+    }
+
+    /* === 状态颜色 === */
+    .status-running {
+        color: var(--accent, #4a9);
+        background: color-mix(in oklch, var(--accent, #4a9) 15%, transparent);
+    }
+
+    .status-success {
+        color: var(--success, #4a4);
+        background: color-mix(in oklch, var(--success, #4a4) 15%, transparent);
+    }
+
+    .status-failed {
+        color: var(--danger, #e44);
+        background: color-mix(in oklch, var(--danger, #e44) 15%, transparent);
+    }
+
+    .status-cancelled {
+        color: var(--text-muted, #888);
+        background: color-mix(in oklch, var(--text-muted, #888) 15%, transparent);
+    }
+
+    .status-unknown {
+        color: var(--text-muted, #888);
+        background: color-mix(in oklch, var(--text-muted, #888) 10%, transparent);
+    }
+
+    /* === 风险颜色 === */
+    .risk-critical {
+        color: #fff;
+        background: var(--danger, #c00);
+    }
+
+    .risk-high {
+        color: var(--danger, #e44);
+        background: color-mix(in oklch, var(--danger, #e44) 20%, transparent);
+    }
+
+    .risk-medium {
+        color: var(--warn, #e80);
+        background: color-mix(in oklch, var(--warn, #e80) 20%, transparent);
+    }
+
+    .risk-low {
+        color: var(--success, #4a4);
+        background: color-mix(in oklch, var(--success, #4a4) 15%, transparent);
+    }
+
+    /* === Loading / Error 状态 === */
+    .task-center-loading,
+    .task-center-error {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        height: 100%;
+        min-height: 200px;
+        font-size: 13px;
+        color: var(--text-muted, #888);
+    }
+
+    .task-center-error {
+        flex-direction: column;
+        color: var(--danger, #e44);
+    }
+
+    /* === History 子标签 === */
+    .task-center-subtabs {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 0 12px;
+        border-bottom: 1px solid var(--border-soft, #333);
+        margin-bottom: 8px;
+    }
+
+    .task-center-subtab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm, 4px);
+        background: transparent;
+        color: var(--text-secondary, #aaa);
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .task-center-subtab:hover {
+        background: color-mix(in oklch, var(--accent, #4a9) 8%, transparent);
+    }
+
+    .task-center-subtab.active {
+        background: color-mix(in oklch, var(--accent, #4a9) 15%, transparent);
+        color: var(--accent, #4a9);
+        border-color: color-mix(in oklch, var(--accent, #4a9) 30%, transparent);
+    }
+
+    .task-center-subtab__count {
+        font-size: 11px;
+        opacity: 0.7;
+    }
+
+    .task-center-subtabs__refresh {
+        margin-left: auto;
+    }
+
+    /* === History 表格 === */
+    .task-center-table {
+        display: flex;
+        flex-direction: column;
+        font-size: 12px;
+        overflow: auto;
+    }
+
+    .task-center-table__head {
+        display: grid;
+        grid-template-columns:
+            160px /* ts */
+            minmax(140px, 1.5fr) /* action */
+            minmax(120px, 1fr) /* target */
+            80px /* env */
+            80px /* risk */
+            90px /* status */
+            minmax(200px, 2fr) /* detail */;
+        gap: 8px;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--border-soft, #333);
+        font-weight: 600;
+        font-size: 11px;
+        color: var(--text-muted, #888);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        position: sticky;
+        top: 0;
+        background: var(--bg-elevated, #1a1a1a);
+        z-index: 1;
+    }
+
+    .task-center-table__body {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .task-center-table__row {
+        display: grid;
+        grid-template-columns:
+            160px
+            minmax(140px, 1.5fr)
+            minmax(120px, 1fr)
+            80px
+            80px
+            90px
+            minmax(200px, 2fr);
+        gap: 8px;
+        padding: 6px 8px;
+        border-bottom: 1px solid color-mix(in oklch, var(--border-soft, #333) 50%, transparent);
+        align-items: center;
+    }
+
+    .task-center-table__row:hover {
+        background: color-mix(in oklch, var(--accent, #4a9) 5%, transparent);
+    }
+
+    .task-center-table__cell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+    }
+
+    .task-center-table__cell--detail {
+        white-space: normal;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+
+    .task-center-table__cell code {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 11px;
+        background: color-mix(in oklch, var(--accent, #4a9) 10%, transparent);
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    /* === 工具执行记录表（少一列，重写 grid） === */
+    .task-center-table:has(.task-center-table__cell--source) .task-center-table__head,
+    .task-center-table:has(.task-center-table__cell--source) .task-center-table__row {
+        grid-template-columns:
+            160px /* ts */
+            100px /* source */
+            minmax(140px, 1.5fr) /* tool */
+            80px /* duration */
+            90px /* status */
+            minmax(200px, 2fr) /* detail */;
+    }
+
+    /* === 左侧 icon rail 自定义徽章 === */
+    .task-center-rail-icon {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .task-center-rail-badge {
+        position: absolute;
+        top: -6px;
+        right: -8px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 3px;
+        border-radius: 7px;
+        background: var(--accent, #4a9);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 14px;
+        text-align: center;
+    }
+
+    .task-center-rail-badge--warn {
+        background: var(--warn, #e80);
+    }
+
+    @media (max-width: 1100px) {
+        .task-center-table__head,
+        .task-center-table__row {
+            grid-template-columns:
+                120px
+                minmax(100px, 1fr)
+                minmax(100px, 1fr)
+                60px
+                60px
+                70px
+                minmax(150px, 1.5fr);
+        }
     }
 
     .ai-dockview-resize-handle {
@@ -11593,7 +12083,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin: 12px;
         text-align: center;
         border: 1px dashed color-mix(in oklch, var(--accent) 36%, var(--border));
-        border-radius: 12px;
+        border-radius: var(--r-lg);
         background: color-mix(in oklch, var(--accent) 6%, var(--surface));
     }
 
@@ -11604,7 +12094,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         width: 56px;
         height: 56px;
         margin-bottom: 14px;
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         color: var(--accent);
         background: color-mix(in oklch, var(--accent) 14%, transparent);
     }
@@ -11644,7 +12134,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex-shrink: 0;
         margin: 0 0 8px;
         padding: 8px 12px;
-        border-radius: 8px;
+        border-radius: var(--r-lg);
         border: 1px solid var(--border-soft);
         background: var(--surface);
     }

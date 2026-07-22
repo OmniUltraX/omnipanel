@@ -8,8 +8,9 @@ use detect_common::where_all;
 use omnipanel_error::OmniError;
 use serde::Serialize;
 use std::path::PathBuf;
+use tauri::Manager;
 
-use crate::agent_paths::resolve_repo_agent_dir;
+use crate::agent_paths::{resolve_bundled_agent_dir, resolve_repo_agent_dir};
 
 #[derive(Debug, Clone, Copy, Serialize, specta::Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -191,9 +192,12 @@ fn detect_node_version() -> Option<String> {
     command_output(node.to_str()?, &["--version"])
 }
 
-fn detect_omniagent_sync() -> AgentInstallStatus {
+fn detect_omniagent_sync(bundled_resource_dir: Option<&PathBuf>) -> AgentInstallStatus {
     let node = resolve_in_path("node");
-    let agent_dir = resolve_repo_agent_dir();
+    // 开发态：repo agent 子目录；发布态：Tauri resource 目录下的 agent/
+    let agent_dir = resolve_repo_agent_dir().or_else(|| {
+        bundled_resource_dir.and_then(|rd| resolve_bundled_agent_dir(rd))
+    });
     let installed = node.is_some() && agent_dir.is_some();
     let version = if installed {
         detect_node_version()
@@ -233,9 +237,9 @@ pub fn agent_kind_key(kind: AgentKind) -> &'static str {
     }
 }
 
-pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
+pub fn detect_all_agents_sync(bundled_resource_dir: Option<PathBuf>) -> Vec<AgentInstallStatus> {
     vec![
-        detect_omniagent_sync(),
+        detect_omniagent_sync(bundled_resource_dir.as_ref()),
         detect_cursor_sync(),
         detect_opencode_sync(),
         detect_qwen_sync(),
@@ -245,8 +249,11 @@ pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
 /// 检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。
 #[tauri::command]
 #[specta::specta]
-pub async fn detect_all_agents() -> Result<Vec<AgentInstallStatus>, OmniError> {
-    tokio::task::spawn_blocking(detect_all_agents_sync)
+pub async fn detect_all_agents(
+    app: tauri::AppHandle,
+) -> Result<Vec<AgentInstallStatus>, OmniError> {
+    let resource_dir = app.path().resource_dir().ok();
+    tokio::task::spawn_blocking(move || detect_all_agents_sync(resource_dir))
         .await
         .map_err(|e| OmniError::internal(format!("Agent 检测失败: {e}")))
 }

@@ -1,7 +1,7 @@
 import type { TerminalSessionInfo } from "../../stores/terminalStore";
 import type { WorkspaceResource } from "../../lib/resourceRegistry";
 import { useSshStatsStore } from "../../stores/sshStatsStore";
-import { useTerminalStore } from "../../stores/terminalStore";
+import { findTerminalPane } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
 import type { HostSystemStats } from "../../ipc/bindings";
 import type { AiContextBundle } from "../../lib/ai/orchestrator";
@@ -32,10 +32,17 @@ export function resolveTerminalAiContextBundle(
   sessionId: string,
   scope: TerminalConversationScope = "assistant",
 ): TerminalAiContextBundle | null {
-  const tab = useTerminalStore.getState().tabs.find((item) => item.id === sessionId);
-  if (!tab) return null;
+  const pane = findTerminalPane(sessionId);
+  if (!pane) return null;
 
-  const session = tab.session;
+  const session: TerminalSessionInfo = {
+    type: pane.type,
+    resourceId: pane.resourceId,
+    shellLabel: pane.shellLabel,
+    cwd: pane.cwd,
+    purpose: pane.purpose,
+    commandPack: pane.commandPack,
+  };
   const resource = resolveResourceById(session.resourceId);
   const stats = useSshStatsStore.getState().statsMap[session.resourceId] ?? null;
   const isRemote = session.type === "remote";
@@ -50,7 +57,7 @@ export function resolveTerminalAiContextBundle(
     terminalSessionId: sessionId,
     terminalResourceId: session.resourceId ?? null,
     terminalSessionType: session.type,
-    remoteWorkingDirectory: isRemote ? remoteCwd : remoteCwd,
+    remoteWorkingDirectory: isRemote ? remoteCwd : null,
     localAgentCwd: isRemote ? null : remoteCwd,
     terminalContextAppend,
     conversationScope: scope,

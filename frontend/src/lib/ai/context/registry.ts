@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { ModuleKey } from "../../paths";
+import { errorToString } from "../../errorToString";
 import { parseToolArguments } from "../parseToolArguments";
 import type { ContextProvider } from "./ContextProvider";
 import { getModuleBuiltinToolsFromCatalog } from "./moduleBuiltinCatalog";
@@ -87,7 +88,7 @@ export async function executeModuleBuiltinTool(
     return { result, success: true };
   } catch (error) {
     return {
-      result: error instanceof Error ? error.message : String(error),
+      result: errorToString(error),
       success: false,
     };
   }

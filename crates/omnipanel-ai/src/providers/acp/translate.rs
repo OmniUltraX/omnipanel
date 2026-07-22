@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::ir::{StreamEvent, ToolStatus};
 use crate::providers::acp::native_tools::{
-    TERMINAL_CLIENT_TOOL, extract_native_shell_command, is_native_shell_tool,
-    map_native_shell_to_terminal_tool,
+    NativeToolKind, TERMINAL_CLIENT_TOOL, classify_native_tool, extract_native_shell_command,
+    is_native_shell_tool, map_native_shell_to_terminal_tool, map_native_tool_by_kind,
 };
 use crate::providers::acp::types::SessionUpdateNotification;
 
@@ -13,6 +13,8 @@ use crate::providers::acp::types::SessionUpdateNotification;
 pub struct TranslateOptions {
     /// 将 Cursor 内置 shell 工具映射为客户端终端工具，并抑制原生 tool_call_update。
     pub client_tools: bool,
+    /// 抑制所有原生工具调用（不映射、不透传）。用于 gateway 路径。
+    pub suppress_all_native: bool,
     /// 已被映射为客户端工具的原生 toolCallId 集合。
     pub suppressed_native_ids: Arc<Mutex<HashSet<String>>>,
     /// shell 工具已识别但 rawInput 尚未含 command，等待 tool_call_update 补全。
@@ -22,9 +24,10 @@ pub struct TranslateOptions {
 }
 
 impl TranslateOptions {
-    pub fn new(client_tools: bool) -> Self {
+    pub fn new(client_tools: bool, suppress_all_native: bool) -> Self {
         Self {
             client_tools,
+            suppress_all_native,
             suppressed_native_ids: Arc::new(Mutex::new(HashSet::new())),
             deferred_shell_ids: Arc::new(Mutex::new(HashSet::new())),
             pending_native_raw: Arc::new(Mutex::new(HashMap::new())),
@@ -82,8 +85,9 @@ pub fn translate_update_value(
 /// 对齐 cursor-gateway stream.go EventToolCall 分支 + translator.MapNativeToolToClient：
 /// 1. 先查 rawInput 是否含 shell 命令（`command`/`shellToolCall`/`script`），这是最优先判断
 /// 2. 再看工具名/title 是否为 shell 类
-/// 3. 能映射 → 重写为 `omni_terminal_run_terminal_command` + Pending
-/// 4. 不能映射 → client-tools 模式下抑制该 tool_call（不转发前端），防止 UI 卡住
+/// 3. Shell → 重写为 `omni_terminal_run_terminal_command` + Pending
+/// 4. 非 shell（WebSearch/WebFetch/Read/Write/Edit/Find/Grep）→ 按 NativeToolKind 映射
+/// 5. 无法识别 → client-tools 模式下抑制该 tool_call，防止 UI 卡住
 fn translate_tool_call(update: &serde_json::Value, options: &TranslateOptions) -> Vec<StreamEvent> {
     let tool_call_id = update
         .get("toolCallId")
@@ -104,6 +108,19 @@ fn translate_tool_call(update: &serde_json::Value, options: &TranslateOptions) -
         .get("rawInput")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
+
+    // Gateway 路径：抑制所有原生工具，强制 agent 只使用 prompt 注入的客户端工具
+    if options.suppress_all_native {
+        tracing::debug!(
+            "ACP native tool suppressed (suppress_all_native): name={name:?} title={title:?} id={tool_call_id}"
+        );
+        options
+            .suppressed_native_ids
+            .lock()
+            .unwrap()
+            .insert(tool_call_id);
+        return vec![];
+    }
 
     if options.client_tools {
         // 第二次 tool_call 携带完整 rawInput（同一 toolCallId）
@@ -171,10 +188,46 @@ fn translate_tool_call(update: &serde_json::Value, options: &TranslateOptions) -
             }
         }
 
-        // 非 shell 原生工具（Find / WebSearch 等）→ 抑制，不转发前端
-        // 对齐 gateway stream.go: `continue` — "cursor native tool suppressed"
+        // 非 shell 原生工具 → 按 NativeToolKind 分类映射
+        let kind = classify_native_tool(&name, &title);
+        if kind != NativeToolKind::Shell && kind != NativeToolKind::Other {
+            if let Some((tool_name, arguments)) = map_native_tool_by_kind(kind, &raw_input) {
+                tracing::debug!(
+                    "ACP native tool mapped: name={name:?} title={title:?} kind={kind:?} -> {tool_name} id={tool_call_id}"
+                );
+                options
+                    .suppressed_native_ids
+                    .lock()
+                    .unwrap()
+                    .insert(tool_call_id.clone());
+                return vec![
+                    StreamEvent::ToolCall {
+                        id: tool_call_id.clone(),
+                        name: tool_name.to_string(),
+                        arguments,
+                    },
+                    StreamEvent::ToolCallUpdate {
+                        id: tool_call_id,
+                        status: ToolStatus::Pending,
+                        result: None,
+                    },
+                ];
+            }
+            // 映射失败（rawInput 参数不完整）→ 抑制
+            tracing::debug!(
+                "ACP native tool suppressed (mapping failed): name={name:?} title={title:?} kind={kind:?} id={tool_call_id}"
+            );
+            options
+                .suppressed_native_ids
+                .lock()
+                .unwrap()
+                .insert(tool_call_id);
+            return vec![];
+        }
+
+        // 真正无法识别的工具 → 抑制
         tracing::debug!(
-            "ACP native tool suppressed (not shell): name={name:?} title={title:?} id={tool_call_id}"
+            "ACP native tool suppressed (unknown): name={name:?} title={title:?} id={tool_call_id}"
         );
         options
             .suppressed_native_ids
@@ -353,10 +406,15 @@ fn parse_tool_status(s: &str) -> ToolStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::acp::native_tools::{WEB_FETCH_CLIENT_TOOL, WEB_SEARCH_CLIENT_TOOL};
+
+    fn test_options() -> TranslateOptions {
+        TranslateOptions::new(true, false)
+    }
 
     #[test]
     fn client_tools_maps_shell_by_name() {
-        let options = TranslateOptions::new(true);
+        let options = test_options();
         let update = serde_json::json!({
             "sessionUpdate": "tool_call",
             "toolCallId": "tc1",
@@ -378,7 +436,7 @@ mod tests {
 
     #[test]
     fn client_tools_maps_shell_by_raw_input_command_field() {
-        let options = TranslateOptions::new(true);
+        let options = test_options();
         // Cursor 常见情况：title 是命令本身（如 "date"），rawInput 有 command 字段
         let update = serde_json::json!({
             "sessionUpdate": "tool_call",
@@ -398,9 +456,9 @@ mod tests {
     }
 
     #[test]
-    fn client_tools_suppresses_non_shell_native_tool() {
-        let options = TranslateOptions::new(true);
-        // "Find" 是 Cursor 的文件搜索原生工具，不是 shell
+    fn client_tools_maps_find_to_terminal_command() {
+        let options = test_options();
+        // "Find" 是 Cursor 的文件搜索原生工具，映射为 find 命令
         let update = serde_json::json!({
             "sessionUpdate": "tool_call",
             "toolCallId": "tc3",
@@ -408,12 +466,95 @@ mod tests {
             "rawInput": { "query": "*.rs", "path": "/src" }
         });
         let events = translate_update_value(&update, &options);
-        assert!(events.is_empty(), "non-shell native tool should be suppressed");
+        assert_eq!(events.len(), 2, "Find should map to terminal tool + pending");
+        match &events[0] {
+            StreamEvent::ToolCall { name, arguments, .. } => {
+                assert_eq!(name, TERMINAL_CLIENT_TOOL);
+                assert!(arguments.contains("find"), "should use find command: {arguments}");
+                assert!(arguments.contains("*.rs"), "should contain query: {arguments}");
+            }
+            _ => panic!("expected tool_call"),
+        }
+    }
+
+    #[test]
+    fn client_tools_maps_web_search() {
+        let options = test_options();
+        let update = serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_ws",
+            "title": "WebSearch",
+            "rawInput": { "query": "rust async runtime" }
+        });
+        let events = translate_update_value(&update, &options);
+        assert_eq!(events.len(), 2, "WebSearch should map to omni_web_search + pending");
+        match &events[0] {
+            StreamEvent::ToolCall { name, arguments, .. } => {
+                assert_eq!(name, WEB_SEARCH_CLIENT_TOOL);
+                assert!(arguments.contains("rust async runtime"));
+            }
+            _ => panic!("expected tool_call"),
+        }
+    }
+
+    #[test]
+    fn client_tools_maps_web_fetch() {
+        let options = test_options();
+        let update = serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_wf",
+            "title": "WebFetch",
+            "rawInput": { "url": "https://example.com/docs" }
+        });
+        let events = translate_update_value(&update, &options);
+        assert_eq!(events.len(), 2, "WebFetch should map to omni_web_fetch + pending");
+        match &events[0] {
+            StreamEvent::ToolCall { name, arguments, .. } => {
+                assert_eq!(name, WEB_FETCH_CLIENT_TOOL);
+                assert!(arguments.contains("https://example.com/docs"));
+            }
+            _ => panic!("expected tool_call"),
+        }
+    }
+
+    #[test]
+    fn client_tools_maps_read_to_cat() {
+        let options = test_options();
+        let update = serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_rd",
+            "title": "Read",
+            "rawInput": { "file_path": "/tmp/test.txt" }
+        });
+        let events = translate_update_value(&update, &options);
+        assert_eq!(events.len(), 2, "Read should map to terminal cat command");
+        match &events[0] {
+            StreamEvent::ToolCall { name, arguments, .. } => {
+                assert_eq!(name, TERMINAL_CLIENT_TOOL);
+                assert!(arguments.contains("cat"), "should use cat: {arguments}");
+                assert!(arguments.contains("/tmp/test.txt"));
+            }
+            _ => panic!("expected tool_call"),
+        }
+    }
+
+    #[test]
+    fn client_tools_suppresses_unknown_native_tool() {
+        let options = test_options();
+        // "CodebaseIndex" 是无法识别的工具
+        let update = serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_unk",
+            "title": "CodebaseIndex",
+            "rawInput": { "action": "index" }
+        });
+        let events = translate_update_value(&update, &options);
+        assert!(events.is_empty(), "unknown native tool should be suppressed");
     }
 
     #[test]
     fn client_tools_defers_shell_until_raw_input_complete() {
-        let options = TranslateOptions::new(true);
+        let options = test_options();
         let initial = serde_json::json!({
             "sessionUpdate": "tool_call",
             "toolCallId": "tc_defer",

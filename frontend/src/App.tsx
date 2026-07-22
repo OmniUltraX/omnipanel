@@ -100,6 +100,7 @@ import {
   LazyKnowledgePanel,
   LazyProtocolPanel,
   LazyServerPanel,
+  LazyTaskCenterPanel,
   LazyTerminalPanel,
   LazyUserWorkspace,
   LazyWorkflowPanel,
@@ -392,6 +393,7 @@ function AppShell() {
   const isProtocol = location.pathname === MODULE_PATHS.protocol;
   const isWorkflow = location.pathname === MODULE_PATHS.workflow;
   const isKnowledge = location.pathname === MODULE_PATHS.knowledge;
+  const isTasks = location.pathname === MODULE_PATHS.tasks;
   const isShellRoute = isShellRoutePath(location.pathname);
 
   // 叠层模块按需挂载：启动时不全量挂载，避免首页主线程被终端/数据库等重型面板堵死
@@ -677,6 +679,12 @@ function AppShell() {
       >
         <LazyKnowledgePanel />
       </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isTasks}
+        mounted={overlayMounted.tasks}
+      >
+        <LazyTaskCenterPanel />
+      </OverlayModuleRoutePanel>
       <div className={`route-panel${isShellRoute ? " route-panel--active" : ""}`}>
         <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />
@@ -708,6 +716,7 @@ function AppShell() {
             <Route path={MODULE_PATHS.workflow} element={null} />
             <Route path={MODULE_PATHS.knowledge} element={null} />
             <Route path={MODULE_PATHS.files} element={null} />
+            <Route path={MODULE_PATHS.tasks} element={null} />
             <Route path="*" element={<Navigate to={DASHBOARD_PATH} replace />} />
           </Routes>
       </div>

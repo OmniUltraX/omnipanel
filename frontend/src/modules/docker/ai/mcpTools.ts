@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
+import { evaluateToolRisk } from "../../../lib/ai/toolRisk";
+import { useActionDraftStore } from "../../../stores/actionDraftStore";
 import type {
   DockerContainerDetail,
   DockerContainerSummary,
@@ -184,21 +186,55 @@ async function dockerContainerAction(args: Record<string, unknown>): Promise<str
   if (!validActions.includes(action)) {
     throw new Error(`未知 action：${action}（应为 ${validActions.join("/")}）`);
   }
+
+  const isDestructive = action === "kill" || action === "remove";
+
+  // 危险动作走审批队列
+  if (isDestructive) {
+    const risk = evaluateToolRisk("omni_docker_container_action", JSON.stringify(args), connection_id);
+    const result = await useActionDraftStore.getState().enqueueAwaitable({
+      kind: "docker",
+      title: `Docker ${action}: ${container_id.slice(0, 12)}`,
+      preview: `连接: ${connection_id}\n容器: ${container_id}\n动作: ${action}\n风险: ${risk.risk}\n警告: ${action === "remove" ? "容器将被永久删除，不可恢复" : "容器将被强制终止"}`,
+      execute: async () => {
+        await invoke<void>("docker_container_action", {
+          connectionId: connection_id,
+          containerId: container_id,
+          action,
+        } satisfies DockerContainerActionInvokeArgs);
+        return JSON.stringify(
+          {
+            connectionId: connection_id,
+            containerId: container_id,
+            action,
+            applied: true,
+            note: `已执行危险动作 ${action}；该操作已被审计记录`,
+          },
+          null,
+          2,
+        );
+      },
+      risk: risk.risk,
+      riskCheck: risk.riskCheck,
+      environment: risk.environment,
+      toolName: "omni_docker_container_action",
+      resourceId: connection_id,
+    });
+    return result;
+  }
+
   await invoke<void>("docker_container_action", {
     connectionId: connection_id,
     containerId: container_id,
     action,
   } satisfies DockerContainerActionInvokeArgs);
-  const isDestructive = action === "kill" || action === "remove";
   return JSON.stringify(
     {
       connectionId: connection_id,
       containerId: container_id,
       action,
       applied: true,
-      note: isDestructive
-        ? `已执行危险动作 ${action}；该操作已被 audit log 记录`
-        : `容器 ${action} 操作已下发`,
+      note: `容器 ${action} 操作已下发`,
     },
     null,
     2,
