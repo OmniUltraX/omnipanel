@@ -5,6 +5,7 @@ import {
   appendTextLikePart,
   upsertPlanInParts,
   type AiMessagePart,
+  type ToolCallState,
 } from "../lib/ai/aiMessageParts";
 import { recordTerminalSessionActivity } from "./terminalSessionActivity";
 import {
@@ -139,7 +140,7 @@ interface BlocksState {
       name: string;
       arguments: string;
       result: string | undefined;
-      status: "running" | "completed" | "failed";
+      status: ToolCallState["status"];
     }>,
   ) => void;
   /** upsert plan part 到 assistant message parts（同 planId 更新，否则追加） */

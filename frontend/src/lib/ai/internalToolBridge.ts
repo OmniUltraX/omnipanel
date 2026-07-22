@@ -2,8 +2,8 @@ import { commands } from "../../ipc/bindings";
 import { executeTerminalCommandCore } from "../../modules/terminal/ai/mcpTools";
 import { resolveTerminalApprovalMode } from "../../modules/terminal/terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "../../modules/terminal/terminalApprovalPolicy";
-import { useTerminalStore, findTerminalPane } from "../../stores/terminalStore";
 import { useBlocksStore } from "../../stores/blocksStore";
+import { findTerminalPane } from "../../stores/terminalStore";
 import { getResolvedAiThread } from "../../modules/terminal/aiThreadBridge";
 import {
   createInlineTerminalToolCall,
@@ -17,7 +17,6 @@ import { appConfirm } from "../appConfirm";
 import { errorToString } from "../errorToString";
 import { reportToolResultWithRetry } from "./reportToolResult";
 import { getToolHandler } from "./toolHost";
-import { applyUiFollowForTool } from "./uiFollow";
 
 const TERMINAL_TOOL = "omni_terminal_run_terminal_command";
 
