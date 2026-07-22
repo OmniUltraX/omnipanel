@@ -23,6 +23,8 @@ export interface SshHostSidebarProps {
   onSelectHost: (hostId: string, mode?: HostDockOpenMode) => void;
   selectionMode?: boolean;
   selectedIds?: string[];
+  /** 标签筛选 moduleKey，默认 ssh */
+  tagModuleKey?: string;
 }
 
 export function SshHostSidebar({
@@ -30,6 +32,7 @@ export function SshHostSidebar({
   onSelectHost,
   selectionMode = false,
   selectedIds = [],
+  tagModuleKey = "ssh",
 }: SshHostSidebarProps) {
   const { t } = useI18n();
   const activeHostId = useSshActiveHostStore((s) => s.activeHostId);
@@ -113,6 +116,7 @@ export function SshHostSidebar({
           selectedIds={selectedIds}
           onToggleSelect={toggleHost}
           onHeaderMetaChange={handleHostHeaderMetaChange}
+          tagModuleKey={tagModuleKey}
         />
       </VerticalSplitSidebarSection>
 

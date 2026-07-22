@@ -2,7 +2,10 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
-use omnipanel_store::{KnowledgeEntry, KnowledgeSearchResult, KnowledgeTodoList};
+use omnipanel_store::{
+    knowledge_entry_assets_dir, KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult,
+    KnowledgeTodoList,
+};
 use tauri::State;
 
 use crate::state::AppState;
@@ -87,7 +90,15 @@ pub async fn knowledge_save(
 #[specta::specta]
 pub async fn knowledge_delete(state: State<'_, AppState>, id: String) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
-    storage.delete_knowledge(&id)
+    storage.delete_knowledge(&id)?;
+    drop(storage);
+    if let Ok(root) = omnipanel_store::knowledge_assets_root() {
+        let dir = root.join(&id);
+        if dir.is_dir() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+    Ok(())
 }
 
 /// FTS5 全文搜索（可选按 kind 过滤）。
@@ -216,4 +227,91 @@ pub async fn knowledge_import_pdf(
     }
 
     Ok(entry)
+}
+
+/// 列出文档历史版本。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_list_revisions(
+    state: State<'_, AppState>,
+    entry_id: String,
+) -> Result<Vec<KnowledgeRevision>, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.list_knowledge_revisions(&entry_id)
+}
+
+/// 恢复历史版本为当前文档内容。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_restore_revision(
+    state: State<'_, AppState>,
+    revision_id: String,
+) -> Result<KnowledgeEntry, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.restore_knowledge_revision(&revision_id)
+}
+
+/// 保存知识库附件，返回可用于 Markdown 的相对资源描述。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAssetSaved {
+    pub entry_id: String,
+    pub file_name: String,
+    pub absolute_path: String,
+}
+
+/// 将二进制写入文档附件目录。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_save_asset(
+    entry_id: String,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<KnowledgeAssetSaved, OmniError> {
+    let entry_id = entry_id.trim();
+    if entry_id.is_empty() {
+        return Err(OmniError::invalid_input("entryId 不能为空"));
+    }
+    let safe_name = Path::new(file_name.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::invalid_input("无效的文件名"))?
+        .to_string();
+
+    let dir = knowledge_entry_assets_dir(entry_id)?;
+    let ext = Path::new(&safe_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let stored_name = format!("{}.{}", new_knowledge_id(), ext);
+    let path = dir.join(&stored_name);
+    std::fs::write(&path, bytes).map_err(|e| {
+        OmniError::internal("写入附件失败").with_cause(e.to_string())
+    })?;
+
+    Ok(KnowledgeAssetSaved {
+        entry_id: entry_id.to_string(),
+        file_name: stored_name,
+        absolute_path: path.to_string_lossy().to_string(),
+    })
+}
+
+/// 解析附件绝对路径。
+#[tauri::command]
+#[specta::specta]
+pub async fn knowledge_asset_path(
+    entry_id: String,
+    file_name: String,
+) -> Result<String, OmniError> {
+    let safe_name = Path::new(file_name.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::invalid_input("无效的文件名"))?;
+    let path = knowledge_entry_assets_dir(entry_id.trim())?.join(safe_name);
+    if !path.is_file() {
+        return Err(OmniError::not_found("附件不存在"));
+    }
+    Ok(path.to_string_lossy().to_string())
 }

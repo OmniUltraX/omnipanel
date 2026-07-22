@@ -27,11 +27,12 @@ export function AcpPermissionDialog({ request, onClose }: AcpPermissionDialogPro
       setBusy(true);
       try {
         await respondAcpPermission(request.requestId ?? 0, optionId);
-        onClose();
       } catch (error) {
         console.error("[ACP] 权限响应失败:", error);
       } finally {
+        // 无论成功失败都关闭，避免确认后卡死在弹窗上
         setBusy(false);
+        onClose();
       }
     },
     [request, onClose],

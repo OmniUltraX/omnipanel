@@ -2,8 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
-import { evaluateToolRisk } from "../../../lib/ai/toolRisk";
-import { useActionDraftStore } from "../../../stores/actionDraftStore";
+import { runWithToolGate } from "../../../lib/ai/toolGate";
 import type {
   FileEntry,
   FileListDirResult,
@@ -145,11 +144,7 @@ async function filesWrite(args: Record<string, unknown>): Promise<string> {
   const content = requireString(args, "content");
   const append = args.append === true;
 
-  // 风险评估：写入系统关键路径走审批
-  const risk = evaluateToolRisk("omni_files_write", JSON.stringify(args), connection_id);
-
   const doWrite = async (): Promise<string> => {
-    // src-tauri 的 file_upload_file 是覆盖写；append 模式下先读旧内容再拼接
     let data: number[];
     if (append) {
       let existing = "";
@@ -185,22 +180,15 @@ async function filesWrite(args: Record<string, unknown>): Promise<string> {
     );
   };
 
-  if (risk.needsApproval) {
-    const result = await useActionDraftStore.getState().enqueueAwaitable({
-      kind: "files",
-      title: `写入文件: ${path.slice(0, 80)}`,
-      preview: `连接: ${connection_id}\n路径: ${path}\n模式: ${append ? "追加" : "覆盖"}\n风险: ${risk.risk}${risk.riskCheck?.matches.length ? `\n警告: ${risk.riskCheck.matches.map((m) => m.desc).join(", ")}` : ""}`,
-      execute: doWrite,
-      risk: risk.risk,
-      riskCheck: risk.riskCheck,
-      environment: risk.environment,
+  return runWithToolGate(
+    {
       toolName: "omni_files_write",
+      args,
       resourceId: connection_id,
-    });
-    return result;
-  }
-
-  return doWrite();
+      channel: "ui-delegated",
+    },
+    doWrite,
+  );
 }
 
 async function filesSearch(args: Record<string, unknown>): Promise<string> {

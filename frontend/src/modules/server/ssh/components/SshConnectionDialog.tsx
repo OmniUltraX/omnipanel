@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FormDialog } from "../../../../components/ui/form/FormDialog";
-import { ResourceTagEditor } from "../../../../components/ui/tags/ResourceTagEditor";
+import { GlobalTagEditor } from "../../../tags/GlobalTagEditor";
+import { mergeConnectionTags, userConnectionTags } from "../../../tags/tagKinds";
 import { PasswordInput } from "../../../../components/ui/form/PasswordInput";
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
@@ -80,7 +81,7 @@ export function SshConnectionDialog({
       base.group = presetGroup;
     }
     setForm(base);
-    setTags(editConnection?.tags ?? []);
+    setTags(userConnectionTags(editConnection?.tags));
     setError(null);
     setSaving(false);
     void (async () => {
@@ -122,7 +123,13 @@ export function SshConnectionDialog({
     setError(null);
     try {
       const saved = await saveConn(
-        buildSshConnection(form, editConnection?.id, undefined, tags, editConnection),
+        buildSshConnection(
+          form,
+          editConnection?.id,
+          undefined,
+          mergeConnectionTags(tags, editConnection?.tags),
+          editConnection,
+        ),
       );
       if (!saved) throw new Error("SSH save failed");
       onSaved?.();
@@ -260,7 +267,12 @@ export function SshConnectionDialog({
       </div>
 
       <div className="form-section-title">{t("resourceTags.section")}</div>
-      <ResourceTagEditor tags={tags} onChange={setTags} />
+      <GlobalTagEditor
+        kind="connection"
+        resourceId={editConnection?.id ?? ""}
+        tags={tags}
+        onChange={setTags}
+      />
     </FormDialog>
   );
 }

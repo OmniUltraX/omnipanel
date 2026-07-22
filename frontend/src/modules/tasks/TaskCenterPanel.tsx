@@ -17,9 +17,17 @@ import {
   cancelBackgroundTask,
   cancelAllRunningBackgroundTasks,
 } from "../../stores/backgroundTaskStore";
+import { useLoopStore } from "../../stores/loopStore";
+import { LoopTriageTab, LoopsTab, TurnTimelinePanel } from "./LoopTriagePanels";
 
-type TaskCenterTab = "in-progress" | "pending" | "history";
-const TASK_CENTER_TABS: TaskCenterTab[] = ["in-progress", "pending", "history"];
+type TaskCenterTab = "in-progress" | "pending" | "triage" | "loops" | "history";
+const TASK_CENTER_TABS: TaskCenterTab[] = [
+  "in-progress",
+  "pending",
+  "triage",
+  "loops",
+  "history",
+];
 
 const HISTORY_LIMIT = 200;
 
@@ -418,13 +426,12 @@ function PendingTab() {
   const confirm = useActionDraftStore((s) => s.confirm);
 
   const handleConfirm = useCallback(
-    (id: string) => {
-      void confirm(id)
+    (id: string) =>
+      confirm(id)
         .then((r) => {
           if (r) showToast(r.slice(0, 200));
         })
-        .catch((e) => showToast(String(e)));
-    },
+        .catch((e) => showToast(String(e))),
     [confirm],
   );
 
@@ -468,7 +475,7 @@ function DraftCard({
   onDismiss,
 }: {
   draft: ActionDraft;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<unknown>;
   onDismiss: () => void;
 }) {
   const { t } = useI18n();
@@ -476,8 +483,9 @@ function DraftCard({
 
   const handleConfirm = useCallback(() => {
     setConfirming(true);
-    onConfirm();
-    // confirm 完成后 store 会移除该 draft，本组件 unmount；无需 reset confirming
+    void Promise.resolve(onConfirm()).finally(() => {
+      setConfirming(false);
+    });
   }, [onConfirm]);
 
   return (
@@ -531,7 +539,7 @@ function HistoryTab() {
   const [toolRecords, setToolRecords] = useState<BuiltinToolAuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<"audit" | "tool">("audit");
+  const [subTab, setSubTab] = useState<"audit" | "tool" | "timeline">("audit");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -601,6 +609,13 @@ function HistoryTab() {
           {t("taskCenter.history.toolTab")}
           <span className="task-center-subtab__count">{toolRecords.length}</span>
         </button>
+        <button
+          type="button"
+          className={`task-center-subtab ${subTab === "timeline" ? "active" : ""}`}
+          onClick={() => setSubTab("timeline")}
+        >
+          {t("taskCenter.history.timelineTab")}
+        </button>
         <Button
           variant="ghost"
           size="sm"
@@ -613,8 +628,10 @@ function HistoryTab() {
 
       {subTab === "audit" ? (
         <AuditList entries={auditEntries} />
-      ) : (
+      ) : subTab === "tool" ? (
         <ToolAuditList records={toolRecords} />
+      ) : (
+        <TurnTimelinePanel />
       )}
     </div>
   );
@@ -764,6 +781,7 @@ export function TaskCenterPanel() {
 
   // 草稿数量徽章（左侧 icon rail 上展示）
   const draftCount = useActionDraftStore((s) => s.drafts.length);
+  const triageCount = useLoopStore((s) => s.listOpenFindings().length);
   const aiTaskRunningCount = useAiOrchestrationStore(
     (s) =>
       Object.values(s.tasks).filter(
@@ -783,7 +801,6 @@ export function TaskCenterPanel() {
       {
         id: "in-progress",
         label: t("taskCenter.tabs.inProgress"),
-        // 用 table 图标作为"任务列表"近似；徽章通过自定义节点叠加显示
         iconNode: (
           <span className="task-center-rail-icon">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
@@ -815,6 +832,32 @@ export function TaskCenterPanel() {
         ),
       },
       {
+        id: "triage",
+        label: t("taskCenter.tabs.triage"),
+        iconNode: (
+          <span className="task-center-rail-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
+              <path d="M2 3h12M4 8h8M6 13h4" />
+            </svg>
+            {triageCount > 0 ? (
+              <span className="task-center-rail-badge task-center-rail-badge--warn">
+                {triageCount > 99 ? "99+" : triageCount}
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
+      {
+        id: "loops",
+        label: t("taskCenter.tabs.loops"),
+        iconNode: (
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
+            <path d="M3 8a5 5 0 0 1 9-3M13 8a5 5 0 0 1-9 3" />
+            <path d="M12 2v3h-3M4 14v-3h3" />
+          </svg>
+        ),
+      },
+      {
         id: "history",
         label: t("taskCenter.tabs.history"),
         iconNode: (
@@ -825,7 +868,7 @@ export function TaskCenterPanel() {
         ),
       },
     ],
-    [t, inProgressBadge, draftCount],
+    [t, inProgressBadge, draftCount, triageCount],
   );
 
   const renderPanel = useCallback(
@@ -835,6 +878,10 @@ export function TaskCenterPanel() {
           return <InProgressTab />;
         case "pending":
           return <PendingTab />;
+        case "triage":
+          return <LoopTriageTab />;
+        case "loops":
+          return <LoopsTab />;
         case "history":
           return <HistoryTab />;
         default:
@@ -865,7 +912,7 @@ export function TaskCenterPanel() {
           enabled={isActiveRoute}
           windowControl
           showTabBar={false}
-          tabs={[{ id: tab, label: t(`taskCenter.tabs.${tab}`) }]}
+          tabs={[{ id: tab, label: t(`taskCenter.tabs.${tab === "in-progress" ? "inProgress" : tab}`) }]}
           activeTabId={tab}
           onActiveTabChange={() => {}}
           renderPanel={renderPanel}

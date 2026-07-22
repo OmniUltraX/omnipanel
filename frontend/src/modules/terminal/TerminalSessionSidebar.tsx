@@ -43,6 +43,10 @@ import {
   buildWorkspaceTabMenuItems,
 } from "@/components/ui/menu/contextMenuItems";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
+import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
+import { GlobalTagEditor } from "../tags/GlobalTagEditor";
+import { FormDialog } from "../../components/ui/form/FormDialog";
 
 const EXPANDED_STORAGE_KEY = "omnipanel-terminal-session-tree-expanded";
 const CONNECTION_POINTER_DRAG_THRESHOLD_PX = 6;
@@ -230,7 +234,12 @@ export function TerminalSessionSidebar({
     sessionId: string;
     currentTitle: string;
   } | null>(null);
+  const [tagEditTarget, setTagEditTarget] = useState<{
+    resourceId: string;
+    name: string;
+  } | null>(null);
   const [aiNamingIds, setAiNamingIds] = useState<Set<string>>(new Set());
+  const tagAllowedIds = useModuleTagFilter("terminal", CONNECTION_TAG_KINDS);
   const treeBodyRef = useRef<HTMLDivElement>(null);
   const connectionGroupsRef = useRef<ConnectionGroup[]>([]);
   const connectionOrderRef = useRef(connectionOrder);
@@ -268,14 +277,15 @@ export function TerminalSessionSidebar({
           sessions: sorted,
         };
       })
-      .filter((group) => group.sessions.length > 0);
+      .filter((group) => group.sessions.length > 0)
+      .filter((group) => passTagFilter(tagAllowedIds, group.resourceId));
 
     const mergedOrder = mergeConnectionOrder(
       connectionOrder,
       groups.map((group) => group.resourceId),
     );
     return sortConnectionGroups(groups, mergedOrder);
-  }, [sessions, connectionOrder, blocksBySession]);
+  }, [sessions, connectionOrder, blocksBySession, tagAllowedIds]);
 
   connectionGroupsRef.current = connectionGroups;
 
@@ -415,6 +425,14 @@ export function TerminalSessionSidebar({
           },
         );
       }
+      items.push(
+        { id: "conn-sep-tags", separator: true, label: "" },
+        {
+          id: "conn-tags",
+          label: t("resourceTags.section"),
+          onClick: () => setTagEditTarget({ resourceId: group.resourceId, name: group.name }),
+        },
+      );
       if (onEndAllSessionsInConnection) {
         items.push(
           { id: "conn-sep-3", separator: true, label: "" },
@@ -753,6 +771,20 @@ export function TerminalSessionSidebar({
         onCancel={() => setRenameTarget(null)}
         onConfirm={handleConfirmSessionRename}
       />
+      <FormDialog
+        open={tagEditTarget != null}
+        onClose={() => setTagEditTarget(null)}
+        title={t("resourceTags.section")}
+        subtitle={tagEditTarget?.name}
+        size="sm"
+        clipboardAssist={false}
+        cancelLabel={t("common.cancel")}
+        onCancel={() => setTagEditTarget(null)}
+      >
+        {tagEditTarget ? (
+          <GlobalTagEditor kind="connection" resourceId={tagEditTarget.resourceId} />
+        ) : null}
+      </FormDialog>
     </div>
   );
 }

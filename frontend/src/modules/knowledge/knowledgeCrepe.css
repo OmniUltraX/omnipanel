@@ -37,10 +37,26 @@
     --crepe-color-hover: var(--surface-hover);
     --crepe-color-selected: color-mix(in srgb, var(--accent) 14%, var(--surface));
     --crepe-color-inline-area: var(--bg-deeper);
+    /* classic 主题标题默认 Georgia/衬线 → 中文 Windows 会回退成宋体 */
+    --crepe-font-title: var(--font-ui);
     --crepe-font-default: var(--font-ui);
     --crepe-font-code: var(--font-mono);
+    font-family: var(--font-ui);
     --crepe-shadow-1: 0 6px 24px color-mix(in srgb, var(--fg) 8%, transparent);
     --crepe-shadow-2: 0 10px 32px color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror {
+    font-family: var(--font-ui);
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror h1,
+.knowledge-crepe-shell .milkdown .ProseMirror h2,
+.knowledge-crepe-shell .milkdown .ProseMirror h3,
+.knowledge-crepe-shell .milkdown .ProseMirror h4,
+.knowledge-crepe-shell .milkdown .ProseMirror h5,
+.knowledge-crepe-shell .milkdown .ProseMirror h6 {
+    font-family: var(--font-ui);
 }
 
 /* 斜杠命令菜单（div.milkdown-slash-menu） */
@@ -50,6 +66,7 @@
     box-shadow: var(--crepe-shadow-1);
     overflow: hidden;
     backdrop-filter: blur(12px);
+    font-family: var(--font-ui);
 }
 
 .knowledge-crepe-shell .milkdown .milkdown-slash-menu .tab-group {
@@ -139,3 +156,182 @@
     margin: var(--sp-1) var(--sp-2);
     background: var(--border-soft);
 }
+
+/* ─── Editor chrome / typography ─── */
+.knowledge-crepe-shell .milkdown .ProseMirror {
+    padding: var(--sp-4) clamp(16px, 4vw, 48px) 72px;
+    min-height: 100%;
+    max-width: 920px;
+    margin: 0 auto;
+    font-size: 14.5px;
+    line-height: 1.7;
+    color: var(--fg);
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror h1,
+.knowledge-crepe-shell .milkdown .ProseMirror h2,
+.knowledge-crepe-shell .milkdown .ProseMirror h3 {
+    line-height: 1.35;
+    font-weight: 650;
+    color: var(--fg);
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror p {
+    margin: 0.55em 0;
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror blockquote {
+    border-left: 3px solid var(--accent);
+    margin: 0.8em 0;
+    padding: 0.2em 0 0.2em var(--sp-3);
+    color: var(--muted);
+    background: transparent;
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+.knowledge-crepe-shell .milkdown .ProseMirror pre {
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-soft);
+    background: var(--bg-deeper);
+    overflow-x: auto;
+}
+
+/* ─── Tables: 横向滚动，避免列多重叠 ─── */
+.knowledge-crepe-shell .milkdown .milkdown-table-block {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    margin: 12px 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    -webkit-overflow-scrolling: touch;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-table-block table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: auto;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-table-block th,
+.knowledge-crepe-shell .milkdown .milkdown-table-block td {
+    min-width: 96px;
+    max-width: 320px;
+    padding: 8px 12px;
+    border: none;
+    border-right: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+    background: var(--surface);
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-table-block th:last-child,
+.knowledge-crepe-shell .milkdown .milkdown-table-block td:last-child {
+    border-right: none;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-table-block tr:last-child th,
+.knowledge-crepe-shell .milkdown .milkdown-table-block tr:last-child td {
+    border-bottom: none;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-table-block th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-deeper);
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-table-block .selectedCell::after {
+    background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* ─── 代码块占位（未点击时不挂 CodeMirror，避免多块同时高亮卡顿） ─── */
+.knowledge-crepe-shell .milkdown .milkdown-code-block {
+    margin: 12px 0;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--bg-deeper);
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder {
+    margin: 0;
+    padding: 12px 14px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 12.5px;
+    line-height: 1.55;
+    overflow-x: auto;
+    cursor: text;
+    white-space: pre;
+    tab-size: 2;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder code {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    padding: 0;
+    white-space: inherit;
+}
+
+/* highlight.js token（占位块轻量高亮，与 CM 观感接近） */
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-keyword,
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-selector-tag,
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-built_in {
+    color: #c792ea;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-string,
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-attr {
+    color: #c3e88d;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-number,
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-literal {
+    color: #f78c6c;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-comment {
+    color: #64748b;
+    font-style: italic;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-title,
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-section {
+    color: #82aaff;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-meta,
+.knowledge-crepe-shell .milkdown .milkdown-code-block-placeholder .hljs-type {
+    color: #ffcb6b;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block .cm-editor {
+    font-size: 12.5px;
+    background: #0f172a;
+}
+
+.knowledge-crepe-shell .milkdown .milkdown-code-block .cm-scroller {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    line-height: 1.55;
+}
+

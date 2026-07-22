@@ -173,6 +173,7 @@ impl Storage {
 
     /// 删除 skill DB 记录（级联删除 applications / links / chunks）。
     pub fn delete_skill_db(&self, id: &str) -> OmniResult<()> {
+        let _ = self.clear_resource_tags(crate::tag::TaggableKind::Skill, id);
         self.conn()
             .execute("DELETE FROM skills WHERE id = ?1", [id])
             .map_err(map_sqlite)?;

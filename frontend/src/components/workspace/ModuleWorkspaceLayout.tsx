@@ -19,6 +19,8 @@ export interface ModuleWorkspaceLayoutProps {
   leftColumnTitle?: ReactNode;
   leftIconRail?: ReactNode;
   leftSidebar?: ReactNode;
+  /** 启用全局标签：标题行 chips + # 弹窗 */
+  tagModuleKey?: string;
   /** @deprecated 所有模块已统一侧栏尺寸，保留仅为兼容旧调用 */
   leftPreset?: DockRailPreset;
   leftSizePx?: number;
@@ -42,6 +44,7 @@ export function ModuleWorkspaceLayout({
   leftColumnTitle,
   leftIconRail,
   leftSidebar,
+  tagModuleKey,
   leftSizePx: propLeftSizePx,
   leftMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
   leftMaxPx = MODULE_LEFT_SIDEBAR_MAX_PX,
@@ -57,7 +60,7 @@ export function ModuleWorkspaceLayout({
   const leftPanelRef = externalLeftPanelRef ?? internalLeftPanelRef;
   const lastSidebarToggleNonceRef = useRef(moduleSidebarToggleNonce);
 
-  const hasSidebarHeader = Boolean(leftColumnTitle || leftIconRail);
+  const hasSidebarHeader = Boolean(leftColumnTitle || leftIconRail || tagModuleKey);
   const hasLeft = Boolean(hasSidebarHeader || leftSidebar);
 
   const {
@@ -147,6 +150,7 @@ export function ModuleWorkspaceLayout({
           title={leftColumnTitle}
           iconRail={leftIconRail}
           sidebar={leftSidebar}
+          tagModuleKey={tagModuleKey}
         />
       }
       main={main}

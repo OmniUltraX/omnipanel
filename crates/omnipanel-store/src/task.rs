@@ -273,6 +273,7 @@ impl Storage {
 
     /// Delete a task.
     pub fn task_delete(&self, id: &str) -> OmniResult<()> {
+        let _ = self.clear_resource_tags(crate::tag::TaggableKind::Task, id);
         self.conn()
             .execute("DELETE FROM tasks WHERE id = ?1", [id])
             .map_err(map_sqlite)?;

@@ -8,6 +8,7 @@ import "./styles/modules/database.css";
 import "./styles/modules/docker.css";
 import "./styles/modules/files.css";
 import "./styles/modules/knowledge.css";
+import "./styles/modules/tags.css";
 import "./styles/modules/protocol.css";
 import "./styles/modules/server.css";
 import "./styles/modules/monitoring.css";

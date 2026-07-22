@@ -21,6 +21,7 @@ pub mod modules {
     pub const SKILLS: &str = "skills";
     pub const AI: &str = "ai";
     pub const FILES: &str = "files";
+    pub const KNOWLEDGE: &str = "knowledge";
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -95,6 +96,20 @@ pub fn skills_root() -> OmniResult<PathBuf> {
 /// AI 配置目录：`~/.omnipd/ai/`。
 pub fn ai_config_dir() -> OmniResult<PathBuf> {
     module_dir(modules::AI)
+}
+
+/// 知识库附件根目录：`~/.omnipd/knowledge/assets/`。
+pub fn knowledge_assets_root() -> OmniResult<PathBuf> {
+    let dir = module_dir(modules::KNOWLEDGE)?.join("assets");
+    std::fs::create_dir_all(&dir).map_err(map_io)?;
+    Ok(dir)
+}
+
+/// 某文档的附件目录：`~/.omnipd/knowledge/assets/{entry_id}/`。
+pub fn knowledge_entry_assets_dir(entry_id: &str) -> OmniResult<PathBuf> {
+    let dir = knowledge_assets_root()?.join(entry_id);
+    std::fs::create_dir_all(&dir).map_err(map_io)?;
+    Ok(dir)
 }
 
 /// 对话提供者注册表：`~/.omnipd/ai/providers.json`。

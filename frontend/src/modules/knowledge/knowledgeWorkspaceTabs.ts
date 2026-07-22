@@ -1,4 +1,4 @@
-/** 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据。 */
+/** 侧栏单击预览 / 双击常驻；与数据库 Schema 树交互一致。 */
 export type KnowledgeDockOpenMode = "preview" | "permanent";
 
 export type KnowledgeWorkspaceTabKind = "document" | "chunks";

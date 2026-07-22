@@ -97,6 +97,11 @@ export const useActionDraftStore = create<ActionDraftState>((set, get) => ({
     const draft = get().drafts.find((d) => d.id === id);
     if (!draft) return null;
     if (draft._timeoutHandle) clearTimeout(draft._timeoutHandle);
+
+    const removeDraft = () => {
+      set((s) => ({ drafts: s.drafts.filter((d) => d.id !== id) }));
+    };
+
     try {
       const result = await draft.execute();
       draft._resolve?.(result);
@@ -115,7 +120,7 @@ export const useActionDraftStore = create<ActionDraftState>((set, get) => ({
         }).catch(() => {});
       }
 
-      set((s) => ({ drafts: s.drafts.filter((d) => d.id !== id) }));
+      removeDraft();
       return result;
     } catch (e) {
       draft._reject?.(e);
@@ -135,6 +140,8 @@ export const useActionDraftStore = create<ActionDraftState>((set, get) => ({
         }).catch(() => {});
       }
 
+      // 失败也关闭确认项，避免弹窗/卡片卡死；错误通过 reject + toast 告知
+      removeDraft();
       const message = errorToString(e);
       throw new Error(message);
     }

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "r
 import { useNavigate } from "react-router-dom";
 import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
+import { CONNECTION_TAG_KINDS } from "../../modules/tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../../modules/tags/useModuleTagFilter";
 import { Button } from "../ui/Button";
 import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
 import {
@@ -60,6 +62,8 @@ interface HostListPanelProps {
   selectionMode?: boolean;
   selectedIds?: string[];
   onToggleSelect?: (hostId: string) => void;
+  /** 标签筛选 moduleKey，默认 ssh */
+  tagModuleKey?: string;
 }
 
 function HostPanelBadge({ sshId }: { sshId: string }) {
@@ -146,6 +150,7 @@ export function HostListPanel({
   selectionMode = false,
   selectedIds = [],
   onToggleSelect,
+  tagModuleKey = "ssh",
 }: HostListPanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -175,6 +180,7 @@ export function HostListPanel({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [manualGroups, setManualGroups] = useState<string[]>(() => loadManualEmptyGroups());
+  const tagAllowedIds = useModuleTagFilter(tagModuleKey, CONNECTION_TAG_KINDS);
 
   // 当某手动分组下出现真实连接时，自动从手动列表清理（转正）
   useEffect(() => {
@@ -191,6 +197,7 @@ export function HostListPanel({
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = resources.filter((r) => {
+      if (!passTagFilter(tagAllowedIds, r.id)) return false;
       if (!q) return true;
       if (r.name.toLowerCase().includes(q)) return true;
       if (r.subtitle.toLowerCase().includes(q)) return true;
@@ -225,7 +232,7 @@ export function HostListPanel({
       label: sshGroupLabel(groupKey, t),
       items: map.get(groupKey) ?? [],
     }));
-  }, [resources, query, t, manualGroups]);
+  }, [resources, query, t, manualGroups, tagAllowedIds]);
 
   useEffect(() => {
     if (!query.trim()) return;

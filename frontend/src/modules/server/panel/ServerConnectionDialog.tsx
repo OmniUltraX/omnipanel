@@ -13,6 +13,8 @@ import {
   panelConnectionToForm,
   type PanelFormData,
 } from "./panelForm";
+import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
+import { mergeConnectionTags, userConnectionTags } from "../../tags/tagKinds";
 
 interface ServerConnectionDialogProps {
   open: boolean;
@@ -30,6 +32,7 @@ export function ServerConnectionDialog({
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
   const [form, setForm] = useState<PanelFormData>(EMPTY_PANEL_FORM);
+  const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [panelStatus, setPanelStatus] = useState<{
@@ -44,6 +47,7 @@ export function ServerConnectionDialog({
     if (!open) return;
 
     setForm(editPanelConnection ? panelConnectionToForm(editPanelConnection) : EMPTY_PANEL_FORM);
+    setTags(userConnectionTags(editPanelConnection?.tags));
     setError(null);
     setPanelStatus(null);
     setSaving(false);
@@ -112,7 +116,11 @@ export function ServerConnectionDialog({
     setSaving(true);
     setError(null);
     try {
-      const draft = buildPanelOnlyConnection(form, editPanelConnection);
+      const draft = buildPanelOnlyConnection(
+        form,
+        editPanelConnection,
+        mergeConnectionTags(tags, editPanelConnection?.tags),
+      );
       const saved = await saveConn(draft);
       if (!saved?.id) throw new Error("Panel save failed");
 
@@ -206,6 +214,14 @@ export function ServerConnectionDialog({
           onChange={(value) => update("remark", value)}
         />
       </div>
+
+      <div className="form-section-title">{t("resourceTags.section")}</div>
+      <GlobalTagEditor
+        kind="connection"
+        resourceId={editPanelConnection?.id ?? ""}
+        tags={tags}
+        onChange={setTags}
+      />
     </FormDialog>
   );
 }

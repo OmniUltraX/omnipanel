@@ -507,6 +507,31 @@ export const commands = {
 	knowledgeTodoDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_delete", { id })),
 	/**  从 PDF 文件导入知识文档（提取文本并保存为 document 条目）。 */
 	knowledgeImportPdf: (path: string, parentId: string | null) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_import_pdf", { path, parentId })),
+	/** 列出全局标签树 */
+	tagListTree: (includeCounts: boolean | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_list_tree", { includeCounts })),
+	/** 仅列出已绑定到指定资源范围的标签（筛选面板用） */
+	tagListUsedBy: (includeCounts: boolean | null, resourceKinds: string[] | null, connectionKinds: string[] | null, extraResourceIds: string[] | null, includeAncestors: boolean | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_list_used_by", { includeCounts, resourceKinds, connectionKinds, extraResourceIds, includeAncestors })),
+	tagCreate: (name: string, parentId: string | null, color: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_create", { name, parentId, color })),
+	tagRename: (id: string, name: string) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_rename", { id, name })),
+	tagMove: (id: string, newParentId: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_move", { id, newParentId })),
+	tagDelete: (id: string, cascade: boolean | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("tag_delete", { id, cascade })),
+	tagSetColor: (id: string, color: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_set_color", { id, color })),
+	resourceListTags: (kind: string, resourceId: string) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_tags", { kind, resourceId })),
+	resourceSetTags: (kind: string, resourceId: string, paths: string[]) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_set_tags", { kind, resourceId, paths })),
+	resourceAddTag: (kind: string, resourceId: string, path: string, source: string | null) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_add_tag", { kind, resourceId, path, source })),
+	resourceRemoveTag: (kind: string, resourceId: string, tagId: string) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_remove_tag", { kind, resourceId, tagId })),
+	resourceSetSystemTag: (kind: string, resourceId: string, key: string, value: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("resource_set_system_tag", { kind, resourceId, key, value })),
+	tagQueryResources: (tagIds: string[], mode: string | null, kinds: string[] | null, includeDescendants: boolean | null) => typedError<TaggedResourceSummary[], OmniError_Serialize>(__TAURI_INVOKE("tag_query_resources", { tagIds, mode, kinds, includeDescendants })),
+	tagSuggest: (query: string, limit: number | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_suggest", { query, limit })),
+	searchEverywhere: (query: string, tagIds: string[] | null, mode: string | null, limit: number | null) => typedError<SearchEverywhereHit[], OmniError_Serialize>(__TAURI_INVOKE("search_everywhere", { query, tagIds, mode, limit })),
+	/**  列出文档历史版本。 */
+	knowledgeListRevisions: (entryId: string) => typedError<KnowledgeRevision[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_list_revisions", { entryId })),
+	/**  恢复历史版本为当前文档内容。 */
+	knowledgeRestoreRevision: (revisionId: string) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_restore_revision", { revisionId })),
+	/**  将二进制写入文档附件目录。 */
+	knowledgeSaveAsset: (entryId: string, fileName: string, bytes: number[]) => typedError<KnowledgeAssetSaved, OmniError_Serialize>(__TAURI_INVOKE("knowledge_save_asset", { entryId, fileName, bytes })),
+	/**  解析附件绝对路径。 */
+	knowledgeAssetPath: (entryId: string, fileName: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("knowledge_asset_path", { entryId, fileName })),
 	/**  列出所有有观测记录的资源摘要（可按 resource_type 过滤）。 */
 	resourceListProfiles: (resourceType: string | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_profiles", { resourceType })),
 	/**  获取资源最新档案：每类 observation_kind 取最新一条。 */
@@ -2568,6 +2593,22 @@ export type KnowledgeSearchResult = {
 	score: number | null,
 };
 
+/**  知识文档历史版本快照。 */
+export type KnowledgeRevision = {
+	id: string,
+	entryId: string,
+	title: string,
+	content: string,
+	createdAt: number,
+};
+
+/**  保存知识库附件结果。 */
+export type KnowledgeAssetSaved = {
+	entryId: string,
+	fileName: string,
+	absolutePath: string,
+};
+
 /**  待办列表中的单项。 */
 export type KnowledgeTodoItem = {
 	id: string,
@@ -3768,6 +3809,38 @@ export type WorkflowStep = {
 };
 
 export type WorkflowType = "script" | "template" | "deploy" | "patrol" | "data_flow";
+
+export type TagDto = {
+	id: string;
+	name: string;
+	parentId: string | null;
+	path: string;
+	color: string | null;
+	kind: string;
+	createdAt: number;
+	updatedAt: number;
+	resourceCount: number;
+};
+
+export type ResourceTagDto = {
+	tag: TagDto;
+	source: string;
+};
+
+export type TaggedResourceSummary = {
+	resourceKind: string;
+	resourceId: string;
+	title: string;
+	subtitle: string | null;
+};
+
+export type SearchEverywhereHit = {
+	kind: string;
+	id: string;
+	title: string;
+	subtitle: string | null;
+	score: number;
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

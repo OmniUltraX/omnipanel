@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { collectPanelIds } from "../../components/dock/dockViewLayout";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleModeIconRail, ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
@@ -92,7 +91,6 @@ export function KnowledgePanel() {
   const removeTab = useKnowledgeWorkspaceStore((s) => s.removeTab);
   const { activateWorkspaceTab, promotePreviewTab, openEntry, workspaceTabs } =
     useKnowledgeOpenEntry();
-  const layoutMismatchLoggedRef = useRef(false);
 
   // === AI Follow 消费者注册 ===
   // 处理 openDocument intent：打开指定知识库文档 tab
@@ -243,22 +241,17 @@ export function KnowledgePanel() {
     [t],
   );
 
+  // 布局与 tabs 短暂不一致时，交给 DockableWorkspace.syncTabsToApi 增量补面板；
+  // 切勿把 savedLayout 置 null —— 会触发 api.clear()，表现为「单击干掉所有 Tab」。
   const effectiveDockLayout = useMemo(() => {
-    if (mode !== "library" || !dockLayout || workspaceTabs.length === 0) {
-      return dockLayout;
-    }
-    const tabIds = new Set(workspaceTabs.map((tab) => tab.id));
-    const panelIds = collectPanelIds(dockLayout);
-    const mismatch =
-      workspaceTabs.some((tab) => !panelIds.has(tab.id)) ||
-      [...panelIds].some((id) => !tabIds.has(id));
-    if (mismatch) {
-      layoutMismatchLoggedRef.current = true;
+    if (mode !== "library") {
       return null;
     }
-    layoutMismatchLoggedRef.current = false;
+    if (workspaceTabs.length === 0) {
+      return null;
+    }
     return dockLayout;
-  }, [dockLayout, mode, workspaceTabs]);
+  }, [dockLayout, mode, workspaceTabs.length]);
 
   useEffect(() => {
     if (mode !== "library" || !activeTabId) return;
@@ -301,15 +294,21 @@ export function KnowledgePanel() {
       const entry = entries.find((item) => item.id === tab.entryId);
       const imported = entry ? isKnowledgeImported(entry) : false;
       const isChunks = tab.kind === "chunks";
+      // 用 nodeType 判定，避免 HMR/循环依赖时 isKnowledgeFolder 短暂 undefined
+      const isFolder = entry?.nodeType === "folder";
       return {
         id: tab.id,
         label: tab.label,
         panelType: "knowledge",
-        icon: isChunks ? ("table" as const) : ("file-local" as const),
+        icon: isChunks
+          ? ("table" as const)
+          : isFolder
+            ? ("folder" as const)
+            : ("file-local" as const),
         tooltip: tab.label,
         closable: true,
         preview: Boolean(tab.preview),
-        ...(!imported && !isChunks ? { type: "file" as const } : {}),
+        ...(!imported && !isChunks && !isFolder ? { type: "file" as const } : {}),
       };
     });
   }, [entries, mode, t, workspaceTabs]);
@@ -358,6 +357,7 @@ export function KnowledgePanel() {
         className="knowledge-workspace"
         leftColumnTitle={t("routes.knowledge")}
         leftPreset="schema"
+        tagModuleKey={mode === "library" ? "knowledge" : undefined}
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}

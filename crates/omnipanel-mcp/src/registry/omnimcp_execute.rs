@@ -27,7 +27,10 @@ pub async fn execute_omnimcp_tool(
     match name {
         "omni_knowledge_create_document"
         | "omni_knowledge_remove_document"
-        | "omni_knowledge_list_documents" => {
+        | "omni_knowledge_list_documents"
+        | "omni_tag_list_tree"
+        | "omni_tag_list_resource"
+        | "omni_tag_attach" => {
             let (text, _) = native::execute(name, arguments, storage.clone(), None).await?;
             Ok(text)
         }

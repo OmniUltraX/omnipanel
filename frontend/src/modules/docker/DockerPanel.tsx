@@ -38,6 +38,8 @@ import {
 } from "./dockerSidebarCacheStatusLog";
 import { DockerConnectionInfoPanel } from "./DockerConnectionInfoPanel";
 import { DockerConnectionSidebar } from "./DockerConnectionSidebar";
+import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
@@ -81,6 +83,16 @@ export function DockerPanel() {
   const removeStoredConnection = useConnectionStore((s) => s.remove);
 
   const { connections, loading: connectionsLoading, reloadConnections } = useDockerConnections();
+  const tagAllowedIds = useModuleTagFilter("docker", CONNECTION_TAG_KINDS);
+  const visibleConnections = useMemo(
+    () =>
+      connections.filter(
+        (c) =>
+          isBuiltinLocalDockerConnection(c.connectionId) ||
+          passTagFilter(tagAllowedIds, c.connectionId),
+      ),
+    [connections, tagAllowedIds],
+  );
   const hydrateSidebarCache = useDockerSidebarCacheStore((s) => s.hydrate);
   const sidebarCacheHydrated = useDockerSidebarCacheStore((s) => s.hydrated);
 
@@ -540,9 +552,10 @@ export function DockerPanel() {
           className="docker-connections-workspace"
           leftColumnTitle={t("routes.docker")}
           leftPreset="server"
+          tagModuleKey="docker"
           leftSidebar={
             <DockerConnectionSidebar
-              connections={connections}
+              connections={visibleConnections}
               loading={connectionsLoading}
               refreshingAll={refreshingAllCaches}
               onNavigate={handleNavigate}

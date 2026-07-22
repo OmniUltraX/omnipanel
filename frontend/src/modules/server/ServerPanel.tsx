@@ -12,6 +12,8 @@ import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
 import { ServerPanelSidebar } from "./panel/ServerPanelSidebar";
+import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import { ServerSidebarLinkageProvider } from "./panel/ServerSidebarLinkageContext";
 import { ServerDockPanel } from "./panel/ServerDockPanel";
 import { ServerWebsitesTab } from "./panel/tabs/ServerWebsitesTab";
@@ -43,6 +45,11 @@ export function ServerPanel() {
   const connectionsLoaded = useConnectionStore((s) => s.loaded);
   const removeConn = useConnectionStore((s) => s.remove);
   const panelServers = useServerPanelCacheStore((s) => s.panelServers);
+  const tagAllowedIds = useModuleTagFilter("server", CONNECTION_TAG_KINDS);
+  const visiblePanelServers = useMemo(
+    () => panelServers.filter((s) => passTagFilter(tagAllowedIds, s.id)),
+    [panelServers, tagAllowedIds],
+  );
   const syncPanelServersFromConnections = useServerPanelCacheStore(
     (s) => s.syncPanelServersFromConnections,
   );
@@ -343,9 +350,10 @@ export function ServerPanel() {
           className="server-panels-workspace"
           leftColumnTitle={t("routes.server")}
           leftPreset="server"
+          tagModuleKey="server"
           leftSidebar={
             <ServerPanelSidebar
-              servers={panelServers}
+              servers={visiblePanelServers}
               onCreateServer={handleCreateServer}
               onEditServer={handleEditServer}
               onDeleteServer={handleDeleteServer}

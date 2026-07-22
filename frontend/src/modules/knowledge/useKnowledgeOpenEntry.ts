@@ -15,6 +15,8 @@ import {
   type KnowledgeDockOpenMode,
 } from "./knowledgeWorkspaceTabs";
 
+export type { KnowledgeDockOpenMode };
+
 /** 知识库文档 Tab 打开/切换（侧栏与工作区共用）。 */
 export function useKnowledgeOpenEntry() {
   const { t } = useI18n();
@@ -70,19 +72,27 @@ export function useKnowledgeOpenEntry() {
   const openEntry = useCallback(
     (entryId: string, mode: KnowledgeDockOpenMode = "permanent") => {
       const entry = entries.find((item) => item.id === entryId);
-      if (!entry || isKnowledgeFolder(entry)) {
+      // 文件夹也可打开为概览 Tab（与数据库库节点一致：单击预览、双击常驻）
+      if (!entry) {
         return;
       }
 
       setSelectedEntry(entryId);
       const moduleTabs = workspaceTabsRef.current;
-      const existingTabId = findTabIdForEntry(moduleTabs, entryId);
-      if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+      // 优先命中常驻；若仅有预览 Tab 也要复用，避免重复开页
+      const existingPermanentId = findTabIdForEntry(moduleTabs, entryId);
+      const existingAnyId =
+        existingPermanentId ??
+        moduleTabs.find(
+          (tab) => tab.entryId === entryId && (tab.kind ?? "document") === "document",
+        )?.id;
+
+      if (existingAnyId) {
+        activateWorkspaceTab(existingAnyId);
         if (mode === "permanent") {
-          const tab = moduleTabs.find((item) => item.id === existingTabId);
+          const tab = moduleTabs.find((item) => item.id === existingAnyId);
           if (tab?.preview) {
-            promotePreviewTab(existingTabId);
+            promotePreviewTab(existingAnyId);
           }
         }
         return;

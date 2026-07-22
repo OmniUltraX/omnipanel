@@ -23,6 +23,7 @@ mod schema_cache;
 mod schema_filters;
 mod schema_tree_expanded;
 mod storage;
+mod tag;
 mod task;
 mod terminal_history;
 mod third_party_account;
@@ -61,7 +62,7 @@ pub use database::{
     save_database_connections,
 };
 pub use http::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
-pub use knowledge::{KnowledgeEntry, KnowledgeSearchResult};
+pub use knowledge::{KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult};
 pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
 pub use knowledge_vector::{
     KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
@@ -81,8 +82,9 @@ pub use paths::{
     ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,
     database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
     docker_sidebar_cache_path,
-    database_schema_tree_expanded_path, http_proxy_config_path, mcp_services_path, meta_db_path,
-    module_dir, omnipd_root, skills_root, web_search_config_path,
+    database_schema_tree_expanded_path, http_proxy_config_path, knowledge_assets_root,
+    knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir, omnipd_root,
+    skills_root, web_search_config_path,
 };
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
@@ -105,6 +107,10 @@ pub use skill::{
     SkillFrontmatter, SkillRecord,
 };
 pub use storage::{AuditEntry, Storage};
+pub use tag::{
+    normalize_tag_path, normalize_tag_segment, ResourceTagDto, SearchEverywhereHit, TagDto,
+    TagMatchMode, TagSource, TaggableKind, TaggedResourceSummary,
+};
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use terminal_history::{
     TerminalHistoryBlockRecord, TerminalHistoryRetainPolicy, sanitize_payload_json,

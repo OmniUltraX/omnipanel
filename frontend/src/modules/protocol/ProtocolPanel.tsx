@@ -169,6 +169,7 @@ function ProtocolPanelInner() {
     <ModuleWorkspaceLayout
       className="protocol-module-layout"
       leftColumnTitle={t("routes.protocol")}
+      tagModuleKey="protocol"
       leftIconRail={<ProtocolEnvironmentHeaderButton />}
       leftSidebar={<ProtocolHttpSidebar />}
     >

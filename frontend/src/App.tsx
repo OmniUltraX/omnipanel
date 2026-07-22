@@ -55,6 +55,7 @@ import { ResourceProfileSubWindow } from "./lib/resource/ResourceProfileSubWindo
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useSettingsUiStore } from "./stores/settingsUiStore";
 import { useAiStore } from "./stores/aiStore";
+import { useLoopStore } from "./stores/loopStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
@@ -337,6 +338,22 @@ function AppShell() {
   useEffect(() => scheduleIdleTerminalWarm(), []);
   // 空闲预热数据库模块壳，避免重启后首次点侧栏「数据库」卡在 chunk/挂载
   useEffect(() => scheduleIdleDatabaseWarm(), []);
+
+  // Harness/Loop：运维 Skill 种子 + Loop 规格与调度
+  useEffect(() => {
+    void import("./lib/ai/opsSkillSeeds").then(({ ensureOpsSkillSeeds }) => {
+      void ensureOpsSkillSeeds();
+    });
+    let stopScheduler: (() => void) | undefined;
+    void import("./lib/ai/loopRunner").then(({ startLoopScheduler, stopLoopScheduler }) => {
+      useLoopStore.getState().ensureBuiltinSpecs();
+      startLoopScheduler();
+      stopScheduler = stopLoopScheduler;
+    });
+    return () => {
+      stopScheduler?.();
+    };
+  }, []);
 
   const location = useLocation();
   const navigate = useNavigate();

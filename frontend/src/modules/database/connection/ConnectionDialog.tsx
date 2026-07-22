@@ -18,6 +18,9 @@ import {
 import { submitSchemaCacheRefresh } from "../schema/schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "../schema/schemaCacheStatusLog";
 import { getEngineIcon, type DbEngine } from "./engineIcons";
+import { commands } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
+import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 
 const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
   postgresql: { port: "5432", icon: "PG" },
@@ -86,6 +89,7 @@ export function ConnectionDialog({
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
   const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM });
+  const [tags, setTags] = useState<string[]>([]);
   const [status, setStatus] = useState<{ kind: "info" | "success" | "error"; message: string } | null>(
     null
   );
@@ -108,6 +112,22 @@ export function ConnectionDialog({
     setStatus(null);
     setTesting(false);
     setSaving(false);
+    if (initialConnection?.id) {
+      let cancelled = false;
+      void unwrapCommand(commands.resourceListTags("connection", initialConnection.id))
+        .then((list) => {
+          if (!cancelled) {
+            setTags(list.filter((x) => x.source !== "system").map((x) => x.tag.path));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setTags([]);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setTags([]);
   }, [open, initialConnection]);
 
   const update = <K extends keyof ConnectionFormData>(key: K, value: ConnectionFormData[K]) => {
@@ -178,6 +198,7 @@ export function ConnectionDialog({
     setStatus(null);
     try {
       const saved = await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
+      await unwrapCommand(commands.resourceSetTags("connection", saved.id, tags));
       void submitSchemaCacheRefresh([saved.id], schemaCacheReporter);
 
       onSaved?.();
@@ -480,6 +501,15 @@ export function ConnectionDialog({
               </label>
             </FormField>
           )}
+
+          <FormField label={t("resourceTags.section")}>
+            <GlobalTagEditor
+              kind="connection"
+              resourceId={initialConnection?.id ?? ""}
+              tags={tags}
+              onChange={setTags}
+            />
+          </FormField>
 
     </FormDialog>
   );

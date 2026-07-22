@@ -18,10 +18,13 @@ import {
 } from "../../components/ui/VerticalSplitSidebar";
 import { useKnowledgeEmbeddingProviderConfig } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import { useI18n } from "../../i18n";
+import { commands, type KnowledgeSearchResult } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
 import { publishModuleStatusLog } from "../../lib/moduleStatusLog";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
+import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { KnowledgeEntry } from "../../ipc/bindings";
 import {
@@ -36,8 +39,19 @@ import {
   type KnowledgeLibrarySection,
   type KnowledgeTreeNode,
 } from "./knowledgeTree";
-import { loadKnowledgeVectorStatus, submitKnowledgeVectorize, isKnowledgeEntryVectorizing, subscribeKnowledgeVectorizeState, KNOWLEDGE_VECTORIZED_EVENT, KNOWLEDGE_CHUNKS_CHANGED_EVENT } from "./knowledgeVectorize";
+import {
+  loadKnowledgeVectorStatus,
+  submitKnowledgeVectorize,
+  isKnowledgeEntryVectorizing,
+  subscribeKnowledgeVectorizeState,
+  KNOWLEDGE_VECTORIZED_EVENT,
+  KNOWLEDGE_CHUNKS_CHANGED_EVENT,
+} from "./knowledgeVectorize";
+import { exportKnowledgeMarkdown, exportKnowledgePdf } from "./knowledgeExport";
+import { KnowledgeSearchResults } from "./panels/KnowledgeSearchResults";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
+import { KNOWLEDGE_TAG_KINDS } from "../tags/tagKinds";
+import { useModuleTagFilter } from "../tags/useModuleTagFilter";
 import {
   SidebarTreeNode,
   SidebarTreeSelectionProvider,
@@ -107,10 +121,16 @@ type TreeRowProps = {
   node: KnowledgeTreeNode;
   depth: number;
   expanded: boolean;
+  /** 侧栏多选高亮 */
   selected: boolean;
+  /** 右侧工作区当前打开的条目 */
+  active: boolean;
+  vectorized?: boolean;
   dropHint: DropHint | null;
-  onSelect: (id: string) => void;
-  onOpenPermanent?: (id: string) => void;
+  /** 单击：选中 + 打开预览 Tab（对齐数据库） */
+  onPreviewOpen: (id: string) => void;
+  /** 双击：常驻打开 / 文件夹展开 */
+  onActivate: (id: string) => void;
   onToggle: (id: string) => void;
   onContextMenu: (entry: KnowledgeEntry, e: ReactMouseEvent) => void;
   onDragStart: (id: string, e: DragEvent) => void;
@@ -124,9 +144,11 @@ function TreeRow({
   depth,
   expanded,
   selected,
+  active,
+  vectorized,
   dropHint,
-  onSelect,
-  onOpenPermanent,
+  onPreviewOpen,
+  onActivate,
   onToggle,
   onContextMenu,
   onDragStart,
@@ -140,7 +162,9 @@ function TreeRow({
 
   const handleSelect = (event: TreeRowMouseEvent) => {
     selection?.handleSelect(entry.id, event);
-    onSelect(entry.id);
+    // 多选修饰键时仅更新选区，不抢开预览
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+    onPreviewOpen(entry.id);
   };
 
   return (
@@ -151,9 +175,9 @@ function TreeRow({
       treeKey={entry.id}
       expanded={expanded}
       hasChildren={isFolder}
-      active={selected}
-      selected={selection?.isSelected(entry.id) ?? false}
-      className={`knowledge-tree-row${selected ? " knowledge-tree-row--active" : ""}${
+      active={active}
+      selected={selection?.isSelected(entry.id) ?? selected}
+      className={`knowledge-tree-row${active ? " knowledge-tree-row--active" : ""}${
         dropHint?.targetId === entry.id && dropHint.position === "inside"
           ? " knowledge-tree-row--drop-inside"
           : ""
@@ -168,6 +192,11 @@ function TreeRow({
       }`}
       icon={isFolder ? <FolderIcon /> : <DocIcon />}
       label={entry.title}
+      afterLabel={
+        !isFolder && vectorized ? (
+          <span className="knowledge-tree-vector-dot" title="已向量化" aria-hidden />
+        ) : null
+      }
       draggable
       onDragStart={(event) => onDragStart(entry.id, event)}
       onDragOver={(event) => onDragOver(entry.id, event)}
@@ -176,19 +205,19 @@ function TreeRow({
       onContextMenu={(event) => onContextMenu(entry, event)}
       onToggle={() => onToggle(entry.id)}
       onSelect={handleSelect}
-      onActivate={
-        !isFolder && onOpenPermanent ? () => onOpenPermanent(entry.id) : undefined
-      }
+      onActivate={() => onActivate(entry.id)}
     />
   );
 }
 
 function renderTreeNodes(
   nodes: KnowledgeTreeNode[],
-  opts: Omit<TreeRowProps, "node" | "depth" | "expanded" | "selected"> & {
+  opts: Omit<TreeRowProps, "node" | "depth" | "expanded" | "selected" | "active" | "vectorized"> & {
     depth?: number;
     expandedIds: string[];
     selectedId: string | null;
+    activeEntryId: string | null;
+    vectorizedIds: ReadonlySet<string>;
     onToggle: (id: string) => void;
   },
 ): React.ReactNode[] {
@@ -204,9 +233,11 @@ function renderTreeNodes(
         depth={depth}
         expanded={expanded}
         selected={opts.selectedId === id}
+        active={opts.activeEntryId === id}
+        vectorized={Boolean(opts.vectorizedIds?.has(id))}
         dropHint={opts.dropHint}
-        onSelect={opts.onSelect}
-        onOpenPermanent={opts.onOpenPermanent}
+        onPreviewOpen={opts.onPreviewOpen}
+        onActivate={opts.onActivate}
         onToggle={opts.onToggle}
         onContextMenu={opts.onContextMenu}
         onDragStart={opts.onDragStart}
@@ -239,6 +270,7 @@ export function KnowledgeSidebar() {
   const setSearchQuery = useKnowledgeStore((s) => s.setSearchQuery);
   const setSelectedEntry = useKnowledgeStore((s) => s.setSelectedEntry);
   const toggleExpanded = useKnowledgeStore((s) => s.toggleExpanded);
+  const setExpanded = useKnowledgeStore((s) => s.setExpanded);
   const createFolder = useKnowledgeStore((s) => s.createFolder);
   const createDocument = useKnowledgeStore((s) => s.createDocument);
   const importPdfFromPath = useKnowledgeStore((s) => s.importPdfFromPath);
@@ -246,6 +278,13 @@ export function KnowledgeSidebar() {
   const duplicateEntry = useKnowledgeStore((s) => s.duplicateEntry);
   const deleteEntryRecursive = useKnowledgeStore((s) => s.deleteEntryRecursive);
   const moveEntry = useKnowledgeStore((s) => s.moveEntry);
+
+  const workspaceTabs = useKnowledgeWorkspaceStore((s) => s.workspaceTabs);
+  const activeTabId = useKnowledgeWorkspaceStore((s) => s.activeTabId);
+  const activeEntryId = useMemo(() => {
+    const tab = workspaceTabs.find((item) => item.id === activeTabId);
+    return tab?.entryId ?? selectedEntryId;
+  }, [activeTabId, selectedEntryId, workspaceTabs]);
 
   const embeddingProvider = useKnowledgeEmbeddingProviderConfig();
   const knowledgeChunkSize = useSettingsStore((s) => s.knowledgeChunkSize);
@@ -258,6 +297,10 @@ export function KnowledgeSidebar() {
   );
   const [showNewMenuSection, setShowNewMenuSection] = useState<KnowledgeLibrarySection | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
+  const [vectorizedIds, setVectorizedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const allowedEntryIds = useModuleTagFilter("knowledge", KNOWLEDGE_TAG_KINDS);
+  const [ftsResults, setFtsResults] = useState<KnowledgeSearchResult[]>([]);
+  const [ftsLoading, setFtsLoading] = useState(false);
   const dragIdRef = useRef<string | null>(null);
   const newMenuRef = useRef<HTMLDivElement>(null);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
@@ -265,6 +308,15 @@ export function KnowledgeSidebar() {
 
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
+  }, []);
+
+  const markVectorized = useCallback((entryId: string, on: boolean) => {
+    setVectorizedIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(entryId);
+      else next.delete(entryId);
+      return next;
+    });
   }, []);
 
   const deleteEntries = useCallback(
@@ -288,19 +340,73 @@ export function KnowledgeSidebar() {
 
   useEffect(() => subscribeKnowledgeVectorizeState(() => setVectorizeTick((n) => n + 1)), []);
 
+  // 后台批量探测已向量化条目（按 id 集合变化触发，避免保存正文时反复打满）
+  const entryIdSignature = useMemo(
+    () =>
+      entries
+        .filter((e) => !isKnowledgeFolder(e))
+        .map((e) => e.id)
+        .sort()
+        .join(","),
+    [entries],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = entryIdSignature ? entryIdSignature.split(",") : [];
+    if (ids.length === 0) {
+      setVectorizedIds(new Set());
+      return;
+    }
+    void (async () => {
+      const next = new Set<string>();
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const status = await loadKnowledgeVectorStatus(id);
+            if (status?.chunkCount && status.chunkCount > 0) next.add(id);
+          } catch {
+            // ignore
+          }
+        }),
+      );
+      if (!cancelled) setVectorizedIds(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entryIdSignature]);
+
+  useEffect(() => {
+    const onVectorized = (event: Event) => {
+      const detail = (event as CustomEvent<{ entryId: string }>).detail;
+      if (detail?.entryId) markVectorized(detail.entryId, true);
+    };
+    window.addEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
+    return () => window.removeEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
+  }, [markVectorized]);
+
   const { sections, toggleSection, setSectionExpanded } =
     usePersistedVerticalSplitSections<SidebarSectionKey>(SECTION_STORAGE_KEY, {
       selfBuilt: true,
       imported: true,
     });
 
+  const taggedEntries = useMemo(() => {
+    if (!allowedEntryIds) return entries;
+    return entries.filter((entry) => {
+      if (isKnowledgeFolder(entry)) return true;
+      return allowedEntryIds.has(entry.id);
+    });
+  }, [allowedEntryIds, entries]);
+
   const selfBuiltEntries = useMemo(
-    () => filterEntriesForLibrarySection(entries, "selfBuilt"),
-    [entries],
+    () => filterEntriesForLibrarySection(taggedEntries, "selfBuilt"),
+    [taggedEntries],
   );
   const importedEntries = useMemo(
-    () => filterEntriesForLibrarySection(entries, "imported"),
-    [entries],
+    () => filterEntriesForLibrarySection(taggedEntries, "imported"),
+    [taggedEntries],
   );
 
   const sectionTrees = useMemo(
@@ -311,13 +417,44 @@ export function KnowledgeSidebar() {
     [selfBuiltEntries, importedEntries],
   );
 
+  const useFts = searchQuery.trim().length >= 2;
   const visibleSectionTrees = useMemo(
     () => ({
-      selfBuilt: filterKnowledgeTree(sectionTrees.selfBuilt, searchQuery),
-      imported: filterKnowledgeTree(sectionTrees.imported, searchQuery),
+      selfBuilt: useFts ? sectionTrees.selfBuilt : filterKnowledgeTree(sectionTrees.selfBuilt, searchQuery),
+      imported: useFts ? sectionTrees.imported : filterKnowledgeTree(sectionTrees.imported, searchQuery),
     }),
-    [sectionTrees, searchQuery],
+    [sectionTrees, searchQuery, useFts],
   );
+
+  useEffect(() => {
+    if (!useFts) {
+      setFtsResults([]);
+      setFtsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setFtsLoading(true);
+    const timer = window.setTimeout(() => {
+      void unwrapCommand(commands.knowledgeSearch(searchQuery.trim(), null))
+        .then((results) => {
+          if (cancelled) return;
+          const filtered = allowedEntryIds
+            ? results.filter((item) => allowedEntryIds.has(item.entry.id))
+            : results;
+          setFtsResults(filtered);
+        })
+        .catch(() => {
+          if (!cancelled) setFtsResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setFtsLoading(false);
+        });
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [allowedEntryIds, searchQuery, useFts]);
 
   const ctxEntry = ctxMenu?.entry ?? null;
 
@@ -443,10 +580,82 @@ export function KnowledgeSidebar() {
     [embeddingProvider, knowledgeChunkOverlap, knowledgeChunkSize, t],
   );
 
+  const handleExportMarkdown = useCallback(
+    async (entry: KnowledgeEntry) => {
+      if (isKnowledgeFolder(entry)) return;
+      try {
+        const path = await exportKnowledgeMarkdown(entry.title, entry.content ?? "", {
+          dialogTitle: t("knowledge.export.markdown"),
+        });
+        if (path) {
+          publishModuleStatusLog("knowledge", t("knowledge.export.markdownDone", { path }), "info");
+        }
+      } catch (err) {
+        publishModuleStatusLog("knowledge", err instanceof Error ? err.message : String(err), "error");
+      }
+    },
+    [t],
+  );
+
+  const handleExportPdf = useCallback(
+    async (entry: KnowledgeEntry) => {
+      if (isKnowledgeFolder(entry)) return;
+      try {
+        await exportKnowledgePdf(entry.title, entry.content ?? "");
+        publishModuleStatusLog("knowledge", t("knowledge.export.pdfStarted"), "info");
+      } catch (err) {
+        publishModuleStatusLog("knowledge", err instanceof Error ? err.message : String(err), "error");
+      }
+    },
+    [t],
+  );
+
+  const handleCopyTitle = useCallback(
+    async (entry: KnowledgeEntry) => {
+      try {
+        await navigator.clipboard.writeText(entry.title);
+        publishModuleStatusLog("knowledge", t("knowledge.tree.titleCopied"), "info");
+      } catch {
+        publishModuleStatusLog("knowledge", t("knowledge.tree.copyFailed"), "error");
+      }
+    },
+    [t],
+  );
+
+  /** 单击：文档打开预览 Tab；文件夹仅选中（对齐数据库 object-folder） */
+  const handlePreviewOpen = useCallback(
+    (id: string) => {
+      const entry = entries.find((item) => item.id === id);
+      if (!entry) return;
+      setSelectedEntry(id);
+      if (isKnowledgeFolder(entry)) {
+        return;
+      }
+      openEntry(id, "preview");
+    },
+    [entries, openEntry, setSelectedEntry],
+  );
+
+  /** 双击：文档常驻；文件夹展开并打开概览 */
+  const handleActivate = useCallback(
+    (id: string) => {
+      const entry = entries.find((item) => item.id === id);
+      if (!entry) return;
+      if (isKnowledgeFolder(entry)) {
+        setExpanded(id, true);
+        openEntry(id, "permanent");
+        return;
+      }
+      openEntry(id, "permanent");
+    },
+    [entries, openEntry, setExpanded],
+  );
+
   const buildMenuItems = useCallback((): ContextMenuItem[] => {
     if (!ctxEntry) return [];
     const section = knowledgeLibrarySectionForEntry(ctxEntry);
     const parentId = parentForNew(section);
+    const isFolder = isKnowledgeFolder(ctxEntry);
     const creationItems: ContextMenuItem[] =
       section === "selfBuilt"
         ? [
@@ -462,15 +671,49 @@ export function KnowledgeSidebar() {
             },
           ]
         : [];
+
+    const openItems: ContextMenuItem[] = [
+      {
+        id: "open-preview",
+        label: t("knowledge.tree.openPreview"),
+        onClick: () => openEntry(ctxEntry.id, "preview"),
+      },
+      {
+        id: "open-permanent",
+        label: t("knowledge.tree.openPermanent"),
+        onClick: () => {
+          if (isFolder) {
+            setExpanded(ctxEntry.id, true);
+            openEntry(ctxEntry.id, "permanent");
+          } else {
+            openEntry(ctxEntry.id, "permanent");
+          }
+        },
+      },
+    ];
+
     return [
+      ...openItems,
+      { id: "sep-open", separator: true, label: "" },
       ...creationItems,
       {
         id: "import-pdf",
         label: t("knowledge.tree.importPdf"),
         onClick: () => void handleImportPdf(parentId),
       },
-      ...(!isKnowledgeFolder(ctxEntry)
+      ...(!isFolder
         ? [
+            { id: "sep-export", separator: true, label: "" } as ContextMenuItem,
+            {
+              id: "export-md",
+              label: t("knowledge.export.markdown"),
+              onClick: () => void handleExportMarkdown(ctxEntry),
+            },
+            {
+              id: "export-pdf",
+              label: t("knowledge.export.pdf"),
+              onClick: () => void handleExportPdf(ctxEntry),
+            },
             { id: "sep-vectorize", separator: true, label: "" } as ContextMenuItem,
             {
               id: "vectorize",
@@ -488,6 +731,11 @@ export function KnowledgeSidebar() {
           ]
         : []),
       { id: "sep1", separator: true, label: "" },
+      {
+        id: "copy-title",
+        label: t("knowledge.tree.copyTitle"),
+        onClick: () => void handleCopyTitle(ctxEntry),
+      },
       {
         id: "rename",
         label: t("knowledge.tree.rename"),
@@ -520,10 +768,15 @@ export function KnowledgeSidebar() {
     handleImportPdf,
     handleRename,
     handleVectorize,
+    handleExportMarkdown,
+    handleExportPdf,
+    handleCopyTitle,
     embeddingProvider,
     ctxVectorized,
+    openEntry,
     openEntryChunks,
     parentForNew,
+    setExpanded,
     t,
   ]);
 
@@ -589,7 +842,9 @@ export function KnowledgeSidebar() {
       const entry = entries.find((x) => x.id === selectedEntryId);
       if (!entry) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement | null)?.isContentEditable) {
+        return;
+      }
 
       if (e.key === "F2") {
         e.preventDefault();
@@ -600,11 +855,25 @@ export function KnowledgeSidebar() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
         e.preventDefault();
         void duplicateEntry(entry.id);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        handleActivate(entry.id);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "e" && !isKnowledgeFolder(entry)) {
+        e.preventDefault();
+        void handleExportPdf(entry);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [deleteEntries, duplicateEntry, entries, handleRename, selectedEntryId]);
+  }, [
+    deleteEntries,
+    duplicateEntry,
+    entries,
+    handleActivate,
+    handleExportPdf,
+    handleRename,
+    selectedEntryId,
+  ]);
 
   useEffect(() => {
     if (!showNewMenuSection) return;
@@ -645,13 +914,16 @@ export function KnowledgeSidebar() {
           renderTreeNodes(visibleTree, {
             expandedIds,
             selectedId: selectedEntryId,
+            activeEntryId,
+            vectorizedIds,
             dropHint,
-            onSelect: setSelectedEntry,
-            onOpenPermanent: (id) => openEntry(id, "permanent"),
+            onPreviewOpen: handlePreviewOpen,
+            onActivate: handleActivate,
             onToggle: toggleExpanded,
             onContextMenu: (entry, e) => {
               e.preventDefault();
               e.stopPropagation();
+              setSelectedEntry(entry.id);
               setCtxMenu({ x: e.clientX, y: e.clientY, entry });
             },
             onDragStart: handleDragStart,
@@ -718,72 +990,86 @@ export function KnowledgeSidebar() {
   );
 
   return (
-    <div className="knowledge-sidebar">
-      <ScopedSearch
-        className="knowledge-tree-scoped-search"
-        value={searchQuery}
-        onChange={setSearchQuery}
-        placeholder={t("knowledge.searchPlaceholder")}
-      >
-        <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
-        <VerticalSplitSidebar className="knowledge-sidebar-sections">
-          <VerticalSplitSidebarSection
-            title={t("knowledge.sidebar.selfBuilt")}
-            expanded={sections.selfBuilt}
-            onToggle={() => toggleSection("selfBuilt")}
-            actions={renderSelfBuiltActions()}
+        <div className="knowledge-sidebar">
+          <ScopedSearch
+            className="knowledge-tree-scoped-search"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder={t("knowledge.searchPlaceholder")}
           >
-            {renderSectionTree("selfBuilt")}
-          </VerticalSplitSidebarSection>
-          <VerticalSplitSidebarSection
-            title={t("knowledge.sidebar.imported")}
-            expanded={sections.imported}
-            onToggle={() => toggleSection("imported")}
-            actions={renderImportedActions()}
-          >
-            {renderSectionTree("imported")}
-          </VerticalSplitSidebarSection>
-        </VerticalSplitSidebar>
-        </SidebarTreeSelectionProvider>
-      </ScopedSearch>
+            {useFts ? (
+              <div className="knowledge-sidebar-fts">
+                <div className="knowledge-sidebar-fts__title">{t("knowledge.search.results")}</div>
+                <KnowledgeSearchResults
+                  results={ftsResults}
+                  loading={ftsLoading}
+                  onOpen={(id) => {
+                    setSelectedEntry(id);
+                    openEntry(id, "preview");
+                  }}
+                />
+              </div>
+            ) : (
+              <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
+                <VerticalSplitSidebar className="knowledge-sidebar-sections">
+                  <VerticalSplitSidebarSection
+                    title={t("knowledge.sidebar.selfBuilt")}
+                    expanded={sections.selfBuilt}
+                    onToggle={() => toggleSection("selfBuilt")}
+                    actions={renderSelfBuiltActions()}
+                  >
+                    {renderSectionTree("selfBuilt")}
+                  </VerticalSplitSidebarSection>
+                  <VerticalSplitSidebarSection
+                    title={t("knowledge.sidebar.imported")}
+                    expanded={sections.imported}
+                    onToggle={() => toggleSection("imported")}
+                    actions={renderImportedActions()}
+                  >
+                    {renderSectionTree("imported")}
+                  </VerticalSplitSidebarSection>
+                </VerticalSplitSidebar>
+              </SidebarTreeSelectionProvider>
+            )}
+          </ScopedSearch>
 
-      {ctxMenu && (
-        <ContextMenu
-          items={buildMenuItems()}
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
-          onClose={() => setCtxMenu(null)}
-          className="context-menu--wide"
-        />
-      )}
+          {ctxMenu && (
+            <ContextMenu
+              items={buildMenuItems()}
+              position={{ x: ctxMenu.x, y: ctxMenu.y }}
+              onClose={() => setCtxMenu(null)}
+              className="context-menu--wide"
+            />
+          )}
 
-      {blankCtx && (
-        <ContextMenu
-          items={
-            blankCtx.section === "selfBuilt"
-              ? [
-                  {
-                    id: "blank-folder",
-                    label: t("knowledge.tree.newFolder"),
-                    onClick: () => void createFolder(parentForNew("selfBuilt")),
-                  },
-                  {
-                    id: "blank-doc",
-                    label: t("knowledge.tree.newDocument"),
-                    onClick: () => void handleCreateDocument(parentForNew("selfBuilt")),
-                  },
-                ]
-              : [
-                  {
-                    id: "blank-import-pdf",
-                    label: t("knowledge.tree.importPdf"),
-                    onClick: () => void handleImportPdf(parentForNew("imported")),
-                  },
-                ]
-          }
-          position={blankCtx}
-          onClose={() => setBlankCtx(null)}
-        />
-      )}
-    </div>
+          {blankCtx && (
+            <ContextMenu
+              items={
+                blankCtx.section === "selfBuilt"
+                  ? [
+                      {
+                        id: "blank-folder",
+                        label: t("knowledge.tree.newFolder"),
+                        onClick: () => void createFolder(parentForNew("selfBuilt")),
+                      },
+                      {
+                        id: "blank-doc",
+                        label: t("knowledge.tree.newDocument"),
+                        onClick: () => void handleCreateDocument(parentForNew("selfBuilt")),
+                      },
+                    ]
+                  : [
+                      {
+                        id: "blank-import-pdf",
+                        label: t("knowledge.tree.importPdf"),
+                        onClick: () => void handleImportPdf(parentForNew("imported")),
+                      },
+                    ]
+              }
+              position={blankCtx}
+              onClose={() => setBlankCtx(null)}
+            />
+          )}
+        </div>
   );
 }

@@ -499,6 +499,49 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE http_environments ADD COLUMN auth_type TEXT;
     ALTER TABLE http_environments ADD COLUMN auth_value TEXT;
     "#,
+    // v26 — 知识库文档历史版本
+    r#"
+    CREATE TABLE IF NOT EXISTS knowledge_revisions (
+        id          TEXT PRIMARY KEY,
+        entry_id    TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        FOREIGN KEY(entry_id) REFERENCES knowledge_entries(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_revisions_entry_time
+        ON knowledge_revisions(entry_id, created_at DESC);
+    "#,
+    // v27 — 全局标签词表 + 资源绑定
+    r#"
+    CREATE TABLE IF NOT EXISTS tags (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        parent_id   TEXT,
+        path        TEXT NOT NULL UNIQUE,
+        color       TEXT,
+        kind        TEXT NOT NULL DEFAULT 'user',
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        FOREIGN KEY(parent_id) REFERENCES tags(id) ON DELETE RESTRICT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_parent_name
+        ON tags(IFNULL(parent_id, ''), name);
+    CREATE INDEX IF NOT EXISTS idx_tags_path_prefix ON tags(path);
+
+    CREATE TABLE IF NOT EXISTS resource_tag_links (
+        tag_id         TEXT NOT NULL,
+        resource_kind  TEXT NOT NULL,
+        resource_id    TEXT NOT NULL,
+        source         TEXT NOT NULL DEFAULT 'user',
+        created_at     INTEGER NOT NULL,
+        PRIMARY KEY (tag_id, resource_kind, resource_id),
+        FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_rtl_resource
+        ON resource_tag_links(resource_kind, resource_id);
+    CREATE INDEX IF NOT EXISTS idx_rtl_tag ON resource_tag_links(tag_id);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -587,6 +630,7 @@ impl Storage {
         self.repair_app_modules()?;
         self.repair_builtin_tools()?;
         self.builtin_tool_sync_all_modules()?;
+        self.ensure_global_tags()?;
         Ok(())
     }
 

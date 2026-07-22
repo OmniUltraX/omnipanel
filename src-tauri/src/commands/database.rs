@@ -1045,6 +1045,10 @@ pub async fn db_delete_connection(state: State<'_, AppState>, id: String) -> Res
         .db_connections
         .delete(&id)
         .map_err(|e| e.to_string())?;
+    {
+        let storage = state.storage.lock().await;
+        let _ = storage.clear_resource_tags(omnipanel_store::TaggableKind::Connection, &id);
+    }
     let mut filters = load_schema_filters().map_err(|e| e.to_string())?;
     prune_connection_filters(&mut filters, &id);
     save_schema_filters(&filters).map_err(|e| e.to_string())?;

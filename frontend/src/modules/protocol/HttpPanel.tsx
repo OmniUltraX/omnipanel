@@ -4,6 +4,7 @@ import { useI18n } from "../../i18n";
 import { CodeEditor } from "../../components/ui/CodeEditor";
 import { Select } from "../../components/ui/Select";
 import { TextInput } from "../../components/ui/TextInput";
+import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { quickInput } from "../../lib/quickInput";
 import {
@@ -391,6 +392,10 @@ export function HttpPanel() {
               }}
               placeholder={t("protocol.http.requestName")}
               aria-label={t("protocol.http.requestName")}
+            />
+            <GlobalTagEditor
+              kind="http_request"
+              resourceId={selectedRequest.id}
             />
           </div>
         ) : null}

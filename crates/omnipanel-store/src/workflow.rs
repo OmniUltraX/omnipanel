@@ -319,6 +319,7 @@ impl Storage {
 
     /// Delete a workflow and cascade.
     pub fn workflow_delete(&self, id: &str) -> OmniResult<()> {
+        let _ = self.clear_resource_tags(crate::tag::TaggableKind::Workflow, id);
         self.conn()
             .execute("DELETE FROM workflow_steps WHERE workflow_id = ?1", [id])
             .map_err(map_sqlite)?;

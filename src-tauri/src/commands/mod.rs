@@ -37,6 +37,7 @@ pub mod proxy;
 pub mod resource_profile;
 pub mod ssh;
 pub mod system;
+pub mod tag;
 pub mod task;
 pub mod terminal;
 pub mod terminal_history;

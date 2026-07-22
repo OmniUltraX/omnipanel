@@ -9,6 +9,7 @@ import {
   nextSortOrder,
   normalizeParentId,
 } from "../modules/knowledge/knowledgeTree";
+import { normalizeKnowledgeTags } from "../modules/knowledge/knowledgeTags";
 import { useSkillPromptStore } from "./skillPromptStore";
 
 interface KnowledgeStore {
@@ -52,7 +53,13 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         try {
           const res = await commands.knowledgeList(null, null);
           if (res.status === "ok") {
-            set({ entries: res.data, isLoading: false });
+            set({
+              entries: res.data.map((entry) => ({
+                ...entry,
+                tags: normalizeKnowledgeTags(entry.tags),
+              })),
+              isLoading: false,
+            });
           } else {
             set({ error: res.error.message, isLoading: false });
           }
@@ -62,26 +69,30 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       },
 
       saveEntry: async (entry: KnowledgeEntry) => {
+        const normalized: KnowledgeEntry = {
+          ...entry,
+          tags: normalizeKnowledgeTags(entry.tags),
+        };
         try {
           const res = await commands.knowledgeSave({
-            ...entry,
+            ...normalized,
             updatedAt: Date.now(),
           });
           if (res.status === "ok") {
             set((state) => {
-              const exists = state.entries.some((e) => e.id === entry.id);
+              const exists = state.entries.some((e) => e.id === normalized.id);
               const entries = exists
-                ? state.entries.map((e) => (e.id === entry.id ? entry : e))
-                : [...state.entries, entry];
+                ? state.entries.map((e) => (e.id === normalized.id ? normalized : e))
+                : [...state.entries, normalized];
               return { entries };
             });
             // Skill 自我进化软信号：用户保存了知识库条目（可能值得转为 skill）
             // 排除文件夹类型，只对实际内容（document）触发
-            if (entry.nodeType !== "folder") {
+            if (normalized.nodeType !== "folder") {
               useSkillPromptStore
                 .getState()
                 .recordSignal("knowledge_saved", {
-                  contextSummary: entry.title,
+                  contextSummary: normalized.title,
                 });
             }
             return true;

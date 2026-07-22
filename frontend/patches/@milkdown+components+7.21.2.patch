@@ -1,0 +1,103 @@
+diff --git a/node_modules/@milkdown/components/lib/code-block/index.js b/node_modules/@milkdown/components/lib/code-block/index.js
+index 47311dc..c46977b 100644
+--- a/node_modules/@milkdown/components/lib/code-block/index.js
++++ b/node_modules/@milkdown/components/lib/code-block/index.js
+@@ -573,11 +573,50 @@ function getSharedObserver() {
+           callback == null ? void 0 : callback(entry.isIntersecting);
+         }
+       },
+-      { rootMargin: "200px" }
++      { rootMargin: "120px" }
+     );
+   }
+   return sharedObserver;
+ }
++
++/** OmniPanel：错峰挂载 CodeMirror，避免多代码块同时初始化卡顿 */
++const pendingCodeMirrorInits = [];
++let codeMirrorInitPumping = false;
++function enqueueCodeMirrorInit(block) {
++  if (block.initialized || block._omniInitQueued) return;
++  block._omniInitQueued = true;
++  pendingCodeMirrorInits.push(block);
++  pumpCodeMirrorInits();
++}
++function pumpCodeMirrorInits() {
++  if (codeMirrorInitPumping) return;
++  const block = pendingCodeMirrorInits.shift();
++  if (!block) return;
++  codeMirrorInitPumping = true;
++  const run = () => {
++    block._omniInitQueued = false;
++    try {
++      if (!block.initialized && block.dom.isConnected) {
++        block.initializeCodeMirror();
++      }
++    } finally {
++      codeMirrorInitPumping = false;
++      if (pendingCodeMirrorInits.length > 0) {
++        if (typeof requestIdleCallback === "function") {
++          requestIdleCallback(() => pumpCodeMirrorInits(), { timeout: 64 });
++        } else {
++          setTimeout(pumpCodeMirrorInits, 16);
++        }
++      }
++    }
++  };
++  if (typeof requestIdleCallback === "function") {
++    requestIdleCallback(run, { timeout: 32 });
++  } else {
++    setTimeout(run, 0);
++  }
++}
++
+ const _CodeMirrorBlock = class _CodeMirrorBlock {
+   constructor(node, view, getPos, loader, config) {
+     this.node = node;
+@@ -717,10 +756,11 @@ const _CodeMirrorBlock = class _CodeMirrorBlock {
+       }
+     });
+     this.renderPlaceholder();
++    // OmniPanel：进入视口自动高亮，但经空闲队列错峰挂载，避免一屏多块同时卡死
+     visibilityCallbacks.set(this.dom, (isIntersecting) => {
+       if (isIntersecting) {
+         this.cancelTeardown();
+-        this.initializeCodeMirror();
++        enqueueCodeMirrorInit(this);
+       } else if (this.initialized) {
+         this.scheduleTeardown();
+       }
+@@ -730,10 +770,14 @@ const _CodeMirrorBlock = class _CodeMirrorBlock {
+   renderPlaceholder() {
+     const pre = document.createElement("pre");
+     pre.className = "milkdown-code-block-placeholder";
++    const lang = (this.node.attrs.language ?? "").trim();
++    if (lang) pre.dataset.language = lang;
+     const code = document.createElement("code");
+     code.textContent = this.node.textContent;
+     pre.appendChild(code);
+     this.dom.appendChild(pre);
++    // 通知外部可对占位块做轻量高亮（highlight.js）
++    this.dom.dispatchEvent(new CustomEvent("omni-knowledge-code-placeholder", { bubbles: true }));
+   }
+   initializeCodeMirror() {
+     if (this.initialized) return;
+@@ -856,7 +900,8 @@ const _CodeMirrorBlock = class _CodeMirrorBlock {
+     this.selected.value = false;
+   }
+   stopEvent() {
+-    return true;
++    // 未挂载 CM 时让 ProseMirror 处理点击，才能触发 selectNode → 懒加载
++    return this.initialized;
+   }
+   destroy() {
+     this.cancelTeardown();
+@@ -870,7 +915,7 @@ const _CodeMirrorBlock = class _CodeMirrorBlock {
+   }
+ };
+ /** Delay before tearing down an off-screen CodeMirror instance. */
+-_CodeMirrorBlock.TEARDOWN_DELAY = 5e3;
++_CodeMirrorBlock.TEARDOWN_DELAY = 1500;
+ let CodeMirrorBlock = _CodeMirrorBlock;
+ function computeChange(oldVal, newVal) {
+   if (oldVal === newVal) return null;
