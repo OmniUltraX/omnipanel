@@ -136,7 +136,15 @@ function buildFeedActivitySignature(blocks: TerminalBlock[]): string {
           .map((item) => {
             if (item.kind === "message") {
               const partsSig = item.parts
-                ? item.parts.map((p) => p.type === "text" || p.type === "reasoning" ? `${p.type}:${p.text.length}` : `tc:${p.id}:${p.status}`).join(",")
+                ? item.parts
+                    .map((p) =>
+                      p.type === "text" || p.type === "reasoning"
+                        ? `${p.type}:${p.text.length}`
+                        : p.type === "tool-call"
+                          ? `tc:${p.id}:${p.status}`
+                          : `plan:${p.plan.id}:${p.plan.status}`,
+                    )
+                    .join(",")
                 : "";
               return `m:${item.id}:${item.content.length}:${item.reasoning?.length ?? 0}:${partsSig}`;
             }

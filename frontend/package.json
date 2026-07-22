@@ -6,8 +6,9 @@
     "scripts": {
         "dev": "vite",
         "gen:bindings": "npm run gen:bindings --prefix ..",
-        "prebuild": "npm run gen:bindings",
+        "prebuild": "node ./scripts/prebuild.mjs",
         "build": "tsc -b && vite build",
+        "build:ci": "tsc -b && vite build",
         "lint": "node -e \"console.log('lint disabled')\"",
         "preview": "vite preview",
         "test": "vitest",

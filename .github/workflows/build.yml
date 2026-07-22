@@ -30,12 +30,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          # 仅初始化本仓库依赖的 agent；miniapp 为独立项目，不作为 submodule 拉取
-          submodules: false
-
-      - name: Init agent submodule
-        run: git submodule update --init --depth=1 agent
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -70,10 +64,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
-
-      - name: Install agent dependencies
-        run: npm ci
-        working-directory: agent
 
       - name: Extract version from tag
         id: version
@@ -137,6 +127,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 使用仓库内已提交的 bindings.ts，避免 Windows 上 prebuild→cargo run 栈溢出
+          SKIP_GEN_BINDINGS: "1"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'OmniPanel v${{ steps.version.outputs.version }}'
@@ -146,26 +138,34 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
       - name: Broadcast version to WeChat via OmniServer
-        if: success()
+        # 仅在 Windows 产物构建成功后广播一次，避免矩阵多平台重复通知
+        if: success() && matrix.platform == 'windows-latest'
+        shell: bash
         env:
           BASE_URL: ${{ secrets.OMNISERVER_BASE_URL }}
           TOKEN: ${{ secrets.OMNISERVER_ADMIN_TOKEN }}
-          VERSION: ${{ github.ref_name }}
+          # 使用无 v 前缀的 semver（与 OmniServer README 示例一致）
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          CHANGELOG: ${{ steps.changelog.outputs.body }}
         run: |
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ] || [ -z "${TOKEN:-}" ]; then
             echo "缺少 OMNISERVER_BASE_URL / OMNISERVER_ADMIN_TOKEN"
             exit 1
           fi
-          CHANGELOG="$(git log -1 --pretty=%B | sed -e 's/[[:space:]]*$//')"
+          if [ -z "${CHANGELOG:-}" ]; then
+            echo "缺少 CHANGELOG 正文（请确认 CHANGELOG.md 含 ## [${VERSION}] 段落）"
+            exit 1
+          fi
           BODY=$(jq -nc \
             --arg version "${VERSION}" \
             --arg changelog "${CHANGELOG}" \
-            --arg url "https://github.com/${REPO}/commit/${SHA}" \
-            --arg title "新版本发布：${VERSION}" \
+            --arg url "https://github.com/${REPO}/releases/tag/${TAG_NAME}" \
+            --arg title "OmniPanel ${VERSION}" \
             '{
               version: $version,
               title: $title,
@@ -173,7 +173,16 @@ jobs:
               content_url: $url,
               dry_run: false
             }')
-          curl -fsS -X POST "${BASE_URL%/}/broadcast/version" \
+          echo "Broadcast payload version=${VERSION}"
+          HTTP_CODE=$(curl -sS -o /tmp/broadcast-resp.json -w "%{http_code}" \
+            -X POST "${BASE_URL%/}/broadcast/version" \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "${BODY}"
+            -d "${BODY}") || true
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/broadcast-resp.json || true
+          echo
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::OmniServer 广播失败 HTTP ${HTTP_CODE}（常见原因：封面缺失、草稿箱权限未开，或服务仍调用已下线的 material/add_news）"
+            exit 1
+          fi

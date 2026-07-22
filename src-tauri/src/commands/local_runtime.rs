@@ -16,6 +16,7 @@ const OLLAMA_HOST: &str = "http://127.0.0.1:11434";
 const OLLAMA_OPENAI_BASE: &str = "http://127.0.0.1:11434/v1";
 const LMSTUDIO_OPENAI_BASE: &str = "http://127.0.0.1:1234/v1";
 const OLLAMA_DOWNLOAD_URL: &str = "https://ollama.com/download";
+#[cfg(target_os = "windows")]
 const OLLAMA_WINDOWS_SETUP_URL: &str = "https://ollama.com/download/OllamaSetup.exe";
 
 type ProgressCb = Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>;
@@ -434,6 +435,7 @@ pub async fn local_runtime_start_ollama() -> Result<bool, String> {
     Err("已启动 ollama，但服务尚未就绪，请稍后重试".into())
 }
 
+#[cfg(target_os = "windows")]
 async fn winget_available() -> bool {
     let mut cmd = Command::new("winget");
     hide_console_tokio(&mut cmd);

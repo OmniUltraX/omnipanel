@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SubWindow } from "../../components/ui/SubWindow";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n";
@@ -204,7 +204,7 @@ export function ResourceProfileSubWindow() {
   }, [resourceType, resourceId, loadProfile, t]);
 
   const title = `${t("resource.profile.title")} · ${displayName}`;
-  const typeLabel = RESOURCE_TYPE_LABELS[resourceType]?.[locale === "zh" ? "zh" : "en"] ?? resourceType;
+  const typeLabel = RESOURCE_TYPE_LABELS[resourceType]?.[locale.startsWith("zh") ? "zh" : "en"] ?? resourceType;
   const canCollect = resourceType === "ssh" || resourceType === "database";
 
   const observationKinds = profile?.observations ? Object.keys(profile.observations) : [];
@@ -296,7 +296,7 @@ export function ResourceProfileSubWindow() {
                 <ul className="resource-profile-panel__kind-list">
                   {observationKinds.map((kind) => {
                     const obs = profile.observations[kind];
-                    const label = KIND_LABELS[kind]?.[locale === "zh" ? "zh" : "en"] ?? kind;
+                    const label = KIND_LABELS[kind]?.[locale.startsWith("zh") ? "zh" : "en"] ?? kind;
                     const isActive = kind === activeKind;
                     return (
                       <li key={kind}>

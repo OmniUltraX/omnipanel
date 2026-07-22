@@ -4,17 +4,13 @@
   "private": true,
   "description": "AI-native cross-platform engineering workstation",
   "scripts": {
-    "submodules:init": "git submodule update --init --recursive",
     "install:frontend": "npm ci --prefix frontend",
-    "install:agent": "npm ci --prefix agent",
     "install:website": "npm ci --prefix website",
-    "install:all": "npm run submodules:init && npm run install:frontend && npm run install:agent && npm run install:website",
+    "install:all": "npm run install:frontend && npm run install:website",
     "gen:bindings": "node scripts/gen-ipc-bindings.mjs",
     "check:ipc-registry": "node scripts/check-ipc-command-registry.mjs",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
-    "dev:agent": "npm run start --prefix agent",
-    "typecheck:agent": "npm run typecheck --prefix agent",
     "typecheck": "tsc -b"
   },
   "devDependencies": {

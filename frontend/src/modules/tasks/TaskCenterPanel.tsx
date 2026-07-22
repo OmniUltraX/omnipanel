@@ -544,12 +544,12 @@ function HistoryTab() {
       if (auditRes.status === "ok") {
         setAuditEntries(auditRes.data);
       } else {
-        localError = auditRes.error.message;
+        localError = typeof auditRes.error === "string" ? auditRes.error : String(auditRes.error);
       }
       if (toolRes.status === "ok") {
         setToolRecords(toolRes.data);
       } else if (!localError) {
-        localError = toolRes.error.message;
+        localError = typeof toolRes.error === "string" ? toolRes.error : String(toolRes.error);
       }
       setError(localError);
     } catch (e) {

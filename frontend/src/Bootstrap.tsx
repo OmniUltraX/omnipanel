@@ -19,6 +19,7 @@ import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { selectIsLoggedIn, useAuthStore } from "./stores/authStore";
+import { syncAuthProfile } from "./lib/auth/syncAuthProfile";
 
 const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;
@@ -94,6 +95,10 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.settings"));
         initSettings();
 
+        // 已登录时尽早拉资料，侧栏头像不必等打开个人中心
+        const token = useAuthStore.getState().token;
+        const profileSync = token ? syncAuthProfile() : Promise.resolve();
+
         const proxy = useSettingsStore.getState().proxy;
         await pushLog(t("app.splash.logs.proxy"));
         invoke("set_proxy_config", { config: proxy }).catch(() => {});
@@ -136,6 +141,7 @@ export function Bootstrap() {
           import("./modules/database/schema/initDbSchemaUiStores").then((m) =>
             m.initDbSchemaUiStores(),
           ),
+          profileSync,
         ]);
         await Promise.all([toolsChain, parallelInits]);
 

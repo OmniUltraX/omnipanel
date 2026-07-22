@@ -495,7 +495,7 @@ export function TableDataGridBody({
         return;
       }
 
-      const { tr, rowIndex, colIndex } = resolved;
+      const { rowIndex, colIndex } = resolved;
       const ctx = resolveCellContext(rowIndex, colIndex);
       if (!ctx) return;
 
@@ -668,7 +668,7 @@ export const TableDataGridVirtualBody = forwardRef<
         return;
       }
 
-      const { tr, rowIndex, colIndex } = resolved;
+      const { rowIndex, colIndex } = resolved;
       const ctx = resolveCellContext(rowIndex, colIndex);
       if (!ctx) return;
 

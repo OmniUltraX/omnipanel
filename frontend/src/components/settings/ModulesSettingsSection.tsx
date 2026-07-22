@@ -17,6 +17,7 @@ const MODULE_LABEL_KEYS: Record<ModuleKey, string> = {
   protocol: "routes.protocol",
   workflow: "routes.workflow",
   knowledge: "routes.knowledge",
+  tasks: "routes.tasks",
 };
 
 const USER_STATUS_OPTIONS: UserAppModuleStatus[] = ["open", "closed"];

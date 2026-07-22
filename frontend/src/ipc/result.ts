@@ -17,8 +17,22 @@ export type IpcErrorLike =
   | string
   | { message?: string; cause?: string | null; code?: string };
 
-/** 将 OmniError / string 格式化为面向用户的完整提示（保留 cause）。 */
-export function formatIpcError(error: IpcErrorLike): string {
+function isIpcErrorLike(error: unknown): error is IpcErrorLike {
+  if (typeof error === "string") return true;
+  if (!error || typeof error !== "object") return false;
+  return "message" in error || "cause" in error || "code" in error;
+}
+
+/** 将 OmniError / string / 未知异常格式化为面向用户的完整提示（保留 cause）。 */
+export function formatIpcError(error: IpcErrorLike | unknown): string {
+  if (!isIpcErrorLike(error)) {
+    if (error instanceof Error) {
+      const trimmed = error.message.trim();
+      return trimmed || "请求失败";
+    }
+    if (error == null) return "请求失败";
+    return String(error);
+  }
   if (typeof error === "string") {
     const trimmed = error.trim();
     return trimmed || "请求失败";

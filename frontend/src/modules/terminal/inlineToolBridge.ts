@@ -8,7 +8,7 @@ import {
   type AiThreadToolCall,
 } from "../../stores/blocksStore";
 import { pushAssistantErrorMessage } from "./aiThreadBridge";
-import { useTerminalStore, findTerminalPane } from "../../stores/terminalStore";
+import { findTerminalPane } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
 import { cancelTerminalExecution } from "./executeTerminalCommand";
 import { executeAiTerminalCommand } from "./executeAiTerminalCommand";

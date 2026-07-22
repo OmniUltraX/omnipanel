@@ -10,6 +10,7 @@ import {
 } from "../../hooks/useTerminal";
 import {
   resolveResourceById,
+  useConnectionStore,
   useSshHostResources,
 } from "../../stores/connectionStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";

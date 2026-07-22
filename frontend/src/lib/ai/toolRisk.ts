@@ -98,8 +98,9 @@ export function evaluateToolRisk(
 
   // 非命令型工具按工具名 + 关键字匹配
   if (toolName.includes("docker_container_action") && typeof parsedArgs.action === "string") {
+    const action = parsedArgs.action;
     const rule = TOOL_DANGER_KEYWORDS.docker_action;
-    if (rule.keywords.some((kw) => parsedArgs.action.toLowerCase().includes(kw))) {
+    if (rule.keywords.some((kw) => action.toLowerCase().includes(kw))) {
       toolRisk = maxDangerLevel(toolRisk, rule.level);
       riskCheck = riskCheck ?? {
         safe: false,
@@ -108,8 +109,9 @@ export function evaluateToolRisk(
       };
     }
   } else if (toolName.includes("docker_image") && typeof parsedArgs.action === "string") {
+    const action = parsedArgs.action;
     const rule = TOOL_DANGER_KEYWORDS.docker_image_action;
-    if (rule.keywords.some((kw) => parsedArgs.action.toLowerCase().includes(kw))) {
+    if (rule.keywords.some((kw) => action.toLowerCase().includes(kw))) {
       toolRisk = maxDangerLevel(toolRisk, rule.level);
       riskCheck = riskCheck ?? {
         safe: false,
@@ -118,8 +120,9 @@ export function evaluateToolRisk(
       };
     }
   } else if (toolName.includes("docker_volume") && typeof parsedArgs.action === "string") {
+    const action = parsedArgs.action;
     const rule = TOOL_DANGER_KEYWORDS.docker_volume_action;
-    if (rule.keywords.some((kw) => parsedArgs.action.toLowerCase().includes(kw))) {
+    if (rule.keywords.some((kw) => action.toLowerCase().includes(kw))) {
       toolRisk = maxDangerLevel(toolRisk, rule.level);
       riskCheck = riskCheck ?? {
         safe: false,
@@ -128,8 +131,9 @@ export function evaluateToolRisk(
       };
     }
   } else if (toolName.includes("files_write") && typeof parsedArgs.path === "string") {
+    const filePath = parsedArgs.path;
     const rule = TOOL_DANGER_KEYWORDS.files_write;
-    if (rule.keywords.some((kw) => parsedArgs.path.includes(kw))) {
+    if (rule.keywords.some((kw) => filePath.includes(kw))) {
       toolRisk = maxDangerLevel(toolRisk, rule.level);
       riskCheck = riskCheck ?? {
         safe: false,
