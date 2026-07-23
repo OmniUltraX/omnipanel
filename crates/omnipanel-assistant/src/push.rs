@@ -6,30 +6,33 @@ use specta::Type;
 
 use crate::collect::{assemble_modules, default_collectors, CollectContext};
 use crate::error::{map_assistant_error_with_cause, AssistantErrorKind};
-use crate::oss::{upload_snapshot_json, OssUploadResult};
+use crate::oss::upload_snapshot_json;
 use crate::sts::{fetch_oss_sts, AuthContext};
-use crate::types::{AssistantSnapshot, SNAPSHOT_SCHEMA_VERSION};
+use crate::types::build_snapshot_bundle;
 
 #[derive(Debug, Clone, Default)]
 pub struct PushOptions {
-    /// 仅组装快照，不申请 STS / 不上传（本地验证用）
+    /// 仅组装快照，不申请凭证 / 不上传（本地验证用）
     pub dry_run: bool,
-    /// 覆盖默认 object key；默认按约定生成
+    /// 覆盖本次快照目录（不含文件名）；默认按约定生成 `.../snapshots/{ts}-{id}`
     pub object_key_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PushSnapshotResult {
+    /// 概览文件 object key（对外主入口）
     pub object_key: String,
     pub etag: Option<String>,
-    /// 快照字节数；用 f64 以兼容 specta/TS（禁止导出 u64）
+    /// 全部文件字节数合计；用 f64 以兼容 specta/TS（禁止导出 u64）
     pub bytes: f64,
+    /// 上传/组装的文件数（1 overview + N modules）
+    pub file_count: f64,
     pub generated_at: String,
     pub dry_run: bool,
 }
 
-/// 组装快照 →（可选）STS → OSS PUT。
+/// 组装多文件快照 →（可选）拉凭证 → 逐文件 PUT（模块先、概览后）。
 pub async fn push_snapshot(
     ctx: CollectContext,
     auth: Option<&AuthContext>,
@@ -38,21 +41,10 @@ pub async fn push_snapshot(
     let generated_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let collectors = default_collectors();
     let modules = assemble_modules(&collectors, &ctx);
-    let snapshot = AssistantSnapshot {
-        schema_version: SNAPSHOT_SCHEMA_VERSION,
-        generated_at: generated_at.clone(),
-        client_device_id: ctx.client_device_id.clone(),
-        bind_id: ctx.bind_id.clone(),
-        modules,
-    };
-
-    let body = serde_json::to_vec_pretty(&snapshot).map_err(|e| {
-        map_assistant_error_with_cause(AssistantErrorKind::Encode, "序列化快照失败", e.to_string())
-    })?;
-
     let short_id = short_id_from_time();
-    let default_key = format!(
-        "assistant/{}/{}/snapshots/{}-{}.json",
+
+    let default_dir = format!(
+        "assistant/{}/{}/snapshots/{}-{}",
         sanitize_path_segment(
             ctx.user_id
                 .as_deref()
@@ -65,11 +57,22 @@ pub async fn push_snapshot(
     );
 
     if options.dry_run {
-        let object_key = options.object_key_override.unwrap_or(default_key);
+        let snapshot_dir =
+            resolve_snapshot_dir(options.object_key_override.as_deref(), None, &default_dir);
+        let bundle = build_snapshot_bundle(
+            &ctx.client_device_id,
+            ctx.bind_id.clone(),
+            &generated_at,
+            &snapshot_dir,
+            &modules,
+        )
+        .map_err(|e| map_assistant_error_with_cause(AssistantErrorKind::Encode, e, ""))?;
+
         return Ok(PushSnapshotResult {
-            object_key,
+            object_key: bundle.overview_key.clone(),
             etag: None,
-            bytes: body.len() as f64,
+            bytes: bundle.total_bytes() as f64,
+            file_count: bundle.file_count() as f64,
             generated_at,
             dry_run: true,
         });
@@ -78,40 +81,79 @@ pub async fn push_snapshot(
     let auth = auth.ok_or_else(|| {
         map_assistant_error_with_cause(
             AssistantErrorKind::Auth,
-            "缺少登录凭证，无法申请 STS",
+            "缺少登录凭证，无法申请 OSS 上传凭证",
             "auth context is None",
         )
     })?;
 
     let sts = fetch_oss_sts(auth).await?;
-    let object_key = options.object_key_override.unwrap_or_else(|| {
-        let prefix = sts
-            .object_key_prefix
-            .as_deref()
-            .unwrap_or("")
-            .trim_matches('/');
-        if prefix.is_empty() {
-            default_key
-        } else {
-            format!(
-                "{prefix}/snapshots/{}-{}.json",
-                generated_at.replace(':', "-"),
-                short_id
-            )
-        }
-    });
+    let snapshot_dir = resolve_snapshot_dir(
+        options.object_key_override.as_deref(),
+        sts.object_key_prefix.as_deref(),
+        &default_dir,
+    );
+    let bundle = build_snapshot_bundle(
+        &ctx.client_device_id,
+        ctx.bind_id.clone(),
+        &generated_at,
+        &snapshot_dir,
+        &modules,
+    )
+    .map_err(|e| map_assistant_error_with_cause(AssistantErrorKind::Encode, e, ""))?;
 
     let http = Client::new();
-    let uploaded: OssUploadResult =
-        upload_snapshot_json(&http, &sts, &object_key, &body).await?;
+    let mut total_bytes = 0u64;
+    let mut overview_etag: Option<String> = None;
+    let overview_key = bundle.overview_key.clone();
+
+    for file in &bundle.files {
+        let uploaded = upload_snapshot_json(&http, &sts, &file.object_key, &file.body).await?;
+        total_bytes += uploaded.bytes;
+        if file.object_key == overview_key {
+            overview_etag = uploaded.etag;
+        }
+    }
 
     Ok(PushSnapshotResult {
-        object_key: uploaded.object_key,
-        etag: uploaded.etag,
-        bytes: uploaded.bytes as f64,
+        object_key: overview_key,
+        etag: overview_etag,
+        bytes: total_bytes as f64,
+        file_count: bundle.file_count() as f64,
         generated_at,
         dry_run: false,
     })
+}
+
+/// 解析本次快照目录。`object_key_override` 优先；否则若有 STS prefix 则用
+/// `{prefix}/snapshots/{ts}-{id}`；否则用 `default_dir`。
+fn resolve_snapshot_dir(
+    override_key: Option<&str>,
+    sts_prefix: Option<&str>,
+    default_dir: &str,
+) -> String {
+    if let Some(raw) = override_key.map(str::trim).filter(|s| !s.is_empty()) {
+        let trimmed = raw.trim_matches('/');
+        if trimmed.ends_with(".json") {
+            return trimmed
+                .rsplit_once('/')
+                .map(|(dir, _)| dir.to_string())
+                .unwrap_or_else(|| trimmed.to_string());
+        }
+        return trimmed.to_string();
+    }
+
+    let prefix = sts_prefix.unwrap_or("").trim_matches('/');
+    if prefix.is_empty() {
+        return default_dir.to_string();
+    }
+
+    // default_dir = assistant/{user}/{device}/snapshots/{ts}-{id}
+    // 有服务端 prefix 时改为 {prefix}/snapshots/{ts}-{id}
+    let leaf = default_dir
+        .rsplit_once("/snapshots/")
+        .map(|(_, leaf)| leaf)
+        .unwrap_or(default_dir);
+    format!("{prefix}/snapshots/{leaf}")
 }
 
 fn sanitize_path_segment(raw: &str) -> String {
@@ -143,7 +185,7 @@ mod tests {
     use serde_json::json;
 
     #[tokio::test]
-    async fn dry_run_assembles_without_upload() {
+    async fn dry_run_assembles_multi_file_bundle() {
         let ctx = CollectContext {
             client_device_id: "dev-1".into(),
             bind_id: None,
@@ -151,11 +193,40 @@ mod tests {
             recent_tasks: vec![json!({"id":"t1","title":"job"})],
             ..Default::default()
         };
-        let result = push_snapshot(ctx, None, PushOptions { dry_run: true, ..Default::default() })
-            .await
-            .expect("dry_run");
+        let result = push_snapshot(
+            ctx,
+            None,
+            PushOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("dry_run");
         assert!(result.dry_run);
         assert!(result.bytes > 0.0);
+        assert_eq!(result.file_count, 9.0);
         assert!(result.object_key.contains("dev-1"));
+        assert!(result.object_key.ends_with("/overview.json"));
+    }
+
+    #[test]
+    fn resolve_dir_prefers_override_and_strips_json() {
+        let d = resolve_snapshot_dir(
+            Some("assistant/u/d/snapshots/x/overview.json"),
+            Some("pfx"),
+            "assistant/u/d/snapshots/default",
+        );
+        assert_eq!(d, "assistant/u/d/snapshots/x");
+    }
+
+    #[test]
+    fn resolve_dir_uses_sts_prefix_leaf() {
+        let d = resolve_snapshot_dir(
+            None,
+            Some("assistant/42/dev"),
+            "assistant/user/dev/snapshots/2026-t-abc",
+        );
+        assert_eq!(d, "assistant/42/dev/snapshots/2026-t-abc");
     }
 }

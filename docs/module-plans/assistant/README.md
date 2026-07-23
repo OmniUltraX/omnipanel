@@ -10,15 +10,15 @@
 **第一期成功标准**
 
 - 用户可手动触发「推送快照」
-- 生成单一 `snapshot.json` 并成功 PUT 到 OSS
-- 返回 `objectKey` / 大小 / 时间供 UI 展示
+- 生成 **概览 + 各模块列表** 多文件并成功 PUT 到 OSS
+- 返回概览 `objectKey` / 文件数 / 总大小 / 时间供 UI 展示
 - 敏感字段（密码、私钥、Token 等）绝不进入快照
 
 **第一期明确不做**
 
 - 助手端拉取 / SSE 通知 / `latest` pointer
 - 双向同步、冲突合并
-- 分模块增量 object
+- 分模块增量变更检测
 - 密钥或可连资源的凭据下发
 
 ## 架构
@@ -32,31 +32,66 @@
 数据流：
 
 ```text
-前端触发 → Tauri command → 各 MetadataCollector 组装快照
-  → 账号服务换 STS → PUT snapshot.json → 返回 objectKey/etag/bytes
+前端触发 → Tauri command → 各 MetadataCollector 组装
+  → 账号服务换凭证
+  → PUT modules/{id}.json（×8）→ PUT overview.json
+  → 返回 overviewKey / fileCount / bytes
 ```
 
-## 快照 Schema
+## 快照 Schema（v2 · 多文件）
+
+每次推送写入同一快照目录：
+
+```text
+{prefix}/snapshots/{generatedAt}-{shortId}/
+  overview.json
+  modules/terminal.json
+  modules/database.json
+  modules/docker.json
+  modules/files.json
+  modules/server.json
+  modules/knowledge.json
+  modules/protocol.json
+  modules/tasks.json
+```
+
+### overview.json
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAt": "ISO-8601",
   "clientDeviceId": "...",
   "bindId": null,
   "modules": {
-    "terminal": { "items": [] },
-    "database": { "items": [] },
-    "docker": { "items": [] },
-    "files": { "items": [] },
-    "server": { "items": [] },
-    "knowledge": { "items": [] },
-    "protocol": { "items": [] },
-    "tasks": { "items": [] }
+    "terminal": { "count": 3, "objectKey": ".../modules/terminal.json" },
+    "database": { "count": 1, "objectKey": ".../modules/database.json" },
+    "docker": { "count": 0, "objectKey": ".../modules/docker.json" },
+    "files": { "count": 0, "objectKey": ".../modules/files.json" },
+    "server": { "count": 0, "objectKey": ".../modules/server.json" },
+    "knowledge": { "count": 0, "objectKey": ".../modules/knowledge.json" },
+    "protocol": { "count": 0, "objectKey": ".../modules/protocol.json" },
+    "tasks": { "count": 5, "objectKey": ".../modules/tasks.json" }
   }
 }
 ```
-单模块采集失败时，该模块可写 `error` 字段，其它模块照常；仅 STS/上传失败导致整次推送失败。
+
+某模块采集失败时，对应 entry 可带 `"error": "..."`，`count` 为 0。
+
+### modules/{id}.json
+
+```json
+{
+  "schemaVersion": 2,
+  "moduleId": "database",
+  "generatedAt": "ISO-8601",
+  "clientDeviceId": "...",
+  "items": [ { "id": "...", "name": "..." } ],
+  "error": null
+}
+```
+
+单模块采集失败时该模块文件仍会上传（`items: []` + `error`）；其它模块照常。仅凭证/上传失败导致整次推送失败。
 
 ### 模块载荷含义
 
@@ -105,13 +140,14 @@ X-Device-Public-Key: <optional, 可空>
 ```json
 {
   "data": {
-    "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
-    "bucket": "omni-assistant",
-    "region": "cn-hangzhou",
+    "endpoint": "https://omniminiapp.oss-cn-beijing.aliyuncs.com",
+    "bucket": "omniminiapp",
+    "region": "cn-beijing",
+    "cname": true,
     "accessKeyId": "...",
     "accessKeySecret": "...",
-    "securityToken": "...",
-    "expiration": "2026-07-23T06:00:00Z",
+    "securityToken": "",
+    "expiration": "",
     "objectKeyPrefix": "assistant/{userId}/{clientDeviceId}",
     "uploadUrl": null
   }
@@ -122,50 +158,31 @@ X-Device-Public-Key: <optional, 可空>
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| endpoint / bucket / region | 是 | S3 兼容端点信息 |
-| accessKeyId / accessKeySecret / securityToken | 是* | 临时凭证（若提供 `uploadUrl` 可省略签名路径） |
-| expiration | 是 | ISO-8601 过期时间 |
-| objectKeyPrefix | 否 | 有则客户端写到 `{prefix}/snapshots/{ts}-{id}.json`；无则用默认 `assistant/{userId}/{deviceId}/snapshots/...` |
-| uploadUrl | 否 | 若下发预签名 PUT URL，客户端优先直传，跳过本地 SigV4 |
+| endpoint / bucket / region | 是 | `cname=true` 时 endpoint 为虚拟主机风格（已含 bucket） |
+| cname | 否 | 默认 false；为 true 时 PUT `{endpoint}/{key}`，不再拼 `/{bucket}/` |
+| accessKeyId / accessKeySecret | 是 | 永久 AK 或 STS 临时 AK |
+| securityToken | 否 | 临时 STS 才有；空字符串视为永久，**不得**带空 token 参与签名 |
+| expiration | 否 | 空则视为永久，客户端不按时间刷新 |
+| objectKeyPrefix | 否 | 有则写到 `{prefix}/snapshots/{ts}-{id}.json` |
+| uploadUrl | 否 | 预签名 PUT URL，优先直传 |
 
-\* 推荐优先下发 **STS 临时凭证**（权限限制为该 prefix 下 `PutObject`）；也可只下发单次 `uploadUrl`。
+兼容非空 `securityToken` 的临时 STS。每次推送会重新请求一次 `/oss/sts`（无本地定时刷新）。
 
-**权限建议**：STS 仅允许写入本用户/本设备 prefix，禁止 ListBucket / GetObject 全桶。
+**权限建议**：凭证应限制到本用户/本设备 prefix 的 `PutObject`。
 
-**Object key（客户端约定）**
+**Object key（客户端约定 · 快照目录）**
 
 ```text
 # 无 objectKeyPrefix 时
-assistant/{userId}/{clientDeviceId}/snapshots/{generatedAt}-{shortId}.json
+assistant/{userId}/{clientDeviceId}/snapshots/{generatedAt}-{shortId}/overview.json
+assistant/{userId}/{clientDeviceId}/snapshots/{generatedAt}-{shortId}/modules/{moduleId}.json
 
 # 有 objectKeyPrefix 时
-{objectKeyPrefix}/snapshots/{generatedAt}-{shortId}.json
+{objectKeyPrefix}/snapshots/{generatedAt}-{shortId}/overview.json
+{objectKeyPrefix}/snapshots/{generatedAt}-{shortId}/modules/{moduleId}.json
 ```
 
-**快照 JSON 实际形状**（`Content-Type: application/json`）：
-
-```json
-{
-  "schemaVersion": 1,
-  "generatedAt": "ISO-8601",
-  "clientDeviceId": "...",
-  "bindId": null,
-  "modules": {
-    "terminal": { "items": [] },
-    "database": { "items": [] },
-    "docker": { "items": [] },
-    "files": { "items": [] },
-    "server": { "items": [] },
-    "knowledge": { "items": [] },
-    "protocol": { "items": [] },
-    "tasks": { "items": [] }
-  }
-}
-```
-
-单模块失败时该模块可为 `{ "items": [], "error": "..." }`。第一期不做 `latest` pointer / 通知 API。
-
-凭证仅内存使用，不落盘；401/403 客户端按 Auth 错误引导重新登录。
+第一期不做 `latest` pointer / 通知 API。凭证仅内存使用，不落盘；401/403 按 Auth 错误引导重新登录。
 
 ### 错误分类
 

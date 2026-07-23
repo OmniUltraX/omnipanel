@@ -31,6 +31,7 @@ export function AssistantSyncPanel({ bindId }: AssistantSyncPanelProps) {
                 showToast(
                   t("userCenter.devices.assistantSync.dryRunOk", {
                     bytes: String(r.bytes),
+                    files: String(r.fileCount),
                   }),
                 );
               })
@@ -52,6 +53,7 @@ export function AssistantSyncPanel({ bindId }: AssistantSyncPanelProps) {
                 showToast(
                   t("userCenter.devices.assistantSync.success", {
                     key: r.objectKey,
+                    files: String(r.fileCount),
                   }),
                 );
               })
@@ -71,10 +73,12 @@ export function AssistantSyncPanel({ bindId }: AssistantSyncPanelProps) {
           {result.dryRun
             ? t("userCenter.devices.assistantSync.dryRunMeta", {
                 bytes: String(result.bytes),
+                files: String(result.fileCount),
               })
             : t("userCenter.devices.assistantSync.meta", {
                 key: result.objectKey,
                 bytes: String(result.bytes),
+                files: String(result.fileCount),
               })}
         </p>
       ) : null}
