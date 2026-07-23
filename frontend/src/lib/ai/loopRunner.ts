@@ -6,7 +6,7 @@ import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
 import { genFindingId, genLoopRunId, useLoopStore } from "../../stores/loopStore";
 import { materializeFindings, runPilotDiscover } from "./loopPilots";
 import { shouldStopLoop, verifyLoopRun } from "./loopVerifier";
-import type { LoopRun, LoopSpec } from "./loopSpec";
+import type { LoopRun } from "./loopSpec";
 
 export interface RunLoopOptions {
   loopId: string;

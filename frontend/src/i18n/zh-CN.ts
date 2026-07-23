@@ -5891,14 +5891,7 @@ export const zhCN = {
         success: "助手端已绑定",
       },
       assistantSync: {
-        desc: "将本机各模块对象元数据（脱敏）打包上传至 OSS，供助手端后续拉取。",
-        dryRun: "试组装",
-        push: "同步到助手端",
-        pushing: "同步中…",
-        dryRunOk: "试组装成功（{bytes} 字节）",
-        success: "已上传：{key}",
-        dryRunMeta: "试组装完成，约 {bytes} 字节（未上传）",
-        meta: "{key}（{bytes} 字节）",
+        autoDesc: "登录后，模块元数据变更会自动同步到助手端（约数秒防抖）。",
       },
       os: {
         windows: "Windows",

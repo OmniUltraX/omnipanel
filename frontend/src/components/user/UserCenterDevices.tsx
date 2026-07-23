@@ -14,7 +14,7 @@ import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
 import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
-import { AssistantSyncPanel } from "../../modules/assistant";
+import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
 
 function formatDeviceTime(value: string, locale: string): string {
   const trimmed = value.trim();
@@ -316,15 +316,22 @@ export function UserCenterDevices() {
             </Button>
           </div>
           {token ? (
+            <p className="user-center-section__desc">
+              {t("userCenter.devices.assistantSync.autoDesc")}
+            </p>
+          ) : null}
+          {token ? (
             <BindAssistantPanel
               active={bindOpen}
               token={token}
               onClose={() => setBindOpen(false)}
-              onBound={refresh}
+              onBound={() => {
+                refresh();
+                scheduleAssistantSnapshotSync({ immediate: true });
+              }}
               onSessionExpired={handleSessionExpired}
             />
           ) : null}
-          <AssistantSyncPanel />
           <DeviceList
             devices={assistantDevices}
             localDeviceId={localDeviceId}

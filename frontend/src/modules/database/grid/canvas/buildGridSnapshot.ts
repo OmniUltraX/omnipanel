@@ -144,7 +144,7 @@ export function buildGridSnapshotBundle(input: BuildGridSnapshotInput): GridSnap
       const dirtyKind: PreviewRowChangeKind = resolvePreviewRowChangeKind(
         rowKey,
         input.deletedRowKeys ?? EMPTY_DELETED,
-        input.displayDirtyRowKeys,
+        input.displayDirtyRowKeys ?? undefined,
       );
       return {
         kind: "rownum",
@@ -201,7 +201,7 @@ export function buildGridSnapshotBundle(input: BuildGridSnapshotInput): GridSnap
       : resolvePreviewRowChangeKind(
           rowKey,
           input.deletedRowKeys ?? EMPTY_DELETED,
-          input.displayDirtyRowKeys,
+          input.displayDirtyRowKeys ?? undefined,
         );
 
     const cellDirty =

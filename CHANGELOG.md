@@ -2,6 +2,29 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.6.2] - 2026-07-23
+
+### 新增
+
+- **助手端元数据同步（`omnipanel-assistant`）**
+  - 新增传输内核 crate：采集脱敏元数据 → 申请上传凭证 → OSS PUT → `POST /api/assistant/snapshots/notify`
+  - 快照 schema v2：每次写入独立目录，含 `overview.json`（各模块 count + objectKey）与 8 个 `modules/{id}.json`（terminal / database / docker / files / server / knowledge / protocol / tasks）
+  - 支持永久 AK（空 `securityToken` / `expiration`）与 `cname` 虚拟主机风格 PUT；有 STS token 时才带 `x-amz-security-token`
+  - Tauri 命令 `assistant_push_snapshot`；登录后模块元数据变更自动 debounce（5s）推送，绑定成功立即推一次；设备页仅保留说明文案，无手动试组装/推送入口
+- **助手端绑定 UI**：绑定按钮移至助手端标题右侧；二维码在窗口内联展示，不再使用独立弹窗
+
+### 修复
+
+- **助手端绑定**：出码时 `X-App-Id` 兼容 `omni-client` 与历史 `default`，避免本机设备已落库仍报 `client device not found`
+- **AI Dock 调宽卡顿**：拖拽中仅用 `requestAnimationFrame` 更新 `--ai-dock-w`，松手再写入 store / 持久化，宽度仍实时跟随鼠标
+- **数据库 · 关闭 Tab**：禁止在 `setWorkspaceTabs` updater 内调用 `activateWorkspaceTab`，消除 `Cannot update a component while rendering a different component`（DatabaseSchemaSidebar）
+- **数据库 · 删除选中行**：行选区判定与工具栏删除对齐；仅整行全选才计入「删除选中」
+- **i18n**：修复 `knowledge.search` 重复键导致的类型错误
+
+### 变更
+
+- 助手端同步路径改为「元数据变更自动上传」；敏感字段（密码、私钥、Token 等）不进入快照，上传凭证不落盘
+
 ## [0.6.0] - 2026-07-21
 
 ### 新增

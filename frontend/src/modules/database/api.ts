@@ -8,6 +8,7 @@ import type {
   TableInfo,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { scheduleAssistantSnapshotSync } from "../assistant";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
 
@@ -437,11 +438,16 @@ export async function patchSchemaCache(
 }
 
 export async function saveConnection(connection: DbConnectionConfig): Promise<DbConnectionConfig> {
-  return (await unwrapCommand(commands.dbSaveConnection(ipcConn(connection)))) as DbConnectionConfig;
+  const saved = (await unwrapCommand(
+    commands.dbSaveConnection(ipcConn(connection)),
+  )) as DbConnectionConfig;
+  scheduleAssistantSnapshotSync();
+  return saved;
 }
 
 export async function deleteConnection(id: string): Promise<void> {
   await unwrapCommand(commands.dbDeleteConnection(id));
+  scheduleAssistantSnapshotSync();
 }
 
 export async function testConnection(

@@ -3,6 +3,7 @@ import { Button } from "../../components/ui/primitives/Button";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { commands, type AiSessionRecord, type AiTraceRecord } from "../../ipc/bindings";
+import { formatIpcError } from "../../ipc/result";
 import { runLoopOnce } from "../../lib/ai/loopRunner";
 import { useLoopStore } from "../../stores/loopStore";
 import { showToast } from "../../stores/toastStore";
@@ -219,7 +220,7 @@ export function TurnTimelinePanel() {
         setError(null);
         if (!selectedId && res.data[0]) setSelectedId(res.data[0].id);
       } else {
-        setError(res.error.message);
+        setError(formatIpcError(res.error));
       }
     } catch (e) {
       setError(String(e));

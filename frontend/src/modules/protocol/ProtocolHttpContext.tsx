@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
+import { scheduleAssistantSnapshotSync } from "../assistant";
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
@@ -31,6 +32,14 @@ import {
   writeStoredActiveEnvironmentId,
 } from "./httpEnvironment";
 import type { HttpPathParamPair } from "./httpPathParams";
+
+async function persistHttpRequest(req: SavedHttpRequest) {
+  const res = await commands.httpSaveRequest(req);
+  if (res.status === "ok") {
+    scheduleAssistantSnapshotSync();
+  }
+  return res;
+}
 
 export type { HttpResponseData, HttpResponseSession };
 
@@ -466,6 +475,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const res = await commands.httpDeleteRequest(id);
       if (res.status === "ok") {
+        scheduleAssistantSnapshotSync();
         useProtocolHttpDockStore.getState().removeTab(id);
         if (selectedRequestId === id) {
           setSelectedRequestId(null);
@@ -668,7 +678,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         createdAt: now,
         updatedAt: now,
       };
-      const res = await commands.httpSaveRequest(req);
+      const res = await persistHttpRequest(req);
       if (res.status === "ok") {
         const layout = useProtocolHttpLayoutStore.getState();
         layout.setRequestParent(req.id, parentFolderId);
@@ -702,7 +712,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         createdAt: now,
         updatedAt: now,
       });
-      const res = await commands.httpSaveRequest(req);
+      const res = await persistHttpRequest(req);
       if (res.status === "ok") {
         await loadSavedRequests();
         setSelectedRequestId(req.id);
@@ -735,7 +745,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         createdAt: existing.createdAt ?? now,
         updatedAt: now,
       });
-      const res = await commands.httpSaveRequest(req);
+      const res = await persistHttpRequest(req);
       if (res.status === "ok") {
         await loadSavedRequests();
         return true;
@@ -756,7 +766,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         name: trimmed,
         updatedAt: Date.now(),
       };
-      const res = await commands.httpSaveRequest(req);
+      const res = await persistHttpRequest(req);
       if (res.status === "ok") {
         await loadSavedRequests();
       }
@@ -773,7 +783,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         collectionId,
         updatedAt: Date.now(),
       };
-      const res = await commands.httpSaveRequest(req);
+      const res = await persistHttpRequest(req);
       if (res.status === "ok") {
         await loadSavedRequests();
       }

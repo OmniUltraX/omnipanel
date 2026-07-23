@@ -862,9 +862,12 @@ export type AssistantPushRequest = {
 
 /** 助手端快照推送结果（手动同步自 omnipanel-assistant PushSnapshotResult）。 */
 export type PushSnapshotResult = {
+	/** 概览文件 object key（对外主入口） */
 	objectKey: string,
 	etag: string | null,
 	bytes: number,
+	/** 1 overview + 各模块列表文件 */
+	fileCount: number,
 	generatedAt: string,
 	dryRun: boolean,
 };

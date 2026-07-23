@@ -7,6 +7,7 @@ import {
   type SshConfigSyncResult,
 } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
+import { scheduleAssistantSnapshotSync } from "../modules/assistant";
 import {
   SEED_RESOURCES,
   type EnvironmentTag,
@@ -168,6 +169,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
               : [saved, ...state.connections];
           return { connections: next };
         });
+        scheduleAssistantSnapshotSync();
         return saved;
       }
       set({ error: res.error.message });
@@ -199,6 +201,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set((state) => ({
         connections: state.connections.map((c) => savedMap.get(c.id) ?? c),
       }));
+      scheduleAssistantSnapshotSync();
     } catch (e) {
       set({ error: String(e) });
     }
@@ -215,6 +218,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           useSshHostStore.getState().clearHost(id);
           forceReleaseSshPoolSession(id);
         }
+        scheduleAssistantSnapshotSync();
       } else {
         set({ error: res.error.message });
       }
@@ -261,6 +265,7 @@ export async function syncFromOpenSshConfig(): Promise<SshConfigSyncResult | nul
     const res = await commands.sshSyncConfigHosts();
     if (res.status === "ok") {
       await useConnectionStore.getState().refresh();
+      scheduleAssistantSnapshotSync();
       return res.data;
     }
     useConnectionStore.setState({ error: res.error.message });
