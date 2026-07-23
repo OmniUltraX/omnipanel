@@ -1,0 +1,24 @@
+[package]
+name = "omnipanel-assistant"
+version.workspace = true
+edition.workspace = true
+description = "客户端 → 助手端：OSS 元数据快照采集与上传"
+
+[dependencies]
+omnipanel-error = { path = "../omnipanel-error" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+specta = { workspace = true }
+reqwest = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+base64 = { workspace = true }
+hmac = "0.12"
+sha2 = "0.10"
+hex = { workspace = true }
+urlencoding = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -697,6 +697,8 @@ export const commands = {
 	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
+	/** 推送客户端元数据快照到 OSS（dryRun=true 时只组装不上传）。手动同步自 commands/assistant.rs */
+	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -850,6 +852,22 @@ export type AuthDeviceIdentity = {
 	export type AuthBindingsBound = {
 		bindId: string,
 	};
+
+/** 助手端快照推送请求（手动同步自 commands/assistant.rs）。 */
+export type AssistantPushRequest = {
+	token: string,
+	dryRun: boolean,
+	bindId: string | null,
+};
+
+/** 助手端快照推送结果（手动同步自 omnipanel-assistant PushSnapshotResult）。 */
+export type PushSnapshotResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number,
+	generatedAt: string,
+	dryRun: boolean,
+};
 
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {

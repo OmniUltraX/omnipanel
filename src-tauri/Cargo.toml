@@ -29,6 +29,7 @@ omnipanel-exec = { path = "../crates/omnipanel-exec" }
 omnipanel-ssh = { path = "../crates/omnipanel-ssh" }
 omnipanel-db = { path = "../crates/omnipanel-db" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
+omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
 tokio.workspace = true

@@ -8,6 +8,7 @@ members = [
     "crates/omnipanel-ssh",
     "crates/omnipanel-db",
     "crates/omnipanel-docker",
+    "crates/omnipanel-assistant",
     "crates/omnipanel-core",
     "crates/omnipanel-ai",
     "crates/omnipanel-mcp",

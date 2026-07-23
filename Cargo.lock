@@ -4213,6 +4213,7 @@ dependencies = [
  "hex",
  "md5",
  "omnipanel-ai",
+ "omnipanel-assistant",
  "omnipanel-core",
  "omnipanel-db",
  "omnipanel-docker",
@@ -4258,6 +4259,26 @@ dependencies = [
  "urlencoding",
  "webview2-com",
  "windows 0.61.3",
+]
+
+[[package]]
+name = "omnipanel-assistant"
+version = "0.0.5"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "hmac 0.12.1",
+ "omnipanel-error",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "specta",
+ "tokio",
+ "tracing",
+ "urlencoding",
 ]
 
 [[package]]

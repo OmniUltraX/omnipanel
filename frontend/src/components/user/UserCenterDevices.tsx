@@ -14,6 +14,7 @@ import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
 import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
+import { AssistantSyncPanel } from "../../modules/assistant";
 
 function formatDeviceTime(value: string, locale: string): string {
   const trimmed = value.trim();
@@ -323,6 +324,7 @@ export function UserCenterDevices() {
               onSessionExpired={handleSessionExpired}
             />
           ) : null}
+          <AssistantSyncPanel />
           <DeviceList
             devices={assistantDevices}
             localDeviceId={localDeviceId}

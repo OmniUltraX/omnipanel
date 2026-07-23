@@ -20432,6 +20432,40 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     margin: var(--sp-3) auto;
 }
 
+.assistant-sync-panel {
+    margin-top: var(--sp-3);
+    padding: var(--sp-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated, var(--bg));
+}
+
+.assistant-sync-panel__desc {
+    margin: 0 0 var(--sp-2);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.assistant-sync-panel__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+}
+
+.assistant-sync-panel__error {
+    margin: var(--sp-2) 0 0;
+    color: var(--danger);
+    font-size: 12px;
+}
+
+.assistant-sync-panel__meta {
+    margin: var(--sp-2) 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    word-break: break-all;
+}
+
 .user-center-devices__hint,
 .user-center-devices__error {
     margin: 0;
