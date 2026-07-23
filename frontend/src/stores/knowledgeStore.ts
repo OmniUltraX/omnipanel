@@ -10,6 +10,7 @@ import {
   normalizeParentId,
 } from "../modules/knowledge/knowledgeTree";
 import { normalizeKnowledgeTags } from "../modules/knowledge/knowledgeTags";
+import { scheduleAssistantSnapshotSync } from "../modules/assistant";
 import { useSkillPromptStore } from "./skillPromptStore";
 
 interface KnowledgeStore {
@@ -95,6 +96,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                   contextSummary: normalized.title,
                 });
             }
+            scheduleAssistantSnapshotSync();
             return true;
           }
           set({ error: res.error.message });
@@ -114,6 +116,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               selectedEntryId: state.selectedEntryId === id ? null : state.selectedEntryId,
               expandedIds: state.expandedIds.filter((x) => x !== id),
             }));
+            scheduleAssistantSnapshotSync();
           } else {
             set({ error: res.error.message });
           }

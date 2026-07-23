@@ -5951,14 +5951,7 @@ export const enUS: TranslationDict = {
         success: "Assistant bound",
       },
       assistantSync: {
-        desc: "Package sanitized module metadata into an overview plus per-module files and upload to OSS for the assistant.",
-        dryRun: "Dry run",
-        push: "Sync to assistant",
-        pushing: "Syncing…",
-        dryRunOk: "Dry run ok ({files} files, ~{bytes} bytes)",
-        success: "Uploaded {files} files: {key}",
-        dryRunMeta: "Dry run finished, {files} files, ~{bytes} bytes (not uploaded)",
-        meta: "{key} ({files} files, {bytes} bytes)",
+        autoDesc: "After sign-in, module metadata changes sync to the assistant automatically (debounced a few seconds).",
       },
       os: {
         windows: "Windows",

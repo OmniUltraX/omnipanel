@@ -9,9 +9,9 @@
 
 **第一期成功标准**
 
-- 用户可手动触发「推送快照」
+- 登录后，模块元数据变更自动上传（debounce）；绑定成功立即推一次
 - 生成 **概览 + 各模块列表** 多文件并成功 PUT 到 OSS
-- 返回概览 `objectKey` / 文件数 / 总大小 / 时间供 UI 展示
+- 无手动「试组装 / 推送」入口
 - 敏感字段（密码、私钥、Token 等）绝不进入快照
 
 **第一期明确不做**
@@ -27,15 +27,13 @@
 |---|---|---|
 | 传输内核 | `crates/omnipanel-assistant` | STS、OSS PUT、快照序列化、Collector 注册与编排 |
 | Tauri 薄壳 | `src-tauri/src/commands/assistant.rs` | 注入本机只读数据到 `CollectContext`，调用 `push` |
-| 前端 | `frontend/src/modules/assistant/` | 触发同步、进度/结果；不写 OSS 细节 |
+| 前端 | `frontend/src/modules/assistant/` | 元数据变更后 debounce 自动推送；无手动上传 UI |
 
 数据流：
 
 ```text
-前端触发 → Tauri command → 各 MetadataCollector 组装
-  → 账号服务换凭证
-  → PUT modules/{id}.json（×8）→ PUT overview.json
-  → 返回 overviewKey / fileCount / bytes
+模块元数据写入成功 → scheduleAssistantSnapshotSync (debounce 5s)
+  → Tauri assistant_push_snapshot → 采集 → 凭证 → PUT modules/* + overview
 ```
 
 ## 快照 Schema（v2 · 多文件）
@@ -212,10 +210,8 @@ crates/omnipanel-assistant/
 src-tauri/src/commands/assistant.rs
 
 frontend/src/modules/assistant/
-  api.ts
-  types.ts
-  useAssistantPush.ts
-  AssistantSyncPanel.tsx   # 设备页或设置入口「同步到助手端」
+  autoSync.ts              # debounce 自动上传
+  index.ts
 ```
 
 ## 实现顺序（建议）
@@ -225,7 +221,7 @@ frontend/src/modules/assistant/
 3. STS + OSS PUT（可 mock HTTP）  
 4. Tauri command + bindings  
 5. 补齐其余 Collector  
-6. 前端手动推送 UI  
+6. 前端：元数据变更自动推送（去掉手动测试入口）
 
 ## 测试（第一期）
 
