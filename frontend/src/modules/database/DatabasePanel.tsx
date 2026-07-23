@@ -542,8 +542,9 @@ export function DatabasePanel() {
       ? workspaceTabsRef.current.find((item) => item.id === tabId)
       : undefined;
     const linkage = resolveDbSidebarLinkageFromTab(tab, useDbWorkspaceTabStore.getState());
-    // 不用 flushSync：关 Tab 会在 useEffect / setState 更新器里走到这里，flush 会报错。
-    // zustand + useSyncExternalStore 仍是默认优先级，会先于下方 startTransition 的内容更新。
+    // 同步写侧栏联动（先于 startTransition 的 Tab 状态），保证树高亮跟手。
+    // 禁止在 setState updater / render 中调用：会经 useSyncExternalStore 更新
+    // DatabaseSchemaSidebar，触发 “Cannot update a component while rendering”。
     useDbSidebarLinkageStore.getState().setLinkage(linkage);
   }, []);
 
@@ -2222,16 +2223,22 @@ export function DatabasePanel() {
         return changed ? next : prev;
       });
 
-      setWorkspaceTabs((prev) => {
-        const nextTabs = prev.filter((item) => !idSet.has(item.id));
-        const activeId = activeWorkspaceTabIdRef.current;
-        if (activeId && idSet.has(activeId)) {
-          const oldIdx = prev.findIndex((item) => item.id === activeId);
-          const fallback = nextTabs[Math.min(oldIdx, Math.max(0, nextTabs.length - 1))];
-          activateWorkspaceTab(fallback?.id ?? "");
-        }
-        return nextTabs;
-      });
+      // 先算好 fallback，再改 tabs：禁止在 setState updater 内 activate（会同步写侧栏 store）
+      const prevTabs = workspaceTabsRef.current;
+      const activeId = activeWorkspaceTabIdRef.current;
+      let fallbackTabId: string | null = null;
+      if (activeId && idSet.has(activeId)) {
+        const nextTabs = prevTabs.filter((item) => !idSet.has(item.id));
+        const oldIdx = prevTabs.findIndex((item) => item.id === activeId);
+        fallbackTabId =
+          nextTabs[Math.min(oldIdx, Math.max(0, nextTabs.length - 1))]?.id ?? "";
+      }
+
+      setWorkspaceTabs((prev) => prev.filter((item) => !idSet.has(item.id)));
+
+      if (fallbackTabId !== null) {
+        activateWorkspaceTab(fallbackTabId);
+      }
 
       for (const tabId of uniqueIds) {
         removeTabWorkspaceData(tabId);

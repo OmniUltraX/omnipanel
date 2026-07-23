@@ -22,6 +22,7 @@ import { RecentItemsPanel } from "./components/shell/RecentItemsPanel";
 import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiDockView } from "./components/ai/AiDockView";
+import { AiDockviewResizeHandle } from "./components/ai/AiDockviewResizeHandle";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
@@ -79,7 +80,7 @@ import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
 import { useTopbarStore } from "./stores/topbarStore";
 import type { DangerCheckResult } from "./lib/commandGuard";
 import { getRouteTitle, useI18n } from "./i18n";
-import { useSettingsStore, AI_DOCK_WIDTH_MIN } from "./stores/settingsStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
 import { ProtocolNewTabDialog } from "./modules/protocol/ProtocolNewTabDialog";
@@ -562,7 +563,6 @@ function AppShell() {
     : null;
 
   const aiDockWidth = useSettingsStore((s) => s.aiDockWidth);
-  const setAiDockWidth = useSettingsStore((s) => s.setAiDockWidth);
   const workspaceMode = useBottomPanelStore((s) => s.workspaceMode);
   const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
   const workspaceId = useWorkspaceStore((s) => s.workspace.id);
@@ -593,7 +593,7 @@ function AppShell() {
   const dockWidth =
     aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
-  const dragging = useRef(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
 
   // 工程工作区全屏时同步 URL 到 /workspace/:id（Logo 先 navigate 看板时勿拉回工作区）
   useEffect(() => {
@@ -606,44 +606,6 @@ function AppShell() {
     const id = useWorkspaceStore.getState().workspace.id;
     navigate(WORKSPACE_PATHS.detail(id), { replace: true });
   }, [workspaceMode, location.pathname, navigate]);
-
-  const handleResizeMouseDown = useCallback(() => {
-    dragging.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-
-  const handleResizeMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!dragging.current) return;
-      const vw = window.innerWidth;
-      const maxWidth = Math.round(vw * 0.5);
-      const newWidth = Math.max(
-        AI_DOCK_WIDTH_MIN,
-        Math.min(maxWidth, vw - e.clientX),
-      );
-      setAiDockWidth(newWidth);
-    },
-    [setAiDockWidth],
-  );
-
-  const handleResizeMouseUp = useCallback(() => {
-    if (!dragging.current) return;
-    dragging.current = false;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener("mousemove", handleResizeMouseMove);
-    window.addEventListener("mouseup", handleResizeMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleResizeMouseMove);
-      window.removeEventListener("mouseup", handleResizeMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [handleResizeMouseMove, handleResizeMouseUp]);
 
   const routePanels = (
     <div className="content-routes">
@@ -746,6 +708,7 @@ function AppShell() {
       <div className="app">
       <Sidebar />
       <div
+        ref={workspaceRef}
         className={`workspace workspace--${wsState}${showBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
         style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
       >
@@ -756,12 +719,9 @@ function AppShell() {
           <div className={`content-area ws-state-${wsState}`}>
             <WorkspaceHost>{routePanels}</WorkspaceHost>
           </div>
-          {dockOpen && (
-            <div
-              className="ai-dockview-resize-handle"
-              onMouseDown={handleResizeMouseDown}
-            />
-          )}
+          {dockOpen ? (
+            <AiDockviewResizeHandle workspaceRef={workspaceRef} />
+          ) : null}
           {aiDisplayMode === "dockview" ? <AiDockView /> : null}
         </div>
         <StatusBar />

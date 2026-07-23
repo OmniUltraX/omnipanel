@@ -10513,6 +10513,11 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
     }
 
+    .workspace.is-ai-dock-resizing .ai-dockview {
+        /* 拖拽时由 handle 写 inline width，禁止过渡以免拖尾 */
+        transition: none;
+    }
+
     .ai-dockview.open > .ai-assistant-shell > .ai-assistant-shell-body {
         border-left: 1px solid var(--border);
     }
