@@ -34,6 +34,7 @@
 ```text
 模块元数据写入成功 → scheduleAssistantSnapshotSync (debounce 5s)
   → Tauri assistant_push_snapshot → 采集 → 凭证 → PUT modules/* + overview
+  → POST /api/assistant/snapshots/notify
 ```
 
 ## 快照 Schema（v2 · 多文件）
@@ -180,7 +181,35 @@ assistant/{userId}/{clientDeviceId}/snapshots/{generatedAt}-{shortId}/modules/{m
 {objectKeyPrefix}/snapshots/{generatedAt}-{shortId}/modules/{moduleId}.json
 ```
 
-第一期不做 `latest` pointer / 通知 API。凭证仅内存使用，不落盘；401/403 按 Auth 错误引导重新登录。
+第一期不做 `latest` pointer 由客户端维护；上传成功后客户端会调用 notify，由服务端更新 latest / 通知助手端。凭证仅内存使用，不落盘；401/403 按 Auth 错误引导重新登录。
+
+### 上传完成通知
+
+```http
+POST {AUTH_API_BASE}/api/assistant/snapshots/notify
+Authorization: Bearer <access_token>
+X-App-Id: omni-client
+X-Device-Id: <client_device_id>
+X-Device-Public-Key: <optional>
+Content-Type: application/json
+```
+
+Body（**snake_case**）：
+
+```json
+{
+  "snapshot_dir": "assistant/{userId}/{deviceId}/snapshots/{run}/",
+  "overview_key": "assistant/.../overview.json",
+  "object_keys": [
+    ".../modules/terminal.json",
+    ".../modules/database.json",
+    ".../overview.json"
+  ],
+  "generated_at": "2026-07-23T10:00:00Z"
+}
+```
+
+`object_keys` 含本次上传的全部文件；`snapshot_dir` 以 `/` 结尾。notify 失败则整次推送失败（自动同步可重试）。
 
 ### 错误分类
 

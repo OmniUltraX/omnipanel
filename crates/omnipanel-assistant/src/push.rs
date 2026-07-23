@@ -6,6 +6,7 @@ use specta::Type;
 
 use crate::collect::{assemble_modules, default_collectors, CollectContext};
 use crate::error::{map_assistant_error_with_cause, AssistantErrorKind};
+use crate::notify::{normalize_snapshot_dir, notify_snapshot_uploaded, SnapshotNotifyRequest};
 use crate::oss::upload_snapshot_json;
 use crate::sts::{fetch_oss_sts, AuthContext};
 use crate::types::build_snapshot_bundle;
@@ -113,6 +114,18 @@ pub async fn push_snapshot(
             overview_etag = uploaded.etag;
         }
     }
+
+    let object_keys: Vec<String> = bundle.files.iter().map(|f| f.object_key.clone()).collect();
+    notify_snapshot_uploaded(
+        auth,
+        &SnapshotNotifyRequest {
+            snapshot_dir: normalize_snapshot_dir(&snapshot_dir),
+            overview_key: overview_key.clone(),
+            object_keys,
+            generated_at: generated_at.clone(),
+        },
+    )
+    .await?;
 
     Ok(PushSnapshotResult {
         object_key: overview_key,

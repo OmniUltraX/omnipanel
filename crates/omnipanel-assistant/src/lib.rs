@@ -2,6 +2,7 @@
 
 mod collect;
 mod error;
+mod notify;
 mod oss;
 mod push;
 mod sanitize;
@@ -12,6 +13,7 @@ pub use collect::{
     default_collectors, assemble_modules, CollectContext, MetadataCollector, ModuleCollectResult,
 };
 pub use error::{AssistantErrorKind, map_assistant_error};
+pub use notify::{notify_snapshot_uploaded, SnapshotNotifyRequest};
 pub use oss::{upload_snapshot_json, OssUploadResult};
 pub use push::{push_snapshot, PushOptions, PushSnapshotResult};
 pub use sanitize::{
