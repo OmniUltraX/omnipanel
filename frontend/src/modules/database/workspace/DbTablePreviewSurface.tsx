@@ -398,7 +398,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   );
   const handlePreviewRowsDelete = useCallback(
     (rows: Array<{ rowIndex: number; row: Record<string, unknown> }>) => {
-      ws.handleRowsDelete(tab.id, rows);
+      return ws.handleRowsDelete(tab.id, rows);
     },
     [ws.handleRowsDelete, tab.id],
   );

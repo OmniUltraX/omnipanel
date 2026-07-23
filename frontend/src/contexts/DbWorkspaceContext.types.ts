@@ -74,7 +74,7 @@ export interface DbWorkspaceSharedContextValue {
   handleRowsDelete: (
     tabId: string,
     rows: Array<{ rowIndex: number; row: Record<string, unknown> }>,
-  ) => void;
+  ) => boolean;
   resolveConnection: (connId: string) => DbConnectionConfig | null;
   connectionsLoading: boolean;
   selectTable: (selection: SchemaTableSelection) => void;

@@ -2245,6 +2245,9 @@ export const zhCN = {
       deleteSelectedRowsLabel: "删除选中行",
       deleteSelectedRows: "删除选中的 {count} 行",
       deleteSelectedRowsDisabled: "请先选中要删除的行",
+      deleteSelectedRowsNoPk: "无法删除：当前表没有主键，请先设置主键后再删除行",
+      deleteSelectedRowsNoMeta: "无法删除：表结构尚未加载完成，请刷新后重试",
+      deleteSelectedRowsFailed: "删除选中行失败",
       transposeOn: "行列转换",
       transposeOff: "恢复正常显示",
       transposeField: "字段",
@@ -5746,6 +5749,7 @@ export const zhCN = {
       },
       bind: {
         action: "绑定助手端",
+        cancel: "取消",
         title: "绑定助手端",
         desc: "请在小程序登录后使用「扫一扫」扫描下方二维码。两端需为同一微信用户。",
         loading: "正在生成二维码…",

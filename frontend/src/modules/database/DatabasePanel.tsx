@@ -185,6 +185,7 @@ import {
   NEW_ROW_KEY_PREFIX,
   DELETED_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
+  resolvePreviewRowKey,
   resolveSqlTabConnectionId,
   rowsToRecord,
   tabModeToEditorOpenMode,
@@ -2650,36 +2651,60 @@ export function DatabasePanel() {
     (
       tabId: string,
       rowInfos: Array<{ rowIndex: number; row: Record<string, unknown> }>,
-    ) => {
-      if (rowInfos.length === 0) return;
+    ): boolean => {
+      if (rowInfos.length === 0) return false;
       const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
-      if (!colMeta?.length) return;
+      if (!colMeta?.length) {
+        showToast(t("database.results.deleteSelectedRowsNoMeta"));
+        return false;
+      }
       const pkCols = colMeta.filter((c) => c.isPk);
+      let marked = 0;
+      let skippedNoPk = 0;
 
       setTabDirtyRows((prev) => {
-        const cur = { ...(prev[tabId] ?? {}) };
+        const nextDirty = { ...(prev[tabId] ?? {}) };
+        marked = 0;
+        skippedNoPk = 0;
         for (const { row } of rowInfos) {
           const pendingKey = row[PENDING_INSERT_ROW_KEY];
           if (typeof pendingKey === "string") {
-            delete cur[pendingKey];
+            delete nextDirty[pendingKey];
+            marked += 1;
             continue;
           }
-          if (pkCols.length === 0) continue;
-          const rowKey = pkCols
-            .map((pk) => `${pk.name}=${row[pk.name] == null ? "" : String(row[pk.name])}`)
-            .join("&");
-          delete cur[rowKey];
-          cur[`${DELETED_ROW_KEY_PREFIX}${rowKey}`] = {};
+          if (pkCols.length === 0) {
+            skippedNoPk += 1;
+            continue;
+          }
+          const rowKey = resolvePreviewRowKey(row, pkCols);
+          if (!rowKey) {
+            skippedNoPk += 1;
+            continue;
+          }
+          delete nextDirty[rowKey];
+          nextDirty[`${DELETED_ROW_KEY_PREFIX}${rowKey}`] = {};
+          marked += 1;
         }
-        if (Object.keys(cur).length === 0) {
+        if (Object.keys(nextDirty).length === 0) {
           const next = { ...prev };
           delete next[tabId];
           return next;
         }
-        return { ...prev, [tabId]: cur };
+        return { ...prev, [tabId]: nextDirty };
       });
+
+      if (marked === 0) {
+        showToast(
+          skippedNoPk > 0
+            ? t("database.results.deleteSelectedRowsNoPk")
+            : t("database.results.deleteSelectedRowsFailed"),
+        );
+        return false;
+      }
+      return true;
     },
-    [],
+    [t, setTabDirtyRows],
   );
 
   const handleRowNew = useCallback(

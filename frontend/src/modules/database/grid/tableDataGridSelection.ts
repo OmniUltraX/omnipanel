@@ -125,7 +125,8 @@ export function isFullRowSelection(range: CellRange, leafColumnCount: number): b
 export function isFullWidthRowRange(range: CellRange, leafColumnCount: number): boolean {
   if (leafColumnCount <= 0) return false;
   const r = normalizeRange(range);
-  return r.minCol === 0 && r.maxCol === leafColumnCount - 1;
+  // maxCol 可能因随后隐藏列略大于当前 leaf 数；按「覆盖到末列」判定整行
+  return r.minCol === 0 && r.maxCol >= leafColumnCount - 1;
 }
 
 export function rowsInFullRowRange(range: CellRange, leafColumnCount: number): Set<number> {
@@ -141,16 +142,17 @@ export function rowsInFullRowRange(range: CellRange, leafColumnCount: number): S
 export function collectSelectedRowIndices(
   cellRange: CellRange | null,
   selectedRows: ReadonlySet<number>,
-  leafColumnCount: number,
+  _leafColumnCount: number,
 ): number[] {
   const merged = new Set<number>();
-  if (selectedRows.size > 0) {
-    for (const rowIndex of selectedRows) {
-      merged.add(rowIndex);
-    }
-  } else if (cellRange && isFullWidthRowRange(cellRange, leafColumnCount)) {
-    for (const rowIndex of rowsInFullRowRange(cellRange, leafColumnCount)) {
-      merged.add(rowIndex);
+  for (const rowIndex of selectedRows) {
+    merged.add(rowIndex);
+  }
+  // 任意单元格选区都计入行（与右键菜单多行删除一致）；不再要求必须整行全列选中
+  if (cellRange) {
+    const r = normalizeRange(cellRange);
+    for (let i = r.minRow; i <= r.maxRow; i += 1) {
+      merged.add(i);
     }
   }
   return [...merged].sort((a, b) => a - b);

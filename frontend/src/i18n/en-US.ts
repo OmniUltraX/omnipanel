@@ -2256,6 +2256,9 @@ export const enUS: TranslationDict = {
       deleteSelectedRowsLabel: "Delete selected",
       deleteSelectedRows: "Delete {count} selected row(s)",
       deleteSelectedRowsDisabled: "Select rows to delete",
+      deleteSelectedRowsNoPk: "Cannot delete: this table has no primary key",
+      deleteSelectedRowsNoMeta: "Cannot delete: table metadata is not ready. Refresh and try again.",
+      deleteSelectedRowsFailed: "Failed to delete selected rows",
       transposeOn: "Transpose rows/columns",
       transposeOff: "Restore normal view",
       transposeField: "Field",
@@ -5806,6 +5809,7 @@ export const enUS: TranslationDict = {
       },
       bind: {
         action: "Bind assistant",
+        cancel: "Cancel",
         title: "Bind assistant",
         desc: "In the mini program, sign in and scan this QR code. Both ends must be the same WeChat user.",
         loading: "Generating QR code…",

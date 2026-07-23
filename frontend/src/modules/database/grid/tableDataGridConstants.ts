@@ -42,6 +42,10 @@ export const GRID_EXTERNAL_INTERACTION_SELECTOR = [
   ".file-preview-subwindow",
   ".db-cell-editor-panel",
   ".db-table-detail-panel",
+  // 顶栏删除/提交等：mousedown 在 click 之前，若清选区会导致「删除选中的 N 行」点了却无选中
+  ".db-table-topbar",
+  ".db-delete-selected-rows-wrap",
+  ".db-pagination",
   ".db-table-preview-split .dock-panel-right",
   ".db-table-preview-split .dock-panel-bottom",
   ".db-table-preview-split .dock-handle",

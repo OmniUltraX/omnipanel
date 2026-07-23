@@ -20,11 +20,17 @@ use crate::state::AppState;
 const AUTH_API_BASE: &str = "https://mp.99.protected.fun";
 const AUTH_MODULE_DIR: &str = "auth";
 const DEVICE_IDENTITY_FILE: &str = "device.json";
-/// OmniPanel 桌面端固定身份（落库 / 出码均需）。
+/// OmniPanel 桌面端固定身份（文档约定；登录上报优先使用）。
 const CLIENT_APP_ID: &str = "omni-client";
+/// 服务端当前对桌面端落库的默认 app_id（历史登录 / 未识别 X-App-Id 时写入）。
+/// 绑定出码按 app_id 精确查找，需与落库值一致，故作为回退。
+const CLIENT_APP_ID_FALLBACK: &str = "default";
 const CLIENT_APP_ROLE: &str = "client";
 
 static LOGIN_WAIT_CANCELS: LazyLock<Mutex<HashMap<String, oneshot::Sender<()>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// 绑定出码成功时选用的 X-App-Id，供 wait SSE 复用（与落库 app_id 一致）。
+static BINDING_APP_IDS: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -170,12 +176,36 @@ fn apply_client_identity_headers(
     req: reqwest::RequestBuilder,
     identity: &AuthDeviceIdentity,
 ) -> reqwest::RequestBuilder {
-    req.header("X-App-Id", CLIENT_APP_ID)
+    apply_client_identity_headers_with_app(req, identity, CLIENT_APP_ID)
+}
+
+fn apply_client_identity_headers_with_app(
+    req: reqwest::RequestBuilder,
+    identity: &AuthDeviceIdentity,
+    app_id: &str,
+) -> reqwest::RequestBuilder {
+    req.header("X-App-Id", app_id)
         .header("X-App-Role", CLIENT_APP_ROLE)
         .header("X-Device-Id", &identity.device_id)
         // HeaderValue 仅允许可见 ASCII；中文主机名等需降级，避免请求构建失败
         .header("X-Device-Name", ascii_header_value(&identity.device_name, "OmniPanel"))
         .header("X-Device-OS", ascii_header_value(&identity.os_type, "unknown"))
+}
+
+fn is_client_device_not_found(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("client device not found")
+}
+
+fn bindings_api_error(message: String) -> OmniError {
+    if is_client_device_not_found(&message) {
+        OmniError::new(
+            ErrorCode::Internal,
+            "本机客户端设备未落库或不匹配，请重新登录后再绑定助手端",
+        )
+        .with_cause(message)
+    } else {
+        OmniError::new(ErrorCode::Internal, message)
+    }
 }
 
 fn ascii_header_value(raw: &str, fallback: &str) -> String {
@@ -343,6 +373,21 @@ fn register_cancel(login_id: &str) -> oneshot::Receiver<()> {
         let _ = prev.send(());
     }
     rx
+}
+
+fn remember_binding_app_id(bind_id: &str, app_id: &str) {
+    BINDING_APP_IDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(bind_id.to_string(), app_id.to_string());
+}
+
+fn take_binding_app_id(bind_id: &str) -> String {
+    BINDING_APP_IDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(bind_id)
+        .unwrap_or_else(|| CLIENT_APP_ID_FALLBACK.to_string())
 }
 
 /// 读取本机设备身份（用于列表「本机」标记）。
@@ -764,59 +809,78 @@ pub async fn auth_bindings_qrcode(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
 
-    let resp = apply_client_identity_headers(
-        client
-            .post(&url)
-            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
-        &identity,
-    )
-    .send()
-    .await
-    .map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "获取绑定二维码失败")
-            .with_cause(format_reqwest_error(&e))
-    })?;
+    // 服务端按 X-App-Id 精确匹配已落库 client 设备；文档约定 omni-client，
+    // 但历史登录可能写入 default，故按优先级尝试。
+    let mut last_not_found: Option<String> = None;
+    for app_id in [CLIENT_APP_ID, CLIENT_APP_ID_FALLBACK] {
+        let resp = apply_client_identity_headers_with_app(
+            client
+                .post(&url)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+            &identity,
+            app_id,
+        )
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "获取绑定二维码失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
 
-    let status = resp.status();
-    let body = resp.text().await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取绑定二维码响应失败").with_cause(e.to_string())
-    })?;
+        let status = resp.status();
+        let body = resp.text().await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取绑定二维码响应失败").with_cause(e.to_string())
+        })?;
 
-    if status.as_u16() == 401 {
-        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
-    }
+        if status.as_u16() == 401 {
+            return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
+        }
 
-    let parsed: ApiBindingsQrcodeResponse = serde_json::from_str(&body).map_err(|e| {
-        OmniError::new(ErrorCode::Internal, "解析绑定二维码响应失败")
-            .with_cause(format!("{e}; body={body}"))
-    })?;
+        let parsed: ApiBindingsQrcodeResponse = serde_json::from_str(&body).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "解析绑定二维码响应失败")
+                .with_cause(format!("{e}; body={body}"))
+        })?;
 
-    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
-        return Err(OmniError::new(ErrorCode::Internal, error));
-    }
-    if !status.is_success() {
-        let msg = serde_json::from_str::<ApiErrorBody>(&body)
-            .ok()
-            .and_then(|b| b.error)
+        if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+            if is_client_device_not_found(&error) {
+                last_not_found = Some(error);
+                continue;
+            }
+            return Err(bindings_api_error(error));
+        }
+        if !status.is_success() {
+            let msg = serde_json::from_str::<ApiErrorBody>(&body)
+                .ok()
+                .and_then(|b| b.error)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("获取绑定二维码失败 (HTTP {status})"));
+            if is_client_device_not_found(&msg) {
+                last_not_found = Some(msg);
+                continue;
+            }
+            return Err(OmniError::new(ErrorCode::Connection, msg).with_cause(body));
+        }
+
+        let bind_id = parsed
+            .bind_id
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("获取绑定二维码失败 (HTTP {status})"));
-        return Err(OmniError::new(ErrorCode::Connection, msg).with_cause(body));
+            .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 bind_id"))?;
+        let qr_payload = parsed
+            .qr_payload
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| bind_id.clone());
+
+        remember_binding_app_id(&bind_id, app_id);
+        return Ok(AuthBindingsQrcode {
+            bind_id,
+            qr_payload,
+            expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
+        });
     }
 
-    let bind_id = parsed
-        .bind_id
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 bind_id"))?;
-    let qr_payload = parsed
-        .qr_payload
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| bind_id.clone());
-
-    Ok(AuthBindingsQrcode {
-        bind_id,
-        qr_payload,
-        expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
-    })
+    Err(bindings_api_error(last_not_found.unwrap_or_else(|| {
+        "client device not found".to_string()
+    })))
 }
 
 /// 通过后端代理 SSE，等待小程序扫码确认绑定（事件 `bound`）。
@@ -838,6 +902,7 @@ pub async fn auth_bindings_wait(
     }
 
     let identity = load_or_create_device_identity()?;
+    let app_id = take_binding_app_id(&bind_id);
     let proxy_config = state.proxy_config.lock().await.clone();
     let url = auth_url(&format!(
         "/api/bindings/wait?id={}",
@@ -856,7 +921,7 @@ pub async fn auth_bindings_wait(
         _ = cancel_rx => {
             Err(OmniError::new(ErrorCode::Internal, "绑定等待已取消"))
         }
-        outcome = wait_sse_bound(&client, &url, &token, &identity, &bind_id) => outcome,
+        outcome = wait_sse_bound(&client, &url, &token, &identity, &app_id, &bind_id) => outcome,
     };
 
     let _ = take_cancel(&bind_id);
@@ -986,14 +1051,16 @@ async fn wait_sse_bound(
     url: &str,
     token: &str,
     identity: &AuthDeviceIdentity,
+    app_id: &str,
     bind_id: &str,
 ) -> Result<AuthBindingsBound, OmniError> {
-    let resp = apply_client_identity_headers(
+    let resp = apply_client_identity_headers_with_app(
         client
             .get(url)
             .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
             .header(reqwest::header::ACCEPT, "text/event-stream"),
         identity,
+        app_id,
     )
     .send()
     .await

@@ -12,9 +12,8 @@ import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
-import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { IconMonitor } from "../ui/icons/Icons";
-import { BindAssistantDialog } from "./BindAssistantDialog";
+import { BindAssistantPanel } from "./BindAssistantPanel";
 
 function formatDeviceTime(value: string, locale: string): string {
   const trimmed = value.trim();
@@ -130,6 +129,7 @@ export function UserCenterDevices() {
   }, []);
 
   const handleSessionExpired = useCallback(() => {
+    setBindOpen(false);
     clearProfile();
     logout();
     showToast(t("userCenter.devices.sessionExpired"));
@@ -139,6 +139,7 @@ export function UserCenterDevices() {
     if (!token) {
       setLoading(false);
       setDevices([]);
+      setBindOpen(false);
       setErrorMessage(t("userCenter.devices.sessionExpired"));
       setSessionExpired(true);
       return;
@@ -274,73 +275,64 @@ export function UserCenterDevices() {
             <p className="user-center-section__desc">{t("userCenter.devices.desc")}</p>
           </div>
           <div className="user-center-devices__header-actions">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={!token}
-              onClick={() => setBindOpen(true)}
-            >
-              {t("userCenter.devices.bind.action")}
-            </Button>
             <Button type="button" variant="ghost" size="sm" onClick={refresh}>
               {t("userCenter.devices.refresh")}
             </Button>
           </div>
         </div>
 
-        {devices.length === 0 ? (
-          <ModuleEmptyState
-            icon={<IconMonitor size={36} />}
-            title={t("userCenter.devices.emptyTitle")}
-            desc={t("userCenter.devices.emptyDesc")}
+        <div className="user-center-devices__group">
+          <h4 className="user-center-devices__group-title">
+            {t("userCenter.devices.role.client")}
+            <span className="user-center-devices__group-count">{clientDevices.length}</span>
+          </h4>
+          <DeviceList
+            devices={clientDevices}
+            localDeviceId={localDeviceId}
+            deletingId={deletingId}
+            onDelete={(device) => void handleDelete(device)}
+            t={t}
+            locale={locale}
           />
-        ) : (
-          <>
-            <div className="user-center-devices__group">
-              <h4 className="user-center-devices__group-title">
-                {t("userCenter.devices.role.client")}
-                <span className="user-center-devices__group-count">{clientDevices.length}</span>
-              </h4>
-              <DeviceList
-                devices={clientDevices}
-                localDeviceId={localDeviceId}
-                deletingId={deletingId}
-                onDelete={(device) => void handleDelete(device)}
-                t={t}
-                locale={locale}
-              />
-            </div>
+        </div>
 
-            <div className="user-center-devices__group">
-              <div className="user-center-devices__group-header">
-                <h4 className="user-center-devices__group-title">
-                  {t("userCenter.devices.role.assistant")}
-                  <span className="user-center-devices__group-count">{assistantDevices.length}</span>
-                </h4>
-              </div>
-              <DeviceList
-                devices={assistantDevices}
-                localDeviceId={localDeviceId}
-                deletingId={deletingId}
-                onDelete={(device) => void handleDelete(device)}
-                t={t}
-                locale={locale}
-              />
-            </div>
-          </>
-        )}
+        <div className="user-center-devices__group">
+          <div className="user-center-devices__group-header">
+            <h4 className="user-center-devices__group-title">
+              {t("userCenter.devices.role.assistant")}
+              <span className="user-center-devices__group-count">{assistantDevices.length}</span>
+            </h4>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!token}
+              onClick={() => setBindOpen((open) => !open)}
+            >
+              {bindOpen
+                ? t("userCenter.devices.bind.cancel")
+                : t("userCenter.devices.bind.action")}
+            </Button>
+          </div>
+          {token ? (
+            <BindAssistantPanel
+              active={bindOpen}
+              token={token}
+              onClose={() => setBindOpen(false)}
+              onBound={refresh}
+              onSessionExpired={handleSessionExpired}
+            />
+          ) : null}
+          <DeviceList
+            devices={assistantDevices}
+            localDeviceId={localDeviceId}
+            deletingId={deletingId}
+            onDelete={(device) => void handleDelete(device)}
+            t={t}
+            locale={locale}
+          />
+        </div>
       </section>
-
-      {token ? (
-        <BindAssistantDialog
-          open={bindOpen}
-          token={token}
-          onClose={() => setBindOpen(false)}
-          onBound={refresh}
-          onSessionExpired={handleSessionExpired}
-        />
-      ) : null}
     </div>
   );
 }

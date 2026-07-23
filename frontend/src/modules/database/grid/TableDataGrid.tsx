@@ -227,10 +227,10 @@ export type TableDataGridProps = {
   onRowBandSelect?: () => void;
   /** 粘贴为新行（表预览编辑模式） */
   onRowPaste?: (payload: { values: Record<string, unknown> }) => void;
-  /** 删除选中的行（表预览编辑模式） */
+  /** 删除选中的行（表预览编辑模式）；返回是否成功标记删除 */
   onDeleteSelectedRows?: (
     rows: Array<{ rowIndex: number; row: Record<string, unknown> }>,
-  ) => void;
+  ) => boolean | void;
   /** 当前选中的单个数据单元格（用于底栏编辑器等） */
   /** 当前选中的单元格集合（含多格选区） */
   onSelectedCellsChange?: (cells: TableDataGridActiveCell[]) => void;
@@ -448,6 +448,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   cellRangeRef.current = cellRange;
   const selectedRowsRef = useRef(selectedRows);
   selectedRowsRef.current = selectedRows;
+  const onDeleteSelectedRowsRef = useRef(onDeleteSelectedRows);
+  onDeleteSelectedRowsRef.current = onDeleteSelectedRows;
   const rowAnchorRef = useRef<number | null>(null);
   const cellAnchorRef = useRef<CellPos | null>(null);
   const cellDragRef = useRef<{ active: boolean; start: CellPos } | null>(null);
@@ -1546,6 +1548,10 @@ export const TableDataGrid = memo(function TableDataGrid({
   const allColumnsHidden = sidebarColumns.length > 0 && visibleColumns.length === 0;
   const tableRows = table.getRowModel().rows;
   const leafColumnCount = table.getAllLeafColumns().length;
+  const tableRowsRef = useRef(tableRows);
+  tableRowsRef.current = tableRows;
+  const leafColumnCountRef = useRef(leafColumnCount);
+  leafColumnCountRef.current = leafColumnCount;
 
   const selectedRowIndices = useMemo(
     () =>
@@ -1557,21 +1563,30 @@ export const TableDataGrid = memo(function TableDataGrid({
   const hasSelectedRows = selectedRowIndices.length > 0;
 
   const handleDeleteSelectedRows = useCallback(() => {
-    if (!onDeleteSelectedRows || selectedRowIndices.length === 0) return;
-    const payload = selectedRowIndices
+    const deleteHandler = onDeleteSelectedRowsRef.current;
+    const currentLeafCount = leafColumnCountRef.current;
+    const currentTableRows = tableRowsRef.current;
+    const indices = collectSelectedRowIndices(
+      cellRangeRef.current,
+      selectedRowsRef.current,
+      currentLeafCount,
+    );
+    if (!deleteHandler || indices.length === 0) return;
+    const payload = indices
       .map((index) => {
-        const tableRow = tableRows[index];
+        const tableRow = currentTableRows[index];
         if (!tableRow) return null;
         return { rowIndex: tableRow.index, row: tableRow.original };
       })
       .filter((item): item is { rowIndex: number; row: Record<string, unknown> } => item != null);
     if (payload.length === 0) return;
-    onDeleteSelectedRows(payload);
+    const ok = deleteHandler(payload);
+    if (ok === false) return;
     setCellRange(null);
     setSelectedRows(new Set());
     rowAnchorRef.current = null;
     cellAnchorRef.current = null;
-  }, [onDeleteSelectedRows, selectedRowIndices, tableRows]);
+  }, []);
 
   useEffect(() => {
     onSelectedRowCountChange?.(selectedRowIndices.length);
@@ -2631,7 +2646,8 @@ export const TableDataGrid = memo(function TableDataGrid({
                 (item): item is { rowIndex: number; row: Record<string, unknown> } => item != null,
               );
             if (payload.length === 0) return;
-            onDeleteSelectedRows(payload);
+            const ok = onDeleteSelectedRows(payload);
+            if (ok === false) return;
             clearGridSelection();
           },
           onExport: () => onExportMenu?.(menu.x, menu.y),

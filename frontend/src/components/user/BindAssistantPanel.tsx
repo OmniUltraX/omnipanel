@@ -7,27 +7,27 @@ import {
   type BindingsQrcodeResponse,
 } from "../../lib/auth/loginApi";
 import { showToast } from "../../stores/toastStore";
-import { FormDialog } from "../ui/form/FormDialog";
 import { Button } from "../ui/Button";
 import { LocalQrCode } from "./LocalQrCode";
 
 type BindUiStatus = "loading" | "ready" | "expired" | "error" | "success";
 
-interface BindAssistantDialogProps {
-  open: boolean;
+interface BindAssistantPanelProps {
+  active: boolean;
   token: string;
-  onClose: () => void;
   onBound: () => void;
+  onClose: () => void;
   onSessionExpired: () => void;
 }
 
-export function BindAssistantDialog({
-  open,
+/** 设备管理页内联：申请绑定二维码并 SSE 等待助手端扫码确认。 */
+export function BindAssistantPanel({
+  active,
   token,
-  onClose,
   onBound,
+  onClose,
   onSessionExpired,
-}: BindAssistantDialogProps) {
+}: BindAssistantPanelProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<BindUiStatus>("loading");
   const [qrcode, setQrcode] = useState<BindingsQrcodeResponse | null>(null);
@@ -51,7 +51,7 @@ export function BindAssistantDialog({
   }, []);
 
   useEffect(() => {
-    if (!open || !token) {
+    if (!active || !token) {
       clearWait();
       return;
     }
@@ -113,7 +113,9 @@ export function BindAssistantDialog({
       fetchAbort.abort();
       clearWait();
     };
-  }, [clearWait, onBound, onClose, onSessionExpired, open, refreshKey, t, token]);
+  }, [active, clearWait, onBound, onClose, onSessionExpired, refreshKey, t, token]);
+
+  if (!active) return null;
 
   const statusText =
     status === "loading"
@@ -127,27 +129,13 @@ export function BindAssistantDialog({
             : t("userCenter.devices.bind.success");
 
   return (
-    <FormDialog
-      open={open}
-      onClose={onClose}
-      title={t("userCenter.devices.bind.title")}
-      className="user-center-bind-dialog"
-      onCancel={onClose}
-      primaryAction={
-        status === "expired" || status === "error"
-          ? {
-              label: t("userCenter.devices.bind.refresh"),
-              onClick: refreshQrcode,
-            }
-          : undefined
-      }
-    >
+    <div className="user-center-bind-panel">
       <p className="user-center-section__desc">{t("userCenter.devices.bind.desc")}</p>
-      <div className="user-center-login__qr-wrap user-center-bind-dialog__qr">
+      <div className="user-center-login__qr-wrap user-center-bind-panel__qr">
         {status === "ready" && qrcode ? (
           <LocalQrCode
             payload={qrcode.qr_payload}
-            size={200}
+            size={180}
             className="user-center-login__qr"
             alt={t("userCenter.devices.bind.qrAlt")}
           />
@@ -171,6 +159,6 @@ export function BindAssistantDialog({
       >
         {statusText}
       </p>
-    </FormDialog>
+    </div>
   );
 }
