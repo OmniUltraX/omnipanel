@@ -38,19 +38,60 @@ export function buildColumnCellStyle(
 ): CSSProperties {
   const stretchLast = fillDelta > 0 && columnId === lastColumnId;
   const width = stretchLast ? baseSize + fillDelta : baseSize;
+  // maxWidth 必须与 width 一致，否则列宽拖拽时仅改 width 会被旧 maxWidth 卡住，
+  // Canvas 已按新宽度绘制而表头不跟，造成严重错位。
   return stretchLast
-    ? { width, minWidth: baseSize }
-    : { width, minWidth: baseSize, maxWidth: baseSize };
+    ? { width, minWidth: baseSize, maxWidth: width }
+    : { width, minWidth: width, maxWidth: width };
 }
 
 export function applyColumnWidthDom(wrap: HTMLElement, columnId: string, width: number) {
   const px = `${width}px`;
   wrap.querySelectorAll<HTMLElement>(`[data-col-id="${CSS.escape(columnId)}"]`).forEach((el) => {
     el.style.width = px;
+    el.style.minWidth = px;
+    el.style.maxWidth = px;
   });
   wrap
     .querySelector<HTMLElement>(`col[data-col-id="${CSS.escape(columnId)}"]`)
     ?.style.setProperty("width", px);
+}
+
+/**
+ * 读取表头布局几何（offsetLeft/offsetWidth，不受 sticky/滚动视觉影响）。
+ * 任一列缺失（列虚拟化未挂载）时返回 null，由调用方回退逻辑宽度。
+ */
+export type MeasuredHeaderColumn = { x: number; width: number };
+
+export function measureHeaderColumnGeometry(
+  wrap: HTMLElement,
+  columnIds: readonly string[],
+): { columns: MeasuredHeaderColumn[]; totalWidth: number } | null {
+  if (columnIds.length === 0) return null;
+  const columns: MeasuredHeaderColumn[] = [];
+  for (const columnId of columnIds) {
+    const th = wrap.querySelector(`th[data-col-id="${CSS.escape(columnId)}"]`);
+    if (!(th instanceof HTMLElement)) return null;
+    const width = th.offsetWidth;
+    if (!(width > 0)) return null;
+    columns.push({ x: th.offsetLeft, width });
+  }
+  const table = wrap.querySelector<HTMLElement>("table.db-data-table");
+  const last = columns[columns.length - 1]!;
+  const totalWidth = Math.max(
+    table?.offsetWidth ?? 0,
+    last.x + last.width,
+  );
+  return { columns, totalWidth };
+}
+
+/** @deprecated 使用 measureHeaderColumnGeometry */
+export function measureHeaderColumnWidths(
+  wrap: HTMLElement,
+  columnIds: readonly string[],
+): number[] | null {
+  const geometry = measureHeaderColumnGeometry(wrap, columnIds);
+  return geometry ? geometry.columns.map((col) => col.width) : null;
 }
 
 /** Canvas / DOM 共用的视口锚点矩形 */

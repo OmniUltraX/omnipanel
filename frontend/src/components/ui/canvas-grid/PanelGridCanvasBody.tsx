@@ -234,6 +234,8 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
     }
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
+    canvas.style.left = `${scrollLeft}px`;
+    canvas.style.top = `${scrollTop}px`;
 
     themeRef.current ??= readCanvasGridTheme(wrap, "panel");
     const ctx = canvas.getContext("2d");

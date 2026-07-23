@@ -31,6 +31,12 @@ export type BuildGridSnapshotInput = {
   dragColumnWidth?: { columnId: string; width: number } | null;
   /** 行高拖拽进行中时覆盖 */
   dragRowHeight?: { rowIndex: number; height: number } | null;
+  /** 表头实测列宽（与 DOM 布局对齐；优先于逻辑宽度） */
+  measuredColumnWidths?: number[] | null;
+  /** 表头实测几何（含 offsetLeft，优先于 measuredColumnWidths） */
+  measuredColumnGeometry?: Array<{ x: number; width: number }> | null;
+  /** 与表头 table.offsetWidth 对齐的内容总宽 */
+  measuredTotalWidth?: number | null;
   transposed: boolean;
   columnMetaMap: Record<string, DbColumnMeta> | null;
   pkCols: { name: string }[];
@@ -63,23 +69,45 @@ export type GridSnapshotBundle = {
 };
 
 export function buildGridSnapshotBundle(input: BuildGridSnapshotInput): GridSnapshotBundle {
-  const widths = input.leafColumns.map((col) => {
+  const measuredGeometry = input.measuredColumnGeometry;
+  const useGeometry =
+    Array.isArray(measuredGeometry) && measuredGeometry.length === input.leafColumns.length;
+  const measured = input.measuredColumnWidths;
+  const useMeasured =
+    !useGeometry && Array.isArray(measured) && measured.length === input.leafColumns.length;
+
+  const widths = input.leafColumns.map((col, index) => {
+    if (useGeometry) {
+      return measuredGeometry[index]!.width;
+    }
+    if (useMeasured) {
+      return measured[index]!;
+    }
     if (input.dragColumnWidth && input.dragColumnWidth.columnId === col.id) {
       return input.dragColumnWidth.width;
     }
     return input.resolveColumnWidth(col.id, col.getSize());
   });
-  const { columns: offsetCols, totalWidth } = buildColumnOffsets(widths);
+  const { columns: offsetCols, totalWidth: offsetsTotal } = buildColumnOffsets(widths);
+  const totalWidth =
+    input.measuredTotalWidth != null && input.measuredTotalWidth > 0
+      ? input.measuredTotalWidth
+      : offsetsTotal;
 
   const columns: GridColumnDrawInfo[] = input.leafColumns.map((col, index) => {
     const offset = offsetCols[index]!;
+    const geometry = useGeometry ? measuredGeometry[index]! : null;
+    const pinned = isPinnedGridColumn(col.id, input.transposed);
+    const isRowNum = col.id === ROW_NUM_COL_ID;
+    const isFieldCol = input.transposed && col.id === TRANSPOSE_FIELD_COL;
     return {
       id: col.id,
-      x: offset.x,
-      width: offset.width,
-      pinned: isPinnedGridColumn(col.id, input.transposed),
-      isRowNum: col.id === ROW_NUM_COL_ID,
-      isFieldCol: input.transposed && col.id === TRANSPOSE_FIELD_COL,
+      // 固定列始终用逻辑偏移，避免 sticky 表头测量污染命中检测
+      x: pinned || isRowNum || isFieldCol ? offset.x : (geometry?.x ?? offset.x),
+      width: geometry?.width ?? offset.width,
+      pinned,
+      isRowNum,
+      isFieldCol,
       isRelation:
         !input.transposed &&
         input.relationHighlightColumnIds.has(col.id) &&

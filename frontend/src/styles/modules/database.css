@@ -1811,8 +1811,8 @@
     }
 
     .db-tables-panel-grid-canvas {
-        position: sticky;
-        top: var(--db-grid-header-height, 28px);
+        position: absolute;
+        top: 0;
         left: 0;
         display: block;
         z-index: 1;
@@ -6469,12 +6469,22 @@
         position: relative;
     }
 
-    /* Canvas 模式：表头单独 sticky，body 用 sizer + sticky canvas */
+    /* Canvas 模式：表头单独 sticky，body 用 sizer + 绝对定位 canvas */
     .db-data-table-wrap--canvas .db-data-table--canvas-chrome {
         position: sticky;
         top: 0;
         z-index: 3;
         background: var(--surface);
+        /* separate 避免 collapse 共享边框导致列宽累加与 Canvas 像素布局漂移 */
+        border-collapse: separate;
+        border-spacing: 0;
+        /* 防止表头层在 WebView 中扩大热区挡住下方 canvas */
+        pointer-events: none;
+    }
+
+    .db-data-table-wrap--canvas .db-data-table--canvas-chrome th {
+        box-sizing: border-box;
+        pointer-events: auto;
     }
 
     .db-data-table-canvas-sizer {
@@ -6485,11 +6495,12 @@
     }
 
     .db-data-table-canvas {
-        position: sticky;
-        top: var(--db-grid-header-height, 28px);
+        /* 绝对定位 + JS 同步 scrollLeft/Top，避免超宽 sizer 内 sticky left 失效 */
+        position: absolute;
+        top: 0;
         left: 0;
         display: block;
-        z-index: 1;
+        z-index: 2;
         pointer-events: auto;
         touch-action: none;
     }
@@ -7706,8 +7717,34 @@
 
     /* 横向滚动时固定行号列（表头角 + 数据行） */
     .db-data-table-wrap:not(.db-data-table-wrap--transposed) .db-data-table th[data-col-id="__row_num__"] {
+        position: sticky;
         left: 0;
         z-index: 4;
+        box-shadow: 1px 0 0 var(--border);
+        background: var(--surface);
+    }
+
+    /*
+     * Canvas 模式：不用 sticky left 钉行号表头。
+     * WebView 下 sticky 列热区常被拉高，会挡住下方 canvas 的行号点击/拖选。
+     * 改为 --db-grid-rownum-tx 与 scrollLeft 同步（见 paint）。
+     */
+    .db-data-table-wrap--canvas:not(.db-data-table-wrap--transposed) .db-data-table--canvas-chrome th[data-col-id="__row_num__"] {
+        position: sticky;
+        top: 0;
+        left: auto;
+        z-index: 5;
+        transform: translateX(var(--db-grid-rownum-tx, 0px));
+        will-change: transform;
+    }
+
+    .db-data-table-wrap--canvas.db-data-table-wrap--transposed .db-data-table--canvas-chrome th[data-col-id="__field__"] {
+        position: sticky;
+        top: 0;
+        left: auto;
+        z-index: 5;
+        transform: translateX(var(--db-grid-rownum-tx, 0px));
+        will-change: transform;
         box-shadow: 1px 0 0 var(--border);
         background: var(--surface);
     }

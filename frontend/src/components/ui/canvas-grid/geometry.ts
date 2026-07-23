@@ -61,10 +61,24 @@ export function findColumnAtX(
   columns: GridColumnDrawInfo[],
   contentX: number,
   _scrollLeft: number,
-  _pinnedWidth: number,
+  pinnedWidth: number,
 ): number {
+  // 固定列：按绘制顺序从 0 累加宽度命中，避免 sticky/测量导致 col.x 漂移后点不中行号
+  if (pinnedWidth > 0 && contentX < pinnedWidth) {
+    let pinnedX = 0;
+    for (let i = 0; i < columns.length; i += 1) {
+      const col = columns[i]!;
+      if (!isPinnedDrawColumn(col)) continue;
+      if (contentX >= pinnedX && contentX < pinnedX + col.width) {
+        return i;
+      }
+      pinnedX += col.width;
+    }
+  }
+
   for (let i = 0; i < columns.length; i += 1) {
     const col = columns[i]!;
+    if (isPinnedDrawColumn(col)) continue;
     if (contentX >= col.x && contentX < col.x + col.width) {
       return i;
     }
@@ -72,10 +86,18 @@ export function findColumnAtX(
   return -1;
 }
 
+export function isPinnedDrawColumn(col: {
+  pinned: boolean;
+  isRowNum: boolean;
+  isFieldCol: boolean;
+}): boolean {
+  return col.pinned || col.isRowNum || col.isFieldCol;
+}
+
 export function getPinnedWidth(columns: GridColumnDrawInfo[]): number {
   let width = 0;
   for (const col of columns) {
-    if (col.pinned) width += col.width;
+    if (isPinnedDrawColumn(col)) width += col.width;
   }
   return width;
 }
@@ -110,7 +132,7 @@ export function cellViewportRect(
   const rect = cellContentRect(snapshot, rowOffsets, rowIndex, colIndex);
   if (!rect) return null;
   const col = snapshot.columns[colIndex]!;
-  const screenX = col.pinned ? rect.x : rect.x - scrollLeft;
+  const screenX = isPinnedDrawColumn(col) ? rect.x : rect.x - scrollLeft;
   const screenY = rect.y - scrollTop + headerHeight;
   return {
     left: wrapRect.left + screenX,

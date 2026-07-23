@@ -4,6 +4,7 @@ import {
   VALUE_BTN_SIZE,
   VALUE_BTN_RIGHT,
   getPinnedWidth,
+  isPinnedDrawColumn,
   valueBtnRect,
 } from "./geometry";
 
@@ -307,11 +308,15 @@ export function drawGridBody({
     }
   }
 
-  const drawColumn = (colIndex: number, pinnedPass: boolean) => {
+  const drawColumn = (colIndex: number, pinnedPass: boolean, pinnedScreenX?: number) => {
     const col = snapshot.columns[colIndex];
-    if (!col || col.pinned !== pinnedPass) return;
+    // 行号 / 转置字段列强制按固定列绘制，避免 pinned 标记异常时跟着横滚跑掉
+    const isPinnedCol = Boolean(col && isPinnedDrawColumn(col));
+    if (!col || isPinnedCol !== pinnedPass) return;
 
-    const screenX = pinnedPass ? col.x : col.x - scrollLeft;
+    const screenX = pinnedPass
+      ? (pinnedScreenX ?? 0)
+      : col.x - scrollLeft;
     if (!pinnedPass) {
       if (screenX + col.width <= pinnedWidth) return;
       if (screenX >= width) return;
@@ -432,8 +437,12 @@ export function drawGridBody({
   for (let i = 0; i < snapshot.columns.length; i += 1) {
     drawColumn(i, false);
   }
+  let pinnedScreenX = 0;
   for (let i = 0; i < snapshot.columns.length; i += 1) {
-    drawColumn(i, true);
+    const col = snapshot.columns[i];
+    if (!col || !isPinnedDrawColumn(col)) continue;
+    drawColumn(i, true, pinnedScreenX);
+    pinnedScreenX += col.width;
   }
 
   // 固定列右边线（列表模式不画）

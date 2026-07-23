@@ -5,7 +5,9 @@ import {
   buildRowOffsets,
   findColumnAtX,
   findRowAtOffset,
+  getPinnedWidth,
   hitTestGrid,
+  isPinnedDrawColumn,
   viewportToContent,
 } from "./geometry";
 import type { GridColumnDrawInfo, GridRenderSnapshot } from "./types";
@@ -82,6 +84,34 @@ describe("canvas-grid geometry", () => {
     });
   });
 
+  it("getPinnedWidth includes row-num even if pinned flag is false", () => {
+    const columns: GridColumnDrawInfo[] = [
+      {
+        id: "__row_num__",
+        x: 0,
+        width: 40,
+        pinned: false,
+        isRowNum: true,
+        isFieldCol: false,
+        isRelation: false,
+        isRelationDisplay: false,
+      },
+      {
+        id: "c1",
+        x: 40,
+        width: 120,
+        pinned: false,
+        isRowNum: false,
+        isFieldCol: false,
+        isRelation: false,
+        isRelationDisplay: false,
+      },
+    ];
+    expect(getPinnedWidth(columns)).toBe(40);
+    expect(isPinnedDrawColumn(columns[0]!)).toBe(true);
+    expect(isPinnedDrawColumn(columns[1]!)).toBe(false);
+  });
+
   it("hitTestGrid returns rownum and cell regions", () => {
     const snapshot = makeSnapshot();
     const { offsets } = buildRowOffsets(10, () => 32);
@@ -101,6 +131,33 @@ describe("canvas-grid geometry", () => {
     expect(findColumnAtX(snapshot.columns, 0, 0, 40)).toBe(0);
     expect(findColumnAtX(snapshot.columns, 40, 0, 40)).toBe(1);
     expect(findColumnAtX(snapshot.columns, 200, 0, 40)).toBe(2);
+  });
+
+  it("findColumnAtX hits pinned row-num by accumulated width even if col.x drifted", () => {
+    const columns: GridColumnDrawInfo[] = [
+      {
+        id: "__row_num__",
+        x: 500,
+        width: 40,
+        pinned: true,
+        isRowNum: true,
+        isFieldCol: false,
+        isRelation: false,
+        isRelationDisplay: false,
+      },
+      {
+        id: "c1",
+        x: 540,
+        width: 120,
+        pinned: false,
+        isRowNum: false,
+        isFieldCol: false,
+        isRelation: false,
+        isRelationDisplay: false,
+      },
+    ];
+    expect(findColumnAtX(columns, 20, 500, 40)).toBe(0);
+    expect(findColumnAtX(columns, 560, 500, 40)).toBe(1);
   });
 
   it("hitTestGrid detects row resize zone", () => {
