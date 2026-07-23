@@ -26,7 +26,7 @@ const SECTION_STORAGE_KEY = "omnipanel-db-schema-sidebar-sections";
 type SectionKey = "connections" | "queries" | "syncTasks";
 
 export interface DatabaseSchemaSidebarProps
-  extends Omit<SchemaBrowserProps, "activeConnId" | "activeTableKey" | "activeDatabaseKey"> {
+  extends Omit<SchemaBrowserProps, "activeConnId" | "activeTableKey" | "activeDatabaseKey" | "openTabNodeIds"> {
   onOpenSqlFile: (file: DbSqlFileNode) => void;
   onNewTreeChart?: () => void;
   onOpenTreeChartFile?: (file: DbTreeChartFileNode) => void;
@@ -47,7 +47,7 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
 }: DatabaseSchemaSidebarProps) {
   const { t } = useI18n();
 
-  const { activeConnId, activeTableKey, activeDatabaseKey } = useDbSidebarLinkage();
+  const { activeConnId, activeTableKey, activeDatabaseKey, openTabNodeIds } = useDbSidebarLinkage();
 
   const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections<SectionKey>(
     SECTION_STORAGE_KEY,
@@ -68,6 +68,7 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
         activeConnId={activeConnId}
         activeTableKey={activeTableKey}
         activeDatabaseKey={activeDatabaseKey}
+        openTabNodeIds={openTabNodeIds}
         section={{
           title: t("database.sidebar.connections"),
           expanded: sections.connections,

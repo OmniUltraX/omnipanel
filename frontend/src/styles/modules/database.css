@@ -943,6 +943,11 @@
     }
 
     .schema-tree-virtual-row--absolute {
+        /* will-change 仅在滚动中由 is-scrolling class 启用，
+           静态 will-change 会为所有虚拟行创建合成层，浪费 GPU 内存。 */
+    }
+
+    .schema-tree.is-scrolling .schema-tree-virtual-row--absolute {
         will-change: transform;
     }
 

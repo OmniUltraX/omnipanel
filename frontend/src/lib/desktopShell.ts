@@ -57,20 +57,46 @@ function hardenEditableTree(root: ParentNode = document): void {
 function watchEditableElements(): void {
   hardenEditableTree(document);
 
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "attributes" && mutation.target instanceof Element) {
-        if (mutation.target.matches(EDITABLE_SELECTOR)) {
-          hardenEditableElement(mutation.target);
-        }
-        continue;
+  // rAF 节流：全屏切换等批量 DOM 操作会产生大量 mutation records，
+  // 每批都跑 querySelectorAll 会阻塞主线程。合并到一帧处理。
+  let raf = 0;
+  const pendingNodes: Set<Node> = new Set();
+  const pendingAttributes: Set<Element> = new Set();
+
+  const flush = () => {
+    raf = 0;
+    if (pendingAttributes.size > 0) {
+      for (const el of pendingAttributes) {
+        if (el.matches(EDITABLE_SELECTOR)) hardenEditableElement(el);
       }
-      for (const node of mutation.addedNodes) {
+      pendingAttributes.clear();
+    }
+    if (pendingNodes.size > 0) {
+      for (const node of pendingNodes) {
         if (node instanceof Element || node instanceof DocumentFragment) {
           hardenEditableTree(node);
         }
       }
+      pendingNodes.clear();
     }
+  };
+
+  const scheduleFlush = () => {
+    if (raf !== 0) return;
+    raf = requestAnimationFrame(flush);
+  };
+
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.target instanceof Element) {
+        pendingAttributes.add(mutation.target);
+      } else {
+        for (const node of mutation.addedNodes) {
+          pendingNodes.add(node);
+        }
+      }
+    }
+    scheduleFlush();
   });
 
   observer.observe(document.documentElement, {

@@ -212,10 +212,11 @@ import {
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
-import { resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
+import { collectOpenTabNodeIds, resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
 import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
 import { buildSelectAllFromTableSql } from "./grid/tablePreviewFilter";
 import { fetchTablePreviewPage } from "./grid/tablePreviewQuery";
+import { readStoredGridRenderMode } from "./grid/canvas/gridRenderMode";
 import {
   probeSlowLogAvailability,
   resolveSlowLogAvailabilitySync,
@@ -1397,6 +1398,7 @@ export function DatabasePanel() {
             pageSize,
             setTablePreviews,
             generation: applyGeneration,
+            canvasMode: readStoredGridRenderMode() === "canvas",
           });
           setTablePreviews((prev) => ({
             ...prev,
@@ -1774,6 +1776,7 @@ export function DatabasePanel() {
           pageSize,
           setTablePreviews,
           generation: applyGeneration,
+          canvasMode: readStoredGridRenderMode() === "canvas",
         });
         if (connection.db_type === "redis") {
           setTableColumnMeta((prev) => ({
@@ -1844,6 +1847,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
             });
           })
           .catch((e) => {
@@ -1903,6 +1907,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
             });
           })
           .catch((e) => {
@@ -1964,6 +1969,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
             });
             setTablePreviews((p) => {
               const cur = p[tabId];
@@ -2067,6 +2073,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
             });
             setTablePreviews((p) => {
               const cur = p[tabId];
@@ -3926,7 +3933,9 @@ export function DatabasePanel() {
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
-      void probeDbConnectionRuntime(selection.connection);
+      // 勿 probeDbConnectionRuntime：表已从 schema 缓存列出，连接必然可用。
+      // 点击瞬间同步 markConnecting 会触发 connection TreeNode 重渲 + 一次 testConnection IPC，
+      // 纯属冗余且阻塞点击响应。连接探测由"打开连接节点"和"刷新 Schema"路径负责。
 
       // 勿包 startTransition：双击会先点出 preview 再 permanent，
       // 异步调度下两条路径可能都看不到对方刚建的 Tab，从而各建一个。
@@ -3956,17 +3965,36 @@ export function DatabasePanel() {
       };
 
       const ensureTablePreview = (tabId: string) => {
-        warmColumnMetaFromCache(tabId);
-        setTablePreviews((prev) => ({
-          ...prev,
-          [tabId]: {
-            ...createDefaultTablePreviewState(),
-            loading: true,
-            connId,
-            dbName,
-            tableName,
-          },
-        }));
+        // 合并为单次 store update：原 warmColumnMetaFromCache + setTablePreviews 两次
+        // Zustand set 各自同步 notify listeners；合并后只 notify 一次，减少点击瞬间开销
+        const cachedColumns =
+          connection.db_type === "redis"
+            ? null
+            : getCachedTableColumns(
+                useDbSchemaCacheStore.getState().snapshot,
+                connId,
+                dbName,
+                tableName,
+              );
+        useDbWorkspaceTabStore.setState((state) => {
+          const hasColMeta = Boolean(state.tableColumnMeta[tabId]?.length);
+          return {
+            tableColumnMeta:
+              cachedColumns?.length && !hasColMeta
+                ? { ...state.tableColumnMeta, [tabId]: cachedColumns }
+                : state.tableColumnMeta,
+            tablePreviews: {
+              ...state.tablePreviews,
+              [tabId]: {
+                ...createDefaultTablePreviewState(),
+                loading: true,
+                connId,
+                dbName,
+                tableName,
+              },
+            },
+          };
+        });
         void loadTablePreview(tabId, connection, dbName, tableName);
       };
 
@@ -4127,7 +4155,7 @@ export function DatabasePanel() {
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
-      void probeDbConnectionRuntime(selection.connection);
+      // 勿 probeDbConnectionRuntime：库已从 schema 缓存列出，连接必然可用（同 handleSelectTable）
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const { connId, dbName, connection } = selection;
       const isRedis = isRedisConnection(connection);
@@ -5641,6 +5669,17 @@ export function DatabasePanel() {
       activeTableKey,
     });
   }, [sidebarLinkageConnId, activeDatabaseKey, activeTableKey]);
+
+  // 同步所有已打开 Tab 对应的树节点 id 集合到 store，用于连接树标记"已打开 Tab"的节点。
+  // workspaceTabs 变化（增删 Tab）或 sqlTabPanelKeySeed 变化（SQL tab 切库/切表）时重算。
+  useEffect(() => {
+    const tabState = useDbWorkspaceTabStore.getState();
+    const ids = collectOpenTabNodeIds(workspaceTabs, {
+      sqlTabStates: tabState.sqlTabStates,
+      tablePreviews: tabState.tablePreviews,
+    });
+    useDbSidebarLinkageStore.getState().setOpenTabNodeIds(ids);
+  }, [workspaceTabs, sqlTabPanelKeySeed, tablePreviewTabIdKey]);
 
   const panelContentKeysByTab = useMemo(() => {
     const tabState = useDbWorkspaceTabStore.getState();

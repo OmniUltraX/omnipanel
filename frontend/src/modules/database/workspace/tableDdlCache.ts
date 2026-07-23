@@ -22,15 +22,19 @@ function buildCacheKey(connId: string, dbName: string, tableName: string): strin
   return `${connId}|${dbName}|${tableName}`;
 }
 
-function readStore(): TableDdlCacheStore {
+// ── 内存缓存 + 延迟合流写入 ──────────────────────────────────────
+// 与 tableDetailsCache 同理：避免每次 read/write 全量 JSON.parse/stringify
+// localStorage。读走内存（O(1)），写立即更新内存 + 延迟合流 setItem。
+let memoryStore: TableDdlCacheStore | null = null;
+let writeScheduled = false;
+
+function loadFromLocalStorage(): TableDdlCacheStore {
   if (typeof localStorage === "undefined") {
     return {};
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
+    if (!raw) return {};
     const parsed = JSON.parse(raw) as TableDdlCacheStore;
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
@@ -38,14 +42,31 @@ function readStore(): TableDdlCacheStore {
   }
 }
 
-function writeStore(store: TableDdlCacheStore): void {
-  if (typeof localStorage === "undefined") {
-    return;
+/** 获取内存缓存（首次访问时从 localStorage 懒加载）。 */
+function getStore(): TableDdlCacheStore {
+  if (memoryStore === null) {
+    memoryStore = loadFromLocalStorage();
   }
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    // ignore quota / private mode errors
+  return memoryStore;
+}
+
+/** 将内存缓存延迟合流写入 localStorage（同帧多次写只产生一次 setItem）。 */
+function scheduleFlush(): void {
+  if (writeScheduled || typeof localStorage === "undefined") return;
+  writeScheduled = true;
+  const flush = () => {
+    writeScheduled = false;
+    if (memoryStore === null) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryStore));
+    } catch {
+      // ignore quota / private mode errors
+    }
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(flush, { timeout: 2000 });
+  } else {
+    setTimeout(flush, 16);
   }
 }
 
@@ -69,7 +90,7 @@ export function readTableDdlCache(
   tableName: string,
   connection: DbConnectionConfig,
 ): string | null {
-  const entry = readStore()[buildCacheKey(connId, dbName, tableName)];
+  const entry = getStore()[buildCacheKey(connId, dbName, tableName)];
   if (!entry) {
     return null;
   }
@@ -87,7 +108,7 @@ export function writeTableDdlCache(
   connection: DbConnectionConfig,
   ddl: string,
 ): void {
-  const store = readStore();
+  const store = getStore();
   store[buildCacheKey(connId, dbName, tableName)] = {
     connectionKey: buildConnectionKey(connection),
     dbName,
@@ -95,12 +116,12 @@ export function writeTableDdlCache(
     ddl,
     updatedAt: Date.now(),
   };
-  writeStore(store);
+  scheduleFlush();
 }
 
 /** 清除指定库下所有表的 DDL 缓存。 */
 export function clearTableDdlCacheForDatabase(connId: string, dbName: string): void {
-  const store = readStore();
+  const store = getStore();
   const prefix = `${connId}|${dbName}|`;
   let changed = false;
   for (const key of Object.keys(store)) {
@@ -110,6 +131,6 @@ export function clearTableDdlCacheForDatabase(connId: string, dbName: string): v
     }
   }
   if (changed) {
-    writeStore(store);
+    scheduleFlush();
   }
 }

@@ -1051,6 +1051,9 @@ export const TableDataGrid = memo(function TableDataGrid({
     const sorted = [...displayRowsBase].sort((a, b) => compareCellValues(a[col], b[col]));
     return pageSort.desc ? sorted.reverse() : sorted;
   }, [displayRowsBase, pageSort, transposed]);
+  /** ref 供 cache 回退路径读最新值，避免 effect 依赖 displayRows */
+  const displayRowsRef = useRef(displayRows);
+  displayRowsRef.current = displayRows;
 
   useLayoutEffect(() => {
     if (loading || !hoverResetPendingRef.current) return;
@@ -1802,45 +1805,55 @@ export const TableDataGrid = memo(function TableDataGrid({
     [],
   );
 
-  useEffect(() => {
-    if (!useCanvasBody) return;
-
-    const mapRows = (source: Record<string, unknown>[]) =>
+  const mapRows = useCallback(
+    (source: Record<string, unknown>[]) =>
       source.map((original, index) => ({
         id: String(index),
         index,
         original,
-      }));
+      })),
+    [],
+  );
 
-    if (rowSourceTabId) {
-      const syncFromCache = () => {
-        const cached = getTablePreviewRowCache(rowSourceTabId);
-        if (!cached) {
-          // cache 空时回退 props（phase1 / 已同步进 React）
-          const mapped = mapRows(displayRows);
-          canvasPaintRowsRef.current = mapped;
-          tableRowsRef.current = mapped;
-          tableRowCountRef.current = mapped.length;
-          canvasBodyRef.current?.invalidate();
-          return;
-        }
-        const mapped = mapRows(cached.rows);
+  /**
+   * Canvas + rowSourceTabId（表预览）：行数据来自 React 外 rowCache 的 subscribe notify，
+   * 不依赖 displayRows。否则 Phase 3 灌完整 rows 进 React 后 displayRows 引用变，
+   * 会重跑此 effect → mapRows + invalidate，而 Canvas 在 Phase 2 notify 时已画好——纯冗余且卡。
+   */
+  useEffect(() => {
+    if (!useCanvasBody || !rowSourceTabId) return;
+
+    const syncFromCache = () => {
+      const cached = getTablePreviewRowCache(rowSourceTabId);
+      if (!cached) {
+        // cache 空时回退 props（phase1 / 已同步进 React）
+        const mapped = mapRows(displayRowsRef.current);
         canvasPaintRowsRef.current = mapped;
         tableRowsRef.current = mapped;
         tableRowCountRef.current = mapped.length;
         canvasBodyRef.current?.invalidate();
-      };
-      syncFromCache();
-      return subscribeTablePreviewRowCache(rowSourceTabId, syncFromCache);
-    }
+        return;
+      }
+      const mapped = mapRows(cached.rows);
+      canvasPaintRowsRef.current = mapped;
+      tableRowsRef.current = mapped;
+      tableRowCountRef.current = mapped.length;
+      canvasBodyRef.current?.invalidate();
+    };
+    syncFromCache();
+    return subscribeTablePreviewRowCache(rowSourceTabId, syncFromCache);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 行数据走 cache subscribe，displayRows 变化不重跑
+  }, [useCanvasBody, rowSourceTabId, mapRows]);
 
+  /** Canvas 无 rowSourceTabId（SQL 查询结果等）：行数据来自 displayRows */
+  useEffect(() => {
+    if (!useCanvasBody || rowSourceTabId) return;
     const mapped = mapRows(displayRows);
     canvasPaintRowsRef.current = mapped;
     tableRowsRef.current = mapped;
     tableRowCountRef.current = mapped.length;
     canvasBodyRef.current?.invalidate();
-    return undefined;
-  }, [useCanvasBody, rowSourceTabId, displayRows]);
+  }, [useCanvasBody, rowSourceTabId, displayRows, mapRows]);
 
   const leafColumnCountRef = useRef(leafColumnCount);
   leafColumnCountRef.current = leafColumnCount;

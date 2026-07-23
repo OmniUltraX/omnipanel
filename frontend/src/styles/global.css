@@ -4017,6 +4017,10 @@ a {
     flex-shrink: 0;
 }
 
+/* void 绉荤獥鐢?JS startDragging 澶勭悊锛涚鐢ㄥ師鐢?drag-region 閬垮厤鐩栦綇鍚庣画 tab */
+
+
+/* tab 鍖烘寜鍐呭鍗犲锛寁oid 鍚冨墿浣欑┖鐧斤紱閬垮厤 void 涓?tab 骞冲垎瀵艰嚧璇姌鍙?*/
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container .dv-void-container {
     flex: 1 1 0;
     min-width: 0;
@@ -4024,12 +4028,10 @@ a {
     cursor: default;
 }
 
-/* void 绉荤獥鐢?JS startDragging 澶勭悊锛涚鐢ㄥ師鐢?drag-region 閬垮厤鐩栦綇鍚庣画 tab */
 .dockable-workspace.dock-window-control .dock-window-void-drag {
     -webkit-app-region: no-drag;
 }
 
-/* tab 鍖烘寜鍐呭鍗犲锛寁oid 鍚冨墿浣欑┖鐧斤紱閬垮厤 void 涓?tab 骞冲垎瀵艰嚧璇姌鍙?*/
 .dockable-workspace.dock-window-control .dv-scrollable,
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container > .dv-tabs-container {
     flex: 0 1 auto;

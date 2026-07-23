@@ -68,10 +68,17 @@ export function measureHeaderColumnGeometry(
   columnIds: readonly string[],
 ): { columns: MeasuredHeaderColumn[]; totalWidth: number } | null {
   if (columnIds.length === 0) return null;
+  // 一次性查全部 th，避免 N 次 querySelector（每次都有 DOM 遍历开销）
+  const ths = wrap.querySelectorAll<HTMLTableCellElement>("th[data-col-id]");
+  const map = new Map<string, HTMLTableCellElement>();
+  for (const th of ths) {
+    const id = th.dataset.colId;
+    if (id) map.set(id, th);
+  }
   const columns: MeasuredHeaderColumn[] = [];
   for (const columnId of columnIds) {
-    const th = wrap.querySelector(`th[data-col-id="${CSS.escape(columnId)}"]`);
-    if (!(th instanceof HTMLElement)) return null;
+    const th = map.get(columnId);
+    if (!th) return null;
     const width = th.offsetWidth;
     if (!(width > 0)) return null;
     columns.push({ x: th.offsetLeft, width });

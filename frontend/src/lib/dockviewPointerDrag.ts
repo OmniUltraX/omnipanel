@@ -124,35 +124,34 @@ function dispatchPointerCancelToDockview(): boolean {
  * 但 _handleEnd 抛错时 drop target overlay 可能残留（表现为源窗 dock 效果无法取消）。
  */
 export function clearDockviewNativeDragArtifacts(): void {
-  for (const el of Array.from(document.body.children)) {
-    if (!(el instanceof HTMLElement)) continue;
-    if (!isOrphanedPointerGhostElement(el)) continue;
-    el.remove();
-  }
-
+  // 合并 4 次全局 DOM 查询为 2 次：减少大 DOM 树上的遍历开销
+  // 1) 清除所有 dragging class + drop target class（classList 操作不触发重排）
   document
     .querySelectorAll(
-      ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging",
+      ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging, .dv-drop-target",
     )
     .forEach((el) => {
       el.classList.remove(
         "dv-tab-dragging",
         "dv-tab--dragging",
         "dv-resize-container-dragging",
+        "dv-drop-target",
       );
     });
 
-  // _handleEnd 抛错时 dockview 的 drop target overlay 可能未被 _removeOverlay 清掉：
-  // .dv-drop-target class 残留在 group 容器上，.dv-dropzone / .dv-drop-target-anchor
-  // 仍挂在 DOM 里，表现为源窗"dock 窗口效果"无法取消。
-  document.querySelectorAll(".dv-drop-target").forEach((el) => {
-    el.classList.remove("dv-drop-target");
-  });
+  // 2) 移除 dropzone / anchor 元素 + orphaned ghost
   document
-    .querySelectorAll(".dv-dropzone, .dv-drop-target-anchor")
-    .forEach((el) => {
-      el.remove();
-    });
+    .querySelectorAll(
+      ".dv-dropzone, .dv-drop-target-anchor",
+    )
+    .forEach((el) => el.remove());
+
+  // orphaned ghost 检测：仅扫描 body 直接子元素（数量少，不遍历全树）
+  for (const el of Array.from(document.body.children)) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (!isOrphanedPointerGhostElement(el)) continue;
+    el.remove();
+  }
 }
 
 /**
@@ -214,18 +213,23 @@ export function installDockviewPointerDragSafety(): () => void {
   }
   safetyInstalled = true;
 
+  // 仅当 pointerdown 落在 dockview 拖拽手柄上时才标记「可能拖拽」，
+  // 避免 logo/按钮/content-container 等普通点击也排队 forceEndIfStuck
+  // （含全局 DOM 查询 + 可能触发 React 重渲染）
+  let dockviewDragPossible = false;
+  const DOCKVIEW_DRAG_SELECTOR =
+    ".dv-tab, .dv-default-tab, .dv-tabs-container, .dv-resize-container--dragging, [data-dv-tab]";
+
   const onPointerDownCapture = (event: PointerEvent) => {
     lastPointerId = event.pointerId;
+    const target = event.target as Element | null;
+    dockviewDragPossible = !!target?.closest?.(DOCKVIEW_DRAG_SELECTOR);
   };
 
   const forceEndIfStuck = () => {
-    const hasDraggingClass = Boolean(
-      document.querySelector(
-        ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging",
-      ),
-    );
-    const hasDropTargetOverlay = Boolean(
-      document.querySelector(".dv-drop-target, .dv-dropzone"),
+    // 合并 2 次 querySelector 为 1 次：一次查所有可能的拖拽残留元素
+    const stuckElements = document.querySelectorAll(
+      ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging, .dv-drop-target, .dv-dropzone",
     );
     let crossWindowVisualActive = false;
     try {
@@ -233,11 +237,7 @@ export function installDockviewPointerDragSafety(): () => void {
     } catch {
       /* store 未初始化时忽略 */
     }
-    if (
-      !hasDraggingClass &&
-      !hasDropTargetOverlay &&
-      !crossWindowVisualActive
-    ) {
+    if (stuckElements.length === 0 && !crossWindowVisualActive) {
       return;
     }
     // 只做 DOM 清理（和旧代码行为一致），**不**派发 pointercancel。
@@ -259,21 +259,25 @@ export function installDockviewPointerDragSafety(): () => void {
   };
 
   const onPointerUp = () => {
+    // 非 dockview 相关点击（logo/按钮等）直接跳过，避免全局 DOM 查询和潜在重渲染
+    if (!dockviewDragPossible) return;
+    dockviewDragPossible = false;
     queueMicrotask(forceEndIfStuck);
     requestAnimationFrame(forceEndIfStuck);
   };
 
   const onPointerMove = (event: PointerEvent) => {
     if (event.buttons & 1) return; // 仍按住，跳过
+    if (!dockviewDragPossible) return; // 非 dockview 拖拽，跳过
     // 拖拽中可能出现 buttons===0 的 pointermove（Windows 鼠标捕获边界情况），
     // 此时不应触发清理，否则会干扰正在进行的 dockview 拖拽。
     // 真正的 stuck drag 由 pointerup 的 microtask/rAF 兜底处理。
   };
 
   const onVisibility = () => {
-    if (document.visibilityState === "visible") {
-      forceEndIfStuck();
-    }
+    if (document.visibilityState !== "visible") return;
+    if (!dockviewDragPossible) return; // 无 dockview 拖拽意图，跳过
+    forceEndIfStuck();
   };
 
   const onKeyDown = (event: KeyboardEvent) => {

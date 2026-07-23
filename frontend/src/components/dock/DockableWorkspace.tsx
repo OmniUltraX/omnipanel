@@ -1189,6 +1189,7 @@ export function DockableWorkspace({
   useEffect(() => {
     const api = apiRef.current;
     if (!api || !layoutLoadedRef.current) return;
+    // 先解析 chrome 宿主（触发 setWindowChromeHosts，React 批量更新）
     syncWindowChromeHostRef.current(api);
     if (!windowControl) return;
 
@@ -1197,12 +1198,14 @@ export function DockableWorkspace({
     );
     if (!root) return;
 
+    // 全部延迟到 rAF：全屏切换时 DOM 正在过渡，
+    // 同步读取 clientWidth/clientHeight 会强制布局重排（layout thrashing）。
+    // rAF 在 React commit + 浏览器 paint 后执行，此时布局已稳定。
     const relayout = () => {
       const w = root.clientWidth;
       const h = root.clientHeight;
       if (w > 0 && h > 0) api.layout(w, h, true);
     };
-    relayout();
     const raf = requestAnimationFrame(relayout);
     return () => cancelAnimationFrame(raf);
   }, [windowControl, windowChromeHosts, layoutReady]);
@@ -1802,6 +1805,21 @@ export function DockableWorkspace({
     if (!dockRoot) return;
 
     const observer = new ResizeObserver(() => {
+      // 尺寸未变时跳过 api.layout force：窗口最大化/还原会触发多次 RO 回调，
+      // 但 dockRoot 实际尺寸可能未变（如从最大化还原到原尺寸的过渡帧），
+      // 此时 api.layout(w, h, true) 的强制重排是纯浪费。
+      if (!wasHiddenRef.current) {
+        const w = dockRoot.clientWidth;
+        const h = dockRoot.clientHeight;
+        if (
+          w > 0 &&
+          h > 0 &&
+          w === lastMeasuredRef.current.w &&
+          h === lastMeasuredRef.current.h
+        ) {
+          return;
+        }
+      }
       relayoutFromContainer();
     });
     observer.observe(dockRoot);

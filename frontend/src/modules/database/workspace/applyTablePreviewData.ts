@@ -1,5 +1,5 @@
 import { startTransition } from "react";
-import { yieldToMain } from "../../../lib/yieldToMain";
+import { afterPaintIdle, yieldToMain } from "../../../lib/yieldToMain";
 import type { TablePreviewResult } from "../api";
 import {
   createDefaultTablePreviewState,
@@ -44,6 +44,12 @@ export type ApplyTablePreviewDataParams = {
    * 默认 12。
    */
   chunkSize?: number;
+  /**
+   * Canvas 渲染模式下，Phase 3（完整 rows 进 React）延迟到两帧 paint + idle 后执行。
+   * Canvas 在 Phase 2 cache notify 时已画出数据，Phase 3 的 React rows 仅服务编辑/DOM 路径，
+   * 无需与首帧争主线程。DOM 模式必须立即执行（否则网格空）。
+   */
+  canvasMode?: boolean;
 };
 
 /**
@@ -67,6 +73,7 @@ export async function applyTablePreviewDataProgressive(
     setTablePreviews,
     generation,
     chunkSize = 12,
+    canvasMode = false,
   } = params;
 
   const isStale = () => getTablePreviewApplyGeneration(tabId) !== generation;
@@ -74,8 +81,12 @@ export async function applyTablePreviewDataProgressive(
   if (isStale()) return;
 
   // Phase 1：元数据进 React（必须轻）
+  // Canvas 模式下不写 data.rows（保持原引用），避免 previewDisplayRows 重算触发
+  // TableDataGrid 重渲——此时 Canvas 尚未收到 cache notify，重渲纯冗余。
+  // columns 更新是必要的（表头需要列名）；rows 由 Phase 2 cache + Phase 3 延迟写入负责。
   setTablePreviews((prevMap) => {
     const cur = prevMap[tabId];
+    const prevData = cur?.data;
     return {
       ...prevMap,
       [tabId]: {
@@ -85,7 +96,7 @@ export async function applyTablePreviewDataProgressive(
         data: {
           name: data.name,
           columns: data.columns,
-          rows: [],
+          rows: canvasMode ? (prevData?.rows ?? []) : [],
         },
         totalRows,
         page,
@@ -122,7 +133,7 @@ export async function applyTablePreviewDataProgressive(
 
   // Phase 3：完整 rows 进 React（低优先，不跟侧栏抢）
   const fullRows = data.rows;
-  startTransition(() => {
+  const writeFullRows = () => {
     if (isStale()) return;
     setTablePreviews((prevMap) => {
       const cur = prevMap[tabId];
@@ -139,5 +150,19 @@ export async function applyTablePreviewDataProgressive(
         },
       };
     });
-  });
+  };
+
+  if (canvasMode) {
+    // Canvas 模式：数据已在 Phase 2 经 cache notify 画出。
+    // Phase 3 的 React rows 仅服务编辑/DOM 路径，延迟到两帧 paint + idle 后写入，
+    // 避免与 Canvas 首帧争主线程导致点击不跟手。
+    await new Promise<void>((resolve) => {
+      afterPaintIdle(() => {
+        startTransition(writeFullRows);
+        resolve();
+      }, 500);
+    });
+  } else {
+    startTransition(writeFullRows);
+  }
 }

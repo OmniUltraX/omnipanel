@@ -82,3 +82,51 @@ export function resolveDbSidebarLinkageFromTab(
 
   return { activeConnId, activeDatabaseKey: null, activeTableKey: null };
 }
+
+/**
+ * 收集所有已打开工作区 Tab 对应的树节点 id 集合。
+ * 用于在连接树上标记"已打开 Tab"的节点（非 active 的弱标记）。
+ *
+ * Tab key 与 tree node id 同形（`db:...` / `tbl:...`），可直接用。
+ * 连接节点不进 Tab，不收集。
+ */
+export function collectOpenTabNodeIds(
+  tabs: DbWorkspaceTab[],
+  tabStates: {
+    sqlTabStates: Record<string, SqlTabState>;
+    tablePreviews: Record<string, TablePreviewState>;
+  },
+): Set<string> {
+  const ids = new Set<string>();
+  for (const tab of tabs) {
+    if (tab.kind === "table" || tab.kind === "designer") {
+      ids.add(makeTableTabKey(tab.connId, tab.dbName, tab.tableName));
+      ids.add(makeDatabaseTabKey(tab.connId, tab.dbName));
+      continue;
+    }
+    if (tab.kind === "database" || tab.kind === "redis-query") {
+      if (tab.dbName) {
+        ids.add(makeDatabaseTabKey(tab.connId, tab.dbName));
+      }
+      continue;
+    }
+    if (tab.kind === "sql") {
+      const preview = tabStates.tablePreviews[tab.id];
+      if (preview?.connId && preview.dbName && preview.tableName) {
+        ids.add(makeTableTabKey(preview.connId, preview.dbName, preview.tableName));
+        ids.add(makeDatabaseTabKey(preview.connId, preview.dbName));
+        continue;
+      }
+      const sqlState = tabStates.sqlTabStates[tab.id];
+      const sqlConn =
+        sqlState?.connId ||
+        resolveSqlTabConnectionId(tab.id, tabStates.sqlTabStates, tabStates.tablePreviews);
+      const sqlDb = sqlState?.database?.trim() ?? "";
+      if (sqlConn && sqlDb) {
+        ids.add(makeDatabaseTabKey(sqlConn, sqlDb));
+      }
+      continue;
+    }
+  }
+  return ids;
+}

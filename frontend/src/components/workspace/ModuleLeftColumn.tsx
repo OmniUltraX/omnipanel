@@ -42,7 +42,7 @@ export function ModuleLeftColumn({
         >
           {title ? <ModuleDockTitle>{title}</ModuleDockTitle> : null}
           {tagModuleKey ? (
-            <div className="module-sidebar-module-header__tags window-drag-surface--interactive">
+            <div className="module-sidebar-module-header__tags">
               <ModuleTagHeader moduleKey={tagModuleKey} />
             </div>
           ) : (

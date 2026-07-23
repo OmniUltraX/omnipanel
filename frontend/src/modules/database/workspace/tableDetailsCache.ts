@@ -22,15 +22,22 @@ function buildCacheKey(connId: string, dbName: string, tableName: string): strin
   return `${connId}|${dbName}|${tableName}`;
 }
 
-function readStore(): TableDetailsCacheStore {
+// ── 内存缓存 + 延迟合流写入 ──────────────────────────────────────
+// 原实现每次 read/write 都全量 JSON.parse/stringify localStorage，
+// 在 loadTableDetails 循环里对 N 张表调用 writeTableDetailsCache 时
+// 会产生 N 次完整 localStorage 往返（profile 中占 750ms+287ms）。
+// 改为：首次访问时懒加载到内存，后续读直接走内存（O(1)）；
+// 写操作立即更新内存，延迟到空闲帧再合流写入 localStorage。
+let memoryStore: TableDetailsCacheStore | null = null;
+let writeScheduled = false;
+
+function loadFromLocalStorage(): TableDetailsCacheStore {
   if (typeof localStorage === "undefined") {
     return {};
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
+    if (!raw) return {};
     const parsed = JSON.parse(raw) as TableDetailsCacheStore;
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
@@ -38,14 +45,31 @@ function readStore(): TableDetailsCacheStore {
   }
 }
 
-function writeStore(store: TableDetailsCacheStore): void {
-  if (typeof localStorage === "undefined") {
-    return;
+/** 获取内存缓存（首次访问时从 localStorage 懒加载）。 */
+function getStore(): TableDetailsCacheStore {
+  if (memoryStore === null) {
+    memoryStore = loadFromLocalStorage();
   }
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    // ignore quota / private mode errors
+  return memoryStore;
+}
+
+/** 将内存缓存延迟合流写入 localStorage（同帧多次写只产生一次 setItem）。 */
+function scheduleFlush(): void {
+  if (writeScheduled || typeof localStorage === "undefined") return;
+  writeScheduled = true;
+  const flush = () => {
+    writeScheduled = false;
+    if (memoryStore === null) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryStore));
+    } catch {
+      // ignore quota / private mode errors
+    }
+  };
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(flush, { timeout: 2000 });
+  } else {
+    setTimeout(flush, 16);
   }
 }
 
@@ -69,7 +93,7 @@ export function readTableDetailsCache(
   tableName: string,
   connection: DbConnectionConfig,
 ): DbTableDetails | null {
-  const entry = readStore()[buildCacheKey(connId, dbName, tableName)];
+  const entry = getStore()[buildCacheKey(connId, dbName, tableName)];
   if (!entry) {
     return null;
   }
@@ -86,7 +110,7 @@ export function readTableDetailsCacheMap(
   tableNames: string[],
   connection: DbConnectionConfig,
 ): Record<string, DbTableDetails> {
-  const store = readStore();
+  const store = getStore();
   const result: Record<string, DbTableDetails> = {};
   for (const tableName of tableNames) {
     const entry = store[buildCacheKey(connId, dbName, tableName)];
@@ -105,7 +129,7 @@ export function writeTableDetailsCache(
   connection: DbConnectionConfig,
   details: DbTableDetails,
 ): void {
-  const store = readStore();
+  const store = getStore();
   store[buildCacheKey(connId, dbName, tableName)] = {
     connectionKey: buildConnectionKey(connection),
     dbName,
@@ -113,5 +137,5 @@ export function writeTableDetailsCache(
     details,
     updatedAt: Date.now(),
   };
-  writeStore(store);
+  scheduleFlush();
 }

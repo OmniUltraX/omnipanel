@@ -12,93 +12,183 @@ function readColor(style: CSSStyleDeclaration, prop: string, fallback: string): 
 
 export type CanvasThemeProfile = "data-table" | "panel";
 
-function probeDataTableBackground(host: HTMLElement, classNames: string[]): string {
-  const table = document.createElement("table");
-  table.className = "db-data-table";
-  table.style.cssText =
-    "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;";
-  const tbody = document.createElement("tbody");
-  const tr = document.createElement("tr");
-  tr.className = classNames.find((c) => c.startsWith("db-data-table-row")) ?? "db-data-table-row";
-  for (const cls of classNames) {
-    if (cls.startsWith("db-data-table-row")) {
-      tr.classList.add(cls);
-    }
-  }
-  const td = document.createElement("td");
-  td.className = "db-data-table-cell";
-  for (const cls of classNames) {
-    if (!cls.startsWith("db-data-table-row")) {
-      td.classList.add(cls);
-    }
-  }
-  tr.appendChild(td);
-  tbody.appendChild(tr);
-  table.appendChild(tbody);
-  host.appendChild(table);
-  const bg = getComputedStyle(td).backgroundColor;
-  host.removeChild(table);
-  return bg;
+/**
+ * 模块级主题 cache：按 profile + 主题签名 缓存。
+ * 主题色由 CSS 变量（:root）+ 静态类规则决定，只有主题切换时才变化。
+ * 17 次 DOM 探测（每次强制 reflow）= 1500ms+，cache 后后续 grid 挂载 0ms。
+ */
+const themeCache = new Map<string, GridThemeTokens>();
+
+/** 主题签名：捕获亮/暗主题切换。data-theme 属性 + class 变化都会刷新签名。 */
+function getThemeSignature(): string {
+  const el = document.documentElement;
+  return `${el.getAttribute("data-theme") ?? ""}|${el.className}|${el.getAttribute("data-color-scheme") ?? ""}`;
 }
 
-function probeDataTableTag(
-  host: HTMLElement,
-  tagClass: string,
-  dirty: boolean,
-): {
-  color: string;
-  backgroundColor: string;
-  borderColor: string;
+/** 失效主题 cache（主题切换时调用）。 */
+export function invalidateCanvasGridThemeCache(): void {
+  themeCache.clear();
+}
+
+/**
+ * 批量探测 data-table 主题色：把所有 14 个背景探测 + 3 个 tag 探测合并到 ONE DOM 操作。
+ * 原实现每次 probe 都 append+getComputedStyle+remove（17 次强制 reflow = 1500ms+），
+ * 合并后只 append 一次、批量读 getComputedStyle（浏览器合并为一次 style recalc）、remove 一次。
+ */
+function probeDataTableThemeBatch(host: HTMLElement): {
+  rownumBg: string;
+  rownumStripedBg: string;
+  selectedBg: string;
+  dragSelectedBg: string;
+  dirtyUpdateBg: string;
+  dirtyInsertBg: string;
+  dirtyDeleteBg: string;
+  selectedDirtyUpdateBg: string;
+  selectedDirtyInsertBg: string;
+  selectedDirtyDeleteBg: string;
+  relationBg: string;
+  relationDisplayBg: string;
+  relationStripedBg: string;
+  relationDisplayStripedBg: string;
+  nullTag: { color: string; backgroundColor: string; borderColor: string };
+  emptyTag: { color: string; backgroundColor: string; borderColor: string };
+  dirtyNullTag: { color: string; backgroundColor: string; borderColor: string };
 } {
+  // 一个隐藏容器，内含所有探测 cell，只 append/remove 一次
+  const container = document.createElement("div");
+  container.style.cssText =
+    "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;";
+
   const table = document.createElement("table");
   table.className = "db-data-table";
-  table.style.cssText =
-    "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;";
   const tbody = document.createElement("tbody");
-  const tr = document.createElement("tr");
-  tr.className = "db-data-table-row";
-  const td = document.createElement("td");
-  td.className = dirty
-    ? "db-data-table-cell db-data-table-cell--dirty"
-    : "db-data-table-cell";
-  const span = document.createElement("span");
-  span.className = tagClass;
-  span.textContent = "N";
-  td.appendChild(span);
-  tr.appendChild(td);
-  tbody.appendChild(tr);
-  table.appendChild(tbody);
-  host.appendChild(table);
-  const style = getComputedStyle(span);
-  const result = {
-    color: style.color,
-    backgroundColor: style.backgroundColor,
-    borderColor: style.borderColor,
+
+  // 辅助：创建一行带指定 class 的探测 cell，返回 td 供后续读取
+  const makeBgRow = (
+    key: string,
+    rowClasses: string[],
+    cellClasses: string[],
+  ): HTMLTableCellElement => {
+    const tr = document.createElement("tr");
+    tr.className = "db-data-table-row";
+    for (const c of rowClasses) tr.classList.add(c);
+    const td = document.createElement("td");
+    td.className = "db-data-table-cell";
+    for (const c of cellClasses) td.classList.add(c);
+    td.dataset.probeKey = key;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return td;
   };
-  host.removeChild(table);
+
+  // 辅助：创建 tag 探测 cell（内含 span）
+  const makeTagRow = (
+    key: string,
+    tagClass: string,
+    dirty: boolean,
+  ): HTMLSpanElement => {
+    const tr = document.createElement("tr");
+    tr.className = "db-data-table-row";
+    const td = document.createElement("td");
+    td.className = dirty
+      ? "db-data-table-cell db-data-table-cell--dirty"
+      : "db-data-table-cell";
+    const span = document.createElement("span");
+    span.className = tagClass;
+    span.textContent = "N";
+    td.appendChild(span);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return span;
+  };
+
+  // 14 个背景探测 cell
+  const bgCells: Record<string, HTMLTableCellElement> = {};
+  bgCells.rownum = makeBgRow("rownum", [], ["db-data-table-cell--rownum"]);
+  bgCells.rownumStriped = makeBgRow("rownumStriped", ["db-data-table-row--striped"], ["db-data-table-cell--rownum"]);
+  bgCells.selected = makeBgRow("selected", [], ["db-data-table-cell--selected"]);
+  bgCells.dragSelected = makeBgRow("dragSelected", [], ["db-data-table-cell--drag-selected"]);
+  bgCells.dirtyUpdate = makeBgRow("dirtyUpdate", [], ["db-data-table-cell--dirty"]);
+  bgCells.dirtyInsert = makeBgRow("dirtyInsert", [], ["db-data-table-cell--dirty", "db-data-table-cell--dirty-insert"]);
+  bgCells.dirtyDelete = makeBgRow("dirtyDelete", [], ["db-data-table-cell--dirty", "db-data-table-cell--dirty-delete"]);
+  bgCells.selectedDirtyUpdate = makeBgRow("selectedDirtyUpdate", [], ["db-data-table-cell--selected", "db-data-table-cell--dirty"]);
+  bgCells.selectedDirtyInsert = makeBgRow("selectedDirtyInsert", [], ["db-data-table-cell--selected", "db-data-table-cell--dirty", "db-data-table-cell--dirty-insert"]);
+  bgCells.selectedDirtyDelete = makeBgRow("selectedDirtyDelete", [], ["db-data-table-cell--selected", "db-data-table-cell--dirty", "db-data-table-cell--dirty-delete"]);
+  bgCells.relation = makeBgRow("relation", [], ["db-data-table-cell--relation"]);
+  bgCells.relationDisplay = makeBgRow("relationDisplay", [], ["db-data-table-cell--relation-display"]);
+  bgCells.relationStriped = makeBgRow("relationStriped", ["db-data-table-row--striped"], ["db-data-table-cell--relation"]);
+  bgCells.relationDisplayStriped = makeBgRow("relationDisplayStriped", ["db-data-table-row--striped"], ["db-data-table-cell--relation-display"]);
+
+  // 3 个 tag 探测 span
+  const nullTagSpan = makeTagRow("nullTag", "db-data-table-cell-null-tag", false);
+  const emptyTagSpan = makeTagRow("emptyTag", "db-data-table-cell-empty-tag", false);
+  const dirtyNullTagSpan = makeTagRow("dirtyNullTag", "db-data-table-cell-null-tag", true);
+
+  table.appendChild(tbody);
+  container.appendChild(table);
+  host.appendChild(container);
+
+  // 批量读取：浏览器对连续 getComputedStyle 调用合并为一次 style recalc
+  const readTag = (span: HTMLSpanElement) => {
+    const s = getComputedStyle(span);
+    return { color: s.color, backgroundColor: s.backgroundColor, borderColor: s.borderColor };
+  };
+
+  const result = {
+    rownumBg: getComputedStyle(bgCells.rownum).backgroundColor,
+    rownumStripedBg: getComputedStyle(bgCells.rownumStriped).backgroundColor,
+    selectedBg: getComputedStyle(bgCells.selected).backgroundColor,
+    dragSelectedBg: getComputedStyle(bgCells.dragSelected).backgroundColor,
+    dirtyUpdateBg: getComputedStyle(bgCells.dirtyUpdate).backgroundColor,
+    dirtyInsertBg: getComputedStyle(bgCells.dirtyInsert).backgroundColor,
+    dirtyDeleteBg: getComputedStyle(bgCells.dirtyDelete).backgroundColor,
+    selectedDirtyUpdateBg: getComputedStyle(bgCells.selectedDirtyUpdate).backgroundColor,
+    selectedDirtyInsertBg: getComputedStyle(bgCells.selectedDirtyInsert).backgroundColor,
+    selectedDirtyDeleteBg: getComputedStyle(bgCells.selectedDirtyDelete).backgroundColor,
+    relationBg: getComputedStyle(bgCells.relation).backgroundColor,
+    relationDisplayBg: getComputedStyle(bgCells.relationDisplay).backgroundColor,
+    relationStripedBg: getComputedStyle(bgCells.relationStriped).backgroundColor,
+    relationDisplayStripedBg: getComputedStyle(bgCells.relationDisplayStriped).backgroundColor,
+    nullTag: readTag(nullTagSpan),
+    emptyTag: readTag(emptyTagSpan),
+    dirtyNullTag: readTag(dirtyNullTagSpan),
+  };
+
+  host.removeChild(container);
   return result;
 }
 
-function probePanelBackground(
+function probePanelBackgroundBatch(
   host: HTMLElement,
-  options: { rowSelected?: boolean; cellSelected?: boolean },
-): string {
+): { selectedBg: string; rowSelectedBg: string } {
+  const container = document.createElement("div");
+  container.style.cssText =
+    "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;";
   const table = document.createElement("table");
   table.className = "db-tables-panel-grid";
-  table.style.cssText =
-    "position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;";
   const tbody = document.createElement("tbody");
-  const tr = document.createElement("tr");
-  if (options.rowSelected) tr.className = "is-selected";
-  const td = document.createElement("td");
-  if (options.cellSelected) td.className = "db-tables-panel-grid__cell--selected";
-  tr.appendChild(td);
-  tbody.appendChild(tr);
+
+  const tr1 = document.createElement("tr");
+  const td1 = document.createElement("td");
+  td1.className = "db-tables-panel-grid__cell--selected";
+  tr1.appendChild(td1);
+  tbody.appendChild(tr1);
+
+  const tr2 = document.createElement("tr");
+  tr2.className = "is-selected";
+  const td2 = document.createElement("td");
+  tr2.appendChild(td2);
+  tbody.appendChild(tr2);
+
   table.appendChild(tbody);
-  host.appendChild(table);
-  const bg = getComputedStyle(options.cellSelected ? td : tr).backgroundColor;
-  host.removeChild(table);
-  return bg;
+  container.appendChild(table);
+  host.appendChild(container);
+
+  const selectedBg = getComputedStyle(td1).backgroundColor;
+  const rowSelectedBg = getComputedStyle(tr2).backgroundColor;
+
+  host.removeChild(container);
+  return { selectedBg, rowSelectedBg };
 }
 
 function baseTheme(style: CSSStyleDeclaration, fontFamily: string): Omit<
@@ -160,6 +250,12 @@ export function readCanvasGridTheme(
   host: HTMLElement | null,
   profile: CanvasThemeProfile = "data-table",
 ): GridThemeTokens {
+  // cache 查找：主题签名没变就直接返回，跳过所有 DOM 探测
+  const sig = getThemeSignature();
+  const cacheKey = `${profile}::${sig}`;
+  const cached = themeCache.get(cacheKey);
+  if (cached) return cached;
+
   const root = host ?? document.documentElement;
   const style = getComputedStyle(root);
   const mono = readColor(style, "--font-mono", "ui-monospace, monospace");
@@ -168,16 +264,17 @@ export function readCanvasGridTheme(
   const base = baseTheme(style, fontFamily);
   const accentSoft = readColor(style, "--accent-soft", "rgba(76, 139, 245, 0.18)");
 
+  let result: GridThemeTokens;
+
   if (profile === "panel") {
-    const selectedBg =
-      probePanelBackground(probeHost, { cellSelected: true }) || accentSoft;
-    const rowSelectedBg =
-      probePanelBackground(probeHost, { rowSelected: true }) || accentSoft;
+    const { selectedBg, rowSelectedBg } = probePanelBackgroundBatch(probeHost);
+    const finalSelectedBg = selectedBg || accentSoft;
+    const finalRowSelectedBg = rowSelectedBg || accentSoft;
     const hostBg =
       host != null
         ? getComputedStyle(host).backgroundColor
         : "";
-    return {
+    result = {
       ...base,
       bg: hostBg && hostBg !== "rgba(0, 0, 0, 0)" && hostBg !== "transparent" ? hostBg : base.bg,
       fontSize: 11,
@@ -185,15 +282,15 @@ export function readCanvasGridTheme(
       cellPaddingY: 6,
       rownumBg: base.bg,
       rownumStripedBg: base.surface,
-      selectedBg,
-      dragSelectedBg: selectedBg,
-      rowSelectedBg,
+      selectedBg: finalSelectedBg,
+      dragSelectedBg: finalSelectedBg,
+      rowSelectedBg: finalRowSelectedBg,
       dirtyUpdateBg: base.surface,
       dirtyInsertBg: base.surface,
       dirtyDeleteBg: base.surface,
-      selectedDirtyUpdateBg: selectedBg,
-      selectedDirtyInsertBg: selectedBg,
-      selectedDirtyDeleteBg: selectedBg,
+      selectedDirtyUpdateBg: finalSelectedBg,
+      selectedDirtyInsertBg: finalSelectedBg,
+      selectedDirtyDeleteBg: finalSelectedBg,
       relationBg: base.bg,
       relationDisplayBg: base.bg,
       relationStripedBg: base.surface,
@@ -209,92 +306,40 @@ export function readCanvasGridTheme(
       dirtyNullTagBorder: base.border,
       headerHeight: measureHeaderHeight(host),
     };
+  } else {
+    const probed = probeDataTableThemeBatch(probeHost);
+    result = {
+      ...base,
+      rownumBg: probed.rownumBg || base.bg,
+      rownumStripedBg: probed.rownumStripedBg || base.surface,
+      selectedBg: probed.selectedBg,
+      dragSelectedBg: probed.dragSelectedBg,
+      rowSelectedBg: accentSoft,
+      dirtyUpdateBg: probed.dirtyUpdateBg,
+      dirtyInsertBg: probed.dirtyInsertBg,
+      dirtyDeleteBg: probed.dirtyDeleteBg,
+      selectedDirtyUpdateBg: probed.selectedDirtyUpdateBg,
+      selectedDirtyInsertBg: probed.selectedDirtyInsertBg,
+      selectedDirtyDeleteBg: probed.selectedDirtyDeleteBg,
+      relationBg: probed.relationBg,
+      relationDisplayBg: probed.relationDisplayBg,
+      relationStripedBg: probed.relationStripedBg,
+      relationDisplayStripedBg: probed.relationDisplayStripedBg,
+      nullTagFg: probed.nullTag.color,
+      nullTagBg: probed.nullTag.backgroundColor,
+      nullTagBorder: probed.nullTag.borderColor,
+      emptyTagFg: probed.emptyTag.color,
+      emptyTagBg: probed.emptyTag.backgroundColor,
+      emptyTagBorder: probed.emptyTag.borderColor,
+      dirtyNullTagFg: probed.dirtyNullTag.color,
+      dirtyNullTagBg: probed.dirtyNullTag.backgroundColor,
+      dirtyNullTagBorder: probed.dirtyNullTag.borderColor,
+      headerHeight: measureHeaderHeight(host),
+    };
   }
 
-  const nullTag = probeDataTableTag(probeHost, "db-data-table-cell-null-tag", false);
-  const emptyTag = probeDataTableTag(probeHost, "db-data-table-cell-empty-tag", false);
-  const dirtyNullTag = probeDataTableTag(probeHost, "db-data-table-cell-null-tag", true);
-
-  return {
-    ...base,
-    rownumBg:
-      probeDataTableBackground(probeHost, ["db-data-table-row", "db-data-table-cell--rownum"]) ||
-      base.bg,
-    rownumStripedBg:
-      probeDataTableBackground(probeHost, [
-        "db-data-table-row",
-        "db-data-table-row--striped",
-        "db-data-table-cell--rownum",
-      ]) || base.surface,
-    selectedBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--selected",
-    ]),
-    dragSelectedBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--drag-selected",
-    ]),
-    rowSelectedBg: accentSoft,
-    dirtyUpdateBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--dirty",
-    ]),
-    dirtyInsertBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--dirty",
-      "db-data-table-cell--dirty-insert",
-    ]),
-    dirtyDeleteBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--dirty",
-      "db-data-table-cell--dirty-delete",
-    ]),
-    selectedDirtyUpdateBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--selected",
-      "db-data-table-cell--dirty",
-    ]),
-    selectedDirtyInsertBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--selected",
-      "db-data-table-cell--dirty",
-      "db-data-table-cell--dirty-insert",
-    ]),
-    selectedDirtyDeleteBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--selected",
-      "db-data-table-cell--dirty",
-      "db-data-table-cell--dirty-delete",
-    ]),
-    relationBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--relation",
-    ]),
-    relationDisplayBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-cell--relation-display",
-    ]),
-    relationStripedBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-row--striped",
-      "db-data-table-cell--relation",
-    ]),
-    relationDisplayStripedBg: probeDataTableBackground(probeHost, [
-      "db-data-table-row",
-      "db-data-table-row--striped",
-      "db-data-table-cell--relation-display",
-    ]),
-    nullTagFg: nullTag.color,
-    nullTagBg: nullTag.backgroundColor,
-    nullTagBorder: nullTag.borderColor,
-    emptyTagFg: emptyTag.color,
-    emptyTagBg: emptyTag.backgroundColor,
-    emptyTagBorder: emptyTag.borderColor,
-    dirtyNullTagFg: dirtyNullTag.color,
-    dirtyNullTagBg: dirtyNullTag.backgroundColor,
-    dirtyNullTagBorder: dirtyNullTag.borderColor,
-    headerHeight: measureHeaderHeight(host),
-  };
+  themeCache.set(cacheKey, result);
+  return result;
 }
 
 /** @deprecated 使用 readCanvasGridTheme */

@@ -17,7 +17,7 @@ import { measureHeaderColumnGeometry } from "../tableDataGridLayout";
 import { buildGridSnapshotBundle, type BuildGridSnapshotInput } from "./buildGridSnapshot";
 import { drawGridBody } from "./drawGridBody";
 import { cellViewportRect, hitTestGrid, isPinnedDrawColumn } from "./gridGeometry";
-import { measureHeaderHeight, readGridTheme } from "./readGridTheme";
+import { invalidateCanvasGridThemeCache, measureHeaderHeight, readGridTheme } from "./readGridTheme";
 import type {
   CellViewportRect,
   GridHitResult,
@@ -130,23 +130,38 @@ export const TableDataGridCanvasBody = forwardRef<
    * 先用逻辑列宽画出内容，次帧再测量对齐表头（对齐 dbx：先可见再精修）。
    */
   const skipHeaderMeasureRef = useRef(true);
+  /**
+   * 测量结果 cache：列 id 签名没变时复用，避免每次 rebuild 都做 N 次 offsetWidth（强制 reflow）。
+   * 列宽拖拽会单独设 dragColumnWidth 覆盖，不依赖 measured；只有列结构变化才需要重测。
+   */
+  const measuredCacheRef = useRef<{ signature: string; result: { columns: { x: number; width: number }[]; totalWidth: number } | null } | null>(null);
   /** 对齐 dbx：滚动中不画 hover，减每帧开销 */
   const isScrollingRef = useRef(false);
   const scrollIdleTimerRef = useRef<number | null>(null);
   const scrollTopRef = useRef(0);
   const scrollLeftRef = useRef(0);
+  /** resolveAlignedScrollLeft 缓存：-1 表示未计算。仅列结构变化时重算。 */
+  const alignedScrollLeftRef = useRef(-1);
 
   const rebuildSnapshot = useCallback(() => {
     const wrap = scrollElementRef.current;
     const leafColumns = snapshotInputRef.current.leafColumns;
     const allowMeasure = !skipHeaderMeasureRef.current;
-    const measured =
-      allowMeasure && wrap
-        ? measureHeaderColumnGeometry(
-            wrap,
-            leafColumns.map((col) => col.id),
-          )
-        : null;
+    // 列 id + 逻辑宽度签名：列结构或列宽变化才重测，避免每次 rebuild 都做 N 次 offsetWidth（强制 reflow）
+    const signature = leafColumns.map((col) => `${col.id}:${col.getSize()}`).join("\u0000");
+    const cached = measuredCacheRef.current;
+    let measured: { columns: { x: number; width: number }[]; totalWidth: number } | null = null;
+    if (allowMeasure && wrap) {
+      if (cached && cached.signature === signature) {
+        measured = cached.result;
+      } else {
+        measured = measureHeaderColumnGeometry(
+          wrap,
+          leafColumns.map((col) => col.id),
+        );
+        measuredCacheRef.current = { signature, result: measured };
+      }
+    }
     if (skipHeaderMeasureRef.current) {
       skipHeaderMeasureRef.current = false;
     }
@@ -201,9 +216,14 @@ export const TableDataGridCanvasBody = forwardRef<
         snapshot.hoverCol = hoverRef.current?.col ?? null;
       }
     }
-    const headerHeight = measureHeaderHeight(wrap);
-    headerHeightRef.current = headerHeight;
-    wrap.style.setProperty("--db-grid-header-height", `${headerHeight}px`);
+    // 仅结构变化时重新测量表头高度（getBoundingClientRect 强制 layout），
+    // 非结构变化（滚动/hover）复用缓存值
+    if (structureDirtyRef.current || headerHeightRef.current === 0) {
+      const headerHeight = measureHeaderHeight(wrap);
+      headerHeightRef.current = headerHeight;
+      wrap.style.setProperty("--db-grid-header-height", `${headerHeight}px`);
+    }
+    const headerHeight = headerHeightRef.current || 28;
 
     const rawScrollTop = wrap.scrollTop;
     const rawScrollLeft = wrap.scrollLeft;
@@ -212,7 +232,10 @@ export const TableDataGridCanvasBody = forwardRef<
     wrap.style.setProperty("--db-grid-rownum-tx", `${rawScrollLeft}px`);
 
     const cssWidth = Math.max(1, wrap.clientWidth);
-    const cssHeight = Math.max(1, wrap.clientHeight - headerHeight);
+    const fullCssHeight = Math.max(1, wrap.clientHeight - headerHeight);
+    // 滚过内容底部时（sticky table 占位与 headerHeight 微差导致 scrollHeight 偏大），
+    // 缩短 canvas 高度使底部对齐内容底部，避免画出无行数据的空白区域。
+    const cssHeight = Math.min(fullCssHeight, Math.max(1, snapshot.totalHeight - rawScrollTop));
     const dpr = window.devicePixelRatio || 1;
     const nextW = Math.floor(cssWidth * dpr);
     const nextH = Math.floor(cssHeight * dpr);
@@ -228,12 +251,16 @@ export const TableDataGridCanvasBody = forwardRef<
     canvas.style.left = `${rawScrollLeft}px`;
     canvas.style.top = `${rawScrollTop}px`;
 
-    const alignedScrollLeft = resolveAlignedScrollLeft(
-      wrap,
-      canvas,
-      snapshot,
-      rawScrollLeft,
-    );
+    // resolveAlignedScrollLeft 内部循环 querySelector + getBoundingClientRect 强制 layout，
+    // 但对齐结果只取决于列 DOM 位置（列结构变化时才变），滚动时表头只做 transform 偏移。
+    // 仅 structureDirty 时重新计算，非结构变化直接用上次缓存的 alignedScrollLeft。
+    let alignedScrollLeft: number;
+    if (structureDirtyRef.current || alignedScrollLeftRef.current === -1) {
+      alignedScrollLeft = resolveAlignedScrollLeft(wrap, canvas, snapshot, rawScrollLeft);
+      alignedScrollLeftRef.current = alignedScrollLeft;
+    } else {
+      alignedScrollLeft = alignedScrollLeftRef.current;
+    }
     scrollLeftRef.current = alignedScrollLeft;
 
     themeRef.current ??= readGridTheme(wrap);
@@ -305,11 +332,13 @@ export const TableDataGridCanvasBody = forwardRef<
 
     const ro = new ResizeObserver(() => {
       themeRef.current = null;
+      measuredCacheRef.current = null; // 视口变化可能影响列宽，失效测量 cache
       markStructureDirtyAndPaint();
     });
     ro.observe(wrap);
 
     const mo = new MutationObserver(() => {
+      invalidateCanvasGridThemeCache();
       themeRef.current = null;
       markStructureDirtyAndPaint();
     });
@@ -346,13 +375,13 @@ export const TableDataGridCanvasBody = forwardRef<
       const snap = snapshotRef.current;
       if (!canvas || !wrap || !snap) return null;
 
-      // 相对滚动容器客户区映射（canvas 绝对定位后与视口左缘对齐）
-      const wrapRect = wrap.getBoundingClientRect();
-      const headerHeight = headerHeightRef.current;
-      const localX = clientX - wrapRect.left;
-      const localY = clientY - wrapRect.top - headerHeight;
-      const viewW = wrap.clientWidth;
-      const viewH = wrap.clientHeight - headerHeight;
+      // 直接用 canvas 的实际屏幕位置计算视口坐标，
+      // 避免 wrapRect.top + headerHeight 推算与 table.offsetHeight 微差导致的 hitTest 偏移
+      const canvasRect = canvas.getBoundingClientRect();
+      const localX = clientX - canvasRect.left;
+      const localY = clientY - canvasRect.top;
+      const viewW = canvasRect.width;
+      const viewH = canvasRect.height;
       if (localX < 0 || localY < 0 || localX > viewW || localY > viewH) {
         return null;
       }

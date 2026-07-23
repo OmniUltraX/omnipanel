@@ -204,27 +204,33 @@ export function findEngineeringWorkspaceDockAt(
   const elements = document.elementsFromPoint(clientX, clientY);
   if (elements.length === 0) return undefined;
 
-  for (const el of elements) {
-    for (const [viewId, instance] of instancesByViewId) {
-      if (!instance.scope.startsWith("workspace-bottom-")) continue;
-      const container =
-        instance.getContainer?.() ??
-        (instance.api as DockviewApi & { element?: HTMLElement }).element ??
-        null;
-      if (container?.contains(el)) {
-        return { ...instance, viewId };
-      }
-    }
-  }
-
+  // 预解析 workspace 实例容器一次，避免「元素 × 实例」双层循环里重复调用
+  // getContainer() 与类型断言（拖拽 pointermove 高频触发；instances 少但元素可能多个）。
+  const candidates: Array<{
+    viewId: string;
+    instance: DockviewInstanceScope;
+    container: HTMLElement | null;
+  }> = [];
   for (const [viewId, instance] of instancesByViewId) {
     if (!instance.scope.startsWith("workspace-bottom-")) continue;
     const container =
       instance.getContainer?.() ??
       (instance.api as DockviewApi & { element?: HTMLElement }).element ??
       null;
-    if (!container) continue;
-    const rect = container.getBoundingClientRect();
+    candidates.push({ viewId, instance, container });
+  }
+
+  for (const el of elements) {
+    for (const cand of candidates) {
+      if (cand.container?.contains(el)) {
+        return { ...cand.instance, viewId: cand.viewId };
+      }
+    }
+  }
+
+  for (const cand of candidates) {
+    if (!cand.container) continue;
+    const rect = cand.container.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     if (
       clientX >= rect.left &&
@@ -232,7 +238,7 @@ export function findEngineeringWorkspaceDockAt(
       clientY >= rect.top &&
       clientY < rect.bottom
     ) {
-      return { ...instance, viewId };
+      return { ...cand.instance, viewId: cand.viewId };
     }
   }
 
@@ -247,17 +253,29 @@ export function findModuleDockAt(
   const elements = document.elementsFromPoint(clientX, clientY);
   if (elements.length === 0) return undefined;
 
-  const isModuleScope = (scope: string) => !scope.startsWith("workspace-bottom-");
+  // 预解析模块实例容器一次，避免「元素 × 实例」双层循环里重复调用 getContainer() 与类型断言。
+  // containerFull 用于 contains/rect 命中（与原逻辑一致：getContainer ?? api.element）；
+  // containerRaw 仅用于 host.contains 检测（原逻辑只取 getContainer，保留该语义以免误命中）。
+  const candidates: Array<{
+    viewId: string;
+    instance: DockviewInstanceScope;
+    containerFull: HTMLElement | null;
+    containerRaw: HTMLElement | null;
+  }> = [];
+  for (const [viewId, instance] of instancesByViewId) {
+    if (!instance.scope.startsWith("workspace-bottom-")) continue;
+    const containerRaw = instance.getContainer?.() ?? null;
+    const containerFull =
+      containerRaw ??
+      (instance.api as DockviewApi & { element?: HTMLElement }).element ??
+      null;
+    candidates.push({ viewId, instance, containerFull, containerRaw });
+  }
 
   for (const el of elements) {
-    for (const [viewId, instance] of instancesByViewId) {
-      if (!isModuleScope(instance.scope)) continue;
-      const container =
-        instance.getContainer?.() ??
-        (instance.api as DockviewApi & { element?: HTMLElement }).element ??
-        null;
-      if (container?.contains(el)) {
-        return { ...instance, viewId };
+    for (const cand of candidates) {
+      if (cand.containerFull?.contains(el)) {
+        return { ...cand.instance, viewId: cand.viewId };
       }
     }
 
@@ -265,23 +283,16 @@ export function findModuleDockAt(
       ".dockable-workspace:not(.workspace-panel-dock), .module-segment-dock, .terminal-module-dock, .database-module-dock, .files-workspace",
     );
     if (!host) continue;
-    for (const [viewId, instance] of instancesByViewId) {
-      if (!isModuleScope(instance.scope)) continue;
-      const container = instance.getContainer?.();
-      if (container && host.contains(container)) {
-        return { ...instance, viewId };
+    for (const cand of candidates) {
+      if (cand.containerRaw && host.contains(cand.containerRaw)) {
+        return { ...cand.instance, viewId: cand.viewId };
       }
     }
   }
 
-  for (const [viewId, instance] of instancesByViewId) {
-    if (!isModuleScope(instance.scope)) continue;
-    const container =
-      instance.getContainer?.() ??
-      (instance.api as DockviewApi & { element?: HTMLElement }).element ??
-      null;
-    if (!container) continue;
-    const rect = container.getBoundingClientRect();
+  for (const cand of candidates) {
+    if (!cand.containerFull) continue;
+    const rect = cand.containerFull.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
     if (
       clientX >= rect.left &&
@@ -289,7 +300,7 @@ export function findModuleDockAt(
       clientY >= rect.top &&
       clientY < rect.bottom
     ) {
-      return { ...instance, viewId };
+      return { ...cand.instance, viewId: cand.viewId };
     }
   }
 

@@ -133,6 +133,19 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const [changeRowFilter, setChangeRowFilter] = useState<PreviewChangeRowFilter>("all");
   const [ddlEntry, setDdlEntry] = useState<TableDetailDdlState>({ status: "idle" });
   const copySqlHintTimerRef = useRef<number | null>(null);
+  /**
+   * 延迟 TableDataGrid 首次挂载一帧。
+   * 新 tab 创建时 Dockview panel 同步渲染，若此时 showPreviewGrid 已 true（warm columnMeta），
+   * TableDataGrid（3500+ 行组件 + TanStack Table 实例 + Canvas 初始化）首挂会阻塞 panel 创建。
+   * 延迟一帧让 panel 先创建完（骨架），下一帧再挂 grid。
+   * 已有 tab 不受影响：DbTablePreviewSurface 不会重新挂载，gridMounted 保持 true。
+   */
+  const [gridMounted, setGridMounted] = useState(false);
+  useEffect(() => {
+    if (gridMounted) return;
+    const raf = requestAnimationFrame(() => setGridMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, [gridMounted]);
 
   const detailPosition = useSettingsStore((s) => s.databaseTableDetailPosition);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
@@ -808,7 +821,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const hasPreviewData = Boolean(preview?.data);
   const deferredDisplayRows = useDeferredValue(previewDisplayRows);
   const showPreviewGrid = Boolean(
-    showShell && (hasPreviewColumns || hasPreviewData),
+    showShell && gridMounted && (hasPreviewColumns || hasPreviewData),
   );
   const showGridSkeleton = Boolean(showShell && !showPreviewGrid && preview?.loading);
 

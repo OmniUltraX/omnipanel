@@ -18,7 +18,7 @@ import {
   cellViewportRect,
   hitTestGrid,
 } from "./geometry";
-import { measureHeaderHeight, readCanvasGridTheme } from "./theme";
+import { invalidateCanvasGridThemeCache, measureHeaderHeight, readCanvasGridTheme } from "./theme";
 import type {
   CanvasCellDrawModel,
   CanvasCellViewportRect,
@@ -94,10 +94,17 @@ function measureHeaderColumnWidths(
   host: HTMLElement,
   columnIds: string[],
 ): number[] | null {
+  // 一次性查全部 th，避免 N 次 querySelector（每次都有 DOM 遍历开销）
+  const ths = host.querySelectorAll<HTMLTableCellElement>("th[data-col-id]");
+  const map = new Map<string, HTMLTableCellElement>();
+  for (const th of ths) {
+    const id = th.dataset.colId;
+    if (id) map.set(id, th);
+  }
   const widths: number[] = [];
   for (const id of columnIds) {
-    const th = host.querySelector(`th[data-col-id="${CSS.escape(id)}"]`);
-    if (!(th instanceof HTMLElement)) return null;
+    const th = map.get(id);
+    if (!th) return null;
     const w = th.getBoundingClientRect().width;
     if (!(w > 0)) return null;
     widths.push(w);
@@ -133,6 +140,12 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
   const headerHeightRef = useRef(28);
   const snapshotRef = useRef<CanvasGridSnapshot | null>(null);
   const rowOffsetsRef = useRef<number[]>([0]);
+  /**
+   * 测量结果 cache：列 id 签名没变时复用，避免每次 rebuild 都做 N 次 getBoundingClientRect（强制 reflow）。
+   * headerHeight 同理：仅列结构/视口变化时重测。
+   */
+  const measuredCacheRef = useRef<{ signature: string; widths: number[] | null } | null>(null);
+  const structureDirtyRef = useRef(true);
 
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
@@ -152,7 +165,20 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
     const dataRows = rowsRef.current;
     const heights = rowHeightRef.current;
     const host = scrollElementRef.current;
-    const measured = host ? measureHeaderColumnWidths(host, cols.map((c) => c.id)) : null;
+    // 列 id 签名 cache：列结构没变时复用上次测量，跳过 N 次 getBoundingClientRect
+    const signature = cols.map((c) => `${c.id}:${c.width}`).join("\u0000");
+    const cached = measuredCacheRef.current;
+    let measured: number[] | null = null;
+    if (host && structureDirtyRef.current) {
+      if (cached && cached.signature === signature) {
+        measured = cached.widths;
+      } else {
+        measured = measureHeaderColumnWidths(host, cols.map((c) => c.id));
+        measuredCacheRef.current = { signature, widths: measured };
+      }
+    } else if (cached) {
+      measured = cached.widths;
+    }
     const widths = cols.map((c, index) => measured?.[index] ?? c.width);
     const { columns: offsets, totalWidth } = buildColumnOffsets(widths);
     const drawColumns: CanvasGridColumnInfo[] = cols.map((col, index) => ({
@@ -215,15 +241,35 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
     const wrap = scrollElementRef.current;
     if (!canvas || !wrap) return;
 
-    const { snapshot, rowOffsets } = rebuildSnapshot();
-    const headerHeight = measureHeaderHeight(wrap);
-    headerHeightRef.current = headerHeight;
-    wrap.style.setProperty(headerHeightCssVar, `${headerHeight}px`);
+    // 仅结构变化时 rebuild + 重测表头高度（避免每次滚动都 N 次 getBoundingClientRect）
+    let snapshot: CanvasGridSnapshot;
+    let rowOffsets: number[];
+    if (structureDirtyRef.current || !snapshotRef.current) {
+      const bundle = rebuildSnapshot();
+      snapshot = bundle.snapshot;
+      rowOffsets = bundle.rowOffsets;
+      structureDirtyRef.current = false;
+
+      // 表头高度也仅结构变化时重测
+      const headerHeight = measureHeaderHeight(wrap);
+      headerHeightRef.current = headerHeight;
+      wrap.style.setProperty(headerHeightCssVar, `${headerHeight}px`);
+    } else {
+      snapshot = snapshotRef.current;
+      rowOffsets = rowOffsetsRef.current;
+      // hover 更新
+      snapshot.hoverRow = hoverRef.current?.row ?? null;
+      snapshot.hoverCol = hoverRef.current?.col ?? null;
+    }
+    const headerHeight = headerHeightRef.current || 28;
 
     const scrollTop = wrap.scrollTop;
     const scrollLeft = wrap.scrollLeft;
     const cssWidth = Math.max(1, wrap.clientWidth);
-    const cssHeight = Math.max(1, wrap.clientHeight - headerHeight);
+    const fullCssHeight = Math.max(1, wrap.clientHeight - headerHeight);
+    // 滚过内容底部时（sticky 表头占位与 headerHeight 微差导致 scrollHeight 偏大），
+    // 缩短 canvas 高度使底部对齐内容底部，避免画出无行数据的空白区域。
+    const cssHeight = Math.min(fullCssHeight, Math.max(1, snapshot.totalHeight - scrollTop));
     const dpr = window.devicePixelRatio || 1;
     const nextW = Math.floor(cssWidth * dpr);
     const nextH = Math.floor(cssHeight * dpr);
@@ -264,6 +310,7 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
   }, [paint]);
 
   useLayoutEffect(() => {
+    structureDirtyRef.current = true;
     schedulePaint();
   }, [columns, rows, rowHeight, selectedCell, isRowSelected, getCellText, schedulePaint]);
 
@@ -276,11 +323,14 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
 
     const ro = new ResizeObserver(() => {
       themeRef.current = null;
+      measuredCacheRef.current = null; // 视口变化可能影响列宽，失效 cache
+      structureDirtyRef.current = true;
       schedulePaint();
     });
     ro.observe(wrap);
 
     const mo = new MutationObserver(() => {
+      invalidateCanvasGridThemeCache();
       themeRef.current = null;
       schedulePaint();
     });

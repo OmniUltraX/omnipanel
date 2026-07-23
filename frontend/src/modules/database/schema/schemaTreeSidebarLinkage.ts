@@ -18,10 +18,14 @@ export function resolveSchemaTreeScrollTarget(params: {
   if (params.activeDatabaseKey) {
     return params.activeDatabaseKey;
   }
-  // 故意不回落到 activeConnId：
-  // 关闭最后一个表/库 Tab 后联动常只剩连接 id，若滚到连接根会把树拽回顶部，
-  // 破坏用户当前浏览位置（双击前单击选中也会误伤）。
-  void params.activeConnId;
+  // 回落到连接节点 id：激活连接 Tab 时，连接树应滚动到对应连接节点。
+  // 关闭最后一个表/库 Tab 后联动常只剩连接 id，此时依赖调用方的三重保护避免误滚动：
+  //   1) lastLinkageScrollRef 去重：同一目标不重复滚动
+  //   2) suppressLinkageScrollRef：用户刚在树上操作时抑制联动
+  //   3) isSchemaFlatRowIndexInViewport：目标已在视口内时不滚动
+  if (params.activeConnId) {
+    return connectionNodeId(params.activeConnId);
+  }
   return null;
 }
 

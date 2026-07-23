@@ -152,7 +152,12 @@ export function findModuleDropTargetWorkspace(
     ) {
       continue;
     }
-    for (const panel of host.querySelectorAll<HTMLElement>("[data-workspace-id]")) {
+    // 一次 querySelectorAll + 一次测量遍历：命中即返回；
+    // 否则记录第一个可见面板作为 host 命中兜底，
+    // 避免重复 querySelectorAll 与 getBoundingClientRect（拖拽 pointermove 高频触发）。
+    const panels = host.querySelectorAll<HTMLElement>("[data-workspace-id]");
+    let firstVisibleId: string | null = null;
+    for (const panel of panels) {
       const workspaceId = panel.dataset.workspaceId;
       if (!workspaceId) continue;
       const rect = panel.getBoundingClientRect();
@@ -165,15 +170,13 @@ export function findModuleDropTargetWorkspace(
       ) {
         return { workspaceId };
       }
+      if (firstVisibleId === null) {
+        firstVisibleId = workspaceId;
+      }
     }
     // 命中 host 区域但未命中子节点时，取当前可见工作区面板
-    for (const panel of host.querySelectorAll<HTMLElement>("[data-workspace-id]")) {
-      const workspaceId = panel.dataset.workspaceId;
-      if (!workspaceId) continue;
-      const rect = panel.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        return { workspaceId };
-      }
+    if (firstVisibleId) {
+      return { workspaceId: firstVisibleId };
     }
   }
 

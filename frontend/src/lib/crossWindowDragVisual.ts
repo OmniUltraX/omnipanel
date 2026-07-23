@@ -530,23 +530,29 @@ export function initCrossWindowDragVisual(): () => void {
    * 源窗不在顶层时收不到 pointermove，dockview ghost 停在最后位置，
    * 由 pointerout 隐藏，pointerover 恢复。
    */
-  const hasDockviewDrag = (): boolean =>
-    Boolean(
-      document.querySelector(
-        ".dv-tab-dragging, .dv-tab--dragging, .dv-resize-container-dragging",
-      ),
-    );
+  let pointerOverRaf = 0;
+  let pointerOutRaf = 0;
 
   const onPointerOut = (event: PointerEvent) => {
     if (event.relatedTarget !== null) return;
-    if (!hasDockviewDrag()) return;
-    setDockviewGhostHidden(true);
+    // 早退：跨窗拖拽未激活时直接返回，不查 DOM。
+    // 最大化/还原动画期间元素位移会触发数百次 pointerout，
+    // 每次 querySelector 累积开销巨大。
+    if (!useCrossWindowDragVisualStore.getState().active) return;
+    cancelAnimationFrame(pointerOutRaf);
+    pointerOutRaf = requestAnimationFrame(() => {
+      setDockviewGhostHidden(true);
+    });
   };
 
   const onPointerOver = () => {
-    if (!hasDockviewDrag()) return;
-    // 指针回到本窗 → 恢复 dockview 原生 ghost
-    setDockviewGhostHidden(false);
+    // 早退：同上。store.active 标识跨窗拖拽是否激活（remote/local session 设置后置 true）。
+    if (!useCrossWindowDragVisualStore.getState().active) return;
+    // rAF 节流：动画期间高频 pointerover 每帧最多执行一次恢复
+    cancelAnimationFrame(pointerOverRaf);
+    pointerOverRaf = requestAnimationFrame(() => {
+      setDockviewGhostHidden(false);
+    });
   };
 
   registerTauriListener(
@@ -647,6 +653,8 @@ export function initCrossWindowDragVisual(): () => void {
 
   const cleanup = () => {
     disposed = true;
+    cancelAnimationFrame(pointerOverRaf);
+    cancelAnimationFrame(pointerOutRaf);
     for (const fn of unlisteners) safeTauriUnlisten(fn);
     unlisteners.length = 0;
     document.removeEventListener("pointermove", onPointerMove, true);

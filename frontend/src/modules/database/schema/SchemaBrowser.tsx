@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -204,6 +205,8 @@ interface TreeNodeProps {
   isFk?: boolean;
   hasChildren: boolean;
   active?: boolean;
+  /** 该节点已在工作区打开 Tab（非 active 的弱标记，用于视觉提示） */
+  inTab?: boolean;
   /** 双击打开右侧面板（常驻 Tab） */
   onActivate?: () => void;
   /** 单击打开右侧面板（预览 Tab，斜体可替换） */
@@ -244,6 +247,7 @@ const TreeNode = memo(
   isFk,
   hasChildren,
   active,
+  inTab,
   onActivate,
   onPreviewOpen,
   onContextMenu,
@@ -527,7 +531,7 @@ const TreeNode = memo(
         </>
       }
       trailing={trailingNode}
-      className={`tree-node--${type}${connectionStateClass}${dragClass}${layoutDragClass}${layoutSourceClass}`}
+      className={`tree-node--${type}${connectionStateClass}${dragClass}${layoutDragClass}${layoutSourceClass}${inTab ? " tree-node--in-tab" : ""}`}
       style={{ ["--tree-depth" as string]: depth }}
       dataAttrs={{
         "data-schema-item-type": type,
@@ -561,6 +565,7 @@ const TreeNode = memo(
     prev.expanded === next.expanded &&
     prev.hasChildren === next.hasChildren &&
     prev.active === next.active &&
+    prev.inTab === next.inTab &&
     prev.meta === next.meta &&
     prev.metaTitle === next.metaTitle &&
     prev.isPk === next.isPk &&
@@ -672,6 +677,8 @@ export interface SchemaBrowserProps {
   onSchemaCacheConnectionPatched?: (connId: string, entry: SchemaCacheConnectionEntry) => void;
   activeTableKey?: string | null;
   activeDatabaseKey?: string | null;
+  /** 所有已在工作区打开 Tab 的树节点 id 集合（用于标记"已打开"状态） */
+  openTabNodeIds?: Set<string>;
   refreshToken?: number;
   section?: SchemaSidebarSectionConfig;
   /** 由 DatabasePanel 注入，避免重复 listConnections 与 remount 后空白加载 */
@@ -690,6 +697,7 @@ export function SchemaBrowser({
   onSchemaCacheConnectionPatched,
   activeTableKey = null,
   activeDatabaseKey = null,
+  openTabNodeIds,
   refreshToken = 0,
   section,
   connectionConfigs,
@@ -774,6 +782,10 @@ export function SchemaBrowser({
   }, [useExternalConnections, connectionConfigs, schemaSnapshot]);
 
   const connections = useExternalConnections ? (externalConnections ?? []) : internalConnections;
+  // 延后 connections 驱动 buildSchemaFlatRows 的全量重建：首次挂载或 cache 刷新时，
+  // urgent render 用旧 deferredConnections（memo 命中，不重算 flatRows），transition 再算。
+  // 模块切换时 connections 引用稳定，useDeferredValue 无额外开销。
+  const deferredConnections = useDeferredValue(connections);
   // 仅在「尚无任何连接配置可展示」且仍在拉取列表时显示 loading
   const loading = useExternalConnections
     ? !connectionsReady && connectionConfigs.length === 0 && !cacheHydrated
@@ -1799,7 +1811,7 @@ export function SchemaBrowser({
     () =>
       buildSchemaFlatRows({
         t,
-        connections,
+        connections: deferredConnections,
         expandedNodeIds,
         childVisibleLimits,
         databaseFilters,
@@ -1815,7 +1827,7 @@ export function SchemaBrowser({
       }),
     [
       t,
-      connections,
+      deferredConnections,
       expandedNodeIds,
       childVisibleLimits,
       databaseFilters,
@@ -1856,8 +1868,9 @@ export function SchemaBrowser({
     // 固定行高：勿用 measureElement；所有行统一高度避免区间漂移露白
     estimateSize: () => SCHEMA_TREE_NODE_ROW_HEIGHT,
     getItemKey: (index) => flatRowsRef.current[index]?.key ?? index,
-    // 视口外多渲缓冲行，快滚时仍用完整 TreeNode（与静止态同样式）
-    overscan: 48,
+    // 视口约 25 行，overscan 32 上下各缓冲足够覆盖两帧快滚距离（28px×32=896px）。
+    // 太小快滚露白；太大 reconcile 开销高。32 是实测平衡点。
+    overscan: 32,
     // 底部工作区在看板页仍可能保活挂载；layout 内 flushSync 会刷控制台告警
     useFlushSync: false,
   });
@@ -1866,13 +1879,41 @@ export function SchemaBrowser({
 
   const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
 
-  // 滚动元素挂载 / 行数变化后强制同步一次测量，避免 WebView 下首屏区间错位
-  useLayoutEffect(() => {
+  // 滚动元素挂载 / 行数变化后测量：延后到 paint 后，避免 measure() 的 getBoundingClientRect
+  // 强制 reflow 阻塞首帧 paint。虚拟列表内部有 ResizeObserver 兜底，一帧延迟不会错位。
+  useEffect(() => {
     if (!useTreeVirtualization) {
       return;
     }
-    rowVirtualizerRef.current.measure();
+    const raf = requestAnimationFrame(() => {
+      rowVirtualizerRef.current.measure();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [useTreeVirtualization, flatRows.length]);
+
+  // 滚动中给容器加 is-scrolling class，动态启用 will-change: transform。
+  // 静态 will-change 会为所有虚拟行创建合成层，浪费 GPU 内存；仅在滚动中启用。
+  useEffect(() => {
+    const el = schemaTreeRef.current;
+    if (!el || !useTreeVirtualization) return;
+    let scrollTimer: number | null = null;
+    const onScroll = () => {
+      if (!el.classList.contains("is-scrolling")) {
+        el.classList.add("is-scrolling");
+      }
+      if (scrollTimer != null) window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(() => {
+        el.classList.remove("is-scrolling");
+        scrollTimer = null;
+      }, 120);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (scrollTimer != null) window.clearTimeout(scrollTimer);
+      el.classList.remove("is-scrolling");
+    };
+  }, [useTreeVirtualization]);
 
   const hasAnyConnection = connections.length > 0;
 
@@ -1913,8 +1954,10 @@ export function SchemaBrowser({
     });
   }, [sidebarScrollTargetId, loading, search, updateExpanded]);
 
-  // flatRows 就绪后立刻定位：仅在「切换目标」且目标不在视口内时最小位移滚入
-  useLayoutEffect(() => {
+  // flatRows 就绪后定位：延后到 paint 后，避免 getBoundingClientRect + scrollToIndex
+  // 强制 reflow 阻塞首帧 paint。updateExpanded（上方 useLayoutEffect）已同步展开祖先并
+  // 重建 flatRows，此处 useEffect 运行时 flatRows 已是最新。
+  useEffect(() => {
     if (!sidebarScrollTargetId || search.trim()) {
       if (!sidebarScrollTargetId) {
         lastLinkageScrollRef.current = null;
@@ -2263,6 +2306,8 @@ export function SchemaBrowser({
         isActive = activeTableKey === row.item.id;
       }
 
+      const isInTab = openTabNodeIds ? openTabNodeIds.has(row.item.id) : false;
+
       return (
         <TreeNode
           item={row.item}
@@ -2274,6 +2319,7 @@ export function SchemaBrowser({
           }}
           hasChildren={row.hasChildren}
           active={isActive}
+          inTab={isInTab}
           meta={row.meta}
           metaTitle={row.metaTitle}
           onMetaClick={onMetaClick}
@@ -2337,6 +2383,7 @@ export function SchemaBrowser({
       activeConnId,
       activeTableKey,
       activeDatabaseKey,
+      openTabNodeIds,
       updatePathForNodeId,
       markTreeUserInteraction,
       loadMoreChildren,
