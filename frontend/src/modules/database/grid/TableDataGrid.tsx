@@ -2634,19 +2634,11 @@ export const TableDataGrid = memo(function TableDataGrid({
       const currentRange = cellRangeRef.current;
       const currentExtraRows = selectedRowsRef.current;
       const selectedIndices = collectSelectedRowIndices(currentRange, currentExtraRows, leafCount);
-      let targetRowIndices: number[];
-      if (!transposed && selectedIndices.includes(menu.rowIndex)) {
-        targetRowIndices = selectedIndices;
-      } else if (!transposed && currentRange) {
-        const n = normalizeRange(currentRange);
-        if (menu.rowIndex >= n.minRow && menu.rowIndex <= n.maxRow && n.maxRow > n.minRow) {
-          targetRowIndices = Array.from({ length: n.maxRow - n.minRow + 1 }, (_, i) => n.minRow + i);
-        } else {
-          targetRowIndices = [menu.rowIndex];
-        }
-      } else {
-        targetRowIndices = [menu.rowIndex];
-      }
+      // 多行删除仅认整行选中；局部单元格框选只删右键所在行
+      const targetRowIndices =
+        !transposed && selectedIndices.includes(menu.rowIndex)
+          ? selectedIndices
+          : [menu.rowIndex];
       const rowCount = Math.max(1, targetRowIndices.length);
       const canSortColumn =
         Boolean(menu.column) &&

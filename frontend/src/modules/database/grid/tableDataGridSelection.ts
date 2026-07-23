@@ -159,17 +159,16 @@ export function rowsInFullRowRange(range: CellRange, leafColumnCount: number): S
 export function collectSelectedRowIndices(
   cellRange: CellRange | null,
   selectedRows: ReadonlySet<number>,
-  _leafColumnCount: number,
+  leafColumnCount: number,
 ): number[] {
   const merged = new Set<number>();
   for (const rowIndex of selectedRows) {
     merged.add(rowIndex);
   }
-  // 任意单元格选区都计入行（与右键菜单多行删除一致）；不再要求必须整行全列选中
+  // 单元格选区须覆盖整行全列才算「选中行」（点行号 / 拖选整行）；局部框选单元格不计入
   if (cellRange) {
-    const r = normalizeRange(cellRange);
-    for (let i = r.minRow; i <= r.maxRow; i += 1) {
-      merged.add(i);
+    for (const rowIndex of rowsInFullRowRange(cellRange, leafColumnCount)) {
+      merged.add(rowIndex);
     }
   }
   return [...merged].sort((a, b) => a - b);
