@@ -112,7 +112,9 @@ export function TagTreePanel({
       .filter(Boolean);
     let parentId: string | null = null;
     for (const part of parts) {
-      const created = await unwrapCommand(commands.tagCreate(part, parentId, null));
+      const created: TagDto = await unwrapCommand(
+        commands.tagCreate(part, parentId, null),
+      );
       parentId = created.id;
     }
     await refresh();
