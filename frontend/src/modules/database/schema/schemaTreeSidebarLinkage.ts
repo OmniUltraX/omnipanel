@@ -18,9 +18,10 @@ export function resolveSchemaTreeScrollTarget(params: {
   if (params.activeDatabaseKey) {
     return params.activeDatabaseKey;
   }
-  if (params.activeConnId) {
-    return connectionNodeId(params.activeConnId);
-  }
+  // 故意不回落到 activeConnId：
+  // 关闭最后一个表/库 Tab 后联动常只剩连接 id，若滚到连接根会把树拽回顶部，
+  // 破坏用户当前浏览位置（双击前单击选中也会误伤）。
+  void params.activeConnId;
   return null;
 }
 

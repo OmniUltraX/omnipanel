@@ -1887,6 +1887,12 @@ export function SchemaBrowser({
   );
 
   const lastLinkageScrollRef = useRef<{ targetId: string; rowIndex: number } | null>(null);
+  /** 树上单击/双击/展开由用户发起时抑制随后的 Tab 联动滚动，避免光标下节点被拽走导致双击点偏 */
+  const suppressLinkageScrollRef = useRef(false);
+
+  const markTreeUserInteraction = useCallback(() => {
+    suppressLinkageScrollRef.current = true;
+  }, []);
 
   // 先展开祖先（layout 阶段同步，保证随后 scroll 能立刻找到节点）
   useLayoutEffect(() => {
@@ -1909,8 +1915,14 @@ export function SchemaBrowser({
 
   // flatRows 就绪后立刻定位：仅在「切换目标」且目标不在视口内时最小位移滚入
   useLayoutEffect(() => {
-    if (!sidebarScrollTargetId || loading || search.trim()) {
-      lastLinkageScrollRef.current = null;
+    if (!sidebarScrollTargetId || search.trim()) {
+      if (!sidebarScrollTargetId) {
+        lastLinkageScrollRef.current = null;
+      }
+      return;
+    }
+    // loading 闪烁时不要清空 last：否则恢复后会被当成新目标再次滚动
+    if (loading) {
       return;
     }
     const container = schemaTreeRef.current;
@@ -1925,6 +1937,13 @@ export function SchemaBrowser({
     const last = lastLinkageScrollRef.current;
     // 同一目标已处理过：用户可能已手动滚动，禁止再拽回去
     if (last?.targetId === sidebarScrollTargetId) {
+      lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
+      return;
+    }
+
+    // 用户刚在树上操作（选中/打开）：节点已在指针下，禁止联动滚动
+    if (suppressLinkageScrollRef.current) {
+      suppressLinkageScrollRef.current = false;
       lastLinkageScrollRef.current = { targetId: sidebarScrollTargetId, rowIndex };
       return;
     }
@@ -2249,7 +2268,10 @@ export function SchemaBrowser({
           item={row.item}
           depth={row.depth}
           expanded={row.expanded}
-          onToggle={() => toggle(row.item.id)}
+          onToggle={() => {
+            markTreeUserInteraction();
+            toggle(row.item.id);
+          }}
           hasChildren={row.hasChildren}
           active={isActive}
           meta={row.meta}
@@ -2263,10 +2285,27 @@ export function SchemaBrowser({
           iconUrl={row.iconUrl}
           pinActive={row.pinActive}
           onPinToggle={onPinToggle}
-          onActivate={onActivate}
-          onPreviewOpen={onPreviewOpen}
+          onActivate={
+            onActivate
+              ? () => {
+                  markTreeUserInteraction();
+                  onActivate();
+                }
+              : undefined
+          }
+          onPreviewOpen={
+            onPreviewOpen
+              ? () => {
+                  markTreeUserInteraction();
+                  onPreviewOpen();
+                }
+              : undefined
+          }
           onContextMenu={(e) => handleContextSchemaNode(row.item, e)}
-          onPathFocus={() => updatePathForNodeId(row.item.id)}
+          onPathFocus={() => {
+            markTreeUserInteraction();
+            updatePathForNodeId(row.item.id);
+          }}
           layoutDraggable={isLayoutDraggable}
           layoutDraggingSource={layoutDraggingSourceId === row.item.id}
           dragOver={isLayoutDropTarget && layoutDragOverNodeId === row.item.id}
@@ -2299,6 +2338,7 @@ export function SchemaBrowser({
       activeTableKey,
       activeDatabaseKey,
       updatePathForNodeId,
+      markTreeUserInteraction,
       loadMoreChildren,
     ],
   );
@@ -2397,9 +2437,12 @@ export function SchemaBrowser({
         enabled={filterDialogConnId === null && filterDialogTable === null}
       >
         <div className="schema-tree-stack">
-          {pathCrumbs.length > 0 ? (
-            <nav className="schema-tree-path" aria-label={t("database.sidebar.scrollPath")}>
-              {pathCrumbs.map((crumb, index) => (
+          <nav
+            className={`schema-tree-path${pathCrumbs.length === 0 ? " schema-tree-path--empty" : ""}`}
+            aria-label={t("database.sidebar.scrollPath")}
+          >
+            {pathCrumbs.length > 0 ? (
+              pathCrumbs.map((crumb, index) => (
                 <span key={crumb.row.key} className="schema-tree-path__item">
                   {index > 0 ? (
                     <span className="schema-tree-path__sep" aria-hidden>
@@ -2417,9 +2460,13 @@ export function SchemaBrowser({
                     {crumb.row.item.label}
                   </button>
                 </span>
-              ))}
-            </nav>
-          ) : null}
+              ))
+            ) : (
+              <span className="schema-tree-path__placeholder" aria-hidden>
+                &nbsp;
+              </span>
+            )}
+          </nav>
           <div
             className={`schema-tree${useTreeVirtualization ? " schema-tree--virtual" : ""}`}
             ref={schemaTreeRef}

@@ -92,7 +92,8 @@ export type SqlTabState = {
   resultHasMore?: boolean;
 };
 
-export const DEFAULT_PAGE_SIZE = 100;
+/** 首屏默认页大小：过大时 IPC 反序列化 + React 挂网格会明显卡主线程 */
+export const DEFAULT_PAGE_SIZE = 50;
 export const DEFAULT_SQL = `SELECT version();`;
 
 /** 表预览 COUNT 未完成时，根据当前页行数估算 totalRows。 */

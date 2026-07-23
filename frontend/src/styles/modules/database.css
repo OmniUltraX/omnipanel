@@ -844,12 +844,26 @@
         align-items: center;
         flex-wrap: nowrap;
         gap: 0;
+        /* 固定占位：避免 crumb 从无到有时挤占树高度，导致视口跳动、双击点偏 */
         min-height: 26px;
+        height: 26px;
+        box-sizing: border-box;
         padding: 3px 8px;
         border-bottom: 1px solid var(--border);
         background: var(--bg);
         overflow-x: auto;
         overflow-y: hidden;
+    }
+
+    .schema-tree-path--empty {
+        color: transparent;
+    }
+
+    .schema-tree-path__placeholder {
+        display: inline-block;
+        min-width: 1px;
+        line-height: 20px;
+        user-select: none;
     }
 
     .schema-tree-path__item {
@@ -5369,6 +5383,69 @@
         flex: 1;
         min-height: 0;
         background: var(--bg);
+    }
+
+    /* 列元数据未到齐时的轻量骨架（顶栏已出，网格区占位） */
+    .db-table-preview-skeleton {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px 12px;
+        overflow: hidden;
+        background: var(--bg);
+    }
+
+    .db-table-preview-skeleton__header,
+    .db-table-preview-skeleton__row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+    .db-table-preview-skeleton__header {
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .db-table-preview-skeleton__bar {
+        display: block;
+        height: 10px;
+        border-radius: 3px;
+        background: linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--surface-hover) 70%, var(--border)) 0%,
+            color-mix(in srgb, var(--surface) 40%, var(--surface-hover)) 50%,
+            color-mix(in srgb, var(--surface-hover) 70%, var(--border)) 100%
+        );
+        background-size: 200% 100%;
+        animation: db-table-preview-skeleton-shimmer 1.2s ease-in-out infinite;
+    }
+
+    .db-table-preview-skeleton__bar--xs { width: 28px; }
+    .db-table-preview-skeleton__bar--sm { width: 64px; }
+    .db-table-preview-skeleton__bar--md { width: 96px; }
+    .db-table-preview-skeleton__bar--lg { width: 140px; flex: 1; max-width: 220px; }
+
+    .db-table-preview-skeleton__col-label {
+        flex: 0 0 auto;
+        max-width: 140px;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        line-height: 16px;
+        color: var(--text-muted);
+        background: color-mix(in srgb, var(--surface-hover) 80%, var(--border));
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    @keyframes db-table-preview-skeleton-shimmer {
+        0% { background-position: 100% 0; }
+        100% { background-position: -100% 0; }
     }
 
     .db-table-topbar {

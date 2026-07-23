@@ -76,6 +76,10 @@ export type TableDataGridCanvasBodyHandle = {
 export type TableDataGridCanvasBodyProps = {
   scrollElementRef: MutableRefObject<HTMLElement | null>;
   snapshotInput: BuildGridSnapshotInput;
+  /**
+   * 若提供，rebuild 时优先用此 ref 的行（React 外 rowCache 灌数，避免每片 setState）。
+   */
+  tableRowsRef?: MutableRefObject<BuildGridSnapshotInput["tableRows"]>;
   /** 拖选过程中的临时选区（不走 React state） */
   dragRangeRef: MutableRefObject<CellRange | null>;
   /** 行高拖拽过程中的临时高度 */
@@ -98,6 +102,7 @@ export const TableDataGridCanvasBody = forwardRef<
   {
     scrollElementRef,
     snapshotInput,
+    tableRowsRef,
     dragRangeRef,
     dragRowHeightRef,
     dragColumnWidthRef,
@@ -118,20 +123,36 @@ export const TableDataGridCanvasBody = forwardRef<
   const rowOffsetsRef = useRef<number[]>([0]);
   const snapshotInputRef = useRef(snapshotInput);
   snapshotInputRef.current = snapshotInput;
+  /** 仅结构/测量变化时全量 rebuild；滚动与 hover 只改 hover 字段再 draw */
+  const structureDirtyRef = useRef(true);
+  /**
+   * 首帧跳过表头 DOM 测量（N 次 querySelector + offset* 会强制 layout）。
+   * 先用逻辑列宽画出内容，次帧再测量对齐表头（对齐 dbx：先可见再精修）。
+   */
+  const skipHeaderMeasureRef = useRef(true);
+  /** 对齐 dbx：滚动中不画 hover，减每帧开销 */
+  const isScrollingRef = useRef(false);
+  const scrollIdleTimerRef = useRef<number | null>(null);
   const scrollTopRef = useRef(0);
   const scrollLeftRef = useRef(0);
 
   const rebuildSnapshot = useCallback(() => {
     const wrap = scrollElementRef.current;
     const leafColumns = snapshotInputRef.current.leafColumns;
-    const measured = wrap
-      ? measureHeaderColumnGeometry(
-          wrap,
-          leafColumns.map((col) => col.id),
-        )
-      : null;
+    const allowMeasure = !skipHeaderMeasureRef.current;
+    const measured =
+      allowMeasure && wrap
+        ? measureHeaderColumnGeometry(
+            wrap,
+            leafColumns.map((col) => col.id),
+          )
+        : null;
+    if (skipHeaderMeasureRef.current) {
+      skipHeaderMeasureRef.current = false;
+    }
     const bundle = buildGridSnapshotBundle({
       ...snapshotInputRef.current,
+      tableRows: tableRowsRef?.current ?? snapshotInputRef.current.tableRows,
       dragRange: dragRangeRef.current,
       dragRowHeight: dragRowHeightRef.current,
       dragColumnWidth: dragColumnWidthRef.current,
@@ -142,6 +163,7 @@ export const TableDataGridCanvasBody = forwardRef<
     });
     snapshotRef.current = bundle.snapshot;
     rowOffsetsRef.current = bundle.rowOffsets;
+    structureDirtyRef.current = false;
     if (sizerRef.current) {
       sizerRef.current.style.height = `${bundle.snapshot.totalHeight}px`;
       // 与表头 table 同宽，保证 scrollWidth / maxScrollLeft 一致
@@ -155,14 +177,30 @@ export const TableDataGridCanvasBody = forwardRef<
       }
     }
     return bundle;
-  }, [dragRangeRef, dragRowHeightRef, dragColumnWidthRef, scrollElementRef]);
+  }, [dragRangeRef, dragRowHeightRef, dragColumnWidthRef, scrollElementRef, tableRowsRef]);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const wrap = scrollElementRef.current;
     if (!canvas || !wrap) return;
 
-    const { snapshot, rowOffsets } = rebuildSnapshot();
+    let snapshot: GridRenderSnapshot;
+    let rowOffsets: number[];
+    if (structureDirtyRef.current || !snapshotRef.current) {
+      const bundle = rebuildSnapshot();
+      snapshot = bundle.snapshot;
+      rowOffsets = bundle.rowOffsets;
+    } else {
+      snapshot = snapshotRef.current;
+      rowOffsets = rowOffsetsRef.current;
+      if (isScrollingRef.current) {
+        snapshot.hoverRow = null;
+        snapshot.hoverCol = null;
+      } else {
+        snapshot.hoverRow = hoverRef.current?.row ?? null;
+        snapshot.hoverCol = hoverRef.current?.col ?? null;
+      }
+    }
     const headerHeight = measureHeaderHeight(wrap);
     headerHeightRef.current = headerHeight;
     wrap.style.setProperty("--db-grid-header-height", `${headerHeight}px`);
@@ -223,9 +261,21 @@ export const TableDataGridCanvasBody = forwardRef<
     });
   }, [paint]);
 
-  useLayoutEffect(() => {
+  const markStructureDirtyAndPaint = useCallback(() => {
+    structureDirtyRef.current = true;
     schedulePaint();
-  }, [snapshotInput, schedulePaint]);
+  }, [schedulePaint]);
+
+  useLayoutEffect(() => {
+    // 数据/列结构变化：先逻辑宽度快画，再预约一次带测量的精修
+    skipHeaderMeasureRef.current = true;
+    markStructureDirtyAndPaint();
+    const raf = requestAnimationFrame(() => {
+      structureDirtyRef.current = true;
+      schedulePaint();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [snapshotInput, markStructureDirtyAndPaint, schedulePaint]);
 
   useEffect(() => {
     const wrap = scrollElementRef.current;
@@ -236,6 +286,18 @@ export const TableDataGridCanvasBody = forwardRef<
       scrollLeftRef.current = wrap.scrollLeft;
       // 表头行号 transform 同步到滚动帧，避免等 rAF paint 才跟上
       wrap.style.setProperty("--db-grid-rownum-tx", `${wrap.scrollLeft}px`);
+      if (!isScrollingRef.current) {
+        isScrollingRef.current = true;
+        hoverRef.current = null;
+      }
+      if (scrollIdleTimerRef.current != null) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+      }
+      scrollIdleTimerRef.current = window.setTimeout(() => {
+        isScrollingRef.current = false;
+        scrollIdleTimerRef.current = null;
+        schedulePaint();
+      }, 120);
       schedulePaint();
     };
     // 捕获阶段确保一定收到滚动（部分 WebView 上冒泡可能被吃掉）
@@ -243,13 +305,13 @@ export const TableDataGridCanvasBody = forwardRef<
 
     const ro = new ResizeObserver(() => {
       themeRef.current = null;
-      schedulePaint();
+      markStructureDirtyAndPaint();
     });
     ro.observe(wrap);
 
     const mo = new MutationObserver(() => {
       themeRef.current = null;
-      schedulePaint();
+      markStructureDirtyAndPaint();
     });
     mo.observe(document.documentElement, {
       attributes: true,
@@ -263,12 +325,16 @@ export const TableDataGridCanvasBody = forwardRef<
       wrap.removeEventListener("scroll", onScroll, true);
       ro.disconnect();
       mo.disconnect();
+      if (scrollIdleTimerRef.current != null) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+        scrollIdleTimerRef.current = null;
+      }
       if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [scrollElementRef, schedulePaint]);
+  }, [scrollElementRef, schedulePaint, markStructureDirtyAndPaint]);
 
   const clientToHit = useCallback(
     (clientX: number, clientY: number): GridHitResult | null => {
@@ -356,9 +422,9 @@ export const TableDataGridCanvasBody = forwardRef<
       },
       hitTestClientPoint: clientToHit,
       getCellViewportRect,
-      invalidate: schedulePaint,
+      invalidate: markStructureDirtyAndPaint,
     }),
-    [clientToHit, getCellViewportRect, rebuildSnapshot, schedulePaint, scrollElementRef],
+    [clientToHit, getCellViewportRect, rebuildSnapshot, markStructureDirtyAndPaint, scrollElementRef],
   );
 
   const anchorFromHit = useCallback(
@@ -477,6 +543,8 @@ export const TableDataGridCanvasBody = forwardRef<
 
   const handleMouseMove = useCallback(
     (event: ReactMouseEvent<HTMLCanvasElement>) => {
+      // 对齐 dbx：滚动中不做 hitTest/hover 重绘
+      if (isScrollingRef.current) return;
       const hit = clientToHit(event.clientX, event.clientY);
       const next = hit ? { row: hit.rowIndex, col: hit.colIndex } : null;
       const prev = hoverRef.current;
