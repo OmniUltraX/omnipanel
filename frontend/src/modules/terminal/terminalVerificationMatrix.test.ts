@@ -12,7 +12,7 @@ import {
   buildToolResultFromBlock,
   resolveBlockTextOutput,
 } from "./resolveToolBlockOutput";
-import { extractCommandOutput } from "./terminalOutputText";
+import { extractCommandOutput, stripTerminalControlSequences } from "./terminalOutputText";
 import {
   createEmptyOutputModel,
   flattenOutputModel,
@@ -326,6 +326,34 @@ describe("fullTerminalSignals", () => {
     expect(hasFullTerminalExitSignal(enter)).toBe(false);
     // 鼠标关闭不作为退出信号（误报率高）
     expect(hasFullTerminalExitSignal(mouseExit)).toBe(false);
+  });
+
+  it("单独 1049l 不应结束 full-terminal（多步 TUI 步骤间会误报）", () => {
+    const store = useTerminalRunStateStore.getState();
+    const sessionId = "test-alt-exit-sticky";
+    store.clearSession(sessionId);
+    store.beginBlockRun(sessionId, { blockId: "blk-hermes", command: "hermes model" });
+    store.enterFullTerminal(sessionId, "blk-hermes");
+    expect(store.isFullTerminal(sessionId)).toBe(true);
+
+    // 检测层仍识别 exit 信号，但业务层不得仅凭此 returnToPrompt
+    const exit = new TextEncoder().encode("\x1b[?1049l");
+    expect(hasFullTerminalExitSignal(exit)).toBe(true);
+    expect(store.getRunState(sessionId)).toBe("full-terminal");
+
+    // 命令真正结束才应退出
+    store.returnToPrompt(sessionId);
+    expect(store.isFullTerminal(sessionId)).toBe(false);
+  });
+});
+
+describe("stripTerminalControlSequences vs xterm write", () => {
+  it("纯 CSI 重绘块剥离后为空——写入 xterm 绝不能依赖 strip 结果", () => {
+    // 模拟多步 TUI 步骤切换常见输出：清行 + 移光标 + 隐藏光标，无可见字符
+    const csiOnly =
+      "\x1b[?25l\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\x1b[G\x1b[?25h";
+    expect(stripTerminalControlSequences(csiOnly)).toBe("");
+    // 回归锁：若输出管道在 strip 后 early return 再写 xterm，整帧重绘会被丢弃
   });
 });
 

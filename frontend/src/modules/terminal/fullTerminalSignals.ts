@@ -12,7 +12,13 @@ const FULL_TERMINAL_SIGNAL_RE =
 
 // 退出信号仅匹配 alt screen 离开（1049l/1047l/47l），
 // 不匹配鼠标追踪关闭（1000l 等）：TUI 可能临时关闭鼠标而不退出，
-// 鼠标 ?l 误报率过高。alt screen ?l 是 TUI 恢复主屏幕缓冲的可靠退出标志。
+// 鼠标 ?l 误报率过高。
+//
+// 重要：hasFullTerminalExitSignal 仅供检测 / 测试 / 未来延迟策略使用，
+// 不要把它当作立刻退出 full-terminal 的触发器。
+// hermes model 等多步交互 TUI 会在步骤之间发送 1049l，下一问仍在同一进程；
+// 过早 returnToCommandBar 会导致 xterm 隐藏、按键无法送达 PTY。
+// full-terminal 结束应以 OSC 133 D（命令真正结束）为准。
 const FULL_TERMINAL_EXIT_SIGNAL_RE = /\x1b\[\?(?:1049|1047|47)l/;
 
 export function hasFullTerminalSignal(bytes: Uint8Array): boolean {
@@ -20,7 +26,10 @@ export function hasFullTerminalSignal(bytes: Uint8Array): boolean {
   return FULL_TERMINAL_SIGNAL_RE.test(new TextDecoder().decode(bytes));
 }
 
-/** 检测 TUI 退出 alt screen 的信号（vim/less/htop 等离开时发送）。 */
+/**
+ * 检测 TUI 离开 alt screen 的序列（vim/less/htop 离开时，或多步 TUI 步骤切换时均可能发送）。
+ * 不应用于立刻退出 full-terminal —— 见文件顶部说明。
+ */
 export function hasFullTerminalExitSignal(bytes: Uint8Array): boolean {
   if (bytes.length === 0) return false;
   return FULL_TERMINAL_EXIT_SIGNAL_RE.test(new TextDecoder().decode(bytes));

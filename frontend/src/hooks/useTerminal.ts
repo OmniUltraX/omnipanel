@@ -84,10 +84,7 @@ import {
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
 import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
 import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
-import {
-  hasFullTerminalSignal,
-  hasFullTerminalExitSignal,
-} from "../modules/terminal/fullTerminalSignals";
+import { hasFullTerminalSignal } from "../modules/terminal/fullTerminalSignals";
 import {
   FULL_TERMINAL_BLOCK_SUMMARY,
   useTerminalRunStateStore,
@@ -809,11 +806,16 @@ export function useTerminal(
                 trimXtermAfterBlockEnd(t);
                 clearOutputWatch(sessionId);
                 releaseFeedCapture(sessionId);
-                useTerminalRunStateStore.getState().returnToPrompt(sessionId);
               }
               pendingBlock = null;
-              // 命令结束，尝试自动回到 Command Bar（OSC 133 D 是最可靠的事件源，
-              // 不依赖命令是否使用 alternate screen buffer）
+              // 命令真正结束：full-terminal 以 OSC 133 D 为准回到 Command Bar
+              // （多步 TUI 会在步骤间离开 alt screen，不能把 1049l 当成进程结束）
+              if (useTerminalRunStateStore.getState().isFullTerminal(sessionId)) {
+                useTerminalUiStore.getState().returnToCommandBar(sessionId);
+              } else if (blockId) {
+                useTerminalRunStateStore.getState().returnToPrompt(sessionId);
+              }
+              // 手动直通 + autoReturn 时，OSC 133 D 是最可靠的回 Command Bar 事件源
               tryAutoReturnAfterBlockEnd(sessionId, blockId);
               break;
             }
@@ -929,13 +931,9 @@ export function useTerminal(
               output: FULL_TERMINAL_BLOCK_SUMMARY,
             });
           }
-        } else if (
-          isWarpDisplay(sessionId) &&
-          runStore.getRunState(sessionId) === "full-terminal" &&
-          hasFullTerminalExitSignal(merged)
-        ) {
-          // TUI 退出 alt screen（vim/less/htop 离开）：回到 Command Bar
-          useTerminalUiStore.getState().returnToCommandBar(sessionId);
+          // 注意：不在 alt screen 退出（1049l）时 returnToCommandBar。
+          // hermes model 等多步交互会在步骤间离开 alt screen，过早退出会导致
+          // xterm 隐藏、按键无法送达 PTY。full-terminal 结束改由 OSC 133 D 处理。
         } else if (
           isWarpDisplay(sessionId) &&
           (runStore.getRunState(sessionId) === "block-running" ||
@@ -944,6 +942,18 @@ export function useTerminal(
         ) {
           runStore.promoteToInlineRun(sessionId);
         }
+
+        // PTY 原始字节必须独立写入 xterm，不能依赖「剥离控制序列后仍有可见文本」。
+        // hermes model 等多步 TUI 在步骤切换时经常只发 CSI（清行/移光标/重绘），
+        // 若因 strip 后为空而 early return，会丢掉整帧重绘 → 显示错乱，看起来像无法输入。
+        if (suspendedRef.current) {
+          runtimeRef.current.outputBuffer.push(merged);
+        } else if (!visibleRef.current) {
+          runtimeRef.current.outputBuffer.push(merged);
+        } else if (shouldWriteToXterm()) {
+          term?.write(merged);
+        }
+
         let text = ingestTerminalHistoryOutput(sessionId, rawText);
         if (!text) return;
         text = stripTerminalControlSequences(text);
@@ -955,18 +965,6 @@ export function useTerminal(
         if (runStore.shouldCaptureBlockOutput(sessionId, Boolean(outputBlockId))) {
           useBlocksStore.getState().appendBlockLiveOutput(outputBlockId!, text);
           scheduleFeedBlockIdleComplete(outputBlockId!);
-        }
-        if (suspendedRef.current) {
-          runtimeRef.current.outputBuffer.push(merged);
-          return;
-        }
-        // tab 不可见时累积字节，切回可见时由 IntersectionObserver 回调 flush
-        if (!visibleRef.current) {
-          runtimeRef.current.outputBuffer.push(merged);
-          return;
-        }
-        if (shouldWriteToXterm()) {
-          term?.write(merged);
         }
       });
       if (remote) {
