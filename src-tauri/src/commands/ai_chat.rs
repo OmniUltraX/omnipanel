@@ -561,6 +561,30 @@ pub async fn ai_chat_tool_result(
     }
 }
 
+async fn execute_acp_web_tool(state: &AppState, name: &str, arguments: &str) -> (String, bool) {
+    let storage = {
+        let manager = state.mcp_manager.lock().await;
+        manager.tool_registry.storage_handle()
+    };
+    let proxy = {
+        let p = state.proxy_config.lock().await;
+        omnipanel_store::HttpProxyConfig {
+            enabled: p.enabled,
+            protocol: p.protocol.clone(),
+            host: p.host.clone(),
+            port: p.port,
+            username: p.username.clone(),
+            password: p.password.clone(),
+        }
+    };
+    let args: serde_json::Value =
+        serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
+    match ToolRegistry::execute_isolated(storage, name, args, Some(proxy)).await {
+        Ok(pair) => pair,
+        Err(err) => (format!("Error: {err}"), false),
+    }
+}
+
 async fn run_acp_internal_turn(
     app: &AppHandle,
     state: &AppState,
@@ -575,20 +599,12 @@ async fn run_acp_internal_turn(
         format_client_tool_result_prompt, parse_client_tool_calls, pick_terminal_tool_call,
         prompt_expects_tool_retry, prompt_has_tool_results,
     };
-    use omnipanel_ai::providers::acp::native_tools::{
-        TERMINAL_CLIENT_TOOL, WEB_FETCH_CLIENT_TOOL, WEB_SEARCH_CLIENT_TOOL,
-    };
+    use omnipanel_ai::providers::acp::native_tools::TERMINAL_CLIENT_TOOL;
     use omnipanel_ai::ToolStatus;
 
     let backend_id = internal.backend_id.clone();
 
     let cwd = resolve_acp_session_cwd(&internal.context);
-
-    let client_tools = internal
-        .context
-        .terminal_session_id
-        .as_ref()
-        .is_some_and(|s| !s.trim().is_empty());
 
     let manager = state
         .agent_registry
@@ -614,25 +630,26 @@ async fn run_acp_internal_turn(
         .as_deref()
         .filter(|s| !s.trim().is_empty());
 
+    // 对齐 cursor-gateway：有客户端 tools 才进入 client_tools 模式。
+    // CLI/ACP 路径即使用户端未传 DirectInject，也默认拉 master 工具清单，避免 Cursor 裸跑原生工具。
+    let client_tool_defs: Vec<ToolDef> = {
+        let mcp = state.mcp_manager.lock().await;
+        let filter = match &internal.tools_mode {
+            InternalToolsMode::DirectInject { module_filter } => {
+                module_filter.as_deref().or(Some("master"))
+            }
+            InternalToolsMode::None => Some("master"),
+        };
+        mcp.to_internal_tool_defs(filter)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+    let client_tools = !client_tool_defs.is_empty();
+
     let is_first_user_prompt = if client_tools {
         manager.mark_first_prompt_sent(conversation_id).await
     } else {
         true
-    };
-
-    let client_tool_defs: Vec<ToolDef> = if client_tools {
-        match &internal.tools_mode {
-            InternalToolsMode::DirectInject { module_filter } => {
-                let mcp = state.mcp_manager.lock().await;
-                let filter = module_filter.as_deref().or(Some("master"));
-                mcp.to_internal_tool_defs(filter)
-                    .await
-                    .map_err(|e| e.to_string())?
-            }
-            InternalToolsMode::None => Vec::new(),
-        }
-    } else {
-        Vec::new()
     };
 
     let mut prompt_text = if client_tools {
@@ -671,6 +688,7 @@ async fn run_acp_internal_turn(
         let pending_tool: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<(String, bool)>>>> =
             Arc::new(Mutex::new(None));
         let pending_tool_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let pending_tool_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         // Native 工具（WebSearch/WebFetch）后端直执结果：(tool_name, result, approved)
         let mut native_tool_result: Option<(String, String, bool)> = None;
 
@@ -678,49 +696,18 @@ async fn run_acp_internal_turn(
             &prompt_text,
             client_tools,
             content_buffer.clone(),
-            false, // suppress_all_native: internal chat maps native tools, doesn't suppress all
+            // 对齐 gateway：抑制 Cursor 原生工具，强制走注入的 omni_* tool_calls JSON
+            client_tools,
         );
 
         while let Some(event) = rx.recv().await {
             if client_tools {
                 if let StreamEvent::ToolCall { id, name, arguments } = &event {
-                    if name == TERMINAL_CLIENT_TOOL {
-                        let key = format!("{conversation_id}:{id}");
-                        let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
-                        state
-                            .pending_internal_tool_results
-                            .lock()
-                            .await
-                            .insert(key, tool_tx);
-                        *pending_tool.lock().await = Some(tool_rx);
-                        *pending_tool_id.lock().await = Some(id.clone());
-                        let _ = arguments;
-                    } else if name == WEB_SEARCH_CLIENT_TOOL || name == WEB_FETCH_CLIENT_TOOL {
-                        // Native 工具后端直执（与 RegistryToolExecutor 同路径）
-                        let storage = {
-                            let manager = state.mcp_manager.lock().await;
-                            manager.tool_registry.storage_handle()
-                        };
-                        let proxy = {
-                            let p = state.proxy_config.lock().await;
-                            omnipanel_store::HttpProxyConfig {
-                                enabled: p.enabled,
-                                protocol: p.protocol.clone(),
-                                host: p.host.clone(),
-                                port: p.port,
-                                username: p.username.clone(),
-                                password: p.password.clone(),
-                            }
-                        };
-                        let args: serde_json::Value =
-                            serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
+                    if ToolRegistry::is_native_tool(name)
+                        && name != TERMINAL_CLIENT_TOOL
+                    {
                         let (result, success) =
-                            match ToolRegistry::execute_isolated(storage, name, args, Some(proxy))
-                                .await
-                            {
-                                Ok(pair) => pair,
-                                Err(err) => (format!("Error: {err}"), false),
-                            };
+                            execute_acp_web_tool(state, name, arguments).await;
                         native_tool_result = Some((name.clone(), result.clone(), success));
                         let update = StreamEvent::ToolCallUpdate {
                             id: id.clone(),
@@ -739,6 +726,19 @@ async fn run_acp_internal_turn(
                             &update,
                         );
                         let _ = on_event.send(update);
+                    } else {
+                        // 终端 / UiDelegated：挂起等前端执行
+                        let key = format!("{conversation_id}:{id}");
+                        let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
+                        state
+                            .pending_internal_tool_results
+                            .lock()
+                            .await
+                            .insert(key, tool_tx);
+                        *pending_tool.lock().await = Some(tool_rx);
+                        *pending_tool_id.lock().await = Some(id.clone());
+                        *pending_tool_name.lock().await = Some(name.clone());
+                        let _ = arguments;
                     }
                 }
             }
@@ -775,10 +775,57 @@ async fn run_acp_internal_turn(
             if pending_tool.lock().await.is_none() {
                 if let Some(buf) = &content_buffer {
                     let text = buf.lock().map(|g| g.clone()).unwrap_or_default();
-                    if let Some(tc) = pick_terminal_tool_call(&parse_client_tool_calls(&text)) {
-                        // 路径 A：从模型文本解析 tool_calls JSON
+                    let calls = parse_client_tool_calls(&text);
+                    // 取第一个 tool_call（优先终端，否则任意 omni_*）
+                    if let Some(tc) = pick_terminal_tool_call(&calls) {
                         let tool_id = tc.id.clone();
+                        let tool_name = tc.name.clone();
                         let args = tc.arguments.clone();
+
+                        // Native 工具（web/zhihu/…）后端直执；终端与其它 UiDelegated 挂起前端
+                        if ToolRegistry::is_native_tool(&tool_name)
+                            && tool_name != TERMINAL_CLIENT_TOOL
+                        {
+                            let tool_call = StreamEvent::ToolCall {
+                                id: tool_id.clone(),
+                                name: tool_name.clone(),
+                                arguments: args.clone(),
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &tool_call,
+                            );
+                            let _ = on_event.send(tool_call);
+
+                            let (result, success) =
+                                execute_acp_web_tool(state, &tool_name, &args).await;
+                            let update = StreamEvent::ToolCallUpdate {
+                                id: tool_id,
+                                status: if success {
+                                    ToolStatus::Completed
+                                } else {
+                                    ToolStatus::Failed
+                                },
+                                result: Some(result.clone()),
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &update,
+                            );
+                            let _ = on_event.send(update);
+                            prompt_text =
+                                format_client_tool_result_prompt(&tool_name, &result, success);
+                            turn_index += 1;
+                            continue;
+                        }
+
+                        // 终端 / 其它 UiDelegated：挂起等前端执行
                         let key = format!("{conversation_id}:{tool_id}");
                         let (tool_tx, tool_rx) = tokio::sync::oneshot::channel();
                         state
@@ -788,10 +835,11 @@ async fn run_acp_internal_turn(
                             .insert(key, tool_tx);
                         *pending_tool.lock().await = Some(tool_rx);
                         *pending_tool_id.lock().await = Some(tool_id.clone());
+                        *pending_tool_name.lock().await = Some(tool_name.clone());
 
                         let tool_call = StreamEvent::ToolCall {
                             id: tool_id.clone(),
-                            name: TERMINAL_CLIENT_TOOL.to_string(),
+                            name: tool_name,
                             arguments: args,
                         };
                         record_internal_trace(
@@ -844,11 +892,13 @@ async fn run_acp_internal_turn(
             if let Some(tool_rx) = pending_tool.lock().await.take() {
                 match tokio::time::timeout(std::time::Duration::from_secs(300), tool_rx).await {
                     Ok(Ok((result, approved))) => {
-                        prompt_text = format_client_tool_result_prompt(
-                            TERMINAL_CLIENT_TOOL,
-                            &result,
-                            approved,
-                        );
+                        let tool_name = pending_tool_name
+                            .lock()
+                            .await
+                            .take()
+                            .unwrap_or_else(|| TERMINAL_CLIENT_TOOL.to_string());
+                        prompt_text =
+                            format_client_tool_result_prompt(&tool_name, &result, approved);
                         if let Some(tool_id) = pending_tool_id.lock().await.take() {
                             let update = StreamEvent::ToolCallUpdate {
                                 id: tool_id,

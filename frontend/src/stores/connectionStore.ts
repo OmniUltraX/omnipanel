@@ -6,6 +6,7 @@ import {
   type ConnectionKind,
   type SshConfigSyncResult,
 } from "../ipc/bindings";
+import { unwrapCommand } from "../ipc/result";
 import {
   SEED_RESOURCES,
   type EnvironmentTag,
@@ -101,7 +102,7 @@ export function connectionToResource(connection: Connection): WorkspaceResource 
   };
 }
 
-/** 持久化单个资源标签（值未变则跳过写入）。 */
+/** 持久化单个资源标签（值未变则跳过写入）。走全局标签 system 键。 */
 export async function persistResourceTag(
   connectionId: string,
   key: string,
@@ -113,12 +114,24 @@ export async function persistResourceTag(
   if (!conn) return;
   const current = getResourceTagValue(conn.tags, key);
   if (current === trimmed) return;
-  const tags = upsertResourceTag(conn.tags, key, trimmed);
-  await useConnectionStore.getState().save({
-    ...conn,
-    tags,
-    updatedAt: Math.floor(Date.now() / 1000),
-  });
+  try {
+    await unwrapCommand(
+      commands.resourceSetSystemTag("connection", connectionId, key, trimmed),
+    );
+    const tags = upsertResourceTag(conn.tags, key, trimmed);
+    useConnectionStore.setState((s) => ({
+      connections: s.connections.map((c) =>
+        c.id === connectionId ? { ...c, tags } : c,
+      ),
+    }));
+  } catch {
+    const tags = upsertResourceTag(conn.tags, key, trimmed);
+    await useConnectionStore.getState().save({
+      ...conn,
+      tags,
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
+  }
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({

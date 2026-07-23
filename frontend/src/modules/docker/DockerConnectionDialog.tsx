@@ -7,6 +7,9 @@ import { TextInput } from "../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";
+import { useI18n } from "../../i18n";
+import { GlobalTagEditor } from "../tags/GlobalTagEditor";
+import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 
 /** Backend type from docker_probe_ssh_docker */
 interface DockerAutoDetectResult {
@@ -227,10 +230,12 @@ export function DockerConnectionDialog({
   onSaved,
   editConnection,
 }: DockerConnectionDialogProps) {
+  const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
   const connections = useConnectionStore((s) => s.connections);
 
   const [form, setForm] = useState<DockerForm>(EMPTY);
+  const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectedHosts, setConnectedHosts] = useState<SshHostInfo[]>([]);
@@ -305,10 +310,12 @@ export function DockerConnectionDialog({
           ? "原「远程 Engine API 直连」已不再支持，请改用 SSH 宿主机或 1Panel 并重新保存。"
           : null,
       );
+      setTags(userConnectionTags(editConnection.tags));
     } else {
       setForm(EMPTY);
       setSshManualMode(false);
       setLegacySourceNotice(null);
+      setTags([]);
     }
     setError(null);
     setSaving(false);
@@ -358,6 +365,7 @@ export function DockerConnectionDialog({
         name: form.name.trim(),
         group: sanitizeSshGroupInput(form.group),
         envTag: form.envTag,
+        tags: mergeConnectionTags(tags, editConnection?.tags),
         config: formToConfig(form, sshConnections),
       };
       const saved = await saveConn(conn);
@@ -701,6 +709,14 @@ export function DockerConnectionDialog({
               />
             </div>
           </div>
+
+          <div className="form-section-title">{t("resourceTags.section")}</div>
+          <GlobalTagEditor
+            kind="connection"
+            resourceId={editConnection?.id ?? ""}
+            tags={tags}
+            onChange={setTags}
+          />
     </FormDialog>
   );
 }

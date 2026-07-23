@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_store::{
     list_all_skill_records, load_database_connections, load_skill_body, load_skill_record,
     parse_skill_md, skill_file_path, write_skill, ConnectionKind, HttpProxyConfig, KnowledgeEntry,
-    ResourceObservation, SkillApplication, SkillDbRecord, SkillFrontmatter, Storage,
+    ResourceObservation, SkillApplication, SkillDbRecord, SkillFrontmatter, Storage, TagSource,
+    TaggableKind,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -50,6 +51,9 @@ pub async fn execute(
         "omni_knowledge_create_document" => create_document(arguments, storage).await,
         "omni_knowledge_remove_document" => remove_document(arguments, storage).await,
         "omni_knowledge_list_documents" => list_documents(arguments, storage).await,
+        "omni_tag_list_tree" => tag_list_tree(arguments, storage).await,
+        "omni_tag_list_resource" => tag_list_resource(arguments, storage).await,
+        "omni_tag_attach" => tag_attach(arguments, storage).await,
         "omni_database_list_connections" => list_database_connections(arguments).await,
         "omni_ssh_list_connections" => list_ssh_connections(arguments, storage).await,
         "omni_docker_list_connections" => list_docker_connections(arguments, storage).await,
@@ -1320,6 +1324,79 @@ async fn list_documents(
         .map_err(|e| e.to_string())?;
     Ok((
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string()),
+        true,
+    ))
+}
+
+async fn tag_list_tree(
+    arguments: Value,
+    storage: Arc<Mutex<Storage>>,
+) -> Result<(String, bool), String> {
+    let include_counts = arguments
+        .get("include_counts")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let storage = storage.lock().await;
+    let tags = storage
+        .tag_list_tree(include_counts)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
+        true,
+    ))
+}
+
+async fn tag_list_resource(
+    arguments: Value,
+    storage: Arc<Mutex<Storage>>,
+) -> Result<(String, bool), String> {
+    let kind = arguments
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 kind".to_string())?;
+    let resource_id = arguments
+        .get("resource_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 resource_id".to_string())?;
+    let kind = TaggableKind::parse(kind).map_err(|e| e.to_string())?;
+    let storage = storage.lock().await;
+    let tags = storage
+        .resource_list_tags(kind, resource_id)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
+        true,
+    ))
+}
+
+async fn tag_attach(
+    arguments: Value,
+    storage: Arc<Mutex<Storage>>,
+) -> Result<(String, bool), String> {
+    let kind = arguments
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 kind".to_string())?;
+    let resource_id = arguments
+        .get("resource_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 resource_id".to_string())?;
+    let path = arguments
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "缺少 path".to_string())?;
+    let source = arguments
+        .get("source")
+        .and_then(|v| v.as_str())
+        .map(TagSource::parse)
+        .unwrap_or(TagSource::Ai);
+    let kind = TaggableKind::parse(kind).map_err(|e| e.to_string())?;
+    let storage = storage.lock().await;
+    let tags = storage
+        .resource_add_tag(kind, resource_id, path, source)
+        .map_err(|e| e.to_string())?;
+    Ok((
+        serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
         true,
     ))
 }

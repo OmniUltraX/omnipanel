@@ -41,6 +41,7 @@ export function panelConnectionToForm(connection: Connection): PanelFormData {
 export function buildPanelOnlyConnection(
   form: PanelFormData,
   existing?: Connection,
+  tags: string[] = [],
 ): Connection {
   const config: PanelConfigJson & { remark?: string } = {
     address: form.panelAddress.trim(),
@@ -62,6 +63,7 @@ export function buildPanelOnlyConnection(
     name: form.name.trim(),
     group: normalizeServerGroup(existing?.group),
     envTag: existing?.envTag?.trim() || DEFAULT_ENV_TAG,
+    tags,
     config: JSON.stringify(config),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

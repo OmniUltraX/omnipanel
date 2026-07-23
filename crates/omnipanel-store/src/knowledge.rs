@@ -61,6 +61,20 @@ pub struct KnowledgeSearchResult {
     pub score: i64,
 }
 
+/// 知识文档历史版本快照。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeRevision {
+    pub id: String,
+    pub entry_id: String,
+    pub title: String,
+    pub content: String,
+    #[specta(type = f64)]
+    pub created_at: i64,
+}
+
+const KNOWLEDGE_REVISION_LIMIT: i64 = 50;
+
 impl Storage {
     /// 列出知识条目（可选按 kind / tag 过滤，按更新时间倒序）。
     pub fn list_knowledge(
@@ -78,9 +92,17 @@ impl Storage {
             params.push(Box::new(k.to_string()));
         }
         if let Some(t) = tag {
-            // tags 存为 JSON 数组字符串，用 LIKE 做简单匹配
-            sql.push_str(" AND tags LIKE ?");
-            params.push(Box::new(format!("%\"{}\"%", t)));
+            sql.push_str(
+                " AND id IN (
+                    SELECT l.resource_id FROM resource_tag_links l
+                    JOIN tags tg ON tg.id = l.tag_id
+                    WHERE l.resource_kind = 'knowledge'
+                      AND (tg.path = ? OR tg.path LIKE ?)
+                )",
+            );
+            let path = t.trim().trim_start_matches('#').to_string();
+            params.push(Box::new(path.clone()));
+            params.push(Box::new(format!("{path}/%")));
         }
         sql.push_str(" ORDER BY sort_order ASC, updated_at DESC");
 
@@ -101,11 +123,16 @@ impl Storage {
             .next())
     }
 
-    /// 插入或更新（按 id upsert）。
+    /// 插入或更新（按 id upsert）。内容或标题变化时写入历史版本。
+    /// tags 字段写入全局 resource_tag_links，并投影回 JSON 供 FTS。
     pub fn save_knowledge(&self, entry: &KnowledgeEntry) -> OmniResult<()> {
-        let tags_json = serde_json::to_string(&entry.tags).map_err(|e| {
-            OmniError::new(ErrorCode::InvalidInput, "tags 序列化失败").with_cause(e.to_string())
-        })?;
+        if let Ok(Some(prev)) = self.get_knowledge(&entry.id) {
+            if prev.content != entry.content || prev.title != entry.title {
+                let _ = self.push_knowledge_revision(&prev);
+            }
+        }
+
+        let tags_json = serde_json::to_string(&entry.tags).unwrap_or_else(|_| "[]".into());
         self.conn()
             .execute(
                 "INSERT INTO knowledge_entries (id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order, resource_type, resource_id)
@@ -147,11 +174,116 @@ impl Storage {
                 ],
             )
             .map_err(map_sqlite)?;
+
+        // 同步用户标签到全局表
+        let _ = self.resource_set_user_tags(
+            crate::tag::TaggableKind::Knowledge,
+            &entry.id,
+            &entry.tags,
+        )?;
         Ok(())
+    }
+
+    fn push_knowledge_revision(&self, entry: &KnowledgeEntry) -> OmniResult<()> {
+        let id = format!("rev-{}-{}", entry.id, entry.updated_at);
+        let created_at = entry.updated_at.max(1);
+        self.conn()
+            .execute(
+                "INSERT OR IGNORE INTO knowledge_revisions (id, entry_id, title, content, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![id, entry.id, entry.title, entry.content, created_at],
+            )
+            .map_err(map_sqlite)?;
+
+        // 保留最近 N 条
+        self.conn()
+            .execute(
+                "DELETE FROM knowledge_revisions
+                 WHERE entry_id = ?1 AND id NOT IN (
+                    SELECT id FROM knowledge_revisions
+                    WHERE entry_id = ?1
+                    ORDER BY created_at DESC
+                    LIMIT ?2
+                 )",
+                rusqlite::params![entry.id, KNOWLEDGE_REVISION_LIMIT],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    /// 列出文档历史版本（新→旧）。
+    pub fn list_knowledge_revisions(&self, entry_id: &str) -> OmniResult<Vec<KnowledgeRevision>> {
+        let mut stmt = self
+            .conn()
+            .prepare(
+                "SELECT id, entry_id, title, content, created_at
+                 FROM knowledge_revisions
+                 WHERE entry_id = ?1
+                 ORDER BY created_at DESC",
+            )
+            .map_err(map_sqlite)?;
+        let rows = stmt
+            .query_map([entry_id], |row| {
+                Ok(KnowledgeRevision {
+                    id: row.get(0)?,
+                    entry_id: row.get(1)?,
+                    title: row.get(2)?,
+                    content: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(map_sqlite)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(map_sqlite)?);
+        }
+        Ok(out)
+    }
+
+    /// 按版本 id 获取快照。
+    pub fn get_knowledge_revision(&self, revision_id: &str) -> OmniResult<Option<KnowledgeRevision>> {
+        let mut stmt = self
+            .conn()
+            .prepare(
+                "SELECT id, entry_id, title, content, created_at
+                 FROM knowledge_revisions WHERE id = ?1",
+            )
+            .map_err(map_sqlite)?;
+        let mut rows = stmt
+            .query_map([revision_id], |row| {
+                Ok(KnowledgeRevision {
+                    id: row.get(0)?,
+                    entry_id: row.get(1)?,
+                    title: row.get(2)?,
+                    content: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(map_sqlite)?;
+        Ok(rows.next().transpose().map_err(map_sqlite)?)
+    }
+
+    /// 将历史版本恢复为当前内容（会先把当前版本写入历史）。
+    pub fn restore_knowledge_revision(&self, revision_id: &str) -> OmniResult<KnowledgeEntry> {
+        let revision = self
+            .get_knowledge_revision(revision_id)?
+            .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "历史版本不存在"))?;
+        let mut entry = self
+            .get_knowledge(&revision.entry_id)?
+            .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "文档不存在"))?;
+        entry.title = revision.title;
+        entry.content = revision.content;
+        entry.updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        self.save_knowledge(&entry)?;
+        Ok(entry)
     }
 
     /// 删除条目。
     pub fn delete_knowledge(&self, id: &str) -> OmniResult<()> {
+        let _ = self.clear_resource_tags(crate::tag::TaggableKind::Knowledge, id);
         self.conn()
             .execute("DELETE FROM knowledge_entries WHERE id = ?1", [id])
             .map_err(map_sqlite)?;
@@ -260,26 +392,43 @@ impl Storage {
         Ok(results)
     }
 
-    /// 列出所有不重复的 tag。
+    /// 列出所有不重复的 tag（来自全局标签表中 knowledge 绑定）。
     pub fn list_knowledge_tags(&self) -> OmniResult<Vec<String>> {
         let mut stmt = self
             .conn()
-            .prepare("SELECT DISTINCT tags FROM knowledge_entries")
+            .prepare(
+                "SELECT DISTINCT t.path FROM resource_tag_links l
+                 JOIN tags t ON t.id = l.tag_id
+                 WHERE l.resource_kind = 'knowledge'
+                 ORDER BY t.path COLLATE NOCASE",
+            )
             .map_err(map_sqlite)?;
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(map_sqlite)?;
-
-        let mut tag_set = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
         for row in rows {
-            let tags_json: String = row.map_err(map_sqlite)?;
-            if let Ok(tags) = serde_json::from_str::<Vec<String>>(&tags_json) {
-                for t in tags {
-                    tag_set.insert(t);
+            out.push(row.map_err(map_sqlite)?);
+        }
+        if out.is_empty() {
+            // 兼容未迁移数据
+            let mut stmt = self
+                .conn()
+                .prepare("SELECT DISTINCT tags FROM knowledge_entries")
+                .map_err(map_sqlite)?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(map_sqlite)?;
+            let mut tag_set = std::collections::BTreeSet::new();
+            for row in rows {
+                let tags_json: String = row.map_err(map_sqlite)?;
+                for tag in Self::parse_tags_field(&tags_json) {
+                    tag_set.insert(tag);
                 }
             }
+            return Ok(tag_set.into_iter().collect());
         }
-        Ok(tag_set.into_iter().collect())
+        Ok(out)
     }
 
     /// 递增使用次数。
@@ -295,9 +444,101 @@ impl Storage {
 
     // ── 内部辅助 ──────────────────────────────────────────────
 
+    /// 规范化单个标签：去掉错误拆分残留的引号/方括号。
+    fn normalize_knowledge_tag(raw: &str) -> Option<String> {
+        let mut s = raw.trim().to_string();
+        if s.is_empty() {
+            return None;
+        }
+        s = s.trim_start_matches('#').trim().to_string();
+
+        for _ in 0..4 {
+            let prev = s.clone();
+            if (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
+                || (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
+            {
+                s = s[1..s.len() - 1].trim().to_string();
+            }
+            s = s
+                .trim_matches(|c: char| {
+                    c == '[' || c == ']' || c == '"' || c == '\'' || c == ',' || c.is_whitespace()
+                })
+                .to_string();
+            s = s.trim_start_matches('#').trim().to_string();
+            if s == prev {
+                break;
+            }
+        }
+
+        if s.is_empty() {
+            return None;
+        }
+        if s.chars().all(|c| matches!(c, '[' | ']' | '{' | '}' | ',' | ':' | '"' | '\'')) {
+            return None;
+        }
+        if !s.chars().any(|c| c.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c)) {
+            return None;
+        }
+        Some(s)
+    }
+
+    fn expand_tag_value(raw: &str, out: &mut Vec<String>) {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if trimmed.starts_with('[') {
+            if let Ok(nested) = serde_json::from_str::<Vec<String>>(trimmed) {
+                for item in nested {
+                    Self::expand_tag_value(&item, out);
+                }
+                return;
+            }
+        }
+        if let Some(tag) = Self::normalize_knowledge_tag(trimmed) {
+            out.push(tag);
+        }
+    }
+
+    /// 解析 knowledge_entries.tags 字段（JSON 数组 / 双重编码 / 脏数据）。
+    fn parse_tags_field(tags_json: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let trimmed = tags_json.trim();
+        if trimmed.is_empty() || trimmed == "[]" || trimmed == "null" {
+            return out;
+        }
+
+        if let Ok(tags) = serde_json::from_str::<Vec<String>>(trimmed) {
+            for tag in tags {
+                Self::expand_tag_value(&tag, &mut out);
+            }
+            return Self::dedupe_tags(out);
+        }
+
+        // 双重 JSON 编码：`"["a","b"]"`
+        if let Ok(inner) = serde_json::from_str::<String>(trimmed) {
+            return Self::parse_tags_field(&inner);
+        }
+
+        Self::expand_tag_value(trimmed, &mut out);
+        Self::dedupe_tags(out)
+    }
+
+    fn dedupe_tags(tags: Vec<String>) -> Vec<String> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for tag in tags {
+            let key = tag.to_lowercase();
+            if seen.insert(key) {
+                out.push(tag);
+            }
+        }
+        out
+    }
+
     fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeEntry> {
         let tags_json: String = row.get(4)?;
-        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        let tags = Self::parse_tags_field(&tags_json);
         Ok(KnowledgeEntry {
             id: row.get(0)?,
             kind: row.get(1)?,
@@ -435,6 +676,28 @@ mod tests {
         assert!(tags.contains(&"javascript".to_string()));
         assert!(tags.contains(&"node".to_string()));
         assert!(tags.contains(&"example".to_string()));
+    }
+
+    #[test]
+    fn list_tags_normalizes_dirty_fragments() {
+        let storage = Storage::open_in_memory().unwrap();
+        // 直接写脏 JSON，模拟历史错误拆分残留
+        storage
+            .conn()
+            .execute(
+                "INSERT INTO knowledge_entries (id, kind, title, content, tags, risk_level, source, env_tag, language, usage_count, created_at, updated_at, parent_id, node_type, sort_order, resource_type, resource_id)
+                 VALUES ('dirty', 'snippet', 't', 'c', ?1, 'safe', 'manual', 'dev', '', 0, 1, 1, '', 'document', 0, '', '')",
+                [r#"[" \"学习数据\"", " \"学段\"]", "[ \"教育\"", "database"]"#],
+            )
+            .unwrap();
+
+        let tags = storage.list_knowledge_tags().unwrap();
+        assert!(tags.contains(&"学习数据".to_string()));
+        assert!(tags.contains(&"学段".to_string()));
+        assert!(tags.contains(&"教育".to_string()));
+        assert!(tags.contains(&"database".to_string()));
+        assert!(!tags.iter().any(|t| t.contains('"')));
+        assert!(!tags.iter().any(|t| t.contains('[') || t.contains(']')));
     }
 
     #[test]

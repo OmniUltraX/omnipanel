@@ -132,6 +132,7 @@ export function TerminalSessionsWorkspaceView({
         onSelectHost={handleSelectHost}
         selectionMode={selectionMode}
         selectedIds={selectedIds}
+        tagModuleKey="terminal"
       />
     ),
     [handleSelectHost, selectedIds, selectionMode, sshResources],
@@ -204,6 +205,7 @@ export function TerminalSessionsWorkspaceView({
       leftColumnTitle={isSshMode ? t("routes.ssh") : t("routes.terminal")}
       leftIconRail={leftIconRail}
       leftSidebar={dualSidebar}
+      tagModuleKey="terminal"
     >
       {children}
     </ModuleWorkspaceLayout>

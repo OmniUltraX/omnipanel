@@ -53,6 +53,14 @@ export function applyColumnWidthDom(wrap: HTMLElement, columnId: string, width: 
     ?.style.setProperty("width", px);
 }
 
+/** Canvas / DOM 共用的视口锚点矩形 */
+export type GridCellViewportRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
 export function scrollElementToCenter(container: HTMLElement, element: HTMLElement) {
   const containerRect = container.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
@@ -61,6 +69,29 @@ export function scrollElementToCenter(container: HTMLElement, element: HTMLEleme
   const deltaY =
     elementRect.top + elementRect.height / 2 - (containerRect.top + containerRect.height / 2);
   container.scrollBy({ left: deltaX, top: deltaY, behavior: "smooth" });
+}
+
+/**
+ * 按列几何把目标列滚到视口中央。
+ * 不依赖 DOM 表头节点，兼容列虚拟化（远列没有 th）与 Canvas body。
+ */
+export function scrollColumnToCenter(
+  container: HTMLElement,
+  options: {
+    columnOffset: number;
+    columnWidth: number;
+    totalWidth: number;
+    pinned?: boolean;
+    behavior?: ScrollBehavior;
+  },
+) {
+  if (options.pinned) return;
+  const viewportWidth = container.clientWidth;
+  if (viewportWidth <= 0) return;
+  const targetLeft = options.columnOffset + options.columnWidth / 2 - viewportWidth / 2;
+  const maxLeft = Math.max(0, options.totalWidth - viewportWidth);
+  const nextLeft = Math.max(0, Math.min(targetLeft, maxLeft));
+  container.scrollTo({ left: nextLeft, behavior: options.behavior ?? "smooth" });
 }
 
 /** 清除 WebView 在 DOM 更新后粘住的 :hover 伪类 */

@@ -16,7 +16,7 @@ pub enum ConnectionKind {
 }
 
 impl ConnectionKind {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             ConnectionKind::Ssh => "ssh",
             ConnectionKind::Database => "database",
@@ -134,11 +134,53 @@ impl Storage {
                 ],
             )
             .map_err(map_sqlite)?;
+
+        // 同步到全局标签表
+        let _ = self.clear_resource_tags(crate::tag::TaggableKind::Connection, &conn.id);
+        let mut user_paths = Vec::new();
+        for tag in &conn.tags {
+            if let Some((key, value)) = tag.split_once(':') {
+                let key = key.trim();
+                let value = value.trim();
+                if matches!(key, "os" | "kernel" | "arch" | "db" | "engine" | "panel")
+                    && !value.is_empty()
+                {
+                    let _ = self.resource_set_system_key(
+                        crate::tag::TaggableKind::Connection,
+                        &conn.id,
+                        key,
+                        value,
+                    );
+                    continue;
+                }
+            }
+            if let Some(path) = crate::tag::normalize_tag_path(tag)
+                .or_else(|| crate::tag::normalize_tag_segment(tag))
+            {
+                user_paths.push(path);
+            }
+        }
+        let _ = self.resource_set_user_tags(
+            crate::tag::TaggableKind::Connection,
+            &conn.id,
+            &user_paths,
+        );
         Ok(())
     }
 
     /// 删除连接（不存在视为成功）。
     pub fn delete_connection(&self, id: &str) -> OmniResult<()> {
+        let _ = self.clear_resource_tags(crate::tag::TaggableKind::Connection, id);
+        if let Ok(Some(conn)) = self.get_connection(id) {
+            let rt = match conn.kind {
+                ConnectionKind::Ssh => "ssh",
+                ConnectionKind::Database => "database",
+                ConnectionKind::Docker => "docker",
+                ConnectionKind::File => "files",
+                ConnectionKind::Panel | ConnectionKind::Protocol => "ssh",
+            };
+            let _ = self.delete_resource_observations(rt, id);
+        }
         self.conn()
             .execute("DELETE FROM connections WHERE id = ?1", [id])
             .map_err(map_sqlite)?;

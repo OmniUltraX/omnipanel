@@ -52,6 +52,8 @@ import { formatHttpBodySize } from "./httpJsonBody";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { useProtocolLabEntryStore } from "../../stores/protocolLabEntryStore";
+import { PROTOCOL_TAG_KINDS } from "../tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import {
   PROTO_TREE_POINTER_DRAG_THRESHOLD_PX,
   isProtocolTreePointerDragExcluded,
@@ -146,10 +148,23 @@ export function ProtocolHttpSidebar() {
 
   const workspaceTabs = workspaceTabsForClose;
 
-  const collections = http?.collections ?? [];
-  const savedRequests = http?.savedRequests ?? [];
+  const collectionsAll = http?.collections ?? [];
+  const savedRequestsAll = http?.savedRequests ?? [];
   const history = http?.history ?? [];
   const environments = http?.environments ?? [];
+  const tagAllowedIds = useModuleTagFilter("protocol", PROTOCOL_TAG_KINDS);
+  const collections = useMemo(
+    () => collectionsAll.filter((c) => passTagFilter(tagAllowedIds, c.id)),
+    [collectionsAll, tagAllowedIds],
+  );
+  const savedRequests = useMemo(
+    () => savedRequestsAll.filter((r) => passTagFilter(tagAllowedIds, r.id)),
+    [savedRequestsAll, tagAllowedIds],
+  );
+  const filteredLabEntries = useMemo(
+    () => labEntries.filter((e) => passTagFilter(tagAllowedIds, e.id)),
+    [labEntries, tagAllowedIds],
+  );
   const activeWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null,
     [activeWorkspaceTabId, workspaceTabs],
@@ -179,7 +194,7 @@ export function ProtocolHttpSidebar() {
       folders,
       collections,
       savedRequests,
-      labEntries,
+      labEntries: filteredLabEntries,
       collectionParents,
       requestParents,
       entryParents,
@@ -189,7 +204,7 @@ export function ProtocolHttpSidebar() {
       folders,
       collections,
       savedRequests,
-      labEntries,
+      filteredLabEntries,
       collectionParents,
       requestParents,
       entryParents,
@@ -207,7 +222,7 @@ export function ProtocolHttpSidebar() {
         collectionParents,
         requestParents,
         entryParents,
-        labEntries,
+        filteredLabEntries,
         siblingOrder,
       ),
     [
@@ -217,7 +232,7 @@ export function ProtocolHttpSidebar() {
       collectionParents,
       requestParents,
       entryParents,
-      labEntries,
+      filteredLabEntries,
       siblingOrder,
     ],
   );

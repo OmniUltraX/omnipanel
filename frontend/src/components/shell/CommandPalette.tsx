@@ -19,6 +19,10 @@ import {
   type CommandItem,
 } from "../../stores/commandRegistry";
 import { useDoubleShiftTrigger } from "../../hooks/useGlobalShortcuts";
+import { commands, type SearchEverywhereHit } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
+import { useKnowledgeStore } from "../../stores/knowledgeStore";
+import { useTagUiStore } from "../../modules/tags/tagStore";
 
 /**
  * 把硬编码的命令定义转成 CommandItem 注册到 registry。
@@ -96,10 +100,13 @@ function useAiNewConv() {
 
 export function CommandPalette() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showRecent, setShowRecent] = useState(true);
+  const [matchMode, setMatchMode] = useState<"and" | "or">("and");
+  const [resourceHits, setResourceHits] = useState<SearchEverywhereHit[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const blockedCount = useActionStore((s) => s.actions.filter((a) => a.status === "blocked").length);
@@ -132,29 +139,89 @@ export function CommandPalette() {
       .slice(0, 5);
   }, [recentIds, allCommands]);
 
-  // 搜索过滤
+  // 解析 #标签 与文本，拉取多源资源
+  useEffect(() => {
+    if (!isOpen) return;
+    const raw = query.trim();
+    if (!raw && resourceHits.length === 0) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const tagPaths = [...raw.matchAll(/#([^\s#]+)/g)].map((m) => m[1]);
+          const textQuery = raw.replace(/#[^\s#]+/g, " ").trim();
+          const tagIds: string[] = [];
+          for (const path of tagPaths) {
+            const suggestions = await unwrapCommand(commands.tagSuggest(path, 8));
+            const exact =
+              suggestions.find((s) => s.path.toLowerCase() === path.toLowerCase()) ??
+              suggestions[0];
+            if (exact) tagIds.push(exact.id);
+          }
+          if (!textQuery && tagIds.length === 0) {
+            if (!cancelled) setResourceHits([]);
+            return;
+          }
+          const hits = await unwrapCommand(
+            commands.searchEverywhere(
+              textQuery,
+              tagIds.length > 0 ? tagIds : null,
+              matchMode,
+              30,
+            ),
+          );
+          if (!cancelled) setResourceHits(hits);
+        } catch {
+          if (!cancelled) setResourceHits([]);
+        }
+      })();
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在打开与查询变化时搜索
+  }, [query, isOpen, matchMode]);
+
+  // 搜索过滤命令（#token 不参与命令匹配）
+  const commandQuery = useMemo(
+    () => query.replace(/#[^\s#]+/g, " ").trim().toLowerCase(),
+    [query],
+  );
   const filtered = useMemo(() => {
-    if (!query.trim()) return allCommands;
-    const q = query.toLowerCase();
+    if (!commandQuery) return allCommands;
     return allCommands.filter(
       (cmd) =>
-        cmd.label.toLowerCase().includes(q) ||
-        cmd.keywords?.some((k) => k.toLowerCase().includes(q)),
+        cmd.label.toLowerCase().includes(commandQuery) ||
+        cmd.keywords?.some((k) => k.toLowerCase().includes(commandQuery)),
     );
-  }, [allCommands, query]);
+  }, [allCommands, commandQuery]);
 
-  // 分组：无搜索词时最近使用置顶
+  type PaletteRow =
+    | { type: "command"; cmd: CommandItem }
+    | { type: "resource"; hit: SearchEverywhereHit };
+
+  // 分组：无搜索词时最近使用置顶；有查询时命令 + 资源
   const grouped = useMemo(() => {
-    const groups: Record<string, CommandItem[]> = {};
+    const groups: Record<string, PaletteRow[]> = {};
     if (showRecent && !query.trim() && recentCommands.length > 0) {
-      groups[t("shell.commandPalette.categories.recent")] = recentCommands;
+      groups[t("shell.commandPalette.categories.recent")] = recentCommands.map((cmd) => ({
+        type: "command" as const,
+        cmd,
+      }));
     }
     for (const cmd of filtered) {
       if (!groups[cmd.category]) groups[cmd.category] = [];
-      groups[cmd.category].push(cmd);
+      groups[cmd.category].push({ type: "command", cmd });
+    }
+    if (resourceHits.length > 0) {
+      groups[t("shell.commandPalette.categories.resources")] = resourceHits.map((hit) => ({
+        type: "resource" as const,
+        hit,
+      }));
     }
     return groups;
-  }, [filtered, showRecent, recentCommands, query, t]);
+  }, [filtered, showRecent, recentCommands, query, t, resourceHits]);
 
   // 扁平化用于上下键导航
   const flatList = useMemo(() => {
@@ -166,6 +233,7 @@ export function CommandPalette() {
     setQuery("");
     setSelectedIndex(0);
     setShowRecent(true);
+    setResourceHits([]);
   }, []);
 
   // 双 Shift 触发
@@ -175,6 +243,7 @@ export function CommandPalette() {
       setQuery("");
       setSelectedIndex(0);
       setShowRecent(false); // 双 Shift 专注搜索，不显示最近
+      setResourceHits([]);
     }
   });
 
@@ -207,7 +276,33 @@ export function CommandPalette() {
 
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query]);
+  }, [query, resourceHits]);
+
+  const openResourceHit = useCallback(
+    (hit: SearchEverywhereHit) => {
+      if (hit.kind === "knowledge") {
+        navigateToFeature(MODULE_PATHS.knowledge, navigate);
+        useKnowledgeStore.getState().setSelectedEntry(hit.id);
+      } else if (hit.kind === "connection") {
+        const sub = hit.subtitle ?? "ssh";
+        if (sub === "database") navigateToFeature(MODULE_PATHS.database, navigate);
+        else if (sub === "docker") navigateToFeature(MODULE_PATHS.docker, navigate);
+        else if (sub === "file") navigateToFeature(MODULE_PATHS.files, navigate);
+        else if (sub === "panel") navigateToFeature(MODULE_PATHS.server, navigate);
+        else if (sub === "protocol") navigateToFeature(MODULE_PATHS.protocol, navigate);
+        else navigateToSshManagement(navigate);
+      } else if (hit.kind === "workflow") {
+        navigateToFeature(MODULE_PATHS.workflow, navigate);
+      } else if (hit.kind === "tag") {
+        useTagUiStore.getState().setSelected("knowledge", [hit.id]);
+        useTagUiStore.getState().focusTagPanel("knowledge");
+        navigateToFeature(MODULE_PATHS.knowledge, navigate);
+      }
+      setIsOpen(false);
+      setQuery("");
+    },
+    [navigate],
+  );
 
   const execute = useCallback(
     (cmd: CommandItem) => {
@@ -219,6 +314,14 @@ export function CommandPalette() {
     [recordUse],
   );
 
+  const activateRow = useCallback(
+    (row: PaletteRow) => {
+      if (row.type === "command") execute(row.cmd);
+      else openResourceHit(row.hit);
+    },
+    [execute, openResourceHit],
+  );
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -227,7 +330,7 @@ export function CommandPalette() {
       e.preventDefault();
       setSelectedIndex((prev) => Math.max(prev - 1, 0));
     } else if (e.key === "Enter" && flatList[selectedIndex]) {
-      execute(flatList[selectedIndex]);
+      activateRow(flatList[selectedIndex]);
     }
   };
 
@@ -238,7 +341,7 @@ export function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsOpen(false)} />
       <div
         className="relative w-[520px] bg-bg-deeper border border-border rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -256,10 +359,26 @@ export function CommandPalette() {
               value={query}
               onChange={setQuery}
               onKeyDown={handleKeyDown}
-              placeholder={t("shell.commandPalette.placeholder")}
+              placeholder={t("shell.commandPalette.placeholderSearch")}
               className="flex-1 bg-transparent text-sm text-fg placeholder:text-muted outline-none border-0 shadow-none"
               style={{ height: "auto", padding: 0, background: "transparent", border: "none" }}
             />
+          </div>
+          <div className="tag-tree-panel__modes command-palette-modes">
+            <button
+              type="button"
+              className={matchMode === "and" ? "active" : ""}
+              onClick={() => setMatchMode("and")}
+            >
+              AND
+            </button>
+            <button
+              type="button"
+              className={matchMode === "or" ? "active" : ""}
+              onClick={() => setMatchMode("or")}
+            >
+              OR
+            </button>
           </div>
           <kbd className="px-1.5 py-0.5 text-[10px] text-meta bg-surface border border-border rounded font-mono">ESC</kbd>
         </div>
@@ -272,33 +391,55 @@ export function CommandPalette() {
                 <div className="px-4 py-1.5 text-[11px] font-medium text-meta uppercase tracking-wider">
                   {category}
                 </div>
-                {items.map((cmd) => {
+                {items.map((row) => {
                   const currentIndex = flatIndex++;
                   const isSelected = currentIndex === selectedIndex;
-                  const shortcut = getCommandShortcutLabel(cmd);
+                  if (row.type === "command") {
+                    const cmd = row.cmd;
+                    const shortcut = getCommandShortcutLabel(cmd);
+                    return (
+                      <button
+                        key={`${category}-${cmd.id}`}
+                        className={`w-full flex items-center justify-between px-4 py-2 text-sm transition-colors ${
+                          isSelected ? "bg-accent/10 text-accent" : "text-fg-2 hover:bg-surface-hover"
+                        }`}
+                        onClick={() => activateRow(row)}
+                        onMouseEnter={() => setSelectedIndex(currentIndex)}
+                      >
+                        <span className={isRecentGroup ? "flex items-center gap-2" : ""}>
+                          {isRecentGroup && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0">
+                              <circle cx="12" cy="12" r="9" />
+                              <polyline points="12 7 12 12 15 14" />
+                            </svg>
+                          )}
+                          {cmd.label}
+                        </span>
+                        {shortcut && (
+                          <kbd className="px-1.5 py-0.5 text-[10px] text-meta bg-surface border border-border rounded font-mono">
+                            {shortcut}
+                          </kbd>
+                        )}
+                      </button>
+                    );
+                  }
+                  const hit = row.hit;
                   return (
                     <button
-                      key={`${category}-${cmd.id}`}
+                      key={`${category}-${hit.kind}-${hit.id}`}
                       className={`w-full flex items-center justify-between px-4 py-2 text-sm transition-colors ${
                         isSelected ? "bg-accent/10 text-accent" : "text-fg-2 hover:bg-surface-hover"
                       }`}
-                      onClick={() => execute(cmd)}
+                      onClick={() => activateRow(row)}
                       onMouseEnter={() => setSelectedIndex(currentIndex)}
                     >
-                      <span className={isRecentGroup ? "flex items-center gap-2" : ""}>
-                        {isRecentGroup && (
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0">
-                            <circle cx="12" cy="12" r="9" />
-                            <polyline points="12 7 12 12 15 14" />
-                          </svg>
-                        )}
-                        {cmd.label}
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-meta shrink-0">{hit.kind === "tag" ? "#" : hit.kind}</span>
+                        <span className="truncate">{hit.title}</span>
                       </span>
-                      {shortcut && (
-                        <kbd className="px-1.5 py-0.5 text-[10px] text-meta bg-surface border border-border rounded font-mono">
-                          {shortcut}
-                        </kbd>
-                      )}
+                      {hit.subtitle ? (
+                        <span className="text-[11px] text-meta shrink-0 ml-2">{hit.subtitle}</span>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -313,7 +454,7 @@ export function CommandPalette() {
         </div>
 
         <div className="flex items-center justify-between px-4 py-2 border-t border-border text-[11px] text-meta">
-          <span>{t("shell.commandPalette.hint")}</span>
+          <span>{t("shell.commandPalette.hintSearch")}</span>
           <span>{t("shell.commandPalette.pendingActions", { count: blockedCount })}</span>
         </div>
       </div>

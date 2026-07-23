@@ -29,7 +29,8 @@ export function buildCrepeFeatureConfigs(t: TranslateFn) {
         image: { label: t("knowledge.docEditor.slash.items.image") },
         codeBlock: { label: t("knowledge.docEditor.slash.items.codeBlock") },
         table: { label: t("knowledge.docEditor.slash.items.table") },
-        math: { label: t("knowledge.docEditor.slash.items.math") },
+        // Latex 特性已关闭，隐藏公式入口避免插入后无法渲染
+        math: null,
       },
     },
     [CrepeFeature.CodeMirror]: {

@@ -80,10 +80,17 @@ export function clearDragSelectionPaint(root: ParentNode): void {
   root.querySelectorAll(".db-data-table-cell--drag-selected").forEach((el) => {
     el.classList.remove("db-data-table-cell--drag-selected");
   });
+  root.querySelectorAll(".db-data-table-th--drag-selected").forEach((el) => {
+    el.classList.remove("db-data-table-th--drag-selected");
+  });
 }
 
 /** 拖选过程中直接刷 DOM，避免每帧 React 重渲 */
-export function paintDragSelection(root: ParentNode, range: CellRange): void {
+export function paintDragSelection(
+  root: ParentNode,
+  range: CellRange,
+  rowCount = 0,
+): void {
   clearDragSelectionPaint(root);
   const { minRow, maxRow, minCol, maxCol } = normalizeRange(range);
   for (let row = minRow; row <= maxRow; row += 1) {
@@ -100,6 +107,16 @@ export function paintDragSelection(root: ParentNode, range: CellRange): void {
       const col = Number(node.dataset.colIndex);
       if (Number.isNaN(col) || col < minCol || col > maxCol) continue;
       node.classList.add("db-data-table-cell--drag-selected");
+    }
+  }
+
+  // 整列选区时同步表头高亮
+  if (rowCount > 0 && minRow === 0 && maxRow === rowCount - 1) {
+    for (const node of root.querySelectorAll("th[data-col-index]")) {
+      if (!(node instanceof HTMLTableCellElement)) continue;
+      const col = Number(node.dataset.colIndex);
+      if (Number.isNaN(col) || col < minCol || col > maxCol) continue;
+      node.classList.add("db-data-table-th--drag-selected");
     }
   }
 }

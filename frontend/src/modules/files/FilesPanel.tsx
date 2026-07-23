@@ -29,6 +29,8 @@ import { useFilesWorkspaceSessionStore } from "../../stores/filesWorkspaceSessio
 import { FileConnectionDialog, type FileProtocol } from "./FileConnectionDialog";
 import { FileConnectionPanel } from "./FileConnectionPanel";
 import { FilesSidebar } from "./FilesSidebar";
+import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import {
   fileConnPanelId,
   fileProtocolDockIcon,
@@ -120,6 +122,15 @@ function FilesBrowserView() {
   const modeIconItems = useMemo(
     () => [{ id: "browser", label: t("files.tabs.browser"), icon: "file-local" as const }],
     [t],
+  );
+
+  const tagAllowedIds = useModuleTagFilter("files", CONNECTION_TAG_KINDS);
+  const visibleConnections = useMemo(
+    () =>
+      connections.filter(
+        (c) => c.id === LOCAL_CONNECTION_ID || passTagFilter(tagAllowedIds, c.id),
+      ),
+    [connections, tagAllowedIds],
   );
 
   useEffect(() => {
@@ -570,6 +581,7 @@ function FilesBrowserView() {
         className="files-workspace"
         leftColumnTitle={t("routes.files")}
         leftPreset="schema"
+        tagModuleKey="files"
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}
@@ -579,7 +591,7 @@ function FilesBrowserView() {
         }
         leftSidebar={
           <FilesSidebar
-            connections={connections}
+            connections={visibleConnections}
             activeId={sidebarActiveId}
             quickPaths={quickPaths}
             onSelectConnection={openConnectionPanel}

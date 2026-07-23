@@ -7,6 +7,8 @@ import { useI18n } from "../../i18n";
 import { commands, type Connection } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { saveFileConnection } from "./fileApi";
+import { GlobalTagEditor } from "../tags/GlobalTagEditor";
+import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 
 export type FileProtocol = "local" | "ftp" | "sftp" | "s3";
 
@@ -83,7 +85,11 @@ function parseConfig(conn?: Connection): typeof EMPTY {
   }
 }
 
-function buildConnection(form: typeof EMPTY, existing?: Connection): Connection {
+function buildConnection(
+  form: typeof EMPTY,
+  existing?: Connection,
+  tags: string[] = [],
+): Connection {
   const cfg: FileConfigJson = {
     protocol: form.protocol,
     rootPath: form.rootPath.trim() || "/",
@@ -112,7 +118,7 @@ function buildConnection(form: typeof EMPTY, existing?: Connection): Connection 
     name: form.name.trim(),
     group: form.protocol === "s3" ? "S3 存储" : "远程连接",
     envTag: existing?.envTag ?? "unknown",
-    tags: existing?.tags ?? [],
+    tags: mergeConnectionTags(tags, existing?.tags),
     config: JSON.stringify(cfg),
     credentialRef: existing?.credentialRef,
     createdAt: existing?.createdAt ?? now,
@@ -138,6 +144,7 @@ export function FileConnectionDialog({
   const { t } = useI18n();
   const connections = useConnectionStore((s) => s.connections);
   const [form, setForm] = useState(EMPTY);
+  const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +162,7 @@ export function FileConnectionDialog({
     if (!open) return;
     if (editConnection) {
       setForm(parseConfig(editConnection));
+      setTags(userConnectionTags(editConnection.tags));
     } else {
       const protocol = initialProtocol ?? "ftp";
       setForm({
@@ -163,6 +171,7 @@ export function FileConnectionDialog({
         port: defaultPortForProtocol(protocol),
         sshConnectionId: (protocol === "sftp" && initialSshConnectionId) ? initialSshConnectionId : "",
       });
+      setTags([]);
     }
     setError(null);
     setSuccessMsg(null);
@@ -203,7 +212,7 @@ export function FileConnectionDialog({
     setError(null);
     setSuccessMsg(null);
     try {
-      const conn = buildConnection(form, editConnection);
+      const conn = buildConnection(form, editConnection, tags);
       const res = await commands.connTest(conn);
       if (res.status === "ok" && res.data !== undefined) {
         setSuccessMsg(res.data);
@@ -221,7 +230,7 @@ export function FileConnectionDialog({
     } finally {
       setTesting(false);
     }
-  }, [form, editConnection, onTestSuccess]);
+  }, [form, editConnection, onTestSuccess, tags]);
 
   const handleSave = async () => {
     const err = validate();
@@ -231,7 +240,7 @@ export function FileConnectionDialog({
     }
     setSaving(true);
     try {
-      const conn = buildConnection(form, editConnection);
+      const conn = buildConnection(form, editConnection, tags);
       await saveFileConnection(conn, form.secret.trim() || null);
       onSaved?.();
       onClose();
@@ -379,6 +388,14 @@ export function FileConnectionDialog({
           </div>
         </>
       )}
+
+      <div className="form-section-title">{t("resourceTags.section")}</div>
+      <GlobalTagEditor
+        kind="connection"
+        resourceId={editConnection?.id ?? ""}
+        tags={tags}
+        onChange={setTags}
+      />
     </FormDialog>
   );
 }

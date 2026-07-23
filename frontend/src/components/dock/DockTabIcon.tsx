@@ -2,6 +2,7 @@ export type DockTabIconKind =
   | "sql"
   | "table"
   | "database"
+  | "folder"
   | "file-local"
   | "file-ftp"
   | "file-sftp"
@@ -51,6 +52,14 @@ export function DockTabIcon({ kind }: { kind: DockTabIconKind }) {
         <ellipse cx="8" cy="4.5" rx="5" ry="2" />
         <path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7" />
         <path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
+      </svg>
+    );
+  }
+
+  if (kind === "folder") {
+    return (
+      <svg {...iconProps}>
+        <path d="M2 5.5A1.5 1.5 0 013.5 4H6l1.2 1.5H12.5A1.5 1.5 0 0114 7v5.5A1.5 1.5 0 0112.5 14h-9A1.5 1.5 0 012 12.5v-7z" />
       </svg>
     );
   }

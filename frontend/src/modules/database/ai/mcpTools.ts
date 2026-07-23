@@ -13,6 +13,7 @@ import {
   type DbConnectionConfig,
 } from "../api";
 import { connectionWithDatabase } from "../toolbox/types";
+import { runWithToolGate } from "../../../lib/ai/toolGate";
 import { makeQueryRunId } from "../sql/queryRun";
 import type { QueryResult } from "../workspace/dbWorkspaceState";
 
@@ -123,15 +124,6 @@ async function executeSql(args: Record<string, unknown>): Promise<string> {
     databaseName,
   );
 
-  const trimmed = sql.trim().toLowerCase();
-  const isRead =
-    trimmed.startsWith("select") ||
-    trimmed.startsWith("show") ||
-    trimmed.startsWith("describe") ||
-    trimmed.startsWith("desc") ||
-    trimmed.startsWith("explain") ||
-    trimmed.startsWith("with");
-
   const run = async () => {
     const result = await invoke<QueryResult>("db_execute_query", {
       connection: conn,
@@ -143,19 +135,15 @@ async function executeSql(args: Record<string, unknown>): Promise<string> {
     return formatQueryResult(result);
   };
 
-  if (isRead) {
-    return run();
-  }
-
-  // 写操作进入 Action Draft，待用户在 Dock 确认
-  const { useActionDraftStore } = await import("../../../stores/actionDraftStore");
-  return useActionDraftStore.getState().enqueueAwaitable({
-    kind: "sql",
-    title: `${connectionName} / ${databaseName}`,
-    preview: sql,
-    conversationId: null,
-    execute: run,
-  });
+  return runWithToolGate(
+    {
+      toolName: "omni_database_execute_sql",
+      args,
+      resourceId: connectionName,
+      channel: "ui-delegated",
+    },
+    run,
+  );
 }
 
 /**
@@ -230,85 +218,97 @@ async function showProcesslist(args: Record<string, unknown>): Promise<string> {
 async function killQuery(args: Record<string, unknown>): Promise<string> {
   const connectionName = requireString(args, "connection_name");
   const queryId = requireString(args, "query_id");
-  const connections = await listConnections();
-  const conn = connections.find((item) => item.name === connectionName);
-  if (!conn) {
-    throw new Error(`连接不存在：${connectionName}`);
-  }
-  if (!isConnectionEnabled(conn)) {
-    throw new Error(`连接已禁用：${connectionName}`);
-  }
-  const engine = conn.db_type.toLowerCase();
 
-  if (engine === "redis") {
-    // Redis: 调用 db_redis_client_kill 命令
-    const killed = await invoke<number>("db_redis_client_kill", {
-      connection: conn,
-      addr: queryId,
-    });
-    return JSON.stringify(
-      {
-        connection: connectionName,
-        query_id: queryId,
-        killed,
-        message:
-          killed > 0 ? "CLIENT KILL 成功" : "未找到匹配的客户端（可能已断开）",
-      },
-      null,
-      2,
-    );
-  }
-
-  if (!isSqlCapableConnection(conn)) {
-    throw new Error(`连接 ${connectionName} 不支持 SQL 操作`);
-  }
-
-  if (engine === "mysql" || engine === "mariadb") {
-    const id = Number.parseInt(queryId, 10);
-    if (!Number.isFinite(id) || id <= 0) {
-      throw new Error(`MySQL/MariaDB query_id 必须是正整数（PROCESSLIST_ID）：${queryId}`);
+  const run = async () => {
+    const connections = await listConnections();
+    const conn = connections.find((item) => item.name === connectionName);
+    if (!conn) {
+      throw new Error(`连接不存在：${connectionName}`);
     }
-    const sql = `KILL ${id}`;
-    const result = await invoke<QueryResult>("db_execute_query", {
-      connection: conn,
-      sql,
-      runId: makeQueryRunId(),
-    });
-    return JSON.stringify(
-      {
-        connection: connectionName,
-        query_id: queryId,
-        rowsAffected: result.rowsAffected,
-        message: "已发送 KILL 命令",
-      },
-      null,
-      2,
-    );
-  }
-
-  if (engine === "postgres" || engine === "postgresql" || engine === "pg") {
-    const pid = Number.parseInt(queryId, 10);
-    if (!Number.isFinite(pid) || pid <= 0) {
-      throw new Error(`PostgreSQL query_id 必须是正整数（pid）：${queryId}`);
+    if (!isConnectionEnabled(conn)) {
+      throw new Error(`连接已禁用：${connectionName}`);
     }
-    const sql = `SELECT pg_terminate_backend(${pid}) AS terminated`;
-    const result = await invoke<QueryResult>("db_execute_query", {
-      connection: conn,
-      sql,
-      runId: makeQueryRunId(),
-    });
-    return JSON.stringify(
-      {
-        connection: connectionName,
-        query_id: queryId,
-        result: JSON.parse(formatQueryResult(result)),
-      },
-      null,
-      2,
-    );
-  }
+    const engine = conn.db_type.toLowerCase();
 
-  throw new Error(`暂不支持 ${engine} 的 kill_query`);
+    if (engine === "redis") {
+      const killed = await invoke<number>("db_redis_client_kill", {
+        connection: conn,
+        addr: queryId,
+      });
+      return JSON.stringify(
+        {
+          connection: connectionName,
+          query_id: queryId,
+          killed,
+          message:
+            killed > 0 ? "CLIENT KILL 成功" : "未找到匹配的客户端（可能已断开）",
+        },
+        null,
+        2,
+      );
+    }
+
+    if (!isSqlCapableConnection(conn)) {
+      throw new Error(`连接 ${connectionName} 不支持 SQL 操作`);
+    }
+
+    if (engine === "mysql" || engine === "mariadb") {
+      const id = Number.parseInt(queryId, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        throw new Error(`MySQL/MariaDB query_id 必须是正整数（PROCESSLIST_ID）：${queryId}`);
+      }
+      const sql = `KILL ${id}`;
+      const result = await invoke<QueryResult>("db_execute_query", {
+        connection: conn,
+        sql,
+        runId: makeQueryRunId(),
+      });
+      return JSON.stringify(
+        {
+          connection: connectionName,
+          query_id: queryId,
+          rowsAffected: result.rowsAffected,
+          message: "已发送 KILL 命令",
+        },
+        null,
+        2,
+      );
+    }
+
+    if (engine === "postgres" || engine === "postgresql" || engine === "pg") {
+      const pid = Number.parseInt(queryId, 10);
+      if (!Number.isFinite(pid) || pid <= 0) {
+        throw new Error(`PostgreSQL query_id 必须是正整数（pid）：${pid}`);
+      }
+      const sql = `SELECT pg_terminate_backend(${pid}) AS terminated`;
+      const result = await invoke<QueryResult>("db_execute_query", {
+        connection: conn,
+        sql,
+        runId: makeQueryRunId(),
+      });
+      return JSON.stringify(
+        {
+          connection: connectionName,
+          query_id: queryId,
+          result: JSON.parse(formatQueryResult(result)),
+        },
+        null,
+        2,
+      );
+    }
+
+    throw new Error(`暂不支持 ${engine} 的 kill_query`);
+  };
+
+  return runWithToolGate(
+    {
+      toolName: "omni_database_kill_query",
+      args,
+      resourceId: connectionName,
+      channel: "ui-delegated",
+    },
+    run,
+  );
 }
 
 /**

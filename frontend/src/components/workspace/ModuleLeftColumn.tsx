@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ModuleDockTitle } from "../dock/ModuleDockTitle";
 import { useWindowDragOnMouseDown } from "../../lib/useWindowDragOnMouseDown";
+import { ModuleTagHeader } from "../../modules/tags/ModuleTagHeader";
 
 export interface ModuleLeftColumnProps {
   /** 顶栏左侧标题（模块名） */
@@ -8,11 +9,19 @@ export interface ModuleLeftColumnProps {
   iconRail?: ReactNode;
   sidebar?: ReactNode;
   className?: string;
+  /** 启用全局标签筛选：标题旁入口 + chips */
+  tagModuleKey?: string;
 }
 
 /** 左侧列：顶栏（对齐终端 session 树标题行）+ 资源侧栏 */
-export function ModuleLeftColumn({ title, iconRail, sidebar, className }: ModuleLeftColumnProps) {
-  const showHeader = Boolean(title || iconRail);
+export function ModuleLeftColumn({
+  title,
+  iconRail,
+  sidebar,
+  className,
+  tagModuleKey,
+}: ModuleLeftColumnProps) {
+  const showHeader = Boolean(title || iconRail || tagModuleKey);
   const onHeaderMouseDown = useWindowDragOnMouseDown();
 
   return (
@@ -23,7 +32,8 @@ export function ModuleLeftColumn({ title, iconRail, sidebar, className }: Module
             "module-sidebar-module-header",
             "module-left-column__header",
             "window-drag-surface",
-            iconRail ? "module-left-column__header--with-modes" : "",
+            iconRail || tagModuleKey ? "module-left-column__header--with-modes" : "",
+            tagModuleKey ? "module-left-column__header--with-tags" : "",
           ]
             .filter(Boolean)
             .join(" ")}
@@ -31,11 +41,19 @@ export function ModuleLeftColumn({ title, iconRail, sidebar, className }: Module
           onMouseDown={onHeaderMouseDown}
         >
           {title ? <ModuleDockTitle>{title}</ModuleDockTitle> : null}
-          <div className="module-sidebar-module-header__spacer" aria-hidden data-tauri-drag-region />
+          {tagModuleKey ? (
+            <div className="module-sidebar-module-header__tags window-drag-surface--interactive">
+              <ModuleTagHeader moduleKey={tagModuleKey} />
+            </div>
+          ) : (
+            <div className="module-sidebar-module-header__spacer" aria-hidden data-tauri-drag-region />
+          )}
           {iconRail ? (
             <div className="module-sidebar-module-header__actions window-drag-surface--interactive">
               {iconRail}
             </div>
+          ) : tagModuleKey ? (
+            <div className="module-sidebar-module-header__actions-spacer" aria-hidden />
           ) : null}
         </div>
       ) : null}

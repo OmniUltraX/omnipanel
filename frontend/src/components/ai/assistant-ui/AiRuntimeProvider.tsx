@@ -8,7 +8,9 @@ import type {
 import { useExternalStoreRuntime } from "@assistant-ui/react";
 
 import type { AcpStreamEvent } from "../../../lib/acp/acpStream";
+import { respondAcpPermission } from "../../../lib/acp/acpStream";
 import { commands } from "../../../ipc/bindings";
+import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
 import { runInternalAiChat } from "../../../lib/ai/orchestrator";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
@@ -126,6 +128,39 @@ function isTerminalClientTool(toolName: string): boolean {
 
 type PermissionEvent = Extract<AcpStreamEvent, { type: "permission_request" }>;
 type StreamEventHandler = AcpStreamEvent;
+
+function pickAllowOnceOptionId(
+  options: PermissionEvent["options"],
+): string | null {
+  const exact = options.find(
+    (o) =>
+      o.optionId === "allow_once" ||
+      o.optionId === "allow-once" ||
+      o.optionId === "allow_always" ||
+      o.optionId === "allow-always",
+  );
+  if (exact) return exact.optionId;
+  const fuzzy = options.find(
+    (o) =>
+      /allow|允许|批准/i.test(o.optionId) ||
+      /allow|允许|批准/i.test(o.name),
+  );
+  return fuzzy?.optionId ?? null;
+}
+
+/** 只读 / 低风险工具：经 ToolGate 自动放行，避免每次弹确认框。 */
+function tryAutoAllowSafePermission(event: PermissionEvent): boolean {
+  if (!canAutoAllowAcp(event.title, event.raw_input)) {
+    return false;
+  }
+  const optionId = pickAllowOnceOptionId(event.options);
+  const requestId = event.requestId;
+  if (!optionId || requestId == null) return false;
+  void respondAcpPermission(requestId, optionId).catch((error) => {
+    console.error("[ACP] ToolGate 自动放行失败:", error);
+  });
+  return true;
+}
 
 function buildHistoryJson(convId: string): string | undefined {
   const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
@@ -344,6 +379,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
   const enqueuePermission = useCallback(
     (event: PermissionEvent) => {
+      if (tryAutoAllowSafePermission(event)) {
+        return;
+      }
       if (!permissionRequest) {
         setPermissionRequest(event);
         return;
@@ -691,8 +729,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             historyJson: inline
               ? await buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
               : buildHistoryJson(convId),
-            toolsMode: backend.kind === "http" ? { directInject: { moduleFilter: resolveActiveModuleFilter() } } : "none",
-            // 知识库 RAG 自动注入：仅在 HTTP 后端（DirectInject）时生效
+            toolsMode: {
+              directInject: { moduleFilter: resolveActiveModuleFilter() },
+            },
+            // 知识库 RAG 自动注入：仅在 HTTP 后端时生效
             embeddingProvider:
               backend.kind === "http" ? resolveKnowledgeEmbeddingProviderForRag() : null,
           },

@@ -15,6 +15,8 @@ import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuCo
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
 import { DatabaseSchemaSidebar } from "./schema/DatabaseSchemaSidebar";
+import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
+import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import {
   DatabaseModuleContextBridge,
   resolveDatabaseModuleContext,
@@ -385,6 +387,11 @@ export function DatabasePanel() {
   const [connections, setConnections] = useState<DbConnectionConfig[]>(() => {
     return takeBootstrappedDbConnections() ?? [];
   });
+  const tagAllowedIds = useModuleTagFilter("database", CONNECTION_TAG_KINDS);
+  const sidebarConnections = useMemo(
+    () => connections.filter((conn) => passTagFilter(tagAllowedIds, conn.id)),
+    [connections, tagAllowedIds],
+  );
   const [connectionsLoading, setConnectionsLoading] = useState(() => {
     return takeBootstrappedDbConnections() === null;
   });
@@ -5627,6 +5634,7 @@ export function DatabasePanel() {
       className="db-module-layout"
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
+      tagModuleKey="database"
       leftIconRail={
         <IconDropdownButton
           title={t("database.dataDictionary.title")}
@@ -5653,24 +5661,24 @@ export function DatabasePanel() {
         />
       }
       leftSidebar={
-          <DatabaseSchemaSidebar
-            onCreateConnection={handleCreateConnection}
-            onImportNavicat={handleImportNavicat}
-            onSelectConnection={handleSelectConnection}
-            onOpenSqlFile={openSqlFile}
-            onNewTreeChart={handleNewTreeChart}
-            onOpenTreeChartFile={openTreeChartFile}
-            activeTreeChartFileId={activeTreeChartFileId}
-            onOpenSyncTask={handleOpenSyncTask}
-            onRunSyncTask={handleRunSyncTask}
-            onSelectTable={handleSelectTable}
-            onSelectDatabase={handleSelectDatabase}
-            buildSchemaContextMenuItems={buildSchemaContextMenuItems}
-            onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
-            refreshToken={schemaRefreshToken}
-            connectionConfigs={connections}
-            connectionsReady={!connectionsLoading || connections.length > 0}
-          />
+        <DatabaseSchemaSidebar
+          onCreateConnection={handleCreateConnection}
+          onImportNavicat={handleImportNavicat}
+          onSelectConnection={handleSelectConnection}
+          onOpenSqlFile={openSqlFile}
+          onNewTreeChart={handleNewTreeChart}
+          onOpenTreeChartFile={openTreeChartFile}
+          activeTreeChartFileId={activeTreeChartFileId}
+          onOpenSyncTask={handleOpenSyncTask}
+          onRunSyncTask={handleRunSyncTask}
+          onSelectTable={handleSelectTable}
+          onSelectDatabase={handleSelectDatabase}
+          buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+          onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
+          refreshToken={schemaRefreshToken}
+          connectionConfigs={sidebarConnections}
+          connectionsReady={!connectionsLoading || connections.length > 0}
+        />
       }
     >
       <div className="db-workspace-drop-zone">

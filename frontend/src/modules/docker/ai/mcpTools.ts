@@ -2,8 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
-import { evaluateToolRisk } from "../../../lib/ai/toolRisk";
-import { useActionDraftStore } from "../../../stores/actionDraftStore";
+import { runWithToolGate } from "../../../lib/ai/toolGate";
 import type {
   DockerContainerDetail,
   DockerContainerSummary,
@@ -187,57 +186,36 @@ async function dockerContainerAction(args: Record<string, unknown>): Promise<str
     throw new Error(`未知 action：${action}（应为 ${validActions.join("/")}）`);
   }
 
-  const isDestructive = action === "kill" || action === "remove";
-
-  // 危险动作走审批队列
-  if (isDestructive) {
-    const risk = evaluateToolRisk("omni_docker_container_action", JSON.stringify(args), connection_id);
-    const result = await useActionDraftStore.getState().enqueueAwaitable({
-      kind: "docker",
-      title: `Docker ${action}: ${container_id.slice(0, 12)}`,
-      preview: `连接: ${connection_id}\n容器: ${container_id}\n动作: ${action}\n风险: ${risk.risk}\n警告: ${action === "remove" ? "容器将被永久删除，不可恢复" : "容器将被强制终止"}`,
-      execute: async () => {
-        await invoke<void>("docker_container_action", {
-          connectionId: connection_id,
-          containerId: container_id,
-          action,
-        } satisfies DockerContainerActionInvokeArgs);
-        return JSON.stringify(
-          {
-            connectionId: connection_id,
-            containerId: container_id,
-            action,
-            applied: true,
-            note: `已执行危险动作 ${action}；该操作已被审计记录`,
-          },
-          null,
-          2,
-        );
-      },
-      risk: risk.risk,
-      riskCheck: risk.riskCheck,
-      environment: risk.environment,
-      toolName: "omni_docker_container_action",
-      resourceId: connection_id,
-    });
-    return result;
-  }
-
-  await invoke<void>("docker_container_action", {
-    connectionId: connection_id,
-    containerId: container_id,
-    action,
-  } satisfies DockerContainerActionInvokeArgs);
-  return JSON.stringify(
-    {
+  const run = async () => {
+    await invoke<void>("docker_container_action", {
       connectionId: connection_id,
       containerId: container_id,
       action,
-      applied: true,
-      note: `容器 ${action} 操作已下发`,
+    } satisfies DockerContainerActionInvokeArgs);
+    return JSON.stringify(
+      {
+        connectionId: connection_id,
+        containerId: container_id,
+        action,
+        applied: true,
+        note:
+          action === "kill" || action === "remove"
+            ? `已执行危险动作 ${action}；该操作已被审计记录`
+            : `容器 ${action} 操作已下发`,
+      },
+      null,
+      2,
+    );
+  };
+
+  return runWithToolGate(
+    {
+      toolName: "omni_docker_container_action",
+      args,
+      resourceId: connection_id,
+      channel: "ui-delegated",
     },
-    null,
-    2,
+    run,
   );
 }
 
@@ -245,22 +223,35 @@ async function dockerExec(args: Record<string, unknown>): Promise<string> {
   const connection_id = requireString(args, "connection_id");
   const container_id = requireString(args, "container_id");
   const command = requireString(args, "command");
-  const output = await invoke<DockerExecOneShotOutput>("docker_exec_command", {
-    connectionId: connection_id,
-    containerId: container_id,
-    command,
-  } satisfies DockerExecCommandInvokeArgs);
-  return JSON.stringify(
-    {
+
+  const run = async () => {
+    const output = await invoke<DockerExecOneShotOutput>("docker_exec_command", {
       connectionId: connection_id,
       containerId: container_id,
       command,
-      stdout: output.stdout,
-      stderr: output.stderr,
-      exitCode: output.exitCode,
+    } satisfies DockerExecCommandInvokeArgs);
+    return JSON.stringify(
+      {
+        connectionId: connection_id,
+        containerId: container_id,
+        command,
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exitCode: output.exitCode,
+      },
+      null,
+      2,
+    );
+  };
+
+  return runWithToolGate(
+    {
+      toolName: "omni_docker_exec",
+      args,
+      resourceId: connection_id,
+      channel: "ui-delegated",
     },
-    null,
-    2,
+    run,
   );
 }
 

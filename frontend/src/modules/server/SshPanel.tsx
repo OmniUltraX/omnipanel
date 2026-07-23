@@ -26,6 +26,7 @@ export function SshPanel() {
         className="ssh-module-layout"
         leftColumnTitle={t("routes.ssh")}
         leftPreset="host"
+        tagModuleKey="ssh"
         leftSidebar={
           <SshHostSidebar
             resources={sshResources}

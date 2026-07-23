@@ -2,11 +2,15 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SerializedDockview } from "dockview-core";
 import type { KnowledgeWorkspaceTab } from "../modules/knowledge/knowledgeWorkspaceTabs";
+import type { KnowledgeRightRailTab } from "../modules/knowledge/KnowledgeNoteRightRail";
 
 interface KnowledgeWorkspaceStore {
   workspaceTabs: KnowledgeWorkspaceTab[];
   activeTabId: string | null;
   dockLayout: SerializedDockview | null;
+  rightRailCollapsed: boolean;
+  rightRailTab: KnowledgeRightRailTab;
+  editorMode: "wysiwyg" | "source";
 
   setWorkspaceTabs: (
     tabs:
@@ -16,6 +20,9 @@ interface KnowledgeWorkspaceStore {
   setActiveTabId: (tabId: string | null) => void;
   setDockLayout: (layout: SerializedDockview | null) => void;
   removeTab: (tabId: string) => void;
+  setRightRailCollapsed: (collapsed: boolean) => void;
+  setRightRailTab: (tab: KnowledgeRightRailTab) => void;
+  setEditorMode: (mode: "wysiwyg" | "source") => void;
 }
 
 export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceStore>()(
@@ -24,6 +31,9 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceStore>()(
       workspaceTabs: [],
       activeTabId: null,
       dockLayout: null,
+      rightRailCollapsed: false,
+      rightRailTab: "outline",
+      editorMode: "wysiwyg",
 
       setWorkspaceTabs: (tabs) =>
         set((state) => ({
@@ -43,6 +53,10 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceStore>()(
               : state.activeTabId;
           return { workspaceTabs: nextTabs, activeTabId: nextActive };
         }),
+
+      setRightRailCollapsed: (collapsed) => set({ rightRailCollapsed: collapsed }),
+      setRightRailTab: (tab) => set({ rightRailTab: tab }),
+      setEditorMode: (mode) => set({ editorMode: mode }),
     }),
     {
       name: "omnipanel-knowledge-workspace",
@@ -50,6 +64,9 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceStore>()(
         workspaceTabs: state.workspaceTabs.filter((tab) => !tab.preview),
         activeTabId: state.activeTabId,
         dockLayout: state.dockLayout,
+        rightRailCollapsed: state.rightRailCollapsed,
+        rightRailTab: state.rightRailTab,
+        editorMode: state.editorMode,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

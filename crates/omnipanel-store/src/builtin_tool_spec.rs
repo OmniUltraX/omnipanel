@@ -214,6 +214,41 @@ const SCHEMA_KNOWLEDGE_LIST: &str = r#"{
   }
 }"#;
 
+const SCHEMA_TAG_LIST_TREE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "include_counts": { "type": "boolean", "description": "是否包含绑定资源计数" }
+  }
+}"#;
+
+const SCHEMA_TAG_LIST_RESOURCE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "资源类型",
+      "enum": ["connection", "knowledge", "workflow", "http_request", "http_collection", "http_environment", "skill", "third_party_account", "task"]
+    },
+    "resource_id": { "type": "string", "description": "资源 id" }
+  },
+  "required": ["kind", "resource_id"]
+}"#;
+
+const SCHEMA_TAG_ATTACH: &str = r#"{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "资源类型",
+      "enum": ["connection", "knowledge", "workflow", "http_request", "http_collection", "http_environment", "skill", "third_party_account", "task"]
+    },
+    "resource_id": { "type": "string", "description": "资源 id" },
+    "path": { "type": "string", "description": "标签路径，如 项目/前端 或 sys/os/Linux" },
+    "source": { "type": "string", "description": "来源：user / ai / system", "enum": ["user", "ai", "system"] }
+  },
+  "required": ["kind", "resource_id", "path"]
+}"#;
+
 const SCHEMA_PLAN_CREATE: &str = r#"{
   "type": "object",
   "properties": {
@@ -815,6 +850,30 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         module_key: "knowledge",
         description: "列出知识库文档，可按类型或标签过滤。",
         input_schema: SCHEMA_KNOWLEDGE_LIST,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_tag_list_tree",
+        module_key: "knowledge",
+        description: "列出全局标签树（扁平列表，含 path 与可选资源计数）。",
+        input_schema: SCHEMA_TAG_LIST_TREE,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_tag_list_resource",
+        module_key: "knowledge",
+        description: "列出某资源上的全部标签（含 source）。",
+        input_schema: SCHEMA_TAG_LIST_RESOURCE,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_tag_attach",
+        module_key: "knowledge",
+        description: "为资源附加标签（path 支持树形路径）。业务标签请先征得用户确认；系统键可用 source=system。",
+        input_schema: SCHEMA_TAG_ATTACH,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
     },
