@@ -1365,20 +1365,30 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   useEffect(() => {
-    const scrollWrapWhileDragging = (wrap: HTMLElement, clientX: number, clientY: number) => {
+    const scrollWrapWhileDragging = (
+      wrap: HTMLElement,
+      clientX: number,
+      clientY: number,
+      axes: { x?: boolean; y?: boolean } = { x: true, y: true },
+    ) => {
       const rect = wrap.getBoundingClientRect();
       const edge = 32;
       let dx = 0;
       let dy = 0;
-      if (clientY < rect.top + edge) {
-        dy = -Math.ceil((edge - (clientY - rect.top)) * 0.7);
-      } else if (clientY > rect.bottom - edge) {
-        dy = Math.ceil((edge - (rect.bottom - clientY)) * 0.7);
+      // 行拖选只需纵向跟滚；列拖选只需横向跟滚，避免鼠标越出左/上缘时误滚到尽头
+      if (axes.y !== false) {
+        if (clientY < rect.top + edge) {
+          dy = -Math.ceil((edge - (clientY - rect.top)) * 0.7);
+        } else if (clientY > rect.bottom - edge) {
+          dy = Math.ceil((edge - (rect.bottom - clientY)) * 0.7);
+        }
       }
-      if (clientX < rect.left + edge) {
-        dx = -Math.ceil((edge - (clientX - rect.left)) * 0.7);
-      } else if (clientX > rect.right - edge) {
-        dx = Math.ceil((edge - (rect.right - clientX)) * 0.7);
+      if (axes.x !== false) {
+        if (clientX < rect.left + edge) {
+          dx = -Math.ceil((edge - (clientX - rect.left)) * 0.7);
+        } else if (clientX > rect.right - edge) {
+          dx = Math.ceil((edge - (rect.right - clientX)) * 0.7);
+        }
       }
       if (dx !== 0 || dy !== 0) {
         wrap.scrollBy(dx, dy);
@@ -1491,7 +1501,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
       const rowDrag = rowDragRef.current;
       if (rowDrag?.active) {
-        scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
+        scrollWrapWhileDragging(wrap, event.clientX, event.clientY, { x: false, y: true });
         const hit = resolveDragHit(event.clientX, event.clientY);
         if (hit) {
           pendingDragRangeRef.current = {
@@ -1510,7 +1520,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
       const columnDrag = columnDragRef.current;
       if (columnDrag?.active) {
-        scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
+        scrollWrapWhileDragging(wrap, event.clientX, event.clientY, { x: true, y: false });
         const colIndex = resolveColumnDragCol(event.clientX, event.clientY);
         if (colIndex != null) {
           pendingDragRangeRef.current = {
@@ -1529,7 +1539,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
       const cellDrag = cellDragRef.current;
       if (cellDrag?.active) {
-        scrollWrapWhileDragging(wrap, event.clientX, event.clientY);
+        scrollWrapWhileDragging(wrap, event.clientX, event.clientY, { x: true, y: true });
         const hit = resolveDragHit(event.clientX, event.clientY);
         if (hit && hit.colIndex != null) {
           pendingDragRangeRef.current = {
@@ -1576,6 +1586,20 @@ export const TableDataGrid = memo(function TableDataGrid({
         dragColumnWidthRef.current = { columnId: col.columnId, width: newWidth };
         applyColumnWidthDom(wrap, col.columnId, newWidth);
         if (gridRenderModeRef.current === "canvas") {
+          const table = wrap.querySelector<HTMLElement>("table.db-data-table");
+          if (table) {
+            const startTableWidth = Number(table.dataset.canvasDragTableWidth);
+            const baseWidth =
+              Number.isFinite(startTableWidth) && startTableWidth > 0
+                ? startTableWidth
+                : table.getBoundingClientRect().width;
+            // 按拖拽增量同步表宽，避免 table-layout:fixed + 定宽时挤压兄弟列
+            const nextTableWidth = Math.max(
+              wrap.clientWidth,
+              baseWidth + (newWidth - col.startWidth),
+            );
+            table.style.width = `${nextTableWidth}px`;
+          }
           canvasBodyRef.current?.invalidate();
         }
       }
@@ -1651,6 +1675,10 @@ export const TableDataGrid = memo(function TableDataGrid({
       colResizeRef.current = null;
       dragRowHeightRef.current = null;
       dragColumnWidthRef.current = null;
+      const dragTable = wrap?.querySelector<HTMLElement>("table.db-data-table");
+      if (dragTable) {
+        delete dragTable.dataset.canvasDragTableWidth;
+      }
       canvasBodyRef.current?.invalidate();
       wrap?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
     };
@@ -1700,6 +1728,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   const lastColumnId = leafColumns[leafColumns.length - 1]?.id ?? "";
   const fillDelta =
     containerWidth > 0 ? Math.max(0, containerWidth - totalTableWidth) : 0;
+  /** 逻辑内容总宽（含末列拉伸）；Canvas 模式用固定像素宽度，避免 width:100% 挤压其它列 */
+  const gridContentWidth = totalTableWidth + fillDelta;
 
   const resolveColumnWidth = useCallback(
     (columnId: string, baseSize: number) =>
@@ -2366,6 +2396,10 @@ export const TableDataGrid = memo(function TableDataGrid({
       const column = leafColumns[colIndex];
       if (!column) {
         return DEFAULT_DATA_COLUMN_WIDTH;
+      }
+      const dragging = dragColumnWidthRef.current;
+      if (dragging && dragging.columnId === column.id) {
+        return dragging.width;
       }
       return resolveColumnWidth(column.id, column.getSize());
     },
@@ -3144,7 +3178,14 @@ export const TableDataGrid = memo(function TableDataGrid({
     >
       <table
         className={`db-data-table${useCanvasBody ? " db-data-table--canvas-chrome" : ""}`}
-        style={{ width: fillDelta > 0 ? "100%" : totalTableWidth, minWidth: "100%" }}
+        style={{
+          width: useCanvasBody
+            ? gridContentWidth
+            : fillDelta > 0
+              ? "100%"
+              : totalTableWidth,
+          minWidth: "100%",
+        }}
       >
         <colgroup>
           {columnLayout.enabled ? (
@@ -3370,7 +3411,8 @@ export const TableDataGrid = memo(function TableDataGrid({
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        const startWidth = header.getSize();
+                        // 含末列 fillDelta，与当前渲染宽度一致
+                        const startWidth = resolveColumnWidth(colId, header.getSize());
                         colResizeRef.current = {
                           columnId: colId,
                           startX: e.clientX,
@@ -3378,10 +3420,17 @@ export const TableDataGrid = memo(function TableDataGrid({
                           lastWidth: startWidth,
                         };
                         dragColumnWidthRef.current = { columnId: colId, width: startWidth };
-                        wrapRef.current?.classList.add("db-data-table-wrap--col-resizing");
-                        wrapRef.current
+                        const wrap = wrapRef.current;
+                        wrap?.classList.add("db-data-table-wrap--col-resizing");
+                        wrap
                           ?.querySelector(`th[data-col-id="${CSS.escape(colId)}"]`)
                           ?.classList.add("db-data-table-th-resizing");
+                        const table = wrap?.querySelector<HTMLElement>("table.db-data-table");
+                        if (table) {
+                          table.dataset.canvasDragTableWidth = String(
+                            table.getBoundingClientRect().width,
+                          );
+                        }
                       }}
                       onDoubleClick={() => header.column.resetSize()}
                       title="Drag to resize"

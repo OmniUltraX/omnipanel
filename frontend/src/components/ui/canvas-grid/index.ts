@@ -33,6 +33,7 @@ export {
   findRowAtOffset,
   getPinnedWidth,
   hitTestGrid,
+  isPinnedDrawColumn,
   pointInRect,
   valueBtnRect,
   viewportToContent,

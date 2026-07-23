@@ -13,9 +13,10 @@ import type { TableDataGridBodyActions, GridBodyCellInteractionContext } from ".
 import type { CellOverlayAnchor } from "../tableCellPreview";
 import type { CellRange } from "../tableDataGridSelection";
 import { ROW_NUM_COL_ID, TRANSPOSE_FIELD_COL } from "../tableDataGridConstants";
+import { measureHeaderColumnGeometry } from "../tableDataGridLayout";
 import { buildGridSnapshotBundle, type BuildGridSnapshotInput } from "./buildGridSnapshot";
 import { drawGridBody } from "./drawGridBody";
-import { cellViewportRect, hitTestGrid } from "./gridGeometry";
+import { cellViewportRect, hitTestGrid, isPinnedDrawColumn } from "./gridGeometry";
 import { measureHeaderHeight, readGridTheme } from "./readGridTheme";
 import type {
   CellViewportRect,
@@ -23,6 +24,44 @@ import type {
   GridRenderSnapshot,
   GridThemeTokens,
 } from "./gridRenderTypes";
+
+/**
+ * 用可见表头单元格锚定 Canvas 横向偏移，消除滚到最右侧时的亚像素/总宽差导致的错位。
+ */
+function resolveAlignedScrollLeft(
+  wrap: HTMLElement,
+  canvas: HTMLCanvasElement,
+  snapshot: GridRenderSnapshot,
+  scrollLeft: number,
+): number {
+  const canvasLeft = canvas.getBoundingClientRect().left;
+  const pinnedWidth = snapshot.columns.reduce(
+    (sum, col) => (isPinnedDrawColumn(col) ? sum + col.width : sum),
+    0,
+  );
+  for (let i = 0; i < snapshot.columns.length; i += 1) {
+    const col = snapshot.columns[i]!;
+    if (isPinnedDrawColumn(col)) continue;
+    // 优先选视口内、且不被固定列遮住的列
+    const screenX = col.x - scrollLeft;
+    if (screenX + col.width <= pinnedWidth || screenX >= canvas.clientWidth) continue;
+    const th = wrap.querySelector(`th[data-col-id="${CSS.escape(col.id)}"]`);
+    if (!(th instanceof HTMLElement)) continue;
+    const expectedScreenX = th.getBoundingClientRect().left - canvasLeft;
+    // col.x - alignedScrollLeft = expectedScreenX
+    return col.x - expectedScreenX;
+  }
+  // 回退：任意非固定列表头
+  for (let i = 0; i < snapshot.columns.length; i += 1) {
+    const col = snapshot.columns[i]!;
+    if (isPinnedDrawColumn(col)) continue;
+    const th = wrap.querySelector(`th[data-col-id="${CSS.escape(col.id)}"]`);
+    if (!(th instanceof HTMLElement)) continue;
+    const expectedScreenX = th.getBoundingClientRect().left - canvasLeft;
+    return col.x - expectedScreenX;
+  }
+  return scrollLeft;
+}
 
 export type TableDataGridCanvasBodyHandle = {
   scrollToIndex: (
@@ -83,11 +122,21 @@ export const TableDataGridCanvasBody = forwardRef<
   const scrollLeftRef = useRef(0);
 
   const rebuildSnapshot = useCallback(() => {
+    const wrap = scrollElementRef.current;
+    const leafColumns = snapshotInputRef.current.leafColumns;
+    const measured = wrap
+      ? measureHeaderColumnGeometry(
+          wrap,
+          leafColumns.map((col) => col.id),
+        )
+      : null;
     const bundle = buildGridSnapshotBundle({
       ...snapshotInputRef.current,
       dragRange: dragRangeRef.current,
       dragRowHeight: dragRowHeightRef.current,
       dragColumnWidth: dragColumnWidthRef.current,
+      measuredColumnGeometry: measured?.columns ?? null,
+      measuredTotalWidth: measured?.totalWidth ?? null,
       hoverRow: hoverRef.current?.row ?? null,
       hoverCol: hoverRef.current?.col ?? null,
     });
@@ -95,10 +144,18 @@ export const TableDataGridCanvasBody = forwardRef<
     rowOffsetsRef.current = bundle.rowOffsets;
     if (sizerRef.current) {
       sizerRef.current.style.height = `${bundle.snapshot.totalHeight}px`;
+      // 与表头 table 同宽，保证 scrollWidth / maxScrollLeft 一致
       sizerRef.current.style.width = `${Math.max(bundle.snapshot.totalWidth, 1)}px`;
     }
+    if (wrap && measured && measured.totalWidth > 0) {
+      const table = wrap.querySelector<HTMLElement>("table.db-data-table");
+      // 拖拽中由表头增量维护 width，避免覆盖
+      if (table && !table.dataset.canvasDragTableWidth) {
+        table.style.width = `${measured.totalWidth}px`;
+      }
+    }
     return bundle;
-  }, [dragRangeRef, dragRowHeightRef, dragColumnWidthRef]);
+  }, [dragRangeRef, dragRowHeightRef, dragColumnWidthRef, scrollElementRef]);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -110,9 +167,11 @@ export const TableDataGridCanvasBody = forwardRef<
     headerHeightRef.current = headerHeight;
     wrap.style.setProperty("--db-grid-header-height", `${headerHeight}px`);
 
-    // 以 wrap 当前滚动为准；sticky canvas 固定在视口，内容偏移 = scrollTop
-    scrollTopRef.current = wrap.scrollTop;
-    scrollLeftRef.current = wrap.scrollLeft;
+    const rawScrollTop = wrap.scrollTop;
+    const rawScrollLeft = wrap.scrollLeft;
+    scrollTopRef.current = rawScrollTop;
+    // 行号表头用 transform 跟随横滚（避免 sticky left 热区挡 canvas）
+    wrap.style.setProperty("--db-grid-rownum-tx", `${rawScrollLeft}px`);
 
     const cssWidth = Math.max(1, wrap.clientWidth);
     const cssHeight = Math.max(1, wrap.clientHeight - headerHeight);
@@ -124,8 +183,20 @@ export const TableDataGridCanvasBody = forwardRef<
       canvas.width = nextW;
       canvas.height = nextH;
     }
+    // 不用 sticky left：超宽 sizer 内横向 sticky 在 WebView 常失效，行号会被滚出视口。
+    // 改为跟滚动偏移绝对定位，保证画布始终盖住视口；固定列由 draw 层钉在 screenX=0。
     canvas.style.width = `${cssWidth}px`;
     canvas.style.height = `${cssHeight}px`;
+    canvas.style.left = `${rawScrollLeft}px`;
+    canvas.style.top = `${rawScrollTop}px`;
+
+    const alignedScrollLeft = resolveAlignedScrollLeft(
+      wrap,
+      canvas,
+      snapshot,
+      rawScrollLeft,
+    );
+    scrollLeftRef.current = alignedScrollLeft;
 
     themeRef.current ??= readGridTheme(wrap);
     const ctx = canvas.getContext("2d");
@@ -136,7 +207,7 @@ export const TableDataGridCanvasBody = forwardRef<
       snapshot,
       theme: themeRef.current,
       rowOffsets,
-      scrollLeft: scrollLeftRef.current,
+      scrollLeft: alignedScrollLeft,
       scrollTop: scrollTopRef.current,
       viewportWidth: cssWidth,
       viewportHeight: cssHeight,
@@ -163,6 +234,8 @@ export const TableDataGridCanvasBody = forwardRef<
     const onScroll = () => {
       scrollTopRef.current = wrap.scrollTop;
       scrollLeftRef.current = wrap.scrollLeft;
+      // 表头行号 transform 同步到滚动帧，避免等 rAF paint 才跟上
+      wrap.style.setProperty("--db-grid-rownum-tx", `${wrap.scrollLeft}px`);
       schedulePaint();
     };
     // 捕获阶段确保一定收到滚动（部分 WebView 上冒泡可能被吃掉）
@@ -206,18 +279,29 @@ export const TableDataGridCanvasBody = forwardRef<
       }
       const snap = snapshotRef.current;
       if (!canvas || !wrap || !snap) return null;
-      const rect = canvas.getBoundingClientRect();
-      const viewportX = clientX - rect.left;
-      const viewportY = clientY - rect.top;
-      if (viewportX < 0 || viewportY < 0 || viewportX > rect.width || viewportY > rect.height) {
+
+      // 相对滚动容器客户区映射（canvas 绝对定位后与视口左缘对齐）
+      const wrapRect = wrap.getBoundingClientRect();
+      const headerHeight = headerHeightRef.current;
+      const localX = clientX - wrapRect.left;
+      const localY = clientY - wrapRect.top - headerHeight;
+      const viewW = wrap.clientWidth;
+      const viewH = wrap.clientHeight - headerHeight;
+      if (localX < 0 || localY < 0 || localX > viewW || localY > viewH) {
         return null;
       }
+
+      const scrollLeft =
+        Math.abs(scrollLeftRef.current - wrap.scrollLeft) < 2
+          ? scrollLeftRef.current
+          : resolveAlignedScrollLeft(wrap, canvas, snap, wrap.scrollLeft);
+
       return hitTestGrid(
         snap,
         rowOffsetsRef.current,
-        viewportX,
-        viewportY,
-        wrap.scrollLeft,
+        localX,
+        localY,
+        scrollLeft,
         wrap.scrollTop,
       );
     },
@@ -227,14 +311,21 @@ export const TableDataGridCanvasBody = forwardRef<
   const getCellViewportRect = useCallback(
     (rowIndex: number, colIndex: number): CellViewportRect | null => {
       const wrap = scrollElementRef.current;
+      const canvas = canvasRef.current;
       const snapshot = snapshotRef.current ?? rebuildSnapshot().snapshot;
-      if (!wrap) return null;
+      if (!wrap || !canvas) return null;
+      const alignedScrollLeft = resolveAlignedScrollLeft(
+        wrap,
+        canvas,
+        snapshot,
+        wrap.scrollLeft,
+      );
       return cellViewportRect(
         snapshot,
         rowOffsetsRef.current,
         rowIndex,
         colIndex,
-        wrap.scrollLeft,
+        alignedScrollLeft,
         wrap.scrollTop,
         wrap.getBoundingClientRect(),
         headerHeightRef.current,
