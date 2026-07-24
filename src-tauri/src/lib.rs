@@ -3,6 +3,7 @@ mod agent_paths;
 mod background;
 mod commands;
 mod log_store;
+mod media_stream;
 mod output_buffer;
 mod panel;
 mod protocol;
@@ -214,6 +215,10 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_disconnect,
         commands::ssh::sftp_list,
         commands::ssh::sftp_download,
+        commands::ssh::sftp_cache_for_preview,
+        commands::ssh::sftp_probe_media,
+        commands::ssh::sftp_open_media_stream,
+        commands::ssh::sftp_close_media_stream,
         commands::ssh::sftp_upload,
         commands::ssh::sftp_mkdir,
         commands::ssh::sftp_remove,
@@ -598,14 +603,14 @@ fn build_and_run_tauri() {
             )
             .expect("启动 MCP 管理器失败");
 
-            let app_state = AppState::new(
+            let app_state = tauri::async_runtime::block_on(AppState::new(
                 app.handle().clone(),
                 storage,
                 file_index_storage,
                 String::new(),
                 db_connections,
                 mcp_manager,
-            );
+            ));
             let pool_storage = app_state.storage.clone();
             let ssh_pool = app_state.ssh_pool.clone();
             let ai_registry = app_state.ai_registry.clone();
@@ -898,6 +903,10 @@ fn build_and_run_tauri() {
             commands::ssh::ssh_disconnect,
             commands::ssh::sftp_list,
             commands::ssh::sftp_download,
+            commands::ssh::sftp_cache_for_preview,
+            commands::ssh::sftp_probe_media,
+            commands::ssh::sftp_open_media_stream,
+            commands::ssh::sftp_close_media_stream,
             commands::ssh::sftp_upload,
             commands::ssh::sftp_mkdir,
             commands::ssh::sftp_remove,
@@ -1055,6 +1064,9 @@ fn build_and_run_tauri() {
             commands::workspace_window::open_workspace_window,
             commands::workspace_window::close_all_workspace_windows,
             commands::workspace_window::app_exit,
+            commands::workspace_window::main_window_show_splash,
+            commands::workspace_window::main_window_reveal,
+            commands::workspace_window::boot_splash_progress,
             commands::workspace_window::cleanup_expired_handoffs,
             commands::workspace_window::read_workspace_window_handoff,
             commands::workspace_window::write_workspace_window_handoff,
@@ -1153,6 +1165,22 @@ fn build_and_run_tauri() {
             commands::third_party_account::third_party_account_upsert,
             commands::third_party_account::third_party_account_delete,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // splash 关闭时极易被当成「最后一个窗」退出；主窗还在就必须保活
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                if code.is_some() {
+                    return;
+                }
+                if commands::workspace_window::should_prevent_exit_for_splash_handoff(app_handle) {
+                    api.prevent_exit();
+                    if let Some(main) = app_handle.get_webview_window("main") {
+                        let _ = main.unminimize();
+                        let _ = main.show();
+                        let _ = main.set_focus();
+                    }
+                }
+            }
+        });
 }

@@ -1,3 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,7 +17,7 @@ use omnipanel_ssh::{
 use omnipanel_store::{Connection, ConnectionKind, Vault};
 use serde::Serialize;
 use specta::Type;
-use tauri::{Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::background::{HostSystemStats, PoolStatusEvent, SshHostOverview};
 use crate::output_buffer;
@@ -322,6 +325,337 @@ pub async fn sftp_download(
     }
     drop(sessions);
     pool_session(&state, &id).await?.sftp_download(&path).await
+}
+
+fn media_preview_cache_path(
+    app: &AppHandle,
+    resource_id: &str,
+    remote_path: &str,
+    size: Option<u64>,
+) -> Result<PathBuf, OmniError> {
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| OmniError::new(ErrorCode::Io, "无法定位缓存目录").with_cause(e.to_string()))?
+        .join("media-preview");
+    std::fs::create_dir_all(&root).map_err(|e| {
+        OmniError::new(ErrorCode::Io, "创建媒体预览缓存目录失败").with_cause(e.to_string())
+    })?;
+
+    let mut hasher = DefaultHasher::new();
+    resource_id.hash(&mut hasher);
+    remote_path.hash(&mut hasher);
+    size.unwrap_or(0).hash(&mut hasher);
+    let stem = format!("{:016x}", hasher.finish());
+    let ext = Path::new(remote_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            let safe: String = e
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .take(16)
+                .collect();
+            if safe.is_empty() {
+                String::new()
+            } else {
+                format!(".{safe}")
+            }
+        })
+        .unwrap_or_default();
+    Ok(root.join(format!("{stem}{ext}")))
+}
+
+/// 将远端媒体流式缓存到本地，返回本地绝对路径（供 convertFileSrc 播放）。
+/// `size` 参与缓存键：远端同路径文件变大/变小时自动失效。
+#[tauri::command]
+#[specta::specta]
+pub async fn sftp_cache_for_preview(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+    size: Option<u64>,
+) -> Result<String, OmniError> {
+    let local = media_preview_cache_path(&app, &id, &path, size)?;
+    if local.is_file() {
+        if let Some(expected) = size {
+            if let Ok(meta) = std::fs::metadata(&local) {
+                if meta.len() == expected {
+                    return Ok(local.to_string_lossy().into_owned());
+                }
+            }
+        } else {
+            return Ok(local.to_string_lossy().into_owned());
+        }
+    }
+
+    let sessions = state.ssh_sessions.lock().await;
+    if let Some(session) = sessions.get(&id) {
+        session.sftp_download_to_file(&path, &local).await?;
+        return Ok(local.to_string_lossy().into_owned());
+    }
+    drop(sessions);
+    pool_session(&state, &id)
+        .await?
+        .sftp_download_to_file(&path, &local)
+        .await?;
+    Ok(local.to_string_lossy().into_owned())
+}
+
+/// 远端媒体探测结果（不下载整文件）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpMediaProbe {
+    pub duration_secs: Option<f64>,
+    pub size: Option<u64>,
+    /// JPEG 封面的 data URL（无封面时为 null）
+    pub poster_data_url: Option<String>,
+}
+
+/// 打开边下边播流后的句柄。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpMediaStream {
+    pub url: String,
+    pub token: String,
+    pub size: u64,
+    pub mime: String,
+}
+
+fn parse_wav_duration_secs(bytes: &[u8]) -> Option<f64> {
+    if bytes.len() < 44 {
+        return None;
+    }
+    if &bytes[0..4] != b"RIFF" && &bytes[0..4] != b"RF64" {
+        return None;
+    }
+    if &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+    let mut i = 12usize;
+    let mut byte_rate: Option<u32> = None;
+    let mut data_size: Option<u32> = None;
+    while i + 8 <= bytes.len() {
+        let id = &bytes[i..i + 4];
+        let size = u32::from_le_bytes(bytes[i + 4..i + 8].try_into().ok()?);
+        let payload = i + 8;
+        if id == b"fmt " && payload + 16 <= bytes.len() {
+            // byteRate @ +8 within fmt payload (PCM layout)
+            byte_rate = Some(u32::from_le_bytes(
+                bytes[payload + 8..payload + 12].try_into().ok()?,
+            ));
+        } else if id == b"data" {
+            data_size = Some(size);
+            break;
+        }
+        let step = 8u64 + u64::from(size) + (u64::from(size) & 1);
+        i = i.checked_add(step as usize)?;
+    }
+    let rate = byte_rate.filter(|r| *r > 0)?;
+    let data = data_size?;
+    Some(f64::from(data) / f64::from(rate))
+}
+
+async fn probe_duration_ffprobe(
+    session: &omnipanel_ssh::SshSession,
+    path: &str,
+) -> Option<f64> {
+    let quoted = shell_single_quote(path);
+    let cmd = format!(
+        "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {quoted} 2>/dev/null"
+    );
+    let output = session.exec_capture(&cmd).await.ok()?;
+    if output.exit_code != 0 {
+        return None;
+    }
+    let text = output.stdout.trim();
+    let secs: f64 = text.parse().ok()?;
+    if secs.is_finite() && secs >= 0.0 {
+        Some(secs)
+    } else {
+        None
+    }
+}
+
+/// 远端抽一帧封面，经 base64 回传为 data URL（无 ffmpeg 时返回 None）。
+async fn probe_poster_data_url(
+    session: &omnipanel_ssh::SshSession,
+    path: &str,
+) -> Option<String> {
+    let lower = path.to_ascii_lowercase();
+    let is_video = [".mp4", ".webm", ".m4v", ".mov", ".ogv"]
+        .iter()
+        .any(|ext| lower.ends_with(ext));
+    if !is_video {
+        return None;
+    }
+    let quoted = shell_single_quote(path);
+    // 管道 base64，避免 exec_capture 的 lossy UTF-8 破坏二进制 JPEG
+    let cmd = format!(
+        "ffmpeg -v error -ss 1 -i {quoted} -frames:v 1 -f image2pipe -vcodec mjpeg - 2>/dev/null | base64 -w 0 2>/dev/null || ffmpeg -v error -ss 1 -i {quoted} -frames:v 1 -f image2pipe -vcodec mjpeg - 2>/dev/null | base64 2>/dev/null"
+    );
+    let output = session.exec_capture(&cmd).await.ok()?;
+    if output.exit_code != 0 {
+        return None;
+    }
+    let b64 = output.stdout.split_whitespace().collect::<String>();
+    if b64.len() < 32 || b64.len() > 2_000_000 {
+        return None;
+    }
+    if STANDARD.decode(&b64).is_err() {
+        return None;
+    }
+    Some(format!("data:image/jpeg;base64,{b64}"))
+}
+
+fn path_looks_like_video(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    [".mp4", ".webm", ".m4v", ".mov", ".ogv"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+/// 探测远端媒体时长/大小/封面：不下载整文件。
+#[tauri::command]
+#[specta::specta]
+pub async fn sftp_probe_media(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> Result<SftpMediaProbe, OmniError> {
+    let session = {
+        let sessions = state.ssh_sessions.lock().await;
+        if sessions.contains_key(&id) {
+            None
+        } else {
+            drop(sessions);
+            Some(pool_session(&state, &id).await?)
+        }
+    };
+
+    let size = {
+        let sessions = state.ssh_sessions.lock().await;
+        if let Some(s) = sessions.get(&id) {
+            s.sftp_file_size(&path).await
+        } else {
+            drop(sessions);
+            session
+                .as_ref()
+                .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "SSH 会话不存在"))?
+                .sftp_file_size(&path)
+                .await
+        }
+    };
+
+    let mut duration_secs = {
+        let sessions = state.ssh_sessions.lock().await;
+        if let Some(s) = sessions.get(&id) {
+            probe_duration_ffprobe(s, &path).await
+        } else {
+            drop(sessions);
+            probe_duration_ffprobe(
+                session
+                    .as_ref()
+                    .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "SSH 会话不存在"))?
+                    .as_ref(),
+                &path,
+            )
+            .await
+        }
+    };
+
+    if duration_secs.is_none() {
+        let head = {
+            let sessions = state.ssh_sessions.lock().await;
+            if let Some(s) = sessions.get(&id) {
+                s.sftp_read_range(&path, 0, 256 * 1024).await
+            } else {
+                drop(sessions);
+                session
+                    .as_ref()
+                    .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "SSH 会话不存在"))?
+                    .sftp_read_range(&path, 0, 256 * 1024)
+                    .await
+            }
+        }
+        .ok();
+        if let Some(bytes) = head {
+            duration_secs = parse_wav_duration_secs(&bytes);
+        }
+    }
+
+    let poster_data_url = if path_looks_like_video(&path) {
+        let sessions = state.ssh_sessions.lock().await;
+        if let Some(s) = sessions.get(&id) {
+            probe_poster_data_url(s, &path).await
+        } else {
+            drop(sessions);
+            match session.as_ref() {
+                Some(s) => probe_poster_data_url(s.as_ref(), &path).await,
+                None => None,
+            }
+        }
+    } else {
+        None
+    };
+
+    Ok(SftpMediaProbe {
+        duration_secs,
+        size,
+        poster_data_url,
+    })
+}
+
+/// 注册本地 Range 代理令牌，返回可供 `<video>`/`<audio>` 边下边播的 URL。
+#[tauri::command]
+#[specta::specta]
+pub async fn sftp_open_media_stream(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> Result<SftpMediaStream, OmniError> {
+    let size = {
+        let sessions = state.ssh_sessions.lock().await;
+        if let Some(session) = sessions.get(&id) {
+            session.sftp_file_size(&path).await
+        } else {
+            drop(sessions);
+            pool_session(&state, &id).await?.sftp_file_size(&path).await
+        }
+    }
+    .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "无法获取远端文件大小"))?;
+
+    if size == 0 {
+        return Err(OmniError::new(ErrorCode::Ssh, "远端文件为空"));
+    }
+
+    let mime = crate::media_stream::guess_media_mime(&path).to_string();
+    let entry = crate::media_stream::MediaStreamEntry {
+        ssh_id: id,
+        remote_path: path,
+        size,
+        mime: mime.clone(),
+    };
+    let token = state.media_stream.register(entry).await;
+    let url = state.media_stream.url_for_token(&token);
+    Ok(SftpMediaStream {
+        url,
+        token,
+        size,
+        mime,
+    })
+}
+
+/// 关闭边下边播流令牌。
+#[tauri::command]
+#[specta::specta]
+pub async fn sftp_close_media_stream(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<(), OmniError> {
+    state.media_stream.unregister(&token).await;
+    Ok(())
 }
 
 /// 上传内容到远端文件（覆盖）。

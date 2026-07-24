@@ -8,7 +8,7 @@ import type {
 import { detectFilePathRanges, resolveDetectedFilePath } from "./terminalFileLinks";
 import {
   resolvePreviewConnectionId,
-  useTerminalFilePreviewStore,
+  tryOpenTerminalFilePreview,
 } from "./terminalFilePreviewStore";
 
 export interface UseTerminalFileLinkProviderParams {
@@ -144,10 +144,12 @@ function buildLinks(
           ctx.sessionType,
           ctx.resourceId,
         );
-        useTerminalFilePreviewStore.getState().open({
+        tryOpenTerminalFilePreview({
           connectionId,
           absolutePath: resolved.absolutePath,
           name: resolved.name,
+          resourceId: ctx.resourceId,
+          sessionType: ctx.sessionType,
         });
       },
     });

@@ -34,6 +34,7 @@ use omnipanel_ai::provider::AiProviderRegistry;
 use crate::background::{BackgroundWorkerPool, default_worker_count, SshPool};
 use crate::commands::ssh::SshTunnelInfo;
 use crate::log_store::LogStore;
+use crate::media_stream::MediaStreamServer;
 use crate::output_buffer::{self, OutputBuffers};
 use omnipanel_mcp::SharedMcpManager;
 
@@ -118,10 +119,12 @@ pub struct AppState {
     pub gateway_handle: Arc<Mutex<Option<omnipanel_gateway::GatewayHandle>>>,
     /// 外部 MCP 工具调用是否需用户审批（由设置同步）。
     pub mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
+    /// 本地媒体 Range 代理（边下边播）。
+    pub media_stream: Arc<MediaStreamServer>,
 }
 
 impl AppState {
-    pub fn new(
+    pub async fn new(
         app_handle: AppHandle,
         storage: Arc<Mutex<Storage>>,
         file_index_storage: Arc<Mutex<FileIndexStorage>>,
@@ -143,6 +146,15 @@ impl AppState {
         engine.register("terminal", shell.clone());
         engine.register("docker", shell.clone());
         engine.register("server", shell.clone());
+
+        let ssh_sessions: Arc<Mutex<HashMap<String, SshSession>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let media_stream = Arc::new(
+            MediaStreamServer::start(ssh_sessions.clone(), ssh_pool.clone())
+                .await
+                .expect("启动媒体流代理失败"),
+        );
+
         Self {
             serial_sessions: Arc::new(Mutex::new(HashMap::new())),
             ws_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -159,7 +171,7 @@ impl AppState {
             db_connections,
             storage,
             engine: Arc::new(engine),
-            ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
+            ssh_sessions,
             ssh_pool,
             output_buffers: output_buffer::new_buffers(),
             log_store,
@@ -185,6 +197,7 @@ impl AppState {
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             gateway_handle: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            media_stream,
         }
     }
 }

@@ -337,6 +337,14 @@ export const commands = {
 	sftpList: (id: string, path: string) => typedError<SftpEntry[], OmniError_Serialize>(__TAURI_INVOKE("sftp_list", { id, path })),
 	/**  下载远端文件内容（字节）。 */
 	sftpDownload: (id: string, path: string) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("sftp_download", { id, path })),
+	/**  将远端媒体流式缓存到本地，返回本地绝对路径（供 convertFileSrc 播放）。 */
+	sftpCacheForPreview: (id: string, path: string, size: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("sftp_cache_for_preview", { id, path, size })),
+	/**  探测远端媒体时长/大小/封面（不下载整文件）。 */
+	sftpProbeMedia: (id: string, path: string) => typedError<SftpMediaProbe, OmniError_Serialize>(__TAURI_INVOKE("sftp_probe_media", { id, path })),
+	/**  注册本地 Range 代理，返回边下边播 URL。 */
+	sftpOpenMediaStream: (id: string, path: string) => typedError<SftpMediaStream, OmniError_Serialize>(__TAURI_INVOKE("sftp_open_media_stream", { id, path })),
+	/**  关闭边下边播流令牌。 */
+	sftpCloseMediaStream: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_close_media_stream", { token })),
 	/**  上传内容到远端文件（覆盖）。 */
 	sftpUpload: (id: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_upload", { id, path, data })),
 	/**  在远程服务器创建目录。 */
@@ -3317,6 +3325,21 @@ export type SftpEntry = {
 	isSymlink: boolean,
 	linkTarget: string | null,
 	size: number | null,
+};
+
+/** 远端媒体探测结果（不下载整文件）。 */
+export type SftpMediaProbe = {
+	durationSecs: number | null,
+	size: number | null,
+	posterDataUrl: string | null,
+};
+
+/** 打开边下边播流后的句柄。 */
+export type SftpMediaStream = {
+	url: string,
+	token: string,
+	size: number,
+	mime: string,
 };
 
 export type SkillCreateInput = {

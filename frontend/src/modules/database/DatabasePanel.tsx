@@ -5610,15 +5610,15 @@ export function DatabasePanel() {
     setExportMenu(null);
   }, [isActiveRoute]);
 
-  // 勿绑 activeTabId / 整份 tabs；切 Tab 由 DockableWorkspace 局部 soft bump
+  // 勿绑 activeTabId / moduleLive / 整份 tabs：
+  // 切 Tab 由 DockableWorkspace 局部 soft bump；路由切走保活由 ModuleSegmentDock hasBeenLive 处理。
   const moduleSoftRefreshKey = useMemo(
     () =>
       [
-        moduleLive ? "1" : "0",
         connectionsLoading ? "1" : "0",
         connections.map((c) => c.id).join(","),
       ].join("|"),
-    [moduleLive, connections, connectionsLoading],
+    [connections, connectionsLoading],
   );
 
   const activeTreeChartFileId = useMemo(() => {

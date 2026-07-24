@@ -131,6 +131,62 @@ export function appendTextLikePart(
   return next;
 }
 
+/**
+ * 将 tool-call / plan 之间的片段内，交错的 reasoning/text 合并为：
+ * `[reasoning…][text…]`（再接边界 part）。
+ *
+ * 用于收敛推理模型把同一句话拆进 `reasoning_content` / `content` 双通道、
+ * 或流式来回切换导致的「碎片气泡」。不改变 tool-call / plan 的相对顺序。
+ */
+export function coalescePartsByToolSegments(parts: AiMessagePart[]): AiMessagePart[] {
+  if (parts.length <= 1) return parts;
+
+  const out: AiMessagePart[] = [];
+  let segmentReasoning = "";
+  let segmentText = "";
+
+  const flushSegment = () => {
+    if (segmentReasoning) {
+      out.push({ type: "reasoning", text: segmentReasoning });
+      segmentReasoning = "";
+    }
+    if (segmentText) {
+      const cleaned = stripLeakedToolCallsJson(segmentText);
+      if (cleaned) out.push({ type: "text", text: cleaned });
+      segmentText = "";
+    }
+  };
+
+  for (const part of parts) {
+    if (part.type === "reasoning") {
+      segmentReasoning += part.text;
+      continue;
+    }
+    if (part.type === "text") {
+      segmentText += part.text;
+      continue;
+    }
+    flushSegment();
+    out.push(part);
+  }
+  flushSegment();
+  return out;
+}
+
+/** 去掉误流入正文的完整/半截 tool_calls JSON（CLI client-tools 泄露兜底）。 */
+export function stripLeakedToolCallsJson(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (/^\s*\{[\s\S]*"tool_calls"\s*:/.test(trimmed) || /^\s*```(?:json)?\s*\{[\s\S]*"tool_calls"\s*:/.test(trimmed)) {
+    return "";
+  }
+  const keyIdx = text.indexOf('"tool_calls"');
+  if (keyIdx < 0) return text;
+  const braceIdx = text.lastIndexOf("{", keyIdx);
+  if (braceIdx < 0) return text;
+  return text.slice(0, braceIdx).trimEnd();
+}
+
 export function upsertToolCallInParts(
   parts: AiMessagePart[],
   id: string,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ContentPreviewTextModeToolbar,
   type ContentPreviewTextMode,
@@ -7,6 +7,7 @@ import { useTextEditorSubWindowActions } from "../../components/textEditor/useTe
 import { isPreviewWebUrl, normalizePreviewWebUrl } from "../../lib/contentPreview";
 import { SubWindow } from "../../components/ui/window/SubWindow";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
 import type { FileEntry } from "../../ipc/bindings";
 import {
   FilePreviewContent,
@@ -14,6 +15,8 @@ import {
   type FilePreviewContentHandle,
   type FileTextPreviewMeta,
 } from "./FilePreviewContent";
+import { FilePreviewTreeSidebar } from "./FilePreviewTreeSidebar";
+import type { FilePreviewTreeSession } from "./filePreviewTreeIo";
 import { IconDownload } from "./FilesPanelIcons";
 import { formatFileSize } from "./utils";
 import { cn } from "../../lib/utils";
@@ -27,6 +30,12 @@ export interface FilePreviewSubWindowProps {
   onSaved?: (entry: FileEntry) => void;
   /** 自定义 IO 适配器（终端场景用，绕开 file_manager.connectionId） */
   customIO?: import("./FilePreviewContent").FilePreviewIO;
+  /** 显示左侧目录树（终端预览等） */
+  showFileTree?: boolean;
+  /** 目录树会话（本地 / SSH）；缺省按 connectionId 视为本地 */
+  treeSession?: FilePreviewTreeSession;
+  /** 在目录树中点选文件时回调（由调用方切换 entry） */
+  onSelectEntry?: (entry: FileEntry) => void;
 }
 
 export function FilePreviewSubWindow({
@@ -37,12 +46,17 @@ export function FilePreviewSubWindow({
   onDownload,
   onSaved,
   customIO,
+  showFileTree = false,
+  treeSession,
+  onSelectEntry,
 }: FilePreviewSubWindowProps) {
   const { t } = useI18n();
   const contentRef = useRef<FilePreviewContentHandle>(null);
   const [textMode, setTextMode] = useState<ContentPreviewTextMode>("code");
   const [jsonViewMode, setJsonViewMode] = useState<FileJsonViewMode>("structured");
   const [textPreviewMeta, setTextPreviewMeta] = useState<FileTextPreviewMeta | null>(null);
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const [treeWidth, setTreeWidth] = useState(240);
 
   const { dirty, setDirty, saving, saveNotice, handleSave } = useTextEditorSubWindowActions(
     contentRef,
@@ -58,6 +72,31 @@ export function FilePreviewSubWindow({
     setTextPreviewMeta(null);
     setDirty(false);
   }, [entry?.path, setDirty]);
+
+  const resolvedTreeSession = useMemo((): FilePreviewTreeSession => {
+    return {
+      sessionType: treeSession?.sessionType ?? "local",
+      connectionId: treeSession?.connectionId ?? connectionId,
+      resourceId: treeSession?.resourceId ?? null,
+    };
+  }, [
+    connectionId,
+    treeSession?.sessionType,
+    treeSession?.connectionId,
+    treeSession?.resourceId,
+  ]);
+
+  const handleTreeSelect = useCallback(
+    async (next: FileEntry) => {
+      if (!entry || next.path === entry.path) return;
+      if (dirty) {
+        const ok = await appConfirm(t("files.preview.unsavedConfirm"));
+        if (!ok) return;
+      }
+      onSelectEntry?.(next);
+    },
+    [dirty, entry, onSelectEntry, t],
+  );
 
   const webPreviewUrl =
     textPreviewMeta && isPreviewWebUrl(textPreviewMeta.text)
@@ -152,25 +191,40 @@ export function FilePreviewSubWindow({
       open={open}
       title={title}
       onClose={onClose}
-      className="file-preview-subwindow"
-      widthRatio={0.82}
+      className={cn("file-preview-subwindow", showFileTree && "has-file-tree")}
+      widthRatio={showFileTree ? 0.88 : 0.82}
       heightRatio={0.78}
       headerExtra={headerExtra}
     >
       {entry ? (
-        <FilePreviewContent
-          ref={contentRef}
-          connectionId={connectionId}
-          entry={entry}
-          textMode={textMode}
-          onTextModeChange={setTextMode}
-          jsonViewMode={jsonViewMode}
-          showInlineTextModeToolbar={false}
-          editable={entry.kind === "file"}
-          onDirtyChange={setDirty}
-          onTextPreviewMetaChange={setTextPreviewMeta}
-          customIO={customIO}
-        />
+        <div className="file-preview-subwindow-layout">
+          {showFileTree ? (
+            <FilePreviewTreeSidebar
+              session={resolvedTreeSession}
+              selectedPath={entry.path}
+              onSelectFile={(next) => void handleTreeSelect(next)}
+              collapsed={treeCollapsed}
+              onCollapsedChange={setTreeCollapsed}
+              width={treeWidth}
+              onWidthChange={setTreeWidth}
+            />
+          ) : null}
+          <div className="file-preview-subwindow-main">
+            <FilePreviewContent
+              ref={contentRef}
+              connectionId={connectionId}
+              entry={entry}
+              textMode={textMode}
+              onTextModeChange={setTextMode}
+              jsonViewMode={jsonViewMode}
+              showInlineTextModeToolbar={false}
+              editable={entry.kind === "file"}
+              onDirtyChange={setDirty}
+              onTextPreviewMetaChange={setTextPreviewMeta}
+              customIO={customIO}
+            />
+          </div>
+        </div>
       ) : null}
     </SubWindow>
   );

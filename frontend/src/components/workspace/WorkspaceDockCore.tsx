@@ -189,6 +189,8 @@ export function WorkspaceDockCore({
     [contentSuspended, tabs, activeTabId, visitedTabIds],
   );
 
+  const softRefreshKey = contentSuspended ? "suspended" : "live";
+
   const handleCloseTab = useCallback(
     (tabId: string) => {
       if (isWorkspaceBuiltinTabId(tabId)) return;
@@ -302,6 +304,7 @@ export function WorkspaceDockCore({
       savedLayout={effectiveSavedLayout}
       onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
       renderPanel={renderPanel}
+      softRefreshKey={softRefreshKey}
       // sticky-visited：宿主 always，未访问 Tab render null（与 ModuleSegmentDock 对齐）
       defaultRenderer="always"
       tabStyle={tabStyle}

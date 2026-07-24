@@ -1,13 +1,20 @@
 /**
- * Dock Tab 内容挂载判定：未访问不挂、访问后 sticky、模块挂起时全挂起。
+ * Dock Tab 内容挂载判定：未访问不挂、访问后 sticky、模块挂起时按策略处理。
  * 与工程工作区 contentSuspended 语义对齐。
  */
 export function shouldMountDockTabContent(options: {
   active: boolean;
   visited: boolean;
   contentSuspended?: boolean;
+  /**
+   * 为 true 时：挂起仍保留已访问 Tab（模块切走再切回不 remount）。
+   * 为 false / 缺省：挂起一律不挂（首页预热 / 工程工作区抑制重活）。
+   */
+  keepVisitedWhileSuspended?: boolean;
 }): boolean {
-  if (options.contentSuspended) return false;
+  if (options.contentSuspended) {
+    return Boolean(options.keepVisitedWhileSuspended && options.visited);
+  }
   return options.active || options.visited;
 }
 

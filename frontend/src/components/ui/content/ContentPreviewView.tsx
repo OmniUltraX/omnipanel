@@ -381,6 +381,18 @@ export function ContentPreviewView({
             <track kind="captions" />
           </audio>
         </div>
+      ) : content.kind === "video" ? (
+        <div className="content-preview-video-wrap">
+          <video
+            className="content-preview-video"
+            controls
+            preload="metadata"
+            src={content.url}
+            poster={content.poster}
+          >
+            <track kind="captions" />
+          </video>
+        </div>
       ) : jsonStructuredValue ? (
         <div className="content-preview-json content-preview-json--virtual">
           <VirtualJsonView value={jsonStructuredValue} />

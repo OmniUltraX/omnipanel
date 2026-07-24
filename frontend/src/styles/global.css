@@ -19616,6 +19616,116 @@ textarea.content-preview-text--editable {
     max-width: 100%;
 }
 
+.content-preview-video-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-4);
+    background: var(--bg-deeper);
+}
+
+.content-preview-video {
+    width: min(100%, 960px);
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: var(--r-sm);
+    background: #000;
+}
+
+.remote-media-ready {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-6);
+    background: var(--bg-deeper);
+}
+
+.remote-media-ready-card {
+    width: min(100%, 420px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    padding: var(--sp-5);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.remote-media-ready-poster {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    background: #000;
+}
+
+.remote-media-ready-poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.remote-media-ready-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.remote-media-ready-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.remote-media-ready-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    font-size: 12px;
+}
+
+.remote-media-ready-label {
+    color: var(--meta);
+}
+
+.remote-media-ready-value {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.remote-media-ready-error {
+    font-size: 12px;
+    color: var(--danger, #e06c75);
+}
+
+.remote-media-ready-start {
+    height: 36px;
+    border: 1px solid var(--accent);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.remote-media-ready-start:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 24%, var(--surface));
+}
+
+.remote-media-ready-start:disabled {
+    opacity: 0.65;
+    cursor: default;
+}
+
 .content-preview-markdown > :first-child {
     margin-top: 0;
 }
@@ -19739,6 +19849,253 @@ textarea.content-preview-text--editable {
     overflow: hidden;
 }
 
+.file-preview-subwindow-layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
+.file-preview-subwindow-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.file-preview-tree {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-width: 0;
+    border-right: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+
+.file-preview-tree-header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px 6px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.file-preview-tree-dir {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--meta);
+}
+
+.file-preview-tree-dir-label {
+    flex-shrink: 0;
+}
+
+.file-preview-tree-dir-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.file-preview-tree-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.file-preview-tree-action {
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-secondary, var(--meta));
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.file-preview-tree-action:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--text);
+}
+
+.file-preview-tree-action:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.file-preview-tree-action.is-active {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+}
+
+.file-preview-tree-search {
+    width: 100%;
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12px;
+    outline: none;
+}
+
+.file-preview-tree-search:focus {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.file-preview-tree-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 4px 0 8px;
+}
+
+.file-preview-tree-node {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    height: 26px;
+    padding-right: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.file-preview-tree-node:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.file-preview-tree-node.is-selected {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--text);
+}
+
+.file-preview-tree-twistie {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--meta);
+}
+
+.file-preview-tree-twistie.is-file {
+    visibility: hidden;
+}
+
+.file-preview-tree-chevron {
+    transition: transform 0.12s ease;
+    transform: rotate(0deg);
+}
+
+.file-preview-tree-chevron.is-expanded {
+    transform: rotate(90deg);
+}
+
+.file-preview-tree-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+}
+
+.file-preview-tree-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-preview-tree-hint {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--meta);
+}
+
+.file-preview-tree-hint.is-error {
+    color: var(--danger, #e06c75);
+}
+
+.file-preview-tree-collapse {
+    position: absolute;
+    top: 50%;
+    right: -10px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 28px;
+    margin-top: -14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--meta);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.file-preview-tree-collapse:hover {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.file-preview-tree-resize {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    z-index: 1;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+}
+
+.file-preview-tree-rail {
+    display: flex;
+    flex-shrink: 0;
+    align-items: stretch;
+    width: 18px;
+    border-right: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+
+.file-preview-tree-rail-btn {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--meta);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.file-preview-tree-rail-btn:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .file-preview-subwindow-title {
     display: flex;
     align-items: baseline;
@@ -19793,7 +20150,8 @@ textarea.content-preview-text--editable {
     background: color-mix(in srgb, var(--accent) 20%, var(--surface));
 }
 
-.file-preview-subwindow .subwindow-body .content-preview-view {
+.file-preview-subwindow .subwindow-body .content-preview-view,
+.file-preview-subwindow-main .content-preview-view {
     flex: 1;
     min-height: 0;
 }

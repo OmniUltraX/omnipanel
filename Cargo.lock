@@ -2612,6 +2612,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-range"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21dec9db110f5f872ed9699c3ecf50cf16f423502706ba5c72462e28d3157573"
+
+[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4204,6 +4210,7 @@ dependencies = [
  "aes",
  "anyhow",
  "async-trait",
+ "axum",
  "base64 0.22.1",
  "blowfish",
  "cbc",
@@ -4253,6 +4260,8 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml 0.8.2",
+ "tower",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -7431,6 +7440,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http 1.4.1",
+ "http-range",
  "image",
  "jni 0.21.1",
  "libc",

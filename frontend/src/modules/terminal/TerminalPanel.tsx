@@ -613,12 +613,31 @@ export function TerminalPanel() {
   );
 
   const handleTopbarAdd = useCallback(() => {
-    const name = workspaceActiveResource?.name ?? t("terminal.newSession.local");
-    const id = addLocalTerminalTab(name);
+    // 按当前工作区资源创建对应类型会话；避免「选中 SSH 却建本地 tab、标题却是主机名」
+    // （旧逻辑会导致 isDefaultSessionTitle 为 false，自动命名永不触发）
+    const resourceId = workspaceActiveResource?.id ?? LOCAL_TERMINAL_RESOURCE_ID;
+    let tabId: string;
+    if (resourceId === LOCAL_TERMINAL_RESOURCE_ID) {
+      tabId = addLocalTerminalTab(t("terminal.newSession.local"));
+      selectResource(LOCAL_TERMINAL_RESOURCE_ID);
+    } else {
+      const title = workspaceActiveResource?.name ?? resourceId;
+      tabId = addSshTerminalTab(resourceId, title);
+      selectResource(resourceId);
+    }
     focusSessionsPanel();
-    setDockActiveId(id);
-    setActiveTab(id);
-  }, [addLocalTerminalTab, focusSessionsPanel, setActiveTab, workspaceActiveResource?.name, t]);
+    setDockActiveId(tabId);
+    setActiveTab(tabId);
+  }, [
+    addLocalTerminalTab,
+    addSshTerminalTab,
+    focusSessionsPanel,
+    selectResource,
+    setActiveTab,
+    t,
+    workspaceActiveResource?.id,
+    workspaceActiveResource?.name,
+  ]);
 
   const handleTopbarAddMenuSelect = useCallback(
     (id: string) => {

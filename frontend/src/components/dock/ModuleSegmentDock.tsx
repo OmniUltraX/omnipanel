@@ -89,12 +89,13 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
    */
   deferActiveTabNotify?: boolean;
   /**
-   * 模块非 live / 首页预热：挂起全部业务内容（chrome/layout 可保留）。
+   * 模块非 live / 首页预热：挂起重活（chrome/layout 可保留）。
+   * 配合 stickyVisit：预热从未 live 时不挂内容；曾 live 后切走保留已访问 Tab。
    */
   contentSuspended?: boolean;
   /**
    * 懒创建 + 访问后粘住：未访问 Tab 不挂内容；激活过的保持挂载防闪。
-   * 开启后 defaultRenderer 使用 always（仅宿主），内容仍受 visited / contentSuspended 约束。
+   * 开启后 defaultRenderer 使用 always（仅宿主）；曾 live 后挂起仍保活已访问 Tab。
    */
   stickyVisit?: boolean;
 }
@@ -143,10 +144,25 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
     createInitialDockTabVisited(activeTabId),
   );
 
+  // 曾进入过 live：之后切走只挂起重活，已访问 Tab 保活，避免 remount 闪烁。
+  // 预热阶段从未 live：仍不挂内容，靠 soft gate 在首次 live 时 bump。
+  const [hasBeenLive, setHasBeenLive] = useState(() => !contentSuspended);
   useEffect(() => {
-    if (contentSuspended || !stickyVisit) return;
+    if (!contentSuspended) setHasBeenLive(true);
+  }, [contentSuspended]);
+
+  const keepVisitedWhileSuspended = hasBeenLive;
+
+  useEffect(() => {
+    if (contentSuspended) return;
     setVisitedTabIds((prev) => markDockTabVisited(prev, activeTabId));
-  }, [activeTabId, contentSuspended, stickyVisit]);
+  }, [activeTabId, contentSuspended]);
+
+  // 仅「预热挂起 → 首次 live」时 bump soft；日常切走切回不再全量 soft reconcile。
+  const composedSoftRefreshKey = useMemo(() => {
+    const gate = hasBeenLive ? "ready" : "warmup";
+    return softRefreshKey === undefined ? gate : `${gate}|${softRefreshKey}`;
+  }, [hasBeenLive, softRefreshKey]);
 
   const dockTabs = useMemo(
     (): DockableTab[] =>
@@ -174,6 +190,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
           active: tabId === activeTabId,
           visited: visitedTabIds.has(tabId),
           contentSuspended,
+          keepVisitedWhileSuspended,
         });
         if (!mount) return null;
       }
@@ -182,6 +199,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
     [
       activeTabId,
       contentSuspended,
+      keepVisitedWhileSuspended,
       renderPanel,
       stickyVisit,
       visitedTabIds,
@@ -238,7 +256,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       windowChromeVariant="segment"
       panelContentKey={panelContentKey}
       panelContentKeysByTab={panelContentKeysByTab}
-      softRefreshKey={softRefreshKey}
+      softRefreshKey={composedSoftRefreshKey}
       defaultRenderer={resolvedRenderer}
       deferActiveTabNotify={deferActiveTabNotify}
     />

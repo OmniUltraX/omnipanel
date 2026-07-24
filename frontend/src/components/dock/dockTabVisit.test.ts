@@ -6,12 +6,34 @@ import {
 } from "./dockTabVisit";
 
 describe("shouldMountDockTabContent", () => {
-  it("挂起时一律不挂", () => {
+  it("挂起且不保活：一律不挂", () => {
     expect(
       shouldMountDockTabContent({
         active: true,
         visited: true,
         contentSuspended: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("挂起且保活：已访问仍挂", () => {
+    expect(
+      shouldMountDockTabContent({
+        active: false,
+        visited: true,
+        contentSuspended: true,
+        keepVisitedWhileSuspended: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("挂起且保活：未访问仍不挂", () => {
+    expect(
+      shouldMountDockTabContent({
+        active: false,
+        visited: false,
+        contentSuspended: true,
+        keepVisitedWhileSuspended: true,
       }),
     ).toBe(false);
   });

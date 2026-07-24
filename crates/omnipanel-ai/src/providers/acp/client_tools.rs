@@ -17,6 +17,7 @@ Protocol:
 6. If [Tool Result] blocks already appear above, the host ran tools — answer in plain text unless a failed result warrants another tool_calls retry.
 7. Match the user's language. If the user writes in Chinese, reply in 简体中文 (including summaries after tool results). Internal thinking/reasoning should also use 简体中文 when the user writes Chinese.
 8. When no suitable tool exists for a question you can answer from knowledge, answer directly in plain text — never emit placeholder shell commands.
+9. Keep format deliberations in internal thinking only. Never interleave explanations with tool_calls JSON in the assistant message — when calling tools, the message body must be exactly the JSON object and nothing else.
 
 "#;
 
@@ -172,13 +173,58 @@ pub fn parse_tool_result_exit_code(result: &str) -> Option<i64> {
         .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
 }
 
+/// 定位文本中嵌入的 tool_calls JSON / ```json 围栏起点（若有）。
+///
+/// 用于「先说一句人话再吐 JSON」或开闸后中途改发工具调用的场景。
+pub fn find_embedded_tool_calls_start(text: &str) -> Option<usize> {
+    if let Some(key_idx) = text.find("\"tool_calls\"") {
+        if let Some(brace) = text[..key_idx].rfind('{') {
+            return Some(brace);
+        }
+    }
+    if let Some(fence) = text.find("```json") {
+        return Some(fence);
+    }
+    if let Some(fence) = text.find("```\n{") {
+        return Some(fence);
+    }
+    None
+}
+
+/// 将正文拆成「可安全流式的纯文本前缀」+「疑似 tool_calls JSON 后缀」。
+///
+/// 返回 `(plain, Some(json))` 或 `(plain, None)`（整段都是纯文本）。
+/// 若整段都是 tool JSON，则 `plain` 为空且 `json` 为原文本。
+pub fn split_plain_prefix_and_tool_json(text: &str) -> (String, Option<String>) {
+    if text.trim().is_empty() {
+        return (String::new(), None);
+    }
+    if let Some(idx) = find_embedded_tool_calls_start(text) {
+        let plain = text[..idx].trim_end().to_string();
+        let json = text[idx..].to_string();
+        return (plain, Some(json));
+    }
+    let trimmed = text.trim_start();
+    if looks_like_pending_tool_calls_json(trimmed) {
+        // 保留前导空白到 json 侧，避免丢失；plain 为空
+        let start = text.len() - trimmed.len();
+        return (text[..start].to_string(), Some(trimmed.to_string()));
+    }
+    (text.to_string(), None)
+}
+
 /// 判断 assistant 文本是否可能是未完成的 tool_calls JSON（避免流式泄露半截 JSON）。
+///
+/// 也识别「纯文本 + 嵌入 tool_calls」混合输出。
 pub fn looks_like_pending_tool_calls_json(text: &str) -> bool {
     let t = text.trim();
     if t.is_empty() {
         return false;
     }
     if !parse_client_tool_calls(t).is_empty() {
+        return true;
+    }
+    if find_embedded_tool_calls_start(t).is_some() {
         return true;
     }
     if !t.starts_with('{') {
@@ -460,6 +506,22 @@ mod tests {
     fn looks_like_pending_detects_partial_json() {
         assert!(looks_like_pending_tool_calls_json(r#"{"tool_calls":["#));
         assert!(!looks_like_pending_tool_calls_json("当前时间是下午"));
+        assert!(looks_like_pending_tool_calls_json(
+            "先说明一句\n{\"tool_calls\":["
+        ));
+    }
+
+    #[test]
+    fn split_plain_prefix_separates_embedded_json() {
+        let (plain, json) = split_plain_prefix_and_tool_json(
+            "好的，我来查一下\n{\"tool_calls\":[{\"id\":\"c1\"}",
+        );
+        assert_eq!(plain, "好的，我来查一下");
+        assert!(json.unwrap().starts_with("{\"tool_calls\""));
+
+        let (plain2, json2) = split_plain_prefix_and_tool_json("纯文本回答，无需工具");
+        assert_eq!(plain2, "纯文本回答，无需工具");
+        assert!(json2.is_none());
     }
 
     #[test]

@@ -16,7 +16,7 @@ debug-inspector = ["tauri/devtools"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -44,6 +44,10 @@ redis.workspace = true
 rusqlite = { version = "0.32", features = ["bundled"] }
 futures = "0.3"
 async-trait = "0.1"
+
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 
 # Protocol Lab
 reqwest.workspace = true

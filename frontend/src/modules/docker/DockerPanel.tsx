@@ -519,9 +519,9 @@ export function DockerPanel() {
     );
   }, []);
 
-  // 仅路由 live 变化时全局 soft；切 Tab 由 DockableWorkspace 局部 soft bump
+  // 切 Tab 由 DockableWorkspace 局部 soft bump；路由保活由 ModuleSegmentDock hasBeenLive。
   // 连接 status 变更勿写入 softRefreshKey：会在 React commit 中触发 dockview flushSync
-  const dockSoftRefreshKey = moduleLive ? "live" : "idle";
+  const dockSoftRefreshKey = "dock";
 
   const sidebarLinkageValue = useMemo(
     () => ({

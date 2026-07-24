@@ -251,7 +251,8 @@ export type ContentPreviewPayload =
   | { kind: "json"; value: object }
   | { kind: "text"; text: string }
   | { kind: "image"; url: string; alt?: string }
-  | { kind: "audio"; url: string; mimeType?: string };
+  | { kind: "audio"; url: string; mimeType?: string }
+  | { kind: "video"; url: string; mimeType?: string; poster?: string };
 
 export type ContentPreviewStatus = "loading" | "error" | "empty" | "ready";
 

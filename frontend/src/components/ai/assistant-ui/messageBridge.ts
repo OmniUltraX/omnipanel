@@ -5,6 +5,7 @@ import type {
 } from "@assistant-ui/react";
 
 import {
+  coalescePartsByToolSegments,
   deriveCompatFields,
   normalizeAiMessage,
   partsFromFlatFields,
@@ -105,7 +106,7 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
     } satisfies ThreadUserMessage;
   }
 
-  const ordered = partsFromFlatFields(msg);
+  const ordered = coalescePartsByToolSegments(partsFromFlatFields(msg));
   const parts: ThreadAssistantMessage["content"][number][] = [];
   for (const part of ordered) {
     if (part.type === "reasoning") {

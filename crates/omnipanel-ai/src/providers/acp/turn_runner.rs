@@ -95,16 +95,16 @@ impl AcpRoundRunner {
 
     /// Decide whether content should be held (buffered) for this round.
     ///
-    /// Content hold prevents leaking half-JSON `tool_calls` to the event
-    /// stream. It should be enabled when `client_tools` is active AND the
-    /// prompt might produce tool calls (i.e. it's not a pure tool-result
-    /// continuation, or it explicitly expects a tool retry).
+    /// Always hold when `client_tools` is active — including tool-result
+    /// continuations — so multi-step agents can emit another `tool_calls`
+    /// JSON without leaking half-JSON into the UI. The streaming gate still
+    /// opens immediately for confirmed plain text.
     pub fn should_hold_content(
         client_tools: bool,
-        is_tool_continuation: bool,
-        expects_tool_retry: bool,
+        _is_tool_continuation: bool,
+        _expects_tool_retry: bool,
     ) -> bool {
-        client_tools && (!is_tool_continuation || expects_tool_retry)
+        client_tools
     }
 
     /// Create a content buffer if `hold` is true.
@@ -119,17 +119,23 @@ impl AcpRoundRunner {
     /// Drain a held content buffer and return text that should be emitted as
     /// [`StreamEvent::ContentDelta`].
     ///
-    /// Returns `None` if the buffer is empty, whitespace-only, or looks like
-    /// pending tool-call JSON (which should not be leaked to the UI as plain
-    /// content).
+    /// Returns the plain-text prefix only. Embedded / pending `tool_calls`
+    /// JSON is left in the buffer for the caller to parse and is never
+    /// leaked as content.
     pub fn drain_held_content(buffer: &Arc<StdMutex<String>>) -> Option<String> {
-        use crate::providers::acp::looks_like_pending_tool_calls_json;
+        use crate::providers::acp::client_tools::split_plain_prefix_and_tool_json;
 
         let text = buffer.lock().map(|g| g.clone()).unwrap_or_default();
-        if text.trim().is_empty() || looks_like_pending_tool_calls_json(&text) {
-            return None;
+        let (plain, json) = split_plain_prefix_and_tool_json(&text);
+        if let Ok(mut guard) = buffer.lock() {
+            *guard = json.unwrap_or_default();
         }
-        Some(text)
+        let plain = plain.trim().to_string();
+        if plain.is_empty() {
+            None
+        } else {
+            Some(plain)
+        }
     }
 }
 
@@ -143,13 +149,9 @@ mod tests {
         assert!(!AcpRoundRunner::should_hold_content(false, false, false));
         assert!(!AcpRoundRunner::should_hold_content(false, true, false));
 
-        // client_tools + not continuation → hold (first prompt, might produce tool calls)
+        // client_tools → always hold (including continuations / multi-step tools)
         assert!(AcpRoundRunner::should_hold_content(true, false, false));
-
-        // client_tools + continuation + no retry → don't hold (pure result feedback)
-        assert!(!AcpRoundRunner::should_hold_content(true, true, false));
-
-        // client_tools + continuation + retry → hold (might produce new tool calls)
+        assert!(AcpRoundRunner::should_hold_content(true, true, false));
         assert!(AcpRoundRunner::should_hold_content(true, true, true));
     }
 
@@ -174,5 +176,18 @@ mod tests {
     fn drain_held_content_skips_empty() {
         let buf = Arc::new(StdMutex::new("   \n\t  ".to_string()));
         assert!(AcpRoundRunner::drain_held_content(&buf).is_none());
+    }
+
+    #[test]
+    fn drain_held_content_splits_mixed_plain_and_json() {
+        let buf = Arc::new(StdMutex::new(
+            "好的，我来查\n{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"omni_terminal_run_terminal_command\",\"arguments\":\"{}\"}}]}".to_string(),
+        ));
+        assert_eq!(
+            AcpRoundRunner::drain_held_content(&buf).as_deref(),
+            Some("好的，我来查")
+        );
+        let left = buf.lock().unwrap().clone();
+        assert!(left.contains("\"tool_calls\""));
     }
 }

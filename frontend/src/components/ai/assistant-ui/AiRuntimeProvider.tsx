@@ -585,10 +585,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             });
           }
 
-          // 结果导向跟随：工具 completed 时切到对应模块面板 + 定位资源
-          // 此时工具已有结果，用户切过去能直接看到执行结果（而非空状态闪烁）
-          // 传入 result 用于结果感知推断（如 create_database 返回的库名）
-          applyUiFollowForTool(meta.name, meta.args, result);
+          // 结果导向跟随：侧栏 AI 工具完成后切模块定位。
+          // 终端内嵌对话已在终端上下文中，禁止触发跟随以免抢走焦点/跳走。
+          if (!inline) {
+            applyUiFollowForTool(meta.name, meta.args, result);
+          }
 
           // 知识库相关工具完成时，通知知识库面板刷新并尝试打开/关闭对应 tab。
           // 旧的 CustomEvent + localStorage 模式已迁移到统一的 useUiFollowConsumer

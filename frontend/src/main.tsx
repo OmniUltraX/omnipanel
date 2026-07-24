@@ -20,28 +20,18 @@ import { Bootstrap } from "./Bootstrap";
 import { WorkspaceWindowRoot } from "./WorkspaceWindowRoot";
 import { parseWorkspaceWindowParams, workspaceWindowDebugLog } from "./lib/workspaceWindow";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
-import { isTauriRuntime } from "./lib/isTauriRuntime";
 
 initProductionDiagnostics();
 initDesktopShell();
 
-// JS 已执行则立即移除 HTML 占位，避免模块加载失败时永远卡在 boot-splash
 dismissHtmlBootSplash();
 
 const workspaceWindow = parseWorkspaceWindowParams();
 
-// 主窗由 Rust 隐藏创建并摆位；首屏 JS 就绪后再 show，避免白框闪主屏。
-// 几何勿在此 restore，防止二次改尺寸。
-if (!workspaceWindow && isTauriRuntime()) {
-  void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-    const win = getCurrentWindow();
-    void win.show().then(() => win.setFocus()).catch(() => undefined);
-  });
-}
-
 void workspaceWindowDebugLog(
-  `main.tsx boot role=${workspaceWindow ? "workspace-window" : "main"} ` +
-    `ws=${workspaceWindow?.workspaceId ?? "-"} href=${location.href}`,
+  `main.tsx boot role=${
+    workspaceWindow ? "workspace-window" : "main"
+  } ws=${workspaceWindow?.workspaceId ?? "-"} href=${location.href}`,
 );
 
 createRoot(document.getElementById("root")!).render(
