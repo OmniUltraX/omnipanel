@@ -256,7 +256,14 @@ jobs:
             -X POST "${BASE_URL%/}/broadcast/version" \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "${BODY}"
+            -d "${BODY}")
+          echo "Broadcast HTTP ${HTTP_CODE}"
+          cat /tmp/broadcast-resp.json || true
+          echo
+          if [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
+            echo "::error::OmniServer broadcast/version 失败（HTTP ${HTTP_CODE}）"
+            exit 1
+          fi
 
   # 全平台构建成功后，将 Release 资产同步到阿里云 OSS（客户端优先从此下载）
   publish-oss:
