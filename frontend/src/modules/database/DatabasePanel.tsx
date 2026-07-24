@@ -5786,6 +5786,7 @@ export function DatabasePanel() {
             dockTabs={dockTabs}
             moduleTitle={t("routes.database")}
             enabled={moduleLive}
+            contentSuspended={!moduleLive}
             windowControl
             onCloseTab={handleCloseDockTab}
             renderDockPanel={renderDockPanel}

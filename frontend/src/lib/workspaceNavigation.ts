@@ -17,6 +17,7 @@ import {
 } from "../stores/workspaceWindowStore";
 import { parseWorkspaceWindowParams, workspaceWindowLabel } from "./workspaceWindow";
 import { isTauriRuntime } from "./isTauriRuntime";
+import { requestWorkspaceDockWarmup } from "../stores/workspaceDockWarmupStore";
 
 const MAIN_WINDOW_LABEL = "main";
 
@@ -95,6 +96,8 @@ function doEnterEngineeringWorkspaceFullscreen(
     bottom.clearDeferExitFullscreen();
     return;
   }
+  // 进入全屏前确保 dock shell 已在预热（首页冷路径）
+  requestWorkspaceDockWarmup(id);
   store.switchWorkspace(id);
   bottom.clearDeferExitFullscreen();
   // 先进入全屏再改路由，避免 /workspace/:id 短暂处于嵌入 taskbar 态（主区空白 + 底栏）

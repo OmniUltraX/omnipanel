@@ -3,6 +3,7 @@ import {
   MAX_WORKSPACE_PANELS,
   useWorkspaceBottomDockStore,
 } from "../stores/workspaceBottomDockStore";
+import { crossDockDebugInfo, crossDockDebugWarn } from "./crossDockDebug";
 
 const WORKSPACE_BOTTOM_PREFIX = "workspace-bottom-";
 
@@ -37,11 +38,20 @@ type RelayoutRequest = {
 const pendingRelayouts: RelayoutRequest[] = [];
 let relayoutScheduled = false;
 
+function isDockLayoutShellHidden(layoutShell: HTMLElement | null): boolean {
+  if (!layoutShell) return true;
+  // data-visible=false 的预热/折叠 dock：跳过，避免无效 layout + 强制回流
+  if (layoutShell.closest('[data-visible="false"]')) return true;
+  return false;
+}
+
 /** 容器尺寸变化后触发布局刷新（折叠/展开后 dockview 需重算） */
 function relayoutDockviewInstancesNow(
   scopePrefix?: string,
   size?: { width: number; height: number },
 ): void {
+  const hasExplicitSize = Boolean(size && size.width > 0 && size.height > 0);
+
   for (const instance of instancesByViewId.values()) {
     if (scopePrefix && !instance.scope.startsWith(scopePrefix)) continue;
     try {
@@ -57,29 +67,23 @@ function relayoutDockviewInstancesNow(
       const layoutShell =
         (dockviewRoot?.closest(".dockable-workspace") as HTMLElement | null) ??
         dockviewRoot;
-      const measured = layoutShell?.getBoundingClientRect();
-      // 显式传入全屏尺寸时，跳过 display:none 的隐藏工作区 dock，避免 N 份无效 layout
-      if (
-        size &&
-        layoutShell &&
-        (!measured || measured.width <= 0 || measured.height <= 0)
-      ) {
+
+      if (isDockLayoutShellHidden(layoutShell)) {
         continue;
       }
-      const width = Math.round(
-        size?.width && size.width > 0
-          ? size.width
-          : measured && measured.width > 0
-            ? measured.width
-            : 0,
-      );
-      const height = Math.round(
-        size?.height && size.height > 0
-          ? size.height
-          : measured && measured.height > 0
-            ? measured.height
-            : 0,
-      );
+
+      let width = 0;
+      let height = 0;
+
+      if (hasExplicitSize && size) {
+        // 已有明确尺寸时跳过 getBoundingClientRect，避免与 dockview 内部测量叠加重回流
+        width = Math.round(size.width);
+        height = Math.round(size.height);
+      } else {
+        const measured = layoutShell?.getBoundingClientRect();
+        width = Math.round(measured && measured.width > 0 ? measured.width : 0);
+        height = Math.round(measured && measured.height > 0 ? measured.height : 0);
+      }
 
       if (typeof api.layout === "function" && width > 0 && height > 0) {
         api.layout(width, height, true);
@@ -352,16 +356,14 @@ export function transferPanelBetweenInstances(
       useWorkspaceBottomDockStore.getState().tabsByWorkspace[workspaceId] ?? [];
     const alreadyTracked = currentTabs.some((t) => t.id === newPanelId);
     if (currentTabs.length >= MAX_WORKSPACE_PANELS && !alreadyTracked) {
-      // eslint-disable-next-line no-console
-      console.warn(
+      crossDockDebugWarn(
         `[crossDock][transfer][reject-capacity] source=${source.scope}/${panelId} -> target=${target.scope} current=${currentTabs.length} max=${MAX_WORKSPACE_PANELS}`,
       );
       return false;
     }
   }
 
-  // eslint-disable-next-line no-console
-  console.info(
+  crossDockDebugInfo(
     `[crossDock][transfer][start] source=${source.scope}/${panelId} -> target=${target.scope} newPanelId=${newPanelId}`,
   );
 
@@ -409,14 +411,12 @@ export function transferPanelBetweenInstances(
       const lingering = source.api.getPanel(panelId);
       if (lingering) {
         source.api.removePanel(lingering);
-        // eslint-disable-next-line no-console
-        console.info(
+        crossDockDebugInfo(
           `[crossDock][transfer][deferRemove] source=${source.scope}/${panelId} removed`,
         );
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(
+      crossDockDebugWarn(
         `[crossDock][transfer][deferRemove-err] source=${source.scope}/${panelId}`,
         err,
       );
@@ -426,8 +426,7 @@ export function transferPanelBetweenInstances(
     requestAnimationFrame(deferRemove);
   });
 
-  // eslint-disable-next-line no-console
-  console.info(
+  crossDockDebugInfo(
     `[crossDock][transfer][ok] source=${source.scope}/${panelId} -> target=${target.scope} newPanelId=${newPanelId}`,
   );
 

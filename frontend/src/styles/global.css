@@ -443,6 +443,8 @@ a {
 .workspace-preview__bottom-stack > [data-visible="false"] {
     visibility: hidden;
     pointer-events: none;
+    /* 首页预热 / 折叠态：跳过子树绘制与部分布局，配合 contentSuspended 抑制业务 effect */
+    content-visibility: hidden;
     position: absolute;
     inset: 0;
     width: 100%;

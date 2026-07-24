@@ -574,6 +574,19 @@ fn build_and_run_tauri() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // 主窗 create:false：按记忆几何创建并保持隐藏，等 HTML 首屏就绪再 show。
+            // 须在 setup 最前，避免默认创建路径在主屏闪白框。
+            commands::workspace_window::create_main_window(app.handle())
+                .expect("创建主窗口失败");
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                webview_dpi::hook_window(&window);
+                #[cfg(any(debug_assertions, feature = "debug-inspector"))]
+                if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
+                    window.open_devtools();
+                }
+            }
+
             let db_path =
                 omnipanel_store::meta_db_path().expect("无法定位 ~/.omnipd/store/omnipanel.db");
             if let Some(parent) = db_path.parent() {
@@ -629,33 +642,6 @@ fn build_and_run_tauri() {
 
             // 启动 SSH 端口探测后台任务
             background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
-
-            if let Some(window) = app.get_webview_window("main") {
-                let title = app
-                    .config()
-                    .app
-                    .windows
-                    .iter()
-                    .find(|w| w.label == "main")
-                    .or_else(|| app.config().app.windows.first())
-                    .map(|w| w.title.clone())
-                    .unwrap_or_else(|| {
-                        app.config()
-                            .product_name
-                            .clone()
-                            .unwrap_or_else(|| "OmniPanel".to_string())
-                    });
-                window.set_title(&title).ok();
-                window.center().ok();
-                // 与前端 --bg 对齐，消掉跨 DPI 时原生客户区与 WebView 表面色差
-                let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
-                #[cfg(windows)]
-                webview_dpi::hook_window(&window);
-                #[cfg(any(debug_assertions, feature = "debug-inspector"))]
-                if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
-                    window.open_devtools();
-                }
-            }
 
             Ok(())
         })

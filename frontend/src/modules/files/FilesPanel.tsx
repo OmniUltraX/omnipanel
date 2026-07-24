@@ -634,6 +634,8 @@ function FilesBrowserView() {
               dockScope="files-browser"
               moduleTitle={t("routes.files")}
               enabled={isActiveRoute}
+              contentSuspended={!isActiveRoute}
+              stickyVisit
               windowControl
               tabs={dockTabs}
               activeTabId={activePanelId ?? ""}

@@ -34,8 +34,7 @@ import {
   isShellRoutePath,
 } from "./lib/routePanels";
 import {
-  scheduleIdleTerminalWarm,
-  scheduleIdleDatabaseWarm,
+  scheduleIdleOverlayShellWarm,
   subscribeModuleShellWarm,
 } from "./lib/moduleWarmup";
 import { WindowResize } from "./components/shell/WindowResize";
@@ -326,10 +325,8 @@ function AppShell() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // 空闲预热终端：先拉 chunk，再低优先级挂载壳（suspended，不建 xterm）
-  useEffect(() => scheduleIdleTerminalWarm(), []);
-  // 空闲预热数据库模块壳，避免重启后首次点侧栏「数据库」卡在 chunk/挂载
-  useEffect(() => scheduleIdleDatabaseWarm(), []);
+  // 空闲错峰：全部叠层模块 Chunk → ShellReady（仍 suspended，Live 重活跟 moduleLive）
+  useEffect(() => scheduleIdleOverlayShellWarm(), []);
 
   // Harness/Loop：运维 Skill 种子 + Loop 规格与调度
   useEffect(() => {

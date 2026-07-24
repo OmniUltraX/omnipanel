@@ -20,6 +20,11 @@ interface WorkspacePanelProps {
   workspace: WorkspaceInfo;
   /** 独立 OS 窗口：布局等同工程工作区全屏，无弹出按钮 */
   detached?: boolean;
+  /**
+   * 首页预热：仍渲染 dockview shell，但不挂载 panel 业务内容。
+   * task-bar 嵌入态下也会强制走 dock 路径以便预热。
+   */
+  contentSuspended?: boolean;
 }
 
 function workspaceDockScope(workspaceId: string): string {
@@ -71,7 +76,11 @@ function WorkspaceModeStepControls({
   );
 }
 
-export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelProps) {
+export function WorkspacePanel({
+  workspace,
+  detached = false,
+  contentSuspended = false,
+}: WorkspacePanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const workspaceId = workspace.id;
@@ -203,7 +212,8 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
     [workspace, isEngineeringFullscreen],
   );
 
-  if (embeddedMode === "taskbar" && !isEngineeringFullscreen) {
+  // 预热阶段即使偏好 task-bar，也挂 dock shell（内容已 suspended）
+  if (embeddedMode === "taskbar" && !isEngineeringFullscreen && !contentSuspended) {
     return null;
   }
 
@@ -252,6 +262,7 @@ export function WorkspacePanel({ workspace, detached = false }: WorkspacePanelPr
             : undefined
         }
         emptyContent={emptyContent}
+        contentSuspended={contentSuspended}
       />
     </div>
   );

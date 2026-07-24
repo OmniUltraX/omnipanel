@@ -370,6 +370,8 @@ export function ServerPanel() {
             onCloseTab={handleCloseTab}
             onTabContextMenu={handleDockTabContextMenu}
             enabled={isActiveRoute}
+            stickyVisit
+            contentSuspended={!moduleLive}
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
             renderPanel={renderServerPanel}

@@ -14,6 +14,11 @@ export {
   type ModuleSegmentTab,
 } from "./ModuleSegmentDock";
 export { ModuleDockTitle } from "./ModuleDockTitle";
+export {
+  shouldMountDockTabContent,
+  markDockTabVisited,
+  createInitialDockTabVisited,
+} from "./dockTabVisit";
 export type { DockPanelRefreshProps } from "./dockPanelRefresh";
 export type { SerializedDockview } from "dockview-core";
 export {

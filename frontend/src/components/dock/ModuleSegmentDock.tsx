@@ -1,4 +1,12 @@
-import { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { SerializedDockview } from "dockview-core";
 import {
   DockableWorkspace,
@@ -10,6 +18,11 @@ import type { DockTabPageType } from "./dockableTab";
 import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { ModuleDockTitle } from "./ModuleDockTitle";
+import {
+  createInitialDockTabVisited,
+  markDockTabVisited,
+  shouldMountDockTabContent,
+} from "./dockTabVisit";
 
 export interface ModuleSegmentTab {
   id: string;
@@ -67,7 +80,7 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
   panelContentKeysByTab?: Record<string, string>;
   /**
    * 模块工作区默认 onlyWhenVisible，避免开 Tab 时非激活 panel 全量常驻 reconcile。
-   * 终端等需要常驻的场景显式传 always。
+   * stickyVisit 开启时强制 always（宿主常驻），未访问 Tab 仍 render null。
    */
   defaultRenderer?: "always" | "onlyWhenVisible";
   /**
@@ -75,6 +88,15 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
    * 数据库侧栏联动需即时跟随时传 false。
    */
   deferActiveTabNotify?: boolean;
+  /**
+   * 模块非 live / 首页预热：挂起全部业务内容（chrome/layout 可保留）。
+   */
+  contentSuspended?: boolean;
+  /**
+   * 懒创建 + 访问后粘住：未访问 Tab 不挂内容；激活过的保持挂载防闪。
+   * 开启后 defaultRenderer 使用 always（仅宿主），内容仍受 visited / contentSuspended 约束。
+   */
+  stickyVisit?: boolean;
 }
 
 const EMPTY_LAYOUT = null;
@@ -110,10 +132,21 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
   softRefreshKey,
   defaultRenderer = "onlyWhenVisible",
   deferActiveTabNotify,
+  contentSuspended = false,
+  stickyVisit = false,
 }: ModuleSegmentDockProps) {
   const layoutRef = useRef(EMPTY_LAYOUT);
   const noopClose = useCallback(() => {}, []);
   const noopLayoutChange = useCallback(() => {}, []);
+
+  const [visitedTabIds, setVisitedTabIds] = useState(() =>
+    createInitialDockTabVisited(activeTabId),
+  );
+
+  useEffect(() => {
+    if (contentSuspended || !stickyVisit) return;
+    setVisitedTabIds((prev) => markDockTabVisited(prev, activeTabId));
+  }, [activeTabId, contentSuspended, stickyVisit]);
 
   const dockTabs = useMemo(
     (): DockableTab[] =>
@@ -134,6 +167,30 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
     [tabs],
   );
 
+  const wrappedRenderPanel = useCallback(
+    (tabId: string) => {
+      if (stickyVisit || contentSuspended) {
+        const mount = shouldMountDockTabContent({
+          active: tabId === activeTabId,
+          visited: visitedTabIds.has(tabId),
+          contentSuspended,
+        });
+        if (!mount) return null;
+      }
+      return renderPanel(tabId);
+    },
+    [
+      activeTabId,
+      contentSuspended,
+      renderPanel,
+      stickyVisit,
+      visitedTabIds,
+    ],
+  );
+
+  const resolvedRenderer =
+    stickyVisit || contentSuspended ? "always" : defaultRenderer;
+
   const rootClassName = [
     "module-root-dock",
     "module-segment-dock",
@@ -141,6 +198,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
     !showTabBar && "module-segment-dock--no-tab-bar",
     className,
     !enabled && "module-segment-dock--route-inactive",
+    contentSuspended && "module-segment-dock--content-suspended",
   ]
     .filter(Boolean)
     .join(" ");
@@ -169,7 +227,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       onSavedLayoutChange={onSavedLayoutChange ?? noopLayoutChange}
       enableTabGroups={false}
       windowControl={windowControl}
-      renderPanel={renderPanel}
+      renderPanel={wrappedRenderPanel}
       addTabConfig={enabled ? addTabConfig : undefined}
       onTabContextMenu={onTabContextMenu}
       onTabDoubleClick={onTabDoubleClick}
@@ -181,7 +239,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       panelContentKey={panelContentKey}
       panelContentKeysByTab={panelContentKeysByTab}
       softRefreshKey={softRefreshKey}
-      defaultRenderer={defaultRenderer}
+      defaultRenderer={resolvedRenderer}
       deferActiveTabNotify={deferActiveTabNotify}
     />
   );

@@ -9,6 +9,7 @@ import {
   selectWorkspaceFromBoundContext,
   selectWorkspaceUniversally,
 } from "../../lib/workspaceNavigation";
+import { requestWorkspaceDockWarmup } from "../../stores/workspaceDockWarmupStore";
 import { useI18n } from "../../i18n";
 import { WorkspacePopover } from "./WorkspacePopover";
 
@@ -124,8 +125,15 @@ export function WorkspaceSwitcher({
     isBoundContext && isBottomEmbedded ? "above" : placement;
 
   const togglePopover = useCallback(() => {
-    setOpen((v) => !v);
-  }, []);
+    setOpen((v) => {
+      const next = !v;
+      // 首页打开切换器时立即预热 dock shell，缩短选中后进入全屏的冷启动
+      if (next && isHomeContext && isDashboardPath(location.pathname)) {
+        requestWorkspaceDockWarmup(displayWorkspace.id);
+      }
+      return next;
+    });
+  }, [displayWorkspace.id, isHomeContext, location.pathname]);
 
   const rootClass = [
     "workspace-switcher",

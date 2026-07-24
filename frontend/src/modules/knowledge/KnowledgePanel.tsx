@@ -373,6 +373,8 @@ export function KnowledgePanel() {
           dockScope="knowledge"
           moduleTitle={t("routes.knowledge")}
           enabled={isActiveRoute}
+          contentSuspended={!isActiveRoute}
+          stickyVisit
           windowControl
           showTabBar={mode === "library"}
           tabs={dockTabs}

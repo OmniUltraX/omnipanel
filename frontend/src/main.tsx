@@ -20,7 +20,6 @@ import { Bootstrap } from "./Bootstrap";
 import { WorkspaceWindowRoot } from "./WorkspaceWindowRoot";
 import { parseWorkspaceWindowParams, workspaceWindowDebugLog } from "./lib/workspaceWindow";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
-import { restoreMainWindowBounds } from "./lib/windowBoundsPersist";
 import { isTauriRuntime } from "./lib/isTauriRuntime";
 
 initProductionDiagnostics();
@@ -31,9 +30,13 @@ dismissHtmlBootSplash();
 
 const workspaceWindow = parseWorkspaceWindowParams();
 
-// 主窗尽早恢复几何，减少先闪默认尺寸再跳变
+// 主窗由 Rust 隐藏创建并摆位；首屏 JS 就绪后再 show，避免白框闪主屏。
+// 几何勿在此 restore，防止二次改尺寸。
 if (!workspaceWindow && isTauriRuntime()) {
-  void restoreMainWindowBounds();
+  void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+    const win = getCurrentWindow();
+    void win.show().then(() => win.setFocus()).catch(() => undefined);
+  });
 }
 
 void workspaceWindowDebugLog(

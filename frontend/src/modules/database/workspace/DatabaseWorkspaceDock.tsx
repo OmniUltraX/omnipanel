@@ -22,6 +22,8 @@ export interface DatabaseWorkspaceDockProps {
   moduleTitle?: ReactNode;
   enabled?: boolean;
   windowControl?: boolean;
+  /** 模块非 live：挂起业务内容（预热壳） */
+  contentSuspended?: boolean;
 }
 
 /** 数据库模块右侧 Dock 工作区（表 / SQL / 设计器等 Tab）。 */
@@ -42,6 +44,7 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
   moduleTitle,
   enabled = true,
   windowControl = true,
+  contentSuspended = false,
 }: DatabaseWorkspaceDockProps) {
   const { t } = useI18n();
   const { activeTabId, setActiveTabId } = useDbWorkspaceActiveTab();
@@ -61,8 +64,9 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
       moduleTitle={moduleTitle}
       enabled={enabled}
       windowControl={windowControl}
-      // 常驻渲染：切 Tab 只切换可见性，避免 onlyWhenVisible 卸载/重挂造成「加载闪一下」
-      defaultRenderer="always"
+      // 懒创建 + 访问后粘住（未访问不挂 Monaco；已访问切回不闪）
+      stickyVisit
+      contentSuspended={contentSuspended}
       // 侧栏连接树联动：下一帧通知（先让乐观 Tab 高亮画出来）
       deferActiveTabNotify={false}
       tabs={dockTabs}
