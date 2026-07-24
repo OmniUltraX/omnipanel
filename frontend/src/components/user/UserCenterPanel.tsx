@@ -16,9 +16,14 @@ import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
 import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
+import { appConfirm } from "../../lib/appConfirm";
+import { formatIpcError } from "../../ipc/result";
 import {
   fetchMe,
   isAuthSessionError,
+  unlinkEmail,
+  unlinkGithub,
+  unlinkWechat,
   updateProfile,
 } from "../../lib/auth/loginApi";
 import {
@@ -68,6 +73,7 @@ function AccountLinksSection({
   const githubIcon =
     useSettingsStore((s) => s.resolved) === "light" ? githubLightIcon : githubDarkIcon;
   const [bindingKind, setBindingKind] = useState<AccountLinkKind | null>(null);
+  const [unlinkingKind, setUnlinkingKind] = useState<AccountLinkKind | null>(null);
 
   const rows = useMemo(
     () =>
@@ -109,6 +115,56 @@ function AccountLinksSection({
     setBindingKind(null);
   }, []);
 
+  const handleUnlink = useCallback(
+    async (kind: AccountLinkKind, label: string) => {
+      if (unlinkingKind) return;
+      const confirmed = await appConfirm(
+        t("userCenter.accountLinks.unlinkConfirm", { name: label }),
+        t("userCenter.accountLinks.unlinkTitle"),
+        {
+          kind: "warning",
+          confirmLabel: t("userCenter.accountLinks.unlink"),
+        },
+      );
+      if (!confirmed) return;
+
+      setUnlinkingKind(kind);
+      try {
+        const profile =
+          kind === "wechat"
+            ? await unlinkWechat(token)
+            : kind === "github"
+              ? await unlinkGithub(token)
+              : await unlinkEmail(token);
+        useUserProfileStore.getState().setProfile({
+          nickname: profile.nickname,
+          avatarUrl: profile.avatarUrl,
+          openid: profile.openid,
+          email: profile.email,
+          githubId: profile.githubId,
+        });
+        showToast(
+          kind === "wechat"
+            ? t("userCenter.accountLinks.unlinkWechatSuccess")
+            : kind === "github"
+              ? t("userCenter.accountLinks.unlinkGithubSuccess")
+              : t("userCenter.accountLinks.unlinkEmailSuccess"),
+        );
+      } catch (error) {
+        if (isAuthSessionError(error)) {
+          onSessionExpired();
+        } else {
+          const message =
+            error instanceof Error ? error.message : formatIpcError(error as never);
+          showToast(message || t("userCenter.accountLinks.unlinkFailed"));
+        }
+      } finally {
+        setUnlinkingKind(null);
+      }
+    },
+    [onSessionExpired, t, token, unlinkingKind],
+  );
+
   return (
     <section className="user-center-section">
       <h3 className="user-center-section__title">{t("userCenter.accountLinks.title")}</h3>
@@ -130,11 +186,24 @@ function AccountLinksSection({
               </div>
               <p className="user-center-account-link__detail">{row.detail}</p>
             </div>
-            {row.bound ? null : (
+            {row.bound ? (
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
+                disabled={unlinkingKind !== null}
+                onClick={() => void handleUnlink(row.kind, row.label)}
+              >
+                {unlinkingKind === row.kind
+                  ? t("userCenter.accountLinks.unlinking")
+                  : t("userCenter.accountLinks.unlink")}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={unlinkingKind !== null}
                 onClick={() => setBindingKind(row.kind)}
               >
                 {t("userCenter.accountLinks.bind")}

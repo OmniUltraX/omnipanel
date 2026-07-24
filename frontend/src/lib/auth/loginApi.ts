@@ -71,10 +71,23 @@ export async function loginWithEmail(email: string, code: string): Promise<Login
   return { token: data.token, openid: data.openid };
 }
 
-/** GitHub OAuth 登录（后端开子窗口并拦截 `?token=`）。 */
+/** GitHub OAuth 登录（系统浏览器 + 本机回环接收 token）。 */
 export async function loginWithGithub(): Promise<LoginSuccessPayload> {
-  const data = await unwrapCommand(commands.authLoginGithub());
-  return { token: data.token, openid: data.openid };
+  try {
+    const data = await unwrapCommand(commands.authLoginGithub());
+    return { token: data.token, openid: data.openid };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : formatIpcError(error as never);
+    if (message.includes("已取消")) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    throw error instanceof Error ? error : new Error(message);
+  }
+}
+
+/** 取消进行中的 GitHub 登录等待。 */
+export async function cancelGithubLogin(): Promise<void> {
+  await unwrapCommand(commands.authLoginGithubCancel(), { quiet: true }).catch(() => {});
 }
 
 export interface AccountLinkStatus {
@@ -187,9 +200,40 @@ export async function linkEmail(
   return mapUserProfile(data);
 }
 
-/** GitHub OAuth 绑定（子窗口，拦截 linked=github）。 */
+/** GitHub OAuth 绑定（系统浏览器授权，轮询绑定状态）。 */
 export async function linkGithub(token: string): Promise<void> {
-  await unwrapCommand(commands.authLinkGithub(token));
+  try {
+    await unwrapCommand(commands.authLinkGithub(token), { quiet: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : formatIpcError(error as never);
+    if (message.includes("已取消")) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    throw error instanceof Error ? error : new Error(message);
+  }
+}
+
+/** 取消进行中的 GitHub 绑定等待。 */
+export async function cancelGithubLink(): Promise<void> {
+  await unwrapCommand(commands.authLinkGithubCancel(), { quiet: true }).catch(() => {});
+}
+
+/** 解绑微信。 */
+export async function unlinkWechat(token: string): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(commands.authUnlinkWechat(token));
+  return mapUserProfile(data);
+}
+
+/** 解绑 GitHub。 */
+export async function unlinkGithub(token: string): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(commands.authUnlinkGithub(token));
+  return mapUserProfile(data);
+}
+
+/** 解绑邮箱。 */
+export async function unlinkEmail(token: string): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(commands.authUnlinkEmail(token));
+  return mapUserProfile(data);
 }
 
 /**

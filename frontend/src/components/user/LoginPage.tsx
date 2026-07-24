@@ -12,6 +12,7 @@ import {
   fetchMe,
   loginWithEmail,
   loginWithGithub,
+  cancelGithubLogin,
   sendEmailLoginCode,
 } from "../../lib/auth/loginApi";
 import { formatIpcError } from "../../ipc/result";
@@ -60,11 +61,18 @@ function GithubLoginPanel() {
       const payload = await loginWithGithub();
       await applyLoginSession(payload.token, payload.openid);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(formatIpcError(err));
     } finally {
       setBusy(false);
     }
   }, [busy]);
+
+  useEffect(() => {
+    return () => {
+      void cancelGithubLogin();
+    };
+  }, []);
 
   return (
     <div className="login-page__panel">

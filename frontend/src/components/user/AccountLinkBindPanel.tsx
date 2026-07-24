@@ -5,6 +5,7 @@ import {
   fetchMe,
   fetchWechatLinkQrcode,
   isAuthSessionError,
+  cancelGithubLink,
   linkEmail,
   linkGithub,
   sendEmailLinkCode,
@@ -360,6 +361,7 @@ function GithubLinkPanel({
       showToast(t("userCenter.accountLinks.githubSuccess"));
       onLinked();
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       if (isAuthSessionError(err)) {
         onSessionExpired();
         return;
@@ -369,6 +371,12 @@ function GithubLinkPanel({
       setBusy(false);
     }
   }, [busy, onLinked, onSessionExpired, t, token]);
+
+  useEffect(() => {
+    return () => {
+      void cancelGithubLink();
+    };
+  }, []);
 
   return (
     <div className="user-center-account-bind">

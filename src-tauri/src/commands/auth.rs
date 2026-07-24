@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
@@ -11,7 +11,10 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::module_dir;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, State};
+use tauri_plugin_shell::ShellExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use url::Url;
 
@@ -27,6 +30,10 @@ const CLIENT_APP_ID: &str = "omni-client";
 /// 绑定出码按 app_id 精确查找，需与落库值一致，故作为回退。
 const CLIENT_APP_ID_FALLBACK: &str = "default";
 const CLIENT_APP_ROLE: &str = "client";
+/// 桌面端接收 GitHub 授权成功回调的本机回环地址（成功页会跳转到此）。
+const GITHUB_OAUTH_LOOPBACK_ADDR: &str = "127.0.0.1:27841";
+const GITHUB_OAUTH_CANCEL_LOGIN: &str = "github-oauth-login";
+const GITHUB_OAUTH_CANCEL_LINK: &str = "github-oauth-link";
 
 static LOGIN_WAIT_CANCELS: LazyLock<Mutex<HashMap<String, oneshot::Sender<()>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -962,7 +969,7 @@ pub async fn auth_login_email(
     map_token_login_response(&body, status, "邮箱登录失败")
 }
 
-/// GitHub OAuth 登录：拉授权 URL → 子窗口完成授权 → 拦截 `?token=` 回调。
+/// GitHub OAuth 登录：系统浏览器授权，本机回环接收 `?token=`。
 #[tauri::command]
 #[specta::specta]
 pub async fn auth_login_github(
@@ -1017,72 +1024,174 @@ pub async fn auth_login_github(
         OmniError::new(ErrorCode::Internal, "GitHub 授权地址无效").with_cause(e.to_string())
     })?;
 
-    let label = "auth-github-oauth";
-    if let Some(existing) = app.get_webview_window(label) {
-        let _ = existing.destroy();
-    }
-
-    let (tx, rx) = oneshot::channel::<Result<String, String>>();
-    let tx = Arc::new(Mutex::new(Some(tx)));
-    let tx_nav = Arc::clone(&tx);
-    let app_close = app.clone();
-
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(authorize_url))
-        .title("GitHub 登录")
-        .inner_size(980.0, 720.0)
-        .center()
-        .on_navigation(move |nav_url| {
-            if let Some(token) = extract_token_from_url(nav_url) {
-                if let Ok(mut guard) = tx_nav.lock() {
-                    if let Some(sender) = guard.take() {
-                        let _ = sender.send(Ok(token));
-                    }
-                }
-                let app2 = app_close.clone();
-                let app3 = app_close.clone();
-                let _ = app2.run_on_main_thread(move || {
-                    if let Some(win) = app3.get_webview_window(label) {
-                        let _ = win.destroy();
-                    }
-                });
-                return false;
-            }
-            true
+    let cancel_rx = register_cancel(GITHUB_OAUTH_CANCEL_LOGIN);
+    let result = async {
+        // 先监听再开浏览器，避免已授权用户瞬间回调时端口尚未就绪
+        let listener = TcpListener::bind(GITHUB_OAUTH_LOOPBACK_ADDR)
+            .await
+            .map_err(|e| {
+                OmniError::new(
+                    ErrorCode::Internal,
+                    "无法启动 GitHub 回调监听（本机端口被占用，请稍后重试）",
+                )
+                .with_cause(format!("{GITHUB_OAUTH_LOOPBACK_ADDR}: {e}"))
+            })?;
+        open_system_browser(&app, &authorize_url)?;
+        let token = wait_github_oauth_on_listener(listener, cancel_rx).await?;
+        Ok(AuthLoginSuccess {
+            token,
+            openid: String::new(),
         })
-        .build()
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "打开 GitHub 登录窗口失败").with_cause(e.to_string())
-        })?;
-
-    let app_timeout = app.clone();
-    let result = tokio::select! {
-        biased;
-        outcome = rx => {
-            match outcome {
-                Ok(Ok(token)) => Ok(AuthLoginSuccess {
-                    token,
-                    openid: String::new(),
-                }),
-                Ok(Err(msg)) => Err(OmniError::new(ErrorCode::Auth, msg)),
-                Err(_) => Err(OmniError::new(ErrorCode::Auth, "GitHub 登录已取消")),
-            }
-        }
-        _ = tokio::time::sleep(Duration::from_secs(300)) => {
-            Err(OmniError::new(ErrorCode::Timeout, "GitHub 登录超时，请重试"))
-        }
-    };
-
-    if let Some(win) = app_timeout.get_webview_window(label) {
-        let _ = win.destroy();
     }
-    if let Ok(mut guard) = tx.lock() {
-        let _ = guard.take();
-    }
+    .await;
+    let _ = take_cancel(GITHUB_OAUTH_CANCEL_LOGIN);
     result
 }
 
-fn extract_token_from_url(url: &Url) -> Option<String> {
-    extract_query_from_url(url, "token")
+/// 取消进行中的 GitHub 登录等待。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_login_github_cancel() -> Result<(), OmniError> {
+    if let Some(tx) = take_cancel(GITHUB_OAUTH_CANCEL_LOGIN) {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+enum GitHubOAuthCapture {
+    LoginToken(String),
+    Linked,
+}
+
+fn open_system_browser(app: &AppHandle, url: &Url) -> Result<(), OmniError> {
+    #[allow(deprecated)] // shell::open 仍可用；后续可迁 tauri-plugin-opener
+    let open_result = app.shell().open(url.as_str(), None);
+    open_result.map_err(|e| {
+        OmniError::new(
+            ErrorCode::Internal,
+            "无法打开系统浏览器，请检查默认浏览器设置",
+        )
+        .with_cause(e.to_string())
+    })
+}
+
+fn parse_github_oauth_capture(url: &Url) -> Option<GitHubOAuthCapture> {
+    if extract_query_from_url(url, "linked")
+        .map(|v| v.eq_ignore_ascii_case("github"))
+        .unwrap_or(false)
+    {
+        return Some(GitHubOAuthCapture::Linked);
+    }
+    extract_query_from_url(url, "token").map(GitHubOAuthCapture::LoginToken)
+}
+
+/// 在本机回环端口等待浏览器成功页跳转（`?token=`）。
+async fn wait_github_oauth_on_listener(
+    listener: TcpListener,
+    cancel_rx: oneshot::Receiver<()>,
+) -> Result<String, OmniError> {
+    let response = concat!(
+        "HTTP/1.1 200 OK\r\n",
+        "Content-Type: text/html; charset=utf-8\r\n",
+        "Connection: close\r\n",
+        "\r\n",
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>授权完成</title></head>",
+        "<body style=\"font-family:sans-serif;padding:2rem;background:#0f1419;color:#e7ecf3\">",
+        "<h1>授权完成</h1><p>可以关闭此页面，返回 OmniPanel。</p></body></html>"
+    );
+
+    let mut cancel_rx = cancel_rx;
+    let deadline = tokio::time::sleep(Duration::from_secs(300));
+    tokio::pin!(deadline);
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut cancel_rx => {
+                return Err(OmniError::new(ErrorCode::Internal, "GitHub 授权已取消"));
+            }
+            _ = &mut deadline => {
+                return Err(OmniError::new(ErrorCode::Timeout, "GitHub 授权超时，请重试"));
+            }
+            accepted = listener.accept() => {
+                let (mut stream, _) = accepted.map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "接收 GitHub 回调失败").with_cause(e.to_string())
+                })?;
+                let mut buf = vec![0u8; 8192];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let path_and_query = req
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let parsed = Url::parse(&format!("http://{GITHUB_OAUTH_LOOPBACK_ADDR}{path_and_query}")).ok();
+                let _ = stream.write_all(response.as_bytes()).await;
+                let _ = stream.shutdown().await;
+
+                let Some(url) = parsed else {
+                    continue;
+                };
+                match parse_github_oauth_capture(&url) {
+                    Some(GitHubOAuthCapture::LoginToken(token)) => return Ok(token),
+                    Some(GitHubOAuthCapture::Linked) => {
+                        return Err(OmniError::new(
+                            ErrorCode::InvalidInput,
+                            "收到了绑定回调而非登录凭证，请从登录入口重试",
+                        ));
+                    }
+                    None => continue,
+                }
+            }
+        }
+    }
+}
+
+/// 轮询账号绑定状态，直到 GitHub 已绑定。
+async fn poll_github_link_bound(
+    client: &reqwest::Client,
+    token: &str,
+    cancel_rx: oneshot::Receiver<()>,
+) -> Result<(), OmniError> {
+    let url = auth_url("/api/account/links");
+    let mut cancel_rx = cancel_rx;
+    let deadline = tokio::time::sleep(Duration::from_secs(300));
+    tokio::pin!(deadline);
+
+    loop {
+        let resp = client
+            .get(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+            .send()
+            .await;
+        if let Ok(resp) = resp {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if status.as_u16() == 401 {
+                return Err(OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录")
+                    .with_cause(body));
+            }
+            if status.is_success() {
+                if let Ok(parsed) = serde_json::from_str::<ApiAccountLinksResponse>(&body) {
+                    if parsed.github.as_ref().is_some_and(|g| g.bound) {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        tokio::select! {
+            biased;
+            _ = &mut cancel_rx => {
+                return Err(OmniError::new(ErrorCode::Internal, "GitHub 绑定已取消"));
+            }
+            _ = &mut deadline => {
+                return Err(OmniError::new(ErrorCode::Timeout, "GitHub 绑定超时，请重试"));
+            }
+            _ = tokio::time::sleep(Duration::from_millis(1500)) => {}
+        }
+    }
 }
 
 fn extract_query_from_url(url: &Url, key: &str) -> Option<String> {
@@ -1128,6 +1237,16 @@ fn parse_account_link_error(body: &str, status: reqwest::StatusCode, fallback: &
         (409, Some("already_linked")) => OmniError::new(
             ErrorCode::InvalidInput,
             "当前账号已绑定此登录方式",
+        )
+        .with_cause(body.to_string()),
+        (409, Some("not_linked")) => OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前账号未绑定此登录方式",
+        )
+        .with_cause(body.to_string()),
+        (409, Some("last_identity")) => OmniError::new(
+            ErrorCode::InvalidInput,
+            "至少保留一种登录方式，无法解绑",
         )
         .with_cause(body.to_string()),
         (409, Some(msg)) => {
@@ -1423,7 +1542,7 @@ pub async fn auth_link_email(
     Ok(map_api_user(parsed))
 }
 
-/// GitHub OAuth 绑定：子窗口授权，拦截 `linked=github`。
+/// GitHub OAuth 绑定：系统浏览器授权，轮询 `/api/account/links` 直到绑定成功。
 #[tauri::command]
 #[specta::specta]
 pub async fn auth_link_github(
@@ -1479,84 +1598,97 @@ pub async fn auth_link_github(
         OmniError::new(ErrorCode::Internal, "GitHub 授权地址无效").with_cause(e.to_string())
     })?;
 
-    let label = "auth-github-link";
-    if let Some(existing) = app.get_webview_window(label) {
-        let _ = existing.destroy();
-    }
-    let (tx, rx) = oneshot::channel::<Result<(), String>>();
-    let tx = Arc::new(Mutex::new(Some(tx)));
-    let tx_nav = Arc::clone(&tx);
-    let app_close = app.clone();
+    open_system_browser(&app, &authorize_url)?;
 
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(authorize_url))
-        .title("绑定 GitHub")
-        .inner_size(980.0, 720.0)
-        .center()
-        .on_navigation(move |nav_url| {
-            let linked = extract_query_from_url(nav_url, "linked")
-                .map(|v| v.eq_ignore_ascii_case("github"))
-                .unwrap_or(false);
-            if linked {
-                if let Ok(mut guard) = tx_nav.lock() {
-                    if let Some(sender) = guard.take() {
-                        let _ = sender.send(Ok(()));
-                    }
-                }
-                let app2 = app_close.clone();
-                let app3 = app_close.clone();
-                let _ = app2.run_on_main_thread(move || {
-                    if let Some(win) = app3.get_webview_window(label) {
-                        let _ = win.destroy();
-                    }
-                });
-                return false;
-            }
-            // 误走登录回调会带 token；不要当成绑定成功，也不要因关窗被当成 Auth 会话失效
-            if extract_token_from_url(nav_url).is_some() {
-                if let Ok(mut guard) = tx_nav.lock() {
-                    if let Some(sender) = guard.take() {
-                        let _ = sender.send(Err(
-                            "GitHub 返回了登录凭证而非绑定结果，请重试绑定".to_string(),
-                        ));
-                    }
-                }
-                let app2 = app_close.clone();
-                let app3 = app_close.clone();
-                let _ = app2.run_on_main_thread(move || {
-                    if let Some(win) = app3.get_webview_window(label) {
-                        let _ = win.destroy();
-                    }
-                });
-                return false;
-            }
-            true
-        })
-        .build()
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "打开 GitHub 绑定窗口失败").with_cause(e.to_string())
-        })?;
+    let poll_client =
+        build_http_client_for_url(&auth_url("/api/account/links"), &proxy_config, Duration::from_secs(30))
+            .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
-    let app_timeout = app.clone();
-    let result = tokio::select! {
-        biased;
-        outcome = rx => {
-            match outcome {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(msg)) => Err(OmniError::new(ErrorCode::InvalidInput, msg)),
-                Err(_) => Err(OmniError::new(ErrorCode::Internal, "GitHub 绑定已取消")),
-            }
-        }
-        _ = tokio::time::sleep(Duration::from_secs(300)) => {
-            Err(OmniError::new(ErrorCode::Timeout, "GitHub 绑定超时，请重试"))
-        }
-    };
-    if let Some(win) = app_timeout.get_webview_window(label) {
-        let _ = win.destroy();
-    }
-    if let Ok(mut guard) = tx.lock() {
-        let _ = guard.take();
-    }
+    let cancel_rx = register_cancel(GITHUB_OAUTH_CANCEL_LINK);
+    let result = poll_github_link_bound(&poll_client, &token, cancel_rx).await;
+    let _ = take_cancel(GITHUB_OAUTH_CANCEL_LINK);
     result
+}
+
+/// 取消进行中的 GitHub 绑定等待。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_github_cancel() -> Result<(), OmniError> {
+    if let Some(tx) = take_cancel(GITHUB_OAUTH_CANCEL_LINK) {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+async fn auth_unlink_path(
+    state: &State<'_, AppState>,
+    token: String,
+    path: &str,
+    fail_msg: &str,
+) -> Result<AuthUserProfile, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url(path);
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+    let resp = client
+        .delete(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, fail_msg.to_string())
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, format!("读取{fail_msg}响应失败")).with_cause(e.to_string())
+    })?;
+    if !status.is_success() {
+        return Err(parse_account_link_error(&body, status, fail_msg));
+    }
+    let parsed: ApiUserResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, format!("解析{fail_msg}响应失败"))
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    if let Some(error) = parsed.error.as_ref().filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::InvalidInput, error.clone()));
+    }
+    Ok(map_api_user(parsed))
+}
+
+/// 解绑微信（DELETE /api/account/links/wechat）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_unlink_wechat(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    auth_unlink_path(&state, token, "/api/account/links/wechat", "解绑微信失败").await
+}
+
+/// 解绑 GitHub（DELETE /api/account/links/github）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_unlink_github(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    auth_unlink_path(&state, token, "/api/account/links/github", "解绑 GitHub 失败").await
+}
+
+/// 解绑邮箱（DELETE /api/account/links/email）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_unlink_email(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    auth_unlink_path(&state, token, "/api/account/links/email", "解绑邮箱失败").await
 }
 
 async fn wait_sse_account_link(

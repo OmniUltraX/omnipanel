@@ -698,8 +698,10 @@ export const commands = {
 	authLoginEmailSend: (email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email_send", { email })),
 	/** 邮箱验证码登录（POST /api/login/email）。 */
 	authLoginEmail: (email: string, code: string) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email", { email, code })),
-	/** GitHub OAuth：子窗口授权并拦截成功回调 token。 */
+	/** GitHub OAuth：系统浏览器授权，本机回环接收 token。 */
 	authLoginGithub: () => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github")),
+	/** 取消 GitHub 登录等待。 */
+	authLoginGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github_cancel")),
 	/** 查询账号绑定状态（GET /api/account/links）。 */
 	authAccountLinks: (token: string) => typedError<AuthAccountLinks, OmniError_Serialize>(__TAURI_INVOKE("auth_account_links", { token })),
 	/** 创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。 */
@@ -712,8 +714,16 @@ export const commands = {
 	authLinkEmailSend: (token: string, email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email_send", { token, email })),
 	/** 邮箱验证码绑定（POST /api/account/links/email）。 */
 	authLinkEmail: (token: string, email: string, code: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email", { token, email, code })),
-	/** GitHub OAuth 绑定：子窗口授权并拦截 linked=github。 */
+	/** GitHub OAuth 绑定：系统浏览器授权并轮询绑定状态。 */
 	authLinkGithub: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github", { token })),
+	/** 取消 GitHub 绑定等待。 */
+	authLinkGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github_cancel")),
+	/** 解绑微信（DELETE /api/account/links/wechat）。 */
+	authUnlinkWechat: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_wechat", { token })),
+	/** 解绑 GitHub（DELETE /api/account/links/github）。 */
+	authUnlinkGithub: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_github", { token })),
+	/** 解绑邮箱（DELETE /api/account/links/email）。 */
+	authUnlinkEmail: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_email", { token })),
 	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
