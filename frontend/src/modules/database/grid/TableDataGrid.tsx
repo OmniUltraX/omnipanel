@@ -1792,7 +1792,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       original,
     }));
   }, [useCanvasBody, displayRows]);
-  const tableRows = (useCanvasBody ? canvasTableRows : table.getRowModel().rows) ?? [];
+  /** DOM 模式专用 tanstack Row；与 canvas 轻量行分离，避免联合类型无法赋给 Body。 */
+  const tanstackTableRows = table.getRowModel().rows;
+  const tableRows = (useCanvasBody ? canvasTableRows : tanstackTableRows) ?? [];
   tableRowCountRef.current = tableRows.length;
   const leafColumnCount = table.getAllLeafColumns().length;
   const tableRowsRef = useRef(tableRows);
@@ -3543,7 +3545,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           <TableDataGridVirtualBody
             ref={virtualBodyRef}
             scrollElementRef={wrapRef}
-            tableRows={tableRows}
+            tableRows={tanstackTableRows}
             getRowHeight={getRowHeight}
             rowHeights={rowHeights}
             visibleCellCount={columnLayout.visibleCellCount}
@@ -3553,7 +3555,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           />
         ) : (
           <TableDataGridBody
-            tableRows={tableRows}
+            tableRows={tanstackTableRows}
             buildRowProps={buildGridBodyRowProps}
             bodyActionsRef={bodyActionsRef}
             resolveCellContext={resolveBodyCellContext}
