@@ -230,16 +230,30 @@ function markTransferProcessed(key: string): boolean {
 }
 
 function crossDockLog(message: string): void {
-  if (!import.meta.env.DEV) return;
+  // 默认关闭：DEV 下 console.info 仍会占满 Performance「控制台任务」
+  // 开启：localStorage.setItem("omnipanel-cross-dock-debug", "1")
+  if (
+    typeof localStorage === "undefined" ||
+    localStorage.getItem("omnipanel-cross-dock-debug") !== "1"
+  ) {
+    return;
+  }
+  // eslint-disable-next-line no-console
   console.info(`[crossWindowDock] ${message}`);
 }
 
 // 高频路径（pointermove broadcast）专用采样日志
 function crossDockLogSampled(message: string): void {
-  if (!import.meta.env.DEV) return;
+  if (
+    typeof localStorage === "undefined" ||
+    localStorage.getItem("omnipanel-cross-dock-debug") !== "1"
+  ) {
+    return;
+  }
   const now = Date.now();
   if (now - lastCrossDockLogAt < 200) return;
   lastCrossDockLogAt = now;
+  // eslint-disable-next-line no-console
   console.info(`[crossWindowDock] ${message}`);
 }
 

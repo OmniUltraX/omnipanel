@@ -1,8 +1,11 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LOG_REL: &str = "workspace-window-debug.log";
@@ -545,6 +548,8 @@ fn resolve_bounds_for_current_displays(app: &AppHandle, bounds: &WindowBounds) -
 }
 
 fn apply_bounds_to_window(window: &tauri::WebviewWindow, bounds: &WindowBounds) {
+    // 先取消最大化再设普通尺寸，保证 OS 的 restore rect 正确
+    let _ = window.unmaximize();
     if let (Some(px), Some(py)) = (bounds.physical_x, bounds.physical_y) {
         let _ = window.set_position(tauri::PhysicalPosition::new(px, py));
     } else {
@@ -558,6 +563,150 @@ fn apply_bounds_to_window(window: &tauri::WebviewWindow, bounds: &WindowBounds) 
     if bounds.maximized {
         let _ = window.maximize();
     }
+}
+
+/// 无记忆几何时：尽量落在光标所在屏并居中（避免固定落到主屏）。
+fn center_window_on_cursor_monitor(app: &AppHandle, window: &tauri::WebviewWindow) {
+    let Ok(cursor) = app.cursor_position() else {
+        let _ = window.center();
+        return;
+    };
+    let Ok(monitors) = app.available_monitors() else {
+        let _ = window.center();
+        return;
+    };
+    let cx = cursor.x.round() as i32;
+    let cy = cursor.y.round() as i32;
+    let target = monitors
+        .iter()
+        .find(|m| monitor_contains_point(m, cx, cy))
+        .or_else(|| {
+            app.primary_monitor()
+                .ok()
+                .flatten()
+                .and_then(|p| {
+                    let name = p.name().cloned();
+                    name.and_then(|n| monitors.iter().find(|m| m.name() == Some(&n)))
+                })
+        })
+        .or_else(|| monitors.first());
+
+    let Some(mon) = target else {
+        let _ = window.center();
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        let _ = window.center();
+        return;
+    };
+    let mx = mon.position().x;
+    let my = mon.position().y;
+    let mw = mon.size().width as i32;
+    let mh = mon.size().height as i32;
+    let ww = size.width as i32;
+    let wh = size.height as i32;
+    let x = mx + ((mw - ww) / 2).max(0);
+    let y = my + ((mh - wh) / 2).max(0);
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+fn reveal_main_window(window: &tauri::WebviewWindow) {
+    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+fn resolved_main_bounds(app: &AppHandle) -> Option<WindowBounds> {
+    read_window_bounds_store(app)
+        .main
+        .and_then(|b| sanitize_bounds(&b))
+        .map(|b| resolve_bounds_for_current_displays(app, &b))
+}
+
+fn place_main_window(app: &AppHandle, window: &tauri::WebviewWindow) {
+    let _ = window.hide();
+    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
+    if let Some(ref b) = resolved_main_bounds(app) {
+        apply_bounds_to_window(window, b);
+    } else {
+        center_window_on_cursor_monitor(app, window);
+    }
+}
+
+/// 已自动创建的窗口无法再挂 builder.on_page_load；短延迟后显示（并靠前端再保一次）。
+fn schedule_main_window_reveal(window: tauri::WebviewWindow) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        reveal_main_window(&window);
+    });
+}
+
+/// 主窗须 `create: false`（含 `tauri.windows.conf.json`）：按记忆几何创建并保持隐藏，
+/// 等首屏 HTML 就绪后再 show。若因平台配置合并仍被自动创建，则改为摆位 + 延迟显示。
+pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
+    // Windows 平台配置若未带 create:false，Tauri 会先自动建好 main
+    if let Some(window) = app.get_webview_window("main") {
+        place_main_window(app, &window);
+        schedule_main_window_reveal(window);
+        return Ok(());
+    }
+
+    let window_cfg = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+        .ok_or_else(|| "缺少 main 窗口配置".to_string())?;
+
+    let resolved = resolved_main_bounds(app);
+
+    let mut builder = WebviewWindowBuilder::from_config(app, &window_cfg)
+        .map_err(|e| format!("主窗 from_config 失败: {e}"))?
+        .visible(false)
+        .focused(false)
+        .background_color(tauri::window::Color(26, 23, 23, 255));
+
+    if let Some(ref b) = resolved {
+        // 创建时就落到记忆屏/尺寸，避免先出现在主屏再搬
+        builder = builder.inner_size(b.width, b.height).position(b.x, b.y);
+    }
+
+    let revealed = Arc::new(AtomicBool::new(false));
+    let revealed_load = Arc::clone(&revealed);
+    builder = builder.on_page_load(move |window, payload| {
+        if payload.event() != PageLoadEvent::Finished {
+            return;
+        }
+        if revealed_load.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        reveal_main_window(&window);
+    });
+
+    let window = builder
+        .build()
+        .map_err(|e| format!("创建主窗口失败: {e}"))?;
+
+    if let Some(ref b) = resolved {
+        apply_bounds_to_window(&window, b);
+    } else {
+        center_window_on_cursor_monitor(app, &window);
+    }
+
+    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
+
+    let win_fallback = window.clone();
+    let revealed_fallback = Arc::clone(&revealed);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(4));
+        if !revealed_fallback.swap(true, Ordering::SeqCst) {
+            reveal_main_window(&win_fallback);
+        }
+    });
+
+    Ok(())
 }
 
 /// 读取主窗口上次几何。

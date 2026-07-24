@@ -29,6 +29,7 @@ import { isDashboardPath } from "../../lib/paths";
 
 import { appConfirm } from "../../lib/appConfirm";
 import { cleanupWorkspaceDockTab } from "../../lib/workspaceTabActions";
+import { requestWorkspaceDockWarmup } from "../../stores/workspaceDockWarmupStore";
 
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
@@ -332,6 +333,8 @@ export function WorkspacePopover({
 
 
   function handleSelect(target: WorkspaceInfo) {
+    // 点击瞬间确保目标工作区 shell 已在预热队列中
+    requestWorkspaceDockWarmup(target.id);
 
     if (onSelectWorkspace) {
 
@@ -682,6 +685,10 @@ export function WorkspacePopover({
                       type="button"
 
                       className={`workspace-popover-item${active ? " workspace-popover-item--active" : ""}`}
+
+                      onPointerEnter={() => requestWorkspaceDockWarmup(ws.id)}
+
+                      onPointerDown={() => requestWorkspaceDockWarmup(ws.id)}
 
                       onClick={() => handleSelect(ws)}
 

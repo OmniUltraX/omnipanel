@@ -97,10 +97,26 @@ export function DockerPanel() {
   const sidebarCacheHydrated = useDockerSidebarCacheStore((s) => s.hydrated);
 
   useEffect(() => {
-    if (!moduleLive || sidebarCacheHydrated) {
+    if (sidebarCacheHydrated) return;
+    // live：立刻 hydrate；非 live 壳预热：idle 只读本地缓存，不启 stats 轮询
+    if (moduleLive) {
+      void hydrateSidebarCache();
       return;
     }
-    void hydrateSidebarCache();
+    let cancel: (() => void) | undefined;
+    const run = () => {
+      void hydrateSidebarCache();
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(run, { timeout: 5000 });
+      cancel = () => {
+        if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
+      };
+    } else {
+      const timer = window.setTimeout(run, 2000);
+      cancel = () => window.clearTimeout(timer);
+    }
+    return () => cancel?.();
   }, [moduleLive, sidebarCacheHydrated, hydrateSidebarCache]);
 
   const [refreshingAllCaches, setRefreshingAllCaches] = useState(false);
@@ -579,6 +595,8 @@ export function DockerPanel() {
             onCloseTab={handleCloseTab}
             onTabContextMenu={handleDockTabContextMenu}
             enabled={isActiveRoute}
+            stickyVisit
+            contentSuspended={!moduleLive}
             savedLayout={dockLayout}
             onSavedLayoutChange={setDockLayout}
             renderPanel={renderDockerPanel}

@@ -910,6 +910,7 @@ export function TaskCenterPanel() {
           dockScope="tasks"
           moduleTitle={t("routes.tasks")}
           enabled={isActiveRoute}
+          contentSuspended={!isActiveRoute}
           windowControl
           showTabBar={false}
           tabs={[{ id: tab, label: t(`taskCenter.tabs.${tab === "in-progress" ? "inProgress" : tab}`) }]}

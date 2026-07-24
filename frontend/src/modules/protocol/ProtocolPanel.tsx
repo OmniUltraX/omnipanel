@@ -179,6 +179,8 @@ function ProtocolPanelInner() {
         dockScope="protocol-workspace"
         moduleTitle={t("routes.protocol")}
         enabled={isActiveRoute}
+        contentSuspended={!isActiveRoute}
+        stickyVisit
         windowControl
         tabs={dockTabs}
         activeTabId={activeTabId ?? ""}

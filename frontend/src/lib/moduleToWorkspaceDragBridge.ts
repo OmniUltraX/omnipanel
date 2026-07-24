@@ -91,16 +91,29 @@ let dragFinishToken = 0;
 const recentTransferKeys = new Set<string>();
 
 function bridgeLog(message: string): void {
-  if (!import.meta.env.DEV) return;
+  // 开启：localStorage.setItem("omnipanel-cross-dock-debug", "1")
+  if (
+    typeof localStorage === "undefined" ||
+    localStorage.getItem("omnipanel-cross-dock-debug") !== "1"
+  ) {
+    return;
+  }
+  // eslint-disable-next-line no-console
   console.info(`[moduleToWorkspaceDrag] ${message}`);
 }
 
 // 高频路径（pointermove broadcast）专用采样日志
 function bridgeLogSampled(message: string): void {
-  if (!import.meta.env.DEV) return;
+  if (
+    typeof localStorage === "undefined" ||
+    localStorage.getItem("omnipanel-cross-dock-debug") !== "1"
+  ) {
+    return;
+  }
   const now = Date.now();
   if (now - lastBridgeLogAt < 200) return;
   lastBridgeLogAt = now;
+  // eslint-disable-next-line no-console
   console.info(`[moduleToWorkspaceDrag] ${message}`);
 }
 

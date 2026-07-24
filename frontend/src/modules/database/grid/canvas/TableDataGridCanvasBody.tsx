@@ -140,8 +140,12 @@ export const TableDataGridCanvasBody = forwardRef<
   const scrollIdleTimerRef = useRef<number | null>(null);
   const scrollTopRef = useRef(0);
   const scrollLeftRef = useRef(0);
-  /** resolveAlignedScrollLeft 缓存：-1 表示未计算。仅列结构变化时重算。 */
-  const alignedScrollLeftRef = useRef(-1);
+  /**
+   * 表头对齐修正量（aligned − raw）。列结构变化时重算；
+   * 滚动帧用 `rawScrollLeft + delta`，切勿缓存绝对 scrollLeft（否则表体不跟滚）。
+   */
+  const scrollAlignDeltaRef = useRef(0);
+  const scrollAlignReadyRef = useRef(false);
 
   const rebuildSnapshot = useCallback(() => {
     const wrap = scrollElementRef.current;
@@ -199,6 +203,9 @@ export const TableDataGridCanvasBody = forwardRef<
     const wrap = scrollElementRef.current;
     if (!canvas || !wrap) return;
 
+    // rebuildSnapshot 会清 structureDirty，对齐重算必须用进入本帧时的标志
+    const needScrollRealign = structureDirtyRef.current || !scrollAlignReadyRef.current;
+
     let snapshot: GridRenderSnapshot;
     let rowOffsets: number[];
     if (structureDirtyRef.current || !snapshotRef.current) {
@@ -251,15 +258,16 @@ export const TableDataGridCanvasBody = forwardRef<
     canvas.style.left = `${rawScrollLeft}px`;
     canvas.style.top = `${rawScrollTop}px`;
 
-    // resolveAlignedScrollLeft 内部循环 querySelector + getBoundingClientRect 强制 layout，
-    // 但对齐结果只取决于列 DOM 位置（列结构变化时才变），滚动时表头只做 transform 偏移。
-    // 仅 structureDirty 时重新计算，非结构变化直接用上次缓存的 alignedScrollLeft。
+    // resolveAlignedScrollLeft 会强制 layout；只在结构变化时重算「修正量」。
+    // 滚动帧必须跟 rawScrollLeft，否则表头/滚动条动而 Canvas 内容钉死。
+    // 注意：rebuildSnapshot 会清掉 structureDirty，故用进入 paint 时的 needRealign。
     let alignedScrollLeft: number;
-    if (structureDirtyRef.current || alignedScrollLeftRef.current === -1) {
+    if (needScrollRealign) {
       alignedScrollLeft = resolveAlignedScrollLeft(wrap, canvas, snapshot, rawScrollLeft);
-      alignedScrollLeftRef.current = alignedScrollLeft;
+      scrollAlignDeltaRef.current = alignedScrollLeft - rawScrollLeft;
+      scrollAlignReadyRef.current = true;
     } else {
-      alignedScrollLeft = alignedScrollLeftRef.current;
+      alignedScrollLeft = rawScrollLeft + scrollAlignDeltaRef.current;
     }
     scrollLeftRef.current = alignedScrollLeft;
 
@@ -290,6 +298,7 @@ export const TableDataGridCanvasBody = forwardRef<
 
   const markStructureDirtyAndPaint = useCallback(() => {
     structureDirtyRef.current = true;
+    scrollAlignReadyRef.current = false;
     schedulePaint();
   }, [schedulePaint]);
 
@@ -323,6 +332,8 @@ export const TableDataGridCanvasBody = forwardRef<
       scrollIdleTimerRef.current = window.setTimeout(() => {
         isScrollingRef.current = false;
         scrollIdleTimerRef.current = null;
+        // 停滚后按表头 DOM 精修一次对齐修正量
+        scrollAlignReadyRef.current = false;
         schedulePaint();
       }, 120);
       schedulePaint();

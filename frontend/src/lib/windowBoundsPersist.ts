@@ -34,6 +34,20 @@ const SAVE_DEBOUNCE_MS = 400;
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 300;
 const MIN_VISIBLE_PX = 80;
+/** 无可用普通尺寸时的回退（逻辑像素） */
+const DEFAULT_NORMAL_WIDTH = 1280;
+const DEFAULT_NORMAL_HEIGHT = 800;
+
+type TrackTarget =
+  | { role: "main" }
+  | { role: "workspace"; workspaceId: string };
+
+/** 各窗口最近一次「非最大化」几何，供最大化落盘与 flush 共用 */
+const lastNormalByKey = new Map<string, WindowBounds>();
+
+function trackKey(target: TrackTarget): string {
+  return target.role === "main" ? "main" : `ws:${target.workspaceId}`;
+}
 
 function isValidBounds(bounds: WindowBounds | null | undefined): bounds is WindowBounds {
   if (!bounds) return false;
@@ -46,6 +60,19 @@ function isValidBounds(bounds: WindowBounds | null | undefined): bounds is Windo
     width >= MIN_WIDTH &&
     height >= MIN_HEIGHT
   );
+}
+
+function asNormalBounds(bounds: WindowBounds): WindowBounds {
+  return { ...bounds, maximized: false };
+}
+
+/** 尺寸是否接近整屏（常见于误把最大化几何当普通尺寸写入） */
+function looksLikeMonitorFill(bounds: WindowBounds, monitor: Monitor | null): boolean {
+  if (!monitor) return false;
+  const scale = monitor.scaleFactor > 0 ? monitor.scaleFactor : 1;
+  const mw = monitor.size.width / scale;
+  const mh = monitor.size.height / scale;
+  return bounds.width >= mw - 48 && bounds.height >= mh - 48;
 }
 
 function monitorContainsPoint(mon: Monitor, px: number, py: number): boolean {
@@ -174,6 +201,48 @@ export async function readCurrentWindowBounds(): Promise<WindowBounds | null> {
   }
 }
 
+/**
+ * 构建可落盘几何：最大化时 width/height/physicalSize 必须是「取消最大化后」的普通尺寸，
+ * 仅用当前位置/显示器标记最大化所在屏。
+ */
+function buildPersistableBounds(
+  current: WindowBounds,
+  lastNormal: WindowBounds | null,
+): WindowBounds {
+  if (!current.maximized) {
+    return { ...current, maximized: false };
+  }
+
+  const base =
+    lastNormal && isValidBounds(lastNormal) ? asNormalBounds(lastNormal) : null;
+
+  if (!base) {
+    return {
+      x: current.x,
+      y: current.y,
+      width: DEFAULT_NORMAL_WIDTH,
+      height: DEFAULT_NORMAL_HEIGHT,
+      maximized: true,
+      monitorName: current.monitorName ?? null,
+      physicalX: current.physicalX ?? null,
+      physicalY: current.physicalY ?? null,
+      physicalWidth: null,
+      physicalHeight: null,
+    };
+  }
+
+  return {
+    ...base,
+    maximized: true,
+    monitorName: current.monitorName ?? base.monitorName ?? null,
+    // 记录最大化所在屏锚点；尺寸保持普通窗口，切勿写入当前最大化物理宽高
+    physicalX: current.physicalX ?? base.physicalX ?? null,
+    physicalY: current.physicalY ?? base.physicalY ?? null,
+    physicalWidth: base.physicalWidth ?? null,
+    physicalHeight: base.physicalHeight ?? null,
+  };
+}
+
 async function persistMainBounds(bounds: WindowBounds): Promise<void> {
   await invoke("window_bounds_set_main", { bounds });
 }
@@ -222,7 +291,26 @@ export async function applyWindowBounds(bounds: WindowBounds): Promise<void> {
   if (!isTauriRuntime() || !isValidBounds(bounds)) return;
   const win = getCurrentWindow();
   try {
-    const placed = await resolveBoundsForCurrentDisplays(bounds);
+    let placed = await resolveBoundsForCurrentDisplays(bounds);
+    // 若历史数据把最大化尺寸误存为普通尺寸，恢复时用默认普通尺寸再 maximize
+    if (placed.maximized) {
+      const mon = await currentMonitor();
+      if (looksLikeMonitorFill(placed, mon)) {
+        const scale = mon && mon.scaleFactor > 0 ? mon.scaleFactor : 1;
+        const px = placed.physicalX ?? Math.round(placed.x * scale);
+        const py = placed.physicalY ?? Math.round(placed.y * scale);
+        placed = {
+          ...placed,
+          width: DEFAULT_NORMAL_WIDTH,
+          height: DEFAULT_NORMAL_HEIGHT,
+          physicalWidth: Math.round(DEFAULT_NORMAL_WIDTH * scale),
+          physicalHeight: Math.round(DEFAULT_NORMAL_HEIGHT * scale),
+          physicalX: px,
+          physicalY: py,
+        };
+      }
+    }
+
     const setGeometry = async () => {
       if (
         placed.physicalX != null &&
@@ -247,7 +335,8 @@ export async function applyWindowBounds(bounds: WindowBounds): Promise<void> {
     };
 
     if (placed.maximized) {
-      // 先落到上次普通尺寸再最大化，避免下次取消最大化时跳到默认大小
+      // 先落到上次普通尺寸再最大化，避免下次取消最大化时仍是整屏尺寸
+      await win.unmaximize().catch(() => undefined);
       await setGeometry();
       await win.maximize();
       return;
@@ -259,62 +348,50 @@ export async function applyWindowBounds(bounds: WindowBounds): Promise<void> {
   }
 }
 
-/** 启动时恢复主窗口几何（在 UI 就绪前尽早调用） */
+/**
+ * 手动恢复主窗几何（工作区窗等可复用）。
+ * 主窗冷启动勿调用：Rust setup 在 visible:false 时已摆好再 show；
+ * JS 再 restore 会二次改尺寸，loading 阶段可见跳动。
+ */
 export async function restoreMainWindowBounds(): Promise<void> {
   const bounds = await loadPersistedMainBounds();
   if (!isValidBounds(bounds)) return;
   await applyWindowBounds(bounds);
 }
 
-type TrackTarget =
-  | { role: "main" }
-  | { role: "workspace"; workspaceId: string };
-
 /**
  * 订阅移动/缩放并防抖落盘；返回清理函数。
- * 最大化时仍写入 maximized=true，但保留上次非最大化的宽高（若可读）。
+ * 最大化时仍写入 maximized=true，但宽高使用上次非最大化尺寸。
  */
 export function startWindowBoundsTracking(target: TrackTarget): () => void {
   if (!isTauriRuntime()) return () => undefined;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let lastNormalBounds: WindowBounds | null = null;
+  let lastNormalBounds: WindowBounds | null =
+    lastNormalByKey.get(trackKey(target)) ?? null;
   let unlistenMoved: (() => void) | null = null;
   let unlistenResized: (() => void) | null = null;
   let disposed = false;
+
+  const rememberNormal = (bounds: WindowBounds) => {
+    lastNormalBounds = asNormalBounds(bounds);
+    lastNormalByKey.set(trackKey(target), lastNormalBounds);
+  };
 
   const persistNow = async () => {
     if (disposed) return;
     const current = await readCurrentWindowBounds();
     if (!current || !isValidBounds(current)) return;
 
-    if (current.maximized) {
-      const toSave: WindowBounds = {
-        ...(lastNormalBounds && isValidBounds(lastNormalBounds)
-          ? lastNormalBounds
-          : current),
-        maximized: true,
-        // 最大化时仍记录当前所在屏（多屏下最大化在哪块屏）
-        monitorName: current.monitorName ?? lastNormalBounds?.monitorName ?? null,
-        physicalX: current.physicalX ?? lastNormalBounds?.physicalX ?? null,
-        physicalY: current.physicalY ?? lastNormalBounds?.physicalY ?? null,
-      };
-      if (target.role === "main") {
-        await persistMainBounds(toSave).catch(() => undefined);
-      } else {
-        await persistWorkspaceBounds(target.workspaceId, toSave).catch(() => undefined);
-      }
-      return;
+    if (!current.maximized) {
+      rememberNormal(current);
     }
 
-    lastNormalBounds = current;
+    const toSave = buildPersistableBounds(current, lastNormalBounds);
     if (target.role === "main") {
-      await persistMainBounds({ ...current, maximized: false }).catch(() => undefined);
+      await persistMainBounds(toSave).catch(() => undefined);
     } else {
-      await persistWorkspaceBounds(target.workspaceId, {
-        ...current,
-        maximized: false,
-      }).catch(() => undefined);
+      await persistWorkspaceBounds(target.workspaceId, toSave).catch(() => undefined);
     }
   };
 
@@ -336,10 +413,25 @@ export function startWindowBoundsTracking(target: TrackTarget): () => void {
     else unlistenResized = fn;
   });
 
-  // 初始读一次，供最大化时回填普通尺寸
-  void readCurrentWindowBounds().then((b) => {
-    if (b && isValidBounds(b) && !b.maximized) lastNormalBounds = b;
-  });
+  // 从磁盘种子 + 当前非最大化状态，确保启动即最大化时也有普通尺寸可记
+  void (async () => {
+    const persisted =
+      target.role === "main"
+        ? await loadPersistedMainBounds()
+        : await loadPersistedWorkspaceBounds(target.workspaceId);
+    if (disposed) return;
+    if (persisted && isValidBounds(persisted)) {
+      const mon = await currentMonitor().catch(() => null);
+      if (!(persisted.maximized && looksLikeMonitorFill(persisted, mon))) {
+        rememberNormal(persisted);
+      }
+    }
+    const live = await readCurrentWindowBounds();
+    if (disposed) return;
+    if (live && isValidBounds(live) && !live.maximized) {
+      rememberNormal(live);
+    }
+  })();
 
   const onPageHide = () => {
     if (timer) {
@@ -360,14 +452,19 @@ export function startWindowBoundsTracking(target: TrackTarget): () => void {
   };
 }
 
-/** 关闭前立即落盘（工作区窗 destroy 前调用） */
+/** 关闭前立即落盘（工作区窗 destroy 前 / 主窗关闭行为调用） */
 export async function flushWindowBoundsNow(target: TrackTarget): Promise<void> {
   if (!isTauriRuntime()) return;
   const current = await readCurrentWindowBounds();
   if (!current || !isValidBounds(current)) return;
+  if (!current.maximized) {
+    lastNormalByKey.set(trackKey(target), asNormalBounds(current));
+  }
+  const lastNormal = lastNormalByKey.get(trackKey(target)) ?? null;
+  const toSave = buildPersistableBounds(current, lastNormal);
   if (target.role === "main") {
-    await persistMainBounds(current).catch(() => undefined);
+    await persistMainBounds(toSave).catch(() => undefined);
   } else {
-    await persistWorkspaceBounds(target.workspaceId, current).catch(() => undefined);
+    await persistWorkspaceBounds(target.workspaceId, toSave).catch(() => undefined);
   }
 }

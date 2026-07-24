@@ -936,8 +936,9 @@ export function TerminalPanel() {
             acceptExternalDrops: true,
             tabs: mergedDockTabs,
             activeTabId: effectiveDockActiveId,
-            // xterm / 嵌套侧栏需常驻；切 Tab 的 isActive 由 DockableWorkspace 局部 soft bump
-            defaultRenderer: "always" as const,
+            // 懒创建 + 访问后粘住；xterm 仍受 suspended / IntersectionObserver 门闩约束
+            stickyVisit: true,
+            contentSuspended: !isActiveRoute,
             softRefreshKey: taskbarSubWindowTabId
               ? `taskbar:${taskbarSubWindowTabId}`
               : undefined,

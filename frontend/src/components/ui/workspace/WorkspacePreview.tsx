@@ -5,9 +5,14 @@ import { WorkspacePreviewTaskBar } from "./WorkspacePreviewTaskBar";
 import { WorkspaceBottomHost } from "../../workspace/WorkspaceBottomHost";
 import { useBottomPanelStore, useEmbeddedWorkspaceMode } from "../../../stores/bottomPanelStore";
 import { relayoutDockviewInstances } from "../../../lib/dockviewRegistry";
+import { measureFullscreenWorkspaceDockSize } from "../../../lib/workspaceDockMeasure";
 import { syncEmbeddedWorkspacePanelVisibility } from "../../../lib/workspaceTabActions";
 import { useWorkspaceWindowStore } from "../../../stores/workspaceWindowStore";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
+import {
+  requestWorkspaceDockWarmup,
+  useWorkspaceDockWarmupStore,
+} from "../../../stores/workspaceDockWarmupStore";
 import {
   WS_HEIGHT_HIDDEN_MAX,
   type WorkspaceDisplayPreference,
@@ -30,81 +35,24 @@ function resolveDisplayMode(
   return "split-window";
 }
 
-const WORKSPACE_FULLSCREEN_STATUSBAR_PX = 26;
-
-function measureWorkspaceBottomDockSize(
-  stackEl: HTMLElement | null,
-  isFullscreen: boolean,
-): { width: number; height: number } {
-  if (isFullscreen) {
-    const sidebarW = parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"),
-    ) || 56;
-    return {
-      width: Math.max(0, window.innerWidth - sidebarW),
-      height: Math.max(0, window.innerHeight - WORKSPACE_FULLSCREEN_STATUSBAR_PX),
-    };
-  }
-  const stackRect = stackEl?.getBoundingClientRect();
-  return {
-    width: stackRect?.width ?? 0,
-    height: stackRect?.height ?? 0,
-  };
-}
-
-function useWorkspacePreviewDockRelayout(
-  bottomStackRef: React.RefObject<HTMLElement | null>,
-  enabled: boolean,
-  isFullscreen: boolean,
-): void {
+/**
+ * 全屏 dock relayout 的唯一入口（resize / 进入全屏）。
+ * WorkspaceBottomHost 只负责非全屏 ResizeObserver 与切换工作区后的补一次 layout。
+ */
+function useWorkspaceFullscreenDockRelayout(enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;
-    const stackEl = bottomStackRef.current;
 
-    let lastStackW = 0;
-    let lastStackH = 0;
-    let raf = 0;
-
-    const relayoutFromStack = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const { width, height } = measureWorkspaceBottomDockSize(stackEl, isFullscreen);
-        if (width <= 0 || height <= 0) return;
-        relayoutDockviewInstances("workspace-bottom", { width, height });
-      });
+    const relayout = () => {
+      const { width, height } = measureFullscreenWorkspaceDockSize();
+      if (width <= 0 || height <= 0) return;
+      relayoutDockviewInstances("workspace-bottom", { width, height });
     };
 
-    const observer = new ResizeObserver((entries) => {
-      if (isFullscreen) return;
-      const rect = entries[0]?.contentRect;
-      if (!rect || rect.width <= 0 || rect.height <= 0) return;
-      if (
-        Math.abs(rect.width - lastStackW) < 1 &&
-        Math.abs(rect.height - lastStackH) < 1
-      ) {
-        return;
-      }
-      lastStackW = rect.width;
-      lastStackH = rect.height;
-      relayoutFromStack();
-    });
-
-    if (stackEl && !isFullscreen) {
-      observer.observe(stackEl);
-    }
-
-    const onWindowResize = () => {
-      if (isFullscreen) relayoutFromStack();
-    };
-    window.addEventListener("resize", onWindowResize);
-    relayoutFromStack();
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", onWindowResize);
-      cancelAnimationFrame(raf);
-    };
-  }, [bottomStackRef, enabled, isFullscreen]);
+    relayout();
+    window.addEventListener("resize", relayout);
+    return () => window.removeEventListener("resize", relayout);
+  }, [enabled]);
 }
 
 /**
@@ -129,6 +77,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   const workspaceDisplayPreference = useBottomPanelStore(
     (state) => state.workspaceDisplayPreference,
   );
+  const dockWarm = useWorkspaceDockWarmupStore((state) => state.warm);
 
   const displayMode = resolveDisplayMode(embeddedMode, workspaceDisplayPreference);
   const isPreviewOpen =
@@ -143,7 +92,56 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   const showTaskBar = isBottomPanelOpen && displayMode === "task-bar";
   const bottomStackRef = useRef<HTMLDivElement>(null);
 
-  useWorkspacePreviewDockRelayout(bottomStackRef, showSplitWindow || isFullscreen, isFullscreen);
+  // 首页挂起 panel 内容：只保活 dockview shell，避免 Schema/表格虚拟列表空跑
+  const contentSuspended = isHomeRoute && !isFullscreen;
+
+  useWorkspaceFullscreenDockRelayout(isFullscreen);
+
+  // 非全屏分屏：由 bottom stack 尺寸驱动（ResizeObserver）
+  useEffect(() => {
+    if (!showSplitWindow || isFullscreen) return;
+    const stackEl = bottomStackRef.current;
+    if (!stackEl) return;
+
+    let lastStackW = 0;
+    let lastStackH = 0;
+    let raf = 0;
+
+    const relayoutFromStack = (width: number, height: number) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (width <= 0 || height <= 0) return;
+        relayoutDockviewInstances("workspace-bottom", { width, height });
+      });
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      if (
+        Math.abs(rect.width - lastStackW) < 1 &&
+        Math.abs(rect.height - lastStackH) < 1
+      ) {
+        return;
+      }
+      lastStackW = rect.width;
+      lastStackH = rect.height;
+      relayoutFromStack(rect.width, rect.height);
+    });
+    observer.observe(stackEl);
+
+    const initial = stackEl.getBoundingClientRect();
+    if (initial.width > 0 && initial.height > 0) {
+      lastStackW = initial.width;
+      lastStackH = initial.height;
+      relayoutFromStack(initial.width, initial.height);
+    }
+
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [showSplitWindow, isFullscreen]);
 
   const wasFullscreenRef = useRef(isFullscreen);
   useLayoutEffect(() => {
@@ -162,7 +160,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   const [keepBottomMounted, setKeepBottomMounted] = useState(() => {
     const state = useBottomPanelStore.getState();
     if (state.isFullscreen) return true;
-    // 首屏看板 forceCollapsed：勿保活底部 dock（否则 Schema/表格虚拟列表仍会跑并触发 flushSync 告警）
+    // 首屏看板：先不挂 dock，等 idle / 打开切换器再预热，避免挡 LCP
     if (typeof window !== "undefined" && isDashboardPath(window.location.pathname)) {
       return false;
     }
@@ -170,27 +168,46 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
   });
 
   useEffect(() => {
-    if (isBottomPanelOpen || isFullscreen) {
+    if (isBottomPanelOpen || isFullscreen || dockWarm) {
       setKeepBottomMounted(true);
-      return;
     }
-    if (isHomeRoute) {
-      setKeepBottomMounted(false);
+    // 首页不再强制卸载：保活 shell，由 contentSuspended 抑制重型 panel
+  }, [isBottomPanelOpen, isFullscreen, dockWarm]);
+
+  // 首页空闲预热：提前建好 dockview shell
+  useEffect(() => {
+    if (!isHomeRoute || isFullscreen || keepBottomMounted) return;
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) {
+        requestWorkspaceDockWarmup(workspace.id);
+      }
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run, { timeout: 1200 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(id);
+      };
     }
-  }, [isBottomPanelOpen, isFullscreen, isHomeRoute]);
+    const timer = window.setTimeout(run, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isHomeRoute, isFullscreen, keepBottomMounted, workspace.id]);
 
   const rootClass = [
     "workspace-preview",
     isFullscreen ? "workspace-preview--fullscreen" : "",
     isPreviewCollapsed ? "workspace-preview--collapsed" : "",
     isBottomPanelOpen ? `workspace-preview--${displayMode}` : "",
+    contentSuspended ? "workspace-preview--content-suspended" : "",
     className ?? "",
   ]
     .filter(Boolean)
     .join(" ");
 
-  // 非首页：底部 dock 保活，用 CSS display 控制显隐（零 unmount）
-  // 首页 forceCollapsed：卸载底部 dock，避免保活面板在看板空跑
   const showBottomStack = keepBottomMounted;
   const dockVisible = (showSplitWindow || isFullscreen) && !isCurrentWorkspacePoppedOut;
 
@@ -201,7 +218,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
         data-visible={dockVisible ? "true" : "false"}
         aria-hidden={!dockVisible}
       >
-        <WorkspaceBottomHost />
+        <WorkspaceBottomHost contentSuspended={contentSuspended} />
       </div>
       {showTaskBar ? (
         <div

@@ -467,6 +467,8 @@ export function WorkflowPanel() {
           activeTabId={tab}
           onActiveTabChange={(id) => setTab(id as WfTab)}
           enabled={isActiveRoute}
+          contentSuspended={!isActiveRoute}
+          stickyVisit
           renderPanel={renderPanel}
         />
       </ModuleWorkspaceLayout>

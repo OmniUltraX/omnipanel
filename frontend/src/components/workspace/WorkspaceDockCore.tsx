@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { DockableWorkspace } from "../dock";
+import {
+  DockableWorkspace,
+  createInitialDockTabVisited,
+  markDockTabVisited,
+  shouldMountDockTabContent,
+} from "../dock";
 import { requestDockScopeResync, subscribeDockviewTransfer } from "../../lib/dockviewRegistry";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import {
@@ -36,6 +41,8 @@ export interface WorkspaceDockCoreProps {
   windowChromeVariant?: "segment" | "default";
   windowChromeLeftActions?: ReactNode;
   emptyContent?: ReactNode;
+  /** 首页预热：不渲染 panel 内容，仅恢复 dock 布局结构 */
+  contentSuspended?: boolean;
 }
 
 /**
@@ -52,6 +59,7 @@ export function WorkspaceDockCore({
   windowChromeVariant = "default",
   windowChromeLeftActions,
   emptyContent = <div className="dashboard dashboard-home" />,
+  contentSuspended = false,
 }: WorkspaceDockCoreProps) {
   const workspaceId = workspace.id;
   const { t } = useI18n();
@@ -97,6 +105,15 @@ export function WorkspaceDockCore({
     () => resolveWorkspaceActiveTabId(workspace, tabs, rawActiveTabId),
     [workspace, tabs, rawActiveTabId],
   );
+
+  const [visitedTabIds, setVisitedTabIds] = useState(() =>
+    createInitialDockTabVisited(activeTabId),
+  );
+
+  useEffect(() => {
+    if (contentSuspended) return;
+    setVisitedTabIds((prev) => markDockTabVisited(prev, activeTabId));
+  }, [activeTabId, contentSuspended]);
 
   const dockTabs = useMemo(
     () =>
@@ -156,11 +173,20 @@ export function WorkspaceDockCore({
 
   const renderPanel = useCallback(
     (tabId: string) => {
+      if (
+        !shouldMountDockTabContent({
+          active: tabId === activeTabId,
+          visited: visitedTabIds.has(tabId),
+          contentSuspended,
+        })
+      ) {
+        return null;
+      }
       const tab = tabs.find((item) => item.id === tabId);
       if (!tab) return null;
       return <WorkspaceDockTabPanel tab={tab} isActive={tabId === activeTabId} />;
     },
-    [tabs, activeTabId],
+    [contentSuspended, tabs, activeTabId, visitedTabIds],
   );
 
   const handleCloseTab = useCallback(
@@ -276,6 +302,7 @@ export function WorkspaceDockCore({
       savedLayout={effectiveSavedLayout}
       onSavedLayoutChange={(layout) => setLayout(workspaceId, layout)}
       renderPanel={renderPanel}
+      // sticky-visited：宿主 always，未访问 Tab render null（与 ModuleSegmentDock 对齐）
       defaultRenderer="always"
       tabStyle={tabStyle}
       preActions={preActions}
