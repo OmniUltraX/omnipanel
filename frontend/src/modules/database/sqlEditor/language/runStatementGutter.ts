@@ -194,7 +194,13 @@ function buildSqlLintRunGutterMarkers(
   });
 
   const builder = new RangeSetBuilder<GutterMarker>();
-  for (const [lineFrom, entry] of byLine) {
+  // RangeSetBuilder 要求按 from 升序添加；Map 是插入序，diagnostic 可能打乱行号顺序
+  const lineFroms = [...byLine.keys()].sort((a, b) => a - b);
+  for (const lineFrom of lineFroms) {
+    const entry = byLine.get(lineFrom);
+    if (!entry) {
+      continue;
+    }
     const run =
       entry.sql !== undefined
         ? new RunButtonMarker(entry.sql, getOnRun, getReadOnly)

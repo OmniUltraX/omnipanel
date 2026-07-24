@@ -1,12 +1,20 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useI18n } from "../../i18n";
 import { AppLogo } from "../ui/layout/AppLogo";
 import { Button } from "../ui/Button";
 import { TextInput } from "../ui/form/TextInput";
-import { PasswordInput } from "../ui/form/PasswordInput";
 import { WechatLoginPanel } from "./WechatLoginPanel";
 import { WinControls } from "../shell/WinControls";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useAuthStore } from "../../stores/authStore";
+import { useUserProfileStore } from "../../stores/userProfileStore";
+import {
+  fetchMe,
+  loginWithEmail,
+  loginWithGithub,
+  sendEmailLoginCode,
+} from "../../lib/auth/loginApi";
+import { formatIpcError } from "../../ipc/result";
 import wechatIcon from "../../assets/icons/login/wechat.svg";
 import githubDarkIcon from "../../assets/icons/login/github_dark.svg";
 import githubLightIcon from "../../assets/icons/login/github_light.svg";
@@ -19,14 +27,44 @@ function useGithubIcon(): string {
   return resolved === "light" ? githubLightIcon : githubDarkIcon;
 }
 
-function ComingSoonHint({ children }: { children: ReactNode }) {
-  return <p className="login-page__hint">{children}</p>;
+async function applyLoginSession(token: string, openid: string): Promise<void> {
+  useAuthStore.getState().setSession({ token, openid });
+  try {
+    const me = await fetchMe(token);
+    useUserProfileStore.getState().setProfile({
+      nickname: me.nickname,
+      avatarUrl: me.avatarUrl,
+      openid: me.openid,
+      email: me.email,
+      githubId: me.githubId,
+    });
+  } catch {
+    const profile = useUserProfileStore.getState();
+    if (!profile.nickname.trim() && openid) {
+      profile.setNickname(openid.slice(0, 8));
+    }
+  }
 }
 
 function GithubLoginPanel() {
   const { t } = useI18n();
   const githubIcon = useGithubIcon();
-  const [hint, setHint] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onLogin = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = await loginWithGithub();
+      await applyLoginSession(payload.token, payload.openid);
+    } catch (err) {
+      setError(formatIpcError(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy]);
 
   return (
     <div className="login-page__panel">
@@ -35,12 +73,13 @@ function GithubLoginPanel() {
         type="button"
         variant="secondary"
         className="login-page__oauth-btn"
-        onClick={() => setHint(t("app.login.comingSoon"))}
+        disabled={busy}
+        onClick={() => void onLogin()}
       >
         <img src={githubIcon} alt="" width={16} height={16} aria-hidden />
-        {t("app.login.github.action")}
+        {busy ? t("app.login.github.waiting") : t("app.login.github.action")}
       </Button>
-      {hint ? <ComingSoonHint>{hint}</ComingSoonHint> : null}
+      {error ? <p className="login-page__hint is-error">{error}</p> : null}
     </div>
   );
 }
@@ -48,16 +87,79 @@ function GithubLoginPanel() {
 function EmailLoginPanel() {
   const { t } = useI18n();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [hint, setHint] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    setHint(t("app.login.comingSoon"));
-  };
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(() => setCooldown((v) => Math.max(0, v - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
+
+  const onSendCode = useCallback(async () => {
+    if (sending || cooldown > 0) return;
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError(t("app.login.email.emailRequired"));
+      return;
+    }
+    setSending(true);
+    setError(null);
+    setHint(null);
+    try {
+      const sent = await sendEmailLoginCode(trimmed);
+      setCooldown(Math.max(1, sent.expireInSec || 60));
+      if (sent.code) {
+        setCode(sent.code);
+        setHint(
+          sent.hint
+            ? `${sent.hint}（${t("app.login.email.devCode")}: ${sent.code}）`
+            : `${t("app.login.email.devCode")}: ${sent.code}`,
+        );
+      } else {
+        setHint(sent.hint || t("app.login.email.codeSent"));
+      }
+    } catch (err) {
+      setError(formatIpcError(err));
+    } finally {
+      setSending(false);
+    }
+  }, [cooldown, email, sending, t]);
+
+  const onSubmit = useCallback(
+    async (event: FormEvent) => {
+      event.preventDefault();
+      if (submitting) return;
+      const trimmedEmail = email.trim();
+      const trimmedCode = code.trim();
+      if (!trimmedEmail) {
+        setError(t("app.login.email.emailRequired"));
+        return;
+      }
+      if (!trimmedCode) {
+        setError(t("app.login.email.codeRequired"));
+        return;
+      }
+      setSubmitting(true);
+      setError(null);
+      try {
+        const payload = await loginWithEmail(trimmedEmail, trimmedCode);
+        await applyLoginSession(payload.token, payload.openid);
+      } catch (err) {
+        setError(formatIpcError(err));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [code, email, submitting, t],
+  );
 
   return (
-    <form className="login-page__panel login-page__form" onSubmit={onSubmit}>
+    <form className="login-page__panel login-page__form" onSubmit={(e) => void onSubmit(e)}>
       <label className="login-page__field">
         <span className="login-page__field-label">{t("app.login.email.label")}</span>
         <TextInput
@@ -70,19 +172,36 @@ function EmailLoginPanel() {
         />
       </label>
       <label className="login-page__field">
-        <span className="login-page__field-label">{t("app.login.email.password")}</span>
-        <PasswordInput
-          value={password}
-          onChange={setPassword}
-          placeholder={t("app.login.email.passwordPlaceholder")}
-          autoComplete="current-password"
-          size="md"
-        />
+        <span className="login-page__field-label">{t("app.login.email.code")}</span>
+        <div className="login-page__code-row">
+          <TextInput
+            value={code}
+            onChange={setCode}
+            placeholder={t("app.login.email.codePlaceholder")}
+            autoComplete="one-time-code"
+            copyable={false}
+            size="md"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={sending || cooldown > 0}
+            onClick={() => void onSendCode()}
+          >
+            {cooldown > 0
+              ? t("app.login.email.resendIn", { sec: cooldown })
+              : sending
+                ? t("app.login.email.sending")
+                : t("app.login.email.sendCode")}
+          </Button>
+        </div>
       </label>
-      <Button type="submit" variant="primary" className="login-page__submit">
-        {t("app.login.email.action")}
+      <Button type="submit" variant="primary" className="login-page__submit" disabled={submitting}>
+        {submitting ? t("app.login.email.submitting") : t("app.login.email.action")}
       </Button>
-      {hint ? <ComingSoonHint>{hint}</ComingSoonHint> : null}
+      {hint ? <p className="login-page__hint">{hint}</p> : null}
+      {error ? <p className="login-page__hint is-error">{error}</p> : null}
     </form>
   );
 }
@@ -97,7 +216,7 @@ const METHOD_OPTIONS: {
   { id: "email", labelKey: "app.login.methods.email", icon: emailIcon },
 ];
 
-/** 启动门禁登录页：默认微信扫码，其余方式 UI 占位。 */
+/** 启动门禁登录页：微信扫码 / GitHub OAuth / 邮箱验证码。 */
 export function LoginPage() {
   const { t } = useI18n();
   const githubIcon = useGithubIcon();

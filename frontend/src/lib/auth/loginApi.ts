@@ -14,6 +14,13 @@ export interface LoginSuccessPayload {
   openid: string;
 }
 
+export interface EmailCodeSent {
+  email: string;
+  code: string;
+  expireInSec: number;
+  hint: string;
+}
+
 export interface DeviceIdentity {
   deviceId: string;
   deviceName: string;
@@ -51,6 +58,138 @@ export async function fetchLoginQrcode(_signal?: AbortSignal): Promise<LoginQrco
     qrcode_url: data.qrcodeUrl,
     expire_in_sec: data.expireInSec,
   };
+}
+
+/** 发送邮箱登录验证码。开发模式响应可能直接带 `code`。 */
+export async function sendEmailLoginCode(email: string): Promise<EmailCodeSent> {
+  return unwrapCommand(commands.authLoginEmailSend(email));
+}
+
+/** 邮箱验证码登录。 */
+export async function loginWithEmail(email: string, code: string): Promise<LoginSuccessPayload> {
+  const data = await unwrapCommand(commands.authLoginEmail(email, code));
+  return { token: data.token, openid: data.openid };
+}
+
+/** GitHub OAuth 登录（后端开子窗口并拦截 `?token=`）。 */
+export async function loginWithGithub(): Promise<LoginSuccessPayload> {
+  const data = await unwrapCommand(commands.authLoginGithub());
+  return { token: data.token, openid: data.openid };
+}
+
+export interface AccountLinkStatus {
+  bound: boolean;
+  openid: string;
+  githubId: string;
+  email: string;
+}
+
+export interface AccountLinks {
+  wechat: AccountLinkStatus;
+  github: AccountLinkStatus;
+  email: AccountLinkStatus;
+}
+
+/** 查询账号绑定状态。 */
+export async function fetchAccountLinks(
+  token: string,
+  options?: { quiet?: boolean },
+): Promise<AccountLinks> {
+  return unwrapCommand(commands.authAccountLinks(token), {
+    quiet: options?.quiet,
+    logLabel: "[auth]",
+  });
+}
+
+/** 申请微信绑定二维码。 */
+export async function fetchWechatLinkQrcode(token: string): Promise<LoginQrcodeResponse> {
+  const data = await unwrapCommand(commands.authLinkWechatQrcode(token));
+  return {
+    login_id: data.loginId,
+    scene: data.scene,
+    ticket: data.ticket,
+    qrcode_url: data.qrcodeUrl,
+    expire_in_sec: data.expireInSec,
+  };
+}
+
+/**
+ * SSE 等待微信账号绑定。
+ * abort 时调用 authLinkWechatCancelWait。
+ */
+export async function waitForWechatLink(
+  token: string,
+  loginId: string,
+  options?: { signal?: AbortSignal; expireInSec?: number },
+): Promise<void> {
+  const onAbort = () => {
+    void unwrapCommand(commands.authLinkWechatCancelWait(loginId), { quiet: true }).catch(
+      () => {},
+    );
+  };
+
+  if (options?.signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+  options?.signal?.addEventListener("abort", onAbort);
+
+  try {
+    await unwrapCommand(
+      commands.authLinkWechatWait(token, loginId, options?.expireInSec ?? null),
+      { quiet: true },
+    );
+  } catch (error) {
+    if (options?.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const message = error instanceof Error ? error.message : formatIpcError(error as never);
+    const code =
+      error instanceof Error ? ((error as Error & { code?: string }).code ?? null) : null;
+
+    if (message.includes("已取消")) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    if (
+      code === "timeout" ||
+      message.includes("已断开") ||
+      message.includes("已结束") ||
+      message.includes("decoding response body") ||
+      message.includes("读取微信绑定等待流失败")
+    ) {
+      throw Object.assign(new Error(message), {
+        code: "timeout",
+        name: "WechatLinkWaitDisconnected",
+      });
+    }
+
+    throw error instanceof Error ? error : new Error(message);
+  } finally {
+    options?.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/** 发送邮箱绑定验证码。 */
+export async function sendEmailLinkCode(
+  token: string,
+  email: string,
+): Promise<EmailCodeSent> {
+  return unwrapCommand(commands.authLinkEmailSend(token, email));
+}
+
+/** 邮箱验证码绑定账号。 */
+export async function linkEmail(
+  token: string,
+  email: string,
+  code: string,
+): Promise<AuthUserProfile> {
+  const data = await unwrapCommand(commands.authLinkEmail(token, email, code));
+  return mapUserProfile(data);
+}
+
+/** GitHub OAuth 绑定（子窗口，拦截 linked=github）。 */
+export async function linkGithub(token: string): Promise<void> {
+  await unwrapCommand(commands.authLinkGithub(token));
 }
 
 /**
@@ -198,6 +337,7 @@ export interface AuthUserProfile {
   nickname: string;
   avatarUrl: string;
   email: string;
+  githubId: string;
 }
 
 const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
@@ -206,7 +346,7 @@ const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
 export function resolveAvatarUrl(url: string | null | undefined): string {
   const trimmed = (url ?? "").trim();
   if (!trimmed) return "";
-  if (/^(data:|https?:|blob:)/i.test(trimmed)) return trimmed;
+  if (/^(data:|https?:|blob:|asset:)/i.test(trimmed)) return trimmed;
   if (trimmed.startsWith("//")) return `https:${trimmed}`;
   if (trimmed.startsWith("/")) return `${AUTH_ASSET_BASE}${trimmed}`;
   return `${AUTH_ASSET_BASE}/${trimmed}`;
@@ -219,17 +359,24 @@ function mapUserProfile(data: {
   avatarUrl?: string;
   avatar_url?: string;
   email: string;
+  githubId?: string;
+  github_id?: string;
 }): AuthUserProfile {
   const rawAvatar =
     (typeof data.avatarUrl === "string" && data.avatarUrl) ||
     (typeof data.avatar_url === "string" && data.avatar_url) ||
     "";
+  const githubId =
+    (typeof data.githubId === "string" && data.githubId) ||
+    (typeof data.github_id === "string" && data.github_id) ||
+    "";
   return {
     id: data.id ?? 0,
-    openid: data.openid,
+    openid: data.openid ?? "",
     nickname: data.nickname,
     avatarUrl: resolveAvatarUrl(rawAvatar),
-    email: data.email,
+    email: data.email ?? "",
+    githubId,
   };
 }
 
@@ -263,5 +410,12 @@ export async function updateProfile(
 export function isAuthSessionError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
-  return code === "auth" || code === "Auth";
+  if (code !== "auth" && code !== "Auth") return false;
+  const message = String((error as { message?: unknown }).message ?? "");
+  const cause = String((error as { cause?: unknown }).cause ?? "");
+  const text = `${message}\n${cause}`;
+  // 仅真正会话失效才登出；绑定冲突 / 用户取消等业务 Auth 错误不踢登录
+  return /登录已失效|缺少登录凭证|missing token|unauthorized|session expired|凭证无效|未登录/i.test(
+    text,
+  );
 }

@@ -27,16 +27,146 @@ import {
 } from "../../lib/auth/avatarImage";
 import { WechatLoginPanel } from "./WechatLoginPanel";
 import { UserCenterDevices } from "./UserCenterDevices";
+import {
+  AccountLinkBindPanel,
+  type AccountLinkKind,
+} from "./AccountLinkBindPanel";
+import wechatIcon from "../../assets/icons/login/wechat.svg";
+import githubDarkIcon from "../../assets/icons/login/github_dark.svg";
+import githubLightIcon from "../../assets/icons/login/github_light.svg";
+import emailIcon from "../../assets/icons/login/email.svg";
+
+function maskIdentity(kind: AccountLinkKind, value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (kind === "email") {
+    const at = trimmed.indexOf("@");
+    if (at <= 1) return trimmed;
+    const name = trimmed.slice(0, at);
+    const domain = trimmed.slice(at);
+    if (name.length <= 2) return `${name[0]}*${domain}`;
+    return `${name.slice(0, 2)}***${domain}`;
+  }
+  if (trimmed.length <= 8) return trimmed;
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
+function AccountLinksSection({
+  token,
+  wechatOpenid,
+  email,
+  githubId,
+  onSessionExpired,
+}: {
+  token: string;
+  wechatOpenid: string;
+  email: string;
+  githubId: string;
+  onSessionExpired: () => void;
+}) {
+  const { t } = useI18n();
+  const githubIcon =
+    useSettingsStore((s) => s.resolved) === "light" ? githubLightIcon : githubDarkIcon;
+  const [bindingKind, setBindingKind] = useState<AccountLinkKind | null>(null);
+
+  const rows = useMemo(
+    () =>
+      (
+        [
+          {
+            kind: "wechat" as const,
+            label: t("userCenter.accountLinks.wechat"),
+            icon: wechatIcon,
+            bound: Boolean(wechatOpenid.trim()),
+            detail: wechatOpenid.trim()
+              ? maskIdentity("wechat", wechatOpenid)
+              : t("userCenter.accountLinks.unbound"),
+          },
+          {
+            kind: "github" as const,
+            label: t("userCenter.accountLinks.github"),
+            icon: githubIcon,
+            bound: Boolean(githubId.trim()),
+            detail: githubId.trim()
+              ? maskIdentity("github", githubId)
+              : t("userCenter.accountLinks.unbound"),
+          },
+          {
+            kind: "email" as const,
+            label: t("userCenter.accountLinks.email"),
+            icon: emailIcon,
+            bound: Boolean(email.trim()),
+            detail: email.trim()
+              ? maskIdentity("email", email)
+              : t("userCenter.accountLinks.unbound"),
+          },
+        ] as const
+      ),
+    [email, githubIcon, githubId, t, wechatOpenid],
+  );
+
+  const handleLinked = useCallback(() => {
+    setBindingKind(null);
+  }, []);
+
+  return (
+    <section className="user-center-section">
+      <h3 className="user-center-section__title">{t("userCenter.accountLinks.title")}</h3>
+      <p className="user-center-section__desc">{t("userCenter.accountLinks.desc")}</p>
+      <ul className="user-center-account-links">
+        {rows.map((row) => (
+          <li key={row.kind} className="user-center-account-link">
+            <div className="user-center-account-link__icon" aria-hidden>
+              <img src={row.icon} alt="" width={18} height={18} />
+            </div>
+            <div className="user-center-account-link__body">
+              <div className="user-center-account-link__title-row">
+                <span className="user-center-account-link__name">{row.label}</span>
+                {row.bound ? (
+                  <span className="user-center-account-link__badge">
+                    {t("userCenter.accountLinks.bound")}
+                  </span>
+                ) : null}
+              </div>
+              <p className="user-center-account-link__detail">{row.detail}</p>
+            </div>
+            {row.bound ? null : (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setBindingKind(row.kind)}
+              >
+                {t("userCenter.accountLinks.bind")}
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {bindingKind ? (
+        <AccountLinkBindPanel
+          kind={bindingKind}
+          token={token}
+          onClose={() => setBindingKind(null)}
+          onLinked={handleLinked}
+          onSessionExpired={onSessionExpired}
+        />
+      ) : null}
+    </section>
+  );
+}
 
 export function UserCenterPanel() {
   const { t } = useI18n();
   const page = useUserCenterUiStore((s) => s.page);
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const token = useAuthStore((s) => s.token);
-  const openid = useAuthStore((s) => s.openid);
   const logout = useAuthStore((s) => s.logout);
   const nickname = useUserProfileStore((s) => s.nickname);
   const avatarUrl = useUserProfileStore((s) => s.avatarUrl);
+  const accountOpenid = useUserProfileStore((s) => s.openid);
+  const accountEmail = useUserProfileStore((s) => s.email);
+  const accountGithubId = useUserProfileStore((s) => s.githubId);
   const setProfile = useUserProfileStore((s) => s.setProfile);
   const clearProfile = useUserProfileStore((s) => s.clearProfile);
   const theme = useSettingsStore((s) => s.theme);
@@ -62,6 +192,9 @@ export function UserCenterPanel() {
         setProfile({
           nickname: me.nickname,
           avatarUrl: me.avatarUrl,
+          openid: me.openid,
+          email: me.email,
+          githubId: me.githubId,
         });
       } catch (error) {
         if (cancelled) return;
@@ -112,6 +245,9 @@ export function UserCenterPanel() {
       setProfile({
         nickname: me.nickname,
         avatarUrl: me.avatarUrl,
+        openid: me.openid,
+        email: me.email,
+        githubId: me.githubId,
       });
       setNameDraft(me.nickname);
       showToast(t("userCenter.profile.saveSuccess"));
@@ -152,6 +288,9 @@ export function UserCenterPanel() {
       setProfile({
         nickname: me.nickname || nickname,
         avatarUrl: me.avatarUrl,
+        openid: me.openid,
+        email: me.email,
+        githubId: me.githubId,
       });
       showToast(t("userCenter.profile.avatarSuccess"));
     } catch (error) {
@@ -246,14 +385,23 @@ export function UserCenterPanel() {
                   placeholder={t("userCenter.profile.nicknamePlaceholder")}
                 />
               </label>
-              {openid ? (
-                <p className="user-center-openid">
-                  {t("userCenter.profile.openid")}: {openid}
-                </p>
-              ) : null}
             </div>
           </div>
         </section>
+
+        {token ? (
+          <AccountLinksSection
+            token={token}
+            wechatOpenid={accountOpenid}
+            email={accountEmail}
+            githubId={accountGithubId}
+            onSessionExpired={() => {
+              clearProfile();
+              logout();
+              showToast(t("userCenter.profile.sessionExpired"));
+            }}
+          />
+        ) : null}
 
         <section className="user-center-section">
           <h3 className="user-center-section__title">{t("userCenter.preferences.title")}</h3>

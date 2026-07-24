@@ -9,12 +9,13 @@ import {
 } from "../../lib/auth/loginApi";
 import { appConfirm } from "../../lib/appConfirm";
 import { useAuthStore } from "../../stores/authStore";
-import { useUserProfileStore } from "../../stores/userProfileStore";
+import { selectWechatBound, useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
 import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
 import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
+import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 
 function formatDeviceTime(value: string, locale: string): string {
   const trimmed = value.trim();
@@ -115,6 +116,7 @@ export function UserCenterDevices() {
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
   const clearProfile = useUserProfileStore((s) => s.clearProfile);
+  const wechatBound = useUserProfileStore(selectWechatBound);
 
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState<AuthDevice[]>([]);
@@ -137,6 +139,11 @@ export function UserCenterDevices() {
   }, [clearProfile, logout, t]);
 
   useEffect(() => {
+    if (!token) return;
+    void syncAuthProfile();
+  }, [token]);
+
+  useEffect(() => {
     if (!token) {
       setLoading(false);
       setDevices([]);
@@ -146,6 +153,9 @@ export function UserCenterDevices() {
       return;
     }
 
+    if (!wechatBound) {
+      setBindOpen(false);
+    }
     const abort = new AbortController();
     setLoading(true);
     setErrorMessage(null);
@@ -184,7 +194,7 @@ export function UserCenterDevices() {
     })();
 
     return () => abort.abort();
-  }, [token, refreshKey, t]);
+  }, [token, refreshKey, t, wechatBound]);
 
   const { clientDevices, assistantDevices } = useMemo(() => {
     const clients: AuthDevice[] = [];
@@ -303,24 +313,31 @@ export function UserCenterDevices() {
               {t("userCenter.devices.role.assistant")}
               <span className="user-center-devices__group-count">{assistantDevices.length}</span>
             </h4>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={!token}
-              onClick={() => setBindOpen((open) => !open)}
-            >
-              {bindOpen
-                ? t("userCenter.devices.bind.cancel")
-                : t("userCenter.devices.bind.action")}
-            </Button>
+            {wechatBound ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!token}
+                onClick={() => setBindOpen((open) => !open)}
+              >
+                {bindOpen
+                  ? t("userCenter.devices.bind.cancel")
+                  : t("userCenter.devices.bind.action")}
+              </Button>
+            ) : null}
           </div>
-          {token ? (
+          {wechatBound && token ? (
             <p className="user-center-section__desc">
               {t("userCenter.devices.assistantSync.autoDesc")}
             </p>
           ) : null}
-          {token ? (
+          {!wechatBound ? (
+            <p className="user-center-section__desc">
+              {t("userCenter.devices.bind.requireWechat")}
+            </p>
+          ) : null}
+          {wechatBound && token ? (
             <BindAssistantPanel
               active={bindOpen}
               token={token}

@@ -694,6 +694,26 @@ export const commands = {
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
 	authLoginCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_cancel_wait", { loginId })),
+	/** 发送邮箱登录验证码（POST /api/login/email/send）。 */
+	authLoginEmailSend: (email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email_send", { email })),
+	/** 邮箱验证码登录（POST /api/login/email）。 */
+	authLoginEmail: (email: string, code: string) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email", { email, code })),
+	/** GitHub OAuth：子窗口授权并拦截成功回调 token。 */
+	authLoginGithub: () => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github")),
+	/** 查询账号绑定状态（GET /api/account/links）。 */
+	authAccountLinks: (token: string) => typedError<AuthAccountLinks, OmniError_Serialize>(__TAURI_INVOKE("auth_account_links", { token })),
+	/** 创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。 */
+	authLinkWechatQrcode: (token: string) => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_qrcode", { token })),
+	/** SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）。 */
+	authLinkWechatWait: (token: string, loginId: string, expireInSec: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_wait", { token, loginId, expireInSec })),
+	/** 取消微信绑定等待。 */
+	authLinkWechatCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_cancel_wait", { loginId })),
+	/** 发送邮箱绑定验证码（POST /api/account/links/email/send）。 */
+	authLinkEmailSend: (token: string, email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email_send", { token, email })),
+	/** 邮箱验证码绑定（POST /api/account/links/email）。 */
+	authLinkEmail: (token: string, email: string, code: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email", { token, email, code })),
+	/** GitHub OAuth 绑定：子窗口授权并拦截 linked=github。 */
+	authLinkGithub: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github", { token })),
 	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
@@ -819,6 +839,29 @@ export type AuthLoginSuccess = {
 	openid: string,
 };
 
+/** 邮箱验证码发送结果（开发模式可能直接返回 code）。 */
+export type AuthEmailCodeSent = {
+	email: string,
+	code: string,
+	expireInSec: number,
+	hint: string,
+};
+
+/** 单项账号绑定状态。 */
+export type AuthAccountLinkStatus = {
+	bound: boolean,
+	openid: string,
+	githubId: string,
+	email: string,
+};
+
+/** 账号绑定状态汇总（GET /api/account/links）。 */
+export type AuthAccountLinks = {
+	wechat: AuthAccountLinkStatus,
+	github: AuthAccountLinkStatus,
+	email: AuthAccountLinkStatus,
+};
+
 /**  本机设备身份（登录上报与「本机」标记共用）。 */
 export type AuthDeviceIdentity = {
 	deviceId: string,
@@ -879,6 +922,7 @@ export type AuthUserProfile = {
 	nickname: string,
 	avatarUrl: string,
 	email: string,
+	githubId: string,
 };
 
 /* Local runtime types — manually synced from src-tauri commands/local_runtime.rs + ollama_recommend.rs */
