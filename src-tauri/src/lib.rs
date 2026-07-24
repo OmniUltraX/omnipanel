@@ -466,6 +466,10 @@ fn export_ipc_bindings() {
         commands::skills::skill_vectorize,
         commands::skills::skill_vector_status,
         commands::skills::skill_vectorize_all,
+        // Agent prompts
+        commands::agent_prompt::agent_prompt_list,
+        commands::agent_prompt::agent_prompt_save,
+        commands::agent_prompt::agent_prompt_reset,
         // Providers
         commands::providers::registry::provider_registry_load,
         commands::providers::registry::provider_registry_save,
@@ -594,6 +598,9 @@ fn build_and_run_tauri() {
             }
             try_migrate_legacy_storage(&db_path, app);
             let storage = omnipanel_store::Storage::open(&db_path, None).expect("打开本地存储失败");
+            if let Err(e) = omnipanel_store::ensure_agent_defaults() {
+                tracing::warn!("写入默认智能体提示词/Skill 失败: {e}");
+            }
             let _ = omnipanel_store::FileIndexStorage::import_from_meta_storage_if_empty(&storage)
                 .expect("迁移旧版文件索引失败");
             let file_index_storage = Arc::new(Mutex::new(
@@ -1160,6 +1167,10 @@ fn build_and_run_tauri() {
             commands::skills::skill_vectorize,
             commands::skills::skill_vector_status,
             commands::skills::skill_vectorize_all,
+            // Agent prompts
+            commands::agent_prompt::agent_prompt_list,
+            commands::agent_prompt::agent_prompt_save,
+            commands::agent_prompt::agent_prompt_reset,
             // Providers
             commands::providers::registry::provider_registry_load,
             commands::providers::registry::provider_registry_save,

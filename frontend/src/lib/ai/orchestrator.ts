@@ -29,6 +29,8 @@ export interface InternalChatRequestPayload {
   httpProvider?: HttpProviderSnapshot | null;
   /** 知识库 RAG 自动注入用的 embedding provider 配置；null 跳过 RAG */
   embeddingProvider?: EmbeddingProviderConfig | null;
+  /** 会话勾选的 Skill id；非空时后端注入完整正文 */
+  skillIds?: string[] | null;
 }
 
 export interface RunInternalAiChatOptions {
@@ -96,6 +98,10 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
               apiStandard: options.request.embeddingProvider.apiStandard,
             }
           : null,
+        skillIds:
+          options.request.skillIds && options.request.skillIds.length > 0
+            ? options.request.skillIds
+            : null,
       },
       onEvent,
     });

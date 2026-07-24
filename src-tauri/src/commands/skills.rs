@@ -28,10 +28,13 @@ const SKILL_FILE: &str = "SKILL.md";
 
 /// 懒同步：对没有 DB 记录的文件层 skill 创建 v1 DB 记录。
 /// 用于在 v24 迁移后首次访问老 skill 时补齐 DB 元数据。
-fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
-    let storage = state.storage.blocking_lock();
+///
+/// 必须使用 `.lock().await`：在 async 命令里对 `tokio::sync::Mutex` 调 `blocking_lock`
+/// 会卡住运行时，导致前端一直停在「正在加载 Skills…」。
+async fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
     let file_records =
         list_all_skill_records().map_err(|e| format!("列出 skills 失败: {e}"))?;
+    let storage = state.storage.lock().await;
     for fr in file_records {
         if storage
             .get_skill_db(&fr.id)
@@ -63,8 +66,8 @@ fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
 
 /// 为单个 skill 创建或更新 DB 记录（version=1, parent_version_id=""）。
 /// 用于 skill_create / skill_import：新 skill 总是 v1。
-fn upsert_skill_db_v1(state: &AppState, record: &SkillRecord) -> Result<(), String> {
-    let storage = state.storage.blocking_lock();
+async fn upsert_skill_db_v1(state: &AppState, record: &SkillRecord) -> Result<(), String> {
+    let storage = state.storage.lock().await;
     let existing = storage.get_skill_db(&record.id).map_err(|e| e.to_string())?;
     let db_rec = if let Some(mut existing) = existing {
         // 已有 DB 记录：保留 version / parent_version_id / 统计字段，只更新基础字段
@@ -110,14 +113,14 @@ pub struct SkillDetail {
 pub async fn skill_get(_state: State<'_, AppState>, id: String) -> Result<SkillDetail, String> {
     let record = load_skill_record(&id)?;
     let file = skill_file_path(&id)?;
+    // 编辑器直接改完整 SKILL.md（含 frontmatter）
     let raw = fs::read_to_string(&file).map_err(|e| e.to_string())?;
-    let parsed = parse_skill_md(&raw)?;
     Ok(SkillDetail {
         id: record.id,
         name: record.name,
         description: record.description,
         enabled: record.enabled,
-        body: parsed.body,
+        body: raw,
     })
 }
 
@@ -131,7 +134,10 @@ pub async fn skill_list(_state: State<'_, AppState>) -> Result<Vec<SkillRecord>,
 #[serde(rename_all = "camelCase")]
 pub struct SkillCreateInput {
     pub id: String,
+    /// 可省略：若 body 含 frontmatter，以 frontmatter 为准
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub description: String,
     #[serde(default)]
     pub body: String,
@@ -154,21 +160,33 @@ pub async fn skill_create(
     if dir.exists() {
         return Err(format!("Skill 已存在: {id}"));
     }
-    let record = write_skill(
-        &id,
-        SkillFrontmatter {
-            name: input.name.trim().to_string(),
-            description: input.description.trim().to_string(),
-            enabled: input.enabled,
-        },
-        if input.body.trim().is_empty() {
-            "# Skill\n\n在此编写技能说明。\n"
-        } else {
-            input.body.as_str()
-        },
-    )?;
+
+    let default_body = "# Skill\n\n在此编写技能说明。\n";
+    let (frontmatter, body) = if input.body.trim_start().starts_with("---") {
+        let parsed = parse_skill_md(&input.body)?;
+        (parsed.frontmatter, parsed.body)
+    } else {
+        (
+            SkillFrontmatter {
+                name: if input.name.trim().is_empty() {
+                    id.clone()
+                } else {
+                    input.name.trim().to_string()
+                },
+                description: input.description.trim().to_string(),
+                enabled: input.enabled,
+            },
+            if input.body.trim().is_empty() {
+                default_body.to_string()
+            } else {
+                input.body
+            },
+        )
+    };
+
+    let record = write_skill(&id, frontmatter, &body)?;
     // 双写：同步到 DB（v1）
-    upsert_skill_db_v1(&state, &record)?;
+    upsert_skill_db_v1(&state, &record).await?;
     Ok(record)
 }
 
@@ -195,6 +213,15 @@ pub async fn skill_update(
     let file = skill_file_path(&input.id)?;
     let raw = fs::read_to_string(&file).map_err(|e| e.to_string())?;
     let mut parsed = parse_skill_md(&raw)?;
+
+    // body 若为完整 SKILL.md（含 frontmatter），整文件覆盖；否则只更新正文
+    if let Some(body) = input.body {
+        if body.trim_start().starts_with("---") {
+            parsed = parse_skill_md(&body)?;
+        } else {
+            parsed.body = body;
+        }
+    }
     if let Some(name) = input.name {
         parsed.frontmatter.name = name.trim().to_string();
     }
@@ -204,12 +231,10 @@ pub async fn skill_update(
     if let Some(enabled) = input.enabled {
         parsed.frontmatter.enabled = enabled;
     }
-    if let Some(body) = input.body {
-        parsed.body = body;
-    }
+
     let record = write_skill(&input.id, parsed.frontmatter, &parsed.body)?;
     // 双写：同步基础字段到 DB（保留 version / 统计字段）
-    upsert_skill_db_v1(&state, &record)?;
+    upsert_skill_db_v1(&state, &record).await?;
     Ok(record)
 }
 
@@ -297,7 +322,7 @@ pub async fn skill_import(
     }
     let record = load_skill_record(&id)?;
     // 双写：导入的 skill 作为 v1 写入 DB
-    upsert_skill_db_v1(&state, &record)?;
+    upsert_skill_db_v1(&state, &record).await?;
     Ok(record)
 }
 
@@ -326,7 +351,7 @@ pub async fn skill_get_db(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<SkillDbRecord>, String> {
-    ensure_skill_db_sync(&state)?;
+    ensure_skill_db_sync(&state).await?;
     let storage = state.storage.lock().await;
     storage.get_skill_db(&id).map_err(|e| e.to_string())
 }
@@ -336,7 +361,7 @@ pub async fn skill_get_db(
 #[tauri::command]
 #[specta::specta]
 pub async fn skill_list_db(state: State<'_, AppState>) -> Result<Vec<SkillDbRecord>, String> {
-    ensure_skill_db_sync(&state)?;
+    ensure_skill_db_sync(&state).await?;
     let storage = state.storage.lock().await;
     storage.list_skills_db().map_err(|e| e.to_string())
 }
@@ -359,7 +384,7 @@ pub async fn skill_get_version_chain(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Vec<SkillVersionChainEntry>, String> {
-    ensure_skill_db_sync(&state)?;
+    ensure_skill_db_sync(&state).await?;
     let storage = state.storage.lock().await;
     let chain = storage
         .get_skill_version_chain(&id)
@@ -505,7 +530,7 @@ pub async fn skill_vectorize(
     state: State<'_, AppState>,
     args: SkillVectorizeArgs,
 ) -> Result<SkillVectorizeResult, String> {
-    ensure_skill_db_sync(&state)?;
+    ensure_skill_db_sync(&state).await?;
     vectorize_one_skill(
         &state,
         &args.skill_id,
@@ -536,7 +561,7 @@ pub async fn skill_vectorize_all(
     state: State<'_, AppState>,
     provider: EmbeddingProviderConfig,
 ) -> Result<Vec<SkillVectorizeResult>, String> {
-    ensure_skill_db_sync(&state)?;
+    ensure_skill_db_sync(&state).await?;
     let records = list_all_skill_records()?;
     let mut out = Vec::new();
     for rec in records.into_iter().filter(|r| r.enabled) {

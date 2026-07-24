@@ -12,6 +12,9 @@ use specta::Type;
 
 const SKILL_FILE: &str = "SKILL.md";
 
+/// Skill 正文文件名（目录内）。
+pub const SKILL_MD_FILENAME: &str = SKILL_FILE;
+
 /// Skill 的 YAML frontmatter。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillFrontmatter {
@@ -272,6 +275,36 @@ pub fn build_skills_system_append() -> Result<String, String> {
         lines.push(format!("- {name} (id: {id}): {desc}"));
     }
     Ok(lines.join("\n"))
+}
+
+/// 将用户在会话中选中的 Skill 正文注入系统提示（优先遵循）。
+pub fn build_selected_skills_bodies_append(ids: &[String]) -> Result<String, String> {
+    if ids.is_empty() {
+        return Ok(String::new());
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for raw_id in ids {
+        let id = raw_id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        let Ok(body) = load_skill_body(id) else {
+            continue;
+        };
+        let title = load_skill_record(id)
+            .map(|r| format!("{} (id: {})", r.name, r.id))
+            .unwrap_or_else(|_| format!("id: {id}"));
+        parts.push(format!("### {title}\n{body}"));
+    }
+    if parts.is_empty() {
+        return Ok(String::new());
+    }
+    let mut out = vec![
+        "## Active Skills".to_string(),
+        "用户已选择以下 Skill，请优先遵循其指引：".to_string(),
+    ];
+    out.extend(parts);
+    Ok(out.join("\n\n"))
 }
 
 #[cfg(test)]

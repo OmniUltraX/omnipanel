@@ -57,6 +57,7 @@ import { AiToolsSection } from "../../components/settings/AiToolsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
+import { AgentConfigSection } from "../../components/settings/AgentConfigSection";
 import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
 import { Button } from "../../components/ui/primitives/Button";
@@ -69,7 +70,26 @@ import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
 
-type Section = "general" | "system" | "appearance" | "keybindings" | "ai" | "localModels" | "aiTools" | "aiServices" | "security" | "accounts" | "terminal" | "database" | "files" | "protocol" | "knowledge" | "data";
+type Section =
+  | "general"
+  | "system"
+  | "appearance"
+  | "keybindings"
+  | "ai"
+  | "agent"
+  | "localModels"
+  | "aiTools"
+  | "aiServices"
+  | "security"
+  | "accounts"
+  | "terminal"
+  | "database"
+  | "files"
+  | "protocol"
+  | "knowledge"
+  | "data";
+
+type NavGroupId = "general" | "ai" | "modules";
 
 interface NavItem {
   id: Section;
@@ -77,172 +97,215 @@ interface NavItem {
   icon: ReactNode;
 }
 
-const NAV_ITEMS: NavItem[] = [
+interface NavGroup {
+  id: NavGroupId;
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
   {
     id: "general",
     label: "通用",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-      </svg>
-    ),
-  },
-  {
-    id: "system",
-    label: "系统",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </svg>
-    ),
-  },
-  {
-    id: "appearance",
-    label: "外观",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="5" />
-        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-      </svg>
-    ),
-  },
-  {
-    id: "keybindings",
-    label: "快捷键",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="2" y="4" width="20" height="16" rx="2" />
-        <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
-      </svg>
-    ),
+    items: [
+      {
+        id: "appearance",
+        label: "外观",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="5" />
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+          </svg>
+        ),
+      },
+      {
+        id: "general",
+        label: "常规",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+          </svg>
+        ),
+      },
+      {
+        id: "system",
+        label: "系统",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+        ),
+      },
+      {
+        id: "security",
+        label: "安全",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        ),
+      },
+      {
+        id: "data",
+        label: "缓存",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <path d="M7 10l5 5 5-5" />
+            <path d="M12 15V3" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
     id: "ai",
     label: "AI",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
-        <path d="M12 17v4M8 21h8" />
-      </svg>
-    ),
+    items: [
+      {
+        id: "ai",
+        label: "基础",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
+            <path d="M12 17v4M8 21h8" />
+          </svg>
+        ),
+      },
+      {
+        id: "agent",
+        label: "智能体",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 8V4H8" />
+            <rect x="4" y="8" width="16" height="12" rx="2" />
+            <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+          </svg>
+        ),
+      },
+      {
+        id: "aiTools",
+        label: "工具",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
+          </svg>
+        ),
+      },
+      {
+        id: "aiServices",
+        label: "服务",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+        ),
+      },
+      {
+        id: "localModels",
+        label: "本地模型",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+            <circle cx="8" cy="10" r="1.5" fill="currentColor" stroke="none" />
+            <circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none" />
+            <circle cx="16" cy="10" r="1.5" fill="currentColor" stroke="none" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
-    id: "localModels",
-    label: "本地模型",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <path d="M8 21h8M12 17v4" />
-        <circle cx="8" cy="10" r="1.5" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none" />
-        <circle cx="16" cy="10" r="1.5" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-  },
-  {
-    id: "aiTools",
-    label: "AI 工具",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
-      </svg>
-    ),
-  },
-  {
-    id: "aiServices",
-    label: "AI 服务",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <path d="M8 21h8M12 17v4" />
-      </svg>
-    ),
-  },
-  {
-    id: "security",
-    label: "安全",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      </svg>
-    ),
-  },
-  {
-    id: "accounts",
-    label: "账户管理",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    ),
-  },
-  {
-    id: "terminal",
-    label: "终端",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M4 17l6-6-6-6" />
-        <path d="M12 19h8" />
-      </svg>
-    ),
-  },
-  {
-    id: "database",
-    label: "数据库",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <ellipse cx="12" cy="5" rx="9" ry="3" />
-        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
-        <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
-      </svg>
-    ),
-  },
-  {
-    id: "files",
-    label: "文件",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-        <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-      </svg>
-    ),
-  },
-  {
-    id: "protocol",
-    label: "协议实验室",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M4 12h2l2-7 4 14 2-7h8" />
-      </svg>
-    ),
-  },
-  {
-    id: "knowledge",
-    label: "知识库",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
-      </svg>
-    ),
-  },
-  {
-    id: "data",
-    label: "数据与备份",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-        <path d="M7 10l5 5 5-5" />
-        <path d="M12 15V3" />
-      </svg>
-    ),
+    id: "modules",
+    label: "模块",
+    items: [
+      {
+        id: "keybindings",
+        label: "快捷键",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
+          </svg>
+        ),
+      },
+      {
+        id: "accounts",
+        label: "账户管理",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        ),
+      },
+      {
+        id: "terminal",
+        label: "终端",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 17l6-6-6-6" />
+            <path d="M12 19h8" />
+          </svg>
+        ),
+      },
+      {
+        id: "database",
+        label: "数据库",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+            <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
+          </svg>
+        ),
+      },
+      {
+        id: "files",
+        label: "文件",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+          </svg>
+        ),
+      },
+      {
+        id: "protocol",
+        label: "协议实验室",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 12h2l2-7 4 14 2-7h8" />
+          </svg>
+        ),
+      },
+      {
+        id: "knowledge",
+        label: "知识库",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+          </svg>
+        ),
+      },
+    ],
   },
 ];
 
+function navGroupIdForSection(section: Section): NavGroupId {
+  for (const group of NAV_GROUPS) {
+    if (group.items.some((item) => item.id === section)) {
+      return group.id;
+    }
+  }
+  return "general";
+}
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div
@@ -807,6 +870,21 @@ function AiSection() {
 export function SettingsPanel() {
   const { t } = useI18n();
   const [activeSection, setActiveSection] = useState<Section>("general");
+  const [openGroups, setOpenGroups] = useState<Record<NavGroupId, boolean>>(() => ({
+    general: true,
+    ai: true,
+    modules: false,
+  }));
+
+  const selectSection = useCallback((section: Section) => {
+    setActiveSection(section);
+    const groupId = navGroupIdForSection(section);
+    setOpenGroups((prev) => (prev[groupId] ? prev : { ...prev, [groupId]: true }));
+  }, []);
+
+  const toggleGroup = useCallback((groupId: NavGroupId) => {
+    setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  }, []);
 
   const locale = useSettingsStore((s) => s.locale);
   const setLocale = useSettingsStore((s) => s.setLocale);
@@ -1074,16 +1152,48 @@ export function SettingsPanel() {
       className="settings-workspace"
       sidebar={
         <div className="settings-nav">
-          {NAV_ITEMS.map((item) => (
-            <div
-              key={item.id}
-              className={`settings-nav-item ${activeSection === item.id ? "active" : ""}`}
-              onClick={() => setActiveSection(item.id)}
-            >
-              {item.icon}
-              {item.label}
-            </div>
-          ))}
+          {NAV_GROUPS.map((group) => {
+            const expanded = openGroups[group.id];
+            return (
+              <div
+                key={group.id}
+                className={`settings-nav-group ${expanded ? "is-open" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="settings-nav-group__header"
+                  aria-expanded={expanded}
+                  onClick={() => toggleGroup(group.id)}
+                >
+                  <span className="settings-nav-group__title">{group.label}</span>
+                  <svg
+                    className="settings-nav-group__chevron"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                {expanded ? (
+                  <div className="settings-nav-group__items">
+                    {group.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`settings-nav-item ${activeSection === item.id ? "active" : ""}`}
+                        onClick={() => selectSection(item.id)}
+                      >
+                        {item.icon}
+                        {item.label}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       }
     >
@@ -1092,7 +1202,7 @@ export function SettingsPanel() {
         {activeSection === "general" && (
           <div className="settings-panel active">
             <div className="settings-section">
-              <h2>通用</h2>
+              <h2>常规</h2>
               <p className="section-desc">应用行为、启动和会话恢复设置</p>
               <div className="setting-row">
                 <div className="setting-label">
@@ -1412,6 +1522,12 @@ export function SettingsPanel() {
 
         {/* AI (Models / Scenarios / Other) */}
         {activeSection === "ai" && <AiSection />}
+
+        {activeSection === "agent" && (
+          <div className="settings-panel active">
+            <AgentConfigSection />
+          </div>
+        )}
 
         {activeSection === "localModels" && (
           <div className="settings-panel active">

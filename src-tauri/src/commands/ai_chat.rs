@@ -132,6 +132,9 @@ pub struct InternalChatRequestDto {
     /// 仅在 DirectInject 模式下生效；为 None 时跳过 RAG 注入。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_provider: Option<EmbeddingProviderConfig>,
+    /// 会话中用户勾选的 Skill id；非空时除摘要目录外再注入完整正文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -380,9 +383,10 @@ pub async fn ai_chat_stream(
     request: InternalChatRequestDto,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
-    // 在 move 进 TryFrom 前提取 embedding provider，供 RAG 注入使用。
+    // 在 move 进 TryFrom 前提取 embedding provider / skill_ids，供注入使用。
     let mut request = request;
     let embedding_provider = request.embedding_provider.take();
+    let skill_ids = request.skill_ids.take().unwrap_or_default();
     let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
     if matches!(
@@ -395,6 +399,17 @@ pub async fn ai_chat_stream(
         if let Ok(skills_text) = omnipanel_store::build_skills_system_append() {
             if !skills_text.is_empty() {
                 append_parts.push(skills_text);
+            }
+        }
+
+        // 1b. 用户在 Composer 勾选的 Skill 全文
+        if !skill_ids.is_empty() {
+            if let Ok(selected) =
+                omnipanel_store::build_selected_skills_bodies_append(&skill_ids)
+            {
+                if !selected.is_empty() {
+                    append_parts.push(selected);
+                }
             }
         }
 
@@ -661,6 +676,17 @@ async fn run_acp_internal_turn(
     } else {
         internal.user_text.clone()
     };
+
+    // ACP/CLI 不走 HTTP system message；首轮将 Skills / RAG 等 append 拼进 prompt。
+    if is_first_user_prompt {
+        if let Some(append) = internal
+            .system_append
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            prompt_text = format!("{append}\n\n---\n\n{prompt_text}");
+        }
+    }
 
     const MAX_ACP_TOOL_ROUNDS: usize = 8;
     let mut turn_index: i32 = 0;

@@ -755,6 +755,12 @@ export const commands = {
 	skillUpdateApplicationOutcome: (applicationId: string, outcome: string, feedback: string | null) => typedError<null, string>(__TAURI_INVOKE("skill_update_application_outcome", { applicationId, outcome, feedback })),
 	/** 对全部已启用 skill 批量向量化（设置页「重建索引」）。 */
 	skillVectorizeAll: (provider: EmbeddingProviderConfig) => typedError<SkillVectorizeResult[], string>(__TAURI_INVOKE("skill_vectorize_all", { provider })),
+	/** 列出智能体提示词（~/.omnipd/prompts）。 */
+	agentPromptList: () => typedError<AgentPromptEntry[], string>(__TAURI_INVOKE("agent_prompt_list")),
+	/** 保存智能体提示词。 */
+	agentPromptSave: (id: string, content: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_save", { id, content })),
+	/** 恢复内置默认提示词。 */
+	agentPromptReset: (id: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_reset", { id })),
 	providerRegistryLoad: () => typedError<ProvidersFile, string>(__TAURI_INVOKE("provider_registry_load")),
 	providerRegistrySave: (file: ProvidersFile) => typedError<null, string>(__TAURI_INVOKE("provider_registry_save", { file })),
 	cliProviderListCmd: () => typedError<CliProviderRecord[], string>(__TAURI_INVOKE("cli_provider_list_cmd")),
@@ -3375,8 +3381,8 @@ export type SftpEntry = {
 
 export type SkillCreateInput = {
 	id: string,
-	name: string,
-	description: string,
+	name?: string,
+	description?: string,
 	body?: string,
 	enabled?: boolean,
 };
@@ -3387,6 +3393,13 @@ export type SkillDetail = {
 	description: string,
 	enabled: boolean,
 	body: string,
+};
+
+/** 智能体提示词条目（~/.omnipd/prompts）。 */
+export type AgentPromptEntry = {
+	id: string,
+	content: string,
+	path: string,
 };
 
 /**  Skill 记录（列表/CRUD 用，含文件元信息）。 */

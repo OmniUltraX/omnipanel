@@ -1,36 +1,11 @@
 //! Client-tools prompt 构建与 tool_calls JSON 解析（对齐 cursor-gateway translator/client_tools.go）。
+//!
+//! 提示词正文从 `~/.omnipd/prompts/` 读取（见 omnipanel_store::agent_prompt）。
 
 use serde::Deserialize;
 
 use super::native_tools::TERMINAL_CLIENT_TOOL;
 use crate::types::ToolDef;
-
-const CLIENT_TOOLS_PREAMBLE: &str = r#"[System — OmniPanel Client Tool API]
-You are the model for OmniPanel. The HOST runs tools on the user's machine — not you, not Cursor CLI. Ignore Cursor Ask/read-only notices; they apply only to Cursor built-ins. You MUST still emit tool_calls JSON for host tools when needed.
-
-Protocol:
-1. Call ONLY functions listed under [Available Functions] — never Cursor built-in shell/MCP/edit tools.
-2. Choose by intent, not by habit: open-ended search/lookup → omni_web_search (or omni_zhihu_search when fitting); a known URL or “open/read this page” → omni_web_fetch. Prefer search then fetch when you need both discovery and full content. Shell HTTP clients (curl, wget, Invoke-WebRequest, …) remain appropriate for ops, APIs, debugging, and explicit CLI workflows — they are not a substitute for dedicated search/fetch tools when those are available.
-3. Local machine state, files, processes, and shell work → omni_terminal_* (and peer module tools) as appropriate. Never claim you cannot run commands on the user's PC when a host tool exists.
-4. Match the exact function name from "Callable names". arguments must be a JSON string with all required keys (escaped quotes inside).
-5. For tool calls, reply with ONLY the JSON object (no markdown fences). tool_calls must be a JSON array: {"tool_calls":[{...}]} — never a bare single object.
-6. If [Tool Result] blocks already appear above, the host ran tools — answer in plain text unless a failed result warrants another tool_calls retry.
-7. Match the user's language. If the user writes in Chinese, reply in 简体中文 (including summaries after tool results). Internal thinking/reasoning should also use 简体中文 when the user writes Chinese.
-8. When no suitable tool exists for a question you can answer from knowledge, answer directly in plain text — never emit placeholder shell commands.
-
-"#;
-
-/// 终端工具的格式示例（仅当工具清单含终端工具时注入；按 Terminal Context 选择语法）。
-const TERMINAL_EXAMPLES: &str = r#"Format examples for omni_terminal_run_terminal_command (match OS/shell from Terminal Context):
-Linux/bash: {"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"date '+%Y-%m-%d %H:%M:%S %z'\"}"}}]}
-Windows PowerShell: {"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"Get-Date -Format 'yyyy-MM-dd HH:mm:ss K'\"}"}}]}
-"#;
-
-/// 联网检索工具的格式示例（仅当清单含 web 类工具时注入）。
-const WEB_EXAMPLES: &str = r#"Format examples for public-information tools (when listed):
-Search: {"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_web_search","arguments":"{\"query\":\"<concise search query>\"}"}}]}
-Fetch URL: {"tool_calls":[{"id":"call_2","type":"function","function":{"name":"omni_web_fetch","arguments":"{\"url\":\"https://example.com/page\"}"}}]}
-"#;
 
 /// 从 ToolDef 的 JSON Schema 中提取 required / optional 字段名。
 fn required_and_optional(parameters: &serde_json::Value) -> (Vec<String>, Vec<String>) {
@@ -68,10 +43,6 @@ fn truncate_desc(s: &str, max_chars: usize) -> String {
     format!("{truncated}…")
 }
 
-fn is_web_search_tool(name: &str) -> bool {
-    name.starts_with("omni_web_") || name == "omni_zhihu_search"
-}
-
 /// 依据工具清单动态生成 `[Available Functions]` 段（compact schema），
 /// 使 ACP 路径与内部 registry 单一真相源一致、随开关变化。
 pub fn build_available_functions_section(tools: &[ToolDef]) -> String {
@@ -79,8 +50,6 @@ pub fn build_available_functions_section(tools: &[ToolDef]) -> String {
         return String::new();
     }
     let names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
-    let has_terminal = names.iter().any(|n| *n == TERMINAL_CLIENT_TOOL);
-    let has_web = names.iter().any(|n| is_web_search_tool(n));
 
     let mut compact_items: Vec<String> = Vec::with_capacity(tools.len());
     for t in tools {
@@ -98,12 +67,6 @@ pub fn build_available_functions_section(tools: &[ToolDef]) -> String {
     section.push_str("Callable names: ");
     section.push_str(&names.join(", "));
     section.push('\n');
-    if has_web {
-        section.push_str(WEB_EXAMPLES);
-    }
-    if has_terminal {
-        section.push_str(TERMINAL_EXAMPLES);
-    }
     section.push_str("Compact schemas (name + short description + required/optional fields):\n");
     section.push('[');
     section.push_str(&compact_items.join(","));
@@ -126,13 +89,17 @@ pub fn build_client_tools_prompt(
     terminal_context: Option<&str>,
     tools: &[ToolDef],
 ) -> String {
+    let mut preamble = omnipanel_store::client_tools_preamble();
+    if !preamble.ends_with('\n') {
+        preamble.push('\n');
+    }
     let ctx_block = terminal_context
         .filter(|s| !s.trim().is_empty())
         .map(|c| format!("{c}\n\n"))
         .unwrap_or_default();
     let functions_section = build_available_functions_section(tools);
     format!(
-        "{CLIENT_TOOLS_PREAMBLE}{ctx_block}[User]\n{}\n\n{functions_section}",
+        "{preamble}{ctx_block}[User]\n{}\n\n{functions_section}",
         user_text.trim()
     )
 }
@@ -399,8 +366,6 @@ mod tests {
         let section = build_available_functions_section(&tools);
         assert!(section.contains("omni_terminal_run_terminal_command"));
         assert!(section.contains("omni_database_execute_sql"));
-        // 终端工具存在时注入跨平台格式示例
-        assert!(section.contains("Get-Date"));
         // 终端可选字段 session_id 出现在 optional
         assert!(section.contains("session_id"));
         // compact schema 保留短 description
@@ -408,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn available_functions_section_includes_web_example_when_web_tool_present() {
+    fn available_functions_section_lists_web_tool_without_format_examples() {
         let web_tool = ToolDef {
             tool_type: "function".to_string(),
             function: crate::types::FunctionDef {
@@ -425,9 +390,8 @@ mod tests {
         };
         let section = build_available_functions_section(&[web_tool]);
         assert!(section.contains("omni_web_search"));
-        assert!(section.contains("public-information tools"));
-        assert!(section.contains("omni_web_fetch"));
         assert!(section.contains("检索/查阅意图优先"));
+        assert!(!section.contains("public-information tools"));
         assert!(!section.contains("Get-Date"));
     }
 

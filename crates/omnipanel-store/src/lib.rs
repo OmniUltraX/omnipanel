@@ -2,6 +2,7 @@
 //! 应用数据根目录为 `~/.omnipd`，各模块使用独立子目录。
 
 mod ai_trace;
+mod agent_prompt;
 mod builtin_tool;
 mod builtin_tool_spec;
 mod app_module;
@@ -19,6 +20,7 @@ mod paths;
 mod resource_profile;
 mod skill;
 mod skill_db;
+mod skill_seed;
 mod schema_cache;
 mod schema_filters;
 mod schema_tree_expanded;
@@ -32,6 +34,10 @@ mod http_proxy;
 mod web_search;
 mod workflow;
 
+pub use agent_prompt::{
+    clear_prompt_cache, client_tools_preamble, ensure_default_prompts, list_prompt_entries,
+    reset_prompt, save_prompt, system_prompt, AgentPromptEntry,
+};
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
 pub use builtin_tool::{BuiltinToolCatalogEntry, BuiltinToolRecord};
 pub use builtin_tool_spec::{
@@ -84,7 +90,7 @@ pub use paths::{
     docker_sidebar_cache_path,
     database_schema_tree_expanded_path, http_proxy_config_path, knowledge_assets_root,
     knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir, omnipd_root,
-    skills_root, web_search_config_path,
+    prompts_root, skills_root, web_search_config_path,
 };
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
@@ -101,11 +107,12 @@ pub use schema_tree_expanded::{
     save_schema_tree_expanded,
 };
 pub use skill::{
-    build_skills_system_append, extract_skill_body, list_all_skill_records,
-    list_enabled_skill_summaries, load_skill_body, load_skill_record, parse_skill_md,
-    render_skill_md, sanitize_skill_id, skill_dir, skill_file_path, write_skill, ParsedSkill,
-    SkillFrontmatter, SkillRecord,
+    build_selected_skills_bodies_append, build_skills_system_append, extract_skill_body,
+    list_all_skill_records, list_enabled_skill_summaries, load_skill_body, load_skill_record,
+    parse_skill_md, render_skill_md, sanitize_skill_id, skill_dir, skill_file_path, write_skill,
+    ParsedSkill, SkillFrontmatter, SkillRecord, SKILL_MD_FILENAME,
 };
+pub use skill_seed::{ensure_agent_defaults, ensure_default_skills};
 pub use storage::{AuditEntry, Storage};
 pub use tag::{
     normalize_tag_path, normalize_tag_segment, ResourceTagDto, SearchEverywhereHit, TagDto,

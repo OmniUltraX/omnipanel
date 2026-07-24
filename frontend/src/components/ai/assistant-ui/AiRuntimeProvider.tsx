@@ -735,6 +735,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             // 知识库 RAG 自动注入：仅在 HTTP 后端时生效
             embeddingProvider:
               backend.kind === "http" ? resolveKnowledgeEmbeddingProviderForRag() : null,
+            skillIds:
+              useAiStore.getState().conversations.find((c) => c.id === convId)
+                ?.selectedSkillIds ??
+              useAiStore.getState().currentSkillIds,
           },
           signal,
           onEvent: (event) => {

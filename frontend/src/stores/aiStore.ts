@@ -75,6 +75,8 @@ export interface AiConversation {
   model: string;
   /** 当前会话选用的模型（aiModelsStore selectionId 或 cli/acp backend id） */
   modelSelectionId?: string | null;
+  /** 当前会话勾选的 Skill id 列表 */
+  selectedSkillIds?: string[];
   createdAt: number;
   updatedAt: number;
   context?: { type: string; label: string }[];
@@ -95,6 +97,8 @@ interface AiStore {
   currentModel: string;
   /** aiModelsStore 中的 providerId::modelName */
   currentModelSelectionId: string | null;
+  /** 无活动会话时的草稿 Skill 选择 */
+  currentSkillIds: string[];
   isGenerating: boolean;
   draftPrompt: string;
   /** 推理程度，default 表示不传给 API */
@@ -158,6 +162,7 @@ interface AiStore {
   ) => void;
   setCurrentProvider: (provider: string, model: string) => void;
   setCurrentModelSelectionId: (id: string | null) => void;
+  setCurrentSkillIds: (ids: string[]) => void;
   setIsGenerating: (v: boolean) => void;
   setDraftPrompt: (prompt: string) => void;
   clearDraftPrompt: () => void;
@@ -171,6 +176,7 @@ interface AiStore {
   setConversationListPlacement: (placement: ConversationListPlacement) => void;
   setConversationListWidth: (width: number) => void;
   setConversationModelSelectionId: (conversationId: string, selectionId: string) => void;
+  setConversationSkillIds: (conversationId: string, skillIds: string[]) => void;
   replaceConversationMessages: (conversationId: string, messages: AiMessage[]) => void;
   /** 显式钉住工作区；传 null 恢复全局作用域 */
   pinConversationWorkspace: (conversationId: string, workspaceId: string | null) => void;
@@ -202,6 +208,7 @@ export const useAiStore = create<AiStore>()(
       currentProvider: "openai",
       currentModel: "gpt-4o",
       currentModelSelectionId: null,
+      currentSkillIds: [],
       isGenerating: false,
       draftPrompt: "",
       reasoningEffort: "medium",
@@ -243,6 +250,7 @@ export const useAiStore = create<AiStore>()(
           provider: provider || parsed?.providerId || state.currentProvider,
           model: model || parsed?.modelName || resolved?.name || state.currentModel,
           modelSelectionId,
+          selectedSkillIds: [...state.currentSkillIds],
           createdAt: Date.now(),
           updatedAt: Date.now(),
           contextSnapshot: snapshot,
@@ -270,6 +278,9 @@ export const useAiStore = create<AiStore>()(
           ...(conversation?.modelSelectionId
             ? { currentModelSelectionId: conversation.modelSelectionId }
             : {}),
+          ...(conversation?.selectedSkillIds
+            ? { currentSkillIds: [...conversation.selectedSkillIds] }
+            : { currentSkillIds: [] }),
         });
       },
 
@@ -450,6 +461,8 @@ export const useAiStore = create<AiStore>()(
 
       setCurrentModelSelectionId: (id) => set({ currentModelSelectionId: id }),
 
+      setCurrentSkillIds: (ids) => set({ currentSkillIds: [...ids] }),
+
       setIsGenerating: (v) => set({ isGenerating: v }),
 
       setDraftPrompt: (prompt) => set({ draftPrompt: prompt }),
@@ -516,6 +529,20 @@ export const useAiStore = create<AiStore>()(
               modelSelectionId: selectionId,
               provider: parsed?.providerId ?? c.provider,
               model: parsed?.modelName ?? resolved?.name ?? c.model,
+              updatedAt: Date.now(),
+            };
+          }),
+        }));
+      },
+
+      setConversationSkillIds: (conversationId, skillIds) => {
+        set((state) => ({
+          currentSkillIds: [...skillIds],
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              selectedSkillIds: [...skillIds],
               updatedAt: Date.now(),
             };
           }),
@@ -635,6 +662,7 @@ export const useAiStore = create<AiStore>()(
         currentProvider: state.currentProvider,
         currentModel: state.currentModel,
         currentModelSelectionId: state.currentModelSelectionId,
+        currentSkillIds: state.currentSkillIds,
         reasoningEffort: state.reasoningEffort,
         conversationListOpen: state.conversationListOpen,
         conversationListPlacement: state.conversationListPlacement,

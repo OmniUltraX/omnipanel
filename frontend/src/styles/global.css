@@ -12053,6 +12053,10 @@ button.omni-btn-tool[aria-pressed="true"] {
         max-width: 100%;
     }
 
+    .aui-composer-action-wrapper .ai-skill-select {
+        max-width: min(180px, 28vw);
+    }
+
     .ai-model-select-empty {
         font-size: 11px;
         color: var(--meta);
@@ -14065,18 +14069,75 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex-direction: column;
         flex-shrink: 0;
         overflow-y: auto;
-        padding: var(--sp-3) 0;
+        padding: var(--sp-2) 0;
+        gap: var(--sp-1);
+    }
+
+    .settings-nav-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .settings-nav-group__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        width: 100%;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: var(--sp-2) var(--sp-4);
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .settings-nav-group__header:hover {
+        color: var(--fg);
+        background: var(--surface);
+    }
+
+    .settings-nav-group__title {
+        min-width: 0;
+    }
+
+    .settings-nav-group__chevron {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        transition: transform 0.15s ease;
+        opacity: 0.75;
+    }
+
+    .settings-nav-group.is-open .settings-nav-group__chevron {
+        transform: rotate(180deg);
+    }
+
+    .settings-nav-group__items {
+        display: flex;
+        flex-direction: column;
+        padding-bottom: var(--sp-1);
     }
 
     .settings-nav-item {
         display: flex;
         align-items: center;
         gap: var(--sp-2);
-        padding: var(--sp-2) var(--sp-4);
+        padding: var(--sp-2) var(--sp-4) var(--sp-2) calc(var(--sp-4) + 2px);
         font-size: 12px;
         color: var(--muted);
         cursor: pointer;
         transition: background 0.12s, color 0.12s;
+    }
+
+    .settings-nav-item svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
     }
 
     .settings-nav-item:hover {
@@ -14089,9 +14150,36 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
-    .settings-nav-item svg {
-        width: 14px;
-        height: 14px;
+    .agent-prompts-layout {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+    }
+
+    .agent-prompts-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-1);
+    }
+
+    .agent-prompt-card {
+        margin-top: 0;
+    }
+
+    .agent-prompt-path {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 11px;
+        opacity: 0.75;
+        word-break: break-all;
+    }
+
+    .agent-prompt-textarea {
+        width: 100%;
+        min-height: 280px;
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 12px;
+        line-height: 1.45;
+        resize: vertical;
     }
 
     .settings-main {
@@ -15343,284 +15431,248 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin-top: var(--sp-3);
     }
 
-    /* === SkillsSection 升级样式 ===
-       复用 ai-provider-card 的卡片骨架，额外追加版本/统计/历史面板专属样式。 */
-    .skill-card {
-        padding: 0;
+    /* === SkillsSection：左侧列表 + 右侧详情 === */
+    .settings-main:has(.skills-layout) {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
-    .skill-card .ai-provider-header > div:first-child {
+    .settings-panel.active:has(.skills-layout),
+    .settings-section:has(.skills-layout) {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 0;
+    }
+
+    .settings-section:has(.skills-layout) > .settings-section-header {
+        flex-shrink: 0;
+    }
+
+    .settings-section:has(.skills-layout) > .settings-tabs {
+        flex-shrink: 0;
+    }
+
+    .settings-subsection.skills-section {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+    }
+
+    .settings-subsection.skills-section > .setting-hint {
+        flex-shrink: 0;
+        margin: 0 0 var(--sp-2);
+    }
+
+    .skills-layout {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+        gap: var(--sp-3);
+        border: none;
+        border-radius: 0;
+        overflow: hidden;
+        background: transparent;
+        margin: 0;
+    }
+
+    .skills-sidebar {
+        box-sizing: border-box;
+        width: 220px;
+        max-width: 220px;
+        flex: 0 0 220px;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md, 8px);
+        background: var(--bg-deeper);
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .skills-sidebar-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 2px;
+        padding: var(--sp-1) var(--sp-2);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .skills-sidebar-hint {
+        margin: var(--sp-4);
+        font-size: 12px;
+    }
+
+    .skills-sidebar-list {
+        list-style: none;
+        margin: 0;
+        padding: var(--sp-2);
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .skills-sidebar-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .skills-sidebar-item {
         flex: 1;
         min-width: 0;
         display: flex;
-        flex-direction: column;
-        gap: var(--sp-1);
-    }
-
-    .skill-card .ai-provider-header h3 {
-        margin: 0;
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--fg);
-        display: inline-flex;
         align-items: center;
         gap: var(--sp-2);
-        flex-wrap: wrap;
+        padding: 8px 10px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--fg);
+        text-align: left;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1.35;
+        transition: background 0.12s, color 0.12s;
     }
 
-    .skill-card .ai-provider-header .section-desc {
-        margin: 0;
-        font-size: 11px;
-        color: var(--muted);
+    .skills-sidebar-item:hover {
+        background: var(--surface);
     }
 
-    /* 版本徽标（v2+ 才显示） */
-    .skill-version-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 1px 6px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.03em;
+    .skills-sidebar-item.is-active {
         background: var(--accent-soft);
         color: var(--accent);
-        font-family: var(--font-mono, monospace);
     }
 
-    /* 统计行：横向排列的小 chip */
-    .skill-stats-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--sp-1);
-        margin-top: var(--sp-1);
-    }
-
-    .skill-stat-chip {
-        display: inline-flex;
-        align-items: center;
-        padding: 1px 6px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 500;
-        letter-spacing: 0.02em;
-        background: var(--surface);
-        color: var(--muted);
-        border: 1px solid var(--border);
-    }
-
-    .skill-stat-chip--success {
-        background: var(--success-soft);
-        color: var(--success);
-        border-color: transparent;
-    }
-
-    .skill-stat-chip--muted {
-        background: var(--surface);
-        color: var(--meta);
-        border-color: var(--border-soft);
-    }
-
-    .skill-stat-chip--parent {
-        background: color-mix(in oklch, var(--accent) 8%, var(--surface));
-        color: var(--accent);
-        border-color: transparent;
-        font-family: var(--font-mono, monospace);
-        cursor: help;
-        max-width: 220px;
+    .skills-sidebar-item__name {
+        flex: 1;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        font-weight: 500;
     }
 
-    /* 历史面板：展开后位于卡片底部，与 ai-provider-actions 之间留白 */
-    .skill-history-panel {
-        border-top: 1px solid var(--border);
-        padding: var(--sp-3) var(--sp-4) var(--sp-4);
+    .skills-sidebar-delete {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.12s, color 0.12s, background 0.12s;
+    }
+
+    .skills-sidebar-row:hover .skills-sidebar-delete,
+    .skills-sidebar-row:focus-within .skills-sidebar-delete,
+    .skills-sidebar-item.is-active + .skills-sidebar-delete {
+        opacity: 1;
+    }
+
+    .skills-sidebar-delete:hover {
+        color: var(--danger);
+        background: var(--danger-soft);
+    }
+
+    .skills-content {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        padding: var(--sp-4);
         display: flex;
         flex-direction: column;
-        gap: var(--sp-4);
-        background: var(--bg-deeper);
     }
 
-    .skill-history-section {
+    .skills-detail {
         display: flex;
         flex-direction: column;
-        gap: var(--sp-2);
+        gap: var(--sp-3);
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
     }
 
-    .skill-history-section-title {
+    .skills-detail-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    .skills-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+        width: 100%;
+        flex-shrink: 0;
+    }
+
+    .skills-field--body {
+        flex: 1 1 auto;
+        min-height: 0;
+        flex-shrink: 1;
+    }
+
+    .skills-field__label {
         margin: 0;
         font-size: 12px;
-        font-weight: 600;
-        color: var(--fg-2);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        font-weight: 500;
+        color: var(--fg);
+        flex-shrink: 0;
     }
 
-    /* 版本链 */
-    .skill-version-chain {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        display: flex;
-        flex-direction: column;
-        gap: var(--sp-1);
+    .skills-field .omni-input,
+    .skills-field input {
+        width: 100%;
+        max-width: 100%;
     }
 
-    .skill-version-chain-item {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        padding: var(--sp-1) var(--sp-2);
-        border-radius: var(--r-sm);
-        background: var(--surface);
-        border: 1px solid var(--border-soft);
-        font-size: 11px;
-        flex-wrap: wrap;
+    .skills-body-textarea {
+        width: 100%;
+        height: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+        box-sizing: border-box;
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 12px;
+        line-height: 1.45;
+        resize: none;
     }
 
-    .skill-version-chain-item--current {
-        border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
-        background: color-mix(in oklch, var(--accent) 8%, var(--surface));
-    }
-
-    .skill-version-id {
-        font-family: var(--font-mono, monospace);
-        color: var(--fg-2);
-        font-size: 11px;
-        max-width: 280px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .skill-version-label {
-        font-weight: 600;
-        color: var(--accent);
-        font-size: 10px;
-        padding: 0 4px;
-        background: var(--accent-soft);
-        border-radius: var(--r-sm);
-    }
-
-    .skill-version-time {
-        margin-left: auto;
-        color: var(--meta);
-        font-size: 10px;
-    }
-
-    /* 应用历史列表 */
-    .skill-applications-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        display: flex;
-        flex-direction: column;
-        gap: var(--sp-2);
-    }
-
-    .skill-application-item {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sp-1);
-        padding: var(--sp-2) var(--sp-3);
-        border-radius: var(--r-sm);
-        background: var(--surface);
-        border: 1px solid var(--border-soft);
-    }
-
-    .skill-application-row {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        flex-wrap: wrap;
-    }
-
-    .skill-application-time {
-        color: var(--meta);
-        font-size: 10px;
-        font-family: var(--font-mono, monospace);
-    }
-
-    .skill-application-resource {
-        color: var(--muted);
-        font-size: 10px;
-        font-family: var(--font-mono, monospace);
-        max-width: 280px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .skill-application-feedback {
-        margin: 0;
-        font-size: 11px;
-        color: var(--fg-2);
-        line-height: 1.5;
-        padding: var(--sp-1) var(--sp-2);
-        background: var(--bg-deeper);
-        border-radius: var(--r-sm);
-        border-left: 2px solid var(--border);
-    }
-
-    .skill-application-actions {
-        display: flex;
-        flex-direction: column;
-        gap: var(--sp-2);
-        margin-top: var(--sp-1);
-    }
-
-    .skill-application-action-row {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        flex-wrap: wrap;
-    }
-
-    /* outcome 徽标（参考 badge-success/warn/danger/accent/muted 体系） */
-    .skill-outcome-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 1px 6px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        background: var(--surface);
-        color: var(--muted);
-        border: 1px solid var(--border);
-    }
-
-    .skill-outcome-badge--success {
-        background: var(--success-soft);
-        color: var(--success);
-        border-color: transparent;
-    }
-
-    .skill-outcome-badge--failure {
-        background: var(--danger-soft);
-        color: var(--danger);
-        border-color: transparent;
-    }
-
-    .skill-outcome-badge--partial {
-        background: var(--warn-soft);
-        color: var(--warn);
-        border-color: transparent;
-    }
-
-    .skill-outcome-badge--refined {
-        background: var(--accent-soft);
-        color: var(--accent);
-        border-color: transparent;
-    }
-
-    .skill-outcome-badge--pending {
-        background: var(--surface);
-        color: var(--meta);
-        border-color: var(--border-soft);
+    .skills-detail-form .settings-form-actions {
+        justify-content: flex-end;
+        flex-shrink: 0;
     }
 
     .ai-model-row-activate {

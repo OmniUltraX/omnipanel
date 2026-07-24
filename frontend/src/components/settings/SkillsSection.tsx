@@ -2,107 +2,45 @@ import { useCallback, useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 import { useI18n } from "../../i18n";
-import {
-  commands,
-  type SkillApplication,
-  type SkillDbRecord,
-  type SkillRecord,
-  type SkillVersionChainEntry,
-} from "../../ipc/bindings";
-import { useKnowledgeEmbeddingProviderConfig } from "../knowledge/KnowledgeEmbeddingModelSelect";
-import { syncEmbeddingProviderToBackend } from "../../lib/syncEmbeddingProvider";
+import { commands, type SkillRecord } from "../../ipc/bindings";
+import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { TextInput } from "../ui/form/TextInput";
 
-function SettingToggle({
-  value,
-  onChange,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div
-      className={`toggle ${value ? "on" : ""}`}
-      role="switch"
-      aria-checked={value}
-      onClick={() => onChange(!value)}
-      style={{ cursor: "pointer" }}
-    />
-  );
-}
+const NEW_SKILL_TEMPLATE = `---
+name: New Skill
+description: 
+enabled: true
+---
 
-/** 相对时间格式化（简版，按毫秒时间戳计算）。 */
-function formatRelativeTime(ts: number | null | undefined, locale: string): string {
-  if (!ts) return "";
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return locale === "zh-CN" ? "刚刚" : "just now";
-  if (diff < 3_600_000) {
-    const mins = Math.floor(diff / 60_000);
-    return locale === "zh-CN" ? `${mins} 分钟前` : `${mins}m ago`;
-  }
-  if (diff < 86_400_000) {
-    const hours = Math.floor(diff / 3_600_000);
-    return locale === "zh-CN" ? `${hours} 小时前` : `${hours}h ago`;
-  }
-  const days = Math.floor(diff / 86_400_000);
-  return locale === "zh-CN" ? `${days} 天前` : `${days}d ago`;
-}
+# Skill
 
-/** 计算成功率（百分比，0-100）。 */
-function successRate(rec: SkillDbRecord | undefined): { rate: number; total: number } | null {
-  if (!rec) return null;
-  const total = rec.successCount + rec.failureCount;
-  if (total === 0) return null;
-  return { rate: Math.round((rec.successCount / total) * 100), total };
-}
-
-/** 合并文件层 + DB 层的 skill 视图模型。 */
-interface SkillViewModel {
-  record: SkillRecord;
-  db?: SkillDbRecord;
-}
+在此编写技能说明。
+`;
 
 export function SkillsSection() {
-  const { t, locale } = useI18n();
-  const [skills, setSkills] = useState<SkillViewModel[]>([]);
+  const { t } = useI18n();
+  const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<SkillRecord | null>(null);
   const [formId, setFormId] = useState("");
-  const [formName, setFormName] = useState("");
-  const [formDesc, setFormDesc] = useState("");
   const [formBody, setFormBody] = useState("");
   const [saving, setSaving] = useState(false);
-
-  // 展开历史面板的 skill id
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [reindexing, setReindexing] = useState(false);
-  const [infoHint, setInfoHint] = useState<string | null>(null);
-  const embeddingProvider = useKnowledgeEmbeddingProviderConfig();
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [fileRes, dbRes] = await Promise.all([commands.skillList(), commands.skillListDb()]);
+      const fileRes = await commands.skillList();
       if (fileRes.status !== "ok") {
         setError(fileRes.error);
         return;
       }
-      const dbMap = new Map<string, SkillDbRecord>();
-      if (dbRes.status === "ok") {
-        for (const db of dbRes.data) {
-          dbMap.set(db.id, db);
-        }
-      }
-      const vms: SkillViewModel[] = fileRes.data.map((record) => ({
-        record,
-        db: dbMap.get(record.id),
-      }));
-      setSkills(vms);
+      setSkills(fileRes.data);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -114,54 +52,76 @@ export function SkillsSection() {
     void refresh();
   }, [refresh]);
 
-  const resetForm = () => {
-    setFormId("");
-    setFormName("");
-    setFormDesc("");
-    setFormBody("");
-    setEditing(null);
-    setShowCreate(false);
-  };
-
-  const openCreate = () => {
-    resetForm();
-    setFormBody("# Skill\n\n在此编写技能说明。\n");
-    setShowCreate(true);
-  };
-
-  const openEdit = (skill: SkillRecord) => {
+  const selectSkill = useCallback((skill: SkillRecord) => {
+    setIsCreating(false);
     setEditing(skill);
+    setSelectedId(skill.id);
     setFormId(skill.id);
-    setFormName(skill.name);
-    setFormDesc(skill.description);
-    setShowCreate(true);
     void (async () => {
       const res = await commands.skillGet(skill.id);
       if (res.status === "ok") {
         setFormBody(res.data.body);
       }
     })();
+  }, []);
+
+  // 列表刷新后：保留选中项；否则自动选中第一项
+  useEffect(() => {
+    if (isCreating || loading) return;
+    if (selectedId && skills.some((s) => s.id === selectedId)) {
+      return;
+    }
+    if (skills[0]) {
+      selectSkill(skills[0]);
+    } else {
+      setSelectedId(null);
+      setEditing(null);
+    }
+  }, [skills, selectedId, isCreating, loading, selectSkill]);
+
+  const openCreate = () => {
+    setIsCreating(true);
+    setEditing(null);
+    setSelectedId(null);
+    setFormId("");
+    setFormBody(NEW_SKILL_TEMPLATE);
+  };
+
+  const cancelCreate = () => {
+    setIsCreating(false);
+    if (skills[0]) {
+      selectSkill(skills[0]);
+    } else {
+      setEditing(null);
+      setSelectedId(null);
+      setFormId("");
+      setFormBody("");
+    }
   };
 
   const handleSave = async () => {
     setSaving(true);
+    setError(null);
     try {
       if (editing) {
         const res = await commands.skillUpdate({
           id: editing.id,
-          name: formName.trim() || undefined,
-          description: formDesc.trim() || undefined,
           body: formBody || undefined,
         });
         if (res.status !== "ok") {
           setError(res.error);
           return;
         }
+        setEditing(res.data);
+        setSelectedId(res.data.id);
+        await refresh();
+        const detail = await commands.skillGet(res.data.id);
+        if (detail.status === "ok") {
+          setFormBody(detail.data.body);
+        }
       } else {
         const res = await commands.skillCreate({
           id: formId.trim(),
-          name: formName.trim(),
-          description: formDesc.trim(),
           body: formBody,
           enabled: true,
         });
@@ -169,9 +129,10 @@ export function SkillsSection() {
           setError(res.error);
           return;
         }
+        setIsCreating(false);
+        await refresh();
+        selectSkill(res.data);
       }
-      resetForm();
-      await refresh();
     } finally {
       setSaving(false);
     }
@@ -185,447 +146,165 @@ export function SkillsSection() {
       setError(res.error);
       return;
     }
+    setIsCreating(false);
     await refresh();
-  };
-
-  const handleToggle = async (id: string, enabled: boolean) => {
-    const res = await commands.skillSetEnabled(id, enabled);
-    if (res.status === "ok") {
-      setSkills((prev) =>
-        prev.map((s) => (s.record.id === id ? { ...s, record: res.data } : s)),
-      );
-    }
+    selectSkill(res.data);
   };
 
   const handleRemove = async (id: string) => {
-    const res = await commands.skillRemove(id);
-    if (res.status === "ok") {
-      await refresh();
-    }
-  };
-
-  const toggleExpand = (id: string) => {
-    setExpandedId((cur) => (cur === id ? null : id));
-  };
-
-  const handleReindex = async () => {
-    setReindexing(true);
-    setError(null);
-    setInfoHint(null);
-    try {
-      const provider =
-        embeddingProvider ?? (await syncEmbeddingProviderToBackend());
-      if (!provider) {
-        setError(t("settings.skills.reindexNeedEmbedding"));
-        return;
-      }
-      await syncEmbeddingProviderToBackend();
-      const res = await commands.skillVectorizeAll(provider);
-      if (res.status !== "ok") {
-        setError(res.error || t("settings.skills.reindexFailed"));
-        return;
-      }
-      await refresh();
-      setInfoHint(t("settings.skills.reindexDone", { count: res.data.length }));
-    } catch (e) {
-      setError(String(e) || t("settings.skills.reindexFailed"));
-    } finally {
-      setReindexing(false);
-    }
-  };
-
-  return (
-    <div className="settings-subsection">
-      <div className="settings-section-header">
-        <div>
-          <p className="setting-hint settings-subsection-desc">{t("settings.skills.desc")}</p>
-        </div>
-        <div className="settings-section-actions">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={reindexing || skills.length === 0}
-            onClick={() => void handleReindex()}
-          >
-            {reindexing ? t("settings.skills.reindexing") : t("settings.skills.reindex")}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => void handleImport()}>
-            {t("settings.skills.import")}
-          </Button>
-          <Button variant="primary" size="sm" onClick={openCreate}>
-            {t("settings.skills.create")}
-          </Button>
-        </div>
-      </div>
-
-      {error ? <p className="setting-hint setting-hint--error">{error}</p> : null}
-      {infoHint ? <p className="setting-hint">{infoHint}</p> : null}
-
-      {showCreate ? (
-        <div className="settings-form-card">
-          <h3>{editing ? t("settings.skills.edit") : t("settings.skills.create")}</h3>
-          {!editing ? (
-            <div className="setting-row">
-              <div className="setting-label">
-                <h4>{t("settings.skills.id")}</h4>
-              </div>
-              <div className="setting-control setting-control--wide">
-                <TextInput value={formId} onChange={setFormId} placeholder="my-skill" />
-              </div>
-            </div>
-          ) : null}
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.skills.name")}</h4>
-            </div>
-            <div className="setting-control setting-control--wide">
-              <TextInput value={formName} onChange={setFormName} />
-            </div>
-          </div>
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.skills.description")}</h4>
-            </div>
-            <div className="setting-control setting-control--wide">
-              <TextInput value={formDesc} onChange={setFormDesc} />
-            </div>
-          </div>
-          <div className="setting-row setting-row--stack">
-            <div className="setting-label">
-              <h4>{t("settings.skills.body")}</h4>
-            </div>
-            <textarea
-              className="settings-textarea"
-              rows={12}
-              value={formBody}
-              onChange={(e) => setFormBody(e.target.value)}
-            />
-          </div>
-          <div className="settings-form-actions">
-            <Button variant="secondary" size="sm" onClick={resetForm}>
-              {t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="sm" disabled={saving} onClick={() => void handleSave()}>
-              {saving ? t("common.saving") : t("common.save")}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <p className="setting-hint">{t("settings.skills.loading")}</p>
-      ) : skills.length === 0 ? (
-        <ModuleEmptyState title={t("settings.skills.empty")} />
-      ) : (
-        <ul className="ai-models-list">
-          {skills.map((vm) => (
-            <li key={vm.record.id} className="ai-provider-card skill-card">
-              <div className="ai-provider-header">
-                <div>
-                  <h3>
-                    {vm.record.name}
-                    {vm.db && vm.db.version > 1 ? (
-                      <span className="skill-version-badge">
-                        {t("settings.skills.stats.version", { version: vm.db.version })}
-                      </span>
-                    ) : null}
-                  </h3>
-                  <p className="section-desc">{vm.record.description || vm.record.id}</p>
-                  {/* DB 统计行 */}
-                  {vm.db ? (
-                    <div className="skill-stats-row">
-                      {(() => {
-                        const sr = successRate(vm.db);
-                        return sr ? (
-                          <span className="skill-stat-chip skill-stat-chip--success">
-                            {t("settings.skills.stats.successRate", { rate: sr.rate })}
-                          </span>
-                        ) : (
-                          <span className="skill-stat-chip skill-stat-chip--muted">
-                            {t("settings.skills.stats.successRateEmpty")}
-                          </span>
-                        );
-                      })()}
-                      <span className="skill-stat-chip">
-                        {t("settings.skills.stats.applied", {
-                          count: (vm.db.successCount ?? 0) + (vm.db.failureCount ?? 0),
-                        })}
-                      </span>
-                      {vm.db.lastAppliedAt ? (
-                        <span className="skill-stat-chip">
-                          {t("settings.skills.stats.lastApplied", {
-                            time: formatRelativeTime(vm.db.lastAppliedAt, locale),
-                          })}
-                        </span>
-                      ) : (
-                        <span className="skill-stat-chip skill-stat-chip--muted">
-                          {t("settings.skills.stats.lastAppliedNever")}
-                        </span>
-                      )}
-                      {vm.db.parentVersionId ? (
-                        <span
-                          className="skill-stat-chip skill-stat-chip--parent"
-                          title={vm.db.parentVersionId}
-                        >
-                          {t("settings.skills.stats.hasParent", {
-                            parentId: vm.db.parentVersionId,
-                          })}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-                <SettingToggle
-                  value={vm.record.enabled}
-                  onChange={(v) => void handleToggle(vm.record.id, v)}
-                />
-              </div>
-              <div className="ai-provider-actions">
-                <Button variant="secondary" size="sm" onClick={() => openEdit(vm.record)}>
-                  {t("common.edit")}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => toggleExpand(vm.record.id)}
-                >
-                  {expandedId === vm.record.id
-                    ? t("settings.skills.history.collapse")
-                    : t("settings.skills.history.expand")}
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => void handleRemove(vm.record.id)}
-                >
-                  {t("common.delete")}
-                </Button>
-              </div>
-              {expandedId === vm.record.id ? (
-                <SkillHistoryPanel skillId={vm.record.id} onOutcomeUpdated={refresh} />
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/** Skill 详情面板：版本链 + 应用历史 + outcome 更新。 */
-function SkillHistoryPanel({
-  skillId,
-  onOutcomeUpdated,
-}: {
-  skillId: string;
-  onOutcomeUpdated: () => void;
-}) {
-  const { t, locale } = useI18n();
-  const [chain, setChain] = useState<SkillVersionChainEntry[]>([]);
-  const [apps, setApps] = useState<SkillApplication[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // outcome 更新表单
-  const [pendingAppId, setPendingAppId] = useState<string | null>(null);
-  const [feedbackText, setFeedbackText] = useState("");
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [chainRes, appsRes] = await Promise.all([
-        commands.skillGetVersionChain(skillId),
-        commands.skillListApplications(skillId, 20),
-      ]);
-      if (chainRes.status === "ok") setChain(chainRes.data);
-      else setError(chainRes.error);
-      if (appsRes.status === "ok") setApps(appsRes.data);
-      else setError(appsRes.error);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [skillId]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const handleUpdateOutcome = async (appId: string, outcome: string) => {
-    const res = await commands.skillUpdateApplicationOutcome(
-      appId,
-      outcome,
-      feedbackText.trim() || null,
+    const skill = skills.find((s) => s.id === id);
+    const ok = await appConfirm(
+      t("settings.skills.deleteConfirm", { name: skill?.name ?? id }),
+      t("settings.skills.deleteTitle"),
+      { confirmLabel: t("common.delete"), kind: "warning" },
     );
+    if (!ok) return;
+
+    const res = await commands.skillRemove(id);
     if (res.status !== "ok") {
       setError(res.error);
       return;
     }
-    setPendingAppId(null);
-    setFeedbackText("");
-    await refresh();
-    onOutcomeUpdated();
-  };
-
-  const outcomeBadgeClass = (outcome: string): string => {
-    switch (outcome) {
-      case "success":
-        return "skill-outcome-badge skill-outcome-badge--success";
-      case "failure":
-        return "skill-outcome-badge skill-outcome-badge--failure";
-      case "partial":
-        return "skill-outcome-badge skill-outcome-badge--partial";
-      case "refined":
-        return "skill-outcome-badge skill-outcome-badge--refined";
-      default:
-        return "skill-outcome-badge skill-outcome-badge--pending";
+    const remaining = skills.filter((s) => s.id !== id);
+    setSkills(remaining);
+    if (selectedId === id || isCreating) {
+      if (remaining[0]) {
+        selectSkill(remaining[0]);
+      } else {
+        setSelectedId(null);
+        setEditing(null);
+        setIsCreating(false);
+        setFormId("");
+        setFormBody("");
+      }
     }
   };
 
-  const outcomeLabel = (outcome: string): string => {
-    switch (outcome) {
-      case "success":
-        return t("settings.skills.history.outcomeSuccess");
-      case "failure":
-        return t("settings.skills.history.outcomeFailure");
-      case "partial":
-        return t("settings.skills.history.outcomePartial");
-      case "refined":
-        return t("settings.skills.history.outcomeRefined");
-      default:
-        return t("settings.skills.history.outcomePending");
-    }
-  };
-
-  if (loading) {
-    return <p className="setting-hint">{t("settings.skills.loading")}</p>;
-  }
+  const showEditor = isCreating || !!editing;
 
   return (
-    <div className="skill-history-panel">
+    <div className="settings-subsection skills-section">
       {error ? <p className="setting-hint setting-hint--error">{error}</p> : null}
 
-      {/* 版本链 */}
-      <div className="skill-history-section">
-        <h4 className="skill-history-section-title">
-          {t("settings.skills.history.versionChain")}
-        </h4>
-        {chain.length === 0 ? (
-          <p className="setting-hint">{t("settings.skills.history.empty")}</p>
-        ) : (
-          <ul className="skill-version-chain">
-            {chain.map((entry) => (
-              <li
-                key={entry.id}
-                className={`skill-version-chain-item ${
-                  entry.id === skillId ? "skill-version-chain-item--current" : ""
-                }`}
-              >
-                <span className="skill-version-id">{entry.id}</span>
-                <span className="skill-version-label">
-                  {t("settings.skills.history.versionLabel", { version: entry.version })}
-                </span>
-                <span className="skill-version-time">
-                  {t("settings.skills.history.createdAt", {
-                    time: formatRelativeTime(entry.createdAt, locale),
-                  })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <div className="skills-layout">
+        <aside className="skills-sidebar" aria-label={t("settings.skills.sidebarTitle")}>
+          <div className="skills-sidebar-toolbar">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              title={t("settings.skills.create")}
+              aria-label={t("settings.skills.create")}
+              onClick={openCreate}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+              </svg>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              title={t("settings.skills.import")}
+              aria-label={t("settings.skills.import")}
+              onClick={() => void handleImport()}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                <path d="M8 2v8m0 0L5.5 7.5M8 10l2.5-2.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M3 11.5V13a1 1 0 001 1h8a1 1 0 001-1v-1.5" strokeLinecap="round" />
+              </svg>
+            </Button>
+          </div>
 
-      {/* 应用历史 */}
-      <div className="skill-history-section">
-        <h4 className="skill-history-section-title">
-          {t("settings.skills.history.applications")}
-        </h4>
-        {apps.length === 0 ? (
-          <p className="setting-hint">{t("settings.skills.history.empty")}</p>
-        ) : (
-          <ul className="skill-applications-list">
-            {apps.map((app) => (
-              <li key={app.id} className="skill-application-item">
-                <div className="skill-application-row">
-                  <span className={outcomeBadgeClass(app.outcome)}>{outcomeLabel(app.outcome)}</span>
-                  <span className="skill-application-time">
-                    {formatRelativeTime(app.appliedAt, locale)}
-                  </span>
-                  {app.resourceType ? (
-                    <span className="skill-application-resource">
-                      {t("settings.skills.history.resource")}: {app.resourceType}
-                      {app.resourceId ? ` / ${app.resourceId}` : ""}
-                    </span>
-                  ) : null}
-                </div>
-                {app.feedback ? (
-                  <p className="skill-application-feedback">{app.feedback}</p>
-                ) : null}
-                {/* outcome 更新 UI */}
-                {app.outcome === "pending" ? (
-                  <div className="skill-application-actions">
-                    {pendingAppId === app.id ? (
-                      <>
-                        <TextInput
-                          value={feedbackText}
-                          onChange={setFeedbackText}
-                          placeholder={t("settings.skills.history.feedbackPlaceholder")}
+          {loading ? (
+            <p className="setting-hint skills-sidebar-hint">{t("settings.skills.loading")}</p>
+          ) : skills.length === 0 ? (
+            <p className="setting-hint skills-sidebar-hint">{t("settings.skills.empty")}</p>
+          ) : (
+            <ul className="skills-sidebar-list">
+              {skills.map((skill) => {
+                const active = !isCreating && skill.id === selectedId;
+                return (
+                  <li key={skill.id} className="skills-sidebar-row">
+                    <button
+                      type="button"
+                      className={`skills-sidebar-item${active ? " is-active" : ""}`}
+                      onClick={() => selectSkill(skill)}
+                    >
+                      <span className="skills-sidebar-item__name">{skill.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="skills-sidebar-delete"
+                      title={t("common.delete")}
+                      aria-label={t("common.delete")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleRemove(skill.id);
+                      }}
+                    >
+                      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+                        <path
+                          fill="currentColor"
+                          d="M6 2h4l.5 1H13v1H3V3h2.5L6 2zm1 4v6H6V6h1zm2 0v6H8V6h1zm2 0v6h-1V6h1zM4.5 5h7l-.6 8.2A1.5 1.5 0 019.4 14.5H6.6a1.5 1.5 0 01-1.5-1.3L4.5 5z"
                         />
-                        <div className="skill-application-action-row">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void handleUpdateOutcome(app.id, "success")}
-                          >
-                            {outcomeLabel("success")}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void handleUpdateOutcome(app.id, "failure")}
-                          >
-                            {outcomeLabel("failure")}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void handleUpdateOutcome(app.id, "partial")}
-                          >
-                            {outcomeLabel("partial")}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setPendingAppId(null);
-                              setFeedbackText("");
-                            }}
-                          >
-                            {t("common.cancel")}
-                          </Button>
-                        </div>
-                      </>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setPendingAppId(app.id);
-                          setFeedbackText(app.feedback || "");
-                        }}
-                      >
-                        {t("settings.skills.history.markAs")}
-                      </Button>
-                    )}
+                      </svg>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </aside>
+
+        <div className="skills-content">
+          {!showEditor && !loading ? (
+            <ModuleEmptyState
+              title={
+                skills.length === 0
+                  ? t("settings.skills.empty")
+                  : t("settings.skills.selectHint")
+              }
+            />
+          ) : null}
+
+          {showEditor ? (
+            <div className="skills-detail">
+              <div className="skills-detail-form">
+                {isCreating ? (
+                  <div className="skills-field">
+                    <h4 className="skills-field__label">{t("settings.skills.id")}</h4>
+                    <TextInput value={formId} onChange={setFormId} placeholder="my-skill" />
                   </div>
                 ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
+                <div className="skills-field skills-field--body">
+                  <textarea
+                    className="settings-textarea skills-body-textarea"
+                    value={formBody}
+                    spellCheck={false}
+                    aria-label={t("settings.skills.body")}
+                    onChange={(e) => setFormBody(e.target.value)}
+                  />
+                </div>
+                <div className="settings-form-actions">
+                  {isCreating ? (
+                    <Button variant="secondary" size="sm" onClick={cancelCreate}>
+                      {t("common.cancel")}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={saving}
+                    onClick={() => void handleSave()}
+                  >
+                    {saving ? t("common.saving") : t("common.save")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );
