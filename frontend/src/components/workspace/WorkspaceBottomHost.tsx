@@ -80,21 +80,30 @@ export function WorkspaceBottomHost() {
   useEffect(() => {
     if (!activeWorkspace) return;
     const scope = workspaceDockScope(activeHostId);
-    const timer = window.setTimeout(() => {
-      if (isFullscreen) {
-        const { width, height } = measureWorkspaceBottomHostSize(true);
-        if (width > 0 && height > 0) {
-          relayoutDockviewInstances(scope, { width, height });
+    // 双 rAF（约 32ms）替代 setTimeout(50ms)：等布局稳定后 relayout，
+    // 但比 50ms 更快，减少全屏切换时的布局空白感知。
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (isFullscreen) {
+          const { width, height } = measureWorkspaceBottomHostSize(true);
+          if (width > 0 && height > 0) {
+            relayoutDockviewInstances(scope, { width, height });
+          }
+          return;
         }
-        return;
-      }
-      if (!hostRef.current) return;
-      const rect = hostRef.current.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        relayoutDockviewInstances(scope, { width: rect.width, height: rect.height });
-      }
-    }, 50);
-    return () => window.clearTimeout(timer);
+        if (!hostRef.current) return;
+        const rect = hostRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          relayoutDockviewInstances(scope, { width: rect.width, height: rect.height });
+        }
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [activeHostId, activeWorkspace, isFullscreen]);
 
   if (!activeWorkspace) {

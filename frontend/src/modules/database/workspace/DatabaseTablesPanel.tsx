@@ -13,6 +13,7 @@ import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
 import { makeTableFilterKey, mergeFilter } from "../schema/DatabaseFilterDialog";
 import { getCachedTableCommentMap, getCachedTableNames } from "../schema/schemaCacheMerge";
+import { databaseObjectsNeedLoad } from "../schema/schemaCache";
 import { buildDatabaseTreeItem } from "../schema/schemaTreeItem";
 import { refreshAndApplySchemaTreeNode } from "../schema/schemaTreeRefresh";
 import { buildDropTableSql, isSchemaDropSqlSupported } from "../schema/schemaTreeDropSql";
@@ -245,6 +246,8 @@ export function DatabaseTablesPanel({
     setSort({ column: "name", direction: "asc" });
     setContextMenu(null);
     setDbMeta(findDatabaseMeta(readDatabasesCache(selection.connId), selection.dbName));
+    // 切换到不同库时重置自动加载标记，允许新库再次触发 auto-load
+    autoLoadAttemptedRef.current = null;
   }, [selection.connId, selection.dbName]);
 
   useEffect(() => {
@@ -273,6 +276,47 @@ export function DatabaseTablesPanel({
     () => getCachedTableNames(schemaSnapshot, selection.connId, selection.dbName),
     [schemaSnapshot, selection.connId, selection.dbName],
   );
+
+  // 库 Tab 打开时，若缓存里该库的对象列表（tables/views/routines）为空则自动加载。
+  // 与双击库节点（expandDatabaseOnActivate）/点三角展开（toggle）走同一条
+  // refreshAndApplySchemaTreeNode 路径，仅触发时机扩展到"打开库 Tab"。
+  // 避免用户从连接详情双击进入库 Tab 后看到空列表，必须手动点刷新按钮。
+  const dbNodeId = `db:${selection.connId}:${selection.dbName}`;
+  const autoLoadAttemptedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isConnectionEnabled(selection.connection)) return;
+    // 从 schemaSnapshot 取该库的缓存对象，判断是否需要加载
+    const dbEntry = schemaSnapshot.connections?.[selection.connId]?.databases?.find(
+      (d) => d.name === selection.dbName,
+    );
+    if (!databaseObjectsNeedLoad(dbEntry ?? {})) return;
+    // 防止同库重复触发（schemaSnapshot 变化会重跑此 effect）
+    if (autoLoadAttemptedRef.current === dbNodeId) return;
+    autoLoadAttemptedRef.current = dbNodeId;
+    const store = useDbSchemaCacheStore.getState();
+    if (store.refreshingNodeIds[dbNodeId]) return;
+    setSchemaRefreshing(true);
+    void refreshAndApplySchemaTreeNode(
+      selection.connection,
+      buildDatabaseTreeItem(selection.connId, selection.dbName),
+      {
+        syncTableFilter: (connId, dbName, names, options) => {
+          const key = makeTableFilterKey(connId, dbName);
+          useDbSchemaFilterStore.getState().setTableFilters((prev) => ({
+            ...prev,
+            [key]: mergeFilter(prev[key], names, options),
+          }));
+        },
+      },
+    )
+      .catch((err) => {
+        // 静默失败：用户可通过刷新按钮手动重试
+        console.warn("[DatabaseTablesPanel] auto-load schema failed:", err);
+      })
+      .finally(() => {
+        setSchemaRefreshing(false);
+      });
+  }, [schemaSnapshot, selection.connId, selection.connection, selection.dbName, dbNodeId]);
 
   const tableComments = useMemo(
     () => getCachedTableCommentMap(schemaSnapshot, selection.connId, selection.dbName),

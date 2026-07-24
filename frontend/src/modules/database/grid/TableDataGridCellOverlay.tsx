@@ -144,7 +144,9 @@ export function TableDataGridCellOverlay({
     host.style.left = `${clamped.left}px`;
     host.style.top = `${clamped.top}px`;
 
-    if (textarea) {
+    // clamp 未改变 top 时 maxHeight 不变，跳过第二次 syncTextareaHeight
+    // 可省去一次 scrollHeight 读取（会强制 layout），编辑态逐键输入时收益明显。
+    if (textarea && clamped.top !== overlay.top) {
       const maxHeight = Math.min(
         CELL_OVERLAY_PREVIEW_MAX_HEIGHT,
         Math.max(

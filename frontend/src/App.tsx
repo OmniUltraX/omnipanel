@@ -8,20 +8,14 @@ import {
 } from "react-router-dom";
 import {
   useEffect,
-  useLayoutEffect,
-  useRef,
   useState,
   startTransition,
 } from "react";
 import { Sidebar } from "./components/shell/Sidebar";
-import { Topbar } from "./components/shell/Topbar";
-import { StatusBar } from "./components/shell/StatusBar";
 import { CommandPalette } from "./components/shell/CommandPalette";
 import { RecentItemsPanel } from "./components/shell/RecentItemsPanel";
 import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
-import { AiDockView } from "./components/ai/AiDockView";
-import { AiDockviewResizeHandle } from "./components/ai/AiDockviewResizeHandle";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
@@ -31,14 +25,12 @@ import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { SkillEvolutionPrompt } from "./components/feedback/SkillEvolutionPrompt";
 import { Button } from "./components/ui/primitives/Button";
 import { SuspendedModulePanel, OverlayModuleRoutePanel } from "./components/ui/feedback";
-import { WorkspaceHost } from "./components/workspace/WorkspaceHost";
+import { WorkspaceShell } from "./components/workspace/WorkspaceShell";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
-import { workspaceShellState } from "./lib/workspaceMode";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
 import {
   createInitialOverlayMounted,
   isOverlayModuleKey,
-  isOverlayModulePath,
   isShellRoutePath,
 } from "./lib/routePanels";
 import {
@@ -83,7 +75,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
 import { ProtocolNewTabDialog } from "./modules/protocol/ProtocolNewTabDialog";
-import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { SshToTerminalRedirect } from "./modules/terminal/SshToTerminalRedirect";
 import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
@@ -403,6 +395,7 @@ function AppShell() {
 
   const title = getRouteTitle(location.pathname);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
+  const isDashboard = isDashboardPath(location.pathname);
   const isTerminal = location.pathname === MODULE_PATHS.terminal;
   const isDocker = location.pathname === MODULE_PATHS.docker;
   const isDatabase = location.pathname === MODULE_PATHS.database;
@@ -412,7 +405,7 @@ function AppShell() {
   const isWorkflow = location.pathname === MODULE_PATHS.workflow;
   const isKnowledge = location.pathname === MODULE_PATHS.knowledge;
   const isTasks = location.pathname === MODULE_PATHS.tasks;
-  const isShellRoute = isShellRoutePath(location.pathname);
+  const isShellRoute = isShellRoutePath(location.pathname) && !isDashboard;
 
   // 叠层模块按需挂载：启动时不全量挂载，避免首页主线程被终端/数据库等重型面板堵死
   const [overlayMounted, setOverlayMounted] = useState(() =>
@@ -562,52 +555,16 @@ function AppShell() {
     : null;
 
   const aiDockWidth = useSettingsStore((s) => s.aiDockWidth);
-  const workspaceMode = useBottomPanelStore((s) => s.workspaceMode);
-  const isBottomFullscreen = useBottomPanelStore((s) => s.isFullscreen);
-  const workspaceId = useWorkspaceStore((s) => s.workspace.id);
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const poppedOutIds = useWorkspaceWindowStore((s) => s.poppedOutIds);
-  const hasHostedWorkspace = workspaces.some((ws) => !poppedOutIds.includes(ws.id));
-  const isCurrentWorkspacePoppedOut = poppedOutIds.includes(workspaceId);
-  const hideMainEmbeddedWorkspace =
-    isCurrentWorkspacePoppedOut && !(isBottomFullscreen && hasHostedWorkspace);
-  const deferExitPath = useBottomPanelStore((s) => s.deferExitFullscreenUntilPath);
-  const wsState = hideMainEmbeddedWorkspace
-    ? "off"
-    : workspaceShellState(workspaceMode);
-  const showBottomFullscreen = isBottomFullscreen && !hideMainEmbeddedWorkspace;
-
-  // 全屏延迟退出：路由 commit 后同一 layout 阶段再解除全屏，避免闪旧页面
-  // deferExitPath 入 deps：navigate 同路径 noop 时 pathname 不变，仍需完成退出
-  useLayoutEffect(() => {
-    useBottomPanelStore.getState().tryCompleteDeferExitFullscreen(location.pathname);
-  }, [location.pathname, deferExitPath]);
-
-  const embeddedModeClass =
-    !hideMainEmbeddedWorkspace &&
-    workspaceMode !== "fullscreen" &&
-    workspaceMode !== "hidden"
-      ? ` workspace--mode-${workspaceMode}`
-      : "";
   const dockWidth =
     aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
-  const workspaceRef = useRef<HTMLDivElement>(null);
-
-  // 工程工作区全屏时同步 URL 到 /workspace/:id（Logo 先 navigate 看板时勿拉回工作区）
-  useEffect(() => {
-    if (workspaceMode !== "fullscreen" && workspaceMode !== "home") return;
-    if (hideMainEmbeddedWorkspace) return;
-    if (isWorkspacePath(location.pathname)) return;
-    if (isShellRoutePath(location.pathname) || isOverlayModulePath(location.pathname)) {
-      return;
-    }
-    const id = useWorkspaceStore.getState().workspace.id;
-    navigate(WORKSPACE_PATHS.detail(id), { replace: true });
-  }, [workspaceMode, location.pathname, navigate]);
 
   const routePanels = (
     <div className="content-routes">
+      {/* Dashboard 常驻挂载：避免每次从功能页切回首页时重新创建 dockview 实例导致延迟 */}
+      <OverlayModuleRoutePanel active={isDashboard} mounted keepLayout>
+        <LazyDashboardPage />
+      </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isTerminal}
         mounted={overlayMounted.terminal}
@@ -618,6 +575,7 @@ function AppShell() {
       <OverlayModuleRoutePanel
         active={isDocker}
         mounted={overlayMounted.docker}
+        keepLayout
       >
         <LazyDockerPanel />
       </OverlayModuleRoutePanel>
@@ -631,50 +589,50 @@ function AppShell() {
       <OverlayModuleRoutePanel
         active={isFiles}
         mounted={overlayMounted.files}
+        keepLayout
       >
         <LazyFilesPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isServer}
         mounted={overlayMounted.server}
+        keepLayout
       >
         <LazyServerPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isProtocol}
         mounted={overlayMounted.protocol}
+        keepLayout
       >
         <LazyProtocolPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isWorkflow}
         mounted={overlayMounted.workflow}
+        keepLayout
       >
         <LazyWorkflowPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isKnowledge}
         mounted={overlayMounted.knowledge}
+        keepLayout
       >
         <LazyKnowledgePanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isTasks}
         mounted={overlayMounted.tasks}
+        keepLayout
       >
         <LazyTaskCenterPanel />
       </OverlayModuleRoutePanel>
       <div className={`route-panel${isShellRoute ? " route-panel--active" : ""}`}>
         <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />
-            <Route
-              path={DASHBOARD_PATH}
-              element={
-                <SuspendedModulePanel active={location.pathname === DASHBOARD_PATH}>
-                  <LazyDashboardPage />
-                </SuspendedModulePanel>
-              }
-            />
+            {/* Dashboard 由 overlay 常驻渲染（见 routePanels），此处仅占位避免 fallback 重定向 */}
+            <Route path={DASHBOARD_PATH} element={null} />
             <Route
               path={`${WORKSPACE_PATHS.list}/:workspaceId`}
               element={
@@ -706,25 +664,14 @@ function AppShell() {
     <AiRuntimeProvider>
       <div className="app">
       <Sidebar />
-      <div
-        ref={workspaceRef}
-        className={`workspace workspace--${wsState}${showBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
-        style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
-      >
-        <Topbar title={title} hidden>
-          <TopbarPageActions />
-        </Topbar>
-        <div className="workspace-body">
-          <div className={`content-area ws-state-${wsState}`}>
-            <WorkspaceHost>{routePanels}</WorkspaceHost>
-          </div>
-          {dockOpen ? (
-            <AiDockviewResizeHandle workspaceRef={workspaceRef} />
-          ) : null}
-          {aiDisplayMode === "dockview" ? <AiDockView /> : null}
-        </div>
-        <StatusBar />
-      </div>
+      <WorkspaceShell
+        title={title}
+        routePanels={routePanels}
+        dockWidth={dockWidth}
+        dockOpen={dockOpen}
+        aiDockview={aiDisplayMode === "dockview"}
+        topbarActions={<TopbarPageActions />}
+      />
       {aiDisplayMode !== "dockview" ? <AiDrawer /> : null}
       <CommandPalette />
       <RecentItemsPanel />

@@ -199,32 +199,38 @@ function probeInstalledFontsByDom(
     return [];
   }
 
-  const span = document.createElement("span");
-  span.textContent = TEST_STRING;
-  span.style.position = "absolute";
-  span.style.left = "-9999px";
-  span.style.top = "-9999px";
-  span.style.visibility = "hidden";
-  span.style.whiteSpace = "nowrap";
-  span.style.fontSize = TEST_SIZE;
-  span.style.fontFamily = genericFamily;
-  document.body.appendChild(span);
+  // 批量探测：为每个候选字体创建独立 span，一次性 append，
+  // 浏览器合并为一次 style recalc + layout，避免循环内逐次 offsetWidth 强制 reflow。
+  const container = document.createElement("div");
+  container.style.cssText = "position:absolute;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;";
 
-  const genericWidth = span.offsetWidth;
-  const detected: string[] = [];
+  const baseSpan = document.createElement("span");
+  baseSpan.textContent = TEST_STRING;
+  baseSpan.style.cssText = `whiteSpace:nowrap;font-size:${TEST_SIZE};font-family:${genericFamily};`;
+  container.appendChild(baseSpan);
 
+  const fontSpans: Array<{ font: string; span: HTMLSpanElement }> = [];
   for (const font of candidates) {
-    if (isGenericFamily(font)) {
-      detected.push(font);
-      continue;
-    }
-    span.style.fontFamily = `"${font}", ${genericFamily}`;
+    if (isGenericFamily(font)) continue;
+    const span = document.createElement("span");
+    span.textContent = TEST_STRING;
+    span.style.cssText = `whiteSpace:nowrap;font-size:${TEST_SIZE};font-family:"${font}", ${genericFamily};`;
+    container.appendChild(span);
+    fontSpans.push({ font, span });
+  }
+
+  document.body.appendChild(container);
+
+  // 批量读取：所有 span 共享同一次 layout
+  const genericWidth = baseSpan.offsetWidth;
+  const detected: string[] = [];
+  for (const { font, span } of fontSpans) {
     if (span.offsetWidth !== genericWidth) {
       detected.push(font);
     }
   }
 
-  document.body.removeChild(span);
+  document.body.removeChild(container);
   return detected;
 }
 

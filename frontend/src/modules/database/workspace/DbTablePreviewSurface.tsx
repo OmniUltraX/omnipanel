@@ -1,4 +1,13 @@
-import { useMemo, memo, useCallback, useRef, useState, useEffect, useLayoutEffect } from "react";
+import {
+  useMemo,
+  memo,
+  useCallback,
+  useRef,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useDeferredValue,
+} from "react";
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import {
   useDbWorkspace,
@@ -124,6 +133,19 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const [changeRowFilter, setChangeRowFilter] = useState<PreviewChangeRowFilter>("all");
   const [ddlEntry, setDdlEntry] = useState<TableDetailDdlState>({ status: "idle" });
   const copySqlHintTimerRef = useRef<number | null>(null);
+  /**
+   * 延迟 TableDataGrid 首次挂载一帧。
+   * 新 tab 创建时 Dockview panel 同步渲染，若此时 showPreviewGrid 已 true（warm columnMeta），
+   * TableDataGrid（3500+ 行组件 + TanStack Table 实例 + Canvas 初始化）首挂会阻塞 panel 创建。
+   * 延迟一帧让 panel 先创建完（骨架），下一帧再挂 grid。
+   * 已有 tab 不受影响：DbTablePreviewSurface 不会重新挂载，gridMounted 保持 true。
+   */
+  const [gridMounted, setGridMounted] = useState(false);
+  useEffect(() => {
+    if (gridMounted) return;
+    const raf = requestAnimationFrame(() => setGridMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, [gridMounted]);
 
   const detailPosition = useSettingsStore((s) => s.databaseTableDetailPosition);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
@@ -708,32 +730,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     }
   }, [ddlEntry, t]);
 
-  const showPreviewGrid = Boolean(preview?.data && canRefresh && !preview.error);
-
   const splitDirection = effectiveDetailPosition === "right" ? "horizontal" : "vertical";
   const detailDefaultSize = toPanelPx(DETAIL_DEFAULT_SIZE_PX[effectiveDetailPosition]);
   const detailMinSize = toPanelPx(DETAIL_MIN_SIZE_PX[effectiveDetailPosition]);
-
-  // 切换右/底、或 Tab 重新激活时同步展开态（Dock 可能刚挂载），并用该方位已记住的 px
-  useLayoutEffect(() => {
-    if (!showPreviewGrid || !active) return;
-    const handle = detailPanelRef.current;
-    if (!handle) return;
-    detailCollapseSyncingRef.current = true;
-    try {
-      if (detailCollapsed) {
-        handle.collapse();
-      } else {
-        handle.expand();
-        handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
-      }
-    } finally {
-      queueMicrotask(() => {
-        detailCollapseSyncingRef.current = false;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/激活时同步，保留当前 collapsed
-  }, [effectiveDetailPosition, showPreviewGrid, active]);
 
   const previewSql = useMemo(() => {
     if (!previewConnection || !tab.tableName || !preview) return "";
@@ -798,10 +797,54 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const dirtyCount = Object.keys(tabDirtyRowsForTab).length;
   const totalPages = preview
-    ? Math.max(1, Math.ceil(preview.totalRows / preview.pageSize))
+    ? Math.max(1, Math.ceil(Math.max(preview.totalRows, 1) / preview.pageSize))
     : 1;
 
-  const enableFilter = Boolean(previewConnection && previewConnection.db_type !== "redis");
+  const enableFilter = Boolean(
+    previewConnection &&
+      previewConnection.db_type !== "redis" &&
+      (colMeta?.length ?? 0) > 0,
+  );
+
+  const hasPreviewColumns = previewColumns.length > 0;
+  /** 打开表后立刻出壳：顶栏/查询栏不必等行数据 */
+  const showShell = Boolean(
+    preview &&
+      !preview.error &&
+      canRefresh &&
+      (preview.data || preview.loading || hasPreviewColumns),
+  );
+  /**
+   * 对齐 dbx：有列就挂网格壳（可空行），数据到达只改 rows，不拆不装。
+   * 晚挂载会把「首挂成本」叠在 IPC 回包上；先挂空壳把成本摊到等网络期间。
+   */
+  const hasPreviewData = Boolean(preview?.data);
+  const deferredDisplayRows = useDeferredValue(previewDisplayRows);
+  const showPreviewGrid = Boolean(
+    showShell && gridMounted && (hasPreviewColumns || hasPreviewData),
+  );
+  const showGridSkeleton = Boolean(showShell && !showPreviewGrid && preview?.loading);
+
+  // 切换右/底、或 Tab 重新激活时同步展开态（Dock 可能刚挂载），并用该方位已记住的 px
+  useLayoutEffect(() => {
+    if (!showPreviewGrid || !active) return;
+    const handle = detailPanelRef.current;
+    if (!handle) return;
+    detailCollapseSyncingRef.current = true;
+    try {
+      if (detailCollapsed) {
+        handle.collapse();
+      } else {
+        handle.expand();
+        handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
+      }
+    } finally {
+      queueMicrotask(() => {
+        detailCollapseSyncingRef.current = false;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/激活时同步，保留当前 collapsed
+  }, [effectiveDetailPosition, showPreviewGrid, active]);
 
   // 勿用 active 卸载网格/详情：Dock keep-alive 下卸载再挂载会明显「闪加载」
   const detailPanel = (
@@ -841,21 +884,21 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     />
   );
 
-  const previewGrid =
-    preview?.data && canRefresh && showPreviewGrid ? (
+  const previewGrid = showPreviewGrid && preview ? (
     <TableDataGrid
       columns={previewColumns}
-      rows={previewDisplayRows}
-      totalRows={preview.totalRows + pendingInsertCount}
+      rows={hasPreviewData ? deferredDisplayRows : []}
+      totalRows={(preview.totalRows ?? 0) + pendingInsertCount}
       page={preview.page}
       pageSize={preview.pageSize}
-      loading={preview.loading}
+      loading={Boolean(preview.loading) || (hasPreviewColumns && !hasPreviewData)}
       columnMeta={colMeta}
       chromePlacement="none"
       gridActionsRef={gridActionsRef}
+      rowSourceTabId={tab.id}
       onSelectedRowCountChange={setSelectedRowCount}
       enableTranspose
-      enableSort
+      enableSort={hasPreviewColumns}
       sort={preview.sort ?? null}
       onSortChange={handlePreviewSortChange}
       enableFilter={enableFilter}
@@ -898,6 +941,37 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     />
   ) : null;
 
+  const gridSkeleton = showGridSkeleton ? (
+    <div className="db-table-preview-skeleton" aria-busy="true" aria-label={t("common.loading")}>
+      <div className="db-table-preview-skeleton__header">
+        {hasPreviewColumns ? (
+          previewColumns.slice(0, 16).map((name) => (
+            <span key={name} className="db-table-preview-skeleton__col-label" title={name}>
+              {name}
+            </span>
+          ))
+        ) : (
+          <>
+            <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--sm" />
+            <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--md" />
+            <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--lg" />
+            <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--md" />
+            <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--sm" />
+          </>
+        )}
+      </div>
+      {Array.from({ length: 8 }, (_, index) => (
+        <div key={index} className="db-table-preview-skeleton__row">
+          <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--xs" />
+          <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--lg" />
+          <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--md" />
+          <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--sm" />
+          <span className="db-table-preview-skeleton__bar db-table-preview-skeleton__bar--md" />
+        </div>
+      ))}
+    </div>
+  ) : null;
+
   return (
     <div className="db-workspace-pane db-workspace-pane--data">
       {preview?.error ? (
@@ -907,17 +981,13 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         >
           {preview.error}
         </div>
-      ) : !preview?.data && preview?.loading ? (
-        <div className="empty-state compact" style={{ flex: 1, padding: "var(--sp-4)" }}>
-          {t("common.loading")}
-        </div>
-      ) : preview?.data && canRefresh && !preview.error && preview ? (
+      ) : showShell && preview ? (
         <div className="db-table-preview-shell">
           <TablePreviewTopBar
             loading={preview.loading}
             page={preview.page}
             pageSize={preview.pageSize}
-            totalRows={preview.totalRows + pendingInsertCount}
+            totalRows={(preview.totalRows ?? 0) + pendingInsertCount}
             totalPages={totalPages}
             dirtyCount={dirtyCount}
             isCommitting={isCommitting}
@@ -978,7 +1048,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             className={`db-table-preview-split db-table-preview-split--${effectiveDetailPosition}`}
           >
             <DockPanel minSize="160px">
-              <div className="results-area db-sql-results">{previewGrid}</div>
+              <div className="results-area db-sql-results">
+                {previewGrid ?? gridSkeleton}
+              </div>
             </DockPanel>
             <DockHandle direction={splitDirection} />
             <DockPanel

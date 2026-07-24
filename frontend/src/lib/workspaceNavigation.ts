@@ -226,6 +226,8 @@ export function goWorkspaceHome(navigate?: NavigateFunction): void {
   useWorkspaceStore.getState().switchWorkspace(nextId);
   const bottom = useBottomPanelStore.getState();
   if (bottom.isFullscreen) {
+    // 全屏 → dashboard：先记目标路由，等路由 commit 同一帧（useLayoutEffect）再退出全屏，
+    // 避免「mode 已切 taskbar 但路由仍是工作区」的中间态闪烁。
     bottom.requestDeferExitFullscreen(DASHBOARD_PATH, "home");
   } else if (isWorkspacePoppedOut(nextId)) {
     bottom.requestCollapse();

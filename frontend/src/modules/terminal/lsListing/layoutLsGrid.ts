@@ -77,18 +77,37 @@ export function layoutLsGrid(
   return { columns: best };
 }
 
+// 字体签名缓存：fontFamily/fontSize/fontWeight 未变时复用测量结果，
+// 避免每次调用都创建 canvas + getComputedStyle + measureText（终端 resize/relayout 高频触发）。
+let monoCharWidthCache: { signature: string; width: number } | null = null;
+
 /** 测量等宽字体下单字符像素宽度 */
 export function measureMonoCharWidthPx(element: HTMLElement): number {
   const style = getComputedStyle(element);
+  const fontWeight = style.fontWeight;
+  const fontSize = style.fontSize;
+  const fontFamily = style.fontFamily;
+  const signature = `${fontWeight}|${fontSize}|${fontFamily}`;
+  if (monoCharWidthCache && monoCharWidthCache.signature === signature) {
+    return monoCharWidthCache.width;
+  }
+
+  let width: number;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    ctx.font = `${fontWeight} ${fontSize} ${fontFamily}`;
     const w = ctx.measureText("0").width;
-    if (w > 0) return w;
+    if (w > 0) {
+      width = w;
+      monoCharWidthCache = { signature, width };
+      return width;
+    }
   }
-  const fontSize = parseFloat(style.fontSize);
-  return Number.isFinite(fontSize) ? fontSize * 0.6 : 7.2;
+  const parsed = parseFloat(fontSize);
+  width = Number.isFinite(parsed) ? parsed * 0.6 : 7.2;
+  monoCharWidthCache = { signature, width };
+  return width;
 }
 
 export function pxToTerminalColumns(element: HTMLElement, px: number): number {

@@ -7,7 +7,7 @@ import type {
 } from "./types";
 
 /** 行高拖拽热区高度（px） */
-export const ROW_RESIZE_ZONE_PX = 2;
+export const ROW_RESIZE_ZONE_PX = 4;
 
 export const VALUE_BTN_SIZE = 16;
 export const VALUE_BTN_RIGHT = 3;

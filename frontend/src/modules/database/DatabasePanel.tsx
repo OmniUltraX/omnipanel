@@ -35,6 +35,11 @@ import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPrev
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
+import { yieldToMain } from "../../lib/yieldToMain";
+import {
+  applyTablePreviewDataProgressive,
+  bumpTablePreviewApplyGeneration,
+} from "./workspace/applyTablePreviewData";
 import { IconDropdownButton } from "../../components/ui/IconDropdownButton";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useActionStore } from "../../stores/actionStore";
@@ -207,10 +212,11 @@ import {
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
-import { resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
+import { collectOpenTabNodeIds, resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
 import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
 import { buildSelectAllFromTableSql } from "./grid/tablePreviewFilter";
 import { fetchTablePreviewPage } from "./grid/tablePreviewQuery";
+import { readStoredGridRenderMode } from "./grid/canvas/gridRenderMode";
 import {
   probeSlowLogAvailability,
   resolveSlowLogAvailabilitySync,
@@ -1363,6 +1369,7 @@ export function DatabasePanel() {
       const transposed = previewState?.transposed ?? false;
       const page = previewState?.page ?? 0;
       const pageSize = previewState?.pageSize ?? createDefaultTablePreviewState().pageSize;
+      const applyGeneration = bumpTablePreviewApplyGeneration(tab.id);
       void fetchTablePreviewPage({
         connection,
         connId: tab.connId,
@@ -1375,23 +1382,30 @@ export function DatabasePanel() {
         columnMeta: useDbWorkspaceTabStore.getState().tableColumnMeta[tab.id],
         columnRelations,
       })
-        .then(({ data, totalRows = 0 }) => {
+        .then(async ({ data, totalRows = 0 }) => {
           if (connection.db_type === "redis") {
             setTableColumnMeta((prev) => ({
               ...prev,
               [tab.id]: buildRedisColumnMeta(data.columns),
             }));
           }
+          await yieldToMain();
+          await applyTablePreviewDataProgressive({
+            tabId: tab.id,
+            data,
+            totalRows,
+            page,
+            pageSize,
+            setTablePreviews,
+            generation: applyGeneration,
+            canvasMode: readStoredGridRenderMode() === "canvas",
+          });
           setTablePreviews((prev) => ({
             ...prev,
             [tab.id]: {
               ...(prev[tab.id] ?? createDefaultTablePreviewState()),
               loading: false,
               error: null,
-              data,
-              totalRows,
-              page,
-              pageSize,
               connId: tab.connId,
               dbName: tab.dbName,
               tableName: tab.tableName,
@@ -1400,10 +1414,14 @@ export function DatabasePanel() {
               hiddenColumns,
               transposed,
               columnRelations,
+              totalRows,
+              page,
+              pageSize,
             },
           }));
         })
         .catch((error) => {
+          bumpTablePreviewApplyGeneration(tab.id);
           setTablePreviews((prev) => ({
             ...prev,
             [tab.id]: {
@@ -1716,6 +1734,7 @@ export function DatabasePanel() {
           error: null,
         },
       }));
+      const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
 
       if (connection.db_type !== "redis") {
         const cachedColumns = getCachedTableColumns(
@@ -1725,6 +1744,7 @@ export function DatabasePanel() {
           tableName,
         );
         if (cachedColumns?.length) {
+          // 同步写列名：骨架立刻有列标签；重网格由预览面 idle 后再挂
           setTableColumnMeta((prevMeta) => {
             if (prevMeta[tabId]?.length) {
               return prevMeta;
@@ -1733,7 +1753,10 @@ export function DatabasePanel() {
           });
         }
         fetchAndApplyTableColumnMeta(tabId, connection, dbName, tableName, (columns) => {
-          setTableColumnMeta((prevMeta) => ({ ...prevMeta, [tabId]: columns }));
+          // 列 meta 变更会重建 columnDefs，勿与灌数抢主线程
+          startTransition(() => {
+            setTableColumnMeta((prevMeta) => ({ ...prevMeta, [tabId]: columns }));
+          });
         });
       }
 
@@ -1743,18 +1766,18 @@ export function DatabasePanel() {
         const data = await previewTable(connForSchema, tableName, pageSize, 0);
         const rowCount = data.rows.length;
         const estimatedTotal = estimateTablePreviewTotalRows(0, pageSize, rowCount);
-        setTablePreviews((prevMap) => ({
-          ...prevMap,
-          [tabId]: {
-            ...(prevMap[tabId] ?? defaultState),
-            loading: false,
-            error: null,
-            data,
-            totalRows: estimatedTotal,
-            page: 0,
-            pageSize,
-          },
-        }));
+        // IPC JSON 反序列化占主线程；先让出，再分片灌行（避免一次 setState 堵死侧栏）
+        await yieldToMain();
+        await applyTablePreviewDataProgressive({
+          tabId,
+          data,
+          totalRows: estimatedTotal,
+          page: 0,
+          pageSize,
+          setTablePreviews,
+          generation: applyGeneration,
+          canvasMode: readStoredGridRenderMode() === "canvas",
+        });
         if (connection.db_type === "redis") {
           setTableColumnMeta((prev) => ({
             ...prev,
@@ -1775,6 +1798,7 @@ export function DatabasePanel() {
           });
         });
       } catch (e) {
+        bumpTablePreviewApplyGeneration(tabId);
         setTablePreviews((prevMap) => ({
           ...prevMap,
           [tabId]: {
@@ -1793,6 +1817,7 @@ export function DatabasePanel() {
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
 
+      const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
@@ -1812,36 +1837,52 @@ export function DatabasePanel() {
           columnMeta: colMeta,
           columnRelations,
         })
-          .then(({ data, totalRows = 0 }) => {
-            setTablePreviews((p) => {
-              const cur = p[tabId];
-              if (!cur) return p;
-              return { ...p, [tabId]: { ...cur, loading: false, error: null, data, totalRows } };
+          .then(async ({ data, totalRows = 0 }) => {
+            await yieldToMain();
+            await applyTablePreviewDataProgressive({
+              tabId,
+              data,
+              totalRows,
+              page,
+              pageSize,
+              setTablePreviews,
+              generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
             });
           })
           .catch((e) => {
+            bumpTablePreviewApplyGeneration(tabId);
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
-              return { ...p, [tabId]: { ...cur, loading: false, error: typeof e === "string" ? e : String(e) } };
+              return {
+                ...p,
+                [tabId]: {
+                  ...cur,
+                  loading: false,
+                  error: typeof e === "string" ? e : String(e),
+                },
+              };
             });
           });
 
         return { ...prev, [tabId]: { ...existing, loading: true } };
       });
     },
-    [connections],
+    [connections, setTablePreviews],
   );
 
   const goToPage = useCallback(
     (tabId: string, connId: string, dbName: string, tableName: string, page: number) => {
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
+      const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
         const pageSize = existing.pageSize;
         const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
         const columnRelations = existing.columnRelations ?? {};
+        const totalRows = existing.totalRows;
 
         void fetchTablePreviewPage({
           connection,
@@ -1856,25 +1897,39 @@ export function DatabasePanel() {
           columnRelations,
           skipCount: true,
         })
-          .then(({ data }) => {
-            setTablePreviews((p) => {
-              const cur = p[tabId];
-              if (!cur) return p;
-              return { ...p, [tabId]: { ...cur, loading: false, data, page } };
+          .then(async ({ data }) => {
+            await yieldToMain();
+            await applyTablePreviewDataProgressive({
+              tabId,
+              data,
+              totalRows,
+              page,
+              pageSize,
+              setTablePreviews,
+              generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
             });
           })
           .catch((e) => {
+            bumpTablePreviewApplyGeneration(tabId);
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
-              return { ...p, [tabId]: { ...cur, loading: false, error: typeof e === "string" ? e : String(e) } };
+              return {
+                ...p,
+                [tabId]: {
+                  ...cur,
+                  loading: false,
+                  error: typeof e === "string" ? e : String(e),
+                },
+              };
             });
           });
 
         return { ...prev, [tabId]: { ...existing, loading: true } };
       });
     },
-    [connections],
+    [connections, setTablePreviews],
   );
 
   const setTableFilter = useCallback(
@@ -1890,6 +1945,7 @@ export function DatabasePanel() {
         const pageSize = existing.pageSize;
         const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
         const columnRelations = existing.columnRelations ?? {};
+        const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
 
         void fetchTablePreviewPage({
           connection,
@@ -1903,25 +1959,26 @@ export function DatabasePanel() {
           columnMeta: colMeta,
           columnRelations,
         })
-          .then(({ data, totalRows = 0 }) => {
+          .then(async ({ data, totalRows = 0 }) => {
+            await yieldToMain();
+            await applyTablePreviewDataProgressive({
+              tabId,
+              data,
+              totalRows,
+              page: 0,
+              pageSize,
+              setTablePreviews,
+              generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
+            });
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
-              return {
-                ...p,
-                [tabId]: {
-                  ...cur,
-                  loading: false,
-                  error: null,
-                  data,
-                  totalRows,
-                  page: 0,
-                  filter,
-                },
-              };
+              return { ...p, [tabId]: { ...cur, filter } };
             });
           })
           .catch((e) => {
+            bumpTablePreviewApplyGeneration(tabId);
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
@@ -1940,7 +1997,7 @@ export function DatabasePanel() {
         return { ...prev, [tabId]: { ...existing, loading: true, filter } };
       });
     },
-    [connections],
+    [connections, setTablePreviews],
   );
 
   const clearTabDirty = useCallback((tabId: string) => {
@@ -1992,6 +2049,7 @@ export function DatabasePanel() {
         const pageSize = existing.pageSize;
         const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
         const columnRelations = existing.columnRelations ?? {};
+        const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
 
         void fetchTablePreviewPage({
           connection,
@@ -2005,25 +2063,26 @@ export function DatabasePanel() {
           columnMeta: colMeta,
           columnRelations,
         })
-          .then(({ data, totalRows = 0 }) => {
+          .then(async ({ data, totalRows = 0 }) => {
+            await yieldToMain();
+            await applyTablePreviewDataProgressive({
+              tabId,
+              data,
+              totalRows,
+              page: 0,
+              pageSize,
+              setTablePreviews,
+              generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
+            });
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
-              return {
-                ...p,
-                [tabId]: {
-                  ...cur,
-                  loading: false,
-                  error: null,
-                  data,
-                  totalRows,
-                  page: 0,
-                  sort,
-                },
-              };
+              return { ...p, [tabId]: { ...cur, sort } };
             });
           })
           .catch((e) => {
+            bumpTablePreviewApplyGeneration(tabId);
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
@@ -2042,7 +2101,7 @@ export function DatabasePanel() {
         return { ...prev, [tabId]: { ...existing, loading: true, sort } };
       });
     },
-    [connections],
+    [connections, setTablePreviews],
   );
 
   const commitTabDirty = useCallback(
@@ -3874,7 +3933,9 @@ export function DatabasePanel() {
   const handleSelectTable = useCallback(
     (selection: SchemaTableSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
-      void probeDbConnectionRuntime(selection.connection);
+      // 勿 probeDbConnectionRuntime：表已从 schema 缓存列出，连接必然可用。
+      // 点击瞬间同步 markConnecting 会触发 connection TreeNode 重渲 + 一次 testConnection IPC，
+      // 纯属冗余且阻塞点击响应。连接探测由"打开连接节点"和"刷新 Schema"路径负责。
 
       // 勿包 startTransition：双击会先点出 preview 再 permanent，
       // 异步调度下两条路径可能都看不到对方刚建的 Tab，从而各建一个。
@@ -3904,17 +3965,36 @@ export function DatabasePanel() {
       };
 
       const ensureTablePreview = (tabId: string) => {
-        warmColumnMetaFromCache(tabId);
-        setTablePreviews((prev) => ({
-          ...prev,
-          [tabId]: {
-            ...createDefaultTablePreviewState(),
-            loading: true,
-            connId,
-            dbName,
-            tableName,
-          },
-        }));
+        // 合并为单次 store update：原 warmColumnMetaFromCache + setTablePreviews 两次
+        // Zustand set 各自同步 notify listeners；合并后只 notify 一次，减少点击瞬间开销
+        const cachedColumns =
+          connection.db_type === "redis"
+            ? null
+            : getCachedTableColumns(
+                useDbSchemaCacheStore.getState().snapshot,
+                connId,
+                dbName,
+                tableName,
+              );
+        useDbWorkspaceTabStore.setState((state) => {
+          const hasColMeta = Boolean(state.tableColumnMeta[tabId]?.length);
+          return {
+            tableColumnMeta:
+              cachedColumns?.length && !hasColMeta
+                ? { ...state.tableColumnMeta, [tabId]: cachedColumns }
+                : state.tableColumnMeta,
+            tablePreviews: {
+              ...state.tablePreviews,
+              [tabId]: {
+                ...createDefaultTablePreviewState(),
+                loading: true,
+                connId,
+                dbName,
+                tableName,
+              },
+            },
+          };
+        });
         void loadTablePreview(tabId, connection, dbName, tableName);
       };
 
@@ -4075,7 +4155,7 @@ export function DatabasePanel() {
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection, mode: SchemaDockOpenMode = "permanent") => {
       setActiveConnIdIfChanged(selection.connId);
-      void probeDbConnectionRuntime(selection.connection);
+      // 勿 probeDbConnectionRuntime：库已从 schema 缓存列出，连接必然可用（同 handleSelectTable）
       const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
       const { connId, dbName, connection } = selection;
       const isRedis = isRedisConnection(connection);
@@ -5589,6 +5669,17 @@ export function DatabasePanel() {
       activeTableKey,
     });
   }, [sidebarLinkageConnId, activeDatabaseKey, activeTableKey]);
+
+  // 同步所有已打开 Tab 对应的树节点 id 集合到 store，用于连接树标记"已打开 Tab"的节点。
+  // workspaceTabs 变化（增删 Tab）或 sqlTabPanelKeySeed 变化（SQL tab 切库/切表）时重算。
+  useEffect(() => {
+    const tabState = useDbWorkspaceTabStore.getState();
+    const ids = collectOpenTabNodeIds(workspaceTabs, {
+      sqlTabStates: tabState.sqlTabStates,
+      tablePreviews: tabState.tablePreviews,
+    });
+    useDbSidebarLinkageStore.getState().setOpenTabNodeIds(ids);
+  }, [workspaceTabs, sqlTabPanelKeySeed, tablePreviewTabIdKey]);
 
   const panelContentKeysByTab = useMemo(() => {
     const tabState = useDbWorkspaceTabStore.getState();

@@ -7,6 +7,7 @@ export interface DbSidebarLinkageValue {
   activeConnId: string | null;
   activeDatabaseKey: string | null;
   activeTableKey: string | null;
+  openTabNodeIds: Set<string>;
 }
 
 const DbSidebarLinkageContext = createContext<boolean>(false);
@@ -33,6 +34,7 @@ export function useDbSidebarLinkage(): DbSidebarLinkageValue {
       activeConnId: s.activeConnId,
       activeDatabaseKey: s.activeDatabaseKey,
       activeTableKey: s.activeTableKey,
+      openTabNodeIds: s.openTabNodeIds,
     })),
   );
 }

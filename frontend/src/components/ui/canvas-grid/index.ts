@@ -42,6 +42,7 @@ export {
 export { drawGridBody, type DrawGridBodyOptions, type DrawGridBodyStyle } from "./drawBody";
 
 export {
+  invalidateCanvasGridThemeCache,
   measureHeaderHeight,
   readCanvasGridTheme,
   readGridTheme,

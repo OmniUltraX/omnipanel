@@ -44,6 +44,26 @@
     color: var(--meta);
 }
 
+/* "已在 Tab 中打开" 标记：非 active 节点在 label 后显示小圆点。
+   active 节点已有背景高亮，不重复标记。 */
+.tree-node--in-tab:not(.tree-node--active) .tree-label::after {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-left: 6px;
+    vertical-align: middle;
+    opacity: 0.45;
+    flex-shrink: 0;
+}
+
+/* hover 时降低圆点透明度，避免与 hover 背景竞争视觉焦点 */
+.tree-node--in-tab:not(.tree-node--active):hover .tree-label::after {
+    opacity: 0.6;
+}
+
 .sidebar-tree-arrow,
 .tree-arrow {
     width: 16px;
@@ -71,7 +91,7 @@
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: var(--border);
+    background: transparent;
 }
 
 .sidebar-tree-icon,

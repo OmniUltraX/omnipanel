@@ -160,22 +160,27 @@ export function ModuleTagHeader({ moduleKey }: ModuleTagHeaderProps) {
 
   const total = selectedTags.length;
 
-  // 单次 ResizeObserver，只在数值变化时 setState，避免布局抖动与多余渲染
+  // 单次 ResizeObserver，只在数值变化时 setState，避免布局抖动与多余渲染。
+  // total===0（无选中标签，常态）时不创建 ResizeObserver：窗口最大化/还原时所有模块
+  // 侧栏 root 尺寸变化会同时触发所有实例的 RO 回调，各自读 clientWidth 强制 layout flush，
+  // 形成 ResizeObserver 雪崩。无标签时 visibleCount 恒为 0，无需测量。
   useLayoutEffect(() => {
     const root = rootRef.current;
     const chips = chipsRef.current;
     if (!root) return;
 
+    if (total === 0 || !chips) {
+      setShowClear(false);
+      setVisibleCount(0);
+      return;
+    }
+
     let raf = 0;
     const measure = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const nextShowClear = total > 0 && root.clientWidth >= 72;
+        const nextShowClear = root.clientWidth >= 72;
         setShowClear((prev) => (prev === nextShowClear ? prev : nextShowClear));
-        if (total === 0 || !chips) {
-          setVisibleCount((prev) => (prev === 0 ? prev : 0));
-          return;
-        }
         const nextVisible = chipsThatFit(chips.clientWidth, total);
         setVisibleCount((prev) => (prev === nextVisible ? prev : nextVisible));
       });

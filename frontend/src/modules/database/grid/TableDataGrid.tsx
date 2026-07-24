@@ -87,6 +87,10 @@ import {
 } from "./canvas/TableDataGridCanvasBody";
 import type { BuildGridSnapshotInput } from "./canvas/buildGridSnapshot";
 import {
+  getTablePreviewRowCache,
+  subscribeTablePreviewRowCache,
+} from "../workspace/tablePreviewRowCache";
+import {
   readStoredGridRenderMode,
   writeStoredGridRenderMode,
 } from "./canvas/gridRenderMode";
@@ -118,6 +122,9 @@ import {
   defaultDataColumnWidth,
   GRID_EXTERNAL_INTERACTION_SELECTOR,
 } from "./tableDataGridConstants";
+
+/** Canvas 模式喂给 tanstack 的空数据：避免为每页行构建 Row 模型（dbx 用 rowAt 按需取行） */
+const EMPTY_CANVAS_TABLE_DATA: Record<string, unknown>[] = [];
 import {
   buildColumnVirtualizationLayout,
   buildVirtualizableColumnIndices,
@@ -209,6 +216,11 @@ export type TableDataGridProps = {
   dbType?: string;
   /** 表预览 SQL 复制：表名 */
   tableName?: string;
+  /**
+   * 表预览 Tab id：启用时从 React 外 rowCache 读行并只 invalidate Canvas，
+   * 加载分片不触发本组件 reconcile。
+   */
+  rowSourceTabId?: string;
   /** 隐藏的列名（受控，表预览持久化） */
   hiddenColumns?: string[];
   onHiddenColumnsChange?: (hiddenColumns: string[]) => void;
@@ -312,6 +324,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   enableFilter = false,
   dbType,
   tableName,
+  rowSourceTabId,
   hiddenColumns: hiddenColumnsProp,
   onHiddenColumnsChange,
   transposed: transposedProp,
@@ -1038,6 +1051,9 @@ export const TableDataGrid = memo(function TableDataGrid({
     const sorted = [...displayRowsBase].sort((a, b) => compareCellValues(a[col], b[col]));
     return pageSort.desc ? sorted.reverse() : sorted;
   }, [displayRowsBase, pageSort, transposed]);
+  /** ref 供 cache 回退路径读最新值，避免 effect 依赖 displayRows */
+  const displayRowsRef = useRef(displayRows);
+  displayRowsRef.current = displayRows;
 
   useLayoutEffect(() => {
     if (loading || !hoverResetPendingRef.current) return;
@@ -1326,7 +1342,9 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   const table = useReactTable({
-    data: displayRows,
+    // Canvas 路径对齐 dbx：行数据不经 tanstack 建全量 Row 模型（O(n) 分配会卡主线程），
+    // 仅用 columnDefs 驱动表头/列宽；body 用轻量 {index,original} + rowAt 式绘制。
+    data: useCanvasBody ? EMPTY_CANVAS_TABLE_DATA : displayRows,
     columns: columnDefs,
     state: { columnSizing },
     onColumnSizingChange: setColumnSizing,
@@ -1762,11 +1780,81 @@ export const TableDataGrid = memo(function TableDataGrid({
   }, [columnSizing, displayColumns, totalTableWidth, containerWidth, fillDelta, lastColumnId, resolveColumnWidth]);
 
   const allColumnsHidden = sidebarColumns.length > 0 && visibleColumns.length === 0;
-  const tableRows = table.getRowModel().rows;
+  /**
+   * Canvas：轻量行（仅 index/original），对齐 dbx `rowAt(i)`——不经 tanstack getRowModel。
+   * DOM 模式仍走 tanstack Row，以复用现有 cell renderer。
+   */
+  const canvasTableRows = useMemo(() => {
+    if (!useCanvasBody) return null;
+    return displayRows.map((original, index) => ({
+      id: String(index),
+      index,
+      original,
+    }));
+  }, [useCanvasBody, displayRows]);
+  const tableRows = (useCanvasBody ? canvasTableRows : table.getRowModel().rows) ?? [];
   tableRowCountRef.current = tableRows.length;
   const leafColumnCount = table.getAllLeafColumns().length;
   const tableRowsRef = useRef(tableRows);
   tableRowsRef.current = tableRows;
+  /**
+   * Canvas 行源：优先 React 外 rowCache（加载分片只改这里 + invalidate）。
+   * 类型与 snapshot tableRows 对齐。
+   */
+  const canvasPaintRowsRef = useRef<Array<{ index: number; original: Record<string, unknown> }>>(
+    [],
+  );
+
+  const mapRows = useCallback(
+    (source: Record<string, unknown>[]) =>
+      source.map((original, index) => ({
+        id: String(index),
+        index,
+        original,
+      })),
+    [],
+  );
+
+  /**
+   * Canvas + rowSourceTabId（表预览）：行数据来自 React 外 rowCache 的 subscribe notify，
+   * 不依赖 displayRows。否则 Phase 3 灌完整 rows 进 React 后 displayRows 引用变，
+   * 会重跑此 effect → mapRows + invalidate，而 Canvas 在 Phase 2 notify 时已画好——纯冗余且卡。
+   */
+  useEffect(() => {
+    if (!useCanvasBody || !rowSourceTabId) return;
+
+    const syncFromCache = () => {
+      const cached = getTablePreviewRowCache(rowSourceTabId);
+      if (!cached) {
+        // cache 空时回退 props（phase1 / 已同步进 React）
+        const mapped = mapRows(displayRowsRef.current);
+        canvasPaintRowsRef.current = mapped;
+        tableRowsRef.current = mapped;
+        tableRowCountRef.current = mapped.length;
+        canvasBodyRef.current?.invalidate();
+        return;
+      }
+      const mapped = mapRows(cached.rows);
+      canvasPaintRowsRef.current = mapped;
+      tableRowsRef.current = mapped;
+      tableRowCountRef.current = mapped.length;
+      canvasBodyRef.current?.invalidate();
+    };
+    syncFromCache();
+    return subscribeTablePreviewRowCache(rowSourceTabId, syncFromCache);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 行数据走 cache subscribe，displayRows 变化不重跑
+  }, [useCanvasBody, rowSourceTabId, mapRows]);
+
+  /** Canvas 无 rowSourceTabId（SQL 查询结果等）：行数据来自 displayRows */
+  useEffect(() => {
+    if (!useCanvasBody || rowSourceTabId) return;
+    const mapped = mapRows(displayRows);
+    canvasPaintRowsRef.current = mapped;
+    tableRowsRef.current = mapped;
+    tableRowCountRef.current = mapped.length;
+    canvasBodyRef.current?.invalidate();
+  }, [useCanvasBody, rowSourceTabId, displayRows, mapRows]);
+
   const leafColumnCountRef = useRef(leafColumnCount);
   leafColumnCountRef.current = leafColumnCount;
 
@@ -2478,7 +2566,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const resolveBodyCellContext = useCallback(
     (rowIndex: number, colIndex: number): GridBodyCellInteractionContext | null => {
-      const tableRow = tableRows[rowIndex];
+      const tableRow = tableRowsRef.current[rowIndex];
       const column = leafColumns[colIndex];
       if (!tableRow || !column) return null;
       const columnId = column.id;
@@ -2523,7 +2611,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       };
     },
     [
-      tableRows,
       leafColumns,
       transposed,
       columnMetaMap,
@@ -3046,15 +3133,22 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   const canvasSnapshotInput = useMemo((): BuildGridSnapshotInput => {
+    // rowSourceTabId 时行数据走 paint ref，memo 不依赖 rows，避免加载分片触发 React 重算
+    const snapshotRows =
+      rowSourceTabId && useCanvasBody
+        ? []
+        : useCanvasBody && canvasTableRows
+          ? canvasTableRows
+          : tableRows.map((row) => ({
+              index: row.index,
+              original: row.original,
+            }));
     return {
       leafColumns: leafColumns.map((col) => ({
         id: col.id,
         getSize: () => col.getSize(),
       })),
-      tableRows: tableRows.map((row) => ({
-        index: row.index,
-        original: row.original,
-      })),
+      tableRows: snapshotRows,
       resolveColumnWidth,
       rowHeights,
       defaultRowHeight: DEFAULT_ROW_HEIGHT,
@@ -3084,6 +3178,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       emptyLabel: t("database.results.columnEmptyShort"),
     };
   }, [
+    rowSourceTabId,
+    useCanvasBody,
+    canvasTableRows,
     leafColumns,
     tableRows,
     resolveColumnWidth,
@@ -3468,6 +3565,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           ref={canvasBodyRef}
           scrollElementRef={wrapRef}
           snapshotInput={canvasSnapshotInput}
+          tableRowsRef={canvasPaintRowsRef}
           dragRangeRef={pendingDragRangeRef}
           dragRowHeightRef={dragRowHeightRef}
           dragColumnWidthRef={dragColumnWidthRef}
