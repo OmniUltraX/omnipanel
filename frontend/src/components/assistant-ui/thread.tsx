@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../../i18n";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
+import { AiConversationSkillSelect } from "../ai/assistant-ui/AiConversationSkillSelect";
 import { ComposerAddContextButton } from "../ai/assistant-ui/ComposerAddContextButton";
 import { ComposerContextChips } from "../ai/assistant-ui/ComposerContextChips";
 import { ComposerInputWithMention } from "../ai/assistant-ui/ComposerInputWithMention";
@@ -269,6 +270,7 @@ const ComposerAction: FC = () => {
       <div className="flex items-center gap-1 min-w-0">
         <ComposerAddContextButton />
         <AiConversationModelSelect />
+        <AiConversationSkillSelect />
       </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>

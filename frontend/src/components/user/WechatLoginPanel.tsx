@@ -78,6 +78,9 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
           useUserProfileStore.getState().setProfile({
             nickname: me.nickname,
             avatarUrl: me.avatarUrl,
+            openid: me.openid,
+            email: me.email,
+            githubId: me.githubId,
           });
         } catch {
           const profile = useUserProfileStore.getState();

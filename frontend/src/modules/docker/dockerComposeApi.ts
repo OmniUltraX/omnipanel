@@ -8,6 +8,7 @@ import type {
   DockerComposeWriteFilesRequest,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { DOCKER_QUIET_IPC, handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
 import { debugCompose } from "./dockerComposeDebug";
 
 const unwrap = unwrapCommand;
@@ -93,15 +94,20 @@ export async function fetchComposeProjects(connectionId: string): Promise<Docker
   }
   debugCompose("fetchComposeProjects 请求全量列表", { connectionId });
   const started = performance.now();
-  const projects = await unwrap(commands.dockerListComposeProjects(connectionId));
-  debugCompose("fetchComposeProjects 完成", {
-    connectionId,
-    count: projects.length,
-    ms: Math.round(performance.now() - started),
-  });
-  composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
-  warmComposeMetaCache(connectionId, projects);
-  return projects;
+  try {
+    const projects = await unwrap(commands.dockerListComposeProjects(connectionId), DOCKER_QUIET_IPC);
+    debugCompose("fetchComposeProjects 完成", {
+      connectionId,
+      count: projects.length,
+      ms: Math.round(performance.now() - started),
+    });
+    composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
+    warmComposeMetaCache(connectionId, projects);
+    return projects;
+  } catch (error) {
+    handleDockerAutoFetchFailure(connectionId, error);
+    throw error;
+  }
 }
 
 export async function readComposeProjectFiles(

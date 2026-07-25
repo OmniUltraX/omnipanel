@@ -175,7 +175,9 @@ function schedulePersistConnection(
       for (const id of ids) {
         const entry = getEntry(id);
         try {
-          await unwrapCommand(commands.dockerPatchSidebarCache(id, toBackendEntry(entry)));
+          await unwrapCommand(commands.dockerPatchSidebarCache(id, toBackendEntry(entry)), {
+            quiet: true,
+          });
         } catch {
           // 持久化失败不阻断 UI；下次刷新会重试
         }
@@ -225,7 +227,7 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>((set, 
           } catch {
             // ignore
           }
-          const snapshot = await unwrapCommand(commands.dockerLoadSidebarCache());
+          const snapshot = await unwrapCommand(commands.dockerLoadSidebarCache(), { quiet: true });
           set((state) => {
             const connections: Record<string, DockerSidebarCacheEntry> = {
               ...state.connections,

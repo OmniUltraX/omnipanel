@@ -716,6 +716,36 @@ export const commands = {
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
 	authLoginCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_cancel_wait", { loginId })),
+	/** 发送邮箱登录验证码（POST /api/login/email/send）。 */
+	authLoginEmailSend: (email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email_send", { email })),
+	/** 邮箱验证码登录（POST /api/login/email）。 */
+	authLoginEmail: (email: string, code: string) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email", { email, code })),
+	/** GitHub OAuth：系统浏览器授权，本机回环接收 token。 */
+	authLoginGithub: () => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github")),
+	/** 取消 GitHub 登录等待。 */
+	authLoginGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github_cancel")),
+	/** 查询账号绑定状态（GET /api/account/links）。 */
+	authAccountLinks: (token: string) => typedError<AuthAccountLinks, OmniError_Serialize>(__TAURI_INVOKE("auth_account_links", { token })),
+	/** 创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。 */
+	authLinkWechatQrcode: (token: string) => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_qrcode", { token })),
+	/** SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）。 */
+	authLinkWechatWait: (token: string, loginId: string, expireInSec: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_wait", { token, loginId, expireInSec })),
+	/** 取消微信绑定等待。 */
+	authLinkWechatCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_cancel_wait", { loginId })),
+	/** 发送邮箱绑定验证码（POST /api/account/links/email/send）。 */
+	authLinkEmailSend: (token: string, email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email_send", { token, email })),
+	/** 邮箱验证码绑定（POST /api/account/links/email）。 */
+	authLinkEmail: (token: string, email: string, code: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email", { token, email, code })),
+	/** GitHub OAuth 绑定：系统浏览器授权并轮询绑定状态。 */
+	authLinkGithub: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github", { token })),
+	/** 取消 GitHub 绑定等待。 */
+	authLinkGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github_cancel")),
+	/** 解绑微信（DELETE /api/account/links/wechat）。 */
+	authUnlinkWechat: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_wechat", { token })),
+	/** 解绑 GitHub（DELETE /api/account/links/github）。 */
+	authUnlinkGithub: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_github", { token })),
+	/** 解绑邮箱（DELETE /api/account/links/email）。 */
+	authUnlinkEmail: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_email", { token })),
 	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
@@ -747,6 +777,12 @@ export const commands = {
 	skillUpdateApplicationOutcome: (applicationId: string, outcome: string, feedback: string | null) => typedError<null, string>(__TAURI_INVOKE("skill_update_application_outcome", { applicationId, outcome, feedback })),
 	/** 对全部已启用 skill 批量向量化（设置页「重建索引」）。 */
 	skillVectorizeAll: (provider: EmbeddingProviderConfig) => typedError<SkillVectorizeResult[], string>(__TAURI_INVOKE("skill_vectorize_all", { provider })),
+	/** 列出智能体提示词（~/.omnipd/prompts）。 */
+	agentPromptList: () => typedError<AgentPromptEntry[], string>(__TAURI_INVOKE("agent_prompt_list")),
+	/** 保存智能体提示词。 */
+	agentPromptSave: (id: string, content: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_save", { id, content })),
+	/** 恢复内置默认提示词。 */
+	agentPromptReset: (id: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_reset", { id })),
 	providerRegistryLoad: () => typedError<ProvidersFile, string>(__TAURI_INVOKE("provider_registry_load")),
 	providerRegistrySave: (file: ProvidersFile) => typedError<null, string>(__TAURI_INVOKE("provider_registry_save", { file })),
 	cliProviderListCmd: () => typedError<CliProviderRecord[], string>(__TAURI_INVOKE("cli_provider_list_cmd")),
@@ -841,6 +877,29 @@ export type AuthLoginSuccess = {
 	openid: string,
 };
 
+/** 邮箱验证码发送结果（开发模式可能直接返回 code）。 */
+export type AuthEmailCodeSent = {
+	email: string,
+	code: string,
+	expireInSec: number,
+	hint: string,
+};
+
+/** 单项账号绑定状态。 */
+export type AuthAccountLinkStatus = {
+	bound: boolean,
+	openid: string,
+	githubId: string,
+	email: string,
+};
+
+/** 账号绑定状态汇总（GET /api/account/links）。 */
+export type AuthAccountLinks = {
+	wechat: AuthAccountLinkStatus,
+	github: AuthAccountLinkStatus,
+	email: AuthAccountLinkStatus,
+};
+
 /**  本机设备身份（登录上报与「本机」标记共用）。 */
 export type AuthDeviceIdentity = {
 	deviceId: string,
@@ -901,6 +960,7 @@ export type AuthUserProfile = {
 	nickname: string,
 	avatarUrl: string,
 	email: string,
+	githubId: string,
 };
 
 /* Local runtime types — manually synced from src-tauri commands/local_runtime.rs + ollama_recommend.rs */
@@ -3396,8 +3456,8 @@ export type LogTailChunk = {
 
 export type SkillCreateInput = {
 	id: string,
-	name: string,
-	description: string,
+	name?: string,
+	description?: string,
 	body?: string,
 	enabled?: boolean,
 };
@@ -3408,6 +3468,13 @@ export type SkillDetail = {
 	description: string,
 	enabled: boolean,
 	body: string,
+};
+
+/** 智能体提示词条目（~/.omnipd/prompts）。 */
+export type AgentPromptEntry = {
+	id: string,
+	content: string,
+	path: string,
 };
 
 /**  Skill 记录（列表/CRUD 用，含文件元信息）。 */

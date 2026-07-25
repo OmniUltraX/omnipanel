@@ -1,4 +1,4 @@
-//! 微信服务号扫码登录：经 Tauri 后端代理，避免 WebView CORS。
+//! 账号登录：微信扫码 / 邮箱验证码 / GitHub OAuth；经 Tauri 后端代理，避免 WebView CORS。
 
 use std::collections::HashMap;
 use std::fs;
@@ -11,8 +11,12 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::module_dir;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_shell::ShellExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use url::Url;
 
 use crate::commands::proxy::build_http_client_for_url;
 use crate::state::AppState;
@@ -26,6 +30,10 @@ const CLIENT_APP_ID: &str = "omni-client";
 /// 绑定出码按 app_id 精确查找，需与落库值一致，故作为回退。
 const CLIENT_APP_ID_FALLBACK: &str = "default";
 const CLIENT_APP_ROLE: &str = "client";
+/// 桌面端接收 GitHub 授权成功回调的本机回环地址（成功页会跳转到此）。
+const GITHUB_OAUTH_LOOPBACK_ADDR: &str = "127.0.0.1:27841";
+const GITHUB_OAUTH_CANCEL_LOGIN: &str = "github-oauth-login";
+const GITHUB_OAUTH_CANCEL_LINK: &str = "github-oauth-link";
 
 static LOGIN_WAIT_CANCELS: LazyLock<Mutex<HashMap<String, oneshot::Sender<()>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -48,6 +56,38 @@ pub struct AuthLoginQrcode {
 pub struct AuthLoginSuccess {
     pub token: String,
     pub openid: String,
+}
+
+/// 邮箱验证码发送结果（开发模式可能直接返回 `code`）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthEmailCodeSent {
+    pub email: String,
+    pub code: String,
+    pub expire_in_sec: u32,
+    pub hint: String,
+}
+
+/// 单项账号绑定状态。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthAccountLinkStatus {
+    pub bound: bool,
+    #[serde(default)]
+    pub openid: String,
+    #[serde(default, rename = "githubId")]
+    pub github_id: String,
+    #[serde(default)]
+    pub email: String,
+}
+
+/// 账号绑定状态汇总（GET /api/account/links）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthAccountLinks {
+    pub wechat: AuthAccountLinkStatus,
+    pub github: AuthAccountLinkStatus,
+    pub email: AuthAccountLinkStatus,
 }
 
 /// 本机设备身份（登录上报与「本机」标记共用）。
@@ -104,6 +144,9 @@ pub struct AuthUserProfile {
     #[serde(rename = "avatarUrl")]
     pub avatar_url: String,
     pub email: String,
+    /// 对应接口字段 `github_id`。
+    #[serde(rename = "githubId")]
+    pub github_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +157,8 @@ struct ApiUserResponse {
     #[serde(default, alias = "avatarUrl")]
     avatar_url: Option<String>,
     email: Option<String>,
+    #[serde(default, alias = "githubId")]
+    github_id: Option<String>,
     error: Option<String>,
 }
 
@@ -136,6 +181,40 @@ struct ApiLoginPayload {
 #[derive(Debug, Deserialize)]
 struct ApiErrorBody {
     error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiEmailSendResponse {
+    email: Option<String>,
+    code: Option<String>,
+    expire_in_sec: Option<u32>,
+    hint: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiTokenLoginResponse {
+    token: Option<String>,
+    #[serde(default)]
+    user: Option<ApiUserResponse>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiAccountLinkStatusResponse {
+    #[serde(default)]
+    bound: bool,
+    openid: Option<String>,
+    #[serde(default, alias = "githubId")]
+    github_id: Option<String>,
+    email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiAccountLinksResponse {
+    wechat: Option<ApiAccountLinkStatusResponse>,
+    github: Option<ApiAccountLinkStatusResponse>,
+    email: Option<ApiAccountLinkStatusResponse>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -542,6 +621,7 @@ fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
         nickname: parsed.nickname.unwrap_or_default(),
         avatar_url: parsed.avatar_url.unwrap_or_default(),
         email: parsed.email.unwrap_or_default(),
+        github_id: parsed.github_id.unwrap_or_default(),
     }
 }
 
@@ -789,6 +869,1001 @@ pub async fn auth_login_cancel_wait(login_id: String) -> Result<(), OmniError> {
         let _ = tx.send(());
     }
     Ok(())
+}
+
+/// 发送邮箱登录验证码（POST /api/login/email/send）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_login_email_send(
+    state: State<'_, AppState>,
+    email: String,
+) -> Result<AuthEmailCodeSent, OmniError> {
+    let email = email.trim().to_string();
+    if email.is_empty() || !email.contains('@') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/login/email/send");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({ "email": email }))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "发送验证码失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取验证码响应失败").with_cause(e.to_string()))?;
+
+    let parsed: ApiEmailSendResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析验证码响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Auth, error));
+    }
+    if !status.is_success() {
+        return Err(parse_auth_error(
+            &body,
+            &format!("发送验证码失败 (HTTP {status})"),
+        ));
+    }
+
+    Ok(AuthEmailCodeSent {
+        email: parsed.email.unwrap_or(email),
+        code: parsed.code.unwrap_or_default(),
+        expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
+        hint: parsed.hint.unwrap_or_default(),
+    })
+}
+
+/// 邮箱验证码登录（POST /api/login/email）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_login_email(
+    state: State<'_, AppState>,
+    email: String,
+    code: String,
+) -> Result<AuthLoginSuccess, OmniError> {
+    let email = email.trim().to_string();
+    let code = code.trim().to_string();
+    if email.is_empty() || !email.contains('@') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
+    }
+    if code.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入验证码"));
+    }
+
+    let identity = load_or_create_device_identity()?;
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/login/email");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = apply_client_identity_headers(client.post(&url), &identity)
+        .json(&serde_json::json!({ "email": email, "code": code }))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "邮箱登录失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取登录响应失败").with_cause(e.to_string()))?;
+
+    map_token_login_response(&body, status, "邮箱登录失败")
+}
+
+/// GitHub OAuth 登录：系统浏览器授权，本机回环接收 `?token=`。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_login_github(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AuthLoginSuccess, OmniError> {
+    let identity = load_or_create_device_identity()?;
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/login/github");
+
+    // 需要拿到 302 Location，不能自动跟随重定向
+    let client = build_http_client_no_redirect(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
+
+    let resp = apply_client_identity_headers(client.get(&url), &identity)
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "发起 GitHub 登录失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let body = resp.text().await.unwrap_or_default();
+
+    if status.as_u16() == 503 || (!status.is_redirection() && !status.is_success()) {
+        return Err(parse_auth_error(
+            &body,
+            if body.trim().is_empty() {
+                "GitHub 登录未配置或不可用"
+            } else {
+                "发起 GitHub 登录失败"
+            },
+        ));
+    }
+
+    let authorize_url = location
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            parse_auth_error(
+                &body,
+                "GitHub 登录未返回授权地址（请确认服务端已配置 OAuth）",
+            )
+        })?;
+
+    let authorize_url = Url::parse(&authorize_url).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "GitHub 授权地址无效").with_cause(e.to_string())
+    })?;
+
+    let cancel_rx = register_cancel(GITHUB_OAUTH_CANCEL_LOGIN);
+    let result = async {
+        // 先监听再开浏览器，避免已授权用户瞬间回调时端口尚未就绪
+        let listener = TcpListener::bind(GITHUB_OAUTH_LOOPBACK_ADDR)
+            .await
+            .map_err(|e| {
+                OmniError::new(
+                    ErrorCode::Internal,
+                    "无法启动 GitHub 回调监听（本机端口被占用，请稍后重试）",
+                )
+                .with_cause(format!("{GITHUB_OAUTH_LOOPBACK_ADDR}: {e}"))
+            })?;
+        open_system_browser(&app, &authorize_url)?;
+        let token = wait_github_oauth_on_listener(listener, cancel_rx).await?;
+        Ok(AuthLoginSuccess {
+            token,
+            openid: String::new(),
+        })
+    }
+    .await;
+    let _ = take_cancel(GITHUB_OAUTH_CANCEL_LOGIN);
+    result
+}
+
+/// 取消进行中的 GitHub 登录等待。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_login_github_cancel() -> Result<(), OmniError> {
+    if let Some(tx) = take_cancel(GITHUB_OAUTH_CANCEL_LOGIN) {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+enum GitHubOAuthCapture {
+    LoginToken(String),
+    Linked,
+}
+
+fn open_system_browser(app: &AppHandle, url: &Url) -> Result<(), OmniError> {
+    #[allow(deprecated)] // shell::open 仍可用；后续可迁 tauri-plugin-opener
+    let open_result = app.shell().open(url.as_str(), None);
+    open_result.map_err(|e| {
+        OmniError::new(
+            ErrorCode::Internal,
+            "无法打开系统浏览器，请检查默认浏览器设置",
+        )
+        .with_cause(e.to_string())
+    })
+}
+
+fn parse_github_oauth_capture(url: &Url) -> Option<GitHubOAuthCapture> {
+    if extract_query_from_url(url, "linked")
+        .map(|v| v.eq_ignore_ascii_case("github"))
+        .unwrap_or(false)
+    {
+        return Some(GitHubOAuthCapture::Linked);
+    }
+    extract_query_from_url(url, "token").map(GitHubOAuthCapture::LoginToken)
+}
+
+/// 在本机回环端口等待浏览器成功页跳转（`?token=`）。
+async fn wait_github_oauth_on_listener(
+    listener: TcpListener,
+    cancel_rx: oneshot::Receiver<()>,
+) -> Result<String, OmniError> {
+    let response = concat!(
+        "HTTP/1.1 200 OK\r\n",
+        "Content-Type: text/html; charset=utf-8\r\n",
+        "Connection: close\r\n",
+        "\r\n",
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>授权完成</title></head>",
+        "<body style=\"font-family:sans-serif;padding:2rem;background:#0f1419;color:#e7ecf3\">",
+        "<h1>授权完成</h1><p>可以关闭此页面，返回 OmniPanel。</p></body></html>"
+    );
+
+    let mut cancel_rx = cancel_rx;
+    let deadline = tokio::time::sleep(Duration::from_secs(300));
+    tokio::pin!(deadline);
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut cancel_rx => {
+                return Err(OmniError::new(ErrorCode::Internal, "GitHub 授权已取消"));
+            }
+            _ = &mut deadline => {
+                return Err(OmniError::new(ErrorCode::Timeout, "GitHub 授权超时，请重试"));
+            }
+            accepted = listener.accept() => {
+                let (mut stream, _) = accepted.map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "接收 GitHub 回调失败").with_cause(e.to_string())
+                })?;
+                let mut buf = vec![0u8; 8192];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let path_and_query = req
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/");
+                let parsed = Url::parse(&format!("http://{GITHUB_OAUTH_LOOPBACK_ADDR}{path_and_query}")).ok();
+                let _ = stream.write_all(response.as_bytes()).await;
+                let _ = stream.shutdown().await;
+
+                let Some(url) = parsed else {
+                    continue;
+                };
+                match parse_github_oauth_capture(&url) {
+                    Some(GitHubOAuthCapture::LoginToken(token)) => return Ok(token),
+                    Some(GitHubOAuthCapture::Linked) => {
+                        return Err(OmniError::new(
+                            ErrorCode::InvalidInput,
+                            "收到了绑定回调而非登录凭证，请从登录入口重试",
+                        ));
+                    }
+                    None => continue,
+                }
+            }
+        }
+    }
+}
+
+/// 轮询账号绑定状态，直到 GitHub 已绑定。
+async fn poll_github_link_bound(
+    client: &reqwest::Client,
+    token: &str,
+    cancel_rx: oneshot::Receiver<()>,
+) -> Result<(), OmniError> {
+    let url = auth_url("/api/account/links");
+    let mut cancel_rx = cancel_rx;
+    let deadline = tokio::time::sleep(Duration::from_secs(300));
+    tokio::pin!(deadline);
+
+    loop {
+        let resp = client
+            .get(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+            .send()
+            .await;
+        if let Ok(resp) = resp {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if status.as_u16() == 401 {
+                return Err(OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录")
+                    .with_cause(body));
+            }
+            if status.is_success() {
+                if let Ok(parsed) = serde_json::from_str::<ApiAccountLinksResponse>(&body) {
+                    if parsed.github.as_ref().is_some_and(|g| g.bound) {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        tokio::select! {
+            biased;
+            _ = &mut cancel_rx => {
+                return Err(OmniError::new(ErrorCode::Internal, "GitHub 绑定已取消"));
+            }
+            _ = &mut deadline => {
+                return Err(OmniError::new(ErrorCode::Timeout, "GitHub 绑定超时，请重试"));
+            }
+            _ = tokio::time::sleep(Duration::from_millis(1500)) => {}
+        }
+    }
+}
+
+fn extract_query_from_url(url: &Url, key: &str) -> Option<String> {
+    for (k, value) in url.query_pairs() {
+        if k == key {
+            let v = value.trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    let fragment = url.fragment()?;
+    let query = fragment.strip_prefix('?').unwrap_or(fragment);
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            if k == key {
+                let decoded = urlencoding::decode(v)
+                    .unwrap_or_else(|_| v.into())
+                    .trim()
+                    .to_string();
+                if !decoded.is_empty() {
+                    return Some(decoded);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_account_link_error(body: &str, status: reqwest::StatusCode, fallback: &str) -> OmniError {
+    let code = serde_json::from_str::<ApiErrorBody>(body)
+        .ok()
+        .and_then(|b| b.error)
+        .filter(|s| !s.is_empty());
+    match (status.as_u16(), code.as_deref()) {
+        (401, _) => OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录")
+            .with_cause(body.to_string()),
+        (409, Some("already_bound")) => OmniError::new(
+            ErrorCode::InvalidInput,
+            "该身份已绑定其他账号，无法重复绑定",
+        )
+        .with_cause(body.to_string()),
+        (409, Some("already_linked")) => OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前账号已绑定此登录方式",
+        )
+        .with_cause(body.to_string()),
+        (409, Some("not_linked")) => OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前账号未绑定此登录方式",
+        )
+        .with_cause(body.to_string()),
+        (409, Some("last_identity")) => OmniError::new(
+            ErrorCode::InvalidInput,
+            "至少保留一种登录方式，无法解绑",
+        )
+        .with_cause(body.to_string()),
+        (409, Some(msg)) => {
+            OmniError::new(ErrorCode::InvalidInput, msg.to_string()).with_cause(body.to_string())
+        }
+        (_, Some(msg)) if !status.is_success() => {
+            // 业务失败（含绑定冲突文案）不要标成 Auth，避免前端误判为会话失效
+            OmniError::new(ErrorCode::InvalidInput, msg.to_string()).with_cause(body.to_string())
+        }
+        _ if !status.is_success() => OmniError::new(
+            ErrorCode::Connection,
+            format!("{fallback} (HTTP {status})"),
+        )
+        .with_cause(body.to_string()),
+        _ => OmniError::new(ErrorCode::Internal, fallback.to_string()).with_cause(body.to_string()),
+    }
+}
+
+/// 查询账号绑定状态（GET /api/account/links）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_account_links(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthAccountLinks, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/account/links");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "获取账号绑定状态失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取绑定状态响应失败").with_cause(e.to_string())
+    })?;
+    if !status.is_success() {
+        return Err(parse_account_link_error(&body, status, "获取账号绑定状态失败"));
+    }
+    let parsed: ApiAccountLinksResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析绑定状态失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    Ok(AuthAccountLinks {
+        wechat: AuthAccountLinkStatus {
+            bound: parsed.wechat.as_ref().map(|x| x.bound).unwrap_or(false),
+            openid: parsed
+                .wechat
+                .and_then(|x| x.openid)
+                .unwrap_or_default(),
+            github_id: String::new(),
+            email: String::new(),
+        },
+        github: AuthAccountLinkStatus {
+            bound: parsed.github.as_ref().map(|x| x.bound).unwrap_or(false),
+            openid: String::new(),
+            github_id: parsed
+                .github
+                .and_then(|x| x.github_id)
+                .unwrap_or_default(),
+            email: String::new(),
+        },
+        email: AuthAccountLinkStatus {
+            bound: parsed.email.as_ref().map(|x| x.bound).unwrap_or(false),
+            openid: String::new(),
+            github_id: String::new(),
+            email: parsed.email.and_then(|x| x.email).unwrap_or_default(),
+        },
+    })
+}
+
+/// 创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_wechat_qrcode(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthLoginQrcode, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/account/links/wechat/qrcode");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "获取微信绑定二维码失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取微信绑定二维码响应失败").with_cause(e.to_string())
+    })?;
+    if !status.is_success() {
+        return Err(parse_account_link_error(
+            &body,
+            status,
+            "获取微信绑定二维码失败",
+        ));
+    }
+    let parsed: ApiQrcodeResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析微信绑定二维码失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Auth, error));
+    }
+    let login_id = parsed
+        .login_id
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 login_id"))?;
+    let qrcode_url = parsed
+        .qrcode_url
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 qrcode_url"))?;
+    Ok(AuthLoginQrcode {
+        login_id,
+        scene: parsed.scene.unwrap_or_default(),
+        ticket: parsed.ticket.unwrap_or_default(),
+        qrcode_url,
+        expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
+    })
+}
+
+/// SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_wechat_wait(
+    state: State<'_, AppState>,
+    token: String,
+    login_id: String,
+    expire_in_sec: Option<u32>,
+) -> Result<(), OmniError> {
+    let token = token.trim().to_string();
+    let login_id = login_id.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    if login_id.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "login_id 不能为空"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url(&format!(
+        "/api/account/links/wechat/wait?id={}",
+        urlencoding_encode(&login_id)
+    ));
+    let timeout_secs = u64::from(expire_in_sec.unwrap_or(300).saturating_add(30).max(60));
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(timeout_secs))
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
+        })?;
+    let cancel_rx = register_cancel(&login_id);
+    let result = tokio::select! {
+        biased;
+        _ = cancel_rx => Err(OmniError::new(ErrorCode::Internal, "微信绑定等待已取消")),
+        outcome = wait_sse_account_link(&client, &url, &token) => outcome,
+    };
+    let _ = take_cancel(&login_id);
+    result
+}
+
+/// 取消微信绑定等待。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_wechat_cancel_wait(login_id: String) -> Result<(), OmniError> {
+    if let Some(tx) = take_cancel(&login_id) {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+/// 发送邮箱绑定验证码。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_email_send(
+    state: State<'_, AppState>,
+    token: String,
+    email: String,
+) -> Result<AuthEmailCodeSent, OmniError> {
+    let token = token.trim().to_string();
+    let email = email.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    if email.is_empty() || !email.contains('@') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/account/links/email/send");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .json(&serde_json::json!({ "email": email }))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "发送绑定验证码失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取验证码响应失败").with_cause(e.to_string())
+    })?;
+    if !status.is_success() {
+        return Err(parse_account_link_error(&body, status, "发送绑定验证码失败"));
+    }
+    let parsed: ApiEmailSendResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析验证码响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Auth, error));
+    }
+    Ok(AuthEmailCodeSent {
+        email: parsed.email.unwrap_or(email),
+        code: parsed.code.unwrap_or_default(),
+        expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
+        hint: parsed.hint.unwrap_or_default(),
+    })
+}
+
+/// 邮箱验证码绑定。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_email(
+    state: State<'_, AppState>,
+    token: String,
+    email: String,
+    code: String,
+) -> Result<AuthUserProfile, OmniError> {
+    let token = token.trim().to_string();
+    let email = email.trim().to_string();
+    let code = code.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    if email.is_empty() || !email.contains('@') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
+    }
+    if code.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入验证码"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/account/links/email");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .json(&serde_json::json!({ "email": email, "code": code }))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "绑定邮箱失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取绑定邮箱响应失败").with_cause(e.to_string())
+    })?;
+    if !status.is_success() {
+        return Err(parse_account_link_error(&body, status, "绑定邮箱失败"));
+    }
+    let parsed: ApiUserResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析绑定邮箱响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    if let Some(error) = parsed.error.as_ref().filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Auth, error.clone()));
+    }
+    Ok(map_api_user(parsed))
+}
+
+/// GitHub OAuth 绑定：系统浏览器授权，轮询 `/api/account/links` 直到绑定成功。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_github(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<(), OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/account/links/github");
+    let client = build_http_client_no_redirect(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "发起 GitHub 绑定失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let body = resp.text().await.unwrap_or_default();
+    if status.as_u16() == 503 || (!status.is_redirection() && !status.is_success()) {
+        return Err(parse_account_link_error(
+            &body,
+            status,
+            if body.trim().is_empty() {
+                "GitHub 绑定未配置或不可用"
+            } else {
+                "发起 GitHub 绑定失败"
+            },
+        ));
+    }
+    let authorize_url = location
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            parse_account_link_error(
+                &body,
+                status,
+                "GitHub 绑定未返回授权地址（请确认服务端已配置 OAuth）",
+            )
+        })?;
+    let authorize_url = Url::parse(&authorize_url).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "GitHub 授权地址无效").with_cause(e.to_string())
+    })?;
+
+    open_system_browser(&app, &authorize_url)?;
+
+    let poll_client =
+        build_http_client_for_url(&auth_url("/api/account/links"), &proxy_config, Duration::from_secs(30))
+            .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
+
+    let cancel_rx = register_cancel(GITHUB_OAUTH_CANCEL_LINK);
+    let result = poll_github_link_bound(&poll_client, &token, cancel_rx).await;
+    let _ = take_cancel(GITHUB_OAUTH_CANCEL_LINK);
+    result
+}
+
+/// 取消进行中的 GitHub 绑定等待。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_link_github_cancel() -> Result<(), OmniError> {
+    if let Some(tx) = take_cancel(GITHUB_OAUTH_CANCEL_LINK) {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+async fn auth_unlink_path(
+    state: &State<'_, AppState>,
+    token: String,
+    path: &str,
+    fail_msg: &str,
+) -> Result<AuthUserProfile, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url(path);
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+    let resp = client
+        .delete(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, fail_msg.to_string())
+                .with_cause(format_reqwest_error(&e))
+        })?;
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, format!("读取{fail_msg}响应失败")).with_cause(e.to_string())
+    })?;
+    if !status.is_success() {
+        return Err(parse_account_link_error(&body, status, fail_msg));
+    }
+    let parsed: ApiUserResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, format!("解析{fail_msg}响应失败"))
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    if let Some(error) = parsed.error.as_ref().filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::InvalidInput, error.clone()));
+    }
+    Ok(map_api_user(parsed))
+}
+
+/// 解绑微信（DELETE /api/account/links/wechat）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_unlink_wechat(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    auth_unlink_path(&state, token, "/api/account/links/wechat", "解绑微信失败").await
+}
+
+/// 解绑 GitHub（DELETE /api/account/links/github）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_unlink_github(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    auth_unlink_path(&state, token, "/api/account/links/github", "解绑 GitHub 失败").await
+}
+
+/// 解绑邮箱（DELETE /api/account/links/email）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_unlink_email(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthUserProfile, OmniError> {
+    auth_unlink_path(&state, token, "/api/account/links/email", "解绑邮箱失败").await
+}
+
+async fn wait_sse_account_link(
+    client: &reqwest::Client,
+    url: &str,
+    token: &str,
+) -> Result<(), OmniError> {
+    let resp = client
+        .get(url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(reqwest::header::ACCEPT, "text/event-stream")
+        .send()
+        .await
+        .map_err(|e| {
+            let cause = e.to_string();
+            if is_benign_sse_disconnect(&cause) {
+                OmniError::new(ErrorCode::Timeout, "微信绑定等待已断开，请刷新二维码")
+            } else {
+                OmniError::new(ErrorCode::Connection, "连接微信绑定等待通道失败").with_cause(cause)
+            }
+        })?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(parse_account_link_error(
+            &body,
+            status,
+            "微信绑定等待失败",
+        ));
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+    let mut event_name = String::new();
+    let mut data_lines: Vec<String> = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| {
+            let cause = e.to_string();
+            if is_benign_sse_disconnect(&cause) {
+                OmniError::new(ErrorCode::Timeout, "微信绑定等待已断开，请刷新二维码")
+            } else {
+                OmniError::new(ErrorCode::Io, "读取微信绑定等待流失败").with_cause(cause)
+            }
+        })?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+        while let Some(idx) = buffer.find('\n') {
+            let mut line = buffer[..idx].to_string();
+            buffer.drain(..=idx);
+            if line.ends_with('\r') {
+                line.pop();
+            }
+
+            if line.is_empty() {
+                let data = data_lines.join("\n");
+                let name = if event_name.is_empty() {
+                    "message".to_string()
+                } else {
+                    std::mem::take(&mut event_name)
+                };
+                data_lines.clear();
+
+                if name == "link" {
+                    return Ok(());
+                }
+                if name == "timeout" || name == "fail" {
+                    let msg = serde_json::from_str::<ApiErrorBody>(&data)
+                        .ok()
+                        .and_then(|b| b.error)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| {
+                            if data.is_empty() {
+                                "微信绑定等待已结束，请刷新二维码".to_string()
+                            } else {
+                                data
+                            }
+                        });
+                    return Err(OmniError::new(
+                        if name == "timeout" {
+                            ErrorCode::Timeout
+                        } else {
+                            ErrorCode::Auth
+                        },
+                        msg,
+                    ));
+                }
+                continue;
+            }
+
+            if let Some(rest) = line.strip_prefix("event:") {
+                event_name = rest.trim().to_string();
+            } else if let Some(rest) = line.strip_prefix("data:") {
+                data_lines.push(rest.trim_start().to_string());
+            }
+        }
+    }
+
+    Err(OmniError::new(
+        ErrorCode::Timeout,
+        "微信绑定等待已结束，请刷新二维码",
+    ))
+}
+
+fn map_token_login_response(
+    body: &str,
+    status: reqwest::StatusCode,
+    fallback: &str,
+) -> Result<AuthLoginSuccess, OmniError> {
+    let parsed: ApiTokenLoginResponse = serde_json::from_str(body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, format!("解析{fallback}响应失败"))
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Auth, error));
+    }
+    if !status.is_success() {
+        return Err(parse_auth_error(body, &format!("{fallback} (HTTP {status})")));
+    }
+
+    let token = parsed
+        .token
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, format!("{fallback}：响应缺少 token")))?;
+
+    let openid = parsed
+        .user
+        .as_ref()
+        .and_then(|u| u.openid.clone())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            parsed
+                .user
+                .as_ref()
+                .and_then(|u| u.email.clone())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_default();
+
+    Ok(AuthLoginSuccess { token, openid })
+}
+
+/// 与 [`build_http_client_for_url`] 相同，但不跟随重定向（用于捕获 OAuth Location）。
+fn build_http_client_no_redirect(
+    url: &str,
+    proxy_config: &crate::state::ProxyConfig,
+    timeout: Duration,
+) -> Result<reqwest::Client, String> {
+    use crate::commands::proxy::is_loopback_http_url;
+
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none());
+
+    if is_loopback_http_url(url) {
+        builder = builder.no_proxy();
+    } else if proxy_config.enabled && !proxy_config.host.is_empty() {
+        let proxy_url = format!(
+            "{}://{}:{}",
+            proxy_config.protocol, proxy_config.host, proxy_config.port
+        );
+        let mut proxy = reqwest::Proxy::all(&proxy_url)
+            .map_err(|e| format!("Invalid proxy configuration: {e}"))?;
+        if !proxy_config.username.is_empty() {
+            proxy = proxy.basic_auth(&proxy_config.username, &proxy_config.password);
+        }
+        builder = builder.proxy(proxy);
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))
 }
 
 /// 申请绑定助手端二维码 payload（客户端本地画码，非微信小程序码）。

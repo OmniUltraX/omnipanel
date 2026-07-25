@@ -19,6 +19,7 @@ pub mod modules {
     pub const DOCKER: &str = "docker";
     pub const MCP: &str = "mcp";
     pub const SKILLS: &str = "skills";
+    pub const PROMPTS: &str = "prompts";
     pub const AI: &str = "ai";
     pub const FILES: &str = "files";
     pub const KNOWLEDGE: &str = "knowledge";
@@ -91,6 +92,11 @@ pub fn mcp_services_path() -> OmniResult<PathBuf> {
 /// 产品级 Skills 根目录：`~/.omnipd/skills/`。
 pub fn skills_root() -> OmniResult<PathBuf> {
     module_dir(modules::SKILLS)
+}
+
+/// 智能体提示词根目录：`~/.omnipd/prompts/`。
+pub fn prompts_root() -> OmniResult<PathBuf> {
+    module_dir(modules::PROMPTS)
 }
 
 /// AI 配置目录：`~/.omnipd/ai/`。

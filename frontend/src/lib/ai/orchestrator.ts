@@ -35,6 +35,8 @@ export interface InternalChatRequestPayload {
    * 默认 undefined（后端按 false 处理，向后兼容）。
    */
   pureText?: boolean;
+  /** 会话勾选的 Skill id；非空时后端注入完整正文 */
+  skillIds?: string[] | null;
 }
 
 export interface RunInternalAiChatOptions {
@@ -103,6 +105,10 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
             }
           : null,
         pureText: options.request.pureText ?? false,
+        skillIds:
+          options.request.skillIds && options.request.skillIds.length > 0
+            ? options.request.skillIds
+            : null,
       },
       onEvent,
     });

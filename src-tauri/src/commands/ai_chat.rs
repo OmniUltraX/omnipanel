@@ -136,6 +136,9 @@ pub struct InternalChatRequestDto {
     /// 为 true 时跳过工具注入 / RAG / Skills / 多轮循环，prompt_text 直接用 user_text。
     #[serde(default)]
     pub pure_text: bool,
+    /// 会话中用户勾选的 Skill id；非空时除摘要目录外再注入完整正文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -385,9 +388,10 @@ pub async fn ai_chat_stream(
     request: InternalChatRequestDto,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
-    // 在 move 进 TryFrom 前提取 embedding provider，供 RAG 注入使用。
+    // 在 move 进 TryFrom 前提取 embedding provider / skill_ids，供注入使用。
     let mut request = request;
     let embedding_provider = request.embedding_provider.take();
+    let skill_ids = request.skill_ids.take().unwrap_or_default();
     let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
     // pure_text 模式跳过 RAG / Skills 注入：oneshot 纯文本补全不需要这些上下文
@@ -403,6 +407,17 @@ pub async fn ai_chat_stream(
         if let Ok(skills_text) = omnipanel_store::build_skills_system_append() {
             if !skills_text.is_empty() {
                 append_parts.push(skills_text);
+            }
+        }
+
+        // 1b. 用户在 Composer 勾选的 Skill 全文
+        if !skill_ids.is_empty() {
+            if let Ok(selected) =
+                omnipanel_store::build_selected_skills_bodies_append(&skill_ids)
+            {
+                if !selected.is_empty() {
+                    append_parts.push(selected);
+                }
             }
         }
 
@@ -679,6 +694,18 @@ async fn run_acp_internal_turn(
         // pure_text 或无工具时：直接用原始 user_text，不包裹 [User] 块 / preamble
         internal.user_text.clone()
     };
+
+    // ACP/CLI 不走 HTTP system message；首轮将 Skills / RAG 等 append 拼进 prompt。
+    // system_append 已被 !pure_text 守护（ai_chat_stream 命令层注入时检查），pure_text 时为 None，安全。
+    if is_first_user_prompt {
+        if let Some(append) = internal
+            .system_append
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            prompt_text = format!("{append}\n\n---\n\n{prompt_text}");
+        }
+    }
 
     // pure_text 单轮完成；正常对话最多 8 轮工具调用
     const MAX_ACP_TOOL_ROUNDS_NORMAL: usize = 8;

@@ -5,7 +5,7 @@ use chrono::Local;
 use futures::StreamExt;
 
 use crate::ir::{StopReason, StreamEvent, ToolStatus};
-use crate::prompts::TOOL_ROUTING_POLICY;
+use crate::prompts::tool_routing_policy;
 use crate::provider::AiProvider;
 use crate::routing::{parse_backend_id, BackendKind};
 use crate::types::{ChatMessage, ChatRequest, FunctionCall, Role, ToolCall, ToolDef};
@@ -225,7 +225,7 @@ fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) 
     let now = Local::now();
     lines.push(format!("Current local date-time: {}", now.format("%Y-%m-%d %H:%M %Z")));
     lines.push(String::new());
-    lines.push(TOOL_ROUTING_POLICY.to_string());
+    lines.push(tool_routing_policy());
 
     if let Some(ctx) = context
         .terminal_context_append

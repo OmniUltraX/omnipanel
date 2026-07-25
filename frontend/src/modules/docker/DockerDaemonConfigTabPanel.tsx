@@ -16,6 +16,7 @@ import {
   mergeFormIntoDaemonConfig,
   tryParseDaemonConfigToForm,
 } from "./dockerDaemonConfigForm";
+import { handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
 
 export interface DockerDaemonConfigTabPanelProps {
   connection: DockerConnectionInfo;
@@ -50,6 +51,7 @@ function ToggleSwitch({
 
 export function DockerDaemonConfigTabPanel({
   connection,
+  isActive,
 }: DockerDaemonConfigTabPanelProps) {
   const { t } = useI18n();
   const mirrorsId = useId();
@@ -104,7 +106,12 @@ export function DockerDaemonConfigTabPanel({
         }
         loadedConnectionIdRef.current = connectionId;
       } catch (e) {
-        setError(String(e));
+        // 连不上实例：标记未连接，不展示错误文案
+        if (handleDockerAutoFetchFailure(connectionId, e)) {
+          setError(null);
+        } else {
+          setError(String(e));
+        }
       } finally {
         setLoading(false);
       }
@@ -113,11 +120,18 @@ export function DockerDaemonConfigTabPanel({
   );
 
   useEffect(() => {
-    // 连接切换或 dock 面板重挂载时加载；子页签切换不触发
+    // 换连接时清空「已加载」标记；真正拉取等 isActive
     loadedConnectionIdRef.current = null;
     setViewMode("form");
-    void loadConfig(true);
-  }, [connection.connectionId, loadConfig]);
+    setError(null);
+  }, [connection.connectionId]);
+
+  useEffect(() => {
+    // 仅配置页签激活且未离线时拉取，避免常驻挂载时对不可达 SSH 刷 IPC 错误
+    if (!isActive) return;
+    if (connection.status === "offline") return;
+    void loadConfig(false);
+  }, [connection.connectionId, connection.status, isActive, loadConfig]);
 
   const dirty = content !== savedContent;
 

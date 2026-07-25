@@ -93,6 +93,7 @@ function probeDataTableThemeBatch(host: HTMLElement): {
     td.className = dirty
       ? "db-data-table-cell db-data-table-cell--dirty"
       : "db-data-table-cell";
+    td.dataset.probeKey = key;
     const span = document.createElement("span");
     span.className = tagClass;
     span.textContent = "N";

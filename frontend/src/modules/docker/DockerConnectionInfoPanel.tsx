@@ -17,6 +17,7 @@ import { DockerDaemonConfigTabPanel } from "./DockerDaemonConfigTabPanel";
 import { DockerDockPanel } from "./DockerDockPanel";
 import { DockerHostTerminalPanel } from "./DockerHostTerminalPanel";
 import { restartDockerDaemon } from "./dockerDaemonConfigApi";
+import { markDockerConnectionOffline } from "./dockerConnectionOffline";
 import { isLocalDockerSource, normalizeDockerSource } from "./dockerConnectionSource";
 import { makeDockerTreeKey } from "./dockerResourceLabels";
 import { useDockerLiveConnection, useDockerSidebarLinkage } from "./DockerSidebarLinkageContext";
@@ -139,8 +140,12 @@ export function DockerConnectionInfoPanel({
         quiet: true,
       });
       setProbe(next);
+      if (next.status === "offline") {
+        markDockerConnectionOffline(connection.connectionId);
+      }
     } catch {
-      // 探测失败时保留已有版本信息，避免闪烁清空
+      // 探测失败：标记未连接，保留已有版本信息避免闪烁清空
+      markDockerConnectionOffline(connection.connectionId);
     }
   }, [connection.connectionId]);
 

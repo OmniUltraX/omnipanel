@@ -4194,6 +4194,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "omnipanel-store",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

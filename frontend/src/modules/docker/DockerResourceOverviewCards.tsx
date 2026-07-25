@@ -4,6 +4,7 @@ import { useI18n } from "../../i18n";
 import { commands, type DockerConnectionInfo } from "../../ipc/bindings";
 import { unwrapCommand as unwrapOk } from "../../ipc/result";
 import { ComposeStackIcon, ContainerIcon, ImageLayersIcon } from "./icons";
+import { DOCKER_QUIET_IPC, handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
 
 export interface DockerResourceOverviewCardsProps {
   connection: DockerConnectionInfo;
@@ -59,10 +60,14 @@ export function DockerResourceOverviewCards({
 
   const refresh = useCallback(async () => {
     const connectionId = connection.connectionId;
+    if (connection.status === "offline") {
+      setLoaded(true);
+      return;
+    }
     setLoading(true);
     try {
       // 顺序拉取：SSH 宿主机上并发 list 会抢同一 exec 通道，易触发 Channel send error
-      const quiet = { quiet: true as const };
+      const quiet = DOCKER_QUIET_IPC;
       const containers = await unwrapOk(commands.dockerListContainers(connectionId, null), quiet);
       const compose = await unwrapOk(commands.dockerListComposeProjects(connectionId), quiet).catch(
         () => [],
@@ -78,13 +83,14 @@ export function DockerResourceOverviewCards({
         volumes: volumes.length,
         registries: 0,
       });
-    } catch {
+    } catch (error) {
+      handleDockerAutoFetchFailure(connectionId, error);
       // 保留上次成功数据；失败时不打断页面主体
     } finally {
       setLoading(false);
       setLoaded(true);
     }
-  }, [connection.connectionId]);
+  }, [connection.connectionId, connection.status]);
 
   useEffect(() => {
     setLoaded(false);

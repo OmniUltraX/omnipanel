@@ -27,25 +27,13 @@ pub async fn list_via_ssh_cli(
     container_ids: Option<&[String]>,
 ) -> OmniResult<Vec<DockerContainerStats>> {
     let filter_targets = container_ids.filter(|ids| !ids.is_empty());
-    let started = std::time::Instant::now();
 
     // 始终全量拉取；scoped ID 只用于事后过滤（过滤失败则保留全量供前端匹配）。
     let cmd = docker_stats_shell_cmd();
-    tracing::warn!(
-        target: "docker_stats",
-        source = "ssh",
-        cmd = %cmd,
-        "SSH docker stats 开始"
-    );
-    eprintln!("[docker_stats] ssh exec start");
 
     let out = match tokio::time::timeout(SSH_STATS_TIMEOUT, session.exec_capture(&cmd)).await {
         Ok(result) => result?,
         Err(_) => {
-            eprintln!(
-                "[docker_stats] ssh exec timeout after {}ms",
-                started.elapsed().as_millis()
-            );
             return Err(OmniError::new(
                 ErrorCode::Timeout,
                 format!(
@@ -56,33 +44,7 @@ pub async fn list_via_ssh_cli(
         }
     };
     let out = out.ok_or_err("docker stats 失败")?;
-    let exec_ms = started.elapsed().as_millis();
     let mut stats = parse_cli_output(&out.stdout);
-
-    tracing::warn!(
-        target: "docker_stats",
-        source = "ssh",
-        exec_ms,
-        stdout_len = out.stdout.len(),
-        parsed_count = stats.len(),
-        stderr_len = out.stderr.len(),
-        "SSH docker stats 完成"
-    );
-    eprintln!(
-        "[docker_stats] ssh exec done exec_ms={exec_ms} parsed={} stdout_len={}",
-        stats.len(),
-        out.stdout.len()
-    );
-
-    if stats.is_empty() && !out.stdout.trim().is_empty() {
-        tracing::warn!(
-            target: "docker_stats",
-            stdout_len = out.stdout.len(),
-            stdout_preview = %preview_text(&out.stdout, 512),
-            stderr = %out.stderr.trim(),
-            "docker stats 有 stdout 但 JSON 解析结果为空（可能 --format 未生效）"
-        );
-    }
 
     if let Some(targets) = filter_targets {
         let filtered = filter_by_targets(stats.clone(), targets);
@@ -100,15 +62,6 @@ pub fn docker_stats_shell_cmd() -> String {
         "docker stats --no-stream --format {}",
         shell_quote("{{json .}}")
     )
-}
-
-fn preview_text(text: &str, max_chars: usize) -> String {
-    let trimmed = text.trim();
-    if trimmed.len() <= max_chars {
-        trimmed.to_string()
-    } else {
-        format!("{}… (共 {} 字符)", &trimmed[..max_chars], trimmed.len())
-    }
 }
 
 /// 解析 `docker stats --no-stream` 多行 JSON 输出。
@@ -190,19 +143,8 @@ pub async fn list_via_bollard(
     docker: &Docker,
     container_ids: Option<&[String]>,
 ) -> OmniResult<Vec<DockerContainerStats>> {
-    let started = std::time::Instant::now();
     let ids = resolve_running_container_ids(docker, container_ids).await?;
     let total = ids.len();
-    tracing::warn!(
-        target: "docker_stats",
-        source = "bollard",
-        container_count = total,
-        concurrency = BOLLARD_STATS_CONCURRENCY,
-        "bollard 并行 one-shot 采样开始"
-    );
-    eprintln!(
-        "[docker_stats] bollard start count={total} concurrency={BOLLARD_STATS_CONCURRENCY}"
-    );
 
     if total == 0 {
         return Ok(Vec::new());
@@ -214,19 +156,7 @@ pub async fn list_via_bollard(
             .map(|(index, id)| {
                 let docker = docker.clone();
                 async move {
-                    let one_started = std::time::Instant::now();
                     let result = sample_bollard_once(&docker, &id).await;
-                    if let Err(ref err) = result {
-                        tracing::warn!(
-                            target: "docker_stats",
-                            source = "bollard",
-                            index,
-                            container = %id,
-                            elapsed_ms = one_started.elapsed().as_millis(),
-                            error = %err,
-                            "单容器 stats 失败，已跳过"
-                        );
-                    }
                     (index, result)
                 }
             })
@@ -235,30 +165,13 @@ pub async fn list_via_bollard(
             .await;
 
     let mut indexed: Vec<(usize, DockerContainerStats)> = Vec::with_capacity(total);
-    let mut fail = 0usize;
     for (index, result) in results {
-        match result {
-            Ok(stats) => indexed.push((index, stats)),
-            Err(_) => fail += 1,
+        if let Ok(stats) = result {
+            indexed.push((index, stats));
         }
     }
     indexed.sort_by_key(|(index, _)| *index);
-    let out: Vec<DockerContainerStats> = indexed.into_iter().map(|(_, s)| s).collect();
-    let ok = out.len();
-    let elapsed_ms = started.elapsed().as_millis();
-    tracing::warn!(
-        target: "docker_stats",
-        source = "bollard",
-        container_count = total,
-        ok,
-        fail,
-        elapsed_ms,
-        "bollard 并行 one-shot 采样完成"
-    );
-    eprintln!(
-        "[docker_stats] bollard done count={total} ok={ok} fail={fail} elapsed_ms={elapsed_ms}"
-    );
-    Ok(out)
+    Ok(indexed.into_iter().map(|(_, s)| s).collect())
 }
 
 async fn resolve_running_container_ids(

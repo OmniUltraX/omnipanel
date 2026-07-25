@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod agent_prompt;
 pub mod ai_chat;
 pub mod auth;
 pub mod assistant;

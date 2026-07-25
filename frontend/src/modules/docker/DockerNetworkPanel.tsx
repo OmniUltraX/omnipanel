@@ -16,6 +16,10 @@ import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import {
+  DOCKER_QUIET_IPC,
+  handleDockerAutoFetchFailure,
+} from "./dockerConnectionOffline";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -51,11 +55,11 @@ interface SortState {
 const PROTECTED_NETWORKS = new Set(["bridge", "host", "none"]);
 
 async function fetchNetworks(connectionId: string): Promise<DockerNetworkSummary[]> {
-  return unwrapCommandResult(await commands.dockerListNetworks(connectionId));
+  return unwrapCommandResult(await commands.dockerListNetworks(connectionId), DOCKER_QUIET_IPC);
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  return unwrapCommandResult(await commands.dockerListContainers(connectionId, null));
+  return unwrapCommandResult(await commands.dockerListContainers(connectionId, null), DOCKER_QUIET_IPC);
 }
 
 function formatCreatedAt(ts: number | null): string {
@@ -172,17 +176,20 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     setLoading(true);
     setError(null);
     try {
-      const [nextNetworks, nextContainers] = await Promise.all([
-        fetchNetworks(connection.connectionId),
-        fetchContainers(connection.connectionId),
-      ]);
+      // 顺序拉取：SSH 并发 list 易抢 exec 通道
+      const nextNetworks = await fetchNetworks(connection.connectionId);
+      const nextContainers = await fetchContainers(connection.connectionId);
       startTransition(() => {
         setNetworks(nextNetworks);
         setContainers(nextContainers);
       });
       refreshSidebar();
     } catch (err) {
-      setError(String(err));
+      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+        setError(null);
+      } else {
+        setError(String(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -200,8 +207,9 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
 
   useEffect(() => {
     if (!isActive) return;
+    if (connection.status === "offline") return;
     void refresh();
-  }, [isActive, refresh]);
+  }, [connection.status, isActive, refresh]);
 
   const toggleSort = useCallback((columnId: string) => {
     const column = columnId as SortColumn;

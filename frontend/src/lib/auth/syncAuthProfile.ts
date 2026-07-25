@@ -26,6 +26,9 @@ export async function syncAuthProfile(): Promise<void> {
       useUserProfileStore.getState().setProfile({
         nickname: me.nickname,
         avatarUrl: me.avatarUrl,
+        openid: me.openid,
+        email: me.email,
+        githubId: me.githubId,
       });
     } catch (error) {
       if (isAuthSessionError(error)) {

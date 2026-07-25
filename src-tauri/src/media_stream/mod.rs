@@ -91,10 +91,6 @@ impl MediaStreamServer {
         })
     }
 
-    pub fn port(&self) -> u16 {
-        self.port
-    }
-
     pub async fn register(&self, entry: MediaStreamEntry) -> String {
         let token = new_token();
         self.entries.lock().await.insert(token.clone(), entry);
