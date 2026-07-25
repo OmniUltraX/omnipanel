@@ -430,7 +430,7 @@ pub async fn ai_send_message(
             tools: Some(tools.clone()),
             temperature: None,
             max_tokens: None,
-            enable_thinking: Some(true),
+            enable_thinking: None,
             reasoning_effort: None,
         };
 

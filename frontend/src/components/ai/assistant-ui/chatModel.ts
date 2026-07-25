@@ -233,9 +233,7 @@ export async function* streamOpenAI(
 
   if (options?.reasoningEffort && options.reasoningEffort !== "default") {
     body.reasoning_effort = options.reasoningEffort;
-    body.enable_thinking = true;
-  } else if (options?.reasoningEffort === "default" || options?.reasoningEffort === undefined) {
-    // 通义等兼容端：不显式开启则不返回 reasoning_content
+    // 通义等兼容端：仅在显式选择推理强度时开启，避免部分模型/网关 400
     body.enable_thinking = true;
   }
 

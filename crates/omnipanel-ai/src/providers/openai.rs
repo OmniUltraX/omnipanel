@@ -58,6 +58,53 @@ impl OpenAiProvider {
             client: client.unwrap_or_else(Client::new),
         }
     }
+
+    async fn post_chat_completions(
+        &self,
+        url: &str,
+        body: &OpenAiRequest,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        self.client
+            .post(url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(body)
+            .send()
+            .await
+    }
+
+    /// 部分上游不接受 enable_thinking / reasoning_effort，400 时去掉后重试一次。
+    async fn post_chat_completions_with_thinking_fallback(
+        &self,
+        url: &str,
+        body: &mut OpenAiRequest,
+    ) -> Result<reqwest::Response> {
+        let resp = self
+            .post_chat_completions(url, body)
+            .await
+            .map_err(|e| format_http_request_error(e, url))?;
+
+        if resp.status().is_success()
+            || resp.status().as_u16() != 400
+            || (body.enable_thinking.is_none() && body.reasoning_effort.is_none())
+        {
+            return Ok(resp);
+        }
+
+        let status = resp.status();
+        let err_text = resp.text().await.unwrap_or_default();
+        tracing::warn!(
+            target: "omni_openai",
+            %status,
+            error = %err_text,
+            "带思考参数请求被拒绝，去掉 enable_thinking/reasoning_effort 后重试"
+        );
+        body.enable_thinking = None;
+        body.reasoning_effort = None;
+        self.post_chat_completions(url, body)
+            .await
+            .map_err(|e| format_http_request_error(e, url))
+    }
 }
 
 #[derive(Serialize)]
@@ -194,7 +241,7 @@ impl AiProvider for OpenAiProvider {
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
-        let body = OpenAiRequest {
+        let mut body = OpenAiRequest {
             model: request.model.clone(),
             messages: convert_messages(&request.messages),
             stream: Some(false),
@@ -207,14 +254,8 @@ impl AiProvider for OpenAiProvider {
 
         let url = format!("{}/chat/completions", self.base_url);
         let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format_http_request_error(e, &url))?;
+            .post_chat_completions_with_thinking_fallback(&url, &mut body)
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -281,7 +322,7 @@ impl AiProvider for OpenAiProvider {
         &self,
         request: ChatRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
-        let body = OpenAiRequest {
+        let mut body = OpenAiRequest {
             model: request.model.clone(),
             messages: convert_messages(&request.messages),
             stream: Some(true),
@@ -294,14 +335,8 @@ impl AiProvider for OpenAiProvider {
 
         let url = format!("{}/chat/completions", self.base_url);
         let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format_http_request_error(e, &url))?;
+            .post_chat_completions_with_thinking_fallback(&url, &mut body)
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();

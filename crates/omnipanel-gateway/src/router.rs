@@ -154,7 +154,7 @@ impl GatewayRouter {
             tools: tool_defs,
             temperature: None,
             max_tokens: None,
-            enable_thinking: Some(true),
+            enable_thinking: None,
             reasoning_effort: None,
         };
 

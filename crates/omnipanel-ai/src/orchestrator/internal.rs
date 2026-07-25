@@ -299,10 +299,6 @@ fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) 
     })
 }
 
-/// 将前端 `reasoningEffort` 映射为 OpenAI 兼容请求字段。
-/// - pure_text：强制关闭思考（oneshot 命名/摘要）
-/// - 其余：开启 `enable_thinking`（通义等需要显式开关才会返回 reasoning_content）
-/// - `low`/`medium`/`high` 额外带 `reasoning_effort`
 fn resolve_thinking_options(
     pure_text: bool,
     reasoning_effort: Option<&str>,
@@ -316,7 +312,6 @@ fn resolve_thinking_options(
         .unwrap_or("default");
     match effort {
         "low" | "medium" | "high" => (Some(true), Some(effort.to_string())),
-        // default / 未知：仍开启思考链，但不强制 effort 级别
-        _ => (Some(true), None),
+        _ => (None, None),
     }
 }

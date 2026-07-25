@@ -214,7 +214,7 @@ export const useAiStore = create<AiStore>()(
       currentSkillIds: [],
       isGenerating: false,
       draftPrompt: "",
-      reasoningEffort: "medium",
+      reasoningEffort: "default",
       connectedMcpServices: [],
       conversationListOpen: false,
       conversationListPlacement: "dropdown",
@@ -642,23 +642,29 @@ export const useAiStore = create<AiStore>()(
     {
       name: "omnipanel-ai-store",
       storage: createJSONStorage(createIndexedDBStorage),
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
         const state = persisted as {
           conversations?: AiConversation[];
+          reasoningEffort?: string;
           [key: string]: unknown;
         };
         if (!state || typeof state !== "object") return persisted as AiStore;
+        let next = { ...state } as AiStore;
         if (version < 2 && Array.isArray(state.conversations)) {
-          return {
-            ...state,
+          next = {
+            ...next,
             conversations: state.conversations.map((c) => ({
               ...c,
               messages: (c.messages ?? []).map((m) => normalizeAiMessage(m)),
             })),
-          } as AiStore;
+          };
         }
-        return persisted as AiStore;
+        // v3：默认不再强制带 enable_thinking，避免部分上游 400
+        if (version < 3) {
+          next = { ...next, reasoningEffort: "default" };
+        }
+        return next;
       },
       partialize: (state) => ({
         conversations: state.conversations,
