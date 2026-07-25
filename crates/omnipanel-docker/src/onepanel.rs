@@ -788,46 +788,14 @@ async fn fetch_onepanel_container_stats(
     client: &OnePanelClient,
 ) -> OmniResult<Vec<DockerContainerStats>> {
     let api_path = "/api/v2/containers/list/stats";
-    let started = std::time::Instant::now();
-    tracing::warn!(
-        target: "docker_stats",
-        source = "onepanel",
-        api = %api_path,
-        "请求 1Panel 容器 stats API"
-    );
-    eprintln!("[docker_stats] onepanel start api={api_path}");
     let raw: Vec<serde_json::Value> = client
         .get_json(api_path)
         .await
         .map_err(|e| e.with_cause("1Panel 获取容器统计失败"))?;
-    let fetch_ms = started.elapsed().as_millis();
-    tracing::warn!(
-        target: "docker_stats",
-        source = "onepanel",
-        api = %api_path,
-        fetch_ms,
-        raw_count = raw.len(),
-        "1Panel 容器 stats 原始响应"
-    );
-    let stats: Vec<DockerContainerStats> = raw
+    Ok(raw
         .into_iter()
         .filter_map(|v| parse_container_list_stats(&v))
-        .collect();
-    let elapsed_ms = started.elapsed().as_millis();
-    tracing::warn!(
-        target: "docker_stats",
-        source = "onepanel",
-        fetch_ms,
-        elapsed_ms,
-        parsed_count = stats.len(),
-        sample = ?stats.first().map(|s| (s.container_id.as_str(), s.cpu_percent, s.memory_percent, s.memory_usage_bytes)),
-        "1Panel 容器 stats 解析完成"
-    );
-    eprintln!(
-        "[docker_stats] onepanel done fetch_ms={fetch_ms} elapsed_ms={elapsed_ms} parsed={}",
-        stats.len()
-    );
-    Ok(stats)
+        .collect())
 }
 
 fn parse_container_list_stats(v: &serde_json::Value) -> Option<DockerContainerStats> {

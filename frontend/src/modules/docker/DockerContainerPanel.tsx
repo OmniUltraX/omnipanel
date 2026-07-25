@@ -23,6 +23,10 @@ import { sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import {
+  DOCKER_QUIET_IPC,
+  handleDockerAutoFetchFailure,
+} from "./dockerConnectionOffline";
 import type { DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -49,11 +53,11 @@ interface SortState {
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  return unwrapCommand(commands.dockerListContainers(connectionId, null));
+  return unwrapCommand(commands.dockerListContainers(connectionId, null), DOCKER_QUIET_IPC);
 }
 
 async function fetchLogInfos(connectionId: string): Promise<DockerContainerLogInfo[]> {
-  return unwrapCommand(commands.dockerListContainerLogInfos(connectionId));
+  return unwrapCommand(commands.dockerListContainerLogInfos(connectionId), DOCKER_QUIET_IPC);
 }
 
 function formatCreatedAt(ts: number | null | undefined): string {
@@ -210,17 +214,22 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     setLoading(true);
     setError(null);
     try {
-      const [nextContainers, nextLogs] = await Promise.all([
-        fetchContainers(connection.connectionId),
-        fetchLogInfos(connection.connectionId).catch(() => [] as DockerContainerLogInfo[]),
-      ]);
+      // 顺序拉取：SSH 上并发 list 易抢 exec 通道触发 Channel send error
+      const nextContainers = await fetchContainers(connection.connectionId);
+      const nextLogs = await fetchLogInfos(connection.connectionId).catch(
+        () => [] as DockerContainerLogInfo[],
+      );
       startTransition(() => {
         setContainers(nextContainers);
         setLogById(buildLogInfoByContainerId(nextLogs));
       });
       refreshSidebarContainers();
     } catch (err) {
-      setError(String(err));
+      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+        setError(null);
+      } else {
+        setError(String(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -240,8 +249,9 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
 
   useEffect(() => {
     if (!isActive) return;
+    if (connection.status === "offline") return;
     void refresh();
-  }, [isActive, refresh]);
+  }, [connection.status, isActive, refresh]);
 
   const toggleSort = useCallback((columnId: string) => {
     const column = columnId as SortColumn;

@@ -16,6 +16,10 @@ import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import {
+  DOCKER_QUIET_IPC,
+  handleDockerAutoFetchFailure,
+} from "./dockerConnectionOffline";
 import { dockerVolumeMatchesSearch } from "./dockerTreeSearch";
 import { volumeRowLabel } from "./dockerResourceLabels";
 import { makeDockerVolumeSftpAdapter } from "./dockerVolumeSftpAdapter";
@@ -27,7 +31,7 @@ export interface DockerVolumePanelProps {
 }
 
 async function fetchVolumes(connectionId: string): Promise<DockerVolumeSummary[]> {
-  return unwrapCommandResult(await commands.dockerListVolumes(connectionId));
+  return unwrapCommandResult(await commands.dockerListVolumes(connectionId), DOCKER_QUIET_IPC);
 }
 
 export function DockerVolumePanel({ connection, isActive = false }: DockerVolumePanelProps) {
@@ -72,7 +76,11 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
       });
       refreshSidebarVolumes();
     } catch (err) {
-      setError(String(err));
+      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+        setError(null);
+      } else {
+        setError(String(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -90,8 +98,9 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
 
   useEffect(() => {
     if (!isActive) return;
+    if (connection.status === "offline") return;
     void refresh();
-  }, [isActive, refresh]);
+  }, [connection.status, isActive, refresh]);
 
   const filteredVolumes = useMemo(() => {
     const query = search.trim();
