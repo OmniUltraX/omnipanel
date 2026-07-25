@@ -37,6 +37,8 @@ export interface InternalChatRequestPayload {
   pureText?: boolean;
   /** 会话勾选的 Skill id；非空时后端注入完整正文 */
   skillIds?: string[] | null;
+  /** 推理强度：default | low | medium | high */
+  reasoningEffort?: string | null;
 }
 
 export interface RunInternalAiChatOptions {
@@ -109,6 +111,7 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
           options.request.skillIds && options.request.skillIds.length > 0
             ? options.request.skillIds
             : null,
+        reasoningEffort: options.request.reasoningEffort ?? null,
       },
       onEvent,
     });

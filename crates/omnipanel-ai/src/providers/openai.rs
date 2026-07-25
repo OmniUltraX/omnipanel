@@ -72,6 +72,11 @@ struct OpenAiRequest {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+    /// 通义 / DashScope 兼容：开启思考链。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enable_thinking: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -196,6 +201,8 @@ impl AiProvider for OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             tools: request.tools.as_ref().map(|t| convert_tools(t)),
+            enable_thinking: request.enable_thinking,
+            reasoning_effort: request.reasoning_effort.clone(),
         };
 
         let url = format!("{}/chat/completions", self.base_url);
@@ -215,30 +222,59 @@ impl AiProvider for OpenAiProvider {
             bail!("OpenAI API error {}: {}", status, text);
         }
 
-        let data: OpenAiResponse = resp.json().await?;
-        let choice = data
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No choices in response"))?;
+        let text = resp.text().await?;
+        match serde_json::from_str::<OpenAiResponse>(&text) {
+            Ok(data) => {
+                let choice = data
+                    .choices
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("No choices in response"))?;
 
-        Ok(ChatResponse {
-            message: ChatMessage {
-                role: Role::Assistant,
-                content: choice.message.content.unwrap_or_default(),
-                tool_call_id: None,
-                tool_calls: None,
-                name: None,
-            },
-            usage: Usage {
-                input_tokens: data.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                output_tokens: data
-                    .usage
-                    .as_ref()
-                    .map(|u| u.completion_tokens)
-                    .unwrap_or(0),
-            },
-        })
+                Ok(ChatResponse {
+                    message: ChatMessage {
+                        role: Role::Assistant,
+                        content: choice.message.content.unwrap_or_default(),
+                        tool_call_id: None,
+                        tool_calls: None,
+                        name: None,
+                    },
+                    usage: Usage {
+                        input_tokens: data.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                        output_tokens: data
+                            .usage
+                            .as_ref()
+                            .map(|u| u.completion_tokens)
+                            .unwrap_or(0),
+                    },
+                })
+            }
+            Err(_) => {
+                // 部分网关（如阿里云 MaaS）返回 {"text":"...","finish_reason":"stop"}，
+                // 而非 OpenAI 的 choices[].message.content。
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(msg) = extract_error_message(&val) {
+                        bail!("OpenAI API error: {msg}");
+                    }
+                    if let Some(content) = extract_plain_text_completion(&val) {
+                        return Ok(ChatResponse {
+                            message: ChatMessage {
+                                role: Role::Assistant,
+                                content,
+                                tool_call_id: None,
+                                tool_calls: None,
+                                name: None,
+                            },
+                            usage: Usage {
+                                input_tokens: 0,
+                                output_tokens: 0,
+                            },
+                        });
+                    }
+                }
+                bail!("Unexpected OpenAI response: {text}");
+            }
+        }
     }
 
     async fn chat_stream(
@@ -252,6 +288,8 @@ impl AiProvider for OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             tools: request.tools.as_ref().map(|t| convert_tools(t)),
+            enable_thinking: request.enable_thinking,
+            reasoning_effort: request.reasoning_effort.clone(),
         };
 
         let url = format!("{}/chat/completions", self.base_url);
@@ -272,60 +310,142 @@ impl AiProvider for OpenAiProvider {
         }
 
         let stream = resp.bytes_stream();
-        // 每个网络分片可能包含多行 SSE、多个 delta（content/tool_call/finish_reason），
-        // 必须全部展开为事件，绝不能只保留最后一个（否则会丢失 Done{ToolUse} 或
-        // tool_call 的 arguments 分片，导致工具永不执行）。
-        // 同时：一行 `data: {...}` 可能被 TCP 切成两半分两个分片到达，
-        // 必须跨分片缓冲，只解析以换行结束的完整行，否则半行 JSON 会被静默丢弃。
         let buffer = Arc::new(Mutex::new(String::new()));
-        let event_stream = stream.flat_map(move |chunk| {
-            let events = match chunk {
-                Ok(bytes) => {
-                    let mut buf = buffer.lock().unwrap();
-                    buf.push_str(&String::from_utf8_lossy(&bytes));
-                    let mut events = Vec::new();
-                    // 逐个完整行（含换行符）取出解析，最后不完整的一行留在 buffer 里。
-                    while let Some(pos) = buf.find('\n') {
-                        let line: String = buf.drain(..=pos).collect();
-                        parse_sse_line(line.trim(), &mut events);
+        let flush_buffer = buffer.clone();
+        let event_stream = stream
+            .flat_map(move |chunk| {
+                let events = match chunk {
+                    Ok(bytes) => {
+                        let mut buf = buffer.lock().unwrap();
+                        buf.push_str(&String::from_utf8_lossy(&bytes));
+                        let mut events = Vec::new();
+                        // 逐个完整行（含换行符）取出解析，最后不完整的一行留在 buffer 里。
+                        while let Some(pos) = buf.find('\n') {
+                            let line: String = buf.drain(..=pos).collect();
+                            parse_sse_line(line.trim(), &mut events);
+                        }
+                        events
                     }
-                    events
-                }
-                Err(e) => vec![Err(anyhow::anyhow!("Stream error: {}", e))],
-            };
-            futures::stream::iter(events)
-        });
+                    Err(e) => vec![Err(anyhow::anyhow!("Stream error: {}", e))],
+                };
+                futures::stream::iter(events)
+            })
+            .chain(
+                futures::stream::once(async move {
+                    let leftover = {
+                        let mut buf = flush_buffer.lock().unwrap();
+                        std::mem::take(&mut *buf)
+                    };
+                    leftover
+                })
+                .flat_map(|leftover| {
+                    let mut events = Vec::new();
+                    let trimmed = leftover.trim();
+                    if !trimmed.is_empty() {
+                        parse_sse_line(trimmed, &mut events);
+                    }
+                    futures::stream::iter(events)
+                }),
+            );
 
         Ok(Box::pin(event_stream))
     }
 }
 
-/// 解析单行 SSE（已去除首尾空白），把产生的事件追加到 `events`。
+fn stop_reason_from_finish(reason: &str) -> StopReason {
+    match reason {
+        "tool_calls" | "function_call" => StopReason::ToolUse,
+        "length" => StopReason::MaxTokens,
+        "content_filter" => StopReason::Refusal,
+        _ => StopReason::EndTurn,
+    }
+}
+
+fn extract_error_message(val: &serde_json::Value) -> Option<String> {
+    val.get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .map(|s| s.to_string())
+}
+
+/// 非 OpenAI `choices` 形态：如阿里云 MaaS `{"text":"...","finish_reason":"stop"}`。
+fn extract_plain_text_completion(val: &serde_json::Value) -> Option<String> {
+    if val.get("choices").is_some() {
+        return None;
+    }
+    val.get("text")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string())
+}
+
+fn extract_plain_reasoning(val: &serde_json::Value) -> Option<String> {
+    if val.get("choices").is_some() {
+        return None;
+    }
+    val.get("reasoning_content")
+        .or_else(|| val.get("reasoning"))
+        .or_else(|| val.get("thinking"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn push_plain_text_completion(val: &serde_json::Value, events: &mut Vec<Result<StreamEvent>>) -> bool {
+    let text = extract_plain_text_completion(val);
+    let reasoning = extract_plain_reasoning(val);
+    if text.is_none() && reasoning.is_none() {
+        return false;
+    }
+    if let Some(reasoning) = reasoning {
+        events.push(Ok(StreamEvent::ReasoningDelta { text: reasoning }));
+    }
+    if let Some(text) = text {
+        if !text.is_empty() {
+            events.push(Ok(StreamEvent::ContentDelta { text }));
+        }
+    }
+    let stop_reason = val
+        .get("finish_reason")
+        .and_then(|f| f.as_str())
+        .map(stop_reason_from_finish)
+        .unwrap_or(StopReason::EndTurn);
+    events.push(Ok(StreamEvent::Done { stop_reason }));
+    true
+}
+
+/// 解析单行流式负载（已去除首尾空白），把产生的事件追加到 `events`。
+/// 支持标准 OpenAI SSE（`data: {...}`）以及无 `data:` 前缀的整段 JSON。
 fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
-    let data = match line.strip_prefix("data:") {
-        Some(rest) => rest.trim(),
-        None => return,
-    };
-    // [DONE] 仅为终止信号；stop_reason 由 finish_reason 决定，
-    // 此处不再 emit Done，避免覆盖已产生的 Done{ToolUse}。
-    if data.is_empty() || data == "[DONE]" {
+    if line.is_empty() {
         return;
     }
+
+    let data = match line.strip_prefix("data:") {
+        Some(rest) => {
+            let data = rest.trim();
+            // [DONE] 仅为终止信号；stop_reason 由 finish_reason 决定，
+            // 此处不再 emit Done，避免覆盖已产生的 Done{ToolUse}。
+            if data.is_empty() || data == "[DONE]" {
+                return;
+            }
+            data
+        }
+        // 无 SSE 前缀：可能是网关直接返回的整段 JSON（如阿里云 MaaS）。
+        None if line.starts_with('{') => line,
+        None => return,
+    };
 
     let chunk = match serde_json::from_str::<StreamChunk>(data) {
         Ok(chunk) => chunk,
         Err(err) => {
-            // 完整行仍解析失败：可能是 API 返回的错误对象或非法 JSON。
-            // 检测 error 字段映射为 IR Error，否则记日志（不再静默吞掉）。
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(msg) = val
-                    .get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(|m| m.as_str())
-                {
+                if let Some(msg) = extract_error_message(&val) {
                     events.push(Ok(StreamEvent::Error {
-                        message: msg.to_string(),
+                        message: msg,
                     }));
+                    return;
+                }
+                if push_plain_text_completion(&val, events) {
                     return;
                 }
             }
@@ -334,9 +454,16 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
         }
     };
 
+    // StreamChunk 反序列化成功但 choices 为空时，再尝试 plain text。
+    if chunk.choices.is_empty() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
+            if push_plain_text_completion(&val, events) {
+                return;
+            }
+        }
+    }
+
     for choice in chunk.choices {
-        // 顺序：先 reasoning/content/tool_call 分片，最后才是 finish_reason 的 Done，
-        // 确保同一分片内的 arguments 尾段先于 Done 被消费。
         let reasoning = choice
             .delta
             .reasoning_content
@@ -371,13 +498,82 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
             }
         }
         if let Some(reason) = &choice.finish_reason {
-            let stop_reason = match reason.as_str() {
-                "tool_calls" | "function_call" => StopReason::ToolUse,
-                "length" => StopReason::MaxTokens,
-                "content_filter" => StopReason::Refusal,
-                _ => StopReason::EndTurn,
-            };
-            events.push(Ok(StreamEvent::Done { stop_reason }));
+            events.push(Ok(StreamEvent::Done {
+                stop_reason: stop_reason_from_finish(reason),
+            }));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_aliyun_maas_plain_json() {
+        let mut events = Vec::new();
+        parse_sse_line(
+            r#"{"finish_reason":"stop","text":"你好，有什么可以帮你的"}"#,
+            &mut events,
+        );
+        assert_eq!(events.len(), 2);
+        match &events[0] {
+            Ok(StreamEvent::ContentDelta { text }) => {
+                assert_eq!(text, "你好，有什么可以帮你的");
+            }
+            other => panic!("expected ContentDelta, got {other:?}"),
+        }
+        match &events[1] {
+            Ok(StreamEvent::Done {
+                stop_reason: StopReason::EndTurn,
+            }) => {}
+            other => panic!("expected Done EndTurn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_openai_sse_still_works() {
+        let mut events = Vec::new();
+        parse_sse_line(
+            r#"data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}"#,
+            &mut events,
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            Ok(StreamEvent::ContentDelta { text }) => assert_eq!(text, "hi"),
+            other => panic!("expected ContentDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_openai_sse_reasoning_with_null_content() {
+        let mut events = Vec::new();
+        parse_sse_line(
+            r#"data: {"choices":[{"delta":{"content":null,"reasoning_content":"先想一步"},"finish_reason":null}]}"#,
+            &mut events,
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            Ok(StreamEvent::ReasoningDelta { text }) => assert_eq!(text, "先想一步"),
+            other => panic!("expected ReasoningDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_aliyun_maas_plain_json_with_reasoning() {
+        let mut events = Vec::new();
+        parse_sse_line(
+            r#"{"finish_reason":"stop","reasoning_content":"思考","text":"答案"}"#,
+            &mut events,
+        );
+        assert_eq!(events.len(), 3);
+        match &events[0] {
+            Ok(StreamEvent::ReasoningDelta { text }) => assert_eq!(text, "思考"),
+            other => panic!("expected ReasoningDelta, got {other:?}"),
+        }
+        match &events[1] {
+            Ok(StreamEvent::ContentDelta { text }) => assert_eq!(text, "答案"),
+            other => panic!("expected ContentDelta, got {other:?}"),
         }
     }
 }

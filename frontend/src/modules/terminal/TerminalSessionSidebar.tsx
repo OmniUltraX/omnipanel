@@ -777,7 +777,6 @@ export function TerminalSessionSidebar({
         title={t("resourceTags.section")}
         subtitle={tagEditTarget?.name}
         size="sm"
-        clipboardAssist={false}
         cancelLabel={t("common.cancel")}
         onCancel={() => setTagEditTarget(null)}
       >

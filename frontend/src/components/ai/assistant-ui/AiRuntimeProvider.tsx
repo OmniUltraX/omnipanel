@@ -740,6 +740,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
               useAiStore.getState().conversations.find((c) => c.id === convId)
                 ?.selectedSkillIds ??
               useAiStore.getState().currentSkillIds,
+            reasoningEffort: useAiStore.getState().reasoningEffort,
           },
           signal,
           onEvent: (event) => {

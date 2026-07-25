@@ -62,4 +62,8 @@ pub struct InternalChatRequest {
     /// 适用于不需要工具调用、不需要多轮、只需要模型根据 prompt 直接输出文本的场景。
     #[serde(default)]
     pub pure_text: bool,
+    /// 推理强度：`default` | `low` | `medium` | `high`。
+    /// 非 pure_text 时会映射为请求体的 `enable_thinking` / `reasoning_effort`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }

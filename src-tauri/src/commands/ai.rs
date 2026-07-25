@@ -430,6 +430,8 @@ pub async fn ai_send_message(
             tools: Some(tools.clone()),
             temperature: None,
             max_tokens: None,
+            enable_thinking: Some(true),
+            reasoning_effort: None,
         };
 
         let mut stream = provider

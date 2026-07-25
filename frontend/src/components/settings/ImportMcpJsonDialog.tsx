@@ -129,7 +129,6 @@ export function ImportMcpJsonDialog({
       titleId="import-mcp-json-title"
       size="md"
       bodyClassName="import-mcp-json-body"
-      clipboardAssist={false}
       cancelLabel={t("settings.mcpServices.add.cancel")}
       cancelVariant="ghost"
       primaryAction={{

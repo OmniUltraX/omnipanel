@@ -172,7 +172,6 @@ export function EditWebsiteDialog({
       onClose={handleClose}
       title={t("server.websites.editTitle")}
       size="lg"
-      clipboardAssist={false}
       cancelDisabled={busy}
       closeDisabled={busy}
       primaryAction={{

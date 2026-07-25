@@ -251,7 +251,6 @@ export function CreateCronjobDialog({
       onClose={handleClose}
       title={isEdit ? t("server.cronjobs.editTitle") : t("server.create.cronjob.title")}
       size="xl"
-      clipboardAssist={false}
       cancelDisabled={busy}
       closeDisabled={busy}
       primaryAction={{

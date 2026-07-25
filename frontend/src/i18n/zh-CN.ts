@@ -609,19 +609,6 @@ export const zhCN = {
   quickInput: {
     required: "请输入内容",
   },
-  formDialog: {
-    clipboard: {
-      aiRecognize: "AI识别",
-      placeholder: "点击右侧按钮读取剪贴板内容",
-      emptyClipboard: "剪贴板为空",
-      unavailable: "当前环境无法读取剪贴板",
-      readFailed: "读取剪贴板失败",
-      noModel: "请先在设置中配置 AI 模型",
-      recognizing: "AI 识别中…",
-      recognizeSuccess: "已识别并填充表单",
-      recognizeFailed: "AI 识别失败：{error}",
-    },
-  },
   ui: {
     imagePreview: {
       alt: "图片",
@@ -1892,7 +1879,7 @@ export const zhCN = {
       deleteConnectionTitle: "删除连接",
       deleteConnectionConfirm: "确定删除连接「{name}」？相关 Schema 缓存与工作区标签将一并清理，此操作不可撤销。",
       slowQueryLog: "慢查询日志",
-      binlog: "二进制日志 / 闪回",
+      binlog: "二进制日志",
       slowQueryLogDisabled: {
         notMysql: "仅 MySQL / MariaDB 连接支持慢查询日志",
         noSsh: "未找到与数据库主机匹配的 SSH 连接",
@@ -4859,10 +4846,6 @@ export const zhCN = {
       title: "应用场景",
       description: "为不同 AI 使用场景指定默认模型；未配置时使用第一个可用模型。",
       noModel: "请先在上方添加并启用 AI 模型。",
-      formFill: {
-        label: "表单填充",
-        desc: "对话框中「AI 识别」从剪贴板填充表单字段时使用的模型。",
-      },
       assistant: {
         label: "AI 助手",
         desc: "AI 助手对话的默认模型；OmniAgent 连接时使用此模型（写入 acp-agent-config.json）。",

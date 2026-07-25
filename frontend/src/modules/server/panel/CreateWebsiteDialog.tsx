@@ -412,7 +412,6 @@ export function CreateWebsiteDialog({
       onClose={handleClose}
       title={t("server.create.website.title")}
       size="xl"
-      clipboardAssist={false}
       cancelDisabled={busy}
       closeDisabled={busy}
       primaryAction={{

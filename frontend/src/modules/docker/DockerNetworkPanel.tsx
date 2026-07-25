@@ -527,7 +527,6 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         onClose={() => setCreateOpen(false)}
         title={t("docker.networksPanel.create")}
         size="sm"
-        clipboardAssist={false}
         cancelDisabled={busy}
         closeDisabled={busy}
         primaryAction={{

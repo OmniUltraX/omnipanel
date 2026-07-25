@@ -2363,6 +2363,8 @@ pub async fn sftp_log_search(
 
 /// 开始实时跟踪（tail -F，支持文件轮转）。
 /// 输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端。
+///
+/// `lines_after`：跟踪前先输出末尾 N 行（默认 0，只跟新行）。
 #[tauri::command]
 #[specta::specta]
 pub async fn sftp_log_tail_start(
@@ -2370,7 +2372,6 @@ pub async fn sftp_log_tail_start(
     state: State<'_, AppState>,
     id: String,
     path: String,
-    /// 跟踪前先输出末尾 N 行（默认 0，只跟新行）。
     lines_after: Option<u32>,
 ) -> Result<LogTailHandle, OmniError> {
     use tokio::sync::mpsc;

@@ -103,7 +103,6 @@ export function SyncTaskSettingsDialog({
       size="sm"
       bodyClassName="db-sync-task-settings-form"
       onCancel={onClose}
-      clipboardAssist={false}
       status={error ? { kind: "error", message: error } : null}
       primaryAction={{
         label: t("common.save"),

@@ -79,7 +79,6 @@ export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialo
       size="sm"
       className="protocol-create-session-dialog"
       bodyClassName="protocol-create-session-body"
-      clipboardAssist={false}
       cancelVariant="ghost"
       primaryAction={{
         label: t("protocol.newTab.createSession"),

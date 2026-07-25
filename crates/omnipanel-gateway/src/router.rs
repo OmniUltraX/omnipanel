@@ -154,6 +154,8 @@ impl GatewayRouter {
             tools: tool_defs,
             temperature: None,
             max_tokens: None,
+            enable_thinking: Some(true),
+            reasoning_effort: None,
         };
 
         let mut event_stream = provider

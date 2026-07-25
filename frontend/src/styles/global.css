@@ -15776,65 +15776,6 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
     }
 
-    .form-dialog-clipboard-bar {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-3);
-        max-height: 120px;
-        padding: var(--sp-2) var(--sp-5);
-        border-bottom: 1px solid var(--border);
-        background: var(--bg-deeper);
-        box-sizing: border-box;
-    }
-
-    .form-dialog-clipboard-bar__preview {
-        flex: 1;
-        min-width: 0;
-        max-height: 120px;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-    }
-
-    .form-dialog-clipboard-bar__placeholder,
-    .form-dialog-clipboard-bar__error,
-    .form-dialog-clipboard-bar__text {
-        font-size: 12px;
-        line-height: 1.45;
-        min-width: 0;
-    }
-
-    .form-dialog-clipboard-bar__placeholder {
-        color: var(--meta);
-    }
-
-    .form-dialog-clipboard-bar__error {
-        color: var(--danger);
-    }
-
-    .form-dialog-clipboard-bar__text {
-        color: var(--fg);
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 5;
-        line-clamp: 5;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        word-break: break-word;
-        white-space: pre-wrap;
-    }
-
-    .form-dialog-clipboard-bar__action {
-        flex-shrink: 0;
-    }
-
-    .form-dialog-clipboard-bar__action-icon {
-        display: block;
-        width: 18px;
-        height: 18px;
-        object-fit: contain;
-    }
-
     .form-dialog--sm {
         width: 480px;
     }

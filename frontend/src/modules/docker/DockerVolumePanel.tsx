@@ -302,7 +302,6 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
         onClose={() => setCreateOpen(false)}
         title={t("docker.volumesPanel.create")}
         size="sm"
-        clipboardAssist={false}
         cancelDisabled={busy}
         closeDisabled={busy}
         primaryAction={{

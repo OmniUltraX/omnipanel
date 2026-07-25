@@ -41,7 +41,6 @@ function resolveSelectValue(
 export function AiScenarioSection() {
   const { t } = useI18n();
   const options = useModelSelectOptions();
-  const formFillModelId = useSettingsStore((s) => s.aiScenarioFormFillModelSelectionId);
   const assistantModelId = useSettingsStore((s) => s.aiScenarioAssistantModelSelectionId);
   const setAiScenarioSettings = useSettingsStore((s) => s.setAiScenarioSettings);
 
@@ -53,45 +52,24 @@ export function AiScenarioSection() {
       {options.length === 0 ? (
         <p className="settings-ai-scenario-empty">{t("settings.aiScenarios.noModel")}</p>
       ) : (
-        <>
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiScenarios.formFill.label")}</h4>
-              <p>{t("settings.aiScenarios.formFill.desc")}</p>
-            </div>
-            <Select
-              className="setting-select settings-ai-scenario-select"
-              size="sm"
-              panelMinWidth={420}
-              value={resolveSelectValue(options, formFillModelId)}
-              onChange={(next) =>
-                setAiScenarioSettings({ aiScenarioFormFillModelSelectionId: next })
-              }
-              options={options}
-              searchable={options.length > 6}
-              aria-label={t("settings.aiScenarios.formFill.label")}
-            />
+        <div className="setting-row">
+          <div className="setting-label">
+            <h4>{t("settings.aiScenarios.assistant.label")}</h4>
+            <p>{t("settings.aiScenarios.assistant.desc")}</p>
           </div>
-
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiScenarios.assistant.label")}</h4>
-              <p>{t("settings.aiScenarios.assistant.desc")}</p>
-            </div>
-            <Select
-              className="setting-select settings-ai-scenario-select"
-              size="sm"
-              panelMinWidth={420}
-              value={resolveSelectValue(options, assistantModelId)}
-              onChange={(next) =>
-                setAiScenarioSettings({ aiScenarioAssistantModelSelectionId: next })
-              }
-              options={options}
-              searchable={options.length > 6}
-              aria-label={t("settings.aiScenarios.assistant.label")}
-            />
-          </div>
-        </>
+          <Select
+            className="setting-select settings-ai-scenario-select"
+            size="sm"
+            panelMinWidth={420}
+            value={resolveSelectValue(options, assistantModelId)}
+            onChange={(next) =>
+              setAiScenarioSettings({ aiScenarioAssistantModelSelectionId: next })
+            }
+            options={options}
+            searchable={options.length > 6}
+            aria-label={t("settings.aiScenarios.assistant.label")}
+          />
+        </div>
       )}
     </div>
   );

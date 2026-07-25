@@ -65,7 +65,6 @@ export function CreateSyncTaskDialog({
       title={t("database.syncTasks.createTitle")}
       size="sm"
       onCancel={onClose}
-      clipboardAssist={false}
       status={error ? { kind: "error", message: error } : null}
       primaryAction={{
         label: t("database.syncTasks.create"),

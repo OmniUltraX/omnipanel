@@ -113,6 +113,89 @@ async function openStreamingResponseBody(
   return fromFetch();
 }
 
+function* parseOpenAiStreamPayload(payload: string): Generator<StreamChunk> {
+  try {
+    const parsed = JSON.parse(payload) as {
+      choices?: Array<{
+        delta?: {
+          content?: string;
+          reasoning_content?: string;
+          reasoning?: string;
+          tool_calls?: Array<{
+            index?: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+      }>;
+      text?: string;
+      reasoning_content?: string;
+      reasoning?: string;
+      thinking?: string;
+      error?: { message?: string };
+    };
+
+    if (parsed.error?.message) {
+      throw new Error(parsed.error.message);
+    }
+
+    const choice = parsed.choices?.[0];
+    const delta = choice?.delta;
+    if (delta) {
+      if (delta.content) {
+        yield { type: "text" as const, delta: delta.content };
+      }
+      const reasoningDelta = delta.reasoning_content || delta.reasoning;
+      if (reasoningDelta) {
+        yield { type: "reasoning" as const, delta: reasoningDelta };
+      }
+      if (delta.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          yield {
+            type: "tool-call-delta" as const,
+            index: tc.index ?? 0,
+            id: tc.id,
+            name: tc.function?.name,
+            argsDelta: tc.function?.arguments ?? "",
+          };
+        }
+      }
+      return;
+    }
+
+    // 阿里云 MaaS 等网关：整段 {"text":"...","finish_reason":"stop"}，无 choices/SSE。
+    if (!parsed.choices) {
+      const reasoning = parsed.reasoning_content || parsed.reasoning || parsed.thinking || "";
+      if (reasoning) {
+        yield { type: "reasoning" as const, delta: reasoning };
+      }
+      if (typeof parsed.text === "string" && parsed.text) {
+        yield { type: "text" as const, delta: parsed.text };
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message && !err.message.includes("JSON")) {
+      throw err;
+    }
+    /* skip malformed JSON lines */
+  }
+}
+
+function* parseOpenAiStreamLine(line: string): Generator<StreamChunk> {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+
+  let payload = trimmed;
+  if (trimmed.startsWith("data:")) {
+    payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+  } else if (!trimmed.startsWith("{")) {
+    return;
+  }
+
+  yield* parseOpenAiStreamPayload(payload);
+}
+
 async function* parseOpenAiSseStream(chunks: AsyncIterable<string>): AsyncGenerator<StreamChunk> {
   let buffer = "";
 
@@ -122,42 +205,13 @@ async function* parseOpenAiSseStream(chunks: AsyncIterable<string>): AsyncGenera
     buffer = lines.pop() || "";
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") return;
-
-      try {
-        const parsed = JSON.parse(data);
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
-
-        const delta = choice.delta;
-        if (!delta) continue;
-
-        if (delta.content) {
-          yield { type: "text" as const, delta: delta.content };
-        }
-
-        if (delta.reasoning_content) {
-          yield { type: "reasoning" as const, delta: delta.reasoning_content };
-        }
-
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            yield {
-              type: "tool-call-delta" as const,
-              index: tc.index ?? 0,
-              id: tc.id,
-              name: tc.function?.name,
-              argsDelta: tc.function?.arguments ?? "",
-            };
-          }
-        }
-      } catch {
-        /* skip malformed JSON lines */
-      }
+      yield* parseOpenAiStreamLine(line);
     }
+  }
+
+  // 无换行结尾的整段 JSON（部分兼容网关）须在流结束时刷出。
+  if (buffer.trim()) {
+    yield* parseOpenAiStreamLine(buffer);
   }
 }
 
@@ -179,6 +233,10 @@ export async function* streamOpenAI(
 
   if (options?.reasoningEffort && options.reasoningEffort !== "default") {
     body.reasoning_effort = options.reasoningEffort;
+    body.enable_thinking = true;
+  } else if (options?.reasoningEffort === "default" || options?.reasoningEffort === undefined) {
+    // 通义等兼容端：不显式开启则不返回 reasoning_content
+    body.enable_thinking = true;
   }
 
   if (tools.length > 0) {

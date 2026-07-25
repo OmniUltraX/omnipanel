@@ -5,7 +5,6 @@ import { FormDialog, FormField } from "../../../components/ui/form/FormDialog";
 import { PasswordInput } from "../../../components/ui/form/PasswordInput";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useSettingsStore } from "../../../stores/settingsStore";
-import type { FormFillFieldDef, FormFillValue } from "../../../components/ai/simple/formFill";
 import type { DbConnectionConfig } from "../api";
 import {
   type ConnectionFormData,
@@ -31,34 +30,6 @@ const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
   mongodb: { port: "27017", icon: "MG" },
   qdrant: { port: "6333", icon: "QD" },
 };
-
-const ENGINE_ALIASES: Record<string, DbEngine> = {
-  mysql: "mysql",
-  mariadb: "mysql",
-  postgresql: "postgresql",
-  postgres: "postgresql",
-  pg: "postgresql",
-  sqlite: "sqlite",
-  sqlserver: "sqlserver",
-  mssql: "sqlserver",
-  "sql server": "sqlserver",
-  redis: "redis",
-  mongodb: "mongodb",
-  mongo: "mongodb",
-  qdrant: "qdrant",
-};
-
-function resolveEngineFromAi(raw: FormFillValue): DbEngine | null {
-  const normalized = String(raw).trim().toLowerCase();
-  const alias = ENGINE_ALIASES[normalized];
-  if (alias) {
-    return alias;
-  }
-  if (normalized in ENGINE_DEFAULTS) {
-    return normalized as DbEngine;
-  }
-  return null;
-}
 
 const EMPTY_FORM: ConnectionFormData = {
   engine: "mysql",
@@ -241,60 +212,6 @@ export function ConnectionDialog({
   const isFileBased = form.engine === "sqlite";
   const busy = testing || saving;
 
-  const aiFillFields = useMemo<FormFillFieldDef[]>(
-    () => [
-      { key: "name", label: t("database.dialog.name") },
-      {
-        key: "engine",
-        label: t("database.dialog.engine"),
-        description: "mysql, postgresql, sqlite, sqlserver, redis, mongodb, qdrant",
-      },
-      { key: "host", label: t("database.dialog.host") },
-      { key: "port", label: t("database.dialog.port"), type: "number" },
-      { key: "database", label: t("database.dialog.database") },
-      { key: "username", label: t("database.dialog.username") },
-      { key: "password", label: t("database.dialog.password") },
-    ],
-    [t],
-  );
-
-  const handleAiFill = useCallback((values: Record<string, FormFillValue>) => {
-    setStatus(null);
-    setForm((prev) => {
-      const next = { ...prev };
-      for (const [key, raw] of Object.entries(values)) {
-        if (raw === null || raw === undefined || raw === "") {
-          continue;
-        }
-        if (key === "engine") {
-          const typed = resolveEngineFromAi(raw);
-          if (typed) {
-            next.engine = typed;
-            if (!values.port) {
-              next.port = ENGINE_DEFAULTS[typed].port;
-            }
-          }
-          continue;
-        }
-        if (key === "ssl") {
-          next.ssl = Boolean(raw);
-          continue;
-        }
-        if (key === "port") {
-          next.port = String(raw);
-          continue;
-        }
-        if (key in next) {
-          (next as Record<string, unknown>)[key] = String(raw);
-        }
-      }
-      if (!(next.name ?? "").trim() && (next.host ?? "").trim()) {
-        next.name = (next.host ?? "").trim();
-      }
-      return next;
-    });
-  }, []);
-
   return (
     <FormDialog
       open={open}
@@ -303,8 +220,6 @@ export function ConnectionDialog({
       onCancel={onClose}
       cancelDisabled={busy}
       status={status}
-      aiFillFields={aiFillFields}
-      onAiFill={handleAiFill}
       actions={[
         {
           label: testing ? t("database.dialog.testing") : t("database.dialog.test"),

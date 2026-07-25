@@ -613,19 +613,6 @@ export const enUS: TranslationDict = {
   quickInput: {
     required: "Please enter a value",
   },
-  formDialog: {
-    clipboard: {
-      aiRecognize: "AI Recognize",
-      placeholder: "Click the button to read clipboard",
-      emptyClipboard: "Clipboard is empty",
-      unavailable: "Clipboard is unavailable in this environment",
-      readFailed: "Failed to read clipboard",
-      noModel: "Configure an AI model in Settings first",
-      recognizing: "Recognizing…",
-      recognizeSuccess: "Form filled from clipboard",
-      recognizeFailed: "AI recognition failed: {error}",
-    },
-  },
   ui: {
     imagePreview: {
       alt: "Image",
@@ -1897,7 +1884,7 @@ export const enUS: TranslationDict = {
       deleteConnectionTitle: "Delete Connection",
       deleteConnectionConfirm: "Delete connection \"{name}\"? Schema cache and workspace tabs for this connection will be removed. This cannot be undone.",
       slowQueryLog: "Slow Query Log",
-      binlog: "Binary Log / Flashback",
+      binlog: "Binary Log",
       slowQueryLogDisabled: {
         notMysql: "Slow query log is only available for MySQL / MariaDB connections",
         noSsh: "No SSH connection matches the database host",
@@ -4919,10 +4906,6 @@ export const enUS: TranslationDict = {
       title: "Application Scenarios",
       description: "Choose a default model for each AI scenario. Falls back to the first available model when unset.",
       noModel: "Add and enable AI models above first.",
-      formFill: {
-        label: "Form Fill",
-        desc: "Model used when AI recognizes clipboard content to fill form fields in dialogs.",
-      },
       assistant: {
         label: "AI Assistant",
         desc: "Default model for AI assistant chats; OmniAgent uses this model (written to acp-agent-config.json).",

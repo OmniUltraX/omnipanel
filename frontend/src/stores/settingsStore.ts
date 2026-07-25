@@ -229,8 +229,6 @@ interface SettingsState {
   knowledgeEmbeddingModelMode: import("../lib/knowledgeEmbeddingModel").KnowledgeEmbeddingModelMode;
   knowledgeEmbeddingModelSelectionId: string | null;
   knowledgeEmbeddingOllamaModel: import("../lib/knowledgeEmbeddingModel").KnowledgeEmbeddingOllamaModel;
-  /** 表单填充场景默认模型（aiModelsStore selection id） */
-  aiScenarioFormFillModelSelectionId: string | null;
   /** AI 助手场景默认模型（aiModelsStore selection id） */
   aiScenarioAssistantModelSelectionId: string | null;
   /** 终端内联 AI 默认模型 */
@@ -287,7 +285,7 @@ interface SettingsState {
     "knowledgeEmbeddingModelMode" | "knowledgeEmbeddingModelSelectionId" | "knowledgeEmbeddingOllamaModel"
   >>) => void;
   setAiScenarioSettings: (patch: Partial<Pick<SettingsState,
-    "aiScenarioFormFillModelSelectionId" | "aiScenarioAssistantModelSelectionId" | "aiScenarioTerminalModelSelectionId"
+    "aiScenarioAssistantModelSelectionId" | "aiScenarioTerminalModelSelectionId"
   >>) => void;
   setAiGatewaySettings: (patch: Partial<Pick<SettingsState,
     "aiGatewayEnabled" | "aiGatewayPort" | "aiGatewayApiKey" | "aiGatewayBindLan" | "mcpExternalRequireApproval"
@@ -392,7 +390,6 @@ export const useSettingsStore = create<SettingsState>()(
       knowledgeEmbeddingModelMode: "configured",
       knowledgeEmbeddingModelSelectionId: null,
       knowledgeEmbeddingOllamaModel: { ...DEFAULT_KNOWLEDGE_EMBEDDING_OLLAMA_MODEL },
-      aiScenarioFormFillModelSelectionId: null,
       aiScenarioAssistantModelSelectionId: null,
       aiScenarioTerminalModelSelectionId: null,
       aiGatewayEnabled: true,
@@ -564,7 +561,6 @@ export const useSettingsStore = create<SettingsState>()(
         knowledgeEmbeddingModelMode: state.knowledgeEmbeddingModelMode,
         knowledgeEmbeddingModelSelectionId: state.knowledgeEmbeddingModelSelectionId,
         knowledgeEmbeddingOllamaModel: state.knowledgeEmbeddingOllamaModel,
-        aiScenarioFormFillModelSelectionId: state.aiScenarioFormFillModelSelectionId,
         aiScenarioAssistantModelSelectionId: state.aiScenarioAssistantModelSelectionId,
         aiScenarioTerminalModelSelectionId: state.aiScenarioTerminalModelSelectionId,
         aiGatewayEnabled: state.aiGatewayEnabled,

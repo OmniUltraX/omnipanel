@@ -385,7 +385,6 @@ export function CreateCertificateDialog({
         isEdit ? t("server.certificates.editTitle") : t("server.create.certificate.title")
       }
       size="xl"
-      clipboardAssist={false}
       cancelDisabled={busy || applying}
       closeDisabled={busy || applying}
       primaryAction={{

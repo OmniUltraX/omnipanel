@@ -139,6 +139,9 @@ pub struct InternalChatRequestDto {
     /// 会话中用户勾选的 Skill id；非空时除摘要目录外再注入完整正文。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_ids: Option<Vec<String>>,
+    /// 推理强度：`default` | `low` | `medium` | `high`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -216,6 +219,7 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
             }),
             system_append: None,
             pure_text: dto.pure_text,
+            reasoning_effort: dto.reasoning_effort,
         })
     }
 }

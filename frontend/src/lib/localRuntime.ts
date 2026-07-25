@@ -72,9 +72,6 @@ export async function linkOllamaToAiConfig(
     if (!settings.aiScenarioAssistantModelSelectionId) {
       patch.aiScenarioAssistantModelSelectionId = selectionId;
     }
-    if (!settings.aiScenarioFormFillModelSelectionId) {
-      patch.aiScenarioFormFillModelSelectionId = selectionId;
-    }
     if (Object.keys(patch).length > 0) {
       settings.setAiScenarioSettings(patch);
     }

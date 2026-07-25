@@ -36,7 +36,6 @@ export function DockerImageLogDialog({
       onClose={onClose}
       title={title}
       size="lg"
-      clipboardAssist={false}
       closeDisabled={busy}
       cancelDisabled={busy}
       cancelLabel={busy ? false : t("common.close")}

@@ -49,7 +49,6 @@ export function DockerImageRunCommandDialog({
       title={t("docker.imagesPanel.runTitle")}
       subtitle={t("docker.imagesPanel.runHint")}
       size="md"
-      clipboardAssist={false}
       closeDisabled={busy}
       cancelDisabled={busy}
       primaryAction={{

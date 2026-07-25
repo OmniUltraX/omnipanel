@@ -27,15 +27,6 @@ export function resolveScenarioModelSelectionId(
   return firstModelSelectionId(providers);
 }
 
-export function useFormFillModelSelectionId(): string | null {
-  const providers = useAiModelsStore((s) => s.providers);
-  const configuredId = useSettingsStore((s) => s.aiScenarioFormFillModelSelectionId);
-  return useMemo(
-    () => resolveScenarioModelSelectionId(providers, configuredId),
-    [providers, configuredId],
-  );
-}
-
 export function useAssistantScenarioModelSelectionId(): string | null {
   const providers = useAiModelsStore((s) => s.providers);
   const configuredId = useSettingsStore((s) => s.aiScenarioAssistantModelSelectionId);
