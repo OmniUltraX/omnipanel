@@ -38,16 +38,41 @@ export function sortFileEntries(entries: FileEntry[]): FileEntry[] {
 
 const GRID_IMAGE_EXTENSIONS = new Set(["svg", "png", "jpg", "jpeg", "webp"]);
 
-const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "ogg", "flac", "aac", "m4a", "webm", "opus", "weba"]);
+/** 预览可用图片（比缩略图网格更宽） */
+const PREVIEW_IMAGE_EXTENSIONS = new Set([
+  "svg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "avif", "tif", "tiff",
+]);
+
+const AUDIO_EXTENSIONS = new Set([
+  "mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "weba", "oga", "aiff", "aif",
+]);
+
+/** WebView 可播的常见视频容器（mkv/avi/wmv 等兼容性差，仍走 unsupported） */
+const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "m4v", "mov", "ogv"]);
 
 export function isGridImageFile(name: string): boolean {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return GRID_IMAGE_EXTENSIONS.has(ext);
 }
 
+export function isPreviewImageFile(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return PREVIEW_IMAGE_EXTENSIONS.has(ext);
+}
+
 export function isAudioPreviewFile(name: string): boolean {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return AUDIO_EXTENSIONS.has(ext);
+}
+
+export function isVideoPreviewFile(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return VIDEO_EXTENSIONS.has(ext);
+}
+
+/** 图片 / 音频 / 视频：可走 asset / 远程缓存流式预览 */
+export function isStreamableMediaFile(name: string): boolean {
+  return isPreviewImageFile(name) || isAudioPreviewFile(name) || isVideoPreviewFile(name);
 }
 
 export function imageMimeType(name: string): string {
@@ -62,6 +87,17 @@ export function imageMimeType(name: string): string {
       return "image/jpeg";
     case "webp":
       return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "bmp":
+      return "image/bmp";
+    case "ico":
+      return "image/x-icon";
+    case "avif":
+      return "image/avif";
+    case "tif":
+    case "tiff":
+      return "image/tiff";
     default:
       return "application/octet-stream";
   }
@@ -75,6 +111,7 @@ export function audioMimeType(name: string): string {
     case "wav":
       return "audio/wav";
     case "ogg":
+    case "oga":
     case "opus":
       return "audio/ogg";
     case "flac":
@@ -83,11 +120,30 @@ export function audioMimeType(name: string): string {
       return "audio/aac";
     case "m4a":
       return "audio/mp4";
-    case "webm":
     case "weba":
       return "audio/webm";
+    case "aiff":
+    case "aif":
+      return "audio/aiff";
     default:
       return "audio/mpeg";
+  }
+}
+
+export function videoMimeType(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "mp4":
+    case "m4v":
+      return "video/mp4";
+    case "webm":
+      return "video/webm";
+    case "mov":
+      return "video/quicktime";
+    case "ogv":
+      return "video/ogg";
+    default:
+      return "video/mp4";
   }
 }
 

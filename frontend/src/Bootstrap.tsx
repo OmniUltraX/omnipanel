@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useLayoutEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "./components/shell/SplashScreen";
 import { LoginPage } from "./components/user/LoginPage";
@@ -18,17 +18,15 @@ import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
+import { expandMainWindow, showSplashWindow } from "./lib/bootSplashBridge";
 import { selectIsLoggedIn, useAuthStore } from "./stores/authStore";
 import { syncAuthProfile } from "./lib/auth/syncAuthProfile";
 
 const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;
+const TOTAL_STEPS = 4;
 
 type BootPhase = "wait-auth" | "login" | "splash" | "exit" | "app";
-
-function removeHtmlBootSplash() {
-  dismissHtmlBootSplash();
-}
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => {
@@ -46,10 +44,21 @@ export function Bootstrap() {
   const [bootLog, setBootLog] = useState<string | null>(null);
   const [bootErrorMsg, setBootErrorMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    removeHtmlBootSplash();
+  useLayoutEffect(() => {
     syncAppWindowTitle();
-  }, []);
+    dismissHtmlBootSplash();
+    // 启动中：固定小窗；登录/失败/退场：放大到正式尺寸
+    if (bootErrorMsg || phase === "login" || phase === "exit") {
+      expandMainWindow();
+      return;
+    }
+    if (phase === "wait-auth" || phase === "splash") {
+      const id = requestAnimationFrame(() => {
+        showSplashWindow();
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [phase, bootErrorMsg]);
 
   useEffect(() => {
     if (useAuthStore.persist.hasHydrated()) {
@@ -77,6 +86,7 @@ export function Bootstrap() {
 
     async function boot() {
       const started = Date.now();
+
       const advance = (step: number) => {
         if (!cancelled) setBootStep(step);
       };
@@ -89,13 +99,11 @@ export function Bootstrap() {
 
       try {
         advance(1);
-        // 尽早启动 App chunk 加载（最大的 JS chunk），与后续 store 初始化并行
         const appPromise = import("./App");
 
         await pushLog(t("app.splash.logs.settings"));
         initSettings();
 
-        // 已登录时尽早拉资料，侧栏头像不必等打开个人中心
         const token = useAuthStore.getState().token;
         const profileSync = token ? syncAuthProfile() : Promise.resolve();
 
@@ -111,7 +119,6 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.modules"));
         await initAppModuleStore();
 
-        // builtinTools → toolHost 注册有依赖，单独成链
         await pushLog(t("app.splash.logs.builtinTools"));
         const toolsChain = initBuiltinToolStore().then(async () => {
           const { registerToolHandlers } = await import("./lib/ai/toolHost");
@@ -130,7 +137,6 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.actionListener"));
         initActionListener();
 
-        // 以下 store 互相独立，并行初始化
         await pushLog(t("app.splash.logs.aiModels"));
         const parallelInits = Promise.all([
           initAiModelsStore(),
@@ -160,11 +166,11 @@ export function Bootstrap() {
           await wait(remain);
         }
 
-        // 未完成加载前可被 Strict Mode cleanup 取消；一旦开始退场就必须落到 app，
-        // 否则会停在 splash--exit（透明）造成空白页。
         if (cancelled) return;
 
         setAppComponent(() => App);
+        // 先放大到正式尺寸，再播退场动画进入 App
+        expandMainWindow();
         setPhase("exit");
         await wait(EXIT_ANIM_MS);
         setPhase("app");
@@ -179,7 +185,6 @@ export function Bootstrap() {
     return () => {
       cancelled = true;
     };
-    // 仅在进入 splash 时启动；t 变化不应打断/重跑启动流程
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once per splash entry
   }, [phase]);
 
@@ -220,7 +225,7 @@ export function Bootstrap() {
     return (
       <SplashScreen
         step={0}
-        totalSteps={4}
+        totalSteps={TOTAL_STEPS}
         log={t("app.login.checking")}
       />
     );
@@ -230,7 +235,7 @@ export function Bootstrap() {
     <SplashScreen
       exiting={phase === "exit"}
       step={bootStep}
-      totalSteps={4}
+      totalSteps={TOTAL_STEPS}
       log={bootLog}
     />
   );

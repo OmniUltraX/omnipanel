@@ -3,6 +3,7 @@ import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
 import { peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
+import { handleDockerAutoFetchFailure } from "../dockerConnectionOffline";
 import {
   DOCKER_CONTAINERS_POLL_MS,
   DOCKER_STATS_INITIAL_DELAY_MS,
@@ -98,7 +99,13 @@ export function useDockerContainerGrid(
         });
         loadedConnectionIdRef.current = connectionId;
       } catch (e) {
-        if (!cancelled) setContainersError(String(e));
+        if (!cancelled) {
+          if (handleDockerAutoFetchFailure(connectionId, e)) {
+            setContainersError(null);
+          } else {
+            setContainersError(String(e));
+          }
+        }
       } finally {
         if (!cancelled && initial) setLoading(false);
       }

@@ -317,9 +317,10 @@ impl AcpManager {
         {
             let event_tx_updates = event_tx.clone();
             let translate_options = translate_options.clone();
-            // 智能流式闸门：内容一旦确认为纯文本立即开闸（几乎无延迟地流式），
-            // 疑似 tool_calls JSON 则全程 hold 到 buffer，由调用方在 turn 结束后解析，
-            // 从根本上杜绝“半截/完整 tool_calls JSON 当正文泄露到前端”。
+            // 智能流式闸门：
+            // - 确认为纯文本 → 开闸流式
+            // - 疑似 / 嵌入 tool_calls JSON → hold 到 buffer，turn 结束后解析
+            // - 开闸后若又出现 tool JSON（多步工具）→ 立刻关闸，避免半截 JSON 泄露
             let content_gate_open = Arc::new(AtomicBool::new(false));
             self.client
                 .set_notification_handler(Arc::new(move |method, params| {
@@ -334,34 +335,13 @@ impl AcpManager {
                         {
                             if content_hold {
                                 if let StreamEvent::ContentDelta { text } = &event {
-                                    // 已开闸：后续文本直通流式
-                                    if content_gate_open.load(Ordering::Relaxed) {
-                                        if event_tx_updates.send(event).is_err() {
-                                            break;
-                                        }
-                                        continue;
-                                    }
-                                    // 未开闸：累积并判定是否为纯文本
-                                    let flush_text = if let Some(buf) = &content_buffer {
-                                        if let Ok(mut guard) = buf.lock() {
-                                            guard.push_str(text);
-                                            if content_starts_as_plain_text(&guard) {
-                                                let flushed = guard.clone();
-                                                guard.clear();
-                                                Some(flushed)
-                                            } else {
-                                                None
-                                            }
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    };
-                                    if let Some(flushed) = flush_text {
-                                        content_gate_open.store(true, Ordering::Relaxed);
+                                    if let Some(to_send) = apply_content_hold_gate(
+                                        text,
+                                        &content_gate_open,
+                                        content_buffer.as_ref(),
+                                    ) {
                                         if event_tx_updates
-                                            .send(StreamEvent::ContentDelta { text: flushed })
+                                            .send(StreamEvent::ContentDelta { text: to_send })
                                             .is_err()
                                         {
                                             break;
@@ -495,11 +475,67 @@ fn translate_session_update_from_notif(
 /// 则保持 hold；否则视为普通文本，立即开闸。
 fn content_starts_as_plain_text(buf: &str) -> bool {
     let trimmed = buf.trim_start();
+    if let Some(idx) = client_tools::find_embedded_tool_calls_start(trimmed) {
+        // 嵌入 JSON 前若已有人话前缀，允许冲刷前缀（JSON 仍 hold）
+        return !trimmed[..idx].trim().is_empty();
+    }
     match trimmed.chars().next() {
         None => false,
         Some('{') | Some('[') | Some('`') => false,
         Some(_) => true,
     }
+}
+
+/// client-tools 内容闸门：返回本轮应立即发给前端的纯文本（若有）。
+///
+/// - 未开闸：写入 buffer；确认纯文本则开闸并冲刷（去掉已识别的 JSON 后缀）
+/// - 已开闸：若本片出现 tool JSON，关闸并把 JSON（及之后）收回 buffer；纯文本直通
+fn apply_content_hold_gate(
+    text: &str,
+    gate_open: &AtomicBool,
+    content_buffer: Option<&Arc<std::sync::Mutex<String>>>,
+) -> Option<String> {
+    use client_tools::split_plain_prefix_and_tool_json;
+
+    if gate_open.load(Ordering::Relaxed) {
+        let (plain, json) = split_plain_prefix_and_tool_json(text);
+        if let Some(json_part) = json {
+            gate_open.store(false, Ordering::Relaxed);
+            if let Some(buf) = content_buffer {
+                if let Ok(mut guard) = buf.lock() {
+                    guard.push_str(&json_part);
+                }
+            }
+            let plain = plain.trim_end().to_string();
+            return if plain.is_empty() { None } else { Some(plain) };
+        }
+        return if plain.is_empty() { None } else { Some(plain) };
+    }
+
+    // 未开闸：累积并判定
+    let Some(buf) = content_buffer else {
+        return None;
+    };
+    let Ok(mut guard) = buf.lock() else {
+        return None;
+    };
+    guard.push_str(text);
+    if !content_starts_as_plain_text(&guard) {
+        return None;
+    }
+    let (plain, json) = split_plain_prefix_and_tool_json(&guard);
+    *guard = json.unwrap_or_default();
+    if plain.trim().is_empty() {
+        // 全是 JSON：保持关闸
+        return None;
+    }
+    if guard.is_empty() {
+        gate_open.store(true, Ordering::Relaxed);
+    } else {
+        // 冲刷了纯文本前缀，但后缀是 JSON → 保持关闸
+        gate_open.store(false, Ordering::Relaxed);
+    }
+    Some(plain)
 }
 
 fn pick_reject_once_option(options: &[(String, String)]) -> &str {
@@ -541,8 +577,8 @@ pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved:
 
     format!(
         "[Tool Result — {tool_name}]\n{body}\n\n[System — 工具已执行完毕]\n\
-         上方工具输出里已有真实结果。请用自然语言直接回答用户。\n\
-         不要再次输出 tool_calls JSON。\n"
+         上方工具输出里已有真实结果。若已足够回答用户，请用自然语言直接回答；\
+         若仍需继续调查/执行，可再次输出 tool_calls JSON（消息体仅含 JSON）。\n"
     )
 }
 
@@ -578,15 +614,16 @@ pub fn format_client_tool_results_prompt(results: &[(String, String, bool)]) -> 
     } else if any_failed {
         "[System — 命令执行失败]\n上方部分命令未成功。请根据 [Terminal Context] 中的 shell/OS 选择正确的命令，通过 tool_calls JSON 再试一次；不要使用错误平台的命令。\n"
     } else {
-        "[System — 工具已执行完毕]\n上方工具输出里已有真实结果。请用自然语言直接回答用户。\n不要再次输出 tool_calls JSON。\n"
+        "[System — 工具已执行完毕]\n上方工具输出里已有真实结果。若已足够回答用户，请用自然语言直接回答；若仍需继续调查/执行，可再次输出 tool_calls JSON（消息体仅含 JSON）。\n"
     };
     format!("{blocks}{system}")
 }
 
 pub use client_tools::{
     ParsedToolCall, build_client_tools_prompt, build_incremental_client_tools_prompt,
-    build_incremental_prompt, looks_like_pending_tool_calls_json, parse_client_tool_calls,
-    pick_terminal_tool_call, prompt_expects_tool_retry, prompt_has_tool_results,
+    build_incremental_prompt, find_embedded_tool_calls_start, looks_like_pending_tool_calls_json,
+    parse_client_tool_calls, pick_terminal_tool_call, prompt_expects_tool_retry,
+    prompt_has_tool_results, split_plain_prefix_and_tool_json,
 };
 pub use native_tools::TERMINAL_CLIENT_TOOL as ACP_TERMINAL_CLIENT_TOOL;
 pub use turn_runner::AcpRoundRunner;
@@ -716,8 +753,29 @@ mod tests {
         assert!(!content_starts_as_plain_text("  {"));
         assert!(!content_starts_as_plain_text("[{"));
         assert!(!content_starts_as_plain_text("```json"));
+        // 人话前缀 + 嵌入 JSON → 可开闸冲刷前缀
+        assert!(content_starts_as_plain_text(
+            "说明一下\n{\"tool_calls\":["
+        ));
         // 空白 → 尚不能判定，保持 hold
         assert!(!content_starts_as_plain_text("   "));
+    }
+
+    #[test]
+    fn content_hold_gate_recloses_on_embedded_json() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::{Arc, Mutex};
+
+        let gate = AtomicBool::new(true);
+        let buf = Arc::new(Mutex::new(String::new()));
+        let sent = apply_content_hold_gate(
+            "好的\n{\"tool_calls\":[{\"id\":\"c1\"}",
+            &gate,
+            Some(&buf),
+        );
+        assert_eq!(sent.as_deref(), Some("好的"));
+        assert!(!gate.load(Ordering::Relaxed));
+        assert!(buf.lock().unwrap().contains("\"tool_calls\""));
     }
 
     #[test]
@@ -737,7 +795,7 @@ mod tests {
         let p = format_client_tool_results_prompt(&results);
         assert_eq!(p.matches("[Tool Result — ").count(), 2);
         assert!(p.contains("[System — 工具已执行完毕]"));
-        assert!(p.contains("不要再次输出 tool_calls JSON"));
+        assert!(p.contains("可再次输出 tool_calls JSON"));
     }
 
     #[test]
@@ -768,6 +826,6 @@ mod tests {
         )];
         let p = format_client_tool_results_prompt(&results);
         assert!(p.contains("[Tool Result — omni_terminal_run_terminal_command]"));
-        assert!(p.contains("请用自然语言直接回答用户"));
+        assert!(p.contains("可再次输出 tool_calls JSON"));
     }
 }

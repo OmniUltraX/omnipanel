@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   appendTextLikePart,
+  coalescePartsByToolSegments,
   deriveCompatFields,
   partsFromFlatFields,
+  stripLeakedToolCallsJson,
   upsertToolCallInParts,
   type AiMessagePart,
 } from "../../../lib/ai/aiMessageParts";
@@ -58,5 +60,56 @@ describe("AiMessage ordered parts", () => {
       arguments: '{"x":1}',
     });
     expect(parts.map((p) => p.type)).toEqual(["text", "tool-call", "text"]);
+  });
+
+  it("coalesce merges interleaved reasoning/text within a tool segment", () => {
+    const parts: AiMessagePart[] = [
+      { type: "text", text: "好的，我来检查" },
+      {
+        type: "tool-call",
+        id: "c1",
+        name: "omni_terminal_run_terminal_command",
+        arguments: "{}",
+        status: "completed",
+      },
+      {
+        type: "reasoning",
+        text: "找到了 mihomo 代理服务正在运行。让我进一步检查它的详细状态和端口监听",
+      },
+      { type: "text", text: "找到了" },
+      { type: "reasoning", text: "情况。" },
+      { type: "text", text: "! 服务器运行的是 Mihomo。" },
+      {
+        type: "tool-call",
+        id: "c2",
+        name: "omni_terminal_run_terminal_command",
+        arguments: "{}",
+        status: "running",
+      },
+    ];
+    const coalesced = coalescePartsByToolSegments(parts);
+    expect(coalesced.map((p) => p.type)).toEqual([
+      "text",
+      "tool-call",
+      "reasoning",
+      "text",
+      "tool-call",
+    ]);
+    expect(coalesced[2]).toMatchObject({
+      type: "reasoning",
+      text: "找到了 mihomo 代理服务正在运行。让我进一步检查它的详细状态和端口监听情况。",
+    });
+    expect(coalesced[3]).toMatchObject({
+      type: "text",
+      text: "找到了! 服务器运行的是 Mihomo。",
+    });
+  });
+
+  it("stripLeakedToolCallsJson removes embedded tool JSON from text", () => {
+    expect(stripLeakedToolCallsJson('{"tool_calls":[{"id":"c1"}]}')).toBe("");
+    expect(
+      stripLeakedToolCallsJson('先说一句\n{"tool_calls":[{"id":"c1"}]}'),
+    ).toBe("先说一句");
+    expect(stripLeakedToolCallsJson("正常回答")).toBe("正常回答");
   });
 });

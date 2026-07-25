@@ -14,6 +14,10 @@ import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import {
+  DOCKER_QUIET_IPC,
+  handleDockerAutoFetchFailure,
+} from "./dockerConnectionOffline";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -44,11 +48,11 @@ interface SortState {
 }
 
 async function fetchImages(connectionId: string): Promise<DockerImageSummary[]> {
-  return unwrapCommand(commands.dockerListImages(connectionId));
+  return unwrapCommand(commands.dockerListImages(connectionId), DOCKER_QUIET_IPC);
 }
 
 async function fetchContainers(connectionId: string): Promise<DockerContainerSummary[]> {
-  return unwrapCommand(commands.dockerListContainers(connectionId, null));
+  return unwrapCommand(commands.dockerListContainers(connectionId, null), DOCKER_QUIET_IPC);
 }
 
 function formatCreatedAt(ts: number | null): string {
@@ -142,17 +146,20 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     setLoading(true);
     setError(null);
     try {
-      const [nextImages, nextContainers] = await Promise.all([
-        fetchImages(connection.connectionId),
-        fetchContainers(connection.connectionId),
-      ]);
+      // 顺序拉取：SSH 并发 list 易抢 exec 通道
+      const nextImages = await fetchImages(connection.connectionId);
+      const nextContainers = await fetchContainers(connection.connectionId);
       startTransition(() => {
         setImages(nextImages);
         setContainers(nextContainers);
       });
       refreshSidebarImages();
     } catch (err) {
-      setError(String(err));
+      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+        setError(null);
+      } else {
+        setError(String(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -171,8 +178,9 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
 
   useEffect(() => {
     if (!isActive) return;
+    if (connection.status === "offline") return;
     void refresh();
-  }, [isActive, refresh]);
+  }, [connection.status, isActive, refresh]);
 
   const toggleSort = useCallback((columnId: string) => {
     const column = columnId as SortColumn;

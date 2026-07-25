@@ -23,8 +23,10 @@ import {
 
 export type { AiMessagePart, PlanData, ToolCallState } from "../lib/ai/aiMessageParts";
 export {
+  coalescePartsByToolSegments,
   deriveCompatFields,
   partsFromFlatFields,
+  stripLeakedToolCallsJson,
 } from "../lib/ai/aiMessageParts";
 
 export interface AgentMcpConnection {

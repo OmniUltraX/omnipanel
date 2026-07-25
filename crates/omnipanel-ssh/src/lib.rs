@@ -1043,6 +1043,85 @@ impl SshSession {
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "下载文件失败").with_cause(e.to_string()))
     }
 
+    /// 将远端文件流式写入本地路径（分块拷贝，避免整文件进内存）。
+    pub async fn sftp_download_to_file(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+    ) -> OmniResult<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let mut remote = sftp.open(remote_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "打开远端文件失败").with_cause(e.to_string())
+        })?;
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "创建本地缓存目录失败").with_cause(e.to_string())
+            })?;
+        }
+        let mut local = tokio::fs::File::create(local_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "创建本地缓存文件失败").with_cause(e.to_string())
+        })?;
+        tokio::io::copy(&mut remote, &mut local).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "下载文件失败").with_cause(e.to_string())
+        })?;
+        local.flush().await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "写入本地缓存失败").with_cause(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    /// 按偏移读取远端文件一段（用于探测媒体头，不整文件下载）。
+    pub async fn sftp_read_range(
+        &self,
+        remote_path: &str,
+        offset: u64,
+        len: u32,
+    ) -> OmniResult<Vec<u8>> {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let mut remote = sftp.open(remote_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "打开远端文件失败").with_cause(e.to_string())
+        })?;
+        if offset > 0 {
+            remote
+                .seek(std::io::SeekFrom::Start(offset))
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Ssh, "定位远端文件失败").with_cause(e.to_string())
+                })?;
+        }
+        let take = len.min(4 * 1024 * 1024) as usize;
+        let mut buf = vec![0u8; take];
+        let n = remote.read(&mut buf).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "读取远端文件失败").with_cause(e.to_string())
+        })?;
+        buf.truncate(n);
+        Ok(buf)
+    }
+
+    /// 远端文件大小（字节）；失败返回 None。
+    pub async fn sftp_file_size(&self, remote_path: &str) -> Option<u64> {
+        let _exec_permit = self.exec_gate.clone().acquire_owned().await.ok()?;
+        let sftp = self.open_sftp_inner().await.ok()?;
+        let meta = sftp.metadata(remote_path).await.ok()?;
+        meta.size
+    }
+
     /// 上传内容到远端文件（覆盖）。
     pub async fn sftp_upload(&self, path: &str, data: &[u8]) -> OmniResult<()> {
         let _exec_permit = self

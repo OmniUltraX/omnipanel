@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { Button } from "../ui/primitives/Button";
 import { TextInput } from "../ui/form/TextInput";
 import { FileEntryIcon } from "../ui/icons/FileEntryIcon";
@@ -873,6 +874,29 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
                     }
                   });
                 },
+                ...(resourceId
+                  ? {
+                      probeMediaMeta: async (filePath: string) => {
+                        const probe = await unwrapCommand(
+                          commands.sftpProbeMedia(resourceId, filePath),
+                        );
+                        return {
+                          durationSecs: probe.durationSecs,
+                          size: probe.size,
+                          posterUrl: probe.posterDataUrl,
+                        };
+                      },
+                      resolveMediaSrc: async (filePath: string) => {
+                        const stream = await unwrapCommand(
+                          commands.sftpOpenMediaStream(resourceId, filePath),
+                        );
+                        return { url: stream.url, token: stream.token };
+                      },
+                      closeMediaStream: async (token: string) => {
+                        await unwrapCommand(commands.sftpCloseMediaStream(token));
+                      },
+                    }
+                  : {}),
               }
             : undefined
         }

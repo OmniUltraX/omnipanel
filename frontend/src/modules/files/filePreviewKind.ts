@@ -1,11 +1,32 @@
-import { isAudioPreviewFile, isGridImageFile } from "./utils";
+import {
+  isAudioPreviewFile,
+  isPreviewImageFile,
+  isVideoPreviewFile,
+} from "./utils";
 import { parsePreviewJsonText } from "../../lib/contentPreview";
 
 export { parsePreviewJsonText };
 
-export type FilePreviewKind = "json" | "text" | "image" | "audio" | "unsupported";
+export type FilePreviewKind = "json" | "text" | "image" | "audio" | "video" | "unsupported";
 
 const JSON_EXTENSIONS = new Set(["json", "jsonc", "json5", "geojson"]);
+
+/** 明确不支持预览的二进制 / 办公 / 压缩 / 难播视频容器等扩展名 */
+const UNSUPPORTED_EXTENSIONS = new Set([
+  // 可执行 / 库
+  "exe", "dll", "so", "dylib", "bin", "o", "obj", "a", "lib", "wasm", "class", "com", "msi",
+  // 压缩 / 打包
+  "zip", "rar", "7z", "gz", "tgz", "bz2", "xz", "tar", "zst", "cab", "iso", "dmg", "img",
+  "jar", "war", "ear", "apk", "ipa", "deb", "rpm", "pkg",
+  // 办公 / 文档（无内置解码）
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+  // WebView 通常无法直接播放的视频
+  "mkv", "avi", "wmv", "flv", "mpeg", "mpg", "ts", "mts", "vob",
+  // 字体
+  "woff", "woff2", "ttf", "otf", "eot",
+  // 设计源文件
+  "psd", "ai", "sketch", "fig", "xd",
+]);
 
 const TEXT_EXTENSIONS = new Set([
   // 纯文本
@@ -66,16 +87,18 @@ function isKnownTextFilename(name: string): boolean {
 }
 
 export function resolveFilePreviewKind(name: string): FilePreviewKind {
-  if (isGridImageFile(name)) return "image";
+  if (isPreviewImageFile(name)) return "image";
   if (isAudioPreviewFile(name)) return "audio";
+  if (isVideoPreviewFile(name)) return "video";
   if (isJsonPreviewFile(name)) return "json";
   if (isTextPreviewFile(name)) return "text";
   // 常见无扩展名约定文件名：按文本预览
   if (isKnownTextFilename(name)) return "text";
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (UNSUPPORTED_EXTENSIONS.has(ext)) return "unsupported";
   // 无扩展名且不是已知二进制文件：默认按文本预览（/etc 下几乎都是文本配置）
   if (!hasRecognizableExtension(name) && !isKnownBinaryFilename(name)) return "text";
-  // 兜底：有任何可识别的扩展名（且不在 image/json/text 白名单）也按文本尝试预览
-  // —— 真实是二进制时由 FilePreviewContent 加载后根据内容回退（detectPreviewKindFromBytes）
+  // 兜底：有可识别扩展名但不在白名单/黑名单 → 按文本尝试（加载后可按魔术字节回退）
   if (hasRecognizableExtension(name)) return "text";
   return "unsupported";
 }
@@ -170,17 +193,15 @@ export function detectPreviewKindFromBytes(bytes: Uint8Array | number[]): FilePr
 }
 
 function isWavMagic(view: Uint8Array): boolean {
-  return (
-    view.length >= 12 &&
-    view[0] === 0x52 &&
-    view[1] === 0x49 &&
-    view[2] === 0x46 &&
-    view[3] === 0x46 &&
-    view[8] === 0x57 &&
-    view[9] === 0x45 &&
-    view[10] === 0x41 &&
-    view[11] === 0x56
-  );
+  if (view.length < 12) return false;
+  // RIFF....WAVE 或大文件 RF64....WAVE
+  const isRiff =
+    view[0] === 0x52 && view[1] === 0x49 && view[2] === 0x46 && view[3] === 0x46;
+  const isRf64 =
+    view[0] === 0x52 && view[1] === 0x46 && view[2] === 0x36 && view[3] === 0x34;
+  const isWave =
+    view[8] === 0x57 && view[9] === 0x45 && view[10] === 0x41 && view[11] === 0x56;
+  return (isRiff || isRf64) && isWave;
 }
 
 function isOggMagic(view: Uint8Array): boolean {

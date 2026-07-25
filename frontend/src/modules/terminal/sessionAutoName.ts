@@ -17,11 +17,8 @@
 
 import { useBlocksStore, type TerminalBlock, type AiThreadItem } from "../../stores/blocksStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import type { TerminalSession } from "../../stores/terminalStore";
-import { resolveResourceById } from "../../stores/connectionStore";
 import { FULL_TERMINAL_BLOCK_SUMMARY } from "./terminalRunStateStore";
 import { flattenOutputModel } from "./terminalOutputModel";
-import { resolveTerminalTabBaseTitle } from "./terminalSessionDisplay";
 import { useSettingsStore } from "../../stores/settingsStore";
 import {
   requestAiCompletionOnce,
@@ -29,6 +26,9 @@ import {
   AI_COMPLETION_ONCE_RETRY_DELAY_MS,
   AI_COMPLETION_ONCE_MAX_RETRIES,
 } from "../../lib/ai/requestAiCompletionOnce";
+import { isDefaultSessionTitle } from "./sessionAutoNameGuards";
+
+export { isDefaultSessionTitle } from "./sessionAutoNameGuards";
 
 /** 上下文提取：短会话全取，长会话首末截取 */
 const CONTEXT_HEAD_COUNT = 3;
@@ -76,45 +76,6 @@ export function subscribeAiNamingState(listener: NamingStateListener): () => voi
 /** 当前会话是否正在 AI 命名中 */
 export function isAiNaming(sessionId: string): boolean {
   return pendingAiNaming.has(sessionId);
-}
-
-function isBuiltinDefaultTitle(title: string): boolean {
-  const trimmed = title.trim();
-  if (!trimmed) return true;
-  if (trimmed === "本地终端" || trimmed === "Local Terminal") return true;
-  if (/^[^\s]+@[^\s]+$/.test(trimmed)) return true;
-  return false;
-}
-
-/** 判断标题是否仍为默认值（未被用户修改过） */
-export function isDefaultSessionTitle(session: Pick<TerminalSession, "title" | "session">): boolean {
-  const title = session.title.trim();
-  if (isBuiltinDefaultTitle(title)) return true;
-
-  const resource = resolveResourceById(session.session.resourceId);
-  const resourceName = resource?.name?.trim() ?? "";
-  const shellLabel = session.session.shellLabel?.trim() ?? "";
-
-  if (resourceName && title === resourceName) return true;
-
-  const baseTitle = resolveTerminalTabBaseTitle(
-    session.session.resourceId,
-    null,
-    resourceName || null,
-    shellLabel || null,
-  );
-  if (title === baseTitle) return true;
-
-  if (resourceName) {
-    const prefixed = `${resourceName}-${baseTitle}`;
-    if (title === prefixed) return true;
-    if (title.startsWith(`${resourceName}-`)) {
-      const suffix = title.slice(resourceName.length + 1);
-      if (isBuiltinDefaultTitle(suffix)) return true;
-    }
-  }
-
-  return false;
 }
 
 function blockEffectiveOutput(block: TerminalBlock): string {
@@ -281,7 +242,11 @@ export async function tryAutoNameSession(sessionId: string): Promise<void> {
   const session = useTerminalStore.getState().sessions.find((s) => s.id === sessionId);
   if (!session) return;
   // 仅对默认标题的会话自动命名
-  if (!isDefaultSessionTitle(session)) return;
+  if (!isDefaultSessionTitle(session)) {
+    // 用户已手动命名：标记跳过，避免每个 block 完成都重复判定
+    autoNamedSessions.add(sessionId);
+    return;
+  }
 
   // 检查是否已有用户主动执行的 shell block（排除 auto-ls 等静默 block）
   const blocks = useBlocksStore.getState().getBlocks(sessionId);
@@ -301,6 +266,7 @@ export async function tryAutoNameSession(sessionId: string): Promise<void> {
       }
       autoNamedSessions.add(sessionId);
     }
+    // no-provider / 失败不标记：后续 block 完成可再试（例如模型稍后就绪）
   } finally {
     pendingAiNaming.delete(sessionId);
     emitNamingState(sessionId, false);

@@ -2,10 +2,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LOG_REL: &str = "workspace-window-debug.log";
@@ -547,8 +545,15 @@ fn resolve_bounds_for_current_displays(app: &AppHandle, bounds: &WindowBounds) -
     }
 }
 
-fn apply_bounds_to_window(window: &tauri::WebviewWindow, bounds: &WindowBounds) {
-    // 先取消最大化再设普通尺寸，保证 OS 的 restore rect 正确
+const SPLASH_LABEL: &str = "splash";
+/// 启动阶段固定小窗尺寸，就绪后再放大到记忆几何
+const SPLASH_WIDTH: f64 = 520.0;
+const SPLASH_HEIGHT: f64 = 420.0;
+const DEFAULT_WIDTH: f64 = 1280.0;
+const DEFAULT_HEIGHT: f64 = 800.0;
+
+/// 只摆普通几何（位置/尺寸）。最大化单独处理：Windows 上对隐藏窗 maximize 常会强制显示。
+fn apply_bounds_geometry(window: &tauri::WebviewWindow, bounds: &WindowBounds) {
     let _ = window.unmaximize();
     if let (Some(px), Some(py)) = (bounds.physical_x, bounds.physical_y) {
         let _ = window.set_position(tauri::PhysicalPosition::new(px, py));
@@ -560,9 +565,81 @@ fn apply_bounds_to_window(window: &tauri::WebviewWindow, bounds: &WindowBounds) 
     } else {
         let _ = window.set_size(tauri::LogicalSize::new(bounds.width, bounds.height));
     }
+}
+
+fn apply_bounds_to_window(window: &tauri::WebviewWindow, bounds: &WindowBounds) {
+    apply_bounds_geometry(window, bounds);
     if bounds.maximized {
         let _ = window.maximize();
     }
+}
+
+/// 冷启动摆位：记下是否要最大化，但此刻不 maximize（避免隐藏窗被系统强行显示）。
+fn apply_startup_bounds(window: &tauri::WebviewWindow, bounds: &WindowBounds) {
+    MAIN_PENDING_MAXIMIZE.store(bounds.maximized, Ordering::SeqCst);
+    apply_bounds_geometry(window, bounds);
+}
+
+static MAIN_PENDING_MAXIMIZE: AtomicBool = AtomicBool::new(false);
+/// 小尺寸 splash 窗已显示给用户
+static MAIN_SPLASH_SHOWN: AtomicBool = AtomicBool::new(false);
+/// 已放大到正式主窗几何
+static MAIN_EXPANDED: AtomicBool = AtomicBool::new(false);
+
+/// 历史双窗 splash 交接用；现已单窗启动，始终允许正常退出。
+pub fn should_prevent_exit_for_splash_handoff(_app: &AppHandle) -> bool {
+    false
+}
+
+fn pick_target_monitor_for_splash<'a>(
+    app: &AppHandle,
+    bounds: Option<&WindowBounds>,
+    monitors: &'a [tauri::Monitor],
+) -> Option<&'a tauri::Monitor> {
+    if let Some(b) = bounds {
+        let scale_guess = app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0)
+            .max(0.1);
+        let px = b
+            .physical_x
+            .unwrap_or_else(|| (b.x * scale_guess).round() as i32);
+        let py = b
+            .physical_y
+            .unwrap_or_else(|| (b.y * scale_guess).round() as i32);
+        return pick_target_monitor(app, b, monitors, px, py);
+    }
+    if let Ok(cursor) = app.cursor_position() {
+        let cx = cursor.x.round() as i32;
+        let cy = cursor.y.round() as i32;
+        if let Some(m) = monitors.iter().find(|m| monitor_contains_point(m, cx, cy)) {
+            return Some(m);
+        }
+    }
+    app.primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|p| {
+            let name = p.name().cloned();
+            name.and_then(|n| monitors.iter().find(|m| m.name() == Some(&n)))
+        })
+        .or_else(|| monitors.first())
+}
+
+fn center_rect_on_monitor(mon: &tauri::Monitor, width_logical: f64, height_logical: f64) -> (i32, i32) {
+    let scale = mon.scale_factor().max(0.1);
+    let ww = (width_logical * scale).round() as i32;
+    let wh = (height_logical * scale).round() as i32;
+    let mx = mon.position().x;
+    let my = mon.position().y;
+    let mw = mon.size().width as i32;
+    let mh = mon.size().height as i32;
+    let x = mx + ((mw - ww) / 2).max(0);
+    let y = my + ((mh - wh) / 2).max(0);
+    (x, y)
 }
 
 /// 无记忆几何时：尽量落在光标所在屏并居中（避免固定落到主屏）。
@@ -610,10 +687,127 @@ fn center_window_on_cursor_monitor(app: &AppHandle, window: &tauri::WebviewWindo
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
-fn reveal_main_window(window: &tauri::WebviewWindow) {
-    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
+fn splash_center_position(app: &AppHandle, resolved: Option<&WindowBounds>) -> (i32, i32) {
+    let monitors = app.available_monitors().unwrap_or_default();
+    let target = pick_target_monitor_for_splash(app, resolved, &monitors);
+    target
+        .map(|m| center_rect_on_monitor(m, SPLASH_WIDTH, SPLASH_HEIGHT))
+        .unwrap_or((80, 80))
+}
+
+/// 创建后：记下 maximize，以 splash 尺寸在目标屏 show 强制 WebView 加载。
+///
+/// 注意：不要用 (-32000,-32000) 屏外坐标。Windows 会把任务栏按钮绑到
+/// 首次 show 所在的显示器（通常是主屏），导致副屏窗口最小化动画/按钮跑到主屏。
+fn place_main_for_boot(app: &AppHandle, window: &tauri::WebviewWindow, resolved: Option<&WindowBounds>) {
+    let _ = window.set_background_color(Some(tauri::window::Color(14, 20, 25, 255)));
+    if let Some(b) = resolved {
+        MAIN_PENDING_MAXIMIZE.store(b.maximized, Ordering::SeqCst);
+    } else {
+        MAIN_PENDING_MAXIMIZE.store(false, Ordering::SeqCst);
+    }
+    let (pos_x, pos_y) = splash_center_position(app, resolved);
+    let _ = window.set_resizable(false);
+    // 加载阶段隐藏任务栏按钮；露出 splash 后再打开，确保按钮落在当前屏
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_size(tauri::LogicalSize::new(SPLASH_WIDTH, SPLASH_HEIGHT));
+    let _ = window.set_position(tauri::PhysicalPosition::new(pos_x, pos_y));
     let _ = window.show();
+}
+
+/// 任务栏按钮按当前窗口所在屏重新挂接（先藏再显）。
+fn rebind_taskbar_to_current_monitor(window: &tauri::WebviewWindow) {
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_skip_taskbar(false);
+}
+
+/// 显示固定小尺寸 splash 窗（SplashScreen 首帧后调用）。
+fn show_splash_window(app: &AppHandle) {
+    if MAIN_EXPANDED.load(Ordering::SeqCst) {
+        return;
+    }
+    if MAIN_SPLASH_SHOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        MAIN_SPLASH_SHOWN.store(false, Ordering::SeqCst);
+        return;
+    };
+    let resolved = resolved_main_bounds(app);
+    let (pos_x, pos_y) = splash_center_position(app, resolved.as_ref());
+
+    let _ = window.set_background_color(Some(tauri::window::Color(14, 20, 25, 255)));
+    let _ = window.set_resizable(false);
+    let _ = window.set_size(tauri::LogicalSize::new(SPLASH_WIDTH, SPLASH_HEIGHT));
+    let _ = window.set_position(tauri::PhysicalPosition::new(pos_x, pos_y));
+    let _ = window.unminimize();
+    let _ = window.show();
+    // 位置落稳后再挂任务栏，避免按钮粘在主屏
+    rebind_taskbar_to_current_monitor(&window);
     let _ = window.set_focus();
+}
+
+/// 从小尺寸放大到正式主窗几何。
+fn expand_main_window(app: &AppHandle) {
+    if MAIN_EXPANDED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        MAIN_EXPANDED.store(false, Ordering::SeqCst);
+        return;
+    };
+    MAIN_SPLASH_SHOWN.store(true, Ordering::SeqCst);
+
+    let _ = window.set_background_color(Some(tauri::window::Color(14, 20, 25, 255)));
+    let _ = window.set_resizable(true);
+
+    if let Some(bounds) = resolved_main_bounds(app) {
+        apply_startup_bounds(&window, &bounds);
+    } else {
+        MAIN_PENDING_MAXIMIZE.store(false, Ordering::SeqCst);
+        let _ = window.set_size(tauri::LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT));
+        center_window_on_cursor_monitor(app, &window);
+    }
+
+    let want_max = MAIN_PENDING_MAXIMIZE.load(Ordering::SeqCst);
+    let _ = window.unminimize();
+    let _ = window.show();
+    if want_max {
+        let _ = window.maximize();
+    }
+    rebind_taskbar_to_current_monitor(&window);
+    let _ = window.set_focus();
+}
+
+/// 前端 SplashScreen 已绘制：露出固定小尺寸启动窗。
+#[tauri::command]
+pub fn main_window_show_splash(app: AppHandle) {
+    show_splash_window(&app);
+}
+
+/// 启动完成 / 登录页：放大到正式主窗尺寸。
+#[tauri::command]
+pub fn main_window_reveal(app: AppHandle) {
+    expand_main_window(&app);
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BootProgressPayload {
+    step: u32,
+    total_steps: u32,
+    log: String,
+}
+
+/// 兼容旧双窗协议；单窗启动时进度由 Bootstrap 本地 SplashScreen 直接驱动。
+#[tauri::command]
+pub fn boot_splash_progress(app: AppHandle, step: u32, total_steps: u32, log: String) {
+    let payload = BootProgressPayload {
+        step,
+        total_steps,
+        log,
+    };
+    let _ = app.emit("omnipanel:boot-progress", &payload);
 }
 
 fn resolved_main_bounds(app: &AppHandle) -> Option<WindowBounds> {
@@ -623,31 +817,21 @@ fn resolved_main_bounds(app: &AppHandle) -> Option<WindowBounds> {
         .map(|b| resolve_bounds_for_current_displays(app, &b))
 }
 
-fn place_main_window(app: &AppHandle, window: &tauri::WebviewWindow) {
-    let _ = window.hide();
-    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
-    if let Some(ref b) = resolved_main_bounds(app) {
-        apply_bounds_to_window(window, b);
-    } else {
-        center_window_on_cursor_monitor(app, window);
-    }
-}
-
-/// 已自动创建的窗口无法再挂 builder.on_page_load；短延迟后显示（并靠前端再保一次）。
-fn schedule_main_window_reveal(window: tauri::WebviewWindow) {
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(250));
-        reveal_main_window(&window);
-    });
-}
-
-/// 主窗须 `create: false`（含 `tauri.windows.conf.json`）：按记忆几何创建并保持隐藏，
-/// 等首屏 HTML 就绪后再 show。若因平台配置合并仍被自动创建，则改为摆位 + 延迟显示。
+/// 单窗启动：先以 splash 尺寸在目标屏加载，前端再露出 splash → 完成后放大。
 pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
-    // Windows 平台配置若未带 create:false，Tauri 会先自动建好 main
+    MAIN_SPLASH_SHOWN.store(false, Ordering::SeqCst);
+    MAIN_EXPANDED.store(false, Ordering::SeqCst);
+    MAIN_PENDING_MAXIMIZE.store(false, Ordering::SeqCst);
+
+    if let Some(splash) = app.get_webview_window(SPLASH_LABEL) {
+        let _ = splash.close();
+    }
+
+    let resolved = resolved_main_bounds(app);
+
     if let Some(window) = app.get_webview_window("main") {
-        place_main_window(app, &window);
-        schedule_main_window_reveal(window);
+        place_main_for_boot(app, &window, resolved.as_ref());
+        schedule_main_window_reveal_fallback(app.clone());
         return Ok(());
     }
 
@@ -660,53 +844,51 @@ pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
         .cloned()
         .ok_or_else(|| "缺少 main 窗口配置".to_string())?;
 
-    let resolved = resolved_main_bounds(app);
-
-    let mut builder = WebviewWindowBuilder::from_config(app, &window_cfg)
-        .map_err(|e| format!("主窗 from_config 失败: {e}"))?
-        .visible(false)
-        .focused(false)
-        .background_color(tauri::window::Color(26, 23, 23, 255));
+    let (pos_x, pos_y) = splash_center_position(app, resolved.as_ref());
+    let scale = app
+        .available_monitors()
+        .ok()
+        .and_then(|ms| {
+            pick_target_monitor_for_splash(app, resolved.as_ref(), &ms).map(|m| m.scale_factor())
+        })
+        .unwrap_or(1.0)
+        .max(0.1);
+    let logical_x = pos_x as f64 / scale;
+    let logical_y = pos_y as f64 / scale;
 
     if let Some(ref b) = resolved {
-        // 创建时就落到记忆屏/尺寸，避免先出现在主屏再搬
-        builder = builder.inner_size(b.width, b.height).position(b.x, b.y);
+        MAIN_PENDING_MAXIMIZE.store(b.maximized, Ordering::SeqCst);
     }
 
-    let revealed = Arc::new(AtomicBool::new(false));
-    let revealed_load = Arc::clone(&revealed);
-    builder = builder.on_page_load(move |window, payload| {
-        if payload.event() != PageLoadEvent::Finished {
-            return;
-        }
-        if revealed_load.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        reveal_main_window(&window);
-    });
-
-    let window = builder
+    let window = WebviewWindowBuilder::from_config(app, &window_cfg)
+        .map_err(|e| format!("主窗 from_config 失败: {e}"))?
+        .inner_size(SPLASH_WIDTH, SPLASH_HEIGHT)
+        .position(logical_x, logical_y)
+        .visible(false)
+        .focused(false)
+        .resizable(false)
+        .background_color(tauri::window::Color(14, 20, 25, 255))
         .build()
         .map_err(|e| format!("创建主窗口失败: {e}"))?;
 
-    if let Some(ref b) = resolved {
-        apply_bounds_to_window(&window, b);
-    } else {
-        center_window_on_cursor_monitor(app, &window);
-    }
-
-    let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
-
-    let win_fallback = window.clone();
-    let revealed_fallback = Arc::clone(&revealed);
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(4));
-        if !revealed_fallback.swap(true, Ordering::SeqCst) {
-            reveal_main_window(&win_fallback);
-        }
-    });
+    place_main_for_boot(app, &window, resolved.as_ref());
+    schedule_main_window_reveal_fallback(app.clone());
 
     Ok(())
+}
+
+/// 超时兜底：先露小窗，再放大，避免一直黑屏。
+fn schedule_main_window_reveal_fallback(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(6));
+        if !MAIN_SPLASH_SHOWN.load(Ordering::SeqCst) && !MAIN_EXPANDED.load(Ordering::SeqCst) {
+            show_splash_window(&app);
+        }
+        std::thread::sleep(Duration::from_secs(10));
+        if !MAIN_EXPANDED.load(Ordering::SeqCst) {
+            expand_main_window(&app);
+        }
+    });
 }
 
 /// 读取主窗口上次几何。

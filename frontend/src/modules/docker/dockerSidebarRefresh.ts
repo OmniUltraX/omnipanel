@@ -6,6 +6,7 @@ import type {
   DockerSidebarRefreshScope,
 } from "./dockerSidebarCache";
 import { EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY } from "./dockerSidebarCache";
+import { handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
 
 /** 侧栏刷新失败会落到 entry.error，避免刷屏 console */
 function unwrap<T>(promise: Promise<CommandResult<T>>): Promise<T> {
@@ -72,6 +73,14 @@ export async function fetchDockerSidebarResources(
       error: null,
     };
   } catch (error) {
+    // 连不上实例：标记未连接，不把错误文案塞进侧栏
+    if (handleDockerAutoFetchFailure(scope.connectionId, error)) {
+      return {
+        ...current,
+        refreshedAt: current.refreshedAt ?? Date.now(),
+        error: null,
+      };
+    }
     return {
       ...current,
       // 失败也标记已尝试，侧栏结束「加载中」并展示错误；不标记 loaded，便于展开时重试

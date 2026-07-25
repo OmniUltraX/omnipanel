@@ -66,6 +66,9 @@ function asNormalBounds(bounds: WindowBounds): WindowBounds {
   return { ...bounds, maximized: false };
 }
 
+/** Win32 最小化后 outerPosition 常见哨兵坐标，不可落盘 */
+const MINIMIZED_OFFSCREEN_THRESHOLD = -10_000;
+
 /** 尺寸是否接近整屏（常见于误把最大化几何当普通尺寸写入） */
 function looksLikeMonitorFill(bounds: WindowBounds, monitor: Monitor | null): boolean {
   if (!monitor) return false;
@@ -73,6 +76,13 @@ function looksLikeMonitorFill(bounds: WindowBounds, monitor: Monitor | null): bo
   const mw = monitor.size.width / scale;
   const mh = monitor.size.height / scale;
   return bounds.width >= mw - 48 && bounds.height >= mh - 48;
+}
+
+/** 最小化 / 屏外坐标：跳过持久化，避免副屏窗口被记到主屏 */
+function looksLikeMinimizedOffscreen(bounds: WindowBounds): boolean {
+  const px = bounds.physicalX ?? Math.round(bounds.x);
+  const py = bounds.physicalY ?? Math.round(bounds.y);
+  return px <= MINIMIZED_OFFSCREEN_THRESHOLD || py <= MINIMIZED_OFFSCREEN_THRESHOLD;
 }
 
 function monitorContainsPoint(mon: Monitor, px: number, py: number): boolean {
@@ -175,6 +185,7 @@ export async function readCurrentWindowBounds(): Promise<WindowBounds | null> {
   if (!isTauriRuntime()) return null;
   try {
     const win = getCurrentWindow();
+    if (await win.isMinimized()) return null;
     const [physicalPos, physicalSize, scale, maximized, monitor] = await Promise.all([
       win.outerPosition(),
       win.innerSize(),
@@ -183,7 +194,7 @@ export async function readCurrentWindowBounds(): Promise<WindowBounds | null> {
       currentMonitor(),
     ]);
     const factor = scale > 0 ? scale : 1;
-    return {
+    const bounds: WindowBounds = {
       x: physicalPos.x / factor,
       y: physicalPos.y / factor,
       width: physicalSize.width / factor,
@@ -195,6 +206,8 @@ export async function readCurrentWindowBounds(): Promise<WindowBounds | null> {
       physicalWidth: physicalSize.width,
       physicalHeight: physicalSize.height,
     };
+    if (looksLikeMinimizedOffscreen(bounds)) return null;
+    return bounds;
   } catch (e) {
     console.warn("[windowBounds] 读取失败", e);
     return null;
@@ -404,7 +417,34 @@ export function startWindowBoundsTracking(target: TrackTarget): () => void {
   };
 
   const win = getCurrentWindow();
-  void win.onMoved(() => schedulePersist()).then((fn) => {
+  let lastMonitorName: string | null | undefined = undefined;
+
+  const rebindTaskbarIfMonitorChanged = async () => {
+    try {
+      if (await win.isMinimized()) return;
+      const mon = await currentMonitor();
+      const name = mon?.name ?? null;
+      if (lastMonitorName === undefined) {
+        lastMonitorName = name;
+        return;
+      }
+      if (name && name !== lastMonitorName) {
+        lastMonitorName = name;
+        // Windows：跨屏拖拽后任务栏按钮常仍粘在旧屏，跳一下 skip 重新挂接
+        await win.setSkipTaskbar(true);
+        await win.setSkipTaskbar(false);
+      } else if (name) {
+        lastMonitorName = name;
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  void win.onMoved(() => {
+    schedulePersist();
+    void rebindTaskbarIfMonitorChanged();
+  }).then((fn) => {
     if (disposed) fn();
     else unlistenMoved = fn;
   });
@@ -430,6 +470,9 @@ export function startWindowBoundsTracking(target: TrackTarget): () => void {
     if (disposed) return;
     if (live && isValidBounds(live) && !live.maximized) {
       rememberNormal(live);
+    }
+    if (lastMonitorName === undefined) {
+      lastMonitorName = live?.monitorName ?? null;
     }
   })();
 

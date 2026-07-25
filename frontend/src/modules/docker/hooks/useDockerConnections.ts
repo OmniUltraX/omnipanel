@@ -3,6 +3,7 @@ import { commands } from "../../../ipc/bindings";
 import type { DockerConnectionInfo, DockerScanResult } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
 import { useConnectionStore } from "../../../stores/connectionStore";
+import { registerDockerOfflineHandler } from "../dockerConnectionOffline";
 
 const unwrap = unwrapCommand;
 
@@ -14,6 +15,25 @@ export function useDockerConnections() {
   const [error, setError] = useState<string | null>(null);
   /** 已成功拉过一次后，后续刷新不再把侧栏整树切回「加载中」 */
   const hasLoadedOnceRef = useRef(false);
+
+  const markConnectionOffline = useCallback((connectionId: string) => {
+    setConnections((prev) => {
+      let changed = false;
+      const next = prev.map((item) => {
+        if (item.connectionId !== connectionId || item.status === "offline") {
+          return item;
+        }
+        changed = true;
+        return { ...item, status: "offline" as const };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    registerDockerOfflineHandler(markConnectionOffline);
+    return () => registerDockerOfflineHandler(null);
+  }, [markConnectionOffline]);
 
   const reloadConnections = useCallback(async () => {
     setError(null);
@@ -63,5 +83,6 @@ export function useDockerConnections() {
     error,
     reloadConnections,
     scanSshDockerHosts,
+    markConnectionOffline,
   };
 }

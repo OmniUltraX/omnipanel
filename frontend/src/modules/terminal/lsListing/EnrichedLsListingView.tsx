@@ -10,7 +10,10 @@ import { LsListingView } from "./LsListingView";
 import type { LsEntry, LsListing } from "./parseLsListing";
 import { resolveListingDirectoryForBlock } from "./resolveLsListingDirectory";
 import { useSftpEnrichedLsListing } from "./useSftpEnrichedLsListing";
-import { useTerminalFilePreviewStore } from "../terminalFilePreviewStore";
+import {
+  parseLsLongSizeBytes,
+  tryOpenTerminalFilePreview,
+} from "../terminalFilePreviewStore";
 import { joinListingEntryPath } from "./resolveLsListingDirectory";
 import { LOCAL_CONNECTION_ID } from "../../files/utils";
 import { FeedSearchHighlightText } from "../FeedSearchHighlightText";
@@ -76,7 +79,6 @@ function EnrichedLsListingViewInner({
   );
   const lastResolvedRef = useRef<LsListing | null>(null);
 
-  const openFilePreview = useTerminalFilePreviewStore((state) => state.open);
   const revealInSftp = useSshDetailNavigationStore((s) => s.revealInSftp);
   const revealInFiles = useSshDetailNavigationStore((s) => s.revealInFiles);
 
@@ -84,15 +86,19 @@ function EnrichedLsListingViewInner({
     (entry: LsEntry) => {
       const absolutePath = joinListingEntryPath(listingDirectory, entry.name);
       const isLocal = sessionType === "local";
-      openFilePreview({
+      // 是否可预览由 resolveFilePreviewKind / tryOpenTerminalFilePreview 判定。
+      // 勿用 ls 的 executable/archive/media 着色分类拦截：.sh 等脚本常有 +x，
+      // 会被标成 executable，但内容是纯文本，应允许预览。
+      tryOpenTerminalFilePreview({
         connectionId: isLocal ? LOCAL_CONNECTION_ID : resourceId ?? "",
         absolutePath,
         name: entry.name,
+        sizeBytes: parseLsLongSizeBytes(entry.longSize),
         resourceId: isLocal ? null : resourceId ?? null,
         sessionType,
       });
     },
-    [listingDirectory, sessionType, resourceId, openFilePreview],
+    [listingDirectory, sessionType, resourceId],
   );
 
   const ctxLabels = useMemo((): FileEntryCtxLabels => ({

@@ -10,6 +10,7 @@
     "beforeBuildCommand": "npm --prefix frontend run build:ci"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -36,9 +37,25 @@
         "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self' 'unsafe-inline'",
         "worker-src": "'self' blob:",
-        "img-src": "'self' asset: http://asset.localhost data: blob: https: http:",
+        "img-src": "'self' asset: http://asset.localhost data: blob: https: http: http://127.0.0.1:*",
+        "media-src": "'self' asset: http://asset.localhost data: blob: http://127.0.0.1:*",
         "font-src": "'self' data:",
         "frame-src": "'self' asset: http://asset.localhost https: http:"
+      },
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPCACHE/**",
+          "$APPDATA/**",
+          "$RESOURCE/**",
+          "$HOME/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**",
+          "$DESKTOP/**",
+          "$PICTURE/**",
+          "$PUBLIC/**",
+          "$TEMP/**"
+        ]
       }
     }
   },
