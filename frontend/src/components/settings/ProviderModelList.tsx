@@ -320,6 +320,7 @@ export function ProviderModelList({ provider }: ProviderModelListProps) {
           className="input input-search ai-provider-models-search"
           value={search}
           onChange={setSearch}
+          clearable={false}
           copyable={false}
           placeholder={t("settings.aiModels.modelList.searchPlaceholder")}
         />
@@ -330,6 +331,8 @@ export function ProviderModelList({ provider }: ProviderModelListProps) {
             setManualInput(value);
             setAddError(null);
           }}
+          clearable={false}
+          copyable={false}
           placeholder={t("settings.aiModels.modelList.addPlaceholder")}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

@@ -3,7 +3,6 @@ import { Thread } from "../../assistant-ui/thread";
 import { ResizableSidePanel } from "../../ui/sidebar/ResizableSidePanel";
 import { AiConversationList } from "./AiConversationList";
 import { AiPanelToolbar } from "./AiAssistantHeaderActions";
-import { AiContextStrip } from "../AiContextStrip";
 import { AiTaskAndDraftPanel } from "../AiTaskAndDraftPanel";
 
 /** AI 助手主内容区：可选工具栏 + 对话线程；弹窗模式可带右侧历史栏 */
@@ -23,7 +22,6 @@ export function AiAssistantBody({
     <div className="ai-assistant-shell-body">
       <div className="ai-dockview-content aui-dockview-content min-w-0 flex-1 flex flex-col">
         {showToolbar ? <AiPanelToolbar showTitle /> : null}
-        <AiContextStrip />
         <AiTaskAndDraftPanel />
         <div className="min-h-0 flex-1">
           <Thread />

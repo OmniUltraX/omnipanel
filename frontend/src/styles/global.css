@@ -3014,7 +3014,6 @@ a {
 
 .ai-context-strip {
     padding: var(--sp-2) var(--sp-3);
-    border-bottom: 1px solid var(--border);
     background: var(--bg);
     display: flex;
     flex-direction: column;
@@ -6367,11 +6366,11 @@ button.omni-btn-tool[aria-pressed="true"] {
         width: 46px;
     }
 
-    /* 内容层工具栏：标题下拉 + 分散操作（在 chrome 之下） */
+    /* 内容层工具栏：标题下拉 + 当前现场（同行）+ 分散操作（在 chrome 之下） */
     .ai-panel-toolbar {
         display: flex;
         align-items: center;
-        gap: var(--sp-3);
+        gap: var(--sp-2);
         padding: 6px 12px;
         border-bottom: 1px solid var(--border);
         min-width: 0;
@@ -6380,9 +6379,9 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .ai-panel-toolbar-title {
-        flex: 1;
+        flex: 0 1 auto;
         min-width: 0;
-        max-width: none;
+        max-width: 220px;
         margin: 0;
         font-size: 13px;
         font-weight: 600;
@@ -6405,6 +6404,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         align-items: center;
         gap: 6px;
         flex-shrink: 0;
+        margin-left: auto;
     }
 
     .ai-panel-toolbar-actions-sep {
@@ -6418,9 +6418,27 @@ button.omni-btn-tool[aria-pressed="true"] {
     .ai-toolbar-dropdown {
         position: relative;
         min-width: 0;
-        flex: 1;
+        flex: 0 1 auto;
+        max-width: 240px;
         display: flex;
         align-items: center;
+    }
+
+    .ai-subwindow-title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+        flex: 1;
+    }
+
+    .ai-subwindow-title-row .ai-toolbar-dropdown {
+        flex: 0 1 auto;
+        max-width: 240px;
+    }
+
+    .ai-subwindow-title-row .ai-context-strip--inline {
+        flex: 1 1 auto;
     }
 
     .ai-panel-toolbar-actions .ai-toolbar-dropdown {
@@ -10573,12 +10591,23 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .ai-context-strip {
         display: flex;
+        flex-direction: row;
         align-items: center;
         gap: 8px;
         padding: 6px 10px;
         border-bottom: 1px solid var(--border-soft);
         flex-shrink: 0;
         min-height: 32px;
+        min-width: 0;
+    }
+
+    .ai-context-strip--inline {
+        flex: 1 1 auto;
+        flex-direction: row;
+        padding: 0;
+        border-bottom: none;
+        min-height: 0;
+        overflow: hidden;
     }
 
     .ai-context-strip--empty {
@@ -10593,10 +10622,15 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .ai-context-strip__chips {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 4px;
         flex: 1;
         min-width: 0;
+        overflow: hidden;
+    }
+
+    .ai-context-strip--inline .ai-context-strip__chips {
+        flex-wrap: nowrap;
     }
 
     .ai-context-chip {
@@ -15006,14 +15040,21 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .ai-provider-models-toolbar {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: center;
         gap: var(--sp-2);
+        min-width: 0;
+    }
+
+    /* TextInput 有清空/复制时外层是 .input-field，需作为 flex 子项才能与按钮同行 */
+    .ai-provider-models-toolbar > .input-field,
+    .ai-provider-models-toolbar > .ai-provider-models-search,
+    .ai-provider-models-toolbar > .ai-provider-models-add-input {
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     .ai-provider-models-add-input {
-        flex: 1;
-        min-width: 120px;
         font-size: 12px;
         font-family: var(--font-mono, monospace);
     }
@@ -15024,9 +15065,12 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .ai-provider-models-search {
-        flex: 1;
-        min-width: 120px;
         font-size: 12px;
+    }
+
+    .ai-provider-models-toolbar > .btn,
+    .ai-provider-models-toolbar > button {
+        flex-shrink: 0;
     }
 
     .ai-provider-models-bulk {

@@ -1,4 +1,5 @@
 import { useAiStore } from "../../stores/aiStore";
+import { AiContextStrip } from "./AiContextStrip";
 import { AiAssistantBody } from "./assistant-ui/AiAssistantBody";
 import {
   AiAssistantHeaderToolbar,
@@ -13,7 +14,12 @@ export function AiDrawer() {
   return (
     <SubWindow
       open={drawerOpen}
-      title={<AiConversationSwitcher />}
+      title={
+        <div className="ai-subwindow-title-row">
+          <AiConversationSwitcher />
+          <AiContextStrip variant="inline" />
+        </div>
+      }
       onClose={closeDrawer}
       className="ai-subwindow"
       widthRatio={0.82}

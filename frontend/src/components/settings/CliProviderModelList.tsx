@@ -111,6 +111,7 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
           className="input input-search ai-provider-models-search"
           value={search}
           onChange={setSearch}
+          clearable={false}
           copyable={false}
           placeholder={t("settings.aiModels.modelList.searchPlaceholder")}
         />
@@ -121,6 +122,8 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
             setManualInput(value);
             setAddError(null);
           }}
+          clearable={false}
+          copyable={false}
           placeholder={t("settings.cliProviders.modelList.addPlaceholder")}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

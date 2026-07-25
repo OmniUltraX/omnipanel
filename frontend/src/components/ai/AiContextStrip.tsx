@@ -10,10 +10,18 @@ import { useStatusBarActionBarStore } from "../../stores/statusBarActionBarStore
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
+export type AiContextStripProps = {
+  /**
+   * inline：嵌在标题同行（工具栏 / SubWindow 标题区），空状态不占位。
+   * block：独立一行（兼容旧布局）。
+   */
+  variant?: "inline" | "block";
+};
+
 /**
- * Dock 现场摘要：仅展示与当前焦点模块相关的自动上下文（含钉住工作区）。
+ * 现场摘要：仅展示与当前焦点模块相关的自动上下文（含钉住工作区）。
  */
-export function AiContextStrip() {
+export function AiContextStrip({ variant = "block" }: AiContextStripProps) {
   const { t } = useI18n();
   const revision = useAiContextRegistry((s) => s.revision);
   const activeDock = useStatusBarActionBarStore((s) => s.activeDock);
@@ -62,7 +70,10 @@ export function AiContextStrip() {
     return out;
   }, [revision, activeDock?.dockScope, activeTabId, tabs]);
 
+  const inline = variant === "inline";
+
   if (!pinnedWorkspace && chips.length === 0) {
+    if (inline) return null;
     return (
       <div className="ai-context-strip ai-context-strip--empty">
         <span className="setting-hint">{t("ai.contextStrip.empty")}</span>
@@ -71,8 +82,7 @@ export function AiContextStrip() {
   }
 
   return (
-    <div className="ai-context-strip">
-      <span className="ai-context-strip__label">{t("ai.currentContext")}</span>
+    <div className={`ai-context-strip${inline ? " ai-context-strip--inline" : ""}`}>
       <div className="ai-context-strip__chips">
         {pinnedWorkspace ? (
           <span className="ai-context-chip ai-context-chip--workspace">

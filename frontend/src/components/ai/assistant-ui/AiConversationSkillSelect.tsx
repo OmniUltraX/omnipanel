@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { MultiSelect } from "../../ui/form/MultiSelect";
+import { Select } from "../../ui/form/Select";
 import { useI18n } from "../../../i18n";
 import { commands, type SkillRecord } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
 import { useAiStore } from "../../../stores/aiStore";
 
-/** 输入区：当前会话（或无会话时的草稿）Skills 多选 */
+const NONE_VALUE = "";
+
+/** 输入区：当前会话（或无会话时的草稿）Skills 单选 */
 export function AiConversationSkillSelect() {
   const { t } = useI18n();
   const activeConversationId = useAiStore((s) => s.activeConversationId);
@@ -37,31 +39,57 @@ export function AiConversationSkillSelect() {
   }, []);
 
   const options = useMemo(
-    () =>
-      skills.map((s) => ({
+    () => [
+      {
+        value: NONE_VALUE,
+        label: t("ai.skillSelect.placeholder"),
+      },
+      ...skills.map((s) => ({
         value: s.id,
         label: s.name,
         subtitle: s.description || undefined,
         title: s.description || s.name,
       })),
-    [skills],
+    ],
+    [skills, t],
   );
 
-  const selectedIds = useMemo(() => {
-    const raw = activeConversation?.selectedSkillIds ?? draftSkillIds;
-    const allowed = new Set(options.map((o) => o.value));
-    return raw.filter((id) => allowed.has(id));
-  }, [activeConversation?.selectedSkillIds, draftSkillIds, options]);
+  const rawSkillIds = activeConversation?.selectedSkillIds ?? draftSkillIds;
 
-  const handleChange = (next: string[]) => {
+  const selectedId = useMemo(() => {
+    const allowed = new Set(skills.map((s) => s.id));
+    return rawSkillIds.find((id) => allowed.has(id)) ?? NONE_VALUE;
+  }, [rawSkillIds, skills]);
+
+  // 历史多选 → 单选（只保留第一个有效 Skill）
+  useEffect(() => {
+    if (rawSkillIds.length <= 1) return;
+    const allowed = new Set(skills.map((s) => s.id));
+    const first = rawSkillIds.find((id) => allowed.has(id));
+    const next = first ? [first] : [];
     if (activeConversationId) {
       setConversationSkillIds(activeConversationId, next);
+    } else {
+      setDraftSkillIds(next);
+    }
+  }, [
+    activeConversationId,
+    rawSkillIds,
+    setConversationSkillIds,
+    setDraftSkillIds,
+    skills,
+  ]);
+
+  const handleChange = (next: string) => {
+    const ids = next ? [next] : [];
+    if (activeConversationId) {
+      setConversationSkillIds(activeConversationId, ids);
       return;
     }
-    setDraftSkillIds(next);
+    setDraftSkillIds(ids);
   };
 
-  if (options.length === 0) {
+  if (skills.length === 0) {
     return (
       <span className="ai-model-select-empty" title={t("ai.skillSelect.empty")}>
         {t("ai.skillSelect.empty")}
@@ -70,14 +98,14 @@ export function AiConversationSkillSelect() {
   }
 
   return (
-    <MultiSelect
+    <Select
       className="ai-model-select ai-skill-select is-borderless"
-      values={selectedIds}
+      value={selectedId}
       onChange={handleChange}
       options={options}
       size="sm"
-      emptyMeansAll={false}
-      searchable={options.length > 6}
+      borderless
+      searchable={skills.length > 6}
       searchPlaceholder={t("ai.skillSelect.search")}
       placeholder={t("ai.skillSelect.placeholder")}
       disabled={isGenerating}
@@ -85,12 +113,6 @@ export function AiConversationSkillSelect() {
       panelZIndex={1400}
       aria-label={t("ai.skillSelect.label")}
       title={t("ai.skillSelect.label")}
-      formatDisplayLabel={(labels, allSelected) => {
-        if (allSelected) return t("ai.skillSelect.all");
-        if (labels.length === 0) return t("ai.skillSelect.placeholder");
-        if (labels.length === 1) return labels[0]!;
-        return t("ai.skillSelect.count", { count: labels.length });
-      }}
     />
   );
 }

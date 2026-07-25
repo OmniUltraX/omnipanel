@@ -18,6 +18,7 @@ import {
   useSettingsStore,
   type AiDisplayMode,
 } from "../../../stores/settingsStore";
+import { AiContextStrip } from "../AiContextStrip";
 import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
 
@@ -338,7 +339,7 @@ export function AiPanelToolbarActions() {
 }
 
 /**
- * 内容层工具栏：标题下拉（新建+历史）+ 右侧轻量操作。
+ * 内容层工具栏：标题下拉（新建+历史）+ 当前现场（同行右侧）+ 轻量操作。
  */
 export function AiPanelToolbar({ showTitle = true }: { showTitle?: boolean }) {
   return (
@@ -348,12 +349,13 @@ export function AiPanelToolbar({ showTitle = true }: { showTitle?: boolean }) {
       ) : (
         <div className="ai-panel-toolbar-spacer" />
       )}
+      <AiContextStrip variant="inline" />
       <AiPanelToolbarActions />
     </div>
   );
 }
 
-/** SubWindow 标题栏附加：聚合操作（标题已在 SubWindow title） */
+/** SubWindow 标题栏附加：聚合操作（标题与现场已在 SubWindow title） */
 export function AiAssistantHeaderToolbar() {
   return (
     <div className="ai-subwindow-header-extra">
