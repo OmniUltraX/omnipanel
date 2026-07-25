@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import {
   getDefaultResourceForPath,
   type EnvironmentTag,
@@ -7,6 +7,7 @@ import {
 } from "../lib/resourceRegistry";
 import { resolveResourceById } from "./connectionStore";
 import { DASHBOARD_PATH } from "../lib/paths";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 export interface WorkspaceInfo {
   id: string;
@@ -274,6 +275,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: "omnipanel-workspace-store",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         workspace: state.workspace,
         workspaces: state.workspaces,

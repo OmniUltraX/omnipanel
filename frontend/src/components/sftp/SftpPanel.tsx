@@ -876,6 +876,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
                 },
                 ...(resourceId
                   ? {
+                      sshResourceId: resourceId,
                       probeMediaMeta: async (filePath: string) => {
                         const probe = await unwrapCommand(
                           commands.sftpProbeMedia(resourceId, filePath),

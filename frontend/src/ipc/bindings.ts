@@ -345,6 +345,16 @@ export const commands = {
 	sftpOpenMediaStream: (id: string, path: string) => typedError<SftpMediaStream, OmniError_Serialize>(__TAURI_INVOKE("sftp_open_media_stream", { id, path })),
 	/**  关闭边下边播流令牌。 */
 	sftpCloseMediaStream: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_close_media_stream", { token })),
+	/**  打开大日志会话：探测文件大小与总行数预估（wc -l）。 */
+	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
+	/**  按行号范围读取日志行（虚拟滚动按需切片，1-based）。 */
+	sftpLogReadLines: (id: string, path: string, startLine: number, endLine: number) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
+	/**  搜索日志（grep -n），返回命中行列表。grep exit 1 = no match 非错误。 */
+	sftpLogSearch: (id: string, path: string, pattern: string, isRegex: boolean, maxResults: number | null, contextBefore: number | null, contextAfter: number | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, isRegex, maxResults, contextBefore, contextAfter })),
+	/**  开始实时跟踪（tail -F，支持文件轮转）。输出经 `sftp-log-tail-{token}` 事件推送。 */
+	sftpLogTailStart: (id: string, path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_start", { id, path, linesAfter })),
+	/**  停止实时跟踪。 */
+	sftpLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_stop", { token })),
 	/**  上传内容到远端文件（覆盖）。 */
 	sftpUpload: (id: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_upload", { id, path, data })),
 	/**  在远程服务器创建目录。 */
@@ -388,6 +398,10 @@ export const commands = {
 	sshPoolExecCommand: (resourceId: string, command: string) => typedError<SshExecOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_exec_command", { resourceId, command })),
 	/**  对所有 SSH 主机重新进行端口可达性探测。 */
 	sshPoolProbeAll: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_all")),
+	/**  列出远端压缩包条目（不在本地下载文件，远端执行 unzip/tar/7z/unrar）。 */
+	sshPoolListArchiveEntries: (resourceId: string, path: string) => typedError<ArchiveListResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_list_archive_entries", { resourceId, path })),
+	/**  在远端一键安装压缩包工具（unzip/tar/7z/unrar/zstd），自动检测包管理器。 */
+	sshPoolInstallArchiveTool: (resourceId: string, tool: string) => typedError<ArchiveToolInstallResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_archive_tool", { resourceId, tool })),
 	/**  拉取本机 CPU / 内存 / 磁盘指标。 */
 	localFetchStats: () => typedError<HostSystemStats_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_fetch_stats")),
 	/**  列出本机进程。 */
@@ -3342,6 +3356,44 @@ export type SftpMediaStream = {
 	mime: string,
 };
 
+/** 大日志会话元信息（打开时探测一次）。 */
+export type LogSessionInfo = {
+	sizeBytes: number,
+	/** 总行数预估（wc -l，可能比真实少 1 行如果末尾无换行）。 */
+	totalLines: number | null,
+};
+
+/** 一行日志（带绝对行号，1-based）。 */
+export type LogLine = {
+	lineNo: number,
+	text: string,
+};
+
+/** grep 命中（带行号与命中片段）。 */
+export type LogSearchHit = {
+	lineNo: number,
+	content: string,
+	/** 命中在 content 中的起止列（null 表示未提供精确列）。 */
+	matchStart: number | null,
+	matchEnd: number | null,
+};
+
+/** 跟踪句柄（返回 token 用于后续停止）。 */
+export type LogTailHandle = {
+	token: string,
+};
+
+/** 跟踪事件 payload：通过 `sftp-log-tail-{token}` 事件推送给前端。 */
+export type LogTailChunk = {
+	token: string,
+	/** 本次推送的新行（已按 \n 切分，已去 \r）。 */
+	lines: string[],
+	/** 远端进程退出码（仅 Exit 事件有）。 */
+	exitCode: number | null,
+	/** 错误信息（仅 Closed / 异常有）。 */
+	error: string | null,
+};
+
 export type SkillCreateInput = {
 	id: string,
 	name: string,
@@ -3501,6 +3553,29 @@ export type SshExecOutput = {
 	stdout: string,
 	stderr: string,
 	exitCode: number,
+};
+
+/**  压缩包单个条目（名称、解压后大小、修改时间、是否目录）。 */
+export type ArchiveEntry = {
+	name: string,
+	size: number,
+	modified: number | null,
+	isDir: boolean,
+};
+
+/**  列压缩包条目结果。tool_missing 非空时前端可调 sshPoolInstallArchiveTool 一键安装后重试。 */
+export type ArchiveListResult = {
+	entries: ArchiveEntry[],
+	format: string,
+	totalUncompressed: number,
+	toolMissing: string | null,
+};
+
+/**  远端工具安装结果（成功/失败 + 详细消息）。 */
+export type ArchiveToolInstallResult = {
+	tool: string,
+	installed: boolean,
+	message: string,
 };
 
 /**  SSH host info for Docker connection binding. */

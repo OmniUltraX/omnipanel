@@ -68,6 +68,8 @@ async function summarizeOlderMessages(
     user,
     maxTokens: 600,
     temperature: 0.2,
+    // oneshot 纯文本补全：禁用推理模型思考链回退
+    pureText: true,
   });
 
   if (!result.ok) return null;

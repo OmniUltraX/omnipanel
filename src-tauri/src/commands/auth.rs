@@ -568,7 +568,8 @@ pub async fn auth_get_me(
 
     let proxy_config = state.proxy_config.lock().await.clone();
     let url = auth_url("/api/me");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+    // /api/me 是轻量接口，8s 足够；启动期后台调用，避免网络不通时卡满 30s
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(8)).map_err(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
 

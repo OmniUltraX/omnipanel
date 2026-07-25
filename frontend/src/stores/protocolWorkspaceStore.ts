@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { SerializedDockview } from "dockview-core";
 import type { ProtocolTabKey } from "../lib/protocolLabConfig";
 import { removePanelFromLayout } from "../components/dock/dockViewLayout";
+import { createIndexedDBStorage } from "../lib/indexedDbStorage";
 
 export interface ProtocolWorkspaceTab {
   id: string;
@@ -120,7 +121,7 @@ export const useProtocolWorkspaceStore = create<ProtocolWorkspaceState>()(
     }),
     {
       name: "omnipanel-protocol-workspace.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createIndexedDBStorage),
       partialize: (state) => ({
         tabs: state.tabs,
         activeTabId: state.activeTabId,

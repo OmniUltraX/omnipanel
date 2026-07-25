@@ -80,14 +80,39 @@ function buildChatCompletionsUrl(baseUrl: string): string {
     : `${clean}/v1/chat/completions`;
 }
 
-/** 兼容 reasoning 模型：正文空时回退 reasoning_content。 */
-function extractMessageText(data: unknown): string {
+/** 剥离推理模型嵌入在 content 里的 <think>...</think> 思考链。 */
+function stripThinkTags(text: string): string {
+  // 贪心匹配整段 <think>...</think>（含未闭合的半截 fence 也清掉）
+  return text
+    .replace(/<think>[\s\S]*?<\/think>\s*/gi, "")
+    .replace(/<think>[\s\S]*$/gi, "")
+    .trim();
+}
+
+/**
+ * 解析 OpenAI 兼容响应的 message 文本。
+ *
+ * @param fallbackToReasoning 默认 false。
+ *   - false：只取 `content`，剥离 `<think>` 后为空就返回空（让调用方触发重试/失败）。
+ *     适用于 oneshot 纯文本补全（会话命名、历史摘要等）——reasoning_content 是
+ *     模型内部思考链（如「用户现在需要给终端会话生成标题...」），不是最终答案。
+ *   - true：content 为空时回退 reasoning_content / reasoning（兼容旧的多轮对话行为）。
+ */
+function extractMessageText(
+  data: unknown,
+  fallbackToReasoning = false,
+): string {
   const message = (data as { choices?: Array<{ message?: Record<string, unknown> }> })
     ?.choices?.[0]?.message;
   if (!message) return "";
-  if (typeof message.content === "string" && message.content.trim()) {
-    return message.content.trim();
+
+  if (typeof message.content === "string") {
+    const cleaned = stripThinkTags(message.content);
+    if (cleaned) return cleaned;
   }
+
+  if (!fallbackToReasoning) return "";
+
   if (typeof message.reasoning_content === "string" && message.reasoning_content.trim()) {
     return message.reasoning_content.trim();
   }
@@ -106,6 +131,13 @@ export interface RequestAiCompletionOnceOptions {
   maxRetries?: number;
   retryDelayMs?: number;
   signal?: AbortSignal;
+  /**
+   * 纯文本补全模式（默认 true）。
+   * CLI/ACP 后端会跳过工具注入 / preamble / RAG / Skills / 多轮循环，
+   * prompt_text 直接用 system + user 拼接，让模型根据 prompt 直接输出文本。
+   * 仅在需要让 oneshot 请求也走完整工具链时设为 false。
+   */
+  pureText?: boolean;
 }
 
 async function requestViaHttp(
@@ -129,6 +161,11 @@ async function requestViaHttp(
     }
 
     try {
+      // pureText（默认 true）：oneshot 纯文本补全场景，禁用推理模型的思考链。
+      // - 响应解析不再回退 reasoning_content（那是内部思考，不是最终答案）
+      // - 请求体注入业界通用的「关闭思考」参数，被支持的模型会直接输出答案；
+      //   不支持的模型会忽略这些字段，无副作用。
+      const isPureText = options.pureText ?? true;
       const response = await fetchWithNetworkHint(url, {
         method: "POST",
         headers: withOptionalBearerAuth(
@@ -143,6 +180,15 @@ async function requestViaHttp(
           ],
           temperature: options.temperature ?? 0.3,
           max_tokens: options.maxTokens ?? 512,
+          ...(isPureText
+            ? {
+                // DeepSeek / Qwen / GLM 等推理模型通用开关
+                enable_thinking: false,
+                // OpenAI o-series / 部分第三方网关
+                reasoning_effort: "none",
+                chat_template_kwargs: { enable_thinking: false },
+              }
+            : {}),
         }),
         signal: controller.signal,
       });
@@ -150,7 +196,9 @@ async function requestViaHttp(
       if (!response.ok) continue;
 
       const data = await response.json();
-      const content = extractMessageText(data);
+      // pureText 时不回退 reasoning_content：模型若只输出思考链没出最终答案，
+      // 视为空响应触发重试，避免把「用户现在需要给终端会话生成标题...」当成标题。
+      const content = extractMessageText(data, !isPureText);
       if (!content) continue;
 
       return { ok: true, content };
@@ -189,11 +237,16 @@ async function requestViaInternalBackend(
     await runInternalAiChat({
       request: {
         conversationId: `ai-once-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        // CLI/ACP 后端只有 userText 通道，且后端会注入 CLIENT_TOOLS_PREAMBLE +
+        // master 工具清单。简单拼接 system + user 保持与历史可用版本一致的结构，
+        // 元描述 / 复述任务的防御由 system prompt 加强 + isMetaRestatement 兜底过滤处理。
         userText: `${options.system}\n\n${options.user}`,
         backendId: backend.backendId,
         context: {},
         toolsMode: "none",
         httpProvider: backend.kind === "http" ? backend.httpProvider : null,
+        // oneshot 纯文本补全：跳过工具注入 / preamble / 多轮循环
+        pureText: options.pureText ?? true,
       },
       signal: controller.signal,
       onEvent: (event) => {
@@ -209,7 +262,11 @@ async function requestViaInternalBackend(
   }
 
   if (sawError) return { ok: false, reason: "request-failed" };
-  const text = content.trim() || reasoning.trim();
+  const isPureText = options.pureText ?? true;
+  const cleanedContent = stripThinkTags(content);
+  // pureText 时不回退 reasoning：reasoning 是模型内部思考链
+  // （如「用户现在需要给终端会话生成标题...」），不是最终答案
+  const text = cleanedContent || (isPureText ? "" : reasoning.trim());
   if (!text) return { ok: false, reason: "empty-response" };
   return { ok: true, content: text };
 }

@@ -29,6 +29,7 @@ function buildCustomIO(target: TerminalFilePreviewTarget): FilePreviewIO {
 
   if (sessionType === "remote" && resourceId) {
     return {
+      sshResourceId: resourceId,
       readBytes: (path, maxBytes) => readRemoteBytesSftp(resourceId, path, maxBytes),
       writeBytes: (path, bytes) => writeRemoteBytesSftp(resourceId, path, bytes),
       probeMediaMeta: async (path) => {
@@ -46,6 +47,10 @@ function buildCustomIO(target: TerminalFilePreviewTarget): FilePreviewIO {
       closeMediaStream: async (token) => {
         await unwrapCommand(commands.sftpCloseMediaStream(token));
       },
+      listArchiveEntries: (path) =>
+        unwrapCommand(commands.sshPoolListArchiveEntries(resourceId, path)),
+      installArchiveTool: (tool) =>
+        unwrapCommand(commands.sshPoolInstallArchiveTool(resourceId, tool)),
     };
   }
   // 本地：走 file_manager 通道（已经支持 LOCAL_CONNECTION_ID）

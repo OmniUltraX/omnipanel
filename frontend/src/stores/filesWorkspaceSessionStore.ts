@@ -12,6 +12,7 @@ import {
   sanitizeFilesWorkspaceSession,
 } from "../modules/files/filesWorkspaceSession";
 import { fileConnPanelId } from "../modules/files/filesWorkspacePanels";
+import { createIndexedDBStorage } from "../lib/indexedDbStorage";
 
 const STORAGE_KEY = "omnipanel.filesWorkspace.v1";
 const LEGACY_DOCK_LAYOUT_KEY = "omnipanel.filesDockLayout.v3";
@@ -130,7 +131,7 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
     {
       name: STORAGE_KEY,
       version: 1,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createIndexedDBStorage),
       partialize: (state) => ({
         openConnIds: state.openConnIds,
         activePanelId: state.activePanelId,

@@ -17,7 +17,11 @@ import {
   type ContentPreviewTextMode,
 } from "../../components/ui/content/ContentPreviewView";
 import { useI18n } from "../../i18n";
-import type { FileEntry } from "../../ipc/bindings";
+import type {
+  ArchiveListResult,
+  ArchiveToolInstallResult,
+  FileEntry,
+} from "../../ipc/bindings";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { readRemotePreview } from "./fileApi";
 import {
@@ -39,6 +43,8 @@ import {
   LOCAL_CONNECTION_ID,
   resolvePreviewReadMaxBytes,
 } from "./utils";
+import { ArchivePreviewView } from "./ArchivePreviewView";
+import { LargeLogViewer } from "./LargeLogViewer";
 
 /** 图片 / 音频 / 视频：走 asset 或远程缓存，不整文件读进 JS 内存 */
 function isStreamableMediaKind(kind: FilePreviewKind): boolean {
@@ -73,6 +79,11 @@ export type FilePreviewMediaSrc = {
 };
 
 export interface FilePreviewIO extends TextEditorBytesIO {
+  /**
+   * SSH 资源 id（仅在 SSH 远程场景填入）。
+   * 用于大日志文件流式预览（>10MB 文本/JSON 分流到 LargeLogViewer）。
+   */
+  sshResourceId?: string;
   /** 远程媒体：探测时长/大小/封面（不下载整文件） */
   probeMediaMeta?: (path: string, sizeBytes?: number | null) => Promise<FilePreviewMediaMeta>;
   /**
@@ -85,6 +96,13 @@ export interface FilePreviewIO extends TextEditorBytesIO {
   ) => Promise<string | FilePreviewMediaSrc>;
   /** 释放边下边播流令牌（可选） */
   closeMediaStream?: (token: string) => Promise<void>;
+  /**
+   * 远程压缩包条目列表：远端执行 unzip/tar/7z/unrar 列条目，不下载文件。
+   * 仅 SSH 远程场景实现；本地压缩包预览暂不支持。
+   */
+  listArchiveEntries?: (path: string) => Promise<ArchiveListResult>;
+  /** 远端一键安装压缩包工具（unzip/tar/7z/unrar/zstd），返回安装结果。 */
+  installArchiveTool?: (tool: string) => Promise<ArchiveToolInstallResult>;
 }
 
 export interface FilePreviewContentProps {
@@ -105,6 +123,11 @@ export interface FilePreviewContentProps {
    *  必须用 SSH 资源 id 走 sftp_download/sftp_upload 通道）。
    */
   customIO?: FilePreviewIO;
+  /**
+   * SSH 资源 id（可选，customIO.sshResourceId 优先）。
+   * 用于 >10MB 文本/JSON 日志分流到 LargeLogViewer 流式预览。
+   */
+  sshResourceId?: string;
 }
 
 function isEditablePreviewKind(kind: FilePreviewKind): boolean {
@@ -124,6 +147,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       editable = false,
       onDirtyChange,
       customIO,
+      sshResourceId: propsSshResourceId,
     },
     ref,
   ) {
@@ -138,6 +162,8 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       () => classifyLargeFile(entry.size, thresholdBytes),
       [entry.size, thresholdBytes],
     );
+    // SSH 资源 id：customIO 优先，props 次之。用于大日志流式预览分流。
+    const sshResourceId = customIO?.sshResourceId ?? propsSshResourceId;
     // 用户点击"强制预览完整文件"时跳过 truncated 截断
     const [forceFull, setForceFull] = useState(false);
     // 当前加载的字节数（用于 banner）
@@ -307,6 +333,15 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
         };
       }
 
+      // 压缩包：由 ArchivePreviewView 自管数据拉取（远端 exec 列条目，不下载字节）
+      if (initialKind === "archive") {
+        setLoading(false);
+        onTextPreviewMetaChange?.(null);
+        return () => {
+          cancelled = true;
+        };
+      }
+
       const applyMediaSrc = (src: string, kind: FilePreviewKind) => {
         if (kind === "audio") setAudioUrl(src);
         else if (kind === "video") setVideoUrl(src);
@@ -365,7 +400,17 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
 
       // 大于 10MB 直接禁止预览（即使强制也不行 —— 一次性加载 10MB 字符串会卡）
       // 流式媒体走 asset/缓存路径，不受该阈值限制
+      // 例外：text/json + SSH 远程资源走 LargeLogViewer 流式预览（sed/grep/tail）
       if (largeStrategy === "blocked" && !isStreamableMediaKind(initialKind)) {
+        const canStreamLargeText =
+          (initialKind === "text" || initialKind === "json") && Boolean(sshResourceId);
+        if (canStreamLargeText) {
+          // 不设 error，让 render 阶段分流到 LargeLogViewer
+          setLoading(false);
+          return () => {
+            cancelled = true;
+          };
+        }
         setLoading(false);
         setError(
           t("files.preview.tooLarge", {
@@ -491,6 +536,27 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
         lines: countPreviewLines(draftText ?? ""),
       };
     }, [largeStrategy, forceFull, entry.size, loadedBytes, draftText]);
+
+    // 大日志文件分流：>10MB 的 text/json + SSH 远程资源走 LargeLogViewer
+    // （sed/grep/tail 流式预览，不一次性加载进 JS 内存）
+    if (
+      largeStrategy === "blocked" &&
+      (previewKind === "text" || previewKind === "json") &&
+      sshResourceId
+    ) {
+      return <LargeLogViewer sshId={sshResourceId} path={entry.path} />;
+    }
+
+    if (previewKind === "archive") {
+      return (
+        <ArchivePreviewView
+          entry={entry}
+          customIO={customIO}
+          isLocal={isLocal}
+          downloadHint={downloadHint}
+        />
+      );
+    }
 
     if (previewKind === "unsupported") {
       return (

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { FileEntry } from "../../ipc/bindings";
-import { resolveFilePreviewKind } from "../files/filePreviewKind";
+import { isArchivePreviewFile, resolveFilePreviewKind } from "../files/filePreviewKind";
 import {
   FORCE_PREVIEW_MAX_BYTES,
   LOCAL_CONNECTION_ID,
@@ -9,6 +9,12 @@ import {
 } from "../files/utils";
 import { showToast } from "../../stores/toastStore";
 import { t } from "../../i18n";
+
+/** text/json 类文件可走 LargeLogViewer 流式预览（sed/grep/tail），不受 10MB 阈值限制 */
+function isLargeTextStreamableKind(name: string): boolean {
+  const kind = resolveFilePreviewKind(name);
+  return kind === "text" || kind === "json";
+}
 
 export interface TerminalFilePreviewTarget {
   connectionId: string;
@@ -40,15 +46,25 @@ export const useTerminalFilePreviewStore = create<TerminalFilePreviewState>(
 
 export type TerminalPreviewGateReason = "unsupported" | "tooLarge";
 
-/** 打开前校验：不支持类型 / 过大文件直接拒绝并提示（流式媒体不受 10MB 限制） */
+/** 打开前校验：不支持类型 / 过大文件直接拒绝并提示
+ *  流式媒体和压缩包不受 10MB 限制（远端执行命令列条目，不下载文件）
+ *  text/json + SSH 远程资源 >10MB 走 LargeLogViewer 流式预览（sed/grep/tail） */
 export function evaluateTerminalFilePreviewGate(
   name: string,
   sizeBytes?: number | null,
+  options?: { resourceId?: string | null; sessionType?: "local" | "remote" },
 ): TerminalPreviewGateReason | null {
   if (resolveFilePreviewKind(name) === "unsupported") return "unsupported";
   // 音视频/图片走远程缓存或本地 asset，不占用整文件进 JS 的 10MB 阈值
   if (isStreamableMediaFile(name)) return null;
-  if (sizeBytes != null && sizeBytes > FORCE_PREVIEW_MAX_BYTES) return "tooLarge";
+  // 压缩包：远端执行 unzip/tar/7z/unrar 列条目，不下载文件，不受大小限制
+  if (isArchivePreviewFile(name)) return null;
+  if (sizeBytes != null && sizeBytes > FORCE_PREVIEW_MAX_BYTES) {
+    // 例外：text/json + SSH 远程资源走 LargeLogViewer 流式预览
+    const isRemote = options?.sessionType === "remote" && Boolean(options?.resourceId);
+    if (isLargeTextStreamableKind(name) && isRemote) return null;
+    return "tooLarge";
+  }
   return null;
 }
 
@@ -74,6 +90,7 @@ export function tryOpenTerminalFilePreview(
   const blocked = evaluateTerminalFilePreviewGate(
     target.name,
     target.sizeBytes ?? null,
+    { resourceId: target.resourceId, sessionType: target.sessionType },
   );
   if (blocked) {
     toastPreviewBlocked(blocked);

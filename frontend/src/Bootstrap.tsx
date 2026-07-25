@@ -147,9 +147,10 @@ export function Bootstrap() {
           import("./modules/database/schema/initDbSchemaUiStores").then((m) =>
             m.initDbSchemaUiStores(),
           ),
-          profileSync,
         ]);
         await Promise.all([toolsChain, parallelInits]);
+        // profileSync 后台跑，不阻塞启动；网络不可达时 syncAuthProfile 内部已静默处理
+        void profileSync;
 
         advance(3);
         await pushLog(t("app.splash.logs.xterm"));
