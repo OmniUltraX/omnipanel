@@ -132,6 +132,10 @@ pub struct InternalChatRequestDto {
     /// 仅在 DirectInject 模式下生效；为 None 时跳过 RAG 注入。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_provider: Option<EmbeddingProviderConfig>,
+    /// 纯文本补全模式（oneshot：会话命名、历史摘要等）。
+    /// 为 true 时跳过工具注入 / RAG / Skills / 多轮循环，prompt_text 直接用 user_text。
+    #[serde(default)]
+    pub pure_text: bool,
     /// 会话中用户勾选的 Skill id；非空时除摘要目录外再注入完整正文。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_ids: Option<Vec<String>>,
@@ -211,6 +215,7 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
                 api_key: p.api_key,
             }),
             system_append: None,
+            pure_text: dto.pure_text,
         })
     }
 }
@@ -389,10 +394,13 @@ pub async fn ai_chat_stream(
     let skill_ids = request.skill_ids.take().unwrap_or_default();
     let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
-    if matches!(
-        internal.tools_mode,
-        InternalToolsMode::DirectInject { .. }
-    ) {
+    // pure_text 模式跳过 RAG / Skills 注入：oneshot 纯文本补全不需要这些上下文
+    if !internal.pure_text
+        && matches!(
+            internal.tools_mode,
+            InternalToolsMode::DirectInject { .. }
+        )
+    {
         let mut append_parts: Vec<String> = Vec::new();
 
         // 1. Skills 摘要（渐进式披露）
@@ -645,9 +653,18 @@ async fn run_acp_internal_turn(
         .as_deref()
         .filter(|s| !s.trim().is_empty());
 
+    // pure_text 模式：oneshot 纯文本补全（会话命名、历史摘要等）。
+    // 跳过 CLIENT_TOOLS_PREAMBLE + master 工具清单注入，prompt_text 直接用 user_text，
+    // 不进入工具调用循环（MAX_ACP_TOOL_ROUNDS = 1）。
+    // 这是一条特殊路径：不需要工具、不需要多轮、不需要 preamble，只需要模型根据 prompt 直接输出文本。
+    let is_pure_text = internal.pure_text;
+
     // 对齐 cursor-gateway：有客户端 tools 才进入 client_tools 模式。
     // CLI/ACP 路径即使用户端未传 DirectInject，也默认拉 master 工具清单，避免 Cursor 裸跑原生工具。
-    let client_tool_defs: Vec<ToolDef> = {
+    // pure_text 模式跳过工具清单拉取。
+    let client_tool_defs: Vec<ToolDef> = if is_pure_text {
+        Vec::new()
+    } else {
         let mcp = state.mcp_manager.lock().await;
         let filter = match &internal.tools_mode {
             InternalToolsMode::DirectInject { module_filter } => {
@@ -674,10 +691,12 @@ async fn run_acp_internal_turn(
             build_incremental_client_tools_prompt(&internal.user_text, terminal_context)
         }
     } else {
+        // pure_text 或无工具时：直接用原始 user_text，不包裹 [User] 块 / preamble
         internal.user_text.clone()
     };
 
     // ACP/CLI 不走 HTTP system message；首轮将 Skills / RAG 等 append 拼进 prompt。
+    // system_append 已被 !pure_text 守护（ai_chat_stream 命令层注入时检查），pure_text 时为 None，安全。
     if is_first_user_prompt {
         if let Some(append) = internal
             .system_append
@@ -688,10 +707,17 @@ async fn run_acp_internal_turn(
         }
     }
 
-    const MAX_ACP_TOOL_ROUNDS: usize = 8;
+    // pure_text 单轮完成；正常对话最多 8 轮工具调用
+    const MAX_ACP_TOOL_ROUNDS_NORMAL: usize = 8;
+    const MAX_ACP_TOOL_ROUNDS_PURE_TEXT: usize = 1;
+    let max_rounds = if is_pure_text {
+        MAX_ACP_TOOL_ROUNDS_PURE_TEXT
+    } else {
+        MAX_ACP_TOOL_ROUNDS_NORMAL
+    };
     let mut turn_index: i32 = 0;
 
-    for round in 0..MAX_ACP_TOOL_ROUNDS {
+    for round in 0..max_rounds {
         record_prompt_sent_trace(
             state,
             conversation_id,

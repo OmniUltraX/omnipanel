@@ -6,6 +6,7 @@ import {
   collectPanelIds,
   isLayoutUsable,
 } from "../components/dock/dockViewLayout";
+import { createIndexedDBStorage } from "../lib/indexedDbStorage";
 
 const STORAGE_KEY = "omnipanel.terminalDockLayout.v1";
 const STORAGE_VERSION = 1;
@@ -26,7 +27,7 @@ export const useTerminalDockLayoutStore = create<TerminalDockLayoutState>()(
     {
       name: STORAGE_KEY,
       version: STORAGE_VERSION,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createIndexedDBStorage),
       partialize: (state) => ({ savedLayout: state.savedLayout }),
       migrate: (persistedState, _fromVersion) => {
         const p = persistedState as { savedLayout?: SerializedDockview | null } | undefined;

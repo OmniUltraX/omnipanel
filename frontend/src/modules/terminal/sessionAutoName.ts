@@ -156,28 +156,28 @@ function summarizeAiThread(thread: AiThreadItem[]): string {
 function buildSystemPrompt(lang: string): string {
   const isZh = lang.startsWith("zh");
   if (isZh) {
-    return `你是一个终端会话命名助手。根据用户在终端中执行的命令和 AI 对话内容，生成一个简短、有描述性的会话标题。不要依据命令输出内容命名。
+    return `任务：为终端会话起一个简短标题。
 
-要求：
-- 不超过 ${MAX_TITLE_CHARS} 个字符
-- 直接输出标题文本，不要引号、不要标点前缀、不要解释
-- 使用中文
-- 概括这组操作的核心目的（如：编译 Rust 项目、排查端口占用、部署 Docker 服务）`;
+立即输出标题，格式要求：
+- 只输出标题文字本身（${MAX_TITLE_CHARS} 字以内）
+- 不要引号、冒号前缀、解释、动作描述
+- 中文
+- 示例输出：编译 Rust 项目`;
   }
-  return `You are a terminal session naming assistant. Based on the commands and AI conversations executed in the terminal, generate a short, descriptive session title. Do not use command output for naming.
+  return `Task: Give the terminal session a short title.
 
-Requirements:
-- No more than ${MAX_TITLE_CHARS} characters
-- Output the title text directly, no quotes, no punctuation prefixes, no explanations
-- Use English
-- Summarize the core purpose of these operations (e.g.: Build Rust project, Debug port usage, Deploy Docker service)`;
+Output the title immediately, format:
+- ONLY the title text itself (≤ ${MAX_TITLE_CHARS} chars)
+- No quotes, colon prefix, explanation, or action description
+- English
+- Example output: Build Rust project`;
 }
 
 function buildUserPrompt(context: string, lang: string): string {
   const isZh = lang.startsWith("zh");
   return isZh
-    ? `以下是终端会话的操作记录，请生成标题：\n\n${context}`
-    : `Below is the terminal session operation log. Please generate a title:\n\n${context}`;
+    ? `终端操作记录：\n${context}\n\n标题：`
+    : `Terminal operations:\n${context}\n\nTitle:`;
 }
 
 /**
@@ -204,6 +204,8 @@ async function requestSessionTitle(
     maxRetries: MAX_RETRIES,
     retryDelayMs: RETRY_DELAY_MS,
     signal,
+    // oneshot 纯文本补全：禁用推理模型思考链，避免把内部思考当成标题
+    pureText: true,
   });
 
   if (!result.ok) {

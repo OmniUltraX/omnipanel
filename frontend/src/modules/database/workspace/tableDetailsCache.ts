@@ -28,6 +28,10 @@ function buildCacheKey(connId: string, dbName: string, tableName: string): strin
 // 会产生 N 次完整 localStorage 往返（profile 中占 750ms+287ms）。
 // 改为：首次访问时懒加载到内存，后续读直接走内存（O(1)）；
 // 写操作立即更新内存，延迟到空闲帧再合流写入 localStorage。
+//
+// LRU 上限：缓存条目无界增长曾导致 1.72MB 单 key 撑爆 localStorage
+// 5MB 配额。MAX_ENTRIES=80，按 updatedAt 升序淘汰最老条目。
+const MAX_ENTRIES = 80;
 let memoryStore: TableDetailsCacheStore | null = null;
 let writeScheduled = false;
 
@@ -60,6 +64,7 @@ function scheduleFlush(): void {
   const flush = () => {
     writeScheduled = false;
     if (memoryStore === null) return;
+    trimToMaxEntries();
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryStore));
     } catch {
@@ -71,6 +76,19 @@ function scheduleFlush(): void {
   } else {
     setTimeout(flush, 16);
   }
+}
+
+/** LRU 淘汰：保留最近 MAX_ENTRIES 个条目，按 updatedAt 升序删最老的。 */
+function trimToMaxEntries(): void {
+  if (memoryStore === null) return;
+  const keys = Object.keys(memoryStore);
+  if (keys.length <= MAX_ENTRIES) return;
+  keys
+    .sort((a, b) => (memoryStore![a]?.updatedAt ?? 0) - (memoryStore![b]?.updatedAt ?? 0))
+    .slice(0, keys.length - MAX_ENTRIES)
+    .forEach((k) => {
+      delete memoryStore![k];
+    });
 }
 
 function isEntryValid(

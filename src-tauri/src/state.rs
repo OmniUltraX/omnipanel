@@ -121,6 +121,8 @@ pub struct AppState {
     pub mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
     /// 本地媒体 Range 代理（边下边播）。
     pub media_stream: Arc<MediaStreamServer>,
+    /// 活跃日志跟踪流（按 token 索引），用于 sftp_log_tail_stop 主动停止。
+    pub log_tail_streams: Arc<Mutex<HashMap<String, omnipanel_ssh::SshStreamHandle>>>,
 }
 
 impl AppState {
@@ -198,6 +200,7 @@ impl AppState {
             gateway_handle: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             media_stream,
+            log_tail_streams: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

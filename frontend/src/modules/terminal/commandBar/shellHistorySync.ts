@@ -41,7 +41,13 @@ export function resolveShellHistorySyncCommand(sessionId: string): string | null
 }
 
 const SYNC_THROTTLE_MS = 30_000;
-const SYNC_TIMEOUT_MS = 25_000;
+/**
+ * 静默同步兜底超时。同步命令通常 1-3s 完成（BEGIN/END 标记到达即 finish）。
+ * 若命令失败 / 格式不匹配 / 嵌入式设备无 base64 命令，END 标记不会到达，
+ * 此超时确保 silent sync 状态不会长期阻塞 xterm 输出。
+ * 6s 平衡：覆盖正常同步耗时，又不会让用户等太久才看到命令输出。
+ */
+const SYNC_TIMEOUT_MS = 6_000;
 
 const syncingSessions = new Set<string>();
 

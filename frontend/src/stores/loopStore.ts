@@ -8,6 +8,7 @@ import {
   type LoopSpec,
 } from "../lib/ai/loopSpec";
 import { BUILTIN_LOOP_SPECS } from "../lib/ai/loopPilots";
+import { createIndexedDBStorage } from "../lib/indexedDbStorage";
 
 interface LoopStoreState {
   specs: Record<string, LoopSpec>;
@@ -104,7 +105,7 @@ export const useLoopStore = create<LoopStoreState>()(
     }),
     {
       name: "omnipanel-ai-loops.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createIndexedDBStorage),
       partialize: (s) => ({
         specs: s.specs,
         runs: s.runs,

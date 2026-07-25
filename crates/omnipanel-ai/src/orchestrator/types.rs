@@ -53,4 +53,13 @@ pub struct InternalChatRequest {
     /// 追加到系统提示的文本（如 Skills 目录）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_append: Option<String>,
+    /// 纯文本补全模式（oneshot 场景：会话命名、历史摘要等）。
+    /// 为 true 时：
+    /// - 跳过 CLIENT_TOOLS_PREAMBLE + master 工具清单注入
+    /// - 跳过 RAG / Skills 注入
+    /// - prompt_text 直接使用 user_text，不包裹 [User] 块
+    /// - MAX_ACP_TOOL_ROUNDS = 1（单轮，不进入工具调用循环）
+    /// 适用于不需要工具调用、不需要多轮、只需要模型根据 prompt 直接输出文本的场景。
+    #[serde(default)]
+    pub pure_text: bool,
 }

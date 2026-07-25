@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createIndexedDBStorage } from "../lib/indexedDbStorage";
 import type { WorkspaceContextSnapshot } from "./workspaceStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import {
@@ -640,6 +641,7 @@ export const useAiStore = create<AiStore>()(
     }),
     {
       name: "omnipanel-ai-store",
+      storage: createJSONStorage(createIndexedDBStorage),
       version: 2,
       migrate: (persisted, version) => {
         const state = persisted as {

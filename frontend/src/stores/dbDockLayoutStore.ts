@@ -6,6 +6,7 @@ import {
   collectPanelIds,
   isLayoutUsable,
 } from "../components/dock/dockViewLayout";
+import { createIndexedDBStorage } from "../lib/indexedDbStorage";
 
 /**
  * v6：在 dockViewLayout 中新增 isLayoutUsable 校验。v5 之前写入的脏数据通过
@@ -32,7 +33,7 @@ export const useDbDockLayoutStore = create<DbDockLayoutState>()(
     {
       name: STORAGE_KEY,
       version: STORAGE_VERSION,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createIndexedDBStorage),
       partialize: (state) => ({ savedLayout: state.savedLayout }),
       migrate: (persistedState, _fromVersion) => {
         const p = persistedState as { savedLayout?: SerializedDockview | null } | undefined;

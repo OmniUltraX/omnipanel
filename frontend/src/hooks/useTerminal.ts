@@ -51,7 +51,7 @@ import {
 } from "../modules/terminal/commandBar/shellHistorySync";
 import { isInternalHistoryCommand } from "../modules/terminal/commandBar/internalHistoryCommands";
 import { ingestTerminalHistoryOutput } from "../modules/terminal/commandBar/shellHistoryIngest";
-import { stripShellHistorySyncNoise } from "../modules/terminal/commandBar/shellHistoryOutputFilter";
+import { containsShellHistorySyncNoise, stripShellHistorySyncNoise } from "../modules/terminal/commandBar/shellHistoryOutputFilter";
 import { registerRuntimeBackendSession } from "../modules/terminal/commandBar/shellHistoryFetch";
 import {
   trackTerminalOutputForAutoReturn,
@@ -899,7 +899,11 @@ export function useTerminal(
 
     function shouldWriteToXterm(): boolean {
       if (suspendedRef.current) return false;
-      if (isSilentHistorySync(sessionId)) return false;
+      // silent sync 期间允许写入 xterm（返回 true），含同步噪声的 chunk
+      // 由 batcher callback 里的 containsShellHistorySyncNoise 精细过滤。
+      // 之前此处 return false 会导致同步命令失败 / 格式不匹配时
+      // 全部输出被吞 25s（SYNC_TIMEOUT_MS），用户命令看起来"卡住"。
+      if (isSilentHistorySync(sessionId)) return true;
       if (!isWarpDisplay(sessionId)) return true;
       const runStore = useTerminalRunStateStore.getState();
       if (runStore.isAiToolRunning(sessionId)) return false;
@@ -951,7 +955,17 @@ export function useTerminal(
         } else if (!visibleRef.current) {
           runtimeRef.current.outputBuffer.push(merged);
         } else if (shouldWriteToXterm()) {
-          term?.write(merged);
+          // silent sync 期间跳过含同步噪声的 chunk（BEGIN/END 标记 / base64 blob），
+          // 避免刷屏；其他 chunk（prompt、用户命令输出）正常写入 xterm，
+          // 防止 sync 未正常结束时用户命令输出被吞。
+          if (
+            isSilentHistorySync(sessionId) &&
+            containsShellHistorySyncNoise(rawText)
+          ) {
+            // skip xterm write
+          } else {
+            term?.write(merged);
+          }
         }
 
         let text = ingestTerminalHistoryOutput(sessionId, rawText);

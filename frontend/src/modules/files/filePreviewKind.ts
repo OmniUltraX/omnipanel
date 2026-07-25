@@ -7,17 +7,43 @@ import { parsePreviewJsonText } from "../../lib/contentPreview";
 
 export { parsePreviewJsonText };
 
-export type FilePreviewKind = "json" | "text" | "image" | "audio" | "video" | "unsupported";
+export type FilePreviewKind = "json" | "text" | "image" | "audio" | "video" | "archive" | "unsupported";
 
 const JSON_EXTENSIONS = new Set(["json", "jsonc", "json5", "geojson"]);
 
-/** 明确不支持预览的二进制 / 办公 / 压缩 / 难播视频容器等扩展名 */
+/** 压缩包扩展名：远端执行 unzip/tar/7z/unrar 列条目（不在本地下载文件）。
+ *  复合扩展名（tar.gz/tgz 等）通过 isArchivePreviewFile 单独匹配。 */
+const ARCHIVE_EXTENSIONS = new Set([
+  "zip", "7z", "rar",
+  // 单扩展名 tar 变体
+  "tar", "tgz", "tbz2", "tbz", "txz", "tzst",
+]);
+
+/** 复合压缩扩展名（必须先于单扩展名判断） */
+const ARCHIVE_COMPOUND_SUFFIXES = [
+  ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst",
+];
+
+export function isArchivePreviewFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  // 优先匹配复合扩展名
+  for (const suffix of ARCHIVE_COMPOUND_SUFFIXES) {
+    if (lower.endsWith(suffix)) return true;
+  }
+  const ext = lower.split(".").pop() ?? "";
+  return ARCHIVE_EXTENSIONS.has(ext);
+}
+
+/** 明确不支持预览的二进制 / 办公 / 难播视频容器等扩展名 */
 const UNSUPPORTED_EXTENSIONS = new Set([
   // 可执行 / 库
   "exe", "dll", "so", "dylib", "bin", "o", "obj", "a", "lib", "wasm", "class", "com", "msi",
-  // 压缩 / 打包
-  "zip", "rar", "7z", "gz", "tgz", "bz2", "xz", "tar", "zst", "cab", "iso", "dmg", "img",
+  // 压缩 / 打包：已迁移到 ARCHIVE_EXTENSIONS（zip/7z/rar/tar/tgz/tbz2/txz/tzst）
+  // 仍不支持：cab/iso/dmg/img/jar/war/ear/apk/ipa/deb/rpm/pkg
+  "cab", "iso", "dmg", "img",
   "jar", "war", "ear", "apk", "ipa", "deb", "rpm", "pkg",
+  // 单层压缩（非 tar 容器）：gz/bz2/xz/zst 只压单文件，列条目意义不大
+  "gz", "bz2", "xz", "zst",
   // 办公 / 文档（无内置解码）
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
   // WebView 通常无法直接播放的视频
@@ -90,6 +116,7 @@ export function resolveFilePreviewKind(name: string): FilePreviewKind {
   if (isPreviewImageFile(name)) return "image";
   if (isAudioPreviewFile(name)) return "audio";
   if (isVideoPreviewFile(name)) return "video";
+  if (isArchivePreviewFile(name)) return "archive";
   if (isJsonPreviewFile(name)) return "json";
   if (isTextPreviewFile(name)) return "text";
   // 常见无扩展名约定文件名：按文本预览
@@ -156,16 +183,41 @@ export function detectPreviewKindFromBytes(bytes: Uint8Array | number[]): FilePr
   if (isMp3Magic(view)) return "audio";
   if (isMp4ContainerMagic(head8)) return "audio";
 
-  // 文本类格式的魔术字节
-  // gzip: 1F 8B
-  const isGzip = head8.length >= 2 && head8[0] === 0x1f && head8[1] === 0x8b;
+  // 压缩包 magic bytes（必须在 NUL 字节检测之前，压缩文件头部几乎必含 0x00）
+  // zip: 50 4B 03 04 (PK\x03\x04) / 50 4B 05 06 (空 zip) / 50 4B 07 08 (分卷)
+  if (head8.length >= 4 && head8[0] === 0x50 && head8[1] === 0x4b
+    && (head8[2] === 0x03 || head8[2] === 0x05 || head8[2] === 0x07)
+    && (head8[3] === 0x04 || head8[3] === 0x06 || head8[3] === 0x08)) return "archive";
+  // 7z: 37 7A BC AF 27 1C
+  if (head8.length >= 6 && head8[0] === 0x37 && head8[1] === 0x7a && head8[2] === 0xbc
+    && head8[3] === 0xaf && head8[4] === 0x27 && head8[5] === 0x1c) return "archive";
+  // rar v4/v5: 52 61 72 21 1A 07 (00/01 00)
+  if (head8.length >= 7 && head8[0] === 0x52 && head8[1] === 0x61 && head8[2] === 0x72
+    && head8[3] === 0x21 && head8[4] === 0x1a && head8[5] === 0x07) return "archive";
+  // bzip2: 42 5A 68 ("BZh")
+  if (head8.length >= 3 && head8[0] === 0x42 && head8[1] === 0x5a && head8[2] === 0x68) return "archive";
+  // xz: FD 37 7A 58 5A 00
+  if (head8.length >= 6 && head8[0] === 0xfd && head8[1] === 0x37 && head8[2] === 0x7a
+    && head8[3] === 0x58 && head8[4] === 0x5a && head8[5] === 0x00) return "archive";
+  // zstd: 28 B5 2F FD
+  if (head8.length >= 4 && head8[0] === 0x28 && head8[1] === 0xb5
+    && head8[2] === 0x2f && head8[3] === 0xfd) return "archive";
+  // gzip: 1F 8B（tar.gz 走外层 gzip magic，archive kind 由后端命令识别 tar 容器）
+  if (head8.length >= 2 && head8[0] === 0x1f && head8[1] === 0x8b) return "archive";
+  // tar: ustar 位于偏移 257（需读取 ≥263 字节）
+  if (view.length >= 263) {
+    const tarMagic = view.subarray(257, 262);
+    if (tarMagic[0] === 0x75 && tarMagic[1] === 0x73 && tarMagic[2] === 0x74
+      && tarMagic[3] === 0x61 && tarMagic[4] === 0x72) return "archive"; // "ustar"
+  }
+
   // PDF: 25 50 44 46
   const isPdf = head8.length >= 4 && head8[0] === 0x25 && head8[1] === 0x50 && head8[2] === 0x44 && head8[3] === 0x46;
 
   // 二进制启发式：含 NUL 字节 → binary（不按文本预览）
   if (containsNulByte(view, 256)) return "unsupported";
-  // 已经判定为压缩/二进制格式（未实现具体解码） → unsupported
-  if (isGzip || isPdf) return "unsupported";
+  // 已经判定为二进制格式（未实现具体解码） → unsupported
+  if (isPdf) return "unsupported";
 
   // 文本格式魔术字节
   // SVG: 包含 <svg 或 <?xml

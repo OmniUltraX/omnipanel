@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type {
   TerminalConnectionStatus,
   TerminalPane,
@@ -672,7 +673,7 @@ export const useTerminalStore = create<TerminalState>()(
     {
       name: TABS_STORAGE_KEY,
       version: TABS_STORAGE_VERSION,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         sessions: state.sessions
           .filter((s) => s.lifecycle !== "ended")
