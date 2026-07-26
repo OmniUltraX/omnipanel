@@ -1,9 +1,8 @@
 /** AI 操作跟随：结构化导航意图（只导航/展示，不替代写操作确认）。 */
 export type FollowModuleKey =
-  | "terminal"
+  | "terminal" // 含原 SSH（已并入终端模块）
   | "database"
   | "docker"
-  | "ssh"
   | "files"
   | "server"
   | "knowledge"
@@ -50,7 +49,7 @@ export function resolveIntentModule(intent: UiFollowIntent): FollowModuleKey | n
     case "openDocument":
       return "knowledge";
     case "revealSftpPath":
-      return "ssh";
+      return "terminal";
     case "openResourceProfile":
       return "knowledge";
     default:

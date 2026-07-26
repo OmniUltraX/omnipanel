@@ -55,6 +55,10 @@ import {
   mergeAiContextAppend,
 } from "../../../lib/ai/composerContextAppend";
 import { resolveFocusModuleKey } from "../../../lib/ai/resolveFocusModuleKey";
+import {
+  ASSISTANT_PAGE_AGENT_ID,
+  resolveAgentRuntime,
+} from "../../../lib/ai/agents";
 import { useAiStore, type PlanData, type ToolCallState } from "../../../stores/aiStore";
 import {
   clearComposerContextItems,
@@ -73,22 +77,6 @@ function extractUserContent(message: ThreadMessage | AppendMessage): string {
     if (part.type === "text") return part.text;
   }
   return "";
-}
-
-/**
- * 根据当前焦点 dock 解析 AI 工具过滤的 module_key。
- *
- * 优先级：
- * 1. activeDock.dockScope 前缀推断（焦点在 database dock → `database`）
- * 2. 回退到 `master`（全部工具）
- *
- * workspace:xxx / dashboard / 无焦点 → `master`
- *
- * 后端 list_enabled 已保证 Native 工具（knowledge/web/ssh 等通用能力）始终保留，
- * 因此这里只控制 UiDelegated 工具的模块范围。
- */
-function resolveActiveModuleFilter(): string {
-  return resolveFocusModuleKey() ?? "master";
 }
 
 /**
@@ -779,6 +767,24 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           throw new Error("请先在设置中配置并选择 AI 模型或 Agent");
         }
 
+        const conversation = useAiStore
+          .getState()
+          .conversations.find((c) => c.id === convId);
+        // 助手主界面 → chat Agent（无工具）；终端内联 → 对应模块 Agent
+        const agentRuntime = resolveAgentRuntime({
+          assistantPage: !inline,
+          conversationAgentId: conversation?.agentId,
+          moduleKey: inline ? "terminal" : resolveFocusModuleKey(),
+        });
+        if (
+          conversation &&
+          conversation.agentId !== agentRuntime.agentId
+        ) {
+          useAiStore
+            .getState()
+            .setConversationAgentId(convId, agentRuntime.agentId);
+        }
+
         await runInternalAiChat({
           request: {
             conversationId: convId,
@@ -789,16 +795,18 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             historyJson: inline
               ? await buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
               : buildHistoryJson(convId),
-            toolsMode: {
-              directInject: { moduleFilter: resolveActiveModuleFilter() },
-            },
-            // 知识库 RAG 自动注入：仅在 HTTP 后端时生效
+            toolsMode: agentRuntime.toolsMode,
+            agentId: agentRuntime.agentId,
+            agentSystemRole: agentRuntime.systemRole,
+            // 知识库 RAG：按 Agent 策略；HTTP 后端时生效
             embeddingProvider:
-              backend.kind === "http" ? resolveKnowledgeEmbeddingProviderForRag() : null,
-            skillIds:
-              useAiStore.getState().conversations.find((c) => c.id === convId)
-                ?.selectedSkillIds ??
-              useAiStore.getState().currentSkillIds,
+              agentRuntime.allowRag && backend.kind === "http"
+                ? resolveKnowledgeEmbeddingProviderForRag()
+                : null,
+            skillIds: agentRuntime.allowSkills
+              ? conversation?.selectedSkillIds ??
+                useAiStore.getState().currentSkillIds
+              : null,
             reasoningEffort: useAiStore.getState().reasoningEffort,
           },
           signal,
@@ -901,7 +909,19 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     let convId = options?.newConversation ? null : useAiStore.getState().activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      // 助手页新建会话固定绑定 chat Agent
+      convId = createConversation(undefined, undefined, {
+        agentId: ASSISTANT_PAGE_AGENT_ID,
+      });
+    } else {
+      const existing = useAiStore
+        .getState()
+        .conversations.find((c) => c.id === convId);
+      if (existing && !existing.agentId) {
+        useAiStore
+          .getState()
+          .setConversationAgentId(convId, ASSISTANT_PAGE_AGENT_ID);
+      }
     }
 
     if (options?.contextChips) {

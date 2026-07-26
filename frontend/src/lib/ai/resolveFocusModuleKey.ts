@@ -14,9 +14,10 @@ export function resolveFocusModuleKey(dockScope?: string | null): ModuleKey | nu
       : dockScope;
   if (!scope) return null;
   if (scope.startsWith("database")) return "database";
-  if (scope.startsWith("terminal")) return "terminal";
+  // 终端与 SSH 已合并为终端模块
+  if (scope.startsWith("terminal") || scope.startsWith("ssh")) return "terminal";
   if (scope.startsWith("docker")) return "docker";
   if (scope.startsWith("files") || scope.startsWith("file")) return "files";
-  if (scope.startsWith("ssh") || scope.startsWith("server")) return "ssh";
+  if (scope.startsWith("server")) return "server";
   return null;
 }

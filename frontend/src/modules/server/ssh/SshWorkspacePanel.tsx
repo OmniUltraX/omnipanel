@@ -5,6 +5,7 @@ import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { HostDetailPanel } from "./components/HostDetailPanel";
 import { useSshActiveHostStore } from "./stores/sshActiveHostStore";
 import { useUiFollowConsumer } from "../../../lib/ai/uiFollow";
+import { useTerminalLeftPanelStore } from "../../terminal/terminalLeftPanelStore";
 import { SSH_PATH } from "./constants";
 
 type Props = {
@@ -26,16 +27,20 @@ export const SshWorkspacePanel = memo(function SshWorkspacePanel({
   const activeHostId = useSshActiveHostStore((s) => s.activeHostId) ?? rememberedHostId ?? null;
   const setActiveHostId = useSshActiveHostStore((s) => s.setActiveHostId);
 
-  // === AI Follow 消费者注册 ===
+  // === AI Follow 消费者注册（SSH 已并入终端模块）===
   // 处理 openConnection / revealSftpPath intent：同步 activeHostId，避免被旧值覆盖
-  useUiFollowConsumer("ssh", useCallback((intent) => {
+  useUiFollowConsumer("terminal", useCallback((intent) => {
     switch (intent.type) {
       case "openConnection": {
+        // 仅处理 SSH 主机连接（resourceId 为连接 id）
+        if (intent.module !== "terminal") return false;
+        useTerminalLeftPanelStore.getState().focusSsh();
         setActiveHostId(intent.resourceId);
         return true;
       }
       case "revealSftpPath": {
         // 切到对应主机，SFTP 路径定位由终端面板的 SFTP 集成处理
+        useTerminalLeftPanelStore.getState().focusSsh();
         setActiveHostId(intent.resourceId);
         return true;
       }

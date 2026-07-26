@@ -116,7 +116,7 @@ async function sshFleetHealthCheck(args: Record<string, unknown>) {
       useAiOrchestrationStore.getState().updateChild(parentId, `${parentId}_${host.id}`, {
         status: "running",
       });
-      followAiIntent({ type: "openConnection", module: "ssh", resourceId: host.id });
+      followAiIntent({ type: "openConnection", module: "terminal", resourceId: host.id });
       try {
         const stats = await fetchHostStats(host.id);
         reports.push({ host: host.name, id: host.id, ok: true, stats });

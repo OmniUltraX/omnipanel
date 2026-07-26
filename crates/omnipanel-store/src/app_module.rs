@@ -40,9 +40,10 @@ impl AppModuleStatus {
 
 /// 默认模块清单：(module_key, sort_order, status)
 pub const DEFAULT_APP_MODULES: &[(&str, i32, AppModuleStatus)] = &[
-    ("terminal", 0, AppModuleStatus::Open),
+    ("terminal", 0, AppModuleStatus::Open), // 含原 SSH（已并入终端）
     ("database", 1, AppModuleStatus::Open),
-    ("ssh", 2, AppModuleStatus::Open),
+    // 历史模块 key，保留行以便旧库兼容；新装默认禁用，不再作为独立导航模块
+    ("ssh", 2, AppModuleStatus::Disabled),
     ("docker", 3, AppModuleStatus::Open),
     ("server", 4, AppModuleStatus::Open),
     ("files", 5, AppModuleStatus::Open),
@@ -81,6 +82,13 @@ impl Storage {
                 )
                 .map_err(map_sqlite)?;
         }
+        // SSH 已并入终端：强制禁用独立 ssh 模块行（保留行以兼容旧库，不再出现在设置可切换列表）
+        self.conn()
+            .execute(
+                "UPDATE app_modules SET status = 'disabled' WHERE module_key = 'ssh'",
+                [],
+            )
+            .map_err(map_sqlite)?;
         Ok(())
     }
 
@@ -172,6 +180,9 @@ mod tests {
 
         let workflow = modules.iter().find(|m| m.module_key == "workflow").unwrap();
         assert_eq!(workflow.status, AppModuleStatus::Disabled);
+
+        let ssh = modules.iter().find(|m| m.module_key == "ssh").unwrap();
+        assert_eq!(ssh.status, AppModuleStatus::Disabled);
 
         let err = storage
             .app_module_set_status("workflow", AppModuleStatus::Open)

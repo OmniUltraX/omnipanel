@@ -21,6 +21,11 @@ import {
   type PlanData,
   type ToolCallState,
 } from "../lib/ai/aiMessageParts";
+import {
+  ASSISTANT_PAGE_AGENT_ID,
+  isAgentId,
+  type AgentId,
+} from "../lib/ai/agents";
 
 export type { AiMessagePart, PlanData, ToolCallState } from "../lib/ai/aiMessageParts";
 export {
@@ -98,6 +103,11 @@ export interface AiConversation {
   modelSelectionId?: string | null;
   /** 当前会话勾选的 Skill id 列表 */
   selectedSkillIds?: string[];
+  /**
+   * 绑定的逻辑 Agent（chat / 各模块）。
+   * 助手页会话固定为 chat；模块内联等场景绑定对应模块 Agent。
+   */
+  agentId?: AgentId;
   createdAt: number;
   updatedAt: number;
   context?: { type: string; label: string }[];
@@ -136,7 +146,12 @@ interface AiStore {
   toggleDrawer: () => void;
   openDrawer: () => void;
   closeDrawer: () => void;
-  createConversation: (provider?: string, model?: string) => string;
+  createConversation: (
+    provider?: string,
+    model?: string,
+    options?: { agentId?: AgentId },
+  ) => string;
+  setConversationAgentId: (conversationId: string, agentId: AgentId) => void;
   setActiveConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
   deleteConversation: (id: string) => void;
@@ -245,11 +260,16 @@ export const useAiStore = create<AiStore>()(
 
       closeDrawer: () => set({ drawerOpen: false }),
 
-      createConversation: (provider, model) => {
+      createConversation: (provider, model, options) => {
         const state = get();
+        const agentId = options?.agentId ?? ASSISTANT_PAGE_AGENT_ID;
         const active = state.conversations.find((c) => c.id === state.activeConversationId);
-        // 当前已是空白新会话时不再叠开一个
-        if (active && active.messages.length === 0) {
+        // 当前已是空白新会话时不再叠开一个（同 Agent）
+        if (
+          active &&
+          active.messages.length === 0 &&
+          (active.agentId ?? ASSISTANT_PAGE_AGENT_ID) === agentId
+        ) {
           return active.id;
         }
         const id = genId("conv");
@@ -272,6 +292,7 @@ export const useAiStore = create<AiStore>()(
           model: model || parsed?.modelName || resolved?.name || state.currentModel,
           modelSelectionId,
           selectedSkillIds: [...state.currentSkillIds],
+          agentId,
           createdAt: Date.now(),
           updatedAt: Date.now(),
           contextSnapshot: snapshot,
@@ -291,6 +312,15 @@ export const useAiStore = create<AiStore>()(
         }));
         return id;
       },
+
+      setConversationAgentId: (conversationId, agentId) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, agentId, updatedAt: Date.now() }
+              : c,
+          ),
+        })),
 
       setActiveConversation: (id) => {
         const conversation = get().conversations.find((c) => c.id === id);
@@ -630,6 +660,7 @@ export const useAiStore = create<AiStore>()(
                     messages: [...c.messages, ...normalized],
                     linkedTerminalSessionId: terminalSessionId,
                     sourceBlockId,
+                    agentId: "terminal",
                     title: c.title === "新的对话" ? title : c.title,
                     updatedAt: Date.now(),
                   }
@@ -639,7 +670,9 @@ export const useAiStore = create<AiStore>()(
           });
           return targetConversationId;
         }
-        const id = get().createConversation();
+        const id = get().createConversation(undefined, undefined, {
+          agentId: "terminal",
+        });
         set((s) => ({
           conversations: s.conversations.map((c) =>
             c.id === id
@@ -649,6 +682,7 @@ export const useAiStore = create<AiStore>()(
                   messages: normalized,
                   linkedTerminalSessionId: terminalSessionId,
                   sourceBlockId,
+                  agentId: "terminal",
                   updatedAt: Date.now(),
                 }
               : c,
@@ -660,7 +694,7 @@ export const useAiStore = create<AiStore>()(
     {
       name: "omnipanel-ai-store",
       storage: createJSONStorage(createIndexedDBStorage),
-      version: 3,
+      version: 5,
       migrate: (persisted, version) => {
         const state = persisted as {
           conversations?: AiConversation[];
@@ -681,6 +715,31 @@ export const useAiStore = create<AiStore>()(
         // v3：默认不再强制带 enable_thinking，避免部分上游 400
         if (version < 3) {
           next = { ...next, reasoningEffort: "default" };
+        }
+        // v4：会话绑定逻辑 Agent；历史会话默认 chat（助手无工具）
+        if (version < 4 && Array.isArray(next.conversations)) {
+          next = {
+            ...next,
+            conversations: next.conversations.map((c) => {
+              if (isAgentId(c.agentId)) return c;
+              // 从终端提升的会话归 terminal Agent，其余归 chat
+              const inferred: AgentId = c.sourceBlockId || c.linkedTerminalSessionId
+                ? "terminal"
+                : ASSISTANT_PAGE_AGENT_ID;
+              return { ...c, agentId: inferred };
+            }),
+          };
+        }
+        // v5：SSH Agent 已并入终端 Agent
+        if (version < 5 && Array.isArray(next.conversations)) {
+          next = {
+            ...next,
+            conversations: next.conversations.map((c) =>
+              (c.agentId as string | undefined) === "ssh"
+                ? { ...c, agentId: "terminal" as AgentId }
+                : c,
+            ),
+          };
         }
         return next;
       },

@@ -35,8 +35,9 @@ mod web_search;
 mod workflow;
 
 pub use agent_prompt::{
-    clear_prompt_cache, client_tools_preamble, ensure_default_prompts, list_prompt_entries,
-    reset_prompt, save_prompt, system_prompt, AgentPromptEntry,
+    agent_prompt, clear_prompt_cache, client_tools_preamble, ensure_default_prompts,
+    list_prompt_entries, reset_prompt, save_prompt, system_prompt, AgentPromptEntry,
+    AGENT_PROMPT_IDS,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
 pub use builtin_tool::{BuiltinToolCatalogEntry, BuiltinToolRecord};

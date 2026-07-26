@@ -228,7 +228,6 @@ const MODULE_SHORTCUTS: Array<{
   hint: string;
 }> = [
   { id: "shortcut-terminal", labelKey: "terminal", path: MODULE_PATHS.terminal, hint: "local" },
-  { id: "shortcut-ssh", labelKey: "ssh", path: MODULE_PATHS.ssh, hint: "ssh" },
   { id: "shortcut-database", labelKey: "database", path: MODULE_PATHS.database, hint: "database" },
   { id: "shortcut-docker", labelKey: "docker", path: MODULE_PATHS.docker, hint: "docker" },
   { id: "shortcut-files", labelKey: "files", path: MODULE_PATHS.files, hint: "files" },

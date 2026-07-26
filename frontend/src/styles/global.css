@@ -6366,7 +6366,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         width: 46px;
     }
 
-    /* 内容层工具栏：标题下拉 + 当前现场（同行）+ 分散操作（在 chrome 之下） */
+    /* 内容层工具栏：标题下拉 + Agent 徽章 + 当前现场（同行）+ 分散操作（在 chrome 之下） */
     .ai-panel-toolbar {
         display: flex;
         align-items: center;
@@ -6376,6 +6376,38 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
         flex-shrink: 0;
         background: var(--bg);
+    }
+
+    .ai-agent-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+        max-width: 160px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--bg-2) 80%, transparent);
+        font-size: 11px;
+        line-height: 1.3;
+        color: var(--fg-2);
+    }
+
+    .ai-agent-badge__label {
+        font-weight: 600;
+        color: var(--fg);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ai-agent-badge__hint {
+        color: var(--fg-3);
+        white-space: nowrap;
+    }
+
+    .ai-agent-badge[data-no-tools="true"] {
+        border-color: color-mix(in oklab, var(--accent) 35%, var(--border));
     }
 
     .ai-panel-toolbar-title {
@@ -14184,20 +14216,13 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
-    .agent-prompts-layout {
+    .agent-prompt-detail-header {
         display: flex;
-        flex-direction: column;
+        align-items: flex-start;
+        justify-content: space-between;
         gap: var(--sp-3);
-    }
-
-    .agent-prompts-nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--sp-1);
-    }
-
-    .agent-prompt-card {
-        margin-top: 0;
+        margin-bottom: var(--sp-2);
+        flex-shrink: 0;
     }
 
     .agent-prompt-path {
@@ -14205,15 +14230,36 @@ button.omni-btn-tool[aria-pressed="true"] {
         font-size: 11px;
         opacity: 0.75;
         word-break: break-all;
+        margin-top: 4px;
     }
 
     .agent-prompt-textarea {
         width: 100%;
-        min-height: 280px;
+        min-height: 0;
+        flex: 1;
         font-family: var(--font-mono, ui-monospace, monospace);
         font-size: 12px;
         line-height: 1.45;
-        resize: vertical;
+        resize: none;
+    }
+
+    .agent-prompt-sidebar-tag {
+        flex-shrink: 0;
+        font-size: 10px;
+        opacity: 0.7;
+        white-space: nowrap;
+    }
+
+    .agent-prompt-detail {
+        height: 100%;
+        min-height: 0;
+    }
+
+    .agent-prompt-detail .skills-detail-form {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
     }
 
     .settings-main {

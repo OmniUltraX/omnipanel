@@ -154,9 +154,9 @@ export function followIntentsForTool(
     return intents;
   }
 
-  // === SSH 工具 ===
+  // === SSH 工具（已并入终端模块）===
   if (toolName.startsWith("omni_ssh_")) {
-    const intents: UiFollowIntent[] = [{ type: "focusModule", module: "ssh" }];
+    const intents: UiFollowIntent[] = [{ type: "focusModule", module: "terminal" }];
     if (!connectionId) return intents;
 
     // 结果感知：exec 命令中提取文件路径 → revealSftpPath
@@ -171,8 +171,8 @@ export function followIntentsForTool(
       }
     }
 
-    // 默认：切到 SSH + 选中连接
-    intents.push({ type: "openConnection", module: "ssh", resourceId: connectionId });
+    // 默认：切到终端（SSH 管理）+ 选中连接
+    intents.push({ type: "openConnection", module: "terminal", resourceId: connectionId });
     return intents;
   }
 

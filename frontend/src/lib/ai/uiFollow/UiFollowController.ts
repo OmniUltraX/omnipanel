@@ -78,7 +78,7 @@ function builtinHandle(intent: UiFollowIntent): boolean {
         useFilesWorkspaceSessionStore.getState().openConnection(intent.resourceId);
         return true;
       }
-      // ssh/database/server 走 registry（面板需要挂载才能处理）
+      // terminal(SSH)/database/server 走 registry（面板需要挂载才能处理）
       return false;
     }
     case "openFile": {

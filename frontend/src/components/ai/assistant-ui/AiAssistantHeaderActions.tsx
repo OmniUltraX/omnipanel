@@ -19,6 +19,7 @@ import {
   type AiDisplayMode,
 } from "../../../stores/settingsStore";
 import { AiContextStrip } from "../AiContextStrip";
+import { AiAgentBadge } from "./AiAgentBadge";
 import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
 
@@ -349,6 +350,7 @@ export function AiPanelToolbar({ showTitle = true }: { showTitle?: boolean }) {
       ) : (
         <div className="ai-panel-toolbar-spacer" />
       )}
+      <AiAgentBadge />
       <AiContextStrip variant="inline" />
       <AiPanelToolbarActions />
     </div>

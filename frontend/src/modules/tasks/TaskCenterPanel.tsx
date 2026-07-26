@@ -320,7 +320,7 @@ function AiTaskCard({
                   if (c.resourceId) {
                     followAiIntent({
                       type: "openConnection",
-                      module: "ssh",
+                      module: "terminal",
                       resourceId: c.resourceId,
                     });
                   }

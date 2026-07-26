@@ -46,7 +46,7 @@ export function useActiveMonitoringHosts(): ActiveMonitoringHost[] {
         resourceId,
         name: resource?.name ?? stats?.hostName ?? resourceId,
         address: resource?.subtitle ?? "",
-        path: resource?.modulePath ?? MODULE_PATHS.ssh,
+        path: resource?.modulePath ?? MODULE_PATHS.terminal,
         environment: resource?.environment ?? "unknown",
         stats,
         updatedAt,

@@ -11,8 +11,8 @@ describe("resolveFocusModuleKey", () => {
     expect(resolveFocusModuleKey("docker")).toBe("docker");
     expect(resolveFocusModuleKey("files")).toBe("files");
     expect(resolveFocusModuleKey("file-browser")).toBe("files");
-    expect(resolveFocusModuleKey("ssh-host")).toBe("ssh");
-    expect(resolveFocusModuleKey("server-panel")).toBe("ssh");
+    expect(resolveFocusModuleKey("ssh-host")).toBe("terminal");
+    expect(resolveFocusModuleKey("server-panel")).toBe("server");
     expect(resolveFocusModuleKey("unknown")).toBeNull();
     expect(resolveFocusModuleKey(null)).toBeNull();
   });

@@ -150,7 +150,7 @@ export function HostListPanel({
   selectionMode = false,
   selectedIds = [],
   onToggleSelect,
-  tagModuleKey = "ssh",
+  tagModuleKey = "terminal",
 }: HostListPanelProps) {
   const { t } = useI18n();
   const navigate = useNavigate();

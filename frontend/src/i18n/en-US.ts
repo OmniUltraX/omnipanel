@@ -4366,6 +4366,8 @@ export const enUS: TranslationDict = {
       tabSkills: "Skills",
       prompts: {
         list: "Prompt list",
+        sidebarTitle: "Module agents",
+        selectHint: "Select a module agent on the left to edit its prompt",
         loading: "Loading prompts…",
         loadFailed: "Failed to load prompts",
         empty: "No prompt files yet",
@@ -4380,8 +4382,10 @@ export const enUS: TranslationDict = {
           "This overwrites the file with the built-in default. Unsaved edits will be lost. Continue?",
         resetSuccess: "Prompt reset to default",
         resetFailed: "Failed to reset",
+        unknown: "Unknown agent",
         systemTitle: "System prompt",
-        systemDesc: "The single system prompt injected into the agent (~/.omnipd/prompts/system-prompt.md).",
+        systemDesc:
+          "Per-module agent role prompts (~/.omnipd/prompts/agents/{id}.md).",
       },
     },
     aiServices: {
@@ -5834,6 +5838,49 @@ export const enUS: TranslationDict = {
       total: "Total",
       speed: "Speed",
       chunks: "Chunks",
+    },
+    agents: {
+      noTools: "No tools",
+      chat: {
+        label: "Chat assistant",
+        description: "Conversation-only agent with no tools; entry point for future multi-agent collab",
+      },
+      terminal: {
+        label: "Terminal agent",
+        description: "Local + SSH: service/resource checks, env install & config",
+      },
+      database: {
+        label: "Database agent",
+        description: "Independent database-module agent",
+      },
+      docker: {
+        label: "Docker agent",
+        description: "Independent Docker-module agent",
+      },
+      server: {
+        label: "Server agent",
+        description: "Independent server-module agent",
+      },
+      files: {
+        label: "Files agent",
+        description: "Independent files-module agent",
+      },
+      knowledge: {
+        label: "Knowledge agent",
+        description: "Independent knowledge-module agent",
+      },
+      protocol: {
+        label: "Protocol agent",
+        description: "Independent protocol-module agent",
+      },
+      workflow: {
+        label: "Workflow agent",
+        description: "Independent workflow-module agent",
+      },
+      tasks: {
+        label: "Tasks agent",
+        description: "Independent tasks-module agent",
+      },
     },
     composerContext: {
       add: "Add context",

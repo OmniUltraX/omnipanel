@@ -54,7 +54,7 @@ export function AiTaskAndDraftPanel() {
                       if (c.resourceId) {
                         followAiIntent({
                           type: "openConnection",
-                          module: "ssh",
+                          module: "terminal",
                           resourceId: c.resourceId,
                         });
                       }

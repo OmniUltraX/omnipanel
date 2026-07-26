@@ -4303,11 +4303,13 @@ export const zhCN = {
     },
     agent: {
       title: "智能体",
-      desc: "编辑注入智能体的系统提示词与 Skills（保存在 ~/.omnipd）。",
+      desc: "为每个模块 Agent 配置独立提示词，并管理 Skills（保存在 ~/.omnipd）。",
       tabPrompts: "提示词",
       tabSkills: "Skills",
       prompts: {
         list: "提示词列表",
+        sidebarTitle: "模块 Agent",
+        selectHint: "从左侧选择一个模块 Agent 以编辑提示词",
         loading: "正在加载提示词…",
         loadFailed: "加载提示词失败",
         empty: "暂无提示词文件",
@@ -4321,8 +4323,9 @@ export const zhCN = {
         resetConfirm: "将用内置默认内容覆盖当前文件，未保存的修改也会丢失。是否继续？",
         resetSuccess: "已恢复默认提示词",
         resetFailed: "恢复默认失败",
+        unknown: "未知 Agent",
         systemTitle: "系统提示词",
-        systemDesc: "注入智能体的唯一系统提示词（~/.omnipd/prompts/system-prompt.md）。",
+        systemDesc: "各模块 Agent 的角色提示词（~/.omnipd/prompts/agents/{id}.md）。",
       },
     },
     aiServices: {
@@ -5773,6 +5776,49 @@ export const zhCN = {
       total: "总耗时",
       speed: "速度",
       chunks: "分片数",
+    },
+    agents: {
+      noTools: "无工具",
+      chat: {
+        label: "聊天助手",
+        description: "纯对话 Agent，不调用任何工具；后续多智能体协作的入口",
+      },
+      terminal: {
+        label: "终端 Agent",
+        description: "本地终端与 SSH：服务/资源巡检、环境安装与配置",
+      },
+      database: {
+        label: "数据库 Agent",
+        description: "数据库模块独立 Agent，仅数据库相关工具",
+      },
+      docker: {
+        label: "Docker Agent",
+        description: "Docker 模块独立 Agent，仅 Docker 相关工具",
+      },
+      server: {
+        label: "服务器 Agent",
+        description: "服务器模块独立 Agent",
+      },
+      files: {
+        label: "文件 Agent",
+        description: "文件模块独立 Agent",
+      },
+      knowledge: {
+        label: "知识库 Agent",
+        description: "知识库模块独立 Agent",
+      },
+      protocol: {
+        label: "协议 Agent",
+        description: "协议调试模块独立 Agent",
+      },
+      workflow: {
+        label: "工作流 Agent",
+        description: "工作流模块独立 Agent",
+      },
+      tasks: {
+        label: "任务 Agent",
+        description: "任务模块独立 Agent",
+      },
     },
     composerContext: {
       add: "添加上下文",

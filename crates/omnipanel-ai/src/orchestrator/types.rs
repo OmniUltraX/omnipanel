@@ -66,4 +66,7 @@ pub struct InternalChatRequest {
     /// 非 pure_text 时会映射为请求体的 `enable_thinking` / `reasoning_effort`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// 逻辑 Agent 标识（chat / terminal / database …），供追踪与后续多智能体协作。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }

@@ -106,8 +106,8 @@ let lastDockMaximizeToggleAt = 0;
 function dockScopeToTabSource(scope: string | undefined): TabSource | null {
   if (!scope) return null;
   if (scope.startsWith("database")) return "database";
-  if (scope.startsWith("terminal")) return "terminal";
-  if (scope.startsWith("ssh")) return "ssh";
+  // 终端与 SSH 已合并为终端模块
+  if (scope.startsWith("terminal") || scope.startsWith("ssh")) return "terminal";
   if (scope.startsWith("protocol")) return "protocol";
   if (scope.startsWith("workspace-bottom-")) return "workspace-bottom";
   if (scope.startsWith("workspace")) return "workspace-dock";
@@ -119,7 +119,8 @@ function navigateToModuleForSource(source: TabSource): void {
   const pathMap: Record<TabSource, string | null> = {
     database: MODULE_PATHS.database,
     terminal: MODULE_PATHS.terminal,
-    ssh: MODULE_PATHS.ssh,
+    // 历史 TabSource.ssh：导航到已合并的终端模块
+    ssh: MODULE_PATHS.terminal,
     protocol: MODULE_PATHS.protocol,
     "workspace-dock": DASHBOARD_PATH,
     "workspace-bottom": DASHBOARD_PATH,

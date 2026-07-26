@@ -142,6 +142,12 @@ pub struct InternalChatRequestDto {
     /// 推理强度：`default` | `low` | `medium` | `high`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// 逻辑 Agent 标识（chat / terminal / database …）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Agent 身份说明，注入 system_append 顶部。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_system_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -220,6 +226,7 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
             system_append: None,
             pure_text: dto.pure_text,
             reasoning_effort: dto.reasoning_effort,
+            agent_id: dto.agent_id,
         })
     }
 }
@@ -392,20 +399,32 @@ pub async fn ai_chat_stream(
     request: InternalChatRequestDto,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
-    // 在 move 进 TryFrom 前提取 embedding provider / skill_ids，供注入使用。
+    // 在 move 进 TryFrom 前提取 embedding provider / skill_ids / agent 角色，供注入使用。
     let mut request = request;
     let embedding_provider = request.embedding_provider.take();
     let skill_ids = request.skill_ids.take().unwrap_or_default();
+    let client_agent_role = request
+        .agent_system_role
+        .take()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
-    // pure_text 模式跳过 RAG / Skills 注入：oneshot 纯文本补全不需要这些上下文
-    if !internal.pure_text
-        && matches!(
-            internal.tools_mode,
-            InternalToolsMode::DirectInject { .. }
-        )
-    {
+    // pure_text 模式跳过 RAG / Skills / Agent 角色注入。
+    // 注意：Skills/RAG 与工具解耦——chat Agent（tools_mode=None）仍可注入上下文。
+    if !internal.pure_text {
         let mut append_parts: Vec<String> = Vec::new();
+
+        // 优先读设置页配置的模块 Agent 提示词；否则回退前端传入的 systemRole。
+        let role = internal
+            .agent_id
+            .as_deref()
+            .map(omnipanel_store::agent_prompt)
+            .filter(|s| !s.trim().is_empty())
+            .or(client_agent_role);
+        if let Some(role) = role {
+            append_parts.push(format!("[Agent]\n{role}"));
+        }
 
         // 1. Skills 摘要（渐进式披露）
         if let Ok(skills_text) = omnipanel_store::build_skills_system_append() {
@@ -489,7 +508,7 @@ pub async fn ai_chat_stream(
     let (tools, _) = match &internal.tools_mode {
         InternalToolsMode::DirectInject { module_filter } => {
             let manager = state.mcp_manager.lock().await;
-            let filter = module_filter.as_deref().or(Some("master"));
+            let filter = module_filter.as_deref();
             let tool_defs = manager
                 .to_internal_tool_defs(filter)
                 .await
@@ -663,22 +682,22 @@ async fn run_acp_internal_turn(
     // 这是一条特殊路径：不需要工具、不需要多轮、不需要 preamble，只需要模型根据 prompt 直接输出文本。
     let is_pure_text = internal.pure_text;
 
-    // 对齐 cursor-gateway：有客户端 tools 才进入 client_tools 模式。
-    // CLI/ACP 路径即使用户端未传 DirectInject，也默认拉 master 工具清单，避免 Cursor 裸跑原生工具。
-    // pure_text 模式跳过工具清单拉取。
+    // 有客户端 tools 才进入 client_tools 模式。
+    // tools_mode=None（如 chat Agent）与 pure_text 均不注入工具。
+    // 模块 Agent 使用对应 module_filter，不再默认放大到 master。
     let client_tool_defs: Vec<ToolDef> = if is_pure_text {
         Vec::new()
     } else {
-        let mcp = state.mcp_manager.lock().await;
-        let filter = match &internal.tools_mode {
+        match &internal.tools_mode {
             InternalToolsMode::DirectInject { module_filter } => {
-                module_filter.as_deref().or(Some("master"))
+                let mcp = state.mcp_manager.lock().await;
+                let filter = module_filter.as_deref();
+                mcp.to_internal_tool_defs(filter)
+                    .await
+                    .map_err(|e| e.to_string())?
             }
-            InternalToolsMode::None => Some("master"),
-        };
-        mcp.to_internal_tool_defs(filter)
-            .await
-            .map_err(|e| e.to_string())?
+            InternalToolsMode::None => Vec::new(),
+        }
     };
     let client_tools = !client_tool_defs.is_empty();
 

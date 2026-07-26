@@ -75,6 +75,7 @@ function argsToJson(args: Record<string, unknown> | string): string {
 function inferKind(toolName: string): ActionDraftKind {
   const n = toolName.toLowerCase();
   if (n.includes("database") || n.includes("sql")) return "sql";
+  // SSH 工具归入终端模块；draft kind 仍可用 ssh 区分展示
   if (n.includes("ssh")) return "ssh";
   if (n.includes("docker")) return "docker";
   if (n.includes("files") || n.includes("file_")) return "files";

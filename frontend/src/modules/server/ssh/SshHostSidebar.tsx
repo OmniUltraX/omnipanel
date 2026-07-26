@@ -32,7 +32,7 @@ export function SshHostSidebar({
   onSelectHost,
   selectionMode = false,
   selectedIds = [],
-  tagModuleKey = "ssh",
+  tagModuleKey = "terminal",
 }: SshHostSidebarProps) {
   const { t } = useI18n();
   const activeHostId = useSshActiveHostStore((s) => s.activeHostId);

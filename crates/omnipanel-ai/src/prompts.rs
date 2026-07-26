@@ -1,6 +1,7 @@
 //! Shared prompt fragments used across HTTP / ACP AI paths.
 //!
-//! 智能体主提示词见 `~/.omnipd/prompts/system-prompt.md` → `omnipanel_store::system_prompt()`。
+//! 协议层提示词：`~/.omnipd/prompts/system-prompt.md` → `omnipanel_store::system_prompt()`。
+//! 各模块 Agent 角色提示词：`~/.omnipd/prompts/agents/{id}.md` → `omnipanel_store::agent_prompt(id)`。
 //! 以下为 HTTP DirectInject 路径的内置工具路由短句（不可配置文件）。
 
 /// HTTP DirectInject 等路径注入的通用工具路由策略（宽泛、按意图匹配）。

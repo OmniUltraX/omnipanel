@@ -42,6 +42,10 @@ export interface InternalChatRequestPayload {
   skillIds?: string[] | null;
   /** 推理强度：default | low | medium | high */
   reasoningEffort?: string | null;
+  /** 逻辑 Agent 标识（chat / terminal / …） */
+  agentId?: string | null;
+  /** Agent 身份说明，注入 system prompt */
+  agentSystemRole?: string | null;
 }
 
 export interface RunInternalAiChatOptions {
@@ -115,6 +119,8 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
             ? options.request.skillIds
             : null,
         reasoningEffort: options.request.reasoningEffort ?? null,
+        agentId: options.request.agentId ?? null,
+        agentSystemRole: options.request.agentSystemRole ?? null,
       },
       onEvent,
     });

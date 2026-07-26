@@ -542,7 +542,7 @@ const SCHEMA_FILES_SEARCH: &str = r#"{
 pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_ssh_list_connections",
-        module_key: "ssh",
+        module_key: "terminal",
         description: "列出已保存的 SSH 连接（不含凭据与完整 config），供外部 Agent 选择目标主机。",
         input_schema: SCHEMA_LIST_CONNECTIONS,
         exec_kind: ToolExecKind::Native,
@@ -550,7 +550,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_ssh_exec",
-        module_key: "ssh",
+        module_key: "terminal",
         description:
             "在指定 SSH 主机上非交互式执行 shell 命令，返回 stdout/stderr/exit_code。\
              危险命令同样进入用户确认流程。不支持 TUI/流式命令（top/vim/tail -f）。",
@@ -560,7 +560,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_ssh_get_stats",
-        module_key: "ssh",
+        module_key: "terminal",
         description:
             "拉取指定 SSH 主机的实时系统指标快照（CPU/内存/磁盘/网络/负载/运行时长/OS 信息）。",
         input_schema: SCHEMA_SSH_GET_STATS,
@@ -569,7 +569,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_ssh_list_tunnels",
-        module_key: "ssh",
+        module_key: "terminal",
         description: "列出当前所有 SSH 隧道（端口转发）及其状态。",
         input_schema: SCHEMA_SSH_LIST_TUNNELS,
         exec_kind: ToolExecKind::UiDelegated,
@@ -577,7 +577,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_ssh_create_tunnel",
-        module_key: "ssh",
+        module_key: "terminal",
         description:
             "在指定 SSH 连接上创建端口转发隧道（local/remote/dynamic）。\
              dynamic 类型为 SOCKS 代理，可省略 remote_host/remote_port。",
@@ -940,7 +940,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_create",
-        module_key: "ssh",
+        module_key: "terminal",
         description:
             "创建业务工作区（可选纳入 resource_ids）。工作区非必选；仅当用户明确要求隔离/整理时调用。",
         input_schema: SCHEMA_WORKSPACE_CREATE,
@@ -949,7 +949,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_switch",
-        module_key: "ssh",
+        module_key: "terminal",
         description: "切换到指定工作区（UI）。",
         input_schema: SCHEMA_WORKSPACE_ID,
         exec_kind: ToolExecKind::UiDelegated,
@@ -957,7 +957,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_list_resources",
-        module_key: "ssh",
+        module_key: "terminal",
         description: "列出资源。不传 workspace_id 时返回全局连接；传入时返回该工作区 membership。",
         input_schema: SCHEMA_WORKSPACE_LIST,
         exec_kind: ToolExecKind::UiDelegated,
@@ -965,7 +965,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_add_resources",
-        module_key: "ssh",
+        module_key: "terminal",
         description: "将资源 id 纳入指定工作区 membership。",
         input_schema: SCHEMA_WORKSPACE_MEMBERSHIP,
         exec_kind: ToolExecKind::UiDelegated,
@@ -973,7 +973,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_remove_resources",
-        module_key: "ssh",
+        module_key: "terminal",
         description: "从工作区 membership 移除资源。",
         input_schema: SCHEMA_WORKSPACE_MEMBERSHIP,
         exec_kind: ToolExecKind::UiDelegated,
@@ -981,7 +981,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_orchestration_ssh_fleet_health",
-        module_key: "ssh",
+        module_key: "terminal",
         description:
             "对全部（或指定工作区内）SSH 主机扇出采集资源占用，返回汇总供优化建议。\
              适合「给所有 SSH 做体检」；会显示任务进度。",
@@ -1051,7 +1051,7 @@ mod tests {
         assert_eq!(builtin_tool_module_key("load_skill"), Some("knowledge"));
         assert_eq!(
             builtin_tool_module_key("omni_ssh_list_connections"),
-            Some("ssh")
+            Some("terminal")
         );
     }
 
@@ -1067,7 +1067,7 @@ mod tests {
         ] {
             let spec = builtin_tool_spec(name).unwrap_or_else(|| panic!("{name} 未注册"));
             assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated, "{name}");
-            assert_eq!(spec.module_key, "ssh", "{name}");
+            assert_eq!(spec.module_key, "terminal", "{name}");
             assert!(spec.omnimcp_backend, "{name}");
         }
     }

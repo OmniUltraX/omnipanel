@@ -39,7 +39,7 @@ export function sshConfigEntryToResource(entry: SshConfigEntry): WorkspaceResour
     type: "ssh",
     name: entry.alias,
     subtitle: entryToSubtitle(entry),
-    modulePath: MODULE_PATHS.ssh,
+    modulePath: MODULE_PATHS.terminal,
     environment: inferEnvironment(entry.alias, entry.hostName),
     status: "idle",
     group: OPENSSH_CONFIG_GROUP,
