@@ -694,7 +694,7 @@ export const useAiStore = create<AiStore>()(
     {
       name: "omnipanel-ai-store",
       storage: createJSONStorage(createIndexedDBStorage),
-      version: 5,
+      version: 6,
       migrate: (persisted, version) => {
         const state = persisted as {
           conversations?: AiConversation[];
@@ -716,13 +716,13 @@ export const useAiStore = create<AiStore>()(
         if (version < 3) {
           next = { ...next, reasoningEffort: "default" };
         }
-        // v4：会话绑定逻辑 Agent；历史会话默认 chat（助手无工具）
+        // v4：会话绑定逻辑 Agent；历史会话默认 plan（助手无工具）
         if (version < 4 && Array.isArray(next.conversations)) {
           next = {
             ...next,
             conversations: next.conversations.map((c) => {
               if (isAgentId(c.agentId)) return c;
-              // 从终端提升的会话归 terminal Agent，其余归 chat
+              // 从终端提升的会话归 terminal Agent，其余归 plan
               const inferred: AgentId = c.sourceBlockId || c.linkedTerminalSessionId
                 ? "terminal"
                 : ASSISTANT_PAGE_AGENT_ID;
@@ -737,6 +737,17 @@ export const useAiStore = create<AiStore>()(
             conversations: next.conversations.map((c) =>
               (c.agentId as string | undefined) === "ssh"
                 ? { ...c, agentId: "terminal" as AgentId }
+                : c,
+            ),
+          };
+        }
+        // v6：助手 Agent 由 chat 重命名为 plan
+        if (version < 6 && Array.isArray(next.conversations)) {
+          next = {
+            ...next,
+            conversations: next.conversations.map((c) =>
+              (c.agentId as string | undefined) === "chat"
+                ? { ...c, agentId: "plan" as AgentId }
                 : c,
             ),
           };

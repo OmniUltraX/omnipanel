@@ -16,8 +16,10 @@ pub const LOCAL_HOST_ID: &str = "local-terminal";
 const CPU_SAMPLE_MS: u64 = 250;
 
 pub fn fetch_stats() -> OmniResult<HostSystemStats> {
-    let mut system = System::new_all();
-    system.refresh_all();
+    // 看板/概览只需 CPU + 内存；勿 System::new_all / refresh_all（会扫全进程，Windows 首屏极慢）
+    let mut system = System::new();
+    system.refresh_cpu_all();
+    system.refresh_memory();
     std::thread::sleep(Duration::from_millis(CPU_SAMPLE_MS));
     system.refresh_cpu_all();
 

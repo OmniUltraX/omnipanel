@@ -225,11 +225,3 @@ export const useAiOrchestrationStore = create<AiOrchestrationState>()(
 export function genAiTaskId(prefix = "ai_task"): string {
   return genId(prefix);
 }
-
-export function genPlanId(): string {
-  return genId("plan");
-}
-
-export function genStepId(): string {
-  return genId("step");
-}

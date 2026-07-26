@@ -38,9 +38,9 @@ import {
   ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
-  SuggestionPrimitive,
   ThreadPrimitive,
   type ToolCallMessagePartComponent,
+  useAui,
   useAuiState,
 } from "@assistant-ui/react";
 import {
@@ -51,6 +51,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  ListTodoIcon,
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -59,6 +60,7 @@ import {
 } from "lucide-react";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -69,7 +71,18 @@ import {
 } from "react";
 import { PlanView } from "../ai/PlanView";
 import type { PlanData } from "../../lib/ai/aiMessageParts";
+import {
+  parseMarkdownChecklist,
+  textFromMessageParts,
+} from "../../lib/ai/parseMarkdownChecklist";
 import { useAiStore } from "../../stores/aiStore";
+import {
+  createTodoItem,
+  nextTodoSortOrder,
+  newTodoId,
+  useKnowledgeTodoStore,
+} from "../../stores/knowledgeTodoStore";
+import { showToast } from "../../stores/toastStore";
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
 /** 从 data part 提取 plan 数据；非 plan 返回 null */
@@ -213,13 +226,23 @@ const ThreadScrollToBottom: FC = () => {
   );
 };
 
+const WELCOME_SUGGESTION_KEYS = [
+  "weeklyOps",
+  "envInstall",
+  "incident",
+  "release",
+] as const;
+
 const ThreadWelcome: FC = () => {
   const { t } = useI18n();
   return (
-    <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
+    <div className="aui-thread-welcome-root mb-6 flex flex-col items-center gap-3 px-4 text-center">
       <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
         {t("ai.welcome.title")}
       </h1>
+      <p className="aui-thread-welcome-subtitle text-muted-foreground fade-in slide-in-from-bottom-1 animate-in fill-mode-both max-w-md text-sm leading-relaxed duration-200">
+        {t("ai.welcome.subtitle")}
+      </p>
     </div>
   );
 };
@@ -227,26 +250,87 @@ const ThreadWelcome: FC = () => {
 const ThreadSuggestions: FC = () => {
   return (
     <div className="aui-thread-welcome-suggestions flex w-full flex-wrap items-center justify-center gap-2 px-4">
-      <ThreadPrimitive.Suggestions>
-        {() => <ThreadSuggestionItem />}
-      </ThreadPrimitive.Suggestions>
+      {WELCOME_SUGGESTION_KEYS.map((key) => (
+        <WelcomeSuggestionChip key={key} suggestionKey={key} />
+      ))}
     </div>
   );
 };
 
-const ThreadSuggestionItem: FC = () => {
+const WelcomeSuggestionChip: FC<{
+  suggestionKey: (typeof WELCOME_SUGGESTION_KEYS)[number];
+}> = ({ suggestionKey }) => {
+  const { t } = useI18n();
+  const aui = useAui();
+  const title = t(`ai.welcome.suggestions.${suggestionKey}.title`);
+  const prompt = t(`ai.welcome.suggestions.${suggestionKey}.prompt`);
+
+  const onClick = useCallback(() => {
+    aui.composer().setText(prompt);
+    void aui.composer().send();
+  }, [aui, prompt]);
+
   return (
     <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
-      <SuggestionPrimitive.Trigger send asChild>
-        <Button
-          variant="ghost"
-          className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border h-auto gap-1.5 rounded-md border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
-        >
-          <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
-          <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 empty:hidden" />
-        </Button>
-      </SuggestionPrimitive.Trigger>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onClick}
+        className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border h-auto gap-1.5 rounded-md border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
+      >
+        {title}
+      </Button>
     </div>
+  );
+};
+
+const SaveAsTodoButton: FC = () => {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const content = useAuiState((s) => s.message.content);
+  const running = useAuiState((s) => s.message.status?.type === "running");
+
+  const onSave = useCallback(async () => {
+    if (busy || running) return;
+    const text = textFromMessageParts(content);
+    const parsed = parseMarkdownChecklist(text, t("knowledge.todos.untitled"));
+    if (!parsed) {
+      showToast(t("ai.saveTodo.empty"));
+      return;
+    }
+    setBusy(true);
+    try {
+      const store = useKnowledgeTodoStore.getState();
+      if (store.lists.length === 0) {
+        await store.loadLists();
+      }
+      const now = Date.now();
+      const ok = await store.saveList({
+        id: newTodoId(),
+        title: parsed.title,
+        items: parsed.items.map((item) => ({
+          ...createTodoItem(item.text),
+          done: item.done,
+        })),
+        sortOrder: nextTodoSortOrder(useKnowledgeTodoStore.getState().lists),
+        createdAt: now,
+        updatedAt: now,
+      });
+      showToast(ok ? t("ai.saveTodo.success") : t("ai.saveTodo.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, content, running, t]);
+
+  return (
+    <TooltipIconButton
+      tooltip={t("ai.saveTodo.tooltip")}
+      onClick={() => void onSave()}
+      disabled={busy || running}
+      aria-label={t("ai.saveTodo.button")}
+    >
+      <ListTodoIcon />
+    </TooltipIconButton>
   );
 };
 
@@ -618,6 +702,7 @@ const AssistantActionBar: FC = () => {
       autohide="not-last"
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
     >
+      <SaveAsTodoButton />
       <ActionBarPrimitive.Copy asChild>
         <TooltipIconButton tooltip={t("ai.composer.buttonCopy")}>
           <AuiIf condition={(s) => s.message.isCopied}>

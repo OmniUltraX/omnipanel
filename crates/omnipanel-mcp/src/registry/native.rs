@@ -4,8 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_store::{
     list_all_skill_records, load_database_connections, load_skill_body, load_skill_record,
     parse_skill_md, skill_file_path, write_skill, ConnectionKind, HttpProxyConfig, KnowledgeEntry,
-    ResourceObservation, SkillApplication, SkillDbRecord, SkillFrontmatter, Storage, TagSource,
-    TaggableKind,
+    KnowledgeTodoItem, KnowledgeTodoList, ResourceObservation, SkillApplication, SkillDbRecord,
+    SkillFrontmatter, Storage, TagSource, TaggableKind,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -49,6 +49,7 @@ pub async fn execute(
 ) -> Result<(String, bool), String> {
     match name {
         "omni_knowledge_create_document" => create_document(arguments, storage).await,
+        "omni_knowledge_create_todolist" => create_todolist(arguments, storage).await,
         "omni_knowledge_remove_document" => remove_document(arguments, storage).await,
         "omni_knowledge_list_documents" => list_documents(arguments, storage).await,
         "omni_tag_list_tree" => tag_list_tree(arguments, storage).await,
@@ -1297,6 +1298,90 @@ async fn create_document(
         .save_knowledge(&entry)
         .map_err(|e| e.to_string())?;
     Ok((serde_json::json!({ "id": id }).to_string(), true))
+}
+
+async fn create_todolist(
+    arguments: Value,
+    storage: Arc<Mutex<Storage>>,
+) -> Result<(String, bool), String> {
+    let title = arguments
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if title.is_empty() {
+        return Err("title 不能为空".to_string());
+    }
+
+    let items_val = arguments
+        .get("items")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "items 必须为非空数组".to_string())?;
+    if items_val.is_empty() {
+        return Err("items 不能为空".to_string());
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let mut items = Vec::with_capacity(items_val.len());
+    for (idx, raw) in items_val.iter().enumerate() {
+        let text = raw
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            return Err(format!("items[{idx}].text 不能为空"));
+        }
+        let done = raw
+            .get("done")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        items.push(KnowledgeTodoItem {
+            id: format!("todo_item_{now}_{idx}"),
+            text,
+            done,
+        });
+    }
+
+    let storage = storage.lock().await;
+    let existing = storage.list_knowledge_todos().map_err(|e| e.to_string())?;
+    let sort_order = existing
+        .iter()
+        .map(|l| l.sort_order)
+        .max()
+        .unwrap_or(-1)
+        + 1;
+
+    let id = format!("todo_{now}");
+    let item_count = items.len();
+    let list = KnowledgeTodoList {
+        id: id.clone(),
+        title: title.clone(),
+        items,
+        sort_order,
+        created_at: now,
+        updated_at: now,
+    };
+    storage
+        .save_knowledge_todo(&list)
+        .map_err(|e| e.to_string())?;
+
+    Ok((
+        serde_json::json!({
+            "id": id,
+            "title": title,
+            "item_count": item_count,
+            "sort_order": sort_order,
+        })
+        .to_string(),
+        true,
+    ))
 }
 
 async fn remove_document(

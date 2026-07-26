@@ -59,7 +59,7 @@ import {
   ASSISTANT_PAGE_AGENT_ID,
   resolveAgentRuntime,
 } from "../../../lib/ai/agents";
-import { useAiStore, type PlanData, type ToolCallState } from "../../../stores/aiStore";
+import { useAiStore, type ToolCallState } from "../../../stores/aiStore";
 import {
   clearComposerContextItems,
   getComposerContextItems,
@@ -642,35 +642,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             );
           }
 
-          // Plan 工具完成时：将 plan 数据注入到当前消息的 parts 中，
-          // 使 PlanView 组件能在消息流中渲染。PlanView 读取 orchestration
-          // store 的实时数据，后续 step 更新无需再次注入。
-          if (
-            meta.name === "omni_plan_create" ||
-            meta.name === "omni_plan_update_step" ||
-            meta.name === "omni_plan_add_step"
-          ) {
-            try {
-              const parsed = JSON.parse(result ?? "{}") as { plan?: PlanData };
-              if (parsed.plan) {
-                if (inline?.assistantTurnId) {
-                  useBlocksStore.getState().upsertAiThreadPlanPart(
-                    inline.blockId,
-                    inline.assistantTurnId,
-                    parsed.plan,
-                  );
-                } else if (assistantMsgId) {
-                  useAiStore.getState().upsertStreamPlan(
-                    convId,
-                    assistantMsgId,
-                    parsed.plan,
-                  );
-                }
-              }
-            } catch {
-              // result 解析失败时忽略
-            }
-          }
         }
       }
 
@@ -770,7 +741,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         const conversation = useAiStore
           .getState()
           .conversations.find((c) => c.id === convId);
-        // 助手主界面 → chat Agent（无工具）；终端内联 → 对应模块 Agent
+        // 助手主界面 → plan Agent（窄工具面：create_todolist）；终端内联 → 对应模块 Agent
         const agentRuntime = resolveAgentRuntime({
           assistantPage: !inline,
           conversationAgentId: conversation?.agentId,
@@ -909,7 +880,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     let convId = options?.newConversation ? null : useAiStore.getState().activeConversationId;
     if (!convId) {
-      // 助手页新建会话固定绑定 chat Agent
+      // 助手页新建会话固定绑定 plan Agent
       convId = createConversation(undefined, undefined, {
         agentId: ASSISTANT_PAGE_AGENT_ID,
       });

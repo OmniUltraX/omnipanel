@@ -2,6 +2,7 @@ export type {
   AgentDefinition,
   AgentId,
   AgentRuntimeConfig,
+  AgentToolsMode,
   AgentToolsPolicy,
 } from "./types";
 export {

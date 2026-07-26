@@ -23,15 +23,20 @@ function moduleAgent(
  * 终端与 SSH 已合并为同一模块 Agent（`terminal`）。
  */
 export const AGENT_REGISTRY: Record<AgentId, AgentDefinition> = {
-  chat: {
-    id: "chat",
-    labelKey: "ai.agents.chat.label",
-    descriptionKey: "ai.agents.chat.description",
-    tools: { kind: "none" },
+  plan: {
+    id: "plan",
+    labelKey: "ai.agents.plan.label",
+    descriptionKey: "ai.agents.plan.description",
+    tools: {
+      kind: "allowlist",
+      moduleFilter: "knowledge",
+      toolNames: ["omni_knowledge_create_todolist"],
+    },
     allowSkills: true,
     allowRag: true,
+    // 完整提示词由后端 ~/.omnipd/prompts/agents/plan.md 注入；此处仅作回退摘要。
     systemRole:
-      "你是 OmniPanel 的「聊天助手」Agent。你只负责对话、解释与建议，不能调用任何工具或执行操作。若用户需要操作终端（含 SSH）/数据库/Docker 等，请说明应切换到对应模块 Agent。",
+      "你是 OmniPanel 的「计划助手」Agent（plan）。根据用户需求制定执行计划，并必须调用 omni_knowledge_create_todolist 写入知识库待办。不能执行终端/数据库等运维操作。",
   },
   terminal: moduleAgent(
     "terminal",
@@ -100,11 +105,11 @@ export function isAgentId(value: string | null | undefined): value is AgentId {
   return Boolean(value && value in AGENT_REGISTRY);
 }
 
-/** 模块 → Agent；SSH 已并入终端；无对应 Agent 时回退 chat */
+/** 模块 → Agent；SSH 已并入终端；无对应 Agent 时回退 plan */
 export function agentIdForModule(moduleKey: ModuleKey | null | undefined): AgentId {
-  if (!moduleKey) return "chat";
+  if (!moduleKey) return "plan";
   // 旧路由 / 资源类型仍可能出现 ssh
   if (moduleKey === "ssh") return "terminal";
   if (isAgentId(moduleKey)) return moduleKey;
-  return "chat";
+  return "plan";
 }

@@ -26,7 +26,7 @@ pub mod files {
 
 /// 可配置的逻辑 Agent 提示词 id（与前端 `AgentId` 对齐）。
 pub const AGENT_PROMPT_IDS: &[&str] = &[
-    "chat",
+    "plan", // 原 chat：AI 助手页 TodoList / 计划 Agent
     "terminal", // 含原 SSH（已并入终端模块）
     "database",
     "docker",
@@ -39,10 +39,17 @@ pub const AGENT_PROMPT_IDS: &[&str] = &[
 ];
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../resources/prompts/system-prompt.md");
+const DEFAULT_PLAN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/plan.md");
 const DEFAULT_TERMINAL_AGENT_PROMPT: &str =
     include_str!("../resources/prompts/agents/terminal.md");
 
-/// 历史短版默认文案：仍等于这些内容时，启动时可升级为专业终端提示词（不覆盖用户自定义）。
+/// 历史短版 / 旧 chat 命名默认文案：仍等于这些内容时，启动时可升级（不覆盖用户自定义）。
+const LEGACY_PLAN_AGENT_PROMPTS: &[&str] = &[
+    "你是 OmniPanel 的「聊天助手」Agent。你只负责对话、解释与建议，不能调用任何工具或执行操作。若用户需要操作终端/SSH/数据库/Docker 等，请说明应切换到对应模块 Agent。",
+    "你是 OmniPanel 的「聊天助手」Agent。你只负责对话、解释与建议，不能调用任何工具或执行操作。若用户需要操作终端/数据库/Docker 等，请说明应切换到对应模块 Agent。",
+    "你是 OmniPanel 的「聊天助手」Agent，主责创建可执行的 Markdown 待办清单（TodoList）。不能调用工具或执行操作；需要落地时提示切换模块 Agent。输出以 `- [ ]` 勾选列表为主，便于保存到知识库待办。",
+];
+
 const LEGACY_TERMINAL_AGENT_PROMPTS: &[&str] = &[
     "你是 OmniPanel 的「终端」Agent，专注终端会话、命令与输出分析；仅使用终端相关工具。",
     "你是 OmniPanel 的「终端」Agent，覆盖本地终端与 SSH 远程会话、命令执行与主机相关操作；仅使用终端模块工具（含原 SSH 工具）。",
@@ -59,9 +66,7 @@ static AGENT_CACHE: LazyLock<Mutex<HashMap<String, CachedFile>>> =
 
 fn default_agent_prompt(id: &str) -> &'static str {
     match id {
-        "chat" => {
-            "你是 OmniPanel 的「聊天助手」Agent。你只负责对话、解释与建议，不能调用任何工具或执行操作。若用户需要操作终端/SSH/数据库/Docker 等，请说明应切换到对应模块 Agent。"
-        }
+        "plan" => DEFAULT_PLAN_AGENT_PROMPT,
         "terminal" => DEFAULT_TERMINAL_AGENT_PROMPT,
         "database" => {
             "你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。"
@@ -85,8 +90,12 @@ fn default_agent_prompt(id: &str) -> &'static str {
     }
 }
 
-fn upgrade_legacy_terminal_prompt_if_needed() -> OmniResult<()> {
-    let path = agent_prompt_path("terminal")?;
+fn upgrade_legacy_agent_prompt_if_needed(
+    id: &str,
+    legacy: &[&str],
+    next: &str,
+) -> OmniResult<()> {
+    let path = agent_prompt_path(id)?;
     if !path.exists() {
         return Ok(());
     }
@@ -94,13 +103,32 @@ fn upgrade_legacy_terminal_prompt_if_needed() -> OmniResult<()> {
         return Ok(());
     };
     let trimmed = current.trim();
-    if !LEGACY_TERMINAL_AGENT_PROMPTS
-        .iter()
-        .any(|legacy| trimmed == *legacy)
-    {
+    let should_upgrade = legacy.iter().any(|item| trimmed == *item)
+        // 旧版 TodoList / 无工具版计划提示词
+        || (id == "plan"
+            && (trimmed.starts_with("# OmniPanel · 聊天助手")
+                || trimmed.starts_with("# OmniPanel · 计划助手（TodoList）")));
+    if !should_upgrade {
         return Ok(());
     }
-    fs::write(&path, DEFAULT_TERMINAL_AGENT_PROMPT).map_err(map_io)?;
+    fs::write(&path, next).map_err(map_io)?;
+    clear_prompt_cache();
+    Ok(())
+}
+
+/// 将用户目录 `agents/chat.md` 迁移为 `agents/plan.md`（仅当 plan 尚不存在时）。
+fn migrate_chat_agent_file_to_plan() -> OmniResult<()> {
+    let dir = agents_dir()?;
+    let legacy = dir.join("chat.md");
+    let next = dir.join("plan.md");
+    if !legacy.exists() {
+        return Ok(());
+    }
+    if !next.exists() {
+        fs::rename(&legacy, &next).map_err(map_io)?;
+    } else {
+        let _ = fs::remove_file(&legacy);
+    }
     clear_prompt_cache();
     Ok(())
 }
@@ -151,12 +179,23 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
 
     let dir = agents_dir()?;
     fs::create_dir_all(&dir).map_err(map_io)?;
+    // chat → plan：先搬迁用户目录旧文件，再补种默认
+    let _ = migrate_chat_agent_file_to_plan();
     for id in AGENT_PROMPT_IDS {
         let agent_path = dir.join(format!("{id}.md"));
         write_if_missing(&agent_path, default_agent_prompt(id))?;
     }
-    // 将历史短版 terminal 默认提示词升级为专业运维版（用户自定义内容不覆盖）。
-    let _ = upgrade_legacy_terminal_prompt_if_needed();
+    // 将历史短版默认提示词升级（用户自定义内容不覆盖）。
+    let _ = upgrade_legacy_agent_prompt_if_needed(
+        "plan",
+        LEGACY_PLAN_AGENT_PROMPTS,
+        DEFAULT_PLAN_AGENT_PROMPT,
+    );
+    let _ = upgrade_legacy_agent_prompt_if_needed(
+        "terminal",
+        LEGACY_TERMINAL_AGENT_PROMPTS,
+        DEFAULT_TERMINAL_AGENT_PROMPT,
+    );
 
     Ok(())
 }
@@ -242,7 +281,7 @@ fn load_agent_prompt_file(id: &str) -> String {
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPromptEntry {
-    /// Agent id，如 `chat` / `terminal`；协议层为 `system-prompt.md`
+    /// Agent id，如 `plan` / `terminal`；协议层为 `system-prompt.md`
     pub id: String,
     pub content: String,
     /// 用户目录绝对路径
@@ -302,7 +341,7 @@ pub fn reset_prompt(id: &str) -> OmniResult<AgentPromptEntry> {
 pub fn agent_prompt(agent_id: &str) -> String {
     let id = agent_id.trim();
     if !is_known_agent_id(id) {
-        return default_agent_prompt("chat").to_string();
+        return default_agent_prompt("plan").to_string();
     }
     load_agent_prompt_file(id)
 }
@@ -335,8 +374,9 @@ mod tests {
         ensure_default_prompts().expect("seed prompts");
         let preamble = system_prompt();
         assert!(preamble.contains("tool_calls") || preamble.contains("OmniPanel"));
-        let chat = agent_prompt("chat");
-        assert!(chat.contains("聊天助手") || chat.contains("chat"));
+        let plan = default_agent_prompt("plan");
+        assert!(plan.contains("omni_knowledge_create_todolist"));
+        assert!(plan.contains("执行计划") || plan.contains("计划助手"));
         let terminal = default_agent_prompt("terminal");
         assert!(terminal.contains("服务与健康检查"));
         assert!(terminal.contains("资源占用"));

@@ -36,6 +36,9 @@ pub enum InternalToolsMode {
     None,
     DirectInject {
         module_filter: Option<String>,
+        /// 若设置，仅注入列出的工具名（用于 plan 等窄工具面 Agent）。
+        #[serde(default)]
+        tool_allowlist: Option<Vec<String>>,
     },
 }
 

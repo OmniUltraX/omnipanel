@@ -1,5 +1,7 @@
 //! 内置工具注册表 — 持久化于 omnipanel.db 的 builtin_tools 表。
 
+use std::collections::HashSet;
+
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -33,7 +35,8 @@ pub struct BuiltinToolCatalogEntry {
 impl Storage {
     /// 以后端 spec 为准补种/修复内置工具：
     /// - 新工具按默认开关写入；
-    /// - 已存在行更新 module_key / description / input_schema（保留用户开关）。
+    /// - 已存在行更新 module_key / description / input_schema（保留用户开关）；
+    /// - 删除已从 `BUILTIN_TOOL_SPECS` 移除的幽灵行（避免设置页继续展示）。
     pub fn repair_builtin_tools(&self) -> OmniResult<()> {
         self.ensure_builtin_tool_columns()?;
         for spec in BUILTIN_TOOL_SPECS {
@@ -48,6 +51,25 @@ impl Storage {
                     params![spec.tool_name, spec.module_key, spec.description, spec.input_schema],
                 )
                 .map_err(map_sqlite)?;
+        }
+
+        let spec_names: HashSet<&str> = BUILTIN_TOOL_SPECS.iter().map(|s| s.tool_name).collect();
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT tool_name FROM builtin_tools")
+            .map_err(map_sqlite)?;
+        let existing: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(map_sqlite)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_sqlite)?;
+        drop(stmt);
+        for name in existing {
+            if !spec_names.contains(name.as_str()) {
+                self.conn()
+                    .execute("DELETE FROM builtin_tools WHERE tool_name = ?1", [&name])
+                    .map_err(map_sqlite)?;
+            }
         }
         Ok(())
     }
@@ -126,6 +148,9 @@ impl Storage {
     /// 内置工具的 module_key / description / input_schema 一律以后端
     /// `BUILTIN_TOOL_SPECS` 单一真相源为准（`repair_builtin_tools` 会持续校正），
     /// 故此处对已存在工具不做修改，避免与真相源冲突。
+    ///
+    /// 注意：`repair_builtin_tools` 会删除不在 spec 中的行；未知工具若需持久保留，
+    /// 应补进 `BUILTIN_TOOL_SPECS`，否则下次 list/repair 仍会被清掉。
     pub fn builtin_tool_sync_catalog(&self, entries: &[BuiltinToolCatalogEntry]) -> OmniResult<()> {
         self.repair_builtin_tools()?;
         for entry in entries {
@@ -352,6 +377,26 @@ mod tests {
         assert!(!storage
             .builtin_tool_is_available("omni_terminal_run_terminal_command")
             .unwrap());
+    }
+
+    #[test]
+    fn repair_prunes_removed_catalog_tools() {
+        let storage = Storage::open_in_memory().unwrap();
+        storage.repair_builtin_tools().unwrap();
+        storage
+            .conn()
+            .execute(
+                "INSERT INTO builtin_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema)
+                 VALUES ('omni_plan_create', 'orchestration', 'ghost', 1, 1, 1, '{}')",
+                [],
+            )
+            .unwrap();
+        // list → repair 应清掉已从 BUILTIN_TOOL_SPECS 移除的幽灵行
+        let list = storage.builtin_tool_list().unwrap();
+        assert!(
+            !list.iter().any(|t| t.tool_name == "omni_plan_create"),
+            "已移除的 catalog 工具不应再出现在列表中"
+        );
     }
 
     #[test]

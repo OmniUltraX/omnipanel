@@ -174,7 +174,7 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
     // 首页不再强制卸载：保活 shell，由 contentSuspended 抑制重型 panel
   }, [isBottomPanelOpen, isFullscreen, dockWarm]);
 
-  // 首页空闲预热：提前建好 dockview shell
+  // 首页空闲预热：提前建好 dockview shell（勿用短 timeout 强制打断首屏）
   useEffect(() => {
     if (!isHomeRoute || isFullscreen || keepBottomMounted) return;
     let cancelled = false;
@@ -184,13 +184,13 @@ export function WorkspacePreview({ children, className }: WorkspacePreviewProps)
       }
     };
     if (typeof window.requestIdleCallback === "function") {
-      const id = window.requestIdleCallback(run, { timeout: 1200 });
+      const id = window.requestIdleCallback(run, { timeout: 10000 });
       return () => {
         cancelled = true;
         window.cancelIdleCallback(id);
       };
     }
-    const timer = window.setTimeout(run, 600);
+    const timer = window.setTimeout(run, 2500);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

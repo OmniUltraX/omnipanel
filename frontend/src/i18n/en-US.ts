@@ -4352,18 +4352,14 @@ export const enUS: TranslationDict = {
       moduleSyncHint: "Tools are unavailable while the module is closed; enable them individually after opening the module",
       empty: "No MCP tools registered",
     },
-    aiTools: {
-      title: "Tools",
-      desc: "Built-in tools, external MCP services, and Skills for internal AI orchestration.",
-      tabBuiltin: "Built-in",
-      tabExternalMcp: "External MCP",
-      tabSkills: "Skills",
-    },
     agent: {
       title: "Agent",
-      desc: "Edit system prompts and Skills injected into the agent (stored under ~/.omnipd).",
+      desc: "Manage module agent prompts, Skills, built-in tools, and external MCP services.",
       tabPrompts: "Prompts",
       tabSkills: "Skills",
+      tabBuiltin: "Built-in",
+      tabWebSearch: "Web search",
+      tabExternalMcp: "External MCP",
       prompts: {
         list: "Prompt list",
         sidebarTitle: "Module agents",
@@ -4415,9 +4411,16 @@ export const enUS: TranslationDict = {
     },
     builtinTools: {
       label: "Built-in tools",
-      desc: "Native OmniPanel tools. Control internal orchestration availability and OmniMCP external exposure separately.",
+      desc: "Native OmniPanel tools. Use Enable for internal orchestration and Expose for OmniMCP.",
       internal: "Internal",
       external: "External",
+      enable: "Enable",
+      expose: "Expose",
+      colModule: "Module",
+      colName: "Tool",
+      colDescription: "Description",
+      colActions: "Actions",
+      global: "Global",
       moduleDesc: "{count} tool(s)",
       moduleClosedDesc: "Module is closed or disabled; built-in tools are disabled",
       moduleSyncHint: "Tools cannot be enabled internally while the module is closed",
@@ -5811,7 +5814,7 @@ export const enUS: TranslationDict = {
       serviceTitle: "{name} · {count} tools",
     },
     composer: {
-      placeholder: "Send a message...",
+      placeholder: "Describe a goal — I’ll turn it into a checklist…",
       buttonSend: "Send message",
       buttonCopy: "Copy",
       buttonRefresh: "Refresh",
@@ -5841,9 +5844,10 @@ export const enUS: TranslationDict = {
     },
     agents: {
       noTools: "No tools",
-      chat: {
-        label: "Chat assistant",
-        description: "Conversation-only agent with no tools; entry point for future multi-agent collab",
+      planToolTag: "Todo tool",
+      plan: {
+        label: "Plan assistant",
+        description: "Builds an execution plan and creates a Knowledge todo list via tool",
       },
       terminal: {
         label: "Terminal agent",
@@ -5898,7 +5902,38 @@ export const enUS: TranslationDict = {
       emptySearch: "No matching context",
     },
     welcome: {
-      title: "How can I help you today?",
+      title: "Turn goals into a checklist",
+      subtitle:
+        "Describe what you need done — I’ll build a checkbox TodoList you can save to Knowledge todos.",
+      suggestions: {
+        weeklyOps: {
+          title: "Weekly ops checklist",
+          prompt:
+            "Create a weekly server ops checklist covering service health, resource usage, and backups.",
+        },
+        envInstall: {
+          title: "Env install plan",
+          prompt:
+            "I need to install and configure Nginx with HTTPS on a new Linux server. Break it into an actionable checklist.",
+        },
+        incident: {
+          title: "Incident triage",
+          prompt:
+            "Our site intermittently returns 502. Give me a triage checklist from symptoms to root cause.",
+        },
+        release: {
+          title: "Release checklist",
+          prompt:
+            "We’re shipping to production. Create a pre-release and rollback-prep checklist.",
+        },
+      },
+    },
+    saveTodo: {
+      button: "Save as todo",
+      tooltip: "Save checkbox list from this reply to Knowledge todos",
+      success: "Saved to Knowledge todos",
+      empty: "No Markdown checklist found (e.g. - [ ] task)",
+      failed: "Failed to save todo list",
     },
     context: {
       placeholder: "Select context…",

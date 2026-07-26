@@ -7,9 +7,12 @@ import { isAgentId } from "../../lib/ai/agents";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
+import { BuiltinToolsSettingsSection } from "./BuiltinToolsSettingsSection";
+import { McpServicesSection } from "./McpServicesSection";
 import { SkillsSection } from "./SkillsSection";
+import { WebSearchSettingsSection } from "./WebSearchSettingsSection";
 
-type AgentTab = "prompts" | "skills";
+type AgentTab = "prompts" | "skills" | "builtin" | "webSearch" | "externalMcp";
 
 function agentLabelKey(id: string): string {
   return isAgentId(id) ? `ai.agents.${id}.label` : "settings.agent.prompts.unknown";
@@ -207,9 +210,9 @@ function PromptsPanel() {
                       <span className="skills-sidebar-item__name">
                         {t(agentLabelKey(entry.id))}
                       </span>
-                      {entry.id === "chat" ? (
+                      {entry.id === "plan" ? (
                         <span className="agent-prompt-sidebar-tag">
-                          {t("ai.agents.noTools")}
+                          {t("ai.agents.planToolTag")}
                         </span>
                       ) : null}
                     </button>
@@ -255,6 +258,9 @@ export function AgentConfigSection() {
           [
             ["prompts", t("settings.agent.tabPrompts")],
             ["skills", t("settings.agent.tabSkills")],
+            ["builtin", t("settings.agent.tabBuiltin")],
+            ["webSearch", t("settings.agent.tabWebSearch")],
+            ["externalMcp", t("settings.agent.tabExternalMcp")],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -272,6 +278,20 @@ export function AgentConfigSection() {
 
       {tab === "prompts" ? <PromptsPanel /> : null}
       {tab === "skills" ? <SkillsSection /> : null}
+      {tab === "builtin" ? <BuiltinToolsSettingsSection /> : null}
+      {tab === "webSearch" ? (
+        <div className="settings-subsection">
+          <WebSearchSettingsSection />
+        </div>
+      ) : null}
+      {tab === "externalMcp" ? (
+        <div className="settings-subsection">
+          <p className="setting-hint settings-subsection-desc">
+            {t("settings.mcpServices.description")}
+          </p>
+          <McpServicesSection contentOnly externalOnly />
+        </div>
+      ) : null}
     </div>
   );
 }

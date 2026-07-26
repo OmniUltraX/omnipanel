@@ -15,6 +15,7 @@ import {
 import { getResolvedAiThread } from "../terminal/aiThreadBridge";
 import { shouldRequireTerminalApproval } from "../terminal/terminalApprovalPolicy";
 import { resolveTerminalApprovalMode } from "../terminal/terminalApprovalSettings";
+import { DOCKER_LOCAL_CONNECTION_ID } from "../docker/constants";
 import { MODULE_PATHS } from "../../lib/paths";
 import {
   buildActiveTasks,
@@ -37,6 +38,76 @@ import {
   type DashboardWorkspaceCard,
 } from "./dashboardModel";
 import { useDashboardStore } from "./useDashboardStore";
+
+/** 首屏 paint 后再拉重数据，避免与 dockview 挂载抢主线程 */
+function scheduleAfterFirstPaint(run: () => void): () => void {
+  let cancelled = false;
+  let idleId: number | null = null;
+  let timeoutId: number | null = null;
+  let raf2 = 0;
+  const start = () => {
+    if (cancelled) return;
+    if (typeof requestIdleCallback === "function") {
+      // timeout 放宽：真正空闲时再跑，避免 1s 内强制打断交互
+      idleId = requestIdleCallback(
+        () => {
+          if (!cancelled) run();
+        },
+        { timeout: 4000 },
+      );
+    } else {
+      timeoutId = window.setTimeout(() => {
+        if (!cancelled) run();
+      }, 300);
+    }
+  };
+  // 双 rAF：等布局/绘制完成后再排队 idle
+  const raf1 = requestAnimationFrame(() => {
+    raf2 = requestAnimationFrame(start);
+  });
+  return () => {
+    cancelled = true;
+    cancelAnimationFrame(raf1);
+    cancelAnimationFrame(raf2);
+    if (idleId != null && typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(idleId);
+    }
+    if (timeoutId != null) window.clearTimeout(timeoutId);
+  };
+}
+
+/** 看板容器区：不走 docker_list_connections（全量 probe 可达数秒） */
+async function resolveDashboardDockerConnectionIds(): Promise<string[]> {
+  const ids: string[] = [];
+
+  try {
+    const localRes = await commands.dockerGetLocalEngineStatus();
+    if (
+      localRes.status === "ok" &&
+      localRes.data.installed &&
+      localRes.data.running
+    ) {
+      ids.push(DOCKER_LOCAL_CONNECTION_ID);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (ids.length >= 2) return ids.slice(0, 2);
+
+  const stored = useConnectionStore
+    .getState()
+    .connections.filter((c) => c.kind === "docker")
+    .map((c) => c.id)
+    .filter((id) => id !== DOCKER_LOCAL_CONNECTION_ID);
+
+  for (const id of stored) {
+    if (ids.length >= 2) break;
+    if (!ids.includes(id)) ids.push(id);
+  }
+
+  return ids;
+}
 
 function resolveToolCallCommand(args: string, command?: string): string {
   const direct = command?.trim();
@@ -133,6 +204,8 @@ export function useDashboardData(): DashboardData {
   }, []);
 
   useEffect(() => {
+    if (moduleSuspended) return;
+
     let cancelled = false;
 
     async function loadStats() {
@@ -162,14 +235,18 @@ export function useDashboardData(): DashboardData {
       );
     }
 
-    if (moduleSuspended) return;
-    void loadStats();
+    const cancelSchedule = scheduleAfterFirstPaint(() => {
+      if (!cancelled) void loadStats();
+    });
     return () => {
       cancelled = true;
+      cancelSchedule();
     };
   }, [connections.length, moduleSuspended]);
 
   useEffect(() => {
+    if (moduleSuspended) return;
+
     let cancelled = false;
 
     async function loadContainers() {
@@ -179,18 +256,9 @@ export function useDashboardData(): DashboardData {
         failureCount: 0,
       });
       try {
-        const connRes = await commands.dockerListConnections();
+        // 避免 docker_list_connections 全量 probe（单连接超时可达 8s）
+        const connectionIds = await resolveDashboardDockerConnectionIds();
         if (cancelled) return;
-        if (connRes.status !== "ok") {
-          useDashboardStore.getState().setContainerSnapshot({
-            containers: [],
-            loading: false,
-            failureCount: 1,
-          });
-          return;
-        }
-
-        const connectionIds = connRes.data.slice(0, 2).map((item) => item.connectionId);
         if (connectionIds.length === 0) {
           useDashboardStore.getState().setContainerSnapshot({
             containers: [],
@@ -229,10 +297,12 @@ export function useDashboardData(): DashboardData {
       }
     }
 
-    if (moduleSuspended) return;
-    void loadContainers();
+    const cancelSchedule = scheduleAfterFirstPaint(() => {
+      if (!cancelled) void loadContainers();
+    });
     return () => {
       cancelled = true;
+      cancelSchedule();
     };
   }, [refreshSignal, moduleSuspended]);
 

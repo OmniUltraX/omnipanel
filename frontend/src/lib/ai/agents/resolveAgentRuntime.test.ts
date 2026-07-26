@@ -2,14 +2,29 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentId, resolveAgentRuntime } from "./resolveAgentRuntime";
 
 describe("resolveAgentRuntime", () => {
-  it("助手页强制 chat 且无工具", () => {
+  it("助手页强制 plan 并仅注入 create_todolist", () => {
     const runtime = resolveAgentRuntime({
       assistantPage: true,
       moduleKey: "terminal",
       conversationAgentId: "database",
     });
-    expect(runtime.agentId).toBe("chat");
-    expect(runtime.toolsMode).toBe("none");
+    expect(runtime.agentId).toBe("plan");
+    expect(runtime.toolsMode).toEqual({
+      directInject: {
+        moduleFilter: "knowledge",
+        toolAllowlist: ["omni_knowledge_create_todolist"],
+      },
+    });
+  });
+
+  it("历史 chat agentId 映射为 plan", () => {
+    expect(
+      resolveAgentId({
+        assistantPage: false,
+        conversationAgentId: "chat",
+        moduleKey: "terminal",
+      }),
+    ).toBe("plan");
   });
 
   it("模块场景绑定对应 Agent 与 moduleFilter", () => {

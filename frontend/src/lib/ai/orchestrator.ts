@@ -28,7 +28,14 @@ export interface InternalChatRequestPayload {
   backendId: string;
   context: AiContextBundle;
   historyJson?: string | null;
-  toolsMode?: "none" | { directInject: { moduleFilter?: string | null } };
+  toolsMode?:
+    | "none"
+    | {
+        directInject: {
+          moduleFilter?: string | null;
+          toolAllowlist?: string[] | null;
+        };
+      };
   httpProvider?: HttpProviderSnapshot | null;
   /** 知识库 RAG 自动注入用的 embedding provider 配置；null 跳过 RAG */
   embeddingProvider?: EmbeddingProviderConfig | null;
@@ -75,6 +82,7 @@ export async function runInternalAiChat(options: RunInternalAiChatOptions): Prom
       : {
           directInject: {
             moduleFilter: options.request.toolsMode.directInject.moduleFilter ?? null,
+            toolAllowlist: options.request.toolsMode.directInject.toolAllowlist ?? null,
           },
         };
 

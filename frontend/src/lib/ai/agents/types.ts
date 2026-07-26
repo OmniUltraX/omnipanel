@@ -2,11 +2,11 @@ import type { ModuleKey } from "../../paths";
 
 /**
  * 逻辑 Agent 标识。
- * - `chat`：AI 助手页专用，纯对话、不注入任何工具（为后续多智能体协作的入口 Agent）
+ * - `plan`：AI 助手页专用，主责制定执行计划并调用 `omni_knowledge_create_todolist`
  * - 其余与模块一一对应，各自独立工具域
  */
 export type AgentId =
-  | "chat"
+  | "plan"
   | Extract<
       ModuleKey,
       | "terminal" // 含原 SSH（已并入终端模块）
@@ -20,14 +20,16 @@ export type AgentId =
       | "server"
     >;
 
-/** 工具策略：chat 永不注入工具；模块 Agent 按 moduleFilter 注入 */
+/** 工具策略 */
 export type AgentToolsPolicy =
   | { kind: "none" }
-  | { kind: "module"; moduleFilter: string };
+  | { kind: "module"; moduleFilter: string }
+  /** 仅注入列出的工具（plan 窄工具面） */
+  | { kind: "allowlist"; toolNames: string[]; moduleFilter?: string };
 
 export interface AgentDefinition {
   id: AgentId;
-  /** i18n key，如 ai.agents.chat */
+  /** i18n key，如 ai.agents.plan */
   labelKey: string;
   /** 简短职责说明 i18n key */
   descriptionKey: string;
@@ -43,9 +45,18 @@ export interface AgentDefinition {
   systemRole: string;
 }
 
+export type AgentToolsMode =
+  | "none"
+  | {
+      directInject: {
+        moduleFilter?: string | null;
+        toolAllowlist?: string[] | null;
+      };
+    };
+
 export type AgentRuntimeConfig = {
   agentId: AgentId;
-  toolsMode: "none" | { directInject: { moduleFilter: string } };
+  toolsMode: AgentToolsMode;
   allowSkills: boolean;
   allowRag: boolean;
   systemRole: string;

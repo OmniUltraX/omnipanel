@@ -23,6 +23,18 @@ use tokio::sync::{oneshot, Mutex};
 use crate::state::AppState;
 use crate::commands::knowledge_vector::{EmbeddingProviderConfig, fetch_provider_embeddings};
 
+fn apply_tool_allowlist(mut defs: Vec<ToolDef>, allowlist: Option<&[String]>) -> Vec<ToolDef> {
+    let Some(names) = allowlist else {
+        return defs;
+    };
+    if names.is_empty() {
+        return defs;
+    }
+    let set: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    defs.retain(|d| set.contains(d.function.name.as_str()));
+    defs
+}
+
 struct RegistryToolExecutor {
     mcp_manager: omnipanel_mcp::SharedMcpManager,
     conversation_id: String,
@@ -181,6 +193,8 @@ pub enum InternalToolsModeDto {
     None,
     DirectInject {
         module_filter: Option<String>,
+        #[serde(default)]
+        tool_allowlist: Option<Vec<String>>,
     },
 }
 
@@ -213,9 +227,13 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
             history,
             tools_mode: match dto.tools_mode {
                 InternalToolsModeDto::None => InternalToolsMode::None,
-                InternalToolsModeDto::DirectInject { module_filter } => {
-                    InternalToolsMode::DirectInject { module_filter }
-                }
+                InternalToolsModeDto::DirectInject {
+                    module_filter,
+                    tool_allowlist,
+                } => InternalToolsMode::DirectInject {
+                    module_filter,
+                    tool_allowlist,
+                },
             },
             http_provider: dto.http_provider.map(|p| HttpProviderSnapshot {
                 provider_id: p.provider_id,
@@ -411,7 +429,7 @@ pub async fn ai_chat_stream(
     let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
     // pure_text 模式跳过 RAG / Skills / Agent 角色注入。
-    // 注意：Skills/RAG 与工具解耦——chat Agent（tools_mode=None）仍可注入上下文。
+    // 注意：Skills/RAG 与工具解耦——plan Agent（tools_mode=None）仍可注入上下文。
     if !internal.pure_text {
         let mut append_parts: Vec<String> = Vec::new();
 
@@ -506,13 +524,17 @@ pub async fn ai_chat_stream(
     let provider = build_http_provider(&state, snapshot).await?;
 
     let (tools, _) = match &internal.tools_mode {
-        InternalToolsMode::DirectInject { module_filter } => {
+        InternalToolsMode::DirectInject {
+            module_filter,
+            tool_allowlist,
+        } => {
             let manager = state.mcp_manager.lock().await;
             let filter = module_filter.as_deref();
             let tool_defs = manager
                 .to_internal_tool_defs(filter)
                 .await
                 .map_err(|e| e.to_string())?;
+            let tool_defs = apply_tool_allowlist(tool_defs, tool_allowlist.as_deref());
             (Some(tool_defs), ())
         }
         InternalToolsMode::None => (None, ()),
@@ -683,18 +705,23 @@ async fn run_acp_internal_turn(
     let is_pure_text = internal.pure_text;
 
     // 有客户端 tools 才进入 client_tools 模式。
-    // tools_mode=None（如 chat Agent）与 pure_text 均不注入工具。
-    // 模块 Agent 使用对应 module_filter，不再默认放大到 master。
+    // tools_mode=None 与 pure_text 均不注入工具。
+    // 模块 Agent 使用对应 module_filter；plan 等可用 tool_allowlist 收窄工具面。
     let client_tool_defs: Vec<ToolDef> = if is_pure_text {
         Vec::new()
     } else {
         match &internal.tools_mode {
-            InternalToolsMode::DirectInject { module_filter } => {
+            InternalToolsMode::DirectInject {
+                module_filter,
+                tool_allowlist,
+            } => {
                 let mcp = state.mcp_manager.lock().await;
                 let filter = module_filter.as_deref();
-                mcp.to_internal_tool_defs(filter)
+                let defs = mcp
+                    .to_internal_tool_defs(filter)
                     .await
-                    .map_err(|e| e.to_string())?
+                    .map_err(|e| e.to_string())?;
+                apply_tool_allowlist(defs, tool_allowlist.as_deref())
             }
             InternalToolsMode::None => Vec::new(),
         }

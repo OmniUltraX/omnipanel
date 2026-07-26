@@ -71,8 +71,8 @@ fn collect_local_gpu_uncached() -> GpuStats {
         }
         #[cfg(windows)]
         {
+            // 仅枚举显卡名称；勿跑 Get-Counter 富集（冷启动可达数秒，拖死看板首屏）
             devices.extend(collect_windows_gpu());
-            enrich_windows_gpu_perf(&mut devices);
         }
         #[cfg(all(not(windows), not(target_os = "macos")))]
         if let Some(out) = run_shell_pipeline(
@@ -80,9 +80,6 @@ fn collect_local_gpu_uncached() -> GpuStats {
         ) {
             devices.extend(parse_intel_lspci_output(&out));
         }
-    } else {
-        #[cfg(windows)]
-        enrich_windows_gpu_perf(&mut devices);
     }
 
     GpuStats { devices }
@@ -302,6 +299,7 @@ fn is_virtual_gpu_name(name: &str) -> bool {
 }
 
 #[cfg(windows)]
+#[allow(dead_code)] // 按需富集 GPU 利用率；首屏路径已跳过以免 Get-Counter 卡顿
 fn enrich_windows_gpu_perf(devices: &mut [GpuDeviceStats]) {
     if devices.is_empty() {
         return;

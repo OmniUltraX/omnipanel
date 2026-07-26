@@ -53,7 +53,6 @@ import { AddModelDialog } from "../../components/settings/AddModelDialog";
 import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { DataBackupSection } from "../../components/settings/DataBackupSection";
 import { ModulesSettingsSection } from "../../components/settings/ModulesSettingsSection";
-import { AiToolsSection } from "../../components/settings/AiToolsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
@@ -78,7 +77,6 @@ type Section =
   | "ai"
   | "agent"
   | "localModels"
-  | "aiTools"
   | "aiServices"
   | "security"
   | "accounts"
@@ -183,15 +181,6 @@ const NAV_GROUPS: NavGroup[] = [
             <path d="M12 8V4H8" />
             <rect x="4" y="8" width="16" height="12" rx="2" />
             <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
-          </svg>
-        ),
-      },
-      {
-        id: "aiTools",
-        label: "工具",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
           </svg>
         ),
       },
@@ -1532,12 +1521,6 @@ export function SettingsPanel() {
         {activeSection === "localModels" && (
           <div className="settings-panel active">
             <LocalModelsSection />
-          </div>
-        )}
-
-        {activeSection === "aiTools" && (
-          <div className="settings-panel active">
-            <AiToolsSection />
           </div>
         )}
 

@@ -4294,18 +4294,14 @@ export const zhCN = {
       moduleSyncHint: "模块未打开时，其下 MCP 工具不可用；打开模块后可单独启用各工具",
       empty: "暂无 MCP 工具",
     },
-    aiTools: {
-      title: "工具",
-      desc: "内置工具、外部 MCP 服务与 Skills，供内部 AI 编排使用。",
-      tabBuiltin: "内置工具",
-      tabExternalMcp: "外部 MCP",
-      tabSkills: "Skills",
-    },
     agent: {
       title: "智能体",
-      desc: "为每个模块 Agent 配置独立提示词，并管理 Skills（保存在 ~/.omnipd）。",
+      desc: "管理模块 Agent 提示词、Skills、内置工具与外部 MCP 服务。",
       tabPrompts: "提示词",
       tabSkills: "Skills",
+      tabBuiltin: "内置工具",
+      tabWebSearch: "Web 搜索",
+      tabExternalMcp: "外部 MCP",
       prompts: {
         list: "提示词列表",
         sidebarTitle: "模块 Agent",
@@ -4355,9 +4351,16 @@ export const zhCN = {
     },
     builtinTools: {
       label: "内置工具",
-      desc: "OmniPanel 原生能力工具。可分别控制「内部可用」（内部编排）与「对外暴露」（OmniMCP 服务器）。",
+      desc: "OmniPanel 原生能力工具。可分别控制「启用」（内部编排）与「开放」（OmniMCP 对外暴露）。",
       internal: "内部可用",
       external: "对外暴露",
+      enable: "启用",
+      expose: "开放",
+      colModule: "模块",
+      colName: "工具名",
+      colDescription: "描述",
+      colActions: "操作",
+      global: "全局工具",
       moduleDesc: "共 {count} 个工具",
       moduleClosedDesc: "模块已关闭或禁用，其内置工具已同步禁用",
       moduleSyncHint: "模块未打开时，其下工具不可内部启用",
@@ -5749,7 +5752,7 @@ export const zhCN = {
       serviceTitle: "{name} · {count} 个工具",
     },
     composer: {
-      placeholder: "发送消息...",
+      placeholder: "描述任务，我来拆成待办清单…",
       buttonSend: "发送消息",
       buttonCopy: "复制",
       buttonRefresh: "重新生成",
@@ -5779,9 +5782,10 @@ export const zhCN = {
     },
     agents: {
       noTools: "无工具",
-      chat: {
-        label: "聊天助手",
-        description: "纯对话 Agent，不调用任何工具；后续多智能体协作的入口",
+      planToolTag: "待办工具",
+      plan: {
+        label: "计划助手",
+        description: "制定执行计划，并调用工具创建知识库待办",
       },
       terminal: {
         label: "终端 Agent",
@@ -5836,7 +5840,33 @@ export const zhCN = {
       emptySearch: "没有匹配的上下文",
     },
     welcome: {
-      title: "今天有什么可以帮你的？",
+      title: "把目标拆成待办清单",
+      subtitle: "描述你要完成的事，我来整理成可勾选的 TodoList，并可保存到知识库待办。",
+      suggestions: {
+        weeklyOps: {
+          title: "本周运维巡检",
+          prompt: "帮我做一份本周服务器运维巡检待办清单，覆盖服务健康、资源占用与备份。",
+        },
+        envInstall: {
+          title: "环境安装清单",
+          prompt: "我要在一台新 Linux 服务器上安装并配置 Nginx + HTTPS，请拆成可执行的待办清单。",
+        },
+        incident: {
+          title: "故障排查步骤",
+          prompt: "线上网站偶发 502，请给出一份从现象到根因的排查待办清单。",
+        },
+        release: {
+          title: "发布检查单",
+          prompt: "应用即将发布到生产环境，请生成发布前检查与回滚准备的待办清单。",
+        },
+      },
+    },
+    saveTodo: {
+      button: "保存为待办",
+      tooltip: "将本条回复中的勾选列表保存到知识库待办",
+      success: "已保存到知识库待办",
+      empty: "未检测到 Markdown 勾选列表（如 - [ ] 任务）",
+      failed: "保存待办失败",
     },
     context: {
       placeholder: "选择上下文…",
