@@ -73,7 +73,7 @@ impl OpenAiProvider {
             .await
     }
 
-    /// 部分上游不接受 enable_thinking / reasoning_effort，400 时去掉后重试一次。
+    /// 部分上游不接受 enable_thinking / reasoning_effort / stream_options，400 时去掉后重试一次。
     async fn post_chat_completions_with_thinking_fallback(
         &self,
         url: &str,
@@ -84,10 +84,14 @@ impl OpenAiProvider {
             .await
             .map_err(|e| format_http_request_error(e, url))?;
 
-        if resp.status().is_success()
-            || resp.status().as_u16() != 400
-            || (body.enable_thinking.is_none() && body.reasoning_effort.is_none())
-        {
+        if resp.status().is_success() || resp.status().as_u16() != 400 {
+            return Ok(resp);
+        }
+
+        let can_strip = body.enable_thinking.is_some()
+            || body.reasoning_effort.is_some()
+            || body.stream_options.is_some();
+        if !can_strip {
             return Ok(resp);
         }
 
@@ -97,14 +101,20 @@ impl OpenAiProvider {
             target: "omni_openai",
             %status,
             error = %err_text,
-            "带思考参数请求被拒绝，去掉 enable_thinking/reasoning_effort 后重试"
+            "请求被拒绝，去掉 enable_thinking/reasoning_effort/stream_options 后重试"
         );
         body.enable_thinking = None;
         body.reasoning_effort = None;
+        body.stream_options = None;
         self.post_chat_completions(url, body)
             .await
             .map_err(|e| format_http_request_error(e, url))
     }
+}
+
+#[derive(Serialize)]
+struct OpenAiStreamOptions {
+    include_usage: bool,
 }
 
 #[derive(Serialize)]
@@ -113,6 +123,9 @@ struct OpenAiRequest {
     messages: Vec<OpenAiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    /// 流式结束时附带 usage（OpenAI / 多数兼容端支持）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<OpenAiStreamOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,7 +178,10 @@ struct OpenAiUsage {
 
 #[derive(Deserialize)]
 struct StreamChunk {
+    #[serde(default)]
     choices: Vec<StreamChoice>,
+    /// 开启 stream_options.include_usage 时，通常在最后一包（choices 为空）附带。
+    usage: Option<OpenAiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -245,6 +261,7 @@ impl AiProvider for OpenAiProvider {
             model: request.model.clone(),
             messages: convert_messages(&request.messages),
             stream: Some(false),
+            stream_options: None,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             tools: request.tools.as_ref().map(|t| convert_tools(t)),
@@ -326,6 +343,9 @@ impl AiProvider for OpenAiProvider {
             model: request.model.clone(),
             messages: convert_messages(&request.messages),
             stream: Some(true),
+            stream_options: Some(OpenAiStreamOptions {
+                include_usage: true,
+            }),
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             tools: request.tools.as_ref().map(|t| convert_tools(t)),
@@ -489,13 +509,20 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
         }
     };
 
-    // StreamChunk 反序列化成功但 choices 为空时，再尝试 plain text。
+    // StreamChunk 反序列化成功但 choices 为空时，先吃 usage，再尝试 plain text。
     if chunk.choices.is_empty() {
+        if let Some(usage) = chunk.usage.as_ref() {
+            events.push(Ok(StreamEvent::Usage {
+                input_tokens: usage.prompt_tokens,
+                output_tokens: usage.completion_tokens,
+            }));
+        }
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
             if push_plain_text_completion(&val, events) {
                 return;
             }
         }
+        return;
     }
 
     for choice in chunk.choices {
@@ -537,6 +564,14 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
                 stop_reason: stop_reason_from_finish(reason),
             }));
         }
+    }
+
+    // 少数端点把 usage 与最后 choice 同包返回。
+    if let Some(usage) = chunk.usage.as_ref() {
+        events.push(Ok(StreamEvent::Usage {
+            input_tokens: usage.prompt_tokens,
+            output_tokens: usage.completion_tokens,
+        }));
     }
 }
 
@@ -609,6 +644,26 @@ mod tests {
         match &events[1] {
             Ok(StreamEvent::ContentDelta { text }) => assert_eq!(text, "答案"),
             other => panic!("expected ContentDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_openai_sse_usage_chunk() {
+        let mut events = Vec::new();
+        parse_sse_line(
+            r#"data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":45}}"#,
+            &mut events,
+        );
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            Ok(StreamEvent::Usage {
+                input_tokens,
+                output_tokens,
+            }) => {
+                assert_eq!(*input_tokens, 120);
+                assert_eq!(*output_tokens, 45);
+            }
+            other => panic!("expected Usage, got {other:?}"),
         }
     }
 }

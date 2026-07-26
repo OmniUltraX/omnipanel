@@ -5821,6 +5821,20 @@ export const enUS: TranslationDict = {
       buttonUpdate: "Update",
       assistantWorking: "Assistant is working",
     },
+    contextUsage: {
+      title: "Context usage",
+      input: "Input",
+      output: "Output",
+      cached: "Cached input",
+      reasoning: "Reasoning",
+      estimatedHint: "Estimated from chat text; real tokens appear after a reply",
+    },
+    timing: {
+      firstToken: "First token",
+      total: "Total",
+      speed: "Speed",
+      chunks: "Chunks",
+    },
     composerContext: {
       add: "Add context",
       attachment: "Add attachment",

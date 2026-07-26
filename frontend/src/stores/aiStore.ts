@@ -37,6 +37,20 @@ export interface AgentMcpConnection {
   toolCount: number;
 }
 
+/** 单次请求的 token 用量（来自上游 Usage 事件） */
+export interface AiTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** 流式性能计时（供 MessageTiming / 状态条） */
+export interface AiMessageTiming {
+  streamStartTime: number;
+  firstTokenTime?: number;
+  totalStreamTime?: number;
+  totalChunks?: number;
+}
+
 export interface AiMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
@@ -50,6 +64,10 @@ export interface AiMessage {
   toolCalls?: ToolCallState[];
   isStreaming?: boolean;
   isReasoningStreaming?: boolean;
+  /** 本条 assistant 回复对应的 token 用量 */
+  usage?: AiTokenUsage;
+  /** 本条流式计时 */
+  timing?: AiMessageTiming;
 }
 
 /** 规范化消息：确保 parts 存在并与兼容字段一致 */

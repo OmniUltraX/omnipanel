@@ -151,7 +151,33 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
       unstable_state: null,
       unstable_annotations: [],
       unstable_data: [],
-      steps: [],
+      steps: msg.usage
+        ? [
+            {
+              messageId: msg.id,
+              usage: {
+                inputTokens: msg.usage.inputTokens,
+                outputTokens: msg.usage.outputTokens,
+              },
+            },
+          ]
+        : [],
+      timing: msg.timing
+        ? {
+            streamStartTime: msg.timing.streamStartTime,
+            firstTokenTime: msg.timing.firstTokenTime,
+            totalStreamTime: msg.timing.totalStreamTime,
+            tokenCount: msg.usage?.outputTokens,
+            tokensPerSecond:
+              msg.timing.totalStreamTime &&
+              msg.timing.totalStreamTime > 0 &&
+              msg.usage?.outputTokens
+                ? (msg.usage.outputTokens / msg.timing.totalStreamTime) * 1000
+                : undefined,
+            totalChunks: msg.timing.totalChunks ?? 0,
+            toolCallCount: msg.toolCalls?.length ?? 0,
+          }
+        : undefined,
     },
   } satisfies ThreadAssistantMessage;
 }

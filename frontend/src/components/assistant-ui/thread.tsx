@@ -17,6 +17,9 @@ import {
   ToolGroupTrigger,
 } from "@/components/assistant-ui/tool-group";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { MessageTiming } from "@/components/assistant-ui/message-timing";
+import { ComposerContextUsage } from "@/components/assistant-ui/composer-context-usage";
+import { AssistantStreamingHint } from "@/components/assistant-ui/streaming-hint";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../../i18n";
@@ -57,13 +60,16 @@ import {
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
+  useState,
   type ComponentType,
   type FC,
   type PropsWithChildren,
 } from "react";
 import { PlanView } from "../ai/PlanView";
 import type { PlanData } from "../../lib/ai/aiMessageParts";
+import { useAiStore } from "../../stores/aiStore";
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
 /** 从 data part 提取 plan 数据；非 plan 返回 null */
@@ -264,6 +270,24 @@ const Composer: FC = () => {
 
 const ComposerAction: FC = () => {
   const { t } = useI18n();
+  const isGenerating = useAiStore((s) => s.isGenerating);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isGenerating) {
+      setStartedAt(null);
+      setElapsedMs(0);
+      return;
+    }
+    const start = performance.now();
+    setStartedAt(start);
+    setElapsedMs(0);
+    const id = window.setInterval(() => {
+      setElapsedMs(performance.now() - start);
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [isGenerating]);
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
@@ -273,6 +297,15 @@ const ComposerAction: FC = () => {
         <AiConversationSkillSelect />
       </div>
       <div className="flex items-center gap-1.5">
+        <ComposerContextUsage />
+        {isGenerating && startedAt != null ? (
+          <span
+            className="aui-composer-generating-elapsed text-muted-foreground hidden font-mono text-[11px] tabular-nums sm:inline"
+            aria-live="polite"
+          >
+            {(elapsedMs / 1000).toFixed(1)}s
+          </span>
+        ) : null}
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
@@ -562,6 +595,7 @@ const AssistantMessage: FC = () => {
             }
           }}
         </MessagePrimitive.GroupedParts>
+        <AssistantStreamingHint />
         <MessageError />
       </div>
 
@@ -599,6 +633,7 @@ const AssistantActionBar: FC = () => {
           <RefreshCwIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Reload>
+      <MessageTiming />
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton

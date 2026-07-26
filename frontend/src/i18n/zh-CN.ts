@@ -5760,6 +5760,20 @@ export const zhCN = {
       buttonUpdate: "更新",
       assistantWorking: "AI 正在思考",
     },
+    contextUsage: {
+      title: "上下文用量",
+      input: "输入",
+      output: "输出",
+      cached: "缓存输入",
+      reasoning: "思考",
+      estimatedHint: "按会话文本粗估；发送后显示真实 Token",
+    },
+    timing: {
+      firstToken: "首字延迟",
+      total: "总耗时",
+      speed: "速度",
+      chunks: "分片数",
+    },
     composerContext: {
       add: "添加上下文",
       attachment: "添加附件",

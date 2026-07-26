@@ -12,7 +12,8 @@ import { respondAcpPermission } from "../../../lib/acp/acpStream";
 import { commands } from "../../../ipc/bindings";
 import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
-import { runInternalAiChat } from "../../../lib/ai/orchestrator";
+import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
+import { createStreamAppendBatcher } from "../../../lib/ai/streamAppendBatcher";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
 import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioModels";
 import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
@@ -127,7 +128,7 @@ function isTerminalClientTool(toolName: string): boolean {
 }
 
 type PermissionEvent = Extract<AcpStreamEvent, { type: "permission_request" }>;
-type StreamEventHandler = AcpStreamEvent;
+type StreamEventHandler = InternalStreamEvent;
 
 function pickAllowOnceOptionId(
   options: PermissionEvent["options"],
@@ -266,6 +267,7 @@ function handleStreamEvent(
     upsertToolCall: (id: string, name: string, args: string) => void;
     updateToolCall: (id: string, status: string, result?: string) => void;
     enqueuePermission: (event: PermissionEvent) => void;
+    onUsage: (inputTokens: number, outputTokens: number) => void;
     finishGeneration: (failed?: boolean) => void;
     setIsGenerating: (v: boolean) => void;
   },
@@ -287,6 +289,9 @@ function handleStreamEvent(
       break;
     case "permission_request":
       handlers.enqueuePermission(event);
+      break;
+    case "usage":
+      handlers.onUsage(event.input_tokens, event.output_tokens);
       break;
     case "error":
       handlers.appendText(`\n\nError: ${event.message}`);
@@ -417,49 +422,90 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     >(undefined);
 
   runGenerationRef.current = async (convId, assistantMsgId, userText, inline) => {
-    const appendText = (chunk: string) => {
-      if (inline?.assistantTurnId) {
-        touchInlineAiDelta(inline.blockId);
-        const block = useBlocksStore.getState().findBlockById(inline.blockId);
-        if (block && (block.status !== "running" || block.aiStalled)) {
-          useBlocksStore.getState().updateBlock(inline.blockId, {
-            status: "running",
-            exitCode: null,
-            aiStalled: false,
-          });
-        }
-        appendInlineAiStreamChunk(
-          inline.blockId,
-          inline.assistantTurnId,
-          "content",
-          chunk,
-        );
-      } else if (assistantMsgId) {
-        appendStreamContent(convId, assistantMsgId, chunk);
+    const streamStartedAt = performance.now();
+    let firstTokenAt: number | undefined;
+    let totalChunks = 0;
+    let latestUsage: { inputTokens: number; outputTokens: number } | undefined;
+
+    const markFirstToken = () => {
+      if (firstTokenAt === undefined) {
+        firstTokenAt = performance.now();
       }
     };
 
-    const appendReasoning = (chunk: string) => {
-      if (inline?.assistantTurnId) {
-        touchInlineAiDelta(inline.blockId);
-        const block = useBlocksStore.getState().findBlockById(inline.blockId);
-        if (block && (block.status !== "running" || block.aiStalled)) {
-          useBlocksStore.getState().updateBlock(inline.blockId, {
-            status: "running",
-            exitCode: null,
-            aiStalled: false,
-          });
+    const flushBatched = (contentChunk: string, reasoningChunk: string) => {
+      if (contentChunk) {
+        markFirstToken();
+        totalChunks += 1;
+        if (inline?.assistantTurnId) {
+          touchInlineAiDelta(inline.blockId);
+          const block = useBlocksStore.getState().findBlockById(inline.blockId);
+          if (block && (block.status !== "running" || block.aiStalled)) {
+            useBlocksStore.getState().updateBlock(inline.blockId, {
+              status: "running",
+              exitCode: null,
+              aiStalled: false,
+            });
+          }
+          appendInlineAiStreamChunk(
+            inline.blockId,
+            inline.assistantTurnId,
+            "content",
+            contentChunk,
+          );
+        } else if (assistantMsgId) {
+          appendStreamContent(convId, assistantMsgId, contentChunk);
         }
-        appendInlineAiStreamChunk(
-          inline.blockId,
-          inline.assistantTurnId,
-          "reasoning",
-          chunk,
-        );
-      } else if (assistantMsgId) {
-        appendStreamReasoning(convId, assistantMsgId, chunk);
+      }
+      if (reasoningChunk) {
+        markFirstToken();
+        totalChunks += 1;
+        if (inline?.assistantTurnId) {
+          touchInlineAiDelta(inline.blockId);
+          const block = useBlocksStore.getState().findBlockById(inline.blockId);
+          if (block && (block.status !== "running" || block.aiStalled)) {
+            useBlocksStore.getState().updateBlock(inline.blockId, {
+              status: "running",
+              exitCode: null,
+              aiStalled: false,
+            });
+          }
+          appendInlineAiStreamChunk(
+            inline.blockId,
+            inline.assistantTurnId,
+            "reasoning",
+            reasoningChunk,
+          );
+        } else if (assistantMsgId) {
+          appendStreamReasoning(convId, assistantMsgId, reasoningChunk);
+        }
       }
     };
+
+    const batcher = createStreamAppendBatcher(flushBatched);
+
+    const appendText = (chunk: string) => {
+      batcher.appendContent(chunk);
+    };
+
+    const appendReasoning = (chunk: string) => {
+      batcher.appendReasoning(chunk);
+    };
+
+    const onUsage = (inputTokens: number, outputTokens: number) => {
+      latestUsage = { inputTokens, outputTokens };
+      if (assistantMsgId) {
+        updateMessage(convId, assistantMsgId, {
+          usage: { inputTokens, outputTokens },
+        });
+      }
+    };
+
+    if (assistantMsgId) {
+      updateMessage(convId, assistantMsgId, {
+        timing: { streamStartTime: streamStartedAt, totalChunks: 0 },
+      });
+    }
 
     const aiContext = buildAiContext(inline);
     // 显式芯片已写入本次请求上下文，发送后清空（与附件行为一致）。
@@ -699,6 +745,24 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     }
 
     const finishGeneration = (failed = false, aborted = false) => {
+      batcher.flushNow();
+      const finishedAt = performance.now();
+      if (assistantMsgId) {
+        updateMessage(convId, assistantMsgId, {
+          isStreaming: false,
+          isReasoningStreaming: false,
+          ...(latestUsage ? { usage: latestUsage } : {}),
+          timing: {
+            streamStartTime: streamStartedAt,
+            firstTokenTime:
+              firstTokenAt !== undefined
+                ? Math.max(0, firstTokenAt - streamStartedAt)
+                : undefined,
+            totalStreamTime: Math.max(0, finishedAt - streamStartedAt),
+            totalChunks,
+          },
+        });
+      }
       if (inline) {
         flushInlineAiStream(inline.blockId, inline.assistantTurnId);
         if (aborted) {
@@ -706,11 +770,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         } else {
           finalizeInlineBlock(inline, { failed });
         }
-      } else if (assistantMsgId) {
-        updateMessage(convId, assistantMsgId, {
-          isStreaming: false,
-          isReasoningStreaming: false,
-        });
       }
     };
 
@@ -752,6 +811,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                 upsertToolCall,
                 updateToolCall,
                 enqueuePermission,
+                onUsage,
                 finishGeneration,
                 setIsGenerating,
               },
@@ -762,6 +822,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         });
       finishGeneration();
     } catch (err) {
+      batcher.flushNow();
       if (inline) {
         flushInlineAiStream(inline.blockId, inline.assistantTurnId);
       }
@@ -770,6 +831,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       } else {
         const message = errorToString(err);
         appendText(`\n\nError: ${message}`);
+        batcher.flushNow();
         if (inline && !inlineHasAssistantContent(inline.blockId)) {
           pushAssistantErrorMessage(inline.blockId, message || "AI 请求失败");
         }
@@ -870,10 +932,51 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   };
 
   const onNewRef = useRef<(message: AppendMessage) => Promise<void>>(undefined);
+  const onEditRef = useRef<(message: AppendMessage) => Promise<void>>(undefined);
   const onReloadRef = useRef<(parentId: string | null) => Promise<void>>(undefined);
 
   onNewRef.current = async (msg) => {
     await runUserPromptRef.current!(extractUserContent(msg));
+  };
+
+  /**
+   * 编辑用户消息：截断到被编辑消息之前，再以新内容重新生成。
+   * assistant-ui ExternalStore 必须提供 onEdit，否则点击编辑会抛
+   * "Runtime does not support editing."
+   */
+  onEditRef.current = async (message) => {
+    const text = extractUserContent(message);
+    if (!text.trim()) return;
+
+    const convId = useAiStore.getState().activeConversationId;
+    if (!convId) return;
+
+    if (useAiStore.getState().isGenerating) {
+      abortRef.current?.abort();
+      void commands.aiChatCancel(convId).catch(() => {});
+      setIsGenerating(false);
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
+    if (!conv) return;
+
+    let keepCount = 0;
+    if (message.sourceId) {
+      const sourceIdx = conv.messages.findIndex((m) => m.id === message.sourceId);
+      if (sourceIdx >= 0) {
+        keepCount = sourceIdx;
+      } else if (message.parentId) {
+        const parentIdx = conv.messages.findIndex((m) => m.id === message.parentId);
+        keepCount = parentIdx >= 0 ? parentIdx + 1 : 0;
+      }
+    } else if (message.parentId) {
+      const parentIdx = conv.messages.findIndex((m) => m.id === message.parentId);
+      keepCount = parentIdx >= 0 ? parentIdx + 1 : 0;
+    }
+
+    replaceConversationMessages(convId, conv.messages.slice(0, keepCount));
+    await runUserPromptRef.current!(text);
   };
 
   onReloadRef.current = async (parentId) => {
@@ -931,6 +1034,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       messages: threadMessages.length > 0 ? threadMessages : EMPTY_MESSAGE_LIST,
       isRunning: isGenerating,
       onNew: (msg) => onNewRef.current!(msg),
+      onEdit: (msg) => onEditRef.current!(msg),
       setMessages: handleSetMessages,
       onReload: (parentId) => onReloadRef.current!(parentId),
       onCancel: handleCancel,

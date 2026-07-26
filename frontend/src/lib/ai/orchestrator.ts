@@ -6,7 +6,10 @@ import { isTauriRuntime } from "../isTauriRuntime";
 
 import type { HttpProviderSnapshot } from "./inferenceBackend";
 
-export type InternalStreamEvent = AcpStreamEvent;
+/** 内部聊天流事件：在 Acp 事件基础上补齐 Usage（ai_chat_stream 直传 StreamEvent） */
+export type InternalStreamEvent =
+  | AcpStreamEvent
+  | { type: "usage"; input_tokens: number; output_tokens: number };
 
 export interface AiContextBundle {
   cwd?: string | null;
