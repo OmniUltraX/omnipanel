@@ -716,13 +716,13 @@ export const useAiStore = create<AiStore>()(
         if (version < 3) {
           next = { ...next, reasoningEffort: "default" };
         }
-        // v4：会话绑定逻辑 Agent；历史会话默认 plan（助手无工具）
+        // v4：会话绑定逻辑 Agent；历史会话默认助手页 Agent（当前为 run）
         if (version < 4 && Array.isArray(next.conversations)) {
           next = {
             ...next,
             conversations: next.conversations.map((c) => {
               if (isAgentId(c.agentId)) return c;
-              // 从终端提升的会话归 terminal Agent，其余归 plan
+              // 从终端提升的会话归 terminal Agent，其余归助手页默认
               const inferred: AgentId = c.sourceBlockId || c.linkedTerminalSessionId
                 ? "terminal"
                 : ASSISTANT_PAGE_AGENT_ID;
@@ -765,6 +765,8 @@ export const useAiStore = create<AiStore>()(
         conversationListOpen: state.conversationListOpen,
         conversationListPlacement: state.conversationListPlacement,
         conversationListWidth: state.conversationListWidth,
+        /** AI 侧栏/Dock 开关：重启后保持 */
+        drawerOpen: state.drawerOpen,
       }),
     }
   )
