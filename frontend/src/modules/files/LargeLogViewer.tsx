@@ -5,6 +5,7 @@ import { fmtError, formatFileSize } from "./utils";
 import {
   openLogSession,
   readLogLines,
+  readLogTailInitial,
   searchLog,
   startLogTail,
   stopLogTail,
@@ -135,12 +136,37 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
         const est = info.totalLines ?? 0;
         setTotalLines(est);
         maxLineNoRef.current = est;
-        // 默认滚到末尾：拉最后一个 chunk
-        if (est > 0) {
-          const lastChunkStart = Math.max(1, est - CHUNK_SIZE + 1);
-          // 对齐到 CHUNK_SIZE 边界
-          const aligned = Math.floor((est - 1) / CHUNK_SIZE) * CHUNK_SIZE + 1;
-          void ensureChunk(aligned || lastChunkStart);
+        // 默认滚到末尾：用 tail -n N 直接读末尾（12ms vs sed 370ms @ 1GB）
+        // 不走 ensureChunk（sed -n 'X,Yp' 会扫描到 Y 行）
+        const tailN = Math.min(CHUNK_SIZE, est || CHUNK_SIZE);
+        try {
+          const lines = await readLogTailInitial(sshId, path, tailN, info.totalLines ?? null);
+          if (cancelled) return;
+          if (lines.length > 0) {
+            // 标记末尾 chunk 已加载，避免虚拟滚动重复触发 ensureChunk
+            const firstLine = lines[0]!.lineNo;
+            const lastLine = lines[lines.length - 1]!.lineNo;
+            const chunkStart = Math.floor((firstLine - 1) / CHUNK_SIZE) * CHUNK_SIZE + 1;
+            for (const l of lines) {
+              linesRef.current.set(l.lineNo, l.text);
+              if (l.lineNo > maxLineNoRef.current) maxLineNoRef.current = l.lineNo;
+            }
+            loadedChunksRef.current.add(String(chunkStart));
+            chunkLruRef.current.push(String(chunkStart));
+            // 如果末尾行跨了两个 chunk，也标记第二个
+            const lastChunkStart = Math.floor((lastLine - 1) / CHUNK_SIZE) * CHUNK_SIZE + 1;
+            if (lastChunkStart !== chunkStart) {
+              loadedChunksRef.current.add(String(lastChunkStart));
+              chunkLruRef.current.push(String(lastChunkStart));
+            }
+            // 如果 totalLines 为 null（wc -l 超时/失败），用 tail 返回的行号推算
+            if (!info.totalLines) {
+              setTotalLines(maxLineNoRef.current);
+            }
+            bump();
+          }
+        } catch (e) {
+          if (!cancelled) setError(fmtError(e));
         }
         setLoading(false);
       } catch (e) {
@@ -153,7 +179,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
     return () => {
       cancelled = true;
     };
-  }, [sshId, path, ensureChunk]);
+  }, [sshId, path, bump]);
 
   // ---------- 跟踪停止 cleanup ----------
   useEffect(() => {

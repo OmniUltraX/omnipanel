@@ -3575,6 +3575,7 @@ export const enUS: TranslationDict = {
       execTitle: "Container shell",
       execUnsupported: "Interactive exec is not available for this connection source (e.g. 1Panel).",
       execStopped: "Container is not running. Start it to open a shell.",
+      filesStopped: "Container is not running. Start it to browse files.",
       notFound: "Container not found. It may have been removed.",
     },
     containersPanel: {

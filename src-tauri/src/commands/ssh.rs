@@ -2228,17 +2228,21 @@ pub async fn sftp_log_open(
     .unwrap_or(0);
 
     // total_lines：wc -l < file（不读最后一行无 \n 的情况，但作为预估够用）
+    // 加 3s 超时保护，避免 GB 级文件或慢磁盘卡住首屏（超时返回 None，前端用 tail 推算）
     let wc_cmd = format!("wc -l < {}", shell_quote_single(&path));
-    let total_lines = {
+    let wc_fut = async {
         let sessions = state.ssh_sessions.lock().await;
         if let Some(session) = sessions.get(&id) {
-            session.exec_command(&wc_cmd).await.ok()
+            session.exec_command(&wc_cmd).await
         } else {
             drop(sessions);
-            pool_session(&state, &id).await?.exec_command(&wc_cmd).await.ok()
+            pool_session(&state, &id).await?.exec_command(&wc_cmd).await
         }
-    }
-    .and_then(|s| s.trim().parse::<u64>().ok());
+    };
+    let total_lines = match tokio::time::timeout(std::time::Duration::from_secs(3), wc_fut).await {
+        Ok(Ok(s)) => s.trim().parse::<u64>().ok(),
+        _ => None, // 超时或错误：返回 None，前端用 tail 行号兜底
+    };
 
     Ok(LogSessionInfo { size_bytes: size, total_lines })
 }
@@ -2296,6 +2300,59 @@ pub async fn sftp_log_read_lines(
         })
         .collect();
     Ok(lines)
+}
+
+/// 读取文件末尾 N 行（用 tail -n N，O(N) 反向 seek，不扫描整个文件）。
+/// 用于大日志文件打开时的首屏末尾预览，比 sed -n 'X,Yp' 快 30x。
+/// 行号推算：如果有 totalLinesHint，从 (hint - N + 1) 开始；否则从 1 开始。
+#[tauri::command]
+#[specta::specta]
+pub async fn sftp_log_tail_initial(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+    n_lines: u32,
+    total_lines_hint: Option<u64>,
+) -> Result<Vec<LogLine>, OmniError> {
+    const MAX_N: u32 = 5_000;
+    let n = n_lines.min(MAX_N).max(1);
+
+    let cmd = format!("tail -n {n} {}", shell_quote_single(&path));
+
+    let output = {
+        let sessions = state.ssh_sessions.lock().await;
+        if let Some(session) = sessions.get(&id) {
+            session.exec_capture(&cmd).await?
+        } else {
+            drop(sessions);
+            pool_session(&state, &id).await?.exec_capture(&cmd).await?
+        }
+    };
+
+    if output.exit_code != 0 {
+        return Err(OmniError::new(ErrorCode::Ssh, "读取日志末尾失败")
+            .with_cause(output.stderr.trim().to_string()));
+    }
+
+    let stdout = output.stdout.replace("\r\n", "\n");
+    let trimmed = stdout.strip_suffix('\n').unwrap_or(&stdout);
+    let lines: Vec<&str> = if trimmed.is_empty() { Vec::new() } else { trimmed.split('\n').collect() };
+
+    // 推算起始行号
+    let start_line: u64 = match total_lines_hint {
+        Some(hint) => hint.saturating_sub(lines.len() as u64).saturating_add(1).max(1),
+        None => 1,
+    };
+
+    let result: Vec<LogLine> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, text)| LogLine {
+            line_no: start_line + i as u64,
+            text: text.to_string(),
+        })
+        .collect();
+    Ok(result)
 }
 
 /// 搜索日志（grep -n），返回命中行列表。

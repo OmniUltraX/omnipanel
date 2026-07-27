@@ -89,8 +89,12 @@ fn append_line(buf: &mut String, line: &str) {
     }
 }
 
-fn configure_no_window(cmd: &mut tokio::process::Command) {
-    // Windows GUI 宿主进程必须隐藏控制台窗口，否则 docker.exe 可能一直挂起
+/// 配置子进程不弹出控制台窗口。
+///
+/// Windows GUI 宿主进程调用 docker.exe / cmd.exe 等命令行程序时，默认会创建一个
+/// 新控制台窗口，导致 UI 闪烁；`CREATE_NO_WINDOW` 标志可避免此问题，同时还能
+/// 防止某些 docker CLI 在 GUI 进程下挂起。
+pub(crate) fn configure_no_window(cmd: &mut tokio::process::Command) {
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
