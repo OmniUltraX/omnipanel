@@ -2,40 +2,32 @@ import { commands } from "../../ipc/bindings";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 
 const FLUSH_INTERVAL_MS = 5000;
-const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v1";
+const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v2";
 
 type NextIdState = {
-  /** yyyyMMdd */
-  date: string;
+  /** 会话 id（conversation / session） */
+  sessionId: string;
   /** 下一个要写入的文件编号 */
   nextId: number;
 };
 
-function todayYmd(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}${m}${day}`;
-}
-
-function loadNextIdState(): NextIdState {
-  const today = todayYmd();
+function loadNextIdState(sessionId: string): NextIdState {
   try {
     const raw = localStorage.getItem(NEXT_ID_STORAGE_KEY);
-    if (!raw) return { date: today, nextId: 0 };
+    if (!raw) return { sessionId, nextId: 0 };
     const parsed = JSON.parse(raw) as Partial<NextIdState>;
-    const date = typeof parsed.date === "string" ? parsed.date : today;
+    const storedSession =
+      typeof parsed.sessionId === "string" ? parsed.sessionId : "";
     const nextId =
       typeof parsed.nextId === "number" && Number.isFinite(parsed.nextId) && parsed.nextId >= 0
         ? Math.floor(parsed.nextId)
         : 0;
-    if (date !== today) {
-      return { date: today, nextId: 0 };
+    if (storedSession !== sessionId) {
+      return { sessionId, nextId: 0 };
     }
-    return { date, nextId };
+    return { sessionId, nextId };
   } catch {
-    return { date: today, nextId: 0 };
+    return { sessionId, nextId: 0 };
   }
 }
 
@@ -47,10 +39,10 @@ function saveNextIdState(state: NextIdState): void {
   }
 }
 
-function allocateNextFileId(): number {
-  const state = loadNextIdState();
+function allocateNextFileId(sessionId: string): number {
+  const state = loadNextIdState(sessionId);
   const id = state.nextId;
-  saveNextIdState({ date: state.date, nextId: id + 1 });
+  saveNextIdState({ sessionId, nextId: id + 1 });
   return id;
 }
 
@@ -60,15 +52,24 @@ function joinPath(root: string, ...parts: string[]): string {
   return [trimmedRoot, ...parts.map((p) => p.replace(/^[/\\]+|[/\\]+$/g, ""))].join(sep);
 }
 
+/** 避免 sessionId 含路径分隔符导致目录逃逸。 */
+function sanitizeSessionDir(sessionId: string): string {
+  const cleaned = sessionId.trim().replace(/[/\\]+/g, "_");
+  return cleaned || "unknown-session";
+}
+
 class ChatOssSession {
   private buffer = "";
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushChain: Promise<void> = Promise.resolve();
+  private readonly sessionDir: string;
 
   constructor(
     private readonly ossPath: string,
     private readonly conversationId: string,
-  ) {}
+  ) {
+    this.sessionDir = sanitizeSessionDir(conversationId);
+  }
 
   start(): void {
     if (this.timer) return;
@@ -92,14 +93,8 @@ class ChatOssSession {
     if (!content) return;
     this.buffer = "";
 
-    const date = todayYmd();
-    // 跨日时重置编号
-    const idState = loadNextIdState();
-    if (idState.date !== date) {
-      saveNextIdState({ date, nextId: 0 });
-    }
-    const fileId = allocateNextFileId();
-    const path = joinPath(this.ossPath, date, `${fileId}.txt`);
+    const fileId = allocateNextFileId(this.sessionDir);
+    const path = joinPath(this.ossPath, this.sessionDir, `${fileId}.txt`);
     const payload = [
       `# conversation=${this.conversationId}`,
       `# written_at=${new Date().toISOString()}`,

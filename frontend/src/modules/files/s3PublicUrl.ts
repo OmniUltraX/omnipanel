@@ -60,6 +60,10 @@ function stripVirtualHostedBucketHost(host: string, bucket: string): string {
   if (restL.startsWith("cos.") && restL.includes("myqcloud.com")) {
     return rest;
   }
+  // 七牛 Kodo S3：*.s3.*.qiniucs.com
+  if (restL.startsWith("s3.") && restL.includes("qiniucs.com")) {
+    return rest;
+  }
   return host;
 }
 

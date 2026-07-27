@@ -32,7 +32,7 @@ describe("chatOssRecorder", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(commands.writeTextFile).toHaveBeenCalledTimes(1);
     const [path, contents] = vi.mocked(commands.writeTextFile).mock.calls[0]!;
-    expect(path.replace(/\\/g, "/")).toMatch(/D:\/oss-chat\/\d{8}\/0\.txt$/);
+    expect(path.replace(/\\/g, "/")).toMatch(/D:\/oss-chat\/conv-1\/0\.txt$/);
     expect(contents).toContain("hello");
     expect(contents).toContain("conversation=conv-1");
 
@@ -51,7 +51,8 @@ describe("chatOssRecorder", () => {
     appendChatOssChunk("tail");
     await stopChatOssRecording();
     expect(commands.writeTextFile).toHaveBeenCalledTimes(1);
-    const [, contents] = vi.mocked(commands.writeTextFile).mock.calls[0]!;
+    const [path, contents] = vi.mocked(commands.writeTextFile).mock.calls[0]!;
+    expect(path.replace(/\\/g, "/")).toMatch(/D:\/oss-chat\/conv-2\/0\.txt$/);
     expect(contents).toContain("tail");
   });
 });

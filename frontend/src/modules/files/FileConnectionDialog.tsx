@@ -8,6 +8,14 @@ import { commands, type Connection } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { saveFileConnection } from "./fileApi";
 import { normalizeS3ApiEndpoint } from "./s3PublicUrl";
+import {
+  defaultS3Endpoint,
+  defaultS3Region,
+  resolveS3Provider,
+  s3EndpointPlaceholder,
+  s3RegionPlaceholder,
+  type S3Provider,
+} from "./s3Provider";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 
@@ -21,6 +29,8 @@ export type FileConfigJson = {
   rootPath?: string;
   tls?: boolean;
   sshConnectionId?: string;
+  /** aws | aliyun | tencent；缺省按 aws */
+  provider?: S3Provider;
   bucket?: string;
   region?: string;
   endpoint?: string;
@@ -52,8 +62,9 @@ const EMPTY = {
   rootPath: "/",
   tls: false,
   sshConnectionId: "",
+  provider: "aliyun" as S3Provider,
   bucket: "",
-  region: "us-east-1",
+  region: defaultS3Region("aliyun"),
   endpoint: "",
   publicDomain: "",
   prefix: "",
@@ -64,6 +75,7 @@ function parseConfig(conn?: Connection): typeof EMPTY {
   if (!conn) return { ...EMPTY };
   try {
     const cfg = JSON.parse(conn.config || "{}") as FileConfigJson;
+    const provider = resolveS3Provider(cfg);
     return {
       name: conn.name,
       protocol: (cfg.protocol as FileProtocol) || "ftp",
@@ -74,8 +86,9 @@ function parseConfig(conn?: Connection): typeof EMPTY {
       rootPath: cfg.rootPath ?? "/",
       tls: cfg.tls ?? false,
       sshConnectionId: cfg.sshConnectionId ?? "",
+      provider,
       bucket: cfg.bucket ?? "",
-      region: cfg.region ?? "us-east-1",
+      region: cfg.region ?? defaultS3Region(provider),
       endpoint: cfg.endpoint ?? "",
       publicDomain: cfg.publicDomain ?? "",
       prefix: cfg.prefix ?? "",
@@ -105,10 +118,16 @@ function buildConnection(
     cfg.sshConnectionId = form.sshConnectionId;
   }
   if (form.protocol === "s3") {
+    const provider = resolveS3Provider({
+      provider: form.provider,
+      endpoint: form.endpoint,
+    });
+    cfg.provider = provider;
     cfg.bucket = form.bucket.trim();
-    cfg.region = form.region.trim();
+    cfg.region = form.region.trim() || defaultS3Region(provider);
+    const endpointRaw = form.endpoint.trim() || defaultS3Endpoint(provider, cfg.region);
     // 去掉虚拟主机里的 bucket 子域，避免改桶后仍打到旧 endpoint
-    cfg.endpoint = normalizeS3ApiEndpoint(form.endpoint.trim(), cfg.bucket);
+    cfg.endpoint = normalizeS3ApiEndpoint(endpointRaw, cfg.bucket);
     cfg.publicDomain = form.publicDomain.trim();
     cfg.prefix = form.prefix.trim();
     cfg.accessKey = form.accessKey.trim();
@@ -167,11 +186,14 @@ export function FileConnectionDialog({
       setTags(userConnectionTags(editConnection.tags));
     } else {
       const protocol = initialProtocol ?? "ftp";
+      const provider: S3Provider = "aliyun";
       setForm({
         ...EMPTY,
         protocol,
         port: defaultPortForProtocol(protocol),
         sshConnectionId: (protocol === "sftp" && initialSshConnectionId) ? initialSshConnectionId : "",
+        provider,
+        region: protocol === "s3" ? defaultS3Region(provider) : EMPTY.region,
       });
       setTags([]);
     }
@@ -185,6 +207,29 @@ export function FileConnectionDialog({
     setError(null);
     setSuccessMsg(null);
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const setProvider = (provider: S3Provider) => {
+    setError(null);
+    setSuccessMsg(null);
+    setForm((prev) => {
+      const prevDefaultRegion = defaultS3Region(prev.provider);
+      const nextRegion =
+        !prev.region.trim() || prev.region === prevDefaultRegion
+          ? defaultS3Region(provider)
+          : prev.region;
+      const prevDefaultEndpoint = defaultS3Endpoint(prev.provider, prev.region || prevDefaultRegion);
+      const nextEndpoint =
+        !prev.endpoint.trim() || prev.endpoint === prevDefaultEndpoint
+          ? ""
+          : prev.endpoint;
+      return {
+        ...prev,
+        provider,
+        region: nextRegion,
+        endpoint: nextEndpoint,
+      };
+    });
   };
 
   const validate = (): string | null => {
@@ -293,7 +338,25 @@ export function FileConnectionDialog({
         <label className="form-label">{t("files.dialog.type")}</label>
         <Select
           value={form.protocol}
-          onChange={(v) => update("protocol", v as FileProtocol)}
+          onChange={(v) => {
+            const protocol = v as FileProtocol;
+            setError(null);
+            setSuccessMsg(null);
+            setForm((prev) => {
+              const provider = prev.provider || "aliyun";
+              return {
+                ...prev,
+                protocol,
+                port: defaultPortForProtocol(protocol),
+                ...(protocol === "s3"
+                  ? {
+                      provider,
+                      region: prev.region.trim() || defaultS3Region(provider),
+                    }
+                  : {}),
+              };
+            });
+          }}
           options={[
             { value: "local", label: t("files.protocol.local") },
             { value: "ftp", label: "FTP" },
@@ -361,17 +424,42 @@ export function FileConnectionDialog({
       {showS3 && (
         <>
           <div className="form-field">
+            <label className="form-label">{t("files.dialog.provider")}</label>
+            <Select
+              value={form.provider}
+              onChange={(v) => setProvider(v as S3Provider)}
+              options={[
+                { value: "aliyun", label: t("files.dialog.providerAliyun") },
+                { value: "qiniu", label: t("files.dialog.providerQiniu") },
+                { value: "tencent", label: t("files.dialog.providerTencent") },
+                { value: "aws", label: t("files.dialog.providerAws") },
+              ]}
+              style={{ width: "100%" }}
+            />
+            <p className="form-field-hint">{t("files.dialog.providerHint")}</p>
+          </div>
+          <div className="form-field">
             <label className="form-label">{t("files.dialog.bucket")}</label>
             <TextInput value={form.bucket} onChange={(value) => update("bucket", value)} style={{ width: "100%" }} />
           </div>
           <div className="form-row">
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">{t("files.dialog.region")}</label>
-              <TextInput value={form.region} onChange={(value) => update("region", value)} style={{ width: "100%" }} />
+              <TextInput
+                value={form.region}
+                onChange={(value) => update("region", value)}
+                placeholder={s3RegionPlaceholder(form.provider)}
+                style={{ width: "100%" }}
+              />
             </div>
             <div className="form-field" style={{ flex: 1 }}>
               <label className="form-label">{t("files.dialog.endpoint")}</label>
-              <TextInput value={form.endpoint} onChange={(value) => update("endpoint", value)} style={{ width: "100%" }} />
+              <TextInput
+                value={form.endpoint}
+                onChange={(value) => update("endpoint", value)}
+                placeholder={s3EndpointPlaceholder(form.provider)}
+                style={{ width: "100%" }}
+              />
             </div>
           </div>
           <div className="form-field">
