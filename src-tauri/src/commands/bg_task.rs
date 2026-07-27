@@ -25,6 +25,38 @@ pub async fn bg_task_list(state: State<'_, AppState>) -> Result<Vec<BackgroundTa
     Ok(state.worker_pool.list_running().await)
 }
 
+/// 列出被动任务终态历史（SQLite，按结束时间倒序）。
+#[tauri::command]
+#[specta::specta]
+pub async fn bg_task_history_list(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+) -> Result<Vec<omnipanel_store::BgTaskHistoryRecord>, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.list_bg_task_history(limit.unwrap_or(200))
+}
+
+/// 按条件列出任务中心事件索引。
+#[tauri::command]
+#[specta::specta]
+pub async fn task_events_list(
+    state: State<'_, AppState>,
+    module: Option<String>,
+    workspace_id: Option<String>,
+    resource_id: Option<String>,
+    source: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<omnipanel_store::TaskEventRecord>, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.list_task_events(&omnipanel_store::TaskEventFilter {
+        module,
+        workspace_id,
+        resource_id,
+        source,
+        limit: limit.unwrap_or(200),
+    })
+}
+
 /// 取消后台任务。
 #[tauri::command]
 #[specta::specta]

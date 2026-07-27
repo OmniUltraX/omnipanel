@@ -110,6 +110,10 @@ export const commands = {
 	poolGetSummary: () => typedError<PoolSummary, OmniError_Serialize>(__TAURI_INVOKE("pool_get_summary")),
 	/**  列出当前正在运行的后台任务。 */
 	bgTaskList: () => typedError<BackgroundTaskInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_list")),
+	/**  列出被动任务终态历史（SQLite，按结束时间倒序）。 */
+	bgTaskHistoryList: (limit: number | null) => typedError<BgTaskHistoryRecord[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_history_list", { limit })),
+	/**  按条件列出任务中心事件索引。 */
+	taskEventsList: (module: string | null, workspaceId: string | null, resourceId: string | null, source: string | null, limit: number | null) => typedError<TaskEventRecord[], OmniError_Serialize>(__TAURI_INVOKE("task_events_list", { module, workspaceId, resourceId, source, limit })),
 	/**  取消后台任务。 */
 	bgTaskCancel: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("bg_task_cancel", { id })),
 	/**  提交数据库数据同步对比分析后台任务。 */
@@ -1185,6 +1189,39 @@ export type BackendInfo = {
 };
 
 export type BackgroundTaskInfo = BackgroundTaskInfo_Serialize | BackgroundTaskInfo_Deserialize;
+
+export type BgTaskHistoryRecord = {
+	id: string,
+	module: string,
+	kind: string,
+	title: string,
+	progress: string,
+	/**  pending/running/completed/failed/cancelled */
+	status: string,
+	index: number,
+	total: number,
+	rowCompleted: number | null,
+	rowTotal: number | null,
+	startedAt: number,
+	finishedAt?: number | null,
+	error?: string | null,
+};
+
+export type TaskEventRecord = {
+	id: string,
+	/**  bg_task | workflow | loop | approval | other */
+	source: string,
+	refId: string,
+	module: string,
+	workspaceId: string | null,
+	resourceId: string | null,
+	title: string,
+	status: string,
+	envTag: string,
+	risk: string,
+	ts: number,
+	detail: string,
+};
 
 export type BackgroundTaskInfo_Deserialize = {
 	id: string,

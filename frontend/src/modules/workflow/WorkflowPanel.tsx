@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useWorkflowStore } from "../../stores/workflowStore";
-import { useActionStore } from "../../stores/actionStore";
+import { useWorkflowLiveStore } from "../../stores/workflowLiveStore";
 import { useI18n } from "../../i18n";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { Select } from "../../components/ui/form/Select";
 import { TextInput } from "../../components/ui/form/TextInput";
+import { commands } from "../../ipc/bindings";
+import { showToast } from "../../stores/toastStore";
 import type {
   Workflow,
   WorkflowDetail,
@@ -103,7 +105,6 @@ export function WorkflowPanel() {
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/workflow";
   const [tab, setTab] = usePersistedModuleTab("workflow", "workflows", WF_TABS);
-  const enqueueAction = useActionStore((s) => s.enqueueAction);
 
   const {
     workflows,
@@ -151,16 +152,22 @@ export function WorkflowPanel() {
     return true;
   });
 
-  // ── Run workflow as action ────────────────────────────
-  const runWorkflow = (wf: Workflow) => {
-    enqueueAction({
-      type: "workflow",
-      title: wf.name,
-      description: `${wf.target} · ${wf.description}`,
-      command: `workflow run ${wf.id}`,
-      resourceId: wf.target,
-      source: "用户",
-    });
+  // ── Run workflow ──────────────────────────────────────
+  const runWorkflow = async (wf: Workflow) => {
+    try {
+      const res = await commands.workflowRun(wf.id);
+      if (res.status !== "ok") {
+        showToast(res.error.message || String(res.error));
+        return;
+      }
+      useWorkflowLiveStore.getState().upsert({
+        ...res.data,
+        title: wf.name,
+      });
+      showToast(t("workflow.runStarted", { name: wf.name }));
+    } catch (e) {
+      showToast(String(e));
+    }
   };
 
   // ── Delete handler ────────────────────────────────────

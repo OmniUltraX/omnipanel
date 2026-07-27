@@ -3,6 +3,7 @@
 
 mod ai_trace;
 mod agent_prompt;
+mod bg_task_history;
 mod builtin_tool;
 mod builtin_tool_spec;
 mod app_module;
@@ -27,6 +28,7 @@ mod schema_tree_expanded;
 mod storage;
 mod tag;
 mod task;
+mod task_events;
 mod terminal_history;
 mod third_party_account;
 mod vault;
@@ -40,6 +42,8 @@ pub use agent_prompt::{
     AGENT_PROMPT_IDS,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
+pub use bg_task_history::BgTaskHistoryRecord;
+pub use task_events::{TaskEventFilter, TaskEventRecord};
 pub use builtin_tool::{BuiltinToolCatalogEntry, BuiltinToolRecord};
 pub use builtin_tool_spec::{
     builtin_tool_is_native, builtin_tool_module_key, builtin_tool_omnimcp_backend,

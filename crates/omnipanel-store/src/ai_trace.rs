@@ -39,6 +39,7 @@ pub struct BuiltinToolAuditRecord {
     pub id: i64,
     pub source: String,
     pub tool_name: String,
+    #[specta(type = f64)]
     pub duration_ms: i64,
     pub success: bool,
     pub detail: String,

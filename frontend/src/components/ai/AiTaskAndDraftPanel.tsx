@@ -1,26 +1,27 @@
+import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
+import { MODULE_PATHS } from "../../lib/paths";
 import { useActionDraftStore } from "../../stores/actionDraftStore";
 import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
-import { useBackgroundTaskStore } from "../../stores/backgroundTaskStore";
 import { followAiIntent } from "../../lib/ai/uiFollow";
 import { Button } from "../ui/primitives/Button";
 import { showToast } from "../../stores/toastStore";
 
-/** Dock 内：AI 扇出任务进度 + Action Draft 确认条 */
+/** Dock 内：AI 扇出任务进度 + Action Draft 实时确认条（审批不进待办） */
 export function AiTaskAndDraftPanel() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const tasks = useAiOrchestrationStore((s) => s.tasks);
   const cancelTask = useAiOrchestrationStore((s) => s.cancelTask);
   const drafts = useActionDraftStore((s) => s.drafts);
   const dismiss = useActionDraftStore((s) => s.dismiss);
   const confirm = useActionDraftStore((s) => s.confirm);
-  const setTaskListOpen = useBackgroundTaskStore((s) => s.setTaskListOpen);
 
   const running = Object.values(tasks).filter(
-    (t) => t.status === "running" || t.status === "pending",
+    (task) => task.status === "running" || task.status === "pending",
   );
   const recent = Object.values(tasks)
-    .filter((t) => t.status !== "running" && t.status !== "pending")
+    .filter((task) => task.status !== "running" && task.status !== "pending")
     .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
     .slice(0, 2);
 
@@ -32,7 +33,8 @@ export function AiTaskAndDraftPanel() {
     <div className="ai-task-draft-panel">
       {running.map((task) => {
         const done = task.children.filter(
-          (c) => c.status === "completed" || c.status === "failed" || c.status === "cancelled",
+          (c) =>
+            c.status === "completed" || c.status === "failed" || c.status === "cancelled",
         ).length;
         const failed = task.children.filter((c) => c.status === "failed").length;
         return (
@@ -67,7 +69,11 @@ export function AiTaskAndDraftPanel() {
               ))}
             </ul>
             <div className="ai-task-card__actions">
-              <Button variant="ghost" size="sm" onClick={() => setTaskListOpen(true)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(MODULE_PATHS.tasks)}
+              >
                 {t("ai.task.openPanel")}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => cancelTask(task.id)}>
@@ -80,7 +86,9 @@ export function AiTaskAndDraftPanel() {
 
       {drafts.map((draft) => (
         <div key={draft.id} className="ai-draft-card">
-          <div className="ai-draft-card__title">{t("ai.draft.title")} · {draft.title}</div>
+          <div className="ai-draft-card__title">
+            {t("ai.draft.title")} · {draft.title}
+          </div>
           <pre className="ai-draft-card__preview">{draft.preview}</pre>
           <div className="ai-task-card__actions">
             <Button

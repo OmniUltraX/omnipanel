@@ -73,6 +73,10 @@ export interface LoopFinding {
   resourceType?: string;
   evidence?: string;
   suggestedAction?: string;
+  /** 去重键：相同 fingerprint 的 open/triaged 项应合并 */
+  fingerprint?: string;
+  /** 合并后出现次数 */
+  occurrenceCount?: number;
   createdAt: number;
   updatedAt: number;
 }

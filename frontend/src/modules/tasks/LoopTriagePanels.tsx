@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "../../components/ui/primitives/Button";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
@@ -18,10 +19,20 @@ function formatTs(ts: number | null | undefined): string {
   }
 }
 
-/** Loop findings Triage：人只处理例外 */
-export function LoopTriageTab() {
+/** Loop findings Triage：人只处理例外（主区详情，列表在左侧） */
+export function LoopTriageTab({ selectedId }: { selectedId: string | null }) {
   const { t } = useI18n();
-  const findings = useLoopStore((s) => s.listOpenFindings());
+  // useShallow：避免 selector 每次 new array 导致 getSnapshot 无限循环
+  const findings = useLoopStore(
+    useShallow((s) =>
+      Object.values(s.findings)
+        .filter(
+          (f) =>
+            f.status === "open" || f.status === "triaged" || f.status === "blocked",
+        )
+        .sort((a, b) => b.createdAt - a.createdAt),
+    ),
+  );
   const triageFinding = useLoopStore((s) => s.triageFinding);
   const ensureBuiltinSpecs = useLoopStore((s) => s.ensureBuiltinSpecs);
 
@@ -32,8 +43,18 @@ export function LoopTriageTab() {
   if (findings.length === 0) {
     return (
       <WorkspaceEmptyPage
-        title={t("taskCenter.tabs.triage")}
-        prompt={t("taskCenter.triage.empty")}
+        title={t("taskCenter.tabs.inbox")}
+        prompt={t("taskCenter.inbox.empty")}
+      />
+    );
+  }
+
+  const f = findings.find((item) => item.id === selectedId) ?? null;
+  if (!f) {
+    return (
+      <WorkspaceEmptyPage
+        title={t("taskCenter.tabs.inbox")}
+        prompt={t("taskCenter.selectItem")}
       />
     );
   }
@@ -41,74 +62,70 @@ export function LoopTriageTab() {
   return (
     <div className="task-center-list">
       <section className="task-center-section">
-        <h3 className="task-center-section__title">
-          {t("taskCenter.triage.title")}
-          <span className="task-center-section__count">{findings.length}</span>
-        </h3>
-        <div className="task-center-cards">
-          {findings.map((f) => (
-            <div key={f.id} className={`task-card task-card--draft risk-${f.severity}`}>
-              <div className="task-card__header">
-                <strong className="task-card__title">{f.title}</strong>
-                <span className={`task-card__risk risk-${f.severity}`}>{f.severity}</span>
-              </div>
-              <div className="task-card__meta">
-                <span className="setting-hint">
-                  {f.resourceType ?? "—"}
-                  {f.resourceId ? ` · ${f.resourceId.slice(0, 24)}` : ""}
-                </span>
-                <span className="setting-hint">{formatTs(f.createdAt)}</span>
-              </div>
-              <pre className="task-card__preview">{f.summary}</pre>
-              {f.suggestedAction ? (
-                <p className="setting-hint">{f.suggestedAction}</p>
-              ) : null}
-              {f.evidence ? (
-                <pre className="task-card__preview" style={{ maxHeight: 120 }}>
-                  {f.evidence.slice(0, 800)}
-                </pre>
-              ) : null}
-              <div className="task-card__actions">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    triageFinding(f.id, "done");
-                    showToast(t("taskCenter.triage.markedDone"));
-                  }}
-                >
-                  {t("taskCenter.triage.done")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    triageFinding(f.id, "dismissed");
-                    showToast(t("taskCenter.triage.dismissed"));
-                  }}
-                >
-                  {t("taskCenter.triage.dismiss")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => triageFinding(f.id, "blocked")}
-                >
-                  {t("taskCenter.triage.block")}
-                </Button>
-              </div>
-            </div>
-          ))}
+        <div className={`task-card task-card--draft risk-${f.severity}`}>
+          <div className="task-card__header">
+            <strong className="task-card__title">{f.title}</strong>
+            <span className={`task-card__risk risk-${f.severity}`}>{f.severity}</span>
+          </div>
+          <div className="task-card__meta">
+            <span className="setting-hint">
+              {f.resourceType ?? "—"}
+              {f.resourceId ? ` · ${f.resourceId.slice(0, 24)}` : ""}
+              {(f.occurrenceCount ?? 1) > 1
+                ? ` · ${t("taskCenter.inbox.occurrences", { count: f.occurrenceCount ?? 1 })}`
+                : ""}
+            </span>
+            <span className="setting-hint">{formatTs(f.updatedAt ?? f.createdAt)}</span>
+          </div>
+          <pre className="task-card__preview">{f.summary}</pre>
+          {f.suggestedAction ? (
+            <p className="setting-hint">{f.suggestedAction}</p>
+          ) : null}
+          {f.evidence ? (
+            <pre className="task-card__preview" style={{ maxHeight: 240 }}>
+              {f.evidence.slice(0, 2000)}
+            </pre>
+          ) : null}
+          <div className="task-card__actions">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                triageFinding(f.id, "done");
+                showToast(t("taskCenter.triage.markedDone"));
+              }}
+            >
+              {t("taskCenter.triage.done")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                triageFinding(f.id, "dismissed");
+                showToast(t("taskCenter.triage.dismissed"));
+              }}
+            >
+              {t("taskCenter.triage.dismiss")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => triageFinding(f.id, "blocked")}
+            >
+              {t("taskCenter.triage.block")}
+            </Button>
+          </div>
         </div>
       </section>
     </div>
   );
 }
 
-/** 内置 Loop 列表与手动触发 */
-export function LoopsTab() {
+/** 内置 Loop 详情与手动触发（列表在左侧） */
+export function LoopsTab({ selectedId }: { selectedId: string | null }) {
   const { t } = useI18n();
-  const specs = useLoopStore((s) => Object.values(s.specs));
+  const specsMap = useLoopStore((s) => s.specs);
+  const specs = useMemo(() => Object.values(specsMap), [specsMap]);
   const ensureBuiltinSpecs = useLoopStore((s) => s.ensureBuiltinSpecs);
   const setSpecEnabled = useLoopStore((s) => s.setSpecEnabled);
   const listRunsForLoop = useLoopStore((s) => s.listRunsForLoop);
@@ -137,65 +154,68 @@ export function LoopsTab() {
   if (specs.length === 0) {
     return (
       <WorkspaceEmptyPage
-        title={t("taskCenter.tabs.loops")}
+        title={t("taskCenter.tabs.loopPlans")}
         prompt={t("taskCenter.loops.empty")}
       />
     );
   }
 
+  const spec = specs.find((s) => s.id === selectedId) ?? null;
+  if (!spec) {
+    return (
+      <WorkspaceEmptyPage
+        title={t("taskCenter.tabs.loopPlans")}
+        prompt={t("taskCenter.selectItem")}
+      />
+    );
+  }
+
+  const runs = listRunsForLoop(spec.id).slice(0, 8);
   return (
     <div className="task-center-list">
       <section className="task-center-section">
-        <h3 className="task-center-section__title">{t("taskCenter.loops.title")}</h3>
-        <div className="task-center-cards">
-          {specs.map((spec) => {
-            const runs = listRunsForLoop(spec.id).slice(0, 3);
-            return (
-              <div key={spec.id} className="task-card">
-                <div className="task-card__header">
-                  <strong className="task-card__title">{spec.name}</strong>
-                  <span className="setting-hint">{spec.enabled ? "on" : "off"}</span>
-                </div>
-                <p className="setting-hint">{spec.description}</p>
-                <div className="task-card__meta">
-                  <span className="setting-hint">
-                    pilot={spec.pilotId ?? "—"} · verify={spec.verify.mode}
-                  </span>
-                </div>
-                {runs.length > 0 ? (
-                  <ul className="ai-task-card__children">
-                    {runs.map((r) => (
-                      <li key={r.id}>
-                        <span>{formatTs(r.startedAt)}</span>
-                        <span className="setting-hint">{r.status}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                <div className="task-card__actions">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={busyId === spec.id || !spec.enabled}
-                    onClick={() => void run(spec.id)}
-                  >
-                    {busyId === spec.id
-                      ? t("taskCenter.loops.running")
-                      : t("taskCenter.loops.runOnce")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSpecEnabled(spec.id, !spec.enabled)}
-                  >
-                    {spec.enabled
-                      ? t("taskCenter.loops.disable")
-                      : t("taskCenter.loops.enable")}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+        <div className="task-card">
+          <div className="task-card__header">
+            <strong className="task-card__title">{spec.name}</strong>
+            <span className="setting-hint">{spec.enabled ? "on" : "off"}</span>
+          </div>
+          <p className="setting-hint">{spec.description}</p>
+          <div className="task-card__meta">
+            <span className="setting-hint">
+              pilot={spec.pilotId ?? "—"} · verify={spec.verify.mode}
+            </span>
+          </div>
+          {runs.length > 0 ? (
+            <ul className="ai-task-card__children">
+              {runs.map((r) => (
+                <li key={r.id}>
+                  <span>{formatTs(r.startedAt)}</span>
+                  <span className="setting-hint">{r.status}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="task-card__actions">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busyId === spec.id || !spec.enabled}
+              onClick={() => void run(spec.id)}
+            >
+              {busyId === spec.id
+                ? t("taskCenter.loops.running")
+                : t("taskCenter.loops.runOnce")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSpecEnabled(spec.id, !spec.enabled)}
+            >
+              {spec.enabled
+                ? t("taskCenter.loops.disable")
+                : t("taskCenter.loops.enable")}
+            </Button>
+          </div>
         </div>
       </section>
     </div>
@@ -299,7 +319,7 @@ export function TurnTimelinePanel() {
             {t("taskCenter.history.colTime")}
           </div>
           <div className="task-center-table__cell task-center-table__cell--action">
-            Turn
+            {t("taskCenter.history.colTurn")}
           </div>
           <div className="task-center-table__cell task-center-table__cell--action">
             {t("taskCenter.history.colAction")}

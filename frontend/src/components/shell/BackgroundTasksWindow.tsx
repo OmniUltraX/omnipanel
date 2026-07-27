@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
+import { MODULE_PATHS } from "../../lib/paths";
 import { SubWindow } from "../ui/window/SubWindow";
 import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
@@ -152,6 +154,7 @@ function BackgroundTaskRow({
 
 export function BackgroundTasksWindow() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const open = useBackgroundTaskStore((s) => s.taskListOpen);
   const setOpen = useBackgroundTaskStore((s) => s.setTaskListOpen);
   const tasks = useRunningBackgroundTasks();
@@ -177,12 +180,23 @@ export function BackgroundTasksWindow() {
     }
   }, []);
 
-  const headerExtra =
-    tasks.length > 0 ? (
-      <Button type="button" variant="outline" size="xs" onClick={() => void handleCancelAll()}>
-        {t("shell.backgroundTasks.cancelAll")}
+  const openTaskCenter = useCallback(() => {
+    setOpen(false);
+    navigate(MODULE_PATHS.tasks);
+  }, [navigate, setOpen]);
+
+  const headerExtra = (
+    <div className="background-tasks-header-actions">
+      <Button type="button" variant="ghost" size="xs" onClick={openTaskCenter}>
+        {t("shell.backgroundTasks.openTaskCenter")}
       </Button>
-    ) : null;
+      {tasks.length > 0 ? (
+        <Button type="button" variant="outline" size="xs" onClick={() => void handleCancelAll()}>
+          {t("shell.backgroundTasks.cancelAll")}
+        </Button>
+      ) : null}
+    </div>
+  );
 
   return (
     <SubWindow
@@ -196,12 +210,19 @@ export function BackgroundTasksWindow() {
     >
       <div className="background-tasks-body">
         {tasks.length === 0 ? (
-          <ModuleEmptyState
-            icon={<IconClock size={36} className="module-empty-state__icon" />}
-            title={t("shell.backgroundTasks.empty")}
-            desc={t("shell.backgroundTasks.emptyDesc")}
-            className="background-tasks-empty"
-          />
+          <div className="background-tasks-empty-wrap">
+            <ModuleEmptyState
+              icon={<IconClock size={36} className="module-empty-state__icon" />}
+              title={t("shell.backgroundTasks.empty")}
+              desc={t("shell.backgroundTasks.emptyDesc")}
+              className="background-tasks-empty"
+            />
+            <div className="background-tasks-empty-actions">
+              <Button type="button" variant="primary" size="sm" onClick={openTaskCenter}>
+                {t("shell.backgroundTasks.openTaskCenter")}
+              </Button>
+            </div>
+          </div>
         ) : (
           <>
             <div className="background-tasks-summary">
