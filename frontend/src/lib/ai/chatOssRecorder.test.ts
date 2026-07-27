@@ -2,19 +2,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../ipc/bindings", () => ({
   commands: {
-    writeTextFile: vi.fn(async () => ({ status: "ok", data: "ok" })),
+    assistantUploadOssText: vi.fn(async () => ({
+      status: "ok",
+      data: { objectKey: "k", etag: null, bytes: 1 },
+    })),
   },
 }));
 
 vi.mock("../../stores/userProfileStore", () => ({
   useUserProfileStore: {
-    getState: () => ({ ossPath: "D:/oss-chat" }),
+    getState: () => ({
+      ossPath: "omniminiapp/agent_chat_message/user1",
+    }),
+  },
+}));
+
+vi.mock("../../stores/authStore", () => ({
+  useAuthStore: {
+    getState: () => ({ token: "tok-1" }),
   },
 }));
 
 import { commands } from "../../ipc/bindings";
 import {
   appendChatOssChunk,
+  buildChatOssObjectKey,
   startChatOssRecording,
   stopChatOssRecording,
 } from "./chatOssRecorder";
@@ -22,25 +34,34 @@ import {
 describe("chatOssRecorder", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.mocked(commands.writeTextFile).mockClear();
+    vi.mocked(commands.assistantUploadOssText).mockClear();
   });
 
-  it("每 5 秒将缓冲写入递增编号文件", async () => {
+  it("buildChatOssObjectKey 使用 posix 路径", () => {
+    expect(
+      buildChatOssObjectKey("omniminiapp/agent_chat_message/u1", "conv-1", 0),
+    ).toBe("omniminiapp/agent_chat_message/u1/conv-1/0.txt");
+  });
+
+  it("每 5 秒经 STS 上传递增编号文件", async () => {
     vi.useFakeTimers();
     startChatOssRecording("conv-1");
     appendChatOssChunk("hello");
     await vi.advanceTimersByTimeAsync(5000);
-    expect(commands.writeTextFile).toHaveBeenCalledTimes(1);
-    const [path, contents] = vi.mocked(commands.writeTextFile).mock.calls[0]!;
-    expect(path.replace(/\\/g, "/")).toMatch(/D:\/oss-chat\/conv-1\/0\.txt$/);
-    expect(contents).toContain("hello");
-    expect(contents).toContain("conversation=conv-1");
+    expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(1);
+    const req = vi.mocked(commands.assistantUploadOssText).mock.calls[0]![0]!;
+    expect(req.token).toBe("tok-1");
+    expect(req.objectKey).toBe(
+      "omniminiapp/agent_chat_message/user1/conv-1/0.txt",
+    );
+    expect(req.contents).toContain("hello");
+    expect(req.contents).toContain("conversation=conv-1");
 
     appendChatOssChunk(" world");
     await vi.advanceTimersByTimeAsync(5000);
-    expect(commands.writeTextFile).toHaveBeenCalledTimes(2);
-    const [path2] = vi.mocked(commands.writeTextFile).mock.calls[1]!;
-    expect(path2.replace(/\\/g, "/")).toMatch(/\/1\.txt$/);
+    expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(2);
+    const req2 = vi.mocked(commands.assistantUploadOssText).mock.calls[1]![0]!;
+    expect(req2.objectKey).toMatch(/\/1\.txt$/);
 
     await stopChatOssRecording();
     vi.useRealTimers();
@@ -50,9 +71,11 @@ describe("chatOssRecorder", () => {
     startChatOssRecording("conv-2");
     appendChatOssChunk("tail");
     await stopChatOssRecording();
-    expect(commands.writeTextFile).toHaveBeenCalledTimes(1);
-    const [path, contents] = vi.mocked(commands.writeTextFile).mock.calls[0]!;
-    expect(path.replace(/\\/g, "/")).toMatch(/D:\/oss-chat\/conv-2\/0\.txt$/);
-    expect(contents).toContain("tail");
+    expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(1);
+    const req = vi.mocked(commands.assistantUploadOssText).mock.calls[0]![0]!;
+    expect(req.objectKey).toBe(
+      "omniminiapp/agent_chat_message/user1/conv-2/0.txt",
+    );
+    expect(req.contents).toContain("tail");
   });
 });

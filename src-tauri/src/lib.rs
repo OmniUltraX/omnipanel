@@ -457,6 +457,7 @@ fn export_ipc_bindings() {
         commands::auth::auth_bindings_wait,
         commands::auth::auth_bindings_cancel_wait,
         commands::assistant::assistant_push_snapshot,
+        commands::assistant::assistant_upload_oss_text,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -1175,6 +1176,7 @@ fn build_and_run_tauri() {
             commands::auth::auth_bindings_wait,
             commands::auth::auth_bindings_cancel_wait,
             commands::assistant::assistant_push_snapshot,
+            commands::assistant::assistant_upload_oss_text,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,

@@ -32,6 +32,26 @@ pub(crate) fn put_target(sts: &OssStsCredentials, object_key: &str) -> (String, 
     }
 }
 
+/// 去掉 object key 前多余的 bucket 段（`oss_path` 常带 `omniminiapp/...`）。
+pub fn strip_bucket_prefix(object_key: &str, bucket: &str) -> String {
+    let key = object_key
+        .trim()
+        .trim_matches(|c| c == '/' || c == '\\')
+        .replace('\\', "/");
+    let bucket = bucket.trim().trim_matches('/');
+    if bucket.is_empty() {
+        return key;
+    }
+    let prefix = format!("{bucket}/");
+    if key == bucket {
+        String::new()
+    } else if let Some(rest) = key.strip_prefix(&prefix) {
+        rest.trim_matches('/').to_string()
+    } else {
+        key
+    }
+}
+
 /// 上传快照 JSON。优先使用 STS 中的 `upload_url`；否则按 S3 SigV4 签名 PUT。
 pub async fn upload_snapshot_json(
     http: &Client,
@@ -40,9 +60,28 @@ pub async fn upload_snapshot_json(
     body: &[u8],
 ) -> OmniResult<OssUploadResult> {
     if let Some(upload_url) = sts.upload_url.as_deref().filter(|u| !u.is_empty()) {
-        return put_presigned(http, upload_url, object_key, body).await;
+        return put_presigned(http, upload_url, object_key, body, "application/json").await;
     }
-    put_s3_sig_v4(http, sts, object_key, body).await
+    put_s3_sig_v4(http, sts, object_key, body, "application/json").await
+}
+
+/// 按 object key 上传任意字节（始终 SigV4；忽略单次 `upload_url`，因其通常绑定快照 key）。
+pub async fn upload_object_bytes(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+    body: &[u8],
+    content_type: &str,
+) -> OmniResult<OssUploadResult> {
+    let key = strip_bucket_prefix(object_key, &sts.bucket);
+    if key.is_empty() {
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Upload,
+            "OSS object key 为空",
+            object_key.to_string(),
+        ));
+    }
+    put_s3_sig_v4(http, sts, &key, body, content_type).await
 }
 
 async fn put_presigned(
@@ -50,10 +89,11 @@ async fn put_presigned(
     upload_url: &str,
     object_key: &str,
     body: &[u8],
+    content_type: &str,
 ) -> OmniResult<OssUploadResult> {
     let resp = http
         .put(upload_url)
-        .header("Content-Type", "application/json")
+        .header("Content-Type", content_type)
         .body(body.to_vec())
         .send()
         .await
@@ -86,6 +126,7 @@ async fn put_s3_sig_v4(
     sts: &OssStsCredentials,
     object_key: &str,
     body: &[u8],
+    content_type: &str,
 ) -> OmniResult<OssUploadResult> {
     let key = object_key.trim_start_matches('/');
     let (url, canonical_uri) = put_target(sts, key);
@@ -95,7 +136,6 @@ async fn put_s3_sig_v4(
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let date_stamp = now.format("%Y%m%d").to_string();
     let payload_hash = hex::encode(Sha256::digest(body));
-    let content_type = "application/json";
     let token = sts.security_token();
 
     // 永久 AK：不得带空的 x-amz-security-token（会导致签名失败）
@@ -224,5 +264,18 @@ mod tests {
         let (url, uri) = put_target(&sts, "k.json");
         assert_eq!(url, "https://oss-cn-beijing.aliyuncs.com/omniminiapp/k.json");
         assert_eq!(uri, "/omniminiapp/k.json");
+    }
+
+    #[test]
+    fn strip_bucket_prefix_removes_leading_bucket() {
+        assert_eq!(
+            strip_bucket_prefix("omniminiapp/agent_chat_message/u1/conv/0.txt", "omniminiapp"),
+            "agent_chat_message/u1/conv/0.txt"
+        );
+        assert_eq!(
+            strip_bucket_prefix("agent_chat_message/u1/0.txt", "omniminiapp"),
+            "agent_chat_message/u1/0.txt"
+        );
+        assert_eq!(strip_bucket_prefix("omniminiapp", "omniminiapp"), "");
     }
 }

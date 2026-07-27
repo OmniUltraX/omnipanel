@@ -757,6 +757,8 @@ export const commands = {
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
 	/** 推送客户端元数据快照到 OSS（dryRun=true 时只组装不上传）。手动同步自 commands/assistant.rs */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
+	/** 使用助手 STS 上传文本到 OSS（聊天记录分片）。手动同步自 commands/assistant.rs */
+	assistantUploadOssText: (request: AssistantUploadTextRequest) => typedError<AssistantUploadTextResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_upload_oss_text", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -959,6 +961,20 @@ export type PushSnapshotResult = {
 	dryRun: boolean,
 };
 
+/** 助手端聊天文本上传请求（手动同步自 commands/assistant.rs）。 */
+export type AssistantUploadTextRequest = {
+	token: string,
+	objectKey: string,
+	contents: string,
+};
+
+/** 助手端聊天文本上传结果（手动同步自 commands/assistant.rs）。 */
+export type AssistantUploadTextResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number,
+};
+
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {
 	id: number,
@@ -968,7 +984,7 @@ export type AuthUserProfile = {
 	email: string,
 	githubId: string,
 	/**
-	 * 对应接口字段 `oss_path`；非空时 AI 流式回复按天写入该目录。
+	 * 对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。
 	 */
 	ossPath: string
 };

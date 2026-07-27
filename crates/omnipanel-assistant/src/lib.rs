@@ -14,7 +14,9 @@ pub use collect::{
 };
 pub use error::{AssistantErrorKind, map_assistant_error};
 pub use notify::{notify_snapshot_uploaded, SnapshotNotifyRequest};
-pub use oss::{upload_snapshot_json, OssUploadResult};
+pub use oss::{
+    strip_bucket_prefix, upload_object_bytes, upload_snapshot_json, OssUploadResult,
+};
 pub use push::{push_snapshot, PushOptions, PushSnapshotResult};
 pub use sanitize::{
     sanitize_connection_meta, sanitize_db_connection_meta, sanitize_http_request_meta,

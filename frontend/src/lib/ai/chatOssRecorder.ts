@@ -1,4 +1,5 @@
 import { commands } from "../../ipc/bindings";
+import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 
 const FLUSH_INTERVAL_MS = 5000;
@@ -46,16 +47,27 @@ function allocateNextFileId(sessionId: string): number {
   return id;
 }
 
-function joinPath(root: string, ...parts: string[]): string {
-  const trimmedRoot = root.replace(/[/\\]+$/, "");
-  const sep = /\\/.test(trimmedRoot) && !/\//.test(trimmedRoot) ? "\\" : "/";
-  return [trimmedRoot, ...parts.map((p) => p.replace(/^[/\\]+|[/\\]+$/g, ""))].join(sep);
-}
-
 /** 避免 sessionId 含路径分隔符导致目录逃逸。 */
 function sanitizeSessionDir(sessionId: string): string {
   const cleaned = sessionId.trim().replace(/[/\\]+/g, "_");
   return cleaned || "unknown-session";
+}
+
+/** 拼出 OSS object key：`{oss_path}/{sessionId}/{n}.txt`（posix；桶名由后端剥离）。 */
+export function buildChatOssObjectKey(
+  ossPath: string,
+  sessionId: string,
+  fileId: number,
+): string {
+  const base = ossPath
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+  const session = sanitizeSessionDir(sessionId);
+  if (!base) {
+    return `${session}/${fileId}.txt`;
+  }
+  return `${base}/${session}/${fileId}.txt`;
 }
 
 class ChatOssSession {
@@ -93,8 +105,16 @@ class ChatOssSession {
     if (!content) return;
     this.buffer = "";
 
+    const token = useAuthStore.getState().token?.trim() ?? "";
+    if (!token) {
+      // 未登录无法申请 STS：塞回缓冲，下次间隔再试
+      this.buffer = content + this.buffer;
+      console.warn("[chat-oss] skip upload: not logged in");
+      return;
+    }
+
     const fileId = allocateNextFileId(this.sessionDir);
-    const path = joinPath(this.ossPath, this.sessionDir, `${fileId}.txt`);
+    const objectKey = buildChatOssObjectKey(this.ossPath, this.sessionDir, fileId);
     const payload = [
       `# conversation=${this.conversationId}`,
       `# written_at=${new Date().toISOString()}`,
@@ -104,15 +124,22 @@ class ChatOssSession {
     ].join("\n");
 
     try {
-      const res = await commands.writeTextFile(path, payload);
+      const res = await commands.assistantUploadOssText({
+        token,
+        objectKey,
+        contents: payload,
+      });
       if (res.status !== "ok") {
-        // 写失败时把内容塞回缓冲，避免丢数据；下次间隔再试
+        // 上传失败时把内容塞回缓冲，避免丢数据；下次间隔再试
         this.buffer = content + this.buffer;
-        console.warn("[chat-oss] write failed:", res.error);
+        // 回滚编号，避免跳号留下空洞
+        saveNextIdState({ sessionId: this.sessionDir, nextId: fileId });
+        console.warn("[chat-oss] upload failed:", res.error);
       }
     } catch (error) {
       this.buffer = content + this.buffer;
-      console.warn("[chat-oss] write error:", error);
+      saveNextIdState({ sessionId: this.sessionDir, nextId: fileId });
+      console.warn("[chat-oss] upload error:", error);
     }
   }
 
@@ -127,7 +154,7 @@ class ChatOssSession {
 
 let activeSession: ChatOssSession | null = null;
 
-/** 若 /api/me 返回了 oss_path，则在模型流式输出期间每 5s 落盘一次。 */
+/** 若 /api/me 返回了 oss_path，则在模型流式输出期间每 5s 经 STS 上传一次。 */
 export function startChatOssRecording(conversationId: string): void {
   const ossPath = useUserProfileStore.getState().ossPath.trim();
   if (!ossPath) return;
