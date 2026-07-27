@@ -48,14 +48,14 @@ function TerminalAiStalledBanner({
       <div className="term-warp-ai-stalled__actions">
         <button
           type="button"
-          className="term-warp-block__toolbar-btn"
+          className="term-warp-ai-stalled__btn"
           onClick={() => cancelInlineAiBlock(sessionId, blockId)}
         >
           {t("terminal.ai.stop")}
         </button>
         <button
           type="button"
-          className="term-warp-block__toolbar-btn"
+          className="term-warp-ai-stalled__btn"
           onClick={() => {
             useBlocksStore.getState().updateBlock(blockId, { aiStalled: false });
             cancelInlineAiBlock(sessionId, blockId);

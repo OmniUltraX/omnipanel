@@ -262,15 +262,31 @@ export async function runWithToolGate(
         ? (argsToRecord(input.args).connection_id as string)
         : undefined);
 
-  return useActionDraftStore.getState().enqueueAwaitable({
+  // 审批只做放行门闩；真正执行放在确认之后，避免长耗时工具堵在 resolveAction 里
+  await useActionDraftStore.getState().enqueueAwaitable({
     kind: gate.kind,
+    source: "toolgate",
     title: gate.title,
     preview: `${gate.preview}\n\n[ToolGate] ${gate.reason} · risk=${gate.risk}`,
-    execute,
+    execute: async () => "approved",
     risk: gate.risk,
     riskCheck: gate.riskCheck,
     environment: gate.environment,
     toolName: input.toolName,
     resourceId,
+    target: {
+      module:
+        gate.kind === "sql"
+          ? "database"
+          : gate.kind === "docker"
+            ? "docker"
+            : gate.kind === "files"
+              ? "files"
+              : gate.kind === "ssh" || gate.kind === "terminal" || gate.kind === "shell"
+                ? "terminal"
+                : "other",
+      resourceId,
+    },
   });
+  return execute();
 }

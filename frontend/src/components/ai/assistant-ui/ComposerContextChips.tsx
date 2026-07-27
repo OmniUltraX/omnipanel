@@ -32,14 +32,14 @@ export const ComposerContextChips: FC = () => {
   if (items.length === 0) return null;
 
   return (
-    <div className="aui-composer-context-chips flex w-full flex-row flex-wrap items-center gap-1.5 empty:hidden">
+    <div className="aui-composer-context-chips flex min-w-0 flex-row flex-nowrap items-center gap-1.5">
       {items.map((item) => (
         <span
           key={`${item.kind}:${item.id}`}
-          className="ai-context-chip"
-          title={item.label}
+          className="ai-context-chip shrink-0"
+          title={`${kindPrefix(item.kind, t)} · ${item.label}`}
         >
-          <span>
+          <span className="truncate">
             {kindPrefix(item.kind, t)} · {item.label}
           </span>
           <button

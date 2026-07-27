@@ -1,4 +1,10 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import {
+  usePersistedVerticalSplitSections,
+  VerticalSplitSidebar,
+  VerticalSplitSidebarSection,
+} from "../../components/ui/VerticalSplitSidebar";
+import { Button } from "../../components/ui/primitives/Button";
 import {
   IconCheckCircle,
   IconClipboard,
@@ -10,21 +16,32 @@ import {
   IconWrench,
 } from "../../components/ui/icons/Icons";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
+import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
+import {
+  cancelAllRunningBackgroundTasks,
+  getRunningBackgroundTasks,
+} from "../../stores/backgroundTaskStore";
 import { useLoopStore } from "../../stores/loopStore";
+import { showToast } from "../../stores/toastStore";
 import type { TaskItem } from "./types";
+import { isJobRunning } from "./types";
 import type { HistoryBucket, TaskCenterSelection, TaskCenterTab } from "./taskCenterSelection";
 import { selectionKey } from "./taskCenterSelection";
+
+const SECTION_STORAGE_KEY = "omnipanel-task-center-sidebar-sections";
+
+type ActivitySectionKey = "passive" | "active" | "plans";
+type InboxSectionKey = "inbox";
+type HistorySectionKey = "buckets" | "jobs";
 
 export interface TaskCenterSidebarProps {
   tab: TaskCenterTab;
   selection: TaskCenterSelection | null;
   onSelect: (next: TaskCenterSelection) => void;
-  /** 未筛选的全部运行中任务（侧栏自行按 facet 分组） */
   running: TaskItem[];
   inbox: TaskItem[];
-  /** 未筛选的全部历史任务（用于统计与模块芯片） */
   historyJobs: TaskItem[];
-  /** 按 module 筛选后的历史任务列表 */
   filteredHistoryJobs: TaskItem[];
   historyModules: string[];
   historyModuleFilter: string;
@@ -59,46 +76,58 @@ function formatShortTs(ts: number): string {
   }
 }
 
-function statusTone(status: string): string {
-  switch (status) {
-    case "running":
-    case "discovering":
-    case "verifying":
-      return "running";
-    case "pending":
-      return "pending";
-    case "completed":
-    case "done":
-    case "success":
-      return "success";
-    case "failed":
-    case "error":
-    case "blocked":
-      return "danger";
-    case "cancelled":
-    case "stopped":
-    case "dismissed":
-      return "muted";
-    case "warning":
-    case "triaged":
-    case "open":
-      return "warn";
-    default:
-      return "neutral";
-  }
-}
-
-function severityTone(sev?: string): string {
-  if (sev === "critical") return "danger";
-  if (sev === "warning") return "warn";
-  if (sev === "info") return "info";
-  return "neutral";
-}
-
 function tStatus(t: (k: string) => string, status: string): string {
   const key = `taskCenter.status.${status}`;
   const labeled = t(key);
   return labeled === key ? status : labeled;
+}
+
+/** 与文件管理 fm-conn-item 同构的一行 */
+function ConnRow({
+  active,
+  icon,
+  name,
+  trailing,
+  title,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  name: string;
+  trailing?: ReactNode;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className={`fm-conn-item${active ? " active" : ""}`}
+      onClick={onClick}
+      title={title ?? name}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      <span className="conn-icon conn-icon--local" aria-hidden>
+        {icon}
+      </span>
+      <span className="conn-name">{name}</span>
+      {trailing}
+    </div>
+  );
+}
+
+function CountBadge({ count }: { count: number }) {
+  return <span className="badge badge-muted">{count}</span>;
+}
+
+/** 侧栏分区内的轻量批量操作条（文案按钮，避免挤在 24px icon actions 里） */
+function BatchBar({ children }: { children: ReactNode }) {
+  return <div className="task-center-sidebar__batch-bar">{children}</div>;
 }
 
 export function TaskCenterSidebar({
@@ -116,7 +145,22 @@ export function TaskCenterSidebar({
   const { t } = useI18n();
   const specsMap = useLoopStore((s) => s.specs);
   const ensureBuiltinSpecs = useLoopStore((s) => s.ensureBuiltinSpecs);
+  const triageOpenFindings = useLoopStore((s) => s.triageOpenFindings);
+  const cancelAiTask = useAiOrchestrationStore((s) => s.cancelTask);
   const specs = useMemo(() => Object.values(specsMap), [specsMap]);
+
+  const activitySections = usePersistedVerticalSplitSections<ActivitySectionKey>(
+    `${SECTION_STORAGE_KEY}-activity`,
+    { passive: true, active: true, plans: true },
+  );
+  const inboxSections = usePersistedVerticalSplitSections<InboxSectionKey>(
+    `${SECTION_STORAGE_KEY}-inbox`,
+    { inbox: true },
+  );
+  const historySections = usePersistedVerticalSplitSections<HistorySectionKey>(
+    `${SECTION_STORAGE_KEY}-history`,
+    { buckets: true, jobs: true },
+  );
 
   const passiveJobs = useMemo(
     () => running.filter((i) => i.facet === "passive_job"),
@@ -126,6 +170,67 @@ export function TaskCenterSidebar({
     () => running.filter((i) => i.facet === "active_job"),
     [running],
   );
+  const cancellablePassiveCount = useMemo(
+    () => passiveJobs.filter((i) => isJobRunning(String(i.status))).length,
+    [passiveJobs],
+  );
+
+  const handleDismissAllInbox = useCallback(async () => {
+    const count = inbox.length;
+    if (count === 0) return;
+    const ok = await appConfirm(
+      t("taskCenter.inbox.dismissAllConfirm", { count }),
+      "OmniPanel",
+      { kind: "warning", confirmLabel: t("taskCenter.inbox.dismissAll") },
+    );
+    if (!ok) return;
+    const n = triageOpenFindings("dismissed");
+    showToast(t("taskCenter.inbox.dismissAllDone", { count: n }));
+  }, [inbox.length, t, triageOpenFindings]);
+
+  const handleDoneAllInbox = useCallback(async () => {
+    const count = inbox.length;
+    if (count === 0) return;
+    const ok = await appConfirm(
+      t("taskCenter.inbox.doneAllConfirm", { count }),
+      "OmniPanel",
+      { confirmLabel: t("taskCenter.inbox.doneAll") },
+    );
+    if (!ok) return;
+    const n = triageOpenFindings("done");
+    showToast(t("taskCenter.inbox.doneAllDone", { count: n }));
+  }, [inbox.length, t, triageOpenFindings]);
+
+  const handleCancelAllPassive = useCallback(async () => {
+    const count = cancellablePassiveCount;
+    if (count === 0) return;
+    const ok = await appConfirm(
+      t("taskCenter.activity.cancelAllConfirm", { count }),
+      "OmniPanel",
+      { kind: "warning", confirmLabel: t("taskCenter.activity.cancelAll") },
+    );
+    if (!ok) return;
+    try {
+      const bgBefore = getRunningBackgroundTasks().length;
+      await cancelAllRunningBackgroundTasks();
+      const orch = useAiOrchestrationStore.getState().tasks;
+      let orchCancelled = 0;
+      for (const task of Object.values(orch)) {
+        if (task.kind === "loop") continue;
+        if (task.status === "running" || task.status === "pending") {
+          cancelAiTask(task.id);
+          orchCancelled += 1;
+        }
+      }
+      showToast(
+        t("taskCenter.activity.cancelAllDone", {
+          count: Math.max(bgBefore + orchCancelled, count),
+        }),
+      );
+    } catch (e) {
+      showToast(String(e));
+    }
+  }, [cancellablePassiveCount, cancelAiTask, t]);
 
   const isActive = (next: TaskCenterSelection) =>
     selection != null && selectionKey(selection) === selectionKey(next);
@@ -191,368 +296,298 @@ export function TaskCenterSidebar({
   ]);
 
   if (tab === "activity") {
-    const hasAny = passiveJobs.length + activeJobs.length + specs.length > 0;
-    if (!hasAny) {
-      return (
-        <div className="task-center-sidebar">
-          <div className="task-center-sidebar__empty">
-            <span className="task-center-sidebar__empty-icon" aria-hidden>
-              <IconLightning size={22} />
-            </span>
-            <p className="task-center-sidebar__empty-text">{t("taskCenter.activity.empty")}</p>
-          </div>
-        </div>
-      );
-    }
-
     return (
-      <div className="task-center-sidebar">
-        <div className="task-center-sidebar__sections">
-          <NavSection
-            accent="bg"
-            title={t("taskCenter.filter.passive")}
-            icon={<IconLightning size={12} />}
-            count={passiveJobs.length}
-            emptyHint={t("taskCenter.activity.emptyPassive")}
-            items={passiveJobs.map((item) => ({
-              id: item.id,
-              title: item.title,
-              subtitle: [item.module, formatShortTs(item.startedAt ?? item.createdAt)]
-                .filter(Boolean)
-                .join(" · "),
-              badge: { text: tStatus(t, item.status), tone: statusTone(item.status) },
-              leading:
-                item.module === "database" ? (
-                  <IconWrench size={14} />
-                ) : item.module === "workflow" ? (
-                  <IconRefresh size={14} />
-                ) : (
-                  <IconLightning size={14} />
-                ),
-              active: isActive({ tab: "activity", kind: "job", id: item.id }),
-              onClick: () => onSelect({ tab: "activity", kind: "job", id: item.id }),
-            }))}
-          />
-          <NavSection
-            accent="ai"
-            title={t("taskCenter.filter.active")}
-            icon={<IconRobot size={12} />}
-            count={activeJobs.length}
-            emptyHint={t("taskCenter.activity.emptyActive")}
-            items={activeJobs.map((item) => ({
-              id: item.id,
-              title: item.title,
-              subtitle: [item.module, formatShortTs(item.startedAt ?? item.createdAt)]
-                .filter(Boolean)
-                .join(" · "),
-              badge: { text: tStatus(t, item.status), tone: statusTone(item.status) },
-              leading: <IconRobot size={14} />,
-              active: isActive({ tab: "activity", kind: "job", id: item.id }),
-              onClick: () => onSelect({ tab: "activity", kind: "job", id: item.id }),
-            }))}
-          />
-          <NavSection
-            accent="loop"
-            title={t("taskCenter.tabs.loopPlans")}
-            icon={<IconRefresh size={12} />}
-            count={specs.length}
-            items={specs.map((s) => ({
-              id: s.id,
-              title: s.name,
-              subtitle: s.description,
-              badge: {
-                text: s.enabled ? t("taskCenter.loops.on") : t("taskCenter.loops.off"),
-                tone: s.enabled ? "success" : "muted",
-              },
-              leading: <IconRefresh size={14} />,
-              active: isActive({ tab: "activity", kind: "loop-plan", id: s.id }),
-              onClick: () => onSelect({ tab: "activity", kind: "loop-plan", id: s.id }),
-            }))}
-          />
-        </div>
-      </div>
+      <VerticalSplitSidebar className="task-center-sidebar">
+        <VerticalSplitSidebarSection
+          title={t("taskCenter.filter.passive")}
+          expanded={activitySections.sections.passive}
+          onToggle={() => activitySections.toggleSection("passive")}
+          actions={<CountBadge count={passiveJobs.length} />}
+        >
+          {cancellablePassiveCount > 0 ? (
+            <BatchBar>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => void handleCancelAllPassive()}
+              >
+                {t("taskCenter.activity.cancelAll")}
+              </Button>
+            </BatchBar>
+          ) : null}
+          {passiveJobs.length === 0 ? (
+            <p className="fm-conn-empty">{t("taskCenter.activity.emptyPassive")}</p>
+          ) : (
+            <div className="fm-connections">
+              {passiveJobs.map((item) => (
+                <ConnRow
+                  key={item.id}
+                  active={isActive({ tab: "activity", kind: "job", id: item.id })}
+                  name={item.title}
+                  title={`${item.title} · ${item.module}`}
+                  icon={
+                    item.module === "database" ? (
+                      <IconWrench size={12} />
+                    ) : item.module === "workflow" ? (
+                      <IconRefresh size={12} />
+                    ) : (
+                      <IconLightning size={12} />
+                    )
+                  }
+                  trailing={
+                    <span className="badge badge-muted">{tStatus(t, item.status)}</span>
+                  }
+                  onClick={() => onSelect({ tab: "activity", kind: "job", id: item.id })}
+                />
+              ))}
+            </div>
+          )}
+        </VerticalSplitSidebarSection>
+
+        <VerticalSplitSidebarSection
+          title={t("taskCenter.filter.active")}
+          expanded={activitySections.sections.active}
+          onToggle={() => activitySections.toggleSection("active")}
+          actions={<CountBadge count={activeJobs.length} />}
+        >
+          {activeJobs.length === 0 ? (
+            <p className="fm-conn-empty">{t("taskCenter.activity.emptyActive")}</p>
+          ) : (
+            <div className="fm-connections">
+              {activeJobs.map((item) => (
+                <ConnRow
+                  key={item.id}
+                  active={isActive({ tab: "activity", kind: "job", id: item.id })}
+                  name={item.title}
+                  title={`${item.title} · ${item.module}`}
+                  icon={<IconRobot size={12} />}
+                  trailing={
+                    <span className="badge badge-muted">{tStatus(t, item.status)}</span>
+                  }
+                  onClick={() => onSelect({ tab: "activity", kind: "job", id: item.id })}
+                />
+              ))}
+            </div>
+          )}
+        </VerticalSplitSidebarSection>
+
+        <VerticalSplitSidebarSection
+          title={t("taskCenter.tabs.loopPlans")}
+          expanded={activitySections.sections.plans}
+          onToggle={() => activitySections.toggleSection("plans")}
+          actions={<CountBadge count={specs.length} />}
+        >
+          {specs.length === 0 ? (
+            <p className="fm-conn-empty">{t("taskCenter.activity.empty")}</p>
+          ) : (
+            <div className="fm-connections">
+              {specs.map((s) => (
+                <ConnRow
+                  key={s.id}
+                  active={isActive({ tab: "activity", kind: "loop-plan", id: s.id })}
+                  name={s.name}
+                  title={s.description || s.name}
+                  icon={<IconRefresh size={12} />}
+                  trailing={
+                    <span className="badge badge-muted">
+                      {s.enabled ? t("taskCenter.loops.on") : t("taskCenter.loops.off")}
+                    </span>
+                  }
+                  onClick={() => onSelect({ tab: "activity", kind: "loop-plan", id: s.id })}
+                />
+              ))}
+            </div>
+          )}
+        </VerticalSplitSidebarSection>
+      </VerticalSplitSidebar>
     );
   }
 
   if (tab === "inbox") {
     return (
-      <div className="task-center-sidebar">
-        <SidebarList
-          empty={t("taskCenter.inbox.empty")}
-          items={inbox.map((item) => ({
-            id: item.id,
-            title: item.title,
-            subtitle: [
-              item.resourceType,
-              item.occurrenceCount && item.occurrenceCount > 1
-                ? t("taskCenter.inbox.occurrences", { count: item.occurrenceCount })
-                : null,
-              formatShortTs(item.updatedAt ?? item.createdAt),
-            ]
-              .filter(Boolean)
-              .join(" · "),
-            badge: {
-              text: item.severity
-                ? t(`taskCenter.risk.${item.severity}`) === `taskCenter.risk.${item.severity}`
-                  ? item.severity
-                  : t(`taskCenter.risk.${item.severity}`)
-                : tStatus(t, item.status),
-              tone: severityTone(item.severity),
-            },
-            leading: <IconInbox size={14} />,
-            active: isActive({ tab: "inbox", id: item.id }),
-            onClick: () => onSelect({ tab: "inbox", id: item.id }),
-          }))}
-        />
-      </div>
+      <VerticalSplitSidebar className="task-center-sidebar">
+        <VerticalSplitSidebarSection
+          title={t("taskCenter.tabs.inbox")}
+          expanded={inboxSections.sections.inbox}
+          onToggle={() => inboxSections.toggleSection("inbox")}
+          actions={<CountBadge count={inbox.length} />}
+        >
+          {inbox.length > 0 ? (
+            <BatchBar>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => void handleDismissAllInbox()}
+              >
+                {t("taskCenter.inbox.dismissAll")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => void handleDoneAllInbox()}
+              >
+                {t("taskCenter.inbox.doneAll")}
+              </Button>
+            </BatchBar>
+          ) : null}
+          {inbox.length === 0 ? (
+            <p className="fm-conn-empty">{t("taskCenter.inbox.empty")}</p>
+          ) : (
+            <div className="fm-connections">
+              {inbox.map((item) => {
+                const riskLabel = item.severity
+                  ? t(`taskCenter.risk.${item.severity}`) === `taskCenter.risk.${item.severity}`
+                    ? item.severity
+                    : t(`taskCenter.risk.${item.severity}`)
+                  : tStatus(t, item.status);
+                return (
+                  <ConnRow
+                    key={item.id}
+                    active={isActive({ tab: "inbox", id: item.id })}
+                    name={item.title}
+                    title={item.title}
+                    icon={<IconInbox size={12} />}
+                    trailing={<span className="badge badge-muted">{riskLabel}</span>}
+                    onClick={() => onSelect({ tab: "inbox", id: item.id })}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </VerticalSplitSidebarSection>
+      </VerticalSplitSidebar>
     );
   }
 
   const buckets: { bucket: HistoryBucket; label: string; icon: ReactNode }[] = [
-    { bucket: "jobs", label: t("taskCenter.history.jobsTab"), icon: <IconCheckCircle size={14} /> },
-    { bucket: "audit", label: t("taskCenter.history.auditTab"), icon: <IconClipboard size={14} /> },
-    { bucket: "tool", label: t("taskCenter.history.toolTab"), icon: <IconWrench size={14} /> },
-    { bucket: "timeline", label: t("taskCenter.history.timelineTab"), icon: <IconClock size={14} /> },
+    { bucket: "jobs", label: t("taskCenter.history.jobsTab"), icon: <IconCheckCircle size={12} /> },
+    { bucket: "audit", label: t("taskCenter.history.auditTab"), icon: <IconClipboard size={12} /> },
+    { bucket: "tool", label: t("taskCenter.history.toolTab"), icon: <IconWrench size={12} /> },
+    { bucket: "timeline", label: t("taskCenter.history.timelineTab"), icon: <IconClock size={12} /> },
   ];
 
   const showJobsList = selection?.tab === "history" && selection.bucket === "jobs";
-  const jobItems = showJobsList
-    ? filteredHistoryJobs.map((item) => {
-        const riskLabel = item.severity
-          ? t(`taskCenter.risk.${item.severity}`) === `taskCenter.risk.${item.severity}`
-            ? item.severity
-            : t(`taskCenter.risk.${item.severity}`)
-          : null;
-        const tags: ReactNode[] = [];
-        if (item.envTag) {
-          tags.push(
-            <span
-              key="env"
-              className={`env-badge${isProdEnvTag(item.envTag) ? " env-prod" : ""}`}
-              title={item.envTag}
-            >
-              {isProdEnvTag(item.envTag) ? t("taskCenter.history.envProd") : item.envTag}
-            </span>,
-          );
-        }
-        if (riskLabel) {
-          tags.push(
-            <span key="risk" className={`risk-pill ${riskClass(item.severity)}`}>
-              {riskLabel}
-            </span>,
-          );
-        }
-        return {
-          id: item.id,
-          title: item.title,
-          subtitle: `${item.module} · ${formatShortTs(item.finishedAt ?? item.createdAt)}`,
-          badge: { text: tStatus(t, item.status), tone: statusTone(item.status) },
-          tags: tags.length > 0 ? tags : undefined,
-          active: isActive({ tab: "history", bucket: "jobs", id: item.id }),
-          onClick: () => onSelect({ tab: "history", bucket: "jobs", id: item.id }),
-        };
-      })
-    : [];
 
   return (
-    <div className="task-center-sidebar">
-      <div className="task-center-sidebar__sections">
-        <section className="task-center-sidebar__section task-center-sidebar__section--history">
-          <h4 className="task-center-sidebar__section-title">
-            <span className="task-center-sidebar__section-label">
-              {t("taskCenter.history.buckets")}
-            </span>
-          </h4>
-          <ul className="task-center-sidebar__list">
-            {buckets.map(({ bucket, label, icon }) => {
-              const active =
-                selection?.tab === "history" && selection.bucket === bucket && !selection.id;
-              return (
-                <li key={bucket}>
-                  <button
+    <VerticalSplitSidebar className="task-center-sidebar">
+      <VerticalSplitSidebarSection
+        title={t("taskCenter.history.buckets")}
+        expanded={historySections.sections.buckets}
+        onToggle={() => historySections.toggleSection("buckets")}
+      >
+        <div className="fm-connections">
+          {buckets.map(({ bucket, label, icon }) => (
+            <ConnRow
+              key={bucket}
+              active={
+                selection?.tab === "history" &&
+                selection.bucket === bucket &&
+                !selection.id
+              }
+              name={label}
+              icon={icon}
+              onClick={() => onSelect({ tab: "history", bucket })}
+            />
+          ))}
+        </div>
+      </VerticalSplitSidebarSection>
+
+      {showJobsList ? (
+        <VerticalSplitSidebarSection
+          title={t("taskCenter.history.recentJobs")}
+          expanded={historySections.sections.jobs}
+          onToggle={() => historySections.toggleSection("jobs")}
+          actions={<CountBadge count={filteredHistoryJobs.length} />}
+        >
+          {historyModules.length > 0 ? (
+            <div className="task-center-sidebar__module-filter">
+              <label
+                className="fm-quick-subsection-title"
+                htmlFor="task-history-module-filter"
+              >
+                {t("taskCenter.history.filterModule")}
+              </label>
+              <div className="task-center-sidebar__module-filter-row">
+                <select
+                  id="task-history-module-filter"
+                  className="task-center-sidebar__module-select"
+                  value={historyModuleFilter}
+                  onChange={(e) => onHistoryModuleFilterChange(e.target.value)}
+                >
+                  <option value="all">{t("taskCenter.history.filterModuleAll")}</option>
+                  {historyModules.map((mod) => (
+                    <option key={mod} value={mod}>
+                      {mod}
+                    </option>
+                  ))}
+                </select>
+                {historyModuleFilter !== "all" ? (
+                  <Button
                     type="button"
-                    className={`task-center-sidebar__item task-center-sidebar__item--nav${active ? " is-active" : ""}`}
-                    onClick={() => onSelect({ tab: "history", bucket })}
-                    aria-current={active ? "true" : undefined}
-                  >
-                    <span className="task-center-sidebar__item-accent" aria-hidden />
-                    <span className="task-center-sidebar__item-leading" aria-hidden>
-                      {icon}
-                    </span>
-                    <span className="task-center-sidebar__item-body">
-                      <span className="task-center-sidebar__item-row">
-                        <span className="task-center-sidebar__item-title">{label}</span>
-                        {bucket === "jobs" ? (
-                          <span className="task-center-sidebar__count">
-                            {historyModuleFilter === "all"
-                              ? historyJobs.length
-                              : filteredHistoryJobs.length}
-                          </span>
-                        ) : null}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-        {showJobsList ? (
-          <section className="task-center-sidebar__section">
-            {historyModules.length > 0 ? (
-              <div className="task-center-sidebar__module-filter">
-                <span className="task-center-sidebar__module-filter-label">
-                  {t("taskCenter.history.filterModule")}
-                </span>
-                <div className="task-center-sidebar__module-chips" role="group">
-                  <button
-                    type="button"
-                    className={`task-center-sidebar__module-chip${historyModuleFilter === "all" ? " is-active" : ""}`}
+                    variant="ghost"
+                    size="xs"
                     onClick={() => onHistoryModuleFilterChange("all")}
                   >
-                    {t("taskCenter.history.filterModuleAll")}
-                  </button>
-                  {historyModules.map((mod) => (
-                    <button
-                      key={mod}
-                      type="button"
-                      className={`task-center-sidebar__module-chip${historyModuleFilter === mod ? " is-active" : ""}`}
-                      onClick={() => onHistoryModuleFilterChange(mod)}
-                    >
-                      {mod}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <h4 className="task-center-sidebar__section-title">
-              <span className="task-center-sidebar__section-label">
-                {t("taskCenter.history.recentJobs")}
-              </span>
-              <span className="task-center-sidebar__count">{filteredHistoryJobs.length}</span>
-            </h4>
-            {jobItems.length > 0 ? (
-              <SidebarListItems items={jobItems} />
-            ) : (
-              <p className="task-center-sidebar__section-empty">
-                {historyJobs.length === 0
-                  ? t("taskCenter.history.empty")
-                  : t("taskCenter.history.filterNoMatch")}
-              </p>
-            )}
-          </section>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-type ListItem = {
-  id: string;
-  title: string;
-  subtitle?: string;
-  badge?: { text: string; tone: string };
-  tags?: ReactNode[];
-  leading?: ReactNode;
-  active: boolean;
-  onClick: () => void;
-};
-
-function NavSection({
-  title,
-  icon,
-  count,
-  accent,
-  items,
-  emptyHint,
-}: {
-  title: string;
-  icon: ReactNode;
-  count: number;
-  accent: string;
-  items: ListItem[];
-  emptyHint?: string;
-}) {
-  return (
-    <section className={`task-center-sidebar__section task-center-sidebar__section--${accent}`}>
-      <h4 className="task-center-sidebar__section-title">
-        <span className="task-center-sidebar__section-icon" aria-hidden>
-          {icon}
-        </span>
-        <span className="task-center-sidebar__section-label">{title}</span>
-        <span className="task-center-sidebar__count">{count}</span>
-      </h4>
-      {items.length > 0 ? (
-        <SidebarListItems items={items} />
-      ) : emptyHint ? (
-        <p className="task-center-sidebar__section-empty">{emptyHint}</p>
-      ) : null}
-    </section>
-  );
-}
-
-function SidebarList({ empty, items }: { empty: string; items: ListItem[] }) {
-  if (items.length === 0) {
-    return (
-      <div className="task-center-sidebar__empty">
-        <span className="task-center-sidebar__empty-icon" aria-hidden>
-          <IconInbox size={22} />
-        </span>
-        <p className="task-center-sidebar__empty-text">{empty}</p>
-      </div>
-    );
-  }
-  return (
-    <div className="task-center-sidebar__sections">
-      <section className="task-center-sidebar__section">
-        <SidebarListItems items={items} />
-      </section>
-    </div>
-  );
-}
-
-function SidebarListItems({ items }: { items: ListItem[] }) {
-  return (
-    <ul className="task-center-sidebar__list">
-      {items.map((item) => (
-        <li key={item.id}>
-          <button
-            type="button"
-            className={`task-center-sidebar__item${item.leading ? " task-center-sidebar__item--nav" : ""}${item.active ? " is-active" : ""}`}
-            onClick={item.onClick}
-            title={item.title}
-            aria-current={item.active ? "true" : undefined}
-          >
-            <span className="task-center-sidebar__item-accent" aria-hidden />
-            {item.leading ? (
-              <span className="task-center-sidebar__item-leading" aria-hidden>
-                {item.leading}
-              </span>
-            ) : null}
-            <span className="task-center-sidebar__item-body">
-              <span className="task-center-sidebar__item-row">
-                <span className="task-center-sidebar__item-title">{item.title}</span>
-                {item.badge ? (
-                  <span
-                    className={`task-center-sidebar__badge task-center-sidebar__badge--${item.badge.tone}`}
-                  >
-                    {item.badge.tone === "running" ? (
-                      <span className="task-center-sidebar__pulse" aria-hidden />
-                    ) : null}
-                    {item.badge.text}
-                  </span>
+                    {t("taskCenter.history.clearFilter")}
+                  </Button>
                 ) : null}
-              </span>
-              {item.subtitle ? (
-                <span className="task-center-sidebar__item-meta">{item.subtitle}</span>
-              ) : null}
-              {item.tags && item.tags.length > 0 ? (
-                <span className="task-center-sidebar__item-tags">{item.tags}</span>
-              ) : null}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
+              </div>
+            </div>
+          ) : null}
+          {filteredHistoryJobs.length === 0 ? (
+            <p className="fm-conn-empty">
+              {historyJobs.length === 0
+                ? t("taskCenter.history.empty")
+                : t("taskCenter.history.filterNoMatch")}
+            </p>
+          ) : (
+            <div className="fm-connections">
+              {filteredHistoryJobs.map((item) => {
+                const riskLabel = item.severity
+                  ? t(`taskCenter.risk.${item.severity}`) === `taskCenter.risk.${item.severity}`
+                    ? item.severity
+                    : t(`taskCenter.risk.${item.severity}`)
+                  : null;
+                return (
+                  <ConnRow
+                    key={item.id}
+                    active={isActive({ tab: "history", bucket: "jobs", id: item.id })}
+                    name={item.title}
+                    title={`${item.title} · ${item.module} · ${formatShortTs(item.finishedAt ?? item.createdAt)}`}
+                    icon={<IconCheckCircle size={12} />}
+                    trailing={
+                      <>
+                        {item.envTag ? (
+                          <span
+                            className={`env-badge${isProdEnvTag(item.envTag) ? " env-prod" : ""}`}
+                          >
+                            {isProdEnvTag(item.envTag)
+                              ? t("taskCenter.history.envProd")
+                              : item.envTag}
+                          </span>
+                        ) : null}
+                        {riskLabel ? (
+                          <span className={`risk-pill ${riskClass(item.severity)}`}>
+                            {riskLabel}
+                          </span>
+                        ) : (
+                          <span className="badge badge-muted">{tStatus(t, item.status)}</span>
+                        )}
+                      </>
+                    }
+                    onClick={() =>
+                      onSelect({ tab: "history", bucket: "jobs", id: item.id })
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+        </VerticalSplitSidebarSection>
+      ) : null}
+    </VerticalSplitSidebar>
   );
 }

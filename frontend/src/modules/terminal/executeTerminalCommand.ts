@@ -16,8 +16,6 @@ import {
 } from "./terminalShellRecovery";
 import { maybeAppendAutoLsToCommand, scheduleCdBlockFallbackComplete, scheduleShellBlockFallbackComplete } from "./terminalAutoLs";
 import { isCdNavigationCommand, isCdOnlyCommand } from "./terminalAutoLsPolicy";
-import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
-import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 import { useTerminalUiStore } from "./terminalUiStore";
 import {
   FULL_TERMINAL_BLOCK_SUMMARY,
@@ -70,12 +68,19 @@ const outputWatches = new Map<string, OutputWatch>();
 /** 同一会话串行执行终端命令，避免上一条未完成时下一条被当作输入粘贴 */
 const sessionExecutionChains = new Map<string, Promise<void>>();
 
+/** 上一任务卡住时，最多等这么久再放行下一任务，避免会话链永久死锁 */
+const SESSION_CHAIN_PREV_WAIT_MS = 8_000;
+
 function enqueueSessionExecution(
   sessionId: string,
   task: () => Promise<void>,
 ): Promise<void> {
   const previous = sessionExecutionChains.get(sessionId) ?? Promise.resolve();
-  const current = previous.catch(() => undefined).then(task);
+  const previousOrTimeout = Promise.race([
+    previous.catch(() => undefined),
+    sleep(SESSION_CHAIN_PREV_WAIT_MS).then(() => undefined),
+  ]);
+  const current = previousOrTimeout.then(task);
   sessionExecutionChains.set(
     sessionId,
     current.then(
@@ -459,16 +464,14 @@ export async function waitForCommandResult(
   return mergeCommandResults(sessionId, command, resolvedOutput, oscBlock);
 }
 
-/** 通过 actionStore 审批链执行终端命令，确认后才写入 PTY/SSH */
+/**
+ * 通过 actionStore 登记并执行终端命令。
+ * 人工手动执行不走审批（用户已主动发起）；
+ * AI 命令审批在 toolGate / inlineToolBridge / internalToolBridge，此处不再二次拦截。
+ */
 export function requestTerminalExecution(
   request: TerminalExecutionRequest,
 ): TerminalExecutionResult | Promise<TerminalExecutionResult> {
-  const approvalMode = resolveTerminalApprovalMode(request.tabId);
-  const requireApproval =
-    request.source === "用户"
-      ? shouldRequireTerminalApproval(request.command, approvalMode)
-      : false;
-
   const action = useActionStore.getState().enqueueAction(
     {
       type: "terminal",
@@ -478,30 +481,36 @@ export function requestTerminalExecution(
       resourceId: request.resourceId,
       source: request.source,
     },
-    { deferRun: true, requireApproval },
+    { deferRun: true, requireApproval: false },
   );
+
+  if (request.waitForBlock) {
+    return new Promise<TerminalExecutionResult>((resolve, reject) => {
+      pendingExecutions.set(action.id, {
+        tabId: request.tabId,
+        command: request.command,
+        source: request.source,
+        waitForBlock: true,
+        resolveBlock: (block) => resolve({ action, block }),
+        rejectBlock: reject,
+      });
+
+      // 必须先挂上 resolve/reject，再 runAction；否则 sender 缺失时 reject 会空跑
+      if (action.status !== "blocked") {
+        useActionStore.getState().runAction(action.id);
+      }
+    });
+  }
 
   pendingExecutions.set(action.id, {
     tabId: request.tabId,
     command: request.command,
     source: request.source,
-    waitForBlock: request.waitForBlock,
+    waitForBlock: false,
   });
 
   if (action.status !== "blocked") {
     useActionStore.getState().runAction(action.id);
-  }
-
-  if (request.waitForBlock) {
-    return new Promise<TerminalExecutionResult>((resolve, reject) => {
-      const entry = pendingExecutions.get(action.id);
-      if (!entry) {
-        reject(new Error("终端执行登记失败"));
-        return;
-      }
-      entry.resolveBlock = (block) => resolve({ action, block });
-      entry.rejectBlock = reject;
-    });
   }
 
   return { action };
@@ -513,7 +522,14 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
   if (!pending) return false;
 
   const sender = terminalPaneSenders[pending.tabId];
-  if (!sender) return false;
+  if (!sender) {
+    // 必须拒绝 waitForBlock Promise，否则 AI 工具链会永久挂起
+    pending.rejectBlock?.(
+      new Error(`终端会话 ${pending.tabId} 未就绪（无输入通道），请打开对应终端页后再试`),
+    );
+    pendingExecutions.delete(action.id);
+    return false;
+  }
 
   const run = async () => {
     const displayCommand = maybeAppendAutoLsToCommand(pending.command, pending.tabId);

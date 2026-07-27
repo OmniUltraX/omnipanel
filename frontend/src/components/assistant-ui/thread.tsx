@@ -30,6 +30,8 @@ import {
 import { useAiStore } from "../../stores/aiStore";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
 import { AiConversationSkillSelect } from "../ai/assistant-ui/AiConversationSkillSelect";
+import { AiAgentBadge } from "../ai/assistant-ui/AiAgentBadge";
+import { AiContextStrip } from "../ai/AiContextStrip";
 import { ComposerAddContextButton } from "../ai/assistant-ui/ComposerAddContextButton";
 import { ComposerContextChips } from "../ai/assistant-ui/ComposerContextChips";
 import { ComposerInputWithMention } from "../ai/assistant-ui/ComposerInputWithMention";
@@ -75,6 +77,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { PlanView } from "../ai/PlanView";
+import { AiApprovalDock } from "../ai/AiApprovalDock";
 import type { PlanData } from "../../lib/ai/aiMessageParts";
 import {
   parseMarkdownChecklist,
@@ -157,9 +160,9 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
       className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
       style={{
         ["--thread-max-width" as string]: "44rem",
-        // 对齐模块面板风格：8px 圆角（var(--r-lg)）替代默认 24px 大圆角
-        ["--composer-radius" as string]: "8px",
-        ["--composer-padding" as string]: "8px",
+        // 对齐模块面板：小圆角、紧凑内边距
+        ["--composer-radius" as string]: "4px",
+        ["--composer-padding" as string]: "6px",
       }}
     >
       <ThreadPrimitive.Viewport
@@ -188,11 +191,12 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
 
           <ThreadPrimitive.ViewportFooter
             className={cn(
-              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 pt-1 md:pb-6",
+              "aui-thread-viewport-footer bg-background flex flex-col gap-1.5 overflow-visible pb-3 pt-1 md:pb-4",
               !isEmpty && "sticky bottom-0 mt-auto",
             )}
           >
             <ThreadScrollToBottom />
+            <AiApprovalDock />
             <Composer />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
@@ -360,9 +364,12 @@ const Composer: FC = () => {
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
-          className="border-border data-[dragging=true]:border-ring focus-within:border-[var(--accent)] flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-bg p-(--composer-padding) shadow-sm transition-[border-color,box-shadow] focus-within:border-[var(--accent)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-bg))] dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30"
+          className="border-border data-[dragging=true]:border-ring focus-within:border-[var(--accent)] flex w-full flex-col gap-1 rounded-(--composer-radius) border bg-bg p-(--composer-padding) transition-[border-color] focus-within:border-[var(--accent)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-bg))] dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30"
         >
-          <ComposerContextChips />
+          <div className="aui-composer-context-row flex w-full min-w-0 flex-row flex-nowrap items-center gap-1.5 overflow-x-auto empty:hidden">
+            <AiContextStrip variant="composer" />
+            <ComposerContextChips />
+          </div>
           <ComposerAttachments />
           <ComposerInputWithMention />
           <ComposerAction />
@@ -397,6 +404,7 @@ const ComposerAction: FC = () => {
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1 min-w-0">
         <ComposerAddContextButton />
+        <AiAgentBadge />
         <AiConversationModelSelect />
         <AiConversationSkillSelect />
       </div>
@@ -450,7 +458,7 @@ const ComposerAction: FC = () => {
               type="button"
               variant="default"
               size="icon"
-              className="aui-composer-send size-7 rounded-full"
+              className="aui-composer-send size-7 rounded-[var(--r-sm)]"
               aria-label={t("ai.composer.buttonSend")}
             >
               <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
@@ -463,7 +471,7 @@ const ComposerAction: FC = () => {
               type="button"
               variant="default"
               size="icon"
-              className="aui-composer-cancel size-7 rounded-md"
+              className="aui-composer-cancel size-7 rounded-[var(--r-sm)]"
               aria-label={t("ai.composer.buttonStopGenerating")}
             >
               <SquareIcon className="aui-composer-cancel-icon size-3.5 fill-current" />

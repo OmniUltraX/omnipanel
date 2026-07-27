@@ -931,10 +931,20 @@ export const enUS: TranslationDict = {
       progress: "Progress {done}/{total}",
       failed: "{count} failed",
       cancelDone: "Task cancelled",
+      cancelAll: "Cancel all",
+      cancelAllConfirm: "Cancel all {count} running passive jobs?",
+      cancelAllDone: "Cancelled {count} jobs",
     },
     inbox: {
       empty: "No deferrable suggestions",
       occurrences: "{count} times",
+      dismissAll: "Dismiss all",
+      doneAll: "Mark all done",
+      dismissAllConfirm: "Dismiss all {count} inbox items?",
+      doneAllConfirm: "Mark all {count} inbox items as done?",
+      dismissAllDone: "Dismissed {count} items",
+      doneAllDone: "Marked {count} items done",
+      batchActions: "Batch actions",
     },
     triage: {
       done: "Mark done",
@@ -1002,6 +1012,7 @@ export const enUS: TranslationDict = {
       filterModule: "Filter by module",
       filterModuleAll: "All",
       filterNoMatch: "No job records match this filter",
+      clearFilter: "Clear filter",
       envProd: "Production",
       colTime: "Time",
       colAction: "Action",
@@ -2805,11 +2816,11 @@ export const enUS: TranslationDict = {
       approval: {
         label: "Command approval",
         strict: "Strict",
-        strictDesc: "Confirm every command",
+        strictDesc: "Confirm every AI command",
         view: "View",
-        viewDesc: "Read-only skips approval",
+        viewDesc: "AI read-only skips approval",
         loose: "Loose",
-        looseDesc: "No approval required",
+        looseDesc: "No approval for AI commands",
       },
       model: {
         label: "Terminal AI model",
@@ -5910,7 +5921,7 @@ export const enUS: TranslationDict = {
       mode: {
         label: "Assistant mode",
         plan: "Plan",
-        run: "Run",
+        run: "Agent",
       },
       plan: {
         label: "Plan assistant",
@@ -6056,6 +6067,14 @@ export const enUS: TranslationDict = {
       title: "Pending action",
       confirm: "Confirm",
       dismiss: "Dismiss",
+    },
+    approval: {
+      label: "Pending approval",
+      dialogTitle: "Pending approvals",
+      pendingCount: "{count} pending",
+      more: "{count} more",
+      goView: "Go to view",
+      highRiskHint: "High-risk action — confirm before running",
     },
     displayMode: {
       toDock: "Switch to right sidebar",

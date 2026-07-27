@@ -18,8 +18,6 @@ import {
   useSettingsStore,
   type AiDisplayMode,
 } from "../../../stores/settingsStore";
-import { AiContextStrip } from "../AiContextStrip";
-import { AiAgentBadge } from "./AiAgentBadge";
 import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
 
@@ -340,7 +338,8 @@ export function AiPanelToolbarActions() {
 }
 
 /**
- * 内容层工具栏：标题下拉（新建+历史）+ 当前现场（同行右侧）+ 轻量操作。
+ * 内容层工具栏：标题下拉（新建+历史）+ 轻量操作。
+ * 现场上下文与模式切换已下沉到 Composer（输入框上方 / 加号右侧）。
  */
 export function AiPanelToolbar({ showTitle = true }: { showTitle?: boolean }) {
   return (
@@ -350,8 +349,6 @@ export function AiPanelToolbar({ showTitle = true }: { showTitle?: boolean }) {
       ) : (
         <div className="ai-panel-toolbar-spacer" />
       )}
-      <AiAgentBadge />
-      <AiContextStrip variant="inline" />
       <AiPanelToolbarActions />
     </div>
   );

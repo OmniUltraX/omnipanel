@@ -22,6 +22,47 @@ import { StatusBarAiServicesIndicator } from "./StatusBarAiServicesIndicator";
 import { StatusBarLocalRuntimeIndicator } from "./StatusBarLocalRuntimeIndicator";
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
+import { useActionDraftStore } from "../../stores/actionDraftStore";
+
+/** 统一审批队列：状态栏待确认入口 */
+function StatusBarApprovalBadge() {
+  const { t } = useI18n();
+  const count = useActionDraftStore((s) => s.drafts.length);
+  const setGlobalDialogOpen = useActionDraftStore((s) => s.setGlobalDialogOpen);
+
+  const handleOpen = useCallback(() => {
+    setGlobalDialogOpen(true);
+  }, [setGlobalDialogOpen]);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLSpanElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handleOpen();
+      }
+    },
+    [handleOpen],
+  );
+
+  if (count <= 0) return null;
+
+  const message = t("ai.approval.pendingCount", { count });
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className="statusbar-log statusbar-log--warn"
+      title={message}
+      aria-label={message}
+      onClick={handleOpen}
+      onKeyDown={handleKeyDown}
+    >
+      <span className="statusbar-dot yellow" aria-hidden />
+      {message}
+    </span>
+  );
+}
 
 /** 全局后台任务进度（切换模块后仍展示） */
 function StatusBarBackgroundTaskLog() {
@@ -228,6 +269,7 @@ export function StatusBar() {
     return (
       <div className="statusbar">
         <ConnectionPoolIndicator />
+        <StatusBarApprovalBadge />
         <StatusBarBackgroundTaskLog />
         <StatusBarModuleLog />
         <BackgroundTasksWindow />
@@ -268,6 +310,7 @@ export function StatusBar() {
   return (
     <div className="statusbar">
       <ConnectionPoolIndicator />
+      <StatusBarApprovalBadge />
       <StatusBarBackgroundTaskLog />
       <StatusBarModuleLog />
       <BackgroundTasksWindow />
