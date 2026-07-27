@@ -36,7 +36,22 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDefinition> = {
     allowRag: true,
     // 完整提示词由后端 ~/.omnipd/prompts/agents/plan.md 注入；此处仅作回退摘要。
     systemRole:
-      "你是 OmniPanel 的「计划助手」Agent（plan）。可使用全部全局工具（待办、Skill、标签、资源档案、工作区、联网搜索等）。制定执行计划后应调用 omni_create_todolist 写入待办；不能执行终端/数据库等模块运维工具。",
+      "你是 OmniPanel 的「计划助手」Agent（plan）。只能使用全局工具；禁止调用 SSH/终端/数据库/Docker 等模块工具。最终必须调用 omni_create_todolist 输出执行计划待办。",
+  },
+  run: {
+    id: "run",
+    labelKey: "ai.agents.run.label",
+    descriptionKey: "ai.agents.run.description",
+    /** master：不过滤，注入全部内置工具 + 外部 MCP */
+    tools: {
+      kind: "module",
+      moduleFilter: "master",
+    },
+    allowSkills: true,
+    allowRag: true,
+    // 完整提示词由后端 ~/.omnipd/prompts/agents/run.md 注入；此处仅作回退摘要。
+    systemRole:
+      "你是 OmniPanel 的「执行助手」Agent（run）。可使用全部可用工具直接完成运维与工程任务；高风险变更须先征得用户确认。",
   },
   terminal: moduleAgent(
     "terminal",

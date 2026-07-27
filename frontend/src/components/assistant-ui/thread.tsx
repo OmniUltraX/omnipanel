@@ -23,6 +23,11 @@ import { AssistantStreamingHint } from "@/components/assistant-ui/streaming-hint
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../../i18n";
+import {
+  ASSISTANT_PAGE_AGENT_ID,
+  isAssistantPageAgentId,
+} from "../../lib/ai/agents";
+import { useAiStore } from "../../stores/aiStore";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
 import { AiConversationSkillSelect } from "../ai/assistant-ui/AiConversationSkillSelect";
 import { ComposerAddContextButton } from "../ai/assistant-ui/ComposerAddContextButton";
@@ -75,7 +80,6 @@ import {
   parseMarkdownChecklist,
   textFromMessageParts,
 } from "../../lib/ai/parseMarkdownChecklist";
-import { useAiStore } from "../../stores/aiStore";
 import {
   createTodoItem,
   nextTodoSortOrder,
@@ -235,13 +239,24 @@ const WELCOME_SUGGESTION_KEYS = [
 
 const ThreadWelcome: FC = () => {
   const { t } = useI18n();
+  const assistantMode = useAiStore((s) => {
+    const conv = s.conversations.find((c) => c.id === s.activeConversationId);
+    const id = conv?.agentId ?? ASSISTANT_PAGE_AGENT_ID;
+    return isAssistantPageAgentId(id) ? id : ASSISTANT_PAGE_AGENT_ID;
+  });
+  const title =
+    assistantMode === "run" ? t("ai.welcome.titleRun") : t("ai.welcome.titlePlan");
+  const subtitle =
+    assistantMode === "run"
+      ? t("ai.welcome.subtitleRun")
+      : t("ai.welcome.subtitlePlan");
   return (
     <div className="aui-thread-welcome-root mb-6 flex flex-col items-center gap-3 px-4 text-center">
       <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
-        {t("ai.welcome.title")}
+        {title}
       </h1>
       <p className="aui-thread-welcome-subtitle text-muted-foreground fade-in slide-in-from-bottom-1 animate-in fill-mode-both max-w-md text-sm leading-relaxed duration-200">
-        {t("ai.welcome.subtitle")}
+        {subtitle}
       </p>
     </div>
   );
@@ -308,6 +323,7 @@ const SaveAsTodoButton: FC = () => {
       const ok = await store.saveList({
         id: newTodoId(),
         title: parsed.title,
+        description: "",
         items: parsed.items.map((item) =>
           createTodoItem({
             name: item.text,

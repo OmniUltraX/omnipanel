@@ -2753,6 +2753,10 @@ export type KnowledgeTodoItem = {
 export type KnowledgeTodoList = {
 	id: string,
 	title: string,
+	/**
+	 * 列表级任务描述（卡片摘要展示）。
+	 */
+	description: string,
 	items: KnowledgeTodoItem[],
 	sortOrder?: number | null,
 	createdAt?: number | null,

@@ -215,6 +215,11 @@ function PromptsPanel() {
                           {t("ai.agents.planToolTag")}
                         </span>
                       ) : null}
+                      {entry.id === "run" ? (
+                        <span className="agent-prompt-sidebar-tag">
+                          {t("ai.agents.runToolTag")}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 );

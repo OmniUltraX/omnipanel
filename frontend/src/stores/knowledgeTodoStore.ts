@@ -25,6 +25,7 @@ export function createEmptyTodoList(title = "新待办列表"): KnowledgeTodoLis
   return {
     id: newTodoId(),
     title,
+    description: "",
     items: [createTodoItem()],
     sortOrder: 0,
     createdAt: now,
@@ -48,6 +49,7 @@ interface KnowledgeTodoStore {
   deleteList: (id: string) => Promise<void>;
   createList: () => Promise<string | null>;
   toggleItem: (listId: string, itemId: string) => Promise<void>;
+  removeItem: (listId: string, itemId: string) => Promise<void>;
   setEditingId: (id: string | null) => void;
   clearError: () => void;
 }
@@ -63,7 +65,13 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
     try {
       const res = await commands.knowledgeTodoList();
       if (res.status === "ok") {
-        set({ lists: res.data, isLoading: false });
+        set({
+          lists: res.data.map((list) => ({
+            ...list,
+            description: list.description ?? "",
+          })),
+          isLoading: false,
+        });
       } else {
         set({ error: res.error.message, isLoading: false });
       }
@@ -129,6 +137,13 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
     const items = list.items.map((item) =>
       item.id === itemId ? { ...item, done: !item.done } : item,
     );
+    await get().saveList({ ...list, items });
+  },
+
+  removeItem: async (listId: string, itemId: string) => {
+    const list = get().lists.find((l) => l.id === listId);
+    if (!list) return;
+    const items = list.items.filter((item) => item.id !== itemId);
     await get().saveList({ ...list, items });
   },
 

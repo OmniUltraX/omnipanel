@@ -70,10 +70,8 @@ impl ToolRegistry {
         let mut tools = Vec::new();
         for record in records {
             if let Some(filter) = module_filter {
-                // master: 不过滤，全部保留。
-                // 具体模块: 保留该模块工具 + 所有 Native 工具（knowledge/web/ssh 等通用能力不依赖焦点）。
-                let is_native = Self::is_native_tool(&record.tool_name);
-                if filter != "master" && record.module_key != filter && !is_native {
+                // master: 不过滤；其余严格按 module_key 隔离（Native / UiDelegated 一视同仁）。
+                if filter != "master" && record.module_key != filter {
                     continue;
                 }
             }
@@ -208,5 +206,45 @@ mod tests {
             .unwrap();
         let tools = registry.list_enabled(None).await.unwrap();
         assert!(!tools.iter().any(|t| t.module_key == "database"));
+    }
+
+    #[tokio::test]
+    async fn module_filter_excludes_other_modules_including_native() {
+        let (registry, _s) = registry_with_storage();
+        let tools = registry.list_enabled(Some("web")).await.unwrap();
+        assert!(
+            tools.iter().any(|t| t.name == "omni_create_todolist"),
+            "web 过滤应包含全局待办工具"
+        );
+        assert!(
+            tools.iter().any(|t| t.name == "load_skill"),
+            "web 过滤应包含 load_skill"
+        );
+        assert!(
+            !tools.iter().any(|t| t.name.starts_with("omni_ssh_")),
+            "web 过滤不得包含 omni_ssh_*"
+        );
+        assert!(
+            !tools
+                .iter()
+                .any(|t| t.name == "omni_terminal_run_terminal_command"),
+            "web 过滤不得包含终端工具"
+        );
+        assert!(
+            tools.iter().all(|t| t.module_key == "web"),
+            "web 过滤结果必须全部为 module_key=web"
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_filter_excludes_global_native_tools() {
+        let (registry, _s) = registry_with_storage();
+        let tools = registry.list_enabled(Some("terminal")).await.unwrap();
+        assert!(tools
+            .iter()
+            .any(|t| t.name == "omni_terminal_run_terminal_command"));
+        assert!(!tools.iter().any(|t| t.name == "omni_create_todolist"));
+        assert!(!tools.iter().any(|t| t.name == "load_skill"));
+        assert!(tools.iter().all(|t| t.module_key == "terminal"));
     }
 }

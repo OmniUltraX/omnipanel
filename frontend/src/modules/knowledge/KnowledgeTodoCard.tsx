@@ -1,50 +1,18 @@
 import type { MouseEvent } from "react";
-import type { KnowledgeTodoItem, KnowledgeTodoList } from "../../ipc/bindings";
+import type { KnowledgeTodoList } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 
 type KnowledgeTodoCardProps = {
   list: KnowledgeTodoList;
-  onEdit: () => void;
-  onToggleItem: (itemId: string) => void;
+  onOpen: () => void;
   onDelete: () => void;
 };
 
-function TodoCheck({
-  done,
-  onToggle,
-}: {
-  done: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`knowledge-todo-check${done ? " knowledge-todo-check--done" : ""}`}
-      aria-checked={done}
-      role="checkbox"
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle();
-      }}
-    >
-      {done && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10" aria-hidden>
-          <path d="M5 13l4 4L19 7" />
-        </svg>
-      )}
-    </button>
-  );
-}
-
-function isVisibleItem(item: KnowledgeTodoItem): boolean {
-  return Boolean(item.name.trim() || item.executor.trim() || item.description.trim());
-}
-
-export function KnowledgeTodoCard({ list, onEdit, onToggleItem, onDelete }: KnowledgeTodoCardProps) {
+export function KnowledgeTodoCard({ list, onOpen, onDelete }: KnowledgeTodoCardProps) {
   const { t } = useI18n();
-  const items = list.items.filter(isVisibleItem);
-  const doneCount = items.filter((item) => item.done).length;
+  const itemCount = list.items.length;
+  const description = (list.description ?? "").trim();
 
   const handleDelete = async (e: MouseEvent) => {
     e.stopPropagation();
@@ -55,11 +23,11 @@ export function KnowledgeTodoCard({ list, onEdit, onToggleItem, onDelete }: Know
   return (
     <article
       className="knowledge-todo-card"
-      onClick={onEdit}
+      onClick={onOpen}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onEdit();
+          onOpen();
         }
       }}
       role="button"
@@ -67,39 +35,17 @@ export function KnowledgeTodoCard({ list, onEdit, onToggleItem, onDelete }: Know
     >
       <header className="knowledge-todo-card__header">
         <h4 className="knowledge-todo-card__title">{list.title || t("knowledge.todos.untitled")}</h4>
-        {items.length > 0 && (
-          <span className="knowledge-todo-card__progress">
-            {t("knowledge.todos.progress", { done: doneCount, total: items.length })}
-          </span>
-        )}
+        <span className="knowledge-todo-card__count">
+          {t("knowledge.todos.itemCount", { count: itemCount })}
+        </span>
       </header>
-      <ul className="knowledge-todo-card__items">
-        {items.length === 0 ? (
-          <li className="knowledge-todo-card__empty">{t("knowledge.todos.emptyItems")}</li>
-        ) : (
-          items.map((item: KnowledgeTodoItem) => (
-            <li
-              key={item.id}
-              className={`knowledge-todo-card__item${item.done ? " knowledge-todo-card__item--done" : ""}`}
-            >
-              <TodoCheck done={item.done} onToggle={() => onToggleItem(item.id)} />
-              <div className="knowledge-todo-card__body">
-                <div className="knowledge-todo-card__name-row">
-                  <span className="knowledge-todo-card__name">
-                    {item.name.trim() || t("knowledge.todos.untitledItem")}
-                  </span>
-                  {item.executor.trim() ? (
-                    <span className="knowledge-todo-card__executor">{item.executor.trim()}</span>
-                  ) : null}
-                </div>
-                {item.description.trim() ? (
-                  <p className="knowledge-todo-card__description">{item.description.trim()}</p>
-                ) : null}
-              </div>
-            </li>
-          ))
-        )}
-      </ul>
+      {description ? (
+        <p className="knowledge-todo-card__summary">{description}</p>
+      ) : (
+        <p className="knowledge-todo-card__summary knowledge-todo-card__summary--empty">
+          {t("knowledge.todos.noDescription")}
+        </p>
+      )}
       <button
         type="button"
         className="knowledge-todo-card__delete"

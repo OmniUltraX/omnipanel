@@ -26,6 +26,9 @@ pub struct KnowledgeTodoItem {
 pub struct KnowledgeTodoList {
     pub id: String,
     pub title: String,
+    /// 列表级任务描述（卡片摘要展示）。
+    #[serde(default)]
+    pub description: String,
     pub items: Vec<KnowledgeTodoItem>,
     #[serde(default)]
     #[specta(type = f64)]
@@ -42,7 +45,7 @@ impl Storage {
     /// 列出全部待办列表（按 sort_order、更新时间排序）。
     pub fn list_knowledge_todos(&self) -> OmniResult<Vec<KnowledgeTodoList>> {
         self.query_knowledge_todos(
-            "SELECT id, title, items, sort_order, created_at, updated_at
+            "SELECT id, title, description, items, sort_order, created_at, updated_at
              FROM knowledge_todo_lists
              ORDER BY sort_order ASC, updated_at DESC",
             [],
@@ -53,7 +56,7 @@ impl Storage {
     pub fn get_knowledge_todo(&self, id: &str) -> OmniResult<Option<KnowledgeTodoList>> {
         Ok(self
             .query_knowledge_todos(
-                "SELECT id, title, items, sort_order, created_at, updated_at
+                "SELECT id, title, description, items, sort_order, created_at, updated_at
                  FROM knowledge_todo_lists WHERE id = ?1",
                 [id],
             )?
@@ -68,16 +71,18 @@ impl Storage {
         })?;
         self.conn()
             .execute(
-                "INSERT INTO knowledge_todo_lists (id, title, items, sort_order, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO knowledge_todo_lists (id, title, description, items, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
+                description = excluded.description,
                 items = excluded.items,
                 sort_order = excluded.sort_order,
                 updated_at = excluded.updated_at",
                 rusqlite::params![
                     list.id,
                     list.title,
+                    list.description,
                     items_json,
                     list.sort_order,
                     list.created_at,
@@ -104,16 +109,17 @@ impl Storage {
         let mut stmt = self.conn().prepare(sql).map_err(map_sqlite)?;
         let rows = stmt
             .query_map(params, |row| {
-                let items_json: String = row.get(2)?;
+                let items_json: String = row.get(3)?;
                 let items: Vec<KnowledgeTodoItem> =
                     serde_json::from_str(&items_json).unwrap_or_default();
                 Ok(KnowledgeTodoList {
                     id: row.get(0)?,
                     title: row.get(1)?,
+                    description: row.get(2)?,
                     items,
-                    sort_order: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    sort_order: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })
             .map_err(map_sqlite)?;
@@ -134,6 +140,7 @@ mod tests {
         KnowledgeTodoList {
             id: id.to_string(),
             title: title.to_string(),
+            description: "示例任务描述".to_string(),
             items: vec![
                 KnowledgeTodoItem {
                     id: "i1".to_string(),
@@ -180,6 +187,7 @@ mod tests {
         storage.save_knowledge_todo(&list).unwrap();
         let got = storage.get_knowledge_todo("t1").unwrap().unwrap();
         assert_eq!(got.title, "我的待办");
+        assert_eq!(got.description, "示例任务描述");
         assert_eq!(got.items[1].done, true);
         assert_eq!(got.items[1].description, "备份数据库");
     }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n";
 import { useKnowledgeTodoStore } from "../../stores/knowledgeTodoStore";
 import { KnowledgeTodoCard, KnowledgeTodoNewCard } from "./KnowledgeTodoCard";
-import { KnowledgeTodoEditor } from "./KnowledgeTodoEditor";
+import { KnowledgeTodoDetailSubWindow } from "./KnowledgeTodoDetailSubWindow";
 
 export function KnowledgeTodosView() {
   const { t } = useI18n();
@@ -14,7 +14,6 @@ export function KnowledgeTodosView() {
   const saveList = useKnowledgeTodoStore((s) => s.saveList);
   const deleteList = useKnowledgeTodoStore((s) => s.deleteList);
   const createList = useKnowledgeTodoStore((s) => s.createList);
-  const toggleItem = useKnowledgeTodoStore((s) => s.toggleItem);
   const setEditingId = useKnowledgeTodoStore((s) => s.setEditingId);
   const clearError = useKnowledgeTodoStore((s) => s.clearError);
 
@@ -48,8 +47,7 @@ export function KnowledgeTodosView() {
             <KnowledgeTodoCard
               key={list.id}
               list={list}
-              onEdit={() => setEditingId(list.id)}
-              onToggleItem={(itemId) => void toggleItem(list.id, itemId)}
+              onOpen={() => setEditingId(list.id)}
               onDelete={() => void deleteList(list.id)}
             />
           ))}
@@ -57,12 +55,12 @@ export function KnowledgeTodosView() {
         </div>
       )}
 
-      <KnowledgeTodoEditor
+      <KnowledgeTodoDetailSubWindow
         open={editingId != null}
         list={editingList}
         onClose={() => setEditingId(null)}
         onSave={saveList}
-        onDelete={deleteList}
+        onDeleteList={deleteList}
       />
     </div>
   );

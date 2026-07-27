@@ -26,7 +26,8 @@ pub mod files {
 
 /// 可配置的逻辑 Agent 提示词 id（与前端 `AgentId` 对齐）。
 pub const AGENT_PROMPT_IDS: &[&str] = &[
-    "plan", // 原 chat：AI 助手页 TodoList / 计划 Agent
+    "plan", // AI 助手页 Plan：TodoList / 计划
+    "run",  // AI 助手页 Run：全工具执行
     "terminal", // 含原 SSH（已并入终端模块）
     "database",
     "docker",
@@ -40,6 +41,7 @@ pub const AGENT_PROMPT_IDS: &[&str] = &[
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../resources/prompts/system-prompt.md");
 const DEFAULT_PLAN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/plan.md");
+const DEFAULT_RUN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/run.md");
 const DEFAULT_TERMINAL_AGENT_PROMPT: &str =
     include_str!("../resources/prompts/agents/terminal.md");
 
@@ -67,6 +69,7 @@ static AGENT_CACHE: LazyLock<Mutex<HashMap<String, CachedFile>>> =
 fn default_agent_prompt(id: &str) -> &'static str {
     match id {
         "plan" => DEFAULT_PLAN_AGENT_PROMPT,
+        "run" => DEFAULT_RUN_AGENT_PROMPT,
         "terminal" => DEFAULT_TERMINAL_AGENT_PROMPT,
         "database" => {
             "你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。"
@@ -219,7 +222,11 @@ fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
     );
     next = next.replace(
         "- 你**只能**使用 `omni_create_todolist`，不要尝试调用其他模块工具。",
+        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_create_todolist` 创建的执行计划。",
+    );
+    next = next.replace(
         "- 你可以使用全部**全局工具**；不要尝试调用终端/数据库/Docker/文件等模块专用工具。",
+        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_create_todolist` 创建的执行计划。",
     );
     if next == current {
         return Ok(());
@@ -406,6 +413,9 @@ mod tests {
         let plan = default_agent_prompt("plan");
         assert!(plan.contains("omni_create_todolist"));
         assert!(plan.contains("执行计划") || plan.contains("计划助手"));
+        let run = default_agent_prompt("run");
+        assert!(run.contains("执行助手") || run.contains("全部"));
+        assert!(run.contains("omni_ssh_") || run.contains("全部内置工具"));
         let terminal = default_agent_prompt("terminal");
         assert!(terminal.contains("服务与健康检查"));
         assert!(terminal.contains("资源占用"));
@@ -413,5 +423,6 @@ mod tests {
         let list = list_prompt_entries().expect("list");
         assert_eq!(list.len(), AGENT_PROMPT_IDS.len());
         assert!(list.iter().any(|e| e.id == "terminal"));
+        assert!(list.iter().any(|e| e.id == "run"));
     }
 }

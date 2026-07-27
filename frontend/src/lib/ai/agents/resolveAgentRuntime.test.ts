@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentId, resolveAgentRuntime } from "./resolveAgentRuntime";
 
 describe("resolveAgentRuntime", () => {
-  it("助手页强制 plan 并注入全局工具模块", () => {
+  it("助手页默认 plan 并注入全局工具模块", () => {
     const runtime = resolveAgentRuntime({
       assistantPage: true,
       moduleKey: "terminal",
@@ -11,6 +11,18 @@ describe("resolveAgentRuntime", () => {
     expect(runtime.agentId).toBe("plan");
     expect(runtime.toolsMode).toEqual({
       directInject: { moduleFilter: "web" },
+    });
+  });
+
+  it("助手页会话绑定 run 时使用全部工具", () => {
+    const runtime = resolveAgentRuntime({
+      assistantPage: true,
+      conversationAgentId: "run",
+      moduleKey: "terminal",
+    });
+    expect(runtime.agentId).toBe("run");
+    expect(runtime.toolsMode).toEqual({
+      directInject: { moduleFilter: "master" },
     });
   });
 

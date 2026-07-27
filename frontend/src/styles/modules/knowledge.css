@@ -1584,6 +1584,7 @@
         cursor: pointer;
         transition: border-color 0.12s, box-shadow 0.12s;
         text-align: left;
+        min-height: 108px;
     }
 
     .knowledge-todo-card:hover,
@@ -1641,118 +1642,32 @@
         word-break: break-word;
     }
 
-    .knowledge-todo-card__progress {
+    .knowledge-todo-card__count {
         flex-shrink: 0;
         font-size: 11px;
         color: var(--meta);
         padding: 2px 6px;
         border-radius: var(--r-sm);
         background: var(--bg-deeper);
+        font-variant-numeric: tabular-nums;
     }
 
-    .knowledge-todo-card__items {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .knowledge-todo-card__item {
-        display: flex;
-        align-items: flex-start;
-        gap: var(--sp-2);
-        font-size: 13px;
-        line-height: 1.45;
-        color: var(--fg);
-    }
-
-    .knowledge-todo-card__item--done .knowledge-todo-card__name,
-    .knowledge-todo-card__item--done .knowledge-todo-card__description {
-        color: var(--meta);
-        text-decoration: line-through;
-    }
-
-    .knowledge-todo-check {
-        flex-shrink: 0;
-        width: 18px;
-        height: 18px;
-        margin-top: 1px;
-        padding: 0;
-        border: 1.5px solid var(--meta);
-        border-radius: 50%;
-        background: transparent;
-        color: #fff;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background 0.12s, border-color 0.12s;
-    }
-
-    .knowledge-todo-check:hover {
-        border-color: var(--accent);
-    }
-
-    .knowledge-todo-check--done {
-        background: var(--accent);
-        border-color: var(--accent);
-    }
-
-    .knowledge-todo-card__body {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .knowledge-todo-card__name-row {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-        min-width: 0;
-    }
-
-    .knowledge-todo-card__name {
-        flex: 1;
-        min-width: 0;
-        font-weight: 500;
-        word-break: break-word;
-    }
-
-    .knowledge-todo-card__executor {
-        flex-shrink: 0;
-        font-size: 11px;
-        color: var(--meta);
-        max-width: 40%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .knowledge-todo-card__description {
+    .knowledge-todo-card__summary {
         margin: 0;
         font-size: 12px;
-        line-height: 1.4;
+        line-height: 1.45;
         color: var(--muted);
         display: -webkit-box;
-        -webkit-line-clamp: 2;
+        -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
         word-break: break-word;
-    }
-
-    .knowledge-todo-card__text {
-        min-width: 0;
-        word-break: break-word;
         flex: 1;
     }
 
-    .knowledge-todo-card__empty {
-        font-size: 12px;
+    .knowledge-todo-card__summary--empty {
         color: var(--meta);
+        font-style: italic;
     }
 
     .knowledge-todo-card__delete {
@@ -1780,6 +1695,275 @@
     }
 
     .knowledge-todo-card__delete:hover {
+        color: var(--danger);
+        background: var(--danger-soft);
+    }
+
+    .knowledge-todo-detail-subwindow .subwindow-body {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding: 0;
+    }
+
+    .knowledge-todo-detail {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        height: 100%;
+        min-height: 0;
+        padding: var(--sp-3) var(--sp-4) var(--sp-4);
+    }
+
+    .knowledge-todo-detail__empty {
+        padding: var(--sp-8);
+        text-align: center;
+        color: var(--meta);
+    }
+
+    .knowledge-todo-detail__header-delete {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--meta);
+        cursor: pointer;
+    }
+
+    .knowledge-todo-detail__header-delete:hover {
+        color: var(--danger);
+        background: var(--danger-soft);
+    }
+
+    .knowledge-todo-detail__meta {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+    }
+
+    .knowledge-todo-detail__label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--meta);
+        letter-spacing: 0.02em;
+    }
+
+    .knowledge-todo-detail__title {
+        width: 100%;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    .knowledge-todo-detail__description {
+        width: 100%;
+        resize: vertical;
+        min-height: 52px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 13px;
+        line-height: 1.45;
+        font-family: inherit;
+    }
+
+    .knowledge-todo-detail__description:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .knowledge-todo-detail__toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+    }
+
+    .knowledge-todo-detail__item-count {
+        font-size: 12px;
+        color: var(--meta);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .knowledge-todo-detail__add {
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        color: var(--fg);
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .knowledge-todo-detail__add:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+    }
+
+    .knowledge-todo-detail__table-wrap {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg);
+    }
+
+    .knowledge-todo-detail__table {
+        width: 100%;
+        min-width: 720px;
+        table-layout: fixed;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 13px;
+    }
+
+    .knowledge-todo-detail__col-name {
+        width: 18%;
+    }
+
+    .knowledge-todo-detail__col-executor {
+        width: 12%;
+    }
+
+    .knowledge-todo-detail__col-description {
+        width: auto;
+    }
+
+    .knowledge-todo-detail__col-status {
+        width: 88px;
+    }
+
+    .knowledge-todo-detail__col-actions {
+        width: 88px;
+    }
+
+    .knowledge-todo-detail__table th,
+    .knowledge-todo-detail__table td {
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid var(--border-soft);
+        background: var(--bg);
+    }
+
+    .knowledge-todo-detail__table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--meta);
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .knowledge-todo-detail__table th.knowledge-todo-detail__col-actions,
+    .knowledge-todo-detail__table td.knowledge-todo-detail__col-actions {
+        position: sticky;
+        right: 0;
+        z-index: 1;
+        box-shadow: -6px 0 8px -8px rgba(0, 0, 0, 0.35);
+        background: var(--surface);
+    }
+
+    .knowledge-todo-detail__table thead th.knowledge-todo-detail__col-actions {
+        z-index: 3;
+    }
+
+    .knowledge-todo-detail__table tbody td.knowledge-todo-detail__col-actions {
+        background: var(--bg);
+    }
+
+    .knowledge-todo-detail__table tr.is-done td {
+        opacity: 0.72;
+    }
+
+    .knowledge-todo-detail__empty-row {
+        text-align: center !important;
+        color: var(--meta);
+        padding: 28px 12px !important;
+    }
+
+    .knowledge-todo-detail__cell-input {
+        width: 100%;
+    }
+
+    .knowledge-todo-detail__cell-textarea {
+        width: 100%;
+        resize: vertical;
+        min-height: 44px;
+        padding: 6px 8px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        color: var(--fg);
+        font-size: 12px;
+        line-height: 1.4;
+        font-family: inherit;
+    }
+
+    .knowledge-todo-detail__cell-textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .knowledge-todo-detail__status {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        color: var(--meta);
+        background: var(--bg-deeper);
+        white-space: nowrap;
+    }
+
+    .knowledge-todo-detail__status.is-done {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .knowledge-todo-detail__row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .knowledge-todo-detail__icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--meta);
+        cursor: pointer;
+    }
+
+    .knowledge-todo-detail__icon-btn:hover {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .knowledge-todo-detail__icon-btn--danger:hover {
         color: var(--danger);
         background: var(--danger-soft);
     }

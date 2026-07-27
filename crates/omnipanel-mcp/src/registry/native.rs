@@ -1313,6 +1313,12 @@ async fn create_todolist(
     if title.is_empty() {
         return Err("title 不能为空".to_string());
     }
+    let description = arguments
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
 
     let items_val = arguments
         .get("items")
@@ -1384,6 +1390,7 @@ async fn create_todolist(
     let list = KnowledgeTodoList {
         id: id.clone(),
         title: title.clone(),
+        description: description.clone(),
         items,
         sort_order,
         created_at: now,
@@ -1397,6 +1404,7 @@ async fn create_todolist(
         serde_json::json!({
             "id": id,
             "title": title,
+            "description": description,
             "item_count": item_count,
             "sort_order": sort_order,
         })

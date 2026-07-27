@@ -384,20 +384,29 @@ export const zhCN = {
       empty: "暂无待办列表",
       emptyHint: "点击右上角按钮创建第一个待办列表",
       emptyItems: "暂无待办内容",
-      editList: "编辑待办列表",
+      editList: "待办列表详情",
       addItem: "添加待办",
       removeItem: "删除待办项",
+      submitItem: "提交",
       itemPlaceholder: "输入待办内容…",
       itemNamePlaceholder: "名称",
       itemExecutorPlaceholder: "执行者",
       itemDescriptionPlaceholder: "任务描述与细节…",
       listTitlePlaceholder: "列表标题",
+      listDescriptionPlaceholder: "任务描述",
+      noDescription: "暂无任务描述",
       untitled: "未命名列表",
       untitledItem: "未命名待办",
       progress: "{done}/{total}",
+      itemCount: "{count} 项",
       moreItems: "还有 {count} 项…",
       toggleItem: "切换第 {index} 项",
       confirmDelete: "确定删除此待办列表？",
+      confirmDeleteItem: "确定删除此待办项？",
+      status: "状态",
+      statusDone: "已完成",
+      statusPending: "待完成",
+      actions: "操作",
     },
     types: {
       snippet: "命令片段",
@@ -5761,6 +5770,8 @@ export const zhCN = {
     },
     composer: {
       placeholder: "描述任务，我来拆成待办清单…",
+      placeholderPlan: "描述任务，我来拆成待办清单…",
+      placeholderRun: "描述任务，我来直接执行…",
       buttonSend: "发送消息",
       buttonCopy: "复制",
       buttonRefresh: "重新生成",
@@ -5791,9 +5802,19 @@ export const zhCN = {
     agents: {
       noTools: "无工具",
       planToolTag: "全局工具",
+      runToolTag: "全部工具",
+      mode: {
+        label: "助手模式",
+        plan: "Plan",
+        run: "Run",
+      },
       plan: {
         label: "计划助手",
         description: "制定执行计划；可调用全部全局工具并创建知识库待办",
+      },
+      run: {
+        label: "执行助手",
+        description: "可调用全部工具，直接执行运维与工程任务",
       },
       terminal: {
         label: "终端 Agent",
@@ -5850,6 +5871,10 @@ export const zhCN = {
     welcome: {
       title: "把目标拆成待办清单",
       subtitle: "描述你要完成的事，我来整理成可勾选的 TodoList，并可保存到知识库待办。",
+      titlePlan: "把目标拆成待办清单",
+      subtitlePlan: "描述你要完成的事，我来整理成可勾选的 TodoList，并可保存到知识库待办。",
+      titleRun: "直接执行你的任务",
+      subtitleRun: "切换到 Run 模式后，我可以调用全部工具帮你排查与落地；高风险操作会先征得确认。",
       suggestions: {
         weeklyOps: {
           title: "本周运维巡检",

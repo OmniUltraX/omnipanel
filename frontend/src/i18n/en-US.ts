@@ -386,20 +386,29 @@ export const enUS: TranslationDict = {
       empty: "No todo lists yet",
       emptyHint: "Click the button above to create your first list",
       emptyItems: "No items yet",
-      editList: "Edit Todo List",
+      editList: "Todo List Details",
       addItem: "Add Item",
       removeItem: "Remove item",
+      submitItem: "Submit",
       itemPlaceholder: "Todo item…",
       itemNamePlaceholder: "Name",
       itemExecutorPlaceholder: "Executor",
       itemDescriptionPlaceholder: "Task description and details…",
       listTitlePlaceholder: "List title",
+      listDescriptionPlaceholder: "Task description",
+      noDescription: "No description",
       untitled: "Untitled List",
       untitledItem: "Untitled item",
       progress: "{done}/{total}",
+      itemCount: "{count} items",
       moreItems: "{count} more…",
       toggleItem: "Toggle item {index}",
       confirmDelete: "Delete this todo list?",
+      confirmDeleteItem: "Delete this todo item?",
+      status: "Status",
+      statusDone: "Done",
+      statusPending: "Pending",
+      actions: "Actions",
     },
     types: {
       snippet: "Command Snippet",
@@ -5823,6 +5832,8 @@ export const enUS: TranslationDict = {
     },
     composer: {
       placeholder: "Describe a goal — I’ll turn it into a checklist…",
+      placeholderPlan: "Describe a goal — I’ll turn it into a checklist…",
+      placeholderRun: "Describe a task — I’ll execute it with tools…",
       buttonSend: "Send message",
       buttonCopy: "Copy",
       buttonRefresh: "Refresh",
@@ -5853,9 +5864,19 @@ export const enUS: TranslationDict = {
     agents: {
       noTools: "No tools",
       planToolTag: "Global tools",
+      runToolTag: "All tools",
+      mode: {
+        label: "Assistant mode",
+        plan: "Plan",
+        run: "Run",
+      },
       plan: {
         label: "Plan assistant",
         description: "Builds an execution plan; can use all global tools and create Knowledge todos",
+      },
+      run: {
+        label: "Run assistant",
+        description: "Can use all tools to execute ops and engineering tasks directly",
       },
       terminal: {
         label: "Terminal agent",
@@ -5913,6 +5934,12 @@ export const enUS: TranslationDict = {
       title: "Turn goals into a checklist",
       subtitle:
         "Describe what you need done — I’ll build a checkbox TodoList you can save to Knowledge todos.",
+      titlePlan: "Turn goals into a checklist",
+      subtitlePlan:
+        "Describe what you need done — I’ll build a checkbox TodoList you can save to Knowledge todos.",
+      titleRun: "Execute your tasks directly",
+      subtitleRun:
+        "In Run mode I can use all tools to investigate and apply changes; high-risk actions ask for confirmation first.",
       suggestions: {
         weeklyOps: {
           title: "Weekly ops checklist",

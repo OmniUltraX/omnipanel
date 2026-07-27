@@ -108,7 +108,9 @@ impl McpManager {
         Ok(out)
     }
 
-    /// 内置 omni_* + 外部 MCP 工具合并为内部编排可用的 ToolDef 列表。
+    /// 内置 omni_* +（仅 master/无过滤时）外部 MCP 工具合并为内部编排可用的 ToolDef 列表。
+    ///
+    /// 模块隔离：指定 `module_filter`（非 master）时只返回该模块内置工具，不混入外部 MCP。
     pub async fn to_internal_tool_defs(
         &self,
         module_filter: Option<&str>,
@@ -117,13 +119,28 @@ impl McpManager {
             .tool_registry
             .to_tool_defs(module_filter)
             .await?;
-        let external = self.list_external_registry_tools().await?;
-        defs.extend(
-            external
-                .into_iter()
-                .map(ToolRegistry::registered_to_tool_def),
-        );
-        defs.push(Self::load_skill_tool_def());
+        let include_external = match module_filter {
+            None => true,
+            Some("master") => true,
+            Some(_) => false,
+        };
+        if include_external {
+            let external = self.list_external_registry_tools().await?;
+            defs.extend(
+                external
+                    .into_iter()
+                    .map(ToolRegistry::registered_to_tool_def),
+            );
+        }
+        // load_skill 已在 BUILTIN_TOOL_SPECS（module_key=web）；仅当无过滤或 web/master 时补一份兜底，避免重复。
+        let already_has_load_skill = defs.iter().any(|d| d.function.name == "load_skill");
+        let allow_load_skill = match module_filter {
+            None | Some("master") | Some("web") => true,
+            Some(_) => false,
+        };
+        if allow_load_skill && !already_has_load_skill {
+            defs.push(Self::load_skill_tool_def());
+        }
         Ok(defs)
     }
 

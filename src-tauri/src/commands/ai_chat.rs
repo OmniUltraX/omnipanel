@@ -35,17 +35,44 @@ fn apply_tool_allowlist(mut defs: Vec<ToolDef>, allowlist: Option<&[String]>) ->
     defs
 }
 
+/// 模块隔离：指定 filter（非 master）时，工具必须属于该 module_key。
+fn ensure_tool_allowed_by_module_filter(
+    tool_name: &str,
+    module_filter: Option<&str>,
+) -> Result<(), String> {
+    let Some(filter) = module_filter.filter(|f| !f.is_empty() && *f != "master") else {
+        return Ok(());
+    };
+    match omnipanel_store::builtin_tool_module_key(tool_name) {
+        Some(key) if key == filter => Ok(()),
+        Some(key) => Err(format!(
+            "工具 {tool_name} 属于模块 {key}，当前 Agent 仅允许模块 {filter}"
+        )),
+        None => Err(format!(
+            "工具 {tool_name} 不在当前模块 ({filter}) 的允许范围内"
+        )),
+    }
+}
+
 struct RegistryToolExecutor {
     mcp_manager: omnipanel_mcp::SharedMcpManager,
     conversation_id: String,
     pending_internal: Arc<Mutex<HashMap<String, oneshot::Sender<(String, bool)>>>>,
     mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
     proxy_config: Arc<Mutex<crate::state::ProxyConfig>>,
+    /// 与本次请求 `tools_mode.module_filter` 一致；执行期二次校验，防止模型幻觉越权调用。
+    module_filter: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl ToolExecutor for RegistryToolExecutor {
     async fn execute(&self, tool_call_id: &str, name: &str, arguments: &str) -> (String, bool) {
+        if let Err(err) =
+            ensure_tool_allowed_by_module_filter(name, self.module_filter.as_deref())
+        {
+            return (format!("Error: {err}"), false);
+        }
+
         // 统一通道：
         // - Native 工具（知识库等）后端直接执行；
         // - 其余全部 UiDelegated（终端 / 数据库等）挂起等待前端 dispatchTool 回传
@@ -191,7 +218,11 @@ pub struct HttpProviderSnapshotDto {
 #[serde(rename_all = "camelCase")]
 pub enum InternalToolsModeDto {
     None,
+    /// 变体字段也必须 camelCase：枚举级 `rename_all` 只改变体名，不改 struct 字段名。
+    /// 否则前端传入的 `moduleFilter` 会被忽略，过滤失效、注入全量工具。
+    #[serde(rename_all = "camelCase")]
     DirectInject {
+        #[serde(default)]
         module_filter: Option<String>,
         #[serde(default)]
         tool_allowlist: Option<Vec<String>>,
@@ -230,10 +261,18 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
                 InternalToolsModeDto::DirectInject {
                     module_filter,
                     tool_allowlist,
-                } => InternalToolsMode::DirectInject {
-                    module_filter,
-                    tool_allowlist,
-                },
+                } => {
+                    // 防御：plan Agent 无论前端传什么 filter，一律锁定全局工具面（web）。
+                    let module_filter = if dto.agent_id.as_deref() == Some("plan") {
+                        Some("web".to_string())
+                    } else {
+                        module_filter
+                    };
+                    InternalToolsMode::DirectInject {
+                        module_filter,
+                        tool_allowlist,
+                    }
+                }
             },
             http_provider: dto.http_provider.map(|p| HttpProviderSnapshot {
                 provider_id: p.provider_id,
@@ -553,6 +592,10 @@ pub async fn ai_chat_stream(
         pending_internal: state.pending_internal_tool_results.clone(),
         mcp_external_require_approval: state.mcp_external_require_approval.clone(),
         proxy_config: state.proxy_config.clone(),
+        module_filter: match &internal.tools_mode {
+            InternalToolsMode::DirectInject { module_filter, .. } => module_filter.clone(),
+            InternalToolsMode::None => None,
+        },
     };
     let exec_ref: Option<&dyn ToolExecutor> = match &internal.tools_mode {
         InternalToolsMode::DirectInject { .. } => Some(&tool_executor),
@@ -805,6 +848,32 @@ async fn run_acp_internal_turn(
         while let Some(event) = rx.recv().await {
             if client_tools {
                 if let StreamEvent::ToolCall { id, name, arguments } = &event {
+                    if let Err(err) = ensure_tool_allowed_by_module_filter(
+                        name,
+                        match &internal.tools_mode {
+                            InternalToolsMode::DirectInject { module_filter, .. } => {
+                                module_filter.as_deref()
+                            }
+                            InternalToolsMode::None => None,
+                        },
+                    ) {
+                        let update = StreamEvent::ToolCallUpdate {
+                            id: id.clone(),
+                            status: ToolStatus::Failed,
+                            result: Some(format!("Error: {err}")),
+                        };
+                        record_internal_trace(
+                            state,
+                            conversation_id,
+                            &backend_id,
+                            turn_index,
+                            &update,
+                        );
+                        let _ = on_event.send(update);
+                        native_tool_result =
+                            Some((name.clone(), format!("Error: {err}"), false));
+                        continue;
+                    }
                     if ToolRegistry::is_native_tool(name)
                         && name != TERMINAL_CLIENT_TOOL
                     {
@@ -883,6 +952,50 @@ async fn run_acp_internal_turn(
                         let tool_id = tc.id.clone();
                         let tool_name = tc.name.clone();
                         let args = tc.arguments.clone();
+
+                        if let Err(err) = ensure_tool_allowed_by_module_filter(
+                            &tool_name,
+                            match &internal.tools_mode {
+                                InternalToolsMode::DirectInject { module_filter, .. } => {
+                                    module_filter.as_deref()
+                                }
+                                InternalToolsMode::None => None,
+                            },
+                        ) {
+                            let tool_call = StreamEvent::ToolCall {
+                                id: tool_id.clone(),
+                                name: tool_name.clone(),
+                                arguments: args.clone(),
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &tool_call,
+                            );
+                            let _ = on_event.send(tool_call);
+                            let update = StreamEvent::ToolCallUpdate {
+                                id: tool_id,
+                                status: ToolStatus::Failed,
+                                result: Some(format!("Error: {err}")),
+                            };
+                            record_internal_trace(
+                                state,
+                                conversation_id,
+                                &backend_id,
+                                turn_index,
+                                &update,
+                            );
+                            let _ = on_event.send(update);
+                            prompt_text = format_client_tool_result_prompt(
+                                &tool_name,
+                                &format!("Error: {err}"),
+                                true,
+                            );
+                            turn_index += 1;
+                            continue;
+                        }
 
                         // Native 工具（web/zhihu/…）后端直执；终端与其它 UiDelegated 挂起前端
                         if ToolRegistry::is_native_tool(&tool_name)
@@ -1375,4 +1488,65 @@ pub async fn ai_services_probe(enabled: bool, port: u16) -> Result<AiServicesHea
         .is_ok();
 
     Ok(AiServicesHealth { gateway, mcp })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tools_mode_dto_deserializes_camel_case_module_filter() {
+        let json = r#"{"directInject":{"moduleFilter":"web","toolAllowlist":null}}"#;
+        let mode: InternalToolsModeDto =
+            serde_json::from_str(json).expect("deserialize toolsMode");
+        match mode {
+            InternalToolsModeDto::DirectInject {
+                module_filter,
+                tool_allowlist,
+            } => {
+                assert_eq!(module_filter.as_deref(), Some("web"));
+                assert!(tool_allowlist.is_none());
+            }
+            other => panic!("expected DirectInject, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plan_agent_forces_web_module_filter() {
+        let dto = InternalChatRequestDto {
+            conversation_id: "c1".into(),
+            user_text: "hi".into(),
+            backend_id: "http:x::y".into(),
+            context: AiContextBundleDto {
+                cwd: None,
+                workspace_id: None,
+                terminal_session_id: None,
+                terminal_session_type: None,
+                env_tag: None,
+                resource_id: None,
+                terminal_context_append: None,
+                module_context_append: None,
+            },
+            history_json: None,
+            tools_mode: InternalToolsModeDto::DirectInject {
+                // 模拟反序列化失败后的 None，或前端误传
+                module_filter: None,
+                tool_allowlist: None,
+            },
+            http_provider: None,
+            embedding_provider: None,
+            pure_text: false,
+            skill_ids: None,
+            reasoning_effort: None,
+            agent_id: Some("plan".into()),
+            agent_system_role: None,
+        };
+        let internal = InternalChatRequest::try_from(dto).expect("try_from");
+        match internal.tools_mode {
+            InternalToolsMode::DirectInject { module_filter, .. } => {
+                assert_eq!(module_filter.as_deref(), Some("web"));
+            }
+            other => panic!("expected DirectInject, got {other:?}"),
+        }
+    }
 }

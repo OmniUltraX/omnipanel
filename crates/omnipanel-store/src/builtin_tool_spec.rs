@@ -202,6 +202,7 @@ const SCHEMA_CREATE_TODOLIST: &str = r#"{
   "type": "object",
   "properties": {
     "title": { "type": "string", "description": "待办列表标题（执行计划名称）" },
+    "description": { "type": "string", "description": "列表级任务描述（可选，卡片摘要展示）" },
     "items": {
       "type": "array",
       "description": "按执行顺序排列的待办项",

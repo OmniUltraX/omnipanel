@@ -542,6 +542,10 @@ const MIGRATIONS: &[&str] = &[
         ON resource_tag_links(resource_kind, resource_id);
     CREATE INDEX IF NOT EXISTS idx_rtl_tag ON resource_tag_links(tag_id);
     "#,
+    // v28 — 知识库待办列表级任务描述
+    r#"
+    ALTER TABLE knowledge_todo_lists ADD COLUMN description TEXT NOT NULL DEFAULT '';
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

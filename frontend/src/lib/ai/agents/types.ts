@@ -2,11 +2,13 @@ import type { ModuleKey } from "../../paths";
 
 /**
  * 逻辑 Agent 标识。
- * - `plan`：AI 助手页专用，主责制定执行计划；可调用全部全局工具（含 `omni_create_todolist`）
+ * - `plan`：AI 助手页 Plan 模式，主责制定执行计划；仅全局工具（含 `omni_create_todolist`）
+ * - `run`：AI 助手页 Run 模式，可调用全部工具直接执行
  * - 其余与模块一一对应，各自独立工具域
  */
 export type AgentId =
   | "plan"
+  | "run"
   | Extract<
       ModuleKey,
       | "terminal" // 含原 SSH（已并入终端模块）
