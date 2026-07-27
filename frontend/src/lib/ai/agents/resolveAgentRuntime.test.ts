@@ -2,11 +2,23 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentId, resolveAgentRuntime } from "./resolveAgentRuntime";
 
 describe("resolveAgentRuntime", () => {
-  it("助手页默认 plan 并注入全局工具模块", () => {
+  it("助手页默认 run 并注入 master 工具模块", () => {
     const runtime = resolveAgentRuntime({
       assistantPage: true,
       moduleKey: "terminal",
       conversationAgentId: "database",
+    });
+    expect(runtime.agentId).toBe("run");
+    expect(runtime.toolsMode).toEqual({
+      directInject: { moduleFilter: "master" },
+    });
+  });
+
+  it("助手页会话绑定 plan 时保持规划模式", () => {
+    const runtime = resolveAgentRuntime({
+      assistantPage: true,
+      conversationAgentId: "plan",
+      moduleKey: "terminal",
     });
     expect(runtime.agentId).toBe("plan");
     expect(runtime.toolsMode).toEqual({

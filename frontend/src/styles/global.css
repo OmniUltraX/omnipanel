@@ -3255,6 +3255,7 @@ a {
     min-height: 0;
     min-width: 0;
     overflow: hidden;
+    position: relative;
 }
 
 .content-area {
@@ -4080,13 +4081,18 @@ a {
     min-width: 0;
 }
 
-/* AI 右侧 Dock 打开：内容区 tab 栏不再预留窗口三键宽度 */
-.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
-    min-width: 0;
+/* AI 右侧 Dock 打开：侧栏绝对定位到 tab 栏下方，主区 tab 自然贯通到窗口右缘 */
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-groupview > .dv-content-container {
+    /* 内容避开右侧 AI，tab 栏仍全宽 */
+    margin-right: min(var(--ai-dock-w, 0px), 50vw);
 }
 
-.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions:not(.dock-window-title-actions--chrome-relocated) {
-    min-width: 0;
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
+    min-width: var(--shell-win-controls-width, 138px);
+}
+
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
+    min-width: var(--shell-win-controls-width, 138px);
 }
 
 .dockable-workspace.dock-window-control .dock-window-drag-spacer {
@@ -10746,9 +10752,9 @@ button.omni-btn-tool[aria-pressed="true"] {
         line-height: 1;
     }
 
-    /* AI Dock：左边框只画在 chrome 以下，顶栏与主窗口 tab 栏横向贯通 */
+    /* AI Dock：打开时绝对定位到 tab 栏下方，主区 tab 自然贯通到右缘 */
     .ai-dockview {
-        width: min(var(--ai-dock-w, 0px), 50vw);
+        width: 0;
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
@@ -10756,6 +10762,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         border-left: none;
         min-height: 0;
         overflow: hidden;
+        pointer-events: none;
     }
 
     .workspace.is-ai-dock-resizing .ai-dockview {
@@ -10763,8 +10770,22 @@ button.omni-btn-tool[aria-pressed="true"] {
         transition: none;
     }
 
-    .ai-dockview.open > .ai-assistant-shell > .ai-assistant-shell-body {
+    .ai-dockview.open {
+        position: absolute;
+        top: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        right: 0;
+        bottom: 0;
+        width: min(var(--ai-dock-w, 0px), 50vw);
+        height: auto;
+        max-height: none;
+        margin-top: 0;
         border-left: 1px solid var(--border);
+        pointer-events: auto;
+        z-index: 6;
+    }
+
+    .ai-dockview.open > .ai-assistant-shell {
+        height: 100%;
     }
 
     .ai-dockview:not(.open) {
@@ -11703,15 +11724,15 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .ai-dockview-resize-handle {
-        position: relative;
+        position: absolute;
+        top: var(--shell-dv-tab-bar-h, var(--topbar-h));
+        right: min(var(--ai-dock-w, 0px), 50vw);
+        bottom: 0;
         width: 0;
+        margin: 0;
         flex-shrink: 0;
         cursor: col-resize;
-        z-index: 2;
-        margin: 0;
-        /* 顶栏高度以下才出现，避免标题栏被打断 */
-        margin-top: var(--shell-dv-tab-bar-h, var(--topbar-h));
-        align-self: stretch;
+        z-index: 7;
     }
 
     /* 热区加宽便于拖拽，高亮仍用细线 */

@@ -45,8 +45,8 @@ function DockWindowDragSpacer() {
 
 /** 嵌入 dockview tab 栏右侧：按布局挂载拖拽区与/或窗口控制按钮 */
 export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeActionsProps) {
-  // AI 右侧 Dock 打开时，窗口三键 / AI 入口迁到 AI header，避免夹在中间
-  const chromeRelocated = useAiDockOpen();
+  // AI Dock 打开时 tab 栏向右贯通到窗口边缘，窗口三键仍挂在 tab 栏最右侧
+  const aiDockOpen = useAiDockOpen();
 
   const handleDoubleClick = async (event: React.MouseEvent) => {
     if (mode === "controls") return;
@@ -62,7 +62,7 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
   };
 
   const showDrag = mode === "drag" || mode === "both";
-  const showControls = (mode === "controls" || mode === "both") && !chromeRelocated;
+  const showControls = mode === "controls" || mode === "both";
 
   if (!showDrag && !showControls && !leftActions) {
     return null;
@@ -70,7 +70,7 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
 
   return (
     <div
-      className={`dock-window-title-actions drag-ignore${showControls && !showDrag ? " dock-window-title-actions--controls-only" : ""}${chromeRelocated ? " dock-window-title-actions--chrome-relocated" : ""}`}
+      className={`dock-window-title-actions drag-ignore${showControls && !showDrag ? " dock-window-title-actions--controls-only" : ""}${aiDockOpen ? " dock-window-title-actions--ai-dock-open" : ""}`}
       data-tauri-drag-region="false"
       onDoubleClick={handleDoubleClick}
     >

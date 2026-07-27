@@ -105,4 +105,41 @@ describe("normalizeRestoredTerminalBlock", () => {
     });
     expect(restored.status).toBe("completed");
   });
+
+  it("恢复时关闭残留的 pending 工具确认", () => {
+    const restored = normalizeRestoredTerminalBlock({
+      id: "b3",
+      sessionId: "s1",
+      kind: "ai",
+      command: "# 现在的时间",
+      output: "",
+      exitCode: 0,
+      startLine: -1,
+      endLine: -1,
+      marker: null,
+      cwd: "/",
+      timestamp: 3,
+      status: "completed",
+      aiThread: [
+        {
+          kind: "message",
+          id: "m1",
+          role: "user",
+          content: "现在的时间",
+          timestamp: 1,
+        },
+        {
+          kind: "tool_call",
+          id: "t1",
+          toolName: "run_terminal_command",
+          args: '{"command":"date"}',
+          command: "date",
+          status: "pending",
+          timestamp: 2,
+        },
+      ],
+    });
+    const tool = restored.aiThread?.find((i) => i.kind === "tool_call");
+    expect(tool?.kind === "tool_call" && tool.status).toBe("rejected");
+  });
 });

@@ -4,9 +4,11 @@ import { getResourceById } from "../../lib/resourceRegistry";
 import { reportToolResultWithRetry } from "../../lib/ai/reportToolResult";
 import {
   createBlockId,
+  isAiThreadToolCall,
   useBlocksStore,
   type AiThreadToolCall,
 } from "../../stores/blocksStore";
+import { showToast } from "../../stores/toastStore";
 import { pushAssistantErrorMessage } from "./aiThreadBridge";
 import { findTerminalPane } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
@@ -36,6 +38,12 @@ interface PendingInlineTool {
 
 const pendingByToolCallId = new Map<string, PendingInlineTool>();
 const approvingToolCallIds = new Set<string>();
+
+const STALE_APPROVAL_RESULT = "审批已失效（会话已中断），已关闭确认条";
+
+export function hasLivePendingInlineTool(toolCallId: string): boolean {
+  return pendingByToolCallId.has(toolCallId);
+}
 
 function parseCommandFromArgs(argsJson: string): string {
   try {
@@ -86,6 +94,62 @@ async function deliverToolResultToBackend(
       result: message,
     } as Partial<AiThreadToolCall>);
   }
+}
+
+function findToolCallItem(blockId: string, toolCallId: string): AiThreadToolCall | null {
+  const block = useBlocksStore.getState().findBlockById(blockId);
+  if (!block?.aiThread) return null;
+  for (const item of block.aiThread) {
+    if (isAiThreadToolCall(item) && item.id === toolCallId) return item;
+  }
+  return null;
+}
+
+/** UI 仍显示 pending/running，但内存等待表已丢失（热更新 / 取消 / 历史恢复） */
+function dismissStaleInlineToolCall(
+  blockId: string,
+  toolCallId: string,
+  status: "rejected" | "failed",
+  result: string,
+): boolean {
+  const item = findToolCallItem(blockId, toolCallId);
+  if (!item) return false;
+  if (item.status !== "pending" && item.status !== "running") return false;
+  useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+    status,
+    result,
+  } as Partial<AiThreadToolCall>);
+  return true;
+}
+
+/** 扫掉指定 block（或全部）中无 live waiter 的僵尸确认项 */
+export function dismissOrphanInlineToolCalls(blockId?: string): number {
+  let count = 0;
+  const store = useBlocksStore.getState();
+
+  const visitBlock = (block: { id: string; aiThread?: typeof store.blocks[string][number]["aiThread"] }) => {
+    if (!block.aiThread?.length) return;
+    for (const item of block.aiThread) {
+      if (!isAiThreadToolCall(item)) continue;
+      if (item.status !== "pending" && item.status !== "running") continue;
+      if (pendingByToolCallId.has(item.id)) continue;
+      if (approvingToolCallIds.has(item.id)) continue;
+      if (dismissStaleInlineToolCall(block.id, item.id, "rejected", STALE_APPROVAL_RESULT)) {
+        count += 1;
+      }
+    }
+  };
+
+  if (blockId) {
+    const block = store.findBlockById(blockId);
+    if (block) visitBlock(block);
+    return count;
+  }
+
+  for (const blocks of Object.values(store.blocks)) {
+    for (const block of blocks) visitBlock(block);
+  }
+  return count;
 }
 
 export function createInlineTerminalToolCall(
@@ -159,6 +223,67 @@ export function cancelPendingInlineTools(blockId?: string): void {
     } as Partial<AiThreadToolCall>);
     pendingByToolCallId.delete(id);
   }
+  // Map 已空但仍残留 UI pending 的项一并关掉
+  dismissOrphanInlineToolCalls(blockId);
+}
+
+async function approveStaleInlineToolCall(
+  blockId: string,
+  toolCallId: string,
+  commandOverride?: string,
+): Promise<void> {
+  const item = findToolCallItem(blockId, toolCallId);
+  if (!item || (item.status !== "pending" && item.status !== "running")) return;
+
+  const block = useBlocksStore.getState().findBlockById(blockId);
+  const sessionId = block?.sessionId;
+  const command = (commandOverride ?? item.command ?? parseCommandFromArgs(item.args)).trim();
+
+  if (!sessionId || !command) {
+    dismissStaleInlineToolCall(blockId, toolCallId, "failed", STALE_APPROVAL_RESULT);
+    showToast(STALE_APPROVAL_RESULT);
+    return;
+  }
+
+  approvingToolCallIds.add(toolCallId);
+  try {
+    useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+      command,
+      status: "running",
+    } as Partial<AiThreadToolCall>);
+
+    const pane = findTerminalPane(sessionId);
+    const resourceId = pane?.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
+    try {
+      const aiResult = await executeAiTerminalCommand({
+        tabId: sessionId,
+        command,
+        resourceId,
+      });
+      if (aiResult.rejected) {
+        useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+          status: "failed",
+          result: aiResult.outputJson,
+        } as Partial<AiThreadToolCall>);
+      } else {
+        const exitCode = aiResult.payload.exitCode;
+        useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+          status: exitCode === 0 || exitCode === null ? "completed" : "failed",
+          result: aiResult.outputJson,
+          shellBlockId: aiResult.block?.id,
+          actionId: aiResult.action?.id,
+        } as Partial<AiThreadToolCall>);
+      }
+    } catch (err) {
+      useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
+        status: "failed",
+        result: errorToString(err),
+      } as Partial<AiThreadToolCall>);
+    }
+    showToast("原审批会话已失效，已按「执行」直接运行命令");
+  } finally {
+    approvingToolCallIds.delete(toolCallId);
+  }
 }
 
 export async function approveInlineTerminalTool(
@@ -169,7 +294,10 @@ export async function approveInlineTerminalTool(
   if (approvingToolCallIds.has(toolCallId)) return;
 
   const pending = pendingByToolCallId.get(toolCallId);
-  if (!pending || pending.blockId !== blockId) return;
+  if (!pending || pending.blockId !== blockId) {
+    await approveStaleInlineToolCall(blockId, toolCallId, commandOverride);
+    return;
+  }
 
   approvingToolCallIds.add(toolCallId);
   const { conversationId } = pending;
@@ -250,7 +378,12 @@ export async function approveInlineTerminalTool(
 
 export function rejectInlineTerminalTool(blockId: string, toolCallId: string): void {
   const pending = pendingByToolCallId.get(toolCallId);
-  if (!pending || pending.blockId !== blockId) return;
+  if (!pending || pending.blockId !== blockId) {
+    if (dismissStaleInlineToolCall(blockId, toolCallId, "rejected", STALE_APPROVAL_RESULT)) {
+      showToast(STALE_APPROVAL_RESULT);
+    }
+    return;
+  }
 
   const result = "用户拒绝执行";
   useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {

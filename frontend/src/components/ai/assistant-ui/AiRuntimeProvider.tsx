@@ -921,7 +921,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     let convId = options?.newConversation ? null : useAiStore.getState().activeConversationId;
     if (!convId) {
-      // 助手页新建会话固定绑定 plan Agent
+      // 助手页新建会话固定绑定默认 Agent（run）
       convId = createConversation(undefined, undefined, {
         agentId: ASSISTANT_PAGE_AGENT_ID,
       });
