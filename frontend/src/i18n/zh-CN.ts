@@ -927,10 +927,20 @@ export const zhCN = {
       progress: "进度 {done}/{total}",
       failed: "{count} 个失败",
       cancelDone: "已取消任务",
+      cancelAll: "取消全部",
+      cancelAllConfirm: "确定取消全部 {count} 个运行中的被动任务？",
+      cancelAllDone: "已取消 {count} 个任务",
     },
     inbox: {
       empty: "没有可延后处理的建议",
       occurrences: "出现 {count} 次",
+      dismissAll: "忽略全部",
+      doneAll: "全部完成",
+      dismissAllConfirm: "确定忽略全部 {count} 条待办？",
+      doneAllConfirm: "确定将全部 {count} 条待办标记为完成？",
+      dismissAllDone: "已忽略 {count} 条待办",
+      doneAllDone: "已完成 {count} 条待办",
+      batchActions: "批量操作",
     },
     triage: {
       done: "标记完成",
@@ -998,6 +1008,7 @@ export const zhCN = {
       filterModule: "按模块筛选",
       filterModuleAll: "全部",
       filterNoMatch: "当前筛选下暂无任务记录",
+      clearFilter: "清除筛选",
       envProd: "生产",
       colTime: "时间",
       colAction: "动作",
@@ -2787,11 +2798,11 @@ export const zhCN = {
       approval: {
         label: "命令审批",
         strict: "严格",
-        strictDesc: "所有命令需确认",
+        strictDesc: "AI 执行的所有命令需确认",
         view: "查看",
-        viewDesc: "查看类免审批",
+        viewDesc: "AI 查看类命令免审批",
         loose: "宽松",
-        looseDesc: "全部免审批",
+        looseDesc: "AI 命令全部免审批",
       },
       model: {
         label: "终端 AI 模型",
@@ -5842,7 +5853,7 @@ export const zhCN = {
       mode: {
         label: "助手模式",
         plan: "Plan",
-        run: "Run",
+        run: "Agent",
       },
       plan: {
         label: "计划助手",
@@ -5981,6 +5992,14 @@ export const zhCN = {
       title: "待确认操作",
       confirm: "确认执行",
       dismiss: "忽略",
+    },
+    approval: {
+      label: "待确认",
+      dialogTitle: "待确认操作",
+      pendingCount: "待确认 {count}",
+      more: "还有 {count} 项",
+      goView: "去查看",
+      highRiskHint: "高风险操作，请确认后执行",
     },
     conversations: {
       toggle: "会话列表",

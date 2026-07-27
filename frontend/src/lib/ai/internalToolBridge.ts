@@ -13,7 +13,7 @@ import { LOCAL_TERMINAL_RESOURCE_ID } from "../../modules/terminal/paneResource"
 import { useTerminalUiStore } from "../../modules/terminal/terminalUiStore";
 import { checkCommand, type DangerLevel } from "../../lib/commandGuard";
 import { getResourceById } from "../../lib/resourceRegistry";
-import { appConfirm } from "../appConfirm";
+import { useActionDraftStore } from "../../stores/actionDraftStore";
 import { errorToString } from "../errorToString";
 import { reportToolResultWithRetry } from "./reportToolResult";
 import { getToolHandler } from "./toolHost";
@@ -191,11 +191,31 @@ export async function handleAssistantPendingTerminalTool(options: {
     const mode = resolveTerminalApprovalMode(tabId);
     // 跟随在工具 completed 时触发（见 AiRuntimeProvider.updateToolCall），不在 pending 时切面板
     if (shouldRequireTerminalApproval(command, mode)) {
-      const approved = await appConfirm(
-        `AI 请求在终端执行命令：\n\n${command}\n\n是否允许？`,
-        "终端命令确认",
-      );
-      if (!approved) {
+      const resource = getResourceById(pane.resourceId ?? null);
+      const environment = resource?.environment ?? "unknown";
+      const riskCheck = checkCommand(command, environment);
+      try {
+        await useActionDraftStore.getState().enqueueAwaitable({
+          kind: "terminal",
+          // 侧栏发起：走统一队列的 AI 内嵌条/全局弹窗，勿标成会与「终端 dock」混淆的路径
+          source: "toolgate",
+          title: "AI 终端命令",
+          preview: command,
+          risk: riskCheck.level,
+          riskCheck,
+          environment,
+          toolName: TERMINAL_TOOL,
+          resourceId: resource?.id ?? pane.resourceId,
+          conversationId: options.conversationId,
+          target: {
+            module: "terminal",
+            sessionId: tabId,
+            resourceId: resource?.id ?? pane.resourceId,
+            conversationId: options.conversationId,
+          },
+          execute: async () => "approved",
+        });
+      } catch {
         await commands.aiChatToolResult(
           options.conversationId,
           options.toolCallId,

@@ -5,6 +5,7 @@ import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmpty
 import { useI18n } from "../../i18n";
 import { commands, type AiSessionRecord, type AiTraceRecord } from "../../ipc/bindings";
 import { formatIpcError } from "../../ipc/result";
+import { appConfirm } from "../../lib/appConfirm";
 import { runLoopOnce } from "../../lib/ai/loopRunner";
 import { useLoopStore } from "../../stores/loopStore";
 import { showToast } from "../../stores/toastStore";
@@ -34,11 +35,38 @@ export function LoopTriageTab({ selectedId }: { selectedId: string | null }) {
     ),
   );
   const triageFinding = useLoopStore((s) => s.triageFinding);
+  const triageOpenFindings = useLoopStore((s) => s.triageOpenFindings);
   const ensureBuiltinSpecs = useLoopStore((s) => s.ensureBuiltinSpecs);
 
   useEffect(() => {
     ensureBuiltinSpecs();
   }, [ensureBuiltinSpecs]);
+
+  const handleDismissAll = useCallback(async () => {
+    const count = findings.length;
+    if (count === 0) return;
+    const ok = await appConfirm(
+      t("taskCenter.inbox.dismissAllConfirm", { count }),
+      "OmniPanel",
+      { kind: "warning", confirmLabel: t("taskCenter.inbox.dismissAll") },
+    );
+    if (!ok) return;
+    const n = triageOpenFindings("dismissed");
+    showToast(t("taskCenter.inbox.dismissAllDone", { count: n }));
+  }, [findings.length, t, triageOpenFindings]);
+
+  const handleDoneAll = useCallback(async () => {
+    const count = findings.length;
+    if (count === 0) return;
+    const ok = await appConfirm(
+      t("taskCenter.inbox.doneAllConfirm", { count }),
+      "OmniPanel",
+      { confirmLabel: t("taskCenter.inbox.doneAll") },
+    );
+    if (!ok) return;
+    const n = triageOpenFindings("done");
+    showToast(t("taskCenter.inbox.doneAllDone", { count: n }));
+  }, [findings.length, t, triageOpenFindings]);
 
   if (findings.length === 0) {
     return (
@@ -61,6 +89,19 @@ export function LoopTriageTab({ selectedId }: { selectedId: string | null }) {
 
   return (
     <div className="task-center-list">
+      {findings.length > 1 ? (
+        <div className="task-center-subtabs" aria-label={t("taskCenter.inbox.batchActions")}>
+          <span className="setting-hint">
+            {t("taskCenter.inbox.batchActions")} · {findings.length}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => void handleDismissAll()}>
+            {t("taskCenter.inbox.dismissAll")}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => void handleDoneAll()}>
+            {t("taskCenter.inbox.doneAll")}
+          </Button>
+        </div>
+      ) : null}
       <section className="task-center-section">
         <div className={`task-card task-card--draft risk-${f.severity}`}>
           <div className="task-card__header">

@@ -95,11 +95,52 @@ export const useActionStore = create<ActionState>((set, get) => ({
 
     set((state) => ({
       actions: [action, ...state.actions].slice(0, 50),
-      pendingRiskActionId: blocked ? action.id : state.pendingRiskActionId,
+      // 风险确认改走统一审批队列，不再占用 DangerConfirmDialog
+      pendingRiskActionId: state.pendingRiskActionId,
     }));
 
+    if (blocked) {
+      const actionId = action.id;
+      void import("./actionDraftStore").then(({ useActionDraftStore }) => {
+        void useActionDraftStore
+          .getState()
+          .enqueueAwaitable({
+            kind:
+              input.type === "docker"
+                ? "docker"
+                : input.type === "ssh" || input.type === "terminal"
+                  ? "terminal"
+                  : "generic",
+            source: "action",
+            title: action.title,
+            preview: action.command ?? action.description,
+            risk,
+            riskCheck,
+            environment,
+            resourceId: action.resourceId,
+            target: {
+              module:
+                input.type === "docker"
+                  ? "docker"
+                  : input.type === "sql"
+                    ? "database"
+                    : "terminal",
+              resourceId: action.resourceId,
+            },
+            execute: async () => {
+              get().confirmAction(actionId);
+              return "confirmed";
+            },
+          })
+          .catch(() => {
+            get().cancelAction(actionId);
+          });
+      });
+      return action;
+    }
+
     // 低风险动作无需确认，直接进入执行。
-    if (!blocked && !options?.deferRun) {
+    if (!options?.deferRun) {
       get().runAction(action.id);
     }
 

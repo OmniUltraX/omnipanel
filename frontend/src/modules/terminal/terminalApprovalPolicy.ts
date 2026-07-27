@@ -202,6 +202,10 @@ export function isReadOnlyTerminalCommand(command: string): boolean {
   return segments.every((segment) => isReadOnlySegment(segment));
 }
 
+/**
+ * 是否要求对 AI 自动执行的终端命令做人工确认。
+ * 仅用于 AI 工具链路；用户在命令栏手动执行不走此策略。
+ */
 export function shouldRequireTerminalApproval(
   command: string,
   mode: TerminalApprovalMode,

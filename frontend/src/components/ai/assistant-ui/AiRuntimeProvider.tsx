@@ -70,7 +70,7 @@ import {
   aiMessagesToThreadMessages,
   threadMessagesToAiMessages,
 } from "./messageBridge";
-import { AcpPermissionDialog } from "./AcpPermissionDialog";
+import { useActionDraftStore } from "../../../stores/actionDraftStore";
 
 function extractUserContent(message: ThreadMessage | AppendMessage): string {
   for (const part of message.content) {
@@ -149,6 +149,58 @@ function tryAutoAllowSafePermission(event: PermissionEvent): boolean {
     console.error("[ACP] ToolGate 自动放行失败:", error);
   });
   return true;
+}
+
+/** ACP permission_request → 统一审批队列（侧栏内嵌 / 全局弹窗） */
+function enqueueAcpPermission(event: PermissionEvent): void {
+  if (tryAutoAllowSafePermission(event)) return;
+  const requestId = event.requestId;
+  if (requestId == null) return;
+
+  // 不设 reject:true，确保选项都走 runAction → respondAcpPermission
+  const actions = event.options.map((option) => ({
+    id: option.optionId,
+    label: option.name,
+    variant: option.optionId.includes("reject")
+      ? ("secondary" as const)
+      : ("primary" as const),
+  }));
+
+  const primaryId =
+    pickAllowOnceOptionId(event.options) ??
+    event.options.find((o) => !o.optionId.includes("reject"))?.optionId ??
+    event.options[0]?.optionId ??
+    "allow_once";
+
+  void useActionDraftStore
+    .getState()
+    .enqueueAwaitable({
+      kind: "generic",
+      source: "acp",
+      title: event.title || "ACP 工具确认",
+      preview: event.raw_input || event.title,
+      toolName: event.title,
+      actions: actions.length
+        ? actions
+        : [
+            { id: "allow_once", label: "允许", variant: "primary" },
+            { id: "reject_once", label: "拒绝", variant: "secondary" },
+          ],
+      target: { module: "ai" },
+      execute: async () => {
+        await respondAcpPermission(requestId, primaryId);
+        return "allowed";
+      },
+      runAction: async (actionId) => {
+        await respondAcpPermission(requestId, actionId);
+        return actionId;
+      },
+    })
+    .catch(() => {
+      const rejectId =
+        event.options.find((o) => o.optionId.includes("reject"))?.optionId ?? "reject";
+      void respondAcpPermission(requestId, rejectId).catch(() => {});
+    });
 }
 
 function buildHistoryJson(convId: string): string | undefined {
@@ -347,11 +399,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const replaceConversationMessages = useAiStore((s) => s.replaceConversationMessages);
 
   const abortRef = useRef<AbortController | null>(null);
-  const permissionQueueRef = useRef<PermissionEvent[]>([]);
   const toolMetaRef = useRef(new Map<string, { name: string; args: string }>());
   const pendingToolBridgeRef = useRef(new Set<string>());
   const waitingToolDispatchRef = useRef(new Set<string>());
-  const [permissionRequest, setPermissionRequest] = useState<PermissionEvent | null>(null);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
@@ -365,28 +415,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     setThreadMessages(aiMessagesToThreadMessages(activeConversation.messages));
   }, [activeConversation]);
 
-  const showNextPermission = useCallback(() => {
-    const next = permissionQueueRef.current.shift() ?? null;
-    setPermissionRequest(next);
+  const enqueuePermission = useCallback((event: PermissionEvent) => {
+    enqueueAcpPermission(event);
   }, []);
-
-  const enqueuePermission = useCallback(
-    (event: PermissionEvent) => {
-      if (tryAutoAllowSafePermission(event)) {
-        return;
-      }
-      if (!permissionRequest) {
-        setPermissionRequest(event);
-        return;
-      }
-      permissionQueueRef.current.push(event);
-    },
-    [permissionRequest],
-  );
-
-  const handlePermissionClose = useCallback(() => {
-    showNextPermission();
-  }, [showNextPermission]);
 
   const handleSetMessages = useCallback(
     (messages: readonly ThreadMessage[]) => {
@@ -1038,7 +1069,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       {children}
-      <AcpPermissionDialog request={permissionRequest} onClose={handlePermissionClose} />
     </AssistantRuntimeProvider>
   );
 }

@@ -17,7 +17,7 @@ import { RecentItemsPanel } from "./components/shell/RecentItemsPanel";
 import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
-import { DangerConfirmDialog } from "./components/terminal/DangerConfirmDialog";
+import { ApprovalDialog } from "./components/ai/ApprovalDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
@@ -66,9 +66,7 @@ import { isCrossWindowDragRuntime } from "./lib/crossWindowDragEnabled";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";
 import { syncEmbeddedWorkspacePanelVisibility } from "./lib/workspaceTabActions";
 import "./lib/workspaceComponentRegistry";
-import { useActionStore, getPendingRiskAction } from "./stores/actionStore";
 import { useTopbarStore } from "./stores/topbarStore";
-import type { DangerCheckResult } from "./lib/commandGuard";
 import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
@@ -451,12 +449,6 @@ function AppShell() {
   const drawerOpen = useAiStore((s) => s.drawerOpen);
   const setActivePath = useWorkspaceStore((state) => state.setActivePath);
   const workspaceActivePath = useWorkspaceStore((state) => state.activePath);
-  const confirmAction = useActionStore((state) => state.confirmAction);
-  const cancelAction = useActionStore((state) => state.cancelAction);
-  const pendingRiskActionId = useActionStore(
-    (state) => state.pendingRiskActionId,
-  );
-  const pendingRiskAction = getPendingRiskAction();
   const appModules = useAppModuleStore((s) => s.modules);
   const appModulesHydrated = useAppModuleStore((s) => s.hydrated);
 
@@ -540,16 +532,6 @@ function AppShell() {
     window.addEventListener("omnipanel-navigate", handler);
     return () => window.removeEventListener("omnipanel-navigate", handler);
   }, [navigate]);
-
-  const riskResult: DangerCheckResult | null = pendingRiskAction
-    ? (pendingRiskAction.riskCheck ?? {
-        safe: false,
-        level: pendingRiskAction.risk,
-        matches: [
-          { desc: "当前资源环境需要人工确认", level: pendingRiskAction.risk },
-        ],
-      })
-    : null;
 
   const aiDockWidth = useSettingsStore((s) => s.aiDockWidth);
   const dockWidth =
@@ -686,14 +668,7 @@ function AppShell() {
       <AuthProfileSync />
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
-      {pendingRiskActionId && pendingRiskAction && riskResult && (
-        <DangerConfirmDialog
-          command={pendingRiskAction.command ?? pendingRiskAction.description}
-          result={riskResult}
-          onConfirm={() => confirmAction(pendingRiskAction.id)}
-          onCancel={() => cancelAction(pendingRiskAction.id)}
-        />
-      )}
+      <ApprovalDialog />
       <ProtocolNewTabDialog
         open={protocolNewTabPickerOpen}
         onOpenChange={setProtocolNewTabPickerOpen}

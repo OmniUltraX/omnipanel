@@ -2881,6 +2881,31 @@
         flex-shrink: 0;
     }
 
+    .term-warp-ai-stalled__btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        height: auto;
+        min-height: 24px;
+        padding: 4px 8px;
+        border: 1px solid color-mix(in oklab, var(--warning, #f59e0b) 35%, var(--border));
+        border-radius: 4px;
+        background: color-mix(in oklab, var(--bg, #1a1a1a) 70%, transparent);
+        color: var(--fg-2);
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    }
+
+    .term-warp-ai-stalled__btn:hover {
+        background: color-mix(in oklab, var(--warning, #f59e0b) 18%, transparent);
+        color: var(--fg);
+        border-color: color-mix(in oklab, var(--warning, #f59e0b) 55%, var(--border));
+    }
+
     .term-warp-block__hint {
         font-size: 10px;
         color: var(--meta);

@@ -22,6 +22,8 @@ interface LoopStoreState {
   addFindings: (items: LoopFinding[]) => void;
   updateFinding: (id: string, patch: Partial<LoopFinding>) => void;
   triageFinding: (id: string, status: LoopFindingStatus) => void;
+  /** 批量分诊所有待处理 Finding（open / triaged / blocked） */
+  triageOpenFindings: (status: LoopFindingStatus) => number;
   listOpenFindings: () => LoopFinding[];
   listRunsForLoop: (loopId: string) => LoopRun[];
 }
@@ -151,6 +153,21 @@ export const useLoopStore = create<LoopStoreState>()(
         }),
       triageFinding: (id, status) => {
         get().updateFinding(id, { status });
+      },
+      triageOpenFindings: (status) => {
+        const open = get().listOpenFindings();
+        if (open.length === 0) return 0;
+        const now = Date.now();
+        set((s) => {
+          const findings = { ...s.findings };
+          for (const f of open) {
+            const cur = findings[f.id];
+            if (!cur) continue;
+            findings[f.id] = { ...cur, status, updatedAt: now };
+          }
+          return { findings };
+        });
+        return open.length;
       },
       listOpenFindings: () =>
         Object.values(get().findings)

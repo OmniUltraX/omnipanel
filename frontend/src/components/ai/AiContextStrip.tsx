@@ -12,10 +12,11 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 export type AiContextStripProps = {
   /**
-   * inline：嵌在标题同行（工具栏 / SubWindow 标题区），空状态不占位。
-   * block：独立一行（兼容旧布局）。
+   * inline：嵌在标题同行（兼容旧布局），空状态不占位。
+   * block：独立一行。
+   * composer：输入框上方上下文区，与显式芯片并列，空不占位。
    */
-  variant?: "inline" | "block";
+  variant?: "inline" | "block" | "composer";
 };
 
 /**
@@ -71,9 +72,11 @@ export function AiContextStrip({ variant = "block" }: AiContextStripProps) {
   }, [revision, activeDock?.dockScope, activeTabId, tabs]);
 
   const inline = variant === "inline";
+  const composer = variant === "composer";
+  const hideEmpty = inline || composer;
 
   if (!pinnedWorkspace && chips.length === 0) {
-    if (inline) return null;
+    if (hideEmpty) return null;
     return (
       <div className="ai-context-strip ai-context-strip--empty">
         <span className="setting-hint">{t("ai.contextStrip.empty")}</span>
@@ -82,7 +85,11 @@ export function AiContextStrip({ variant = "block" }: AiContextStripProps) {
   }
 
   return (
-    <div className={`ai-context-strip${inline ? " ai-context-strip--inline" : ""}`}>
+    <div
+      className={`ai-context-strip${inline ? " ai-context-strip--inline" : ""}${
+        composer ? " ai-context-strip--composer" : ""
+      }`}
+    >
       <div className="ai-context-strip__chips">
         {pinnedWorkspace ? (
           <span className="ai-context-chip ai-context-chip--workspace">
@@ -90,7 +97,7 @@ export function AiContextStrip({ variant = "block" }: AiContextStripProps) {
           </span>
         ) : null}
         {chips.map((c) => (
-          <span key={c.key} className="ai-context-chip">
+          <span key={c.key} className="ai-context-chip" title={c.label}>
             {c.label}
           </span>
         ))}

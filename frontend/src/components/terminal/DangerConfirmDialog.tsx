@@ -9,15 +9,16 @@ interface Props {
   onCancel: () => void;
 }
 
-const LEVEL_STYLES: Record<DangerLevel, { bg: string; border: string; icon: string }> = {
-  critical: { bg: "bg-danger/10", border: "border-danger", icon: "!!" },
-  high: { bg: "bg-danger/10", border: "border-danger", icon: "!" },
-  medium: { bg: "bg-warn/10", border: "border-warn", icon: "!" },
-  low: { bg: "bg-surface", border: "border-border", icon: "i" },
+const LEVEL_STYLES: Record<DangerLevel, { bg: string; border: string; icon: string; title: string }> = {
+  critical: { bg: "bg-danger/10", border: "border-danger", icon: "!!", title: "检测到高风险操作" },
+  high: { bg: "bg-danger/10", border: "border-danger", icon: "!", title: "检测到高风险操作" },
+  medium: { bg: "bg-warn/10", border: "border-warn", icon: "!", title: "检测到风险操作" },
+  low: { bg: "bg-surface", border: "border-border", icon: "i", title: "需要确认后执行" },
 };
 
 export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Props) {
   const style = LEVEL_STYLES[result.level];
+  const confirmVariant = result.level === "low" || result.level === "medium" ? "primary" : "danger";
 
   return (
     <Modal open onClose={onCancel}>
@@ -28,7 +29,7 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
             {style.icon}
           </div>
           <div>
-            <div className="text-sm font-medium text-fg">检测到高风险操作</div>
+            <div className="text-sm font-medium text-fg">{style.title}</div>
             <div className="text-xs text-muted capitalize">风险等级：{result.level}</div>
           </div>
         </div>
@@ -57,7 +58,7 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
           <Button variant="secondary" size="sm" onClick={onCancel}>
             取消
           </Button>
-          <Button variant="danger" size="sm" onClick={onConfirm}>
+          <Button variant={confirmVariant} size="sm" onClick={onConfirm}>
             确认执行
           </Button>
         </div>
