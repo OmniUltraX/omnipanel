@@ -14,7 +14,7 @@ import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
 import {
-  appendChatOssChunk,
+  appendChatOssEvent,
   startChatOssRecording,
   stopChatOssRecording,
 } from "../../../lib/ai/chatOssRecorder";
@@ -452,6 +452,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     let latestUsage: { inputTokens: number; outputTokens: number } | undefined;
 
     startChatOssRecording(convId);
+    if (userText.trim()) {
+      appendChatOssEvent({ t: "user", text: userText });
+    }
 
     const markFirstToken = () => {
       if (firstTokenAt === undefined) {
@@ -511,12 +514,12 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     const batcher = createStreamAppendBatcher(flushBatched);
 
     const appendText = (chunk: string) => {
-      appendChatOssChunk(chunk);
+      appendChatOssEvent({ t: "content", text: chunk });
       batcher.appendContent(chunk);
     };
 
     const appendReasoning = (chunk: string) => {
-      appendChatOssChunk(chunk);
+      appendChatOssEvent({ t: "reasoning", text: chunk });
       batcher.appendReasoning(chunk);
     };
 
@@ -571,6 +574,12 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const upsertToolCall = (id: string, name: string, args: string) => {
       if (!name.trim()) return;
+      appendChatOssEvent({
+        t: "tool_call",
+        id,
+        name,
+        arguments: args,
+      });
       toolMetaRef.current.set(id, { name, args });
       if (inline) {
         const block = useBlocksStore.getState().findBlockById(inline.blockId);
@@ -624,6 +633,12 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     };
 
     const updateToolCall = (id: string, status: string, result?: string) => {
+      appendChatOssEvent({
+        t: "tool_result",
+        id,
+        status,
+        ...(result !== undefined ? { result } : {}),
+      });
       // 工具进入 pending：统一分派——终端走内联审批 dock / 侧栏执行桥，
       // 其余 UiDelegated 工具走注册的 handler，全部回传 ai_chat_tool_result。
       if (status === "pending") {

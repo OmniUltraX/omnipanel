@@ -67,6 +67,9 @@ export const WORKFLOW_EXECUTION_COMPLETE = "workflow-execution-complete" as cons
 /** 更新下载相关 */
 export const UPDATE_DOWNLOAD_COMPLETE = "update-download-complete" as const;
 
+/** 助手端 → 客户端聊天收件（payload: messageId / objectKey / createdAt / text） */
+export const ASSISTANT_CHAT_INBOUND = "assistant-chat-inbound" as const;
+
 export type IpcEventName =
   | typeof TERMINAL_OUTPUT
   | typeof TERMINAL_EVENT
@@ -87,4 +90,5 @@ export type IpcEventName =
   | typeof TASK_OUTPUT
   | typeof TASK_STATUS
   | typeof WORKFLOW_EXECUTION_COMPLETE
-  | typeof UPDATE_DOWNLOAD_COMPLETE;
+  | typeof UPDATE_DOWNLOAD_COMPLETE
+  | typeof ASSISTANT_CHAT_INBOUND;

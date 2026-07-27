@@ -136,7 +136,7 @@ pub async fn assistant_upload_oss_text(
     })
 }
 
-async fn build_auth_context(
+pub(crate) async fn build_auth_context(
     state: &State<'_, AppState>,
     token: &str,
     device_id: &str,

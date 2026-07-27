@@ -3,6 +3,7 @@ pub mod agent_prompt;
 pub mod ai_chat;
 pub mod auth;
 pub mod assistant;
+pub mod assistant_chat;
 pub mod bg_task;
 pub mod agents;
 #[allow(dead_code)]

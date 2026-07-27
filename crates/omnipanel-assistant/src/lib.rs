@@ -1,6 +1,7 @@
 //! 客户端 → 助手端：脱敏元数据快照采集、STS、OSS 上传。
 
 mod collect;
+mod chat;
 mod error;
 mod notify;
 mod oss;
@@ -9,13 +10,14 @@ mod sanitize;
 mod sts;
 mod types;
 
+pub use chat::{extract_inbound_message_text, fetch_chat_latest, ChatLatestIndex};
 pub use collect::{
     default_collectors, assemble_modules, CollectContext, MetadataCollector, ModuleCollectResult,
 };
 pub use error::{AssistantErrorKind, map_assistant_error};
 pub use notify::{notify_snapshot_uploaded, SnapshotNotifyRequest};
 pub use oss::{
-    strip_bucket_prefix, upload_object_bytes, upload_snapshot_json, OssUploadResult,
+    get_object_bytes, strip_bucket_prefix, upload_object_bytes, upload_snapshot_json, OssUploadResult,
 };
 pub use push::{push_snapshot, PushOptions, PushSnapshotResult};
 pub use sanitize::{

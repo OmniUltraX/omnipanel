@@ -5,6 +5,17 @@ import { useUserProfileStore } from "../../stores/userProfileStore";
 const FLUSH_INTERVAL_MS = 5000;
 const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v2";
 
+/** 分片正文协议版本（助手端按此解析 NDJSON 事件行）。 */
+export const CHAT_OSS_FORMAT = "omni-chat-events.v1" as const;
+
+export type ChatOssEvent =
+  | { t: "user"; text: string }
+  | { t: "content"; text: string }
+  | { t: "reasoning"; text: string }
+  | { t: "tool_call"; id: string; name: string; arguments: string }
+  | { t: "tool_result"; id: string; status: string; result?: string }
+  | { t: "error"; text: string };
+
 type NextIdState = {
   /** 会话 id（conversation / session） */
   sessionId: string;
@@ -70,6 +81,28 @@ export function buildChatOssObjectKey(
   return `${base}/${session}/${fileId}.txt`;
 }
 
+/** 将一条流事件编码为单行 NDJSON（含 v 字段）。 */
+export function encodeChatOssEventLine(event: ChatOssEvent): string {
+  const base = { v: 1 as const, ...event };
+  return JSON.stringify(base);
+}
+
+function isEmptyEvent(event: ChatOssEvent): boolean {
+  switch (event.t) {
+    case "user":
+    case "content":
+    case "reasoning":
+    case "error":
+      return !event.text;
+    case "tool_call":
+      return !event.id.trim() || !event.name.trim();
+    case "tool_result":
+      return !event.id.trim();
+    default:
+      return true;
+  }
+}
+
 class ChatOssSession {
   private buffer = "";
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -90,9 +123,9 @@ class ChatOssSession {
     }, FLUSH_INTERVAL_MS);
   }
 
-  append(chunk: string): void {
-    if (!chunk) return;
-    this.buffer += chunk;
+  appendEvent(event: ChatOssEvent): void {
+    if (isEmptyEvent(event)) return;
+    this.buffer += `${encodeChatOssEventLine(event)}\n`;
   }
 
   private enqueueFlush(): Promise<void> {
@@ -119,8 +152,9 @@ class ChatOssSession {
       `# conversation=${this.conversationId}`,
       `# written_at=${new Date().toISOString()}`,
       `# file_id=${fileId}`,
+      `# format=${CHAT_OSS_FORMAT}`,
       "",
-      content,
+      content.replace(/\n$/, ""),
     ].join("\n");
 
     try {
@@ -163,9 +197,15 @@ export function startChatOssRecording(conversationId: string): void {
   activeSession.start();
 }
 
-/** 追加模型返回的正文 / 推理文本。 */
+/** 追加一条结构化流事件（content / reasoning / tool_*）。 */
+export function appendChatOssEvent(event: ChatOssEvent): void {
+  activeSession?.appendEvent(event);
+}
+
+/** @deprecated 使用 appendChatOssEvent；保留兼容，一律当作 content。 */
 export function appendChatOssChunk(chunk: string): void {
-  activeSession?.append(chunk);
+  if (!chunk) return;
+  appendChatOssEvent({ t: "content", text: chunk });
 }
 
 /** 结束本轮生成：刷新剩余缓冲并释放会话。 */

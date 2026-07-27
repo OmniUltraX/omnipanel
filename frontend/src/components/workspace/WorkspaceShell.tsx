@@ -12,6 +12,7 @@ import {
   WORKSPACE_PATHS,
   isWorkspacePath,
 } from "../../lib/paths";
+import { relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import { Topbar } from "../shell/Topbar";
 import { StatusBar } from "../shell/StatusBar";
 import { WorkspaceHost } from "./WorkspaceHost";
@@ -79,6 +80,23 @@ export const WorkspaceShell = memo(function WorkspaceShell({
     const id = useWorkspaceStore.getState().workspace.id;
     navigate(WORKSPACE_PATHS.detail(id), { replace: true });
   }, [workspaceMode, location.pathname, navigate, hideMainEmbeddedWorkspace]);
+
+  // AI Dock 开合 / 宽度变化会改主区 content-container 的 margin-right，
+  // dockview 需重测，否则文件等模块右侧面板卡在旧宽度、留下空白。
+  useLayoutEffect(() => {
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      relayoutDockviewInstances();
+    };
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(run);
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+    };
+  }, [dockOpen, dockWidth]);
 
   return (
     <div

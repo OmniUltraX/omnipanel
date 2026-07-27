@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
+import { relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import {
   AI_DOCK_WIDTH_MIN,
   useSettingsStore,
@@ -27,6 +28,15 @@ export function AiDockviewResizeHandle({
   const dragging = useRef(false);
   const widthRef = useRef(useSettingsStore.getState().aiDockWidth);
   const rafRef = useRef(0);
+  const relayoutRafRef = useRef(0);
+
+  const scheduleContentRelayout = useCallback(() => {
+    if (relayoutRafRef.current) return;
+    relayoutRafRef.current = requestAnimationFrame(() => {
+      relayoutRafRef.current = 0;
+      relayoutDockviewInstances();
+    });
+  }, []);
 
   const applyLiveWidth = useCallback(
     (width: number) => {
@@ -40,8 +50,9 @@ export function AiDockviewResizeHandle({
         const maxWidth = Math.round(window.innerWidth * 0.5);
         dock.style.width = `${Math.min(width, maxWidth)}px`;
       }
+      scheduleContentRelayout();
     },
-    [workspaceRef],
+    [scheduleContentRelayout, workspaceRef],
   );
 
   const clearDockInlineWidth = useCallback(() => {
@@ -89,6 +100,8 @@ export function AiDockviewResizeHandle({
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         setAiDockWidth(widthRef.current);
+        // 松手后再测一轮，确保 margin-right 与 dockview 面板宽度对齐
+        requestAnimationFrame(() => relayoutDockviewInstances());
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
@@ -104,6 +117,7 @@ export function AiDockviewResizeHandle({
   useEffect(
     () => () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (relayoutRafRef.current) cancelAnimationFrame(relayoutRafRef.current);
       workspaceRef.current?.classList.remove("is-ai-dock-resizing");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
