@@ -15,6 +15,8 @@ use specta::Type;
 use suppaftp::FtpStream;
 use tauri::State;
 
+use crate::commands::aliyun_oss::AliyunOssClient;
+use crate::commands::s3_list_compat::{s3_list_page, S3ListPage};
 use crate::state::AppState;
 
 /// 内置本地文件连接 id。
@@ -133,6 +135,9 @@ pub(crate) struct FileConnConfig {
     ssh_connection_id: Option<String>,
     #[serde(default)]
     bucket: String,
+    /// aws | aliyun | tencent；缺省 aws（兼容旧连接）
+    #[serde(default)]
+    provider: String,
     #[serde(default)]
     region: String,
     #[serde(default)]
@@ -198,7 +203,14 @@ pub(crate) async fn load_file_connection(
         return Ok(None);
     }
     let storage = state.storage.lock().await;
-    storage.get_connection(connection_id)
+    let Some(mut conn) = storage.get_connection(connection_id)? else {
+        return Ok(None);
+    };
+    if migrate_shared_file_credential_inplace(&mut conn)? {
+        conn.updated_at = unix_secs(SystemTime::now());
+        storage.save_connection(&conn)?;
+    }
+    Ok(Some(conn))
 }
 
 // ─── Local backend ───────────────────────────────────────────────────────────
@@ -621,7 +633,9 @@ fn strip_virtual_hosted_bucket_host(host: &str, bucket: &str) -> String {
         return rest.to_string();
     }
     // 阿里云 OSS 虚拟主机：*.oss-*.aliyuncs.com / *.oss.*.aliyuncs.com
-    if (rest_l.starts_with("oss-") || rest_l.starts_with("oss.")) && rest_l.contains("aliyuncs.com")
+    // S3 兼容域名：*.s3.oss-*.aliyuncs.com
+    if (rest_l.starts_with("oss-") || rest_l.starts_with("oss.") || rest_l.starts_with("s3.oss-"))
+        && rest_l.contains("aliyuncs.com")
     {
         return rest.to_string();
     }
@@ -636,19 +650,151 @@ fn strip_virtual_hosted_bucket_host(host: &str, bucket: &str) -> String {
     if rest_l.starts_with("cos.") && rest_l.contains("myqcloud.com") {
         return rest.to_string();
     }
+    // 七牛 Kodo S3：*.s3.*.qiniucs.com
+    if rest_l.starts_with("s3.") && rest_l.contains("qiniucs.com") {
+        return rest.to_string();
+    }
     host.to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum S3ProviderKind {
+    Aws,
+    Aliyun,
+    Tencent,
+    Qiniu,
+}
+
+pub(crate) fn s3_provider_of(cfg: &FileConnConfig) -> S3ProviderKind {
+    let ep = cfg.endpoint.to_ascii_lowercase();
+    // Endpoint 域名优先：避免 UI 选「阿里云」却填了七牛域名，误走 OSS 专用签名客户端
+    if ep.contains("qiniucs.com") || ep.contains(".qiniu.com") {
+        return S3ProviderKind::Qiniu;
+    }
+    if ep.contains("aliyuncs.com") {
+        return S3ProviderKind::Aliyun;
+    }
+    if ep.contains("myqcloud.com") || ep.contains("qcloud.com") {
+        return S3ProviderKind::Tencent;
+    }
+    match cfg.provider.trim().to_ascii_lowercase().as_str() {
+        "aliyun" | "oss" | "aliyun-oss" => S3ProviderKind::Aliyun,
+        "tencent" | "cos" | "tencent-cos" => S3ProviderKind::Tencent,
+        "qiniu" | "kodo" => S3ProviderKind::Qiniu,
+        _ => {
+            if ep.contains("aliyun") {
+                S3ProviderKind::Aliyun
+            } else if ep.contains("qcloud") {
+                S3ProviderKind::Tencent
+            } else if ep.contains("qiniu") {
+                S3ProviderKind::Qiniu
+            } else {
+                S3ProviderKind::Aws
+            }
+        }
+    }
+}
+
+pub(crate) fn default_s3_endpoint(provider: S3ProviderKind, region: &str) -> String {
+    let r = region.trim();
+    if r.is_empty() {
+        return String::new();
+    }
+    match provider {
+        S3ProviderKind::Aliyun => {
+            let oss_region = if r.starts_with("oss-") {
+                r.to_string()
+            } else {
+                format!("oss-{r}")
+            };
+            format!("https://{oss_region}.aliyuncs.com")
+        }
+        S3ProviderKind::Tencent => format!("https://cos.{r}.myqcloud.com"),
+        S3ProviderKind::Qiniu => format!("https://s3.{r}.qiniucs.com"),
+        S3ProviderKind::Aws => {
+            if r == "us-east-1" {
+                "https://s3.amazonaws.com".into()
+            } else {
+                format!("https://s3.{r}.amazonaws.com")
+            }
+        }
+    }
+}
+
+/// 阿里云签名 region：控制台常填 oss-cn-beijing，SigV4 用 cn-beijing。
+pub(crate) fn aliyun_signing_region(region: &str) -> String {
+    let r = region.trim();
+    if let Some(rest) = r.strip_prefix("oss-") {
+        rest.to_string()
+    } else {
+        r.to_string()
+    }
+}
+
 pub(crate) fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniError> {
-    let endpoint = if cfg.endpoint.is_empty() {
-        format!("https://s3.{}.amazonaws.com", cfg.region)
+    let provider = s3_provider_of(cfg);
+    let region_input = cfg.region.trim();
+    let endpoint = if cfg.endpoint.trim().is_empty() {
+        let fallback_region = if region_input.is_empty() {
+            match provider {
+                S3ProviderKind::Aliyun => "oss-cn-beijing",
+                S3ProviderKind::Tencent => "ap-beijing",
+                S3ProviderKind::Qiniu => "cn-north-1",
+                S3ProviderKind::Aws => "us-east-1",
+            }
+        } else {
+            region_input
+        };
+        default_s3_endpoint(provider, fallback_region)
     } else {
         normalize_s3_api_endpoint(&cfg.endpoint, &cfg.bucket)
     };
+    if endpoint.is_empty() {
+        return Err(OmniError::invalid_input("请填写 Region 或 Endpoint"));
+    }
+
+    let signing_region = match provider {
+        S3ProviderKind::Aliyun => aliyun_signing_region(if region_input.is_empty() {
+            "oss-cn-beijing"
+        } else {
+            region_input
+        }),
+        S3ProviderKind::Tencent => {
+            if region_input.is_empty() {
+                "ap-beijing".into()
+            } else {
+                region_input.to_string()
+            }
+        }
+        S3ProviderKind::Qiniu => {
+            if region_input.is_empty() {
+                "cn-north-1".into()
+            } else {
+                region_input.to_string()
+            }
+        }
+        S3ProviderKind::Aws => {
+            if region_input.is_empty() {
+                "us-east-1".into()
+            } else {
+                region_input.to_string()
+            }
+        }
+    };
+
     let endpoint_host = endpoint_host_of(&endpoint);
-    let prefer_path_style = is_path_style_s3_host(&endpoint_host);
+    let prefer_path_style = match provider {
+        // 阿里云 OSS：官方仅支持虚拟主机（Bucket 作子域）；path-style 会 SignatureDoesNotMatch
+        S3ProviderKind::Aliyun => false,
+        // 七牛 S3：虚拟主机 / path-style 均支持，默认虚拟主机
+        S3ProviderKind::Qiniu => false,
+        // 腾讯云 COS：path-style 更稳（含 AppId 的桶名）
+        S3ProviderKind::Tencent => true,
+        S3ProviderKind::Aws => is_path_style_s3_host(&endpoint_host),
+    };
+
     let region = Region::Custom {
-        region: cfg.region.clone(),
+        region: signing_region,
         endpoint,
     };
     let creds = Credentials::new(Some(&cfg.access_key), Some(secret), None, None, None)
@@ -656,11 +802,154 @@ pub(crate) fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket
     let mut bucket = Bucket::new(&cfg.bucket, region, creds).map_err(|e| {
         OmniError::new(ErrorCode::Connection, "创建 S3 客户端失败").with_cause(e.to_string())
     })?;
-    // IP / localhost 走 path-style，避免拼出非法子域。
     if prefer_path_style {
         bucket.set_path_style();
     }
     Ok(bucket)
+}
+
+/// 阿里云 / 七牛等走自签 SigV4（避开 rust-s3 在部分兼容服务上的签名差异）。
+fn sigv4_compat_client(cfg: &FileConnConfig, secret: &str) -> Result<AliyunOssClient, OmniError> {
+    let provider = s3_provider_of(cfg);
+    if !matches!(provider, S3ProviderKind::Aliyun | S3ProviderKind::Qiniu) {
+        return Err(OmniError::invalid_input("当前供应商不使用 SigV4 兼容客户端"));
+    }
+    validate_s3_credentials_for_provider(provider, &cfg.access_key, secret)?;
+
+    let region_input = cfg.region.trim();
+    let endpoint = if cfg.endpoint.trim().is_empty() {
+        let fallback = if region_input.is_empty() {
+            match provider {
+                S3ProviderKind::Aliyun => "oss-cn-beijing",
+                S3ProviderKind::Qiniu => "cn-north-1",
+                _ => "us-east-1",
+            }
+        } else {
+            region_input
+        };
+        default_s3_endpoint(provider, fallback)
+    } else {
+        normalize_s3_api_endpoint(&cfg.endpoint, &cfg.bucket)
+    };
+    let signing_region = match provider {
+        S3ProviderKind::Aliyun => aliyun_signing_region(if region_input.is_empty() {
+            "oss-cn-beijing"
+        } else {
+            region_input
+        }),
+        S3ProviderKind::Qiniu => {
+            if region_input.is_empty() {
+                "cn-north-1".into()
+            } else {
+                region_input.to_string()
+            }
+        }
+        _ => region_input.to_string(),
+    };
+    AliyunOssClient::new(
+        &cfg.access_key,
+        secret,
+        &cfg.bucket,
+        &signing_region,
+        &endpoint,
+    )
+}
+
+/// 阿里云 / 七牛密钥长度约定。长度明显错位时几乎必定是混用了另一家的密钥。
+fn validate_s3_credentials_for_provider(
+    provider: S3ProviderKind,
+    access_key: &str,
+    secret: &str,
+) -> Result<(), OmniError> {
+    let ak = access_key.trim();
+    let sk = secret.trim();
+    match provider {
+        S3ProviderKind::Qiniu => {
+            if !sk.is_empty() && sk.len() != 40 {
+                return Err(OmniError::invalid_input(format!(
+                    "七牛 SecretKey 长度异常（当前 {}，应为 40）。请编辑连接，从七牛控制台重新复制 SecretKey 并保存（勿混用阿里云密钥）",
+                    sk.len()
+                )));
+            }
+            if !ak.is_empty() && ak.len() != 40 {
+                return Err(OmniError::invalid_input(format!(
+                    "七牛 AccessKey 长度异常（当前 {}，应为 40）。请编辑连接，从七牛控制台重新复制 AccessKey 并保存",
+                    ak.len()
+                )));
+            }
+        }
+        S3ProviderKind::Aliyun => {
+            // 阿里云 AccessKeySecret 通常 30；40 基本是误粘了七牛 SK
+            if !sk.is_empty() && sk.len() == 40 {
+                return Err(OmniError::invalid_input(
+                    "阿里云 SecretKey 长度异常（当前 40，通常为 30）。很像粘成了七牛 SecretKey；请到阿里云 RAM 控制台重新复制与 AccessKey 成对的 Secret，保存后再试",
+                ));
+            }
+            if !sk.is_empty() && sk.len() != 30 {
+                return Err(OmniError::invalid_input(format!(
+                    "阿里云 SecretKey 长度异常（当前 {}，通常为 30）。请编辑连接，从阿里云控制台重新复制 SecretKey 并保存",
+                    sk.len()
+                )));
+            }
+            if !ak.is_empty() && !ak.starts_with("LTAI") {
+                return Err(OmniError::invalid_input(
+                    "阿里云 AccessKey 通常以 LTAI 开头。请确认未填入七牛或其他云的 AccessKey",
+                ));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn uses_sigv4_compat_client(cfg: &FileConnConfig) -> bool {
+    matches!(
+        s3_provider_of(cfg),
+        S3ProviderKind::Aliyun | S3ProviderKind::Qiniu
+    )
+}
+
+async fn s3_list_page_cfg(
+    cfg: &FileConnConfig,
+    secret: &str,
+    prefix: String,
+    delimiter: Option<String>,
+    continuation_token: Option<String>,
+    max_keys: Option<usize>,
+) -> Result<S3ListPage, OmniError> {
+    let provider = s3_provider_of(cfg);
+    let provider_field = cfg.provider.trim();
+    if provider == S3ProviderKind::Qiniu
+        && provider_field.eq_ignore_ascii_case("aliyun")
+    {
+        tracing::warn!(
+            target: "aliyun_oss_sig",
+            endpoint = %cfg.endpoint,
+            provider_field = %provider_field,
+            "连接供应商字段为阿里云，但 Endpoint 是七牛（qiniucs.com）；已按七牛路由，请在连接里改选「七牛云」"
+        );
+    }
+    tracing::warn!(
+        target: "aliyun_oss_sig",
+        provider = ?provider,
+        provider_raw = %cfg.provider,
+        bucket = %cfg.bucket,
+        region = %cfg.region,
+        endpoint = %cfg.endpoint,
+        access_key_len = cfg.access_key.trim().len(),
+        secret_len = secret.trim().len(),
+        prefix = %prefix,
+        delimiter = ?delimiter,
+        "S3 list 路由"
+    );
+    if uses_sigv4_compat_client(cfg) {
+        let client = sigv4_compat_client(cfg, secret)?;
+        return client
+            .list_objects_v2(prefix, delimiter, continuation_token, max_keys)
+            .await;
+    }
+    let bucket = s3_bucket(cfg, secret)?;
+    s3_list_page(&bucket, prefix, delimiter, continuation_token, max_keys).await
 }
 
 fn endpoint_host_of(endpoint: &str) -> String {
@@ -719,7 +1008,6 @@ async fn list_s3_dir(
     search: Option<&str>,
     start_token: Option<&str>,
 ) -> Result<(Vec<FileEntry>, bool, Option<String>), OmniError> {
-    let bucket = s3_bucket(cfg, secret)?;
     let prefix = normalize_s3_prefix(path, cfg);
     let search_q = search
         .map(|s| s.trim().to_lowercase())
@@ -740,37 +1028,37 @@ async fn list_s3_dir(
             .as_ref()
             .map_or(true, |q| name.to_lowercase().contains(q))
     };
-    let (page, _status) = bucket
-        .list_page(
-            prefix.clone(),
-            Some("/".to_string()),
-            start_token.map(str::to_string),
-            None,
-            Some(S3_PAGE_SIZE),
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                bucket = %cfg.bucket,
-                region = %cfg.region,
-                endpoint = %cfg.endpoint,
-                prefix = %prefix,
-                error = %e,
-                "列出 S3 对象失败"
-            );
-            OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
-        })?;
+    let page = s3_list_page_cfg(
+        cfg,
+        secret,
+        prefix.clone(),
+        Some("/".to_string()),
+        start_token.map(str::to_string),
+        Some(S3_PAGE_SIZE),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            bucket = %cfg.bucket,
+            region = %cfg.region,
+            endpoint = %cfg.endpoint,
+            prefix = %prefix,
+            error = %e,
+            "列出 S3 对象失败"
+        );
+        e
+    })?;
     let mut entries = Vec::new();
-    if let Some(prefixes) = page.common_prefixes {
-        for cp in prefixes {
-            let key = cp.prefix.trim_end_matches('/');
-            let name = key.rsplit('/').next().unwrap_or(&key).to_string();
+    if !page.common_prefixes.is_empty() {
+        for cp in &page.common_prefixes {
+            let key = cp.trim_end_matches('/');
+            let name = key.rsplit('/').next().unwrap_or(key).to_string();
             if !matches_search(&name) {
                 continue;
             }
             entries.push(FileEntry {
                 name: name.clone(),
-                path: cp.prefix,
+                path: cp.clone(),
                 kind: "dir".into(),
                 size: 0,
                 modified: 0,
@@ -778,7 +1066,7 @@ async fn list_s3_dir(
             });
         }
     }
-    for obj in page.contents {
+    for obj in &page.contents {
         if obj.key.ends_with('/') {
             continue;
         }
@@ -794,7 +1082,7 @@ async fn list_s3_dir(
         }
         entries.push(FileEntry {
             name: name.clone(),
-            path: obj.key,
+            path: obj.key.clone(),
             kind: "file".into(),
             size: obj.size,
             modified: 0,
@@ -804,7 +1092,7 @@ async fn list_s3_dir(
     sort_file_entries(&mut entries);
     let has_more = page.is_truncated;
     let next_token = if has_more {
-        page.next_continuation_token
+        page.next_continuation_token.clone()
     } else {
         None
     };
@@ -812,24 +1100,22 @@ async fn list_s3_dir(
 }
 
 fn push_s3_list_page_entries(
-    page: &s3::serde_types::ListBucketResult,
+    page: &S3ListPage,
     entries: &mut Vec<FileEntry>,
     name_filter: Option<&str>,
 ) {
-    if let Some(prefixes) = &page.common_prefixes {
-        for cp in prefixes {
-            let key = cp.prefix.trim_end_matches('/');
-            let name = key.rsplit('/').next().unwrap_or(&key).to_string();
-            if name_filter.map_or(true, |q| name.to_lowercase().contains(q)) {
-                entries.push(FileEntry {
-                    name: name.clone(),
-                    path: cp.prefix.clone(),
-                    kind: "dir".into(),
-                    size: 0,
-                    modified: 0,
-                    permissions: None,
-                });
-            }
+    for cp in &page.common_prefixes {
+        let key = cp.trim_end_matches('/');
+        let name = key.rsplit('/').next().unwrap_or(key).to_string();
+        if name_filter.map_or(true, |q| name.to_lowercase().contains(q)) {
+            entries.push(FileEntry {
+                name: name.clone(),
+                path: cp.clone(),
+                kind: "dir".into(),
+                size: 0,
+                modified: 0,
+                permissions: None,
+            });
         }
     }
     for obj in &page.contents {
@@ -891,26 +1177,25 @@ async fn list_s3_prefix_page(
     prefix: &str,
     start_token: Option<&str>,
 ) -> Result<(Vec<FileEntry>, bool, Option<String>), OmniError> {
-    let bucket = s3_bucket(cfg, secret)?;
     const S3_PAGE_SIZE: usize = 200;
-    let (page, _status) = bucket
-        .list_page(
-            prefix.to_string(),
-            Some("/".to_string()),
-            start_token.map(str::to_string),
-            None,
-            Some(S3_PAGE_SIZE),
-        )
-        .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Io, "S3 前缀搜索失败").with_cause(e.to_string())
-        })?;
+    let page = s3_list_page_cfg(
+        cfg,
+        secret,
+        prefix.to_string(),
+        Some("/".to_string()),
+        start_token.map(str::to_string),
+        Some(S3_PAGE_SIZE),
+    )
+    .await
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Io, "S3 前缀搜索失败").with_cause(e.to_string())
+    })?;
     let mut entries = Vec::new();
     push_s3_list_page_entries(&page, &mut entries, None);
     sort_s3_entries(&mut entries);
     let has_more = page.is_truncated;
     let next_token = if has_more {
-        page.next_continuation_token
+        page.next_continuation_token.clone()
     } else {
         None
     };
@@ -942,7 +1227,6 @@ async fn search_s3(
         return list_s3_prefix_page(cfg, secret, &prefix, start_token).await;
     }
 
-    let bucket = s3_bucket(cfg, secret)?;
     let prefix = if key_prefix_mode {
         normalize_s3_search_key_prefix(trimmed, cfg)
     } else {
@@ -966,22 +1250,28 @@ async fn search_s3(
     let mut token = start_token.map(str::to_string);
 
     loop {
-        let (page, _status) = bucket
-            .list_page(prefix.clone(), None, token, None, Some(S3_LIST_PAGE_SIZE))
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    bucket = %cfg.bucket,
-                    region = %cfg.region,
-                    endpoint = %cfg.endpoint,
-                    prefix = %prefix,
-                    error = %e,
-                    "S3 搜索失败"
-                );
-                OmniError::new(ErrorCode::Io, "S3 搜索失败").with_cause(e.to_string())
-            })?;
+        let page = s3_list_page_cfg(
+            cfg,
+            secret,
+            prefix.clone(),
+            None,
+            token,
+            Some(S3_LIST_PAGE_SIZE),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                bucket = %cfg.bucket,
+                region = %cfg.region,
+                endpoint = %cfg.endpoint,
+                prefix = %prefix,
+                error = %e,
+                "S3 搜索失败"
+            );
+            OmniError::new(ErrorCode::Io, "S3 搜索失败").with_cause(e.to_string())
+        })?;
 
-        for obj in page.contents {
+        for obj in &page.contents {
             if obj.key.ends_with('/') {
                 continue;
             }
@@ -997,21 +1287,21 @@ async fn search_s3(
             }
             entries.push(FileEntry {
                 name: name.clone(),
-                path: obj.key,
+                path: obj.key.clone(),
                 kind: "file".into(),
                 size: obj.size,
                 modified: 0,
                 permissions: None,
             });
             if entries.len() >= S3_SEARCH_RESULT_LIMIT {
-                return Ok((entries, true, page.next_continuation_token));
+                return Ok((entries, true, page.next_continuation_token.clone()));
             }
         }
 
         if !page.is_truncated {
             break;
         }
-        token = page.next_continuation_token;
+        token = page.next_continuation_token.clone();
         if token.is_none() {
             break;
         }
@@ -1034,6 +1324,7 @@ mod s3_search_tests {
             tls: false,
             ssh_connection_id: None,
             bucket: "b".into(),
+            provider: String::new(),
             region: "us-east-1".into(),
             endpoint: String::new(),
             public_domain: String::new(),
@@ -1094,6 +1385,92 @@ mod s3_search_tests {
             "http://127.0.0.1:9000"
         );
     }
+
+    #[test]
+    fn provider_default_endpoints() {
+        assert_eq!(
+            default_s3_endpoint(S3ProviderKind::Aliyun, "oss-cn-beijing"),
+            "https://oss-cn-beijing.aliyuncs.com"
+        );
+        assert_eq!(
+            default_s3_endpoint(S3ProviderKind::Aliyun, "cn-hangzhou"),
+            "https://oss-cn-hangzhou.aliyuncs.com"
+        );
+        assert_eq!(
+            default_s3_endpoint(S3ProviderKind::Tencent, "ap-beijing"),
+            "https://cos.ap-beijing.myqcloud.com"
+        );
+        assert_eq!(
+            default_s3_endpoint(S3ProviderKind::Qiniu, "cn-north-1"),
+            "https://s3.cn-north-1.qiniucs.com"
+        );
+        assert_eq!(aliyun_signing_region("oss-cn-beijing"), "cn-beijing");
+    }
+
+    #[test]
+    fn qiniu_endpoint_overrides_aliyun_provider_field() {
+        let mut c = cfg("");
+        c.provider = "aliyun".into();
+        c.endpoint = "https://s3.cn-north-1.qiniucs.com".into();
+        assert_eq!(
+            s3_provider_of(&c),
+            S3ProviderKind::Qiniu,
+            "七牛域名必须覆盖错误的阿里云供应商字段"
+        );
+    }
+
+    #[test]
+    fn qiniu_rejects_non_40_char_secret() {
+        let err = validate_s3_credentials_for_provider(
+            S3ProviderKind::Qiniu,
+            "abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+            "too-short-secret-key-30chars!!",
+        )
+        .expect_err("sk len 30");
+        assert!(err.message.contains("SecretKey"));
+        assert!(err.message.contains("40"));
+    }
+
+    #[test]
+    fn aliyun_rejects_40_char_secret_looking_like_qiniu() {
+        let err = validate_s3_credentials_for_provider(
+            S3ProviderKind::Aliyun,
+            "LTAI5t7cNGJVnJuzJWRY6GX3",
+            "abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+        )
+        .expect_err("sk len 40");
+        assert!(err.message.contains("40"));
+        assert!(err.message.contains("七牛") || err.message.contains("30"));
+    }
+
+    #[test]
+    fn aliyun_uses_virtual_host_not_path_style() {
+        let mut c = cfg("");
+        c.provider = "aliyun".into();
+        c.bucket = "teacher-chat".into();
+        c.region = "oss-cn-beijing".into();
+        c.endpoint = "https://oss-cn-beijing.aliyuncs.com".into();
+        c.access_key = "ak".into();
+        let bucket = s3_bucket(&c, "secret").expect("bucket");
+        assert!(
+            !bucket.is_path_style(),
+            "阿里云必须用虚拟主机，否则 SignatureDoesNotMatch"
+        );
+        assert!(bucket.host().starts_with("teacher-chat."));
+        assert!(bucket.host().contains("oss-cn-beijing.aliyuncs.com"));
+    }
+
+    #[test]
+    fn provider_detects_from_endpoint_when_unset() {
+        let mut c = cfg("");
+        c.endpoint = "https://oss-cn-beijing.aliyuncs.com".into();
+        assert_eq!(s3_provider_of(&c), S3ProviderKind::Aliyun);
+        c.endpoint = "https://cos.ap-guangzhou.myqcloud.com".into();
+        assert_eq!(s3_provider_of(&c), S3ProviderKind::Tencent);
+        c.provider = "aliyun".into();
+        c.endpoint = String::new();
+        assert_eq!(s3_provider_of(&c), S3ProviderKind::Aliyun);
+    }
 }
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
@@ -1146,7 +1523,11 @@ fn normalize_s3_delete_prefix(path: &str, entry_kind: Option<&str>) -> String {
 }
 
 /// 删除 S3 前缀下全部对象（含子目录中的文件），并尝试删除目录占位对象。
-async fn delete_s3_prefix_recursive(bucket: &Bucket, prefix: &str) -> Result<(), OmniError> {
+async fn delete_s3_prefix_recursive(
+    cfg: &FileConnConfig,
+    secret: &str,
+    prefix: &str,
+) -> Result<(), OmniError> {
     let prefix = if prefix.ends_with('/') {
         prefix.to_string()
     } else {
@@ -1155,48 +1536,109 @@ async fn delete_s3_prefix_recursive(bucket: &Bucket, prefix: &str) -> Result<(),
     const S3_DELETE_PAGE_SIZE: usize = 1000;
     let mut token: Option<String> = None;
     loop {
-        let (page, _) = bucket
-            .list_page(
-                prefix.clone(),
-                None,
-                token.clone(),
-                None,
-                Some(S3_DELETE_PAGE_SIZE),
-            )
-            .await
-            .map_err(|e| {
-                OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
-            })?;
-        for obj in page.contents {
-            bucket.delete_object(&obj.key).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 删除对象失败").with_cause(e.to_string())
-            })?;
+        let page = s3_list_page_cfg(
+            cfg,
+            secret,
+            prefix.clone(),
+            None,
+            token.clone(),
+            Some(S3_DELETE_PAGE_SIZE),
+        )
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
+        })?;
+        for obj in &page.contents {
+            s3_delete_object(cfg, secret, &obj.key).await?;
         }
         if !page.is_truncated {
             break;
         }
-        token = page.next_continuation_token;
+        token = page.next_continuation_token.clone();
         if token.is_none() {
             break;
         }
     }
-    let _ = bucket.delete_object(&prefix).await;
+    let _ = s3_delete_object(cfg, secret, &prefix).await;
     Ok(())
 }
 
-async fn delete_s3_path(bucket: &Bucket, path: &str, entry_kind: Option<&str>) -> Result<(), OmniError> {
+async fn s3_delete_object(cfg: &FileConnConfig, secret: &str, key: &str) -> Result<(), OmniError> {
+    if uses_sigv4_compat_client(cfg) {
+        let client = sigv4_compat_client(cfg, secret)?;
+        return client.delete_object(key).await;
+    }
+    let bucket = s3_bucket(cfg, secret)?;
+    bucket.delete_object(key).await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "S3 删除对象失败").with_cause(e.to_string())
+    })?;
+    Ok(())
+}
+
+async fn s3_get_object_bytes(
+    cfg: &FileConnConfig,
+    secret: &str,
+    key: &str,
+) -> Result<Vec<u8>, OmniError> {
+    if uses_sigv4_compat_client(cfg) {
+        let client = sigv4_compat_client(cfg, secret)?;
+        return client.get_object(key).await;
+    }
+    let bucket = s3_bucket(cfg, secret)?;
+    let response = bucket.get_object(key).await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string())
+    })?;
+    Ok(response.bytes().to_vec())
+}
+
+async fn s3_put_object_bytes(
+    cfg: &FileConnConfig,
+    secret: &str,
+    key: &str,
+    data: &[u8],
+) -> Result<(), OmniError> {
+    if uses_sigv4_compat_client(cfg) {
+        let client = sigv4_compat_client(cfg, secret)?;
+        return client.put_object(key, data).await;
+    }
+    let bucket = s3_bucket(cfg, secret)?;
+    bucket.put_object(key, data).await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
+    })?;
+    Ok(())
+}
+
+async fn s3_head_object_status(
+    cfg: &FileConnConfig,
+    secret: &str,
+    key: &str,
+) -> Result<u16, OmniError> {
+    if uses_sigv4_compat_client(cfg) {
+        let client = sigv4_compat_client(cfg, secret)?;
+        return client.head_object(key).await;
+    }
+    let bucket = s3_bucket(cfg, secret)?;
+    let (_, status) = bucket.head_object(key).await.map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "S3 连接测试失败").with_cause(e.to_string())
+    })?;
+    Ok(status)
+}
+
+async fn delete_s3_path(
+    cfg: &FileConnConfig,
+    secret: &str,
+    path: &str,
+    entry_kind: Option<&str>,
+) -> Result<(), OmniError> {
     let key = normalize_s3_object_key(path);
     if key.is_empty() {
         return Err(OmniError::invalid_input("不能删除存储桶根目录"));
     }
     if is_s3_prefix_delete_path(path, entry_kind) {
         let prefix = normalize_s3_delete_prefix(path, entry_kind);
-        delete_s3_prefix_recursive(bucket, &prefix).await
+        delete_s3_prefix_recursive(cfg, secret, &prefix).await
     } else {
-        bucket.delete_object(&key).await.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "S3 删除失败").with_cause(e.to_string())
-        })?;
-        Ok(())
+        s3_delete_object(cfg, secret, &key).await
     }
 }
 
@@ -1212,6 +1654,72 @@ mod s3_delete_tests {
         assert!(!is_s3_prefix_delete_path("foo/bar.txt", None));
         assert!(!is_s3_prefix_delete_path("/object.key", None));
         assert_eq!(normalize_s3_delete_prefix("foo/bar", Some("dir")), "foo/bar/");
+    }
+}
+
+#[cfg(test)]
+mod file_credential_binding_tests {
+    use omnipanel_store::{Connection, ConnectionKind};
+
+    use super::{
+        ensure_file_connection_id, file_credential_ref_for, is_shared_file_credential_ref,
+        bind_file_connection_secret,
+    };
+
+    fn blank_file_conn() -> Connection {
+        Connection {
+            id: String::new(),
+            kind: ConnectionKind::File,
+            name: "test".into(),
+            group: String::new(),
+            env_tag: "dev".into(),
+            tags: vec![],
+            config: "{}".into(),
+            credential_ref: None,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn ensure_id_assigns_before_cred_ref_shape() {
+        let mut a = blank_file_conn();
+        let mut b = blank_file_conn();
+        ensure_file_connection_id(&mut a);
+        ensure_file_connection_id(&mut b);
+        assert!(a.id.starts_with("file-"));
+        assert!(b.id.starts_with("file-"));
+        assert_ne!(a.id, b.id);
+        assert_eq!(
+            file_credential_ref_for(&a.id),
+            format!("file-cred-{}", a.id)
+        );
+        // 专属 key 绝不是空 id 的共享槽
+        assert_ne!(file_credential_ref_for(&a.id), "file-cred-");
+        assert!(!is_shared_file_credential_ref(&file_credential_ref_for(&a.id)));
+    }
+
+    #[test]
+    fn ensure_id_preserves_existing() {
+        let mut c = blank_file_conn();
+        c.id = "file-fixed".into();
+        ensure_file_connection_id(&mut c);
+        assert_eq!(c.id, "file-fixed");
+    }
+
+    #[test]
+    fn shared_ref_detection() {
+        assert!(is_shared_file_credential_ref(""));
+        assert!(is_shared_file_credential_ref("file-cred-"));
+        assert!(is_shared_file_credential_ref("file-cred"));
+        assert!(!is_shared_file_credential_ref("file-cred-file-abc"));
+    }
+
+    #[test]
+    fn bind_requires_id() {
+        let mut c = blank_file_conn();
+        let err = bind_file_connection_secret(&mut c, Some("sk".into())).unwrap_err();
+        assert!(err.to_string().contains("connection.id"));
     }
 }
 
@@ -1248,6 +1756,9 @@ pub async fn file_list_connections(
 }
 
 /// 保存文件连接（凭据写入 Vault）。
+///
+/// 注意：必须先分配 `connection.id`，再写入 Vault。
+/// 历史 bug：新建时 id 仍为空就把 Secret 存成 `file-cred-`，导致多条连接共用同一钥匙串条目，后保存的覆盖先保存的。
 #[tauri::command]
 #[specta::specta]
 pub async fn file_save_connection(
@@ -1256,27 +1767,101 @@ pub async fn file_save_connection(
     secret: Option<String>,
 ) -> Result<Connection, OmniError> {
     connection.kind = ConnectionKind::File;
-    if let Some(sec) = secret.filter(|s| !s.is_empty()) {
-        let cred_ref = connection
-            .credential_ref
-            .clone()
-            .filter(|r| !r.is_empty())
-            .unwrap_or_else(|| format!("file-cred-{}", connection.id));
-        Vault::store(&cred_ref, &sec)?;
-        connection.credential_ref = Some(cred_ref);
-    }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    if connection.id.is_empty() {
-        connection.id = format!("file-{:x}", now);
-        connection.created_at = now;
-    }
-    connection.updated_at = now;
+    ensure_file_connection_id(&mut connection);
+    bind_file_connection_secret(&mut connection, secret)?;
+    connection.updated_at = unix_secs(SystemTime::now());
     let storage = state.storage.lock().await;
     storage.save_connection(&connection)?;
     Ok(connection)
+}
+
+fn now_unix_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// 确保文件连接有稳定唯一 id（新建时用纳秒，避免同秒冲突）。
+pub(crate) fn ensure_file_connection_id(connection: &mut Connection) {
+    if !connection.id.trim().is_empty() {
+        return;
+    }
+    let nanos = now_unix_nanos();
+    connection.id = format!("file-{nanos:x}");
+    if connection.created_at == 0 {
+        connection.created_at = (nanos / 1_000_000_000) as i64;
+    }
+}
+
+pub(crate) fn file_credential_ref_for(connection_id: &str) -> String {
+    format!("file-cred-{connection_id}")
+}
+
+/// 是否为历史 bug 产生的共享钥匙串 key（多连接抢同一条目）。
+///
+/// 旧版在 id 为空时写入 `file-cred-` / `file-cred`。
+pub(crate) fn is_shared_file_credential_ref(credential_ref: &str) -> bool {
+    let r = credential_ref.trim();
+    r.is_empty() || r == "file-cred-" || r == "file-cred"
+}
+
+/// 写入或迁移文件连接 Secret：始终落到 `file-cred-{connection.id}`。
+///
+/// 不主动删除历史共享 key（可能仍被其它连接引用）；用户各自重存后共享槽可自然闲置。
+pub(crate) fn bind_file_connection_secret(
+    connection: &mut Connection,
+    secret: Option<String>,
+) -> Result<(), OmniError> {
+    if connection.id.trim().is_empty() {
+        return Err(OmniError::new(
+            ErrorCode::Internal,
+            "保存文件凭据前必须先分配 connection.id",
+        ));
+    }
+    let desired = file_credential_ref_for(&connection.id);
+    let old_ref = connection
+        .credential_ref
+        .clone()
+        .filter(|r| !r.trim().is_empty());
+
+    if let Some(sec) = secret.filter(|s| !s.is_empty()) {
+        Vault::store(&desired, &sec)?;
+        connection.credential_ref = Some(desired);
+        return Ok(());
+    }
+
+    // 未提交新 Secret：若仍绑在共享 key 上，把现有内容复制到本连接专属 key
+    // （止血用：共享槽里往往是「最后保存的那条」密钥，其它连接仍需各自重填）
+    if let Some(old) = old_ref {
+        if is_shared_file_credential_ref(&old) {
+            if let Ok(existing) = Vault::get(&old) {
+                Vault::store(&desired, &existing)?;
+                connection.credential_ref = Some(desired);
+                tracing::warn!(
+                    connection_id = %connection.id,
+                    old_ref = %old,
+                    "文件连接凭据曾共用钥匙串条目，已迁移到专属 key；若签名失败请按连接重新填写 SecretKey"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 加载时若仍指向共享凭据槽，则迁移并回写存储。
+pub(crate) fn migrate_shared_file_credential_inplace(
+    connection: &mut Connection,
+) -> Result<bool, OmniError> {
+    let Some(old) = connection.credential_ref.as_deref() else {
+        return Ok(false);
+    };
+    if !is_shared_file_credential_ref(old) {
+        return Ok(false);
+    }
+    let before = connection.credential_ref.clone();
+    bind_file_connection_secret(connection, None)?;
+    Ok(connection.credential_ref != before)
 }
 
 /// 测试未保存或已保存的文件连接配置。
@@ -1313,7 +1898,6 @@ pub async fn file_test_connection_config(
                     "请填写 Access Key 与 Secret Key（保存前测试需在表单中输入密钥）",
                 ));
             }
-            let bucket = s3_bucket(&cfg, &secret)?;
             // 使用 head_object 对一个几乎不存在的 key 做探测，避免 list 的 XML
             // 反序列化（rust-s3 0.35 的 ListBucketResult 要求 Name 字段，部分 S3 兼容
             // 服务响应里会缺失该字段导致 "missing field `Name`" 报错）。
@@ -1322,8 +1906,8 @@ pub async fn file_test_connection_config(
             //   403        -> 凭据/权限被拒绝
             //   其它 / Err -> 连接或签名失败
             let probe_key = "__omnipanel_connect_probe__";
-            match bucket.head_object(probe_key).await {
-                Ok((_, status)) => match status {
+            match s3_head_object_status(&cfg, &secret, probe_key).await {
+                Ok(status) => match status {
                     200 | 204 | 404 => Ok("S3 连接成功".into()),
                     403 => Err(OmniError::new(
                         ErrorCode::Auth,
@@ -1334,8 +1918,7 @@ pub async fn file_test_connection_config(
                         format!("S3 连接测试失败（HTTP {other}）"),
                     )),
                 },
-                Err(e) => Err(OmniError::new(ErrorCode::Connection, "S3 连接测试失败")
-                    .with_cause(e.to_string())),
+                Err(e) => Err(e),
             }
         }
     }
@@ -1518,12 +2101,8 @@ pub async fn file_read_file(
             })?
         }
         FileProtocol::S3 => {
-            let bucket = s3_bucket(&cfg, &secret)?;
             let key = normalize_s3_object_key(&path);
-            let response = bucket.get_object(&key).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string())
-            })?;
-            let data: Vec<u8> = response.bytes().to_vec();
+            let data = s3_get_object_bytes(&cfg, &secret, &key).await?;
             if data.len() as u64 > max_bytes {
                 return Err(OmniError::new(ErrorCode::InvalidInput, "文件过大"));
             }
@@ -1586,12 +2165,8 @@ pub async fn file_upload_file(
             })?
         }
         FileProtocol::S3 => {
-            let bucket = s3_bucket(&cfg, &secret)?;
             let key = normalize_s3_object_key(&path);
-            bucket.put_object(&key, &data).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
-            })?;
-            Ok(())
+            s3_put_object_bytes(&cfg, &secret, &key, &data).await
         }
     }
 }
@@ -1655,15 +2230,13 @@ pub async fn file_mkdir(
             })?
         }
         FileProtocol::S3 => {
-            let bucket = s3_bucket(&cfg, &secret)?;
             let mut key = normalize_s3_object_key(&path);
             if !key.ends_with('/') {
                 key.push('/');
             }
-            bucket.put_object(&key, &[] as &[u8]).await.map_err(|e| {
+            s3_put_object_bytes(&cfg, &secret, &key, &[]).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 创建目录失败").with_cause(e.to_string())
-            })?;
-            Ok(())
+            })
         }
     }
 }
@@ -1710,17 +2283,19 @@ pub async fn file_rename(
             })?
         }
         FileProtocol::S3 => {
-            let bucket = s3_bucket(&cfg, &secret)?;
             let old_key = normalize_s3_object_key(&old_path);
             let new_key = normalize_s3_object_key(&new_path);
-            let response = bucket.get_object(&old_key).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 读取对象失败").with_cause(e.to_string())
-            })?;
-            let bytes = response.bytes();
-            bucket.put_object(&new_key, bytes).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 写入对象失败").with_cause(e.to_string())
-            })?;
-            bucket.delete_object(&old_key).await.map_err(|e| {
+            let bytes = s3_get_object_bytes(&cfg, &secret, &old_key)
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "S3 读取对象失败").with_cause(e.to_string())
+                })?;
+            s3_put_object_bytes(&cfg, &secret, &new_key, &bytes)
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "S3 写入对象失败").with_cause(e.to_string())
+                })?;
+            s3_delete_object(&cfg, &secret, &old_key).await.map_err(|e| {
                 OmniError::new(ErrorCode::Io, "S3 删除旧对象失败").with_cause(e.to_string())
             })?;
             Ok(())
@@ -1774,10 +2349,7 @@ pub async fn file_delete(
                 OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
             })?
         }
-        FileProtocol::S3 => {
-            let bucket = s3_bucket(&cfg, &secret)?;
-            delete_s3_path(&bucket, &path, entry_kind.as_deref()).await
-        }
+        FileProtocol::S3 => delete_s3_path(&cfg, &secret, &path, entry_kind.as_deref()).await
     }
 }
 

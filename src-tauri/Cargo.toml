@@ -78,6 +78,12 @@ regex = "1"
 shell-words = "1.1"
 suppaftp = { version = "6", default-features = false, features = ["rustls"] }
 rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
+quick-xml = { version = "0.32", features = ["serialize"] }
+# 阿里云 OSS：自签 SigV4（rust-s3 在 OSS 上易 SignatureDoesNotMatch）
+hmac = "0.12"
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+percent-encoding = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

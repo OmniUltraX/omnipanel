@@ -73,7 +73,14 @@ type FileCtxState = { x: number; y: number; entry: FileEntry } | null;
 /** S3 连接配置指纹，用于判断改桶后是否应丢弃会话路径。 */
 export function buildS3BindKey(configJson: string | undefined | null): string {
   const cfg = parseFileConfigJson(configJson ?? "{}");
-  return [cfg.bucket ?? "", cfg.endpoint ?? "", cfg.prefix ?? "", cfg.region ?? "", cfg.accessKey ?? ""].join("\0");
+  return [
+    cfg.provider ?? "aws",
+    cfg.bucket ?? "",
+    cfg.endpoint ?? "",
+    cfg.prefix ?? "",
+    cfg.region ?? "",
+    cfg.accessKey ?? "",
+  ].join("\0");
 }
 
 const PATH_INPUT_ID = "fm-breadcrumb-path-input";
