@@ -96,6 +96,168 @@ function relayoutDockviewInstancesNow(
   }
 }
 
+/** 记录各 api 上一次计入的 AI 宽度，用于从「含 gutter 的列宽」还原内容比例 */
+const prevAiWidthByApi = new WeakMap<object, number>();
+
+/**
+ * 读取 AI Dock 当前渲染宽度。rect 已包含 CSS `min(var(--ai-dock-w), 50vw)`
+ * 的钳制，与内容区 margin-right 完全一致；关闭时为 0。
+ */
+function readAiDockWidthPx(): number {
+  if (typeof document === "undefined") return 0;
+  const dock = document.querySelector(".workspace .ai-dockview.open");
+  if (dock instanceof HTMLElement) {
+    const rendered = Math.round(dock.getBoundingClientRect().width);
+    if (rendered > 0) return rendered;
+  }
+  return 0;
+}
+
+/** 每列内容的最小保底宽度，低于此宽度时放弃重算（AI 占比过大） */
+const MIN_COLUMN_CONTENT_PX = 80;
+
+/**
+ * 顶层左右列：按 group DOM 的 left 坐标聚类（同列多 group 取一个代表）。
+ * 不依赖 dockview 内部 DOM 层级选择器。
+ */
+function resolveHorizontalColumns(
+  api: DockviewApi,
+): Array<{ group: DockviewApi["groups"][number] }> {
+  const clusters: Array<{ left: number; group: DockviewApi["groups"][number] }> = [];
+  for (const group of api.groups) {
+    let rect: DOMRect;
+    try {
+      rect = group.element.getBoundingClientRect();
+    } catch {
+      continue;
+    }
+    if (rect.width <= 0) continue;
+    const left = Math.round(rect.left);
+    if (clusters.some((c) => Math.abs(c.left - left) <= 4)) continue;
+    clusters.push({ left, group });
+  }
+  clusters.sort((a, b) => a.left - b.left);
+  return clusters.map((c) => ({ group: c.group }));
+}
+
+/**
+ * AI Dock 打开时内容用 margin 避开侧栏，dockview 仍按全宽分栏。
+ * 这里按「扣除 AI 后的剩余宽度」重算顶层列宽：
+ * 非末列 = 内容份额；末列 = 内容份额 + AI 宽（列宽总和仍为全宽）。
+ */
+export function rebalanceHorizontalSplitsForAiDock(
+  api: DockviewApi,
+  aiWidthPx: number,
+  options?: { forceEqual?: boolean },
+): void {
+  const totalW = Math.round(api.width);
+  if (totalW <= 0) return;
+
+  const anyGroupEl = api.groups[0]?.element ?? null;
+  const layoutShell = anyGroupEl?.closest(".dockable-workspace") as HTMLElement | null;
+  if (!layoutShell?.classList.contains("dock-window-control")) return;
+  if (isDockLayoutShellHidden(layoutShell)) return;
+
+  // 注意：aiW 不能再按 totalW 的比例封顶——CSS margin 用的是
+  // min(var(--ai-dock-w), 50vw)，与 dock 自身宽度无关；两边不一致会把末列内容整段盖掉。
+  const aiW = Math.max(0, Math.round(aiWidthPx));
+
+  const columns = resolveHorizontalColumns(api);
+  if (columns.length < 2) {
+    prevAiWidthByApi.set(api, aiW);
+    return;
+  }
+
+  const usable = totalW - aiW;
+  if (usable < columns.length * MIN_COLUMN_CONTENT_PX) {
+    // AI 占比过大，重算无意义；不更新 prevAi，等宽度恢复后再按旧基线还原
+    return;
+  }
+
+  const prevAi = prevAiWidthByApi.get(api) ?? 0;
+  const sizes = columns.map((c) => Math.max(1, Math.round(c.group.api.width)));
+  // 两列几乎等宽 → 刚分栏，dockview 按全宽 50/50，需强制按剩余宽度均分
+  const nearlyEqual =
+    columns.length === 2 &&
+    Math.abs(sizes[0] - sizes[1]) <= Math.max(8, totalW * 0.04);
+  const forceEqual = Boolean(options?.forceEqual) || nearlyEqual;
+
+  // 目标内容宽：均分或按现有内容比例（末列先扣掉上次计入的 AI 宽）
+  let contents: number[];
+  if (forceEqual) {
+    contents = columns.map(() => Math.floor(usable / columns.length));
+  } else {
+    const currentContents = sizes.map((w, i) =>
+      i === columns.length - 1 ? Math.max(1, w - prevAi) : w,
+    );
+    const sum = currentContents.reduce((a, b) => a + b, 0);
+    if (sum <= 0) {
+      prevAiWidthByApi.set(api, aiW);
+      return;
+    }
+    contents = currentContents.map((w) =>
+      Math.max(1, Math.round((w / sum) * usable)),
+    );
+  }
+  // 末列吸收取整误差 + AI 宽
+  const usedByOthers = contents.slice(0, -1).reduce((a, b) => a + b, 0);
+  contents[contents.length - 1] = Math.max(1, usable - usedByOthers);
+
+  for (let i = 0; i < columns.length; i++) {
+    const isLast = i === columns.length - 1;
+    const nextWidth = isLast ? contents[i] + aiW : contents[i];
+    if (Math.abs(Math.round(columns[i].group.api.width) - nextWidth) <= 1) continue;
+    try {
+      columns[i].group.api.setSize({ width: nextWidth });
+    } catch {
+      // teardown / transient 状态下 setSize 可能抛错，忽略
+    }
+  }
+  prevAiWidthByApi.set(api, aiW);
+}
+
+/** 对所有已注册 dock 重算（内部会跳过非 windowControl / 隐藏实例） */
+export function rebalanceAllHorizontalSplitsForAiDock(
+  aiWidthPx?: number,
+  options?: { forceEqual?: boolean },
+): void {
+  const width = aiWidthPx ?? readAiDockWidthPx();
+  const seen = new Set<DockviewApi>();
+  for (const instance of instancesByViewId.values()) {
+    if (seen.has(instance.api)) continue;
+    seen.add(instance.api);
+    try {
+      rebalanceHorizontalSplitsForAiDock(instance.api, width, options);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+let rebalanceScheduled = false;
+let rebalancePendingForceEqual = false;
+
+/**
+ * 分栏/开合/调宽后延迟重算。
+ * 同帧内多次调用只执行一次；AI 宽度在「执行时」实时读 DOM，
+ * 不在调度时捕获——否则快速开合时晚到的旧回调会用过期宽度覆盖新状态。
+ */
+export function scheduleRebalanceHorizontalSplitsForAiDock(
+  options?: { forceEqual?: boolean },
+): void {
+  if (options?.forceEqual) rebalancePendingForceEqual = true;
+  if (rebalanceScheduled) return;
+  rebalanceScheduled = true;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      rebalanceScheduled = false;
+      const forceEqual = rebalancePendingForceEqual;
+      rebalancePendingForceEqual = false;
+      rebalanceAllHorizontalSplitsForAiDock(readAiDockWidthPx(), { forceEqual });
+    });
+  });
+}
+
 /** 同帧内合并多次 relayout 请求，避免切换/resize 时重复 layout。 */
 export function relayoutDockviewInstances(
   scopePrefix?: string,

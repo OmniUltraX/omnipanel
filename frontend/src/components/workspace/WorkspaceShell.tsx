@@ -12,6 +12,10 @@ import {
   WORKSPACE_PATHS,
   isWorkspacePath,
 } from "../../lib/paths";
+import {
+  relayoutDockviewInstances,
+  scheduleRebalanceHorizontalSplitsForAiDock,
+} from "../../lib/dockviewRegistry";
 import { Topbar } from "../shell/Topbar";
 import { StatusBar } from "../shell/StatusBar";
 import { WorkspaceHost } from "./WorkspaceHost";
@@ -79,6 +83,20 @@ export const WorkspaceShell = memo(function WorkspaceShell({
     const id = useWorkspaceStore.getState().workspace.id;
     navigate(WORKSPACE_PATHS.detail(id), { replace: true });
   }, [workspaceMode, location.pathname, navigate, hideMainEmbeddedWorkspace]);
+
+  /**
+   * AI Dock 开合/调宽只改内容区 margin，dockview 外层尺寸不变，RO 不触发；
+   * 双 rAF 后强制 relayout，再按剩余宽度重算左右列宽。
+   */
+  useLayoutEffect(() => {
+    const dock = workspaceRef.current?.querySelector<HTMLElement>(".ai-dockview");
+    if (!dockOpen && dock) {
+      dock.style.width = "";
+    }
+    relayoutDockviewInstances();
+    // AI 宽度由 schedule 在执行时实时读 DOM，开/关/调宽共用同一收敛路径
+    scheduleRebalanceHorizontalSplitsForAiDock();
+  }, [dockOpen, dockWidth]);
 
   return (
     <div

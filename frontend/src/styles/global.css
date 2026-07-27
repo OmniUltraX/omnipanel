@@ -4077,14 +4077,25 @@ a {
     -webkit-app-region: no-drag;
 }
 
-.dockable-workspace.dock-window-control .dock-window-title-actions--chrome-relocated {
-    min-width: 0;
-}
-
-/* AI 右侧 Dock 打开：侧栏绝对定位到 tab 栏下方，主区 tab 自然贯通到窗口右缘 */
+/*
+ * AI 右侧 Dock 打开：dockview 保持全宽（tab 栏自然贯通到窗口右缘），
+ * 内容区用 margin-right 避开绝对定位的 AI 侧栏；
+ * 左右分栏时非最右列取消 margin（AI 只压最右列）。
+ * 左右列的可视均分由 JS（rebalanceHorizontalSplitsForAiDock）重算。
+ */
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-groupview > .dv-content-container {
     /* 内容避开右侧 AI，tab 栏仍全宽 */
     margin-right: min(var(--ai-dock-w, 0px), 50vw);
+}
+
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dv-split-view-container.dv-horizontal
+    > .dv-view-container
+    > .dv-view:not(:last-child)
+    .dv-groupview
+    > .dv-content-container {
+    margin-right: 0;
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
@@ -6306,7 +6317,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: 100%;
     }
 
-    /* 与主窗口 tab 栏等高贯通：仅拖拽区 + 窗口 chrome */
+    /* 与主窗口 tab 栏同高同色：作为 Tab 行右侧延续（拖拽区 + 窗口按钮） */
     .ai-dock-chrome {
         display: flex;
         align-items: stretch;
@@ -10763,6 +10774,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-height: 0;
         overflow: hidden;
         pointer-events: none;
+        align-self: stretch;
     }
 
     .workspace.is-ai-dock-resizing .ai-dockview {
@@ -10782,14 +10794,26 @@ button.omni-btn-tool[aria-pressed="true"] {
         border-left: 1px solid var(--border);
         pointer-events: auto;
         z-index: 6;
+        overflow: hidden;
     }
 
     .ai-dockview.open > .ai-assistant-shell {
         height: 100%;
+        min-height: 0;
+    }
+
+    .ai-dockview.open > .ai-assistant-shell > .ai-assistant-shell-body {
+        border-left: none;
+        height: 100%;
+        overflow: hidden;
     }
 
     .ai-dockview:not(.open) {
-        width: 0;
+        width: 0 !important;
+        max-width: 0 !important;
+        margin-top: 0;
+        height: auto;
+        max-height: none;
         border-left: none;
         overflow: hidden;
         pointer-events: none;
@@ -11732,7 +11756,9 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin: 0;
         flex-shrink: 0;
         cursor: col-resize;
-        z-index: 7;
+        z-index: 9;
+        height: auto;
+        max-height: none;
     }
 
     /* 热区加宽便于拖拽，高亮仍用细线 */

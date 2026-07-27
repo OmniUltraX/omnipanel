@@ -38,6 +38,7 @@ import {
   unregisterDockviewInstance,
   getDockviewInstance,
   DOCK_SCOPE_RESYNC_EVENT,
+  scheduleRebalanceHorizontalSplitsForAiDock,
 } from "../../lib/dockviewRegistry";
 import { isWorkspaceDockOutboundTransfer } from "../../lib/crossWindowDockTransfer";
 import {
@@ -1989,6 +1990,10 @@ export function DockableWorkspace({
         lastWrittenLayoutRef.current = next;
         scheduleLayoutPersist(next);
       });
+      const addGroupDisposable = api.onDidAddGroup(() => {
+        // 左右分栏松手后 dockview 按全宽 50/50；AI 打开时按剩余宽度重新均分
+        scheduleRebalanceHorizontalSplitsForAiDock({ forceEqual: true });
+      });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleSyncTabDragAttributes();
@@ -2173,6 +2178,7 @@ export function DockableWorkspace({
 
       disposablesRef.current = [
         layoutDisposable,
+        addGroupDisposable,
         removeDisposable,
         activeDisposable,
         addDisposable,

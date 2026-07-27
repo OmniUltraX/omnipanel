@@ -9,6 +9,10 @@ import {
   AI_DOCK_WIDTH_MIN,
   useSettingsStore,
 } from "../../stores/settingsStore";
+import {
+  relayoutDockviewInstances,
+  scheduleRebalanceHorizontalSplitsForAiDock,
+} from "../../lib/dockviewRegistry";
 
 type AiDockviewResizeHandleProps = {
   /** 承载 `--ai-dock-w` 的 `.workspace` 节点 */
@@ -89,6 +93,9 @@ export function AiDockviewResizeHandle({
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         setAiDockWidth(widthRef.current);
+        // 松手后强制 dockview 重排，再按新 AI 宽度（执行时读 DOM）重算左右列宽
+        relayoutDockviewInstances();
+        scheduleRebalanceHorizontalSplitsForAiDock();
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);

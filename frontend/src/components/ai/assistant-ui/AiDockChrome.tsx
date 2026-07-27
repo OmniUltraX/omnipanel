@@ -4,7 +4,7 @@ import { AiChromeButton } from "../../shell/AiChromeButton";
 import { WinControls } from "../../shell/WinControls";
 
 /**
- * AI Dock 顶栏：与主窗口 tab 栏等高贯通，仅放拖拽区 + 窗口 chrome。
+ * AI Dock 顶栏：与主窗口 Tab 栏同行同高，作为右侧延续（拖拽区 + AI 入口 + 窗口三键）。
  * 会话标题 / 工具按钮在下一层 toolbar。
  */
 export function AiDockChrome() {
