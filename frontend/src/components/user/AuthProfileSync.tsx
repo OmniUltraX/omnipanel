@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
-import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
+import {
+  scheduleAssistantSnapshotSync,
+  startAssistantChatInbox,
+} from "../../modules/assistant";
 import { useAuthStore } from "../../stores/authStore";
 
 /** 已登录时同步用户资料到 profile store（侧栏头像等依赖）。 */
@@ -23,6 +26,7 @@ export function AuthProfileSync() {
     void syncAuthProfile();
     // 冷启动已登录：补一次快照，避免助手端长期看不到数据
     scheduleAssistantSnapshotSync();
+    void startAssistantChatInbox();
   }, [authHydrated, token]);
 
   return null;

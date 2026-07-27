@@ -147,7 +147,7 @@ pub struct AuthUserProfile {
     /// 对应接口字段 `github_id`。
     #[serde(rename = "githubId")]
     pub github_id: String,
-    /// 对应接口字段 `oss_path`；非空时 AI 流式回复按天写入该目录。
+    /// 对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。
     #[serde(default, rename = "ossPath")]
     pub oss_path: String,
 }

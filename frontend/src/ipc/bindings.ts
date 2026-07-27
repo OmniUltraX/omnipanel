@@ -757,6 +757,16 @@ export const commands = {
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
 	/** 推送客户端元数据快照到 OSS（dryRun=true 时只组装不上传）。手动同步自 commands/assistant.rs */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
+	/** 使用助手 STS 上传文本到 OSS（聊天记录分片）。手动同步自 commands/assistant.rs */
+	assistantUploadOssText: (request: AssistantUploadTextRequest) => typedError<AssistantUploadTextResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_upload_oss_text", { request })),
+	/** 读取助手→客户端聊天 latest 索引。手动同步自 commands/assistant_chat.rs */
+	assistantChatLatest: (token: string) => typedError<ChatLatestIndex | null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_latest", { token })),
+	/** 按 object key 拉取助手聊天 OSS 正文。手动同步自 commands/assistant_chat.rs */
+	assistantChatFetchObject: (token: string, objectKey: string) => typedError<AssistantChatInboundEvent, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_fetch_object", { token, objectKey })),
+	/** 启动助手聊天收件箱（latest + SSE）。手动同步自 commands/assistant_chat.rs */
+	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
+	/** 停止助手聊天收件箱。手动同步自 commands/assistant_chat.rs */
+	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -959,6 +969,38 @@ export type PushSnapshotResult = {
 	dryRun: boolean,
 };
 
+/** 助手端聊天文本上传请求（手动同步自 commands/assistant.rs）。 */
+export type AssistantUploadTextRequest = {
+	token: string,
+	objectKey: string,
+	contents: string,
+};
+
+/** 助手端聊天文本上传结果（手动同步自 commands/assistant.rs）。 */
+export type AssistantUploadTextResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number,
+};
+
+/** 助手→客户端聊天 latest 索引（手动同步自 omnipanel-assistant ChatLatestIndex）。 */
+export type ChatLatestIndex = {
+	userId: string,
+	objectKey: string,
+	ossPath: string,
+	messageId: string,
+	createdAt: string,
+	publishedAt: string,
+};
+
+/** 助手→客户端聊天入站事件（手动同步自 commands/assistant_chat.rs）。 */
+export type AssistantChatInboundEvent = {
+	messageId: string,
+	objectKey: string,
+	createdAt: string,
+	text: string,
+};
+
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {
 	id: number,
@@ -968,7 +1010,7 @@ export type AuthUserProfile = {
 	email: string,
 	githubId: string,
 	/**
-	 * 对应接口字段 `oss_path`；非空时 AI 流式回复按天写入该目录。
+	 * 对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。
 	 */
 	ossPath: string
 };

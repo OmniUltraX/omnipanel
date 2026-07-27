@@ -32,6 +32,26 @@ pub(crate) fn put_target(sts: &OssStsCredentials, object_key: &str) -> (String, 
     }
 }
 
+/// 去掉 object key 前多余的 bucket 段（`oss_path` 常带 `omniminiapp/...`）。
+pub fn strip_bucket_prefix(object_key: &str, bucket: &str) -> String {
+    let key = object_key
+        .trim()
+        .trim_matches(|c| c == '/' || c == '\\')
+        .replace('\\', "/");
+    let bucket = bucket.trim().trim_matches('/');
+    if bucket.is_empty() {
+        return key;
+    }
+    let prefix = format!("{bucket}/");
+    if key == bucket {
+        String::new()
+    } else if let Some(rest) = key.strip_prefix(&prefix) {
+        rest.trim_matches('/').to_string()
+    } else {
+        key
+    }
+}
+
 /// 上传快照 JSON。优先使用 STS 中的 `upload_url`；否则按 S3 SigV4 签名 PUT。
 pub async fn upload_snapshot_json(
     http: &Client,
@@ -40,9 +60,49 @@ pub async fn upload_snapshot_json(
     body: &[u8],
 ) -> OmniResult<OssUploadResult> {
     if let Some(upload_url) = sts.upload_url.as_deref().filter(|u| !u.is_empty()) {
-        return put_presigned(http, upload_url, object_key, body).await;
+        return put_presigned(http, upload_url, object_key, body, "application/json").await;
     }
-    put_s3_sig_v4(http, sts, object_key, body).await
+    put_s3_sig_v4(http, sts, object_key, body, "application/json").await
+}
+
+/// 按 object key 上传任意字节（始终 SigV4；忽略单次 `upload_url`，因其通常绑定快照 key）。
+pub async fn upload_object_bytes(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+    body: &[u8],
+    content_type: &str,
+) -> OmniResult<OssUploadResult> {
+    let key = strip_bucket_prefix(object_key, &sts.bucket);
+    if key.is_empty() {
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Upload,
+            "OSS object key 为空",
+            object_key.to_string(),
+        ));
+    }
+    put_s3_sig_v4(http, sts, &key, body, content_type).await
+}
+
+/// 空 body 的 SHA256（SigV4 GET / HEAD）。
+const EMPTY_PAYLOAD_HASH: &str =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// 按 object key 下载对象字节（SigV4 GET）。
+pub async fn get_object_bytes(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<Vec<u8>> {
+    let key = strip_bucket_prefix(object_key, &sts.bucket);
+    if key.is_empty() {
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Inbox,
+            "OSS object key 为空",
+            object_key.to_string(),
+        ));
+    }
+    get_s3_sig_v4(http, sts, &key).await
 }
 
 async fn put_presigned(
@@ -50,10 +110,11 @@ async fn put_presigned(
     upload_url: &str,
     object_key: &str,
     body: &[u8],
+    content_type: &str,
 ) -> OmniResult<OssUploadResult> {
     let resp = http
         .put(upload_url)
-        .header("Content-Type", "application/json")
+        .header("Content-Type", content_type)
         .body(body.to_vec())
         .send()
         .await
@@ -86,6 +147,7 @@ async fn put_s3_sig_v4(
     sts: &OssStsCredentials,
     object_key: &str,
     body: &[u8],
+    content_type: &str,
 ) -> OmniResult<OssUploadResult> {
     let key = object_key.trim_start_matches('/');
     let (url, canonical_uri) = put_target(sts, key);
@@ -95,7 +157,6 @@ async fn put_s3_sig_v4(
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let date_stamp = now.format("%Y%m%d").to_string();
     let payload_hash = hex::encode(Sha256::digest(body));
-    let content_type = "application/json";
     let token = sts.security_token();
 
     // 永久 AK：不得带空的 x-amz-security-token（会导致签名失败）
@@ -166,6 +227,80 @@ async fn put_s3_sig_v4(
     })
 }
 
+async fn get_s3_sig_v4(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<Vec<u8>> {
+    let key = object_key.trim_start_matches('/');
+    let (url, canonical_uri) = put_target(sts, key);
+    let host = host_from_endpoint(&sts.endpoint)?;
+
+    let now = Utc::now();
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = now.format("%Y%m%d").to_string();
+    let payload_hash = EMPTY_PAYLOAD_HASH;
+    let token = sts.security_token();
+
+    let (canonical_headers, signed_headers) = if let Some(tok) = token {
+        (
+            format!(
+                "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\nx-amz-security-token:{tok}\n"
+            ),
+            "host;x-amz-content-sha256;x-amz-date;x-amz-security-token",
+        )
+    } else {
+        (
+            format!(
+                "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
+            ),
+            "host;x-amz-content-sha256;x-amz-date",
+        )
+    };
+
+    let canonical_request = format!(
+        "GET\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+    );
+    let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
+    let credential_scope = format!("{date_stamp}/{}/s3/aws4_request", sts.region);
+    let string_to_sign =
+        format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
+    let signing_key = signing_key(&sts.access_key_secret, &date_stamp, &sts.region, "s3")?;
+    let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes())?);
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        sts.access_key_id
+    );
+
+    let mut req = http
+        .get(&url)
+        .header("Host", &host)
+        .header("x-amz-content-sha256", payload_hash)
+        .header("x-amz-date", &amz_date)
+        .header("Authorization", authorization);
+    if let Some(tok) = token {
+        req = req.header("x-amz-security-token", tok);
+    }
+
+    let resp = req.send().await.map_err(|e| {
+        map_assistant_error_with_cause(AssistantErrorKind::Inbox, "OSS 下载失败", e.to_string())
+    })?;
+
+    let status = resp.status();
+    let bytes = resp.bytes().await.map_err(|e| {
+        map_assistant_error_with_cause(AssistantErrorKind::Inbox, "读取 OSS 对象失败", e.to_string())
+    })?;
+    if !status.is_success() {
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Inbox,
+            format!("OSS 下载失败 (HTTP {})", status.as_u16()),
+            text,
+        ));
+    }
+    Ok(bytes.to_vec())
+}
+
 fn hmac_sha256(key: &[u8], data: &[u8]) -> OmniResult<Vec<u8>> {
     let mut mac = HmacSha256::new_from_slice(key).map_err(|e| {
         map_assistant_error_with_cause(AssistantErrorKind::Upload, "HMAC 初始化失败", e.to_string())
@@ -224,5 +359,18 @@ mod tests {
         let (url, uri) = put_target(&sts, "k.json");
         assert_eq!(url, "https://oss-cn-beijing.aliyuncs.com/omniminiapp/k.json");
         assert_eq!(uri, "/omniminiapp/k.json");
+    }
+
+    #[test]
+    fn strip_bucket_prefix_removes_leading_bucket() {
+        assert_eq!(
+            strip_bucket_prefix("omniminiapp/agent_chat_message/u1/conv/0.txt", "omniminiapp"),
+            "agent_chat_message/u1/conv/0.txt"
+        );
+        assert_eq!(
+            strip_bucket_prefix("agent_chat_message/u1/0.txt", "omniminiapp"),
+            "agent_chat_message/u1/0.txt"
+        );
+        assert_eq!(strip_bucket_prefix("omniminiapp", "omniminiapp"), "");
     }
 }

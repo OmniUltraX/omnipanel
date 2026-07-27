@@ -7,6 +7,8 @@ pub enum AssistantErrorKind {
     Sts,
     Collect,
     Upload,
+    /// 助手聊天收件箱（latest / SSE / 读 OSS）
+    Inbox,
     Encode,
 }
 
@@ -17,6 +19,7 @@ impl AssistantErrorKind {
             Self::Sts => ErrorCode::Auth,
             Self::Collect => ErrorCode::Internal,
             Self::Upload => ErrorCode::Connection,
+            Self::Inbox => ErrorCode::Connection,
             Self::Encode => ErrorCode::Internal,
         }
     }

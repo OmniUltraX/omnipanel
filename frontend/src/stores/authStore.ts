@@ -3,6 +3,8 @@ import { persist } from "zustand/middleware";
 import {
   cancelAssistantSnapshotSync,
   scheduleAssistantSnapshotSync,
+  startAssistantChatInbox,
+  stopAssistantChatInbox,
 } from "../modules/assistant";
 
 interface AuthState {
@@ -21,9 +23,11 @@ export const useAuthStore = create<AuthState>()(
         set({ token, openid });
         // 登录后尽快推一次，便于助手端拿到初始快照
         scheduleAssistantSnapshotSync({ immediate: true });
+        void startAssistantChatInbox();
       },
       logout: () => {
         cancelAssistantSnapshotSync();
+        void stopAssistantChatInbox();
         set({ token: null, openid: null });
       },
     }),

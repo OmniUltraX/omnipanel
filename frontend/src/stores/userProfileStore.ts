@@ -10,7 +10,7 @@ export interface UserProfileState {
   email: string;
   githubId: string;
   /**
-   * /api/me 的 oss_path；非空时 AI 助手流式回复按天写入该本地目录。
+   * /api/me 的 oss_path；非空时 AI 助手流式回复经 STS 上传到该 OSS 前缀。
    */
   ossPath: string;
   setNickname: (nickname: string) => void;

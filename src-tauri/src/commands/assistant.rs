@@ -1,9 +1,9 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
-    push_snapshot, sanitize_connection_meta, sanitize_db_connection_meta,
-    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta, AuthContext,
-    CollectContext, PushOptions, PushSnapshotResult,
+    fetch_oss_sts, push_snapshot, sanitize_connection_meta, sanitize_db_connection_meta,
+    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta, upload_object_bytes,
+    AuthContext, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{load_database_connections, ConnectionKind};
@@ -27,6 +27,23 @@ pub struct AssistantPushRequest {
     pub dry_run: bool,
     #[serde(default)]
     pub bind_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantUploadTextRequest {
+    pub token: String,
+    /// OSS object key，如 `omniminiapp/agent_chat_message/.../0.txt`（会去掉桶名前缀）。
+    pub object_key: String,
+    pub contents: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantUploadTextResult {
+    pub object_key: String,
+    pub etag: Option<String>,
+    pub bytes: f64,
 }
 
 /// 推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。
@@ -67,18 +84,7 @@ pub async fn assistant_push_snapshot(
         .await;
     }
 
-    let proxy_config = state.proxy_config.lock().await.clone();
-    let http = build_http_client_for_url(AUTH_API_BASE, &proxy_config, Duration::from_secs(30))
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
-
-    let auth = AuthContext {
-        api_base: AUTH_API_BASE.to_string(),
-        access_token: request.token,
-        app_id: CLIENT_APP_ID.to_string(),
-        device_id: identity.device_id.clone(),
-        device_public_key: String::new(),
-        http,
-    };
+    let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
 
     push_snapshot(
         ctx,
@@ -89,6 +95,64 @@ pub async fn assistant_push_snapshot(
         },
     )
     .await
+}
+
+/// 使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_upload_oss_text(
+    state: State<'_, AppState>,
+    request: AssistantUploadTextRequest,
+) -> Result<AssistantUploadTextResult, OmniError> {
+    if request.token.trim().is_empty() {
+        return Err(OmniError::new(
+            ErrorCode::Auth,
+            "未登录，无法上传到 OSS",
+        ));
+    }
+    if request.object_key.trim().is_empty() {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "object_key 不能为空",
+        ));
+    }
+
+    let identity = auth_device_identity().await?;
+    let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
+    let sts = fetch_oss_sts(&auth).await?;
+    let uploaded: OssUploadResult = upload_object_bytes(
+        &auth.http,
+        &sts,
+        &request.object_key,
+        request.contents.as_bytes(),
+        "text/plain; charset=utf-8",
+    )
+    .await?;
+
+    Ok(AssistantUploadTextResult {
+        object_key: uploaded.object_key,
+        etag: uploaded.etag,
+        bytes: uploaded.bytes as f64,
+    })
+}
+
+pub(crate) async fn build_auth_context(
+    state: &State<'_, AppState>,
+    token: &str,
+    device_id: &str,
+) -> Result<AuthContext, OmniError> {
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let http = build_http_client_for_url(AUTH_API_BASE, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
+
+    Ok(AuthContext {
+        api_base: AUTH_API_BASE.to_string(),
+        access_token: token.to_string(),
+        app_id: CLIENT_APP_ID.to_string(),
+        device_id: device_id.to_string(),
+        device_public_key: String::new(),
+        http,
+    })
 }
 
 fn enum_wire_str<T: serde::Serialize>(value: &T) -> String {
