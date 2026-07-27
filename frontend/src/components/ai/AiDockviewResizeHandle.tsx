@@ -5,7 +5,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import { relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import {
   AI_DOCK_WIDTH_MIN,
   useSettingsStore,

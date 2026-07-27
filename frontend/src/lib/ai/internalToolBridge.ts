@@ -19,6 +19,15 @@ import { reportToolResultWithRetry } from "./reportToolResult";
 import { getToolHandler } from "./toolHost";
 
 const TERMINAL_TOOL = "omni_terminal_run_terminal_command";
+const SPAWN_SUB_CONVERSATIONS_TOOL = "omni_spawn_sub_conversations";
+/** SSH 体检工具：已迁移到 sub-conv 模型，在 dispatchPendingTool 拦截后委托 subConversationRunner */
+const SSH_FLEET_HEALTH_TOOL = "omni_orchestration_ssh_fleet_health";
+/** Plan 工具（todolist 范式）：在 dispatchPendingTool 拦截后委托 planToolDispatcher */
+const PLAN_TOOLS = new Set([
+  "omni_plan_create",
+  "omni_plan_add_step",
+  "omni_plan_update_step",
+]);
 
 /** 模型未按 schema 填 command 时回传的可操作提示（引导其重试而非误报“用户拒绝”）。 */
 const MISSING_COMMAND_HINT =
@@ -308,6 +317,9 @@ async function handleModulePendingTool(options: {
 /**
  * 统一工具分派入口：后端把所有 UiDelegated 工具挂起后，前端据工具名分派。
  * - 终端命令：内联走审批 dock，侧栏走执行桥；
+ * - 子会话集群（omni_spawn_sub_conversations）：走 subConversationRunner，并发执行子会话；
+ * - SSH 体检（omni_orchestration_ssh_fleet_health）：已迁移到 sub-conv 模型，走 subConversationRunner；
+ * - Plan 工具（omni_plan_create/add_step/update_step）：走 planToolDispatcher，更新 todolist；
  * - 其它模块（数据库等）：调用注册的 handler 直接执行。
  * 全部通过 `ai_chat_tool_result` 回传结果。
  */
@@ -319,6 +331,41 @@ export async function dispatchPendingTool(options: {
   inline?: { blockId: string; sessionId: string } | null;
   terminalSessionId?: string | null;
 }): Promise<void> {
+  // 子会话集群工具：动态 import 避免循环依赖（subConversationRunner 反向依赖 dispatchPendingTool）
+  if (options.toolName === SPAWN_SUB_CONVERSATIONS_TOOL) {
+    const { dispatchSpawnSubConversations } = await import(
+      "./orchestration/subConversationRunner"
+    );
+    return dispatchSpawnSubConversations({
+      conversationId: options.conversationId,
+      toolCallId: options.toolCallId,
+      argsJson: options.argsJson,
+    });
+  }
+
+  // SSH 体检工具：已迁移到 sub-conv 模型，与 omni_spawn_sub_conversations 走同一通道
+  if (options.toolName === SSH_FLEET_HEALTH_TOOL) {
+    const { dispatchSshFleetHealthAsSubConv } = await import(
+      "./orchestration/subConversationRunner"
+    );
+    return dispatchSshFleetHealthAsSubConv({
+      conversationId: options.conversationId,
+      toolCallId: options.toolCallId,
+      argsJson: options.argsJson,
+    });
+  }
+
+  // Plan 工具（todolist）：动态 import 避免循环依赖
+  if (PLAN_TOOLS.has(options.toolName)) {
+    const { dispatchPlanTool } = await import("./orchestration/planToolDispatcher");
+    return dispatchPlanTool({
+      conversationId: options.conversationId,
+      toolCallId: options.toolCallId,
+      toolName: options.toolName,
+      argsJson: options.argsJson,
+    });
+  }
+
   if (isInternalTerminalTool(options.toolName)) {
     if (options.inline) {
       return handleInternalPendingTerminalTool({

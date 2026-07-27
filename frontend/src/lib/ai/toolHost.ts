@@ -10,7 +10,6 @@ import { FILES_MODULE_TOOLS } from "../../modules/files/ai/mcpTools";
 import { KNOWLEDGE_MODULE_TOOLS } from "../../modules/knowledge/ai/mcpTools";
 import { SSH_MODULE_TOOLS } from "../../modules/server/ssh/ai/mcpTools";
 import { WORKSPACE_MODULE_TOOLS } from "../../modules/workspace/ai/mcpTools";
-import { ORCHESTRATION_MODULE_TOOLS } from "../ai/orchestration/mcpTools";
 
 type ToolHandler = BuiltinToolRegistration["handler"];
 
@@ -28,7 +27,8 @@ function registerHandlers(tools: BuiltinToolRegistration[]): void {
  * 启动时注册各模块内置工具 handler（UiDelegated 工具执行表）。
  *
  * 统一通道架构下，所有 UiDelegated 工具由后端挂起、前端 `dispatchPendingTool`
- * 分派执行：终端走内联审批 dock，其余模块走这里注册的 handler。
+ * 分派执行：终端走内联审批 dock，子会话集群与 SSH 体检走 subConversationRunner，
+ * 其余模块走这里注册的 handler。
  */
 export function registerToolHandlers(): void {
   TOOL_HANDLERS.clear();
@@ -39,7 +39,6 @@ export function registerToolHandlers(): void {
   registerHandlers(KNOWLEDGE_MODULE_TOOLS);
   registerHandlers(SSH_MODULE_TOOLS);
   registerHandlers(WORKSPACE_MODULE_TOOLS);
-  registerHandlers(ORCHESTRATION_MODULE_TOOLS);
 }
 
 export function getToolHandler(toolName: string): ToolHandler | undefined {

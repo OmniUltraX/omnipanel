@@ -15,6 +15,7 @@ export function useTaskCenterProjection() {
   const bgTasks = useBackgroundTaskStore((s) => s.tasks);
   const bgHistory = useBgTaskHistoryStore((s) => s.history);
   const aiTasks = useAiOrchestrationStore((s) => s.tasks);
+  const clusters = useAiOrchestrationStore((s) => s.clusters);
   const loopRuns = useLoopStore((s) => s.runs);
   const findings = useLoopStore((s) => s.findings);
   const loopSpecs = useLoopStore((s) => s.specs);
@@ -40,13 +41,14 @@ export function useTaskCenterProjection() {
         bgTasks,
         bgHistory,
         aiTasks,
+        clusters,
         loopRuns,
         findings,
         workflowExecs,
         workflowTitles,
         loopTitles,
       }),
-    [bgTasks, bgHistory, aiTasks, loopRuns, findings, workflowExecs, workflowTitles, loopTitles],
+    [bgTasks, bgHistory, aiTasks, clusters, loopRuns, findings, workflowExecs, workflowTitles, loopTitles],
   );
 
   return { ...projection, approvalCount };

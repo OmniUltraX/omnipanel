@@ -387,14 +387,14 @@ mod tests {
             .conn()
             .execute(
                 "INSERT INTO builtin_tools (tool_name, module_key, description, enabled, internal_enabled, external_exposed, input_schema)
-                 VALUES ('omni_plan_create', 'orchestration', 'ghost', 1, 1, 1, '{}')",
+                 VALUES ('omni_ghost_removed_tool', 'orchestration', 'ghost', 1, 1, 1, '{}')",
                 [],
             )
             .unwrap();
         // list → repair 应清掉已从 BUILTIN_TOOL_SPECS 移除的幽灵行
         let list = storage.builtin_tool_list().unwrap();
         assert!(
-            !list.iter().any(|t| t.tool_name == "omni_plan_create"),
+            !list.iter().any(|t| t.tool_name == "omni_ghost_removed_tool"),
             "已移除的 catalog 工具不应再出现在列表中"
         );
     }

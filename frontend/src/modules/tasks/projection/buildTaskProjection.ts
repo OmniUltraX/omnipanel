@@ -8,7 +8,10 @@
  * 4. Finding → inbox；ActionDraft / ToolGate 审批绝不进入 inbox（也不写 loop findings）。
  * 5. Workflow live 执行 → passive_job；历史 bg 来自 bgTaskHistory。
  */
-import type { AiTaskParent } from "../../../stores/aiOrchestrationStore";
+import type {
+  AiTaskParent,
+  SubConversationClusterRuntime,
+} from "../../../stores/aiOrchestrationStore";
 import type { BackgroundTaskInfo } from "../../../stores/backgroundTaskStore";
 import type { LiveWorkflowExecution } from "../../../stores/workflowLiveStore";
 import type { LoopFinding, LoopRun } from "../../../lib/ai/loopSpec";
@@ -23,6 +26,8 @@ export interface TaskProjectionInput {
   bgTasks: Record<string, BackgroundTaskInfo>;
   bgHistory: Record<string, BackgroundTaskInfo>;
   aiTasks: Record<string, AiTaskParent>;
+  /** 子会话集群（cursor sub-agent 范式）；可选，未传时跳过 cluster 投影 */
+  clusters?: Record<string, SubConversationClusterRuntime>;
   loopRuns: Record<string, LoopRun>;
   findings: Record<string, LoopFinding>;
   workflowExecs: Record<string, LiveWorkflowExecution>;
@@ -176,6 +181,35 @@ export function buildTaskProjection(input: TaskProjectionInput): TaskProjection 
     };
     if (isJobRunning(task.status)) running.push(item);
     else if (isJobTerminal(task.status)) historyJobs.push(item);
+  }
+
+  // 子会话集群（cursor sub-agent 范式）：running/pending → running；terminal → historyJobs
+  for (const cluster of Object.values(input.clusters ?? {})) {
+    const done = cluster.children.filter(
+      (c) =>
+        c.status === "completed" ||
+        c.status === "failed" ||
+        c.status === "cancelled",
+    ).length;
+    const item: TaskItem = {
+      id: `passive:cluster:${cluster.clusterId}`,
+      facet: "passive_job",
+      module: "ai",
+      kind: "sub_conversation_cluster",
+      title: cluster.title,
+      status: cluster.status,
+      conversationId: cluster.parentConversationId,
+      createdAt: cluster.createdAt,
+      startedAt: cluster.createdAt,
+      finishedAt: cluster.finishedAt,
+      resultSummary: cluster.aggregatedResult?.slice(0, 200),
+      summary: `${done}/${cluster.children.length}`,
+      source: "orchestration",
+      backendJobId: cluster.clusterId,
+      parentId: cluster.parentConversationId,
+    };
+    if (isJobRunning(cluster.status)) running.push(item);
+    else if (isJobTerminal(cluster.status)) historyJobs.push(item);
   }
 
   const inbox: TaskItem[] = Object.values(input.findings)

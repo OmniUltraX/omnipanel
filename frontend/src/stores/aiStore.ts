@@ -17,9 +17,15 @@ import {
   updateToolCallInParts,
   upsertPlanInParts,
   upsertToolCallInParts,
+  upsertClusterInParts,
+  updateClusterChildInParts,
+  updateClusterStatusInParts,
   type AiMessagePart,
   type PlanData,
   type ToolCallState,
+  type SubConversationChildState,
+  type SubConversationClusterPartData,
+  type SubConversationClusterStatus,
 } from "../lib/ai/aiMessageParts";
 import {
   ASSISTANT_PAGE_AGENT_ID,
@@ -27,12 +33,23 @@ import {
   type AgentId,
 } from "../lib/ai/agents";
 
-export type { AiMessagePart, PlanData, ToolCallState } from "../lib/ai/aiMessageParts";
+export type {
+  AiMessagePart,
+  PlanData,
+  ToolCallState,
+  SubConversationChildState,
+  SubConversationClusterPartData,
+  SubConversationClusterStatus,
+  SubConversationSpawnSpec,
+} from "../lib/ai/aiMessageParts";
 export {
   coalescePartsByToolSegments,
   deriveCompatFields,
   partsFromFlatFields,
   stripLeakedToolCallsJson,
+  upsertClusterInParts,
+  updateClusterChildInParts,
+  updateClusterStatusInParts,
 } from "../lib/ai/aiMessageParts";
 
 export interface AgentMcpConnection {
@@ -118,6 +135,21 @@ export interface AiConversation {
   linkedTerminalSessionId?: string | null;
   /** 由内联 AI Promote 而来的源 block */
   sourceBlockId?: string | null;
+  /**
+   * 子会话父关系（cursor sub-agent 范式）：
+   * - null/undefined = 根会话（普通会话）
+   * - 字符串 = 子会话，值为父会话 id
+   * 子会话不在会话列表显示，仅能从父会话的 cluster 卡片进入。
+   */
+  parentConversationId?: string | null;
+  /** 根会话 id（方便聚合查询；根会话时等于自身 id） */
+  rootConversationId?: string;
+  /** 从父会话哪个消息派生（assistant message id） */
+  spawnedFromMessageId?: string;
+  /** 属于哪个子会话集群（clusterId，对应 SubConversationClusterPart.clusterId） */
+  spawnedFromClusterId?: string;
+  /** 在集群中的索引（0-based，用于显示与排序） */
+  indexInCluster?: number;
 }
 
 interface AiStore {
@@ -142,6 +174,12 @@ interface AiStore {
   conversationListPlacement: ConversationListPlacement;
   /** 会话列表面板宽度（px） */
   conversationListWidth: number;
+  /**
+   * 子会话查看模式：非 null 时 Thread 切换为该子会话视图。
+   * 切换为 null 返回主会话（activeConversationId）。
+   * 子会话视图下输入框禁用、仅可查看历史。
+   */
+  viewingChildConversationId: string | null;
 
   toggleDrawer: () => void;
   openDrawer: () => void;
@@ -196,6 +234,28 @@ interface AiStore {
     messageId: string,
     plan: PlanData,
   ) => void;
+  /** 流式 upsert sub-conversation-cluster part（同 clusterId 更新，否则追加） */
+  upsertStreamCluster: (
+    conversationId: string,
+    messageId: string,
+    cluster: SubConversationClusterPartData,
+  ) => void;
+  /** 流式更新 cluster 中单个 child 状态 */
+  updateStreamClusterChild: (
+    conversationId: string,
+    messageId: string,
+    clusterId: string,
+    childConversationId: string,
+    patch: Partial<SubConversationChildState>,
+  ) => void;
+  /** 流式更新 cluster 整体状态 */
+  setStreamClusterStatus: (
+    conversationId: string,
+    messageId: string,
+    clusterId: string,
+    status: SubConversationClusterStatus,
+    aggregatedResult?: string,
+  ) => void;
   setCurrentProvider: (provider: string, model: string) => void;
   setCurrentModelSelectionId: (id: string | null) => void;
   setCurrentSkillIds: (ids: string[]) => void;
@@ -228,6 +288,23 @@ interface AiStore {
     sourceBlockId: string;
     targetConversationId?: string | null;
   }) => string;
+  /**
+   * 创建子会话（cursor sub-agent 范式）。
+   * 继承父会话的 provider/model/skill/workspace/terminal context。
+   * 不切换 activeConversationId；通过 viewingChildConversationId 进入查看。
+   */
+  createSubConversation: (args: {
+    parentConversationId: string;
+    parentMessageId: string;
+    clusterId: string;
+    title: string;
+    indexInCluster: number;
+    initialUserText: string;
+  }) => string;
+  /** 进入子会话视图；null 返回主会话 */
+  setViewingChildConversation: (id: string | null) => void;
+  /** 删除会话时级联删除其所有子会话 */
+  deleteConversationCascade: (id: string) => void;
 }
 
 let idCounter = 0;
@@ -252,6 +329,7 @@ export const useAiStore = create<AiStore>()(
       conversationListOpen: false,
       conversationListPlacement: "dropdown",
       conversationListWidth: 240,
+      viewingChildConversationId: null,
 
       toggleDrawer: () =>
         set((state) => ({ drawerOpen: !state.drawerOpen })),
@@ -507,6 +585,70 @@ export const useAiStore = create<AiStore>()(
           }),
         })),
 
+      upsertStreamCluster: (conversationId, messageId, cluster) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = upsertClusterInParts(partsFromFlatFields(m), cluster);
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      updateStreamClusterChild: (
+        conversationId,
+        messageId,
+        clusterId,
+        childConversationId,
+        patch,
+      ) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = updateClusterChildInParts(
+                  partsFromFlatFields(m),
+                  clusterId,
+                  childConversationId,
+                  patch,
+                );
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      setStreamClusterStatus: (conversationId, messageId, clusterId, status, aggregatedResult) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = updateClusterStatusInParts(
+                  partsFromFlatFields(m),
+                  clusterId,
+                  status,
+                  aggregatedResult,
+                );
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
       setCurrentProvider: (provider, model) =>
         set({ currentProvider: provider, currentModel: model }),
 
@@ -690,11 +832,116 @@ export const useAiStore = create<AiStore>()(
         }));
         return id;
       },
+
+      createSubConversation: ({
+        parentConversationId,
+        parentMessageId,
+        clusterId,
+        title,
+        indexInCluster,
+        initialUserText,
+      }) => {
+        const state = get();
+        const parent = state.conversations.find((c) => c.id === parentConversationId);
+        if (!parent) {
+          throw new Error(`createSubConversation: 父会话不存在 ${parentConversationId}`);
+        }
+        const id = genId("subconv");
+        const rootId = parent.rootConversationId ?? parent.id;
+        // 继承父会话的 provider/model/skill/workspace/terminal/agent
+        const conv: AiConversation = {
+          id,
+          title,
+          messages: initialUserText
+            ? [
+                normalizeAiMessage({
+                  id: genId("msg"),
+                  role: "user" as const,
+                  content: initialUserText,
+                  parts: [{ type: "text" as const, text: initialUserText }],
+                  timestamp: Date.now(),
+                }),
+              ]
+            : [],
+          provider: parent.provider,
+          model: parent.model,
+          modelSelectionId: parent.modelSelectionId,
+          selectedSkillIds: parent.selectedSkillIds
+            ? [...parent.selectedSkillIds]
+            : undefined,
+          agentId: parent.agentId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          context: parent.context ? [...parent.context] : undefined,
+          contextSnapshot: parent.contextSnapshot,
+          pinnedWorkspaceId: parent.pinnedWorkspaceId ?? null,
+          linkedTerminalSessionId: parent.linkedTerminalSessionId ?? null,
+          sourceBlockId: null,
+          parentConversationId,
+          rootConversationId: rootId,
+          spawnedFromMessageId: parentMessageId,
+          spawnedFromClusterId: clusterId,
+          indexInCluster,
+        };
+        set((s) => ({
+          conversations: [...s.conversations, conv],
+        }));
+        return id;
+      },
+
+      setViewingChildConversation: (id) => {
+        if (id === null) {
+          set({ viewingChildConversationId: null });
+          return;
+        }
+        // 校验：必须存在且为子会话
+        const conv = get().conversations.find((c) => c.id === id);
+        if (!conv || !conv.parentConversationId) {
+          console.warn(`setViewingChildConversation: ${id} 不是子会话`);
+          return;
+        }
+        set({ viewingChildConversationId: id });
+      },
+
+      deleteConversationCascade: (id) =>
+        set((state) => {
+          // 收集所有直接与间接子会话
+          const toDelete = new Set<string>([id]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const c of state.conversations) {
+              if (
+                c.parentConversationId &&
+                toDelete.has(c.parentConversationId) &&
+                !toDelete.has(c.id)
+              ) {
+                toDelete.add(c.id);
+                changed = true;
+              }
+            }
+          }
+          const remaining = state.conversations.filter((c) => !toDelete.has(c.id));
+          const newActive =
+            state.activeConversationId && toDelete.has(state.activeConversationId)
+              ? remaining.find((c) => !c.parentConversationId)?.id ?? null
+              : state.activeConversationId;
+          const newViewing =
+            state.viewingChildConversationId &&
+            toDelete.has(state.viewingChildConversationId)
+              ? null
+              : state.viewingChildConversationId;
+          return {
+            conversations: remaining,
+            activeConversationId: newActive,
+            viewingChildConversationId: newViewing,
+          };
+        }),
     }),
     {
       name: "omnipanel-ai-store",
       storage: createJSONStorage(createIndexedDBStorage),
-      version: 6,
+      version: 7,
       migrate: (persisted, version) => {
         const state = persisted as {
           conversations?: AiConversation[];
@@ -752,6 +999,22 @@ export const useAiStore = create<AiStore>()(
             ),
           };
         }
+        // v7：子会话父子关系字段初始化（旧会话均为根会话）
+        if (version < 7 && Array.isArray(next.conversations)) {
+          next = {
+            ...next,
+            conversations: next.conversations.map((c) =>
+              c.parentConversationId == null
+                ? {
+                    ...c,
+                    parentConversationId: null,
+                    rootConversationId: c.id,
+                  }
+                : c,
+            ),
+            viewingChildConversationId: null,
+          };
+        }
         return next;
       },
       partialize: (state) => ({
@@ -767,6 +1030,8 @@ export const useAiStore = create<AiStore>()(
         conversationListWidth: state.conversationListWidth,
         /** AI 侧栏/Dock 开关：重启后保持 */
         drawerOpen: state.drawerOpen,
+        /** 子会话查看模式：重启后保持（在主会话内才能进入，故 activeConversationId 须为父会话） */
+        viewingChildConversationId: state.viewingChildConversationId,
       }),
     }
   )

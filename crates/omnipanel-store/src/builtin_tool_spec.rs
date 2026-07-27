@@ -408,6 +408,78 @@ const SCHEMA_SSH_FLEET_HEALTH: &str = r#"{
   }
 }"#;
 
+const SCHEMA_SPAWN_SUB_CONVERSATIONS: &str = r#"{
+  "type": "object",
+  "properties": {
+    "sub_conversations": {
+      "type": "array",
+      "description": "要派发的子会话列表（每个子会话是独立的 AI 对话，并发执行，互不干扰）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "description": "子会话标题（简短任务名，如「检查 web-01 磁盘」）" },
+          "task": { "type": "string", "description": "派发给子会话的初始用户消息（详细任务描述）" },
+          "resource_id": { "type": "string", "description": "可选；绑定的资源 id（如 SSH connectionId），用于 UI 跳转" }
+        },
+        "required": ["title", "task"]
+      },
+      "min_items": 1,
+      "max_items": 20
+    },
+    "title": { "type": "string", "description": "可选；集群标题（省略时自动生成）" }
+  },
+  "required": ["sub_conversations"]
+}"#;
+
+const SCHEMA_PLAN_CREATE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "description": "计划标题（简短任务名，如「检查 3 台服务器磁盘空间」）" },
+    "steps": {
+      "type": "array",
+      "description": "按执行顺序排列的步骤列表（至少 1 步）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "description": "步骤标题（如「检查 web-01 磁盘」）" },
+          "tool_name": { "type": "string", "description": "可选；预计使用的工具名（如 omni_ssh_exec），用于 UI 提示" }
+        },
+        "required": ["title"]
+      },
+      "minItems": 1,
+      "maxItems": 30
+    }
+  },
+  "required": ["title", "steps"]
+}"#;
+
+const SCHEMA_PLAN_ADD_STEP: &str = r#"{
+  "type": "object",
+  "properties": {
+    "plan_id": { "type": "string", "description": "目标计划 id（omni_plan_create 返回的 plan_id）" },
+    "title": { "type": "string", "description": "新步骤标题" },
+    "tool_name": { "type": "string", "description": "可选；预计使用的工具名" },
+    "after_step_id": { "type": "string", "description": "可选；插入到此步骤之后，省略则追加到末尾" }
+  },
+  "required": ["plan_id", "title"]
+}"#;
+
+const SCHEMA_PLAN_UPDATE_STEP: &str = r#"{
+  "type": "object",
+  "properties": {
+    "plan_id": { "type": "string", "description": "目标计划 id（omni_plan_create 返回的 plan_id）" },
+    "step_id": { "type": "string", "description": "要更新的步骤 id（必须使用 omni_plan_create 返回的 steps[].step_id，不能自行编造）" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "completed", "failed", "skipped"],
+      "description": "新状态。in_progress=开始执行；completed=成功；failed=失败；skipped=跳过"
+    },
+    "summary": { "type": "string", "description": "可选；步骤执行摘要（完成后填充）" },
+    "error": { "type": "string", "description": "可选；失败原因（status=failed 时填充）" }
+  },
+  "required": ["plan_id", "step_id", "status"]
+}"#;
+
 const SCHEMA_DOCKER_LIST_CONTAINERS: &str = r#"{
   "type": "object",
   "properties": {
@@ -864,11 +936,13 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         omnimcp_backend: true,
     },
     BuiltinToolSpec {
-        tool_name: "omni_create_todolist",
+        tool_name: "omni_knowledge_save_todolist",
         module_key: "web",
         description:
-            "创建待办列表（TodoList / 执行计划）。传入标题与有序待办项；\
-             每项须含名称、执行者、任务描述。用于将用户目标落成可跟踪的检查清单。",
+            "将待办列表持久化保存到知识库（Knowledge Base）。传入标题与有序待办项；\
+             每项须含名称、执行者、任务描述。适用于：用户明确要求「保存到知识库」「落库」\
+             「以后查阅」的场景。注意：如果只是执行任务时做实时计划/进度跟踪，\
+             请改用 omni_plan_create（会话级 todolist，不落库）。",
         input_schema: SCHEMA_CREATE_TODOLIST,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -942,9 +1016,59 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_orchestration_ssh_fleet_health",
         module_key: "terminal",
         description:
-            "对全部（或指定工作区内）SSH 主机扇出采集资源占用，返回汇总供优化建议。\
-             适合「给所有 SSH 做体检」；会显示任务进度。",
+            "对全部（或指定工作区内）SSH 主机扇出子会话体检：每台主机派发一个独立的 AI 子会话，\
+             自主调用 omni_ssh_get_stats 采集 CPU/内存/磁盘等指标并给出健康评估和优化建议。\
+             适合「给所有 SSH 做体检」；会在对话流与任务中心显示集群进度卡片，每台主机可展开查看子会话。\
+             主机数上限 20（超过时返回错误，建议缩小 workspace_id 范围）。\
+             可选 workspace_id；省略时若会话钉了工作区则用钉住范围，否则全局。",
         input_schema: SCHEMA_SSH_FLEET_HEALTH,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_spawn_sub_conversations",
+        module_key: "web",
+        description:
+            "派发多个独立的子会话（cursor sub-agent 范式），并发执行互不干扰。\
+             适合需要同时进行多个独立 AI 子任务的场景，如「同时检查 3 台服务器的磁盘 / CPU / 内存」。\
+             每个子会话继承父会话的模型 / Skill / 工作区上下文，独立完成后返回汇总。\
+             会在对话流与任务中心显示集群进度卡片。",
+        input_schema: SCHEMA_SPAWN_SUB_CONVERSATIONS,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_plan_create",
+        module_key: "web",
+        description:
+            "创建会话级任务计划（todolist），在 AI 侧栏顶部实时显示可折叠的步骤列表。\
+             这是执行多步骤任务时的首选计划工具：先创建计划，再逐步执行并更新状态。\
+             返回值包含 plan_id 和每个步骤的 step_id，后续调用 omni_plan_update_step 时\
+             必须使用返回的 step_id，不能自行编造。\
+             不持久化到知识库，仅在当前会话中存在。\
+             用户说「做好 plan」「按步执行」「列个计划」时，应使用本工具而非 omni_knowledge_save_todolist。",
+        input_schema: SCHEMA_PLAN_CREATE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_plan_add_step",
+        module_key: "web",
+        description:
+            "向已有会话级计划追加步骤（动态扩展 todolist）。\
+             适合执行过程中发现需要额外步骤的场景。",
+        input_schema: SCHEMA_PLAN_ADD_STEP,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_plan_update_step",
+        module_key: "web",
+        description:
+            "更新会话级计划步骤的状态（pending → in_progress → completed/failed/skipped）。\
+             每个步骤执行前标记 in_progress，执行后根据结果标记 completed 或 failed。\
+             可选 summary 填充执行摘要，error 填充失败原因。",
+        input_schema: SCHEMA_PLAN_UPDATE_STEP,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: false,
     },
@@ -1000,7 +1124,7 @@ mod tests {
     #[test]
     fn knowledge_and_load_skill_are_native() {
         assert!(builtin_tool_is_native("omni_knowledge_create_document"));
-        assert!(builtin_tool_is_native("omni_create_todolist"));
+        assert!(builtin_tool_is_native("omni_knowledge_save_todolist"));
         assert!(builtin_tool_is_native("load_skill"));
         assert!(builtin_tool_is_native("omni_database_list_connections"));
         assert!(!builtin_tool_is_native("omni_terminal_run_terminal_command"));
@@ -1312,5 +1436,47 @@ mod tests {
         assert_eq!(v["properties"]["observer"]["default"].as_str(), Some("ai"));
         // payload 类型为 object
         assert_eq!(v["properties"]["payload"]["type"].as_str(), Some("object"));
+    }
+
+    #[test]
+    fn spawn_sub_conversations_registered_as_ui_delegated() {
+        let spec = builtin_tool_spec("omni_spawn_sub_conversations")
+            .expect("omni_spawn_sub_conversations 未注册");
+        assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated);
+        assert_eq!(spec.module_key, "web");
+        assert!(!spec.omnimcp_backend);
+        assert!(!builtin_tool_is_native("omni_spawn_sub_conversations"));
+    }
+
+    #[test]
+    fn spawn_sub_conversations_schema_requires_sub_conversations_array() {
+        let spec = builtin_tool_spec("omni_spawn_sub_conversations").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        assert!(required.iter().any(|x| x.as_str() == Some("sub_conversations")));
+        // title 可选
+        assert!(!required.iter().any(|x| x.as_str() == Some("title")));
+        // sub_conversations 是数组
+        assert_eq!(
+            v["properties"]["sub_conversations"]["type"].as_str(),
+            Some("array")
+        );
+        // 限制 1~20 个
+        assert_eq!(
+            v["properties"]["sub_conversations"]["min_items"].as_i64(),
+            Some(1)
+        );
+        assert_eq!(
+            v["properties"]["sub_conversations"]["max_items"].as_i64(),
+            Some(20)
+        );
+        // 每个 item 需要 title + task
+        let item_required = v["properties"]["sub_conversations"]["items"]["required"]
+            .as_array()
+            .unwrap();
+        assert!(item_required.iter().any(|x| x.as_str() == Some("title")));
+        assert!(item_required.iter().any(|x| x.as_str() == Some("task")));
+        // resource_id 可选
+        assert!(!item_required.iter().any(|x| x.as_str() == Some("resource_id")));
     }
 }

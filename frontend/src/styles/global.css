@@ -10981,9 +10981,19 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .ai-task-card__header {
         display: flex;
-        flex-direction: column;
-        gap: 2px;
+        align-items: center;
+        flex-direction: row;
+        gap: 6px;
+        width: 100%;
+        padding: 0;
         margin-bottom: 6px;
+        border: none;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+    }
+    .ai-task-card__header strong {
+        font-size: 12px;
     }
 
     .ai-task-card__children {
@@ -11014,6 +11024,48 @@ button.omni-btn-tool[aria-pressed="true"] {
         display: flex;
         gap: 6px;
         margin-top: 6px;
+    }
+
+    /* 子会话视图模式顶部 banner */
+    .ai-sub-conv-banner {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border-soft);
+        background: color-mix(in oklch, var(--accent) 6%, var(--bg));
+        flex-shrink: 0;
+    }
+    .ai-sub-conv-banner__back {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        padding: 2px 6px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border-soft);
+        background: var(--bg-elevated);
+        color: var(--fg);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .ai-sub-conv-banner__back:hover {
+        background: var(--bg-deeper);
+    }
+    .ai-sub-conv-banner__title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg);
+        flex: 1;
+        min-width: 0;
+    }
+    .ai-sub-conv-banner__hint {
+        font-size: 10px;
+        color: var(--fg-2);
+        padding: 1px 6px;
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        flex-shrink: 0;
     }
 
     .ai-draft-card__title {

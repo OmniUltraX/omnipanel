@@ -71,14 +71,20 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type FC,
   type PropsWithChildren,
 } from "react";
 import { PlanView } from "../ai/PlanView";
+import { SubConversationClusterCard } from "../ai/SubConversationClusterCard";
 import { AiApprovalDock } from "../ai/AiApprovalDock";
-import type { PlanData } from "../../lib/ai/aiMessageParts";
+import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
+import type {
+  PlanData,
+  SubConversationClusterPartData,
+} from "../../lib/ai/aiMessageParts";
 import {
   parseMarkdownChecklist,
   textFromMessageParts,
@@ -107,6 +113,202 @@ function extractPlanFromDataPart(part: { type: string; data?: unknown }): PlanDa
   }
   return null;
 }
+
+/** 从 data part 提取子会话集群数据；非 cluster 返回 null */
+function extractClusterFromDataPart(
+  part: { type: string; data?: unknown },
+): SubConversationClusterPartData | null {
+  if (part.type !== "data" || !part.data) return null;
+  const data = part.data;
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "clusterId" in data &&
+    "children" in data &&
+    "toolCallId" in data
+  ) {
+    return data as SubConversationClusterPartData;
+  }
+  return null;
+}
+
+/**
+ * Plan 吸顶浮层：对话流内 PlanView 滚出视口顶部时，显示一份吸顶副本。
+ *
+ * 设计（参考终端 AI 内嵌卡片吸顶）：
+ * - 对话流内保留 PlanView 原始渲染（有消息上下文位置）
+ * - 本组件在 Viewport 内顶部 sticky，用 scroll 事件监测对话流内 PlanView 位置
+ * - PlanView 在视口内时本组件隐藏（opacity-0 + max-h-0）；滚出视口顶部时显示（吸顶）
+ *
+ * 实现要点：
+ * - 始终渲染 sticky 容器（避免 display:none 切换导致 sticky 失效）
+ * - 用 scroll 事件 + getBoundingClientRect 检测对话流内 PlanView（排除吸顶副本自身）
+ * - 用 MutationObserver + setTimeout 应对 PlanView 延迟挂载
+ * - 用 requestAnimationFrame 节流 scroll 回调
+ */
+const PlanStickyHeader: FC = () => {
+  const viewingChildConversationId = useAiStore((s) => s.viewingChildConversationId);
+  const activeConversationId = useAiStore((s) => s.activeConversationId);
+  const activeConv = useAiStore((s) =>
+    s.conversations.find((c) => c.id === activeConversationId),
+  );
+  const plans = useAiOrchestrationStore((s) => s.plans);
+
+  const planId = useMemo(() => {
+    if (!activeConv) return null;
+    const planIds: { id: string; updatedAt: number }[] = [];
+    for (const msg of activeConv.messages) {
+      const parts = msg.parts ?? [];
+      for (const p of parts) {
+        if (p.type === "plan") {
+          planIds.push({ id: p.plan.id, updatedAt: p.plan.updatedAt });
+        }
+      }
+    }
+    if (planIds.length === 0) return null;
+    planIds.sort((a, b) => b.updatedAt - a.updatedAt);
+    return planIds[0].id;
+  }, [activeConv]);
+
+  const plan = planId ? plans[planId] : null;
+  const [stuck, setStuck] = useState(false);
+  const rafRef = useRef(0);
+  const stickyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (viewingChildConversationId || !planId) {
+      setStuck(false);
+      return;
+    }
+
+    let scrollParent: Element | null = null;
+    let mutationObserver: MutationObserver | null = null;
+    let cleaned = false;
+    let scrollHandler: (() => void) | null = null;
+
+    // 查找对话流内的 PlanView（排除吸顶浮层自身）
+    const findInlinePlanEl = (): Element | null => {
+      if (!planId) return null;
+      const all = document.querySelectorAll(`[data-plan-id="${CSS.escape(planId)}"]`);
+      for (const el of all) {
+        if (!el.closest('[data-slot="ai-plan-sticky-header"]')) {
+          return el;
+        }
+      }
+      return null;
+    };
+
+    const checkStuck = () => {
+      const planEl = findInlinePlanEl();
+      if (!planEl) return;
+      const rect = planEl.getBoundingClientRect();
+      // PlanView 顶部在视口顶部之上时（top < 0）触发吸顶
+      setStuck(rect.top < 0);
+    };
+
+    const onScroll = () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(checkStuck);
+    };
+
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      if (scrollParent && scrollHandler) {
+        scrollParent.removeEventListener("scroll", scrollHandler);
+      }
+      if (mutationObserver) mutationObserver.disconnect();
+    };
+
+    // 查找滚动容器：优先用 data-slot，备选用 overflow 计算
+    const findScrollParent = (): Element | null => {
+      const viewport = document.querySelector('[data-slot="aui_thread-viewport"]');
+      if (viewport) {
+        const style = getComputedStyle(viewport);
+        if (style.overflowY === "auto" || style.overflowY === "scroll") {
+          return viewport;
+        }
+      }
+      // 备选：从 stickyRef 向上找
+      let node = stickyRef.current?.parentElement ?? null;
+      while (node && node !== document.body) {
+        const style = getComputedStyle(node);
+        if (
+          (style.overflowY === "auto" || style.overflowY === "scroll") &&
+          node.scrollHeight > node.clientHeight
+        ) {
+          return node;
+        }
+        node = node.parentElement;
+      }
+      return null;
+    };
+
+    const attach = () => {
+      if (cleaned) return;
+      scrollParent = findScrollParent();
+      if (!scrollParent) return;
+
+      scrollHandler = onScroll;
+      scrollParent.addEventListener("scroll", scrollHandler, { passive: true });
+      checkStuck();
+
+      // 监听 PlanView 延迟挂载
+      mutationObserver = new MutationObserver(() => {
+        if (findInlinePlanEl()) {
+          checkStuck();
+        }
+      });
+      mutationObserver.observe(scrollParent, { childList: true, subtree: true });
+    };
+
+    // 延迟一帧 + 重试，确保 DOM 已渲染
+    const initTimer = setTimeout(attach, 200);
+    // 再重试一次（应对长延迟挂载）
+    const retryTimer = setTimeout(attach, 1000);
+
+    return () => {
+      clearTimeout(initTimer);
+      clearTimeout(retryTimer);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      cleanup();
+    };
+  }, [planId, viewingChildConversationId]);
+
+  if (!planId || !plan || viewingChildConversationId) return null;
+
+  return (
+    <div
+      ref={stickyRef}
+      data-slot="ai-plan-sticky-header"
+      className={cn(
+        "sticky top-0 z-20 overflow-hidden transition-all duration-200",
+        stuck
+          ? "max-h-96 opacity-100 -mx-4 px-4 pt-2 pb-1 bg-background/95 backdrop-blur-sm border-b border-border"
+          : "max-h-0 opacity-0 pointer-events-none",
+      )}
+    >
+      <PlanView
+        planId={planId}
+        snapshot={plan}
+        defaultCollapsed={false}
+        showCancelRemaining
+        onCancelRemaining={() => {
+          const store = useAiOrchestrationStore.getState();
+          for (const step of plan.steps) {
+            if (step.status === "pending" || step.status === "in_progress") {
+              store.updatePlanStep(planId, step.id, {
+                status: "skipped",
+                summary: "用户取消剩余步骤",
+              });
+            }
+          }
+          store.updatePlan(planId, { status: "cancelled" });
+        }}
+      />
+    </div>
+  );
+};
 
 /**
  * Optional component overrides for the thread. `AssistantMessage` and
@@ -179,6 +381,9 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
           <AuiIf condition={isNewChatView}>
             <Welcome />
           </AuiIf>
+
+          {/* Plan 吸顶浮层：对话流内 PlanView 滚出视口时显示 */}
+          <PlanStickyHeader />
 
           <div
             data-slot="aui_message-group"
@@ -553,6 +758,15 @@ const TerminalAssistantMessage: FC = () => {
                 if (planData) {
                   return <PlanView planId={planData.id} snapshot={planData} />;
                 }
+                const clusterData = extractClusterFromDataPart(part as { type: string; data?: unknown });
+                if (clusterData) {
+                  return (
+                    <SubConversationClusterCard
+                      clusterId={clusterData.clusterId}
+                      defaultCollapsed={false}
+                    />
+                  );
+                }
                 return part.dataRendererUI;
               }
               case "indicator":
@@ -689,6 +903,15 @@ const AssistantMessage: FC = () => {
                 const planData = extractPlanFromDataPart(part as { type: string; data?: unknown });
                 if (planData) {
                   return <PlanView planId={planData.id} snapshot={planData} />;
+                }
+                const clusterData = extractClusterFromDataPart(part as { type: string; data?: unknown });
+                if (clusterData) {
+                  return (
+                    <SubConversationClusterCard
+                      clusterId={clusterData.clusterId}
+                      defaultCollapsed={false}
+                    />
+                  );
                 }
                 return part.dataRendererUI;
               }

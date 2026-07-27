@@ -213,7 +213,7 @@ mod tests {
         let (registry, _s) = registry_with_storage();
         let tools = registry.list_enabled(Some("web")).await.unwrap();
         assert!(
-            tools.iter().any(|t| t.name == "omni_create_todolist"),
+            tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"),
             "web 过滤应包含全局待办工具"
         );
         assert!(
@@ -243,7 +243,7 @@ mod tests {
         assert!(tools
             .iter()
             .any(|t| t.name == "omni_terminal_run_terminal_command"));
-        assert!(!tools.iter().any(|t| t.name == "omni_create_todolist"));
+        assert!(!tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"));
         assert!(!tools.iter().any(|t| t.name == "load_skill"));
         assert!(tools.iter().all(|t| t.module_key == "terminal"));
     }

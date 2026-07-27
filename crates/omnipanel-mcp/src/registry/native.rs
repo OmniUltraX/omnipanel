@@ -49,7 +49,7 @@ pub async fn execute(
 ) -> Result<(String, bool), String> {
     match name {
         "omni_knowledge_create_document" => create_document(arguments, storage).await,
-        "omni_create_todolist" => create_todolist(arguments, storage).await,
+        "omni_knowledge_save_todolist" => create_todolist(arguments, storage).await,
         "omni_knowledge_remove_document" => remove_document(arguments, storage).await,
         "omni_knowledge_list_documents" => list_documents(arguments, storage).await,
         "omni_tag_list_tree" => tag_list_tree(arguments, storage).await,

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { appConfirm } from "../../../lib/appConfirm";
 import { useI18n } from "../../../i18n";
@@ -30,12 +31,16 @@ export function AiConversationList({
   onItemActivate?: () => void;
 } = {}) {
   const { t } = useI18n();
-  const conversations = useAiStore((s) => s.conversations);
+  // 只展示根会话；子会话不在列表中显示，只能从父会话 cluster 卡片进入
+  // useShallow：filter 每次返回新数组引用，需浅比较内容避免 useSyncExternalStore 无限循环
+  const conversations = useAiStore(
+    useShallow((s) => s.conversations.filter((c) => !c.parentConversationId)),
+  );
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const isGenerating = useAiStore((s) => s.isGenerating);
   const createConversation = useAiStore((s) => s.createConversation);
   const setActiveConversation = useAiStore((s) => s.setActiveConversation);
-  const deleteConversation = useAiStore((s) => s.deleteConversation);
+  const deleteConversationCascade = useAiStore((s) => s.deleteConversationCascade);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
 
   const handleCreate = useCallback(() => {
@@ -48,9 +53,10 @@ export function AiConversationList({
       e.stopPropagation();
       if (isGenerating) return;
       if (!(await appConfirm(t("ai.conversations.deleteConfirm")))) return;
-      deleteConversation(id);
+      // 级联删除子会话
+      deleteConversationCascade(id);
     },
-    [deleteConversation, isGenerating, t],
+    [deleteConversationCascade, isGenerating, t],
   );
 
   return (

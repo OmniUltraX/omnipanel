@@ -152,12 +152,38 @@ const GLOBAL_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
     },
   },
   {
-    name: "omni_create_todolist",
+    name: "omni_knowledge_save_todolist",
     description:
-      "创建待办列表（TodoList / 执行计划）。每项须含名称、执行者、任务描述。",
+      "将待办列表持久化保存到知识库。仅在用户明确要求「保存到知识库」「落库」时使用；执行任务的实时进度跟踪请用 omni_plan_create。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_plan_create",
+    description:
+      "创建会话级任务计划（todolist），在 AI 侧栏顶部实时显示步骤进度。执行多步骤任务时的首选计划工具。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("UiDelegated 工具，由前端 planToolDispatcher 处理");
+    },
+  },
+  {
+    name: "omni_plan_add_step",
+    description: "向已有会话级计划追加步骤。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("UiDelegated 工具，由前端 planToolDispatcher 处理");
+    },
+  },
+  {
+    name: "omni_plan_update_step",
+    description:
+      "更新会话级计划步骤的状态（pending → in_progress → completed/failed/skipped）。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("UiDelegated 工具，由前端 planToolDispatcher 处理");
     },
   },
 ];

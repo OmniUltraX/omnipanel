@@ -26,7 +26,7 @@ pub async fn execute_omnimcp_tool(
 
     match name {
         "omni_knowledge_create_document"
-        | "omni_create_todolist"
+        | "omni_knowledge_save_todolist"
         | "omni_knowledge_remove_document"
         | "omni_knowledge_list_documents"
         | "omni_tag_list_tree"

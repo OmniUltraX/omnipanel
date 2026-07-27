@@ -204,8 +204,8 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
     Ok(())
 }
 
-/// 将 plan.md 中的旧工具名 `omni_knowledge_create_todolist` 替换为 `omni_create_todolist`，
-/// 并将「仅允许 create_todolist」的窄工具面说明升级为「全部全局工具」。
+/// 将 plan.md 中的旧工具名（`omni_knowledge_create_todolist` / `omni_create_todolist`）统一替换为
+/// `omni_knowledge_save_todolist`，并将「仅允许 create_todolist」的窄工具面说明升级为「全部全局工具」。
 fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
     let path = agent_prompt_path("plan")?;
     if !path.exists() {
@@ -214,19 +214,22 @@ fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
     let Ok(current) = fs::read_to_string(&path) else {
         return Ok(());
     };
-    let mut next = current.replace("omni_knowledge_create_todolist", "omni_create_todolist");
+    let mut next = current.clone();
+    // 两个历史名字都替换为最新名字
+    next = next.replace("omni_knowledge_create_todolist", "omni_knowledge_save_todolist");
+    next = next.replace("omni_create_todolist", "omni_knowledge_save_todolist");
     // 顺带把旧 items.text 说明升级为三字段提示（仅替换已知旧片段）
     next = next.replace(
         r#"{ "text": "...", "done": false }"#,
         r#"{ "name": "...", "executor": "...", "description": "...", "done": false }"#,
     );
     next = next.replace(
-        "- 你**只能**使用 `omni_create_todolist`，不要尝试调用其他模块工具。",
-        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_create_todolist` 创建的执行计划。",
+        "- 你**只能**使用 `omni_knowledge_save_todolist`，不要尝试调用其他模块工具。",
+        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_knowledge_save_todolist` 创建的执行计划。",
     );
     next = next.replace(
         "- 你可以使用全部**全局工具**；不要尝试调用终端/数据库/Docker/文件等模块专用工具。",
-        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_create_todolist` 创建的执行计划。",
+        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_knowledge_save_todolist` 创建的执行计划。",
     );
     if next == current {
         return Ok(());
@@ -411,7 +414,7 @@ mod tests {
         let preamble = system_prompt();
         assert!(preamble.contains("tool_calls") || preamble.contains("OmniPanel"));
         let plan = default_agent_prompt("plan");
-        assert!(plan.contains("omni_create_todolist"));
+        assert!(plan.contains("omni_knowledge_save_todolist"));
         assert!(plan.contains("执行计划") || plan.contains("计划助手"));
         let run = default_agent_prompt("run");
         assert!(run.contains("执行助手") || run.contains("全部"));

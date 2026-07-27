@@ -36,6 +36,45 @@ export interface PlanData {
   updatedAt: number;
 }
 
+/** 单个子会话 spawn 规格（AI 工具调用入参） */
+export interface SubConversationSpawnSpec {
+  /** 子会话标题（简短任务名） */
+  title: string;
+  /** 派发给子会话的初始用户消息 */
+  task: string;
+  /** 可选：绑定的资源 id（如 SSH connectionId），用于 UI 跳转 */
+  resourceId?: string;
+}
+
+/** 子会话集群中单个子会话的状态快照（写入 part 持久化） */
+export interface SubConversationChildState {
+  /** 子会话 conversationId */
+  conversationId: string;
+  /** 在集群中的索引（0-based） */
+  index: number;
+  title: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  /** 完成后的摘要（取自子会话最后一条 assistant 消息） */
+  summary?: string;
+  /** 失败原因 */
+  error?: string;
+  /** 绑定资源 id（用于 UI 跳转） */
+  resourceId?: string;
+  /** 关联的 spawn spec（原始入参） */
+  spawnSpec: SubConversationSpawnSpec;
+  /** 时间戳 */
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+/** 子会话集群状态 */
+export type SubConversationClusterStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
 /** 有序消息片段：流式按到达顺序追加，供 UI 交错渲染 */
 export type AiMessagePart =
   | { type: "text"; text: string }
@@ -51,6 +90,23 @@ export type AiMessagePart =
   | {
       type: "plan";
       plan: PlanData;
+    }
+  | {
+      type: "sub-conversation-cluster";
+      clusterId: string;
+      title: string;
+      /** 触发该集群的 toolCallId（用于主会话 toolCall 等待与结果回传） */
+      toolCallId: string;
+      /** 集群状态 */
+      status: SubConversationClusterStatus;
+      /** 子会话状态列表（按 index 排序） */
+      children: SubConversationChildState[];
+      /** 集群完成后聚合的结果（回传给主会话 toolCall） */
+      aggregatedResult?: string;
+      /** 创建时间 */
+      createdAt: number;
+      /** 完成时间 */
+      finishedAt?: number;
     };
 
 /** 从 parts 派生兼容字段（plan 类型不参与派生，仅 UI 渲染） */
@@ -76,7 +132,10 @@ export function deriveCompatFields(parts: AiMessagePart[]): {
         status: part.status,
       });
     }
-    // plan 类型跳过：不参与 content/reasoning/toolCalls 派生
+    // plan / cluster 类型跳过：不参与 content/reasoning/toolCalls 派生
+    if (part.type === "plan" || part.type === "sub-conversation-cluster") {
+      continue;
+    }
   }
   return {
     content,
@@ -289,6 +348,84 @@ export function addPlanStepInParts(
     return {
       ...part,
       plan: { ...part.plan, steps, updatedAt: Date.now() },
+    };
+  });
+}
+
+// ========== 子会话集群 part 操作 ==========
+
+/** part 端 cluster 状态（与 store 端 Runtime 镜像，写入 message parts 持久化） */
+export interface SubConversationClusterPartData {
+  clusterId: string;
+  title: string;
+  toolCallId: string;
+  status: SubConversationClusterStatus;
+  children: SubConversationChildState[];
+  aggregatedResult?: string;
+  createdAt: number;
+  finishedAt?: number;
+}
+
+/**
+ * upsert cluster part：同 clusterId 替换，否则追加。
+ * 用于首次创建集群及整体状态更新。
+ */
+export function upsertClusterInParts(
+  parts: AiMessagePart[],
+  data: SubConversationClusterPartData,
+): AiMessagePart[] {
+  const idx = parts.findIndex(
+    (p) => p.type === "sub-conversation-cluster" && p.clusterId === data.clusterId,
+  );
+  const part = {
+    type: "sub-conversation-cluster" as const,
+    ...data,
+  };
+  if (idx >= 0) {
+    const next = [...parts];
+    next[idx] = part;
+    return next;
+  }
+  return [...parts, part];
+}
+
+/**
+ * 更新 cluster 中单个 child 的状态（按 conversationId 匹配）。
+ */
+export function updateClusterChildInParts(
+  parts: AiMessagePart[],
+  clusterId: string,
+  conversationId: string,
+  patch: Partial<SubConversationChildState>,
+): AiMessagePart[] {
+  return parts.map((part) => {
+    if (part.type !== "sub-conversation-cluster" || part.clusterId !== clusterId) return part;
+    return {
+      ...part,
+      children: part.children.map((c) =>
+        c.conversationId === conversationId ? { ...c, ...patch } : c,
+      ),
+    };
+  });
+}
+
+/**
+ * 更新 cluster 整体状态（status/aggregatedResult/finishedAt）。
+ */
+export function updateClusterStatusInParts(
+  parts: AiMessagePart[],
+  clusterId: string,
+  status: SubConversationClusterStatus,
+  aggregatedResult?: string,
+): AiMessagePart[] {
+  return parts.map((part) => {
+    if (part.type !== "sub-conversation-cluster" || part.clusterId !== clusterId) return part;
+    return {
+      ...part,
+      status,
+      ...(aggregatedResult !== undefined ? { aggregatedResult } : {}),
+      finishedAt:
+        status === "running" || status === "pending" ? undefined : Date.now(),
     };
   });
 }

@@ -52,6 +52,7 @@ import {
   touchInlineAiDelta,
 } from "../../../modules/terminal/inlineAiWatchdog";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
+import { cancelConversationClusters } from "../../../lib/ai/orchestration/clusterCancellation";
 import { applyUiFollowForTool } from "../../../lib/ai/uiFollow";
 import { errorToString } from "../../../lib/errorToString";
 import { getModuleAiContextText } from "../../../lib/ai/context";
@@ -392,6 +393,9 @@ function mapToolStatus(status: string): ToolCallState["status"] {
 export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const conversations = useAiStore((s) => s.conversations);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
+  // 子会话视图模式：viewingChildConversationId 非空时，Thread 切换为该子会话（只读查看）。
+  // 顶层业务（发送消息/取消/工具调用）仍走 activeConversationId。
+  const viewingChildConversationId = useAiStore((s) => s.viewingChildConversationId);
   const isGenerating = useAiStore((s) => s.isGenerating);
   const addMessage = useAiStore((s) => s.addMessage);
   const updateMessage = useAiStore((s) => s.updateMessage);
@@ -409,16 +413,23 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const waitingToolDispatchRef = useRef(new Set<string>());
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  // 子会话视图模式下，Thread 展示子会话消息；否则展示主会话消息
+  const viewingConversation = viewingChildConversationId
+    ? conversations.find((c) => c.id === viewingChildConversationId)
+    : activeConversation;
 
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
 
   useEffect(() => {
-    if (!activeConversation) {
+    if (!viewingConversation) {
       setThreadMessages([]);
       return;
     }
-    setThreadMessages(aiMessagesToThreadMessages(activeConversation.messages));
-  }, [activeConversation]);
+    setThreadMessages(aiMessagesToThreadMessages(viewingConversation.messages));
+  }, [viewingConversation]);
+
+  // 子会话视图模式下，禁止 setMessages 写回（只读）
+  const isReadOnlyView = !!viewingChildConversationId;
 
   const enqueuePermission = useCallback((event: PermissionEvent) => {
     enqueueAcpPermission(event);
@@ -428,11 +439,13 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     (messages: readonly ThreadMessage[]) => {
       const next = [...messages];
       setThreadMessages(next);
+      // 只读视图（子会话查看模式）下不写回 store
+      if (isReadOnlyView) return;
       const convId = activeConversationId;
       if (!convId) return;
       replaceConversationMessages(convId, threadMessagesToAiMessages(next));
     },
-    [activeConversationId, replaceConversationMessages],
+    [activeConversationId, replaceConversationMessages, isReadOnlyView],
   );
 
   const runGenerationRef =
@@ -1054,6 +1067,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     const convId = useAiStore.getState().activeConversationId;
     if (convId) {
       void commands.aiChatCancel(convId).catch(() => {});
+      // 级联取消该会话下所有子会话集群（cursor sub-agent 范式）
+      cancelConversationClusters(convId);
       const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
       for (const msg of conv?.messages ?? []) {
         if (msg.role === "assistant" && msg.isStreaming) {

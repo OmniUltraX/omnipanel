@@ -26,6 +26,9 @@ function aiMessageCacheKey(msg: AiMessage): string {
       if (p.type === "plan") {
         return `plan:${p.plan.id}:${p.plan.status}:${p.plan.steps.length}:${p.plan.updatedAt}`;
       }
+      if (p.type === "sub-conversation-cluster") {
+        return `cluster:${p.clusterId}:${p.status}:${p.children.length}:${p.finishedAt ?? 0}`;
+      }
       return `tool:${p.id}:${p.status}:${p.result?.length ?? 0}:${p.arguments.length}`;
     })
     .join("|");
@@ -47,8 +50,16 @@ function extractThreadParts(message: ThreadAssistantMessage): AiMessagePart[] {
     }
     if (part.type === "data") {
       const data = (part as { type: "data"; data?: unknown }).data;
-      if (data && typeof data === "object" && data !== null && "id" in data && "steps" in data) {
-        parts.push({ type: "plan", plan: data as import("../../../lib/ai/aiMessageParts").PlanData });
+      if (data && typeof data === "object" && data !== null) {
+        // plan part 识别：有 id + steps + title
+        if ("id" in data && "steps" in data && "title" in data) {
+          parts.push({ type: "plan", plan: data as import("../../../lib/ai/aiMessageParts").PlanData });
+        }
+        // cluster part 识别：有 clusterId + children + toolCallId
+        else if ("clusterId" in data && "children" in data && "toolCallId" in data) {
+          const c = data as import("../../../lib/ai/aiMessageParts").SubConversationClusterPartData;
+          parts.push({ type: "sub-conversation-cluster", ...c });
+        }
       }
       continue;
     }
@@ -136,6 +147,13 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
       parts.push({
         type: "data",
         data: part.plan,
+      } as unknown as ThreadAssistantMessage["content"][number]);
+    } else if (part.type === "sub-conversation-cluster") {
+      // 写入 data part（与 plan 同模式）：除 type 外的 field 全部传入 data
+      const { type: _type, ...clusterData } = part;
+      parts.push({
+        type: "data",
+        data: clusterData,
       } as unknown as ThreadAssistantMessage["content"][number]);
     }
   }
