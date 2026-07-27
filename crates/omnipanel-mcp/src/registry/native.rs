@@ -49,7 +49,7 @@ pub async fn execute(
 ) -> Result<(String, bool), String> {
     match name {
         "omni_knowledge_create_document" => create_document(arguments, storage).await,
-        "omni_knowledge_create_todolist" => create_todolist(arguments, storage).await,
+        "omni_create_todolist" => create_todolist(arguments, storage).await,
         "omni_knowledge_remove_document" => remove_document(arguments, storage).await,
         "omni_knowledge_list_documents" => list_documents(arguments, storage).await,
         "omni_tag_list_tree" => tag_list_tree(arguments, storage).await,
@@ -1329,14 +1329,33 @@ async fn create_todolist(
 
     let mut items = Vec::with_capacity(items_val.len());
     for (idx, raw) in items_val.iter().enumerate() {
-        let text = raw
-            .get("text")
+        let name = raw
+            .get("name")
+            .and_then(|v| v.as_str())
+            .or_else(|| raw.get("text").and_then(|v| v.as_str()))
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            return Err(format!("items[{idx}].name 不能为空"));
+        }
+        let executor = raw
+            .get("executor")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .trim()
             .to_string();
-        if text.is_empty() {
-            return Err(format!("items[{idx}].text 不能为空"));
+        if executor.is_empty() {
+            return Err(format!("items[{idx}].executor 不能为空"));
+        }
+        let description = raw
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if description.is_empty() {
+            return Err(format!("items[{idx}].description 不能为空"));
         }
         let done = raw
             .get("done")
@@ -1344,7 +1363,9 @@ async fn create_todolist(
             .unwrap_or(false);
         items.push(KnowledgeTodoItem {
             id: format!("todo_item_{now}_{idx}"),
-            text,
+            name,
+            executor,
+            description,
             done,
         });
     }

@@ -196,7 +196,36 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
         LEGACY_TERMINAL_AGENT_PROMPTS,
         DEFAULT_TERMINAL_AGENT_PROMPT,
     );
+    let _ = migrate_plan_todolist_tool_rename();
 
+    Ok(())
+}
+
+/// 将 plan.md 中的旧工具名 `omni_knowledge_create_todolist` 替换为 `omni_create_todolist`，
+/// 并将「仅允许 create_todolist」的窄工具面说明升级为「全部全局工具」。
+fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
+    let path = agent_prompt_path("plan")?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let Ok(current) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let mut next = current.replace("omni_knowledge_create_todolist", "omni_create_todolist");
+    // 顺带把旧 items.text 说明升级为三字段提示（仅替换已知旧片段）
+    next = next.replace(
+        r#"{ "text": "...", "done": false }"#,
+        r#"{ "name": "...", "executor": "...", "description": "...", "done": false }"#,
+    );
+    next = next.replace(
+        "- 你**只能**使用 `omni_create_todolist`，不要尝试调用其他模块工具。",
+        "- 你可以使用全部**全局工具**；不要尝试调用终端/数据库/Docker/文件等模块专用工具。",
+    );
+    if next == current {
+        return Ok(());
+    }
+    fs::write(&path, next).map_err(map_io)?;
+    clear_prompt_cache();
     Ok(())
 }
 
@@ -375,7 +404,7 @@ mod tests {
         let preamble = system_prompt();
         assert!(preamble.contains("tool_calls") || preamble.contains("OmniPanel"));
         let plan = default_agent_prompt("plan");
-        assert!(plan.contains("omni_knowledge_create_todolist"));
+        assert!(plan.contains("omni_create_todolist"));
         assert!(plan.contains("执行计划") || plan.contains("计划助手"));
         let terminal = default_agent_prompt("terminal");
         assert!(terminal.contains("服务与健康检查"));

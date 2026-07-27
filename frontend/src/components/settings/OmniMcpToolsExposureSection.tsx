@@ -50,8 +50,18 @@ const MODULE_LABEL_KEYS: Record<string, string> = {
   knowledge: "routes.knowledge",
 };
 
+/** 设置页「全局工具」分组（module_key = web） */
 function isGlobalWebTool(moduleKey: string): boolean {
   return moduleKey === "web";
+}
+
+/** 仅联网搜索相关工具受「Web 搜索」总开关隐藏；Skill/Tag/Resource 等全局工具始终展示 */
+function isWebSearchGatedTool(toolName: string): boolean {
+  return (
+    toolName === "omni_web_search" ||
+    toolName === "omni_zhihu_search" ||
+    toolName === "omni_web_fetch"
+  );
 }
 
 function moduleLabelKey(moduleKey: string): string {
@@ -90,7 +100,7 @@ export function OmniMcpToolsExposureSection() {
   const grouped = useMemo(() => {
     const map = new Map<string, typeof tools>();
     for (const tool of tools) {
-      if (isGlobalWebTool(tool.module_key) && !webSearchEnabled) continue;
+      if (isWebSearchGatedTool(tool.tool_name) && !webSearchEnabled) continue;
       const list = map.get(tool.module_key) ?? [];
       list.push(tool);
       map.set(tool.module_key, list);

@@ -388,9 +388,14 @@ export const enUS: TranslationDict = {
       emptyItems: "No items yet",
       editList: "Edit Todo List",
       addItem: "Add Item",
+      removeItem: "Remove item",
       itemPlaceholder: "Todo item…",
+      itemNamePlaceholder: "Name",
+      itemExecutorPlaceholder: "Executor",
+      itemDescriptionPlaceholder: "Task description and details…",
       listTitlePlaceholder: "List title",
       untitled: "Untitled List",
+      untitledItem: "Untitled item",
       progress: "{done}/{total}",
       moreItems: "{count} more…",
       toggleItem: "Toggle item {index}",
@@ -4425,6 +4430,8 @@ export const enUS: TranslationDict = {
       moduleClosedDesc: "Module is closed or disabled; built-in tools are disabled",
       moduleSyncHint: "Tools cannot be enabled internally while the module is closed",
       empty: "No built-in tools",
+      sidebarTitle: "Modules",
+      selectHint: "Select a module from the list",
     },
     webSearch: {
       title: "Web search",
@@ -5844,10 +5851,10 @@ export const enUS: TranslationDict = {
     },
     agents: {
       noTools: "No tools",
-      planToolTag: "Todo tool",
+      planToolTag: "Global tools",
       plan: {
         label: "Plan assistant",
-        description: "Builds an execution plan and creates a Knowledge todo list via tool",
+        description: "Builds an execution plan; can use all global tools and create Knowledge todos",
       },
       terminal: {
         label: "Terminal agent",

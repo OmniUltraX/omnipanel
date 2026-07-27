@@ -1668,7 +1668,8 @@
         color: var(--fg);
     }
 
-    .knowledge-todo-card__item--done .knowledge-todo-card__text {
+    .knowledge-todo-card__item--done .knowledge-todo-card__name,
+    .knowledge-todo-card__item--done .knowledge-todo-card__description {
         color: var(--meta);
         text-decoration: line-through;
     }
@@ -1697,6 +1698,50 @@
     .knowledge-todo-check--done {
         background: var(--accent);
         border-color: var(--accent);
+    }
+
+    .knowledge-todo-card__body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .knowledge-todo-card__name-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .knowledge-todo-card__name {
+        flex: 1;
+        min-width: 0;
+        font-weight: 500;
+        word-break: break-word;
+    }
+
+    .knowledge-todo-card__executor {
+        flex-shrink: 0;
+        font-size: 11px;
+        color: var(--meta);
+        max-width: 40%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .knowledge-todo-card__description {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--muted);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        word-break: break-word;
     }
 
     .knowledge-todo-card__text {
@@ -1740,7 +1785,7 @@
     }
 
     .knowledge-todo-note {
-        width: min(420px, 92vw);
+        width: min(560px, 94vw);
         max-height: 80vh;
         overflow: auto;
         padding: var(--sp-4) var(--sp-4) var(--sp-5);
@@ -1798,13 +1843,112 @@
     .knowledge-todo-note__items {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 12px;
     }
 
     .knowledge-todo-note__row {
         display: flex;
         align-items: flex-start;
         gap: var(--sp-2);
+    }
+
+    .knowledge-todo-note__index {
+        flex-shrink: 0;
+        width: 20px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--meta);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .knowledge-todo-note__fields {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .knowledge-todo-note__field-row {
+        display: flex;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .knowledge-todo-note__name,
+    .knowledge-todo-note__executor {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .knowledge-todo-note__executor {
+        flex: 0 0 120px;
+    }
+
+    .knowledge-todo-note__description {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 52px;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper, var(--bg));
+        color: var(--fg);
+        font-size: 13px;
+        line-height: 1.45;
+        resize: vertical;
+        outline: none;
+        font-family: inherit;
+    }
+
+    .knowledge-todo-note__description:focus {
+        border-color: var(--accent);
+    }
+
+    .knowledge-todo-note__description::placeholder {
+        color: var(--meta);
+    }
+
+    .knowledge-todo-note__remove {
+        flex-shrink: 0;
+        width: 28px;
+        height: 28px;
+        margin-top: 4px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .knowledge-todo-note__remove:hover:not(:disabled) {
+        color: var(--danger);
+        background: var(--danger-soft);
+    }
+
+    .knowledge-todo-note__remove:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    .knowledge-todo-note__add {
+        align-self: flex-start;
+        margin-top: 4px;
+        padding: 6px 10px;
+        border: 1px dashed var(--border);
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .knowledge-todo-note__add:hover {
+        color: var(--accent);
+        border-color: var(--accent);
     }
 
     .knowledge-todo-note__bullet {

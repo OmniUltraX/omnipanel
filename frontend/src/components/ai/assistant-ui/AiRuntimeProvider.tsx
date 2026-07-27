@@ -741,7 +741,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         const conversation = useAiStore
           .getState()
           .conversations.find((c) => c.id === convId);
-        // 助手主界面 → plan Agent（窄工具面：create_todolist）；终端内联 → 对应模块 Agent
+        // 助手主界面 → plan Agent（全局工具面）；终端内联 → 对应模块 Agent
         const agentRuntime = resolveAgentRuntime({
           assistantPage: !inline,
           conversationAgentId: conversation?.agentId,

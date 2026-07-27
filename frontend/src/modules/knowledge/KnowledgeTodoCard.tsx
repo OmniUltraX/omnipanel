@@ -37,9 +37,13 @@ function TodoCheck({
   );
 }
 
+function isVisibleItem(item: KnowledgeTodoItem): boolean {
+  return Boolean(item.name.trim() || item.executor.trim() || item.description.trim());
+}
+
 export function KnowledgeTodoCard({ list, onEdit, onToggleItem, onDelete }: KnowledgeTodoCardProps) {
   const { t } = useI18n();
-  const items = list.items.filter((item) => item.text.trim());
+  const items = list.items.filter(isVisibleItem);
   const doneCount = items.filter((item) => item.done).length;
 
   const handleDelete = async (e: MouseEvent) => {
@@ -79,7 +83,19 @@ export function KnowledgeTodoCard({ list, onEdit, onToggleItem, onDelete }: Know
               className={`knowledge-todo-card__item${item.done ? " knowledge-todo-card__item--done" : ""}`}
             >
               <TodoCheck done={item.done} onToggle={() => onToggleItem(item.id)} />
-              <span className="knowledge-todo-card__text">{item.text}</span>
+              <div className="knowledge-todo-card__body">
+                <div className="knowledge-todo-card__name-row">
+                  <span className="knowledge-todo-card__name">
+                    {item.name.trim() || t("knowledge.todos.untitledItem")}
+                  </span>
+                  {item.executor.trim() ? (
+                    <span className="knowledge-todo-card__executor">{item.executor.trim()}</span>
+                  ) : null}
+                </div>
+                {item.description.trim() ? (
+                  <p className="knowledge-todo-card__description">{item.description.trim()}</p>
+                ) : null}
+              </div>
             </li>
           ))
         )}

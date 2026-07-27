@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentId, resolveAgentRuntime } from "./resolveAgentRuntime";
 
 describe("resolveAgentRuntime", () => {
-  it("助手页强制 plan 并仅注入 create_todolist", () => {
+  it("助手页强制 plan 并注入全局工具模块", () => {
     const runtime = resolveAgentRuntime({
       assistantPage: true,
       moduleKey: "terminal",
@@ -10,10 +10,7 @@ describe("resolveAgentRuntime", () => {
     });
     expect(runtime.agentId).toBe("plan");
     expect(runtime.toolsMode).toEqual({
-      directInject: {
-        moduleFilter: "knowledge",
-        toolAllowlist: ["omni_knowledge_create_todolist"],
-      },
+      directInject: { moduleFilter: "web" },
     });
   });
 

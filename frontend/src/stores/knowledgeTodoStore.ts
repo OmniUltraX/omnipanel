@@ -8,8 +8,16 @@ export function newTodoId(): string {
   return `todo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function createTodoItem(text = ""): KnowledgeTodoItem {
-  return { id: newTodoId(), text, done: false };
+export function createTodoItem(
+  partial: Partial<Pick<KnowledgeTodoItem, "name" | "executor" | "description" | "done">> = {},
+): KnowledgeTodoItem {
+  return {
+    id: newTodoId(),
+    name: partial.name ?? "",
+    executor: partial.executor ?? "",
+    description: partial.description ?? "",
+    done: partial.done ?? false,
+  };
 }
 
 export function createEmptyTodoList(title = "新待办列表"): KnowledgeTodoList {

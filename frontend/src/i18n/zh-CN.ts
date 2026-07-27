@@ -386,9 +386,14 @@ export const zhCN = {
       emptyItems: "暂无待办内容",
       editList: "编辑待办列表",
       addItem: "添加待办",
+      removeItem: "删除待办项",
       itemPlaceholder: "输入待办内容…",
+      itemNamePlaceholder: "名称",
+      itemExecutorPlaceholder: "执行者",
+      itemDescriptionPlaceholder: "任务描述与细节…",
       listTitlePlaceholder: "列表标题",
       untitled: "未命名列表",
+      untitledItem: "未命名待办",
       progress: "{done}/{total}",
       moreItems: "还有 {count} 项…",
       toggleItem: "切换第 {index} 项",
@@ -4365,6 +4370,8 @@ export const zhCN = {
       moduleClosedDesc: "模块已关闭或禁用，其内置工具已同步禁用",
       moduleSyncHint: "模块未打开时，其下工具不可内部启用",
       empty: "暂无内置工具",
+      sidebarTitle: "模块列表",
+      selectHint: "从左侧选择一个模块",
     },
     webSearch: {
       title: "Web 搜索",
@@ -5782,10 +5789,10 @@ export const zhCN = {
     },
     agents: {
       noTools: "无工具",
-      planToolTag: "待办工具",
+      planToolTag: "全局工具",
       plan: {
         label: "计划助手",
-        description: "制定执行计划，并调用工具创建知识库待办",
+        description: "制定执行计划；可调用全部全局工具并创建知识库待办",
       },
       terminal: {
         label: "终端 Agent",

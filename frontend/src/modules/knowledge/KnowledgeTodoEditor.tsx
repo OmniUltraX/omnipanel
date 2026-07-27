@@ -23,8 +23,13 @@ function normalizeDraft(list: KnowledgeTodoList): KnowledgeTodoList {
 function sanitizeForSave(draft: KnowledgeTodoList, fallbackTitle: string): KnowledgeTodoList {
   const title = draft.title.trim() || fallbackTitle;
   const items = draft.items
-    .map((item) => ({ ...item, text: item.text.trim() }))
-    .filter((item) => item.text.length > 0);
+    .map((item) => ({
+      ...item,
+      name: item.name.trim(),
+      executor: item.executor.trim(),
+      description: item.description.trim(),
+    }))
+    .filter((item) => item.name.length > 0 || item.executor.length > 0 || item.description.length > 0);
   return {
     ...draft,
     title,
@@ -96,12 +101,16 @@ export function KnowledgeTodoEditor({ open, list, onClose, onSave, onDelete }: K
 
   if (!open || !draft) return null;
 
-  const updateItemText = (id: string, text: string) => {
+  const updateItemField = (
+    id: string,
+    field: "name" | "executor" | "description",
+    value: string,
+  ) => {
     setDraft((prev) => {
       if (!prev) return prev;
       const next = {
         ...prev,
-        items: prev.items.map((item) => (item.id === id ? { ...item, text } : item)),
+        items: prev.items.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
       };
       scheduleSave(next);
       return next;
@@ -135,6 +144,9 @@ export function KnowledgeTodoEditor({ open, list, onClose, onSave, onDelete }: K
     await onDelete(draft.id);
     onClose();
   };
+
+  const isItemBlank = (item: { name: string; executor: string; description: string }) =>
+    !item.name.trim() && !item.executor.trim() && !item.description.trim();
 
   return (
     <div className="modal-overlay" onClick={handleClose}>
@@ -179,38 +191,72 @@ export function KnowledgeTodoEditor({ open, list, onClose, onSave, onDelete }: K
         <div className="knowledge-todo-note__items">
           {draft.items.map((item, index) => (
             <div key={item.id} className="knowledge-todo-note__row">
-              <span className="knowledge-todo-note__bullet" aria-hidden />
-              <TextInput
-                clearable={false}
-                copyable={false}
-                className="knowledge-todo-note__text"
-                value={item.text}
-                placeholder={index === draft.items.length - 1 ? t("knowledge.todos.itemPlaceholder") : ""}
-                onChange={(text) => updateItemText(item.id, text)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    insertItemAfter(item.id);
-                    requestAnimationFrame(() => {
-                      const rows = document.querySelectorAll<HTMLInputElement>(
-                        ".knowledge-todo-note__text",
-                      );
-                      rows[index + 1]?.focus();
-                    });
-                  } else if (e.key === "Backspace" && !item.text && draft.items.length > 1) {
-                    e.preventDefault();
-                    removeItem(item.id);
-                    requestAnimationFrame(() => {
-                      const rows = document.querySelectorAll<HTMLInputElement>(
-                        ".knowledge-todo-note__text",
-                      );
-                      rows[Math.max(0, index - 1)]?.focus();
-                    });
-                  }
-                }}
-              />
+              <span className="knowledge-todo-note__index" aria-hidden>
+                {index + 1}
+              </span>
+              <div className="knowledge-todo-note__fields">
+                <div className="knowledge-todo-note__field-row">
+                  <TextInput
+                    clearable={false}
+                    copyable={false}
+                    className="knowledge-todo-note__name"
+                    value={item.name}
+                    placeholder={t("knowledge.todos.itemNamePlaceholder")}
+                    onChange={(name) => updateItemField(item.id, "name", name)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        insertItemAfter(item.id);
+                      } else if (e.key === "Backspace" && isItemBlank(item) && draft.items.length > 1) {
+                        e.preventDefault();
+                        removeItem(item.id);
+                      }
+                    }}
+                  />
+                  <TextInput
+                    clearable={false}
+                    copyable={false}
+                    className="knowledge-todo-note__executor"
+                    value={item.executor}
+                    placeholder={t("knowledge.todos.itemExecutorPlaceholder")}
+                    onChange={(executor) => updateItemField(item.id, "executor", executor)}
+                  />
+                </div>
+                <textarea
+                  className="knowledge-todo-note__description"
+                  value={item.description}
+                  placeholder={t("knowledge.todos.itemDescriptionPlaceholder")}
+                  rows={2}
+                  onChange={(e) => updateItemField(item.id, "description", e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="knowledge-todo-note__remove"
+                title={t("knowledge.todos.removeItem")}
+                aria-label={t("knowledge.todos.removeItem")}
+                onClick={() => removeItem(item.id)}
+                disabled={draft.items.length <= 1}
+              >
+                ×
+              </button>
             </div>
           ))}
+          <button
+            type="button"
+            className="knowledge-todo-note__add"
+            onClick={() => {
+              const last = draft.items[draft.items.length - 1];
+              if (last) insertItemAfter(last.id);
+              else {
+                const next = { ...draft, items: [createTodoItem()] };
+                setDraft(next);
+                scheduleSave(next);
+              }
+            }}
+          >
+            {t("knowledge.todos.addItem")}
+          </button>
         </div>
       </div>
     </div>

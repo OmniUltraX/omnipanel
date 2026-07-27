@@ -91,11 +91,16 @@ function splitBreadcrumb(
   protocol: string,
   localLabels?: { computer: string; home: string; root: string },
   localSystemInfo?: FileLocalSystemInfo | null,
+  /** S3 地址栏根节点展示名（通常为 bucket） */
+  s3RootLabel?: string,
 ): { label: string; path: string }[] {
   if (protocol === "local" && localLabels) {
     return splitLocalBreadcrumb(path, localLabels, localSystemInfo);
   }
-  if (!path) return [{ label: protocol === "local" ? "~" : "/", path: "" }];
+  const s3Root = s3RootLabel?.trim() || "/";
+  if (!path) {
+    return [{ label: protocol === "local" ? "~" : protocol === "s3" ? s3Root : "/", path: "" }];
+  }
   if (protocol === "local") {
     const sep = path.includes("\\") ? "\\" : "/";
     const parts = path.split(sep).filter(Boolean);
@@ -113,15 +118,16 @@ function splitBreadcrumb(
     return out.length ? out : [{ label: path, path }];
   }
   if (protocol === "s3") {
+    const rootCrumb = { label: s3Root, path: "" };
     const trimmed = path.replace(/^\/+/, "");
-    if (!trimmed) return [{ label: "/", path: "" }];
+    if (!trimmed) return [rootCrumb];
     const parts = trimmed.split("/").filter(Boolean);
     let acc = "";
     const segments = parts.map((part) => {
       acc = acc ? `${acc}${part}/` : `${part}/`;
       return { label: part, path: acc };
     });
-    return [{ label: "/", path: "" }, ...segments];
+    return [rootCrumb, ...segments];
   }
   const parts = path.split("/").filter(Boolean);
   const out: { label: string; path: string }[] = [{ label: "/", path: "/" }];
@@ -729,11 +735,21 @@ export function FileConnectionPanel({
 
   const effectiveLocalPath =
     protocol === "local" && !currentPath && quickPaths?.home ? quickPaths.home : currentPath;
-  const crumbs = splitBreadcrumb(currentPath, protocol, {
-    computer: t("files.local.computer"),
-    home: t("files.quick.home"),
-    root: t("files.local.root"),
-  }, localSystemInfo);
+  const s3BucketName = useMemo(() => {
+    if (protocol !== "s3") return "";
+    return parseFileConfigJson(storedConnection?.config ?? "{}").bucket?.trim() ?? "";
+  }, [protocol, storedConnection?.config]);
+  const crumbs = splitBreadcrumb(
+    currentPath,
+    protocol,
+    {
+      computer: t("files.local.computer"),
+      home: t("files.quick.home"),
+      root: t("files.local.root"),
+    },
+    localSystemInfo,
+    s3BucketName || undefined,
+  );
   const atLocalRoot = protocol === "local" && isLocalAtRoot(currentPath, localSystemInfo);
   const localDrive =
     protocol === "local" ? currentLocalDrive(effectiveLocalPath) : null;

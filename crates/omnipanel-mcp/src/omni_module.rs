@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_load_skill_by_knowledge_module() {
+    fn filter_load_skill_by_web_module() {
         let schema = std::sync::Arc::new(serde_json::Map::new());
         let tools = vec![
             Tool::new("load_skill", "skill", schema.clone()),
@@ -151,7 +151,7 @@ mod tests {
         ];
         let filtered = filter_tools_for_request(
             tools,
-            &OmniModuleScope::Module("knowledge".to_string()),
+            &OmniModuleScope::Module("web".to_string()),
             |_| true,
         );
         assert_eq!(filtered.len(), 1);

@@ -198,7 +198,7 @@ const SCHEMA_KNOWLEDGE_CREATE: &str = r#"{
   "required": ["title", "content"]
 }"#;
 
-const SCHEMA_KNOWLEDGE_CREATE_TODOLIST: &str = r#"{
+const SCHEMA_CREATE_TODOLIST: &str = r#"{
   "type": "object",
   "properties": {
     "title": { "type": "string", "description": "待办列表标题（执行计划名称）" },
@@ -208,10 +208,12 @@ const SCHEMA_KNOWLEDGE_CREATE_TODOLIST: &str = r#"{
       "items": {
         "type": "object",
         "properties": {
-          "text": { "type": "string", "description": "可执行、可验收的一步" },
+          "name": { "type": "string", "description": "待办项名称" },
+          "executor": { "type": "string", "description": "待办项的执行者（角色或人名）" },
+          "description": { "type": "string", "description": "任务的具体描述与细节" },
           "done": { "type": "boolean", "description": "是否已完成，默认 false", "default": false }
         },
-        "required": ["text"]
+        "required": ["name", "executor", "description"]
       },
       "minItems": 1
     }
@@ -743,7 +745,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_resource_get_profile",
-        module_key: "knowledge",
+        module_key: "web",
         description: "获取资源档案：返回指定资源（SSH 主机 / 数据库连接等）的最新观测快照（hardware / services / overview / schema_summary 等各类最新一条）。供 AI 在处理新问题时快速了解资源历史状态。",
         input_schema: SCHEMA_RESOURCE_GET_PROFILE,
         exec_kind: ToolExecKind::Native,
@@ -751,7 +753,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_resource_find_similar",
-        module_key: "knowledge",
+        module_key: "web",
         description: "查找相似资源（指纹匹配），并附带 related_skills（同类型经验 Skill）。用于『p4 解决后在 p7 复用』；若 skill 不足可再调 omni_skill_recall。",
         input_schema: SCHEMA_RESOURCE_FIND_SIMILAR,
         exec_kind: ToolExecKind::Native,
@@ -759,7 +761,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_resource_update_profile",
-        module_key: "knowledge",
+        module_key: "web",
         description: "更新资源档案：手动或由 AI 追加一条观测记录（如部署服务清单、已知问题、运维笔记等）。不会覆盖历史，append-only。",
         input_schema: SCHEMA_RESOURCE_UPDATE_PROFILE,
         exec_kind: ToolExecKind::Native,
@@ -767,7 +769,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_skill_recall",
-        module_key: "knowledge",
+        module_key: "web",
         description:
             "召回相关 skill：混合向量检索 + 关键词匹配已启用的 skill，返回正文与 application_id。\
              应用后务必调用 omni_skill_report_outcome 回写 success/failure。",
@@ -777,7 +779,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_skill_extract_experience",
-        module_key: "knowledge",
+        module_key: "web",
         description:
             "从完成的任务中提取经验并创建 skill：生成 SKILL.md，可选关联资源/knowledge，\
              并 best-effort 向量化以便后续召回。支持 parent_skill_id 创建新版本。",
@@ -787,7 +789,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_skill_refine",
-        module_key: "knowledge",
+        module_key: "web",
         description:
             "改进已有 skill：基于应用反馈创建新版本（原版本 enabled=0），复制 knowledge 关联并向量化。",
         input_schema: SCHEMA_SKILL_REFINE,
@@ -796,7 +798,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_skill_report_outcome",
-        module_key: "knowledge",
+        module_key: "web",
         description:
             "回写 skill 应用结果（success/failure/partial），更新成功率统计。\
              在按 skill 完成任务后调用；application_id 来自 omni_skill_recall。",
@@ -809,16 +811,6 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         module_key: "knowledge",
         description: "在知识库中创建文档。",
         input_schema: SCHEMA_KNOWLEDGE_CREATE,
-        exec_kind: ToolExecKind::Native,
-        omnimcp_backend: true,
-    },
-    BuiltinToolSpec {
-        tool_name: "omni_knowledge_create_todolist",
-        module_key: "knowledge",
-        description:
-            "在知识库中创建待办列表（TodoList / 执行计划）。\
-             传入标题与有序待办项；用于将用户目标落成可跟踪的检查清单。",
-        input_schema: SCHEMA_KNOWLEDGE_CREATE_TODOLIST,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
     },
@@ -840,7 +832,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_tag_list_tree",
-        module_key: "knowledge",
+        module_key: "web",
         description: "列出全局标签树（扁平列表，含 path 与可选资源计数）。",
         input_schema: SCHEMA_TAG_LIST_TREE,
         exec_kind: ToolExecKind::Native,
@@ -848,7 +840,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_tag_list_resource",
-        module_key: "knowledge",
+        module_key: "web",
         description: "列出某资源上的全部标签（含 source）。",
         input_schema: SCHEMA_TAG_LIST_RESOURCE,
         exec_kind: ToolExecKind::Native,
@@ -856,7 +848,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_tag_attach",
-        module_key: "knowledge",
+        module_key: "web",
         description: "为资源附加标签（path 支持树形路径）。业务标签请先征得用户确认；系统键可用 source=system。",
         input_schema: SCHEMA_TAG_ATTACH,
         exec_kind: ToolExecKind::Native,
@@ -864,9 +856,19 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "load_skill",
-        module_key: "knowledge",
+        module_key: "web",
         description: "加载指定 Skill 的完整 SKILL.md 正文（渐进式披露）",
         input_schema: SCHEMA_LOAD_SKILL,
+        exec_kind: ToolExecKind::Native,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_create_todolist",
+        module_key: "web",
+        description:
+            "创建待办列表（TodoList / 执行计划）。传入标题与有序待办项；\
+             每项须含名称、执行者、任务描述。用于将用户目标落成可跟踪的检查清单。",
+        input_schema: SCHEMA_CREATE_TODOLIST,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
     },
@@ -896,7 +898,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_create",
-        module_key: "terminal",
+        module_key: "web",
         description:
             "创建业务工作区（可选纳入 resource_ids）。工作区非必选；仅当用户明确要求隔离/整理时调用。",
         input_schema: SCHEMA_WORKSPACE_CREATE,
@@ -905,7 +907,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_switch",
-        module_key: "terminal",
+        module_key: "web",
         description: "切换到指定工作区（UI）。",
         input_schema: SCHEMA_WORKSPACE_ID,
         exec_kind: ToolExecKind::UiDelegated,
@@ -913,7 +915,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_list_resources",
-        module_key: "terminal",
+        module_key: "web",
         description: "列出资源。不传 workspace_id 时返回全局连接；传入时返回该工作区 membership。",
         input_schema: SCHEMA_WORKSPACE_LIST,
         exec_kind: ToolExecKind::UiDelegated,
@@ -921,7 +923,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_add_resources",
-        module_key: "terminal",
+        module_key: "web",
         description: "将资源 id 纳入指定工作区 membership。",
         input_schema: SCHEMA_WORKSPACE_MEMBERSHIP,
         exec_kind: ToolExecKind::UiDelegated,
@@ -929,7 +931,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     },
     BuiltinToolSpec {
         tool_name: "omni_workspace_remove_resources",
-        module_key: "terminal",
+        module_key: "web",
         description: "从工作区 membership 移除资源。",
         input_schema: SCHEMA_WORKSPACE_MEMBERSHIP,
         exec_kind: ToolExecKind::UiDelegated,
@@ -997,7 +999,7 @@ mod tests {
     #[test]
     fn knowledge_and_load_skill_are_native() {
         assert!(builtin_tool_is_native("omni_knowledge_create_document"));
-        assert!(builtin_tool_is_native("omni_knowledge_create_todolist"));
+        assert!(builtin_tool_is_native("omni_create_todolist"));
         assert!(builtin_tool_is_native("load_skill"));
         assert!(builtin_tool_is_native("omni_database_list_connections"));
         assert!(!builtin_tool_is_native("omni_terminal_run_terminal_command"));
@@ -1005,7 +1007,7 @@ mod tests {
 
     #[test]
     fn load_skill_module_key_from_spec() {
-        assert_eq!(builtin_tool_module_key("load_skill"), Some("knowledge"));
+        assert_eq!(builtin_tool_module_key("load_skill"), Some("web"));
         assert_eq!(
             builtin_tool_module_key("omni_ssh_list_connections"),
             Some("terminal")
@@ -1255,7 +1257,7 @@ mod tests {
         ] {
             let spec = builtin_tool_spec(name).unwrap_or_else(|| panic!("{name} 未注册"));
             assert_eq!(spec.exec_kind, ToolExecKind::Native, "{name}");
-            assert_eq!(spec.module_key, "knowledge", "{name}");
+            assert_eq!(spec.module_key, "web", "{name}");
             assert!(spec.omnimcp_backend, "{name}");
             assert!(builtin_tool_is_native(name), "{name} 应当是 Native");
         }

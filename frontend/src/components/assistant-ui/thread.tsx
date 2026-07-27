@@ -308,10 +308,14 @@ const SaveAsTodoButton: FC = () => {
       const ok = await store.saveList({
         id: newTodoId(),
         title: parsed.title,
-        items: parsed.items.map((item) => ({
-          ...createTodoItem(item.text),
-          done: item.done,
-        })),
+        items: parsed.items.map((item) =>
+          createTodoItem({
+            name: item.text,
+            executor: "",
+            description: item.text,
+            done: item.done,
+          }),
+        ),
         sortOrder: nextTodoSortOrder(useKnowledgeTodoStore.getState().lists),
         createdAt: now,
         updatedAt: now,

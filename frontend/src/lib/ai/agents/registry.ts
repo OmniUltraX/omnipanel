@@ -27,16 +27,16 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDefinition> = {
     id: "plan",
     labelKey: "ai.agents.plan.label",
     descriptionKey: "ai.agents.plan.description",
+    /** 全局工具（module_key=web）：待办 / Skill / Tag / Resource / Workspace / 联网搜索等 */
     tools: {
-      kind: "allowlist",
-      moduleFilter: "knowledge",
-      toolNames: ["omni_knowledge_create_todolist"],
+      kind: "module",
+      moduleFilter: "web",
     },
     allowSkills: true,
     allowRag: true,
     // 完整提示词由后端 ~/.omnipd/prompts/agents/plan.md 注入；此处仅作回退摘要。
     systemRole:
-      "你是 OmniPanel 的「计划助手」Agent（plan）。根据用户需求制定执行计划，并必须调用 omni_knowledge_create_todolist 写入知识库待办。不能执行终端/数据库等运维操作。",
+      "你是 OmniPanel 的「计划助手」Agent（plan）。可使用全部全局工具（待办、Skill、标签、资源档案、工作区、联网搜索等）。制定执行计划后应调用 omni_create_todolist 写入待办；不能执行终端/数据库等模块运维工具。",
   },
   terminal: moduleAgent(
     "terminal",

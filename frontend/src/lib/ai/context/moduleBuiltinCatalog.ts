@@ -6,6 +6,7 @@ import { FILES_MODULE_TOOLS } from "../../../modules/files/ai/mcpTools";
 import { TERMINAL_MODULE_TOOLS } from "../../../modules/terminal/ai/mcpTools";
 import { KNOWLEDGE_MODULE_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
 import { SSH_MODULE_TOOLS } from "../../../modules/server/ssh/ai/mcpTools";
+import { WORKSPACE_MODULE_TOOLS } from "../../../modules/workspace/ai/mcpTools";
 import type { BuiltinToolRegistration } from "./types";
 
 /** 内置工具目录模块键（含无前端路由的 web 模块） */
@@ -48,6 +49,12 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
       throw new Error("请通过 OmniMCP 内置服务调用");
     },
   },
+];
+
+MODULE_BUILTIN_CATALOG.knowledge = [...KNOWLEDGE_BUILTIN_CATALOG, ...KNOWLEDGE_MODULE_TOOLS];
+
+/** 全局工具：Skill / Tag / Resource / load_skill / Workspace（module_key=web） */
+const GLOBAL_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_resource_get_profile",
     description:
@@ -111,12 +118,54 @@ const KNOWLEDGE_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
       throw new Error("请通过 OmniMCP 内置服务调用");
     },
   },
+  {
+    name: "omni_tag_list_tree",
+    description: "列出全局标签树（扁平列表，含 path 与可选资源计数）。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_tag_list_resource",
+    description: "列出某资源上的全部标签（含 source）。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_tag_attach",
+    description:
+      "为资源附加标签（path 支持树形路径）。业务标签请先征得用户确认；系统键可用 source=system。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "load_skill",
+    description: "加载指定 Skill 的完整 SKILL.md 正文（渐进式披露）",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
+  {
+    name: "omni_create_todolist",
+    description:
+      "创建待办列表（TodoList / 执行计划）。每项须含名称、执行者、任务描述。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("请通过 OmniMCP 内置服务调用");
+    },
+  },
 ];
-
-MODULE_BUILTIN_CATALOG.knowledge = [...KNOWLEDGE_BUILTIN_CATALOG, ...KNOWLEDGE_MODULE_TOOLS];
 
 /** Rust 内置 web 工具（与 omnipanel-store BUILTIN_TOOL_SPECS 对齐） */
 const WEB_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
+  ...GLOBAL_BUILTIN_CATALOG,
+  ...WORKSPACE_MODULE_TOOLS,
   {
     name: "omni_web_search",
     description:

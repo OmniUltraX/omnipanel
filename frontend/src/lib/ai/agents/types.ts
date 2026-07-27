@@ -2,7 +2,7 @@ import type { ModuleKey } from "../../paths";
 
 /**
  * 逻辑 Agent 标识。
- * - `plan`：AI 助手页专用，主责制定执行计划并调用 `omni_knowledge_create_todolist`
+ * - `plan`：AI 助手页专用，主责制定执行计划；可调用全部全局工具（含 `omni_create_todolist`）
  * - 其余与模块一一对应，各自独立工具域
  */
 export type AgentId =
@@ -24,7 +24,7 @@ export type AgentId =
 export type AgentToolsPolicy =
   | { kind: "none" }
   | { kind: "module"; moduleFilter: string }
-  /** 仅注入列出的工具（plan 窄工具面） */
+  /** 仅注入列出的工具 */
   | { kind: "allowlist"; toolNames: string[]; moduleFilter?: string };
 
 export interface AgentDefinition {

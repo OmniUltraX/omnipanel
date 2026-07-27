@@ -8,7 +8,15 @@ use crate::storage::{Storage, map_sqlite};
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeTodoItem {
     pub id: String,
-    pub text: String,
+    /// 待办项名称；反序列化兼容旧字段 `text`。
+    #[serde(default, alias = "text")]
+    pub name: String,
+    /// 执行者。
+    #[serde(default)]
+    pub executor: String,
+    /// 任务描述与细节。
+    #[serde(default)]
+    pub description: String,
     pub done: bool,
 }
 
@@ -129,12 +137,16 @@ mod tests {
             items: vec![
                 KnowledgeTodoItem {
                     id: "i1".to_string(),
-                    text: "任务一".to_string(),
+                    name: "任务一".to_string(),
+                    executor: "运维".to_string(),
+                    description: "检查磁盘占用".to_string(),
                     done: false,
                 },
                 KnowledgeTodoItem {
                     id: "i2".to_string(),
-                    text: "任务二".to_string(),
+                    name: "任务二".to_string(),
+                    executor: "DBA".to_string(),
+                    description: "备份数据库".to_string(),
                     done: true,
                 },
             ],
@@ -157,6 +169,8 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].title, "列表 A");
         assert_eq!(all[0].items.len(), 2);
+        assert_eq!(all[0].items[0].name, "任务一");
+        assert_eq!(all[0].items[0].executor, "运维");
     }
 
     #[test]
@@ -167,6 +181,7 @@ mod tests {
         let got = storage.get_knowledge_todo("t1").unwrap().unwrap();
         assert_eq!(got.title, "我的待办");
         assert_eq!(got.items[1].done, true);
+        assert_eq!(got.items[1].description, "备份数据库");
     }
 
     #[test]
@@ -177,5 +192,14 @@ mod tests {
             .unwrap();
         storage.delete_knowledge_todo("t1").unwrap();
         assert!(storage.get_knowledge_todo("t1").unwrap().is_none());
+    }
+
+    #[test]
+    fn deserializes_legacy_text_field_as_name() {
+        let raw = r#"{"id":"i1","text":"旧格式任务","done":false}"#;
+        let item: KnowledgeTodoItem = serde_json::from_str(raw).unwrap();
+        assert_eq!(item.name, "旧格式任务");
+        assert!(item.executor.is_empty());
+        assert!(item.description.is_empty());
     }
 }

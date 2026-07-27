@@ -2732,7 +2732,18 @@ export type KnowledgeAssetSaved = {
 /**  待办列表中的单项。 */
 export type KnowledgeTodoItem = {
 	id: string,
-	text: string,
+	/**
+	 * 待办项名称；反序列化兼容旧字段 `text`。
+	 */
+	name: string,
+	/**
+	 * 执行者。
+	 */
+	executor: string,
+	/**
+	 * 任务描述与细节。
+	 */
+	description: string,
 	done: boolean,
 };
 
