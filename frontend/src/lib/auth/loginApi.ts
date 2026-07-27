@@ -382,6 +382,8 @@ export interface AuthUserProfile {
   avatarUrl: string;
   email: string;
   githubId: string;
+  /** /api/me 的 oss_path；非空时 AI 流式回复按天写入该目录 */
+  ossPath: string;
 }
 
 const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
@@ -405,6 +407,8 @@ function mapUserProfile(data: {
   email: string;
   githubId?: string;
   github_id?: string;
+  ossPath?: string;
+  oss_path?: string;
 }): AuthUserProfile {
   const rawAvatar =
     (typeof data.avatarUrl === "string" && data.avatarUrl) ||
@@ -414,6 +418,10 @@ function mapUserProfile(data: {
     (typeof data.githubId === "string" && data.githubId) ||
     (typeof data.github_id === "string" && data.github_id) ||
     "";
+  const ossPath =
+    (typeof data.ossPath === "string" && data.ossPath) ||
+    (typeof data.oss_path === "string" && data.oss_path) ||
+    "";
   return {
     id: data.id ?? 0,
     openid: data.openid ?? "",
@@ -421,6 +429,7 @@ function mapUserProfile(data: {
     avatarUrl: resolveAvatarUrl(rawAvatar),
     email: data.email ?? "",
     githubId,
+    ossPath: ossPath.trim(),
   };
 }
 

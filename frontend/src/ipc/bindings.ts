@@ -100,7 +100,7 @@ export const commands = {
 	/**  删除连接。 */
 	connDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id })),
 	/**  测试连接连通性。当前支持 database（MySQL）；其余类型将在对应里程碑接入。 */
-	connTest: (connection: Connection) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("conn_test", { connection })),
+	connTest: (connection: Connection, secret?: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("conn_test", { connection, secret })),
 	/**
 	 *  解析域名为 IP 地址，结果持久化到缓存，避免重复解析。
 	 *  传入已存在的 IP 地址直接返回；域名则先查缓存，未命中再 DNS 解析。
@@ -963,6 +963,10 @@ export type AuthUserProfile = {
 	avatarUrl: string,
 	email: string,
 	githubId: string,
+	/**
+	 * 对应接口字段 `oss_path`；非空时 AI 流式回复按天写入该目录。
+	 */
+	ossPath: string
 };
 
 /* Local runtime types — manually synced from src-tauri commands/local_runtime.rs + ollama_recommend.rs */

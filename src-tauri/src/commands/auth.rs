@@ -147,6 +147,9 @@ pub struct AuthUserProfile {
     /// 对应接口字段 `github_id`。
     #[serde(rename = "githubId")]
     pub github_id: String,
+    /// 对应接口字段 `oss_path`；非空时 AI 流式回复按天写入该目录。
+    #[serde(default, rename = "ossPath")]
+    pub oss_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,6 +162,8 @@ struct ApiUserResponse {
     email: Option<String>,
     #[serde(default, alias = "githubId")]
     github_id: Option<String>,
+    #[serde(default, alias = "ossPath")]
+    oss_path: Option<String>,
     error: Option<String>,
 }
 
@@ -622,6 +627,7 @@ fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
         avatar_url: parsed.avatar_url.unwrap_or_default(),
         email: parsed.email.unwrap_or_default(),
         github_id: parsed.github_id.unwrap_or_default(),
+        oss_path: parsed.oss_path.unwrap_or_default(),
     }
 }
 

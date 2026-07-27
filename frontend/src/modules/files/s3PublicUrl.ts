@@ -7,6 +7,62 @@ function normalizeBaseUrl(domain: string): string {
   return `https://${trimmed.replace(/\/+$/, "")}`;
 }
 
+/**
+ * 将虚拟主机风格 endpoint 规范为区域/服务 endpoint。
+ * rust-s3 会再拼 `{bucket}.{host}`；若 endpoint 已含旧 bucket 子域，改桶后仍会打到旧桶。
+ */
+export function normalizeS3ApiEndpoint(endpoint: string, bucket: string): string {
+  const raw = endpoint.trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  const schemeMatch = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
+  const scheme = schemeMatch?.[1] ?? "https";
+  const afterScheme = schemeMatch ? raw.slice(schemeMatch[0].length) : raw;
+  const hostPort = afterScheme.split("/")[0]?.trim() ?? "";
+  if (!hostPort) return "";
+
+  let host = hostPort;
+  let port = "";
+  const colon = hostPort.lastIndexOf(":");
+  if (colon > 0) {
+    const maybePort = hostPort.slice(colon + 1);
+    if (/^\d+$/.test(maybePort)) {
+      host = hostPort.slice(0, colon);
+      port = maybePort;
+    }
+  }
+
+  const normalizedHost = stripVirtualHostedBucketHost(host, bucket);
+  return port
+    ? `${scheme}://${normalizedHost}:${port}`
+    : `${scheme}://${normalizedHost}`;
+}
+
+function stripVirtualHostedBucketHost(host: string, bucket: string): string {
+  const dot = host.indexOf(".");
+  if (dot <= 0 || dot === host.length - 1) return host;
+  const first = host.slice(0, dot);
+  const rest = host.slice(dot + 1);
+  const firstL = first.toLowerCase();
+  const restL = rest.toLowerCase();
+  const bucketL = bucket.trim().toLowerCase();
+
+  if (bucketL && firstL === bucketL) return rest;
+  if ((restL.startsWith("oss-") || restL.startsWith("oss.")) && restL.includes("aliyuncs.com")) {
+    return rest;
+  }
+  if (
+    restL === "s3.amazonaws.com"
+    || (restL.startsWith("s3.") && restL.endsWith(".amazonaws.com"))
+    || (restL.startsWith("s3-") && restL.endsWith(".amazonaws.com"))
+  ) {
+    return rest;
+  }
+  if (restL.startsWith("cos.") && restL.includes("myqcloud.com")) {
+    return rest;
+  }
+  return host;
+}
+
 /** 保留路径分隔符，仅编码各段。 */
 function encodeObjectKey(key: string): string {
   const normalized = key.replace(/^\/+/, "");
@@ -36,7 +92,9 @@ export function buildS3PublicUrl(cfg: FileConfigJson, objectKey: string): string
   }
 
   const bucket = cfg.bucket?.trim() ?? "";
-  const endpoint = normalizeBaseUrl(cfg.endpoint ?? "");
+  const endpoint = normalizeBaseUrl(
+    bucket ? normalizeS3ApiEndpoint(cfg.endpoint ?? "", bucket) : (cfg.endpoint ?? ""),
+  );
   if (endpoint && bucket) {
     try {
       const url = new URL(endpoint);

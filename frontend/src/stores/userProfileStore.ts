@@ -9,6 +9,10 @@ export interface UserProfileState {
   openid: string;
   email: string;
   githubId: string;
+  /**
+   * /api/me 的 oss_path；非空时 AI 助手流式回复按天写入该本地目录。
+   */
+  ossPath: string;
   setNickname: (nickname: string) => void;
   setAvatarUrl: (avatarUrl: string) => void;
   setProfile: (profile: {
@@ -17,6 +21,7 @@ export interface UserProfileState {
     openid?: string;
     email?: string;
     githubId?: string;
+    ossPath?: string;
   }) => void;
   clearProfile: () => void;
 }
@@ -28,6 +33,7 @@ type PersistedProfileV1 = {
   openid?: string;
   email?: string;
   githubId?: string;
+  ossPath?: string;
 };
 
 export const useUserProfileStore = create<UserProfileState>()(
@@ -38,6 +44,7 @@ export const useUserProfileStore = create<UserProfileState>()(
       openid: "",
       email: "",
       githubId: "",
+      ossPath: "",
       setNickname: (nickname) => set({ nickname }),
       setAvatarUrl: (avatarUrl) => set({ avatarUrl: resolveAvatarUrl(avatarUrl) }),
       setProfile: (profile) =>
@@ -50,13 +57,21 @@ export const useUserProfileStore = create<UserProfileState>()(
           openid: profile.openid !== undefined ? profile.openid : state.openid,
           email: profile.email !== undefined ? profile.email : state.email,
           githubId: profile.githubId !== undefined ? profile.githubId : state.githubId,
+          ossPath: profile.ossPath !== undefined ? profile.ossPath : state.ossPath,
         })),
       clearProfile: () =>
-        set({ nickname: "", avatarUrl: "", openid: "", email: "", githubId: "" }),
+        set({
+          nickname: "",
+          avatarUrl: "",
+          openid: "",
+          email: "",
+          githubId: "",
+          ossPath: "",
+        }),
     }),
     {
       name: "omnipanel-user-profile.v1",
-      version: 3,
+      version: 4,
       migrate: (persisted, fromVersion) => {
         const raw = (persisted ?? {}) as PersistedProfileV1;
         if (fromVersion < 2) {
@@ -66,6 +81,7 @@ export const useUserProfileStore = create<UserProfileState>()(
             openid: "",
             email: "",
             githubId: "",
+            ossPath: "",
           };
         }
         return {
@@ -74,6 +90,7 @@ export const useUserProfileStore = create<UserProfileState>()(
           openid: fromVersion < 3 ? "" : (raw.openid ?? "").trim(),
           email: fromVersion < 3 ? "" : (raw.email ?? "").trim(),
           githubId: fromVersion < 3 ? "" : (raw.githubId ?? "").trim(),
+          ossPath: fromVersion < 4 ? "" : (raw.ossPath ?? "").trim(),
         };
       },
       partialize: (state) => ({
@@ -82,6 +99,7 @@ export const useUserProfileStore = create<UserProfileState>()(
         openid: state.openid,
         email: state.email,
         githubId: state.githubId,
+        ossPath: state.ossPath,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

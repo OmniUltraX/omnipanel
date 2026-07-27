@@ -229,7 +229,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   test: async (connection) => {
     try {
-      const res = await commands.connTest(connection);
+      const res = await commands.connTest(connection, null);
       if (res.status === "ok") {
         return { ok: true, message: res.data };
       }

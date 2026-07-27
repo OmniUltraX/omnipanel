@@ -29,6 +29,7 @@ export async function syncAuthProfile(): Promise<void> {
         openid: me.openid,
         email: me.email,
         githubId: me.githubId,
+        ossPath: me.ossPath,
       });
     } catch (error) {
       if (isAuthSessionError(error)) {

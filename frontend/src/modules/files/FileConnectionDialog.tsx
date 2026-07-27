@@ -7,6 +7,7 @@ import { useI18n } from "../../i18n";
 import { commands, type Connection } from "../../ipc/bindings";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { saveFileConnection } from "./fileApi";
+import { normalizeS3ApiEndpoint } from "./s3PublicUrl";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 
@@ -32,7 +33,7 @@ export type FileConfigJson = {
 type Props = {
   open: boolean;
   onClose: () => void;
-  onSaved?: () => void;
+  onSaved?: (saved: Connection) => void;
   onTestSuccess?: (connectionId: string) => void;
   editConnection?: Connection;
   /** 新建连接时预选的协议（编辑时忽略） */
@@ -106,7 +107,8 @@ function buildConnection(
   if (form.protocol === "s3") {
     cfg.bucket = form.bucket.trim();
     cfg.region = form.region.trim();
-    cfg.endpoint = form.endpoint.trim();
+    // 去掉虚拟主机里的 bucket 子域，避免改桶后仍打到旧 endpoint
+    cfg.endpoint = normalizeS3ApiEndpoint(form.endpoint.trim(), cfg.bucket);
     cfg.publicDomain = form.publicDomain.trim();
     cfg.prefix = form.prefix.trim();
     cfg.accessKey = form.accessKey.trim();
@@ -213,7 +215,8 @@ export function FileConnectionDialog({
     setSuccessMsg(null);
     try {
       const conn = buildConnection(form, editConnection, tags);
-      const res = await commands.connTest(conn);
+      const secretOverride = form.secret.trim() || null;
+      const res = await commands.connTest(conn, secretOverride);
       if (res.status === "ok" && res.data !== undefined) {
         setSuccessMsg(res.data);
         if (editConnection?.id) {
@@ -241,8 +244,17 @@ export function FileConnectionDialog({
     setSaving(true);
     try {
       const conn = buildConnection(form, editConnection, tags);
-      await saveFileConnection(conn, form.secret.trim() || null);
-      onSaved?.();
+      const saved = await saveFileConnection(conn, form.secret.trim() || null);
+      // 先让父级重置面板路径，再写入 store（避免 softRefreshKey 抢先用旧路径 remount）
+      onSaved?.(saved);
+      useConnectionStore.setState((s) => {
+        const idx = s.connections.findIndex((c) => c.id === saved.id);
+        const next =
+          idx >= 0
+            ? s.connections.map((c) => (c.id === saved.id ? saved : c))
+            : [saved, ...s.connections];
+        return { connections: next, loaded: true };
+      });
       onClose();
     } catch (e) {
       setError(String(e));

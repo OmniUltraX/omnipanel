@@ -27,7 +27,7 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useFileManagerStore } from "../../stores/fileManagerStore";
 import { useFilesWorkspaceSessionStore } from "../../stores/filesWorkspaceSessionStore";
 import { FileConnectionDialog, type FileProtocol } from "./FileConnectionDialog";
-import { FileConnectionPanel } from "./FileConnectionPanel";
+import { FileConnectionPanel, buildS3BindKey } from "./FileConnectionPanel";
 import { FilesSidebar } from "./FilesSidebar";
 import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
@@ -277,8 +277,28 @@ function FilesBrowserView() {
     }
   }, [sessionHydrated, connections, openConnIds.length, openConnection]);
 
-  const handleSavedConnection = useCallback(async () => {
+  const handleSavedConnection = useCallback(async (saved?: Connection) => {
     setEditConnection(undefined);
+    if (saved) {
+      const prev = useFilesWorkspaceSessionStore.getState().panelStates[saved.id];
+      useFilesWorkspaceSessionStore.getState().setPanelState(saved.id, {
+        viewMode: prev?.viewMode ?? "list",
+        detailVisible: prev?.detailVisible ?? true,
+        // 配置（尤其 S3 bucket）变更后回到根目录，避免继续展示旧桶目录缓存
+        currentPath: "",
+        history: [""],
+        historyIndex: 0,
+        s3BindKey: buildS3BindKey(saved.config),
+      });
+      try {
+        const cfg = JSON.parse(saved.config || "{}") as { protocol?: string };
+        if (cfg.protocol === "s3") {
+          await clearFileIndex(saved.id);
+        }
+      } catch {
+        // ignore
+      }
+    }
     await refreshConnections();
     await loadConnections();
   }, [loadConnections, refreshConnections]);
@@ -647,7 +667,12 @@ function FilesBrowserView() {
               savedLayout={savedLayout}
               onSavedLayoutChange={setSavedLayout}
               renderPanel={renderDockPanel}
-              softRefreshKey={openConnIds.join("|")}
+              softRefreshKey={openConnIds
+                .map((id) => {
+                  const c = storedConnections.find((x) => x.id === id);
+                  return `${id}@${c?.updatedAt ?? 0}`;
+                })
+                .join("|")}
               emptyContent={
                 <WorkspaceEmptyPage
                   title={t("routes.files")}
@@ -670,7 +695,7 @@ function FilesBrowserView() {
         editConnection={editConnection}
         initialProtocol={dialogInitialProtocol}
         initialSshConnectionId={dialogInitialSshId}
-        onSaved={() => void handleSavedConnection()}
+        onSaved={(saved) => void handleSavedConnection(saved)}
         onTestSuccess={(connId) => patchConnectionStatus(connId, "online")}
       />
 

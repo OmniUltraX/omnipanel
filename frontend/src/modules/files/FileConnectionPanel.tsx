@@ -25,6 +25,7 @@ import {
   IconUpload,
 } from "./FilesPanelIcons";
 import {
+  clearFileIndex,
   deleteRemote,
   downloadRemote,
   fmtError,
@@ -68,6 +69,12 @@ import type { FileConnectionPanelSnapshot } from "./filesWorkspaceSession";
 
 type ViewMode = FileConnectionPanelSnapshot["viewMode"];
 type FileCtxState = { x: number; y: number; entry: FileEntry } | null;
+
+/** S3 连接配置指纹，用于判断改桶后是否应丢弃会话路径。 */
+export function buildS3BindKey(configJson: string | undefined | null): string {
+  const cfg = parseFileConfigJson(configJson ?? "{}");
+  return [cfg.bucket ?? "", cfg.endpoint ?? "", cfg.prefix ?? "", cfg.region ?? "", cfg.accessKey ?? ""].join("\0");
+}
 
 const PATH_INPUT_ID = "fm-breadcrumb-path-input";
 
@@ -165,10 +172,18 @@ export function FileConnectionPanel({
   const updateTransfer = useFileManagerStore((s) => s.updateTransfer);
   const filePreviewThresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
   const storedConnection = useConnectionStore((s) => s.connections.find((c) => c.id === connId));
+  const s3BindKey = useMemo(
+    () => (protocol === "s3" ? buildS3BindKey(storedConnection?.config) : ""),
+    [protocol, storedConnection?.config],
+  );
+  const shouldDiscardRestoredPath =
+    protocol === "s3" && !!s3BindKey && savedState?.s3BindKey !== s3BindKey;
 
   const setPanelState = useFilesWorkspaceSessionStore((s) => s.setPanelState);
 
-  const [currentPath, setCurrentPath] = useState(savedState?.currentPath ?? "");
+  const [currentPath, setCurrentPath] = useState(
+    shouldDiscardRestoredPath ? "" : (savedState?.currentPath ?? ""),
+  );
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -186,8 +201,12 @@ export function FileConnectionPanel({
   const [copyToast, setCopyToast] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<FileCtxState>(null);
-  const [history, setHistory] = useState<string[]>(savedState?.history ?? []);
-  const [historyIndex, setHistoryIndex] = useState(savedState?.historyIndex ?? -1);
+  const [history, setHistory] = useState<string[]>(
+    shouldDiscardRestoredPath ? [""] : (savedState?.history ?? []),
+  );
+  const [historyIndex, setHistoryIndex] = useState(
+    shouldDiscardRestoredPath ? 0 : (savedState?.historyIndex ?? -1),
+  );
   const loadSeq = useRef(0);
   const searchSeq = useRef(0);
   const loadMoreSeq = useRef(0);
@@ -195,12 +214,24 @@ export function FileConnectionPanel({
   const sessionRef = useRef<FileConnectionPanelSnapshot>({
     viewMode: savedState?.viewMode ?? "list",
     detailVisible: savedState?.detailVisible ?? true,
-    currentPath: savedState?.currentPath ?? "",
-    history: savedState?.history ?? [],
-    historyIndex: savedState?.historyIndex ?? -1,
+    currentPath: shouldDiscardRestoredPath ? "" : (savedState?.currentPath ?? ""),
+    history: shouldDiscardRestoredPath ? [""] : (savedState?.history ?? []),
+    historyIndex: shouldDiscardRestoredPath ? 0 : (savedState?.historyIndex ?? -1),
+    s3BindKey: s3BindKey || undefined,
   });
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const restoredStateRef = useRef(savedState);
+  const restoredStateRef = useRef(
+    shouldDiscardRestoredPath
+      ? {
+          viewMode: savedState?.viewMode ?? "list",
+          detailVisible: savedState?.detailVisible ?? true,
+          currentPath: "",
+          history: [""],
+          historyIndex: 0,
+          s3BindKey,
+        }
+      : savedState,
+  );
   const [pathEditing, setPathEditing] = useState(false);
   const [pathInput, setPathInput] = useState("");
   const pathEditSkipCommitRef = useRef(false);
@@ -367,10 +398,11 @@ export function FileConnectionPanel({
       currentPath,
       history,
       historyIndex,
+      s3BindKey: s3BindKey || undefined,
     };
     if (!initializedRef.current) return;
     schedulePersistPanelState();
-  }, [viewMode, detailVisible, currentPath, history, historyIndex, schedulePersistPanelState]);
+  }, [viewMode, detailVisible, currentPath, history, historyIndex, s3BindKey, schedulePersistPanelState]);
 
   useEffect(() => {
     return () => {
@@ -739,6 +771,28 @@ export function FileConnectionPanel({
     if (protocol !== "s3") return "";
     return parseFileConfigJson(storedConnection?.config ?? "{}").bucket?.trim() ?? "";
   }, [protocol, storedConnection?.config]);
+
+  const s3BindKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (protocol !== "s3") {
+      s3BindKeyRef.current = null;
+      return;
+    }
+    // 首次仅记录指纹，避免与面板初始化 loadDir 竞态
+    if (s3BindKeyRef.current === null) {
+      s3BindKeyRef.current = s3BindKey;
+      return;
+    }
+    if (s3BindKeyRef.current === s3BindKey) return;
+    s3BindKeyRef.current = s3BindKey;
+    clearSearchState();
+    setHistory([""]);
+    setHistoryIndex(0);
+    void clearFileIndex(connId).catch(() => {});
+    void loadDir("");
+  }, [clearSearchState, connId, loadDir, protocol, s3BindKey]);
+
   const crumbs = splitBreadcrumb(
     currentPath,
     protocol,
