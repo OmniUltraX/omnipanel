@@ -1,12 +1,16 @@
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { commands } from "../ipc/bindings";
+import { unwrapCommand } from "../ipc/result";
 import { refreshConnectionPool } from "./connectionPoolStore";
 import {
   initKnowledgeVectorizeBackgroundTasks,
 } from "../modules/knowledge/knowledgeVectorize";
 import { initSchemaCacheBackgroundTasks } from "../modules/database/schema/schemaCacheBackgroundTasks";
 import { initDbSyncTaskRunTracking } from "./dbSyncTaskRunTracking";
+import { useBgTaskHistoryStore } from "./bgTaskHistoryStore";
+import { initWorkflowLiveTasks } from "./workflowLiveStore";
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
@@ -76,7 +80,7 @@ export function getRunningBackgroundTasks(): BackgroundTaskInfo[] {
 }
 
 export async function cancelBackgroundTask(id: string): Promise<void> {
-  await invoke("bg_task_cancel", { id });
+  await unwrapCommand(commands.bgTaskCancel(id));
 }
 
 export async function cancelAllRunningBackgroundTasks(): Promise<void> {
@@ -174,26 +178,29 @@ export function initBackgroundTasks() {
   bgTaskInitialized = true;
 
   void useBackgroundTaskStore.getState().refreshRunning();
+  void useBgTaskHistoryStore.getState().hydrateFromBackend();
   initKnowledgeVectorizeBackgroundTasks();
   initSchemaCacheBackgroundTasks();
   initDbSyncTaskRunTracking();
+  initWorkflowLiveTasks();
 
   const unsubs: Array<() => void> = [];
 
   listen<BackgroundTaskInfo>("bg-task-update", (event) => {
     const task = event.payload;
     useBackgroundTaskStore.getState().upsertTask(task);
-    void refreshConnectionPool();
     if (
       task.status === "completed" ||
       task.status === "failed" ||
       task.status === "cancelled"
     ) {
+      useBgTaskHistoryStore.getState().upsertHistory(task);
       window.setTimeout(() => {
         useBackgroundTaskStore.getState().removeTask(task.id);
         void refreshConnectionPool();
       }, 8000);
     }
+    void refreshConnectionPool();
   })
     .then((fn) => unsubs.push(fn))
     .catch(() => {});

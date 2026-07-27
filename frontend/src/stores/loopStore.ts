@@ -77,7 +77,65 @@ export const useLoopStore = create<LoopStoreState>()(
       addFindings: (items) =>
         set((s) => {
           const findings = { ...s.findings };
-          for (const item of items) findings[item.id] = item;
+          const openByFp = new Map<string, LoopFinding>();
+          for (const f of Object.values(findings)) {
+            if (!f.fingerprint) continue;
+            if (f.status === "open" || f.status === "triaged" || f.status === "blocked") {
+              openByFp.set(f.fingerprint, f);
+            }
+          }
+          const closedByFp = new Map<string, LoopFinding>();
+          for (const f of Object.values(findings)) {
+            if (!f.fingerprint) continue;
+            if (f.status === "done" || f.status === "dismissed") {
+              const prev = closedByFp.get(f.fingerprint);
+              if (!prev || (f.updatedAt ?? 0) > (prev.updatedAt ?? 0)) {
+                closedByFp.set(f.fingerprint, f);
+              }
+            }
+          }
+
+          for (const item of items) {
+            const fp = item.fingerprint;
+            if (!fp) {
+              findings[item.id] = item;
+              continue;
+            }
+            const openHit = openByFp.get(fp);
+            if (openHit) {
+              const merged: LoopFinding = {
+                ...openHit,
+                summary: item.summary || openHit.summary,
+                evidence: item.evidence ?? openHit.evidence,
+                suggestedAction: item.suggestedAction ?? openHit.suggestedAction,
+                severity: item.severity,
+                runId: item.runId,
+                occurrenceCount: (openHit.occurrenceCount ?? 1) + 1,
+                updatedAt: Date.now(),
+              };
+              findings[openHit.id] = merged;
+              openByFp.set(fp, merged);
+              continue;
+            }
+            const closedHit = closedByFp.get(fp);
+            if (closedHit) {
+              const revived: LoopFinding = {
+                ...closedHit,
+                ...item,
+                id: closedHit.id,
+                status: "open",
+                occurrenceCount: (closedHit.occurrenceCount ?? 1) + 1,
+                createdAt: closedHit.createdAt,
+                updatedAt: Date.now(),
+              };
+              findings[closedHit.id] = revived;
+              openByFp.set(fp, revived);
+              closedByFp.delete(fp);
+              continue;
+            }
+            findings[item.id] = { ...item, occurrenceCount: item.occurrenceCount ?? 1 };
+            openByFp.set(fp, findings[item.id]);
+          }
           return { findings };
         }),
       updateFinding: (id, patch) =>

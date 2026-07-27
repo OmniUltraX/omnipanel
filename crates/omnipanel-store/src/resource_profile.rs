@@ -25,7 +25,7 @@ pub struct ResourceObservation {
     /// "hardware" | "services" | "topology" | "key_paths" | "overview" | "schema_summary" | "table_relations" | "index_health" | "users" | "note"
     pub observation_kind: String,
     /// JSON 负载（自由结构）
-    #[specta(type = serde_json::Value)]
+    #[specta(type = specta_typescript::Any)]
     pub payload: Value,
     #[specta(type = f64)]
     pub observed_at: i64,
@@ -49,7 +49,7 @@ pub struct ResourceProfileSummary {
     #[specta(type = f64)]
     pub knowledge_count: i64,
     /// 资源指纹：用于相似度匹配的关键属性摘要（JSON）
-    #[specta(type = serde_json::Value)]
+    #[specta(type = specta_typescript::Any)]
     pub fingerprint: Value,
 }
 

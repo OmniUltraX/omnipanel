@@ -261,19 +261,45 @@ async function discoverDockerAnomaly(ctx: PilotDiscoverContext): Promise<PilotDi
   return { summary, findings };
 }
 
+/** 计算 Finding 去重指纹 */
+export function findingFingerprint(input: {
+  loopId: string;
+  resourceType?: string;
+  resourceId?: string;
+  title: string;
+}): string {
+  const title = input.title.trim().toLowerCase().replace(/\s+/g, " ");
+  return [
+    input.loopId,
+    input.resourceType ?? "",
+    input.resourceId ?? "",
+    title,
+  ].join("|");
+}
+
 export function materializeFindings(
   loopId: string,
   runId: string,
   partials: PilotDiscoverResult["findings"],
 ): LoopFinding[] {
   const now = Date.now();
-  return partials.map((p, i) => ({
-    ...p,
-    id: `finding_${now}_${i}`,
-    loopId,
-    runId,
-    status: "open" as const,
-    createdAt: now,
-    updatedAt: now,
-  }));
+  return partials.map((p, i) => {
+    const fingerprint = findingFingerprint({
+      loopId,
+      resourceType: p.resourceType,
+      resourceId: p.resourceId,
+      title: p.title,
+    });
+    return {
+      ...p,
+      id: `finding_${now}_${i}`,
+      loopId,
+      runId,
+      status: "open" as const,
+      fingerprint,
+      occurrenceCount: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
 }

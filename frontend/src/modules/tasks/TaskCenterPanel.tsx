@@ -4,34 +4,38 @@ import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleModeIconRail, ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { Button } from "../../components/ui/primitives/Button";
+import {
+  IconClock,
+  IconInbox,
+  IconLightning,
+} from "../../components/ui/icons/Icons";
 import { useI18n } from "../../i18n";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { commands, type AuditEntry, type BuiltinToolAuditRecord } from "../../ipc/bindings";
-import { useActionDraftStore, type ActionDraft } from "../../stores/actionDraftStore";
 import { useAiOrchestrationStore, type AiTaskParent } from "../../stores/aiOrchestrationStore";
-import { useBackgroundTaskStore, type BackgroundTaskInfo } from "../../stores/backgroundTaskStore";
-import { useAiStore } from "../../stores/aiStore";
-import { followAiIntent } from "../../lib/ai/uiFollow";
-import { showToast } from "../../stores/toastStore";
 import {
   cancelBackgroundTask,
-  cancelAllRunningBackgroundTasks,
+  useBackgroundTaskStore,
+  type BackgroundTaskInfo,
 } from "../../stores/backgroundTaskStore";
+import { followAiIntent } from "../../lib/ai/uiFollow";
+import { showToast } from "../../stores/toastStore";
 import { useLoopStore } from "../../stores/loopStore";
 import { LoopTriageTab, LoopsTab, TurnTimelinePanel } from "./LoopTriagePanels";
-
-type TaskCenterTab = "in-progress" | "pending" | "triage" | "loops" | "history";
-const TASK_CENTER_TABS: TaskCenterTab[] = [
-  "in-progress",
-  "pending",
-  "triage",
-  "loops",
-  "history",
-];
+import { TaskCenterSidebar } from "./TaskCenterSidebar";
+import {
+  LEGACY_TASK_CENTER_TAB_ALIASES,
+  TASK_CENTER_TABS,
+  coerceTaskCenterTab,
+  selectionKey,
+  type TaskCenterSelection,
+} from "./taskCenterSelection";
+import { useTaskCenterProjection } from "./projection/useTaskCenterProjection";
+import type { TaskItem } from "./types";
+import { isJobRunning } from "./types";
 
 const HISTORY_LIMIT = 200;
 
-/** 把时间戳格式化为本地短时间 */
 function formatTs(ts: number): string {
   if (!ts) return "";
   try {
@@ -42,7 +46,6 @@ function formatTs(ts: number): string {
   }
 }
 
-/** 持续时间毫秒转人类可读 */
 function formatDuration(ms: number): string {
   if (!ms || ms < 0) return "-";
   if (ms < 1000) return `${ms}ms`;
@@ -52,7 +55,6 @@ function formatDuration(ms: number): string {
   return `${m}m${s}s`;
 }
 
-/** 风险等级 → CSS 类后缀 */
 function riskClass(risk?: string): string {
   switch (risk) {
     case "critical":
@@ -60,17 +62,49 @@ function riskClass(risk?: string): string {
     case "high":
       return "risk-high";
     case "medium":
+    case "warning":
       return "risk-medium";
     default:
       return "risk-low";
   }
 }
 
-/** 状态 → CSS 类后缀 */
+/** envTag 为 prod 或包含 prod（如 prod-cn）时视为生产环境 */
+function isProdEnvTag(tag?: string | null): boolean {
+  return !!tag && tag.toLowerCase().includes("prod");
+}
+
+function TaskItemMetaLine({ item }: { item: TaskItem }) {
+  const { t } = useI18n();
+  const parts = [item.module, item.kind, item.status].filter(Boolean);
+  return (
+    <div className="task-card__meta">
+      <span className="setting-hint">{parts.join(" · ")}</span>
+      {item.envTag ? (
+        <span
+          className={`env-badge${isProdEnvTag(item.envTag) ? " env-prod" : ""}`}
+          title={item.envTag}
+        >
+          {isProdEnvTag(item.envTag) ? t("taskCenter.history.envProd") : item.envTag}
+        </span>
+      ) : null}
+      {item.severity ? (
+        <span className={`task-card__risk ${riskClass(item.severity)}`}>{item.severity}</span>
+      ) : null}
+      <span className="setting-hint">
+        {formatTs(item.startedAt ?? item.createdAt)}
+        {item.finishedAt ? ` → ${formatTs(item.finishedAt)}` : ""}
+      </span>
+    </div>
+  );
+}
+
 function statusClass(status: string): string {
   switch (status) {
     case "running":
     case "pending":
+    case "discovering":
+    case "verifying":
       return "status-running";
     case "completed":
     case "success":
@@ -78,200 +112,11 @@ function statusClass(status: string): string {
     case "failed":
       return "status-failed";
     case "cancelled":
+    case "stopped":
       return "status-cancelled";
     default:
       return "status-unknown";
   }
-}
-
-// ============================================================================
-// In-Progress Tab
-// ============================================================================
-
-interface AiToolCallRunning {
-  id: string;
-  conversationId: string;
-  messageId: string;
-  toolName: string;
-  status: string;
-  argsPreview: string;
-}
-
-/** 从 aiStore.conversations 抽取所有 pending/running 的工具调用 */
-function useRunningAiToolCalls(): AiToolCallRunning[] {
-  const conversations = useAiStore((s) => s.conversations);
-  return useMemo(() => {
-    const result: AiToolCallRunning[] = [];
-    for (const conv of conversations) {
-      for (const msg of conv.messages) {
-        if (msg.role !== "assistant" || !msg.parts) continue;
-        for (const part of msg.parts) {
-          if (part.type !== "tool-call") continue;
-          if (part.status === "pending" || part.status === "running") {
-            // args 可能很长，截断展示
-            const argsPreview =
-              part.arguments.length > 200
-                ? `${part.arguments.slice(0, 200)}…`
-                : part.arguments;
-            result.push({
-              id: part.id,
-              conversationId: conv.id,
-              messageId: msg.id,
-              toolName: part.name,
-              status: part.status,
-              argsPreview,
-            });
-          }
-        }
-      }
-    }
-    return result;
-  }, [conversations]);
-}
-
-function InProgressTab() {
-  const { t } = useI18n();
-  const aiTasks = useAiOrchestrationStore((s) => s.tasks);
-  const cancelAiTask = useAiOrchestrationStore((s) => s.cancelTask);
-  const removeAiTask = useAiOrchestrationStore((s) => s.removeTask);
-  const bgTasks = useBackgroundTaskStore((s) => s.tasks);
-  const runningToolCalls = useRunningAiToolCalls();
-
-  const runningAiTasks = useMemo(
-    () =>
-      Object.values(aiTasks).filter(
-        (task) => task.status === "running" || task.status === "pending",
-      ),
-    [aiTasks],
-  );
-  const recentAiTasks = useMemo(
-    () =>
-      Object.values(aiTasks)
-        .filter((t) => t.status !== "running" && t.status !== "pending")
-        .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0))
-        .slice(0, 5),
-    [aiTasks],
-  );
-  const runningBgTasks = useMemo(
-    () =>
-      Object.values(bgTasks).filter(
-        (task) => task.status === "running" || task.status === "pending",
-      ),
-    [bgTasks],
-  );
-
-  const handleCancelAllBg = useCallback(async () => {
-    try {
-      await cancelAllRunningBackgroundTasks();
-      showToast(t("taskCenter.inProgress.cancelAllDone"));
-    } catch (e) {
-      showToast(String(e));
-    }
-  }, [t]);
-
-  const isEmpty =
-    runningAiTasks.length === 0 &&
-    recentAiTasks.length === 0 &&
-    runningBgTasks.length === 0 &&
-    runningToolCalls.length === 0;
-
-  if (isEmpty) {
-    return (
-      <WorkspaceEmptyPage
-        title={t("taskCenter.tabs.inProgress")}
-        prompt={t("taskCenter.inProgress.empty")}
-      />
-    );
-  }
-
-  return (
-    <div className="task-center-list">
-      {/* === 进行中的 AI 工具调用（流式） === */}
-      {runningToolCalls.length > 0 && (
-        <section className="task-center-section">
-          <h3 className="task-center-section__title">
-            {t("taskCenter.inProgress.toolCalls")}
-            <span className="task-center-section__count">{runningToolCalls.length}</span>
-          </h3>
-          <div className="task-center-cards">
-            {runningToolCalls.map((call) => (
-              <div key={`${call.conversationId}:${call.id}`} className="task-card task-card--tool">
-                <div className="task-card__header">
-                  <strong className="task-card__title">{call.toolName}</strong>
-                  <span className={`task-card__status ${statusClass(call.status)}`}>
-                    {call.status}
-                  </span>
-                </div>
-                <pre className="task-card__preview">{call.argsPreview}</pre>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* === AI 编排任务（扇出/父子结构） === */}
-      {runningAiTasks.length > 0 && (
-        <section className="task-center-section">
-          <h3 className="task-center-section__title">
-            {t("taskCenter.inProgress.aiTasks")}
-            <span className="task-center-section__count">{runningAiTasks.length}</span>
-          </h3>
-          <div className="task-center-cards">
-            {runningAiTasks.map((task) => (
-              <AiTaskCard
-                key={task.id}
-                task={task}
-                onCancel={() => cancelAiTask(task.id)}
-                onRemove={() => removeAiTask(task.id)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* === 后台长任务（带进度） === */}
-      {runningBgTasks.length > 0 && (
-        <section className="task-center-section">
-          <h3 className="task-center-section__title">
-            {t("taskCenter.inProgress.bgTasks")}
-            <span className="task-center-section__count">{runningBgTasks.length}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void handleCancelAllBg()}
-              className="task-center-section__action"
-            >
-              {t("taskCenter.inProgress.cancelAll")}
-            </Button>
-          </h3>
-          <div className="task-center-cards">
-            {runningBgTasks.map((task) => (
-              <BgTaskCard key={task.id} task={task} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* === 最近完成的 AI 任务（5 条） === */}
-      {recentAiTasks.length > 0 && (
-        <section className="task-center-section">
-          <h3 className="task-center-section__title">
-            {t("taskCenter.inProgress.recent")}
-          </h3>
-          <div className="task-center-cards">
-            {recentAiTasks.map((task) => (
-              <AiTaskCard
-                key={task.id}
-                task={task}
-                onCancel={() => cancelAiTask(task.id)}
-                onRemove={() => removeAiTask(task.id)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
 }
 
 function AiTaskCard({
@@ -301,8 +146,8 @@ function AiTaskCard({
       </div>
       <div className="task-card__meta">
         <span className="setting-hint">
-          {t("taskCenter.inProgress.progress", { done, total: task.children.length })}
-          {failed > 0 ? ` · ${t("taskCenter.inProgress.failed", { count: failed })}` : ""}
+          {t("taskCenter.activity.progress", { done, total: task.children.length })}
+          {failed > 0 ? ` · ${t("taskCenter.activity.failed", { count: failed })}` : ""}
         </span>
         <span className="setting-hint">
           {formatTs(task.startedAt)}
@@ -338,9 +183,7 @@ function AiTaskCard({
           ))}
         </ul>
       )}
-      {task.resultSummary && (
-        <div className="task-card__summary">{task.resultSummary}</div>
-      )}
+      {task.resultSummary && <div className="task-card__summary">{task.resultSummary}</div>}
       <div className="task-card__actions">
         {!isFinished && (
           <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -360,13 +203,14 @@ function AiTaskCard({
 function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
   const { t } = useI18n();
   const [canceling, setCanceling] = useState(false);
-  const progressPct = task.total > 0 ? Math.min(100, Math.round((task.index / task.total) * 100)) : 0;
+  const progressPct =
+    task.total > 0 ? Math.min(100, Math.round((task.index / task.total) * 100)) : 0;
 
   const handleCancel = useCallback(async () => {
     setCanceling(true);
     try {
       await cancelBackgroundTask(task.id);
-      showToast(t("taskCenter.inProgress.cancelDone"));
+      showToast(t("taskCenter.activity.cancelDone"));
     } catch (e) {
       showToast(String(e));
     } finally {
@@ -405,7 +249,7 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
       {task.progress && <div className="task-card__progress-text">{task.progress}</div>}
       {task.error && <div className="task-card__error">{task.error}</div>}
       <div className="task-card__actions">
-        {(task.status === "running" || task.status === "pending") && (
+        {isJobRunning(task.status) && (
           <Button variant="ghost" size="sm" onClick={() => void handleCancel()} disabled={canceling}>
             {canceling ? t("taskCenter.actions.cancelling") : t("taskCenter.actions.cancel")}
           </Button>
@@ -415,131 +259,179 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
   );
 }
 
-// ============================================================================
-// Pending Tab (Action Drafts)
-// ============================================================================
-
-function PendingTab() {
-  const { t } = useI18n();
-  const drafts = useActionDraftStore((s) => s.drafts);
-  const dismiss = useActionDraftStore((s) => s.dismiss);
-  const confirm = useActionDraftStore((s) => s.confirm);
-
-  const handleConfirm = useCallback(
-    (id: string) =>
-      confirm(id)
-        .then((r) => {
-          if (r) showToast(r.slice(0, 200));
-        })
-        .catch((e) => showToast(String(e))),
-    [confirm],
+function LoopRunCard({ item }: { item: TaskItem }) {
+  const run = useLoopStore((s) => (item.runId ? s.runs[item.runId] : undefined));
+  return (
+    <div className={`task-card task-card--ai ${statusClass(item.status)}`}>
+      <div className="task-card__header">
+        <strong className="task-card__title">{item.title}</strong>
+        <span className={`task-card__status ${statusClass(item.status)}`}>{item.status}</span>
+      </div>
+      <TaskItemMetaLine item={item} />
+      {item.summary ? <pre className="task-card__preview">{item.summary}</pre> : null}
+      {item.resultSummary ? (
+        <div className="task-card__summary">{item.resultSummary}</div>
+      ) : null}
+      {item.error ? <div className="task-card__error">{item.error}</div> : null}
+      {run?.turns?.length ? (
+        <ul className="task-card__children">
+          {run.turns.map((turn) => (
+            <li key={`${turn.index}-${turn.phase}`} className="task-card__child">
+              <span className="task-card__child-title">
+                #{turn.index} {turn.phase}
+              </span>
+              <span className={`task-card__child-status ${turn.ok ? "status-success" : "status-failed"}`}>
+                {turn.summary || (turn.ok ? "ok" : "fail")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
+}
 
-  if (drafts.length === 0) {
+function TaskItemDetail({ item }: { item: TaskItem }) {
+  const bgTasks = useBackgroundTaskStore((s) => s.tasks);
+  const aiTasks = useAiOrchestrationStore((s) => s.tasks);
+  const cancelAiTask = useAiOrchestrationStore((s) => s.cancelTask);
+  const removeAiTask = useAiOrchestrationStore((s) => s.removeTask);
+
+  if (item.source === "worker_pool" && item.backendJobId) {
+    const bg = bgTasks[item.backendJobId];
+    if (bg) {
+      return (
+        <div className="task-center-list">
+          <BgTaskCard task={bg} />
+        </div>
+      );
+    }
+  }
+
+  if (item.source === "orchestration" && item.backendJobId) {
+    const ai = aiTasks[item.backendJobId];
+    if (ai) {
+      return (
+        <div className="task-center-list">
+          <AiTaskCard
+            task={ai}
+            onCancel={() => cancelAiTask(ai.id)}
+            onRemove={() => removeAiTask(ai.id)}
+          />
+        </div>
+      );
+    }
+  }
+
+  if (item.source === "loop" || item.facet === "active_job") {
+    return (
+      <div className="task-center-list">
+        <LoopRunCard item={item} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="task-center-list">
+      <HistoryJobCard item={item} />
+    </div>
+  );
+}
+
+function HistoryJobCard({ item }: { item: TaskItem }) {
+  return (
+    <div className={`task-card ${statusClass(item.status)}`}>
+      <div className="task-card__header">
+        <strong className="task-card__title">{item.title}</strong>
+        <span className={`task-card__status ${statusClass(item.status)}`}>{item.status}</span>
+      </div>
+      <TaskItemMetaLine item={item} />
+      {item.summary ? <pre className="task-card__preview">{item.summary}</pre> : null}
+      {item.resultSummary ? <div className="task-card__summary">{item.resultSummary}</div> : null}
+      {item.error ? <div className="task-card__error">{item.error}</div> : null}
+    </div>
+  );
+}
+
+function ActivityTab({
+  items,
+  selection,
+}: {
+  items: TaskItem[];
+  selection: Extract<TaskCenterSelection, { tab: "activity" }> | null;
+}) {
+  const { t } = useI18n();
+
+  if (selection?.kind === "loop-plan") {
+    return <LoopsTab selectedId={selection.id} />;
+  }
+
+  if (items.length === 0 && !selection) {
     return (
       <WorkspaceEmptyPage
-        title={t("taskCenter.tabs.pending")}
-        prompt={t("taskCenter.pending.empty")}
+        title={t("taskCenter.tabs.activity")}
+        prompt={t("taskCenter.activity.empty")}
       />
     );
   }
 
-  // 按创建时间倒序，新审批在最上
-  const sorted = [...drafts].sort((a, b) => b.createdAt - a.createdAt);
-
-  return (
-    <div className="task-center-list">
-      <section className="task-center-section">
-        <h3 className="task-center-section__title">
-          {t("taskCenter.pending.title")}
-          <span className="task-center-section__count">{drafts.length}</span>
-        </h3>
-        <div className="task-center-cards">
-          {sorted.map((draft) => (
-            <DraftCard
-              key={draft.id}
-              draft={draft}
-              onConfirm={() => handleConfirm(draft.id)}
-              onDismiss={() => dismiss(draft.id)}
-            />
-          ))}
-        </div>
-      </section>
-    </div>
-  );
+  const selectedId = selection?.kind === "job" ? selection.id : null;
+  const item = items.find((i) => i.id === selectedId) ?? null;
+  if (!item) {
+    return (
+      <WorkspaceEmptyPage
+        title={t("taskCenter.tabs.activity")}
+        prompt={t("taskCenter.selectItem")}
+      />
+    );
+  }
+  return <TaskItemDetail item={item} />;
 }
 
-function DraftCard({
-  draft,
-  onConfirm,
-  onDismiss,
+function HistoryJobsDetail({
+  items,
+  selectedId,
+  filterActive,
 }: {
-  draft: ActionDraft;
-  onConfirm: () => void | Promise<unknown>;
-  onDismiss: () => void;
+  items: TaskItem[];
+  selectedId?: string;
+  filterActive?: boolean;
 }) {
   const { t } = useI18n();
-  const [confirming, setConfirming] = useState(false);
-
-  const handleConfirm = useCallback(() => {
-    setConfirming(true);
-    void Promise.resolve(onConfirm()).finally(() => {
-      setConfirming(false);
-    });
-  }, [onConfirm]);
-
+  if (items.length === 0) {
+    return (
+      <WorkspaceEmptyPage
+        title={t("taskCenter.history.jobsTab")}
+        prompt={
+          filterActive ? t("taskCenter.history.filterNoMatch") : t("taskCenter.history.empty")
+        }
+      />
+    );
+  }
+  const item = (selectedId ? items.find((i) => i.id === selectedId) : null) ?? items[0];
   return (
-    <div className={`task-card task-card--draft ${riskClass(draft.risk)}`}>
-      <div className="task-card__header">
-        <strong className="task-card__title">{draft.title}</strong>
-        <span className={`task-card__risk ${riskClass(draft.risk)}`}>
-          {draft.risk ?? "low"}
-        </span>
-      </div>
-      <div className="task-card__meta">
-        <span className="setting-hint">
-          {draft.kind}
-          {draft.toolName ? ` · ${draft.toolName}` : ""}
-        </span>
-        <span className="setting-hint">
-          {draft.environment ? `env: ${draft.environment}` : ""}
-          {draft.resourceId ? ` · ${draft.resourceId}` : ""}
-        </span>
-        <span className="setting-hint">{formatTs(draft.createdAt)}</span>
-      </div>
-      <pre className="task-card__preview">{draft.preview}</pre>
-      {draft.riskCheck && draft.riskCheck.matches.length > 0 && (
-        <div className="task-card__risk-reasons">
-          {draft.riskCheck.matches.map((match, i) => (
-            <div key={i} className="task-card__risk-reason">
-              ⚠ {match.desc}（{match.level}）
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="task-card__actions">
-        <Button variant="primary" size="sm" onClick={handleConfirm} disabled={confirming}>
-          {confirming ? t("taskCenter.actions.confirming") : t("taskCenter.actions.confirm")}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onDismiss}>
-          {t("taskCenter.actions.dismiss")}
-        </Button>
-      </div>
+    <div className="task-center-list">
+      <HistoryJobCard item={item} />
     </div>
   );
 }
 
-// ============================================================================
-// History Tab
-// ============================================================================
-
-function HistoryTab() {
+function HistoryTab({
+  bucket,
+  jobId,
+  historyJobs,
+  filterActive,
+}: {
+  bucket: "jobs" | "audit" | "tool" | "timeline";
+  jobId?: string;
+  historyJobs: TaskItem[];
+  filterActive?: boolean;
+}) {
   const { t } = useI18n();
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [toolRecords, setToolRecords] = useState<BuiltinToolAuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<"audit" | "tool" | "timeline">("audit");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -549,16 +441,10 @@ function HistoryTab() {
         commands.auditLogRecent(HISTORY_LIMIT),
         commands.builtinToolAuditList(HISTORY_LIMIT),
       ]);
-      if (auditRes.status === "ok") {
-        setAuditEntries(auditRes.data);
-      } else {
-        localError = typeof auditRes.error === "string" ? auditRes.error : String(auditRes.error);
-      }
-      if (toolRes.status === "ok") {
-        setToolRecords(toolRes.data);
-      } else if (!localError) {
-        localError = typeof toolRes.error === "string" ? toolRes.error : String(toolRes.error);
-      }
+      if (auditRes.status === "ok") setAuditEntries(auditRes.data);
+      else localError = String(auditRes.error);
+      if (toolRes.status === "ok") setToolRecords(toolRes.data);
+      else if (!localError) localError = String(toolRes.error);
       setError(localError);
     } catch (e) {
       setError(String(e));
@@ -568,8 +454,25 @@ function HistoryTab() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (bucket === "audit" || bucket === "tool") void load();
+  }, [bucket, load]);
+
+  if (bucket === "jobs") {
+    return (
+      <HistoryJobsDetail
+        items={historyJobs}
+        selectedId={jobId}
+        filterActive={filterActive}
+      />
+    );
+  }
+  if (bucket === "timeline") {
+    return (
+      <div className="task-center-list">
+        <TurnTimelinePanel />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -593,29 +496,12 @@ function HistoryTab() {
   return (
     <div className="task-center-list">
       <div className="task-center-subtabs">
-        <button
-          type="button"
-          className={`task-center-subtab ${subTab === "audit" ? "active" : ""}`}
-          onClick={() => setSubTab("audit")}
-        >
-          {t("taskCenter.history.auditTab")}
-          <span className="task-center-subtab__count">{auditEntries.length}</span>
-        </button>
-        <button
-          type="button"
-          className={`task-center-subtab ${subTab === "tool" ? "active" : ""}`}
-          onClick={() => setSubTab("tool")}
-        >
-          {t("taskCenter.history.toolTab")}
-          <span className="task-center-subtab__count">{toolRecords.length}</span>
-        </button>
-        <button
-          type="button"
-          className={`task-center-subtab ${subTab === "timeline" ? "active" : ""}`}
-          onClick={() => setSubTab("timeline")}
-        >
-          {t("taskCenter.history.timelineTab")}
-        </button>
+        <span className="task-center-subtab active">
+          {bucket === "audit" ? t("taskCenter.history.auditTab") : t("taskCenter.history.toolTab")}
+          <span className="task-center-subtab__count">
+            {bucket === "audit" ? auditEntries.length : toolRecords.length}
+          </span>
+        </span>
         <Button
           variant="ghost"
           size="sm"
@@ -625,13 +511,10 @@ function HistoryTab() {
           {t("taskCenter.history.refresh")}
         </Button>
       </div>
-
-      {subTab === "audit" ? (
+      {bucket === "audit" ? (
         <AuditList entries={auditEntries} />
-      ) : subTab === "tool" ? (
-        <ToolAuditList records={toolRecords} />
       ) : (
-        <TurnTimelinePanel />
+        <ToolAuditList records={toolRecords} />
       )}
     </div>
   );
@@ -673,34 +556,50 @@ function AuditList({ entries }: { entries: AuditEntry[] }) {
         </div>
       </div>
       <div className="task-center-table__body">
-        {entries.map((entry, i) => (
-          <div key={`${entry.ts}-${i}`} className="task-center-table__row">
-            <div className="task-center-table__cell task-center-table__cell--ts">
-              {formatTs(entry.ts)}
-            </div>
-            <div className="task-center-table__cell task-center-table__cell--action">
-              <code>{entry.action}</code>
-            </div>
-            <div className="task-center-table__cell task-center-table__cell--target" title={entry.target}>
-              {entry.target}
-            </div>
-            <div className="task-center-table__cell task-center-table__cell--env">
-              {entry.envTag}
-            </div>
-            <div className={`task-center-table__cell task-center-table__cell--risk ${riskClass(entry.risk)}`}>
-              {entry.risk}
-            </div>
-            <div className={`task-center-table__cell task-center-table__cell--status ${statusClass(entry.status)}`}>
-              {entry.status}
-            </div>
+        {entries.map((entry, i) => {
+          const prod = isProdEnvTag(entry.envTag);
+          return (
             <div
-              className="task-center-table__cell task-center-table__cell--detail"
-              title={entry.detail}
+              key={`${entry.ts}-${i}`}
+              className={`task-center-table__row${prod ? " task-center-table__row--prod" : ""}`}
             >
-              {entry.detail}
+              <div className="task-center-table__cell task-center-table__cell--ts">
+                {formatTs(entry.ts)}
+              </div>
+              <div className="task-center-table__cell task-center-table__cell--action">
+                <code>{entry.action}</code>
+              </div>
+              <div className="task-center-table__cell task-center-table__cell--target" title={entry.target}>
+                {entry.target}
+              </div>
+              <div className="task-center-table__cell task-center-table__cell--env">
+                {entry.envTag ? (
+                  <span
+                    className={`env-badge${prod ? " env-prod" : ""}`}
+                    title={entry.envTag}
+                  >
+                    {prod ? t("taskCenter.history.envProd") : entry.envTag}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </div>
+              <div
+                className={`task-center-table__cell task-center-table__cell--risk ${riskClass(entry.risk)}`}
+              >
+                {entry.risk}
+              </div>
+              <div
+                className={`task-center-table__cell task-center-table__cell--status ${statusClass(entry.status)}`}
+              >
+                {entry.status}
+              </div>
+              <div className="task-center-table__cell task-center-table__cell--detail" title={entry.detail}>
+                {entry.detail}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -744,22 +643,19 @@ function ToolAuditList({ records }: { records: BuiltinToolAuditRecord[] }) {
             <div className="task-center-table__cell task-center-table__cell--ts">
               {formatTs(rec.ts)}
             </div>
-            <div className="task-center-table__cell task-center-table__cell--source">
-              {rec.source}
-            </div>
+            <div className="task-center-table__cell task-center-table__cell--source">{rec.source}</div>
             <div className="task-center-table__cell task-center-table__cell--action">
               <code>{rec.toolName}</code>
             </div>
             <div className="task-center-table__cell task-center-table__cell--duration">
               {formatDuration(rec.durationMs)}
             </div>
-            <div className={`task-center-table__cell task-center-table__cell--status ${rec.success ? "status-success" : "status-failed"}`}>
+            <div
+              className={`task-center-table__cell task-center-table__cell--status ${rec.success ? "status-success" : "status-failed"}`}
+            >
               {rec.success ? "success" : "failed"}
             </div>
-            <div
-              className="task-center-table__cell task-center-table__cell--detail"
-              title={rec.detail}
-            >
+            <div className="task-center-table__cell task-center-table__cell--detail" title={rec.detail}>
               {rec.detail}
             </div>
           </div>
@@ -769,126 +665,125 @@ function ToolAuditList({ records }: { records: BuiltinToolAuditRecord[] }) {
   );
 }
 
-// ============================================================================
-// Main Panel
-// ============================================================================
-
 export function TaskCenterPanel() {
   const { t } = useI18n();
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/tasks";
-  const [tab, setTab] = usePersistedModuleTab("tasks", "in-progress", TASK_CENTER_TABS);
+  const [tab, setTab] = usePersistedModuleTab(
+    "tasks",
+    "activity",
+    TASK_CENTER_TABS,
+    { aliases: LEGACY_TASK_CENTER_TAB_ALIASES },
+  );
+  const [selection, setSelection] = useState<TaskCenterSelection | null>(null);
+  const [historyModuleFilter, setHistoryModuleFilter] = useState<string>("all");
 
-  // 草稿数量徽章（左侧 icon rail 上展示）
-  const draftCount = useActionDraftStore((s) => s.drafts.length);
-  const triageCount = useLoopStore((s) => s.listOpenFindings().length);
-  const aiTaskRunningCount = useAiOrchestrationStore(
-    (s) =>
-      Object.values(s.tasks).filter(
-        (t) => t.status === "running" || t.status === "pending",
-      ).length,
+  const { running, inbox, historyJobs, approvalCount } = useTaskCenterProjection();
+
+  const historyModules = useMemo(() => {
+    const mods = new Set<string>();
+    for (const job of historyJobs) {
+      if (job.module) mods.add(job.module);
+    }
+    return Array.from(mods).sort((a, b) => a.localeCompare(b));
+  }, [historyJobs]);
+
+  const filteredHistoryJobs = useMemo(() => {
+    if (historyModuleFilter === "all") return historyJobs;
+    return historyJobs.filter((job) => job.module === historyModuleFilter);
+  }, [historyJobs, historyModuleFilter]);
+
+  useEffect(() => {
+    if (historyModuleFilter !== "all" && !historyModules.includes(historyModuleFilter)) {
+      setHistoryModuleFilter("all");
+    }
+  }, [historyModuleFilter, historyModules]);
+
+  const handleTabChange = useCallback(
+    (id: string) => {
+      const next = coerceTaskCenterTab(id);
+      setTab(next);
+      if (next === "history") setSelection({ tab: "history", bucket: "jobs" });
+      else setSelection(null);
+    },
+    [setTab],
   );
-  const bgTaskRunningCount = useBackgroundTaskStore(
-    (s) =>
-      Object.values(s.tasks).filter(
-        (t) => t.status === "running" || t.status === "pending",
-      ).length,
-  );
-  const inProgressBadge = aiTaskRunningCount + bgTaskRunningCount;
 
   const modeIconItems = useMemo(
     () => [
       {
-        id: "in-progress",
-        label: t("taskCenter.tabs.inProgress"),
+        id: "activity",
+        label: t("taskCenter.tabs.activity"),
         iconNode: (
           <span className="task-center-rail-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
-              <circle cx="8" cy="8" r="6" />
-              <path d="M8 5v3l2 1" />
-            </svg>
-            {inProgressBadge > 0 ? (
-              <span className="task-center-rail-badge">{inProgressBadge > 99 ? "99+" : inProgressBadge}</span>
+            <IconLightning size={18} />
+            {running.length > 0 ? (
+              <span className="task-center-rail-badge">{running.length}</span>
             ) : null}
           </span>
         ),
       },
       {
-        id: "pending",
-        label: t("taskCenter.tabs.pending"),
+        id: "inbox",
+        label: t("taskCenter.tabs.inbox"),
         iconNode: (
           <span className="task-center-rail-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
-              <path d="M3 2h7l3 3v9H3V2z" />
-              <path d="M10 2v3h3" />
-              <path d="M5.5 9l1.5 1.5L10 7.5" />
-            </svg>
-            {draftCount > 0 ? (
+            <IconInbox size={18} />
+            {inbox.length > 0 ? (
               <span className="task-center-rail-badge task-center-rail-badge--warn">
-                {draftCount > 99 ? "99+" : draftCount}
+                {inbox.length}
               </span>
             ) : null}
           </span>
-        ),
-      },
-      {
-        id: "triage",
-        label: t("taskCenter.tabs.triage"),
-        iconNode: (
-          <span className="task-center-rail-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
-              <path d="M2 3h12M4 8h8M6 13h4" />
-            </svg>
-            {triageCount > 0 ? (
-              <span className="task-center-rail-badge task-center-rail-badge--warn">
-                {triageCount > 99 ? "99+" : triageCount}
-              </span>
-            ) : null}
-          </span>
-        ),
-      },
-      {
-        id: "loops",
-        label: t("taskCenter.tabs.loops"),
-        iconNode: (
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
-            <path d="M3 8a5 5 0 0 1 9-3M13 8a5 5 0 0 1-9 3" />
-            <path d="M12 2v3h-3M4 14v-3h3" />
-          </svg>
         ),
       },
       {
         id: "history",
         label: t("taskCenter.tabs.history"),
-        iconNode: (
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} width={14} height={14} aria-hidden>
-            <path d="M2 4h12v9H2V4z" />
-            <path d="M2 7h12M5 10h2M9 10h2" />
-          </svg>
-        ),
+        iconNode: <IconClock size={18} />,
       },
     ],
-    [t, inProgressBadge, draftCount, triageCount],
+    [t, running.length, inbox.length],
   );
 
   const renderPanel = useCallback(
     (_tabId: string) => {
       switch (tab) {
-        case "in-progress":
-          return <InProgressTab />;
-        case "pending":
-          return <PendingTab />;
-        case "triage":
-          return <LoopTriageTab />;
-        case "loops":
-          return <LoopsTab />;
+        case "activity":
+          return (
+            <ActivityTab
+              items={running}
+              selection={selection?.tab === "activity" ? selection : null}
+            />
+          );
+        case "inbox": {
+          const findingId =
+            selection?.tab === "inbox" ? selection.id.replace(/^inbox:finding:/, "") : null;
+          return <LoopTriageTab selectedId={findingId} />;
+        }
         case "history":
-          return <HistoryTab />;
+          return (
+            <HistoryTab
+              bucket={selection?.tab === "history" ? selection.bucket : "jobs"}
+              jobId={selection?.tab === "history" ? selection.id : undefined}
+              historyJobs={filteredHistoryJobs}
+              filterActive={historyModuleFilter !== "all"}
+            />
+          );
         default:
           return null;
       }
     },
-    [tab],
+    [tab, selection, running, filteredHistoryJobs, historyModuleFilter],
+  );
+
+  const panelContentKeysByTab = useMemo(
+    () => ({
+      [tab]: selection
+        ? `${selectionKey(selection)}:mod:${historyModuleFilter}`
+        : `empty:${tab}:${approvalCount}:mod:${historyModuleFilter}`,
+    }),
+    [tab, selection, approvalCount, historyModuleFilter],
   );
 
   return (
@@ -900,7 +795,21 @@ export function TaskCenterPanel() {
           <ModuleModeIconRail
             items={modeIconItems}
             activeId={tab}
-            onChange={(id) => setTab(id as TaskCenterTab)}
+            onChange={handleTabChange}
+          />
+        }
+        leftSidebar={
+          <TaskCenterSidebar
+            tab={tab}
+            selection={selection}
+            onSelect={setSelection}
+            running={running}
+            inbox={inbox}
+            historyJobs={historyJobs}
+            filteredHistoryJobs={filteredHistoryJobs}
+            historyModules={historyModules}
+            historyModuleFilter={historyModuleFilter}
+            onHistoryModuleFilterChange={setHistoryModuleFilter}
           />
         }
       >
@@ -913,15 +822,13 @@ export function TaskCenterPanel() {
           contentSuspended={!isActiveRoute}
           windowControl
           showTabBar={false}
-          tabs={[{ id: tab, label: t(`taskCenter.tabs.${tab === "in-progress" ? "inProgress" : tab}`) }]}
+          tabs={[{ id: tab, label: t(`taskCenter.tabs.${tab}`) }]}
           activeTabId={tab}
           onActiveTabChange={() => {}}
           renderPanel={renderPanel}
+          panelContentKeysByTab={panelContentKeysByTab}
           emptyContent={
-            <WorkspaceEmptyPage
-              title={t("routes.tasks")}
-              prompt={t("taskCenter.empty")}
-            />
+            <WorkspaceEmptyPage title={t("routes.tasks")} prompt={t("taskCenter.empty")} />
           }
         />
       </ModuleWorkspaceLayout>

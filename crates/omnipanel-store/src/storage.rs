@@ -546,6 +546,48 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE knowledge_todo_lists ADD COLUMN description TEXT NOT NULL DEFAULT '';
     "#,
+    // v29 — 被动任务终态历史 + 任务中心事件索引
+    r#"
+    CREATE TABLE IF NOT EXISTS bg_task_history (
+        id              TEXT PRIMARY KEY,
+        module          TEXT NOT NULL,
+        kind            TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        progress        TEXT NOT NULL DEFAULT '',
+        status          TEXT NOT NULL,
+        index_n         INTEGER NOT NULL DEFAULT 0,
+        total           INTEGER NOT NULL DEFAULT 0,
+        row_completed   INTEGER,
+        row_total       INTEGER,
+        started_at      INTEGER NOT NULL,
+        finished_at     INTEGER,
+        error           TEXT,
+        created_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bg_task_history_finished
+        ON bg_task_history(COALESCE(finished_at, started_at) DESC);
+    CREATE INDEX IF NOT EXISTS idx_bg_task_history_module
+        ON bg_task_history(module, COALESCE(finished_at, started_at) DESC);
+
+    CREATE TABLE IF NOT EXISTS task_events (
+        id              TEXT PRIMARY KEY,
+        source          TEXT NOT NULL,
+        ref_id          TEXT NOT NULL,
+        module          TEXT NOT NULL DEFAULT '',
+        workspace_id    TEXT,
+        resource_id     TEXT,
+        title           TEXT NOT NULL DEFAULT '',
+        status          TEXT NOT NULL DEFAULT '',
+        env_tag         TEXT NOT NULL DEFAULT '',
+        risk            TEXT NOT NULL DEFAULT '',
+        ts              INTEGER NOT NULL,
+        detail          TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_events_ts ON task_events(ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_events_module ON task_events(module, ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_events_workspace ON task_events(workspace_id, ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_events_resource ON task_events(resource_id, ts DESC);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
