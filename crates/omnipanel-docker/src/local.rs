@@ -1163,6 +1163,7 @@ impl DockerAdapter for LocalDockerAdapter {
             cmd.current_dir(wd);
         }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        crate::host_cli::configure_no_window(&mut cmd);
         let output = cmd.output().await.map_err(|e| {
             OmniError::new(ErrorCode::Internal, "启动 docker compose 失败")
                 .with_cause(e.to_string())
@@ -1522,8 +1523,10 @@ impl DockerAdapter for LocalDockerAdapter {
         // 禁止 download_from_container(path="/")：会把整棵文件系统打成 tar，前端一直「加载中」。
         // 统一走非交互 `docker exec ls -lan`（与 SSH 路径一致）。
         let path = crate::container_dir_ls::normalize_container_dir_path(path);
-        let output = tokio::process::Command::new("docker")
-            .args(["exec", container_id, "ls", "-lan", "--", path])
+        let mut cmd = tokio::process::Command::new("docker");
+        cmd.args(["exec", container_id, "ls", "-lan", "--", path]);
+        crate::host_cli::configure_no_window(&mut cmd);
+        let output = cmd
             .output()
             .await
             .map_err(|e| {
@@ -2395,12 +2398,7 @@ async fn search_images_via_docker_cli(
     ])
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
-    // Windows GUI 宿主进程必须隐藏控制台窗口，否则 docker.exe 可能一直挂起
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::host_cli::configure_no_window(&mut cmd);
     let output = tokio::time::timeout(std::time::Duration::from_secs(30), cmd.output())
         .await
         .map_err(|_| {

@@ -227,6 +227,7 @@ export function DockerContainerDockPanel({
                           connectionId={connection.connectionId}
                           containerId={container.id}
                           source={connection.source}
+                          running={container.running}
                           className="docker-container-sftp-panel"
                         />
                       </div>

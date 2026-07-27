@@ -349,6 +349,8 @@ export const commands = {
 	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
 	/**  按行号范围读取日志行（虚拟滚动按需切片，1-based）。 */
 	sftpLogReadLines: (id: string, path: string, startLine: number, endLine: number) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
+	/**  读取文件末尾 N 行（tail -n N，反向 seek 不扫描整个文件）。用于首屏末尾预览，比 sed 快 30x。行号基于 totalLinesHint 推算。 */
+	sftpLogTailInitial: (id: string, path: string, nLines: number, totalLinesHint: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_initial", { id, path, nLines, totalLinesHint })),
 	/**  搜索日志（grep -n），返回命中行列表。grep exit 1 = no match 非错误。 */
 	sftpLogSearch: (id: string, path: string, pattern: string, isRegex: boolean, maxResults: number | null, contextBefore: number | null, contextAfter: number | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, isRegex, maxResults, contextBefore, contextAfter })),
 	/**  开始实时跟踪（tail -F，支持文件轮转）。输出经 `sftp-log-tail-{token}` 事件推送。 */

@@ -28,6 +28,23 @@ export async function readLogLines(
   return unwrap(await commands.sftpLogReadLines(id, path, startLine, endLine), "sftpLogReadLines");
 }
 
+/**
+ * 读取文件末尾 N 行（tail -n N，反向 seek 不扫描整个文件）。
+ * 用于首屏末尾预览，比 sed -n 'X,Yp' 快 30x（1GB 文件 12ms vs 370ms）。
+ * 行号基于 totalLinesHint 推算：若 hint 为 null，行号从 1 开始（内容仍是末尾 N 行）。
+ */
+export async function readLogTailInitial(
+  id: string,
+  path: string,
+  nLines: number,
+  totalLinesHint: number | null,
+): Promise<LogLine[]> {
+  return unwrap(
+    await commands.sftpLogTailInitial(id, path, nLines, totalLinesHint),
+    "sftpLogTailInitial",
+  );
+}
+
 /** 搜索日志（grep -n），返回命中行列表。 */
 export async function searchLog(
   id: string,
