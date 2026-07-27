@@ -142,6 +142,7 @@ function AccountLinksSection({
           openid: profile.openid,
           email: profile.email,
           githubId: profile.githubId,
+          ossPath: profile.ossPath,
         });
         showToast(
           kind === "wechat"
@@ -264,6 +265,7 @@ export function UserCenterPanel() {
           openid: me.openid,
           email: me.email,
           githubId: me.githubId,
+          ossPath: me.ossPath,
         });
       } catch (error) {
         if (cancelled) return;
@@ -317,6 +319,7 @@ export function UserCenterPanel() {
         openid: me.openid,
         email: me.email,
         githubId: me.githubId,
+        ossPath: me.ossPath,
       });
       setNameDraft(me.nickname);
       showToast(t("userCenter.profile.saveSuccess"));
@@ -360,6 +363,7 @@ export function UserCenterPanel() {
         openid: me.openid,
         email: me.email,
         githubId: me.githubId,
+        ossPath: me.ossPath,
       });
       showToast(t("userCenter.profile.avatarSuccess"));
     } catch (error) {

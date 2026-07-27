@@ -37,6 +37,7 @@ async function refreshProfileFromMe(token: string) {
     openid: me.openid,
     email: me.email,
     githubId: me.githubId,
+    ossPath: me.ossPath,
   });
 }
 
@@ -269,6 +270,7 @@ function EmailLinkPanel({
           openid: me.openid,
           email: me.email,
           githubId: me.githubId,
+          ossPath: me.ossPath,
         });
         showToast(t("userCenter.accountLinks.emailSuccess"));
         onLinked();

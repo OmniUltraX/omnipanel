@@ -81,6 +81,7 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
             openid: me.openid,
             email: me.email,
             githubId: me.githubId,
+            ossPath: me.ossPath,
           });
         } catch {
           const profile = useUserProfileStore.getState();

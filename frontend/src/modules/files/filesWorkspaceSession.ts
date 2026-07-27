@@ -10,6 +10,11 @@ export interface FileConnectionPanelSnapshot {
   currentPath: string;
   history: string[];
   historyIndex: number;
+  /**
+   * S3 连接配置指纹（bucket/endpoint/prefix 等）。
+   * 与当前连接不一致时丢弃恢复路径，避免改桶后地址栏仍停在旧路径。
+   */
+  s3BindKey?: string;
 }
 
 export interface FilesWorkspaceSessionSnapshot {
@@ -45,7 +50,8 @@ function sanitizePanelState(raw: unknown): FileConnectionPanelSnapshot | null {
     : history.length > 0
       ? history.length - 1
       : -1;
-  return { viewMode, detailVisible, currentPath, history, historyIndex };
+  const s3BindKey = typeof o.s3BindKey === "string" ? o.s3BindKey : undefined;
+  return { viewMode, detailVisible, currentPath, history, historyIndex, s3BindKey };
 }
 
 export function sanitizeFilesWorkspaceSession(

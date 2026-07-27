@@ -13,6 +13,11 @@ import { commands } from "../../../ipc/bindings";
 import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
+import {
+  appendChatOssChunk,
+  startChatOssRecording,
+  stopChatOssRecording,
+} from "../../../lib/ai/chatOssRecorder";
 import { createStreamAppendBatcher } from "../../../lib/ai/streamAppendBatcher";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
 import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioModels";
@@ -446,6 +451,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     let totalChunks = 0;
     let latestUsage: { inputTokens: number; outputTokens: number } | undefined;
 
+    startChatOssRecording(convId);
+
     const markFirstToken = () => {
       if (firstTokenAt === undefined) {
         firstTokenAt = performance.now();
@@ -504,10 +511,12 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     const batcher = createStreamAppendBatcher(flushBatched);
 
     const appendText = (chunk: string) => {
+      appendChatOssChunk(chunk);
       batcher.appendContent(chunk);
     };
 
     const appendReasoning = (chunk: string) => {
+      appendChatOssChunk(chunk);
       batcher.appendReasoning(chunk);
     };
 
@@ -851,6 +860,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       if (stallTimer) clearInterval(stallTimer);
       setIsGenerating(false);
       abortRef.current = null;
+      void stopChatOssRecording();
     }
   };
 

@@ -141,11 +141,15 @@ pub async fn conn_delete(state: State<'_, AppState>, id: String) -> Result<(), O
 }
 
 /// 测试连接连通性。当前支持 database（MySQL）；其余类型将在对应里程碑接入。
+///
+/// `secret`：可选明文凭据（文件连接对话框「测试连接」用）。为空时回退到
+/// `connection.credential_ref` 指向的 Vault；保存前测试必须传入表单中的密钥。
 #[tauri::command]
 #[specta::specta]
 pub async fn conn_test(
     state: State<'_, AppState>,
     connection: Connection,
+    secret: Option<String>,
 ) -> Result<String, OmniError> {
     match connection.kind {
         ConnectionKind::Database => {
@@ -188,9 +192,12 @@ pub async fn conn_test(
             }
         }
         ConnectionKind::File => {
-            let msg =
-                crate::commands::file_manager::file_test_connection_config(&state, &connection)
-                    .await?;
+            let msg = crate::commands::file_manager::file_test_connection_config(
+                &state,
+                &connection,
+                secret.as_deref(),
+            )
+            .await?;
             if !connection.id.is_empty() {
                 crate::commands::file_manager::mark_file_connection_online(
                     &state,

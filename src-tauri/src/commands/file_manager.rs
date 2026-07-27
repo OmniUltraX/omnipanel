@@ -571,29 +571,135 @@ async fn ftp_test(cfg: &FileConnConfig, secret: &str) -> Result<(), OmniError> {
 
 // ─── S3 backend ──────────────────────────────────────────────────────────────
 
-pub(crate) fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniError> {
-    let region = if cfg.endpoint.is_empty() {
-        Region::Custom {
-            region: cfg.region.clone(),
-            endpoint: format!("https://s3.{}.amazonaws.com", cfg.region),
-        }
+/// 将虚拟主机风格 endpoint 规范为「区域 / 服务 endpoint」。
+///
+/// rust-s3 默认 subdomain style：请求 host = `{bucket}.{region.host()}`。
+/// 若用户把 endpoint 填成 `https://old-bucket.oss-cn-beijing.aliyuncs.com`，
+/// 再改 bucket 字段，仍会打到含旧桶名的域名（或拼出非法双层子域）。
+pub(crate) fn normalize_s3_api_endpoint(endpoint: &str, bucket: &str) -> String {
+    let raw = endpoint.trim().trim_end_matches('/');
+    if raw.is_empty() {
+        return String::new();
+    }
+    let (scheme, after_scheme) = if let Some(idx) = raw.find("://") {
+        (&raw[..idx], &raw[idx + 3..])
     } else {
-        Region::Custom {
-            region: cfg.region.clone(),
-            endpoint: cfg.endpoint.clone(),
-        }
+        ("https", raw)
+    };
+    let host_port = after_scheme
+        .split('/')
+        .next()
+        .unwrap_or(after_scheme)
+        .trim();
+    if host_port.is_empty() {
+        return String::new();
+    }
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => (h, Some(p)),
+        _ => (host_port, None),
+    };
+    let normalized_host = strip_virtual_hosted_bucket_host(host, bucket);
+    match port {
+        Some(p) => format!("{scheme}://{normalized_host}:{p}"),
+        None => format!("{scheme}://{normalized_host}"),
+    }
+}
+
+fn strip_virtual_hosted_bucket_host(host: &str, bucket: &str) -> String {
+    let Some((first, rest)) = host.split_once('.') else {
+        return host.to_string();
+    };
+    if rest.is_empty() {
+        return host.to_string();
+    }
+    let first_l = first.to_ascii_lowercase();
+    let rest_l = rest.to_ascii_lowercase();
+    let bucket_l = bucket.trim().to_ascii_lowercase();
+
+    // 当前 bucket 作为子域：bucket.oss-cn-xxx.aliyuncs.com
+    if !bucket_l.is_empty() && first_l == bucket_l {
+        return rest.to_string();
+    }
+    // 阿里云 OSS 虚拟主机：*.oss-*.aliyuncs.com / *.oss.*.aliyuncs.com
+    if (rest_l.starts_with("oss-") || rest_l.starts_with("oss.")) && rest_l.contains("aliyuncs.com")
+    {
+        return rest.to_string();
+    }
+    // AWS S3 虚拟主机
+    if rest_l == "s3.amazonaws.com"
+        || (rest_l.starts_with("s3.") && rest_l.ends_with(".amazonaws.com"))
+        || (rest_l.starts_with("s3-") && rest_l.ends_with(".amazonaws.com"))
+    {
+        return rest.to_string();
+    }
+    // 腾讯云 COS
+    if rest_l.starts_with("cos.") && rest_l.contains("myqcloud.com") {
+        return rest.to_string();
+    }
+    host.to_string()
+}
+
+pub(crate) fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket>, OmniError> {
+    let endpoint = if cfg.endpoint.is_empty() {
+        format!("https://s3.{}.amazonaws.com", cfg.region)
+    } else {
+        normalize_s3_api_endpoint(&cfg.endpoint, &cfg.bucket)
+    };
+    let endpoint_host = endpoint_host_of(&endpoint);
+    let prefer_path_style = is_path_style_s3_host(&endpoint_host);
+    let region = Region::Custom {
+        region: cfg.region.clone(),
+        endpoint,
     };
     let creds = Credentials::new(Some(&cfg.access_key), Some(secret), None, None, None)
         .map_err(|e| OmniError::new(ErrorCode::Auth, "S3 凭据无效").with_cause(e.to_string()))?;
-    Bucket::new(&cfg.bucket, region, creds).map_err(|e| {
+    let mut bucket = Bucket::new(&cfg.bucket, region, creds).map_err(|e| {
         OmniError::new(ErrorCode::Connection, "创建 S3 客户端失败").with_cause(e.to_string())
-    })
+    })?;
+    // IP / localhost 走 path-style，避免拼出非法子域。
+    if prefer_path_style {
+        bucket.set_path_style();
+    }
+    Ok(bucket)
+}
+
+fn endpoint_host_of(endpoint: &str) -> String {
+    let raw = endpoint.trim();
+    let after_scheme = raw
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(raw);
+    let host_port = after_scheme.split('/').next().unwrap_or(after_scheme);
+    host_port
+        .rsplit_once(':')
+        .and_then(|(h, p)| {
+            if !h.is_empty() && p.chars().all(|c| c.is_ascii_digit()) {
+                Some(h.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| host_port.to_string())
+}
+
+fn is_path_style_s3_host(host: &str) -> bool {
+    let h = host.trim();
+    if h.is_empty() {
+        return false;
+    }
+    h.eq_ignore_ascii_case("localhost") || h.parse::<std::net::IpAddr>().is_ok()
 }
 
 pub(crate) fn normalize_s3_prefix(path: &str, cfg: &FileConnConfig) -> String {
     let base = cfg.prefix.trim_matches('/');
-    let p = path.trim_matches('/');
-    if path.is_empty() || path == "/" {
+    // 前端路径相对配置 prefix；若误带上 prefix 前缀则剥离，避免双重拼接
+    let mut p = path.trim_matches('/').to_string();
+    if !base.is_empty() {
+        if let Some(rest) = p.strip_prefix(base) {
+            p = rest.trim_matches('/').to_string();
+        }
+    }
+    if path.is_empty() || path == "/" || p.is_empty() {
         if base.is_empty() {
             return String::new();
         }
@@ -958,6 +1064,36 @@ mod s3_search_tests {
             "root/foo/bar"
         );
     }
+
+    #[test]
+    fn normalize_endpoint_strips_virtual_hosted_bucket() {
+        assert_eq!(
+            normalize_s3_api_endpoint(
+                "https://old-bucket.oss-cn-beijing.aliyuncs.com",
+                "new-bucket"
+            ),
+            "https://oss-cn-beijing.aliyuncs.com"
+        );
+        assert_eq!(
+            normalize_s3_api_endpoint(
+                "https://new-bucket.oss-cn-beijing.aliyuncs.com",
+                "new-bucket"
+            ),
+            "https://oss-cn-beijing.aliyuncs.com"
+        );
+        assert_eq!(
+            normalize_s3_api_endpoint("https://oss-cn-beijing.aliyuncs.com", "any"),
+            "https://oss-cn-beijing.aliyuncs.com"
+        );
+        assert_eq!(
+            normalize_s3_api_endpoint("https://my.s3.us-east-1.amazonaws.com", "x"),
+            "https://s3.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            normalize_s3_api_endpoint("http://127.0.0.1:9000", "minio"),
+            "http://127.0.0.1:9000"
+        );
+    }
 }
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
@@ -1144,12 +1280,20 @@ pub async fn file_save_connection(
 }
 
 /// 测试未保存或已保存的文件连接配置。
+///
+/// `secret_override`：对话框测试时传入的明文密钥；为空则回退 Vault。
 pub async fn file_test_connection_config(
     state: &AppState,
     connection: &Connection,
+    secret_override: Option<&str>,
 ) -> Result<String, OmniError> {
     let cfg = parse_file_config(connection)?;
-    let secret = resolve_secret(connection).unwrap_or_default();
+    let secret = secret_override
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| resolve_secret(connection))
+        .unwrap_or_default();
     match protocol_of(&cfg) {
         FileProtocol::Local => {
             let home = local_home()?;
@@ -1164,6 +1308,11 @@ pub async fn file_test_connection_config(
             Ok("FTP 连接成功".into())
         }
         FileProtocol::S3 => {
+            if cfg.access_key.trim().is_empty() || secret.is_empty() {
+                return Err(OmniError::invalid_input(
+                    "请填写 Access Key 与 Secret Key（保存前测试需在表单中输入密钥）",
+                ));
+            }
             let bucket = s3_bucket(&cfg, &secret)?;
             // 使用 head_object 对一个几乎不存在的 key 做探测，避免 list 的 XML
             // 反序列化（rust-s3 0.35 的 ListBucketResult 要求 Name 字段，部分 S3 兼容
@@ -1185,7 +1334,8 @@ pub async fn file_test_connection_config(
                         format!("S3 连接测试失败（HTTP {other}）"),
                     )),
                 },
-                Err(e) => Err(OmniError::new(ErrorCode::Connection, "S3 连接测试失败").with_cause(e.to_string())),
+                Err(e) => Err(OmniError::new(ErrorCode::Connection, "S3 连接测试失败")
+                    .with_cause(e.to_string())),
             }
         }
     }
@@ -1205,7 +1355,7 @@ pub async fn file_test_connection(
     let conn = load_file_connection(&state, &connection_id)
         .await?
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let result = file_test_connection_config(&state, &conn).await?;
+    let result = file_test_connection_config(&state, &conn, None).await?;
     mark_file_connection_online(&state, &connection_id);
     Ok(result)
 }
