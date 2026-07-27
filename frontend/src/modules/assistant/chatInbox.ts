@@ -2,6 +2,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
 import { ASSISTANT_CHAT_INBOUND } from "../../ipc/events";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { sendToAiDock } from "../../lib/ai/sendToAiDock";
 import { safeTauriUnlisten } from "../../lib/safeTauriUnlisten";
 import { useAiStore } from "../../stores/aiStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -19,6 +20,10 @@ export type AssistantChatInboundPayload = {
 let startedToken: string | null = null;
 let unlistenInbound: UnlistenFn | null = null;
 let startPromise: Promise<void> | null = null;
+
+/** 入站提示排队：当前正在生成时先入队，避免 submit 被直接丢弃。 */
+const inboundQueue: string[] = [];
+let drainingQueue = false;
 
 function loadSeenIds(): Set<string> {
   try {
@@ -51,12 +56,51 @@ function markSeen(messageId: string): boolean {
   return true;
 }
 
-function ensureConversationId(): string {
-  const store = useAiStore.getState();
-  if (store.activeConversationId) {
-    return store.activeConversationId;
+function waitUntilIdle(timeoutMs = 120_000): Promise<boolean> {
+  const started = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (!useAiStore.getState().isGenerating) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      window.setTimeout(tick, 200);
+    };
+    tick();
+  });
+}
+
+async function drainInboundQueue(): Promise<void> {
+  if (drainingQueue) return;
+  drainingQueue = true;
+  try {
+    while (inboundQueue.length > 0) {
+      const idle = await waitUntilIdle();
+      if (!idle) {
+        console.warn("[assistant-chat-inbox] wait for AI idle timed out");
+        break;
+      }
+      const text = inboundQueue.shift();
+      if (!text) continue;
+      try {
+        await sendToAiDock(text, {
+          openDrawer: true,
+          contextChips: [{ type: "assistant-remote", label: "助手端" }],
+        });
+      } catch (err) {
+        console.warn("[assistant-chat-inbox] submit failed", err);
+      }
+    }
+  } finally {
+    drainingQueue = false;
+    if (inboundQueue.length > 0) {
+      void drainInboundQueue();
+    }
   }
-  return store.createConversation();
 }
 
 function applyInbound(payload: AssistantChatInboundPayload): void {
@@ -70,15 +114,9 @@ function applyInbound(payload: AssistantChatInboundPayload): void {
     return;
   }
 
-  const store = useAiStore.getState();
-  const convId = ensureConversationId();
-  // 助手端发来的内容在客户端会话中按「对方」展示
-  store.addMessage(convId, {
-    role: "user",
-    content: text,
-  });
-  store.setActiveConversation(convId);
-  store.openDrawer();
+  // 走正式发消息链路：写入用户消息 + 触发 AI 生成（不是只塞进历史）
+  inboundQueue.push(text);
+  void drainInboundQueue();
 }
 
 /** 登录后启动：订阅 App Event + 后端 SSE/latest 收件箱。 */
@@ -125,6 +163,7 @@ export async function stopAssistantChatInbox(): Promise<void> {
   startedToken = null;
   safeTauriUnlisten(unlistenInbound);
   unlistenInbound = null;
+  inboundQueue.length = 0;
   try {
     await unwrapCommand(commands.assistantChatInboxStop(), { quiet: true });
   } catch {

@@ -161,7 +161,7 @@ UTF-8。前若干行为元数据注释，空行后为 **NDJSON**（每行一个 
 
 - 后端收件箱：`src-tauri/src/commands/assistant_chat.rs`（`assistant_chat_inbox_start` / `stop` / `latest` / `fetch_object`）
 - App Event：`assistant-chat-inbound`（见 `frontend/src/ipc/events.ts`）
-- 前端订阅与去重：`frontend/src/modules/assistant/chatInbox.ts`（按 `messageId` 本地去重，写入当前 AI 会话）
+- 前端订阅与去重：`frontend/src/modules/assistant/chatInbox.ts`（按 `messageId` 本地去重，经 `sendToAiDock` 写入用户消息并触发 AI 生成）
 
 ## 客户端实现索引
 
