@@ -58,7 +58,6 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
-  ListTodoIcon,
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -75,9 +74,18 @@ import {
   useState,
   type ComponentType,
   type FC,
+  type PointerEvent as ReactPointerEvent,
   type PropsWithChildren,
 } from "react";
-import { PlanView } from "../ai/PlanView";
+import { PlanView, usePlanCollapsed } from "../ai/PlanView";
+import {
+  clampPlanStickyHeight,
+  MAX_PLAN_STICKY_HEIGHT,
+  MIN_PLAN_STICKY_HEIGHT,
+  readStoredPlanStickyHeight,
+  useThreadStickyTargets,
+  writeStoredPlanStickyHeight,
+} from "../ai/useStickyPlanId";
 import { SubConversationClusterCard } from "../ai/SubConversationClusterCard";
 import { AiApprovalDock } from "../ai/AiApprovalDock";
 import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
@@ -85,17 +93,7 @@ import type {
   PlanData,
   SubConversationClusterPartData,
 } from "../../lib/ai/aiMessageParts";
-import {
-  parseMarkdownChecklist,
-  textFromMessageParts,
-} from "../../lib/ai/parseMarkdownChecklist";
-import {
-  createTodoItem,
-  nextTodoSortOrder,
-  newTodoId,
-  useKnowledgeTodoStore,
-} from "../../stores/knowledgeTodoStore";
-import { showToast } from "../../stores/toastStore";
+import { textFromMessageParts } from "../../lib/ai/parseMarkdownChecklist";
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
 /** 从 data part 提取 plan 数据；非 plan 返回 null */
@@ -133,179 +131,183 @@ function extractClusterFromDataPart(
 }
 
 /**
- * Plan 吸顶浮层：对话流内 PlanView 滚出视口顶部时，显示一份吸顶副本。
- *
- * 设计（参考终端 AI 内嵌卡片吸顶）：
- * - 对话流内保留 PlanView 原始渲染（有消息上下文位置）
- * - 本组件在 Viewport 内顶部 sticky，用 scroll 事件监测对话流内 PlanView 位置
- * - PlanView 在视口内时本组件隐藏（opacity-0 + max-h-0）；滚出视口顶部时显示（吸顶）
- *
- * 实现要点：
- * - 始终渲染 sticky 容器（避免 display:none 切换导致 sticky 失效）
- * - 用 scroll 事件 + getBoundingClientRect 检测对话流内 PlanView（排除吸顶副本自身）
- * - 用 MutationObserver + setTimeout 应对 PlanView 延迟挂载
- * - 用 requestAnimationFrame 节流 scroll 回调
+ * 会话吸顶栈：用户消息在上、TodoList 在下。
+ * TodoList 默认限高，底部可拖拽调整（偏好写入 localStorage）。
  */
-const PlanStickyHeader: FC = () => {
+const ThreadStickyStack: FC = () => {
+  const { t } = useI18n();
   const viewingChildConversationId = useAiStore((s) => s.viewingChildConversationId);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const activeConv = useAiStore((s) =>
     s.conversations.find((c) => c.id === activeConversationId),
   );
   const plans = useAiOrchestrationStore((s) => s.plans);
+  const stickyRef = useRef<HTMLDivElement>(null);
+  const [planStickyHeight, setPlanStickyHeight] = useState(readStoredPlanStickyHeight);
+  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
-  const planId = useMemo(() => {
-    if (!activeConv) return null;
-    const planIds: { id: string; updatedAt: number }[] = [];
+  const planSnapshots = useMemo(() => {
+    const map = new Map<string, PlanData>();
+    if (!activeConv) return map;
     for (const msg of activeConv.messages) {
-      const parts = msg.parts ?? [];
-      for (const p of parts) {
+      for (const p of msg.parts ?? []) {
         if (p.type === "plan") {
-          planIds.push({ id: p.plan.id, updatedAt: p.plan.updatedAt });
+          map.set(p.plan.id, p.plan);
         }
       }
     }
-    if (planIds.length === 0) return null;
-    planIds.sort((a, b) => b.updatedAt - a.updatedAt);
-    return planIds[0].id;
+    return map;
   }, [activeConv]);
 
-  const plan = planId ? plans[planId] : null;
-  const [stuck, setStuck] = useState(false);
-  const rafRef = useRef(0);
-  const stickyRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (viewingChildConversationId || !planId) {
-      setStuck(false);
-      return;
+  const userMessagesById = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!activeConv) return map;
+    for (const msg of activeConv.messages) {
+      if (msg.role !== "user") continue;
+      const text =
+        msg.content?.trim() ||
+        textFromMessageParts(msg.parts ?? []);
+      if (text) map.set(msg.id, text);
     }
+    return map;
+  }, [activeConv]);
 
-    let scrollParent: Element | null = null;
-    let mutationObserver: MutationObserver | null = null;
-    let cleaned = false;
-    let scrollHandler: (() => void) | null = null;
+  const hasStickySources = userMessagesById.size > 0 || planSnapshots.size > 0;
+  const activitySignature = useMemo(() => {
+    if (!activeConv) return "";
+    return `${activeConv.id}:${activeConv.messages.length}:${planSnapshots.size}:${userMessagesById.size}`;
+  }, [activeConv, planSnapshots.size, userMessagesById.size]);
 
-    // 查找对话流内的 PlanView（排除吸顶浮层自身）
-    const findInlinePlanEl = (): Element | null => {
-      if (!planId) return null;
-      const all = document.querySelectorAll(`[data-plan-id="${CSS.escape(planId)}"]`);
-      for (const el of all) {
-        if (!el.closest('[data-slot="ai-plan-sticky-header"]')) {
-          return el;
-        }
-      }
-      return null;
-    };
+  const { userMessageId: stickyUserMessageId, planId: stickyPlanId } =
+    useThreadStickyTargets({
+      enabled: !viewingChildConversationId && hasStickySources,
+      stickyRef,
+      activitySignature,
+    });
 
-    const checkStuck = () => {
-      const planEl = findInlinePlanEl();
-      if (!planEl) return;
-      const rect = planEl.getBoundingClientRect();
-      // PlanView 顶部在视口顶部之上时（top < 0）触发吸顶
-      setStuck(rect.top < 0);
-    };
+  const stickyUserText =
+    stickyUserMessageId != null
+      ? (userMessagesById.get(stickyUserMessageId) ?? null)
+      : null;
+  const plan =
+    stickyPlanId != null
+      ? (plans[stickyPlanId] ?? planSnapshots.get(stickyPlanId) ?? null)
+      : null;
 
-    const onScroll = () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(checkStuck);
-    };
+  const userStuck = stickyUserMessageId != null && stickyUserText != null;
+  const planStuck = stickyPlanId != null && plan != null;
+  const stuck = userStuck || planStuck;
+  const planCollapsed = usePlanCollapsed(stickyPlanId ?? "", false);
 
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      if (scrollParent && scrollHandler) {
-        scrollParent.removeEventListener("scroll", scrollHandler);
-      }
-      if (mutationObserver) mutationObserver.disconnect();
-    };
+  const onPlanResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      dragRef.current = {
+        startY: event.clientY,
+        startHeight: planStickyHeight,
+      };
 
-    // 查找滚动容器：优先用 data-slot，备选用 overflow 计算
-    const findScrollParent = (): Element | null => {
-      const viewport = document.querySelector('[data-slot="aui_thread-viewport"]');
-      if (viewport) {
-        const style = getComputedStyle(viewport);
-        if (style.overflowY === "auto" || style.overflowY === "scroll") {
-          return viewport;
-        }
-      }
-      // 备选：从 stickyRef 向上找
-      let node = stickyRef.current?.parentElement ?? null;
-      while (node && node !== document.body) {
-        const style = getComputedStyle(node);
-        if (
-          (style.overflowY === "auto" || style.overflowY === "scroll") &&
-          node.scrollHeight > node.clientHeight
-        ) {
-          return node;
-        }
-        node = node.parentElement;
-      }
-      return null;
-    };
+      const onMove = (moveEvent: globalThis.PointerEvent) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        const next = clampPlanStickyHeight(
+          drag.startHeight + (moveEvent.clientY - drag.startY),
+        );
+        setPlanStickyHeight(next);
+      };
 
-    const attach = () => {
-      if (cleaned) return;
-      scrollParent = findScrollParent();
-      if (!scrollParent) return;
+      const onUp = () => {
+        dragRef.current = null;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        setPlanStickyHeight((current) => {
+          writeStoredPlanStickyHeight(current);
+          return current;
+        });
+      };
 
-      scrollHandler = onScroll;
-      scrollParent.addEventListener("scroll", scrollHandler, { passive: true });
-      checkStuck();
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "row-resize";
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [planStickyHeight],
+  );
 
-      // 监听 PlanView 延迟挂载
-      mutationObserver = new MutationObserver(() => {
-        if (findInlinePlanEl()) {
-          checkStuck();
-        }
-      });
-      mutationObserver.observe(scrollParent, { childList: true, subtree: true });
-    };
-
-    // 延迟一帧 + 重试，确保 DOM 已渲染
-    const initTimer = setTimeout(attach, 200);
-    // 再重试一次（应对长延迟挂载）
-    const retryTimer = setTimeout(attach, 1000);
-
-    return () => {
-      clearTimeout(initTimer);
-      clearTimeout(retryTimer);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      cleanup();
-    };
-  }, [planId, viewingChildConversationId]);
-
-  if (!planId || !plan || viewingChildConversationId) return null;
+  if (viewingChildConversationId || !hasStickySources) return null;
 
   return (
     <div
       ref={stickyRef}
-      data-slot="ai-plan-sticky-header"
+      data-slot="ai-thread-sticky-stack"
       className={cn(
-        "sticky top-0 z-20 overflow-hidden transition-all duration-200",
+        "sticky top-0 z-20 flex flex-col overflow-hidden transition-all duration-200",
         stuck
-          ? "max-h-96 opacity-100 -mx-4 px-4 pt-2 pb-1 bg-background/95 backdrop-blur-sm border-b border-border"
+          ? "opacity-100 -mx-4 px-4 pt-2 pb-1 bg-background/95 backdrop-blur-sm border-b border-border"
           : "max-h-0 opacity-0 pointer-events-none",
       )}
     >
-      <PlanView
-        planId={planId}
-        snapshot={plan}
-        defaultCollapsed={false}
-        showCancelRemaining
-        onCancelRemaining={() => {
-          const store = useAiOrchestrationStore.getState();
-          for (const step of plan.steps) {
-            if (step.status === "pending" || step.status === "in_progress") {
-              store.updatePlanStep(planId, step.id, {
-                status: "skipped",
-                summary: "用户取消剩余步骤",
-              });
-            }
-          }
-          store.updatePlan(planId, { status: "cancelled" });
-        }}
-      />
+      {userStuck && stickyUserMessageId && stickyUserText && (
+        <div
+          data-slot="ai-user-sticky-header"
+          data-message-id={stickyUserMessageId}
+          className={cn("shrink-0", planStuck && "pb-1.5")}
+        >
+          <div className="flex justify-end">
+            <div className="aui-user-message-content bg-muted text-foreground max-w-[85%] rounded-lg px-4 py-2 text-sm wrap-break-word line-clamp-3">
+              {stickyUserText}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {planStuck && stickyPlanId && plan && (
+        <div data-slot="ai-plan-sticky-header" className="flex min-w-0 flex-col">
+          <div
+            className="flex min-h-0 flex-col overflow-hidden"
+            style={planCollapsed ? undefined : { height: planStickyHeight }}
+          >
+            <PlanView
+              planId={stickyPlanId}
+              snapshot={plan}
+              defaultCollapsed={false}
+              scrollable={!planCollapsed}
+              showCancelRemaining
+              onCancelRemaining={() => {
+                const store = useAiOrchestrationStore.getState();
+                const live = store.plans[stickyPlanId] ?? plan;
+                for (const step of live.steps) {
+                  if (step.status === "pending" || step.status === "in_progress") {
+                    store.updatePlanStep(stickyPlanId, step.id, {
+                      status: "skipped",
+                      summary: "用户取消剩余步骤",
+                    });
+                  }
+                }
+                store.updatePlan(stickyPlanId, { status: "cancelled" });
+              }}
+            />
+          </div>
+          {!planCollapsed && (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={t("ai.plan.resizeHandle")}
+              aria-valuemin={MIN_PLAN_STICKY_HEIGHT}
+              aria-valuemax={MAX_PLAN_STICKY_HEIGHT}
+              aria-valuenow={planStickyHeight}
+              className="group relative h-2 shrink-0 cursor-row-resize touch-none"
+              onPointerDown={onPlanResizePointerDown}
+            >
+              <div className="absolute inset-x-10 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-border transition-colors group-hover:bg-accent group-active:bg-accent" />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -382,8 +384,8 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
             <Welcome />
           </AuiIf>
 
-          {/* Plan 吸顶浮层：对话流内 PlanView 滚出视口时显示 */}
-          <PlanStickyHeader />
+          {/* 吸顶栈：用户消息在上、TodoList 在下 */}
+          <ThreadStickyStack />
 
           <div
             data-slot="aui_message-group"
@@ -505,61 +507,6 @@ const WelcomeSuggestionChip: FC<{
         {title}
       </Button>
     </div>
-  );
-};
-
-const SaveAsTodoButton: FC = () => {
-  const { t } = useI18n();
-  const [busy, setBusy] = useState(false);
-  const content = useAuiState((s) => s.message.content);
-  const running = useAuiState((s) => s.message.status?.type === "running");
-
-  const onSave = useCallback(async () => {
-    if (busy || running) return;
-    const text = textFromMessageParts(content);
-    const parsed = parseMarkdownChecklist(text, t("knowledge.todos.untitled"));
-    if (!parsed) {
-      showToast(t("ai.saveTodo.empty"));
-      return;
-    }
-    setBusy(true);
-    try {
-      const store = useKnowledgeTodoStore.getState();
-      if (store.lists.length === 0) {
-        await store.loadLists();
-      }
-      const now = Date.now();
-      const ok = await store.saveList({
-        id: newTodoId(),
-        title: parsed.title,
-        description: "",
-        items: parsed.items.map((item) =>
-          createTodoItem({
-            name: item.text,
-            executor: "",
-            description: item.text,
-            done: item.done,
-          }),
-        ),
-        sortOrder: nextTodoSortOrder(useKnowledgeTodoStore.getState().lists),
-        createdAt: now,
-        updatedAt: now,
-      });
-      showToast(ok ? t("ai.saveTodo.success") : t("ai.saveTodo.failed"));
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, content, running, t]);
-
-  return (
-    <TooltipIconButton
-      tooltip={t("ai.saveTodo.tooltip")}
-      onClick={() => void onSave()}
-      disabled={busy || running}
-      aria-label={t("ai.saveTodo.button")}
-    >
-      <ListTodoIcon />
-    </TooltipIconButton>
   );
 };
 
@@ -953,7 +900,6 @@ const AssistantActionBar: FC = () => {
       autohide="not-last"
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in col-start-3 row-start-2 -ms-1 flex gap-1 duration-200"
     >
-      <SaveAsTodoButton />
       <ActionBarPrimitive.Copy asChild>
         <TooltipIconButton tooltip={t("ai.composer.buttonCopy")}>
           <AuiIf condition={(s) => s.message.isCopied}>
@@ -998,9 +944,11 @@ const AssistantActionBar: FC = () => {
 };
 
 const UserMessage: FC = () => {
+  const messageId = useAuiState((s) => s.message.id);
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
+      data-message-id={messageId}
       className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 duration-150 [contain-intrinsic-size:auto_60px] [content-visibility:auto] [&:where(>*)]:col-start-2"
       data-role="user"
     >

@@ -2,7 +2,7 @@ import type { ModuleKey } from "../../paths";
 
 /**
  * 逻辑 Agent 标识。
- * - `plan`：AI 助手页 Plan 模式，主责制定执行计划；仅全局工具（含 `omni_knowledge_save_todolist`）
+ * - `plan`：AI 助手页 Plan 模式，主责制定执行计划；仅全局工具（交付物为 `omni_knowledge_create_document` Plan 文档）
  * - `run`：AI 助手页 Run 模式，可调用全部工具直接执行
  * - 其余与模块一一对应，各自独立工具域
  */

@@ -588,6 +588,51 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_task_events_workspace ON task_events(workspace_id, ts DESC);
     CREATE INDEX IF NOT EXISTS idx_task_events_resource ON task_events(resource_id, ts DESC);
     "#,
+    // v30 — 个人待办（MS To Do 对齐）：列表 / 任务 / 步骤
+    r#"
+    CREATE TABLE IF NOT EXISTS todo_lists (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        is_default  INTEGER NOT NULL DEFAULT 0,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_lists_sort ON todo_lists(is_default DESC, sort_order ASC);
+
+    CREATE TABLE IF NOT EXISTS todo_tasks (
+        id            TEXT PRIMARY KEY,
+        list_id       TEXT NOT NULL,
+        title         TEXT NOT NULL,
+        note          TEXT NOT NULL DEFAULT '',
+        important     INTEGER NOT NULL DEFAULT 0,
+        my_day_on     TEXT,
+        due_at        INTEGER,
+        remind_at     INTEGER,
+        recurrence    TEXT NOT NULL DEFAULT '',
+        completed     INTEGER NOT NULL DEFAULT 0,
+        completed_at  INTEGER,
+        sort_order    INTEGER NOT NULL DEFAULT 0,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL,
+        FOREIGN KEY(list_id) REFERENCES todo_lists(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_list ON todo_tasks(list_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_important ON todo_tasks(important, completed);
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_due ON todo_tasks(due_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_my_day ON todo_tasks(my_day_on);
+    CREATE INDEX IF NOT EXISTS idx_todo_tasks_remind ON todo_tasks(remind_at);
+
+    CREATE TABLE IF NOT EXISTS todo_steps (
+        id          TEXT PRIMARY KEY,
+        task_id     TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        done        INTEGER NOT NULL DEFAULT 0,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_todo_steps_task ON todo_steps(task_id, sort_order);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -677,6 +722,40 @@ impl Storage {
         self.repair_builtin_tools()?;
         self.builtin_tool_sync_all_modules()?;
         self.ensure_global_tags()?;
+        self.repair_knowledge_todo_schema()?;
+        self.ensure_todo_schema_data()?;
+        Ok(())
+    }
+
+    /// 兼容旧库：待办表缺 description 列时补齐（v28 曾因版本跳跃未执行）。
+    fn repair_knowledge_todo_schema(&self) -> OmniResult<()> {
+        self.conn
+            .execute_batch(
+                r#"
+                CREATE TABLE IF NOT EXISTS knowledge_todo_lists (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    items TEXT NOT NULL DEFAULT '[]',
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_knowledge_todo_sort
+                    ON knowledge_todo_lists(sort_order, updated_at);
+                "#,
+            )
+            .map_err(map_sqlite)?;
+        // 旧表已存在且无 description 时，上面的 CREATE IF NOT EXISTS 不会改结构，需 ALTER。
+        if let Err(err) = self.conn.execute(
+            "ALTER TABLE knowledge_todo_lists ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
         Ok(())
     }
 
@@ -1014,5 +1093,65 @@ mod tests {
         };
         storage.http_save_request(&req).unwrap();
         assert_eq!(storage.http_list_requests(None).unwrap().len(), 1);
+    }
+
+    /// schema_version 已到最新，但 knowledge_todo_lists 仍缺 description（v28 未真正落列）。
+    #[test]
+    fn repair_adds_missing_knowledge_todo_description() {
+        use crate::knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("todo-legacy.db");
+        {
+            let conn = SqliteConnection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+                .unwrap();
+            for (idx, script) in MIGRATIONS.iter().enumerate() {
+                let version = (idx + 1) as i64;
+                // 跳过 v28：模拟「版本号已前进但列未加上」需靠 repair
+                if version == 28 {
+                    conn.execute(
+                        "INSERT INTO schema_version (version) VALUES (?1)",
+                        [version],
+                    )
+                    .unwrap();
+                    continue;
+                }
+                conn.execute_batch(script).unwrap();
+                conn.execute(
+                    "INSERT INTO schema_version (version) VALUES (?1)",
+                    [version],
+                )
+                .unwrap();
+            }
+            let has_desc: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('knowledge_todo_lists') WHERE name='description'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(has_desc, 0);
+        }
+
+        let storage = Storage::open(&path, None).unwrap();
+        let list = KnowledgeTodoList {
+            id: "t1".into(),
+            title: "修复后可写".into(),
+            description: "摘要".into(),
+            items: vec![KnowledgeTodoItem {
+                id: "i1".into(),
+                name: "项".into(),
+                executor: String::new(),
+                description: String::new(),
+                done: false,
+            }],
+            sort_order: 0,
+            created_at: 1,
+            updated_at: 1,
+        };
+        storage.save_knowledge_todo(&list).unwrap();
+        let got = storage.get_knowledge_todo("t1").unwrap().unwrap();
+        assert_eq!(got.description, "摘要");
     }
 }

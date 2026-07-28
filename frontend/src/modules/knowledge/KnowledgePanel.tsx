@@ -11,12 +11,14 @@ import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore
 import { KnowledgeDocumentPanel } from "./KnowledgeDocumentPanel";
 import { KnowledgeChunksPanel } from "./KnowledgeChunksPanel";
 import { KnowledgeSidebar } from "./KnowledgeSidebar";
-import { KnowledgeTodosView } from "./KnowledgeTodosView";
 import { isKnowledgeImported } from "./knowledgeTree";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
 
-type KnowledgeModuleTab = "library" | "todos";
-const KNOWLEDGE_TABS: KnowledgeModuleTab[] = ["library", "todos"];
+type KnowledgeModuleTab = "library";
+const KNOWLEDGE_TABS: KnowledgeModuleTab[] = ["library"];
+const LEGACY_KNOWLEDGE_TAB_ALIASES: Record<string, KnowledgeModuleTab> = {
+  todos: "library",
+};
 
 /** AI 工具完成事件 payload（与 AiRuntimeProvider 派发端对齐） */
 interface AiKnowledgeToolPayload {
@@ -77,7 +79,9 @@ export function KnowledgePanel() {
   const { t } = useI18n();
   const location = useLocation();
   const isActiveRoute = location.pathname === "/module/knowledge";
-  const [mode, setMode] = usePersistedModuleTab("knowledge", "library", KNOWLEDGE_TABS);
+  const [mode, setMode] = usePersistedModuleTab("knowledge", "library", KNOWLEDGE_TABS, {
+    aliases: LEGACY_KNOWLEDGE_TAB_ALIASES,
+  });
   const loadEntries = useKnowledgeStore((s) => s.loadEntries);
   const error = useKnowledgeStore((s) => s.error);
   const clearError = useKnowledgeStore((s) => s.clearError);
@@ -123,10 +127,8 @@ export function KnowledgePanel() {
   const [pendingRemoveEntryId, setPendingRemoveEntryId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mode === "library") {
-      void loadEntries();
-    }
-  }, [loadEntries, mode]);
+    void loadEntries();
+  }, [loadEntries]);
 
   /**
    * 处理单条 AI 知识库工具完成事件：
@@ -136,9 +138,6 @@ export function KnowledgePanel() {
    */
   const handleAiKnowledgeToolCompleted = useCallback(
     async (payload: AiKnowledgeToolPayload) => {
-      // 仅 library 模式处理（todos 模式无文档视图）
-      if (mode !== "library") return;
-
       await loadEntries();
 
       if (payload.toolName === "omni_knowledge_create_document") {
@@ -162,7 +161,7 @@ export function KnowledgePanel() {
         }
       }
     },
-    [loadEntries, mode],
+    [loadEntries],
   );
 
   // 监听 AI 工具完成事件（面板已挂载 + 后续完成时）
@@ -178,7 +177,6 @@ export function KnowledgePanel() {
 
   // 挂载时消费 localStorage 中遗留的 pending 事件（面板未挂载时由 AiRuntimeProvider 写入）
   useEffect(() => {
-    if (mode !== "library") return;
     let pending: AiKnowledgeToolPayload[] = [];
     try {
       pending = JSON.parse(localStorage.getItem(PENDING_REFRESH_KEY) ?? "[]");
@@ -199,10 +197,8 @@ export function KnowledgePanel() {
         await handleAiKnowledgeToolCompleted(payload);
       }
     })();
-    // 仅在 mount + mode 切到 library 时消费一次；handleAiKnowledgeToolCompleted 依赖 mode，
-    // 但其内部已对 mode 做判断，此处不再列入依赖（避免每次重渲染都重新跑）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, []);
 
   // entries 重新加载后，根据 pending 状态执行 openEntry / 关 tab
   useEffect(() => {
@@ -236,7 +232,6 @@ export function KnowledgePanel() {
   const modeIconItems = useMemo(
     () => [
       { id: "library", label: t("knowledge.tabs.library"), icon: "file-local" as const },
-      { id: "todos", label: t("knowledge.tabs.todos"), icon: "table" as const },
     ],
     [t],
   );
@@ -244,23 +239,19 @@ export function KnowledgePanel() {
   // 布局与 tabs 短暂不一致时，交给 DockableWorkspace.syncTabsToApi 增量补面板；
   // 切勿把 savedLayout 置 null —— 会触发 api.clear()，表现为「单击干掉所有 Tab」。
   const effectiveDockLayout = useMemo(() => {
-    if (mode !== "library") {
-      return null;
-    }
     if (workspaceTabs.length === 0) {
       return null;
     }
     return dockLayout;
-  }, [dockLayout, mode, workspaceTabs.length]);
+  }, [dockLayout, workspaceTabs.length]);
 
   useEffect(() => {
-    if (mode !== "library" || !activeTabId) return;
+    if (!activeTabId) return;
     const tab = workspaceTabs.find((item) => item.id === activeTabId);
     if (tab) setSelectedEntry(tab.entryId);
-  }, [activeTabId, mode, setSelectedEntry, workspaceTabs]);
+  }, [activeTabId, setSelectedEntry, workspaceTabs]);
 
   useEffect(() => {
-    if (mode !== "library") return;
     setWorkspaceTabs((prev) => {
       let changed = false;
       const next = prev.map((tab) => {
@@ -284,12 +275,9 @@ export function KnowledgePanel() {
       });
       return changed ? next : prev;
     });
-  }, [entries, mode, setWorkspaceTabs, t]);
+  }, [entries, setWorkspaceTabs, t]);
 
   const dockTabs = useMemo(() => {
-    if (mode !== "library") {
-      return [{ id: "todos", label: t("knowledge.tabs.todos") }];
-    }
     return workspaceTabs.map((tab) => {
       const entry = entries.find((item) => item.id === tab.entryId);
       const imported = entry ? isKnowledgeImported(entry) : false;
@@ -311,7 +299,7 @@ export function KnowledgePanel() {
         ...(!imported && !isChunks && !isFolder ? { type: "file" as const } : {}),
       };
     });
-  }, [entries, mode, t, workspaceTabs]);
+  }, [entries, workspaceTabs]);
 
   const handleDockTabDoubleClick = useCallback(
     (tabId: string) => {
@@ -332,9 +320,6 @@ export function KnowledgePanel() {
 
   const renderPanel = useCallback(
     (tabId: string) => {
-      if (mode === "todos") {
-        return <KnowledgeTodosView />;
-      }
       const tab = workspaceTabs.find((item) => item.id === tabId);
       if (!tab) return null;
       if (tab.kind === "chunks") {
@@ -342,12 +327,12 @@ export function KnowledgePanel() {
       }
       return <KnowledgeDocumentPanel entryId={tab.entryId} />;
     },
-    [mode, workspaceTabs],
+    [workspaceTabs],
   );
 
   return (
     <div className="knowledge-panel">
-      {error && mode === "library" && (
+      {error && (
         <div className="knowledge-error knowledge-error--floating">
           <span>{error}</span>
           <button type="button" onClick={clearError}>×</button>
@@ -357,7 +342,7 @@ export function KnowledgePanel() {
         className="knowledge-workspace"
         leftColumnTitle={t("routes.knowledge")}
         leftPreset="schema"
-        tagModuleKey={mode === "library" ? "knowledge" : undefined}
+        tagModuleKey="knowledge"
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}
@@ -365,25 +350,25 @@ export function KnowledgePanel() {
             onChange={(id) => setMode(id as KnowledgeModuleTab)}
           />
         }
-        leftSidebar={mode === "library" ? <KnowledgeSidebar /> : undefined}
+        leftSidebar={<KnowledgeSidebar />}
       >
         <ModuleSegmentDock
           className="knowledge-module-dock knowledge-workspace-dock"
-          variant={mode === "library" ? "workspace" : "function"}
+          variant="workspace"
           dockScope="knowledge"
           moduleTitle={t("routes.knowledge")}
           enabled={isActiveRoute}
           contentSuspended={!isActiveRoute}
           stickyVisit
           windowControl
-          showTabBar={mode === "library"}
+          showTabBar
           tabs={dockTabs}
-          activeTabId={mode === "library" ? (activeTabId ?? "") : "todos"}
-          onActiveTabChange={mode === "library" ? activateWorkspaceTab : () => {}}
-          onCloseTab={mode === "library" ? handleCloseTab : () => {}}
-          onTabDoubleClick={mode === "library" ? handleDockTabDoubleClick : undefined}
-          savedLayout={mode === "library" ? effectiveDockLayout : null}
-          onSavedLayoutChange={mode === "library" ? setDockLayout : undefined}
+          activeTabId={activeTabId ?? ""}
+          onActiveTabChange={activateWorkspaceTab}
+          onCloseTab={handleCloseTab}
+          onTabDoubleClick={handleDockTabDoubleClick}
+          savedLayout={effectiveDockLayout}
+          onSavedLayoutChange={setDockLayout}
           renderPanel={renderPanel}
           emptyContent={
             <WorkspaceEmptyPage

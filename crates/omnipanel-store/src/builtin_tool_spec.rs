@@ -201,20 +201,20 @@ const SCHEMA_KNOWLEDGE_CREATE: &str = r#"{
 const SCHEMA_CREATE_TODOLIST: &str = r#"{
   "type": "object",
   "properties": {
-    "title": { "type": "string", "description": "待办列表标题（执行计划名称）" },
-    "description": { "type": "string", "description": "列表级任务描述（可选，卡片摘要展示）" },
+    "title": { "type": "string", "description": "待办列表标题" },
+    "description": { "type": "string", "description": "可选；写入列表内首条任务备注或列表说明" },
     "items": {
       "type": "array",
-      "description": "按执行顺序排列的待办项",
+      "description": "待办任务列表（每项成为一条独立任务）",
       "items": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "description": "待办项名称" },
-          "executor": { "type": "string", "description": "待办项的执行者（角色或人名）" },
-          "description": { "type": "string", "description": "任务的具体描述与细节" },
+          "name": { "type": "string", "description": "任务标题" },
+          "executor": { "type": "string", "description": "可选；会并入备注" },
+          "description": { "type": "string", "description": "可选；任务备注" },
           "done": { "type": "boolean", "description": "是否已完成，默认 false", "default": false }
         },
-        "required": ["name", "executor", "description"]
+        "required": ["name"]
       },
       "minItems": 1
     }
@@ -939,10 +939,9 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_knowledge_save_todolist",
         module_key: "web",
         description:
-            "将待办列表持久化保存到知识库（Knowledge Base）。传入标题与有序待办项；\
-             每项须含名称、执行者、任务描述。适用于：用户明确要求「保存到知识库」「落库」\
-             「以后查阅」的场景。注意：如果只是执行任务时做实时计划/进度跟踪，\
-             请改用 omni_plan_create（会话级 todolist，不落库）。",
+            "将个人待办列表写入任务中心「我的待办」（本地持久化）。仅当用户明确要求「记待办」\
+             「写到任务中心待办」时使用。制定执行计划请用 omni_knowledge_create_document；\
+             会话内实时进度请用 omni_plan_create。不要作为 Plan Agent 的默认交付物。",
         input_schema: SCHEMA_CREATE_TODOLIST,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,

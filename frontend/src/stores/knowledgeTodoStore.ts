@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { commands, type KnowledgeTodoItem, type KnowledgeTodoList } from "../ipc/bindings";
+import { formatIpcError } from "../ipc/result";
 
 export function newTodoId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -73,10 +74,10 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
           isLoading: false,
         });
       } else {
-        set({ error: res.error.message, isLoading: false });
+        set({ error: formatIpcError(res.error), isLoading: false });
       }
     } catch (e) {
-      set({ error: String(e), isLoading: false });
+      set({ error: formatIpcError(e), isLoading: false });
     }
   },
 
@@ -84,6 +85,10 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
     try {
       const payload: KnowledgeTodoList = {
         ...list,
+        description: list.description ?? "",
+        items: list.items ?? [],
+        sortOrder: list.sortOrder ?? 0,
+        createdAt: list.createdAt ?? Date.now(),
         updatedAt: Date.now(),
       };
       const res = await commands.knowledgeTodoSave(payload);
@@ -93,14 +98,14 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
           const lists = exists
             ? state.lists.map((l) => (l.id === list.id ? payload : l))
             : [...state.lists, payload];
-          return { lists };
+          return { lists, error: null };
         });
         return true;
       }
-      set({ error: res.error.message });
+      set({ error: formatIpcError(res.error) });
       return false;
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: formatIpcError(e) });
       return false;
     }
   },
@@ -112,12 +117,13 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
         set((state) => ({
           lists: state.lists.filter((l) => l.id !== id),
           editingId: state.editingId === id ? null : state.editingId,
+          error: null,
         }));
       } else {
-        set({ error: res.error.message });
+        set({ error: formatIpcError(res.error) });
       }
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: formatIpcError(e) });
     }
   },
 

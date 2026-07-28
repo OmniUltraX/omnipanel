@@ -816,7 +816,7 @@
         position: absolute;
         top: calc(100% + 4px);
         right: 0;
-        z-index: 20;
+        z-index: 40;
         min-width: 140px;
         background: var(--bg);
         border: 1px solid var(--border);
@@ -829,6 +829,11 @@
     }
 
     .knowledge-new-menu button {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        height: auto;
+        min-height: 0;
         border: none;
         background: transparent;
         color: var(--fg);
@@ -836,6 +841,8 @@
         padding: 6px 10px;
         border-radius: var(--r-sm);
         font-size: 12px;
+        line-height: 1.4;
+        white-space: nowrap;
         cursor: pointer;
     }
 

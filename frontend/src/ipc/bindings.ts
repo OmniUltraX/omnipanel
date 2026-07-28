@@ -533,6 +533,24 @@ export const commands = {
 	knowledgeTodoSave: (list: KnowledgeTodoList) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_save", { list })),
 	/**  删除待办列表。 */
 	knowledgeTodoDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_delete", { id })),
+	/** 列出个人待办列表 */
+	todoListList: () => typedError<TodoList[], OmniError_Serialize>(__TAURI_INVOKE("todo_list_list")),
+	/** 保存个人待办列表 */
+	todoListSave: (list: TodoList) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_list_save", { list })),
+	/** 删除个人待办列表 */
+	todoListDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_list_delete", { id })),
+	/** 按视图查询待办任务 */
+	todoTaskList: (query: TodoTaskQuery) => typedError<TodoTask[], OmniError_Serialize>(__TAURI_INVOKE("todo_task_list", { query })),
+	/** 获取待办任务（含步骤） */
+	todoTaskGet: (id: string) => typedError<TodoTask | null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_get", { id })),
+	/** 保存待办任务；replaceSteps=true 时同步步骤 */
+	todoTaskSave: (task: TodoTask, replaceSteps: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_save", { task, replaceSteps })),
+	/** 删除待办任务 */
+	todoTaskDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_delete", { id })),
+	/** 保存待办步骤 */
+	todoStepSave: (step: TodoStep) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_step_save", { step })),
+	/** 删除待办步骤 */
+	todoStepDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_step_delete", { id })),
 	/**  从 PDF 文件导入知识文档（提取文本并保存为 document 条目）。 */
 	knowledgeImportPdf: (path: string, parentId: string | null) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_import_pdf", { path, parentId })),
 	/** 列出全局标签树 */
@@ -2844,6 +2862,60 @@ export type KnowledgeTodoList = {
 	sortOrder?: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
+};
+
+/** 个人待办列表 */
+export type TodoList = {
+	id: string,
+	title: string,
+	isDefault?: boolean | null,
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+};
+
+/** 待办步骤 */
+export type TodoStep = {
+	id: string,
+	taskId: string,
+	title: string,
+	done?: boolean | null,
+	sortOrder?: number | null,
+};
+
+/** 重复规则 */
+export type TodoRecurrence = {
+	freq: string,
+	interval?: number | null,
+};
+
+/** 个人待办任务 */
+export type TodoTask = {
+	id: string,
+	listId: string,
+	title: string,
+	note?: string | null,
+	important?: boolean | null,
+	myDayOn?: string | null,
+	dueAt?: number | null,
+	remindAt?: number | null,
+	recurrence?: TodoRecurrence | null,
+	completed?: boolean | null,
+	completedAt?: number | null,
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+	steps?: TodoStep[] | null,
+	stepsTotal?: number | null,
+	stepsDone?: number | null,
+};
+
+/** 任务查询 */
+export type TodoTaskQuery = {
+	view: string,
+	listId?: string | null,
+	includeCompleted?: boolean | null,
+	today?: string | null,
 };
 
 /**  资源档案摘要（按资源分组的观测汇总）。 */

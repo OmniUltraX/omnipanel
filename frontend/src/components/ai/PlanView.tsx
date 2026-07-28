@@ -1,4 +1,5 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
+import { create } from "zustand";
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -15,6 +16,28 @@ import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/primitives/Button";
+
+/**
+ * 会话内 PlanView 展开/折叠 UI 状态（按 planId 共享）。
+ * 吸顶副本与对话流内嵌实例需同步；仅内存，不持久化。
+ */
+interface PlanUiState {
+  collapsedByPlanId: Record<string, boolean>;
+  setCollapsed: (planId: string, collapsed: boolean) => void;
+}
+
+const usePlanUiStore = create<PlanUiState>((set) => ({
+  collapsedByPlanId: {},
+  setCollapsed: (planId, collapsed) =>
+    set((s) => ({
+      collapsedByPlanId: { ...s.collapsedByPlanId, [planId]: collapsed },
+    })),
+}));
+
+/** 读取某 plan 的折叠态（吸顶栈据此切换固定高度 / 仅头部高度） */
+export function usePlanCollapsed(planId: string, defaultCollapsed = false): boolean {
+  return usePlanUiStore((s) => s.collapsedByPlanId[planId] ?? defaultCollapsed);
+}
 
 const STATUS_CONFIG: Record<
   PlanStepStatus,
@@ -99,6 +122,11 @@ interface PlanViewProps {
   showCancelRemaining?: boolean;
   /** 取消剩余步骤回调；不传则不显示按钮 */
   onCancelRemaining?: () => void;
+  /**
+   * 高度受限场景（如吸顶浮层）：头部/进度条/页脚固定，
+   * 步骤列表在剩余空间内滚动。
+   */
+  scrollable?: boolean;
 }
 
 function PlanViewImpl({
@@ -107,13 +135,18 @@ function PlanViewImpl({
   defaultCollapsed = false,
   showCancelRemaining = false,
   onCancelRemaining,
+  scrollable = false,
 }: PlanViewProps) {
   const { t } = useI18n();
 
   // 优先从 store 读取实时数据；store 无此计划时回退到快照
   const livePlan = useAiOrchestrationStore((s) => s.plans[planId]);
   const plan = livePlan ?? snapshot;
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // 吸顶 / 内嵌共用同一折叠状态
+  const collapsed = usePlanUiStore(
+    (s) => s.collapsedByPlanId[planId] ?? defaultCollapsed,
+  );
+  const setCollapsed = usePlanUiStore((s) => s.setCollapsed);
 
   const stats = useMemo(() => {
     if (!plan) return { done: 0, total: 0, failed: 0, remaining: 0 };
@@ -139,15 +172,16 @@ function PlanViewImpl({
       data-plan-id={planId}
       className={cn(
         "rounded-md border border-border bg-bg-deeper shadow-sm overflow-hidden",
-        // 嵌入式场景（对话流内）保留 my-2；顶部面板场景由父容器控制间距
-        defaultCollapsed === false && "my-2",
+        // 嵌入式场景（对话流内）保留 my-2；吸顶/顶部面板由父容器控制间距
+        defaultCollapsed === false && !scrollable && "my-2",
+        scrollable && "flex min-h-0 max-h-full flex-1 flex-col",
       )}
     >
       {/* Header（可点击折叠） */}
       <button
         type="button"
-        className="flex items-center gap-2 border-b border-border px-2.5 py-1.5 bg-bg w-full text-left hover:bg-bg-elevated transition-colors"
-        onClick={() => setCollapsed((c) => !c)}
+        className="flex shrink-0 items-center gap-2 border-b border-border px-2.5 py-1.5 bg-bg w-full text-left hover:bg-bg-elevated transition-colors"
+        onClick={() => setCollapsed(planId, !collapsed)}
         aria-expanded={!collapsed}
       >
         {collapsed ? (
@@ -178,7 +212,7 @@ function PlanViewImpl({
 
       {/* Progress bar（始终显示，折叠态作为视觉进度提示） */}
       {stats.total > 0 && (
-        <div className="h-0.5 bg-bg">
+        <div className="h-0.5 shrink-0 bg-bg">
           <div
             className={cn(
               "h-full transition-all duration-300",
@@ -196,7 +230,12 @@ function PlanViewImpl({
       {/* Steps（折叠态隐藏） */}
       {!collapsed && (
         <>
-          <div className="py-0.5">
+          <div
+            className={cn(
+              "py-0.5",
+              scrollable && "min-h-0 flex-1 overflow-y-auto overscroll-contain",
+            )}
+          >
             {plan.steps.map((step, i) => (
               <StepRow key={step.id} step={step} index={i} />
             ))}
@@ -209,7 +248,7 @@ function PlanViewImpl({
 
           {/* Footer */}
           {stats.total > 0 && (
-            <div className="flex items-center gap-1 border-t border-border px-2.5 py-1 text-[10px] text-fg-2 bg-bg">
+            <div className="flex shrink-0 items-center gap-1 border-t border-border px-2.5 py-1 text-[10px] text-fg-2 bg-bg">
               <ChevronRightIcon className="h-3 w-3" />
               <span className="flex-1">
                 {isRunning
