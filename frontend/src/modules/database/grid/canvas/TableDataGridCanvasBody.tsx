@@ -420,12 +420,12 @@ export const TableDataGridCanvasBody = forwardRef<
       const canvas = canvasRef.current;
       const snapshot = snapshotRef.current ?? rebuildSnapshot().snapshot;
       if (!wrap || !canvas) return null;
-      const alignedScrollLeft = resolveAlignedScrollLeft(
-        wrap,
-        canvas,
-        snapshot,
-        wrap.scrollLeft,
-      );
+      // 与 paint / hitTest 共用对齐后的 scrollLeft，避免横滚亚像素错位
+      const alignedScrollLeft =
+        scrollAlignReadyRef.current &&
+        Math.abs(scrollLeftRef.current - wrap.scrollLeft) < 2
+          ? scrollLeftRef.current
+          : resolveAlignedScrollLeft(wrap, canvas, snapshot, wrap.scrollLeft);
       return cellViewportRect(
         snapshot,
         rowOffsetsRef.current,
@@ -433,8 +433,7 @@ export const TableDataGridCanvasBody = forwardRef<
         colIndex,
         alignedScrollLeft,
         wrap.scrollTop,
-        wrap.getBoundingClientRect(),
-        headerHeightRef.current,
+        canvas.getBoundingClientRect(),
       );
     },
     [rebuildSnapshot, scrollElementRef],
@@ -471,14 +470,35 @@ export const TableDataGridCanvasBody = forwardRef<
     (hit: GridHitResult): CellOverlayAnchor => {
       const rect = getCellViewportRect(hit.rowIndex, hit.colIndex);
       if (rect) return rect;
+      // 回退：内容坐标 → 相对 canvas 的 client 坐标（与 hitTest 同源）
+      const canvas = canvasRef.current;
+      const wrap = scrollElementRef.current;
+      const col = snapshotRef.current?.columns[hit.colIndex];
+      if (!canvas || !wrap || !col) {
+        return {
+          left: hit.cellRect.x,
+          top: hit.cellRect.y,
+          width: hit.cellRect.width,
+          height: hit.cellRect.height,
+        };
+      }
+      const canvasRect = canvas.getBoundingClientRect();
+      const scrollLeft =
+        scrollAlignReadyRef.current &&
+        Math.abs(scrollLeftRef.current - wrap.scrollLeft) < 2
+          ? scrollLeftRef.current
+          : wrap.scrollLeft;
+      const screenX = isPinnedDrawColumn(col)
+        ? hit.cellRect.x
+        : hit.cellRect.x - scrollLeft;
       return {
-        left: hit.cellRect.x,
-        top: hit.cellRect.y,
+        left: canvasRect.left + screenX,
+        top: canvasRect.top + hit.cellRect.y - wrap.scrollTop,
         width: hit.cellRect.width,
         height: hit.cellRect.height,
       };
     },
-    [getCellViewportRect],
+    [getCellViewportRect, scrollElementRef],
   );
 
   const handleMouseDown = useCallback(

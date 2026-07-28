@@ -662,17 +662,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const canShowDdl = Boolean(canRefresh && previewConnection);
   const ddlOpen = !detailCollapsed && detailTab === "ddl";
 
-  const handleToggleDdl = useCallback(() => {
-    if (ddlOpen) {
-      handleDetailCollapsedChange();
-      return;
-    }
-    setDetailTab("ddl");
-    if (detailCollapsed) {
-      expandDetailPanel();
-    }
-  }, [ddlOpen, detailCollapsed, expandDetailPanel, handleDetailCollapsedChange]);
-
   // 切换表时清空 DDL，打开 DDL 页签时再拉
   useEffect(() => {
     setDdlEntry({ status: "idle" });
@@ -820,6 +809,9 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
    */
   const hasPreviewData = Boolean(preview?.data);
   const deferredDisplayRows = useDeferredValue(previewDisplayRows);
+  /** 有待插入行时跳过 defer，避免「新建行」点击后晚一拍才进网格 / Canvas paint */
+  const gridDisplayRows =
+    pendingInsertCount > 0 ? previewDisplayRows : deferredDisplayRows;
   const showPreviewGrid = Boolean(
     showShell && gridMounted && (hasPreviewColumns || hasPreviewData),
   );
@@ -887,7 +879,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const previewGrid = showPreviewGrid && preview ? (
     <TableDataGrid
       columns={previewColumns}
-      rows={hasPreviewData ? deferredDisplayRows : []}
+      rows={hasPreviewData ? gridDisplayRows : []}
       totalRows={(preview.totalRows ?? 0) + pendingInsertCount}
       page={preview.page}
       pageSize={preview.pageSize}
@@ -1023,9 +1015,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
               setColSidebarCollapsed((prev) => !prev);
             }}
             onToggleDetail={handleDetailCollapsedChange}
-            ddlOpen={ddlOpen}
-            canShowDdl={canShowDdl}
-            onToggleDdl={handleToggleDdl}
             onOpenTableDesign={handleOpenTableDesign}
             onCreateTableQuery={handleCreateTableQuery}
             onCopyPreviewSql={() => void handleCopyPreviewSql()}

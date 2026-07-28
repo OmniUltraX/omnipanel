@@ -98,7 +98,7 @@ import { formatSql } from "./sqlIntel/sqlFormat";
 import { sqlRequiresDatabaseContext } from "./sqlIntel/connectionLevelSql";
 import { toCsv } from "./shared/csvExport";
 import { fetchAndApplyTableColumnMeta, isAutoIncrementColumn } from "./shared/columnMetaUtils";
-import { isSameCellValue, shouldUseInlineCellEdit } from "./cell_editor";
+import { isSameCellValue } from "./cell_editor";
 import { buildRedisColumnMeta, buildRedisUpdateCommands } from "./redis/redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "./schema/schemaCacheMerge";
 import { snapshotToFilterStates } from "./schema/schemaFilters";
@@ -2784,25 +2784,15 @@ export function DatabasePanel() {
     (tabId: string) => {
       const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
       if (!colMeta?.length) return;
-      const formColumns = colMeta.filter((col) => !shouldUseInlineCellEdit(col.type));
-      if (formColumns.length === 0) {
-        const rowKey = `${NEW_ROW_KEY_PREFIX}${crypto.randomUUID()}`;
-        setTabDirtyRows((prev) => {
-          const cur = { ...(prev[tabId] ?? {}) };
-          cur[rowKey] = {};
-          return { ...prev, [tabId]: cur };
-        });
-        return;
-      }
-      const firstEditable = formColumns.find((c) => !c.isPk) ?? formColumns[0];
-      setRowEdit({
-        tabId,
-        column: firstEditable.name,
-        row: {},
-        isNewRow: true,
+      // 新建行：在预览表底部插入 pending 行，单元格内填写（不再弹表单）
+      const rowKey = `${NEW_ROW_KEY_PREFIX}${crypto.randomUUID()}`;
+      setTabDirtyRows((prev) => {
+        const cur = { ...(prev[tabId] ?? {}) };
+        cur[rowKey] = {};
+        return { ...prev, [tabId]: cur };
       });
     },
-    [],
+    [setTabDirtyRows],
   );
 
   const resolveConnection = useCallback(
