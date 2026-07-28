@@ -185,7 +185,6 @@ export function checkClusterCompletion(clusterId: string): void {
   if (!allTerminal) return;
 
   const hasFailed = cluster.children.some((c) => c.status === "failed");
-  const hasCancelled = cluster.children.some((c) => c.status === "cancelled");
   const allCancelled = cluster.children.every((c) => c.status === "cancelled");
 
   // 状态推断：全部取消 → cancelled；有失败 → failed；否则 → completed

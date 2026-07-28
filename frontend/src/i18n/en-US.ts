@@ -2534,6 +2534,7 @@ export const enUS: TranslationDict = {
       columnVisibilityCollapse: "Collapse column sidebar",
       cellEditorExpand: "Expand value editor",
       cellEditorCollapse: "Collapse value editor",
+      detailPanelToggle: "Expand or collapse the right info panel",
       ddlExpand: "Show table DDL",
       ddlCollapse: "Hide table DDL",
       columnVisibilitySearch: "Search columns",

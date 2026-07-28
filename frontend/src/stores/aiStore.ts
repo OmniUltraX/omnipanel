@@ -948,8 +948,8 @@ export const useAiStore = create<AiStore>()(
           reasoningEffort?: string;
           [key: string]: unknown;
         };
-        if (!state || typeof state !== "object") return persisted as AiStore;
-        let next = { ...state } as AiStore;
+        if (!state || typeof state !== "object") return persisted as unknown as AiStore;
+        let next = { ...state } as unknown as AiStore;
         if (version < 2 && Array.isArray(state.conversations)) {
           next = {
             ...next,

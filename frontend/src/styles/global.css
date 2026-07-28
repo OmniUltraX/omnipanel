@@ -2288,6 +2288,36 @@ a {
     cursor: default;
 }
 
+/* INSERT VALUES/SELECT 列名 inlay + 悬停高亮（DataGrip 风格） */
+.cm-sql-insert-column-inlay {
+    display: inline-block;
+    font-size: 0.78em;
+    line-height: 1.2;
+    padding: 0 4px;
+    margin-right: 4px;
+    border-radius: 3px;
+    vertical-align: middle;
+    pointer-events: none;
+    user-select: none;
+    color: var(--fg-2);
+    background: color-mix(in srgb, var(--fg) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+}
+
+.cm-sql-insert-field-highlight {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+.cm-sql-insert-value-highlight {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border-radius: 2px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
 .sql-codemirror-editor--inactive {
     visibility: hidden;
     pointer-events: none;

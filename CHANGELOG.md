@@ -2,6 +2,39 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.6.5] - 2026-07-28
+
+### 新增
+
+- **助手 ↔ 客户端聊天通道**
+  - 助手端写入 OSS 后 `POST /notify`，客户端 `GET /latest` + SSE `/wait` 收件并触发 AI Dock 生成
+  - 聊天落盘协议升级为 **`omni-chat-sections.v1`**（分段 TAG 聚合，约 3s flush）
+- **AI · Plan / 子会话集群**
+  - Plan todolist 吸顶展示；子会话集群并发执行与取消传播
+  - 默认 Agent 模式；审批展示统一；Token / 上下文用量展示增强
+- **任务中心**：全局活动 / 待办 / 历史架构；批量操作完善
+- **数据库 · SQL INSERT inlay**
+  - `INSERT ... (cols) VALUES/SELECT` 在 value 前显示列名 tag（含反引号表名、`WHERE NOT EXISTS` 等）
+  - 鼠标悬停 value 时高亮对应 field
+- **数据库 · 表预览编辑**
+  - 「新建行」在当前页底部插入可编辑 pending 行（不再弹表单）
+  - 顶栏：列选择开关移至最左；移除独立「建表语句」按钮，右侧信息面板统一收展
+- **文件 / OSS**
+  - STS 文本上传；S3 / 阿里云 OSS 兼容增强
+  - SSH 远程大日志流式预览；远程媒体 Range 边下边播
+- **账号**：微信 / GitHub / 邮箱账号关联与解绑
+
+### 修复
+
+- **数据库网格**：Canvas 模式下 pending 新建行不显示；单元格编辑框与格子错位（锚点与 hitTest 同源）
+- **AI Dock**：侧栏开合导致左右分栏列宽错乱
+- **终端**：AI 命名返回思考链、SSH 首命令卡死、localStorage 配额等问题
+- **TypeScript**：清理 `erasableSyntaxOnly`、未使用变量与类型收窄等编译错误，保证 `tsc -b` 通过
+
+### 变更
+
+- SSH 能力并入终端模块；Agent 提示词与工具路由持续整理（Plan / Run / 模块 Agent）
+
 ## [0.6.2] - 2026-07-23
 
 ### 新增

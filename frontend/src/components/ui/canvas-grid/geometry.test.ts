@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildColumnOffsets,
   buildRowOffsets,
+  cellViewportRect,
   findColumnAtX,
   findRowAtOffset,
   getPinnedWidth,
@@ -165,5 +166,25 @@ describe("canvas-grid geometry", () => {
     const { offsets } = buildRowOffsets(10, () => 32);
     const hit = hitTestGrid(snapshot, offsets, 10, 31, 0, 0);
     expect(hit?.region).toBe("rowResize");
+  });
+
+  it("cellViewportRect anchors to canvas rect (same origin as hitTest)", () => {
+    const snapshot = makeSnapshot();
+    const { offsets } = buildRowOffsets(10, () => 32);
+    const canvasRect = { left: 100, top: 200 };
+    const rect = cellViewportRect(snapshot, offsets, 1, 1, 0, 0, canvasRect);
+    expect(rect).toEqual({
+      left: 100 + 40,
+      top: 200 + 32,
+      width: 120,
+      height: 32,
+    });
+    const scrolled = cellViewportRect(snapshot, offsets, 1, 1, 20, 10, canvasRect);
+    expect(scrolled).toEqual({
+      left: 100 + 40 - 20,
+      top: 200 + 32 - 10,
+      width: 120,
+      height: 32,
+    });
   });
 });

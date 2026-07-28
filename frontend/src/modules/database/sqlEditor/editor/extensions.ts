@@ -36,6 +36,7 @@ import { createSqlLinter } from "../language/lint";
 import { createSqlHoverTooltip } from "../language/hover";
 import { createSqlLintRunGutter } from "../language/runStatementGutter";
 import { createFunctionSignaturePlugin } from "../language/signature";
+import { createInsertColumnInlayExtension } from "../language/insertColumnInlays";
 import { resolveSqlToRun } from "../language/selection";
 
 export interface SqlEditorExtensionOptions {
@@ -88,6 +89,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     EditorView.lineWrapping,
     getSearchHighlightExtension(),
     createFunctionSignaturePlugin(getDbType),
+    ...createInsertColumnInlayExtension(),
     createSqlLinter(getDbType, getSchemas),
     createSqlHoverTooltip(getSchemas, getDbType, getReadOnly),
     autocompletion({

@@ -25,10 +25,13 @@ vi.mock("../../stores/authStore", () => ({
 
 import { commands } from "../../ipc/bindings";
 import {
+  aggregateChatOssEvent,
   appendChatOssEvent,
   buildChatOssObjectKey,
   CHAT_OSS_FORMAT,
-  encodeChatOssEventLine,
+  CHAT_OSS_SECTION_TAGS,
+  encodeChatOssSection,
+  encodeChatOssSections,
   startChatOssRecording,
   stopChatOssRecording,
 } from "./chatOssRecorder";
@@ -45,31 +48,136 @@ describe("chatOssRecorder", () => {
     ).toBe("omniminiapp/agent_chat_message/u1/conv-1/0.txt");
   });
 
-  it("encodeChatOssEventLine 为 NDJSON 且带 v=1", () => {
-    expect(JSON.parse(encodeChatOssEventLine({ t: "content", text: "hi" }))).toEqual({
-      v: 1,
-      t: "content",
-      text: "hi",
+  it("分隔符标签与 chat_log 对齐约定一致", () => {
+    expect(CHAT_OSS_SECTION_TAGS).toEqual({
+      user: "user_message",
+      reasoning: "ai_reasoning",
+      content: "ai___message",
+      tool_call: "tool_calling",
+      tool_result: "tool___result",
+      error: "error______",
     });
-    expect(
-      JSON.parse(
-        encodeChatOssEventLine({
-          t: "tool_call",
-          id: "c1",
-          name: "bash",
-          arguments: "{}",
-        }),
-      ),
-    ).toMatchObject({ v: 1, t: "tool_call", id: "c1", name: "bash" });
   });
 
-  it("每 5 秒经 STS 上传结构化事件分片", async () => {
+  it("同类型增量聚合为一段", () => {
+    let sections = aggregateChatOssEvent([], { t: "content", text: "A" });
+    sections = aggregateChatOssEvent(sections, { t: "content", text: "B" });
+    sections = aggregateChatOssEvent(sections, { t: "reasoning", text: "r1" });
+    sections = aggregateChatOssEvent(sections, { t: "reasoning", text: "r2" });
+    expect(sections).toEqual([
+      { kind: "content", text: "AB" },
+      { kind: "reasoning", text: "r1r2" },
+    ]);
+  });
+
+  it("同 id 的 tool_call 覆盖为最新快照", () => {
+    let sections = aggregateChatOssEvent([], {
+      t: "tool_call",
+      id: "c1",
+      name: "bash",
+      arguments: '{"a":1}',
+    });
+    sections = aggregateChatOssEvent(sections, {
+      t: "tool_call",
+      id: "c1",
+      name: "bash",
+      arguments: '{"a":12}',
+    });
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toEqual({
+      kind: "tool_call",
+      items: [{ id: "c1", name: "bash", arguments: '{"a":12}' }],
+    });
+  });
+
+  it("不同 id 的连续 tool_call 聚成一段多行 JSON", () => {
+    let sections = aggregateChatOssEvent([], {
+      t: "tool_call",
+      id: "c0",
+      name: "omni_docker_list_containers",
+      arguments: "",
+    });
+    sections = aggregateChatOssEvent(sections, {
+      t: "tool_call",
+      id: "c1",
+      name: "omni_docker_list_containers",
+      arguments: "",
+    });
+    sections = aggregateChatOssEvent(sections, {
+      t: "tool_call",
+      id: "c0",
+      name: "omni_docker_list_containers",
+      arguments: '{"filter":"all"}',
+    });
+    sections = aggregateChatOssEvent(sections, {
+      t: "tool_result",
+      id: "c0",
+      status: "failed",
+      result: "err",
+    });
+    sections = aggregateChatOssEvent(sections, {
+      t: "tool_call",
+      id: "c1",
+      name: "omni_docker_list_containers",
+      arguments: '{"filter":"all"}',
+    });
+
+    expect(sections).toHaveLength(3);
+    expect(sections[0]).toEqual({
+      kind: "tool_call",
+      items: [
+        { id: "c0", name: "omni_docker_list_containers", arguments: '{"filter":"all"}' },
+        { id: "c1", name: "omni_docker_list_containers", arguments: "" },
+      ],
+    });
+    expect(sections[1]).toEqual({
+      kind: "tool_result",
+      items: [{ id: "c0", status: "failed", result: "err" }],
+    });
+    expect(sections[2]).toEqual({
+      kind: "tool_call",
+      items: [
+        { id: "c1", name: "omni_docker_list_containers", arguments: '{"filter":"all"}' },
+      ],
+    });
+
+    const encoded = encodeChatOssSections([sections[0]!]);
+    expect(encoded.match(/\|\[tool_calling\]\|/g)).toHaveLength(1);
+    expect(encoded).toContain(
+      '{"id":"c0","name":"omni_docker_list_containers","arguments":"{\\"filter\\":\\"all\\"}"}',
+    );
+    expect(encoded).toContain(
+      '{"id":"c1","name":"omni_docker_list_containers","arguments":""}',
+    );
+  });
+
+  it("encodeChatOssSections 使用对齐标签与分隔符", () => {
+    const encoded = encodeChatOssSections([
+      { kind: "user", text: "你好" },
+      { kind: "content", text: "hello" },
+      {
+        kind: "tool_call",
+        items: [{ id: "c1", name: "bash", arguments: "{}" }],
+      },
+    ]);
+    expect(encoded).toContain(encodeChatOssSection(CHAT_OSS_SECTION_TAGS.user, "你好"));
+    expect(encoded).toContain(
+      encodeChatOssSection(CHAT_OSS_SECTION_TAGS.content, "hello"),
+    );
+    expect(encoded).toContain("|[tool_calling]|");
+    expect(encoded).toContain('{"id":"c1","name":"bash","arguments":"{}"}');
+    expect(encoded).not.toContain('"t":"content"');
+  });
+
+  it("每 3 秒经 STS 上传聚合后的分隔符分片", async () => {
     vi.useFakeTimers();
     startChatOssRecording("conv-1");
     appendChatOssEvent({ t: "user", text: "你好" });
-    appendChatOssEvent({ t: "reasoning", text: "想一下" });
-    appendChatOssEvent({ t: "content", text: "hello" });
-    await vi.advanceTimersByTimeAsync(5000);
+    appendChatOssEvent({ t: "reasoning", text: "想" });
+    appendChatOssEvent({ t: "reasoning", text: "一下" });
+    appendChatOssEvent({ t: "content", text: "hel" });
+    appendChatOssEvent({ t: "content", text: "lo" });
+    await vi.advanceTimersByTimeAsync(3000);
     expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(1);
     const req = vi.mocked(commands.assistantUploadOssText).mock.calls[0]![0]!;
     expect(req.token).toBe("tok-1");
@@ -77,15 +185,14 @@ describe("chatOssRecorder", () => {
       "omniminiapp/agent_chat_message/user1/conv-1/0.txt",
     );
     expect(req.contents).toContain(`# format=${CHAT_OSS_FORMAT}`);
-    expect(req.contents).toContain(
-      encodeChatOssEventLine({ t: "user", text: "你好" }),
-    );
-    expect(req.contents).toContain(
-      encodeChatOssEventLine({ t: "reasoning", text: "想一下" }),
-    );
-    expect(req.contents).toContain(
-      encodeChatOssEventLine({ t: "content", text: "hello" }),
-    );
+    expect(req.contents).toContain("|[user_message]|");
+    expect(req.contents).toContain("你好");
+    expect(req.contents).toContain("|[ai_reasoning]|");
+    expect(req.contents).toContain("想一下");
+    expect(req.contents).toContain("|[ai___message]|");
+    expect(req.contents).toContain("hello");
+    // 聚合后不应再出现 NDJSON 事件行
+    expect(req.contents).not.toContain('"t":"content"');
 
     appendChatOssEvent({
       t: "tool_call",
@@ -93,11 +200,12 @@ describe("chatOssRecorder", () => {
       name: "omni_ssh",
       arguments: "{\"cmd\":\"ls\"}",
     });
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(2);
     const req2 = vi.mocked(commands.assistantUploadOssText).mock.calls[1]![0]!;
     expect(req2.objectKey).toMatch(/\/1\.txt$/);
-    expect(req2.contents).toContain("\"t\":\"tool_call\"");
+    expect(req2.contents).toContain("|[tool_calling]|");
+    expect(req2.contents).toContain('"name":"omni_ssh"');
 
     await stopChatOssRecording();
     vi.useRealTimers();
@@ -112,7 +220,7 @@ describe("chatOssRecorder", () => {
     expect(req.objectKey).toBe(
       "omniminiapp/agent_chat_message/user1/conv-2/0.txt",
     );
-    expect(req.contents).toContain("\"t\":\"content\"");
+    expect(req.contents).toContain("|[ai___message]|");
     expect(req.contents).toContain("tail");
   });
 });

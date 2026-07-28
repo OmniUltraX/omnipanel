@@ -2523,6 +2523,7 @@ export const zhCN = {
       columnVisibilityCollapse: "收起列选择栏",
       cellEditorExpand: "展开值编辑器",
       cellEditorCollapse: "收起值编辑器",
+      detailPanelToggle: "展开或者收起右信息面板",
       ddlExpand: "查看建表语句",
       ddlCollapse: "收起建表语句",
       columnVisibilitySearch: "搜索列",

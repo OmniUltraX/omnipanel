@@ -117,7 +117,8 @@ export function cellContentRect(
 
 /**
  * 将内容坐标单元格转为视口矩形（相对视口/client）。
- * wrapRect: wrap.getBoundingClientRect()
+ * canvasRect: canvas.getBoundingClientRect() — 与 hitTest 同源，
+ * 避免 wrap.top + headerHeight 与表头实际占位的微差导致编辑浮层错位。
  */
 export function cellViewportRect(
   snapshot: GridRenderSnapshot,
@@ -126,17 +127,16 @@ export function cellViewportRect(
   colIndex: number,
   scrollLeft: number,
   scrollTop: number,
-  wrapRect: DOMRect,
-  headerHeight: number,
+  canvasRect: Pick<DOMRect, "left" | "top">,
 ): CellViewportRect | null {
   const rect = cellContentRect(snapshot, rowOffsets, rowIndex, colIndex);
   if (!rect) return null;
   const col = snapshot.columns[colIndex]!;
   const screenX = isPinnedDrawColumn(col) ? rect.x : rect.x - scrollLeft;
-  const screenY = rect.y - scrollTop + headerHeight;
+  const screenY = rect.y - scrollTop;
   return {
-    left: wrapRect.left + screenX,
-    top: wrapRect.top + screenY,
+    left: canvasRect.left + screenX,
+    top: canvasRect.top + screenY,
     width: rect.width,
     height: rect.height,
   };

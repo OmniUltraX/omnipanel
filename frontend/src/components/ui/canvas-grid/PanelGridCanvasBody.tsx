@@ -379,8 +379,10 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
   const getCellViewportRectFn = useCallback(
     (rowIndex: number, colIndex: number): CanvasCellViewportRect | null => {
       const wrap = scrollElementRef.current;
+      const canvas = canvasRef.current;
       const snapshot = snapshotRef.current ?? rebuildSnapshot().snapshot;
-      if (!wrap) return null;
+      if (!wrap || !canvas) return null;
+      // 与 hitTest 同源：相对 canvas 视口，避免 wrap+headerHeight 微差
       return cellViewportRect(
         snapshot,
         rowOffsetsRef.current,
@@ -388,8 +390,7 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
         colIndex,
         wrap.scrollLeft,
         wrap.scrollTop,
-        wrap.getBoundingClientRect(),
-        headerHeightRef.current,
+        canvas.getBoundingClientRect(),
       );
     },
     [rebuildSnapshot, scrollElementRef],

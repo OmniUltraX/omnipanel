@@ -23,7 +23,13 @@ import { Button } from "../../../components/ui/Button";
 import { WarnAlert } from "../../../components/ui/overlay/WarnAlert";
 import { useI18n } from "../../../i18n";
 import { type DbColumnMeta, type DbConnectionConfig } from "../api";
-import { resolvePreviewRowChangeKind, resolvePreviewRowKey, type PreviewRowChangeKind, type SortState } from "../workspace/dbWorkspaceState";
+import {
+  PENDING_INSERT_ROW_KEY,
+  resolvePreviewRowChangeKind,
+  resolvePreviewRowKey,
+  type PreviewRowChangeKind,
+  type SortState,
+} from "../workspace/dbWorkspaceState";
 import { getFilterColumnNames, buildTablePreviewSql, buildTablePreviewSqlWithRelations } from "./tablePreviewFilter";
 import { showToast } from "../../../stores/toastStore";
 import {
@@ -1817,10 +1823,48 @@ export const TableDataGrid = memo(function TableDataGrid({
     [],
   );
 
+  /** displayRows 末尾的 pending 插入行（新建行），不在 React 外 rowCache 里 */
+  const extractPendingInsertRows = useCallback((display: Record<string, unknown>[]) => {
+    const pending: Record<string, unknown>[] = [];
+    for (let i = display.length - 1; i >= 0; i--) {
+      const row = display[i];
+      if (!row || typeof row[PENDING_INSERT_ROW_KEY] !== "string") break;
+      pending.unshift(row);
+    }
+    return pending;
+  }, []);
+
+  const applyCanvasPaintRows = useCallback(
+    (baseRows: Record<string, unknown>[]) => {
+      const pending = extractPendingInsertRows(displayRowsRef.current);
+      const source =
+        pending.length === 0 ? baseRows : [...baseRows, ...pending];
+      const mapped = mapRows(source);
+      canvasPaintRowsRef.current = mapped;
+      tableRowsRef.current = mapped;
+      tableRowCountRef.current = mapped.length;
+      canvasBodyRef.current?.invalidate();
+      return mapped.length;
+    },
+    [extractPendingInsertRows, mapRows],
+  );
+
+  /** 仅跟踪 pending 插入 key，避免加载分片时 displayRows 引用抖动触发重绘 */
+  const pendingInsertPaintKey = useMemo(() => {
+    const keys: string[] = [];
+    for (const row of displayRows) {
+      const key = row[PENDING_INSERT_ROW_KEY];
+      if (typeof key === "string") keys.push(key);
+    }
+    return keys.join("\n");
+  }, [displayRows]);
+  const prevPendingInsertPaintKeyRef = useRef(pendingInsertPaintKey);
+
   /**
    * Canvas + rowSourceTabId（表预览）：行数据来自 React 外 rowCache 的 subscribe notify，
    * 不依赖 displayRows。否则 Phase 3 灌完整 rows 进 React 后 displayRows 引用变，
    * 会重跑此 effect → mapRows + invalidate，而 Canvas 在 Phase 2 notify 时已画好——纯冗余且卡。
+   * pending 新建行不在 cache 中，由 displayRows 末尾合并进 paint。
    */
   useEffect(() => {
     if (!useCanvasBody || !rowSourceTabId) return;
@@ -1828,7 +1872,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     const syncFromCache = () => {
       const cached = getTablePreviewRowCache(rowSourceTabId);
       if (!cached) {
-        // cache 空时回退 props（phase1 / 已同步进 React）
+        // cache 空时回退 props（phase1 / 已同步进 React）；display 已含 pending
         const mapped = mapRows(displayRowsRef.current);
         canvasPaintRowsRef.current = mapped;
         tableRowsRef.current = mapped;
@@ -1836,16 +1880,46 @@ export const TableDataGrid = memo(function TableDataGrid({
         canvasBodyRef.current?.invalidate();
         return;
       }
-      const mapped = mapRows(cached.rows);
-      canvasPaintRowsRef.current = mapped;
-      tableRowsRef.current = mapped;
-      tableRowCountRef.current = mapped.length;
-      canvasBodyRef.current?.invalidate();
+      applyCanvasPaintRows(cached.rows);
     };
     syncFromCache();
     return subscribeTablePreviewRowCache(rowSourceTabId, syncFromCache);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 行数据走 cache subscribe，displayRows 变化不重跑
-  }, [useCanvasBody, rowSourceTabId, mapRows]);
+  }, [useCanvasBody, rowSourceTabId, mapRows, applyCanvasPaintRows]);
+
+  /** Canvas 表预览：pending 新建行增删时合并进 paint（不订阅完整 displayRows） */
+  useEffect(() => {
+    if (!useCanvasBody || !rowSourceTabId) return;
+    const cached = getTablePreviewRowCache(rowSourceTabId);
+    const rowCount = cached
+      ? applyCanvasPaintRows(cached.rows)
+      : (() => {
+          const mapped = mapRows(displayRowsRef.current);
+          canvasPaintRowsRef.current = mapped;
+          tableRowsRef.current = mapped;
+          tableRowCountRef.current = mapped.length;
+          canvasBodyRef.current?.invalidate();
+          return mapped.length;
+        })();
+
+    const prevKey = prevPendingInsertPaintKeyRef.current;
+    prevPendingInsertPaintKeyRef.current = pendingInsertPaintKey;
+    if (
+      pendingInsertPaintKey &&
+      pendingInsertPaintKey !== prevKey &&
+      pendingInsertPaintKey.split("\n").length >= prevKey.split("\n").filter(Boolean).length
+    ) {
+      // 新建行落在当前页底部，滚入可视区
+      requestAnimationFrame(() => {
+        canvasBodyRef.current?.scrollToIndex(Math.max(0, rowCount - 1), { align: "end" });
+      });
+    }
+  }, [
+    useCanvasBody,
+    rowSourceTabId,
+    pendingInsertPaintKey,
+    applyCanvasPaintRows,
+    mapRows,
+  ]);
 
   /** Canvas 无 rowSourceTabId（SQL 查询结果等）：行数据来自 displayRows */
   useEffect(() => {
