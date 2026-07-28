@@ -13,7 +13,7 @@ import {
   EditorView,
   ViewPlugin,
   WidgetType,
-  type Decoration as DecorationType,
+  type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
 import { splitSqlStatements } from "../../sqlIntel/sqlLex";
@@ -576,8 +576,11 @@ export function findInsertBindingAtValue(
 }
 
 class InsertColumnTagWidget extends WidgetType {
-  constructor(readonly column: string) {
+  column: string;
+
+  constructor(column: string) {
     super();
+    this.column = column;
   }
 
   eq(other: InsertColumnTagWidget): boolean {
@@ -597,10 +600,10 @@ class InsertColumnTagWidget extends WidgetType {
   }
 }
 
-function buildInsertColumnDecorations(doc: string): DecorationType {
+function buildInsertColumnDecorations(doc: string): DecorationSet {
   const inlays = collectInsertColumnInlays(doc);
   if (inlays.length === 0) return Decoration.none;
-  const builder = new RangeSetBuilder<ReturnType<typeof Decoration.widget>>();
+  const builder = new RangeSetBuilder<ReturnType<typeof Decoration.mark>>();
   for (const inlay of inlays) {
     builder.add(
       inlay.from,
@@ -635,7 +638,7 @@ const insertHoverHighlightField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
-function buildHoverHighlightDecorations(binding: InsertColumnBinding | null): DecorationType {
+function buildHoverHighlightDecorations(binding: InsertColumnBinding | null): DecorationSet {
   if (!binding) return Decoration.none;
   const ranges = [
     fieldHighlightMark.range(binding.fieldFrom, binding.fieldTo),
@@ -674,10 +677,10 @@ const insertColumnInlayTheme = EditorView.baseTheme({
 });
 
 /** CodeMirror：在 INSERT VALUES/SELECT 各值前显示对应列名 tag */
-export function createInsertColumnInlayPlugin(): ViewPlugin<{ decorations: DecorationType }> {
+export function createInsertColumnInlayPlugin(): ViewPlugin<{ decorations: DecorationSet }> {
   return ViewPlugin.fromClass(
     class {
-      decorations: DecorationType;
+      decorations: DecorationSet;
 
       constructor(view: EditorView) {
         this.decorations = buildInsertColumnDecorations(view.state.doc.toString());

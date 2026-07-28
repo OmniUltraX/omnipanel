@@ -13,8 +13,6 @@
  * - 单个子会话 abort → 仅该子会话取消，集群继续
  * - 父会话取消 → cancelConversationClusters 级联取消所有集群
  */
-import type { AcpStreamEvent } from "../../../ipc/bindings";
-import { commands } from "../../../ipc/bindings";
 import { useAiStore } from "../../../stores/aiStore";
 import {
   useAiOrchestrationStore,
@@ -164,7 +162,7 @@ export function initClusterRuntime(options: SpawnClusterOptions): void {
  * 返回聚合结果。调用方负责将结果回传给父会话的 toolCall。
  */
 export async function runCluster(options: SpawnClusterOptions): Promise<ClusterResult> {
-  const { clusterId, parentConversationId, parentMessageId, title, specs } = options;
+  const { clusterId, parentConversationId, parentMessageId, title } = options;
   const store = useAiOrchestrationStore.getState();
   const cluster = store.clusters[clusterId];
   if (!cluster) {
@@ -425,12 +423,16 @@ async function runSingleChild(
             moduleContextAppend: null,
           },
           historyJson,
-          toolsMode: agentRuntime.toolsMode === "none" ? "none" : {
-            directInject: {
-              moduleFilter: agentRuntime.toolsMode === "none" ? null : (agentRuntime.toolsMode as { directInject: { moduleFilter?: string | null } }).directInject.moduleFilter ?? null,
-              toolAllowlist: agentRuntime.toolsMode === "none" ? null : (agentRuntime.toolsMode as { directInject: { toolAllowlist?: string[] | null } }).directInject.toolAllowlist ?? null,
-            },
-          },
+          toolsMode: (() => {
+            const mode = agentRuntime.toolsMode;
+            if (mode === "none") return "none" as const;
+            return {
+              directInject: {
+                moduleFilter: mode.directInject.moduleFilter ?? null,
+                toolAllowlist: mode.directInject.toolAllowlist ?? null,
+              },
+            };
+          })(),
           embeddingProvider,
           skillIds: childConv.selectedSkillIds ?? null,
           reasoningEffort: useAiStore.getState().reasoningEffort,
@@ -523,7 +525,7 @@ function aggregateResults(
   clusterId: string,
   title: string,
   results: ChildExecutionResult[],
-  children: SubConversationChildState[],
+  _children: SubConversationChildState[],
 ): ClusterResult {
   // 检查集群最终状态
   checkClusterCompletion(clusterId);

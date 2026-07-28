@@ -293,9 +293,10 @@ function resolveCellOverlayMeasureText(
   if (preview.kind === "json") {
     return JSON.stringify(preview.value, null, 2);
   }
-  if (preview.kind === "image" || preview.kind === "audio") {
+  if (preview.kind === "image" || preview.kind === "audio" || preview.kind === "video") {
     const blob = parseOmniBlobValue(value);
-    return blob ? formatOmniBlobDisplayText(blob) : preview.kind;
+    if (blob) return formatOmniBlobDisplayText(blob);
+    return preview.url;
   }
   return preview.text;
 }

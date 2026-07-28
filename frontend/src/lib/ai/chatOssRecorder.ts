@@ -265,11 +265,12 @@ class ChatOssSession {
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushChain: Promise<void> = Promise.resolve();
   private readonly sessionDir: string;
+  private readonly ossPath: string;
+  private readonly conversationId: string;
 
-  constructor(
-    private readonly ossPath: string,
-    private readonly conversationId: string,
-  ) {
+  constructor(ossPath: string, conversationId: string) {
+    this.ossPath = ossPath;
+    this.conversationId = conversationId;
     this.sessionDir = sanitizeSessionDir(conversationId);
   }
 
