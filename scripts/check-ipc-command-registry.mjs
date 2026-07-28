@@ -46,9 +46,12 @@ const HANDLER_ONLY_ALLOWLIST = new Set([
   "protocol::ws_send_text",
   // 工作区多窗口（窗口插件侧）
   "workspace_window::app_exit",
+  "workspace_window::boot_splash_progress",
   "workspace_window::cleanup_expired_handoffs",
   "workspace_window::clear_workspace_window_handoff",
   "workspace_window::close_all_workspace_windows",
+  "workspace_window::main_window_reveal",
+  "workspace_window::main_window_show_splash",
   "workspace_window::open_workspace_window",
   "workspace_window::read_workspace_window_handoff",
   "workspace_window::window_bounds_get_main",
