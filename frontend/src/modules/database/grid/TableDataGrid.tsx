@@ -1849,6 +1849,16 @@ export const TableDataGrid = memo(function TableDataGrid({
     [extractPendingInsertRows, mapRows],
   );
 
+  /** 横置后列键为 __field__/__row__N，必须用已转置的 displayRows 绘制 */
+  const paintTransposedDisplayRows = useCallback(() => {
+    const mapped = mapRows(displayRowsRef.current);
+    canvasPaintRowsRef.current = mapped;
+    tableRowsRef.current = mapped;
+    tableRowCountRef.current = mapped.length;
+    canvasBodyRef.current?.invalidate();
+    return mapped.length;
+  }, [mapRows]);
+
   /** 仅跟踪 pending 插入 key，避免加载分片时 displayRows 引用抖动触发重绘 */
   const pendingInsertPaintKey = useMemo(() => {
     const keys: string[] = [];
@@ -1865,11 +1875,15 @@ export const TableDataGrid = memo(function TableDataGrid({
    * 不依赖 displayRows。否则 Phase 3 灌完整 rows 进 React 后 displayRows 引用变，
    * 会重跑此 effect → mapRows + invalidate，而 Canvas 在 Phase 2 notify 时已画好——纯冗余且卡。
    * pending 新建行不在 cache 中，由 displayRows 末尾合并进 paint。
+   *
+   * 横置例外：rowCache 仍是「原表行」，与转置列键不匹配，必须改走 displayRows。
    */
   useEffect(() => {
     if (!useCanvasBody || !rowSourceTabId) return;
+    if (transposed) return;
 
     const syncFromCache = () => {
+      if (transposedRef.current) return;
       const cached = getTablePreviewRowCache(rowSourceTabId);
       if (!cached) {
         // cache 空时回退 props（phase1 / 已同步进 React）；display 已含 pending
@@ -1884,11 +1898,17 @@ export const TableDataGrid = memo(function TableDataGrid({
     };
     syncFromCache();
     return subscribeTablePreviewRowCache(rowSourceTabId, syncFromCache);
-  }, [useCanvasBody, rowSourceTabId, mapRows, applyCanvasPaintRows]);
+  }, [useCanvasBody, rowSourceTabId, mapRows, applyCanvasPaintRows, transposed]);
+
+  /** Canvas 表预览横置：跟随已转置的 displayRows（layout 阶段写入，避免先闪全 NULL） */
+  useLayoutEffect(() => {
+    if (!useCanvasBody || !rowSourceTabId || !transposed) return;
+    paintTransposedDisplayRows();
+  }, [useCanvasBody, rowSourceTabId, transposed, displayRows, paintTransposedDisplayRows]);
 
   /** Canvas 表预览：pending 新建行增删时合并进 paint（不订阅完整 displayRows） */
   useEffect(() => {
-    if (!useCanvasBody || !rowSourceTabId) return;
+    if (!useCanvasBody || !rowSourceTabId || transposed) return;
     const cached = getTablePreviewRowCache(rowSourceTabId);
     const rowCount = cached
       ? applyCanvasPaintRows(cached.rows)
@@ -1916,6 +1936,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   }, [
     useCanvasBody,
     rowSourceTabId,
+    transposed,
     pendingInsertPaintKey,
     applyCanvasPaintRows,
     mapRows,

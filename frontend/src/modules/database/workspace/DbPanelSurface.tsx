@@ -79,6 +79,8 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
 export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfaceProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
+  const activeTabId = useDbWorkspaceActiveTabId();
+  const isActiveTab = activeTabId === tab.id;
   const {
     sqlTabState,
     tabMode: _mode,
@@ -299,8 +301,19 @@ export const DbPanelSurface = memo(function DbPanelSurface({ tab }: DbPanelSurfa
     </div>
   );
 
+  /**
+   * 结果面板仅属于当前 SQL tab。
+   * 外层 dockview（stickyVisit/always）对非激活 panel 用 visibility:hidden，
+   * 但嵌套 DockableWorkspace 的 overlay 会再设 visibility:visible，
+   * 按 CSS 规则会穿透父级 hidden —— 切到表预览等 tab 时 Result 仍浮在画面上。
+   * 非激活时用 display:none 包住嵌套 dock，彻底切断穿透。
+   */
   const resultsContent = (
-    <div className="results-area db-sql-results">
+    <div
+      className="results-area db-sql-results"
+      style={isActiveTab ? undefined : { display: "none" }}
+      aria-hidden={!isActiveTab}
+    >
       <SqlResultSessionsDock
         sqlTabId={tab.id}
         sessions={resultSessions}

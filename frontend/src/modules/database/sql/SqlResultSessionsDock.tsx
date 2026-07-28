@@ -152,6 +152,8 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
         onSavedLayoutChange={() => {}}
         renderPanel={renderPanel}
         panelContentKeysByTab={panelContentKeysByTab}
+        // 与 HTTP 结果 dock 一致：避免嵌套 always overlay 在父 tab 隐藏后仍穿透可见
+        defaultRenderer="onlyWhenVisible"
         enableTabGroups={false}
         defaultHeaderPosition="top"
         windowControl={false}
