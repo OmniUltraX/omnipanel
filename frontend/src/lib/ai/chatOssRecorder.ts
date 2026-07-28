@@ -2,11 +2,24 @@ import { commands } from "../../ipc/bindings";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 
-const FLUSH_INTERVAL_MS = 5000;
+const FLUSH_INTERVAL_MS = 3000;
 const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v2";
 
-/** 分片正文协议版本（助手端按此解析 NDJSON 事件行）。 */
-export const CHAT_OSS_FORMAT = "omni-chat-events.v1" as const;
+/** 分片正文协议：分隔符段落 + 上传前聚合（取代 NDJSON 事件行）。 */
+export const CHAT_OSS_FORMAT = "omni-chat-sections.v1" as const;
+
+/** 段落标签（刻意等宽 12 字符对齐）。 */
+export const CHAT_OSS_SECTION_TAGS = {
+  user: "user_message",
+  reasoning: "ai_reasoning",
+  content: "ai___message",
+  tool_call: "tool_calling",
+  tool_result: "tool___result",
+  error: "error______",
+} as const;
+
+export type ChatOssSectionTag =
+  (typeof CHAT_OSS_SECTION_TAGS)[keyof typeof CHAT_OSS_SECTION_TAGS];
 
 export type ChatOssEvent =
   | { t: "user"; text: string }
@@ -15,6 +28,15 @@ export type ChatOssEvent =
   | { t: "tool_call"; id: string; name: string; arguments: string }
   | { t: "tool_result"; id: string; status: string; result?: string }
   | { t: "error"; text: string };
+
+type ToolCallItem = { id: string; name: string; arguments: string };
+type ToolResultItem = { id: string; status: string; result?: string };
+
+type AggregatedSection =
+  | { kind: "user" | "content" | "reasoning" | "error"; text: string }
+  /** 连续并行工具调用聚成一段；`items` 内按 id 去重覆盖，多行 JSON 输出。 */
+  | { kind: "tool_call"; items: ToolCallItem[] }
+  | { kind: "tool_result"; items: ToolResultItem[] };
 
 type NextIdState = {
   /** 会话 id（conversation / session） */
@@ -81,12 +103,6 @@ export function buildChatOssObjectKey(
   return `${base}/${session}/${fileId}.txt`;
 }
 
-/** 将一条流事件编码为单行 NDJSON（含 v 字段）。 */
-export function encodeChatOssEventLine(event: ChatOssEvent): string {
-  const base = { v: 1 as const, ...event };
-  return JSON.stringify(base);
-}
-
 function isEmptyEvent(event: ChatOssEvent): boolean {
   switch (event.t) {
     case "user":
@@ -103,8 +119,149 @@ function isEmptyEvent(event: ChatOssEvent): boolean {
   }
 }
 
+function sectionTagFor(kind: AggregatedSection["kind"]): ChatOssSectionTag {
+  return CHAT_OSS_SECTION_TAGS[kind];
+}
+
+/** 单段：分隔符 + 正文。 */
+export function encodeChatOssSection(tag: ChatOssSectionTag, body: string): string {
+  const text = body.replace(/\r\n/g, "\n").replace(/\s+$/u, "");
+  return `\n----------------\n|[${tag}]|\n----------------\n${text ? `${text}\n` : ""}`;
+}
+
+function sectionBody(section: AggregatedSection): string {
+  switch (section.kind) {
+    case "user":
+    case "content":
+    case "reasoning":
+    case "error":
+      return section.text;
+    case "tool_call":
+      return section.items
+        .map((item) =>
+          JSON.stringify({
+            id: item.id,
+            name: item.name,
+            arguments: item.arguments,
+          }),
+        )
+        .join("\n");
+    case "tool_result":
+      return section.items
+        .map((item) => {
+          const payload: { id: string; status: string; result?: string } = {
+            id: item.id,
+            status: item.status,
+          };
+          if (item.result !== undefined) payload.result = item.result;
+          return JSON.stringify(payload);
+        })
+        .join("\n");
+    default:
+      return "";
+  }
+}
+
+/** 将聚合后的段落编码为分片正文（不含头注释）。 */
+export function encodeChatOssSections(sections: AggregatedSection[]): string {
+  if (sections.length === 0) return "";
+  return sections
+    .map((s) => encodeChatOssSection(sectionTagFor(s.kind), sectionBody(s)))
+    .join("");
+}
+
+function upsertToolCallItems(
+  items: ToolCallItem[],
+  item: ToolCallItem,
+): ToolCallItem[] {
+  const idx = items.findIndex((x) => x.id === item.id);
+  if (idx >= 0) {
+    const next = items.slice();
+    next[idx] = item;
+    return next;
+  }
+  return [...items, item];
+}
+
+function upsertToolResultItems(
+  items: ToolResultItem[],
+  item: ToolResultItem,
+): ToolResultItem[] {
+  const idx = items.findIndex((x) => x.id === item.id);
+  if (idx >= 0) {
+    const next = items.slice();
+    next[idx] = item;
+    return next;
+  }
+  return [...items, item];
+}
+
+/**
+ * 将流事件并入聚合列表：
+ * - 同类型文本拼接
+ * - 连续 tool_* 并入同一 section；同 id 覆盖，不同 id 追加为多行 JSON
+ * 导出供单测验证。
+ */
+export function aggregateChatOssEvent(
+  sections: AggregatedSection[],
+  event: ChatOssEvent,
+): AggregatedSection[] {
+  if (isEmptyEvent(event)) return sections;
+  const next = sections.slice();
+  const last = next[next.length - 1];
+
+  switch (event.t) {
+    case "user":
+    case "content":
+    case "reasoning":
+    case "error": {
+      if (last && last.kind === event.t) {
+        next[next.length - 1] = { ...last, text: last.text + event.text };
+      } else {
+        next.push({ kind: event.t, text: event.text });
+      }
+      return next;
+    }
+    case "tool_call": {
+      const item: ToolCallItem = {
+        id: event.id,
+        name: event.name,
+        arguments: event.arguments,
+      };
+      if (last && last.kind === "tool_call") {
+        next[next.length - 1] = {
+          kind: "tool_call",
+          items: upsertToolCallItems(last.items, item),
+        };
+      } else {
+        next.push({ kind: "tool_call", items: [item] });
+      }
+      return next;
+    }
+    case "tool_result": {
+      const item: ToolResultItem = {
+        id: event.id,
+        status: event.status,
+        result: event.result,
+      };
+      if (last && last.kind === "tool_result") {
+        next[next.length - 1] = {
+          kind: "tool_result",
+          items: upsertToolResultItems(last.items, item),
+        };
+      } else {
+        next.push({ kind: "tool_result", items: [item] });
+      }
+      return next;
+    }
+    default:
+      return next;
+  }
+}
+
 class ChatOssSession {
-  private buffer = "";
+  /** 自上次 flush 以来聚合的段落。 */
+  private sections: AggregatedSection[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushChain: Promise<void> = Promise.resolve();
   private readonly sessionDir: string;
@@ -124,8 +281,7 @@ class ChatOssSession {
   }
 
   appendEvent(event: ChatOssEvent): void {
-    if (isEmptyEvent(event)) return;
-    this.buffer += `${encodeChatOssEventLine(event)}\n`;
+    this.sections = aggregateChatOssEvent(this.sections, event);
   }
 
   private enqueueFlush(): Promise<void> {
@@ -134,27 +290,27 @@ class ChatOssSession {
   }
 
   private async flushOnce(): Promise<void> {
-    const content = this.buffer;
-    if (!content) return;
-    this.buffer = "";
+    if (this.sections.length === 0) return;
+    const snapshot = this.sections;
+    this.sections = [];
 
     const token = useAuthStore.getState().token?.trim() ?? "";
     if (!token) {
       // 未登录无法申请 STS：塞回缓冲，下次间隔再试
-      this.buffer = content + this.buffer;
+      this.sections = [...snapshot, ...this.sections];
       console.warn("[chat-oss] skip upload: not logged in");
       return;
     }
 
     const fileId = allocateNextFileId(this.sessionDir);
     const objectKey = buildChatOssObjectKey(this.ossPath, this.sessionDir, fileId);
+    const body = encodeChatOssSections(snapshot);
     const payload = [
       `# conversation=${this.conversationId}`,
       `# written_at=${new Date().toISOString()}`,
       `# file_id=${fileId}`,
       `# format=${CHAT_OSS_FORMAT}`,
-      "",
-      content.replace(/\n$/, ""),
+      body.replace(/^\n/, ""),
     ].join("\n");
 
     try {
@@ -165,13 +321,13 @@ class ChatOssSession {
       });
       if (res.status !== "ok") {
         // 上传失败时把内容塞回缓冲，避免丢数据；下次间隔再试
-        this.buffer = content + this.buffer;
+        this.sections = [...snapshot, ...this.sections];
         // 回滚编号，避免跳号留下空洞
         saveNextIdState({ sessionId: this.sessionDir, nextId: fileId });
         console.warn("[chat-oss] upload failed:", res.error);
       }
     } catch (error) {
-      this.buffer = content + this.buffer;
+      this.sections = [...snapshot, ...this.sections];
       saveNextIdState({ sessionId: this.sessionDir, nextId: fileId });
       console.warn("[chat-oss] upload error:", error);
     }
@@ -188,7 +344,7 @@ class ChatOssSession {
 
 let activeSession: ChatOssSession | null = null;
 
-/** 若 /api/me 返回了 oss_path，则在模型流式输出期间每 5s 经 STS 上传一次。 */
+/** 若 /api/me 返回了 oss_path，则在模型流式输出期间每 3s 经 STS 上传一次。 */
 export function startChatOssRecording(conversationId: string): void {
   const ossPath = useUserProfileStore.getState().ossPath.trim();
   if (!ossPath) return;
@@ -197,7 +353,7 @@ export function startChatOssRecording(conversationId: string): void {
   activeSession.start();
 }
 
-/** 追加一条结构化流事件（content / reasoning / tool_*）。 */
+/** 追加一条结构化流事件（上传前会聚合为分隔符段落）。 */
 export function appendChatOssEvent(event: ChatOssEvent): void {
   activeSession?.appendEvent(event);
 }

@@ -178,7 +178,13 @@ pub fn extract_inbound_message_text(raw: &str) -> String {
             }
         }
     }
-    // NDJSON：拼接 content / text 行
+    // omni-chat-sections.v1：优先取 user_message / ai___message 段正文
+    if trimmed.contains("|[") && trimmed.contains("]|") {
+        if let Some(text) = extract_section_bodies(trimmed) {
+            return text;
+        }
+    }
+    // 旧 NDJSON：拼接 content / text 行
     if trimmed.lines().any(|l| l.trim_start().starts_with('{')) {
         let mut out = String::new();
         for line in trimmed.lines() {
@@ -201,6 +207,84 @@ pub fn extract_inbound_message_text(raw: &str) -> String {
         }
     }
     trimmed.to_string()
+}
+
+/// 解析 `----------------\n|[tag]|\n----------------\nbody` 段落。
+fn extract_section_bodies(raw: &str) -> Option<String> {
+    let mut preferred = String::new();
+    let mut fallback = String::new();
+    let lines: Vec<&str> = raw.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i].trim();
+        if line != "----------------" {
+            i += 1;
+            continue;
+        }
+        if i + 2 >= lines.len() {
+            break;
+        }
+        let tag_line = lines[i + 1].trim();
+        let close = lines[i + 2].trim();
+        if close != "----------------" {
+            i += 1;
+            continue;
+        }
+        let Some(tag) = parse_section_tag(tag_line) else {
+            i += 1;
+            continue;
+        };
+        i += 3;
+        let mut body = String::new();
+        while i < lines.len() {
+            let peek = lines[i].trim();
+            if peek == "----------------" {
+                break;
+            }
+            if !body.is_empty() {
+                body.push('\n');
+            }
+            body.push_str(lines[i]);
+            i += 1;
+        }
+        let body = body.trim().to_string();
+        if body.is_empty() {
+            continue;
+        }
+        // 入站展示：优先用户可见消息段，其次任意纯文本段
+        if matches!(tag.as_str(), "user_message" | "ai___message") {
+            if !preferred.is_empty() {
+                preferred.push('\n');
+            }
+            preferred.push_str(&body);
+        } else if !matches!(
+            tag.as_str(),
+            "tool_calling" | "tool___result" | "ai_reasoning" | "error______"
+        ) {
+            if !fallback.is_empty() {
+                fallback.push('\n');
+            }
+            fallback.push_str(&body);
+        }
+    }
+    if !preferred.is_empty() {
+        Some(preferred)
+    } else if !fallback.is_empty() {
+        Some(fallback)
+    } else {
+        None
+    }
+}
+
+fn parse_section_tag(line: &str) -> Option<String> {
+    let line = line.trim();
+    let rest = line.strip_prefix("|[")?;
+    let tag = rest.strip_suffix("]|")?;
+    if tag.is_empty() {
+        None
+    } else {
+        Some(tag.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -231,6 +315,31 @@ mod tests {
 {"v":1,"t":"content","text":"B"}
 "#;
         assert_eq!(extract_inbound_message_text(raw), "AB");
+    }
+
+    #[test]
+    fn extract_section_format_prefers_message_bodies() {
+        let raw = r#"# format=omni-chat-sections.v1
+
+----------------
+|[user_message]|
+----------------
+来自助手端
+
+----------------
+|[ai_reasoning]|
+----------------
+跳过思考
+
+----------------
+|[ai___message]|
+----------------
+回复正文
+"#;
+        assert_eq!(
+            extract_inbound_message_text(raw),
+            "来自助手端\n回复正文"
+        );
     }
 
     #[test]
