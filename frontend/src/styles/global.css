@@ -11287,7 +11287,8 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     /* 侧栏：复用 vsplit-sidebar + fm-conn-item（与文件管理一致） */
     .task-center-sidebar {
-        background: var(--bg-deeper);
+        /* 与 module-left-column / 数据库 schema 侧栏一致 */
+        background: var(--bg);
         min-height: 0;
         height: 100%;
     }
@@ -19403,7 +19404,8 @@ button.omni-btn-tool[aria-pressed="true"] {
 }
 
 .fm-sidebar {
-    background: var(--bg-deeper);
+    /* 与 module-left-column / 数据库 schema 侧栏一致 */
+    background: var(--bg);
 }
 
 .fm-connections {
