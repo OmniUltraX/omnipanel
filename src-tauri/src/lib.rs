@@ -472,9 +472,9 @@ fn export_ipc_bindings() {
         commands::assistant_chat::assistant_chat_inbox_start,
         commands::assistant_chat::assistant_chat_inbox_stop,
         commands::client_sync::client_sync_push_conversations,
-        commands::client_sync::client_sync_pull_conversations,
         commands::client_sync_modules::client_sync_push_modules,
-        commands::client_sync_modules::client_sync_pull_modules,
+        commands::client_sync_modules::client_sync_peek_device,
+        commands::client_sync_modules::client_sync_import_from_device,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -1208,9 +1208,9 @@ fn build_and_run_tauri() {
             commands::assistant_chat::assistant_chat_inbox_start,
             commands::assistant_chat::assistant_chat_inbox_stop,
             commands::client_sync::client_sync_push_conversations,
-            commands::client_sync::client_sync_pull_conversations,
             commands::client_sync_modules::client_sync_push_modules,
-            commands::client_sync_modules::client_sync_pull_modules,
+            commands::client_sync_modules::client_sync_peek_device,
+            commands::client_sync_modules::client_sync_import_from_device,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,

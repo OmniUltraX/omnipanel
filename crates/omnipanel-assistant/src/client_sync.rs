@@ -1,7 +1,8 @@
 //! 客户端 ↔ 客户端（同账号）数据同步。
 //!
-//! 与助手端快照（`assistant/{userId}/{deviceId}/…`）完全独立：
-//! 账号级路径 `sync/{userId}/v1/…`，供多设备互相 pull / push。
+//! 与助手端快照（`assistant/{userId}/{deviceId}/…`）独立：
+//! 按设备写入 `sync/{userId}/devices/{deviceId}/…`，数据变更时更新本机快照；
+//! 从其它设备导入由用户手动触发。
 
 use omnipanel_error::OmniResult;
 use reqwest::Client;
@@ -32,36 +33,45 @@ fn sanitize_path_segment(raw: &str) -> String {
     }
 }
 
-/// `sync/{userId}/v1/{leaf}/latest.json`
-pub fn sync_latest_object_key(user_id: &str, leaf: &str) -> String {
+/// `sync/{userId}/devices/{deviceId}/{leaf}/latest.json`
+pub fn device_sync_latest_object_key(user_id: &str, device_id: &str, leaf: &str) -> String {
     format!(
-        "sync/{}/v1/{}/latest.json",
+        "sync/{}/devices/{}/{}/latest.json",
         sanitize_path_segment(user_id),
+        sanitize_path_segment(device_id),
         sanitize_path_segment(leaf)
     )
 }
 
-/// 账号级 AI 会话同步对象 key。
-pub fn conversations_latest_object_key(user_id: &str) -> String {
-    sync_latest_object_key(user_id, "ai-conversations")
+/// 本机/目标设备 AI 会话同步对象 key。
+pub fn device_conversations_latest_object_key(user_id: &str, device_id: &str) -> String {
+    device_sync_latest_object_key(user_id, device_id, "ai-conversations")
 }
 
-/// 账号级各业务模块同步对象 key。
-pub fn modules_latest_object_key(user_id: &str) -> String {
-    sync_latest_object_key(user_id, "modules")
+/// 本机/目标设备各业务模块同步对象 key。
+pub fn device_modules_latest_object_key(user_id: &str, device_id: &str) -> String {
+    device_sync_latest_object_key(user_id, device_id, "modules")
 }
 
-/// 拉取任意账号级 sync blob；对象不存在时返回 `None`。
-pub async fn pull_sync_json(
+/// 拉取指定设备的 sync blob；对象不存在时返回 `None`。
+pub async fn pull_device_sync_json(
     auth: &AuthContext,
     user_id: &str,
+    device_id: &str,
     leaf: &str,
 ) -> OmniResult<Option<(String, Vec<u8>)>> {
     let user_id = user_id.trim();
+    let device_id = device_id.trim();
     if user_id.is_empty() {
         return Err(map_assistant_error(
             AssistantErrorKind::Auth,
             "缺少 userId，无法拉取客户端同步数据",
+        ));
+    }
+    if device_id.is_empty() {
+        return Err(map_assistant_error(
+            AssistantErrorKind::Auth,
+            "缺少 deviceId，无法拉取客户端同步数据",
         ));
     }
     if leaf.trim().is_empty() {
@@ -72,25 +82,33 @@ pub async fn pull_sync_json(
     }
 
     let sts = fetch_oss_sts(auth).await?;
-    let object_key = sync_latest_object_key(user_id, leaf);
+    let object_key = device_sync_latest_object_key(user_id, device_id, leaf);
     let key = strip_bucket_prefix(&object_key, &sts.bucket);
     let http = Client::new();
     let bytes = get_object_bytes_optional(&http, &sts, &key).await?;
     Ok(bytes.map(|b| (key, b)))
 }
 
-/// 上传任意账号级 sync blob（覆盖 latest）。
-pub async fn push_sync_json(
+/// 上传指定设备的 sync blob（覆盖 latest）。
+pub async fn push_device_sync_json(
     auth: &AuthContext,
     user_id: &str,
+    device_id: &str,
     leaf: &str,
     body: &[u8],
 ) -> OmniResult<OssUploadResult> {
     let user_id = user_id.trim();
+    let device_id = device_id.trim();
     if user_id.is_empty() {
         return Err(map_assistant_error(
             AssistantErrorKind::Auth,
             "缺少 userId，无法推送客户端同步数据",
+        ));
+    }
+    if device_id.is_empty() {
+        return Err(map_assistant_error(
+            AssistantErrorKind::Auth,
+            "缺少 deviceId，无法推送客户端同步数据",
         ));
     }
     if body.is_empty() {
@@ -101,7 +119,7 @@ pub async fn push_sync_json(
     }
 
     let sts = fetch_oss_sts(auth).await?;
-    let object_key = sync_latest_object_key(user_id, leaf);
+    let object_key = device_sync_latest_object_key(user_id, device_id, leaf);
     let key = strip_bucket_prefix(&object_key, &sts.bucket);
     let http = Client::new();
     upload_object_bytes(&http, &sts, &key, body, "application/json").await
@@ -110,31 +128,35 @@ pub async fn push_sync_json(
 pub async fn pull_conversations_json(
     auth: &AuthContext,
     user_id: &str,
+    device_id: &str,
 ) -> OmniResult<Option<(String, Vec<u8>)>> {
-    pull_sync_json(auth, user_id, "ai-conversations").await
+    pull_device_sync_json(auth, user_id, device_id, "ai-conversations").await
 }
 
 pub async fn push_conversations_json(
     auth: &AuthContext,
     user_id: &str,
+    device_id: &str,
     body: &[u8],
 ) -> OmniResult<OssUploadResult> {
-    push_sync_json(auth, user_id, "ai-conversations", body).await
+    push_device_sync_json(auth, user_id, device_id, "ai-conversations", body).await
 }
 
 pub async fn pull_modules_json(
     auth: &AuthContext,
     user_id: &str,
+    device_id: &str,
 ) -> OmniResult<Option<(String, Vec<u8>)>> {
-    pull_sync_json(auth, user_id, "modules").await
+    pull_device_sync_json(auth, user_id, device_id, "modules").await
 }
 
 pub async fn push_modules_json(
     auth: &AuthContext,
     user_id: &str,
+    device_id: &str,
     body: &[u8],
 ) -> OmniResult<OssUploadResult> {
-    push_sync_json(auth, user_id, "modules", body).await
+    push_device_sync_json(auth, user_id, device_id, "modules", body).await
 }
 
 /// 轻量校验：JSON 可解析且含 `schemaVersion`。
@@ -179,14 +201,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn object_key_sanitizes_user_id() {
+    fn device_object_key() {
         assert_eq!(
-            conversations_latest_object_key("42"),
-            "sync/42/v1/ai-conversations/latest.json"
+            device_conversations_latest_object_key("42", "dev-a"),
+            "sync/42/devices/dev-a/ai-conversations/latest.json"
         );
         assert_eq!(
-            modules_latest_object_key("a/b"),
-            "sync/a_b/v1/modules/latest.json"
+            device_modules_latest_object_key("a/b", "x y"),
+            "sync/a_b/devices/x_y/modules/latest.json"
         );
     }
 

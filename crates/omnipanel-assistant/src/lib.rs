@@ -14,9 +14,10 @@ mod types;
 
 pub use chat::{extract_inbound_message_text, fetch_chat_latest, ChatLatestIndex};
 pub use client_sync::{
-    conversations_latest_object_key, modules_latest_object_key, pull_conversations_json,
-    pull_modules_json, push_conversations_json, push_modules_json, sync_latest_object_key,
-    validate_conversations_bundle_json, validate_modules_bundle_json, validate_sync_bundle_json,
+    device_conversations_latest_object_key, device_modules_latest_object_key,
+    device_sync_latest_object_key, pull_conversations_json, pull_modules_json,
+    push_conversations_json, push_modules_json, validate_conversations_bundle_json,
+    validate_modules_bundle_json, validate_sync_bundle_json,
     CLIENT_SYNC_CONVERSATIONS_SCHEMA_VERSION, CLIENT_SYNC_SCHEMA_VERSION,
 };
 pub use collect::{

@@ -785,14 +785,14 @@ export const commands = {
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
 	/** 停止助手聊天收件箱。手动同步自 commands/assistant_chat.rs */
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
-	/** 推送账号级 AI 会话同步 blob（sync/{userId}/…）。手动同步自 commands/client_sync.rs */
+	/** 推送本机 AI 会话快照（sync/{userId}/devices/{deviceId}/…）。手动同步自 commands/client_sync.rs */
 	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
-	/** 拉取账号级 AI 会话同步 blob。手动同步自 commands/client_sync.rs */
-	clientSyncPullConversations: (request: ClientSyncPullConversationsRequest) => typedError<ClientSyncPullConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_conversations", { request })),
-	/** 推送各业务模块同步 blob。手动同步自 commands/client_sync_modules.rs */
+	/** 推送本机各业务模块快照。手动同步自 commands/client_sync_modules.rs */
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
-	/** 拉取并应用各业务模块同步 blob。手动同步自 commands/client_sync_modules.rs */
-	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
+	/** 预览其它设备可同步条目。手动同步自 commands/client_sync_modules.rs */
+	clientSyncPeekDevice: (request: ClientSyncPeekRequest) => typedError<ClientSyncPeekResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_peek_device", { request })),
+	/** 从其它设备导入勾选数据。手动同步自 commands/client_sync_modules.rs */
+	clientSyncImportFromDevice: (request: ClientSyncImportRequest) => typedError<ClientSyncImportResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_import_from_device", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -1040,18 +1040,6 @@ export type ClientSyncPushConversationsResult = {
 	bytes: number,
 };
 
-/** 客户端间会话同步拉取请求（手动同步自 commands/client_sync.rs）。 */
-export type ClientSyncPullConversationsRequest = {
-	token: string,
-};
-
-/** 客户端间会话同步拉取结果（手动同步自 commands/client_sync.rs）。 */
-export type ClientSyncPullConversationsResult = {
-	found: boolean,
-	objectKey: string,
-	bodyJson: string | null,
-};
-
 /** 客户端间模块 tombstone（手动同步自 commands/client_sync_modules.rs）。 */
 export type ClientSyncTombstoneDto = {
 	id: string,
@@ -1077,27 +1065,57 @@ export type ClientSyncPushModulesResult = {
 	bytes: number,
 };
 
-export type ClientSyncPullModulesRequest = {
-	token: string,
-	workspacesJson: string | null,
-	deletedWorkspaces: ClientSyncTombstoneDto[],
-	deletedConnections: ClientSyncTombstoneDto[],
-	deletedDatabases: ClientSyncTombstoneDto[],
-	deletedKnowledge: ClientSyncTombstoneDto[],
-	deletedHttpRequests: ClientSyncTombstoneDto[],
-	deletedHttpCollections: ClientSyncTombstoneDto[],
-	deletedHttpEnvironments: ClientSyncTombstoneDto[],
+export type ClientSyncPeekItem = {
+	id: string,
+	label: string,
+	detail: string,
+	updatedAt: number,
 };
 
-export type ClientSyncPullModulesResult = {
-	found: boolean,
-	objectKey: string,
-	applied: boolean,
+export type ClientSyncPeekRequest = {
+	token: string,
+	deviceId: string,
+};
+
+export type ClientSyncPeekResult = {
+	deviceId: string,
+	modulesFound: boolean,
+	conversationsFound: boolean,
+	modulesUpdatedAt: number,
+	conversationsUpdatedAt: number,
+	connections: ClientSyncPeekItem[],
+	databases: ClientSyncPeekItem[],
+	knowledge: ClientSyncPeekItem[],
+	httpRequests: ClientSyncPeekItem[],
+	httpCollections: ClientSyncPeekItem[],
+	workspaces: ClientSyncPeekItem[],
+	conversations: ClientSyncPeekItem[],
+};
+
+export type ClientSyncImportSelection = {
+	connectionIds: string[],
+	databaseIds: string[],
+	knowledgeIds: string[],
+	httpRequestIds: string[],
+	httpCollectionIds: string[],
+	workspaceIds: string[],
+	conversationIds: string[],
+};
+
+export type ClientSyncImportRequest = {
+	token: string,
+	deviceId: string,
+	selection: ClientSyncImportSelection,
+};
+
+export type ClientSyncImportResult = {
+	appliedConnections: number,
+	appliedDatabases: number,
+	appliedKnowledge: number,
+	appliedHttpRequests: number,
+	appliedWorkspaces: number,
 	workspacesJson: string | null,
-	connectionCount: number,
-	databaseCount: number,
-	knowledgeCount: number,
-	httpRequestCount: number,
+	conversationsJson: string | null,
 };
 
 /** 助手→客户端聊天 latest 索引（手动同步自 omnipanel-assistant ChatLatestIndex）。 */

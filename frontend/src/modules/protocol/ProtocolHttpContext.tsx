@@ -10,7 +10,11 @@ import {
 } from "react";
 import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
 import { scheduleAssistantSnapshotSync } from "../assistant";
-import { scheduleClientModuleSync, recordModuleTombstones } from "../clientSync";
+import {
+  scheduleClientModuleSync,
+  recordModuleTombstones,
+  CLIENT_SYNC_MODULES_APPLIED_EVENT,
+} from "../clientSync";
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
@@ -394,6 +398,16 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     void loadEnvironments();
     void loadSavedRequests();
   }, [loadHistory, loadCollections, loadEnvironments, loadSavedRequests]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void loadCollections();
+      void loadEnvironments();
+      void loadSavedRequests();
+    };
+    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+  }, [loadCollections, loadEnvironments, loadSavedRequests]);
 
   useEffect(() => {
     if (environments.length === 0) return;

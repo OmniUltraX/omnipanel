@@ -6,22 +6,17 @@ export {
 export {
   scheduleClientModuleSync,
   cancelClientModuleSync,
-  hydrateClientModuleSync,
   setClientModuleSyncSuppressed,
+  CLIENT_SYNC_MODULES_APPLIED_EVENT,
 } from "./moduleSync";
-export { hydrateClientConversationSync } from "./hydrate";
+export {
+  peekDeviceSync,
+  importFromDevice,
+  emptyImportSelection,
+  selectionCount,
+} from "./importFromDevice";
 export {
   recordConversationTombstones,
   recordModuleTombstones,
 } from "./tombstones";
 export type { ClientSyncConversationsBundle, ClientSyncTombstone } from "./types";
-
-/** 登录 / 冷启动：会话 + 各模块一并 hydrate。 */
-export async function hydrateClientSync(): Promise<void> {
-  const { hydrateClientConversationSync } = await import("./hydrate");
-  const { hydrateClientModuleSync } = await import("./moduleSync");
-  await Promise.all([
-    hydrateClientConversationSync(),
-    hydrateClientModuleSync(),
-  ]);
-}

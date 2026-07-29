@@ -1,8 +1,11 @@
 import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
-import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
+
+/** 模块同步落到本机后派发，供 Database / Protocol 等面板刷新 */
+export const CLIENT_SYNC_MODULES_APPLIED_EVENT = "omnipanel:client-sync-modules-applied";
 
 const DEBOUNCE_MS = 5000;
 
@@ -50,7 +53,7 @@ function deletedPayload() {
 }
 
 /**
- * 模块数据变更后调度推送到 `sync/{userId}/v1/modules/…`。
+ * 模块数据变更后调度推送到 `sync/{userId}/devices/{deviceId}/modules/…`。
  */
 export function scheduleClientModuleSync(options?: { immediate?: boolean }): void {
   if (suppressPush) return;
@@ -86,16 +89,21 @@ async function runPush(): Promise<void> {
   inFlight = (async () => {
     try {
       const deleted = deletedPayload();
-      await unwrapCommand(
+      const result = await unwrapCommand(
         commands.clientSyncPushModules({
           token,
           workspacesJson: collectWorkspacesJson(),
           ...deleted,
         }),
-        { quiet: true },
+        { quiet: true, logLabel: "[client-sync:modules]" },
+      );
+      console.info(
+        "[client-sync:modules] push ok",
+        result.objectKey,
+        `${Math.round(result.bytes)}B`,
       );
     } catch (err) {
-      console.warn("[client-sync:modules]", formatIpcError(err));
+      console.warn("[client-sync:modules] push failed:", formatIpcError(err));
     } finally {
       inFlight = null;
       if (pendingAfterFlight) {
@@ -106,109 +114,4 @@ async function runPush(): Promise<void> {
   })();
 
   await inFlight;
-}
-
-function applyWorkspacesJson(raw: string | null | undefined): void {
-  if (!raw?.trim()) return;
-  try {
-    const list = JSON.parse(raw) as Array<{
-      id: string;
-      name: string;
-      description?: string;
-      windowForm?: string | null;
-    }>;
-    if (!Array.isArray(list) || list.length === 0) return;
-    const workspaces: WorkspaceInfo[] = list
-      .filter((w) => w?.id && w?.name)
-      .map((w) => ({
-        id: w.id,
-        name: w.name,
-        description: w.description ?? "",
-        windowForm:
-          w.windowForm === "windowed" || w.windowForm === "embedded"
-            ? w.windowForm
-            : undefined,
-      }));
-    if (workspaces.length === 0) return;
-
-    const current = useWorkspaceStore.getState();
-    const activeStill = workspaces.some((w) => w.id === current.workspace.id);
-    useWorkspaceStore.setState({
-      workspaces,
-      workspace: activeStill ? current.workspace : workspaces[0],
-    });
-  } catch (err) {
-    console.warn("[client-sync:modules] apply workspaces failed", err);
-  }
-}
-
-/**
- * 登录后 pull 模块数据并应用到本机；必要时播种推送。
- */
-export async function hydrateClientModuleSync(): Promise<void> {
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
-
-  try {
-    if (useWorkspaceStore.persist?.hasHydrated && !useWorkspaceStore.persist.hasHydrated()) {
-      await new Promise<void>((resolve) => {
-        const unsub = useWorkspaceStore.persist.onFinishHydration(() => {
-          unsub();
-          resolve();
-        });
-      });
-    }
-    if (
-      useClientSyncTombstoneStore.persist?.hasHydrated &&
-      !useClientSyncTombstoneStore.persist.hasHydrated()
-    ) {
-      await new Promise<void>((resolve) => {
-        const unsub = useClientSyncTombstoneStore.persist.onFinishHydration(() => {
-          unsub();
-          resolve();
-        });
-      });
-    }
-
-    setClientModuleSyncSuppressed(true);
-    const deleted = deletedPayload();
-    const result = await unwrapCommand(
-      commands.clientSyncPullModules({
-        token,
-        workspacesJson: collectWorkspacesJson(),
-        ...deleted,
-      }),
-      { quiet: true },
-    );
-
-    if (result.workspacesJson) {
-      applyWorkspacesJson(result.workspacesJson);
-    }
-
-    // 刷新前端连接 / 知识缓存（后端已写入）
-    void import("../../stores/connectionStore").then((m) => {
-      void m.useConnectionStore.getState().refresh();
-    });
-    void import("../../stores/knowledgeStore").then((m) => {
-      void m.useKnowledgeStore.getState().loadEntries();
-    });
-
-    setClientModuleSyncSuppressed(false);
-
-    if (!result.found) {
-      const hasLocal =
-        result.connectionCount > 0 ||
-        result.databaseCount > 0 ||
-        result.knowledgeCount > 0 ||
-        result.httpRequestCount > 0 ||
-        useWorkspaceStore.getState().workspaces.length > 0;
-      if (hasLocal) {
-        scheduleClientModuleSync({ immediate: true });
-      }
-    }
-    // found=true 时 pull 命令已回写云端，无需再 push
-  } catch (err) {
-    setClientModuleSyncSuppressed(false);
-    console.warn("[client-sync:modules] hydrate failed:", formatIpcError(err));
-  }
 }

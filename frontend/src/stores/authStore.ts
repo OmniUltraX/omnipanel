@@ -9,7 +9,8 @@ import {
 import {
   cancelClientConversationSync,
   cancelClientModuleSync,
-  hydrateClientSync,
+  scheduleClientConversationSync,
+  scheduleClientModuleSync,
 } from "../modules/clientSync";
 
 interface AuthState {
@@ -29,8 +30,9 @@ export const useAuthStore = create<AuthState>()(
         // 登录后尽快推一次，便于助手端拿到初始快照
         scheduleAssistantSnapshotSync({ immediate: true });
         void startAssistantChatInbox();
-        // 客户端间：会话 + 各模块 pull/merge（与助手快照独立）
-        void hydrateClientSync();
+        // 客户端间：仅上传本机快照（跨端导入改为手动）
+        scheduleClientConversationSync({ immediate: true });
+        scheduleClientModuleSync({ immediate: true });
       },
       logout: () => {
         cancelAssistantSnapshotSync();

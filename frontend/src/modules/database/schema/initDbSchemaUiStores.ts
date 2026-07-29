@@ -10,6 +10,13 @@ export function takeBootstrappedDbConnections(): DbConnectionConfig[] | null {
   return bootstrappedDbConnections;
 }
 
+/** 客户端同步落盘后刷新预取缓存，并供 DatabasePanel 事件监听使用。 */
+export async function reloadBootstrappedDbConnections(): Promise<DbConnectionConfig[]> {
+  const list = await listConnections().catch(() => [] as DbConnectionConfig[]);
+  bootstrappedDbConnections = list;
+  return list;
+}
+
 /**
  * 启动期预热数据库侧栏本地状态：Schema 缓存、展开记忆、过滤器、连接列表。
  * 本地缓存只用于渲染树，不代表在线；绿点由 Tab 按需 probe 后设置。
