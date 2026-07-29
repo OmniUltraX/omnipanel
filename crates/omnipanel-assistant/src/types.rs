@@ -14,6 +14,7 @@ pub const MODULE_IDS: &[&str] = &[
     "knowledge",
     "protocol",
     "tasks",
+    "assistant",
 ];
 
 /// 采集后的各模块 section（内存态，上传前再拆文件）。
@@ -28,6 +29,7 @@ pub struct AssistantSnapshotModules {
     pub knowledge: ModuleSection,
     pub protocol: ModuleSection,
     pub tasks: ModuleSection,
+    pub assistant: ModuleSection,
 }
 
 impl AssistantSnapshotModules {
@@ -41,6 +43,7 @@ impl AssistantSnapshotModules {
             "knowledge" => Some(&self.knowledge),
             "protocol" => Some(&self.protocol),
             "tasks" => Some(&self.tasks),
+            "assistant" => Some(&self.assistant),
             _ => None,
         }
     }
@@ -111,6 +114,7 @@ pub struct SnapshotOverviewModules {
     pub knowledge: OverviewModuleEntry,
     pub protocol: OverviewModuleEntry,
     pub tasks: OverviewModuleEntry,
+    pub assistant: OverviewModuleEntry,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -210,6 +214,7 @@ pub fn build_snapshot_bundle(
             "knowledge" => overview_modules.knowledge = entry,
             "protocol" => overview_modules.protocol = entry,
             "tasks" => overview_modules.tasks = entry,
+            "assistant" => overview_modules.assistant = entry,
             _ => {}
         }
     }
@@ -242,10 +247,11 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn bundle_has_overview_and_eight_modules() {
+    fn bundle_has_overview_and_nine_modules() {
         let mut modules = AssistantSnapshotModules::default();
         modules.database = ModuleSection::from_items(vec![json!({"id":"db1"})]);
         modules.tasks = ModuleSection::from_items(vec![json!({"id":"t1"}), json!({"id":"t2"})]);
+        modules.assistant = ModuleSection::from_items(vec![json!({"id":"conv1"})]);
 
         let bundle = build_snapshot_bundle(
             "dev-1",
@@ -256,7 +262,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(bundle.file_count(), 9);
+        assert_eq!(bundle.file_count(), 10);
         assert!(bundle.overview_key.ends_with("/overview.json"));
         assert_eq!(bundle.files.last().unwrap().object_key, bundle.overview_key);
 
@@ -265,10 +271,16 @@ mod tests {
         assert_eq!(overview.schema_version, 2);
         assert_eq!(overview.modules.database.count, 1);
         assert_eq!(overview.modules.tasks.count, 2);
+        assert_eq!(overview.modules.assistant.count, 1);
         assert!(overview
             .modules
             .database
             .object_key
             .ends_with("/modules/database.json"));
+        assert!(overview
+            .modules
+            .assistant
+            .object_key
+            .ends_with("/modules/assistant.json"));
     }
 }

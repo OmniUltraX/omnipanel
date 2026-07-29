@@ -1,8 +1,12 @@
 import { commands } from "../../ipc/bindings";
+import type { AssistantConversationSnapshotItem } from "../../ipc/bindings";
 import { unwrapCommand, formatIpcError } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
+import { useAiStore, type AiConversation } from "../../stores/aiStore";
 
 const DEBOUNCE_MS = 5000;
+/** 与后端 ASSISTANT_CONVERSATION_SNAPSHOT_LIMIT 对齐 */
+const CONVERSATION_SNAPSHOT_LIMIT = 50;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let inFlight: Promise<void> | null = null;
@@ -52,6 +56,34 @@ export function scheduleAssistantSnapshotSync(options?: {
   }, DEBOUNCE_MS);
 }
 
+/** 将会话转为快照条目（不含 messages）。 */
+export function toAssistantConversationSnapshotItem(
+  conv: AiConversation,
+): AssistantConversationSnapshotItem {
+  return {
+    id: conv.id,
+    title: conv.title,
+    provider: conv.provider,
+    model: conv.model,
+    modelSelectionId: conv.modelSelectionId ?? null,
+    agentId: conv.agentId ?? null,
+    messageCount: conv.messages.length,
+    createdAt: conv.createdAt,
+    updatedAt: conv.updatedAt,
+    parentConversationId: conv.parentConversationId ?? null,
+    rootConversationId: conv.rootConversationId ?? null,
+    pinnedWorkspaceId: conv.pinnedWorkspaceId ?? null,
+    linkedTerminalSessionId: conv.linkedTerminalSessionId ?? null,
+  };
+}
+
+/** 取最近更新的会话列表元数据，供推送注入。 */
+export function collectAssistantConversationSnapshots(): AssistantConversationSnapshotItem[] {
+  const list = [...useAiStore.getState().conversations];
+  list.sort((a, b) => b.updatedAt - a.updatedAt);
+  return list.slice(0, CONVERSATION_SNAPSHOT_LIMIT).map(toAssistantConversationSnapshotItem);
+}
+
 async function runPush(): Promise<void> {
   const token = useAuthStore.getState().token;
   if (!token?.trim()) {
@@ -70,6 +102,7 @@ async function runPush(): Promise<void> {
           token,
           dryRun: false,
           bindId: lastBindId,
+          conversations: collectAssistantConversationSnapshots(),
         }),
         { quiet: true },
       );

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
 import { scheduleAssistantSnapshotSync } from "../assistant";
+import { scheduleClientModuleSync, recordModuleTombstones } from "../clientSync";
 import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
@@ -37,6 +38,7 @@ async function persistHttpRequest(req: SavedHttpRequest) {
   const res = await commands.httpSaveRequest(req);
   if (res.status === "ok") {
     scheduleAssistantSnapshotSync();
+    scheduleClientModuleSync();
   }
   return res;
 }
@@ -421,6 +423,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       };
       const res = await commands.httpSaveCollection(col);
       if (res.status === "ok") {
+        scheduleClientModuleSync();
         await loadCollections();
       }
     },
@@ -431,6 +434,8 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const res = await commands.httpDeleteCollection(id);
       if (res.status === "ok") {
+        recordModuleTombstones("httpCollection", [id]);
+        scheduleClientModuleSync({ immediate: true });
         if (activeCollectionId === id) {
           setActiveCollectionId(null);
         }
@@ -445,6 +450,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     async (env: HttpEnvironment) => {
       const res = await commands.httpSaveEnvironment(env);
       if (res.status === "ok") {
+        scheduleClientModuleSync();
         await loadEnvironments();
         writeStoredActiveEnvironmentId(env.id);
         setEditorState((prev) => ({ ...prev, environmentId: env.id }));
@@ -457,6 +463,8 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const res = await commands.httpDeleteEnvironment(id);
       if (res.status === "ok") {
+        recordModuleTombstones("httpEnvironment", [id]);
+        scheduleClientModuleSync({ immediate: true });
         await loadEnvironments();
         await loadSavedRequests();
         setEditorState((prev) => {
@@ -475,7 +483,9 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const res = await commands.httpDeleteRequest(id);
       if (res.status === "ok") {
+        recordModuleTombstones("httpRequest", [id]);
         scheduleAssistantSnapshotSync();
+        scheduleClientModuleSync({ immediate: true });
         useProtocolHttpDockStore.getState().removeTab(id);
         if (selectedRequestId === id) {
           setSelectedRequestId(null);

@@ -1,6 +1,8 @@
 export {
   scheduleAssistantSnapshotSync,
   cancelAssistantSnapshotSync,
+  collectAssistantConversationSnapshots,
+  toAssistantConversationSnapshotItem,
 } from "./autoSync";
 export {
   startAssistantChatInbox,

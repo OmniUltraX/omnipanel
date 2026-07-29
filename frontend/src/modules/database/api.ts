@@ -9,6 +9,7 @@ import type {
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { scheduleAssistantSnapshotSync } from "../assistant";
+import { scheduleClientModuleSync, recordModuleTombstones } from "../clientSync";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
 
@@ -442,12 +443,15 @@ export async function saveConnection(connection: DbConnectionConfig): Promise<Db
     commands.dbSaveConnection(ipcConn(connection)),
   )) as DbConnectionConfig;
   scheduleAssistantSnapshotSync();
+  scheduleClientModuleSync();
   return saved;
 }
 
 export async function deleteConnection(id: string): Promise<void> {
   await unwrapCommand(commands.dbDeleteConnection(id));
+  recordModuleTombstones("database", [id]);
   scheduleAssistantSnapshotSync();
+  scheduleClientModuleSync({ immediate: true });
 }
 
 export async function testConnection(

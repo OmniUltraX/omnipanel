@@ -785,6 +785,14 @@ export const commands = {
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
 	/** 停止助手聊天收件箱。手动同步自 commands/assistant_chat.rs */
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
+	/** 推送账号级 AI 会话同步 blob（sync/{userId}/…）。手动同步自 commands/client_sync.rs */
+	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
+	/** 拉取账号级 AI 会话同步 blob。手动同步自 commands/client_sync.rs */
+	clientSyncPullConversations: (request: ClientSyncPullConversationsRequest) => typedError<ClientSyncPullConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_conversations", { request })),
+	/** 推送各业务模块同步 blob。手动同步自 commands/client_sync_modules.rs */
+	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
+	/** 拉取并应用各业务模块同步 blob。手动同步自 commands/client_sync_modules.rs */
+	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -969,10 +977,28 @@ export type AuthDeviceIdentity = {
 	};
 
 /** 助手端快照推送请求（手动同步自 commands/assistant.rs）。 */
+export type AssistantConversationSnapshotItem = {
+	id: string,
+	title: string,
+	provider: string,
+	model: string,
+	modelSelectionId: string | null,
+	agentId: string | null,
+	messageCount: number,
+	createdAt: number,
+	updatedAt: number,
+	parentConversationId: string | null,
+	rootConversationId: string | null,
+	pinnedWorkspaceId: string | null,
+	linkedTerminalSessionId: string | null,
+};
+
 export type AssistantPushRequest = {
 	token: string,
 	dryRun: boolean,
 	bindId: string | null,
+	/** AI 会话列表元数据（不含消息正文）；缺省为空数组 */
+	conversations: AssistantConversationSnapshotItem[],
 };
 
 /** 助手端快照推送结果（手动同步自 omnipanel-assistant PushSnapshotResult）。 */
@@ -999,6 +1025,79 @@ export type AssistantUploadTextResult = {
 	objectKey: string,
 	etag: string | null,
 	bytes: number,
+};
+
+/** 客户端间会话同步推送请求（手动同步自 commands/client_sync.rs）。 */
+export type ClientSyncPushConversationsRequest = {
+	token: string,
+	bodyJson: string,
+};
+
+/** 客户端间会话同步推送结果（手动同步自 commands/client_sync.rs）。 */
+export type ClientSyncPushConversationsResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number,
+};
+
+/** 客户端间会话同步拉取请求（手动同步自 commands/client_sync.rs）。 */
+export type ClientSyncPullConversationsRequest = {
+	token: string,
+};
+
+/** 客户端间会话同步拉取结果（手动同步自 commands/client_sync.rs）。 */
+export type ClientSyncPullConversationsResult = {
+	found: boolean,
+	objectKey: string,
+	bodyJson: string | null,
+};
+
+/** 客户端间模块 tombstone（手动同步自 commands/client_sync_modules.rs）。 */
+export type ClientSyncTombstoneDto = {
+	id: string,
+	deletedAt: number,
+};
+
+/** 客户端间模块推送请求。 */
+export type ClientSyncPushModulesRequest = {
+	token: string,
+	workspacesJson: string | null,
+	deletedConnections: ClientSyncTombstoneDto[],
+	deletedDatabases: ClientSyncTombstoneDto[],
+	deletedKnowledge: ClientSyncTombstoneDto[],
+	deletedHttpRequests: ClientSyncTombstoneDto[],
+	deletedHttpCollections: ClientSyncTombstoneDto[],
+	deletedHttpEnvironments: ClientSyncTombstoneDto[],
+	deletedWorkspaces: ClientSyncTombstoneDto[],
+};
+
+export type ClientSyncPushModulesResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number,
+};
+
+export type ClientSyncPullModulesRequest = {
+	token: string,
+	workspacesJson: string | null,
+	deletedWorkspaces: ClientSyncTombstoneDto[],
+	deletedConnections: ClientSyncTombstoneDto[],
+	deletedDatabases: ClientSyncTombstoneDto[],
+	deletedKnowledge: ClientSyncTombstoneDto[],
+	deletedHttpRequests: ClientSyncTombstoneDto[],
+	deletedHttpCollections: ClientSyncTombstoneDto[],
+	deletedHttpEnvironments: ClientSyncTombstoneDto[],
+};
+
+export type ClientSyncPullModulesResult = {
+	found: boolean,
+	objectKey: string,
+	applied: boolean,
+	workspacesJson: string | null,
+	connectionCount: number,
+	databaseCount: number,
+	knowledgeCount: number,
+	httpRequestCount: number,
 };
 
 /** 助手→客户端聊天 latest 索引（手动同步自 omnipanel-assistant ChatLatestIndex）。 */

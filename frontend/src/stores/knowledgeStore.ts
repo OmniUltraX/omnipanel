@@ -11,6 +11,7 @@ import {
 } from "../modules/knowledge/knowledgeTree";
 import { normalizeKnowledgeTags } from "../modules/knowledge/knowledgeTags";
 import { scheduleAssistantSnapshotSync } from "../modules/assistant";
+import { scheduleClientModuleSync, recordModuleTombstones } from "../modules/clientSync";
 import { useSkillPromptStore } from "./skillPromptStore";
 
 interface KnowledgeStore {
@@ -97,6 +98,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                 });
             }
             scheduleAssistantSnapshotSync();
+            scheduleClientModuleSync();
             return true;
           }
           set({ error: res.error.message });
@@ -116,7 +118,9 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               selectedEntryId: state.selectedEntryId === id ? null : state.selectedEntryId,
               expandedIds: state.expandedIds.filter((x) => x !== id),
             }));
+            recordModuleTombstones("knowledge", [id]);
             scheduleAssistantSnapshotSync();
+            scheduleClientModuleSync({ immediate: true });
           } else {
             set({ error: res.error.message });
           }

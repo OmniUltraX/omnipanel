@@ -32,6 +32,29 @@ import {
   isAgentId,
   type AgentId,
 } from "../lib/ai/agents";
+import { recordConversationTombstones } from "../modules/clientSync/tombstones";
+
+/**
+ * 会话列表结构变更后：
+ * 1) 助手端脱敏快照（device 路径）
+ * 2) 客户端间会话同步（账号级 sync/ 路径）
+ * 两套逻辑独立；动态 import 避免与 autoSync 环依赖。
+ */
+function scheduleConversationListSnapshotSync(options?: {
+  immediate?: boolean;
+  /** 本次删除的会话 id（写入 client-sync tombstone） */
+  deletedIds?: string[];
+}): void {
+  if (options?.deletedIds?.length) {
+    recordConversationTombstones(options.deletedIds);
+  }
+  void import("../modules/assistant").then((m) => {
+    m.scheduleAssistantSnapshotSync(options);
+  });
+  void import("../modules/clientSync").then((m) => {
+    m.scheduleClientConversationSync(options);
+  });
+}
 
 export type {
   AiMessagePart,
@@ -388,6 +411,8 @@ export const useAiStore = create<AiStore>()(
           conversations: [conv, ...s.conversations],
           activeConversationId: id,
         }));
+        // 新建会话：立即推 modules/assistant.json，勿等 debounce
+        scheduleConversationListSnapshotSync({ immediate: true });
         return id;
       },
 
@@ -413,14 +438,16 @@ export const useAiStore = create<AiStore>()(
         });
       },
 
-      renameConversation: (id, title) =>
+      renameConversation: (id, title) => {
         set((state) => ({
           conversations: state.conversations.map((c) =>
             c.id === id ? { ...c, title, updatedAt: Date.now() } : c,
           ),
-        })),
+        }));
+        scheduleConversationListSnapshotSync({ immediate: true });
+      },
 
-      deleteConversation: (id) =>
+      deleteConversation: (id) => {
         set((state) => {
           const remaining = state.conversations.filter((c) => c.id !== id);
           const newActive =
@@ -433,7 +460,10 @@ export const useAiStore = create<AiStore>()(
             conversations: remaining,
             activeConversationId: newActive,
           };
-        }),
+        });
+        // 删除会话：立即推最新列表（助手快照 + 客户端间 tombstone）
+        scheduleConversationListSnapshotSync({ immediate: true, deletedIds: [id] });
+      },
 
       addMessage: (conversationId, msg) => {
         const msgId = genId("msg");
@@ -656,7 +686,11 @@ export const useAiStore = create<AiStore>()(
 
       setCurrentSkillIds: (ids) => set({ currentSkillIds: [...ids] }),
 
-      setIsGenerating: (v) => set({ isGenerating: v }),
+      setIsGenerating: (v) => {
+        set({ isGenerating: v });
+        // 一轮生成结束：刷新会话列表里的 messageCount / updatedAt
+        if (!v) scheduleConversationListSnapshotSync();
+      },
 
       setDraftPrompt: (prompt) => set({ draftPrompt: prompt }),
 
@@ -886,6 +920,7 @@ export const useAiStore = create<AiStore>()(
         set((s) => ({
           conversations: [...s.conversations, conv],
         }));
+        scheduleConversationListSnapshotSync({ immediate: true });
         return id;
       },
 
@@ -903,7 +938,8 @@ export const useAiStore = create<AiStore>()(
         set({ viewingChildConversationId: id });
       },
 
-      deleteConversationCascade: (id) =>
+      deleteConversationCascade: (id) => {
+        const deletedIds: string[] = [];
         set((state) => {
           // 收集所有直接与间接子会话
           const toDelete = new Set<string>([id]);
@@ -921,6 +957,7 @@ export const useAiStore = create<AiStore>()(
               }
             }
           }
+          deletedIds.push(...toDelete);
           const remaining = state.conversations.filter((c) => !toDelete.has(c.id));
           const newActive =
             state.activeConversationId && toDelete.has(state.activeConversationId)
@@ -936,7 +973,9 @@ export const useAiStore = create<AiStore>()(
             activeConversationId: newActive,
             viewingChildConversationId: newViewing,
           };
-        }),
+        });
+        scheduleConversationListSnapshotSync({ immediate: true, deletedIds });
+      },
     }),
     {
       name: "omnipanel-ai-store",

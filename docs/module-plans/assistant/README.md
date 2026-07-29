@@ -18,7 +18,7 @@
 **第一期明确不做**
 
 - 助手端拉取 / SSE 通知 / `latest` pointer
-- 双向同步、冲突合并
+- 双向同步、冲突合并（**多设备客户端间同步**见 [../client-sync/README.md](../client-sync/README.md)，与本模块路径隔离）
 - 分模块增量变更检测
 - 密钥或可连资源的凭据下发
 
@@ -53,6 +53,7 @@
   modules/knowledge.json
   modules/protocol.json
   modules/tasks.json
+  modules/assistant.json
 ```
 
 ### overview.json
@@ -71,7 +72,8 @@
     "server": { "count": 0, "objectKey": ".../modules/server.json" },
     "knowledge": { "count": 0, "objectKey": ".../modules/knowledge.json" },
     "protocol": { "count": 0, "objectKey": ".../modules/protocol.json" },
-    "tasks": { "count": 5, "objectKey": ".../modules/tasks.json" }
+    "tasks": { "count": 5, "objectKey": ".../modules/tasks.json" },
+    "assistant": { "count": 12, "objectKey": ".../modules/assistant.json" }
   }
 }
 ```
@@ -105,11 +107,25 @@
 | knowledge | 知识库文档元数据 |
 | protocol | 协议实验室全部请求元数据 |
 | tasks | 任务中心最近 **5** 条 |
+| assistant | AI 助手会话列表元数据（最近 **50** 条；**不含**消息正文，正文见 [chat-oss-readme.md](./chat-oss-readme.md)） |
+
+`modules/assistant.json` 的 `items[]` 字段示例：
+
+| 字段 | 说明 |
+|---|---|
+| id / title | 会话 id 与标题 |
+| provider / model / modelSelectionId | 当前模型 |
+| agentId | 绑定 Agent（chat / 模块 Agent） |
+| messageCount | 消息条数（不含正文） |
+| createdAt / updatedAt | 时间戳（ms） |
+| parentConversationId / rootConversationId | 子会话关系；根会话 parent 为空 |
+| pinnedWorkspaceId / linkedTerminalSessionId | 可选关联 |
 
 ### 脱敏白名单原则
 
 保留：`id`、`name`、`kind/type`、`host`、`port`、`status`、`enabled`、标签/分组等展示定位字段。  
-禁止：`password`、`privateKey`、`token`、`secret`、凭据明文、以及任何可直接用于登录的材料。
+禁止：`password`、`privateKey`、`token`、`secret`、凭据明文、以及任何可直接用于登录的材料。  
+助手会话额外禁止：`messages`、`contextSnapshot`、Skill 全文等大字段。
 
 ## Collector 边界
 
@@ -182,7 +198,11 @@ assistant/{userId}/{clientDeviceId}/snapshots/{generatedAt}-{shortId}/modules/{m
 {objectKeyPrefix}/snapshots/{generatedAt}-{shortId}/modules/{moduleId}.json
 ```
 
-第一期不做 `latest` pointer 由客户端维护；上传成功后客户端会调用 notify，由服务端更新 latest / 通知助手端。凭证仅内存使用，不落盘；401/403 按 Auth 错误引导重新登录。
+- 第一期不做 `latest` pointer 由客户端维护；上传成功后客户端会调用 notify，由服务端更新 latest / 通知助手端。凭证仅内存使用，不落盘；401/403 按 Auth 错误引导重新登录。
+
+客户端现在会额外写入 `{prefix}/latest/overview.json` 与 `{prefix}/latest/modules/*.json`（同名覆盖），并在 PUT 时带  
+`Cache-Control: no-cache, no-store, must-revalidate`，避免 CDN / 浏览器因同名 key 命中旧缓存。  
+版本化目录仍为 `{prefix}/snapshots/{millis}-{rand}/…`（每次推送唯一）。
 
 ### 上传完成通知
 
@@ -232,7 +252,7 @@ crates/omnipanel-assistant/
     lib.rs
     error.rs
     types.rs
-    collect/{mod,terminal,database,docker,files,server,knowledge,protocol,tasks}.rs
+    collect/{mod,terminal,database,docker,files,server,knowledge,protocol,tasks,assistant}.rs
     sts.rs
     oss.rs
     push.rs

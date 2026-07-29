@@ -39,10 +39,10 @@ pub async fn push_snapshot(
     auth: Option<&AuthContext>,
     options: PushOptions,
 ) -> OmniResult<PushSnapshotResult> {
-    let generated_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let generated_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let collectors = default_collectors();
     let modules = assemble_modules(&collectors, &ctx);
-    let short_id = short_id_from_time();
+    let short_id = unique_run_id();
 
     let default_dir = format!(
         "assistant/{}/{}/snapshots/{}-{}",
@@ -53,7 +53,7 @@ pub async fn push_snapshot(
                 .unwrap_or("user")
         ),
         sanitize_path_segment(&ctx.client_device_id),
-        generated_at.replace(':', "-"),
+        generated_at.replace(':', "-").replace('.', "-"),
         short_id
     );
 
@@ -112,6 +112,22 @@ pub async fn push_snapshot(
         total_bytes += uploaded.bytes;
         if file.object_key == overview_key {
             overview_etag = uploaded.etag;
+        }
+    }
+
+    // 再写一份固定 latest/ 入口（同名覆盖），带 no-cache，避免助手端只盯 latest 时吃到 CDN 旧缓存
+    if let Some(latest_prefix) = latest_prefix_from_snapshot_dir(&snapshot_dir) {
+        for file in &bundle.files {
+            let Some(rel) = file
+                .object_key
+                .strip_prefix(&format!("{}/", snapshot_dir.trim_matches('/')))
+            else {
+                continue;
+            };
+            let latest_rel = stabilize_latest_rel(rel);
+            let latest_key = format!("{latest_prefix}/{latest_rel}");
+            let uploaded = upload_snapshot_json(&http, &sts, &latest_key, &file.body).await?;
+            total_bytes += uploaded.bytes;
         }
     }
 
@@ -187,9 +203,32 @@ fn sanitize_path_segment(raw: &str) -> String {
     }
 }
 
-fn short_id_from_time() -> String {
-    let nanos = Utc::now().timestamp_subsec_nanos();
-    format!("{nanos:08x}")
+/// 毫秒时间戳 + 随机后缀，避免同秒并发推送撞目录名。
+fn unique_run_id() -> String {
+    let millis = Utc::now().timestamp_millis().unsigned_abs();
+    let mut buf = [0u8; 4];
+    let _ = getrandom::getrandom(&mut buf);
+    let rand = u32::from_be_bytes(buf);
+    format!("{millis:x}-{rand:08x}")
+}
+
+/// `…/snapshots/{run}` → `…/latest`
+fn latest_prefix_from_snapshot_dir(snapshot_dir: &str) -> Option<String> {
+    let dir = snapshot_dir.trim_matches('/');
+    let (parent, _) = dir.rsplit_once("/snapshots/")?;
+    if parent.is_empty() {
+        return None;
+    }
+    Some(format!("{parent}/latest"))
+}
+
+/// 版本目录里可能是 `modules/assistant.json`；latest 保持稳定相对路径。
+fn stabilize_latest_rel(rel: &str) -> String {
+    if rel == "overview.json" || rel.starts_with("modules/") {
+        rel.to_string()
+    } else {
+        rel.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -218,7 +257,7 @@ mod tests {
         .expect("dry_run");
         assert!(result.dry_run);
         assert!(result.bytes > 0.0);
-        assert_eq!(result.file_count, 9.0);
+        assert_eq!(result.file_count, 10.0);
         assert!(result.object_key.contains("dev-1"));
         assert!(result.object_key.ends_with("/overview.json"));
     }
@@ -241,5 +280,18 @@ mod tests {
             "assistant/user/dev/snapshots/2026-t-abc",
         );
         assert_eq!(d, "assistant/42/dev/snapshots/2026-t-abc");
+    }
+
+    #[test]
+    fn latest_prefix_from_versioned_dir() {
+        assert_eq!(
+            latest_prefix_from_snapshot_dir("assistant/1/dev/snapshots/2026-run"),
+            Some("assistant/1/dev/latest".into())
+        );
+    }
+
+    #[test]
+    fn unique_run_ids_differ() {
+        assert_ne!(unique_run_id(), unique_run_id());
     }
 }

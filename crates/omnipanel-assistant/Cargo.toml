@@ -19,6 +19,7 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = { workspace = true }
 urlencoding = { workspace = true }
+getrandom = "0.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

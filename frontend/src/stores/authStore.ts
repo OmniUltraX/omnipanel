@@ -6,6 +6,11 @@ import {
   startAssistantChatInbox,
   stopAssistantChatInbox,
 } from "../modules/assistant";
+import {
+  cancelClientConversationSync,
+  cancelClientModuleSync,
+  hydrateClientSync,
+} from "../modules/clientSync";
 
 interface AuthState {
   token: string | null;
@@ -24,9 +29,13 @@ export const useAuthStore = create<AuthState>()(
         // 登录后尽快推一次，便于助手端拿到初始快照
         scheduleAssistantSnapshotSync({ immediate: true });
         void startAssistantChatInbox();
+        // 客户端间：会话 + 各模块 pull/merge（与助手快照独立）
+        void hydrateClientSync();
       },
       logout: () => {
         cancelAssistantSnapshotSync();
+        cancelClientConversationSync();
+        cancelClientModuleSync();
         void stopAssistantChatInbox();
         set({ token: null, openid: null });
       },
