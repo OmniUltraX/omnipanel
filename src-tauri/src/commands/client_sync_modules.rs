@@ -234,6 +234,79 @@ pub struct ClientSyncPeekItem {
     #[serde(default)]
     pub detail: String,
     pub updated_at: f64,
+    /// 树形父节点 id；空表示根级。连接分组使用 `__group__:{name}` 虚拟节点。
+    #[serde(default)]
+    pub parent_id: String,
+    /// `folder` | `item`
+    #[serde(default = "default_peek_kind")]
+    pub kind: String,
+}
+
+fn default_peek_kind() -> String {
+    "item".to_string()
+}
+
+fn peek_item(
+    id: impl Into<String>,
+    label: impl Into<String>,
+    detail: impl Into<String>,
+    updated_at: f64,
+    parent_id: impl Into<String>,
+    kind: &str,
+) -> ClientSyncPeekItem {
+    ClientSyncPeekItem {
+        id: id.into(),
+        label: label.into(),
+        detail: detail.into(),
+        updated_at,
+        parent_id: parent_id.into(),
+        kind: kind.to_string(),
+    }
+}
+
+fn connection_group_folder_id(group: &str) -> String {
+    format!("__group__:{group}")
+}
+
+fn build_connection_peek_items(
+    connections: &[ClientSyncConnectionItem],
+) -> Vec<ClientSyncPeekItem> {
+    let mut groups: Vec<String> = connections
+        .iter()
+        .map(|c| c.connection.group.trim().to_string())
+        .filter(|g| !g.is_empty())
+        .collect();
+    groups.sort();
+    groups.dedup();
+
+    let mut out = Vec::with_capacity(connections.len() + groups.len());
+    for group in &groups {
+        out.push(peek_item(
+            connection_group_folder_id(group),
+            group.clone(),
+            "group",
+            0.0,
+            "",
+            "folder",
+        ));
+    }
+    for c in connections {
+        let group = c.connection.group.trim();
+        let parent = if group.is_empty() {
+            String::new()
+        } else {
+            connection_group_folder_id(group)
+        };
+        out.push(peek_item(
+            c.connection.id.clone(),
+            c.connection.name.clone(),
+            c.connection.kind.as_str(),
+            (c.connection.updated_at as f64) * 1000.0,
+            parent,
+            "item",
+        ));
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -428,64 +501,80 @@ pub async fn client_sync_peek_device(
             if let Ok(bundle) = serde_json::from_slice::<ClientSyncModulesBundle>(&bytes) {
                 result.modules_found = true;
                 result.modules_updated_at = bundle.updated_at;
-                result.connections = bundle
-                    .connections
-                    .iter()
-                    .map(|c| ClientSyncPeekItem {
-                        id: c.connection.id.clone(),
-                        label: c.connection.name.clone(),
-                        detail: c.connection.kind.as_str().to_string(),
-                        updated_at: (c.connection.updated_at as f64) * 1000.0,
-                    })
-                    .collect();
+                result.connections = build_connection_peek_items(&bundle.connections);
                 result.databases = bundle
                     .database_connections
                     .iter()
-                    .map(|c| ClientSyncPeekItem {
-                        id: c.id.clone(),
-                        label: c.name.clone(),
-                        detail: c.db_type.clone(),
-                        updated_at: 0.0,
+                    .map(|c| {
+                        peek_item(
+                            c.id.clone(),
+                            c.name.clone(),
+                            c.db_type.clone(),
+                            0.0,
+                            "",
+                            "item",
+                        )
                     })
                     .collect();
                 result.knowledge = bundle
                     .knowledge
                     .iter()
-                    .map(|k| ClientSyncPeekItem {
-                        id: k.id.clone(),
-                        label: k.title.clone(),
-                        detail: k.node_type.clone(),
-                        updated_at: k.updated_at as f64,
-                    })
-                    .collect();
-                result.http_requests = bundle
-                    .http_requests
-                    .iter()
-                    .map(|r| ClientSyncPeekItem {
-                        id: r.id.clone(),
-                        label: r.name.clone(),
-                        detail: format!("{} {}", r.method, r.url),
-                        updated_at: r.updated_at as f64,
+                    .map(|k| {
+                        let kind = if k.node_type.trim().eq_ignore_ascii_case("folder") {
+                            "folder"
+                        } else {
+                            "item"
+                        };
+                        peek_item(
+                            k.id.clone(),
+                            k.title.clone(),
+                            k.node_type.clone(),
+                            k.updated_at as f64,
+                            k.parent_id.trim().to_string(),
+                            kind,
+                        )
                     })
                     .collect();
                 result.http_collections = bundle
                     .http_collections
                     .iter()
-                    .map(|c| ClientSyncPeekItem {
-                        id: c.id.clone(),
-                        label: c.name.clone(),
-                        detail: c.description.clone(),
-                        updated_at: c.updated_at as f64,
+                    .map(|c| {
+                        peek_item(
+                            c.id.clone(),
+                            c.name.clone(),
+                            c.description.clone(),
+                            c.updated_at as f64,
+                            "",
+                            "folder",
+                        )
+                    })
+                    .collect();
+                result.http_requests = bundle
+                    .http_requests
+                    .iter()
+                    .map(|r| {
+                        peek_item(
+                            r.id.clone(),
+                            r.name.clone(),
+                            format!("{} {}", r.method, r.url),
+                            r.updated_at as f64,
+                            r.collection_id.clone().unwrap_or_default(),
+                            "item",
+                        )
                     })
                     .collect();
                 result.workspaces = bundle
                     .workspaces
                     .iter()
-                    .map(|w| ClientSyncPeekItem {
-                        id: w.id.clone(),
-                        label: w.name.clone(),
-                        detail: w.description.clone(),
-                        updated_at: w.updated_at,
+                    .map(|w| {
+                        peek_item(
+                            w.id.clone(),
+                            w.name.clone(),
+                            w.description.clone(),
+                            w.updated_at,
+                            "",
+                            "item",
+                        )
                     })
                     .collect();
             }
@@ -521,12 +610,14 @@ pub async fn client_sync_peek_device(
                         .or_else(|| c.get("updated_at"))
                         .and_then(|v| v.as_f64())
                         .unwrap_or(0.0);
-                    result.conversations.push(ClientSyncPeekItem {
+                    result.conversations.push(peek_item(
                         id,
-                        label: title,
-                        detail: format!("{msg_n} 条消息"),
+                        title,
+                        format!("{msg_n} 条消息"),
                         updated_at,
-                    });
+                        "",
+                        "item",
+                    ));
                 }
             }
         }

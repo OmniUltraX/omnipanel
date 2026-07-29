@@ -1070,6 +1070,10 @@ export type ClientSyncPeekItem = {
 	label: string,
 	detail: string,
 	updatedAt: number,
+	/** 树形父节点 id；空表示根级。连接分组为 `__group__:{name}`。 */
+	parentId: string,
+	/** `folder` | `item` */
+	kind: string,
 };
 
 export type ClientSyncPeekRequest = {

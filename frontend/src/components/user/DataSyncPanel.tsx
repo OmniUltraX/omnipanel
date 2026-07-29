@@ -9,7 +9,7 @@ import {
 import { useAuthStore } from "../../stores/authStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
-import { IconMonitor } from "../ui/icons/Icons";
+import { IconChevronDown, IconFolder, IconMonitor } from "../ui/icons/Icons";
 import {
   emptyImportSelection,
   importFromDevice,
@@ -27,6 +27,11 @@ type SyncTab =
   | "http"
   | "conversations"
   | "workspaces";
+
+type TreeNode = {
+  item: ClientSyncPeekItem;
+  children: TreeNode[];
+};
 
 function normalizeRole(role: string | undefined): "client" | "assistant" {
   return role?.trim().toLowerCase() === "assistant" ? "assistant" : "client";
@@ -46,74 +51,252 @@ function formatOsLabel(osType: string, t: (key: string) => string): string {
   return osType.trim() || t("userCenter.devices.os.unknown");
 }
 
-function toggleId(list: string[], id: string): string[] {
-  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+function formatUpdatedAt(value: number, locale: string): string {
+  if (!value || value <= 0) return "—";
+  const ms = value < 1e12 ? value * 1000 : value;
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(locale);
 }
 
-function PeekChecklist({
+function isFolder(item: ClientSyncPeekItem): boolean {
+  return item.kind === "folder";
+}
+
+/** 连接分组虚拟节点不可导入，仅用于折叠展示。 */
+function isSelectableItem(item: ClientSyncPeekItem): boolean {
+  return !item.id.startsWith("__group__:");
+}
+
+function normalizeParentId(parentId: string | null | undefined): string {
+  return parentId?.trim() ?? "";
+}
+
+function buildTree(items: ClientSyncPeekItem[]): TreeNode[] {
+  const byParent = new Map<string, ClientSyncPeekItem[]>();
+  for (const item of items) {
+    const parent = normalizeParentId(item.parentId);
+    const list = byParent.get(parent) ?? [];
+    list.push(item);
+    byParent.set(parent, list);
+  }
+
+  const sortItems = (list: ClientSyncPeekItem[]) =>
+    [...list].sort((a, b) => {
+      const folderFirst = Number(isFolder(b)) - Number(isFolder(a));
+      if (folderFirst !== 0) return folderFirst;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+    });
+
+  const build = (parentId: string): TreeNode[] =>
+    sortItems(byParent.get(parentId) ?? []).map((item) => ({
+      item,
+      children: isFolder(item) ? build(item.id) : [],
+    }));
+
+  // 父节点缺失时提升到根，避免孤儿不可见
+  const ids = new Set(items.map((i) => i.id));
+  const roots = build("");
+  const orphanParents = [...byParent.keys()].filter((p) => p && !ids.has(p));
+  for (const parent of orphanParents) {
+    roots.push(...build(parent));
+  }
+  return roots;
+}
+
+function collectSubtreeIds(node: TreeNode): string[] {
+  const out: string[] = [];
+  const walk = (n: TreeNode) => {
+    if (isSelectableItem(n.item)) out.push(n.item.id);
+    for (const child of n.children) walk(child);
+  };
+  walk(node);
+  return out;
+}
+
+function flattenVisible(
+  nodes: TreeNode[],
+  collapsed: Set<string>,
+  depth = 0,
+): Array<{ node: TreeNode; depth: number }> {
+  const rows: Array<{ node: TreeNode; depth: number }> = [];
+  for (const node of nodes) {
+    rows.push({ node, depth });
+    if (node.children.length > 0 && !collapsed.has(node.item.id)) {
+      rows.push(...flattenVisible(node.children, collapsed, depth + 1));
+    }
+  }
+  return rows;
+}
+
+function PeekTreeTable({
   items,
   selected,
-  onToggle,
-  onSelectAll,
+  onChangeSelected,
   emptyText,
+  locale,
 }: {
   items: ClientSyncPeekItem[];
   selected: string[];
-  onToggle: (id: string) => void;
-  onSelectAll: (ids: string[]) => void;
+  onChangeSelected: (ids: string[]) => void;
   emptyText: string;
+  locale: string;
 }) {
   const { t } = useI18n();
-  const allIds = items.map((i) => i.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id));
+  const normalizedItems = useMemo(
+    () =>
+      items.map((item) => ({
+        ...item,
+        parentId: item.parentId ?? "",
+        kind: item.kind || "item",
+        detail: item.detail ?? "",
+      })),
+    [items],
+  );
+  const tree = useMemo(() => buildTree(normalizedItems), [normalizedItems]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
-  if (items.length === 0) {
+  // 切换设备/数据后：默认展开全部文件夹
+  useEffect(() => {
+    setCollapsed(new Set());
+  }, [normalizedItems]);
+
+  const selectableIds = useMemo(
+    () => normalizedItems.filter(isSelectableItem).map((i) => i.id),
+    [normalizedItems],
+  );
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const allSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedSet.has(id));
+  const someSelected = selectableIds.some((id) => selectedSet.has(id));
+  const rows = useMemo(() => flattenVisible(tree, collapsed), [tree, collapsed]);
+
+  const toggleCollapsed = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const setIdsSelected = (ids: string[], checked: boolean) => {
+    const next = new Set(selected);
+    for (const id of ids) {
+      if (checked) next.add(id);
+      else next.delete(id);
+    }
+    onChangeSelected([...next]);
+  };
+
+  const toggleNode = (node: TreeNode) => {
+    const ids = collectSubtreeIds(node);
+    if (ids.length === 0) return;
+    const allOn = ids.every((id) => selectedSet.has(id));
+    setIdsSelected(ids, !allOn);
+  };
+
+  if (normalizedItems.length === 0) {
     return <p className="data-sync-empty">{emptyText}</p>;
   }
 
   return (
-    <div className="data-sync-checklist">
-      <div className="data-sync-checklist__toolbar">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onSelectAll(allSelected ? [] : allIds)}
-        >
-          {allSelected ? t("dataSync.deselectAll") : t("dataSync.selectAll")}
-        </Button>
-        <span className="data-sync-checklist__count">
-          {t("dataSync.selectedCount", { n: selected.length, total: items.length })}
-        </span>
-      </div>
-      <ul className="data-sync-checklist__list">
-        {items.map((item) => {
-          const checked = selected.includes(item.id);
-          return (
-            <li key={item.id}>
-              <label className={`data-sync-check-item${checked ? " is-checked" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => onToggle(item.id)}
-                />
-                <span className="data-sync-check-item__body">
-                  <span className="data-sync-check-item__label">{item.label}</span>
-                  {item.detail ? (
-                    <span className="data-sync-check-item__detail">{item.detail}</span>
-                  ) : null}
-                </span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
+    <div className="data-sync-table-wrap data-sync-table-wrap--tab">
+      <table className="data-sync-table">
+        <thead>
+          <tr>
+            <th className="data-sync-table__check">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someSelected && !allSelected;
+                }}
+                onChange={() =>
+                  onChangeSelected(allSelected ? [] : [...selectableIds])
+                }
+                aria-label={allSelected ? t("dataSync.deselectAll") : t("dataSync.selectAll")}
+              />
+            </th>
+            <th>{t("dataSync.columns.name")}</th>
+            <th>{t("dataSync.columns.detail")}</th>
+            <th className="data-sync-table__time">{t("dataSync.columns.updatedAt")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ node, depth }) => {
+            const { item, children } = node;
+            const hasChildren = children.length > 0;
+            const folder = isFolder(item);
+            const subtreeIds = collectSubtreeIds(node);
+            const checked =
+              subtreeIds.length > 0 && subtreeIds.every((id) => selectedSet.has(id));
+            const indeterminate =
+              !checked && subtreeIds.some((id) => selectedSet.has(id));
+            const isCollapsed = collapsed.has(item.id);
+
+            return (
+              <tr
+                key={item.id}
+                className={[
+                  checked ? "is-checked" : "",
+                  folder ? "is-folder" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <td className="data-sync-table__check">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = indeterminate;
+                    }}
+                    disabled={subtreeIds.length === 0}
+                    onChange={() => toggleNode(node)}
+                    aria-label={item.label}
+                  />
+                </td>
+                <td className="data-sync-table__name">
+                  <div
+                    className="data-sync-tree-cell"
+                    style={{ paddingLeft: depth * 16 }}
+                  >
+                    {hasChildren ? (
+                      <button
+                        type="button"
+                        className={`data-sync-tree-toggle${isCollapsed ? "" : " is-open"}`}
+                        aria-expanded={!isCollapsed}
+                        onClick={() => toggleCollapsed(item.id)}
+                      >
+                        <IconChevronDown size={12} />
+                      </button>
+                    ) : (
+                      <span className="data-sync-tree-toggle-spacer" />
+                    )}
+                    {folder ? (
+                      <IconFolder size={13} className="data-sync-tree-folder-icon" />
+                    ) : null}
+                    <span title={item.label}>{item.label}</span>
+                  </div>
+                </td>
+                <td className="data-sync-table__detail" title={item.detail || undefined}>
+                  {item.detail || "—"}
+                </td>
+                <td className="data-sync-table__time">
+                  {formatUpdatedAt(item.updatedAt, locale)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export function DataSyncPanel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const token = useAuthStore((s) => s.token);
 
   const [loadingDevices, setLoadingDevices] = useState(true);
@@ -198,38 +381,55 @@ export function DataSyncPanel() {
     return () => abort.abort();
   }, [selectedDeviceId, token]);
 
-  const tabs: { id: SyncTab; label: string; count: number }[] = [
-    {
-      id: "connections",
-      label: t("dataSync.tabs.connections"),
-      count: peek?.connections.length ?? 0,
-    },
-    {
-      id: "databases",
-      label: t("dataSync.tabs.databases"),
-      count: peek?.databases.length ?? 0,
-    },
-    {
-      id: "knowledge",
-      label: t("dataSync.tabs.knowledge"),
-      count: peek?.knowledge.length ?? 0,
-    },
-    {
-      id: "http",
-      label: t("dataSync.tabs.http"),
-      count: (peek?.httpRequests.length ?? 0) + (peek?.httpCollections.length ?? 0),
-    },
-    {
-      id: "conversations",
-      label: t("dataSync.tabs.conversations"),
-      count: peek?.conversations.length ?? 0,
-    },
-    {
-      id: "workspaces",
-      label: t("dataSync.tabs.workspaces"),
-      count: peek?.workspaces.length ?? 0,
-    },
-  ];
+  const tabs: { id: SyncTab; label: string; count: number }[] = useMemo(() => {
+    if (!peek) {
+      return [
+        { id: "connections", label: t("dataSync.tabs.connections"), count: 0 },
+        { id: "databases", label: t("dataSync.tabs.databases"), count: 0 },
+        { id: "knowledge", label: t("dataSync.tabs.knowledge"), count: 0 },
+        { id: "http", label: t("dataSync.tabs.http"), count: 0 },
+        { id: "conversations", label: t("dataSync.tabs.conversations"), count: 0 },
+        { id: "workspaces", label: t("dataSync.tabs.workspaces"), count: 0 },
+      ];
+    }
+    return [
+      {
+        id: "connections",
+        label: t("dataSync.tabs.connections"),
+        count: peek.connections.filter(isSelectableItem).length,
+      },
+      {
+        id: "databases",
+        label: t("dataSync.tabs.databases"),
+        count: peek.databases.length,
+      },
+      {
+        id: "knowledge",
+        label: t("dataSync.tabs.knowledge"),
+        count: peek.knowledge.length,
+      },
+      {
+        id: "http",
+        label: t("dataSync.tabs.http"),
+        count: peek.httpCollections.length + peek.httpRequests.length,
+      },
+      {
+        id: "conversations",
+        label: t("dataSync.tabs.conversations"),
+        count: peek.conversations.length,
+      },
+      {
+        id: "workspaces",
+        label: t("dataSync.tabs.workspaces"),
+        count: peek.workspaces.length,
+      },
+    ];
+  }, [peek, t]);
+
+  const httpItems = useMemo(() => {
+    if (!peek) return [];
+    return [...peek.httpCollections, ...peek.httpRequests];
+  }, [peek]);
 
   const handleImport = async () => {
     if (!selectedDeviceId || selectionCount(selection) === 0 || importing) return;
@@ -262,6 +462,22 @@ export function DataSyncPanel() {
   };
 
   const selectedCount = selectionCount(selection);
+
+  const setHttpSelection = (ids: string[]) => {
+    if (!peek) return;
+    const collectionIdSet = new Set(peek.httpCollections.map((c) => c.id));
+    const requestIdSet = new Set(peek.httpRequests.map((r) => r.id));
+    setSelection((s) => ({
+      ...s,
+      httpCollectionIds: ids.filter((id) => collectionIdSet.has(id)),
+      httpRequestIds: ids.filter((id) => requestIdSet.has(id)),
+    }));
+  };
+
+  const httpSelected = useMemo(
+    () => [...selection.httpCollectionIds, ...selection.httpRequestIds],
+    [selection.httpCollectionIds, selection.httpRequestIds],
+  );
 
   return (
     <div className="data-sync-panel">
@@ -347,105 +563,67 @@ export function DataSyncPanel() {
 
             <div className="data-sync-tab-panel" role="tabpanel">
               {tab === "connections" ? (
-                <PeekChecklist
+                <PeekTreeTable
                   items={peek.connections}
                   selected={selection.connectionIds}
-                  onToggle={(id) =>
-                    setSelection((s) => ({
-                      ...s,
-                      connectionIds: toggleId(s.connectionIds, id),
-                    }))
+                  onChangeSelected={(ids) =>
+                    setSelection((s) => ({ ...s, connectionIds: ids }))
                   }
-                  onSelectAll={(ids) => setSelection((s) => ({ ...s, connectionIds: ids }))}
                   emptyText={t("dataSync.empty.connections")}
+                  locale={locale}
                 />
               ) : null}
               {tab === "databases" ? (
-                <PeekChecklist
+                <PeekTreeTable
                   items={peek.databases}
                   selected={selection.databaseIds}
-                  onToggle={(id) =>
-                    setSelection((s) => ({
-                      ...s,
-                      databaseIds: toggleId(s.databaseIds, id),
-                    }))
+                  onChangeSelected={(ids) =>
+                    setSelection((s) => ({ ...s, databaseIds: ids }))
                   }
-                  onSelectAll={(ids) => setSelection((s) => ({ ...s, databaseIds: ids }))}
                   emptyText={t("dataSync.empty.databases")}
+                  locale={locale}
                 />
               ) : null}
               {tab === "knowledge" ? (
-                <PeekChecklist
+                <PeekTreeTable
                   items={peek.knowledge}
                   selected={selection.knowledgeIds}
-                  onToggle={(id) =>
-                    setSelection((s) => ({
-                      ...s,
-                      knowledgeIds: toggleId(s.knowledgeIds, id),
-                    }))
+                  onChangeSelected={(ids) =>
+                    setSelection((s) => ({ ...s, knowledgeIds: ids }))
                   }
-                  onSelectAll={(ids) => setSelection((s) => ({ ...s, knowledgeIds: ids }))}
                   emptyText={t("dataSync.empty.knowledge")}
+                  locale={locale}
                 />
               ) : null}
               {tab === "http" ? (
-                <div className="data-sync-http-groups">
-                  <h4 className="data-sync-group-title">{t("dataSync.httpCollections")}</h4>
-                  <PeekChecklist
-                    items={peek.httpCollections}
-                    selected={selection.httpCollectionIds}
-                    onToggle={(id) =>
-                      setSelection((s) => ({
-                        ...s,
-                        httpCollectionIds: toggleId(s.httpCollectionIds, id),
-                      }))
-                    }
-                    onSelectAll={(ids) =>
-                      setSelection((s) => ({ ...s, httpCollectionIds: ids }))
-                    }
-                    emptyText={t("dataSync.empty.httpCollections")}
-                  />
-                  <h4 className="data-sync-group-title">{t("dataSync.httpRequests")}</h4>
-                  <PeekChecklist
-                    items={peek.httpRequests}
-                    selected={selection.httpRequestIds}
-                    onToggle={(id) =>
-                      setSelection((s) => ({
-                        ...s,
-                        httpRequestIds: toggleId(s.httpRequestIds, id),
-                      }))
-                    }
-                    onSelectAll={(ids) => setSelection((s) => ({ ...s, httpRequestIds: ids }))}
-                    emptyText={t("dataSync.empty.httpRequests")}
-                  />
-                </div>
+                <PeekTreeTable
+                  items={httpItems}
+                  selected={httpSelected}
+                  onChangeSelected={setHttpSelection}
+                  emptyText={t("dataSync.empty.httpRequests")}
+                  locale={locale}
+                />
               ) : null}
               {tab === "conversations" ? (
-                <PeekChecklist
+                <PeekTreeTable
                   items={peek.conversations}
                   selected={selection.conversationIds}
-                  onToggle={(id) =>
-                    setSelection((s) => ({
-                      ...s,
-                      conversationIds: toggleId(s.conversationIds, id),
-                    }))
+                  onChangeSelected={(ids) =>
+                    setSelection((s) => ({ ...s, conversationIds: ids }))
                   }
-                  onSelectAll={(ids) => setSelection((s) => ({ ...s, conversationIds: ids }))}
                   emptyText={t("dataSync.empty.conversations")}
+                  locale={locale}
                 />
               ) : null}
               {tab === "workspaces" ? (
-                <PeekChecklist
+                <PeekTreeTable
                   items={peek.workspaces}
                   selected={selection.workspaceIds}
-                  onToggle={(id) =>
-                    setSelection((s) => ({
-                      ...s,
-                      workspaceIds: toggleId(s.workspaceIds, id),
-                    }))
+                  onChangeSelected={(ids) =>
+                    setSelection((s) => ({ ...s, workspaceIds: ids }))
                   }
-                  onSelectAll={(ids) => setSelection((s) => ({ ...s, workspaceIds: ids }))}
                   emptyText={t("dataSync.empty.workspaces")}
+                  locale={locale}
                 />
               ) : null}
             </div>

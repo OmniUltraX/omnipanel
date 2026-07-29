@@ -6339,6 +6339,11 @@ export const enUS: TranslationDict = {
     importFailed: "Import failed",
     httpCollections: "Collections",
     httpRequests: "Requests",
+    columns: {
+      name: "Name",
+      detail: "Detail",
+      updatedAt: "Updated",
+    },
     tabs: {
       connections: "Connections",
       databases: "Databases",

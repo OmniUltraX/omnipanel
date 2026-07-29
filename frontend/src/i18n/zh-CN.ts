@@ -6269,6 +6269,11 @@ export const zhCN = {
     importFailed: "导入失败",
     httpCollections: "集合",
     httpRequests: "请求",
+    columns: {
+      name: "名称",
+      detail: "详情",
+      updatedAt: "更新时间",
+    },
     tabs: {
       connections: "连接",
       databases: "数据库",
