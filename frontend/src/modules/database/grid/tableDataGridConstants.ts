@@ -1,4 +1,4 @@
-import { detectCellEditorKind } from "../cell_editor/types";
+import { detectCellEditorKind, parseColumnCharLength } from "../cell_editor/types";
 
 export const MIN_ROW_HEIGHT = 28;
 export const DEFAULT_ROW_HEIGHT = 32;
@@ -8,6 +8,8 @@ export const COLUMN_MIN_WIDTH = 52;
 export const DEFAULT_DATA_COLUMN_WIDTH = 120;
 /** datetime / timestamp 列默认宽度 */
 export const DATETIME_COLUMN_WIDTH = 150;
+/** 长文本 / 大字段默认宽度 */
+export const LONG_TEXT_COLUMN_WIDTH = 280;
 /** 超过该列数启用列向虚拟化 */
 export const COLUMN_VIRTUALIZE_THRESHOLD = 24;
 export const COLUMN_VIRTUALIZE_OVERSCAN = 3;
@@ -22,11 +24,71 @@ export const TRANSPOSE_FIELD_COL = "__field__";
 
 export const transposeRowColId = (index: number) => `__row__${index}`;
 
-export function defaultDataColumnWidth(rawType?: string | null): number {
-  if (rawType && detectCellEditorKind(rawType) === "datetime") {
-    return DATETIME_COLUMN_WIDTH;
+/**
+ * 按字段类型 / 声明长度给初始列宽（末列仍可由 fillDelta 吃掉剩余）。
+ * length 优先用 schema 反射；否则从 type 串 varchar(N) 解析。
+ */
+export function defaultDataColumnWidth(
+  rawType?: string | null,
+  length?: number | null,
+  columnName?: string | null,
+): number {
+  const type = rawType?.trim() || "";
+  const kind = type ? detectCellEditorKind(type) : "text";
+  const charLen =
+    length != null && length > 0
+      ? length
+      : type
+        ? parseColumnCharLength(type)
+        : null;
+  const name = columnName?.trim() || "";
+
+  switch (kind) {
+    case "boolean":
+      return 72;
+    case "number": {
+      const lower = type.toLowerCase();
+      if (lower.includes("bigint") || /(?:^|_)id$/i.test(name) || /^id$/i.test(name)) {
+        return 110;
+      }
+      if (lower.includes("decimal") || lower.includes("numeric")) {
+        return 120;
+      }
+      return 88;
+    }
+    case "date":
+      return 118;
+    case "time":
+      return 100;
+    case "datetime":
+      return DATETIME_COLUMN_WIDTH;
+    case "json":
+    case "binary":
+      return 160;
+    case "text":
+    default: {
+      const lower = type.toLowerCase();
+      if (lower.includes("uuid") || lower.includes("guid")) {
+        return 280;
+      }
+      if (
+        lower.includes("text") ||
+        lower.includes("clob") ||
+        (charLen != null && charLen > 512)
+      ) {
+        return LONG_TEXT_COLUMN_WIDTH;
+      }
+      if (charLen != null && charLen > 0) {
+        if (charLen <= 8) return Math.max(COLUMN_MIN_WIDTH, 52 + charLen * 8);
+        if (charLen <= 32) return Math.min(180, 64 + charLen * 5);
+        if (charLen <= 64) return 200;
+        if (charLen <= 128) return 240;
+        if (charLen <= 255) return 260;
+        return LONG_TEXT_COLUMN_WIDTH;
+      }
+      return DEFAULT_DATA_COLUMN_WIDTH;
+    }
   }
-  return DEFAULT_DATA_COLUMN_WIDTH;
 }
 
 /** 点击这些区域时不应清除表网格的单元格/行选中 */

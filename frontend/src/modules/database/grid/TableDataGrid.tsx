@@ -147,6 +147,10 @@ import {
   scrollElementToCenter,
 } from "./tableDataGridLayout";
 import {
+  estimateGridContentHeight,
+  measureGridFillViewportWidth,
+} from "./tableDataGridViewport";
+import {
   collectSelectedRowIndices,
   collectSelectedCellTargets,
   clearDragSelectionPaint,
@@ -1327,7 +1331,15 @@ export const TableDataGrid = memo(function TableDataGrid({
             );
           },
           minSize: isFieldCol ? 80 : COLUMN_MIN_WIDTH,
-          size: isFieldCol ? 108 : isRelationDisplayCol ? 140 : defaultDataColumnWidth(headerMeta?.type),
+          size: isFieldCol
+            ? 108
+            : isRelationDisplayCol
+              ? 140
+              : defaultDataColumnWidth(
+                  headerMeta?.type,
+                  headerMeta?.length,
+                  headerMeta?.name ?? col,
+                ),
         };
       });
       if (!transposed) {
@@ -1764,12 +1776,20 @@ export const TableDataGrid = memo(function TableDataGrid({
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const syncWidth = () => setContainerWidth(wrap.clientWidth);
+    const syncWidth = () => {
+      const contentHeightHint = estimateGridContentHeight({
+        rowCount: displayRows.length,
+        rowHeight: DEFAULT_ROW_HEIGHT,
+        headerHeight: 28,
+      });
+      const next = measureGridFillViewportWidth(wrap, { contentHeightHint });
+      setContainerWidth((prev) => (prev === next ? prev : next));
+    };
     syncWidth();
     const ro = new ResizeObserver(syncWidth);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, []);
+  }, [displayRows.length]);
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -3384,14 +3404,18 @@ export const TableDataGrid = memo(function TableDataGrid({
     >
       <table
         className={`db-data-table${useCanvasBody ? " db-data-table--canvas-chrome" : ""}`}
-        style={{
-          width: useCanvasBody
-            ? gridContentWidth
-            : fillDelta > 0
-              ? "100%"
-              : totalTableWidth,
-          minWidth: "100%",
-        }}
+        style={
+          containerWidth > 0
+            ? {
+                width: gridContentWidth,
+                minWidth: gridContentWidth,
+                maxWidth: gridContentWidth,
+              }
+            : {
+                width: fillDelta > 0 ? "100%" : totalTableWidth,
+                minWidth: "100%",
+              }
+        }
       >
         <colgroup>
           {columnLayout.enabled ? (

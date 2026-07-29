@@ -6540,6 +6540,8 @@
         min-height: 0;
         overflow: auto;
         overflow-anchor: none;
+        /* 稳定预留纵向滚动条槽，避免末列吃满后再挤出横向微滚 */
+        scrollbar-gutter: stable;
     }
 
     .db-data-table-wrap {
@@ -6572,7 +6574,8 @@
     .db-data-table-canvas-sizer {
         position: relative;
         flex-shrink: 0;
-        min-width: 100%;
+        /* 宽度由 JS 钉死；勿用 100% 否则会大于列宽之和，挤出横向滚动 */
+        min-width: 0;
         pointer-events: none;
     }
 
