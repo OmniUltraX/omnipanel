@@ -12,6 +12,7 @@ import {
 } from "@/lib/onepanel";
 import { showToast } from "@/stores/toastStore";
 import type { ServerEntry } from "./serverConnection";
+import { BtCreateCronjobDialog } from "./BtCreateCronjobDialog";
 
 const CRONJOB_TYPES: OnePanelCronjobType[] = ["shell", "curl", "clean", "ntp"];
 const EXECUTORS = ["bash", "sh", "python", "python3"] as const;
@@ -62,6 +63,35 @@ function isCronjobType(value: string): value is OnePanelCronjobType {
 }
 
 export function CreateCronjobDialog({
+  open,
+  server,
+  editId = null,
+  onClose,
+  onCreated,
+}: CreateCronjobDialogProps) {
+  if (server.serviceType === "bt") {
+    return (
+      <BtCreateCronjobDialog
+        open={open}
+        server={server}
+        editId={editId}
+        onClose={onClose}
+        onCreated={onCreated}
+      />
+    );
+  }
+  return (
+    <OnePanelCreateCronjobDialog
+      open={open}
+      server={server}
+      editId={editId}
+      onClose={onClose}
+      onCreated={onCreated}
+    />
+  );
+}
+
+function OnePanelCreateCronjobDialog({
   open,
   server,
   editId = null,

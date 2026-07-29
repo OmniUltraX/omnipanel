@@ -15,6 +15,7 @@ import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import { certificateRowLabel } from "./serverResourceLabels";
 import type { ServerEntry } from "./serverConnection";
+import { BtCreateWebsiteDialog } from "./BtCreateWebsiteDialog";
 
 const WEBSITE_TYPES: OnePanelWebsiteType[] = [
   "static",
@@ -63,6 +64,32 @@ function parsePositiveInt(value: string, fallback: number): number {
 }
 
 export function CreateWebsiteDialog({
+  open,
+  server,
+  onClose,
+  onCreated,
+}: CreateWebsiteDialogProps) {
+  if (server.serviceType === "bt") {
+    return (
+      <BtCreateWebsiteDialog
+        open={open}
+        server={server}
+        onClose={onClose}
+        onCreated={onCreated}
+      />
+    );
+  }
+  return (
+    <OnePanelCreateWebsiteDialog
+      open={open}
+      server={server}
+      onClose={onClose}
+      onCreated={onCreated}
+    />
+  );
+}
+
+function OnePanelCreateWebsiteDialog({
   open,
   server,
   onClose,

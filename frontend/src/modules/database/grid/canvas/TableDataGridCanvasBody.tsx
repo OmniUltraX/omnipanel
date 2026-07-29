@@ -84,8 +84,10 @@ export type TableDataGridCanvasBodyProps = {
   dragRangeRef: MutableRefObject<CellRange | null>;
   /** 行高拖拽过程中的临时高度 */
   dragRowHeightRef: MutableRefObject<{ rowIndex: number; height: number } | null>;
-  /** 列宽拖拽过程中的临时宽度 */
-  dragColumnWidthRef: MutableRefObject<{ columnId: string; width: number } | null>;
+  /** 列宽拖拽过程中的临时宽度（全列冻结快照） */
+  dragColumnWidthsRef: MutableRefObject<Record<string, number> | null>;
+  /** @deprecated 兼容单列；优先 dragColumnWidthsRef */
+  dragColumnWidthRef?: MutableRefObject<{ columnId: string; width: number } | null>;
   bodyActionsRef: MutableRefObject<TableDataGridBodyActions | null>;
   resolveCellContext: (
     rowIndex: number,
@@ -105,6 +107,7 @@ export const TableDataGridCanvasBody = forwardRef<
     tableRowsRef,
     dragRangeRef,
     dragRowHeightRef,
+    dragColumnWidthsRef,
     dragColumnWidthRef,
     bodyActionsRef,
     resolveCellContext,
@@ -151,11 +154,14 @@ export const TableDataGridCanvasBody = forwardRef<
     const wrap = scrollElementRef.current;
     const leafColumns = snapshotInputRef.current.leafColumns;
     const allowMeasure = !skipHeaderMeasureRef.current;
+    const dragWidths = dragColumnWidthsRef.current;
+    const dragging = dragWidths ?? dragColumnWidthRef?.current ?? null;
     // 列 id + 逻辑宽度签名：列结构或列宽变化才重测，避免每次 rebuild 都做 N 次 offsetWidth（强制 reflow）
     const signature = leafColumns.map((col) => `${col.id}:${col.getSize()}`).join("\u0000");
     const cached = measuredCacheRef.current;
     let measured: { columns: { x: number; width: number }[]; totalWidth: number } | null = null;
-    if (allowMeasure && wrap) {
+    // 拖拽中跳过表头测量缓存：缓存签名不含拖拽临时宽度，会把表体锁在旧列宽上
+    if (allowMeasure && wrap && !dragging) {
       if (cached && cached.signature === signature) {
         measured = cached.result;
       } else {
@@ -174,7 +180,8 @@ export const TableDataGridCanvasBody = forwardRef<
       tableRows: tableRowsRef?.current ?? snapshotInputRef.current.tableRows,
       dragRange: dragRangeRef.current,
       dragRowHeight: dragRowHeightRef.current,
-      dragColumnWidth: dragColumnWidthRef.current,
+      dragColumnWidths: dragWidths,
+      dragColumnWidth: dragWidths ? null : (dragColumnWidthRef?.current ?? null),
       measuredColumnGeometry: measured?.columns ?? null,
       measuredTotalWidth: measured?.totalWidth ?? null,
       hoverRow: hoverRef.current?.row ?? null,
@@ -191,12 +198,12 @@ export const TableDataGridCanvasBody = forwardRef<
     if (wrap && measured && measured.totalWidth > 0) {
       const table = wrap.querySelector<HTMLElement>("table.db-data-table");
       // 拖拽中由表头增量维护 width，避免覆盖
-      if (table && !table.dataset.canvasDragTableWidth) {
+      if (table && !dragging) {
         table.style.width = `${measured.totalWidth}px`;
       }
     }
     return bundle;
-  }, [dragRangeRef, dragRowHeightRef, dragColumnWidthRef, scrollElementRef, tableRowsRef]);
+  }, [dragRangeRef, dragRowHeightRef, dragColumnWidthsRef, dragColumnWidthRef, scrollElementRef, tableRowsRef]);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;

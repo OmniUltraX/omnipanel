@@ -1649,7 +1649,7 @@
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
-        font-size: 11px;
+        font-size: var(--font-size-sm, 13px);
         table-layout: auto;
     }
 
@@ -1660,7 +1660,7 @@
         padding: 6px 8px;
         text-align: left;
         font-weight: 600;
-        color: var(--meta);
+        color: var(--muted);
         background: var(--bg-deeper);
         border-bottom: 1px solid var(--border);
         white-space: nowrap;
@@ -1762,7 +1762,7 @@
     .db-tables-panel-grid tbody td {
         padding: 6px 8px;
         border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-        color: var(--fg-2);
+        color: var(--fg);
         vertical-align: middle;
         max-width: 220px;
         overflow: hidden;
@@ -2467,7 +2467,7 @@
 
     .tree-node--database .tree-label {
         font-weight: 500;
-        color: var(--fg-2);
+        color: var(--fg);
     }
 
     .tree-node--database .tree-icon {
@@ -2475,7 +2475,7 @@
     }
 
     .tree-node--table .tree-label {
-        color: var(--fg-2);
+        color: var(--fg);
     }
 
     .tree-node--table .tree-icon {
@@ -2492,8 +2492,8 @@
 
     .tree-node--folder .tree-label {
         font-weight: 500;
-        color: var(--fg-2);
-        font-size: 11px;
+        color: var(--fg);
+        font-size: var(--font-size-xs, 12px);
     }
 
     .tree-node--folder .tree-icon {
@@ -6665,8 +6665,9 @@
     }
 
     .db-data-table tbody td {
-        font-family: "Maple Mono NF CN Light", var(--font-mono);
-        color: var(--fg);
+        font-family: var(--font-data-grid);
+        color: #ffffff;
+        font-variant-numeric: tabular-nums;
     }
 
     .db-data-table-cell-text {
@@ -6674,7 +6675,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--fg);
+        color: #ffffff;
     }
 
     .db-data-table-cell-text--placeholder {
@@ -6692,7 +6693,7 @@
         color: var(--fg);
         font-size: 11px;
         line-height: 1.4;
-        font-family: "Maple Mono NF CN Light", var(--font-mono);
+        font-family: var(--font-data-grid);
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
         overflow: hidden;
     }
@@ -6812,7 +6813,7 @@
         background: var(--surface);
         color: inherit;
         font: inherit;
-        font-family: "Maple Mono NF CN Light", var(--font-mono);
+        font-family: var(--font-data-grid);
         font-size: 11px;
         line-height: 1.4;
         outline: none;
@@ -6908,7 +6909,7 @@
         border-radius: var(--r-sm);
         background: var(--surface);
         color: inherit;
-        font-family: "Maple Mono NF CN Light", var(--font-mono);
+        font-family: var(--font-data-grid);
         font-size: 11px;
         line-height: 1.4;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);

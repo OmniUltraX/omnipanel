@@ -2,15 +2,22 @@ import { commands, type OmniError_Serialize } from "../../ipc/bindings";
 import { buildBtAuthFields, normalizeBtPanelBaseUrl } from "./auth";
 import {
   BtPanelApiError,
+  type BtAddDatabaseParams,
+  type BtAddSiteParams,
+  type BtAddSiteResult,
+  type BtCrontabParams,
   type BtDataListResult,
+  type BtDirListResult,
   type BtDiskInfo,
-  type BtNetworkInfo,
+  type BtFileBodyResult,
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
+  type BtNetworkInfo,
   type BtPhpVersion,
   type BtRequestOptions,
   type BtSite,
+  type BtSiteSslInfo,
   type BtSiteType,
   type BtSystemTotal,
   type BtWebsiteListParams,
@@ -41,7 +48,7 @@ function serializeParams(params?: BtRequestOptions["params"]): string | null {
   return Object.keys(body).length > 0 ? JSON.stringify(body) : null;
 }
 
-function parseResponseText<T>(text: string): T {
+function parseResponseText<T>(text: string, tolerateFalseStatus = false): T {
   const trimmed = text.trim().replace(/^\uFEFF/, "");
   if (!trimmed) {
     throw new BtPanelApiError("宝塔面板返回空响应", 0);
@@ -54,7 +61,7 @@ function parseResponseText<T>(text: string): T {
     const payload = JSON.parse(trimmed) as unknown;
     if (payload && typeof payload === "object") {
       const obj = payload as { status?: boolean; msg?: string; code?: number };
-      if (obj.status === false) {
+      if (obj.status === false && !tolerateFalseStatus) {
         throw new BtPanelApiError(obj.msg ?? "宝塔 API 错误", 0, trimmed.slice(0, 300));
       }
       if (typeof obj.code === "number" && obj.code !== 0) {
@@ -68,6 +75,11 @@ function parseResponseText<T>(text: string): T {
     }
     throw new BtPanelApiError("宝塔面板响应不是合法 JSON", 0, trimmed.slice(0, 300));
   }
+}
+
+/** Nginx vhost 配置默认路径。 */
+export function btNginxVhostPath(siteName: string): string {
+  return `/www/server/panel/vhost/nginx/${siteName}.conf`;
 }
 
 export class BtPanelClient {
@@ -84,6 +96,7 @@ export class BtPanelClient {
   /** 原始 POST 请求。path 含 query，如 `/system?action=GetSystemTotal`。 */
   async request<T = unknown>(options: BtRequestOptions): Promise<T> {
     const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
+    const tolerate = Boolean(options.tolerateFalseStatus);
 
     if (this.useTauri && isTauriRuntime()) {
       const result = await commands.panelBtRequest(
@@ -95,15 +108,16 @@ export class BtPanelClient {
       if (result.status === "error") {
         throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
       }
-      return parseResponseText<T>(result.data);
+      return parseResponseText<T>(result.data, tolerate);
     }
 
-    return this.requestViaFetch<T>(path, options.params);
+    return this.requestViaFetch<T>(path, options.params, tolerate);
   }
 
   private async requestViaFetch<T>(
     path: string,
     params?: BtRequestOptions["params"],
+    tolerateFalseStatus = false,
   ): Promise<T> {
     const form = new URLSearchParams(buildBtAuthFields(this.apiSk));
     if (params) {
@@ -129,7 +143,7 @@ export class BtPanelClient {
       throw new BtPanelApiError(`宝塔 API 错误 (${res.status}): ${hint}`, res.status, text);
     }
 
-    return parseResponseText<T>(text);
+    return parseResponseText<T>(text, tolerateFalseStatus);
   }
 
   /** 连通性测试（/system?action=GetSystemTotal）。 */
@@ -162,17 +176,20 @@ export class BtPanelClient {
     return this.request<number>({ path: "/ajax?action=GetTaskCount" });
   }
 
-  /** /data?action=getData&table=sites — 网站列表。 */
-  async getWebsiteList(params: BtWebsiteListParams = {}): Promise<BtDataListResult<BtSite>> {
-    const data = await this.request<BtDataListResult<BtSite>>({
-      path: "/data?action=getData&table=sites",
+  /** /data?action=getData — 通用表查询。table 必须在 POST 体中，仅放 URL 会「指定参数无效」。 */
+  private async getDataTable<T = Record<string, unknown>>(
+    table: string,
+    params: { p?: number; limit?: number; type?: number | string; search?: string; list?: boolean } = {},
+  ): Promise<BtDataListResult<T>> {
+    const data = await this.request<BtDataListResult<T>>({
+      path: "/data?action=getData",
       params: {
+        table,
         p: params.p ?? 1,
-        limit: params.limit ?? 15,
+        limit: params.limit ?? 100,
         type: params.type ?? -1,
-        order: params.order ?? "id desc",
-        tojs: params.tojs,
-        search: params.search,
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.list ? { list: "true" } : {}),
       },
     });
     return {
@@ -180,6 +197,16 @@ export class BtPanelClient {
       page: data.page,
       where: data.where,
     };
+  }
+
+  /** /data?action=getData — 网站列表（table=sites）。 */
+  async getWebsiteList(params: BtWebsiteListParams = {}): Promise<BtDataListResult<BtSite>> {
+    return this.getDataTable<BtSite>("sites", {
+      p: params.p,
+      limit: params.limit ?? 15,
+      type: params.type ?? -1,
+      search: params.search,
+    });
   }
 
   /** /site?action=get_site_types — 网站分类。 */
@@ -192,6 +219,37 @@ export class BtPanelClient {
     return this.request<BtPhpVersion[]>({ path: "/site?action=GetPHPVersion" });
   }
 
+  /** /site?action=AddSite — 创建网站。 */
+  async addSite(params: BtAddSiteParams): Promise<BtAddSiteResult> {
+    const domainList = params.domainList ?? [];
+    const webname = JSON.stringify({
+      domain: params.domain,
+      domainlist: domainList,
+      count: domainList.length,
+    });
+    const result = await this.request<BtAddSiteResult>({
+      path: "/site?action=AddSite",
+      params: {
+        webname,
+        path: params.path,
+        type: params.type ?? (params.version === "00" ? "" : "PHP"),
+        version: params.version,
+        port: params.port ?? "80",
+        type_id: params.typeId ?? 0,
+        ps: params.ps ?? "",
+        ftp: params.ftp ? "true" : "false",
+        sql: params.sql ? "true" : "false",
+        codeing: params.codeing ?? "utf8mb4",
+        datauser: params.datauser,
+        datapassword: params.datapassword,
+      },
+    });
+    if (result.siteStatus === false) {
+      throw new BtPanelApiError(result.msg ?? "创建网站失败", 0);
+    }
+    return result;
+  }
+
   /** /site?action=SiteStop — 停用网站。 */
   async stopWebsite(id: number, name: string): Promise<void> {
     await this.request({ path: "/site?action=SiteStop", params: { id, name } });
@@ -200,47 +258,6 @@ export class BtPanelClient {
   /** /site?action=SiteStart — 启用网站。 */
   async startWebsite(id: number, name: string): Promise<void> {
     await this.request({ path: "/site?action=SiteStart", params: { id, name } });
-  }
-
-  /** POST /mod/docker/com/get_installed_apps — Docker 已安装应用列表。 */
-  async getInstalledApps(params: BtInstalledAppsParams = {}): Promise<BtInstalledAppsResult> {
-    const payload = await this.request<unknown>({
-      path: "/mod/docker/com/get_installed_apps",
-      params: {
-        app_type: params.appType ?? "all",
-        p: params.p ?? 1,
-        row: params.row ?? 20,
-        query: params.query ?? "",
-      },
-    });
-    return unwrapInstalledApps(payload);
-  }
-
-  /** /data?action=getData&table=databases — 数据库列表。 */
-  async getDatabaseList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
-    const data = await this.request<BtDataListResult<Record<string, unknown>>>({
-      path: "/data?action=getData&table=databases",
-      params: { p: params.p ?? 1, limit: params.limit ?? 100, type: -1, order: "id desc" },
-    });
-    return { data: data.data ?? [], page: data.page, where: data.where };
-  }
-
-  /** /data?action=getData&table=crontab — 计划任务列表。 */
-  async getCronList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
-    const data = await this.request<BtDataListResult<Record<string, unknown>>>({
-      path: "/data?action=getData&table=crontab",
-      params: { p: params.p ?? 1, limit: params.limit ?? 100, type: -1, order: "id desc" },
-    });
-    return { data: data.data ?? [], page: data.page, where: data.where };
-  }
-
-  /** /ssl?action=GetSSLList — SSL 证书列表。 */
-  async getSslList(): Promise<Record<string, unknown>[]> {
-    const data = await this.request<Record<string, unknown>[] | { data?: Record<string, unknown>[] }>({
-      path: "/ssl?action=GetSSLList",
-    });
-    if (Array.isArray(data)) return data;
-    return data.data ?? [];
   }
 
   /** /site?action=DeleteSite — 删除网站。 */
@@ -260,6 +277,314 @@ export class BtPanelClient {
       },
     });
   }
+
+  /** /data?action=setPs — 修改网站备注。 */
+  async setSiteRemark(id: number, ps: string): Promise<void> {
+    await this.request({
+      path: "/data?action=setPs",
+      params: { table: "sites", id, ps },
+    });
+  }
+
+  /** /site?action=SetPHPVersion — 切换网站 PHP 版本。 */
+  async setSitePhpVersion(siteName: string, version: string): Promise<void> {
+    await this.request({
+      path: "/site?action=SetPHPVersion",
+      params: { siteName, version },
+    });
+  }
+
+  /** /site?action=GetSitePHPVersion — 当前网站 PHP 版本。 */
+  async getSitePhpVersion(siteName: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>({
+      path: "/site?action=GetSitePHPVersion",
+      params: { siteName },
+    });
+  }
+
+  /** /site?action=GetSiteDomains — 域名列表。 */
+  async getSiteDomains(id: number): Promise<unknown> {
+    return this.request({
+      path: "/site?action=GetSiteDomains",
+      params: { id },
+    });
+  }
+
+  /** /site?action=GetSiteLogs — 访问日志（内容在 msg）。 */
+  async getSiteAccessLogs(siteName: string): Promise<string> {
+    const data = await this.request<{ status?: boolean; msg?: string }>({
+      path: "/site?action=GetSiteLogs",
+      params: { siteName },
+    });
+    return typeof data.msg === "string" ? data.msg : "";
+  }
+
+  /** /site?action=get_site_errlog — 错误日志。 */
+  async getSiteErrorLogs(siteName: string): Promise<string> {
+    const data = await this.request<{ status?: boolean; msg?: string; data?: string }>({
+      path: "/site?action=get_site_errlog",
+      params: { siteName },
+    });
+    if (typeof data.msg === "string" && data.msg.length > 0) return data.msg;
+    if (typeof data.data === "string") return data.data;
+    return "";
+  }
+
+  /** /site?action=GetSSL — 站点 SSL 信息（未部署时 status=false）。 */
+  async getSiteSsl(siteName: string): Promise<BtSiteSslInfo> {
+    return this.request<BtSiteSslInfo>({
+      path: "/site?action=GetSSL",
+      params: { siteName },
+      tolerateFalseStatus: true,
+    });
+  }
+
+  /** /site?action=SetSSL — 部署自定义证书到站点。 */
+  async setSiteSsl(siteName: string, key: string, csr: string): Promise<void> {
+    await this.request({
+      path: "/site?action=SetSSL",
+      params: { siteName, key, csr },
+    });
+  }
+
+  /** /site?action=CloseSSLConf — 关闭站点 SSL。 */
+  async closeSiteSsl(siteName: string): Promise<void> {
+    await this.request({
+      path: "/site?action=CloseSSLConf",
+      params: { siteName, updateOf: 1 },
+    });
+  }
+
+  /** /ssl?action=remove_cert — 从证书夹删除证书（优先 hash）。 */
+  async removeSslCert(params: { id?: number | string; hash?: string }): Promise<void> {
+    const sslHash = params.hash?.trim();
+    if (sslHash) {
+      await this.request({
+        path: "/ssl?action=remove_cert",
+        params: { ssl_hash: sslHash, hash: sslHash },
+      });
+      return;
+    }
+    if (params.id == null) {
+      throw new BtPanelApiError("缺少证书 hash/id，无法删除", 0);
+    }
+    await this.request({
+      path: "/ssl?action=remove_cert",
+      params: { id: params.id, ssl_id: params.id },
+    });
+  }
+
+  /** /files?action=GetDir — 目录列表。 */
+  async getDir(path: string, p = 1): Promise<BtDirListResult> {
+    return this.request<BtDirListResult>({
+      path: "/files?action=GetDir",
+      params: { path, p },
+    });
+  }
+
+  /** /files?action=GetFileBody — 读文件。 */
+  async getFileBody(path: string): Promise<BtFileBodyResult> {
+    return this.request<BtFileBodyResult>({
+      path: "/files?action=GetFileBody",
+      params: { path },
+    });
+  }
+
+  /** /files?action=SaveFileBody — 写文件。 */
+  async saveFileBody(path: string, data: string, encoding = "utf-8"): Promise<void> {
+    await this.request({
+      path: "/files?action=SaveFileBody",
+      params: { path, data, encoding },
+    });
+  }
+
+  /** 读取站点 Nginx 配置。 */
+  async getNginxConfig(siteName: string): Promise<{ path: string; content: string }> {
+    const path = btNginxVhostPath(siteName);
+    const body = await this.getFileBody(path);
+    const content = typeof body.data === "string" ? body.data : "";
+    if (!content && body.status === false) {
+      throw new BtPanelApiError(body.msg ?? `无法读取配置：${path}`, 0);
+    }
+    return { path, content };
+  }
+
+  /** 保存站点 Nginx 配置。 */
+  async saveNginxConfig(siteName: string, content: string): Promise<void> {
+    await this.saveFileBody(btNginxVhostPath(siteName), content);
+  }
+
+  /** POST /mod/docker/com/get_installed_apps — Docker 已安装应用列表。 */
+  async getInstalledApps(params: BtInstalledAppsParams = {}): Promise<BtInstalledAppsResult> {
+    const payload = await this.request<unknown>({
+      path: "/mod/docker/com/get_installed_apps",
+      params: {
+        app_type: params.appType ?? "all",
+        p: params.p ?? 1,
+        row: params.row ?? 20,
+        query: params.query ?? "",
+      },
+    });
+    return unwrapInstalledApps(payload);
+  }
+
+  /** /data?action=getData — 数据库列表（table=databases）。 */
+  async getDatabaseList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
+    return this.getDataTable("databases", {
+      p: params.p,
+      limit: params.limit ?? 100,
+    });
+  }
+
+  /** /database?action=AddDatabase — 创建数据库。 */
+  async addDatabase(params: BtAddDatabaseParams): Promise<void> {
+    await this.request({
+      path: "/database?action=AddDatabase",
+      params: {
+        sid: params.sid ?? 0,
+        name: params.name,
+        db_user: params.dbUser,
+        password: params.password,
+        address: params.address ?? "127.0.0.1",
+        codeing: params.codeing ?? "utf8mb4",
+        ps: params.ps ?? "",
+        ...(params.pid != null ? { pid: params.pid } : {}),
+      },
+    });
+  }
+
+  /** /database?action=DeleteDatabase — 删除数据库。 */
+  async deleteDatabase(params: {
+    id: number;
+    name: string;
+    dbUser: string;
+    sid?: number;
+  }): Promise<void> {
+    await this.request({
+      path: "/database?action=DeleteDatabase",
+      params: {
+        id: params.id,
+        sid: params.sid ?? 0,
+        name: params.name,
+        db_user: params.dbUser,
+      },
+    });
+  }
+
+  /** /data?action=getData — 计划任务列表（table=crontab）。 */
+  async getCronList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
+    return this.getDataTable("crontab", {
+      p: params.p,
+      limit: params.limit ?? 100,
+    });
+  }
+
+  /** /crontab?action=get_crond_find — 单个计划任务详情。 */
+  async getCronDetail(id: number): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>({
+      path: "/crontab?action=get_crond_find",
+      params: { id },
+    });
+  }
+
+  /** /crontab?action=AddCrontab — 创建计划任务。 */
+  async addCrontab(params: BtCrontabParams): Promise<void> {
+    await this.request({
+      path: "/crontab?action=AddCrontab",
+      params: {
+        name: params.name,
+        type: params.type,
+        where1: params.where1,
+        sType: params.sType,
+        sBody: params.sBody,
+        sName: params.sName ?? "",
+        save: params.save ?? 0,
+        backupTo: params.backupTo ?? "localhost",
+        hour: params.hour ?? "",
+        minute: params.minute ?? "",
+        week: params.week ?? "",
+      },
+    });
+  }
+
+  /** /crontab?action=modify_crond — 修改计划任务。 */
+  async modifyCrontab(id: number, params: BtCrontabParams): Promise<void> {
+    await this.request({
+      path: "/crontab?action=modify_crond",
+      params: {
+        id,
+        name: params.name,
+        type: params.type,
+        where1: params.where1,
+        sType: params.sType,
+        sBody: params.sBody,
+        sName: params.sName ?? "",
+        save: params.save ?? 0,
+        backupTo: params.backupTo ?? "localhost",
+        hour: params.hour ?? "",
+        minute: params.minute ?? "",
+        week: params.week ?? "",
+      },
+    });
+  }
+
+  /** /crontab?action=DelCrontab — 删除计划任务。 */
+  async deleteCrontab(id: number): Promise<void> {
+    await this.request({
+      path: "/crontab?action=DelCrontab",
+      params: { id },
+    });
+  }
+
+  /** /ssl?action=get_cert_list — 证书夹列表（官方接口；旧 GetSSLList 会报参数无效）。 */
+  async getSslList(): Promise<Record<string, unknown>[]> {
+    try {
+      const data = await this.request<unknown>({
+        path: "/ssl?action=get_cert_list",
+        tolerateFalseStatus: true,
+      });
+      return normalizeBtCertList(data);
+    } catch {
+      // 兼容旧面板：已部署证书概览
+      const data = await this.request<unknown>({
+        path: "/ssl?action=GetCertList",
+        tolerateFalseStatus: true,
+      });
+      return normalizeBtCertList(data);
+    }
+  }
+}
+
+function normalizeBtCertList(payload: unknown): Record<string, unknown>[] {
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)
+      ? ((payload as { data: unknown[] }).data)
+      : [];
+
+  return rows
+    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+    .map((row) => {
+      const info =
+        row.info && typeof row.info === "object"
+          ? (row.info as Record<string, unknown>)
+          : {};
+      const dnsRaw = row.dns;
+      const dnsList = Array.isArray(dnsRaw)
+        ? dnsRaw.map(String)
+        : typeof dnsRaw === "string" && dnsRaw.trim()
+          ? [dnsRaw.trim()]
+          : [];
+      const subject = String(row.subject ?? dnsList[0] ?? "").trim();
+      return {
+        ...row,
+        primaryDomain: subject || dnsList[0] || "",
+        domain: subject || dnsList.join(","),
+        dns: dnsList.join(",") || subject,
+        expireDate: String(info.notAfter ?? row.notAfter ?? row.endtime ?? "").trim(),
+        hash: row.hash ?? row.ssl_hash,
+      };
+    });
 }
 
 function parseTotalFromPage(page: unknown, fallback: number): number {
@@ -295,4 +620,3 @@ function unwrapInstalledApps(payload: unknown): BtInstalledAppsResult {
 export function createBtPanelClient(host: string, apiSk: string): BtPanelClient {
   return new BtPanelClient({ host, apiSk });
 }
-

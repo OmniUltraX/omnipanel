@@ -1,3 +1,7 @@
+/**
+ * UiDelegated 工具总分派（Harness 写入口之一，见 `lib/ai/harness/writeEntries.ts`）。
+ * Plan / 子会话并行 / 模块工具均经此进入，禁止业务旁路写 orchestration store。
+ */
 import { commands } from "../../ipc/bindings";
 import { executeTerminalCommandCore } from "../../modules/terminal/ai/mcpTools";
 import { resolveTerminalApprovalMode } from "../../modules/terminal/terminalApprovalSettings";

@@ -18,6 +18,8 @@ export interface ModuleWorkspaceLayoutProps {
   /** 左栏顶栏标题（与模式图标两端对齐） */
   leftColumnTitle?: ReactNode;
   leftIconRail?: ReactNode;
+  /** 左栏顶栏额外操作（如「问 AI」） */
+  leftHeaderActions?: ReactNode;
   leftSidebar?: ReactNode;
   /** 启用全局标签：标题行 chips + # 弹窗 */
   tagModuleKey?: string;
@@ -43,6 +45,7 @@ export function ModuleWorkspaceLayout({
   className,
   leftColumnTitle,
   leftIconRail,
+  leftHeaderActions,
   leftSidebar,
   tagModuleKey,
   leftSizePx: propLeftSizePx,
@@ -60,7 +63,9 @@ export function ModuleWorkspaceLayout({
   const leftPanelRef = externalLeftPanelRef ?? internalLeftPanelRef;
   const lastSidebarToggleNonceRef = useRef(moduleSidebarToggleNonce);
 
-  const hasSidebarHeader = Boolean(leftColumnTitle || leftIconRail || tagModuleKey);
+  const hasSidebarHeader = Boolean(
+    leftColumnTitle || leftIconRail || leftHeaderActions || tagModuleKey,
+  );
   const hasLeft = Boolean(hasSidebarHeader || leftSidebar);
 
   const {
@@ -149,6 +154,7 @@ export function ModuleWorkspaceLayout({
         <ModuleLeftColumn
           title={leftColumnTitle}
           iconRail={leftIconRail}
+          headerActions={leftHeaderActions}
           sidebar={leftSidebar}
           tagModuleKey={tagModuleKey}
         />

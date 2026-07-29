@@ -1,5 +1,6 @@
 import { submitAiPrompt } from "../../lib/ai/submitAiPrompt";
 import { cancelAiGeneration } from "../../lib/ai/cancelAiGeneration";
+import { cancelConversationClusters } from "../../lib/ai/orchestration/clusterCancellation";
 import { commands } from "../../ipc/bindings";
 import { createBlockId, isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
 import { errorToString } from "../../lib/errorToString";
@@ -48,7 +49,10 @@ const INLINE_AI_STOPPED = "已手动停止";
 
 /** 强制停止卡住的终端内联 AI 卡片 */
 export function cancelInlineAiBlock(sessionId: string, blockId: string): void {
-  void commands.aiChatCancel(resolveInlineConversationId(sessionId)).catch(() => {});
+  const inlineConvId = resolveInlineConversationId(sessionId);
+  void commands.aiChatCancel(inlineConvId).catch(() => {});
+  // 侧栏 handleCancel 用的是 activeConversationId，内联会话需显式级联取消集群
+  cancelConversationClusters(inlineConvId);
   cancelAiGeneration();
   flushInlineAiStream(blockId);
   clearInlineAiWatchdog(blockId);

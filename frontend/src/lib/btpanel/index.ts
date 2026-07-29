@@ -5,9 +5,15 @@ export {
 } from "./auth";
 export {
   BtPanelApiError,
+  type BtAddDatabaseParams,
+  type BtAddSiteParams,
+  type BtAddSiteResult,
   type BtApiStatusResponse,
+  type BtCrontabParams,
   type BtDataListResult,
+  type BtDirListResult,
   type BtDiskInfo,
+  type BtFileBodyResult,
   type BtAppInfoField,
   type BtInstalledApp,
   type BtInstalledAppsParams,
@@ -16,12 +22,14 @@ export {
   type BtPhpVersion,
   type BtRequestOptions,
   type BtSite,
+  type BtSiteSslInfo,
   type BtSiteType,
   type BtSystemTotal,
   type BtWebsiteListParams,
 } from "./types";
 export {
   BtPanelClient,
+  btNginxVhostPath,
   createBtPanelClient,
   type BtPanelClientOptions,
 } from "./client";

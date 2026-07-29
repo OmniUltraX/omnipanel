@@ -1,3 +1,5 @@
+@import "@fontsource-variable/geist";
+
 @font-face {
   font-family: "Maple Mono NF CN";
   src: url("../assets/fonts/CONSOLA.TTF") format("truetype");
@@ -8,7 +10,7 @@
 
 @font-face {
   font-family: "Maple Mono NF CN Light";
-  src: url("../assets/fonts/MAPLEMONO-NF-CN-THIN.TTF") format("truetype");
+  src: url("../assets/fonts/MAPLEMONO-NF-CN-LIGHT.TTF") format("truetype");
   font-weight: 300;
   font-style: normal;
   font-display: swap;

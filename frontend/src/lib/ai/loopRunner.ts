@@ -68,15 +68,16 @@ export async function runLoopOnce(options: RunLoopOptions): Promise<LoopRun> {
           id: genFindingId(),
           loopId: spec.id,
           runId,
-          title: "未配置 pilot",
-          summary: "请指定 pilotId 或后续接入 skill discover",
+          title: "【实验】未配置 pilot",
+          summary:
+            "Outer Loop 仍为实验能力：请指定 pilotId，或改用侧栏 Agent + omni_plan_* / omni_spawn_sub_conversations 完成巡检。Skill discover 尚未接通。",
           severity: "warning" as const,
           status: "open" as const,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
       ];
-      discoverSummary = "无 pilot";
+      discoverSummary = "实验：无 pilot";
     }
 
     store.addFindings(findings);

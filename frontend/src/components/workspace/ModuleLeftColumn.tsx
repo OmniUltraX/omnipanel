@@ -7,6 +7,8 @@ export interface ModuleLeftColumnProps {
   /** 顶栏左侧标题（模块名） */
   title?: ReactNode;
   iconRail?: ReactNode;
+  /** 顶栏操作区额外按钮（如「问 AI」），排在 iconRail 之前 */
+  headerActions?: ReactNode;
   sidebar?: ReactNode;
   className?: string;
   /** 启用全局标签筛选：标题旁入口 + chips */
@@ -17,12 +19,14 @@ export interface ModuleLeftColumnProps {
 export function ModuleLeftColumn({
   title,
   iconRail,
+  headerActions,
   sidebar,
   className,
   tagModuleKey,
 }: ModuleLeftColumnProps) {
-  const showHeader = Boolean(title || iconRail || tagModuleKey);
+  const showHeader = Boolean(title || iconRail || headerActions || tagModuleKey);
   const onHeaderMouseDown = useWindowDragOnMouseDown();
+  const hasActions = Boolean(iconRail || headerActions);
 
   return (
     <div className={["module-left-column", className].filter(Boolean).join(" ")}>
@@ -32,7 +36,7 @@ export function ModuleLeftColumn({
             "module-sidebar-module-header",
             "module-left-column__header",
             "window-drag-surface",
-            iconRail || tagModuleKey ? "module-left-column__header--with-modes" : "",
+            iconRail || tagModuleKey || headerActions ? "module-left-column__header--with-modes" : "",
             tagModuleKey ? "module-left-column__header--with-tags" : "",
           ]
             .filter(Boolean)
@@ -48,8 +52,9 @@ export function ModuleLeftColumn({
           ) : (
             <div className="module-sidebar-module-header__spacer" aria-hidden data-tauri-drag-region />
           )}
-          {iconRail ? (
+          {hasActions ? (
             <div className="module-sidebar-module-header__actions window-drag-surface--interactive">
+              {headerActions}
               {iconRail}
             </div>
           ) : tagModuleKey ? (

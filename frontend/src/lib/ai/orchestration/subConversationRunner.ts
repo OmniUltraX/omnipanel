@@ -38,6 +38,7 @@ import {
   checkClusterCompletion,
   cleanupChildAbortController,
 } from "./clusterCancellation";
+import { buildChildAiContextBundle } from "./childRequestContext";
 import type {
   SubConversationChildState,
   SubConversationClusterStatus,
@@ -406,22 +407,22 @@ async function runSingleChild(
     abortController.signal.addEventListener("abort", onClusterAbort, { once: true });
 
     try {
+      const parentConv = cluster?.parentConversationId
+        ? useAiStore.getState().conversations.find((c) => c.id === cluster.parentConversationId)
+        : null;
+      const childContext = buildChildAiContextBundle({
+        parent: parentConv,
+        child: childConv,
+        spawnResourceId: spawnSpec.resourceId ?? child.resourceId ?? null,
+      });
+
       await runInternalAiChat({
         request: {
           conversationId,
           userText: spawnSpec.task,
           backendId: backend.backendId,
           httpProvider: backend.kind === "http" ? (backend as { httpProvider: HttpProviderSnapshot }).httpProvider : null,
-          context: {
-            cwd: null,
-            workspaceId: childConv.pinnedWorkspaceId ?? null,
-            terminalSessionId: childConv.linkedTerminalSessionId ?? null,
-            terminalSessionType: null,
-            envTag: null,
-            resourceId: spawnSpec.resourceId ?? null,
-            terminalContextAppend: null,
-            moduleContextAppend: null,
-          },
+          context: childContext,
           historyJson,
           toolsMode: (() => {
             const mode = agentRuntime.toolsMode;

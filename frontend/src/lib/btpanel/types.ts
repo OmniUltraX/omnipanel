@@ -64,6 +64,9 @@ export interface BtSite {
   edate?: string;
   domain?: number;
   backup_count?: number;
+  type_id?: number;
+  project_type?: string;
+  rname?: string;
 }
 
 export interface BtDataListResult<T> {
@@ -89,6 +92,102 @@ export interface BtWebsiteListParams {
   order?: string;
   tojs?: string;
   search?: string;
+}
+
+/** POST /site?action=AddSite */
+export interface BtAddSiteParams {
+  /** 主域名 */
+  domain: string;
+  /** 额外域名列表 */
+  domainList?: string[];
+  path: string;
+  /** PHP 或留空（纯静态） */
+  type?: string;
+  /** PHP 版本如 "80"；纯静态传 "00" */
+  version: string;
+  port?: string;
+  typeId?: number;
+  ps?: string;
+  ftp?: boolean;
+  sql?: boolean;
+  codeing?: string;
+  datauser?: string;
+  datapassword?: string;
+}
+
+export interface BtAddSiteResult {
+  siteStatus?: boolean;
+  siteId?: number;
+  ftpStatus?: boolean;
+  databaseStatus?: boolean;
+  msg?: string;
+  status?: boolean;
+}
+
+/** POST /files?action=GetDir */
+export interface BtDirListResult {
+  PATH?: string;
+  DIR?: string[];
+  FILES?: string[];
+  PAGE?: string;
+}
+
+/** POST /files?action=GetFileBody */
+export interface BtFileBodyResult {
+  status?: boolean;
+  data?: string;
+  encoding?: string;
+  size?: number;
+  only_read?: boolean;
+  msg?: string;
+}
+
+/** POST /site?action=GetSSL — status:false 表示未部署，非错误。 */
+export interface BtSiteSslInfo {
+  status?: boolean;
+  oid?: number;
+  domain?: Array<{ name?: string; apply_ssl?: number; dns_status?: number }>;
+  key?: boolean;
+  csr?: boolean;
+  type?: number;
+  httpTohttps?: boolean;
+  cert_data?: Record<string, unknown>;
+  tls_versions?: Record<string, boolean>;
+  auth_type?: string;
+  email?: string;
+  /** 部分版本直接返回 PEM */
+  private_key?: string;
+  cert?: string;
+  msg?: string;
+}
+
+/** POST /database?action=AddDatabase */
+export interface BtAddDatabaseParams {
+  name: string;
+  dbUser: string;
+  password: string;
+  address?: string;
+  codeing?: string;
+  ps?: string;
+  sid?: number;
+  pid?: number;
+}
+
+/** POST /crontab?action=AddCrontab / modify_crond */
+export interface BtCrontabParams {
+  name: string;
+  /** 周期类型：minute-n / hour / day / day-n / week / month */
+  type: string;
+  where1: string;
+  /** toShell / toUrl / toPython / database / site / logs / rememory */
+  sType: string;
+  sBody: string;
+  sName?: string;
+  save?: number;
+  backupTo?: string;
+  hour?: string | number;
+  minute?: string | number;
+  week?: string | number;
 }
 
 /** POST /mod/docker/com/get_installed_apps 查询参数。 */
@@ -145,6 +244,11 @@ export interface BtRequestOptions {
   /** 含 query 的路径，如 `/system?action=GetSystemTotal` */
   path: string;
   params?: Record<string, string | number | boolean | undefined | null>;
+  /**
+   * 部分接口（如 GetSSL）用 status:false 表示业务状态而非错误。
+   * 为 true 时不因 status===false 抛错。
+   */
+  tolerateFalseStatus?: boolean;
 }
 
 export class BtPanelApiError extends Error {

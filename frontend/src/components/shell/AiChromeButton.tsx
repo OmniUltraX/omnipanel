@@ -14,7 +14,11 @@ export function AiChromeButton() {
       title={label}
       aria-label={label}
       aria-pressed={drawerOpen}
-      onClick={() => useAiStore.getState().toggleDrawer()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        useAiStore.getState().toggleDrawer();
+      }}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
         <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />

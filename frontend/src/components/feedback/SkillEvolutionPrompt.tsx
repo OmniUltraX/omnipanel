@@ -40,7 +40,24 @@ export function SkillEvolutionPrompt() {
   const handleExtract = async () => {
     acceptAndExtract();
     useAiStore.getState().openDrawer();
-    const promptText = t("skillPrompt.extractPromptText");
+    const base = t("skillPrompt.extractPromptText");
+    const convId = useAiStore.getState().activeConversationId;
+    let promptText = base;
+    if (convId) {
+      try {
+        const { buildExperienceDigest } = await import("../../lib/ai/harness");
+        const digest = buildExperienceDigest({ conversationId: convId });
+        if (
+          digest.planSummary ||
+          digest.clusterSummaries.length > 0 ||
+          digest.traceErrorHints.length > 0
+        ) {
+          promptText = `${base}\n\n${digest.extractText}`;
+        }
+      } catch {
+        // digest 可选
+      }
+    }
     try {
       await submitAiPrompt(promptText, { newConversation: true });
     } catch {

@@ -19,6 +19,7 @@ import {
   type BackgroundTaskInfo,
 } from "../../stores/backgroundTaskStore";
 import { followAiIntent } from "../../lib/ai/uiFollow";
+import { SubConversationClusterCard } from "../../components/ai/SubConversationClusterCard";
 import { showToast } from "../../stores/toastStore";
 import { useLoopStore } from "../../stores/loopStore";
 import { LoopTriageTab, LoopsTab, TurnTimelinePanel } from "./LoopTriagePanels";
@@ -312,6 +313,17 @@ function TaskItemDetail({ item }: { item: TaskItem }) {
         </div>
       );
     }
+  }
+
+  if (item.kind === "sub_conversation_cluster" && item.backendJobId) {
+    return (
+      <div className="task-center-list">
+        <SubConversationClusterCard
+          clusterId={item.backendJobId}
+          defaultCollapsed={false}
+        />
+      </div>
+    );
   }
 
   if (item.source === "orchestration" && item.backendJobId) {

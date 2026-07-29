@@ -156,6 +156,19 @@ export function cancelConversationClusters(parentConversationId: string): void {
   }
 }
 
+/** 取消所有仍在 running/pending 的集群（任务中心「取消全部」） */
+export function cancelAllRunningClusters(): number {
+  const clusters = useAiOrchestrationStore.getState().clusters;
+  let cancelled = 0;
+  for (const cluster of Object.values(clusters)) {
+    if (cluster.status === "running" || cluster.status === "pending") {
+      cancelCluster(cluster.clusterId);
+      cancelled += 1;
+    }
+  }
+  return cancelled;
+}
+
 /** 清理已终止集群的 abort controller（内存回收） */
 export function cleanupClusterAbortController(clusterId: string): void {
   clusterAbortControllers.delete(clusterId);

@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { PanelRightCloseIcon } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { clampMenuPosition } from "../../../lib/contextMenuPosition";
 import { useI18n } from "../../../i18n";
@@ -20,6 +21,7 @@ import {
 } from "../../../stores/settingsStore";
 import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
+import { useAiDockOpen } from "../../../lib/ai/useAiDockOpen";
 
 function ChevronIcon() {
   return (
@@ -327,10 +329,37 @@ export function AiConversationListToggle() {
   return null;
 }
 
-/** 右侧轻量操作：跟随 / 显示模式 */
+/** Dock 打开时工具栏内的收起按钮（避免仅依赖顶栏 chrome 开关） */
+export function AiDrawerCollapseButton() {
+  const { t } = useI18n();
+  const dockOpen = useAiDockOpen();
+  const closeDrawer = useAiStore((s) => s.closeDrawer);
+  if (!dockOpen) return null;
+  const label = t("ai.surfaces.collapseDrawer");
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="ai-toolbar-btn ai-toolbar-btn--icon ai-toolbar-btn--collapse"
+      title={label}
+      aria-label={label}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeDrawer();
+      }}
+    >
+      <PanelRightCloseIcon className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
+/** 右侧轻量操作：收起 / 跟随 / 显示模式 */
 export function AiPanelToolbarActions() {
   return (
     <div className="ai-panel-toolbar-actions" role="toolbar" aria-label="AI">
+      <AiDrawerCollapseButton />
       <AiFollowToggle />
       <AiDisplayModeToggle />
     </div>

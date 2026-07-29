@@ -1085,8 +1085,28 @@ a {
     height: 100%;
 }
 
+/* 看板页：撑满 dock 面板高度，否则底栏 margin-top:auto 无效 */
+.dashboard-page {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.dashboard-page > .home-board-view {
+    flex: 1;
+    min-height: 0;
+}
+
 .home-board-view.dashboard {
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    /* 底栏 AI 区上提，避免贴死窗口底边 */
+    padding-bottom: 28px;
 }
 
 .home-board-body {
@@ -1094,6 +1114,116 @@ a {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
+}
+
+.home-board-body > .dash-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.home-board-ai {
+    position: relative;
+    flex: 0 0 auto;
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding-top: var(--sp-4);
+    padding-bottom: var(--sp-2);
+}
+
+.home-board-ai__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.home-board-ai__chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: min(100%, 260px);
+    height: auto;
+    gap: 0;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.3;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.home-board-ai__chip:hover {
+    background: var(--surface-hover);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.home-board-ai__chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ask-ai-composer {
+    display: block;
+    width: 100%;
+}
+
+.ask-ai-composer__input {
+    field-sizing: content;
+}
+
+.home-board-ai__handoff {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--bg);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+}
+
+.home-board-ai__handoff:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: var(--surface);
+}
+
+.home-board-ai__handoff:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 1px;
+}
+
+.home-board-ai__handoff-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.home-board-ai__handoff-hint {
+    font-size: 11px;
+    color: var(--meta);
+}
+
+.module-ask-ai-btn {
+    gap: 4px;
+    padding-inline: 6px;
+    font-size: 11px;
+}
+
+.module-ask-ai-btn__label {
+    line-height: 1;
 }
 
 .home-board-qa-end {
@@ -2099,7 +2229,7 @@ a {
 }
 
 .resource-name {
-    font-size: 12px;
+    font-size: var(--font-size-sm, 13px);
     font-weight: 600;
     color: inherit;
     overflow: hidden;
@@ -2109,8 +2239,8 @@ a {
 
 .resource-subtitle,
 .resource-meta {
-    font-size: 10px;
-    color: var(--meta);
+    font-size: var(--font-size-xs, 12px);
+    color: var(--muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3133,7 +3263,7 @@ a {
 }
 
 .text-muted {
-    color: var(--meta);
+    color: var(--muted);
 }
 
 /* Reset */
@@ -3155,11 +3285,13 @@ a {
 
     body {
         font-family: var(--font);
-        font-size: 13px;
+        font-size: var(--font-size, 14px);
         line-height: 1.5;
         color: var(--fg);
         background: var(--bg);
-        -webkit-font-smoothing: antialiased;
+        /* Windows 暗色下 antialiased 会让笔画发虚；保持默认渲染更清晰 */
+        -webkit-font-smoothing: auto;
+        text-rendering: optimizeLegibility;
     }
 
     a {
@@ -4130,10 +4262,15 @@ a {
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
     min-width: var(--shell-win-controls-width, 138px);
+    /* 高于 .ai-dockview.open(z-index:6)，避免侧栏叠层挡住顶栏 AI 开关 */
+    position: relative;
+    z-index: 10;
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
     min-width: var(--shell-win-controls-width, 138px);
+    position: relative;
+    z-index: 10;
 }
 
 .dockable-workspace.dock-window-control .dock-window-drag-spacer {
@@ -11461,6 +11598,60 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: auto;
     }
 
+    .task-center-harness-digest {
+        margin: 0;
+        padding: 10px 12px;
+        max-height: 180px;
+        overflow: auto;
+        border: 1px solid var(--border-soft, #3a3535);
+        border-radius: 8px;
+        background: var(--bg-deeper, #1a1717);
+        color: var(--fg-2, #c8c2bc);
+        font-size: 11px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        font-family: var(--font-mono, ui-monospace, monospace);
+    }
+
+    .harness-inventory-dl {
+        display: grid;
+        gap: 10px;
+        margin: 12px 0;
+    }
+
+    .harness-inventory-dl > div {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 8px;
+        font-size: 12px;
+    }
+
+    .harness-inventory-dl dt {
+        color: var(--fg-2, #9a9590);
+    }
+
+    .harness-inventory-dl dd {
+        margin: 0;
+        min-width: 0;
+        word-break: break-word;
+    }
+
+    .harness-inventory-entries {
+        margin-top: 12px;
+        font-size: 12px;
+        color: var(--fg-2);
+    }
+
+    .harness-inventory-entries ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+    }
+
+    .harness-inventory-entries code {
+        font-size: 10px;
+        opacity: 0.85;
+    }
+
     .task-center-section {
         display: flex;
         flex-direction: column;
@@ -14482,7 +14673,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     .server-resource-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 12px;
+        font-size: var(--font-size-sm, 13px);
     }
 
     .server-resource-table th,
@@ -14494,7 +14685,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .server-resource-table th {
         background: var(--bg-deeper);
-        color: var(--meta);
+        color: var(--muted);
         font-weight: 600;
     }
 

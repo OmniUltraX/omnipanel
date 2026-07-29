@@ -8,6 +8,7 @@ import {
   type DbTablesPanelGridSortDirection,
 } from "../../../database/workspace/DbTablesPanelGrid";
 import { createOnePanelClient } from "../../../../lib/onepanel";
+import { createBtPanelClient } from "../../../../lib/btpanel";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import { useServerPanelCacheStore } from "../../../../stores/serverPanelCacheStore";
@@ -38,6 +39,7 @@ type CertSortColumn = "domain" | "status" | "provider" | "expire" | "autoRenew" 
 type CertGridRow = {
   id: string;
   certId: number | null;
+  certHash: string | null;
   domain: string;
   status: string;
   provider: string;
@@ -83,6 +85,8 @@ export function ServerCertificatesTab({ server }: Props) {
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const isOnePanel = server.serviceType === "1panel";
+  const isBt = server.serviceType === "bt";
+  const canManage = isOnePanel || isBt;
 
   const formatStatus = useCallback(
     (status: string) => {
@@ -130,9 +134,11 @@ export function ServerCertificatesTab({ server }: Props) {
     () =>
       rows.map((row, index) => {
         const expire = certificateExpiryInfo(row);
+        const hashRaw = row.hash ?? row.ssl_hash;
         return {
           id: certificateRowId(row, index),
           certId: certificateNumericId(row),
+          certHash: typeof hashRaw === "string" && hashRaw.trim() ? hashRaw.trim() : null,
           domain: certificateRowLabel(row),
           status: certificateRowStatus(row),
           provider: certificateRowProviderKey(row),
@@ -216,16 +222,26 @@ export function ServerCertificatesTab({ server }: Props) {
 
   const handleDelete = useCallback(
     async (row: CertGridRow) => {
-      if (!isOnePanel || row.certId == null || actionBusyId != null) return;
+      if (!canManage || (row.certId == null && !row.certHash) || actionBusyId != null) return;
       const confirmed = await appConfirm(
         t("server.certificates.deleteConfirm", { name: row.domain }),
       );
       if (!confirmed) return;
-      setActionBusyId(row.certId);
+      const busyKey = row.certId ?? 0;
+      setActionBusyId(busyKey);
       setActionError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key);
-        await client.deleteWebsiteSsl([row.certId]);
+        if (isBt) {
+          const client = createBtPanelClient(server.address, server.key);
+          await client.removeSslCert({
+            id: row.certId ?? undefined,
+            hash: row.certHash ?? undefined,
+          });
+        } else {
+          if (row.certId == null) return;
+          const client = createOnePanelClient(server.address, server.key);
+          await client.deleteWebsiteSsl([row.certId]);
+        }
         showToast(t("server.certificates.deleteSuccess"));
         await refresh();
       } catch (err) {
@@ -234,7 +250,7 @@ export function ServerCertificatesTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, isOnePanel, refresh, server.address, server.key, t],
+    [actionBusyId, canManage, isBt, refresh, server.address, server.key, t],
   );
 
   const handleToggleAutoRenew = useCallback(
@@ -429,7 +445,9 @@ export function ServerCertificatesTab({ server }: Props) {
         defaultWidth: 108,
         minWidth: 108,
         render: (row) => {
-          const canAct = isOnePanel && row.certId != null;
+          const canLogs = isOnePanel && row.certId != null;
+          const canEdit = isOnePanel && row.certId != null;
+          const canDelete = canManage && (row.certId != null || Boolean(row.certHash));
           const busy = actionBusyId === row.certId;
           return (
             <div
@@ -441,11 +459,11 @@ export function ServerCertificatesTab({ server }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct || busy}
-                title={canAct ? t("server.certificates.logs") : t("server.create.onePanelOnly")}
-                aria-label={canAct ? t("server.certificates.logs") : t("server.create.onePanelOnly")}
+                disabled={!canLogs || busy}
+                title={canLogs ? t("server.certificates.logs") : t("server.create.panelOnly")}
+                aria-label={canLogs ? t("server.certificates.logs") : t("server.create.panelOnly")}
                 onClick={() => {
-                  if (!canAct || row.certId == null) return;
+                  if (!canLogs || row.certId == null) return;
                   setLogsTarget({
                     sslId: row.certId,
                     title: t("server.certificates.logsTitle", { name: row.domain }),
@@ -459,9 +477,9 @@ export function ServerCertificatesTab({ server }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct || busy}
-                title={canAct ? t("server.certificates.edit") : t("server.create.onePanelOnly")}
-                aria-label={canAct ? t("server.certificates.edit") : t("server.create.onePanelOnly")}
+                disabled={!canEdit || busy}
+                title={canEdit ? t("server.certificates.edit") : t("server.create.panelOnly")}
+                aria-label={canEdit ? t("server.certificates.edit") : t("server.create.panelOnly")}
                 onClick={() => handleEdit(row)}
               >
                 <IconPencil size={14} />
@@ -470,10 +488,10 @@ export function ServerCertificatesTab({ server }: Props) {
                 type="button"
                 variant="danger"
                 size="icon-xs"
-                disabled={!canAct || busy || actionBusyId != null}
-                title={canAct ? t("server.certificates.delete") : t("server.create.onePanelOnly")}
+                disabled={!canDelete || busy || actionBusyId != null}
+                title={canDelete ? t("server.certificates.delete") : t("server.create.panelOnly")}
                 aria-label={
-                  canAct ? t("server.certificates.delete") : t("server.create.onePanelOnly")
+                  canDelete ? t("server.certificates.delete") : t("server.create.panelOnly")
                 }
                 onClick={() => void handleDelete(row)}
               >
@@ -486,6 +504,7 @@ export function ServerCertificatesTab({ server }: Props) {
     ];
   }, [
     actionBusyId,
+    canManage,
     formatProvider,
     formatStatus,
     handleDelete,
@@ -547,9 +566,9 @@ export function ServerCertificatesTab({ server }: Props) {
             type="button"
             variant="icon"
             size="icon-xs"
-            disabled={!isOnePanel || busy}
-            title={isOnePanel ? t("server.certificates.create") : t("server.create.onePanelOnly")}
-            aria-label={isOnePanel ? t("server.certificates.create") : t("server.create.onePanelOnly")}
+            disabled={!canManage || busy}
+            title={canManage ? t("server.certificates.create") : t("server.create.panelOnly")}
+            aria-label={canManage ? t("server.certificates.create") : t("server.create.panelOnly")}
             onClick={() => setCreateOpen(true)}
           >
             <IconPlus size={14} />
