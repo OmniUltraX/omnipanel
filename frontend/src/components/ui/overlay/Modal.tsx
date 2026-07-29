@@ -23,7 +23,14 @@ export function Modal({ open, onClose, children }: ModalProps) {
   if (!open) return null;
 
   return createPortal(
-    <div className="modal-overlay">{children}</div>,
+    <div
+      className="modal-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      {children}
+    </div>,
     document.body,
   );
 }

@@ -1,5 +1,4 @@
-import "./styles/main.css";
-import { setupSiteChrome } from "./site";
+import { t } from "./i18n";
 import {
   buildDownloadItems,
   detectOsFamily,
@@ -13,16 +12,24 @@ import {
   type VersionsIndex,
 } from "./releases";
 
-setupSiteChrome();
+let latestRoot: HTMLElement | null = null;
+let historyRoot: HTMLElement | null = null;
+let statusRoot: HTMLElement | null = null;
 
-const latestRoot = document.querySelector<HTMLElement>("[data-latest]");
-const historyRoot = document.querySelector<HTMLElement>("[data-history]");
-const statusRoot = document.querySelector<HTMLElement>("[data-status]");
+let cachedHead: VersionEntry | null = null;
+let cachedVersions: VersionEntry[] = [];
+let statusKind: "info" | "error" = "info";
+let statusKey = "";
+let statusVars: Record<string, string | number> | undefined;
+let localeBound = false;
 
-function setStatus(message: string, kind: "info" | "error" = "info") {
+function setStatus(key: string, kind: "info" | "error" = "info", vars?: Record<string, string | number>) {
+  statusKey = key;
+  statusKind = kind;
+  statusVars = vars;
   if (!statusRoot) return;
-  statusRoot.hidden = !message;
-  statusRoot.textContent = message;
+  statusRoot.hidden = !key;
+  statusRoot.textContent = key ? t(key, vars) : "";
   statusRoot.dataset.kind = kind;
 }
 
@@ -35,8 +42,7 @@ function escapeHtml(text: string): string {
 }
 
 function renderNotes(notes?: string): string {
-  if (!notes?.trim()) return "<p class=\"muted\">暂无更新说明。</p>";
-  // notes 来自受控发版清单；转义后做极简 markdown 粗体 / 换行
+  if (!notes?.trim()) return `<p class="muted">${escapeHtml(t("dl.noNotes"))}</p>`;
   const safe = escapeHtml(notes.trim())
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\n/g, "<br />");
@@ -46,7 +52,7 @@ function renderNotes(notes?: string): string {
 function renderDownloadButtons(entry: VersionEntry, compact = false): string {
   const items = buildDownloadItems(entry.platforms, detectOsFamily());
   if (!items.length) {
-    return `<p class="muted">该版本暂无可用安装包。</p>`;
+    return `<p class="muted">${escapeHtml(t("dl.noAssets"))}</p>`;
   }
 
   return `<div class="dl-grid${compact ? " dl-grid--compact" : ""}">
@@ -56,7 +62,7 @@ function renderDownloadButtons(entry: VersionEntry, compact = false): string {
       <a class="dl-card${item.preferred && !compact ? " is-preferred" : ""}" href="${escapeHtml(item.url)}" download>
         <div class="dl-card-top">
           <span class="dl-card-label">${escapeHtml(item.label)}</span>
-          ${item.preferred && !compact ? `<span class="dl-badge">推荐</span>` : ""}
+          ${item.preferred && !compact ? `<span class="dl-badge">${escapeHtml(t("dl.recommended"))}</span>` : ""}
         </div>
         <div class="dl-card-hint">${escapeHtml(item.hint)}</div>
         <div class="dl-card-file">${escapeHtml(item.filename)}</div>
@@ -69,39 +75,37 @@ function renderDownloadButtons(entry: VersionEntry, compact = false): string {
 function renderLatest(entry: VersionEntry) {
   if (!latestRoot) return;
   latestRoot.innerHTML = `
-    <p class="eyebrow">Latest Release</p>
-    <h1 class="h1">下载 OmniPanel ${escapeHtml(entry.version)}</h1>
     <p class="lead">
-      安装包托管于阿里云 OSS，点击即下。当前通道：
+      ${escapeHtml(t("dl.lead"))}
       <span class="accent-text">${escapeHtml(entry.tag)}</span>
-      · 发布于 ${escapeHtml(formatPubDate(entry.pub_date))}
+      · ${escapeHtml(t("dl.published"))} ${escapeHtml(formatPubDate(entry.pub_date))}
     </p>
     ${renderDownloadButtons(entry)}
     <div class="release-panel">
-      <h2 class="h3">更新说明</h2>
+      <h3 class="h3">${escapeHtml(t("dl.notes"))}</h3>
       ${renderNotes(entry.notes)}
     </div>
   `;
-  latestRoot.classList.add("is-visible");
 }
 
 function renderHistory(versions: VersionEntry[], latestVersion: string) {
   if (!historyRoot) return;
 
-  const others = versions.filter((v) => v.version.replace(/^v/, "") !== latestVersion.replace(/^v/, ""));
+  const others = versions.filter(
+    (v) => v.version.replace(/^v/, "") !== latestVersion.replace(/^v/, ""),
+  );
   if (!others.length) {
     historyRoot.innerHTML = `
       <p class="eyebrow">Previous Releases</p>
-      <h2 class="h2">历史版本</h2>
-      <p class="muted">暂无更多版本。发版后会写入 versions.json 并在此列出。</p>
+      <h3 class="h3">${escapeHtml(t("dl.historyTitle"))}</h3>
+      <p class="muted">${escapeHtml(t("dl.historyEmpty"))}</p>
     `;
-    historyRoot.classList.add("is-visible");
     return;
   }
 
   historyRoot.innerHTML = `
     <p class="eyebrow">Previous Releases</p>
-    <h2 class="h2">历史版本</h2>
+    <h3 class="h3">${escapeHtml(t("dl.historyTitle"))}</h3>
     <div class="version-list">
       ${others
         .map(
@@ -120,11 +124,18 @@ function renderHistory(versions: VersionEntry[], latestVersion: string) {
         .join("")}
     </div>
   `;
-  historyRoot.classList.add("is-visible");
+}
+
+function rerender() {
+  if (statusKey) setStatus(statusKey, statusKind, statusVars);
+  if (cachedHead) {
+    renderLatest(cachedHead);
+    renderHistory(cachedVersions, cachedHead.version);
+  }
 }
 
 async function boot() {
-  setStatus("正在从 OSS 读取版本清单…");
+  setStatus("dl.statusLoading");
 
   const [latest, index] = await Promise.all([
     fetchJsonFirst<UpdaterManifest>(latestJsonCandidates()),
@@ -132,34 +143,52 @@ async function boot() {
   ]);
 
   if (!latest && !index) {
-    setStatus(
-      "无法读取版本清单（OSS 可能未配置 CORS，且同域镜像缺失）。请稍后重试。",
-      "error",
-    );
+    setStatus("dl.statusError", "error");
     return;
   }
 
   const versions = resolveVersionList(latest, index);
-  const head = latest ? {
-    tag: `v${latest.version.replace(/^v/, "")}`,
-    version: latest.version.replace(/^v/, ""),
-    notes: latest.notes,
-    pub_date: latest.pub_date,
-    platforms: latest.platforms ?? {},
-  } : versions[0];
+  const head = latest
+    ? {
+        tag: `v${latest.version.replace(/^v/, "")}`,
+        version: latest.version.replace(/^v/, ""),
+        notes: latest.notes,
+        pub_date: latest.pub_date,
+        platforms: latest.platforms ?? {},
+      }
+    : versions[0];
 
   if (!head) {
-    setStatus("版本清单为空。", "error");
+    setStatus("dl.statusEmpty", "error");
     return;
   }
 
+  cachedHead = head;
+  cachedVersions = versions;
   renderLatest(head);
   renderHistory(versions, head.version);
 
-  const source = index?.versions?.length
-    ? `已加载 ${versions.length} 个版本（versions.json）`
-    : "已加载最新版（versions.json 尚未就绪，仅显示 latest.json）";
-  setStatus(source);
+  const versionLabel = document.querySelector("[data-download-version]");
+  if (versionLabel) versionLabel.textContent = head.version;
+
+  if (index?.versions?.length) {
+    setStatus("dl.statusVersions", "info", { n: versions.length });
+  } else {
+    setStatus("dl.statusLatestOnly");
+  }
 }
 
-boot();
+/** 首页 #download 区块：拉取 OSS 清单并渲染安装包 */
+export function setupDownloadSection() {
+  latestRoot = document.querySelector<HTMLElement>("[data-latest]");
+  historyRoot = document.querySelector<HTMLElement>("[data-history]");
+  statusRoot = document.querySelector<HTMLElement>("[data-status]");
+  if (!latestRoot) return;
+
+  if (!localeBound) {
+    localeBound = true;
+    document.addEventListener("omnipanel:locale", () => rerender());
+  }
+
+  void boot();
+}

@@ -669,6 +669,11 @@ export const enUS: TranslationDict = {
       userCenter: "User Center",
       ai: "AI Assistant",
     },
+    miniapp: {
+      title: "WeChat Mini Program",
+      hint: "Scan with WeChat to open the OmniPanel mini program",
+      qrAlt: "WeChat mini program QR code",
+    },
     topbar: {
       aiAssistant: "AI Assistant ({shortcut})",
       notifications: "Notifications",
@@ -6171,6 +6176,7 @@ export const enUS: TranslationDict = {
       account: "Profile",
       subscription: "Subscription",
       devices: "Devices",
+      website: "Visit Website",
     },
     login: {
       title: "Sign in with WeChat",
