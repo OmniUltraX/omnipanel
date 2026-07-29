@@ -10,11 +10,13 @@ import {
 import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
+import { BtEditWebsiteDialog } from "./BtEditWebsiteDialog";
 
 type EditWebsiteDialogProps = {
   open: boolean;
   server: ServerEntry;
   websiteId: number | null;
+  siteName?: string | null;
   onClose: () => void;
   onUpdated?: () => void;
 };
@@ -43,6 +45,37 @@ function asBool(value: unknown, fallback = false): boolean {
 }
 
 export function EditWebsiteDialog({
+  open,
+  server,
+  websiteId,
+  siteName = null,
+  onClose,
+  onUpdated,
+}: EditWebsiteDialogProps) {
+  if (server.serviceType === "bt") {
+    return (
+      <BtEditWebsiteDialog
+        open={open}
+        server={server}
+        websiteId={websiteId}
+        siteName={siteName}
+        onClose={onClose}
+        onUpdated={onUpdated}
+      />
+    );
+  }
+  return (
+    <OnePanelEditWebsiteDialog
+      open={open}
+      server={server}
+      websiteId={websiteId}
+      onClose={onClose}
+      onUpdated={onUpdated}
+    />
+  );
+}
+
+function OnePanelEditWebsiteDialog({
   open,
   server,
   websiteId,

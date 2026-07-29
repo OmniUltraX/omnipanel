@@ -44,6 +44,12 @@ const DEFAULT_PLAN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agent
 const DEFAULT_RUN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/run.md");
 const DEFAULT_TERMINAL_AGENT_PROMPT: &str =
     include_str!("../resources/prompts/agents/terminal.md");
+const DEFAULT_DATABASE_AGENT_PROMPT: &str =
+    include_str!("../resources/prompts/agents/database.md");
+const DEFAULT_DOCKER_AGENT_PROMPT: &str =
+    include_str!("../resources/prompts/agents/docker.md");
+const DEFAULT_FILES_AGENT_PROMPT: &str =
+    include_str!("../resources/prompts/agents/files.md");
 
 /// 历史短版 / 旧 chat 命名默认文案：仍等于这些内容时，启动时可升级（不覆盖用户自定义）。
 const LEGACY_PLAN_AGENT_PROMPTS: &[&str] = &[
@@ -55,6 +61,18 @@ const LEGACY_PLAN_AGENT_PROMPTS: &[&str] = &[
 const LEGACY_TERMINAL_AGENT_PROMPTS: &[&str] = &[
     "你是 OmniPanel 的「终端」Agent，专注终端会话、命令与输出分析；仅使用终端相关工具。",
     "你是 OmniPanel 的「终端」Agent，覆盖本地终端与 SSH 远程会话、命令执行与主机相关操作；仅使用终端模块工具（含原 SSH 工具）。",
+];
+
+const LEGACY_DATABASE_AGENT_PROMPTS: &[&str] = &[
+    "你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。",
+];
+
+const LEGACY_DOCKER_AGENT_PROMPTS: &[&str] = &[
+    "你是 OmniPanel 的「Docker」Agent，专注容器/镜像/Compose；仅使用 Docker 相关工具。",
+];
+
+const LEGACY_FILES_AGENT_PROMPTS: &[&str] = &[
+    "你是 OmniPanel 的「文件」Agent，专注文件浏览与读写；仅使用文件相关工具。",
 ];
 
 struct CachedFile {
@@ -71,25 +89,25 @@ fn default_agent_prompt(id: &str) -> &'static str {
         "plan" => DEFAULT_PLAN_AGENT_PROMPT,
         "run" => DEFAULT_RUN_AGENT_PROMPT,
         "terminal" => DEFAULT_TERMINAL_AGENT_PROMPT,
-        "database" => {
-            "你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。"
-        }
-        "docker" => {
-            "你是 OmniPanel 的「Docker」Agent，专注容器/镜像/Compose；仅使用 Docker 相关工具。"
-        }
+        "database" => DEFAULT_DATABASE_AGENT_PROMPT,
+        "docker" => DEFAULT_DOCKER_AGENT_PROMPT,
+        "files" => DEFAULT_FILES_AGENT_PROMPT,
         "server" => {
-            "你是 OmniPanel 的「服务器」Agent，专注主机运维与监控；仅使用服务器相关工具。"
-        }
-        "files" => {
-            "你是 OmniPanel 的「文件」Agent，专注文件浏览与读写；仅使用文件相关工具。"
+            "你是 OmniPanel 的「服务器」Agent，专注主机运维与监控；仅使用服务器相关工具。多步骤用 omni_plan_*；多主机并行用子会话集群（若可用）。"
         }
         "knowledge" => {
-            "你是 OmniPanel 的「知识库」Agent，专注文档与检索；仅使用知识库相关工具。"
+            "你是 OmniPanel 的「知识库」Agent，专注文档与检索；仅使用知识库相关工具。多步骤检索/整理可用 omni_plan_*。"
         }
-        "protocol" => "你是 OmniPanel 的「协议调试」Agent；仅使用协议相关工具。",
-        "workflow" => "你是 OmniPanel 的「工作流」Agent；仅使用工作流相关工具。",
-        "tasks" => "你是 OmniPanel 的「任务」Agent；仅使用任务相关工具。",
-        _ => "你是 OmniPanel 的助手 Agent，请按用户意图协助完成任务。",
+        "protocol" => {
+            "你是 OmniPanel 的「协议调试」Agent；仅使用协议相关工具。多步骤调试流程可用 omni_plan_*。"
+        }
+        "workflow" => {
+            "你是 OmniPanel 的「工作流」Agent；仅使用工作流相关工具。复杂流程可用 omni_plan_* 展示进度。"
+        }
+        "tasks" => {
+            "你是 OmniPanel 的「任务」Agent；仅使用任务相关工具。汇总与分诊可用 omni_plan_*。"
+        }
+        _ => "你是 OmniPanel 的助手 Agent，请按用户意图协助完成任务。多步骤用 omni_plan_create；独立并行子任务用 omni_spawn_sub_conversations。",
     }
 }
 
@@ -203,6 +221,21 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
         "terminal",
         LEGACY_TERMINAL_AGENT_PROMPTS,
         DEFAULT_TERMINAL_AGENT_PROMPT,
+    );
+    let _ = upgrade_legacy_agent_prompt_if_needed(
+        "database",
+        LEGACY_DATABASE_AGENT_PROMPTS,
+        DEFAULT_DATABASE_AGENT_PROMPT,
+    );
+    let _ = upgrade_legacy_agent_prompt_if_needed(
+        "docker",
+        LEGACY_DOCKER_AGENT_PROMPTS,
+        DEFAULT_DOCKER_AGENT_PROMPT,
+    );
+    let _ = upgrade_legacy_agent_prompt_if_needed(
+        "files",
+        LEGACY_FILES_AGENT_PROMPTS,
+        DEFAULT_FILES_AGENT_PROMPT,
     );
     let _ = migrate_plan_todolist_tool_rename();
 

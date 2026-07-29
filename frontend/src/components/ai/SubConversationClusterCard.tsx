@@ -13,6 +13,7 @@ import {
 import { useAiStore } from "../../stores/aiStore";
 import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
 import type { SubConversationChildState } from "../../lib/ai/aiMessageParts";
+import { cancelCluster } from "../../lib/ai/orchestration/clusterCancellation";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/primitives/Button";
@@ -33,8 +34,11 @@ interface SubConversationClusterCardProps {
   clusterId: string;
   /** 嵌入式场景（对话流内）默认展开；顶部面板默认折叠 */
   defaultCollapsed?: boolean;
-  /** 取消整个集群回调（不传则不显示按钮） */
-  onCancelCluster?: () => void;
+  /**
+   * 取消整个集群回调。
+   * 默认调用 `cancelCluster(clusterId)`；传 `null` 可隐藏取消按钮。
+   */
+  onCancelCluster?: (() => void) | null;
 }
 
 /**
@@ -71,7 +75,11 @@ export function SubConversationClusterCard({
   if (!cluster) return null;
 
   const isRunning = cluster.status === "running" || cluster.status === "pending";
-  const showCancelButton = onCancelCluster && isRunning && stats.remaining > 0;
+  const handleCancelCluster =
+    onCancelCluster === null
+      ? null
+      : (onCancelCluster ?? (() => cancelCluster(clusterId)));
+  const showCancelButton = Boolean(handleCancelCluster) && isRunning && stats.remaining > 0;
 
   return (
     <div
@@ -176,8 +184,8 @@ export function SubConversationClusterCard({
             >
               {t("ai.cluster.viewSubConversations")}
             </Button>
-            {showCancelButton && (
-              <Button variant="ghost" size="sm" onClick={() => onCancelCluster?.()}>
+            {showCancelButton && handleCancelCluster && (
+              <Button variant="ghost" size="sm" onClick={() => handleCancelCluster()}>
                 <XCircleIcon className="h-3 w-3 mr-1" />
                 {t("ai.cluster.cancelRemaining", { count: stats.remaining })}
               </Button>

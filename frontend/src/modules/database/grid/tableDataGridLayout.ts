@@ -58,6 +58,29 @@ export function applyColumnWidthDom(wrap: HTMLElement, columnId: string, width: 
 }
 
 /**
+ * 按列宽字典写回表头/col，并把 table 宽度钉成精确总和。
+ * 避免 table-layout:fixed 在 table 宽于列宽之和时把多余宽度摊到各列，造成表头与 Canvas 错位。
+ */
+export function applyAllColumnWidthsDom(
+  wrap: HTMLElement,
+  widthsById: Readonly<Record<string, number>>,
+  columnIds: readonly string[],
+): number {
+  let total = 0;
+  for (const columnId of columnIds) {
+    const width = widthsById[columnId];
+    if (width == null || !(width > 0)) continue;
+    applyColumnWidthDom(wrap, columnId, width);
+    total += width;
+  }
+  const table = wrap.querySelector<HTMLElement>("table.db-data-table");
+  if (table) {
+    table.style.width = `${Math.max(total, 1)}px`;
+  }
+  return total;
+}
+
+/**
  * 读取表头布局几何（offsetLeft/offsetWidth，不受 sticky/滚动视觉影响）。
  * 任一列缺失（列虚拟化未挂载）时返回 null，由调用方回退逻辑宽度。
  */

@@ -11,6 +11,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
+import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "./schema/SchemaBrowser";
 import type { SchemaTreeItem } from "./schema/schemaTreeItem";
 import type { ContextMenuItem } from "../../components/ui/ContextMenu";
@@ -5723,6 +5724,7 @@ export function DatabasePanel() {
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
       tagModuleKey="database"
+      leftHeaderActions={<ModuleAskAiButton moduleKey="database" />}
       leftIconRail={
         <IconDropdownButton
           title={t("database.dataDictionary.title")}

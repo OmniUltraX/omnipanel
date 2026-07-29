@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   enterEngineeringWorkspaceFullscreen,
@@ -8,6 +8,15 @@ import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { MODULE_PATHS } from "../../lib/paths";
 import { useI18n } from "../../i18n";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { AskAiComposer } from "../../components/ai/AskAiComposer";
+import {
+  askAiFromSurface,
+  buildDashboardSuggestionChips,
+} from "../../lib/ai/surfaces";
+import { useLoopStore } from "../../stores/loopStore";
+import { useAiStore } from "../../stores/aiStore";
+import { showToast } from "../../stores/toastStore";
+import { errorToString } from "../../lib/errorToString";
 import { DashboardIcon } from "./DashboardIcon";
 import { useDashboardData } from "./useDashboardData";
 
@@ -47,7 +56,49 @@ export function HomeBoardView() {
     servers,
     containersLoading,
   } = useDashboardData();
+  const findings = useLoopStore((s) => s.findings);
+  const drawerOpen = useAiStore((s) => s.drawerOpen);
   useAppModuleStore((s) => s.modules);
+  const [composerValue, setComposerValue] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const suggestionChips = useMemo(() => {
+    const openFindings = Object.values(findings)
+      .filter((f) => f.status === "open" || f.status === "triaged" || f.status === "blocked")
+      .slice(0, 5)
+      .map((f) => ({
+        id: f.id,
+        title: f.title,
+        summary: f.summary,
+      }));
+    return buildDashboardSuggestionChips({
+      drafts: drafts.map((d) => ({ id: d.id, title: d.title })),
+      tasks: activeTasks.map((task) => ({
+        id: task.id,
+        name: task.name,
+        info: task.info,
+      })),
+      findings: openFindings,
+      starters: [
+        {
+          id: "overview",
+          label: t("ai.surfaces.starterOverview"),
+          prompt: t("ai.surfaces.starterOverviewPrompt"),
+        },
+        {
+          id: "health",
+          label: t("ai.surfaces.starterHealth"),
+          prompt: t("ai.surfaces.starterHealthPrompt"),
+        },
+        {
+          id: "plan",
+          label: t("ai.surfaces.starterPlan"),
+          prompt: t("ai.surfaces.starterPlanPrompt"),
+        },
+      ],
+      limit: 5,
+    });
+  }, [drafts, activeTasks, findings, t]);
 
   const go = useCallback(
     (path: string) => {
@@ -72,6 +123,21 @@ export function HomeBoardView() {
     },
     [go],
   );
+
+  const handleAskSubmit = useCallback(async (prompt: string) => {
+    setSending(true);
+    try {
+      await askAiFromSurface({
+        prompt,
+        surface: "dashboard",
+        newConversation: true,
+      });
+    } catch (e) {
+      showToast(errorToString(e));
+    } finally {
+      setSending(false);
+    }
+  }, []);
 
   const taskBadge = (kind: "running" | "queued" | "blocked") => {
     if (kind === "running") {
@@ -346,6 +412,52 @@ export function HomeBoardView() {
             </section>
           </div>
         </div>
+        <section className="home-board-ai" aria-label={t("ai.surfaces.askAi")}>
+          {drawerOpen ? (
+            <button
+              type="button"
+              className="home-board-ai__handoff"
+              onClick={() => useAiStore.getState().closeDrawer()}
+            >
+              <span className="home-board-ai__handoff-title">
+                {t("ai.surfaces.handedOffTitle")}
+              </span>
+              <span className="home-board-ai__handoff-hint">
+                {t("ai.surfaces.handedOffCollapseHint")}
+              </span>
+            </button>
+          ) : (
+            <>
+              {suggestionChips.length > 0 ? (
+                <div
+                  className="home-board-ai__chips"
+                  role="list"
+                  aria-label={t("ai.surfaces.suggestions")}
+                >
+                  {suggestionChips.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      role="listitem"
+                      className="home-board-ai__chip"
+                      data-kind={chip.kind}
+                      onClick={() => setComposerValue(chip.prompt)}
+                    >
+                      <span className="home-board-ai__chip-label">{chip.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <AskAiComposer
+                value={composerValue}
+                onChange={setComposerValue}
+                disabled={sending}
+                onSubmit={handleAskSubmit}
+                placeholder={t("ai.surfaces.homePlaceholder")}
+              />
+            </>
+          )}
+        </section>
       </div>
     </div>
   );

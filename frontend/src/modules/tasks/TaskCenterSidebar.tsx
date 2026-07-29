@@ -25,6 +25,7 @@ import {
   cancelAllRunningBackgroundTasks,
   getRunningBackgroundTasks,
 } from "../../stores/backgroundTaskStore";
+import { cancelAllRunningClusters } from "../../lib/ai/orchestration/clusterCancellation";
 import { useLoopStore } from "../../stores/loopStore";
 import { showToast } from "../../stores/toastStore";
 import { useUserTodoStore } from "../../stores/userTodoStore";
@@ -243,9 +244,10 @@ export function TaskCenterSidebar({
           orchCancelled += 1;
         }
       }
+      const clusterCancelled = cancelAllRunningClusters();
       showToast(
         t("taskCenter.activity.cancelAllDone", {
-          count: Math.max(bgBefore + orchCancelled, count),
+          count: Math.max(bgBefore + orchCancelled + clusterCancelled, count),
         }),
       );
     } catch (e) {

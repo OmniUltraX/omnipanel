@@ -105,16 +105,8 @@ fn parse_response_value(text: &str) -> Result<Value, OmniError> {
         ))
     })?;
 
-    if let Value::Object(obj) = &value
-        && obj.get("status").and_then(|v| v.as_bool()) == Some(false)
-    {
-        let message = obj
-            .get("msg")
-            .and_then(|v| v.as_str())
-            .unwrap_or("宝塔 API 错误");
-        return Err(OmniError::new(ErrorCode::Connection, message));
-    }
-
+    // 注意：部分接口（如 GetSSL）用 status:false 表示业务状态而非请求失败，
+    // 由前端按接口语义判断；此处仅做 JSON 解析。
     Ok(value)
 }
 

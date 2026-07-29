@@ -240,7 +240,7 @@
     .host-item .host-name {
         flex: 1 1 auto;
         min-width: 0;
-        font-size: 12px;
+        font-size: var(--font-size-sm, 13px);
         font-weight: 500;
         color: var(--fg);
         overflow: hidden;
@@ -264,8 +264,8 @@
     }
 
     .host-item .host-row-2 {
-        font-size: 11px;
-        color: var(--meta);
+        font-size: var(--font-size-xs, 12px);
+        color: var(--muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;

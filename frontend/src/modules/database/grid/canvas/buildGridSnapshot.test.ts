@@ -154,4 +154,107 @@ describe("buildGridSnapshot", () => {
     });
     expect(broken.getCellModel(0, 1)?.kind).toBe("null");
   });
+
+  it("dragColumnWidth overrides stale measured header geometry", () => {
+    const { snapshot } = buildGridSnapshotBundle({
+      leafColumns: [
+        { id: "__row_num__", getSize: () => 40 },
+        { id: "content", getSize: () => 200 },
+        { id: "product", getSize: () => 160 },
+      ],
+      tableRows: [{ index: 0, original: { content: "a", product: "b" } }],
+      resolveColumnWidth: (_id, size) => size,
+      rowHeights: {},
+      defaultRowHeight: 32,
+      dragColumnWidth: { columnId: "content", width: 320 },
+      measuredColumnGeometry: [
+        { x: 0, width: 40 },
+        { x: 40, width: 200 },
+        { x: 240, width: 160 },
+      ],
+      measuredTotalWidth: 400,
+      transposed: false,
+      columnMetaMap: null,
+      pkCols: [],
+      displayCellOverrides: null,
+      displayDirtyRowKeys: null,
+      deletedRowKeys: null,
+      cellRange: null,
+      dragRange: null,
+      selectedRows: new Set(),
+      hoverRow: null,
+      hoverCol: null,
+      page: 0,
+      pageSize: 100,
+      hasCellEdit: false,
+      enableValuePanelAffordance: false,
+      relationHighlightColumnIds: new Set(),
+      enableSort: false,
+      sortColumn: null,
+      sortDirection: null,
+      canFilter: false,
+      filterColumnNames: new Set(),
+      autoIncrementPlaceholder: "(auto)",
+      nullLabel: "NULL",
+      emptyLabel: "EMPTY",
+    });
+
+    expect(snapshot.columns[1]?.width).toBe(320);
+    expect(snapshot.columns[2]?.x).toBe(40 + 320);
+    expect(snapshot.totalWidth).toBe(40 + 320 + 160);
+  });
+
+  it("dragColumnWidths freezes all columns and ignores measured geometry", () => {
+    const { snapshot } = buildGridSnapshotBundle({
+      leafColumns: [
+        { id: "__row_num__", getSize: () => 40 },
+        { id: "content", getSize: () => 200 },
+        { id: "product", getSize: () => 160 },
+      ],
+      tableRows: [{ index: 0, original: { content: "a", product: "b" } }],
+      resolveColumnWidth: (_id, size) => size,
+      rowHeights: {},
+      defaultRowHeight: 32,
+      dragColumnWidths: {
+        __row_num__: 40,
+        content: 320,
+        product: 160,
+      },
+      measuredColumnGeometry: [
+        { x: 0, width: 40 },
+        { x: 40, width: 500 },
+        { x: 540, width: 200 },
+      ],
+      measuredTotalWidth: 740,
+      transposed: false,
+      columnMetaMap: null,
+      pkCols: [],
+      displayCellOverrides: null,
+      displayDirtyRowKeys: null,
+      deletedRowKeys: null,
+      cellRange: null,
+      dragRange: null,
+      selectedRows: new Set(),
+      hoverRow: null,
+      hoverCol: null,
+      page: 0,
+      pageSize: 100,
+      hasCellEdit: false,
+      enableValuePanelAffordance: false,
+      relationHighlightColumnIds: new Set(),
+      enableSort: false,
+      sortColumn: null,
+      sortDirection: null,
+      canFilter: false,
+      filterColumnNames: new Set(),
+      autoIncrementPlaceholder: "(auto)",
+      nullLabel: "NULL",
+      emptyLabel: "EMPTY",
+    });
+
+    expect(snapshot.columns[1]?.width).toBe(320);
+    expect(snapshot.columns[2]?.width).toBe(160);
+    expect(snapshot.columns[2]?.x).toBe(360);
+    expect(snapshot.totalWidth).toBe(520);
+  });
 });

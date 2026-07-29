@@ -6,7 +6,9 @@ import { Button } from "../../../components/ui/primitives/Button";
 import { SubWindow } from "../../../components/ui/window/SubWindow";
 import { TextEditorSubWindow } from "../../../components/textEditor/TextEditorSubWindow";
 import type { TextEditorIO } from "../../../components/textEditor/types";
+import { createBtPanelClient } from "../../../lib/btpanel";
 import { createOnePanelClient } from "../../../lib/onepanel";
+import { makeBtPanelSftpAdapter } from "./btPanelSftpAdapter";
 import { makeOnePanelSftpAdapter } from "./onePanelSftpAdapter";
 import type { ServerEntry } from "./serverConnection";
 import { certificateRowLabel } from "./serverResourceLabels";
@@ -59,12 +61,14 @@ export function WebsiteInfoSubWindow({
   open,
   server,
   websiteId,
+  siteName = null,
   title,
   onClose,
 }: {
   open: boolean;
   server: ServerEntry;
   websiteId: number | null;
+  siteName?: string | null;
   title: string;
   onClose: () => void;
 }) {
@@ -74,7 +78,12 @@ export function WebsiteInfoSubWindow({
   const [data, setData] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
-    if (!open || websiteId == null || server.serviceType !== "1panel") {
+    if (!open || websiteId == null) {
+      setData(null);
+      setError(null);
+      return;
+    }
+    if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
       setData(null);
       setError(null);
       return;
@@ -84,6 +93,26 @@ export function WebsiteInfoSubWindow({
     setError(null);
     void (async () => {
       try {
+        if (server.serviceType === "bt") {
+          if (!siteName) throw new Error(t("server.websites.missingSiteName"));
+          const client = createBtPanelClient(server.address, server.key);
+          const [sites, domains, phpInfo, ssl] = await Promise.all([
+            client.getWebsiteList({ limit: 200 }),
+            client.getSiteDomains(websiteId).catch(() => null),
+            client.getSitePhpVersion(siteName).catch(() => ({})),
+            client.getSiteSsl(siteName).catch(() => ({})),
+          ]);
+          const site = sites.data.find((row) => row.id === websiteId) ?? null;
+          const detail: Record<string, unknown> = {
+            primaryDomain: siteName,
+            ...(site ?? {}),
+            domains,
+            php: phpInfo,
+            ssl,
+          };
+          if (!cancelled) setData(detail);
+          return;
+        }
         const client = createOnePanelClient(server.address, server.key);
         const detail = await client.getWebsite(websiteId);
         if (!cancelled) setData(detail);
@@ -99,19 +128,25 @@ export function WebsiteInfoSubWindow({
     return () => {
       cancelled = true;
     };
-  }, [open, server, websiteId]);
+  }, [open, server, websiteId, siteName, t]);
 
   const rows = useMemo(() => {
     if (!data) return [];
     const preferred = [
       ["primaryDomain", t("server.websites.fields.domain")],
+      ["name", t("server.websites.fields.domain")],
       ["alias", t("server.websites.fields.alias")],
       ["type", t("server.websites.fields.type")],
       ["protocol", t("server.websites.fields.protocol")],
       ["status", t("server.websites.columns.status")],
       ["sitePath", t("server.websites.columns.path")],
+      ["path", t("server.websites.columns.path")],
+      ["ps", t("server.create.remark")],
       ["remark", t("server.create.remark")],
+      ["addtime", t("server.websites.fields.createdAt")],
       ["createdAt", t("server.websites.fields.createdAt")],
+      ["php", t("server.create.website.phpVersion")],
+      ["domains", t("server.websites.fields.domains")],
     ] as const;
     const used = new Set<string>();
     const out: Array<{ label: string; value: string }> = [];
@@ -155,11 +190,13 @@ export function WebsiteDirSubWindow({
   title: string;
   onClose: () => void;
 }) {
-  const adapter = useMemo(
-    () => (open && server.serviceType === "1panel" ? makeOnePanelSftpAdapter(server) : null),
-    [open, server],
-  );
-  const cacheKey = `onepanel-website-dir:${server.id}:${path}`;
+  const adapter = useMemo(() => {
+    if (!open) return null;
+    if (server.serviceType === "1panel") return makeOnePanelSftpAdapter(server);
+    if (server.serviceType === "bt") return makeBtPanelSftpAdapter(server);
+    return null;
+  }, [open, server]);
+  const cacheKey = `panel-website-dir:${server.serviceType}:${server.id}:${path}`;
 
   return (
     <SubWindow
@@ -186,12 +223,14 @@ export function WebsiteLogsSubWindow({
   open,
   server,
   websiteId,
+  siteName = null,
   title,
   onClose,
 }: {
   open: boolean;
   server: ServerEntry;
   websiteId: number | null;
+  siteName?: string | null;
   title: string;
   onClose: () => void;
 }) {
@@ -202,6 +241,25 @@ export function WebsiteLogsSubWindow({
   const [text, setText] = useState("");
 
   const refresh = async (name = logName) => {
+    if (server.serviceType === "bt") {
+      if (!siteName) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const client = createBtPanelClient(server.address, server.key);
+        const content =
+          name === "error.log"
+            ? await client.getSiteErrorLogs(siteName)
+            : await client.getSiteAccessLogs(siteName);
+        setText(content);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        setText("");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (websiteId == null || server.serviceType !== "1panel") return;
     setLoading(true);
     setError(null);
@@ -225,7 +283,7 @@ export function WebsiteLogsSubWindow({
     }
     void refresh(logName);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随窗口打开 / 日志类型刷新
-  }, [open, websiteId, server, logName]);
+  }, [open, websiteId, siteName, server, logName]);
 
   return (
     <SubWindow
@@ -343,12 +401,14 @@ export function WebsiteConfigSubWindow({
   open,
   server,
   websiteId,
+  siteName = null,
   title,
   onClose,
 }: {
   open: boolean;
   server: ServerEntry;
   websiteId: number | null;
+  siteName?: string | null;
   title: string;
   onClose: () => void;
 }) {
@@ -356,7 +416,22 @@ export function WebsiteConfigSubWindow({
   const [subtitle, setSubtitle] = useState("");
 
   const io = useMemo<TextEditorIO | null>(() => {
-    if (!open || websiteId == null || server.serviceType !== "1panel") return null;
+    if (!open) return null;
+    if (server.serviceType === "bt") {
+      if (!siteName) return null;
+      const client = createBtPanelClient(server.address, server.key);
+      return {
+        async readText() {
+          const file = await client.getNginxConfig(siteName);
+          setSubtitle(file.path);
+          return file.content;
+        },
+        async writeText(text: string) {
+          await client.saveNginxConfig(siteName, text);
+        },
+      };
+    }
+    if (websiteId == null || server.serviceType !== "1panel") return null;
     const client = createOnePanelClient(server.address, server.key);
     return {
       async readText() {
@@ -368,7 +443,7 @@ export function WebsiteConfigSubWindow({
         await client.updateWebsiteNginx(websiteId, text);
       },
     };
-  }, [open, server, websiteId]);
+  }, [open, server, websiteId, siteName]);
 
   return (
     <TextEditorSubWindow
@@ -388,6 +463,7 @@ export function WebsiteCertSubWindow({
   open,
   server,
   websiteId,
+  siteName = null,
   sslId,
   title,
   onClose,
@@ -395,6 +471,7 @@ export function WebsiteCertSubWindow({
   open: boolean;
   server: ServerEntry;
   websiteId: number | null;
+  siteName?: string | null;
   sslId: number | null;
   title: string;
   onClose: () => void;
@@ -405,7 +482,12 @@ export function WebsiteCertSubWindow({
   const [data, setData] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
-    if (!open || server.serviceType !== "1panel") {
+    if (!open) {
+      setData(null);
+      setError(null);
+      return;
+    }
+    if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
       setData(null);
       setError(null);
       return;
@@ -415,6 +497,20 @@ export function WebsiteCertSubWindow({
     setError(null);
     void (async () => {
       try {
+        if (server.serviceType === "bt") {
+          if (!siteName) throw new Error(t("server.websites.missingSiteName"));
+          const client = createBtPanelClient(server.address, server.key);
+          const detail = (await client.getSiteSsl(siteName)) as Record<string, unknown>;
+          if (!cancelled) {
+            if (!detail || Object.keys(detail).length === 0) {
+              setError(t("server.websites.certEmpty"));
+              setData(null);
+            } else {
+              setData(detail);
+            }
+          }
+          return;
+        }
         const client = createOnePanelClient(server.address, server.key);
         let detail: Record<string, unknown> = {};
         if (websiteId != null) {
@@ -447,17 +543,19 @@ export function WebsiteCertSubWindow({
     return () => {
       cancelled = true;
     };
-  }, [open, server, websiteId, sslId, t]);
+  }, [open, server, websiteId, siteName, sslId, t]);
 
   const rows = useMemo(() => {
     if (!data) return [];
     const preferred = [
       ["primaryDomain", t("server.websites.fields.domain")],
+      ["domain", t("server.websites.fields.domains")],
       ["domains", t("server.websites.fields.domains")],
       ["provider", t("server.websites.fields.provider")],
       ["autoRenew", t("server.websites.fields.autoRenew")],
       ["expireDate", t("server.websites.fields.expireDate")],
       ["startDate", t("server.websites.fields.startDate")],
+      ["cert_data", t("server.websites.fields.description")],
       ["status", t("server.websites.columns.status")],
       ["description", t("server.websites.fields.description")],
     ] as const;
@@ -468,9 +566,10 @@ export function WebsiteCertSubWindow({
       used.add(key);
       out.push({ label, value: formatValue(data[key]) });
     }
-    const domain = certificateRowLabel(data);
-    if (domain && domain !== "—" && !used.has("primaryDomain") && !used.has("domains")) {
-      out.unshift({ label: t("server.websites.fields.domain"), value: domain });
+    for (const [key, value] of Object.entries(data)) {
+      if (used.has(key)) continue;
+      if (key === "key" || key === "csr" || key === "private_key" || key === "cert") continue;
+      out.push({ label: key, value: formatValue(value) });
     }
     return out;
   }, [data, t]);
@@ -485,6 +584,11 @@ export function WebsiteCertSubWindow({
       className="server-website-subwindow"
     >
       <KvPanel rows={rows} loading={loading} error={error} />
+      {data && typeof data.primaryDomain === "string" ? (
+        <div className="form-hint" style={{ padding: "0 12px 12px" }}>
+          {certificateRowLabel(data)}
+        </div>
+      ) : null}
     </SubWindow>
   );
 }

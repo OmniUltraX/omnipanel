@@ -7,6 +7,9 @@ import { commands, type AiSessionRecord, type AiTraceRecord } from "../../ipc/bi
 import { formatIpcError } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { runLoopOnce } from "../../lib/ai/loopRunner";
+import { buildExperienceDigest } from "../../lib/ai/harness";
+import { submitAiPrompt } from "../../lib/ai/submitAiPrompt";
+import { useAiStore } from "../../stores/aiStore";
 import { useLoopStore } from "../../stores/loopStore";
 import { showToast } from "../../stores/toastStore";
 
@@ -308,6 +311,30 @@ export function TurnTimelinePanel() {
     if (selectedId) void loadTraces(selectedId);
   }, [selectedId, loadTraces]);
 
+  const digest = useMemo(() => {
+    if (!selectedId) return null;
+    return buildExperienceDigest({
+      conversationId: selectedId,
+      traces: traces.map((tr) => ({
+        event_type: tr.eventType,
+        payload: tr.payload,
+      })),
+    });
+  }, [selectedId, traces]);
+
+  const handleExtractFromDigest = async () => {
+    if (!digest) return;
+    useAiStore.getState().openDrawer();
+    const base = t("skillPrompt.extractPromptText");
+    const promptText = `${base}\n\n${digest.extractText}`;
+    try {
+      await submitAiPrompt(promptText, { newConversation: true });
+      showToast(t("taskCenter.history.digestExtractQueued"));
+    } catch (e) {
+      showToast(String(e));
+    }
+  };
+
   if (loading) {
     return (
       <div className="task-center-loading">
@@ -353,7 +380,21 @@ export function TurnTimelinePanel() {
         <Button variant="ghost" size="sm" onClick={() => void loadSessions()}>
           {t("taskCenter.history.refresh")}
         </Button>
+        {digest ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void handleExtractFromDigest()}
+          >
+            {t("taskCenter.history.extractSkillFromDigest")}
+          </Button>
+        ) : null}
       </div>
+      {digest ? (
+        <pre className="task-center-harness-digest" tabIndex={0}>
+          {digest.extractText}
+        </pre>
+      ) : null}
       <div className="task-center-table">
         <div className="task-center-table__head">
           <div className="task-center-table__cell task-center-table__cell--ts">

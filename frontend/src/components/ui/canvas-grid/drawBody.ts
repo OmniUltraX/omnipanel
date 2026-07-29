@@ -57,8 +57,8 @@ function resolveCellFg(theme: GridThemeTokens, model: GridCellDrawModel): string
     return theme.dirtyUpdateFg;
   }
   if (model.kind === "placeholder") return theme.placeholderFg;
-  if (model.mono || model.rowSelected || model.selected) return theme.fg;
-  return theme.fg2;
+  // 表数据正文用最亮前景色，避免 fg2 发灰
+  return theme.fg;
 }
 
 function truncateToWidth(

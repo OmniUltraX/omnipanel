@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import type { DockHeaderIconKind } from "../../components/dock/DockHeaderIcon";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
+import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
@@ -351,6 +352,7 @@ export function ServerPanel() {
           leftColumnTitle={t("routes.server")}
           leftPreset="server"
           tagModuleKey="server"
+          leftHeaderActions={<ModuleAskAiButton moduleKey="server" />}
           leftSidebar={
             <ServerPanelSidebar
               servers={visiblePanelServers}

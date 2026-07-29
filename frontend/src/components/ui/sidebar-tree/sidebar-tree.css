@@ -10,12 +10,13 @@
     display: flex;
     align-items: center;
     gap: var(--sp-1);
-    min-height: 22px;
+    min-height: 24px;
     margin-right: var(--sp-1);
     padding: 3px 0;
     border-radius: var(--r-sm);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--font-size-sm, 13px);
+    color: var(--fg);
 }
 
 .sidebar-tree-node:hover,
@@ -41,7 +42,7 @@
 }
 
 .sidebar-tree-node--muted {
-    color: var(--meta);
+    color: var(--muted);
 }
 
 /* "已在 Tab 中打开" 标记：非 active 节点在 label 后显示小圆点。
@@ -208,6 +209,6 @@
 .sidebar-tree-empty {
     padding: 4px 0 4px 34px;
     margin-right: var(--sp-1);
-    font-size: 11px;
-    color: var(--meta);
+    font-size: var(--font-size-xs, 12px);
+    color: var(--muted);
 }

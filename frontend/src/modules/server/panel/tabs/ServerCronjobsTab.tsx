@@ -59,6 +59,8 @@ export function ServerCronjobsTab({ server }: Props) {
   const [editId, setEditId] = useState<number | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const isOnePanel = server.serviceType === "1panel";
+  const isBt = server.serviceType === "bt";
+  const canManage = isOnePanel || isBt;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,7 +123,7 @@ export function ServerCronjobsTab({ server }: Props) {
 
   const handleDelete = useCallback(
     async (row: CronGridRow) => {
-      if (!isOnePanel || row.jobId == null || actionBusyId != null) return;
+      if (!canManage || row.jobId == null || actionBusyId != null) return;
       const confirmed = await appConfirm(
         t("server.cronjobs.deleteConfirm", { name: row.name }),
       );
@@ -129,8 +131,13 @@ export function ServerCronjobsTab({ server }: Props) {
       setActionBusyId(row.jobId);
       setError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key);
-        await client.deleteCronjobs([row.jobId]);
+        if (isBt) {
+          const client = createBtPanelClient(server.address, server.key);
+          await client.deleteCrontab(row.jobId);
+        } else {
+          const client = createOnePanelClient(server.address, server.key);
+          await client.deleteCronjobs([row.jobId]);
+        }
         showToast(t("server.cronjobs.deleteSuccess"));
         await load();
       } catch (err) {
@@ -139,7 +146,7 @@ export function ServerCronjobsTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, isOnePanel, load, server.address, server.key, t],
+    [actionBusyId, canManage, isBt, load, server.address, server.key, t],
   );
 
   const columns = useMemo((): DbTablesPanelGridColumn<CronGridRow>[] => {
@@ -200,7 +207,7 @@ export function ServerCronjobsTab({ server }: Props) {
         defaultWidth: 72,
         minWidth: 72,
         render: (row) => {
-          const canAct = isOnePanel && row.jobId != null;
+          const canAct = canManage && row.jobId != null;
           const busy = actionBusyId === row.jobId;
           return (
             <div
@@ -213,8 +220,8 @@ export function ServerCronjobsTab({ server }: Props) {
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
                 disabled={!canAct || busy}
-                title={canAct ? t("server.cronjobs.edit") : t("server.create.onePanelOnly")}
-                aria-label={canAct ? t("server.cronjobs.edit") : t("server.create.onePanelOnly")}
+                title={canAct ? t("server.cronjobs.edit") : t("server.create.panelOnly")}
+                aria-label={canAct ? t("server.cronjobs.edit") : t("server.create.panelOnly")}
                 onClick={() => handleEdit(row)}
               >
                 <IconPencil size={14} />
@@ -224,8 +231,8 @@ export function ServerCronjobsTab({ server }: Props) {
                 variant="danger"
                 size="icon-xs"
                 disabled={!canAct || busy || actionBusyId != null}
-                title={canAct ? t("server.cronjobs.delete") : t("server.create.onePanelOnly")}
-                aria-label={canAct ? t("server.cronjobs.delete") : t("server.create.onePanelOnly")}
+                title={canAct ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
+                aria-label={canAct ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
                 onClick={() => void handleDelete(row)}
               >
                 <IconTrash size={14} />
@@ -235,7 +242,7 @@ export function ServerCronjobsTab({ server }: Props) {
         },
       },
     ];
-  }, [actionBusyId, handleDelete, handleEdit, isOnePanel, t]);
+  }, [actionBusyId, canManage, handleDelete, handleEdit, t]);
 
   const renderTable = () => {
     if (loading && gridRows.length === 0) {
@@ -286,9 +293,9 @@ export function ServerCronjobsTab({ server }: Props) {
             type="button"
             variant="icon"
             size="icon-xs"
-            disabled={!isOnePanel || loading}
-            title={isOnePanel ? t("server.cronjobs.create") : t("server.create.onePanelOnly")}
-            aria-label={isOnePanel ? t("server.cronjobs.create") : t("server.create.onePanelOnly")}
+            disabled={!canManage || loading}
+            title={canManage ? t("server.cronjobs.create") : t("server.create.panelOnly")}
+            aria-label={canManage ? t("server.cronjobs.create") : t("server.create.panelOnly")}
             onClick={() => setCreateOpen(true)}
           >
             <IconPlus size={14} />

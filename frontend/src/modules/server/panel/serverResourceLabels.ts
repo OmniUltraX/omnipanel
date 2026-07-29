@@ -5,13 +5,28 @@ export function websiteRowId(row: Record<string, unknown>, index: number): strin
   return String(row.id ?? row.webname ?? row.domain ?? index);
 }
 
+/** 宝塔 sites.domain 常为数字（域名数量），不可当域名展示。 */
+function isLikelyDomainText(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (!text || text === "—") return false;
+  if (/^\d+$/.test(text)) return false;
+  return true;
+}
+
 export function websiteRowLabel(row: Record<string, unknown>): string {
-  return String(row.primaryDomain ?? row.domain ?? row.name ?? row.webname ?? row.id ?? "—");
+  // 宝塔主域名字段是 name；1Panel 是 primaryDomain。勿优先取数字型 domain。
+  if (isLikelyDomainText(row.primaryDomain)) return String(row.primaryDomain).trim();
+  if (isLikelyDomainText(row.name)) return String(row.name).trim();
+  if (isLikelyDomainText(row.webname)) return String(row.webname).trim();
+  if (isLikelyDomainText(row.domain)) return String(row.domain).trim();
+  if (isLikelyDomainText(row.rname)) return String(row.rname).trim();
+  return String(row.id ?? "—");
 }
 
 /** 构造可在默认浏览器打开的网站 URL；无有效域名时返回 null（不用 id 兜底） */
 export function websiteRowUrl(row: Record<string, unknown>): string | null {
-  const raw = String(row.primaryDomain ?? row.domain ?? row.name ?? row.webname ?? "").trim();
+  const raw = websiteRowLabel(row);
   if (!raw || raw === "—") return null;
   if (/^https?:\/\//i.test(raw)) return raw;
 
@@ -28,7 +43,16 @@ export function websiteRowUrl(row: Record<string, unknown>): string | null {
 }
 
 export function websiteRowPath(row: Record<string, unknown>): string {
-  return String(row.sitePath ?? row.path ?? row.ps ?? "").trim();
+  // 宝塔 path 是站点目录；ps 是备注，不能当路径兜底
+  const sitePath = row.sitePath ?? row.path;
+  if (typeof sitePath === "string" && sitePath.trim()) return sitePath.trim();
+  return "";
+}
+
+/** 宝塔多数写接口用域名（siteName / webname），不用数字 domain。 */
+export function websiteSiteName(row: Record<string, unknown>): string | null {
+  const label = websiteRowLabel(row);
+  return label && label !== "—" ? label : null;
 }
 
 /** 网站类型原始值（1Panel: static / runtime / deployment / proxy / stream / subsite） */
@@ -459,7 +483,10 @@ function websiteDomains(row: Record<string, unknown>): string[] {
   };
 
   push(row.primaryDomain);
-  push(row.domain);
+  // 宝塔 domain 字段常为域名数量（数字），勿当域名
+  if (typeof row.domain === "string" && !/^\d+$/.test(row.domain.trim())) {
+    push(row.domain);
+  }
   push(row.name);
   push(row.webname);
   push(row.alias);

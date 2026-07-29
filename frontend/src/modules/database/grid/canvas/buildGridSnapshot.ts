@@ -27,8 +27,10 @@ export type BuildGridSnapshotInput = {
   resolveColumnWidth: (columnId: string, baseSize: number) => number;
   rowHeights: Record<number, number>;
   defaultRowHeight: number;
-  /** 列宽拖拽进行中时覆盖 */
+  /** 列宽拖拽进行中时覆盖（单列） */
   dragColumnWidth?: { columnId: string; width: number } | null;
+  /** 列宽拖拽进行中时覆盖（全列冻结快照，优先于单列与测量） */
+  dragColumnWidths?: Record<string, number> | null;
   /** 行高拖拽进行中时覆盖 */
   dragRowHeight?: { rowIndex: number; height: number } | null;
   /** 表头实测列宽（与 DOM 布局对齐；优先于逻辑宽度） */
@@ -77,34 +79,44 @@ export function buildGridSnapshotBundle(input: BuildGridSnapshotInput): GridSnap
     !useGeometry && Array.isArray(measured) && measured.length === input.leafColumns.length;
 
   const widths = input.leafColumns.map((col, index) => {
+    // 拖拽冻结快照：全列宽度与表头 DOM 一致，避免 fixed 布局摊宽导致错位
+    if (input.dragColumnWidths && input.dragColumnWidths[col.id] != null) {
+      return input.dragColumnWidths[col.id]!;
+    }
+    // 单列临时宽度必须优先于表头测量缓存
+    if (input.dragColumnWidth && input.dragColumnWidth.columnId === col.id) {
+      return input.dragColumnWidth.width;
+    }
     if (useGeometry) {
       return measuredGeometry[index]!.width;
     }
     if (useMeasured) {
       return measured[index]!;
     }
-    if (input.dragColumnWidth && input.dragColumnWidth.columnId === col.id) {
-      return input.dragColumnWidth.width;
-    }
     return input.resolveColumnWidth(col.id, col.getSize());
   });
   const { columns: offsetCols, totalWidth: offsetsTotal } = buildColumnOffsets(widths);
+  // 拖拽会改变后续列的 x，不能继续用旧的 measuredTotalWidth / geometry.x
+  const dragging = Boolean(
+    input.dragColumnWidths || input.dragColumnWidth?.columnId,
+  );
   const totalWidth =
-    input.measuredTotalWidth != null && input.measuredTotalWidth > 0
+    !dragging && input.measuredTotalWidth != null && input.measuredTotalWidth > 0
       ? input.measuredTotalWidth
       : offsetsTotal;
 
   const columns: GridColumnDrawInfo[] = input.leafColumns.map((col, index) => {
     const offset = offsetCols[index]!;
-    const geometry = useGeometry ? measuredGeometry[index]! : null;
+    const geometry = !dragging && useGeometry ? measuredGeometry[index]! : null;
     const pinned = isPinnedGridColumn(col.id, input.transposed);
     const isRowNum = col.id === ROW_NUM_COL_ID;
     const isFieldCol = input.transposed && col.id === TRANSPOSE_FIELD_COL;
     return {
       id: col.id,
       // 固定列始终用逻辑偏移，避免 sticky 表头测量污染命中检测
-      x: pinned || isRowNum || isFieldCol ? offset.x : (geometry?.x ?? offset.x),
-      width: geometry?.width ?? offset.width,
+      // 拖拽中也用逻辑偏移：全列宽已冻结，与表头 applyAll 一致
+      x: pinned || isRowNum || isFieldCol || dragging ? offset.x : (geometry?.x ?? offset.x),
+      width: offset.width,
       pinned,
       isRowNum,
       isFieldCol,

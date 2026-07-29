@@ -14,6 +14,7 @@ import {
 import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
+import { BtCreateCertificateDialog } from "./BtCreateCertificateDialog";
 
 type CreateMode = "apply" | "upload";
 
@@ -75,6 +76,35 @@ function normalizeProvider(value: unknown): string {
 }
 
 export function CreateCertificateDialog({
+  open,
+  server,
+  editId = null,
+  onClose,
+  onCreated,
+}: CreateCertificateDialogProps) {
+  if (server.serviceType === "bt") {
+    // 宝塔本轮仅支持上传部署；编辑走同一上传窗
+    return (
+      <BtCreateCertificateDialog
+        open={open}
+        server={server}
+        onClose={onClose}
+        onCreated={onCreated}
+      />
+    );
+  }
+  return (
+    <OnePanelCreateCertificateDialog
+      open={open}
+      server={server}
+      editId={editId}
+      onClose={onClose}
+      onCreated={onCreated}
+    />
+  );
+}
+
+function OnePanelCreateCertificateDialog({
   open,
   server,
   editId = null,

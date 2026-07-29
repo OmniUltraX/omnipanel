@@ -15,8 +15,10 @@ export interface DatabaseModuleContextBridgeProps {
 }
 
 /**
- * 将 DatabasePanel 的实时状态同步到 {@link DatabaseModuleContextProvider}，
- * 供 AI 助手读取模块上下文。
+ * 将 DatabasePanel 的实时状态同步到 {@link DatabaseModuleContextProvider}。
+ *
+ * ContextBridge 契约：active+非空 → 注册上下文；否则传 null 清理。
+ * 子会话不由本桥自动推送，继承由 subConversationRunner 处理。
  */
 export function DatabaseModuleContextBridge({
   active,

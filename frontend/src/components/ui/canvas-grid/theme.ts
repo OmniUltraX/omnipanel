@@ -224,9 +224,9 @@ function baseTheme(style: CSSStyleDeclaration, fontFamily: string): Omit<
     bg: readColor(style, "--bg", "#0f1115"),
     surface: readColor(style, "--surface", "#161a22"),
     surfaceHover: readColor(style, "--surface-hover", "#1c2230"),
-    fg: readColor(style, "--fg", "#e8eaed"),
-    fg2: readColor(style, "--fg-2", "#a8b0bd"),
-    meta: readColor(style, "--meta", "#7a8494"),
+    fg: readColor(style, "--fg", "#ffffff"),
+    fg2: readColor(style, "--fg-2", "#ffffff"),
+    meta: readColor(style, "--meta", "#ebebeb"),
     border: readColor(style, "--border", "#2a3140"),
     accent: readColor(style, "--accent", "#4c8bf5"),
     warn: readColor(style, "--warn", "#d4a017"),
@@ -241,8 +241,8 @@ function baseTheme(style: CSSStyleDeclaration, fontFamily: string): Omit<
     dirtyDeleteFg: readColor(style, "--danger", "#d14b4b"),
     valueBtnBg: readColor(style, "--surface", "#161a22"),
     valueBtnBorder: readColor(style, "--border", "#2a3140"),
-    valueBtnFg: readColor(style, "--fg-2", "#a8b0bd"),
-    placeholderFg: readColor(style, "--fg-2", "#a8b0bd"),
+    valueBtnFg: readColor(style, "--fg", "#ffffff"),
+    placeholderFg: readColor(style, "--muted", "#f0f0f0"),
   };
 }
 
@@ -259,8 +259,12 @@ export function readCanvasGridTheme(
 
   const root = host ?? document.documentElement;
   const style = getComputedStyle(root);
-  const mono = readColor(style, "--font-mono", "ui-monospace, monospace");
-  const fontFamily = `"Maple Mono NF CN Light", ${mono}`;
+  const dataGridFont = readColor(
+    style,
+    "--font-data-grid",
+    '"Geist Variable", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
+  );
+  const fontFamily = dataGridFont;
   const probeHost = host ?? document.body;
   const base = baseTheme(style, fontFamily);
   const accentSoft = readColor(style, "--accent-soft", "rgba(76, 139, 245, 0.18)");

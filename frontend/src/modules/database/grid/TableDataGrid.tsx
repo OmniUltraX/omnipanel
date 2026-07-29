@@ -140,7 +140,7 @@ import {
 } from "./tableDataGridColumnVirtualization";
 import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
 import {
-  applyColumnWidthDom,
+  applyAllColumnWidthsDom,
   buildColumnCellStyle,
   resetStuckPointerHover,
   scrollColumnToCenter,
@@ -461,6 +461,8 @@ export const TableDataGrid = memo(function TableDataGrid({
     startX: number;
     startWidth: number;
     lastWidth: number;
+    /** 拖拽开始时冻结的全列宽（含 fillDelta），拖动中只改其中一列 */
+    widthsById: Record<string, number>;
   } | null>(null);
   const dragRef = useRef<{
     rowIndex: number;
@@ -472,7 +474,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   const virtualBodyRef = useRef<TableDataGridVirtualBodyHandle | null>(null);
   const canvasBodyRef = useRef<TableDataGridCanvasBodyHandle | null>(null);
   const dragRowHeightRef = useRef<{ rowIndex: number; height: number } | null>(null);
-  const dragColumnWidthRef = useRef<{ columnId: string; width: number } | null>(null);
+  /** 列宽拖拽中的全列宽度快照（Canvas / 表头共用） */
+  const dragColumnWidthsRef = useRef<Record<string, number> | null>(null);
   const [gridRenderMode, setGridRenderMode] = useState<GridRenderMode>(() =>
     readStoredGridRenderMode(),
   );
@@ -642,6 +645,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     cellDragRef.current = null;
     dragRef.current = null;
     colResizeRef.current = null;
+    dragColumnWidthsRef.current = null;
     wrapRef.current?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
   }, [effectiveColumns, transposed]);
 
@@ -1607,23 +1611,12 @@ export const TableDataGrid = memo(function TableDataGrid({
         const newWidth = Math.max(COLUMN_MIN_WIDTH, col.startWidth + diff);
         if (newWidth === col.lastWidth) return;
         col.lastWidth = newWidth;
-        dragColumnWidthRef.current = { columnId: col.columnId, width: newWidth };
-        applyColumnWidthDom(wrap, col.columnId, newWidth);
+        const nextWidths = { ...col.widthsById, [col.columnId]: newWidth };
+        col.widthsById = nextWidths;
+        dragColumnWidthsRef.current = nextWidths;
+        const columnIds = leafColumnsRef.current.map((column) => column.id);
+        applyAllColumnWidthsDom(wrap, nextWidths, columnIds);
         if (gridRenderModeRef.current === "canvas") {
-          const table = wrap.querySelector<HTMLElement>("table.db-data-table");
-          if (table) {
-            const startTableWidth = Number(table.dataset.canvasDragTableWidth);
-            const baseWidth =
-              Number.isFinite(startTableWidth) && startTableWidth > 0
-                ? startTableWidth
-                : table.getBoundingClientRect().width;
-            // 按拖拽增量同步表宽，避免 table-layout:fixed + 定宽时挤压兄弟列
-            const nextTableWidth = Math.max(
-              wrap.clientWidth,
-              baseWidth + (newWidth - col.startWidth),
-            );
-            table.style.width = `${nextTableWidth}px`;
-          }
           canvasBodyRef.current?.invalidate();
         }
       }
@@ -1688,21 +1681,22 @@ export const TableDataGrid = memo(function TableDataGrid({
 
       const col = colResizeRef.current;
       if (col) {
+        let sizingChanged = false;
         setColumnSizing((prev) => {
           if (prev[col.columnId] === col.lastWidth) return prev;
+          sizingChanged = true;
           return { ...prev, [col.columnId]: col.lastWidth };
         });
         wrap?.querySelector(`th[data-col-id="${CSS.escape(col.columnId)}"]`)?.classList.remove("db-data-table-th-resizing");
+        // 宽度有变更时保留全列快照直到 columnSizing 布局落地
+        dragColumnWidthsRef.current = sizingChanged ? { ...col.widthsById } : null;
+      } else {
+        dragColumnWidthsRef.current = null;
       }
 
       dragRef.current = null;
       colResizeRef.current = null;
       dragRowHeightRef.current = null;
-      dragColumnWidthRef.current = null;
-      const dragTable = wrap?.querySelector<HTMLElement>("table.db-data-table");
-      if (dragTable) {
-        delete dragTable.dataset.canvasDragTableWidth;
-      }
       canvasBodyRef.current?.invalidate();
       wrap?.classList.remove("db-data-table-wrap--resizing", "db-data-table-wrap--col-resizing");
     };
@@ -1780,9 +1774,27 @@ export const TableDataGrid = memo(function TableDataGrid({
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    for (const column of table.getAllLeafColumns()) {
-      applyColumnWidthDom(wrap, column.id, resolveColumnWidth(column.id, column.getSize()));
+    const dragging = dragColumnWidthsRef.current;
+    if (dragging) {
+      const committed = Object.entries(columnSizing).some(
+        ([id, width]) => dragging[id] === width,
+      );
+      // 拖拽进行中：保留冻结快照，避免 fillDelta/容器变化把表头盖回旧逻辑宽
+      if (!committed) return;
+      dragColumnWidthsRef.current = null;
     }
+    const columns = table.getAllLeafColumns();
+    const widthsById: Record<string, number> = {};
+    for (const column of columns) {
+      widthsById[column.id] = resolveColumnWidth(column.id, column.getSize());
+    }
+    applyAllColumnWidthsDom(
+      wrap,
+      widthsById,
+      columns.map((column) => column.id),
+    );
+    if (!dragging) return;
+    canvasBodyRef.current?.invalidate();
   }, [columnSizing, displayColumns, totalTableWidth, containerWidth, fillDelta, lastColumnId, resolveColumnWidth]);
 
   const allColumnsHidden = sidebarColumns.length > 0 && visibleColumns.length === 0;
@@ -2582,9 +2594,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (!column) {
         return DEFAULT_DATA_COLUMN_WIDTH;
       }
-      const dragging = dragColumnWidthRef.current;
-      if (dragging && dragging.columnId === column.id) {
-        return dragging.width;
+      const dragging = dragColumnWidthsRef.current;
+      if (dragging && dragging[column.id] != null) {
+        return dragging[column.id]!;
       }
       return resolveColumnWidth(column.id, column.getSize());
     },
@@ -3605,24 +3617,34 @@ export const TableDataGrid = memo(function TableDataGrid({
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        // 含末列 fillDelta，与当前渲染宽度一致
-                        const startWidth = resolveColumnWidth(colId, header.getSize());
+                        // 冻结当前全列渲染宽（含末列 fillDelta），拖动中只改目标列，table 宽=列宽之和
+                        const widthsById: Record<string, number> = {};
+                        for (const column of leafColumnsRef.current) {
+                          widthsById[column.id] = resolveColumnWidth(
+                            column.id,
+                            column.getSize(),
+                          );
+                        }
+                        const startWidth = widthsById[colId] ?? header.getSize();
+                        widthsById[colId] = startWidth;
                         colResizeRef.current = {
                           columnId: colId,
                           startX: e.clientX,
                           startWidth,
                           lastWidth: startWidth,
+                          widthsById,
                         };
-                        dragColumnWidthRef.current = { columnId: colId, width: startWidth };
+                        dragColumnWidthsRef.current = { ...widthsById };
                         const wrap = wrapRef.current;
                         wrap?.classList.add("db-data-table-wrap--col-resizing");
                         wrap
                           ?.querySelector(`th[data-col-id="${CSS.escape(colId)}"]`)
                           ?.classList.add("db-data-table-th-resizing");
-                        const table = wrap?.querySelector<HTMLElement>("table.db-data-table");
-                        if (table) {
-                          table.dataset.canvasDragTableWidth = String(
-                            table.getBoundingClientRect().width,
+                        if (wrap) {
+                          applyAllColumnWidthsDom(
+                            wrap,
+                            widthsById,
+                            leafColumnsRef.current.map((column) => column.id),
                           );
                         }
                       }}
@@ -3665,7 +3687,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           tableRowsRef={canvasPaintRowsRef}
           dragRangeRef={pendingDragRangeRef}
           dragRowHeightRef={dragRowHeightRef}
-          dragColumnWidthRef={dragColumnWidthRef}
+          dragColumnWidthsRef={dragColumnWidthsRef}
           bodyActionsRef={bodyActionsRef}
           resolveCellContext={resolveBodyCellContext}
           onFieldSortClick={handleColumnSortClick}

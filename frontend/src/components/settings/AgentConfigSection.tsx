@@ -11,8 +11,15 @@ import { BuiltinToolsSettingsSection } from "./BuiltinToolsSettingsSection";
 import { McpServicesSection } from "./McpServicesSection";
 import { SkillsSection } from "./SkillsSection";
 import { WebSearchSettingsSection } from "./WebSearchSettingsSection";
+import { HarnessInventoryPanel } from "./HarnessInventoryPanel";
 
-type AgentTab = "prompts" | "skills" | "builtin" | "webSearch" | "externalMcp";
+type AgentTab =
+  | "prompts"
+  | "skills"
+  | "builtin"
+  | "webSearch"
+  | "externalMcp"
+  | "harness";
 
 function agentLabelKey(id: string): string {
   return isAgentId(id) ? `ai.agents.${id}.label` : "settings.agent.prompts.unknown";
@@ -262,6 +269,7 @@ export function AgentConfigSection() {
         {(
           [
             ["prompts", t("settings.agent.tabPrompts")],
+            ["harness", t("settings.agent.tabHarness")],
             ["skills", t("settings.agent.tabSkills")],
             ["builtin", t("settings.agent.tabBuiltin")],
             ["webSearch", t("settings.agent.tabWebSearch")],
@@ -282,6 +290,7 @@ export function AgentConfigSection() {
       </div>
 
       {tab === "prompts" ? <PromptsPanel /> : null}
+      {tab === "harness" ? <HarnessInventoryPanel /> : null}
       {tab === "skills" ? <SkillsSection /> : null}
       {tab === "builtin" ? <BuiltinToolsSettingsSection /> : null}
       {tab === "webSearch" ? (

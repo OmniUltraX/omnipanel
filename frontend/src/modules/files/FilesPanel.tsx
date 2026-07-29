@@ -13,6 +13,7 @@ import {
   ModuleModeIconRail,
   ModuleWorkspaceLayout,
 } from "../../components/workspace";
+import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { migrateLayoutStorage } from "../../lib/layoutMigration";
@@ -602,6 +603,7 @@ function FilesBrowserView() {
         leftColumnTitle={t("routes.files")}
         leftPreset="schema"
         tagModuleKey="files"
+        leftHeaderActions={<ModuleAskAiButton moduleKey="files" />}
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}
