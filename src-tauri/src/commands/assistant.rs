@@ -1,9 +1,10 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
-    fetch_oss_sts, push_snapshot, sanitize_connection_meta, sanitize_db_connection_meta,
-    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta, upload_object_bytes,
-    AuthContext, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
+    fetch_oss_sts, push_snapshot, sanitize_assistant_conversation_meta, sanitize_connection_meta,
+    sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
+    sanitize_task_meta, upload_object_bytes, AuthContext, CollectContext, OssUploadResult,
+    PushOptions, PushSnapshotResult,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{load_database_connections, ConnectionKind};
@@ -18,6 +19,33 @@ use crate::state::AppState;
 
 const AUTH_API_BASE: &str = "https://mp.99.protected.fun";
 const CLIENT_APP_ID: &str = "omni-client";
+/// 会话列表快照条数上限（按 updatedAt 新→旧）。
+const ASSISTANT_CONVERSATION_SNAPSHOT_LIMIT: usize = 50;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantConversationSnapshotItem {
+    pub id: String,
+    pub title: String,
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub model_selection_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub message_count: u32,
+    pub created_at: f64,
+    pub updated_at: f64,
+    #[serde(default)]
+    pub parent_conversation_id: Option<String>,
+    #[serde(default)]
+    pub root_conversation_id: Option<String>,
+    #[serde(default)]
+    pub pinned_workspace_id: Option<String>,
+    #[serde(default)]
+    pub linked_terminal_session_id: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +55,9 @@ pub struct AssistantPushRequest {
     pub dry_run: bool,
     #[serde(default)]
     pub bind_id: Option<String>,
+    /// 前端注入的 AI 会话列表元数据（不含消息正文）。
+    #[serde(default)]
+    pub conversations: Vec<AssistantConversationSnapshotItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -70,7 +101,14 @@ pub async fn assistant_push_snapshot(
             .map(|me| me.id.to_string())
     };
 
-    let ctx = build_collect_context(&state, &identity.device_id, user_id, request.bind_id).await?;
+    let ctx = build_collect_context(
+        &state,
+        &identity.device_id,
+        user_id,
+        request.bind_id,
+        &request.conversations,
+    )
+    .await?;
 
     if request.dry_run {
         return push_snapshot(
@@ -167,6 +205,7 @@ async fn build_collect_context(
     client_device_id: &str,
     user_id: Option<String>,
     bind_id: Option<String>,
+    conversations: &[AssistantConversationSnapshotItem],
 ) -> Result<CollectContext, OmniError> {
     let storage = state.storage.lock().await;
 
@@ -348,5 +387,34 @@ async fn build_collect_context(
                 )
             })
             .collect(),
+        assistant_conversations: {
+            let mut ranked: Vec<_> = conversations.iter().collect();
+            ranked.sort_by(|a, b| {
+                b.updated_at
+                    .partial_cmp(&a.updated_at)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            ranked
+                .into_iter()
+                .take(ASSISTANT_CONVERSATION_SNAPSHOT_LIMIT)
+                .map(|c| {
+                    sanitize_assistant_conversation_meta(
+                        &c.id,
+                        &c.title,
+                        &c.provider,
+                        &c.model,
+                        c.model_selection_id.as_deref(),
+                        c.agent_id.as_deref(),
+                        c.message_count,
+                        c.created_at as i64,
+                        c.updated_at as i64,
+                        c.parent_conversation_id.as_deref(),
+                        c.root_conversation_id.as_deref(),
+                        c.pinned_workspace_id.as_deref(),
+                        c.linked_terminal_session_id.as_deref(),
+                    )
+                })
+                .collect()
+        },
     })
 }

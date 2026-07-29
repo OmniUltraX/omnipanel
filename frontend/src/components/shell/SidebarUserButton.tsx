@@ -10,15 +10,22 @@ import {
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
 import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
+import { useDataSyncUiStore } from "../../stores/dataSyncUiStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import {
   useUserCenterUiStore,
   type UserCenterPage,
 } from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
-import { IconCheckCircle, IconMonitor, IconSettings, IconUser } from "../ui/icons/Icons";
+import {
+  IconCheckCircle,
+  IconDownload,
+  IconMonitor,
+  IconSettings,
+  IconUser,
+} from "../ui/icons/Icons";
 
-type MenuAction = UserCenterPage | "settings";
+type MenuAction = UserCenterPage | "settings" | "dataSync";
 
 function isMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -34,12 +41,14 @@ export function SidebarUserButton() {
   const userCenterOpen = useUserCenterUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const settingsOpen = useSettingsUiStore((s) => s.open);
+  const openDataSync = useDataSyncUiStore((s) => s.openDataSync);
+  const dataSyncOpen = useDataSyncUiStore((s) => s.open);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
-  const active = userCenterOpen || settingsOpen || menuOpen;
+  const active = userCenterOpen || settingsOpen || dataSyncOpen || menuOpen;
 
   const updatePosition = useCallback(() => {
     const btn = buttonRef.current;
@@ -92,6 +101,10 @@ export function SidebarUserButton() {
       openSettings();
       return;
     }
+    if (action === "dataSync") {
+      openDataSync();
+      return;
+    }
     openUserCenter(action);
   };
 
@@ -111,6 +124,15 @@ export function SidebarUserButton() {
       label: t("userCenter.nav.devices"),
       icon: <IconMonitor size={14} />,
     },
+    ...(isLoggedIn
+      ? [
+          {
+            id: "dataSync" as const,
+            label: t("dataSync.menuItem"),
+            icon: <IconDownload size={14} />,
+          },
+        ]
+      : []),
     {
       id: "settings",
       label: t("shell.nav.settings"),

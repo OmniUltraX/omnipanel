@@ -130,6 +130,20 @@ export function Bootstrap() {
         await pushLog(t("app.splash.logs.connections"));
         await initConnections();
 
+        // 已登录：上传本机快照到 OSS（跨端导入改为手动，不再自动 pull）
+        if (token) {
+          try {
+            const {
+              scheduleClientConversationSync,
+              scheduleClientModuleSync,
+            } = await import("./modules/clientSync");
+            scheduleClientConversationSync({ immediate: true });
+            scheduleClientModuleSync({ immediate: true });
+          } catch (err) {
+            console.warn("[bootstrap] client sync push skipped:", err);
+          }
+        }
+
         await pushLog(t("app.splash.logs.connectionPool"));
         initConnectionPool();
         initBackgroundTasks();

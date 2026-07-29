@@ -15,5 +15,8 @@
   },
   "devDependencies": {
     "typescript": "~6.0.2"
+  },
+  "dependencies": {
+    "ali-oss": "^6.23.0"
   }
 }

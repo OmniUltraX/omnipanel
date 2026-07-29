@@ -8,6 +8,8 @@ import {
 } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
 import { scheduleAssistantSnapshotSync } from "../modules/assistant";
+import { scheduleClientModuleSync } from "../modules/clientSync";
+import { recordModuleTombstones } from "../modules/clientSync/tombstones";
 import {
   SEED_RESOURCES,
   type EnvironmentTag,
@@ -170,6 +172,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           return { connections: next };
         });
         scheduleAssistantSnapshotSync();
+        scheduleClientModuleSync();
         return saved;
       }
       set({ error: res.error.message });
@@ -202,6 +205,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         connections: state.connections.map((c) => savedMap.get(c.id) ?? c),
       }));
       scheduleAssistantSnapshotSync();
+      scheduleClientModuleSync();
     } catch (e) {
       set({ error: String(e) });
     }
@@ -218,7 +222,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           useSshHostStore.getState().clearHost(id);
           forceReleaseSshPoolSession(id);
         }
+        recordModuleTombstones("connection", [id]);
         scheduleAssistantSnapshotSync();
+        scheduleClientModuleSync({ immediate: true });
       } else {
         set({ error: res.error.message });
       }

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>下载 OmniPanel — 官方安装包</title>
+    <meta
+      name="description"
+      content="从阿里云 OSS 下载 OmniPanel 最新版与历史版本安装包。支持 Windows、macOS。"
+    />
+    <meta name="theme-color" content="#0c1118" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="./logo/omni.png" />
+  </head>
+  <body>
+    <div class="bg-fx" aria-hidden="true"></div>
+    <header class="topnav">
+      <div class="container topnav-inner">
+        <a class="brand" href="./index.html" aria-label="OmniPanel 首页">
+          <img src="./logo/omni.png" width="28" height="28" alt="" />
+          <span>OmniPanel</span>
+        </a>
+        <button
+          class="nav-toggle"
+          type="button"
+          data-nav-toggle
+          aria-expanded="false"
+          aria-controls="site-nav"
+          aria-label="打开菜单"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="site-nav" data-nav-menu>
+          <a href="./index.html#modules">核心模块</a>
+          <a href="./index.html#ai">AI 原生</a>
+          <a href="./index.html#architecture">技术架构</a>
+          <a href="./download.html" aria-current="page">下载</a>
+          <a data-repo-link href="#">GitHub</a>
+        </nav>
+        <a class="btn btn-primary" data-download-link href="./download.html">下载</a>
+      </div>
+    </header>
+
+    <main class="download-page">
+      <section class="section hero download-hero">
+        <div class="container">
+          <p class="status-line" data-status hidden></p>
+          <div class="download-latest" data-latest data-reveal>
+            <p class="eyebrow">Latest Release</p>
+            <h1 class="h1">下载 OmniPanel</h1>
+            <p class="lead">正在加载版本信息…</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container download-history" data-history data-reveal>
+          <p class="eyebrow">Previous Releases</p>
+          <h2 class="h2">历史版本</h2>
+          <p class="muted">加载中…</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="pagefoot">
+      <div class="container pagefoot-inner">
+        <span>OmniPanel © <span data-year>2026</span></span>
+        <span>安装包由阿里云 OSS 分发</span>
+        <div class="pagefoot-links">
+          <a href="./index.html">首页</a>
+          <a data-repo-link href="#">GitHub</a>
+          <a data-license-link href="#">MIT License</a>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/download.ts"></script>
+  </body>
+</html>

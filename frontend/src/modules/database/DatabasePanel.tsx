@@ -106,6 +106,7 @@ import { snapshotToFilterStates } from "./schema/schemaFilters";
 import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schema/schemaCache";
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
+import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../clientSync";
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
 import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
@@ -989,6 +990,14 @@ export function DatabasePanel() {
   useEffect(() => {
     void refreshConnections();
   }, [schemaRefreshToken, refreshConnections]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void refreshConnections();
+    };
+    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+  }, [refreshConnections]);
 
   const resolveSlowLogDisabledReason = useCallback(
     (availability: SlowLogAvailability): string => {

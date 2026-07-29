@@ -5,6 +5,7 @@
  * ## OSS 路径约定
  * - 版本产物：`{PUBLIC_BASE}/omnipanel/releases/{tag}/<原文件名>`
  * - 稳定清单：`{PUBLIC_BASE}/omnipanel/releases/latest.json`（客户端检查更新优先读此文件）
+ * - 版本索引：`{PUBLIC_BASE}/omnipanel/releases/versions.json`（官网下载页历史列表；ListObjects 不可用时的替代）
  *
  * ## 所需环境变量 / GitHub Secrets（同名）
  * - `ALIYUN_OSS_ACCESS_KEY_ID`
@@ -97,6 +98,69 @@ function rewriteGithubUrls(text, fromPrefix, toPrefix) {
   const escapedFrom = fromPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(escapedFrom, "g");
   return text.replace(re, toPrefix);
+}
+
+function normalizeTag(tagOrVersion) {
+  const v = String(tagOrVersion ?? "").trim();
+  if (!v) return "";
+  return v.startsWith("v") ? v : `v${v}`;
+}
+
+function compareVersionDesc(a, b) {
+  const pa = String(a).replace(/^v/, "").split(".").map((x) => Number.parseInt(x, 10) || 0);
+  const pb = String(b).replace(/^v/, "").split(".").map((x) => Number.parseInt(x, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i += 1) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return db - da;
+  }
+  return 0;
+}
+
+function manifestToVersionEntry(tag, manifest) {
+  const version = String(manifest.version ?? "")
+    .trim()
+    .replace(/^v/, "");
+  return {
+    tag: normalizeTag(tag || version),
+    version,
+    notes: typeof manifest.notes === "string" ? manifest.notes : "",
+    pub_date: typeof manifest.pub_date === "string" ? manifest.pub_date : "",
+    platforms: manifest.platforms && typeof manifest.platforms === "object" ? manifest.platforms : {},
+  };
+}
+
+function upsertVersionsIndex(existing, entry) {
+  const versions = Array.isArray(existing?.versions) ? [...existing.versions] : [];
+  const idx = versions.findIndex(
+    (v) => normalizeTag(v?.tag) === entry.tag || String(v?.version ?? "").replace(/^v/, "") === entry.version,
+  );
+  if (idx >= 0) versions[idx] = entry;
+  else versions.push(entry);
+  versions.sort((a, b) => compareVersionDesc(a.version, b.version));
+  return {
+    updatedAt: new Date().toISOString(),
+    versions,
+  };
+}
+
+async function loadVersionsIndex(client) {
+  const key = `${RELEASE_PREFIX}/versions.json`;
+  try {
+    const result = await client.get(key);
+    const text = result.content.toString("utf8");
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object") return { versions: [] };
+    return parsed;
+  } catch (e) {
+    const code = e?.code || e?.name || "";
+    if (code === "NoSuchKey" || code === "NotFound" || e?.status === 404) {
+      console.log("versions.json 不存在，将新建");
+      return { versions: [] };
+    }
+    throw e;
+  }
 }
 
 async function main() {
@@ -217,9 +281,28 @@ async function main() {
     },
   });
 
+  // 维护官网下载页用的版本索引（匿名 ListObjects 不可用时的替代）
+  const existingIndex = await loadVersionsIndex(client);
+  const versionEntry = manifestToVersionEntry(tag, rewritten);
+  const nextIndex = upsertVersionsIndex(existingIndex, versionEntry);
+  const versionsKey = `${RELEASE_PREFIX}/versions.json`;
+  const localVersions = path.join(assetsDir, "versions.oss.json");
+  fs.writeFileSync(localVersions, `${JSON.stringify(nextIndex, null, 2)}\n`, "utf8");
+  console.log(
+    `上传版本索引 oss://${bucket}/${versionsKey}（共 ${nextIndex.versions.length} 个版本）`,
+  );
+  await client.put(versionsKey, localVersions, {
+    headers: {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+
   const clientEndpoint = `${publicBase}/${RELEASE_PREFIX}/latest.json`;
   console.log("完成。客户端 updater.endpoints 首项应为:");
   console.log(`  ${clientEndpoint}`);
+  console.log("官网版本列表:");
+  console.log(`  ${publicBase}/${versionsKey}`);
 }
 
 main().catch((err) => {

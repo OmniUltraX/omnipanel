@@ -1,0 +1,33 @@
+{
+  "updatedAt": "2026-07-29T08:57:13.128Z",
+  "versions": [
+    {
+      "tag": "v0.6.6",
+      "version": "0.6.6",
+      "notes": "### 新增\n\n- **客户端 ↔ 客户端数据同步（同账号）**\n  - 按设备写入 OSS：`sync/{userId}/devices/{deviceId}/ai-conversations|modules/latest.json`\n  - 本机数据变更自动上传快照（会话、连接、数据库、知识库、HTTP、工作区）；跨端改为手动导入\n  - 侧栏头像菜单新增「数据同步」SubWindow：左侧其它客户端，右侧模块 Tab + 可折叠树形表格勾选导入\n  - 知识库按文件夹树、连接按分组、HTTP 按集合→请求层级展示；勾选文件夹连带子项\n- **任务中心 · 我的待办**：todo 列表 / 任务 / 步骤一等公民模型；智能视图与 UI 重构（迁移知识库待办）\n- **终端 · 会话 Plan**：接通 `omni_plan_*`；标题栏悬浮展示进度与当前步骤\n\n### 修复\n\n- **数据库**：表横置空数据绘制；SQL 结果跨 Tab / 嵌套 dock overlay 穿透\n- **知识库**：自建文档新建菜单文字叠压\n- **客户端同步**：取消登录/冷启动自动 pull-merge，避免覆盖本机数据；导入后刷新侧栏与相关面板\n\n### 变更\n\n- 客户端同步与助手快照路径继续隔离（`sync/` vs `assistant/`）；模块快照仍可含 SSH/DB 密码明文以便多端恢复（不含私钥文件）\n- 侧栏背景色统一为 `--bg`",
+      "pub_date": "2026-07-29T08:51:24.209Z",
+      "platforms": {
+        "darwin-aarch64": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVW1CSkFNRlY3WS9Hb21BaTdSd0p5dFFvYmRySDl2RVZhd0EzZ0V4YitTdXVvdlJtNGx1QWhjUk1HZVV6NCs0MzE5WlRWZ28zZm05WjlNUXdLcjhPT3hrbm1qMlpZNFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MzE0NzAyCWZpbGU6T21uaVBhbmVsLmFwcC50YXIuZ3oKRkR1eS9lMVlJeWJ2aXUxcjJBN3UzclgyVVc4QzVJaG1icE5EdDFYOW4wcVV2TVRYU3B2enhhU1FsZUlidi9xNHRTV2RwYzlIbmovWHVYL3FvM2ppQ2c9PQo=",
+          "url": "https://omnipanel.oss-cn-beijing.aliyuncs.com/omnipanel/releases/v0.6.6/OmniPanel_aarch64.app.tar.gz"
+        },
+        "darwin-aarch64-app": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVW1CSkFNRlY3WS9Hb21BaTdSd0p5dFFvYmRySDl2RVZhd0EzZ0V4YitTdXVvdlJtNGx1QWhjUk1HZVV6NCs0MzE5WlRWZ28zZm05WjlNUXdLcjhPT3hrbm1qMlpZNFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MzE0NzAyCWZpbGU6T21uaVBhbmVsLmFwcC50YXIuZ3oKRkR1eS9lMVlJeWJ2aXUxcjJBN3UzclgyVVc4QzVJaG1icE5EdDFYOW4wcVV2TVRYU3B2enhhU1FsZUlidi9xNHRTV2RwYzlIbmovWHVYL3FvM2ppQ2c9PQo=",
+          "url": "https://omnipanel.oss-cn-beijing.aliyuncs.com/omnipanel/releases/v0.6.6/OmniPanel_aarch64.app.tar.gz"
+        },
+        "windows-x86_64": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVW1CSkFNRlY3WXlVK092cGhUWjVNYmNpTTRJQ1dEem5tZUpYZEs2NFpRN0cyN2x4MkpFSWx1NHZ1SXdJM3IrY3MwMFJzS0IralQzQ3cybDU0QVFoRFFsSFl1NVorNHdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MzE1MDc2CWZpbGU6T21uaVBhbmVsXzAuNi42X3g2NC1zZXR1cC5leGUKNHB2dFc1VWpOSGdmcm5EUlU2Y1FkSmw3T29PbW9rVUZGNEJEbWxpQmNkb2s3MlRQVERtUVd3Vlo0STc2eHBTRE16VldBL2t2VkZYRDdTcHpRSElVQkE9PQo=",
+          "url": "https://omnipanel.oss-cn-beijing.aliyuncs.com/omnipanel/releases/v0.6.6/OmniPanel_0.6.6_x64-setup.exe"
+        },
+        "windows-x86_64-nsis": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVW1CSkFNRlY3WXlVK092cGhUWjVNYmNpTTRJQ1dEem5tZUpYZEs2NFpRN0cyN2x4MkpFSWx1NHZ1SXdJM3IrY3MwMFJzS0IralQzQ3cybDU0QVFoRFFsSFl1NVorNHdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MzE1MDc2CWZpbGU6T21uaVBhbmVsXzAuNi42X3g2NC1zZXR1cC5leGUKNHB2dFc1VWpOSGdmcm5EUlU2Y1FkSmw3T29PbW9rVUZGNEJEbWxpQmNkb2s3MlRQVERtUVd3Vlo0STc2eHBTRE16VldBL2t2VkZYRDdTcHpRSElVQkE9PQo=",
+          "url": "https://omnipanel.oss-cn-beijing.aliyuncs.com/omnipanel/releases/v0.6.6/OmniPanel_0.6.6_x64-setup.exe"
+        },
+        "windows-x86_64-msi": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVW1CSkFNRlY3WXp4eXhwL0pMbmpDOW9qYy9KcUVRYmtPaGg1R1o0RFArSjZ3V1hINzJMMlNzZER2bFpqT3RDVC9ZZ1ZIWFBwbWdzQVBVYnVDTklSdFN5cHRVWXp6UFFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MzE1MDc2CWZpbGU6T21uaVBhbmVsXzAuNi42X3g2NF9lbi1VUy5tc2kKdG9TOGpubk5PZXNRWExyamFiaVJjYU10NWI0bnhIbjJCVURrSUVQY1oxTUZ3SUhJSm9FVWlzWjk2eVlTekcrclZSQW5ZUlMzYU42V0hZUnNYTDA1Q3c9PQo=",
+          "url": "https://omnipanel.oss-cn-beijing.aliyuncs.com/omnipanel/releases/v0.6.6/OmniPanel_0.6.6_x64_en-US.msi"
+        }
+      }
+    }
+  ]
+}

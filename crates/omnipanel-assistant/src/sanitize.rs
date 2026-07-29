@@ -199,6 +199,39 @@ pub fn sanitize_task_meta(
     })
 }
 
+/// AI 助手会话列表条目脱敏（不含 messages / contextSnapshot 等大字段或敏感上下文）。
+pub fn sanitize_assistant_conversation_meta(
+    id: &str,
+    title: &str,
+    provider: &str,
+    model: &str,
+    model_selection_id: Option<&str>,
+    agent_id: Option<&str>,
+    message_count: u32,
+    created_at: i64,
+    updated_at: i64,
+    parent_conversation_id: Option<&str>,
+    root_conversation_id: Option<&str>,
+    pinned_workspace_id: Option<&str>,
+    linked_terminal_session_id: Option<&str>,
+) -> Value {
+    serde_json::json!({
+        "id": id,
+        "title": title,
+        "provider": provider,
+        "model": model,
+        "modelSelectionId": model_selection_id,
+        "agentId": agent_id,
+        "messageCount": message_count,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+        "parentConversationId": parent_conversation_id,
+        "rootConversationId": root_conversation_id,
+        "pinnedWorkspaceId": pinned_workspace_id,
+        "linkedTerminalSessionId": linked_terminal_session_id,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

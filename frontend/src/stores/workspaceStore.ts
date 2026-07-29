@@ -8,6 +8,7 @@ import {
 import { resolveResourceById } from "./connectionStore";
 import { DASHBOARD_PATH } from "../lib/paths";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
+import { scheduleClientModuleSync, recordModuleTombstones } from "../modules/clientSync";
 
 export interface WorkspaceInfo {
   id: string;
@@ -162,6 +163,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             detail: { prevWorkspaceId: prevId, nextWorkspaceId: newWorkspace.id },
           }),
         );
+        scheduleClientModuleSync({ immediate: true });
         return newWorkspace;
       },
 
@@ -230,6 +232,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         } catch {
           // ignore
         }
+        recordModuleTombstones("workspace", [id]);
+        scheduleClientModuleSync({ immediate: true });
         return true;
       },
 
@@ -246,6 +250,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const nextWorkspace =
           state.workspace.id === id ? { ...state.workspace, name: trimmed } : state.workspace;
         set({ workspaces: nextWorkspaces, workspace: nextWorkspace });
+        scheduleClientModuleSync();
         return true;
       },
 

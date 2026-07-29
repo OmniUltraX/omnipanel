@@ -8,20 +8,28 @@
       name="description"
       content="OmniPanel 将终端、SSH、数据库、Docker、服务器管理、协议调试与 AI 辅助集成于单一桌面应用。一个窗口，贯穿开发运维上下文。"
     />
-    <meta name="theme-color" content="#201d1d" />
+    <meta name="theme-color" content="#0c1118" />
     <meta property="og:title" content="OmniPanel — AI 原生跨平台工程工作站" />
     <meta
       property="og:description"
       content="All in One · 小而全而优而美。终端、SSH、数据库、Docker 与 AI 在同一工作台无缝协作。"
     />
     <meta property="og:type" content="website" />
-    <link rel="icon" type="image/png" href="/logo/omni.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+    <!-- 相对路径：适配 GitHub Pages base（/omnipanel/） -->
+    <link rel="icon" type="image/png" href="./logo/omni.png" />
   </head>
   <body>
+    <div class="bg-fx" aria-hidden="true"></div>
     <header class="topnav">
       <div class="container topnav-inner">
         <a class="brand" href="#top" aria-label="OmniPanel 首页">
-          <img src="/logo/omni.png" width="28" height="28" alt="" />
+          <img src="./logo/omni.png" width="28" height="28" alt="" />
           <span>OmniPanel</span>
         </a>
         <button
@@ -42,20 +50,20 @@
           <a href="#workflow">工作流</a>
           <a href="#architecture">技术架构</a>
           <a href="#start">快速开始</a>
+          <a href="./download.html">下载</a>
           <a data-repo-link href="#">GitHub</a>
         </nav>
-        <a class="btn btn-primary" data-releases-link href="#">下载</a>
+        <a class="btn btn-primary" data-download-link href="./download.html">下载</a>
       </div>
     </header>
 
     <main id="top">
       <section class="section hero">
-        <div class="container hero-inner">
-          <div class="pill-row">
-            <span class="pill">Tauri 2</span>
-            <span class="pill">Rust + React</span>
-            <span class="pill">Local-first</span>
-          </div>
+        <div class="container hero-inner" data-reveal>
+          <p class="brand-mark">
+            <img src="./logo/omni.png" width="48" height="48" alt="" />
+            <span>OmniPanel</span>
+          </p>
           <p class="eyebrow">AI-Native Engineering Workstation</p>
           <h1 class="h1">一个窗口，管理服务器、数据库、容器与工作流</h1>
           <p class="lead">
@@ -63,15 +71,20 @@
             AI 在同一个工作台中无缝协作。
           </p>
           <div class="hero-cta">
-            <a class="btn btn-primary" data-releases-link href="#">下载 OmniPanel</a>
+            <a class="btn btn-primary" data-download-link href="./download.html">下载 OmniPanel</a>
             <a class="btn btn-secondary" data-repo-link href="#">查看源码</a>
+          </div>
+          <div class="pill-row">
+            <span class="pill">Tauri 2</span>
+            <span class="pill">Rust + React</span>
+            <span class="pill">Local-first</span>
           </div>
         </div>
       </section>
 
-      <section class="section">
-        <div class="container">
-          <div class="terminal">
+      <section class="section section-tight">
+        <div class="container" data-reveal>
+          <div class="terminal terminal--hero">
             <div class="terminal-bar">
               <div class="terminal-dot red"></div>
               <div class="terminal-dot yellow"></div>
@@ -118,12 +131,12 @@
 
       <section class="section" id="modules">
         <div class="container">
-          <div class="section-head">
+          <div class="section-head" data-reveal>
             <p class="eyebrow">Core Modules</p>
             <h2 class="h2">八大模块，覆盖日常开发运维完整闭环</h2>
           </div>
           <div class="grid-3">
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <path d="M4 17l6-6-6-6M12 19h8" />
@@ -137,7 +150,7 @@
                 <span class="tag">&lt; 5ms</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -152,7 +165,7 @@
                 <span class="tag">ProxyJump</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -168,7 +181,7 @@
                 <span class="tag">Redis</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <path
@@ -185,7 +198,7 @@
                 <span class="tag">日志流</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <rect x="2" y="3" width="20" height="18" rx="2" />
@@ -200,7 +213,7 @@
                 <span class="tag">宝塔</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
@@ -215,7 +228,7 @@
                 <span class="tag">Serial</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <path d="M12 3a9 9 0 109 9" />
@@ -230,7 +243,7 @@
                 <span class="tag">Ollama</span>
               </div>
             </article>
-            <article class="module-card">
+            <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                   <path d="M4 6h16M4 12h10M4 18h14" />
@@ -251,7 +264,7 @@
 
       <section class="section" id="ai">
         <div class="container split">
-          <div>
+          <div data-reveal>
             <p class="eyebrow">AI Native</p>
             <h2 class="h2">AI 不是聊天窗口，是你的随行工程专家</h2>
             <p class="lead" style="margin-top: 16px">
@@ -282,7 +295,7 @@
               </div>
             </div>
           </div>
-          <div class="terminal">
+          <div class="terminal" data-reveal>
             <div class="terminal-bar">
               <div class="terminal-dot red"></div>
               <div class="terminal-dot yellow"></div>
@@ -315,7 +328,7 @@
 
       <section class="section" id="workflow">
         <div class="container split-2-1">
-          <div>
+          <div data-reveal>
             <p class="eyebrow">Unified Workspace</p>
             <h2 class="h2">从工具集合到工作流系统</h2>
             <p class="lead" style="margin-top: 16px; margin-bottom: 32px">
@@ -357,7 +370,7 @@
               </div>
             </div>
           </div>
-          <div class="card sticky-card">
+          <div class="card sticky-card" data-reveal>
             <p class="eyebrow">Performance</p>
             <div class="stat-block">
               <div class="stat-num">500+</div>
@@ -381,7 +394,7 @@
 
       <section class="section" id="architecture">
         <div class="container">
-          <div class="section-head">
+          <div class="section-head" data-reveal>
             <p class="eyebrow">Architecture</p>
             <h2 class="h2">Tauri 2 + Rust 核心，本地优先</h2>
             <p class="lead" style="margin-top: 12px">
@@ -389,7 +402,7 @@
               omnipanel-* crates。
             </p>
           </div>
-          <div>
+          <div data-reveal>
             <div class="arch-layer">
               <span class="layer-name">UI 层</span>
               <div class="layer-items">
@@ -444,26 +457,26 @@
 
       <section class="section">
         <div class="container">
-          <div class="section-head">
+          <div class="section-head" data-reveal>
             <p class="eyebrow">Use Cases</p>
             <h2 class="h2">为真正的工程场景设计</h2>
           </div>
           <div class="grid-3">
-            <article class="card">
-              <h3 style="font-size: 16px; margin-bottom: 12px">新项目部署</h3>
-              <p style="color: var(--muted); font-size: 14px; line-height: 1.5">
+            <article class="card use-card" data-reveal>
+              <h3>新项目部署</h3>
+              <p>
                 连接服务器、上传配置、启动容器、检查日志 —— SSH、SFTP、Docker Compose 与日志面板在同一工作区完成。
               </p>
             </article>
-            <article class="card">
-              <h3 style="font-size: 16px; margin-bottom: 12px">线上故障排查</h3>
-              <p style="color: var(--muted); font-size: 14px; line-height: 1.5">
+            <article class="card use-card" data-reveal>
+              <h3>线上故障排查</h3>
+              <p>
                 AI 汇总主机、容器、日志与错误输出，生成排查路径。从告警到修复，全程不切换窗口。
               </p>
             </article>
-            <article class="card">
-              <h3 style="font-size: 16px; margin-bottom: 12px">多服务器维护</h3>
-              <p style="color: var(--muted); font-size: 14px; line-height: 1.5">
+            <article class="card use-card" data-reveal>
+              <h3>多服务器维护</h3>
+              <p>
                 选中服务器分组后统一执行命令，结果按机器聚合对比。批量分发、模板化执行。
               </p>
             </article>
@@ -472,16 +485,16 @@
       </section>
 
       <section class="section cta-section" id="start">
-        <div class="container" style="max-width: 640px">
+        <div class="container cta-inner" data-reveal>
           <p class="eyebrow">Get Started</p>
           <h2 class="h2">让每一位 coder 的电脑上，都安装 OmniPanel</h2>
           <p class="lead">开源、跨平台。支持 Windows 10+、macOS 12+、Linux。</p>
           <div class="cta-buttons">
-            <a class="btn btn-primary" data-releases-link href="#">下载 Release</a>
+            <a class="btn btn-primary" data-download-link href="./download.html">下载安装包</a>
             <a class="btn btn-secondary" data-repo-link href="#">GitHub 仓库</a>
           </div>
           <pre class="code-block"><code># 从源码构建
-git clone https://github.com/anomalyco/omnipanel.git
+git clone https://github.com/OmniUltraX/omnipanel.git
 cd omnipanel/frontend && npm install
 cd ../src-tauri && cargo tauri dev</code></pre>
         </div>
@@ -493,9 +506,9 @@ cd ../src-tauri && cargo tauri dev</code></pre>
         <span>OmniPanel © <span data-year>2026</span></span>
         <span>All in One · 小而全而优而美</span>
         <div class="pagefoot-links">
+          <a href="./download.html">下载</a>
           <a data-repo-link href="#">GitHub</a>
-          <a href="#start">快速开始</a>
-          <a href="https://github.com/anomalyco/omnipanel/blob/main/LICENSE">MIT License</a>
+          <a data-license-link href="#">MIT License</a>
         </div>
       </div>
     </footer>

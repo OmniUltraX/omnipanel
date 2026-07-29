@@ -52,6 +52,9 @@ pub fn strip_bucket_prefix(object_key: &str, bucket: &str) -> String {
     }
 }
 
+/// 快照等易变对象：禁止 CDN / 浏览器按同名 key 缓存旧内容。
+const SNAPSHOT_CACHE_CONTROL: &str = "no-cache, no-store, must-revalidate";
+
 /// 上传快照 JSON。优先使用 STS 中的 `upload_url`；否则按 S3 SigV4 签名 PUT。
 pub async fn upload_snapshot_json(
     http: &Client,
@@ -60,9 +63,25 @@ pub async fn upload_snapshot_json(
     body: &[u8],
 ) -> OmniResult<OssUploadResult> {
     if let Some(upload_url) = sts.upload_url.as_deref().filter(|u| !u.is_empty()) {
-        return put_presigned(http, upload_url, object_key, body, "application/json").await;
+        return put_presigned(
+            http,
+            upload_url,
+            object_key,
+            body,
+            "application/json",
+            Some(SNAPSHOT_CACHE_CONTROL),
+        )
+        .await;
     }
-    put_s3_sig_v4(http, sts, object_key, body, "application/json").await
+    put_s3_sig_v4(
+        http,
+        sts,
+        object_key,
+        body,
+        "application/json",
+        Some(SNAPSHOT_CACHE_CONTROL),
+    )
+    .await
 }
 
 /// 按 object key 上传任意字节（始终 SigV4；忽略单次 `upload_url`，因其通常绑定快照 key）。
@@ -81,7 +100,16 @@ pub async fn upload_object_bytes(
             object_key.to_string(),
         ));
     }
-    put_s3_sig_v4(http, sts, &key, body, content_type).await
+    // 聊天分片多为递增文件名；仍带 no-cache，避免同 key 覆盖时命中边缘缓存
+    put_s3_sig_v4(
+        http,
+        sts,
+        &key,
+        body,
+        content_type,
+        Some(SNAPSHOT_CACHE_CONTROL),
+    )
+    .await
 }
 
 /// 空 body 的 SHA256（SigV4 GET / HEAD）。
@@ -105,22 +133,44 @@ pub async fn get_object_bytes(
     get_s3_sig_v4(http, sts, &key).await
 }
 
+/// 下载对象；不存在（HTTP 404）时返回 `None`，便于首启 pull。
+pub async fn get_object_bytes_optional(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<Option<Vec<u8>>> {
+    match get_object_bytes(http, sts, object_key).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(err) => {
+            let msg = err.message.to_ascii_lowercase();
+            let cause = err.cause.as_deref().unwrap_or("").to_ascii_lowercase();
+            if msg.contains("http 404") || cause.contains("nosuchkey") || cause.contains("404") {
+                Ok(None)
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
 async fn put_presigned(
     http: &Client,
     upload_url: &str,
     object_key: &str,
     body: &[u8],
     content_type: &str,
+    cache_control: Option<&str>,
 ) -> OmniResult<OssUploadResult> {
-    let resp = http
+    let mut req = http
         .put(upload_url)
         .header("Content-Type", content_type)
-        .body(body.to_vec())
-        .send()
-        .await
-        .map_err(|e| {
-            map_assistant_error_with_cause(AssistantErrorKind::Upload, "OSS 上传失败", e.to_string())
-        })?;
+        .body(body.to_vec());
+    if let Some(cc) = cache_control.filter(|s| !s.is_empty()) {
+        req = req.header("Cache-Control", cc);
+    }
+    let resp = req.send().await.map_err(|e| {
+        map_assistant_error_with_cause(AssistantErrorKind::Upload, "OSS 上传失败", e.to_string())
+    })?;
     let status = resp.status();
     let etag = resp
         .headers()
@@ -148,6 +198,7 @@ async fn put_s3_sig_v4(
     object_key: &str,
     body: &[u8],
     content_type: &str,
+    cache_control: Option<&str>,
 ) -> OmniResult<OssUploadResult> {
     let key = object_key.trim_start_matches('/');
     let (url, canonical_uri) = put_target(sts, key);
@@ -158,22 +209,34 @@ async fn put_s3_sig_v4(
     let date_stamp = now.format("%Y%m%d").to_string();
     let payload_hash = hex::encode(Sha256::digest(body));
     let token = sts.security_token();
+    let cache_control = cache_control.map(str::trim).filter(|s| !s.is_empty());
 
-    // 永久 AK：不得带空的 x-amz-security-token（会导致签名失败）
-    let (canonical_headers, signed_headers) = if let Some(tok) = token {
-        (
+    // 签名头须按字母序；cache-control 在 content-type 之前
+    let (canonical_headers, signed_headers) = match (cache_control, token) {
+        (Some(cc), Some(tok)) => (
+            format!(
+                "cache-control:{cc}\ncontent-type:{content_type}\nhost:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\nx-amz-security-token:{tok}\n"
+            ),
+            "cache-control;content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token",
+        ),
+        (Some(cc), None) => (
+            format!(
+                "cache-control:{cc}\ncontent-type:{content_type}\nhost:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
+            ),
+            "cache-control;content-type;host;x-amz-content-sha256;x-amz-date",
+        ),
+        (None, Some(tok)) => (
             format!(
                 "content-type:{content_type}\nhost:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\nx-amz-security-token:{tok}\n"
             ),
             "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token",
-        )
-    } else {
-        (
+        ),
+        (None, None) => (
             format!(
                 "content-type:{content_type}\nhost:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
             ),
             "content-type;host;x-amz-content-sha256;x-amz-date",
-        )
+        ),
     };
 
     let canonical_request = format!(
@@ -197,6 +260,9 @@ async fn put_s3_sig_v4(
         .header("x-amz-content-sha256", &payload_hash)
         .header("x-amz-date", &amz_date)
         .header("Authorization", authorization);
+    if let Some(cc) = cache_control {
+        req = req.header("Cache-Control", cc);
+    }
     if let Some(tok) = token {
         req = req.header("x-amz-security-token", tok);
     }

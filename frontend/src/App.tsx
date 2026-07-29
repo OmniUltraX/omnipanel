@@ -39,6 +39,7 @@ import {
 } from "./lib/moduleWarmup";
 import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
+import { DataSyncWindow } from "./components/user/DataSyncWindow";
 import { UserCenterWindow } from "./components/user/UserCenterWindow";
 import { AuthProfileSync } from "./components/user/AuthProfileSync";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
@@ -665,6 +666,7 @@ function AppShell() {
       <CrossWindowDragVisualLayer />
       <SettingsWindow />
       <UserCenterWindow />
+      <DataSyncWindow />
       <AuthProfileSync />
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />

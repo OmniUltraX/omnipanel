@@ -4,6 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "sync:releases": "node scripts/sync-releases.mjs",
+    "predev": "node scripts/sync-releases.mjs",
+    "prebuild": "node scripts/sync-releases.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
