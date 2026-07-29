@@ -58,7 +58,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDefinition> = {
     "ai.agents.terminal.label",
     "ai.agents.terminal.description",
     // 完整专业提示词由后端 ~/.omnipd/prompts/agents/terminal.md 注入；此处仅作回退摘要。
-    "你是 OmniPanel 的「终端」运维 Agent（本地终端 + SSH）。主责：服务与健康检查、资源占用排查、环境安装与配置。先只读探测再变更，结论基于命令输出，高风险操作需确认；仅使用终端模块工具。",
+    "你是 OmniPanel 的「终端」运维 Agent（本地终端 + SSH）。主责：服务与健康检查、资源占用排查、环境安装与配置。先只读探测再变更，结论基于命令输出，高风险操作需确认；使用终端模块工具，多步骤任务用 omni_plan_* 展示进度。",
   ),
   database: moduleAgent(
     "database",

@@ -79,9 +79,6 @@ function TerminalAiThreadRuntime({ blockSlice, sessionId }: TerminalAiThreadRunt
     [blockSlice.thread, blockSlice.threadSignature, isRunning],
   );
 
-  // 让 markdown 解析 + 渲染走 transition：流式期间 messages 引用每帧都在变，
-  // useDeferredValue 把对 useExternalStoreRuntime 的更新降级，主线程不被打断。
-  // isRunning 保持非 deferred，stop/cancel 立即生效。
   const deferredMessages = useDeferredValue(messages);
 
   const toolFallback = useMemo<ToolCallMessagePartComponent>(
@@ -138,6 +135,7 @@ export function TerminalAiThreadView({
   dockedAutoScroll = false,
 }: TerminalAiThreadViewProps) {
   const threadRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   const selectThreadSignature = useCallback(
     (state: ReturnType<typeof useBlocksStore.getState>) => {
@@ -183,7 +181,7 @@ export function TerminalAiThreadView({
     };
   }, [blockId, threadSignature, status, aiStalled]);
 
-  useFollowOutputScroll(threadRef, {
+  useFollowOutputScroll(messagesRef, {
     enabled: dockedAutoScroll,
     contentSignature: threadSignature,
     settleFrames: 1,
@@ -193,7 +191,9 @@ export function TerminalAiThreadView({
 
   return (
     <div className="term-warp-ai-thread" ref={threadRef}>
-      <TerminalAiThreadRuntime blockSlice={blockSlice} sessionId={sessionId} />
+      <div className="term-warp-ai-thread__messages" ref={messagesRef}>
+        <TerminalAiThreadRuntime blockSlice={blockSlice} sessionId={sessionId} />
+      </div>
     </div>
   );
 }

@@ -47,8 +47,9 @@ pub use bg_task_history::BgTaskHistoryRecord;
 pub use task_events::{TaskEventFilter, TaskEventRecord};
 pub use builtin_tool::{BuiltinToolCatalogEntry, BuiltinToolRecord};
 pub use builtin_tool_spec::{
-    builtin_tool_is_native, builtin_tool_module_key, builtin_tool_omnimcp_backend,
-    builtin_tool_spec, BuiltinToolSpec, ToolExecKind, BUILTIN_TOOL_SPECS,
+    builtin_tool_is_cross_module, builtin_tool_is_native, builtin_tool_module_key,
+    builtin_tool_omnimcp_backend, builtin_tool_spec, BuiltinToolSpec, ToolExecKind,
+    BUILTIN_TOOL_SPECS,
 };
 pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES};
 pub use connection::{Connection, ConnectionKind};

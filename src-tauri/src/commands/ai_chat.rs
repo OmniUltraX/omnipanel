@@ -43,6 +43,9 @@ fn ensure_tool_allowed_by_module_filter(
     let Some(filter) = module_filter.filter(|f| !f.is_empty() && *f != "master") else {
         return Ok(());
     };
+    if omnipanel_store::builtin_tool_is_cross_module(tool_name) {
+        return Ok(());
+    }
     match omnipanel_store::builtin_tool_module_key(tool_name) {
         Some(key) if key == filter => Ok(()),
         Some(key) => Err(format!(

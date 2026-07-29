@@ -66,6 +66,9 @@ pub fn filter_tools_for_request(
                 if !is_available(name) {
                     return false;
                 }
+                if omnipanel_store::builtin_tool_is_cross_module(name) {
+                    return true;
+                }
                 let tool_module = omnipanel_store::builtin_tool_module_key(name)
                     .or_else(|| omni_tool_module_key(name));
                 tool_module == Some(module.as_str())
@@ -85,6 +88,9 @@ pub fn ensure_tool_allowed_for_module(
         ),
         OmniModuleScope::All => Ok(()),
         OmniModuleScope::Module(module) => {
+            if omnipanel_store::builtin_tool_is_cross_module(tool_name) {
+                return Ok(());
+            }
             let tool_module = omnipanel_store::builtin_tool_module_key(tool_name)
                 .or_else(|| omni_tool_module_key(tool_name))
                 .ok_or_else(|| {
@@ -140,6 +146,34 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("X-Omni-Module"));
+    }
+
+    #[test]
+    fn filter_allows_cross_module_plan_tools() {
+        let schema = std::sync::Arc::new(serde_json::Map::new());
+        let tools = vec![
+            Tool::new("omni_plan_create", "plan", schema.clone()),
+            Tool::new("omni_knowledge_save_todolist", "todo", schema.clone()),
+            Tool::new("omni_terminal_run_terminal_command", "term", schema),
+        ];
+        let filtered = filter_tools_for_request(
+            tools,
+            &OmniModuleScope::Module("terminal".to_string()),
+            |_| true,
+        );
+        let names: Vec<_> = filtered.iter().map(|t| t.name.as_ref()).collect();
+        assert!(names.contains(&"omni_plan_create"));
+        assert!(names.contains(&"omni_terminal_run_terminal_command"));
+        assert!(!names.contains(&"omni_knowledge_save_todolist"));
+    }
+
+    #[test]
+    fn ensure_allows_cross_module_plan_for_terminal() {
+        ensure_tool_allowed_for_module(
+            "omni_plan_create",
+            &OmniModuleScope::Module("terminal".to_string()),
+        )
+        .expect("omni_plan_create 应对终端模块开放");
     }
 
     #[test]

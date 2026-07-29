@@ -701,9 +701,10 @@ const TerminalAssistantMessage: FC = () => {
               case "tool-call":
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data": {
+                // 终端内联：plan 改由标题栏进度徽章悬浮展示，避免消息流内嵌大块 todolist
                 const planData = extractPlanFromDataPart(part as { type: string; data?: unknown });
                 if (planData) {
-                  return <PlanView planId={planData.id} snapshot={planData} />;
+                  return null;
                 }
                 const clusterData = extractClusterFromDataPart(part as { type: string; data?: unknown });
                 if (clusterData) {

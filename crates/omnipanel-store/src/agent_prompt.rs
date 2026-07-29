@@ -110,7 +110,12 @@ fn upgrade_legacy_agent_prompt_if_needed(
         // 旧版 TodoList / 无工具版计划提示词
         || (id == "plan"
             && (trimmed.starts_with("# OmniPanel · 聊天助手")
-                || trimmed.starts_with("# OmniPanel · 计划助手（TodoList）")));
+                || trimmed.starts_with("# OmniPanel · 计划助手（TodoList）")))
+        // 旧版终端提示词：有标准章节但未引导 omni_plan_*（仍是内置默认结构）
+        || (id == "terminal"
+            && trimmed.starts_with("# OmniPanel · 终端 Agent")
+            && trimmed.contains("## 命令与工具习惯")
+            && !trimmed.contains("omni_plan_create"));
     if !should_upgrade {
         return Ok(());
     }

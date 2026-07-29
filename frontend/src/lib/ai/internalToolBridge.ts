@@ -363,6 +363,7 @@ export async function dispatchPendingTool(options: {
       toolCallId: options.toolCallId,
       toolName: options.toolName,
       argsJson: options.argsJson,
+      inline: options.inline ?? null,
     });
   }
 
