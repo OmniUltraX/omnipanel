@@ -507,7 +507,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const columnAnchorRef = useRef<number | null>(null);
   const pendingDragRangeRef = useRef<CellRange | null>(null);
   const dragSelectionRafRef = useRef<number | null>(null);
-  const leafColumnsRef = useRef<{ id: string }[]>([]);
+  const leafColumnsRef = useRef<Array<{ id: string; getSize: () => number }>>([]);
   const tableRowCountRef = useRef(0);
   const columnWidthAtRef = useRef<(colIndex: number) => number>(() => 0);
   const transposedRef = useRef(false);

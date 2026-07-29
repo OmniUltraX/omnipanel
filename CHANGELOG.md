@@ -2,6 +2,35 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.6.7] - 2026-07-29
+
+### 新增
+
+- **官网（`website/`）**
+  - 首页整合下载区（OSS `latest.json` / `versions.json`，构建时镜像到 `public/releases/`）
+  - 产品截图展示、中英切换、跟随系统的亮/暗主题
+  - 联系区：企业邮箱 + 微信公众号二维码；修复 `gh_qrcode.jpg` 未打入静态资源导致 404
+- **侧栏 · 小程序入口**：头像上方手机图标，悬停 popover 预览、点击居中弹窗展示小程序码
+- **侧栏 · 用户菜单**：新增「访问官网」；设置项调整为菜单末项
+- **AI · Surfaces / Harness**
+  - 模块「问 AI」入口与建议 chips；Ask AI Composer
+  - Harness 清单 / digest / 经验语料骨架；设置页 Harness 库存面板
+  - 子会话集群取消传播与 child request context 对齐
+- **服务器 · 宝塔面板资源创建**
+  - 网站 / 数据库 / 证书 / 计划任务创建与网站编辑对话框
+  - 网站 / 数据库 / 证书 / Cron 列表操作与缓存刷新增强
+- **README**：补充 `docs/examples` 实机截图与官网 / Release 链接
+
+### 修复
+
+- **TypeScript**：`tsc -b` 通过（`TableDataGrid` 列宽 ref 类型、`TextInput` 只读字段、未使用 import）
+- **官网 Logo**：修正无效占位 PNG，保证产品标识正常显示
+
+### 变更
+
+- 发版脚本维护 OSS `versions.json`；官网下载页与 updater 清单同源
+- Agent 模块提示词（database / docker / files）与侧栏收起交互微调
+
 ## [0.6.6] - 2026-07-29
 
 ### 新增

@@ -12,7 +12,8 @@ import {
 export interface TextInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange" | "size"> {
   value: string;
-  onChange: (value: string) => void;
+  /** 只读展示时可省略（例如 disabled 的固定值字段） */
+  onChange?: (value: string) => void;
   /** 是否显示清空按钮，默认 true */
   clearable?: boolean;
   /** 是否显示复制按钮，默认 true */
@@ -51,7 +52,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
   const actionCount = (clearable ? 1 : 0) + (copyable ? 1 : 0);
 
   const handleClear = useCallback(() => {
-    if (disabled || !value) return;
+    if (disabled || !value || !onChange) return;
     onChange("");
   }, [disabled, onChange, value]);
 
@@ -89,7 +90,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
         className={controlClassName}
         value={value}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange?.(e.target.value)}
         style={{ width: "100%", ...style }}
       />
     );
@@ -106,7 +107,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
         className={className}
         value={value}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange?.(e.target.value)}
         style={{ width: "100%", ...style }}
       />
       <div className="input-field__actions">
