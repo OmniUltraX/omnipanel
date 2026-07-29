@@ -24,8 +24,8 @@ npm run preview
 ## 部署到 GitHub Pages
 
 1. 在仓库 **Settings → Pages** 中，Source 选择 **GitHub Actions**
-2. 推送 `website/` 目录变更到 `main` 分支，或手动运行 **Deploy Website** workflow
-3. 站点地址：`https://<org>.github.io/omnipanel/`
+2. 推送 `website/` 目录变更到 `master` 分支，或手动运行 **Deploy Website** workflow
+3. 站点地址：`https://omniultrax.github.io/omnipanel/`
 
 ### 自定义域名
 
@@ -44,13 +44,25 @@ env:
 GITHUB_PAGES_BASE=/ npm run build   # 根路径部署
 ```
 
+## 下载页
+
+- 路径：`download.html`（本地 `http://localhost:5173/omnipanel/download.html`）
+- 数据源（阿里云 OSS 公共读）：
+  - `…/omnipanel/releases/latest.json` — 最新版与平台下载地址
+  - `…/omnipanel/releases/versions.json` — 历史版本列表（发版脚本自动维护）
+- 首次引导索引：`node scripts/bootstrap-oss-versions.mjs`（需 `ALIYUN_OSS_*` 环境变量）
+
 ## 目录结构
 
 ```
 website/
-├── index.html          # 页面结构
+├── index.html          # 首页
+├── download.html       # 下载页
 ├── src/
-│   ├── main.ts         # 导航与链接逻辑
+│   ├── main.ts         # 首页入口
+│   ├── download.ts     # 下载页入口
+│   ├── releases.ts     # OSS 清单解析
+│   ├── site.ts         # 公共导航
 │   └── styles/main.css # 样式
 ├── public/
 │   ├── .nojekyll       # 禁用 Jekyll
