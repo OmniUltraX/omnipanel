@@ -26,6 +26,9 @@ import { AiDockResizeHandle } from "./AiDockResizeHandle";
 import { DEFAULT_AI_DOCK_HEIGHT } from "./terminalAiDock";
 import { useStickyAiBlockId } from "./useStickyAiBlockId";
 import { cancelInlineAiBlock } from "./warpInlineAi";
+import { extractLatestPlanSnapshot } from "./terminalAiPlan";
+import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
+import { TerminalAiPlanHoverBadge } from "./TerminalAiPlanHoverBadge";
 import { interruptShell } from "./terminalShellRecovery";
 import { useI18n } from "../../i18n";
 import { stripAutoLsSuffix } from "./terminalAutoLs";
@@ -513,20 +516,34 @@ function AiBlockSummary({
   onToggle: () => void;
   searchHighlightQuery?: string;
 }) {
+  const planSnapshot = extractLatestPlanSnapshot(block);
+  const planId = planSnapshot?.id ?? null;
+  const livePlan = useAiOrchestrationStore((s) =>
+    planId ? (s.plans[planId] ?? null) : null,
+  );
+  const plan = livePlan ?? planSnapshot;
+
   return (
-    <button
-      type="button"
+    <div
       className={`term-warp-block__summary${expanded ? " term-warp-block__summary--open" : ""}`}
-      onClick={onToggle}
     >
-      <span className="term-warp-ai-mark" aria-hidden>
-        AI
-      </span>
-      <AiStatusIcon block={block} />
-      <span className="term-warp-block__title">
-        <FeedSearchHighlightText text={blockTitle(block)} query={searchHighlightQuery} />
-      </span>
-    </button>
+      <button
+        type="button"
+        className="term-warp-block__summary-toggle"
+        onClick={onToggle}
+      >
+        <span className="term-warp-ai-mark" aria-hidden>
+          AI
+        </span>
+        <AiStatusIcon block={block} />
+        <span className="term-warp-block__title">
+          <FeedSearchHighlightText text={blockTitle(block)} query={searchHighlightQuery} />
+        </span>
+      </button>
+      {plan && plan.steps.length > 0 ? (
+        <TerminalAiPlanHoverBadge blockId={block.id} plan={plan} />
+      ) : null}
+    </div>
   );
 }
 

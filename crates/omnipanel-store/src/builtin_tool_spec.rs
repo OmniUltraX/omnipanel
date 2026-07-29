@@ -1083,6 +1083,17 @@ pub fn builtin_tool_module_key(tool_name: &str) -> Option<&'static str> {
     builtin_tool_spec(tool_name).map(|s| s.module_key)
 }
 
+/// 会话级进度工具（`omni_plan_*`）：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
+///
+/// 模块 Agent（terminal / docker / database…）做多步骤任务时需要在会话顶部展示 todolist；
+/// 若严格按 `module_key` 隔离，这些工具永远不会注入，模型也就无法调用。
+pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "omni_plan_create" | "omni_plan_add_step" | "omni_plan_update_step"
+    )
+}
+
 /// 工具是否为后端直执（Native）。未知工具视为非 Native。
 pub fn builtin_tool_is_native(tool_name: &str) -> bool {
     builtin_tool_spec(tool_name).is_some_and(|s| s.exec_kind == ToolExecKind::Native)
@@ -1136,6 +1147,21 @@ mod tests {
             builtin_tool_module_key("omni_ssh_list_connections"),
             Some("terminal")
         );
+    }
+
+    #[test]
+    fn plan_tools_are_cross_module_web() {
+        for name in [
+            "omni_plan_create",
+            "omni_plan_add_step",
+            "omni_plan_update_step",
+        ] {
+            assert_eq!(builtin_tool_module_key(name), Some("web"), "{name}");
+            assert!(builtin_tool_is_cross_module(name), "{name}");
+            assert!(!builtin_tool_is_native(name), "{name}");
+        }
+        assert!(!builtin_tool_is_cross_module("omni_knowledge_save_todolist"));
+        assert!(!builtin_tool_is_cross_module("load_skill"));
     }
 
     #[test]

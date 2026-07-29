@@ -1911,11 +1911,149 @@
     .term-warp-block--ai.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread {
         flex: 1 1 auto;
         min-height: 0;
-        overflow-y: auto;
-        overflow-x: auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
         overflow-anchor: none;
         scroll-behavior: auto;
         padding: 0 4px 8px;
+    }
+
+    .term-warp-block--ai-sticky.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread__messages,
+    .term-warp-block--ai.term-warp-block--expanded.term-warp-block--ai-sticky-docked .term-warp-ai-thread__messages {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: auto;
+    }
+
+    .term-warp-block__summary-toggle {
+        display: flex;
+        align-items: center;
+        gap: inherit;
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+    }
+
+    .term-warp-ai-plan-progress {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: 2px;
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: min(260px, 46%);
+        padding: 1px 8px;
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+        font-family: inherit;
+        line-height: 1.4;
+        color: var(--accent);
+        cursor: pointer;
+        transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+
+    .term-warp-ai-plan-progress__dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: currentColor;
+        animation: term-warp-ai-plan-pulse 1.2s ease-in-out infinite;
+    }
+
+    .term-warp-ai-plan-progress__count {
+        flex-shrink: 0;
+        font-weight: 600;
+    }
+
+    .term-warp-ai-plan-progress__sep {
+        flex-shrink: 0;
+        opacity: 0.65;
+    }
+
+    .term-warp-ai-plan-progress__detail {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .term-warp-ai-plan-progress--completed {
+        color: var(--success, #3ecf8e);
+        border-color: color-mix(in srgb, var(--success, #3ecf8e) 35%, transparent);
+        background: color-mix(in srgb, var(--success, #3ecf8e) 12%, transparent);
+    }
+
+    .term-warp-ai-plan-progress--failed {
+        color: var(--destructive, #f07178);
+        border-color: color-mix(in srgb, var(--destructive, #f07178) 35%, transparent);
+        background: color-mix(in srgb, var(--destructive, #f07178) 12%, transparent);
+    }
+
+    .term-warp-ai-plan-progress--cancelled {
+        color: var(--fg-2, #9a9590);
+        border-color: color-mix(in srgb, var(--fg-2, #9a9590) 30%, transparent);
+        background: color-mix(in srgb, var(--fg-2, #9a9590) 10%, transparent);
+    }
+
+    .term-warp-ai-plan-progress:hover,
+    .term-warp-ai-plan-progress.is-open {
+        filter: brightness(1.08);
+        border-color: color-mix(in srgb, currentColor 55%, transparent);
+    }
+
+    @keyframes term-warp-ai-plan-pulse {
+        0%,
+        100% {
+            opacity: 0.45;
+        }
+        50% {
+            opacity: 1;
+        }
+    }
+
+    .term-warp-ai-plan-popover {
+        position: fixed;
+        z-index: 80;
+        width: min(420px, calc(100vw - 24px));
+        max-height: min(360px, 50vh);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        border-radius: 8px;
+        box-shadow:
+            0 8px 28px color-mix(in srgb, #000 38%, transparent),
+            0 0 0 1px color-mix(in srgb, var(--border) 80%, transparent);
+        opacity: 0;
+        transform: translateY(-2px);
+        pointer-events: none;
+        transition: opacity 0.12s ease, transform 0.12s ease;
+    }
+
+    .term-warp-ai-plan-popover.is-ready {
+        opacity: 1;
+        transform: none;
+        pointer-events: auto;
+    }
+
+    .term-warp-ai-plan-popover [data-slot="ai-plan-view"] {
+        margin: 0;
+        max-height: min(360px, 50vh);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
     }
 
     .term-warp-sticky-segment {

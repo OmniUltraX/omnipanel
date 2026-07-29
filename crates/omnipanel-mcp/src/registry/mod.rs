@@ -70,8 +70,12 @@ impl ToolRegistry {
         let mut tools = Vec::new();
         for record in records {
             if let Some(filter) = module_filter {
-                // master: 不过滤；其余严格按 module_key 隔离（Native / UiDelegated 一视同仁）。
-                if filter != "master" && record.module_key != filter {
+                // master: 不过滤；其余按 module_key 隔离（Native / UiDelegated 一视同仁）。
+                // omni_plan_* 为跨模块会话进度工具：catalog 属 web，但对所有模块 Agent 注入。
+                if filter != "master"
+                    && record.module_key != filter
+                    && !omnipanel_store::builtin_tool_is_cross_module(&record.tool_name)
+                {
                     continue;
                 }
             }
@@ -245,6 +249,11 @@ mod tests {
             .any(|t| t.name == "omni_terminal_run_terminal_command"));
         assert!(!tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"));
         assert!(!tools.iter().any(|t| t.name == "load_skill"));
-        assert!(tools.iter().all(|t| t.module_key == "terminal"));
+        // 会话级 plan 对模块 Agent 开放（跨模块），其余须为 terminal
+        assert!(tools.iter().any(|t| t.name == "omni_plan_create"));
+        assert!(tools.iter().any(|t| t.name == "omni_plan_update_step"));
+        assert!(tools.iter().all(|t| {
+            t.module_key == "terminal" || omnipanel_store::builtin_tool_is_cross_module(&t.name)
+        }));
     }
 }
