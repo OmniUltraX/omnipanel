@@ -5556,6 +5556,110 @@ a {
     flex: 1;
 }
 
+.sidebar-miniapp-popover {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    pointer-events: auto;
+}
+
+.sidebar-miniapp-popover__title {
+    margin: 0;
+    width: 100%;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    text-align: center;
+}
+
+.sidebar-miniapp-popover__hint {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--muted);
+    text-align: center;
+}
+
+.sidebar-miniapp-popover__qr {
+    width: 160px;
+    height: 160px;
+    object-fit: contain;
+    border-radius: var(--r-sm);
+    background: #fff;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.sidebar-miniapp-dialog {
+    width: min(320px, 90vw);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.sidebar-miniapp-dialog__header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+}
+
+.sidebar-miniapp-dialog__header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.sidebar-miniapp-dialog__close {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+}
+
+.sidebar-miniapp-dialog__close:hover {
+    background: var(--surface);
+    color: var(--fg);
+}
+
+.sidebar-miniapp-dialog__hint {
+    margin: 0;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.sidebar-miniapp-dialog__qr {
+    width: 220px;
+    height: 220px;
+    object-fit: contain;
+    border-radius: var(--r-md);
+    background: #fff;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
 .sidebar-user-btn {
     overflow: hidden;
 }

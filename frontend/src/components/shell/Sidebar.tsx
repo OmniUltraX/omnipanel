@@ -13,6 +13,7 @@ import { isOverlayModulePath } from "../../lib/routePanels";
 import { scheduleNavHoverWarm } from "../../lib/moduleWarmup";
 import { isModulePathEnabled, useAppModuleStore } from "../../stores/appModuleStore";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
+import { SidebarMiniappButton } from "./SidebarMiniappButton";
 import { SidebarUserButton } from "./SidebarUserButton";
 
 const navPaths = [
@@ -196,6 +197,7 @@ export function Sidebar() {
 
       <div className="sidebar-spacer" />
 
+      <SidebarMiniappButton />
       <SidebarUserButton />
     </aside>
   );

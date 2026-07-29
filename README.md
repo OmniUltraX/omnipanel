@@ -3,19 +3,19 @@
     <source media="(prefers-color-scheme: dark)" srcset="logo/omni.png">
     <img src="logo/omni.png" alt="OmniPanel" width="96" height="96">
   </picture>
-  <h1 align="center" style="font-family: 'Berkeley Mono', 'IBM Plex Mono', ui-monospace, monospace; font-weight: 700; letter-spacing: -0.02em;">OmniPanel</h1>
-  <p align="center" style="font-family: 'Berkeley Mono', 'IBM Plex Mono', ui-monospace, monospace; font-size: 16px; color: #6e6e73;">
+  <h1 align="center">OmniPanel</h1>
+  <p align="center">
     AI-Native Cross-Platform Engineering Workstation
     <br>
     AI 原生跨平台运维工作站
   </p>
   <p align="center">
-    <a href="https://github.com/anomalyco/omnipanel"><img src="https://img.shields.io/badge/status-pre--implementation-yellow?style=flat-square&color=ff9f0a" alt="Status"></a>
-    <a href="https://github.com/anomalyco/omnipanel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
+    <a href="https://omniultrax.github.io/omnipanel/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
+    <a href="https://github.com/OmniUltraX/omnipanel/releases"><img src="https://img.shields.io/github/v/release/OmniUltraX/omnipanel?style=flat-square&color=007aff" alt="Release"></a>
+    <a href="https://github.com/OmniUltraX/omnipanel/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
     <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.85+-orange?style=flat-square&color=ff5f57" alt="Rust"></a>
     <a href="https://tauri.app"><img src="https://img.shields.io/badge/tauri-2.x-ffc131?style=flat-square" alt="Tauri"></a>
   </p>
-  <br>
 </div>
 
 ---
@@ -26,29 +26,44 @@
 
 > One window to manage servers, databases, containers, and workflows. One AI that understands your entire engineering context.
 
+**Website:** [https://omniultrax.github.io/omnipanel/](https://omniultrax.github.io/omnipanel/) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
+
+### 📸 Screenshots
+
+SSH host overview with live CPU / memory / disk metrics and the built-in AI assistant side by side:
+
+![OmniPanel SSH — resource monitoring](docs/examples/OmniTerminal.png)
+
+Remote Docker hosts over SSH: container table, resource usage, logs and one-click shell:
+
+![OmniPanel Docker — container orchestration](docs/examples/OmniDocker.png)
+
+AI Agent inspection report — structured health checks grounded in live container and host context:
+
+![OmniPanel AI Agent — service inspection report](docs/examples/OmniAgentTerminal.png)
+
 ### ✨ Key Features
 
 | Module | Description |
 |--------|-------------|
-| **Terminal** | GPU-accelerated rendering (wgpu), multi-tab & split panes, Blocks output grouping, VT100/VT220 98%+ compatibility |
-| **SSH / SFTP** | Connection manager, visual file transfer, port forwarding, jump hosts (ProxyJump), batch command execution |
-| **Database** | SQL editor with syntax highlighting, virtual-scroll grid for millions of rows, NL2SQL, ER diagrams, data sync |
-| **Docker** | Container lifecycle, real-time logs, one-click shell access, Compose orchestration, service topology |
-| **Server** | Real-time system monitor, remote file management, process/service management, Baota & 1Panel API integration |
-| **Protocol Lab** | HTTP/API debugger, WebSocket, MQTT, serial port — all in one workspace |
-| **AI Assistant** | Context-aware (reads terminal output, DB schema, container state, logs), operation chain orchestration, multi-model support (Claude, GPT, Ollama, local CLI agents) |
-| **Workflow** | Command templates, deployment pipelines, runbooks, parameterized execution with full audit trail |
+| **Terminal** | Multi-tab & split panes, Blocks output grouping, VT100/VT220 compatibility |
+| **SSH / SFTP** | Connection manager, visual file transfer, tunnels, jump hosts, batch commands |
+| **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools, multi-engine support |
+| **Docker** | Local / remote Engine / SSH host / 1Panel — containers, images, Compose, networks, volumes |
+| **Server** | Live system monitor, remote files, process/service management, panel integrations |
+| **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |
+| **AI Assistant** | Context-aware ops (terminal, schema, containers, logs), Plans, Skills, multi-model |
+| **Workflow / Tasks** | Templates, runbooks, task center, auditable execution |
 
 ### 🛠️ Tech Stack
 
 ```
-UI Layer      │  Tauri (React/TypeScript + Rust backend)
-Terminal Core │  alacritty_terminal
-GPU Render    │  wgpu (Vulkan / Metal / DX12)
-SSH           │  russh
+UI Layer      │  Tauri 2 (React / TypeScript + Rust backend)
+Terminal      │  xterm.js (frontend) · portable-pty / ConPTY
+SSH           │  russh + russh-sftp
 Database      │  sqlx | tiberius | redis-rs | mongodb
 Docker        │  bollard
-AI            │  rig | async-openai | Ollama | CLI Agent Adapter
+AI            │  rig | async-openai | Ollama | CLI Agent adapter
 Storage       │  rusqlite / SQLCipher | keyring-core
 ```
 
@@ -56,62 +71,33 @@ Storage       │  rusqlite / SQLCipher | keyring-core
 
 ```bash
 # Prerequisites: Rust 1.85+, Node.js 20+
-git clone https://github.com/anomalyco/omnipanel.git
+git clone https://github.com/OmniUltraX/omnipanel.git
 cd omnipanel
 
-# Build the Rust workspace
-cargo build
+# Frontend deps
+cd frontend && npm install && cd ..
 
-# Run the Tauri desktop app
-cd src-tauri && cargo run
+# Dev (Tauri + Vite)
+cd frontend && npm run tauri dev
 
-# Or run the frontend dev server
-cd frontend && npm install && npm run dev
+# Or frontend only
+cd frontend && npm run dev
 ```
 
 ### 📁 Project Structure
 
 ```
 omnipanel/
-├── src-tauri/                  # Tauri desktop shell (Rust)
-│   ├── src/commands/           # IPC commands (updater, window, etc.)
-│   └── capabilities/           # Tauri permissions
-├── frontend/                   # React/TypeScript UI
-│   └── src/
-│       ├── components/         # UI components
-│       │   ├── panels/         # Module panels
-│       │   ├── shell/          # App shell (Sidebar, Topbar, etc.)
-│       │   └── ui/             # Shared UI primitives
-│       └── store/              # State management (Zustand)
-├── crates/
-│   ├── omnipanel-core/         # Core engine (terminal, SSH, DB, Docker, AI)
-│   ├── omnipanel-ui/           # egui-based UI (legacy, Phase 2)
-│   └── omnipanel-renderer/     # GPU rendering (wgpu glyph cache, terminal pass)
-├── design/                     # Visual design prototypes (HTML/CSS)
-├── logo/                       # Application icons
-└── PRD.md                      # Product requirements document
+├── src-tauri/           # Tauri desktop shell (Rust commands, plugins)
+├── frontend/            # React / TypeScript UI
+├── crates/              # Shared Rust libraries
+├── website/             # Product site (GitHub Pages)
+├── docs/
+│   ├── examples/        # Product screenshots used in README / website
+│   └── module-plans/    # Module design notes
+├── logo/                # Application icons
+└── CHANGELOG.md
 ```
-
-### 🗺️ Development Roadmap
-
-| Phase | Scope | Timeline |
-|-------|-------|----------|
-| **1** | MVP: GPU terminal + SSH client + basic AI | Month 1-4 |
-| **2** | Database management (MySQL, PostgreSQL) | Month 5-7 |
-| **3** | Docker + server management + panel integration | Month 8-10 |
-| **4** | Blocks terminal, workflows, protocol debugging, AI agent chains | Month 11-13 |
-| **5** | Polish and release v1.0 | Month 14-15 |
-
-### 🎯 Performance Targets
-
-| Metric | Target |
-|--------|--------|
-| Terminal throughput | > 500 MB/s (`cat` large files) |
-| Input latency | < 5ms (keystroke to screen) |
-| Memory per terminal tab | < 20 MB |
-| VT emulation compatibility | > 98% (VT100/VT220) |
-| Cold start time | < 500ms |
-| Idle memory | < 50 MB |
 
 ### 🖥️ Cross-Platform Support
 
@@ -119,39 +105,54 @@ omnipanel/
 |----------|-------------|-------|
 | Windows 10+ | ConPTY | Native Windows terminal |
 | macOS 12+ | POSIX PTY | Retina display support |
-| Linux (Ubuntu 20.04+, Fedora 36+) | POSIX PTY | Wayland & X11 |
+| Linux | POSIX PTY | Wayland & X11 |
 
 ---
 
 ## 🇨🇳 中文
 
-**OmniPanel** 是一个 AI 原生的跨平台个人工程工作台，为开发者而设计。它将终端、SSH、数据库、Docker、服务器管理、协议调试和 AI 辅助集成为一个桌面应用 —— 告别工具频繁切换，专注于真正重要的工作。
+**OmniPanel** 是一个 AI 原生的跨平台个人工程工作台。它将终端、SSH、数据库、Docker、服务器管理、协议调试和 AI 辅助集成为一个桌面应用 —— 告别工具频繁切换，专注真正重要的工作。
 
 > 一个窗口，管理服务器、数据库、容器与工作流；一个 AI，贯穿开发运维上下文。
+
+**官网：** [https://omniultrax.github.io/omnipanel/](https://omniultrax.github.io/omnipanel/) · **安装包：** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
+
+### 📸 界面预览
+
+SSH 主机概览：CPU / 内存 / 磁盘实时监控，右侧 AI 助手同屏协作：
+
+![OmniPanel SSH · 资源监控](docs/examples/OmniTerminal.png)
+
+远程 Docker（SSH 宿主机）：容器列表、资源占用、日志与一键进入 Shell：
+
+![OmniPanel Docker · 容器编排](docs/examples/OmniDocker.png)
+
+AI Agent 服务巡检：基于真实容器与主机上下文生成结构化健康报告：
+
+![OmniPanel AI Agent · 服务巡检报告](docs/examples/OmniAgentTerminal.png)
 
 ### ✨ 核心模块
 
 | 模块 | 说明 |
 |------|------|
-| **终端** | GPU 加速渲染 (wgpu)，多标签分屏，Blocks 输出分组，VT100/VT220 98%+ 兼容率 |
-| **SSH / SFTP** | 连接管理器，可视化文件传输，端口转发，跳板机 (ProxyJump)，批量命令执行 |
-| **数据库** | SQL 语法高亮编辑器，百万行虚拟滚动网格，自然语言转 SQL，ER 图，数据同步 |
-| **Docker** | 容器生命周期管理，实时日志流，一键进入 Shell，Compose 编排，服务拓扑图 |
-| **服务器管理** | 实时系统监控，远程文件管理，进程/服务管理，宝塔 & 1Panel 面板 API 集成 |
-| **协议调试** | HTTP/API 调试器，WebSocket，MQTT，串口 —— 统一工作区 |
-| **AI 助手** | 上下文感知（读取终端输出、数据库结构、容器状态、日志），操作链编排，多模型支持 (Claude, GPT, Ollama, 本地 CLI Agent) |
-| **工作流** | 命令模板，部署流水线，排障手册，参数化执行，完整审计记录 |
+| **终端** | 多标签分屏，Blocks 输出分组，VT100/VT220 高兼容 |
+| **SSH / SFTP** | 连接管理、可视化传文件、隧道、跳板机、批量命令 |
+| **数据库** | SQL 编辑器、虚拟滚动网格、NL2SQL、多引擎支持 |
+| **Docker** | 本地 / 远程 Engine / SSH 宿主机 / 1Panel — 容器、镜像、Compose、网络、卷 |
+| **服务器管理** | 实时监控、远程文件、进程/服务、面板集成 |
+| **协议调试** | HTTP/API、WebSocket、MQTT、串口 —— 统一工作区 |
+| **AI 助手** | 上下文感知运维（终端、库表、容器、日志），Plan / Skills，多模型 |
+| **工作流 / 任务** | 模板、排障手册、任务中心、可审计执行 |
 
 ### 🛠️ 技术栈
 
 ```
-UI 层        │  Tauri (React/TypeScript + Rust 后端)
-终端核心     │  alacritty_terminal
-GPU 渲染     │  wgpu (Vulkan / Metal / DX12)
-SSH          │  russh
+UI 层        │  Tauri 2（React / TypeScript + Rust 后端）
+终端         │  xterm.js（前端）· portable-pty / ConPTY
+SSH          │  russh + russh-sftp
 数据库       │  sqlx | tiberius | redis-rs | mongodb
 Docker       │  bollard
-AI           │  rig | async-openai | Ollama | CLI Agent Adapter
+AI           │  rig | async-openai | Ollama | CLI Agent 适配
 存储         │  rusqlite / SQLCipher | keyring-core
 ```
 
@@ -159,93 +160,60 @@ AI           │  rig | async-openai | Ollama | CLI Agent Adapter
 
 ```bash
 # 前置要求: Rust 1.85+, Node.js 20+
-git clone https://github.com/anomalyco/omnipanel.git
+git clone https://github.com/OmniUltraX/omnipanel.git
 cd omnipanel
 
-# 构建 Rust 工作区
-cargo build
+# 安装前端依赖
+cd frontend && npm install && cd ..
 
-# 运行 Tauri 桌面应用
-cd src-tauri && cargo run
+# 开发模式（Tauri + Vite）
+cd frontend && npm run tauri dev
 
-# 或单独运行前端开发服务器
-cd frontend && npm install && npm run dev
+# 或仅启动前端
+cd frontend && npm run dev
 ```
 
 ### 📁 项目结构
 
 ```
 omnipanel/
-├── src-tauri/                  # Tauri 桌面壳层 (Rust)
-│   ├── src/commands/           # IPC 命令（更新器、窗口管理等）
-│   └── capabilities/           # Tauri 权限配置
-├── frontend/                   # React/TypeScript UI
-│   └── src/
-│       ├── components/         # UI 组件
-│       │   ├── panels/         # 功能面板
-│       │   ├── shell/          # 应用壳层（侧栏、顶栏等）
-│       │   └── ui/             # 共享 UI 原语
-│       └── store/              # 状态管理 (Zustand)
-├── crates/
-│   ├── omnipanel-core/         # 核心引擎（终端、SSH、数据库、Docker、AI）
-│   ├── omnipanel-ui/           # egui 基础 UI（旧版，Phase 2 过渡）
-│   └── omnipanel-renderer/     # GPU 渲染（wgpu 字形缓存、终端管线）
-├── design/                     # 视觉设计原型 (HTML/CSS)
-├── logo/                       # 应用图标
-└── PRD.md                      # 产品需求文档
+├── src-tauri/           # Tauri 桌面壳层（Rust 命令、插件）
+├── frontend/            # React / TypeScript UI
+├── crates/              # 共享 Rust 库
+├── website/             # 产品官网（GitHub Pages）
+├── docs/
+│   ├── examples/        # 产品截图（README / 官网复用）
+│   └── module-plans/    # 模块设计说明
+├── logo/                # 应用图标
+└── CHANGELOG.md
 ```
-
-### 🗺️ 开发路线图
-
-| 阶段 | 范围 | 时间 |
-|------|------|------|
-| **1** | MVP: GPU 终端 + SSH 客户端 + 基础 AI | 第 1-4 月 |
-| **2** | 数据库管理 (MySQL, PostgreSQL) | 第 5-7 月 |
-| **3** | Docker + 服务器管理 + 面板集成 | 第 8-10 月 |
-| **4** | Blocks 终端、工作流、协议调试、AI Agent 链 | 第 11-13 月 |
-| **5** | 打磨优化，发布 v1.0 | 第 14-15 月 |
-
-### 🎯 性能目标
-
-| 指标 | 目标 |
-|------|------|
-| 终端吞吐量 | > 500 MB/s（`cat` 大文件） |
-| 输入延迟 | < 5ms（按键到屏幕） |
-| 单终端标签内存 | < 20 MB |
-| VT 仿真兼容率 | > 98%（VT100/VT220） |
-| 冷启动时间 | < 500ms |
-| 空载内存 | < 50 MB |
 
 ### 🖥️ 跨平台支持
 
 | 平台 | PTY 后端 | 说明 |
 |------|----------|------|
 | Windows 10+ | ConPTY | 原生 Windows 终端 |
-| macOS 12+ | POSIX PTY | 支持 Retina 显示屏 |
-| Linux (Ubuntu 20.04+, Fedora 36+) | POSIX PTY | 支持 Wayland & X11 |
+| macOS 12+ | POSIX PTY | 支持 Retina |
+| Linux | POSIX PTY | Wayland & X11 |
 
 ### 🤖 AI 三条能力线
 
-OmniPanel AI 架构分为三条**相互独立**的能力线：
-
 | 能力线 | 入口 | 用途 |
 |--------|------|------|
-| **InternalOrchestrator** | Tauri IPC `ai_chat_stream` | 内置 UI：HTTP/ACP 多 backend、直接注入 `omni_*` 工具、终端审批 |
-| **Agent Router** | `http://127.0.0.1:8765/v1/*` | 纯 LLM 路由（OpenAI 兼容 SSE），供 curl / 外部脚本，**零 MCP 耦合** |
-| **OmniMCP** | `http://127.0.0.1:12756/mcp` | Cursor / Claude Code 等外部 Agent 接入 DevOps 工具 |
+| **InternalOrchestrator** | Tauri IPC `ai_chat_stream` | 内置 UI：多 backend、`omni_*` 工具、终端审批 |
+| **Agent Router** | `http://127.0.0.1:8765/v1/*` | 纯 LLM 路由（OpenAI 兼容 SSE），零 MCP 耦合 |
+| **OmniMCP** | `http://127.0.0.1:12756/mcp` | Cursor / Claude Code 等外部 Agent 接入 |
 
-内置对话走 InternalOrchestrator + ToolRegistry 直注入，不绕 MCP HTTP。Trace 按 `internal` / `gateway` / `mcp_external` 三分源持久化，可在 **设置 → Agent → AI 服务 → Trace 分析** 查看。
+详情与版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
 ## 📄 License
 
-MIT © 2026 [anomalyco](https://github.com/anomalyco)
+MIT © 2026 [OmniUltraX](https://github.com/OmniUltraX)
 
 ---
 
 <div align="center">
-  <p style="font-family: 'Berkeley Mono', 'IBM Plex Mono', ui-monospace, monospace; color: #6e6e73; font-size: 13px;">
-    All in One · 小而全而优而美
-  </p>
+  <p>All in One · 小而全而优而美</p>
 </div>

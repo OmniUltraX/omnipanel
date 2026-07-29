@@ -665,6 +665,11 @@ export const zhCN = {
       userCenter: "用户中心",
       ai: "AI 助手",
     },
+    miniapp: {
+      title: "微信小程序",
+      hint: "使用微信扫一扫打开 OmniPanel 小程序",
+      qrAlt: "微信小程序码",
+    },
     topbar: {
       aiAssistant: "AI 助手 ({shortcut})",
       notifications: "通知",
@@ -6199,6 +6204,7 @@ export const zhCN = {
       account: "个人中心",
       subscription: "订阅管理",
       devices: "设备管理",
+      website: "访问官网",
     },
     login: {
       title: "微信扫码登录",

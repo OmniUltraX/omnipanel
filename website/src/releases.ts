@@ -1,5 +1,7 @@
 /** OSS 发版清单（与 scripts/publish-updater-to-aliyun-oss.mjs 约定一致） */
 
+import { t } from "./i18n";
+
 export const OSS_RELEASES_BASE =
   "https://omnipanel.oss-cn-beijing.aliyuncs.com/omnipanel/releases";
 
@@ -55,16 +57,16 @@ export type DownloadItem = {
   preferred: boolean;
 };
 
-const PLATFORM_META: Record<string, { label: string; hint: string; order: number }> = {
-  "windows-x86_64-nsis": { label: "Windows", hint: "NSIS 安装包 · x64", order: 10 },
-  "windows-x86_64": { label: "Windows", hint: "安装包 · x64", order: 11 },
-  "windows-x86_64-msi": { label: "Windows MSI", hint: "企业部署 · x64", order: 20 },
-  "darwin-aarch64": { label: "macOS", hint: "Apple Silicon", order: 30 },
-  "darwin-aarch64-app": { label: "macOS", hint: "Apple Silicon · app.tar.gz", order: 31 },
-  "darwin-x86_64": { label: "macOS", hint: "Intel", order: 40 },
-  "darwin-x86_64-app": { label: "macOS", hint: "Intel · app.tar.gz", order: 41 },
-  "linux-x86_64": { label: "Linux", hint: "x86_64", order: 50 },
-  "linux-aarch64": { label: "Linux", hint: "ARM64", order: 60 },
+const PLATFORM_META: Record<string, { labelKey: string; hintKey: string; order: number }> = {
+  "windows-x86_64-nsis": { labelKey: "plat.win", hintKey: "plat.winHint", order: 10 },
+  "windows-x86_64": { labelKey: "plat.win", hintKey: "plat.winHintAlt", order: 11 },
+  "windows-x86_64-msi": { labelKey: "plat.msi", hintKey: "plat.msiHint", order: 20 },
+  "darwin-aarch64": { labelKey: "plat.mac", hintKey: "plat.macArm", order: 30 },
+  "darwin-aarch64-app": { labelKey: "plat.mac", hintKey: "plat.macArmApp", order: 31 },
+  "darwin-x86_64": { labelKey: "plat.mac", hintKey: "plat.macIntel", order: 40 },
+  "darwin-x86_64-app": { labelKey: "plat.mac", hintKey: "plat.macIntelApp", order: 41 },
+  "linux-x86_64": { labelKey: "plat.linux", hintKey: "plat.linuxX64", order: 50 },
+  "linux-aarch64": { labelKey: "plat.linux", hintKey: "plat.linuxArm", order: 60 },
 };
 
 /** 同一文件只展示一次；优先保留更具体的 platform key */
@@ -111,16 +113,12 @@ export function buildDownloadItems(
     const skipSibling = SKIP_IF_SAME_URL_AS[key];
     if (skipSibling && platforms[skipSibling]?.url === asset.url) continue;
 
-    const meta = PLATFORM_META[key] ?? {
-      label: key,
-      hint: "安装包",
-      order: 100,
-    };
+    const meta = PLATFORM_META[key];
 
     items.push({
       id: key,
-      label: meta.label,
-      hint: meta.hint,
+      label: meta ? t(meta.labelKey) : key,
+      hint: meta ? t(meta.hintKey) : t("plat.generic"),
       url: asset.url,
       filename: filenameFromUrl(asset.url),
       preferred: isPreferredForOs(key, os),

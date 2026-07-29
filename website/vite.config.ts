@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 /** GitHub Pages 项目站路径，如 https://omniultrax.github.io/omnipanel/ */
@@ -10,11 +9,5 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, "index.html"),
-        download: resolve(__dirname, "download.html"),
-      },
-    },
   },
 });

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../i18n";
 import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
 import { useDataSyncUiStore } from "../../stores/dataSyncUiStore";
@@ -20,12 +21,15 @@ import { useUserProfileStore } from "../../stores/userProfileStore";
 import {
   IconCheckCircle,
   IconDownload,
+  IconGlobe,
   IconMonitor,
   IconSettings,
   IconUser,
 } from "../ui/icons/Icons";
 
-type MenuAction = UserCenterPage | "settings" | "dataSync";
+const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
+
+type MenuAction = UserCenterPage | "settings" | "dataSync" | "website";
 
 function isMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -105,6 +109,10 @@ export function SidebarUserButton() {
       openDataSync();
       return;
     }
+    if (action === "website") {
+      void openExternal(WEBSITE_URL);
+      return;
+    }
     openUserCenter(action);
   };
 
@@ -133,6 +141,11 @@ export function SidebarUserButton() {
           },
         ]
       : []),
+    {
+      id: "website",
+      label: t("userCenter.nav.website"),
+      icon: <IconGlobe size={14} />,
+    },
     {
       id: "settings",
       label: t("shell.nav.settings"),
