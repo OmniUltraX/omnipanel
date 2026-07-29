@@ -154,7 +154,7 @@ const GLOBAL_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
   {
     name: "omni_knowledge_save_todolist",
     description:
-      "将待办列表持久化保存到知识库。仅在用户明确要求「保存到知识库」「落库」时使用；执行任务的实时进度跟踪请用 omni_plan_create。",
+      "将个人待办列表写入任务中心「我的待办」。仅当用户明确要求「记待办」「写到任务中心待办」时使用；制定执行计划请用 omni_knowledge_create_document；执行中进度跟踪请用 omni_plan_create。",
     inputSchema: { type: "object", properties: {} },
     handler: async () => {
       throw new Error("请通过 OmniMCP 内置服务调用");

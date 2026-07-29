@@ -4,8 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_store::{
     list_all_skill_records, load_database_connections, load_skill_body, load_skill_record,
     parse_skill_md, skill_file_path, write_skill, ConnectionKind, HttpProxyConfig, KnowledgeEntry,
-    KnowledgeTodoItem, KnowledgeTodoList, ResourceObservation, SkillApplication, SkillDbRecord,
-    SkillFrontmatter, Storage, TagSource, TaggableKind,
+    ResourceObservation, SkillApplication, SkillDbRecord, SkillFrontmatter, Storage, TagSource,
+    TaggableKind, TodoList, TodoTask,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -1313,7 +1313,7 @@ async fn create_todolist(
     if title.is_empty() {
         return Err("title 不能为空".to_string());
     }
-    let description = arguments
+    let list_description = arguments
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -1333,7 +1333,31 @@ async fn create_todolist(
         .unwrap_or_default()
         .as_millis() as i64;
 
-    let mut items = Vec::with_capacity(items_val.len());
+    let storage = storage.lock().await;
+    storage
+        .ensure_todo_schema_data()
+        .map_err(|e| e.to_string())?;
+    let existing = storage.list_todo_lists().map_err(|e| e.to_string())?;
+    let sort_order = existing
+        .iter()
+        .map(|l| l.sort_order)
+        .max()
+        .unwrap_or(-1)
+        + 1;
+
+    let list_id = format!("todo_list_{now}");
+    storage
+        .save_todo_list(&TodoList {
+            id: list_id.clone(),
+            title: title.clone(),
+            is_default: false,
+            sort_order,
+            created_at: now,
+            updated_at: now,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut task_count = 0usize;
     for (idx, raw) in items_val.iter().enumerate() {
         let name = raw
             .get("name")
@@ -1351,61 +1375,56 @@ async fn create_todolist(
             .unwrap_or("")
             .trim()
             .to_string();
-        if executor.is_empty() {
-            return Err(format!("items[{idx}].executor 不能为空"));
-        }
         let description = raw
             .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .trim()
             .to_string();
-        if description.is_empty() {
-            return Err(format!("items[{idx}].description 不能为空"));
+        let done = raw.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let mut note_parts = Vec::new();
+        if idx == 0 && !list_description.is_empty() {
+            note_parts.push(list_description.clone());
         }
-        let done = raw
-            .get("done")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        items.push(KnowledgeTodoItem {
-            id: format!("todo_item_{now}_{idx}"),
-            name,
-            executor,
-            description,
-            done,
-        });
+        if !description.is_empty() {
+            note_parts.push(description);
+        }
+        if !executor.is_empty() {
+            note_parts.push(format!("执行者: {executor}"));
+        }
+
+        let task = TodoTask {
+            id: format!("todo_task_{now}_{idx}"),
+            list_id: list_id.clone(),
+            title: name,
+            note: note_parts.join("\n"),
+            important: false,
+            my_day_on: None,
+            due_at: None,
+            remind_at: None,
+            recurrence: None,
+            completed: done,
+            completed_at: if done { Some(now) } else { None },
+            sort_order: idx as i64,
+            created_at: now,
+            updated_at: now,
+            steps: vec![],
+            steps_total: 0,
+            steps_done: 0,
+        };
+        storage
+            .save_todo_task(&task, false)
+            .map_err(|e| e.to_string())?;
+        task_count += 1;
     }
-
-    let storage = storage.lock().await;
-    let existing = storage.list_knowledge_todos().map_err(|e| e.to_string())?;
-    let sort_order = existing
-        .iter()
-        .map(|l| l.sort_order)
-        .max()
-        .unwrap_or(-1)
-        + 1;
-
-    let id = format!("todo_{now}");
-    let item_count = items.len();
-    let list = KnowledgeTodoList {
-        id: id.clone(),
-        title: title.clone(),
-        description: description.clone(),
-        items,
-        sort_order,
-        created_at: now,
-        updated_at: now,
-    };
-    storage
-        .save_knowledge_todo(&list)
-        .map_err(|e| e.to_string())?;
 
     Ok((
         serde_json::json!({
-            "id": id,
+            "id": list_id,
             "title": title,
-            "description": description,
-            "item_count": item_count,
+            "description": list_description,
+            "item_count": task_count,
             "sort_order": sort_order,
         })
         .to_string(),

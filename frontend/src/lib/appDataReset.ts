@@ -10,6 +10,7 @@ import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useFileManagerStore } from "../stores/fileManagerStore";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import { useKnowledgeTodoStore } from "../stores/knowledgeTodoStore";
+import { useUserTodoStore } from "../stores/userTodoStore";
 import { BUILTIN_SERVER_GROUPS, useServerGroupStore } from "../stores/serverGroupStore";
 import { useServerTabStore } from "../stores/serverTabStore";
 import {
@@ -122,6 +123,32 @@ export async function clearAppUserData(): Promise<void> {
   useKnowledgeTodoStore.setState({
     lists: [],
     editingId: null,
+    error: null,
+  });
+
+  const userLists = await commands.todoListList();
+  if (userLists.status === "ok") {
+    for (const list of userLists.data) {
+      if (list.isDefault) {
+        const tasks = await commands.todoTaskList({
+          view: "list",
+          listId: list.id,
+          includeCompleted: true,
+        });
+        if (tasks.status === "ok") {
+          for (const task of tasks.data) {
+            await commands.todoTaskDelete(task.id);
+          }
+        }
+        continue;
+      }
+      await commands.todoListDelete(list.id);
+    }
+  }
+  useUserTodoStore.setState({
+    lists: [],
+    tasks: [],
+    selectedTask: null,
     error: null,
   });
 

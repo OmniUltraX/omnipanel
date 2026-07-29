@@ -24,15 +24,21 @@ import { useLoopStore } from "../../stores/loopStore";
 import { LoopTriageTab, LoopsTab, TurnTimelinePanel } from "./LoopTriagePanels";
 import { TaskCenterSidebar } from "./TaskCenterSidebar";
 import {
+  INBOX_BUCKETS,
   LEGACY_TASK_CENTER_TAB_ALIASES,
   TASK_CENTER_TABS,
+  coerceInboxBucket,
   coerceTaskCenterTab,
   selectionKey,
+  type InboxBucket,
   type TaskCenterSelection,
 } from "./taskCenterSelection";
 import { useTaskCenterProjection } from "./projection/useTaskCenterProjection";
 import type { TaskItem } from "./types";
 import { isJobRunning } from "./types";
+import { UserTodosPanel } from "./UserTodosPanel";
+import { useUserTodoStore } from "../../stores/userTodoStore";
+import { resolveMineView } from "./taskCenterSelection";
 
 const HISTORY_LIMIT = 200;
 
@@ -671,14 +677,29 @@ export function TaskCenterPanel() {
   const isActiveRoute = location.pathname === "/module/tasks";
   const [tab, setTab] = usePersistedModuleTab(
     "tasks",
-    "activity",
+    "inbox",
     TASK_CENTER_TABS,
     { aliases: LEGACY_TASK_CENTER_TAB_ALIASES },
+  );
+  const [inboxBucket, setInboxBucket] = usePersistedModuleTab(
+    "tasks-inbox",
+    "mine",
+    INBOX_BUCKETS,
   );
   const [selection, setSelection] = useState<TaskCenterSelection | null>(null);
   const [historyModuleFilter, setHistoryModuleFilter] = useState<string>("all");
 
   const { running, inbox, historyJobs, approvalCount } = useTaskCenterProjection();
+  const loadUserTodos = useUserTodoStore((s) => s.loadLists);
+  const userTodoOpenCount = useUserTodoStore((s) =>
+    s.tasks.filter((t) => !t.completed).length,
+  );
+
+  useEffect(() => {
+    void loadUserTodos();
+  }, [loadUserTodos]);
+
+  const inboxBadgeCount = inbox.length + userTodoOpenCount;
 
   const historyModules = useMemo(() => {
     const mods = new Set<string>();
@@ -704,13 +725,45 @@ export function TaskCenterPanel() {
       const next = coerceTaskCenterTab(id);
       setTab(next);
       if (next === "history") setSelection({ tab: "history", bucket: "jobs" });
-      else setSelection(null);
+      else if (next === "inbox") {
+        setSelection({
+          tab: "inbox",
+          bucket: coerceInboxBucket(inboxBucket),
+          view: inboxBucket === "mine" ? "myDay" : undefined,
+        });
+      } else setSelection(null);
     },
-    [setTab],
+    [setTab, inboxBucket],
+  );
+
+  const handleInboxBucketChange = useCallback(
+    (bucket: InboxBucket) => {
+      setInboxBucket(bucket);
+      setSelection(
+        bucket === "mine"
+          ? { tab: "inbox", bucket, view: "myDay" }
+          : { tab: "inbox", bucket },
+      );
+    },
+    [setInboxBucket],
   );
 
   const modeIconItems = useMemo(
     () => [
+      {
+        id: "inbox",
+        label: t("taskCenter.tabs.inbox"),
+        iconNode: (
+          <span className="task-center-rail-icon">
+            <IconInbox size={18} />
+            {inboxBadgeCount > 0 ? (
+              <span className="task-center-rail-badge task-center-rail-badge--warn">
+                {inboxBadgeCount}
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
       {
         id: "activity",
         label: t("taskCenter.tabs.activity"),
@@ -724,26 +777,12 @@ export function TaskCenterPanel() {
         ),
       },
       {
-        id: "inbox",
-        label: t("taskCenter.tabs.inbox"),
-        iconNode: (
-          <span className="task-center-rail-icon">
-            <IconInbox size={18} />
-            {inbox.length > 0 ? (
-              <span className="task-center-rail-badge task-center-rail-badge--warn">
-                {inbox.length}
-              </span>
-            ) : null}
-          </span>
-        ),
-      },
-      {
         id: "history",
         label: t("taskCenter.tabs.history"),
         iconNode: <IconClock size={18} />,
       },
     ],
-    [t, running.length, inbox.length],
+    [t, running.length, inboxBadgeCount],
   );
 
   const renderPanel = useCallback(
@@ -757,8 +796,32 @@ export function TaskCenterPanel() {
             />
           );
         case "inbox": {
+          if (inboxBucket === "mine") {
+            const mineSel =
+              selection?.tab === "inbox" && selection.bucket === "mine"
+                ? selection
+                : null;
+            const mineView = resolveMineView(mineSel ?? { view: "myDay" });
+            return (
+              <UserTodosPanel
+                mineView={mineView}
+                taskId={mineSel?.taskId}
+                onSelectTask={(taskId) => {
+                  setSelection({
+                    tab: "inbox",
+                    bucket: "mine",
+                    view: mineView,
+                    taskId,
+                    id: mineView.startsWith("list:") ? mineView.slice(5) : undefined,
+                  });
+                }}
+              />
+            );
+          }
           const findingId =
-            selection?.tab === "inbox" ? selection.id.replace(/^inbox:finding:/, "") : null;
+            selection?.tab === "inbox" && selection.bucket === "suggestions" && selection.id
+              ? selection.id.replace(/^inbox:finding:/, "")
+              : null;
           return <LoopTriageTab selectedId={findingId} />;
         }
         case "history":
@@ -774,16 +837,16 @@ export function TaskCenterPanel() {
           return null;
       }
     },
-    [tab, selection, running, filteredHistoryJobs, historyModuleFilter],
+    [tab, selection, running, filteredHistoryJobs, historyModuleFilter, inboxBucket],
   );
 
   const panelContentKeysByTab = useMemo(
     () => ({
       [tab]: selection
-        ? `${selectionKey(selection)}:mod:${historyModuleFilter}`
-        : `empty:${tab}:${approvalCount}:mod:${historyModuleFilter}`,
+        ? `${selectionKey(selection)}:mod:${historyModuleFilter}:ib:${inboxBucket}`
+        : `empty:${tab}:${approvalCount}:mod:${historyModuleFilter}:ib:${inboxBucket}`,
     }),
-    [tab, selection, approvalCount, historyModuleFilter],
+    [tab, selection, approvalCount, historyModuleFilter, inboxBucket],
   );
 
   return (
@@ -810,6 +873,8 @@ export function TaskCenterPanel() {
             historyModules={historyModules}
             historyModuleFilter={historyModuleFilter}
             onHistoryModuleFilterChange={setHistoryModuleFilter}
+            inboxBucket={inboxBucket}
+            onInboxBucketChange={handleInboxBucketChange}
           />
         }
       >

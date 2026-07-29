@@ -204,8 +204,7 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
     Ok(())
 }
 
-/// 将 plan.md 中的旧工具名（`omni_knowledge_create_todolist` / `omni_create_todolist`）统一替换为
-/// `omni_knowledge_save_todolist`，并将「仅允许 create_todolist」的窄工具面说明升级为「全部全局工具」。
+/// 将 plan.md 从「强制 save_todolist」迁移为「交付知识库 Plan 文档」。
 fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
     let path = agent_prompt_path("plan")?;
     if !path.exists() {
@@ -214,22 +213,29 @@ fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
     let Ok(current) = fs::read_to_string(&path) else {
         return Ok(());
     };
+    let trimmed = current.trim();
+    // 旧版默认/窄工具面：整篇替换为内置新版
+    if trimmed.starts_with("# OmniPanel · 计划助手（TodoList）")
+        || trimmed.contains("最终交付物必须是一份待办清单")
+        || (trimmed.starts_with("# OmniPanel · 计划助手（Plan）")
+            && trimmed.contains("omni_knowledge_save_todolist")
+            && trimmed.contains("必须调用"))
+    {
+        fs::write(&path, DEFAULT_PLAN_AGENT_PROMPT).map_err(map_io)?;
+        clear_prompt_cache();
+        return Ok(());
+    }
+
     let mut next = current.clone();
-    // 两个历史名字都替换为最新名字
-    next = next.replace("omni_knowledge_create_todolist", "omni_knowledge_save_todolist");
-    next = next.replace("omni_create_todolist", "omni_knowledge_save_todolist");
-    // 顺带把旧 items.text 说明升级为三字段提示（仅替换已知旧片段）
+    next = next.replace("omni_knowledge_create_todolist", "omni_knowledge_create_document");
+    next = next.replace("omni_create_todolist", "omni_knowledge_create_document");
     next = next.replace(
-        r#"{ "text": "...", "done": false }"#,
-        r#"{ "name": "...", "executor": "...", "description": "...", "done": false }"#,
+        "最终交付物必须是 `omni_knowledge_save_todolist` 创建的执行计划。",
+        "最终交付物必须是 `omni_knowledge_create_document` 创建的 Plan 文档。",
     );
     next = next.replace(
-        "- 你**只能**使用 `omni_knowledge_save_todolist`，不要尝试调用其他模块工具。",
-        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_knowledge_save_todolist` 创建的执行计划。",
-    );
-    next = next.replace(
-        "- 你可以使用全部**全局工具**；不要尝试调用终端/数据库/Docker/文件等模块专用工具。",
-        "- 你可以使用全部**全局工具**；严禁调用 SSH/终端/数据库/Docker/文件等模块专用工具。最终交付物必须是 `omni_knowledge_save_todolist` 创建的执行计划。",
+        "- `omni_knowledge_save_todolist`：落库执行计划 / 待办（**必须调用**，除非用户明确只要口头讨论）",
+        "- `omni_knowledge_create_document`：创建知识库 Plan 文档（**必须调用**，除非用户明确只要口头讨论）",
     );
     if next == current {
         return Ok(());
@@ -414,8 +420,9 @@ mod tests {
         let preamble = system_prompt();
         assert!(preamble.contains("tool_calls") || preamble.contains("OmniPanel"));
         let plan = default_agent_prompt("plan");
-        assert!(plan.contains("omni_knowledge_save_todolist"));
-        assert!(plan.contains("执行计划") || plan.contains("计划助手"));
+        assert!(plan.contains("omni_knowledge_create_document"));
+        assert!(!plan.contains("最终交付物必须是一份待办清单"));
+        assert!(plan.contains("执行计划") || plan.contains("计划助手") || plan.contains("Plan"));
         let run = default_agent_prompt("run");
         assert!(run.contains("执行助手") || run.contains("全部"));
         assert!(run.contains("omni_ssh_") || run.contains("全部内置工具"));

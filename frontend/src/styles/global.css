@@ -11663,6 +11663,572 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--text-secondary, #aaa);
         font-size: 12px;
         cursor: pointer;
+        font: inherit;
+    }
+
+    .task-center-user-todos {
+        padding: 0;
+        overflow: visible;
+        height: 100%;
+        box-sizing: border-box;
+    }
+
+    .user-todo-layout {
+        display: flex;
+        height: 100%;
+        min-height: 0;
+        position: relative;
+        overflow: visible;
+    }
+
+    .user-todo-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 20px 24px 28px;
+        overflow: visible;
+        min-height: 0;
+    }
+
+    .user-todo-header {
+        margin-bottom: 16px;
+    }
+
+    .user-todo-header__row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .user-todo-header__icon {
+        display: inline-flex;
+        color: var(--text-primary);
+        opacity: 0.9;
+    }
+
+    .user-todo-header__title {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        border-radius: 4px;
+        outline: none;
+    }
+
+    .user-todo-header__title.is-editable {
+        cursor: text;
+        padding: 0 4px;
+        margin: 0 -4px;
+    }
+
+    .user-todo-header__title.is-editable:hover {
+        background: color-mix(in oklch, var(--bg-elevated, #222) 55%, transparent);
+    }
+
+    .user-todo-header__title-input {
+        flex: 1;
+        min-width: 0;
+        margin: 0 -4px;
+        padding: 0 4px;
+        border: 1px solid color-mix(in oklch, var(--accent, #4a9) 50%, transparent);
+        border-radius: 4px;
+        background: var(--bg-panel, #1a1a1a);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 28px;
+        font-weight: 700;
+        outline: none;
+        line-height: 1.2;
+    }
+
+    .user-todo-header__sub {
+        margin: 4px 0 0 32px;
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .user-todo-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-right: 4px;
+    }
+
+    .user-todo-empty {
+        color: var(--text-secondary);
+        font-size: 13px;
+        padding: 24px 0;
+        text-align: center;
+    }
+
+    .user-todo-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        background: color-mix(in oklch, var(--bg-elevated, #222) 70%, transparent);
+        cursor: pointer;
+    }
+
+    .user-todo-row:hover {
+        background: color-mix(in oklch, var(--accent, #4a9) 8%, transparent);
+    }
+
+    .user-todo-row.is-active {
+        border-color: color-mix(in oklch, var(--accent, #4a9) 45%, transparent);
+        background: color-mix(in oklch, var(--accent, #4a9) 12%, transparent);
+    }
+
+    .user-todo-row.is-done .user-todo-row__title {
+        text-decoration: line-through;
+        opacity: 0.65;
+    }
+
+    .user-todo-row__body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .user-todo-row__title {
+        font-size: 14px;
+        color: var(--text-primary);
+        word-break: break-word;
+    }
+
+    .user-todo-row__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 0;
+        margin-top: 5px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        align-items: center;
+        line-height: 1.45;
+        row-gap: 4px;
+    }
+
+    .user-todo-row__meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
+    .user-todo-row__meta-item--note {
+        white-space: normal;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+    }
+
+    .user-todo-row__meta-sep {
+        display: inline-flex;
+        margin: 0 6px;
+        opacity: 0.45;
+        user-select: none;
+    }
+
+    .user-todo-row__meta .is-overdue,
+    .user-todo-row__meta-item.is-overdue {
+        color: var(--danger, #e55);
+    }
+
+    .user-todo-check {
+        border: none;
+        background: transparent;
+        padding: 0;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: inline-flex;
+        margin-top: 1px;
+    }
+
+    .user-todo-check.is-done {
+        color: var(--accent, #4a9);
+    }
+
+    .user-todo-check__ring {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 1.5px solid var(--border, #555);
+        display: inline-block;
+    }
+
+    .user-todo-check--sm .user-todo-check__ring {
+        width: 14px;
+        height: 14px;
+    }
+
+    .user-todo-star {
+        border: none;
+        background: transparent;
+        color: var(--text-tertiary, #666);
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0 2px;
+    }
+
+    .user-todo-star.is-on {
+        color: #e8b84a;
+    }
+
+    .user-todo-composer {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 12px;
+        margin-bottom: 8px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: color-mix(in oklch, var(--bg-elevated, #222) 85%, transparent);
+        border: 1px solid var(--border, #333);
+        color: var(--text-secondary);
+        position: relative;
+        z-index: 5;
+        flex-shrink: 0;
+    }
+
+    .user-todo-composer__check {
+        display: inline-flex;
+        margin-top: 3px;
+        flex-shrink: 0;
+    }
+
+    .user-todo-composer__body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .user-todo-composer input {
+        width: 100%;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 14px;
+        outline: none;
+    }
+
+    .user-todo-composer__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .user-todo-composer__chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in oklch, var(--accent, #4a9) 35%, transparent);
+        background: color-mix(in oklch, var(--accent, #4a9) 12%, transparent);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+    }
+
+    .user-todo-composer__actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+        margin-top: 0;
+    }
+
+    .user-todo-composer-pop {
+        position: relative;
+        z-index: 30;
+    }
+
+    .user-todo-composer__icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .user-todo-composer__icon-btn:hover,
+    .user-todo-composer__icon-btn.is-open {
+        background: color-mix(in oklch, var(--accent, #4a9) 12%, transparent);
+        color: var(--text-primary);
+    }
+
+    .user-todo-composer__icon-btn.is-on {
+        color: var(--accent, #4a9);
+    }
+
+    .user-todo-done-group {
+        margin-top: 8px;
+    }
+
+    .user-todo-done-group > summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 12px;
+        padding: 6px 4px;
+        list-style: none;
+    }
+
+    .user-todo-detail {
+        width: 320px;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border, #333);
+        background: var(--bg-panel, #1a1a1a);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px;
+        overflow: auto;
+    }
+
+    .user-todo-detail__title-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .user-todo-detail__title {
+        flex: 1;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font-size: 16px;
+        font-weight: 600;
+        outline: none;
+        resize: none;
+    }
+
+    .user-todo-detail__close,
+    .user-todo-detail__delete,
+    .user-todo-step__remove {
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 2px;
+    }
+
+    .user-todo-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .user-todo-step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+    }
+
+    .user-todo-step__title {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 13px;
+        outline: none;
+        padding: 2px 4px;
+        border-radius: 4px;
+    }
+
+    .user-todo-step__title:focus {
+        background: color-mix(in oklch, var(--bg-elevated, #222) 70%, transparent);
+    }
+
+    .user-todo-step.is-done .user-todo-step__title {
+        text-decoration: line-through;
+        opacity: 0.6;
+    }
+
+    .user-todo-step-composer {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+        padding: 4px 0;
+    }
+
+    .user-todo-step-composer input {
+        flex: 1;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 13px;
+        outline: none;
+    }
+
+    .user-todo-attrs {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .user-todo-attr-wrap {
+        position: relative;
+    }
+
+    .user-todo-attr {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        background: color-mix(in oklch, var(--bg-elevated, #222) 60%, transparent);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .user-todo-attr.is-set {
+        border-color: color-mix(in oklch, var(--accent, #4a9) 35%, transparent);
+    }
+
+    .user-todo-attr span:nth-child(2) {
+        flex: 1;
+    }
+
+    .user-todo-attr__clear {
+        display: inline-flex;
+        opacity: 0.7;
+    }
+
+    .user-todo-menu-pop {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 4px);
+        z-index: 40;
+    }
+
+    /* 底栏菜单必须向上展开（覆盖上方 base top，避免被裁切） */
+    .user-todo-menu-pop.user-todo-menu-pop--up {
+        top: auto;
+        bottom: calc(100% + 8px);
+        left: auto;
+        right: 0;
+        min-width: 220px;
+        z-index: 60;
+    }
+
+    .user-todo-menu-pop.user-todo-menu-pop--fixed-up {
+        position: fixed;
+        top: auto;
+        left: auto;
+        min-width: 220px;
+        z-index: 1000;
+    }
+
+    .user-todo-menu {
+        background: var(--bg-elevated, #2a2a2a);
+        border: 1px solid var(--border, #444);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .user-todo-menu__item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 10px;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 13px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .user-todo-menu__item:hover {
+        background: color-mix(in oklch, var(--accent, #4a9) 12%, transparent);
+    }
+
+    .user-todo-menu__detail {
+        color: var(--text-secondary);
+        font-size: 12px;
+    }
+
+    .user-todo-menu__sep {
+        height: 1px;
+        background: var(--border, #444);
+        margin: 4px 0;
+    }
+
+    .user-todo-menu__pick {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 10px;
+        font-size: 13px;
+        color: var(--text-primary);
+    }
+
+    .user-todo-menu__pick input {
+        font: inherit;
+        font-size: 12px;
+        color: var(--text-primary);
+        background: var(--bg-panel, #1a1a1a);
+        border: 1px solid var(--border, #444);
+        border-radius: 4px;
+        padding: 4px 6px;
+    }
+
+    .user-todo-note {
+        min-height: 80px;
+        resize: vertical;
+        border: 1px solid var(--border, #333);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 13px;
+        padding: 8px;
+        outline: none;
+    }
+
+    .user-todo-detail__footer {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 11px;
+        color: var(--text-secondary);
+        padding-top: 8px;
+        border-top: 1px solid var(--border, #333);
     }
 
     .task-center-subtab:hover {
@@ -19347,15 +19913,15 @@ button.omni-btn-tool[aria-pressed="true"] {
     gap: 0;
 }
 
-.vsplit-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-.vsplit-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-.vsplit-sidebar-section__actions .schema-toolbar--inline button,
-.schema-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-.schema-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-.schema-sidebar-section__actions .schema-toolbar--inline button,
-.schema-toolbar.schema-toolbar--inline [data-slot="button"],
-.schema-toolbar.schema-toolbar--inline .btn-icon,
-.schema-toolbar.schema-toolbar--inline button {
+.vsplit-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
+.schema-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
+.schema-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-toolbar.schema-toolbar--inline > [data-slot="button"],
+.schema-toolbar.schema-toolbar--inline > .btn-icon,
+.schema-toolbar.schema-toolbar--inline > button {
     width: 24px;
     height: 24px;
     min-width: 24px;
@@ -19363,16 +19929,16 @@ button.omni-btn-tool[aria-pressed="true"] {
     padding: 0;
 }
 
-/* 椤绘斁鍦?@layer 澶栵紝鎵嶈兘瑕嗙洊 Button 涓婄殑 Tailwind rounded-md锛坲tilities 灞備紭鍏堢骇鏇撮珮锛?*/
-.schema-toolbar.schema-toolbar--inline [data-slot="button"],
-.schema-toolbar.schema-toolbar--inline .btn-icon,
-.schema-toolbar.schema-toolbar--inline button,
-.vsplit-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-.vsplit-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-.vsplit-sidebar-section__actions .schema-toolbar--inline button,
-.schema-sidebar-section__actions .schema-toolbar--inline [data-slot="button"],
-.schema-sidebar-section__actions .schema-toolbar--inline .btn-icon,
-.schema-sidebar-section__actions .schema-toolbar--inline button {
+/* 仅限制工具栏图标按钮圆角，勿波及下拉菜单内文字按钮 */
+.schema-toolbar.schema-toolbar--inline > [data-slot="button"],
+.schema-toolbar.schema-toolbar--inline > .btn-icon,
+.schema-toolbar.schema-toolbar--inline > button,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
+.schema-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
+.schema-sidebar-section__actions .schema-toolbar--inline > button {
     border-radius: 0;
 }
 

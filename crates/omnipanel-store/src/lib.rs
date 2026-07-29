@@ -15,6 +15,7 @@ mod http;
 mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
+mod todo;
 mod embedding_config;
 mod host_resolve_cache;
 mod paths;
@@ -75,6 +76,7 @@ pub use database::{
 pub use http::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult};
 pub use knowledge_todo::{KnowledgeTodoItem, KnowledgeTodoList};
+pub use todo::{TodoList, TodoRecurrence, TodoStep, TodoTask, TodoTaskQuery};
 pub use knowledge_vector::{
     KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
     KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text, cosine_similarity,

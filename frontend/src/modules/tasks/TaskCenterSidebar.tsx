@@ -9,8 +9,11 @@ import {
   IconCheckCircle,
   IconClipboard,
   IconClock,
+  IconClose,
+  IconHome,
   IconInbox,
   IconLightning,
+  IconPlus,
   IconRefresh,
   IconRobot,
   IconWrench,
@@ -24,15 +27,26 @@ import {
 } from "../../stores/backgroundTaskStore";
 import { useLoopStore } from "../../stores/loopStore";
 import { showToast } from "../../stores/toastStore";
+import { useUserTodoStore } from "../../stores/userTodoStore";
 import type { TaskItem } from "./types";
 import { isJobRunning } from "./types";
-import type { HistoryBucket, TaskCenterSelection, TaskCenterTab } from "./taskCenterSelection";
-import { selectionKey } from "./taskCenterSelection";
+import type {
+  HistoryBucket,
+  InboxBucket,
+  InboxMineView,
+  TaskCenterSelection,
+  TaskCenterTab,
+} from "./taskCenterSelection";
+import {
+  resolveMineView,
+  selectionKey,
+  TODO_SMART_VIEWS,
+} from "./taskCenterSelection";
 
 const SECTION_STORAGE_KEY = "omnipanel-task-center-sidebar-sections";
 
 type ActivitySectionKey = "passive" | "active" | "plans";
-type InboxSectionKey = "inbox";
+type InboxSectionKey = "mine" | "suggestions";
 type HistorySectionKey = "buckets" | "jobs";
 
 export interface TaskCenterSidebarProps {
@@ -46,6 +60,8 @@ export interface TaskCenterSidebarProps {
   historyModules: string[];
   historyModuleFilter: string;
   onHistoryModuleFilterChange: (module: string) => void;
+  inboxBucket: InboxBucket;
+  onInboxBucketChange: (bucket: InboxBucket) => void;
 }
 
 function isProdEnvTag(tag?: string | null): boolean {
@@ -141,6 +157,8 @@ export function TaskCenterSidebar({
   historyModules,
   historyModuleFilter,
   onHistoryModuleFilterChange,
+  inboxBucket,
+  onInboxBucketChange,
 }: TaskCenterSidebarProps) {
   const { t } = useI18n();
   const specsMap = useLoopStore((s) => s.specs);
@@ -148,14 +166,17 @@ export function TaskCenterSidebar({
   const triageOpenFindings = useLoopStore((s) => s.triageOpenFindings);
   const cancelAiTask = useAiOrchestrationStore((s) => s.cancelTask);
   const specs = useMemo(() => Object.values(specsMap), [specsMap]);
+  const userTodoLists = useUserTodoStore((s) => s.lists);
+  const loadUserTodos = useUserTodoStore((s) => s.loadLists);
+  const createUserTodoList = useUserTodoStore((s) => s.createList);
 
   const activitySections = usePersistedVerticalSplitSections<ActivitySectionKey>(
     `${SECTION_STORAGE_KEY}-activity`,
     { passive: true, active: true, plans: true },
   );
   const inboxSections = usePersistedVerticalSplitSections<InboxSectionKey>(
-    `${SECTION_STORAGE_KEY}-inbox`,
-    { inbox: true },
+    `${SECTION_STORAGE_KEY}-inbox-v3`,
+    { mine: true, suggestions: true },
   );
   const historySections = usePersistedVerticalSplitSections<HistorySectionKey>(
     `${SECTION_STORAGE_KEY}-history`,
@@ -240,6 +261,12 @@ export function TaskCenterSidebar({
   }, [tab, ensureBuiltinSpecs]);
 
   useEffect(() => {
+    if (tab === "inbox" && inboxBucket === "mine") {
+      void loadUserTodos();
+    }
+  }, [tab, inboxBucket, loadUserTodos]);
+
+  useEffect(() => {
     if (tab === "activity") {
       const jobOk =
         selection?.tab === "activity" &&
@@ -260,10 +287,23 @@ export function TaskCenterSidebar({
       return;
     }
     if (tab === "inbox") {
-      const first = inbox[0];
+      if (inboxBucket === "suggestions") {
+        const first = inbox[0];
+        const valid =
+          selection?.tab === "inbox" &&
+          selection.bucket === "suggestions" &&
+          (!selection.id || inbox.some((i) => i.id === selection.id));
+        if (valid) return;
+        if (first) onSelect({ tab: "inbox", bucket: "suggestions", id: first.id });
+        else onSelect({ tab: "inbox", bucket: "suggestions" });
+        return;
+      }
       const valid =
-        selection?.tab === "inbox" && inbox.some((i) => i.id === selection.id);
-      if (!valid && first) onSelect({ tab: "inbox", id: first.id });
+        selection?.tab === "inbox" &&
+        selection.bucket === "mine" &&
+        !!selection.view;
+      if (valid) return;
+      onSelect({ tab: "inbox", bucket: "mine", view: "myDay" });
       return;
     }
     if (tab === "history") {
@@ -288,6 +328,8 @@ export function TaskCenterSidebar({
     selection,
     running,
     inbox,
+    inboxBucket,
+    userTodoLists,
     specs,
     passiveJobs,
     activeJobs,
@@ -408,31 +450,141 @@ export function TaskCenterSidebar({
     return (
       <VerticalSplitSidebar className="task-center-sidebar">
         <VerticalSplitSidebarSection
-          title={t("taskCenter.tabs.inbox")}
-          expanded={inboxSections.sections.inbox}
-          onToggle={() => inboxSections.toggleSection("inbox")}
-          actions={<CountBadge count={inbox.length} />}
+          title={t("taskCenter.inbox.mine")}
+          expanded={inboxSections.sections.mine}
+          onToggle={() => inboxSections.toggleSection("mine")}
+          actions={
+            <div className="schema-toolbar schema-toolbar--inline">
+              <Button
+                variant="icon"
+                title={t("taskCenter.inbox.newList")}
+                aria-label={t("taskCenter.inbox.newList")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInboxBucketChange("mine");
+                  void (async () => {
+                    const id = await createUserTodoList();
+                    if (id) {
+                      onSelect({
+                        tab: "inbox",
+                        bucket: "mine",
+                        view: `list:${id}`,
+                        id,
+                      });
+                    }
+                  })();
+                }}
+              >
+                <IconPlus size={14} />
+              </Button>
+            </div>
+          }
         >
-          {inbox.length > 0 ? (
-            <BatchBar>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => void handleDismissAllInbox()}
-              >
-                {t("taskCenter.inbox.dismissAll")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => void handleDoneAllInbox()}
-              >
-                {t("taskCenter.inbox.doneAll")}
-              </Button>
-            </BatchBar>
-          ) : null}
+          <div className="fm-connections">
+            {TODO_SMART_VIEWS.map((view) => {
+              const labelKey =
+                view === "myDay"
+                  ? "taskCenter.todo.myDay"
+                  : view === "important"
+                    ? "taskCenter.todo.important"
+                    : view === "planned"
+                      ? "taskCenter.todo.planned"
+                      : "taskCenter.todo.tasks";
+              const icon =
+                view === "myDay" ? (
+                  <IconLightning size={12} />
+                ) : view === "important" ? (
+                  <IconCheckCircle size={12} />
+                ) : view === "planned" ? (
+                  <IconClock size={12} />
+                ) : (
+                  <IconHome size={12} />
+                );
+              const next: TaskCenterSelection = {
+                tab: "inbox",
+                bucket: "mine",
+                view,
+              };
+              const active =
+                selection?.tab === "inbox" &&
+                selection.bucket === "mine" &&
+                resolveMineView(selection) === view;
+              return (
+                <ConnRow
+                  key={view}
+                  active={active}
+                  name={t(labelKey)}
+                  icon={icon}
+                  onClick={() => {
+                    onInboxBucketChange("mine");
+                    onSelect(next);
+                  }}
+                />
+              );
+            })}
+            {userTodoLists
+              .filter((list) => !list.isDefault)
+              .map((list) => {
+                const view = `list:${list.id}` as InboxMineView;
+                const active =
+                  selection?.tab === "inbox" &&
+                  selection.bucket === "mine" &&
+                  resolveMineView(selection) === view;
+                return (
+                  <ConnRow
+                    key={list.id}
+                    active={active}
+                    name={list.title || t("taskCenter.todo.untitledList")}
+                    title={list.title}
+                    icon={<IconClipboard size={12} />}
+                    onClick={() => {
+                      onInboxBucketChange("mine");
+                      onSelect({
+                        tab: "inbox",
+                        bucket: "mine",
+                        view,
+                        id: list.id,
+                      });
+                    }}
+                  />
+                );
+              })}
+          </div>
+        </VerticalSplitSidebarSection>
+
+        <VerticalSplitSidebarSection
+          title={t("taskCenter.inbox.suggestions")}
+          expanded={inboxSections.sections.suggestions}
+          onToggle={() => inboxSections.toggleSection("suggestions")}
+          actions={
+            inbox.length > 0 ? (
+              <div className="schema-toolbar schema-toolbar--inline">
+                <Button
+                  variant="icon"
+                  title={t("taskCenter.inbox.doneAll")}
+                  aria-label={t("taskCenter.inbox.doneAll")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDoneAllInbox();
+                  }}
+                >
+                  <IconCheckCircle size={14} />
+                </Button>
+                <Button
+                  variant="icon"
+                  title={t("taskCenter.inbox.dismissAll")}
+                  aria-label={t("taskCenter.inbox.dismissAll")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDismissAllInbox();
+                  }}
+                >
+                  <IconClose size={14} />
+                </Button>
+              </div>
+            ) : undefined
+          }
+        >
           {inbox.length === 0 ? (
             <p className="fm-conn-empty">{t("taskCenter.inbox.empty")}</p>
           ) : (
@@ -446,12 +598,19 @@ export function TaskCenterSidebar({
                 return (
                   <ConnRow
                     key={item.id}
-                    active={isActive({ tab: "inbox", id: item.id })}
+                    active={isActive({
+                      tab: "inbox",
+                      bucket: "suggestions",
+                      id: item.id,
+                    })}
                     name={item.title}
                     title={item.title}
                     icon={<IconInbox size={12} />}
                     trailing={<span className="badge badge-muted">{riskLabel}</span>}
-                    onClick={() => onSelect({ tab: "inbox", id: item.id })}
+                    onClick={() => {
+                      onInboxBucketChange("suggestions");
+                      onSelect({ tab: "inbox", bucket: "suggestions", id: item.id });
+                    }}
                   />
                 );
               })}

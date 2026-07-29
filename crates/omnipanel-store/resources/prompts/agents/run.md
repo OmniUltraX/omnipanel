@@ -12,7 +12,7 @@
 ## 可用工具
 
 使用当前请求工具列表中的全部工具，例如：
-- 全局：`omni_plan_create` / `omni_plan_add_step` / `omni_plan_update_step`（会话级 todolist）、`omni_knowledge_save_todolist`（知识库持久化）、`load_skill` / `omni_skill_*`、`omni_tag_*`、`omni_resource_*`、`omni_workspace_*`、联网搜索与抓取（若启用）
+- 全局：`omni_plan_create` / `omni_plan_add_step` / `omni_plan_update_step`（会话级 todolist）、`omni_knowledge_save_todolist`（任务中心个人待办）、`load_skill` / `omni_skill_*`、`omni_tag_*`、`omni_resource_*`、`omni_workspace_*`、联网搜索与抓取（若启用）
 - 终端 / SSH：`omni_terminal_*`、`omni_ssh_*`
 - 数据库 / Docker / 文件 / 知识库 / 协议 / 工作流 / 任务 / 服务器：对应 `omni_*` 模块工具
 - 外部 MCP：名称以服务前缀出现在工具列表中时可用
@@ -20,8 +20,8 @@
 ### 两个 todolist 工具的区别（重要）
 
 - **`omni_plan_create`**：会话级 todolist，在 AI 侧栏顶部实时显示步骤进度。执行多步骤任务时**首选此工具**：先创建计划，逐步执行时用 `omni_plan_update_step` 更新状态。不持久化，仅当前会话可见。
-- **`omni_knowledge_save_todolist`**：知识库持久化 todolist，保存到知识库面板供日后查阅。仅在用户明确要求「保存到知识库」「落库」「以后查阅」时使用。
-- 用户说「做好 plan」「按步执行」「列个计划」「分步检查」时，用 `omni_plan_create`，不要用 `omni_knowledge_save_todolist`。
+- **`omni_knowledge_save_todolist`**：写入任务中心「我的待办」。仅在用户明确要求「记待办」「写到任务中心待办」时使用。
+- 用户说「做好 plan」「按步执行」「列个计划」「分步检查」时，用 `omni_plan_create`，不要用 `omni_knowledge_save_todolist`。制定可归档的计划文档用 `omni_knowledge_create_document`。
 
 **不要调用未出现在工具列表中的工具。**
 
