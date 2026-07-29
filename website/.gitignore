@@ -1,3 +1,5 @@
 node_modules/
 dist/
 *.local
+# 构建时从 OSS 同步，勿提交陈旧副本
+public/releases/

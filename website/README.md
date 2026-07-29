@@ -47,10 +47,21 @@ GITHUB_PAGES_BASE=/ npm run build   # 根路径部署
 ## 下载页
 
 - 路径：`download.html`（本地 `http://localhost:5173/omnipanel/download.html`）
-- 数据源（阿里云 OSS 公共读）：
-  - `…/omnipanel/releases/latest.json` — 最新版与平台下载地址
-  - `…/omnipanel/releases/versions.json` — 历史版本列表（发版脚本自动维护）
-- 首次引导索引：`node scripts/bootstrap-oss-versions.mjs`（需 `ALIYUN_OSS_*` 环境变量）
+- 数据源：
+  - 优先拉 OSS：`…/omnipanel/releases/latest.json`、`versions.json`
+  - 回退同域镜像：`public/releases/*`（`prebuild` / `predev` 由 `npm run sync:releases` 生成）
+- 安装包下载链接仍直链 OSS（`<a href>`，不依赖 CORS）
+- 首次引导历史索引：`node scripts/bootstrap-oss-versions.mjs --out ./versions.json`
+
+### OSS CORS（可选，用于浏览器直连清单）
+
+在阿里云 OSS 控制台 → Bucket `omnipanel` → 权限管理 → 跨域设置，增加规则：
+
+| 来源 | 允许 Methods | 允许 Headers | 暴露 Headers | 缓存 |
+|------|--------------|--------------|--------------|------|
+| `https://omniultrax.github.io` | `GET, HEAD` | `*` | `ETag` | `3600` |
+
+未配置时官网仍可用构建镜像；配置后可拿到更新鲜的线上清单。
 
 ## 目录结构
 

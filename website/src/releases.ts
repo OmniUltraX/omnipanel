@@ -6,6 +6,21 @@ export const OSS_RELEASES_BASE =
 export const LATEST_JSON_URL = `${OSS_RELEASES_BASE}/latest.json`;
 export const VERSIONS_JSON_URL = `${OSS_RELEASES_BASE}/versions.json`;
 
+/** 同域镜像（构建时 sync-releases 写入），规避 OSS 未配 CORS 时浏览器拦截 */
+function siteReleaseUrl(name: string): string {
+  const base = import.meta.env.BASE_URL || "/";
+  const prefix = base.endsWith("/") ? base : `${base}/`;
+  return `${prefix}releases/${name}`;
+}
+
+export function latestJsonCandidates(): string[] {
+  return [LATEST_JSON_URL, siteReleaseUrl("latest.json")];
+}
+
+export function versionsJsonCandidates(): string[] {
+  return [VERSIONS_JSON_URL, siteReleaseUrl("versions.json")];
+}
+
 export type PlatformAsset = {
   url: string;
   signature?: string;
@@ -146,6 +161,15 @@ export async function fetchJson<T>(url: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/** 按候选 URL 依次尝试（OSS 可能因 CORS 失败，再回退同域镜像） */
+export async function fetchJsonFirst<T>(urls: string[]): Promise<T | null> {
+  for (const url of urls) {
+    const data = await fetchJson<T>(url);
+    if (data != null) return data;
+  }
+  return null;
 }
 
 export function manifestToVersionEntry(manifest: UpdaterManifest): VersionEntry {

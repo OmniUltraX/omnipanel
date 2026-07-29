@@ -1,13 +1,13 @@
 import "./styles/main.css";
 import { setupSiteChrome } from "./site";
 import {
-  LATEST_JSON_URL,
-  VERSIONS_JSON_URL,
   buildDownloadItems,
   detectOsFamily,
-  fetchJson,
+  fetchJsonFirst,
   formatPubDate,
+  latestJsonCandidates,
   resolveVersionList,
+  versionsJsonCandidates,
   type UpdaterManifest,
   type VersionEntry,
   type VersionsIndex,
@@ -127,12 +127,15 @@ async function boot() {
   setStatus("正在从 OSS 读取版本清单…");
 
   const [latest, index] = await Promise.all([
-    fetchJson<UpdaterManifest>(LATEST_JSON_URL),
-    fetchJson<VersionsIndex>(VERSIONS_JSON_URL),
+    fetchJsonFirst<UpdaterManifest>(latestJsonCandidates()),
+    fetchJsonFirst<VersionsIndex>(versionsJsonCandidates()),
   ]);
 
   if (!latest && !index) {
-    setStatus("无法读取 OSS 版本清单，请稍后重试或前往 GitHub Releases。", "error");
+    setStatus(
+      "无法读取版本清单（OSS 可能未配置 CORS，且同域镜像缺失）。请稍后重试。",
+      "error",
+    );
     return;
   }
 
