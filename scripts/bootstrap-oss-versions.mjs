@@ -5,7 +5,10 @@
  * 需要与 publish-updater-to-aliyun-oss.mjs 相同的 ALIYUN_OSS_* 环境变量。
  *
  * 用法:
- *   node scripts/bootstrap-oss-versions.mjs
+ *   # 仅生成本地文件（无需密钥，再手动上传到 OSS）
+ *   node scripts/bootstrap-oss-versions.mjs --out ./versions.json --base https://omnipanel.oss-cn-beijing.aliyuncs.com
+ *
+ *   # 直接上传（需 ALIYUN_OSS_*，与发版 CI Secrets 同名）
  *   node scripts/bootstrap-oss-versions.mjs --base https://omnipanel.oss-cn-beijing.aliyuncs.com
  */
 
@@ -39,16 +42,21 @@ function normalizeTag(tagOrVersion) {
 
 function parseArgs(argv) {
   let base = process.env.ALIYUN_OSS_PUBLIC_BASE_URL?.trim() || "";
+  let out = "";
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--base") base = argv[++i] ?? "";
+    else if (argv[i] === "--out") out = argv[++i] ?? "";
   }
-  return { base: stripTrailingSlash(base) };
+  return { base: stripTrailingSlash(base), out };
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const publicBase =
-    args.base || stripTrailingSlash(requireEnv("ALIYUN_OSS_PUBLIC_BASE_URL"));
+    args.base ||
+    (process.env.ALIYUN_OSS_PUBLIC_BASE_URL
+      ? stripTrailingSlash(process.env.ALIYUN_OSS_PUBLIC_BASE_URL)
+      : "https://omnipanel.oss-cn-beijing.aliyuncs.com");
 
   const latestUrl = `${publicBase}/${RELEASE_PREFIX}/latest.json`;
   console.log(`读取 ${latestUrl}`);
@@ -69,6 +77,18 @@ async function main() {
     versions: [entry],
   };
 
+  const key = `${RELEASE_PREFIX}/versions.json`;
+  const body = `${JSON.stringify(index, null, 2)}\n`;
+
+  // 仅写本地：无需 AK/SK，上传到控制台路径 omnipanel/releases/versions.json
+  if (args.out) {
+    const outPath = path.resolve(args.out);
+    fs.writeFileSync(outPath, body, "utf8");
+    console.log(`已写入 ${outPath}`);
+    console.log(`请上传为公共读对象: ${publicBase}/${key}`);
+    return;
+  }
+
   let OSS;
   try {
     OSS = require("ali-oss");
@@ -84,9 +104,8 @@ async function main() {
     secure: true,
   });
 
-  const key = `${RELEASE_PREFIX}/versions.json`;
   const tmp = path.join(os.tmpdir(), "omnipanel-versions.json");
-  fs.writeFileSync(tmp, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  fs.writeFileSync(tmp, body, "utf8");
 
   // 若已有索引则合并（不覆盖其它版本）
   try {
