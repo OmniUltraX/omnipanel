@@ -2,7 +2,8 @@
 
     .proto-sidebar {
         width: 100%;
-        background: var(--bg-deeper);
+        /* 与 module-left-column / 数据库 schema 侧栏一致 */
+        background: var(--bg);
         display: flex;
         flex-direction: column;
         flex: 1;

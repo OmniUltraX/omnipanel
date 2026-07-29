@@ -792,7 +792,8 @@
     .knowledge-sidebar-sections {
         flex: 1;
         min-height: 0;
-        background: var(--bg-deeper);
+        /* 与 module-left-column / 数据库 schema 侧栏一致 */
+        background: var(--bg);
     }
 
     .knowledge-sidebar-sections .vsplit-sidebar-section__body {
