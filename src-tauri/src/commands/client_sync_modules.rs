@@ -237,13 +237,9 @@ pub struct ClientSyncPeekItem {
     /// 树形父节点 id；空表示根级。连接分组使用 `__group__:{name}` 虚拟节点。
     #[serde(default)]
     pub parent_id: String,
-    /// `folder` | `item`
-    #[serde(default = "default_peek_kind")]
+    /// `folder` | `item`（空视为 item）
+    #[serde(default)]
     pub kind: String,
-}
-
-fn default_peek_kind() -> String {
-    "item".to_string()
 }
 
 fn peek_item(
