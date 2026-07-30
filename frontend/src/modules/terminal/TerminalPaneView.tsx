@@ -40,6 +40,8 @@ import {
   clearNoisyShellBlocks,
 } from "./terminalBlockActions";
 import { interruptShell } from "./terminalShellRecovery";
+import { shortcutTitle } from "../../lib/shortcutTitle";
+import { useShortcutsStore } from "../../stores/shortcutsStore";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -108,6 +110,15 @@ function HeaderIconClearMenu() {
   );
 }
 
+function HeaderIconSearch() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="M10.5 10.5L13.5 13.5" />
+    </svg>
+  );
+}
+
 type ClearMenuItem = {
   id: string;
   label: string;
@@ -120,10 +131,12 @@ function HeaderClearMenu({
   disabled,
   items,
   label,
+  title,
 }: {
   disabled: boolean;
   items: ClearMenuItem[];
   label: string;
+  title?: string;
 }) {
   const menuId = useId();
   const [open, setOpen] = useState(false);
@@ -169,7 +182,7 @@ function HeaderClearMenu({
           ref={btnRef}
           type="button"
           className="term-session-header__action-btn"
-          title={label}
+          title={title ?? label}
           aria-label={label}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -236,6 +249,8 @@ function TerminalSessionHeader({
   headerAccessory?: ReactNode;
 }) {
   const { t } = useI18n();
+  // 订阅 overrides，设置页改快捷键后 title 能刷新
+  useShortcutsStore((s) => s.overrides);
   const stats = useTerminalSessionStats(session.resourceId, connected);
   const parsed = parseSshSubtitle(resource?.subtitle);
   const user = parsed.user ?? (session.type === "local" ? null : "root");
@@ -245,6 +260,17 @@ function TerminalSessionHeader({
   const expandAllShellBodies = useTerminalUiStore((s) => s.expandAllShellBodies);
   const collapseAllShellBodies = useTerminalUiStore((s) => s.collapseAllShellBodies);
   const blockCount = useBlocksStore((s) => (s.blocks[paneId] ?? []).length);
+
+  const expandTitle = shortcutTitle(t("terminal.feed.expandAll"), "expand-terminal-blocks");
+  const collapseTitle = shortcutTitle(t("terminal.feed.collapseAll"), "collapse-terminal-blocks");
+  const searchTitle = shortcutTitle(t("terminal.feed.search.placeholder"), "search-terminal");
+  const clearTitle = shortcutTitle(t("terminal.feed.clearMenu"), "clear-terminal");
+  const inputModeTitle = shortcutTitle(
+    inputMode === "external"
+      ? t("terminal.inputMode.switchToNative")
+      : t("terminal.inputMode.switchToCommandBar"),
+    "toggle-terminal-input-mode",
+  );
 
   const pathNav = (
     <TerminalPathBreadcrumb
@@ -262,11 +288,7 @@ function TerminalSessionHeader({
       size="xs"
       className="term-input-mode-toggle"
       onClick={onToggleInputMode}
-      title={
-        inputMode === "external"
-          ? t("terminal.inputMode.switchToNative")
-          : t("terminal.inputMode.switchToCommandBar")
-      }
+      title={inputModeTitle}
       type="button"
     >
       {inputMode === "external" ? t("terminal.inputMode.commandBar") : t("terminal.inputMode.native")}
@@ -363,7 +385,7 @@ function TerminalSessionHeader({
         <button
           type="button"
           className="term-session-header__action-btn"
-          title={t("terminal.feed.expandAll")}
+          title={expandTitle}
           aria-label={t("terminal.feed.expandAll")}
           disabled={blockCount === 0}
           onClick={() => expandAllShellBodies(paneId)}
@@ -373,16 +395,32 @@ function TerminalSessionHeader({
         <button
           type="button"
           className="term-session-header__action-btn"
-          title={t("terminal.feed.collapseAll")}
+          title={collapseTitle}
           aria-label={t("terminal.feed.collapseAll")}
           disabled={blockCount === 0}
           onClick={() => collapseAllShellBodies(paneId)}
         >
           <HeaderIconCollapseAll />
         </button>
+        <button
+          type="button"
+          className="term-session-header__action-btn"
+          title={searchTitle}
+          aria-label={t("terminal.feed.search.placeholder")}
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-search", {
+                detail: { sessionId: paneId, action: "open" },
+              }),
+            );
+          }}
+        >
+          <HeaderIconSearch />
+        </button>
         <HeaderClearMenu
           disabled={blockCount === 0}
           label={t("terminal.feed.clearMenu")}
+          title={clearTitle}
           items={clearMenuItems}
         />
       </div>
@@ -512,6 +550,33 @@ function PaneViewBody(
   const toggleInputMode = useCallback(() => {
     setInputMode(paneId, inputMode === "external" ? "interactive" : "external");
   }, [inputMode, paneId, setInputMode]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const onBlocks = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string; action?: string }>).detail;
+      if (!detail || detail.sessionId !== paneId) return;
+      if (detail.action === "expand-all") {
+        useTerminalUiStore.getState().expandAllShellBodies(paneId);
+      } else if (detail.action === "collapse-all") {
+        useTerminalUiStore.getState().collapseAllShellBodies(paneId);
+      }
+    };
+    const onToggleMode = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      if (!detail || detail.sessionId !== paneId) return;
+      const mode = useTerminalUiStore.getState().getInputMode(paneId);
+      useTerminalUiStore
+        .getState()
+        .setInputMode(paneId, mode === "external" ? "interactive" : "external");
+    };
+    window.addEventListener("omnipanel-terminal-blocks", onBlocks);
+    window.addEventListener("omnipanel-terminal-toggle-input-mode", onToggleMode);
+    return () => {
+      window.removeEventListener("omnipanel-terminal-blocks", onBlocks);
+      window.removeEventListener("omnipanel-terminal-toggle-input-mode", onToggleMode);
+    };
+  }, [isActive, paneId]);
 
   const handleReconnect = useCallback(() => {
     setReconnectKey((value) => value + 1);

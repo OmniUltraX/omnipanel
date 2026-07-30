@@ -1,8 +1,18 @@
 import { useI18n } from "@/i18n";
+import { shortcutTitle } from "@/lib/shortcutTitle";
+import { useShortcutsStore } from "@/stores/shortcutsStore";
 
 export type AdvanceTerminalSideEntryTab = {
   id: string;
   label: string;
+};
+
+const SIDE_TAB_SHORTCUT: Record<string, string> = {
+  monitor: "toggle-terminal-side-monitor",
+  processes: "toggle-terminal-side-monitor",
+  files: "toggle-terminal-side-files",
+  sftp: "toggle-terminal-side-sftp",
+  tunnel: "toggle-terminal-side-tunnel",
 };
 
 /**
@@ -20,6 +30,7 @@ export function AdvanceTerminalSideEntry({
   onSelect: (id: string) => void;
 }) {
   const { t } = useI18n();
+  useShortcutsStore((s) => s.overrides);
 
   return (
     <div
@@ -29,13 +40,15 @@ export function AdvanceTerminalSideEntry({
     >
       {tabs.map((tab) => {
         const isActive = expanded && activeId === tab.id;
+        const shortcutId = SIDE_TAB_SHORTCUT[tab.id];
+        const title = shortcutId ? shortcutTitle(tab.label, shortcutId) : tab.label;
         return (
           <button
             key={tab.id}
             type="button"
             className={`advance-terminal-side-entry-btn${isActive ? " is-active" : ""}`}
             onClick={() => onSelect(tab.id)}
-            title={tab.label}
+            title={title}
             aria-label={tab.label}
             aria-pressed={isActive}
           >

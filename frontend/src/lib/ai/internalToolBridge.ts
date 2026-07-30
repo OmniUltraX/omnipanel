@@ -203,7 +203,12 @@ export async function handleAssistantPendingTerminalTool(options: {
 
     const mode = resolveTerminalApprovalMode(tabId);
     // 跟随在工具 completed 时触发（见 AiRuntimeProvider.updateToolCall），不在 pending 时切面板
-    if (shouldRequireTerminalApproval(command, mode)) {
+    if (
+      shouldRequireTerminalApproval(command, mode, {
+        conversationId: options.conversationId,
+        terminalSessionId: tabId,
+      })
+    ) {
       const resource = getResourceById(pane.resourceId ?? null);
       const environment = resource?.environment ?? "unknown";
       const riskCheck = checkCommand(command, environment);

@@ -82,6 +82,15 @@ function decodeBase64Utf8(data: string): string {
   }
 }
 
+/** 编辑器初始文本：text 类 BLOB 解码正文，其余仍用摘要占位。 */
+export function formatOmniBlobEditorText(blob: OmniBlobValue): string {
+  if (blob.kind === "text" && blob.encoding === "base64" && blob.data) {
+    const text = decodeBase64Utf8(blob.data);
+    if (text.length > 0) return text;
+  }
+  return formatOmniBlobDisplayText(blob);
+}
+
 /** 将结构化 BLOB 转为 ContentPreviewView 可消费的内容。 */
 export function resolveOmniBlobPreviewContent(blob: OmniBlobValue): ContentPreviewPayload {
   const hasData = blob.encoding === "base64" && typeof blob.data === "string" && blob.data.length > 0;

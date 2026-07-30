@@ -1,3 +1,5 @@
+import { getShortcutKeys, matchesShortcut } from "../../../stores/shortcutsStore";
+
 export type ScopedSearchEntry = {
   getRoot: () => HTMLElement | null;
   isEnabled: () => boolean;
@@ -60,11 +62,7 @@ function pickScopedSearchEntry(): ScopedSearchEntry | null {
 }
 
 function handleGlobalKeyDown(e: KeyboardEvent) {
-  const isFind =
-    (e.metaKey || e.ctrlKey) &&
-    e.key.toLowerCase() === "f" &&
-    !e.shiftKey &&
-    !e.altKey;
+  const isFind = matchesShortcut(e, getShortcutKeys("search-terminal"));
   const isEscape = e.key === "Escape";
 
   if (!isFind && !isEscape) {

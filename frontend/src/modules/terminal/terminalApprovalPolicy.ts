@@ -1,8 +1,23 @@
 import { checkCommand } from "../../lib/commandGuard";
+import {
+  segmentTokens,
+  splitCommandSegments,
+  stripHarmlessRedirects,
+} from "./terminalCommandFingerprint";
+import {
+  isCommandWhitelisted,
+  type CommandWhitelistScope,
+} from "./terminalCommandWhitelist";
 
 export type TerminalApprovalMode = "strict" | "view" | "loose";
 
 export const DEFAULT_TERMINAL_APPROVAL_MODE: TerminalApprovalMode = "view";
+
+export {
+  commandApprovalKey,
+  commandApprovalKeys,
+  stripHarmlessRedirects,
+} from "./terminalCommandFingerprint";
 
 const READ_ONLY_VERBS = new Set([
   "alias",
@@ -133,34 +148,12 @@ const GIT_READ_SUBCOMMANDS = new Set([
   "describe",
 ]);
 
-const WRITE_REDIRECT_RE = /(?:^|[\s;])(?:\d*>>?)(?!\d)/;
+/** 写入文件的重定向；不含 2>/dev/null、2>&1 等无害形式 */
+const WRITE_REDIRECT_RE = /(?:^|[\s;|&])(?:\d*)>{1,2}\s*(?!\/dev\/null\b|&\d+\b)\S+/;
 const WRITE_PIPE_RE = /\|\s*(?:tee|dd|sh|bash|zsh|python|node)\b/i;
 
-function stripLeadingShellModifiers(segment: string): string {
-  let rest = segment.trim();
-  for (let i = 0; i < 4; i += 1) {
-    const next = rest
-      .replace(/^(?:sudo|time|nohup|command)\s+/i, "")
-      .replace(/^env\s+(?:\S+=\S+\s+)*/i, "")
-      .trim();
-    if (next === rest) break;
-    rest = next;
-  }
-  return rest;
-}
-
-function splitCommandSegments(command: string): string[] {
-  return command
-    .split(/(?:&&|\|\||;)/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
 function isReadOnlySegment(segment: string): boolean {
-  const normalized = stripLeadingShellModifiers(segment);
-  if (!normalized) return true;
-
-  const tokens = normalized.split(/\s+/);
+  const tokens = segmentTokens(segment);
   const verb = tokens[0]?.toLowerCase() ?? "";
   if (!verb) return true;
 
@@ -187,30 +180,36 @@ function isReadOnlySegment(segment: string): boolean {
   return READ_ONLY_VERBS.has(verb);
 }
 
-/** 是否为查看类 / 非修改类命令（宽松模式下免审批） */
+/** 是否为查看类 / 非修改类命令（查看模式下免审批） */
 export function isReadOnlyTerminalCommand(command: string): boolean {
   const trimmed = command.trim();
   if (!trimmed) return true;
-  if (WRITE_REDIRECT_RE.test(trimmed) || WRITE_PIPE_RE.test(trimmed)) return false;
+
+  const normalized = stripHarmlessRedirects(trimmed);
+  if (!normalized) return true;
+  if (WRITE_REDIRECT_RE.test(normalized) || WRITE_PIPE_RE.test(normalized)) return false;
 
   const danger = checkCommand(trimmed);
   if (!danger.safe && ["high", "critical"].includes(danger.level)) {
     return false;
   }
 
-  const segments = splitCommandSegments(trimmed);
+  const segments = splitCommandSegments(normalized);
   return segments.every((segment) => isReadOnlySegment(segment));
 }
 
 /**
  * 是否要求对 AI 自动执行的终端命令做人工确认。
  * 仅用于 AI 工具链路；用户在命令栏手动执行不走此策略。
+ * @param scope 会话白名单作用域（AI 会话 / 终端会话）
  */
 export function shouldRequireTerminalApproval(
   command: string,
   mode: TerminalApprovalMode,
+  scope?: CommandWhitelistScope | null,
 ): boolean {
   if (mode === "loose") return false;
+  if (isCommandWhitelisted(command, scope)) return false;
   if (mode === "strict") return true;
   return !isReadOnlyTerminalCommand(command);
 }

@@ -88,6 +88,8 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
    * 数据库侧栏联动需即时跟随时传 false。
    */
   deferActiveTabNotify?: boolean;
+  /** pointerdown 乐观高亮后立刻回调（早于 onActiveTabChange） */
+  onActiveTabPreview?: (tabId: string) => void;
   /**
    * 模块非 live / 首页预热：挂起重活（chrome/layout 可保留）。
    * 配合 stickyVisit：预热从未 live 时不挂内容；曾 live 后切走保留已访问 Tab。
@@ -133,6 +135,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
   softRefreshKey,
   defaultRenderer = "onlyWhenVisible",
   deferActiveTabNotify,
+  onActiveTabPreview,
   contentSuspended = false,
   stickyVisit = false,
 }: ModuleSegmentDockProps) {
@@ -259,6 +262,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       softRefreshKey={composedSoftRefreshKey}
       defaultRenderer={resolvedRenderer}
       deferActiveTabNotify={deferActiveTabNotify}
+      onActiveTabPreview={onActiveTabPreview}
     />
   );
 });

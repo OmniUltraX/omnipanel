@@ -5403,9 +5403,27 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
+        height: 100%;
+    }
+
+    .db-workspace-pane--sql > .sql-toolbar,
+    .db-workspace-pane--sql > .sql-toolbar-error {
+        flex-shrink: 0;
     }
 
     .db-sql-split {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .db-sql-editor-only {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .db-sql-preview-split {
         flex: 1;
         min-height: 0;
     }
@@ -6531,6 +6549,16 @@
         overflow: hidden;
     }
 
+    /*
+     * 兜底：外层 SQL panel overlay 被 dockview 隐藏时，压住内层结果 overlay，
+     * 防止 visibility 穿透。主路径仍靠 DbPanelSurface 的 display:none。
+     */
+    .db-module-dock .dv-render-overlay[style*="visibility: hidden"] .db-sql-results-dock .dv-render-overlay,
+    .db-module-dock .dv-render-overlay[style*="visibility:hidden"] .db-sql-results-dock .dv-render-overlay {
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
     .db-sql-result-session {
         flex: 1;
         min-height: 0;
@@ -6664,13 +6692,6 @@
 
     .db-data-table-wrap--canvas.db-data-table-wrap--loading .db-data-table-canvas {
         pointer-events: none;
-    }
-
-    .db-grid-render-mode-toggle {
-        font-size: 10px;
-        min-width: 52px;
-        font-variant: all-small-caps;
-        letter-spacing: 0.04em;
     }
 
     .db-data-table {

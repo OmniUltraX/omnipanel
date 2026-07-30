@@ -4,6 +4,11 @@ import {
   useActionDraftStore,
   type ActionDraft,
 } from "../../stores/actionDraftStore";
+import {
+  addPermanentCommandWhitelist,
+  addSessionCommandWhitelist,
+  formatCommandWhitelistLabel,
+} from "../../modules/terminal/terminalCommandWhitelist";
 import { showToast } from "../../stores/toastStore";
 import { useI18n } from "../../i18n";
 
@@ -38,6 +43,8 @@ export function ApprovalActionBar({
     barRef.current?.focus();
   }, [draft.id, isDock]);
 
+  const isTerminalDraft = draft.kind === "terminal" || draft.kind === "shell";
+
   const run = (actionId: string) => {
     void resolveAction(draft.id, actionId)
       .then((r) => {
@@ -47,6 +54,33 @@ export function ApprovalActionBar({
         }
       })
       .catch((e) => showToast(String(e)));
+  };
+
+  const whitelistCmdLabel = formatCommandWhitelistLabel(draft.preview);
+  const whitelistScope = {
+    conversationId: draft.conversationId ?? draft.target?.conversationId,
+    terminalSessionId: draft.target?.sessionId,
+  };
+
+  const runWithWhitelist = (scope: "session" | "permanent") => {
+    const command = draft.preview.trim();
+    if (!command) {
+      run("confirm");
+      return;
+    }
+    const label = formatCommandWhitelistLabel(command);
+    const keys =
+      scope === "permanent"
+        ? addPermanentCommandWhitelist(command)
+        : addSessionCommandWhitelist(command, whitelistScope);
+    if (keys.length > 0) {
+      showToast(
+        scope === "permanent"
+          ? t("terminal.approval.whitelistPermanentToast", { cmd: label })
+          : t("terminal.approval.whitelistSessionToast", { cmd: label }),
+      );
+    }
+    run("confirm");
   };
 
   return (
@@ -101,6 +135,26 @@ export function ApprovalActionBar({
               </button>
             );
           })}
+          {isTerminalDraft ? (
+            <>
+              <button
+                type="button"
+                className="term-warp-toolcall__edit-btn"
+                title={t("terminal.approval.whitelistPermanentDesc", { cmd: whitelistCmdLabel })}
+                onClick={() => runWithWhitelist("permanent")}
+              >
+                {t("terminal.approval.whitelistPermanent", { cmd: whitelistCmdLabel })}
+              </button>
+              <button
+                type="button"
+                className="term-warp-toolcall__edit-btn"
+                title={t("terminal.approval.whitelistSessionDesc", { cmd: whitelistCmdLabel })}
+                onClick={() => runWithWhitelist("session")}
+              >
+                {t("terminal.approval.whitelistSession", { cmd: whitelistCmdLabel })}
+              </button>
+            </>
+          ) : null}
           {onGoView ? (
             <button
               type="button"

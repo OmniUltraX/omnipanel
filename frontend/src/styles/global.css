@@ -2449,12 +2449,10 @@ a {
 }
 
 .sql-codemirror-editor--inactive {
-    visibility: hidden;
+    /* 切 Tab 时 dockview 会先露出面板、React active 稍后才到；
+       绝不能用 visibility/尺寸隐藏，否则会出现「工具栏在、编辑器黑」的闪帧。
+       仅禁用交互即可。 */
     pointer-events: none;
-    position: absolute;
-    width: 0;
-    height: 0;
-    overflow: hidden;
 }
 
 /* SQL 缂栬緫鍣?CodeMirror 琛ュ叏鍒楄〃锛坱ooltip 鎸傝浇鍦?body锛岄殢涓婚鍙橀噺鍒囨崲锛?*/

@@ -1,9 +1,10 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useMemo, type ReactNode } from "react";
 import {
   useDbTabWorkspaceSlice,
   EMPTY_TAB_DIRTY_ROWS,
   type DbTabWorkspaceSlice,
 } from "../stores/dbWorkspaceTabStore";
+import { useDbWorkspaceActiveTabStore } from "../stores/dbWorkspaceActiveTabStore";
 import type {
   DbWorkspaceSharedContextValue,
   DbWorkspaceActiveTabContextValue,
@@ -57,14 +58,29 @@ function splitMirrorContextValue(value: DbWorkspaceMirrorContextValue): {
   };
 }
 
+/** 把 Context 的 activeTabId 同步到按 tab 布尔订阅的 store（layout 阶段，避免切 Tab 闪一帧） */
+function SyncDbWorkspaceActiveTabStore({ activeTabId }: { activeTabId: string }) {
+  useLayoutEffect(() => {
+    useDbWorkspaceActiveTabStore.getState().setActiveTabId(activeTabId);
+  }, [activeTabId]);
+  return null;
+}
+
 export function DbWorkspaceProviders({
   state,
   activeTab,
   children,
+  /** 主 DatabasePanel 同步到按 tab 订阅的 store；镜像窗勿开，避免多实例互踩 */
+  syncActiveTabStore = false,
 }: DbWorkspaceProvidersProps) {
   return (
     <StateCtx.Provider value={state}>
-      <ActiveTabCtx.Provider value={activeTab}>{children}</ActiveTabCtx.Provider>
+      <ActiveTabCtx.Provider value={activeTab}>
+        {syncActiveTabStore ? (
+          <SyncDbWorkspaceActiveTabStore activeTabId={activeTab.activeTabId} />
+        ) : null}
+        {children}
+      </ActiveTabCtx.Provider>
     </StateCtx.Provider>
   );
 }

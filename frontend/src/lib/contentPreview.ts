@@ -1,5 +1,86 @@
 /** 预览区 URL / 格式检测（数据库单元格、文件文本等共用） */
 
+/**
+ * 无协议时易被当成「域名 TLD」的常见文件扩展名。
+ * 避免 `pig-auth-dev.yml` / `config.json` 误开网页预览。
+ */
+const FILE_LIKE_TLD = new Set([
+  "yml",
+  "yaml",
+  "json",
+  "xml",
+  "txt",
+  "md",
+  "markdown",
+  "sql",
+  "csv",
+  "tsv",
+  "log",
+  "js",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "jsx",
+  "css",
+  "scss",
+  "sass",
+  "less",
+  "html",
+  "htm",
+  "vue",
+  "svelte",
+  "py",
+  "go",
+  "rs",
+  "java",
+  "kt",
+  "swift",
+  "rb",
+  "php",
+  "sh",
+  "bash",
+  "zsh",
+  "ps1",
+  "bat",
+  "cmd",
+  "conf",
+  "cfg",
+  "ini",
+  "toml",
+  "properties",
+  "lock",
+  "map",
+  "wasm",
+  "bin",
+  "dat",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+  "ico",
+  "bmp",
+  "avif",
+  "pdf",
+  "zip",
+  "gz",
+  "tgz",
+  "rar",
+  "7z",
+  "tar",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "env",
+  "gitignore",
+  "dockerfile",
+]);
+
 /** 排除 true / localhost 以外的单词主机名被误判为网址。 */
 function isPlausibleWebHostname(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, "");
@@ -11,7 +92,13 @@ function isPlausibleWebHostname(hostname: string): boolean {
   if (host.includes(":")) return true;
   // 必须含点，且各段合法（example.com / a.b.co）
   if (!host.includes(".")) return false;
-  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(host);
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(host)) {
+    return false;
+  }
+  const tld = host.slice(host.lastIndexOf(".") + 1);
+  // 常见文件扩展名不当作 TLD（无协议文件名误判）
+  if (FILE_LIKE_TLD.has(tld)) return false;
+  return true;
 }
 
 export function normalizePreviewWebUrl(text: string): string | null {
@@ -21,6 +108,15 @@ export function normalizePreviewWebUrl(text: string): string | null {
   const hasScheme = /^https?:\/\//i.test(trimmed);
   // 无协议时必须像域名（含点），避免 `true` → `https://true`
   if (!hasScheme && !trimmed.includes(".")) return null;
+
+  // 无协议且无路径：整串像 `name.ext` 文件名时直接拒绝（比仅靠 TLD 黑名单更稳）
+  if (!hasScheme && !trimmed.includes("/") && !trimmed.includes("?")) {
+    const lastDot = trimmed.lastIndexOf(".");
+    if (lastDot > 0) {
+      const ext = trimmed.slice(lastDot + 1).toLowerCase();
+      if (FILE_LIKE_TLD.has(ext)) return null;
+    }
+  }
 
   const candidate = hasScheme ? trimmed : `https://${trimmed}`;
 

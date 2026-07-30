@@ -113,6 +113,8 @@ export interface DbWorkspaceProvidersProps {
   state: DbWorkspaceSharedContextValue;
   activeTab: DbWorkspaceActiveTabContextValue;
   children: React.ReactNode;
+  /** 主 DatabasePanel 同步到按 tab 订阅的 store；镜像窗保持 false */
+  syncActiveTabStore?: boolean;
 }
 
 /** Tab 级工作区数据（由 Zustand store 持有；镜像快照单独合并）。 */
