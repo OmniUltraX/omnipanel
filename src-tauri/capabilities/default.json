@@ -27,6 +27,7 @@
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
+    "snap-layout:default",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:webview:allow-get-all-webviews",

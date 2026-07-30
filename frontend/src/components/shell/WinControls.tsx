@@ -1,15 +1,50 @@
+import { useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useI18n } from "../../i18n";
 import { useTauriWindowMaximized } from "../../hooks/useTauriWindowMaximized";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
+import { MODULE_WINDOW_PREFIX } from "../../lib/moduleWindow";
+import {
+  attachSnapMaximizeButton,
+  OMNIPANEL_SNAP_MAXIMIZE_ID,
+} from "../../lib/snapLayout";
+
+export { OMNIPANEL_SNAP_MAXIMIZE_ID };
+
+/** 主窗 + 模块独立窗（`module-*`）可挂 Snap Layout；其它子窗/登录窗不挂 */
+function isSnapLayoutEligibleWindow(): boolean {
+  if (!isTauriRuntime()) return false;
+  try {
+    const label = getCurrentWindow().label;
+    return label === "main" || label.startsWith(MODULE_WINDOW_PREFIX);
+  } catch {
+    return false;
+  }
+}
 
 interface WinControlsProps {
   className?: string;
+  /**
+   * 为当前窗最大化按钮挂 Windows 11 Snap Layout 原生 overlay。
+   * 同一 WebView 内同时只应有一个实例开启，避免重复 id。
+   */
+  enableSnapLayout?: boolean;
 }
 
-export function WinControls({ className }: WinControlsProps) {
+export function WinControls({ className, enableSnapLayout = false }: WinControlsProps) {
   const { t } = useI18n();
   const isMaximized = useTauriWindowMaximized();
+  const maximizeRef = useRef<HTMLButtonElement>(null);
+  const snapEnabled = Boolean(enableSnapLayout && isSnapLayoutEligibleWindow());
+
+  useEffect(() => {
+    if (!snapEnabled) return;
+    const ac = new AbortController();
+    void attachSnapMaximizeButton(maximizeRef.current, { signal: ac.signal });
+    return () => {
+      ac.abort();
+    };
+  }, [snapEnabled]);
 
   const handleMinimize = () => {
     if (!isTauriRuntime()) return;
@@ -20,6 +55,7 @@ export function WinControls({ className }: WinControlsProps) {
 
   const handleMaximize = () => {
     if (!isTauriRuntime()) return;
+    // Snap overlay 会拦截点击并自行 maximize；此处保留为无 overlay 时的回退
     void getCurrentWindow()
       .toggleMaximize()
       .catch((e) => console.error("[WinControls] toggleMaximize failed", e));
@@ -48,7 +84,9 @@ export function WinControls({ className }: WinControlsProps) {
         </svg>
       </button>
       <button
+        ref={maximizeRef}
         type="button"
+        id={snapEnabled ? OMNIPANEL_SNAP_MAXIMIZE_ID : undefined}
         className="win-btn maximize"
         title={isMaximized ? t("shell.topbar.restore") : t("shell.topbar.maximize")}
         onClick={handleMaximize}

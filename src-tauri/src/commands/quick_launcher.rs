@@ -95,8 +95,8 @@ pub fn ensure_quick_launcher_window(app: &AppHandle) -> Result<(), String> {
         WebviewUrl::App("index.html".into()),
     )
     .title("OmniPanel Quick Launcher")
-    .inner_size(560.0, 72.0)
-    .min_inner_size(480.0, 72.0)
+    .inner_size(600.0, 104.0)
+    .min_inner_size(520.0, 104.0)
     .resizable(false)
     .maximizable(false)
     .minimizable(false)
@@ -189,9 +189,10 @@ pub fn set_quick_launcher_height(app: AppHandle, height: f64) -> Result<(), Stri
     let window = app
         .get_webview_window(QUICK_LAUNCHER_LABEL)
         .ok_or_else(|| "快捷启动窗不存在".to_string())?;
-    let h = height.clamp(72.0, 420.0);
+    // 顶部模块图标行 + 搜索行，最小约 104
+    let h = height.clamp(104.0, 480.0);
     window
-        .set_size(tauri::LogicalSize::new(560.0, h))
+        .set_size(tauri::LogicalSize::new(600.0, h))
         .map_err(|e| e.to_string())
 }
 

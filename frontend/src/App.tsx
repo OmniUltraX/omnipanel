@@ -57,6 +57,7 @@ import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "./lib/isTauriRuntime";
 import { ensureSystemTray } from "./lib/systemTray";
+import { scheduleIdleModuleWindowPrewarm } from "./lib/moduleWindow";
 import { initQuickLauncherActionListener } from "./lib/quickLauncherActions";
 import { handleWindowCloseRequested } from "./lib/windowCloseBehavior";
 import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
@@ -265,6 +266,19 @@ function AppShell() {
       showAll: t("shell.closeBehavior.trayShowAll"),
       quit: t("shell.closeBehavior.trayQuit"),
       quickOpen: t("shell.closeBehavior.trayQuickOpen"),
+      openModules: t("shell.closeBehavior.trayOpenModules"),
+      moduleLabels: {
+        terminal: t("shell.nav.terminal"),
+        database: t("shell.nav.database"),
+        docker: t("shell.nav.docker"),
+        server: t("shell.nav.server"),
+        files: t("shell.nav.files"),
+        protocol: t("shell.nav.protocol"),
+        workflow: t("shell.nav.workflow"),
+        knowledge: t("shell.nav.knowledge"),
+        tasks: t("shell.nav.tasks"),
+        ssh: t("shell.nav.ssh"),
+      },
     });
     getCurrentWindow()
       .onCloseRequested(async (event) => {
@@ -275,6 +289,13 @@ function AppShell() {
       });
     return () => unlisten?.();
   }, [t]);
+
+  // 主窗就绪后错峰补预热各模块独立窗（与 Rust 后台预热互补）
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    if (getCurrentWindow().label !== "main") return;
+    return scheduleIdleModuleWindowPrewarm();
+  }, []);
 
   // 托盘快捷启动窗 → 主窗动作分发
   useEffect(() => {

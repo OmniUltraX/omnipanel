@@ -664,6 +664,8 @@ export const zhCN = {
       settings: "设置",
       userCenter: "用户中心",
       ai: "AI 助手",
+      openInNewWindow: "在新窗口打开",
+      moduleWindowLoading: "正在加载模块…",
     },
     miniapp: {
       title: "微信小程序",
@@ -845,11 +847,16 @@ export const zhCN = {
       quit: "退出应用",
       trayShowAll: "显示全部窗口",
       trayQuickOpen: "快捷打开",
+      trayOpenModules: "打开模块窗口",
       trayQuit: "退出",
     },
     quickLauncher: {
       placeholder: "搜索命令或连接…",
       noResults: "无匹配结果",
+      modulesAria: "打开模块",
+      soloAria: "SOLO 模式：开启打开单模块窗口，关闭打开主窗口",
+      soloOnHint: "SOLO 开：点击图标打开单模块窗口",
+      soloOffHint: "SOLO 关：点击图标打开主窗口对应模块",
       kinds: {
         command: "命令",
         ssh: "SSH",

@@ -668,6 +668,8 @@ export const enUS: TranslationDict = {
       settings: "Settings",
       userCenter: "User Center",
       ai: "AI Assistant",
+      openInNewWindow: "Open in new window",
+      moduleWindowLoading: "Loading module…",
     },
     miniapp: {
       title: "WeChat Mini Program",
@@ -849,11 +851,16 @@ export const enUS: TranslationDict = {
       quit: "Quit application",
       trayShowAll: "Show all windows",
       trayQuickOpen: "Quick open",
+      trayOpenModules: "Open module window",
       trayQuit: "Quit",
     },
     quickLauncher: {
       placeholder: "Search commands or connections…",
       noResults: "No matches",
+      modulesAria: "Open modules",
+      soloAria: "SOLO mode: on opens module window, off opens main window",
+      soloOnHint: "SOLO on: click icon to open module window",
+      soloOffHint: "SOLO off: click icon to open module in main window",
       kinds: {
         command: "Command",
         ssh: "SSH",

@@ -1,5 +1,5 @@
 import { defaultWindowIcon } from "@tauri-apps/api/app";
-import { Menu } from "@tauri-apps/api/menu";
+import { Menu, Submenu } from "@tauri-apps/api/menu";
 import { TrayIcon } from "@tauri-apps/api/tray";
 import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,10 +10,44 @@ import {
   getTrayHiddenLabels,
 } from "./trayHiddenWindows";
 import { QUICK_LAUNCHER_LABEL, showQuickLauncher } from "./quickLauncher";
+import { openModuleWindow, SUPPORTED_MODULE_KEYS } from "./moduleWindow";
+import { getNavVisibleModuleKeys } from "../stores/appModuleStore";
+import type { ModuleKey } from "./paths";
 
 export const SYSTEM_TRAY_ID = "omnipanel-main-tray";
 
+/** 与侧栏 nav / util 顺序一致；ssh 末尾兜底 */
+const TRAY_MODULE_ORDER: readonly ModuleKey[] = [
+  "terminal",
+  "database",
+  "docker",
+  "server",
+  "files",
+  "protocol",
+  "workflow",
+  "knowledge",
+  "tasks",
+  "ssh",
+];
+
 let initPromise: Promise<void> | null = null;
+
+export type SystemTrayLabels = {
+  tooltip: string;
+  showAll: string;
+  quit: string;
+  quickOpen: string;
+  /** 子菜单标题，如「打开模块窗口」 */
+  openModules: string;
+  /** 各模块显示名 */
+  moduleLabels: Partial<Record<ModuleKey, string>>;
+};
+
+function resolveTrayModuleKeys(): ModuleKey[] {
+  const supported = new Set<string>(SUPPORTED_MODULE_KEYS);
+  const visible = new Set(getNavVisibleModuleKeys());
+  return TRAY_MODULE_ORDER.filter((key) => supported.has(key) && visible.has(key));
+}
 
 async function showWindowByLabel(label: string): Promise<boolean> {
   if (label === QUICK_LAUNCHER_LABEL) return false;
@@ -87,15 +121,37 @@ async function quitFromTray(): Promise<void> {
   }
 }
 
+async function buildModuleWindowsSubmenu(labels: SystemTrayLabels): Promise<Submenu> {
+  const keys = resolveTrayModuleKeys();
+  const items = keys.map((moduleKey) => ({
+    id: `open-module-${moduleKey}`,
+    text: labels.moduleLabels[moduleKey] ?? moduleKey,
+    action: () => {
+      const title = labels.moduleLabels[moduleKey] ?? moduleKey;
+      void openModuleWindow(moduleKey, title);
+    },
+  }));
+
+  return Submenu.new({
+    id: "open-module-windows",
+    text: labels.openModules,
+    items:
+      items.length > 0
+        ? items
+        : [
+            {
+              id: "open-module-empty",
+              text: "—",
+              enabled: false,
+            },
+          ],
+  });
+}
+
 /**
  * 确保整应用只有一个托盘图标。仅应在主窗口调用；若已存在同 id 托盘则复用。
  */
-export async function ensureSystemTray(labels: {
-  tooltip: string;
-  showAll: string;
-  quit: string;
-  quickOpen: string;
-}): Promise<void> {
+export async function ensureSystemTray(labels: SystemTrayLabels): Promise<void> {
   if (!isTauriRuntime()) return;
   if (getCurrentWindow().label !== "main") return;
 
@@ -103,6 +159,8 @@ export async function ensureSystemTray(labels: {
     initPromise = (async () => {
       const existing = await TrayIcon.getById(SYSTEM_TRAY_ID);
       if (existing) return;
+
+      const modulesSubmenu = await buildModuleWindowsSubmenu(labels);
 
       const menu = await Menu.new({
         items: [
@@ -114,6 +172,7 @@ export async function ensureSystemTray(labels: {
               void showQuickLauncher();
             },
           },
+          modulesSubmenu,
           {
             id: "show-all",
             text: labels.showAll,

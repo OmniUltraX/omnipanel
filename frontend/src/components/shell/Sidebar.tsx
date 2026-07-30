@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from "react-router-dom";
-import { startTransition, useRef } from "react";
+import { startTransition, useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
@@ -8,11 +8,18 @@ import {
   navigateToFeature,
   toggleWorkspaceFromChromeIcon,
 } from "../../lib/workspaceNavigation";
-import { isDashboardPath, MODULE_PATHS } from "../../lib/paths";
+import { isDashboardPath, MODULE_PATHS, moduleKeyFromPath } from "../../lib/paths";
 import { isOverlayModulePath } from "../../lib/routePanels";
 import { scheduleNavHoverWarm } from "../../lib/moduleWarmup";
 import { isModulePathEnabled, useAppModuleStore } from "../../stores/appModuleStore";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
+import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import {
+  isModuleWindowSupported,
+  openModuleWindow,
+  scheduleModuleWindowHoverPrewarm,
+} from "../../lib/moduleWindow";
+import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { SidebarMiniappButton } from "./SidebarMiniappButton";
 import { SidebarUserButton } from "./SidebarUserButton";
 
@@ -129,6 +136,12 @@ export function Sidebar() {
     : t("shell.workspacePanel.fullscreen");
   useAppModuleStore((s) => s.modules);
   const hoverWarmCancelRef = useRef<(() => void) | null>(null);
+  const moduleWindowHoverCancelRef = useRef<(() => void) | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    path: string;
+  } | null>(null);
 
   const isActive = (path: string) => {
     if (isWorkspaceHome) return false;
@@ -157,12 +170,45 @@ export function Sidebar() {
   const handleNavHoverStart = (path: string) => {
     hoverWarmCancelRef.current?.();
     hoverWarmCancelRef.current = scheduleNavHoverWarm(path);
+    moduleWindowHoverCancelRef.current?.();
+    moduleWindowHoverCancelRef.current = scheduleModuleWindowHoverPrewarm(path);
   };
 
   const handleNavHoverEnd = () => {
     hoverWarmCancelRef.current?.();
     hoverWarmCancelRef.current = null;
+    moduleWindowHoverCancelRef.current?.();
+    moduleWindowHoverCancelRef.current = null;
   };
+
+  const handleOpenInNewWindow = useCallback(
+    (path: string) => {
+      const moduleKey = moduleKeyFromPath(path);
+      if (!moduleKey || !isModuleWindowSupported(moduleKey)) return;
+      void openModuleWindow(moduleKey, t(`shell.nav.${moduleKey}`));
+    },
+    [t],
+  );
+
+  const handleModuleContextMenu = (path: string, e: React.MouseEvent) => {
+    const moduleKey = moduleKeyFromPath(path);
+    if (!moduleKey || !isModuleWindowSupported(moduleKey) || !isTauriRuntime()) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, path });
+  };
+
+  const ctxMenuItems: ContextMenuItem[] = ctxMenu
+    ? [
+        {
+          id: "open-in-new-window",
+          label: t("shell.nav.openInNewWindow"),
+          onClick: () => handleOpenInNewWindow(ctxMenu.path),
+        },
+      ]
+    : [];
 
   const renderItem = (item: { path: string; key: string; icon: ReactNode }) => (
     <button
@@ -171,6 +217,7 @@ export function Sidebar() {
       className={`sidebar-item${isActive(item.path) ? " active" : ""}`}
       title={t(item.key)}
       onClick={() => handleModuleNav(item.path)}
+      onContextMenu={(e) => handleModuleContextMenu(item.path, e)}
       onMouseEnter={() => handleNavHoverStart(item.path)}
       onMouseLeave={handleNavHoverEnd}
       onFocus={() => handleNavHoverStart(item.path)}
@@ -199,6 +246,14 @@ export function Sidebar() {
 
       <SidebarMiniappButton />
       <SidebarUserButton />
+
+      {ctxMenu ? (
+        <ContextMenu
+          items={ctxMenuItems}
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          onClose={() => setCtxMenu(null)}
+        />
+      ) : null}
     </aside>
   );
 }

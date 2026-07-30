@@ -81,7 +81,8 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
           {showControls ? <AiChromeButton /> : null}
         </div>
       ) : null}
-      {showControls ? <WinControls /> : null}
+      {/* 主窗 / 模块独立窗可见的窗口三键；挂 Snap Layout overlay */}
+      {showControls ? <WinControls enableSnapLayout /> : null}
     </div>
   );
 }
