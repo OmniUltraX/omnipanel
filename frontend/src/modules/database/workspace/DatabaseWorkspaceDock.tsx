@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 import { useDbWorkspaceActiveTab } from "../../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../../stores/dbDockLayoutStore";
+import { useDbWorkspaceActiveTabStore } from "../../../stores/dbWorkspaceActiveTabStore";
 import { ModuleSegmentDock, type DockableTab } from "../../../components/dock";
 import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
@@ -72,6 +73,10 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
       tabs={dockTabs}
       activeTabId={activeTabId}
       onActiveTabChange={setActiveTabId}
+      onActiveTabPreview={(tabId) => {
+        // pointerdown 同步写入，避免 dock 先露出面板时内容仍按旧 active 藏起来
+        useDbWorkspaceActiveTabStore.getState().setActiveTabId(tabId);
+      }}
       onCloseTab={onCloseTab}
       savedLayout={dockLayout}
       onSavedLayoutChange={setDockLayout}

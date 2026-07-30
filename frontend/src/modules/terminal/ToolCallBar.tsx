@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { TextInput } from "../../components/ui/form/TextInput";
+import { useI18n } from "../../i18n";
 import type { AiThreadToolCall } from "../../stores/blocksStore";
+import { showToast } from "../../stores/toastStore";
 import {
   approveInlineTerminalTool,
+  getPendingInlineToolScope,
   rejectInlineTerminalTool,
 } from "./inlineToolBridge";
 import { useCommandBarDraftStore } from "./commandBarDraftStore";
+import {
+  addPermanentCommandWhitelist,
+  addSessionCommandWhitelist,
+  formatCommandWhitelistLabel,
+} from "./terminalCommandWhitelist";
 
 type ToolCallBarProps = {
   blockId: string;
@@ -28,6 +36,7 @@ export function ToolCallBar({
   item,
   variant = "inline",
 }: ToolCallBarProps) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.command ?? "");
@@ -56,6 +65,28 @@ export function ToolCallBar({
     rejectInlineTerminalTool(blockId, item.id);
   };
 
+  const whitelistCmdLabel = formatCommandWhitelistLabel(
+    (editing ? draft : command).trim() || command,
+  );
+
+  const approveWithWhitelist = (scope: "session" | "permanent") => {
+    const cmd = (editing ? draft : command).trim();
+    if (!cmd) return;
+    const label = formatCommandWhitelistLabel(cmd);
+    const keys =
+      scope === "permanent"
+        ? addPermanentCommandWhitelist(cmd)
+        : addSessionCommandWhitelist(cmd, getPendingInlineToolScope(item.id, sessionId));
+    if (keys.length > 0) {
+      showToast(
+        scope === "permanent"
+          ? t("terminal.approval.whitelistPermanentToast", { cmd: label })
+          : t("terminal.approval.whitelistSessionToast", { cmd: label }),
+      );
+    }
+    approve(editing ? draft : undefined);
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!isPending) return;
     if (event.key === "Enter" && !editing) {
@@ -78,13 +109,29 @@ export function ToolCallBar({
       className="term-warp-toolcall__run"
       onClick={() => approve(editing ? draft : undefined)}
     >
-      执行
+      {t("terminal.approval.execute")}
+    </button>
+    <button
+      type="button"
+      className="term-warp-toolcall__edit-btn"
+      title={t("terminal.approval.whitelistPermanentDesc", { cmd: whitelistCmdLabel })}
+      onClick={() => approveWithWhitelist("permanent")}
+    >
+      {t("terminal.approval.whitelistPermanent", { cmd: whitelistCmdLabel })}
+    </button>
+    <button
+      type="button"
+      className="term-warp-toolcall__edit-btn"
+      title={t("terminal.approval.whitelistSessionDesc", { cmd: whitelistCmdLabel })}
+      onClick={() => approveWithWhitelist("session")}
+    >
+      {t("terminal.approval.whitelistSession", { cmd: whitelistCmdLabel })}
     </button>
     <button type="button" className="term-warp-toolcall__edit-btn" onClick={fillCommandBar}>
-      编辑
+      {t("terminal.approval.edit")}
     </button>
     <button type="button" className="term-warp-toolcall__reject" onClick={reject}>
-      拒绝
+      {t("terminal.approval.reject")}
     </button>
   </>
 ) : null;

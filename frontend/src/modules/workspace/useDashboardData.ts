@@ -12,6 +12,7 @@ import { LOCAL_TERMINAL_RESOURCE_ID } from "../terminal/paneResource";
 import {
   isInlineTerminalToolName,
 } from "../terminal/inlineTerminalTool";
+import { getPendingInlineToolScope } from "../terminal/inlineToolBridge";
 import { getResolvedAiThread } from "../terminal/aiThreadBridge";
 import { shouldRequireTerminalApproval } from "../terminal/terminalApprovalPolicy";
 import { resolveTerminalApprovalMode } from "../terminal/terminalApprovalSettings";
@@ -142,7 +143,15 @@ function collectAiDrafts(
           continue;
         }
         const command = resolveToolCallCommand(item.args, item.command);
-        if (!shouldRequireTerminalApproval(command, mode)) continue;
+        if (
+          !shouldRequireTerminalApproval(
+            command,
+            mode,
+            getPendingInlineToolScope(item.id, sessionId),
+          )
+        ) {
+          continue;
+        }
         drafts.push({
           id: `ai-tool-${item.id}`,
           title: command || item.toolName,

@@ -1,3 +1,5 @@
+import { formatOmniBlobEditorText, parseOmniBlobValue } from "../grid/omniBlobValue";
+
 export type CellEditorKind = "text" | "number" | "boolean" | "date" | "datetime" | "time" | "json" | "binary";
 
 /** 短字符串列 varchar/char 等待 inline 编辑的最大声明长度 */
@@ -159,13 +161,10 @@ export function detectCellEditorKind(rawType: string): CellEditorKind {
 export function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") {
-    // 避免把内联 base64 整段塞进二进制编辑器
-    const record = value as Record<string, unknown>;
-    if (record.__omni === "blob") {
-      const size = typeof record.size === "number" ? record.size : 0;
-      const kind = typeof record.kind === "string" ? record.kind : "binary";
-      const mime = typeof record.mime === "string" ? record.mime : "";
-      return `[BLOB · ${mime || kind} · ${size} bytes]`;
+    const blob = parseOmniBlobValue(value);
+    if (blob) {
+      // text 类带 data：解码正文供预览/编辑；图/音/纯二进制仍用摘要占位
+      return formatOmniBlobEditorText(blob);
     }
     return JSON.stringify(value);
   }

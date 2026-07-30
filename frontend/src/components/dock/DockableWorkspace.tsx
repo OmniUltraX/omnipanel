@@ -275,6 +275,11 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   preActions?: ReactNode;
   /** 点击 tab 时回调；wasActive 为 true 表示点击的是当前已激活 tab */
   onTabClick?: (tabId: string, wasActive: boolean) => void;
+  /**
+   * pointerdown 乐观高亮后立刻回调（早于 paint / onActiveTabChange）。
+   * 用于同步轻量激活态（如按 tab 布尔订阅），避免内容区等 React 状态时闪空。
+   */
+  onActiveTabPreview?: (tabId: string) => void;
   /** 布局变化时在 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
   windowControl?: boolean;
   /** 当前 dock 内 panel 被跨 dockview 拖出后，通知业务 store 做迁出清理 */
@@ -400,6 +405,7 @@ export function DockableWorkspace({
   addTabConfig,
   preActions,
   onTabClick,
+  onActiveTabPreview,
   windowControl = false,
   onPanelTransferredOut,
   windowChromeVariant = "default",
@@ -569,6 +575,8 @@ export function DockableWorkspace({
   tabStyleRef.current = tabStyle;
   const onTabClickRef = useRef(onTabClick);
   onTabClickRef.current = onTabClick;
+  const onActiveTabPreviewRef = useRef(onActiveTabPreview);
+  onActiveTabPreviewRef.current = onActiveTabPreview;
 
   const tabHeaderRuntime = useMemo(
     (): DockTabHeaderRuntime => ({
@@ -1254,6 +1262,11 @@ export function DockableWorkspace({
       }
       tabEl.classList.remove("dv-inactive-tab");
       tabEl.classList.add("dv-active-tab");
+
+      // 先同步轻量预览态（按 tab 布尔订阅），再延后通知重型业务树
+      if (tabId) {
+        onActiveTabPreviewRef.current?.(tabId);
+      }
 
       // 先让高亮 paint，下一帧再通知业务（切勿在 pointerdown 里同步 flushSync）
       if (tabId && !deferActiveTabNotifyRef.current) {
@@ -2050,6 +2063,8 @@ export function DockableWorkspace({
 
         if (panelId && !skipActiveTabChange) {
           const notifyActiveId = panelId;
+          // 键盘/程序切换也尽早预览激活态（pointerdown 路径已先写过，此处幂等）
+          onActiveTabPreviewRef.current?.(notifyActiveId);
           if (deferActiveTabNotifyRef.current) {
             if (pendingActivePaintNotifyRef.current) {
               clearTimeout(pendingActivePaintNotifyRef.current);

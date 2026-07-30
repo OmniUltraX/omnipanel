@@ -98,7 +98,6 @@ import {
 } from "../workspace/tablePreviewRowCache";
 import {
   readStoredGridRenderMode,
-  writeStoredGridRenderMode,
 } from "./canvas/gridRenderMode";
 import type { GridRenderMode } from "./canvas/gridRenderTypes";
 import {
@@ -730,14 +729,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     },
     [],
   );
-
-  const toggleGridRenderMode = useCallback(() => {
-    setGridRenderMode((prev) => {
-      const next: GridRenderMode = prev === "canvas" ? "dom" : "canvas";
-      writeStoredGridRenderMode(next);
-      return next;
-    });
-  }, []);
 
   const openRelationDialog = useCallback((columnName: string) => {
     setRelationDialogColumn(columnName);
@@ -3832,25 +3823,6 @@ export const TableDataGrid = memo(function TableDataGrid({
             </svg>
           </Button>
         )}
-        <Button
-          variant={useCanvasBody ? "default" : "ghost"}
-          size="sm"
-          className="db-grid-render-mode-toggle"
-          title={
-            useCanvasBody
-              ? "当前：Canvas 渲染（点击切换为 DOM）"
-              : "当前：DOM 渲染（点击切换为 Canvas）"
-          }
-          aria-label={
-            useCanvasBody
-              ? "当前：Canvas 渲染（点击切换为 DOM）"
-              : "当前：DOM 渲染（点击切换为 Canvas）"
-          }
-          aria-pressed={useCanvasBody}
-          onClick={toggleGridRenderMode}
-        >
-          {useCanvasBody ? "Canvas" : "DOM"}
-        </Button>
         {canCopyPreviewSql && (
           <Button
             variant={copySqlHint ? "default" : "ghost"}

@@ -158,7 +158,7 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
               );
             })()
           ) : isSqlWorkspaceTab(tab) ? (
-            <DbPanelSurface tab={tab} />
+            <DbPanelSurface tab={tab} active={_isActive} />
           ) : isTableDesignerTab(tab) ? (
             // 表设计器 tab：暂未在工作区 dock 中提供完整编辑能力，显示提示
             <UnsupportedTabKindFallback kind="designer" />

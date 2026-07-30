@@ -13,6 +13,7 @@ import {
   useDbWorkspace,
   useDbTabWorkspaceSliceOrMirror,
 } from "../../../contexts/DbWorkspaceContext";
+import { useDbDockTabActive } from "../useDbDockTabActive";
 import type { TablePreviewWorkspaceTab } from "./workspaceTabs";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import {
@@ -71,10 +72,7 @@ import {
 
 interface DbTablePreviewSurfaceProps {
   tab: TablePreviewWorkspaceTab;
-  /**
-   * 是否为当前激活 Tab（快捷键 / 侧栏联动等）。
-   * 网格与详情面板在 keep-alive 下保持挂载，切 Tab 才能瞬间切换。
-   */
+  /** 镜像窗传入；主面板省略，走 useDbDockTabActive */
   active?: boolean;
 }
 
@@ -110,10 +108,12 @@ function toPanelPx(px: number): string {
 
 export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   tab,
-  active = true,
+  active: activeProp,
 }: DbTablePreviewSurfaceProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
+  const storeActive = useDbDockTabActive(tab.id);
+  const active = activeProp ?? storeActive;
   const cellEditorRef = useRef<CellEditorPanelHandle>(null);
   const detailPanelRef = useRef<PanelImperativeHandle | null>(null);
   /** 用户拖拽后的尺寸（按右/底分别记 px），避免 expand() 回落到 minSize */

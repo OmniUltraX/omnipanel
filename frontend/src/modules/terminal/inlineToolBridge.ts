@@ -45,6 +45,18 @@ export function hasLivePendingInlineTool(toolCallId: string): boolean {
   return pendingByToolCallId.has(toolCallId);
 }
 
+/** 供审批条解析会话白名单作用域 */
+export function getPendingInlineToolScope(
+  toolCallId: string,
+  fallbackTerminalSessionId?: string,
+): { conversationId?: string; terminalSessionId?: string } {
+  const pending = pendingByToolCallId.get(toolCallId);
+  return {
+    conversationId: pending?.conversationId,
+    terminalSessionId: pending?.sessionId ?? fallbackTerminalSessionId,
+  };
+}
+
 function parseCommandFromArgs(argsJson: string): string {
   try {
     const parsed = JSON.parse(argsJson) as { command?: string };
@@ -203,7 +215,12 @@ export function waitForInlineToolDecision(
     });
 
     const mode = resolveTerminalApprovalMode(sessionId);
-    if (!shouldRequireTerminalApproval(command, mode)) {
+    if (
+      !shouldRequireTerminalApproval(command, mode, {
+        conversationId,
+        terminalSessionId: sessionId,
+      })
+    ) {
       queueMicrotask(() => {
         void approveInlineTerminalTool(blockId, toolCallId);
       });

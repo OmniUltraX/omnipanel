@@ -42,6 +42,8 @@ export interface TableDetailPanelProps {
   dbType?: string;
   onValueApply: (payload: { rawText: string; parsed: unknown }) => void;
   onValueSetNull?: () => void;
+  /** 只读预览（SQL 结果等） */
+  readOnly?: boolean;
   /** DDL Tab */
   showDdlTab?: boolean;
   ddlTitle?: string;
@@ -75,6 +77,7 @@ export function TableDetailPanel({
   dbType,
   onValueApply,
   onValueSetNull,
+  readOnly = false,
   showDdlTab = false,
   ddlTitle,
   ddlState = { status: "idle" },
@@ -180,8 +183,8 @@ export function TableDetailPanel({
             columnMeta={columnMeta}
             row={activeRow}
             cellOverrides={cellOverrides}
-            onApply={onRecordFieldApply}
-            onSetNull={onRecordFieldSetNull}
+            onApply={readOnly ? () => undefined : onRecordFieldApply}
+            onSetNull={readOnly ? undefined : onRecordFieldSetNull}
           />
         ) : activeTab === "value" ? (
           <CellEditorPanel
@@ -192,11 +195,12 @@ export function TableDetailPanel({
             currentValue={currentValue}
             selectionCount={selectionCount}
             editorOpen={editorOpen}
+            readOnly={readOnly}
             rowIndex={rowIndex}
             columnMeta={valueColumnMeta}
             dbType={dbType}
             onApply={onValueApply}
-            onSetNull={onValueSetNull}
+            onSetNull={readOnly ? undefined : onValueSetNull}
           />
         ) : (
           <div className="db-table-detail-ddl">

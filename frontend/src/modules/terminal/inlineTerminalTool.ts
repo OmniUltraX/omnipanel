@@ -5,6 +5,7 @@ import {
 } from "../../stores/blocksStore";
 import { OMNI_TERMINAL_RUN_TERMINAL_COMMAND } from "./ai/mcpTools";
 import { getResolvedAiThread } from "./aiThreadBridge";
+import { getPendingInlineToolScope } from "./inlineToolBridge";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 
@@ -53,7 +54,7 @@ export function findActiveInlineTerminalTool(
         (entry.status === "pending" || entry.status === "running")
       ) {
         const command = resolveToolCallCommand(entry);
-        if (!shouldRequireTerminalApproval(command, mode)) {
+        if (!shouldRequireTerminalApproval(command, mode, getPendingInlineToolScope(entry.id, sessionId))) {
           continue;
         }
         return { blockId: block.id, item: entry };

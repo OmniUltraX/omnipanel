@@ -214,6 +214,7 @@ import {
 } from "./workspace/databasePanelTabKeys";
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
+import { DbDockTabActive } from "./workspace/DbDockTabActive";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
 import { collectOpenTabNodeIds, resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
 import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
@@ -5485,17 +5486,15 @@ export function DatabasePanel() {
           <ConnectionResolvedDockPane connId={tab.connId}>
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane">
-                {isRedisConnection(connection) ? (
-                  <RedisConnectionInfoPanel
-                    connection={connection}
-                    active={tab.id === activeWorkspaceTabId}
-                  />
-                ) : (
-                  <DatabaseConnectionInfoPanel
-                    connection={connection}
-                    active={tab.id === activeWorkspaceTabId}
-                  />
-                )}
+                <DbDockTabActive tabId={tab.id}>
+                  {(active) =>
+                    isRedisConnection(connection) ? (
+                      <RedisConnectionInfoPanel connection={connection} active={active} />
+                    ) : (
+                      <DatabaseConnectionInfoPanel connection={connection} active={active} />
+                    )
+                  }
+                </DbDockTabActive>
               </div>
             )}
           </ConnectionResolvedDockPane>
@@ -5519,14 +5518,18 @@ export function DatabasePanel() {
           <ConnectionResolvedDockPane connId={tab.connId}>
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane db-workspace-pane--slow-log">
-                <DatabaseSlowQueryLogPanel
-                  connection={connection}
-                  sshConnectionId={tab.sshConnectionId}
-                  logFilePath={tab.logFilePath}
-                  deploymentKind={tab.deploymentKind}
-                  containerId={tab.containerId}
-                  active={tab.id === activeWorkspaceTabId}
-                />
+                <DbDockTabActive tabId={tab.id}>
+                  {(active) => (
+                    <DatabaseSlowQueryLogPanel
+                      connection={connection}
+                      sshConnectionId={tab.sshConnectionId}
+                      logFilePath={tab.logFilePath}
+                      deploymentKind={tab.deploymentKind}
+                      containerId={tab.containerId}
+                      active={active}
+                    />
+                  )}
+                </DbDockTabActive>
               </div>
             )}
           </ConnectionResolvedDockPane>
@@ -5538,17 +5541,21 @@ export function DatabasePanel() {
           <ConnectionResolvedDockPane connId={tab.connId}>
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane db-workspace-pane--binlog">
-                <DatabaseBinlogPanel
-                  connection={connection}
-                  sshConnectionId={tab.sshConnectionId}
-                  deploymentKind={tab.deploymentKind}
-                  containerId={tab.containerId}
-                  logBinBasename={tab.logBinBasename}
-                  binlogFormat={tab.binlogFormat}
-                  binlogRowImage={tab.binlogRowImage}
-                  flashbackCapable={tab.flashbackCapable}
-                  active={tab.id === activeWorkspaceTabId}
-                />
+                <DbDockTabActive tabId={tab.id}>
+                  {(active) => (
+                    <DatabaseBinlogPanel
+                      connection={connection}
+                      sshConnectionId={tab.sshConnectionId}
+                      deploymentKind={tab.deploymentKind}
+                      containerId={tab.containerId}
+                      logBinBasename={tab.logBinBasename}
+                      binlogFormat={tab.binlogFormat}
+                      binlogRowImage={tab.binlogRowImage}
+                      flashbackCapable={tab.flashbackCapable}
+                      active={active}
+                    />
+                  )}
+                </DbDockTabActive>
               </div>
             )}
           </ConnectionResolvedDockPane>
@@ -5605,7 +5612,7 @@ export function DatabasePanel() {
       if (tab.kind === "table") {
         return (
           <div className="db-workspace-pane db-dock-pane">
-            <DbTablePreviewSurface tab={tab} active={tab.id === activeWorkspaceTabId} />
+            <DbTablePreviewSurface tab={tab} />
           </div>
         );
       }
@@ -5632,17 +5639,21 @@ export function DatabasePanel() {
       if (tab.kind === "toolbox") {
         return (
           <div className="db-workspace-pane db-dock-pane db-module-transfer">
-            <DatabaseToolbox
-              active={tab.id === activeWorkspaceTabId}
-              syncTaskId={tab.syncTaskId}
-              tab={tab.toolboxTab}
-              connections={toolboxConnections}
-              initialSourceConnectionId={
-                toolboxSeed.connId ??
-                (activeConn && isToolboxCapableConnection(activeConn) ? activeConn.id : null)
-              }
-              initialSourceDatabase={toolboxSeed.database}
-            />
+            <DbDockTabActive tabId={tab.id}>
+              {(active) => (
+                <DatabaseToolbox
+                  active={active}
+                  syncTaskId={tab.syncTaskId}
+                  tab={tab.toolboxTab}
+                  connections={toolboxConnections}
+                  initialSourceConnectionId={
+                    toolboxSeed.connId ??
+                    (activeConn && isToolboxCapableConnection(activeConn) ? activeConn.id : null)
+                  }
+                  initialSourceDatabase={toolboxSeed.database}
+                />
+              )}
+            </DbDockTabActive>
           </div>
         );
       }
@@ -5651,7 +5662,6 @@ export function DatabasePanel() {
     },
     [
       workspaceTabs,
-      activeWorkspaceTabId,
       handleSelectTable,
       handleDesignTable,
       tableDesignerStates,
@@ -5797,7 +5807,11 @@ export function DatabasePanel() {
     <>
     <DatabaseModuleContextBridge active={moduleLive} context={databaseModuleContext} />
     <DbSidebarLinkageProvider>
-    <DbWorkspaceProviders state={workspaceStateValue} activeTab={activeTabContextValue}>
+    <DbWorkspaceProviders
+      state={workspaceStateValue}
+      activeTab={activeTabContextValue}
+      syncActiveTabStore
+    >
     <DbSchemaProvider value={schemaContextValue}>
     <ModuleWorkspaceLayout
       className="db-module-layout"

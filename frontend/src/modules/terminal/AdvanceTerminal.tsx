@@ -124,6 +124,26 @@ export function AdvanceTerminal({
     [openSidePanel, sideCollapsed],
   );
 
+  // 快捷键：展开/收起侧栏（监控 / 文件 / SFTP / 隧道）
+  useEffect(() => {
+    if (!isActive) return;
+    const onSide = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string; panel?: string }>).detail;
+      if (!detail?.panel) return;
+      if (detail.tabId && detail.tabId !== tabId) return;
+
+      let panel = detail.panel as SidePanelId | "monitor";
+      // 远程「监控」对应 processes 页签
+      if (panel === "monitor" && isRemoteSsh) {
+        panel = "processes";
+      }
+      if (!sideTabs.some((item) => item.id === panel)) return;
+      handleSideEntrySelect(panel);
+    };
+    window.addEventListener("omnipanel-terminal-side", onSide);
+    return () => window.removeEventListener("omnipanel-terminal-side", onSide);
+  }, [handleSideEntrySelect, isActive, isRemoteSsh, sideTabs, tabId]);
+
   useEffect(() => {
     if (!sideTabs.some((item) => item.id === activeSideTab)) {
       const fallback = (sideTabs[0]?.id ?? "monitor") as SidePanelId;

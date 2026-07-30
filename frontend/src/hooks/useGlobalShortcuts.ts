@@ -264,10 +264,8 @@ export function useGlobalShortcuts() {
         return;
       }
 
-      // search-terminal：Mod+F —— 委托给 scopedSearchRegistry（它自己有监听）
-      // 这里不做处理，避免与 scopedSearchRegistry 的捕获阶段监听冲突。
-      // scopedSearchRegistry 在焦点/hover 在注册 scope 时已处理 Ctrl+F。
-      // 若未来需要"无焦点时 Mod+F 弹全局搜索"，在此扩展。
+      // search-terminal：优先交给 scopedSearchRegistry；未命中时再由终端焦点分支处理。
+      // 此处不直接 return，让后续 terminal 分支可打开 feed 搜索。
 
       // ─── 终端专属快捷键（仅在焦点 dock 为终端时生效） ───────────────
       const focusedModule = resolveModuleFromScope(
@@ -289,6 +287,104 @@ export function useGlobalShortcuts() {
             e.stopPropagation();
             return;
           }
+        }
+
+        // expand-terminal-blocks
+        if (matchesShortcut(e, getShortcutKeys("expand-terminal-blocks"))) {
+          if (sessionId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-blocks", {
+                detail: { sessionId, action: "expand-all" },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // collapse-terminal-blocks
+        if (matchesShortcut(e, getShortcutKeys("collapse-terminal-blocks"))) {
+          if (sessionId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-blocks", {
+                detail: { sessionId, action: "collapse-all" },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // toggle-terminal-input-mode：Alt+B
+        if (matchesShortcut(e, getShortcutKeys("toggle-terminal-input-mode"))) {
+          if (sessionId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-toggle-input-mode", {
+                detail: { sessionId },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // search-terminal：无 scoped search 命中时，对当前终端 feed 打开搜索
+        if (matchesShortcut(e, getShortcutKeys("search-terminal"))) {
+          if (sessionId) {
+            window.dispatchEvent(
+              new CustomEvent("omnipanel-terminal-search", {
+                detail: { sessionId, action: "open" },
+              }),
+            );
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+
+        // 侧栏：监控 / 本机文件 / SFTP / 隧道
+        if (matchesShortcut(e, getShortcutKeys("toggle-terminal-side-monitor"))) {
+          window.dispatchEvent(
+            new CustomEvent("omnipanel-terminal-side", {
+              detail: { tabId: activeTabId, panel: "monitor" },
+            }),
+          );
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (matchesShortcut(e, getShortcutKeys("toggle-terminal-side-files"))) {
+          window.dispatchEvent(
+            new CustomEvent("omnipanel-terminal-side", {
+              detail: { tabId: activeTabId, panel: "files" },
+            }),
+          );
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (matchesShortcut(e, getShortcutKeys("toggle-terminal-side-sftp"))) {
+          window.dispatchEvent(
+            new CustomEvent("omnipanel-terminal-side", {
+              detail: { tabId: activeTabId, panel: "sftp" },
+            }),
+          );
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (matchesShortcut(e, getShortcutKeys("toggle-terminal-side-tunnel"))) {
+          window.dispatchEvent(
+            new CustomEvent("omnipanel-terminal-side", {
+              detail: { tabId: activeTabId, panel: "tunnel" },
+            }),
+          );
+          e.preventDefault();
+          e.stopPropagation();
+          return;
         }
 
         // rename-tab：F2

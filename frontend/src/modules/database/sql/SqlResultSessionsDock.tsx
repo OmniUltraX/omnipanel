@@ -6,7 +6,9 @@ import {
   makeSqlResultSessionLabel,
   type SqlResultSession,
 } from "../workspace/dbWorkspaceState";
+import type { TableDataGridActiveCell, TableDataGridActions } from "../grid/TableDataGrid";
 import { SqlResultSessionPanel } from "./SqlResultSessionPanel";
+import type { MutableRefObject } from "react";
 
 export interface SqlResultSessionsDockProps {
   sqlTabId: string;
@@ -15,6 +17,12 @@ export interface SqlResultSessionsDockProps {
   onActiveSessionChange: (sessionId: string) => void;
   onCloseSession: (sessionId: string) => void;
   onPinSession: (sessionId: string, pinned: boolean) => void;
+  detailCollapsed?: boolean;
+  gridActionsRef?: MutableRefObject<TableDataGridActions | null>;
+  onActiveCellChange?: (cell: TableDataGridActiveCell | null) => void;
+  onSelectedCellsChange?: (cells: TableDataGridActiveCell[]) => void;
+  onCellEditorFocusRequest?: () => void;
+  onRowBandSelect?: () => void;
 }
 
 export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
@@ -24,6 +32,12 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
   onActiveSessionChange,
   onCloseSession,
   onPinSession,
+  detailCollapsed = true,
+  gridActionsRef,
+  onActiveCellChange,
+  onSelectedCellsChange,
+  onCellEditorFocusRequest,
+  onRowBandSelect,
 }: SqlResultSessionsDockProps) {
   const { t } = useI18n();
   const pendingActiveSessionIdRef = useRef<string | null>(null);
@@ -124,18 +138,43 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
           ? `${session.result.columns.length}:${session.result.rows.length}`
           : "0",
         String(session.resultPage ?? 0),
+        session.id === resolvedActiveId ? "a" : "i",
+        detailCollapsed ? "0" : "1",
       ].join("|");
     }
     return keys;
-  }, [sessions]);
+  }, [sessions, resolvedActiveId, detailCollapsed]);
 
   const renderPanel = useCallback(
     (sessionId: string) => {
       const session = sessions.find((item) => item.id === sessionId);
       if (!session) return null;
-      return <SqlResultSessionPanel sqlTabId={sqlTabId} session={session} />;
+      const isActive = sessionId === resolvedActiveId;
+      return (
+        <SqlResultSessionPanel
+          sqlTabId={sqlTabId}
+          session={session}
+          detailCollapsed={detailCollapsed}
+          selectionReporting={isActive}
+          gridActionsRef={gridActionsRef}
+          onActiveCellChange={onActiveCellChange}
+          onSelectedCellsChange={onSelectedCellsChange}
+          onCellEditorFocusRequest={onCellEditorFocusRequest}
+          onRowBandSelect={onRowBandSelect}
+        />
+      );
     },
-    [sqlTabId, sessions],
+    [
+      sqlTabId,
+      sessions,
+      resolvedActiveId,
+      detailCollapsed,
+      gridActionsRef,
+      onActiveCellChange,
+      onSelectedCellsChange,
+      onCellEditorFocusRequest,
+      onRowBandSelect,
+    ],
   );
 
   return (

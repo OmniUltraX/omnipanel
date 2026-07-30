@@ -245,6 +245,8 @@ interface SettingsState {
   mcpExternalRequireApproval: boolean;
   /** 终端命令审批档位：严格 / 查看 / 宽松 */
   terminalApprovalMode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode;
+  /** AI 终端命令永久白名单（审批键，如 du / docker ps） */
+  terminalCommandWhitelist: string[];
   databaseQueryPageSize: DatabaseQueryPageSize;
   /** 表数据「记录/值」详情面板位置 */
   databaseTableDetailPosition: DatabaseTableDetailPosition;
@@ -293,6 +295,7 @@ interface SettingsState {
   setTerminalApprovalMode: (
     mode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode,
   ) => void;
+  setTerminalCommandWhitelist: (keys: string[]) => void;
   setDatabaseSettings: (patch: Partial<Pick<SettingsState,
     | "databaseQueryPageSize"
     | "databaseTableDetailPosition"
@@ -398,6 +401,7 @@ export const useSettingsStore = create<SettingsState>()(
       aiGatewayBindLan: false,
       mcpExternalRequireApproval: true,
       terminalApprovalMode: "view",
+      terminalCommandWhitelist: [],
       databaseQueryPageSize: DEFAULT_DATABASE_QUERY_PAGE_SIZE,
       databaseTableDetailPosition: "right",
       databaseSchemaTreeShowTableChildren: false,
@@ -456,6 +460,16 @@ export const useSettingsStore = create<SettingsState>()(
       setAiScenarioSettings: (patch) => set(patch),
       setAiGatewaySettings: (patch) => set(patch),
       setTerminalApprovalMode: (terminalApprovalMode) => set({ terminalApprovalMode }),
+      setTerminalCommandWhitelist: (terminalCommandWhitelist) =>
+        set({
+          terminalCommandWhitelist: [
+            ...new Set(
+              terminalCommandWhitelist
+                .map((key) => key.trim().toLowerCase())
+                .filter(Boolean),
+            ),
+          ],
+        }),
       setDatabaseSettings: (patch) =>
         set((state) => ({
           databaseQueryPageSize:
@@ -569,6 +583,7 @@ export const useSettingsStore = create<SettingsState>()(
         aiGatewayBindLan: state.aiGatewayBindLan,
         mcpExternalRequireApproval: state.mcpExternalRequireApproval,
         terminalApprovalMode: state.terminalApprovalMode,
+        terminalCommandWhitelist: state.terminalCommandWhitelist,
         databaseQueryPageSize: state.databaseQueryPageSize,
         databaseTableDetailPosition: state.databaseTableDetailPosition,
         databaseSchemaTreeShowTableChildren: state.databaseSchemaTreeShowTableChildren,

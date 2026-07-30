@@ -1153,15 +1153,16 @@ export function TerminalBlockFeed({
 
   useEffect(() => {
     if (!isActive) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
-        event.preventDefault();
+    const onSearch = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string; action?: string }>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      if (detail.action === "open") {
         setSearchOpen(true);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isActive]);
+    window.addEventListener("omnipanel-terminal-search", onSearch);
+    return () => window.removeEventListener("omnipanel-terminal-search", onSearch);
+  }, [isActive, sessionId]);
   const aiBlockIds = useMemo(
     () =>
       renderableBlocks

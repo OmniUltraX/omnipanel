@@ -49,6 +49,13 @@ import { findTerminalPane, useTerminalStore } from "../../stores/terminalStore";
 import { blockContextLabel } from "./formatTerminalBlockForAiContext";
 import { scrollTerminalBlockIntoView } from "./scrollTerminalBlockIntoView";
 import { useTerminalAiInputContextStore } from "./terminalAiInputContextStore";
+import {
+  getShortcutKeys,
+  matchesShortcut,
+  useShortcutsStore,
+} from "../../stores/shortcutsStore";
+import { shortcutTitle } from "../../lib/shortcutTitle";
+
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
 const EMPTY_ATTACHED_BLOCK_IDS: string[] = [];
@@ -142,6 +149,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
     const completionOpenRef = useRef(false);
     const historyOpenRef = useRef(false);
     const { t } = useI18n();
+    useShortcutsStore((s) => s.overrides);
     const expandedAiBlockId = useTerminalUiStore(
       (state) => state.expandedAiBlockIds[sessionId] ?? null,
     );
@@ -729,7 +737,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
                   }
                 }
 
-                if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "r") {
+                if (matchesShortcut(event.nativeEvent, getShortcutKeys("command-history"))) {
                   event.preventDefault();
                   if (historyOpen) {
                     cycleHistoryMatch();
@@ -761,12 +769,12 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
                   return;
                 }
 
-                if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e" && lastError) {
+                if (lastError && matchesShortcut(event.nativeEvent, getShortcutKeys("explain-last-error"))) {
                   event.preventDefault();
                   openAiWithPrompt(buildExplainErrorPrompt(lastError));
                   return;
                 }
-                if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "f" && lastError) {
+                if (lastError && matchesShortcut(event.nativeEvent, getShortcutKeys("fix-last-error"))) {
                   event.preventDefault();
                   openAiWithPrompt(buildFixErrorPrompt(lastError));
                   return;
@@ -801,7 +809,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
             <button
               type="button"
               className={`term-cmd-action-btn${historyOpen ? " is-active" : ""}`}
-              title={t("terminal.command.openHistory")}
+              title={shortcutTitle(t("terminal.command.openHistory"), "command-history")}
               aria-label={t("terminal.command.openHistory")}
               disabled={disabled || commandBusy}
               onClick={openHistory}
@@ -825,7 +833,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
                   variant="outline"
                   size="xs"
                   className="omni-btn-tool"
-                  title={t("terminal.command.explainError")}
+                  title={shortcutTitle(t("terminal.command.explainError"), "explain-last-error")}
                   onClick={() => openAiWithPrompt(buildExplainErrorPrompt(lastError))}
                   type="button"
                 >
@@ -835,7 +843,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
                   variant="outline"
                   size="xs"
                   className="omni-btn-tool"
-                  title={t("terminal.command.fixError")}
+                  title={shortcutTitle(t("terminal.command.fixError"), "fix-last-error")}
                   onClick={() => openAiWithPrompt(buildFixErrorPrompt(lastError))}
                   type="button"
                 >

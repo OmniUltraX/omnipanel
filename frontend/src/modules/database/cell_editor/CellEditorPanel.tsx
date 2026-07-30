@@ -21,6 +21,7 @@ import {
   resolveCellPreviewCodeLanguage,
   resolveCellPreviewContent,
 } from "../grid/tableCellPreview";
+import { parseOmniBlobValue } from "../grid/omniBlobValue";
 import { BooleanEditor } from "./BooleanEditor";
 import { DateEditor } from "./DateEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
@@ -137,8 +138,17 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
     const baselineTextRef = useRef("");
     const cellKeyRef = useRef(cellKey);
     const resolvedType = columnMeta?.type?.trim() || columnType;
-    const editorKind = useMemo(() => detectCellEditorKind(resolvedType), [resolvedType]);
-    const richPreview = usesRichContentPreview(editorKind);
+    const omniBlob = useMemo(() => parseOmniBlobValue(currentValue), [currentValue]);
+    const editorKind = useMemo(() => {
+      if (omniBlob?.kind === "image" || omniBlob?.kind === "audio" || omniBlob?.kind === "binary") {
+        return "binary" as const;
+      }
+      if (omniBlob?.kind === "text") {
+        return "text" as const;
+      }
+      return detectCellEditorKind(resolvedType);
+    }, [omniBlob, resolvedType]);
+    const richPreview = usesRichContentPreview(editorKind) || omniBlob != null;
     const rawText = useMemo(() => formatCellValue(currentValue), [currentValue]);
     const normalized = useMemo(
       () => normalizeForKind(editorKind, rawText),
@@ -156,8 +166,12 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
       if (isNull && editText === "") {
         return { kind: "text" as const, text: "NULL" };
       }
+      // 结构化 BLOB：未改动时从原始值解析（含 base64），避免摘要字符串丢内容
+      if (omniBlob && editText === rawText) {
+        return resolveCellPreviewContent(currentValue, resolvedType, { sniffContent: true });
+      }
       return resolveCellPreviewContent(editText, resolvedType, { sniffContent: true });
-    }, [richPreview, isNull, editText, resolvedType]);
+    }, [richPreview, isNull, editText, resolvedType, omniBlob, rawText, currentValue]);
 
     const isMediaPreview =
       previewContent?.kind === "image" || previewContent?.kind === "audio";
@@ -351,9 +365,11 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
           ? "true"
           : "false";
     const lengthLabel =
-      columnMeta?.length != null && columnMeta.length > 0
-        ? String(columnMeta.length)
-        : String(editText.length);
+      omniBlob != null
+        ? String(omniBlob.size)
+        : columnMeta?.length != null && columnMeta.length > 0
+          ? String(columnMeta.length)
+          : String(editText.length);
     const comment = columnMeta?.comment?.trim() || "";
     const canSetNull = Boolean(onSetNull) && !readOnly && !isNull;
 
