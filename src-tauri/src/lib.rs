@@ -631,7 +631,7 @@ fn build_and_run_tauri() {
                 }
             }
 
-            // 托盘态快捷启动窗：预创建并隐藏；Ctrl+Space 仅在托盘态生效
+            // 快捷启动窗：预创建并隐藏；Ctrl+Space 随时切换
             if let Err(e) = commands::quick_launcher::ensure_quick_launcher_window(app.handle()) {
                 tracing::warn!("预创建快捷启动窗失败: {e}");
             }

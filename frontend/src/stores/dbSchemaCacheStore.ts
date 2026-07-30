@@ -12,7 +12,7 @@ interface DbSchemaCacheState {
   refreshingConnectionIds: Record<string, true>;
   /** 右键单节点刷新时仅标记该节点 */
   refreshingNodeIds: Record<string, true>;
-  hydrate: () => Promise<void>;
+  hydrate: (options?: { force?: boolean }) => Promise<void>;
   replaceSnapshot: (snapshot: SchemaCacheSnapshot, options?: { persist?: boolean }) => Promise<void>;
   patchConnection: (
     connId: string,
@@ -78,8 +78,8 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
   refreshingConnectionIds: {},
   refreshingNodeIds: {},
 
-  hydrate: async () => {
-    if (get().hydrated) {
+  hydrate: async (options) => {
+    if (get().hydrated && !options?.force) {
       return;
     }
     try {

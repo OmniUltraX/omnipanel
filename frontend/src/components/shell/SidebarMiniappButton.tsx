@@ -9,16 +9,20 @@ import {
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
 import miniappQrcode from "../../assets/miniapp_qrcode.jpg";
+import h5Qrcode from "../../assets/h5_qrcode.png";
 import { IconClose, IconPhone } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
 
 const POPOVER_CLOSE_DELAY_MS = 160;
 
-/** 侧栏底部小程序入口：悬停 popover 预览，点击后居中弹窗展示微信小程序码。 */
+type QrKind = "miniapp" | "h5";
+
+/** 侧栏底部小程序入口：悬停 popover 预览，点击后居中弹窗展示二维码。 */
 export function SidebarMiniappButton() {
   const { t } = useI18n();
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [qrKind, setQrKind] = useState<QrKind>("miniapp");
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -97,6 +101,34 @@ export function SidebarMiniappButton() {
   };
 
   const active = popoverOpen || modalOpen;
+  const qrSrc = qrKind === "miniapp" ? miniappQrcode : h5Qrcode;
+  const titleKey =
+    qrKind === "miniapp" ? "shell.miniapp.title" : "shell.miniapp.h5Title";
+  const altKey =
+    qrKind === "miniapp" ? "shell.miniapp.qrAlt" : "shell.miniapp.h5QrAlt";
+
+  const qrSwitch = (
+    <div className="sidebar-miniapp-qr-switch" role="tablist" aria-label={t("shell.miniapp.switchAria")}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={qrKind === "miniapp"}
+        className={`sidebar-miniapp-qr-switch__btn${qrKind === "miniapp" ? " is-active" : ""}`}
+        onClick={() => setQrKind("miniapp")}
+      >
+        {t("shell.miniapp.tabMiniapp")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={qrKind === "h5"}
+        className={`sidebar-miniapp-qr-switch__btn${qrKind === "h5" ? " is-active" : ""}`}
+        onClick={() => setQrKind("h5")}
+      >
+        {t("shell.miniapp.tabH5")}
+      </button>
+    </div>
+  );
 
   return (
     <>
@@ -125,14 +157,14 @@ export function SidebarMiniappButton() {
               onMouseEnter={openPopover}
               onMouseLeave={scheduleClosePopover}
             >
-              <p className="sidebar-miniapp-popover__title">{t("shell.miniapp.title")}</p>
+              <p className="sidebar-miniapp-popover__title">{t(titleKey)}</p>
               <img
                 className="sidebar-miniapp-popover__qr"
-                src={miniappQrcode}
-                alt={t("shell.miniapp.qrAlt")}
+                src={qrSrc}
+                alt={t(altKey)}
                 draggable={false}
               />
-              <p className="sidebar-miniapp-popover__hint">{t("shell.miniapp.hint")}</p>
+              {qrSwitch}
             </div>,
             document.body,
           )
@@ -147,7 +179,7 @@ export function SidebarMiniappButton() {
           onClick={(event) => event.stopPropagation()}
         >
           <div className="sidebar-miniapp-dialog__header">
-            <h3 id="sidebar-miniapp-title">{t("shell.miniapp.title")}</h3>
+            <h3 id="sidebar-miniapp-title">{t(titleKey)}</h3>
             <button
               type="button"
               className="sidebar-miniapp-dialog__close"
@@ -157,13 +189,13 @@ export function SidebarMiniappButton() {
               <IconClose size={16} />
             </button>
           </div>
-          <p className="sidebar-miniapp-dialog__hint">{t("shell.miniapp.hint")}</p>
           <img
             className="sidebar-miniapp-dialog__qr"
-            src={miniappQrcode}
-            alt={t("shell.miniapp.qrAlt")}
+            src={qrSrc}
+            alt={t(altKey)}
             draggable={false}
           />
+          {qrSwitch}
         </div>
       </Modal>
     </>

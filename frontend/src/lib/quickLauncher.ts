@@ -7,7 +7,12 @@ export const QUICK_LAUNCHER_LABEL = "quick-launcher";
 
 export type QuickLauncherAction =
   | { kind: "command"; id: string }
-  | { kind: "connection"; id: string };
+  /** @deprecated 兼容旧 payload；新逻辑请用 ssh-connection / db-* */
+  | { kind: "connection"; id: string }
+  | { kind: "ssh-connection"; connectionId: string }
+  | { kind: "db-connection"; connectionId: string }
+  | { kind: "db-database"; connectionId: string; database: string }
+  | { kind: "db-table"; connectionId: string; database: string; table: string };
 
 declare global {
   interface Window {
@@ -59,6 +64,37 @@ export async function setQuickLauncherHeight(height: number): Promise<void> {
   await invoke("set_quick_launcher_height", { height });
 }
 
+function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
+  switch (p.kind) {
+    case "command":
+    case "connection":
+      return typeof p.id === "string" && p.id.length > 0;
+    case "ssh-connection":
+    case "db-connection":
+      return typeof p.connectionId === "string" && p.connectionId.length > 0;
+    case "db-database":
+      return (
+        typeof p.connectionId === "string" &&
+        p.connectionId.length > 0 &&
+        typeof p.database === "string" &&
+        p.database.length > 0
+      );
+    case "db-table":
+      return (
+        typeof p.connectionId === "string" &&
+        p.connectionId.length > 0 &&
+        typeof p.database === "string" &&
+        p.database.length > 0 &&
+        typeof p.table === "string" &&
+        p.table.length > 0
+      );
+    default:
+      return false;
+  }
+}
+
 export async function emitQuickLauncherAction(action: QuickLauncherAction): Promise<void> {
   if (!isTauriRuntime()) return;
   const { emit } = await import("@tauri-apps/api/event");
@@ -69,7 +105,7 @@ export async function listenQuickLauncherAction(
   handler: (action: QuickLauncherAction) => void,
 ): Promise<UnlistenFn> {
   return listen<QuickLauncherAction>("omnipanel:quick-launcher-action", (event) => {
-    if (!event.payload?.kind || !event.payload.id) return;
+    if (!isQuickLauncherAction(event.payload)) return;
     handler(event.payload);
   });
 }

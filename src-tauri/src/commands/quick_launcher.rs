@@ -1,4 +1,4 @@
-//! 托盘态快捷启动窗（无边框、独立 WebView）。
+//! 快捷启动窗（无边框、独立 WebView；全局快捷键随时可用）。
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -9,7 +9,7 @@ pub const QUICK_LAUNCHER_LABEL: &str = "quick-launcher";
 
 static TRAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// 前端在进出托盘时同步；全局快捷键仅在为 true 时切换启动窗。
+/// 前端在进出托盘时同步（供其它逻辑查询；快捷启动不再依赖此标志）。
 #[tauri::command]
 pub fn set_app_tray_active(active: bool) {
     TRAY_ACTIVE.store(active, Ordering::SeqCst);
@@ -163,12 +163,9 @@ pub fn hide_quick_launcher(app: AppHandle) -> Result<(), String> {
     hide_launcher(&app)
 }
 
-/// 切换显隐；仅托盘态有效。返回当前是否可见。
+/// 切换显隐。返回当前是否可见。
 #[tauri::command]
 pub fn toggle_quick_launcher(app: AppHandle) -> Result<bool, String> {
-    if !TRAY_ACTIVE.load(Ordering::SeqCst) {
-        return Ok(false);
-    }
     ensure_quick_launcher_window(&app)?;
     let window = app
         .get_webview_window(QUICK_LAUNCHER_LABEL)
@@ -204,9 +201,6 @@ pub fn register_global_shortcut(app: &AppHandle) {
     let app_handle = app.clone();
     if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |app, _s, event| {
         if event.state() != ShortcutState::Pressed {
-            return;
-        }
-        if !TRAY_ACTIVE.load(Ordering::SeqCst) {
             return;
         }
         let app = app.clone();

@@ -66,6 +66,21 @@ async function showWindowByLabel(label: string): Promise<boolean> {
   }
 }
 
+/** 显示并聚焦主窗口（托盘双击入口）。 */
+async function showMainWindow(): Promise<void> {
+  if (await showWindowByLabel("main")) return;
+  try {
+    const windows = await getAllWindows();
+    const main = windows.find((w) => w.label === "main") ?? getCurrentWindow();
+    await main.show();
+    await main.unminimize();
+    await main.setFocus();
+    clearWindowHiddenToTray(main.label);
+  } catch (e) {
+    console.warn("[systemTray] showMainWindow failed", e);
+  }
+}
+
 async function showRecentTrayWindow(): Promise<void> {
   const recent = getRecentTrayHiddenLabel();
   if (recent && (await showWindowByLabel(recent))) return;
@@ -77,15 +92,7 @@ async function showRecentTrayWindow(): Promise<void> {
   }
 
   // 兜底：显示主窗口
-  try {
-    const windows = await getAllWindows();
-    const main = windows.find((w) => w.label === "main") ?? getCurrentWindow();
-    await main.show();
-    await main.unminimize();
-    await main.setFocus();
-  } catch (e) {
-    console.warn("[systemTray] showRecent fallback failed", e);
-  }
+  await showMainWindow();
 }
 
 async function showAllWindows(): Promise<void> {
@@ -168,7 +175,6 @@ export async function ensureSystemTray(labels: SystemTrayLabels): Promise<void> 
             id: "quick-open",
             text: labels.quickOpen,
             action: () => {
-              if (getTrayHiddenLabels().length === 0) return;
               void showQuickLauncher();
             },
           },
@@ -204,6 +210,12 @@ export async function ensureSystemTray(labels: SystemTrayLabels): Promise<void> 
         menu,
         showMenuOnLeftClick: false,
         action: (event) => {
+          // 双击：始终打开主窗口
+          if (event.type === "DoubleClick" && event.button === "Left") {
+            void showMainWindow();
+            return;
+          }
+          // 单击：恢复最近托盘隐藏的窗口（无则主窗）
           if (event.type === "Click" && event.button === "Left" && event.buttonState === "Up") {
             void showRecentTrayWindow();
           }

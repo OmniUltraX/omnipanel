@@ -4,6 +4,7 @@ export { useUiFollowStore, isFollowAiActionsEnabled } from "./uiFollowStore";
 export {
   followAiIntent,
   followAiIntents,
+  followUiIntent,
   registerUiFollowNavigate,
 } from "./UiFollowController";
 export { applyUiFollowForTool, followIntentsForTool } from "./followFromTool";

@@ -5,6 +5,7 @@ import { MODULE_PATHS } from "./paths";
 import { navigateToPath, openLocalTerminalSession, openSshTerminalSession } from "./terminalSession";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useTerminalLeftPanelStore } from "../modules/terminal/terminalLeftPanelStore";
+import { followUiIntent } from "./ai/uiFollow";
 
 const DOCKER_ACTIVE_KEY = "omnipanel.docker.activeConnectionId";
 
@@ -77,7 +78,8 @@ async function runCommand(id: string): Promise<void> {
   }
 }
 
-async function runConnection(id: string): Promise<void> {
+/** 兼容旧 connection action（模块图标外的历史路径）。 */
+async function runLegacyConnection(id: string): Promise<void> {
   const conn = useConnectionStore.getState().connections.find((c) => c.id === id);
   await wakeMainFromTray();
   if (!conn) return;
@@ -87,7 +89,7 @@ async function runConnection(id: string): Promise<void> {
     return;
   }
   if (conn.kind === "database") {
-    navigateToPath(MODULE_PATHS.database);
+    followUiIntent({ type: "openConnection", module: "database", resourceId: conn.id });
     return;
   }
   if (conn.kind === "docker") {
@@ -113,11 +115,45 @@ async function runConnection(id: string): Promise<void> {
 }
 
 async function handleAction(action: QuickLauncherAction): Promise<void> {
-  if (action.kind === "command") {
-    await runCommand(action.id);
-    return;
+  switch (action.kind) {
+    case "command":
+      await runCommand(action.id);
+      return;
+    case "connection":
+      await runLegacyConnection(action.id);
+      return;
+    case "ssh-connection":
+      await wakeMainFromTray();
+      openSshTerminalSession(action.connectionId);
+      return;
+    case "db-connection":
+      await wakeMainFromTray();
+      followUiIntent({
+        type: "openConnection",
+        module: "database",
+        resourceId: action.connectionId,
+      });
+      return;
+    case "db-database":
+      await wakeMainFromTray();
+      followUiIntent({
+        type: "selectDatabase",
+        connectionId: action.connectionId,
+        database: action.database,
+      });
+      return;
+    case "db-table":
+      await wakeMainFromTray();
+      followUiIntent({
+        type: "selectTable",
+        connectionId: action.connectionId,
+        database: action.database,
+        table: action.table,
+      });
+      return;
+    default:
+      break;
   }
-  await runConnection(action.id);
 }
 
 /** 主窗口注册：监听快捷启动窗发出的动作。 */

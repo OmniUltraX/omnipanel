@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TextInput } from "../ui/form/TextInput";
+import { AppLogo } from "../ui/layout/AppLogo";
 import { useI18n } from "../../i18n";
 import { initConnections } from "../../stores/connectionStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import {
   getNavVisibleModuleKeys,
   initAppModuleStore,
 } from "../../stores/appModuleStore";
-import { MODULE_PATHS, type ModuleKey } from "../../lib/paths";
+import { type ModuleKey } from "../../lib/paths";
 import {
   emitQuickLauncherAction,
   hideQuickLauncher,
@@ -16,33 +18,26 @@ import {
   setQuickLauncherHeight,
   type QuickLauncherAction,
 } from "../../lib/quickLauncher";
+import {
+  buildQuickLaunchMatches,
+  buildQuickLaunchRecentRows,
+  dbConnectionToQuickLaunchConnection,
+  mergeQuickLaunchConnections,
+  parseQuickLaunchQuery,
+  quickLaunchRowModule,
+  rowToInsertQuery,
+  type QuickLaunchMatchRow,
+} from "../../lib/quickLauncherMatch";
+import {
+  quickLaunchRecentKey,
+  useQuickLauncherRecentStore,
+  type QuickLaunchRecentTarget,
+} from "../../stores/quickLauncherRecentStore";
+import { listConnections as listDbConnections } from "../../modules/database/api";
+import type { Connection } from "../../ipc/bindings";
 import { openModuleWindow } from "../../lib/moduleWindow";
 import { dismissHtmlBootSplash } from "../../lib/dismissBootSplash";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
-
-type LauncherRow =
-  | { type: "command"; id: string; label: string; subtitle: string }
-  | { type: "connection"; id: string; label: string; subtitle: string };
-
-const COMMAND_DEFS: Array<{
-  id: string;
-  labelKey: string;
-  keywords: string[];
-  path?: string;
-}> = [
-  { id: "workspace", labelKey: "shell.commandPalette.commands.workspace", keywords: ["workspace", "工作区"] },
-  { id: "terminal", labelKey: "shell.commandPalette.commands.terminal", keywords: ["terminal", "终端"], path: MODULE_PATHS.terminal },
-  { id: "database", labelKey: "shell.commandPalette.commands.database", keywords: ["database", "数据库", "db"], path: MODULE_PATHS.database },
-  { id: "ssh", labelKey: "shell.commandPalette.commands.ssh", keywords: ["ssh"], path: MODULE_PATHS.ssh },
-  { id: "docker", labelKey: "shell.commandPalette.commands.docker", keywords: ["docker", "容器"], path: MODULE_PATHS.docker },
-  { id: "server", labelKey: "shell.commandPalette.commands.server", keywords: ["server", "面板"], path: MODULE_PATHS.server },
-  { id: "protocol", labelKey: "shell.commandPalette.commands.protocol", keywords: ["protocol", "协议"], path: MODULE_PATHS.protocol },
-  { id: "workflow", labelKey: "shell.commandPalette.commands.workflow", keywords: ["workflow", "工作流"], path: MODULE_PATHS.workflow },
-  { id: "knowledge", labelKey: "shell.commandPalette.commands.knowledge", keywords: ["knowledge", "知识库"], path: MODULE_PATHS.knowledge },
-  { id: "settings", labelKey: "shell.commandPalette.commands.settings", keywords: ["settings", "设置"] },
-  { id: "new-terminal", labelKey: "shell.commandPalette.commands.newTerminal", keywords: ["new terminal", "新建终端"] },
-  { id: "open-ai", labelKey: "shell.commandPalette.commands.openAi", keywords: ["ai", "助手"] },
-];
 
 /** 与侧栏一致的模块图标行（点击打开独立窗） */
 const MODULE_ICON_DEFS: Array<{ key: ModuleKey; icon: ReactNode }> = [
@@ -156,21 +151,65 @@ function writeSoloMode(on: boolean): void {
   }
 }
 
-function kindLabel(kind: string, t: (key: string) => string): string {
-  switch (kind) {
-    case "ssh":
-      return t("shell.quickLauncher.kinds.ssh");
-    case "database":
-      return t("shell.quickLauncher.kinds.database");
-    case "docker":
-      return t("shell.quickLauncher.kinds.docker");
-    case "file":
-      return t("shell.quickLauncher.kinds.file");
-    case "panel":
-      return t("shell.quickLauncher.kinds.panel");
-    default:
-      return kind;
+function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
+  switch (row.type) {
+    case "ssh-connection":
+      return { kind: "ssh-connection", connectionId: row.connectionId };
+    case "db-connection":
+      return { kind: "db-connection", connectionId: row.connectionId };
+    case "db-database":
+      return {
+        kind: "db-database",
+        connectionId: row.connectionId,
+        database: row.database,
+      };
+    case "db-table":
+      return {
+        kind: "db-table",
+        connectionId: row.connectionId,
+        database: row.database,
+        table: row.table,
+      };
   }
+}
+
+function rowToRecentTarget(row: QuickLaunchMatchRow): QuickLaunchRecentTarget {
+  switch (row.type) {
+    case "ssh-connection":
+      return { type: "ssh-connection", connectionId: row.connectionId };
+    case "db-connection":
+      return { type: "db-connection", connectionId: row.connectionId };
+    case "db-database":
+      return {
+        type: "db-database",
+        connectionId: row.connectionId,
+        database: row.database,
+      };
+    case "db-table":
+      return {
+        type: "db-table",
+        connectionId: row.connectionId,
+        database: row.database,
+        table: row.table,
+      };
+  }
+}
+
+function formatQuickLaunchLastUsed(
+  lastUsedAt: number | undefined,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (lastUsedAt == null || lastUsedAt <= 0) {
+    return t("shell.quickLauncher.neverUsed");
+  }
+  const diff = Date.now() - lastUsedAt;
+  if (diff < 60_000) return t("knowledge.time.justNow");
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return t("knowledge.time.minutesAgo", { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("knowledge.time.hoursAgo", { n: hours });
+  const days = Math.floor(hours / 24);
+  return t("knowledge.time.daysAgo", { n: days });
 }
 
 /**
@@ -188,7 +227,27 @@ export function QuickLauncherRoot() {
   const [soloMode, setSoloMode] = useState(readSoloMode);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const connections = useConnectionStore((s) => s.connections);
+  const unifiedConnections = useConnectionStore((s) => s.connections);
+  const [dbConnections, setDbConnections] = useState<Connection[]>([]);
+  const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
+  const schemaRevision = useDbSchemaCacheStore((s) => s.revision);
+  const recentEntries = useQuickLauncherRecentStore((s) => s.entries);
+  const recordRecentOpen = useQuickLauncherRecentStore((s) => s.recordOpen);
+
+  const reloadDbConnections = useCallback(async () => {
+    try {
+      const list = await listDbConnections();
+      setDbConnections(list.map(dbConnectionToQuickLaunchConnection));
+    } catch (e) {
+      console.warn("[quickLauncher] load db connections failed", e);
+    }
+  }, []);
+
+  // 数据库连接在独立存储，需与统一 conn_list 合并后才能匹配 db 前缀
+  const connections = useMemo(
+    () => mergeQuickLaunchConnections(unifiedConnections, dbConnections),
+    [unifiedConnections, dbConnections],
+  );
 
   useEffect(() => {
     dismissHtmlBootSplash();
@@ -197,7 +256,12 @@ export function QuickLauncherRoot() {
     let cancelled = false;
     void (async () => {
       try {
-        await Promise.all([initConnections(), initAppModuleStore().catch(() => {})]);
+        await Promise.all([
+          initConnections(),
+          reloadDbConnections(),
+          initAppModuleStore().catch(() => {}),
+          useDbSchemaCacheStore.getState().hydrate().catch(() => {}),
+        ]);
       } catch (e) {
         console.warn("[quickLauncher] init failed", e);
       }
@@ -211,7 +275,7 @@ export function QuickLauncherRoot() {
       document.documentElement.classList.remove("quick-launcher-root");
       document.body.classList.remove("quick-launcher-body");
     };
-  }, []);
+  }, [reloadDbConnections]);
 
   const ignoreBlurUntilRef = useRef(0);
 
@@ -222,12 +286,15 @@ export function QuickLauncherRoot() {
       setQuery("");
       setSelectedIndex(0);
       setVisibleModuleKeys(getNavVisibleModuleKeys());
+      // 强制重载 schema / 数据库连接：主窗可能已变更
+      void useDbSchemaCacheStore.getState().hydrate({ force: true }).catch(() => {});
+      void reloadDbConnections();
       requestAnimationFrame(() => inputRef.current?.focus());
     }).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten?.();
-  }, []);
+  }, [reloadDbConnections]);
 
   useEffect(() => {
     if (!ready) return;
@@ -256,47 +323,60 @@ export function QuickLauncherRoot() {
     return MODULE_ICON_DEFS.filter((item) => visible.has(item.key));
   }, [visibleModuleKeys]);
 
-  const rows = useMemo<LauncherRow[]>(() => {
-    const q = query.trim().toLowerCase();
-    const commandRows: LauncherRow[] = COMMAND_DEFS.filter((cmd) => {
-      if (!q) return true;
-      const label = t(cmd.labelKey).toLowerCase();
-      return (
-        label.includes(q) ||
-        cmd.id.includes(q) ||
-        cmd.keywords.some((k) => k.toLowerCase().includes(q))
-      );
-    }).map((cmd) => ({
-      type: "command" as const,
-      id: cmd.id,
-      label: t(cmd.labelKey),
-      subtitle: t("shell.quickLauncher.kinds.command"),
-    }));
+  const parsedQuery = useMemo(() => parseQuickLaunchQuery(query), [query]);
+  const isEmptyQuery = query.trim().length === 0;
 
-    const connectionRows: LauncherRow[] = connections
-      .filter((conn) => {
-        if (!q) return true;
-        return (
-          conn.name.toLowerCase().includes(q) ||
-          conn.kind.toLowerCase().includes(q) ||
-          (conn.config ?? "").toLowerCase().includes(q) ||
-          (conn.group ?? "").toLowerCase().includes(q)
-        );
-      })
-      .slice(0, 20)
-      .map((conn) => ({
-        type: "connection" as const,
-        id: conn.id,
-        label: conn.name,
-        subtitle: kindLabel(conn.kind, t),
-      }));
-
-    // 有查询时连接优先靠前一点；无查询时命令在前、连接在后
-    if (q) {
-      return [...connectionRows, ...commandRows].slice(0, 12);
+  const rows = useMemo<QuickLaunchMatchRow[]>(() => {
+    // 无输入：展示最近打开（次数 ↓，同次数时间 ↓）
+    if (isEmptyQuery) {
+      const sorted = [...recentEntries].sort((a, b) => {
+        if (b.useCount !== a.useCount) return b.useCount - a.useCount;
+        return b.lastUsedAt - a.lastUsedAt;
+      });
+      return buildQuickLaunchRecentRows({
+        entries: sorted,
+        connections,
+        labels: {
+          database: (connName, dbName) =>
+            t("shell.quickLauncher.kinds.dbDatabase", { connection: connName, database: dbName }),
+          table: (connName, dbName, tableName) =>
+            t("shell.quickLauncher.kinds.dbTable", {
+              connection: connName,
+              database: dbName,
+              table: tableName,
+            }),
+        },
+      });
     }
-    return [...commandRows, ...connectionRows].slice(0, 12);
-  }, [query, connections, t]);
+
+    // schemaRevision：缓存更新时重算匹配
+    void schemaRevision;
+    return buildQuickLaunchMatches({
+      query: parsedQuery,
+      connections,
+      schema: schemaSnapshot,
+      labels: {
+        sshConnection: t("shell.quickLauncher.kinds.ssh"),
+        dbConnection: t("shell.quickLauncher.kinds.database"),
+        database: (connName, dbName) =>
+          t("shell.quickLauncher.kinds.dbDatabase", { connection: connName, database: dbName }),
+        table: (connName, dbName, tableName) =>
+          t("shell.quickLauncher.kinds.dbTable", {
+            connection: connName,
+            database: dbName,
+            table: tableName,
+          }),
+      },
+    });
+  }, [
+    isEmptyQuery,
+    recentEntries,
+    parsedQuery,
+    connections,
+    schemaSnapshot,
+    schemaRevision,
+    t,
+  ]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -308,14 +388,14 @@ export function QuickLauncherRoot() {
     void setQuickLauncherHeight(height);
   }, [rows.length]);
 
-  const activate = useCallback(async (row: LauncherRow) => {
-    const action: QuickLauncherAction =
-      row.type === "command"
-        ? { kind: "command", id: row.id }
-        : { kind: "connection", id: row.id };
-    await emitQuickLauncherAction(action);
-    await hideQuickLauncher();
-  }, []);
+  const activate = useCallback(
+    async (row: QuickLaunchMatchRow) => {
+      recordRecentOpen(rowToRecentTarget(row), row.label);
+      await emitQuickLauncherAction(rowToAction(row));
+      await hideQuickLauncher();
+    },
+    [recordRecentOpen],
+  );
 
   const toggleSoloMode = useCallback(() => {
     setSoloMode((prev) => {
@@ -359,11 +439,41 @@ export function QuickLauncherRoot() {
       setSelectedIndex((i) => Math.max(i - 1, 0));
       return;
     }
+    // 右方向键：光标在末尾时，将选中项补全进输入框
+    if (e.key === "ArrowRight") {
+      const row = rows[selectedIndex];
+      const input = inputRef.current;
+      if (!row || !input) return;
+      const atEnd =
+        input.selectionStart === input.value.length &&
+        input.selectionEnd === input.value.length;
+      if (!atEnd) return;
+      e.preventDefault();
+      const next = rowToInsertQuery(row, query);
+      if (next === query) return;
+      setQuery(next);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.setSelectionRange(next.length, next.length);
+      });
+      return;
+    }
     if (e.key === "Enter" && rows[selectedIndex]) {
       e.preventDefault();
       void activate(rows[selectedIndex]!);
     }
   };
+
+  const showEmptyHint = query.trim().length > 0 && rows.length === 0;
+
+  const recentLastUsedByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of recentEntries) {
+      map.set(entry.key, entry.lastUsedAt);
+    }
+    return map;
+  }, [recentEntries]);
 
   return (
     <div ref={rootRef} className="quick-launcher" data-ready={ready ? "1" : "0"}>
@@ -397,19 +507,7 @@ export function QuickLauncherRoot() {
         </button>
       </div>
       <div className="quick-launcher__input-row">
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          className="quick-launcher__icon"
-          aria-hidden
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="M21 21l-4.35-4.35" />
-        </svg>
+        <AppLogo size={22} className="quick-launcher__logo" />
         <TextInput
           ref={inputRef}
           clearable={false}
@@ -425,24 +523,44 @@ export function QuickLauncherRoot() {
       </div>
       {rows.length > 0 ? (
         <ul className="quick-launcher__list" role="listbox">
-          {rows.map((row, index) => (
-            <li key={`${row.type}-${row.id}`}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={index === selectedIndex}
-                className={`quick-launcher__item${index === selectedIndex ? " is-selected" : ""}`}
-                onClick={() => void activate(row)}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                <span className="quick-launcher__item-label">{row.label}</span>
-                <span className="quick-launcher__item-sub">{row.subtitle}</span>
-              </button>
-            </li>
-          ))}
+          {rows.map((row, index) => {
+            const moduleKey = quickLaunchRowModule(row);
+            const lastUsedAt = recentLastUsedByKey.get(
+              quickLaunchRecentKey(rowToRecentTarget(row)),
+            );
+            return (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={index === selectedIndex}
+                  className={`quick-launcher__item${index === selectedIndex ? " is-selected" : ""}`}
+                  onClick={() => void activate(row)}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                >
+                  <span className="quick-launcher__item-module">
+                    {t(`shell.quickLauncher.modules.${moduleKey}`)}
+                  </span>
+                  <span className="quick-launcher__item-main">
+                    <span className="quick-launcher__item-label">{row.label}</span>
+                    {row.subtitle ? (
+                      <span className="quick-launcher__item-sub">{row.subtitle}</span>
+                    ) : null}
+                  </span>
+                  <span className="quick-launcher__item-time">
+                    {formatQuickLaunchLastUsed(lastUsedAt, t)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
-      ) : query.trim() ? (
-        <div className="quick-launcher__empty">{t("shell.quickLauncher.noResults")}</div>
+      ) : showEmptyHint ? (
+        <div className="quick-launcher__empty">
+          {parsedQuery.kind === "plain"
+            ? t("shell.quickLauncher.plainHint")
+            : t("shell.quickLauncher.noResults")}
+        </div>
       ) : null}
     </div>
   );

@@ -105,7 +105,8 @@ function builtinHandle(intent: UiFollowIntent): boolean {
 }
 
 /**
- * 执行跟随意图。Follow 关闭时 no-op。
+ * 执行 UI 跟随意图（不受「AI 跟随」开关影响）。
+ * 供快捷启动、命令面板等非 AI 入口使用。
  *
  * 流程：
  * 1. navigate 到目标模块（确保面板挂载）
@@ -113,9 +114,7 @@ function builtinHandle(intent: UiFollowIntent): boolean {
  * 3. 再尝试 registry 分发到面板注册的 handler
  * 4. 都没处理 → 入 pending 队列，面板挂载时消费
  */
-export function followAiIntent(intent: UiFollowIntent): void {
-  if (!isFollowAiActionsEnabled()) return;
-
+export function followUiIntent(intent: UiFollowIntent): void {
   // 1. 路由切换
   const module = resolveIntentModule(intent);
   if (module) {
@@ -135,6 +134,14 @@ export function followAiIntent(intent: UiFollowIntent): void {
     // 4. 未挂载 → 入 pending 队列
     usePendingFollowIntentsStore.getState().enqueue(module, intent);
   }
+}
+
+/**
+ * 执行 AI 跟随意图。Follow 关闭时 no-op。
+ */
+export function followAiIntent(intent: UiFollowIntent): void {
+  if (!isFollowAiActionsEnabled()) return;
+  followUiIntent(intent);
 }
 
 /** 批量意图：顺序执行（通常先 focusModule 再选资源）。 */
