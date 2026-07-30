@@ -611,6 +611,12 @@ fn build_and_run_tauri() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Windows 11：自定义最大化按钮悬停弹出 Snap Layout（非 Windows 为 no-op）
+        .plugin(
+            tauri_plugin_snap_layout::init()
+                .button_id("omnipanel-snap-maximize")
+                .build(),
+        )
         .setup(|app| {
             // 主窗 create:false：按记忆几何创建并保持隐藏，等 HTML 首屏就绪再 show。
             // 须在 setup 最前，避免默认创建路径在主屏闪白框。
@@ -630,6 +636,9 @@ fn build_and_run_tauri() {
                 tracing::warn!("预创建快捷启动窗失败: {e}");
             }
             commands::quick_launcher::register_global_shortcut(app.handle());
+
+            // 模块独立窗：延迟预创建并隐藏，首次「在新窗口打开」走热复用
+            commands::module_window::schedule_prewarm_module_windows(app.handle());
 
             let db_path =
                 omnipanel_store::meta_db_path().expect("无法定位 ~/.omnipd/store/omnipanel.db");
@@ -1146,6 +1155,9 @@ fn build_and_run_tauri() {
             commands::quick_launcher::hide_quick_launcher,
             commands::quick_launcher::toggle_quick_launcher,
             commands::quick_launcher::set_quick_launcher_height,
+            // 模块独立窗口
+            commands::module_window::ensure_module_window_prewarm,
+            commands::module_window::open_module_window,
             commands::workspace_window::app_exit,
             commands::workspace_window::main_window_show_splash,
             commands::workspace_window::main_window_reveal,

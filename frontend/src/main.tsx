@@ -1,5 +1,6 @@
-import { StrictMode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+// CSS 必须静态按序引入：动态 Promise.all 会打乱级联，且 Tailwind v4 入口扫描依赖静态图
 import "./styles/global.css";
 import "./styles/react-json-view-lite.css";
 import "./styles/subwindow.css";
@@ -16,35 +17,65 @@ import "./styles/modules/home-monitor.css";
 import "./styles/modules/workflow.css";
 import { initDesktopShell } from "./lib/desktopShell";
 import { initProductionDiagnostics } from "./lib/productionDiagnostics";
-import { Bootstrap } from "./Bootstrap";
-import { WorkspaceWindowRoot } from "./WorkspaceWindowRoot";
-import { QuickLauncherRoot } from "./components/shell/QuickLauncherRoot";
 import { parseWorkspaceWindowParams, workspaceWindowDebugLog } from "./lib/workspaceWindow";
+import { parseModuleWindowParams } from "./lib/moduleWindow";
 import { isQuickLauncherWindow } from "./lib/quickLauncher";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 
 initProductionDiagnostics();
 initDesktopShell();
 
-dismissHtmlBootSplash();
+function mount(node: ReactNode): void {
+  dismissHtmlBootSplash();
+  createRoot(document.getElementById("root")!).render(<StrictMode>{node}</StrictMode>);
+}
 
-const quickLauncher = isQuickLauncherWindow();
-const workspaceWindow = quickLauncher ? null : parseWorkspaceWindowParams();
+async function boot(): Promise<void> {
+  const quickLauncher = isQuickLauncherWindow();
+  const moduleWindow = quickLauncher ? null : parseModuleWindowParams();
+  const workspaceWindow =
+    quickLauncher || moduleWindow ? null : parseWorkspaceWindowParams();
 
-void workspaceWindowDebugLog(
-  `main.tsx boot role=${
-    quickLauncher ? "quick-launcher" : workspaceWindow ? "workspace-window" : "main"
-  } ws=${workspaceWindow?.workspaceId ?? "-"} href=${location.href}`,
-);
+  void workspaceWindowDebugLog(
+    `main.tsx boot role=${
+      quickLauncher
+        ? "quick-launcher"
+        : moduleWindow
+          ? `module-window:${moduleWindow.moduleKey}`
+          : workspaceWindow
+            ? "workspace-window"
+            : "main"
+    } ws=${workspaceWindow?.workspaceId ?? "-"} href=${location.href}`,
+  );
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    {quickLauncher ? (
-      <QuickLauncherRoot />
-    ) : workspaceWindow ? (
-      <WorkspaceWindowRoot workspaceId={workspaceWindow.workspaceId} />
-    ) : (
-      <Bootstrap />
-    )}
-  </StrictMode>,
-);
+  try {
+    // 仅拆 JS 入口：模块窗不拉 Bootstrap；CSS 全量静态，保证级联与 Tailwind 扫描
+    if (quickLauncher) {
+      const { QuickLauncherRoot } = await import("./components/shell/QuickLauncherRoot");
+      mount(<QuickLauncherRoot />);
+      return;
+    }
+
+    if (moduleWindow) {
+      const { ModuleWindowRoot } = await import("./ModuleWindowRoot");
+      mount(<ModuleWindowRoot moduleKey={moduleWindow.moduleKey} />);
+      return;
+    }
+
+    if (workspaceWindow) {
+      const { WorkspaceWindowRoot } = await import("./WorkspaceWindowRoot");
+      mount(<WorkspaceWindowRoot workspaceId={workspaceWindow.workspaceId} />);
+      return;
+    }
+
+    const { Bootstrap } = await import("./Bootstrap");
+    mount(<Bootstrap />);
+  } catch (e) {
+    console.error("[boot] failed", e);
+    dismissHtmlBootSplash();
+    const msg = e instanceof Error ? e.stack || e.message : String(e);
+    document.body.innerHTML = `<pre style="padding:16px;color:#f88;white-space:pre-wrap">${msg}</pre>`;
+  }
+}
+
+void boot();

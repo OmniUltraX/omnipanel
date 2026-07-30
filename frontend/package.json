@@ -71,6 +71,7 @@
         "sql-formatter": "^15.8.2",
         "standardwebhooks": "^1.0.0",
         "tailwind-merge": "^3.6.0",
+        "tauri-plugin-snap-layout": "^1.0.9",
         "tw-shimmer": "^0.4.11",
         "vscode-languageserver-types": "^3.17.5",
         "zod": "^4.4.3",

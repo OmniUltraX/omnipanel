@@ -49,6 +49,12 @@ async function runCommand(id: string): Promise<void> {
     case "knowledge":
       navigateToPath(MODULE_PATHS.knowledge);
       return;
+    case "files":
+      navigateToPath(MODULE_PATHS.files);
+      return;
+    case "tasks":
+      navigateToPath(MODULE_PATHS.tasks);
+      return;
     case "settings":
       void import("../stores/settingsUiStore").then(({ useSettingsUiStore }) =>
         useSettingsUiStore.getState().openSettings(),

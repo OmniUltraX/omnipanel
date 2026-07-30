@@ -60,6 +60,8 @@ export default defineConfig({
       "mustache",
       "p-retry",
       "uuid",
+      // snap-layout 注入宏常量，避免 Vite 预打包缓存导致 __SNAP_BUTTON_ID__ 未定义
+      "tauri-plugin-snap-layout",
     ],
   },
   server: {
