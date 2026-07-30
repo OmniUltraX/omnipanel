@@ -94,6 +94,18 @@ export type SqlTabState = {
 
 /** 首屏默认页大小：过大时 IPC 反序列化 + React 挂网格会明显卡主线程 */
 export const DEFAULT_PAGE_SIZE = 50;
+/** 表数据预览每页可选条数 */
+export const TABLE_PREVIEW_PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500] as const;
+export type TablePreviewPageSize = (typeof TABLE_PREVIEW_PAGE_SIZE_OPTIONS)[number];
+
+export function clampTablePreviewPageSize(value: number): number {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_PAGE_SIZE;
+  if ((TABLE_PREVIEW_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)) return n;
+  // 允许历史/外部写入的非标准值，但限制上限避免一次拖垮 UI
+  return Math.min(Math.max(n, 1), 2000);
+}
+
 export const DEFAULT_SQL = `SELECT version();`;
 
 /** 表预览 COUNT 未完成时，根据当前页行数估算 totalRows。 */

@@ -430,6 +430,12 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     },
     [ws.requestTabAction, tab.id],
   );
+  const handlePreviewPageSizeChange = useCallback(
+    (pageSize: number) => {
+      ws.requestTabAction({ kind: "pageSize", tabId: tab.id, pageSize });
+    },
+    [ws.requestTabAction, tab.id],
+  );
   const handlePreviewSortChange = useCallback(
     (sort: SortState | null) => {
       ws.requestTabAction({ kind: "sort", tabId: tab.id, sort });
@@ -979,7 +985,6 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             loading={preview.loading}
             page={preview.page}
             pageSize={preview.pageSize}
-            totalRows={(preview.totalRows ?? 0) + pendingInsertCount}
             totalPages={totalPages}
             dirtyCount={dirtyCount}
             isCommitting={isCommitting}
@@ -996,6 +1001,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             detailCollapsed={detailCollapsed}
             colSidebarCollapsed={colSidebarCollapsed}
             onPageChange={handlePreviewPageChange}
+            onPageSizeChange={handlePreviewPageSizeChange}
             onRefresh={() => ws.requestTabAction({ kind: "refresh", tabId: tab.id })}
             onInsertRow={() => ws.handleRowNew(tab.id)}
             onDeleteSelectedRows={() => gridActionsRef.current?.deleteSelectedRows()}

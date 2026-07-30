@@ -12,9 +12,10 @@ import type { SqlEditorOpenMode } from "../modules/database/sql/SqlEditor";
 import type { SchemaTableSelection, SchemaDatabaseSelection } from "../modules/database/schema/SchemaBrowser";
 
 export type DbTabAction = {
-  kind: "refresh" | "page" | "close" | "sort" | "filter";
+  kind: "refresh" | "page" | "pageSize" | "close" | "sort" | "filter";
   tabId: string;
   page?: number;
+  pageSize?: number;
   sort?: SortState | null;
   filter?: RuleGroupType | null;
 };

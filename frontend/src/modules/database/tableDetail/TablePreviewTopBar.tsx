@@ -1,12 +1,12 @@
 import { Button } from "../../../components/ui/Button";
 import { IconPlus } from "../../../components/ui/Icons";
 import { useI18n } from "../../../i18n";
+import { TABLE_PREVIEW_PAGE_SIZE_OPTIONS } from "../workspace/dbWorkspaceState";
 
 export interface TablePreviewTopBarProps {
   loading: boolean;
   page: number;
   pageSize: number;
-  totalRows: number;
   totalPages: number;
   dirtyCount: number;
   isCommitting: boolean;
@@ -23,6 +23,7 @@ export interface TablePreviewTopBarProps {
   detailCollapsed: boolean;
   colSidebarCollapsed: boolean;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
   onRefresh: () => void;
   onInsertRow: () => void;
   onDeleteSelectedRows: () => void;
@@ -135,7 +136,6 @@ export function TablePreviewTopBar({
   loading,
   page,
   pageSize,
-  totalRows,
   totalPages,
   dirtyCount,
   isCommitting,
@@ -152,6 +152,7 @@ export function TablePreviewTopBar({
   detailCollapsed,
   colSidebarCollapsed,
   onPageChange,
+  onPageSizeChange,
   onRefresh,
   onInsertRow,
   onDeleteSelectedRows,
@@ -173,9 +174,12 @@ export function TablePreviewTopBar({
   previewSqlTitle,
 }: TablePreviewTopBarProps) {
   const { t } = useI18n();
-  const showingFrom = totalRows === 0 ? 0 : page * pageSize + 1;
-  const showingTo = Math.min((page + 1) * pageSize, totalRows);
   const canDiscard = dirtyCount > 0 && !isCommitting;
+  const pageSizeOptions = TABLE_PREVIEW_PAGE_SIZE_OPTIONS.includes(
+    pageSize as (typeof TABLE_PREVIEW_PAGE_SIZE_OPTIONS)[number],
+  )
+    ? TABLE_PREVIEW_PAGE_SIZE_OPTIONS
+    : ([...TABLE_PREVIEW_PAGE_SIZE_OPTIONS, pageSize].sort((a, b) => a - b) as number[]);
   const undoTitle = undoShortcutHint
     ? `${t("database.results.undo")} (${undoShortcutHint})`
     : t("database.results.undo");
@@ -253,13 +257,22 @@ export function TablePreviewTopBar({
         >
           »
         </Button>
-        <span className="db-table-topbar-range">
-          {loading && totalRows === 0
-            ? t("common.loading")
-            : totalRows > 0
-              ? `${showingFrom.toLocaleString()}–${showingTo.toLocaleString()} / ${totalRows.toLocaleString()}`
-              : "0"}
-        </span>
+        <label className="db-table-topbar-page-size">
+          <select
+            className="db-table-topbar-page-size__select"
+            value={pageSize}
+            disabled={loading}
+            title={t("database.results.pageSize")}
+            aria-label={t("database.results.pageSize")}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+          >
+            {pageSizeOptions.map((size) => (
+              <option key={size} value={size}>
+                {t("database.results.pageSizeOption", { count: size })}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="db-table-topbar-group db-table-topbar-group--actions">

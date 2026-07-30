@@ -191,6 +191,7 @@ import {
   reuseTemporarySqlResultSession,
   type SqlResultSession,
   estimateTablePreviewTotalRows,
+  clampTablePreviewPageSize,
   NEW_ROW_KEY_PREFIX,
   DELETED_ROW_KEY_PREFIX,
   PENDING_INSERT_ROW_KEY,
@@ -1942,6 +1943,72 @@ export function DatabasePanel() {
     [connections, setTablePreviews],
   );
 
+  const setTablePageSize = useCallback(
+    (tabId: string, nextPageSize: number) => {
+      const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
+      if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
+      const pageSize = clampTablePreviewPageSize(nextPageSize);
+      if (pageSize === preview.pageSize) return;
+      const connId = preview.connId;
+      const connection = connections.find((c) => c.id === connId);
+      if (!connection) return;
+      const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
+
+      setTablePreviews((prev) => {
+        const existing = prev[tabId] ?? createDefaultTablePreviewState();
+        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+        const columnRelations = existing.columnRelations ?? {};
+
+        void fetchTablePreviewPage({
+          connection,
+          connId,
+          tableName: preview.tableName!,
+          dbName: preview.dbName!,
+          page: 0,
+          pageSize,
+          sort: existing.sort,
+          filter: existing.filter,
+          columnMeta: colMeta,
+          columnRelations,
+        })
+          .then(async ({ data, totalRows = 0 }) => {
+            await yieldToMain();
+            await applyTablePreviewDataProgressive({
+              tabId,
+              data,
+              totalRows,
+              page: 0,
+              pageSize,
+              setTablePreviews,
+              generation: applyGeneration,
+              canvasMode: readStoredGridRenderMode() === "canvas",
+            });
+          })
+          .catch((e) => {
+            bumpTablePreviewApplyGeneration(tabId);
+            setTablePreviews((p) => {
+              const cur = p[tabId];
+              if (!cur) return p;
+              return {
+                ...p,
+                [tabId]: {
+                  ...cur,
+                  loading: false,
+                  error: typeof e === "string" ? e : String(e),
+                },
+              };
+            });
+          });
+
+        return {
+          ...prev,
+          [tabId]: { ...existing, page: 0, pageSize, loading: true, error: null },
+        };
+      });
+    },
+    [connections, setTablePreviews],
+  );
+
   const setTableFilter = useCallback(
     (tabId: string, filter: RuleGroupType | null) => {
       const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
@@ -2574,9 +2641,10 @@ export function DatabasePanel() {
 
   const executeTabAction = useCallback(
     (action: {
-      kind: "refresh" | "page" | "close" | "sort" | "filter";
+      kind: "refresh" | "page" | "pageSize" | "close" | "sort" | "filter";
       tabId: string;
       page?: number;
+      pageSize?: number;
       sort?: SortState | null;
       filter?: RuleGroupType | null;
     }) => {
@@ -2584,6 +2652,8 @@ export function DatabasePanel() {
         refreshTabPreviewNow(action.tabId);
       } else if (action.kind === "page") {
         goToPageNow(action.tabId, action.page ?? 0);
+      } else if (action.kind === "pageSize") {
+        setTablePageSize(action.tabId, action.pageSize ?? createDefaultTablePreviewState().pageSize);
       } else if (action.kind === "sort") {
         setTableSort(action.tabId, action.sort ?? null);
       } else if (action.kind === "filter") {
@@ -2592,14 +2662,15 @@ export function DatabasePanel() {
         closeWorkspaceTab(action.tabId);
       }
     },
-    [refreshTabPreviewNow, goToPageNow, setTableSort, setTableFilter, closeWorkspaceTab],
+    [refreshTabPreviewNow, goToPageNow, setTablePageSize, setTableSort, setTableFilter, closeWorkspaceTab],
   );
 
   const requestTabAction = useCallback(
     (action: {
-      kind: "refresh" | "page" | "close" | "sort" | "filter";
+      kind: "refresh" | "page" | "pageSize" | "close" | "sort" | "filter";
       tabId: string;
       page?: number;
+      pageSize?: number;
       sort?: SortState | null;
       filter?: RuleGroupType | null;
     }) => {

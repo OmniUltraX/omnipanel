@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import { Button } from "../../../components/ui/primitives/Button";
 import { MultiSelect } from "../../../components/ui/form/MultiSelect";
 import { useI18n } from "../../../i18n";
@@ -30,6 +30,13 @@ import {
   tableNameExistsInSet,
 } from "./schemaSyncAlignedTables";
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.isContentEditable;
+}
+
 /** 源侧完整表列表；目标侧仅展示源库已选表的同步状态 */
 export type SyncTableListMode = "source" | "targetSync";
 
@@ -57,10 +64,15 @@ interface SyncSidePanelProps {
   onToggleSelect: (tableName: string) => void;
   /** 源侧：全选 / 取消全选当前可见表 */
   onSelectAllChange?: (select: boolean, visibleNames: string[]) => void;
-  /** 源侧：库内全部表名（用于下拉添加） */
+  /** 源侧：库内全部表名（用于下拉多选） */
   catalogTableNames?: string[];
-  /** 源侧：将所选表加入列表 */
-  onAddTables?: (tableNames: string[]) => void;
+  /** 源侧：多选结果同步到列表（选中=添加，取消=删除） */
+  onSelectedTablesChange?: (tableNames: string[]) => void;
+  /** 源侧：从列表移除表（行删除按钮 / Delete 键） */
+  onRemoveTables?: (tableNames: string[]) => void;
+  /** 数据同步源侧：列表高亮选中（由父级控制，供底部栏删除） */
+  listHighlight?: Set<string>;
+  onListHighlightChange?: (next: Set<string>) => void;
   /** 源侧：正在加载新添加表的结构 */
   addingTables?: boolean;
   /** 正在统计行数的表名 */
@@ -151,12 +163,11 @@ function ConnectionDatabaseFilters({
   databases,
   databasesLoading,
   showAddTables,
-  tablePickValue,
+  tablePickValues,
   tablePickOptions,
-  onTablePickChange,
+  onTablePickValuesChange,
   catalogTablesLoading,
   addingTables,
-  onAddTable,
   schemaSearchValue,
   onSchemaSearchChange,
   toolbarLayout = "default",
@@ -176,13 +187,13 @@ function ConnectionDatabaseFilters({
   onDatabaseChange: (db: string) => void;
   databases: string[];
   databasesLoading: boolean;
+  /** 数据同步源侧：表名多选（选中=加入列表，取消=移除） */
   showAddTables: boolean;
-  tablePickValue: string;
+  tablePickValues: string[];
   tablePickOptions: string[];
-  onTablePickChange?: (value: string) => void;
+  onTablePickValuesChange?: (values: string[]) => void;
   catalogTablesLoading?: boolean;
   addingTables: boolean;
-  onAddTable?: () => void;
   schemaSearchValue?: string;
   onSchemaSearchChange?: (value: string) => void;
   toolbarLayout?: "default" | "sourceRow" | "targetRow";
@@ -270,46 +281,33 @@ function ConnectionDatabaseFilters({
             : t("database.toolbox.side.selectAll")}
         </Button>
       )}
-      {showAddTables && onTablePickChange && (
-        <Select
+      {showAddTables && onTablePickValuesChange && (
+        <MultiSelect
           className="db-select db-toolbox-table-picker"
-          value={tablePickValue}
-          onChange={onTablePickChange}
-          disabled={catalogTablesLoading || tablePickOptions.length === 0}
+          values={tablePickValues}
+          onChange={onTablePickValuesChange}
+          disabled={catalogTablesLoading || addingTables || tablePickOptions.length === 0}
           searchable
+          emptyMeansAll={false}
+          size="sm"
           title={t("database.toolbox.side.selectTableToAdd")}
           placeholder={t("database.toolbox.side.selectTableToAdd")}
           aria-label={t("database.toolbox.side.selectTableToAdd")}
           emptyText={t("database.toolbox.side.noAddableTables")}
           searchPlaceholder={t("database.toolbox.side.searchTables")}
+          formatDisplayLabel={(labels, allSelected) =>
+            allSelected
+              ? t("database.toolbox.side.tablesSelectedAll", { count: labels.length })
+              : labels.length === 0
+                ? t("database.toolbox.side.selectTableToAdd")
+                : t("database.toolbox.side.tablesSelectedCount", { count: labels.length })
+          }
           options={
             tablePickOptions.length === 0
               ? [{ value: "", label: t("database.toolbox.side.noAddableTables"), disabled: true }]
               : tablePickOptions.map((name) => ({ value: name, label: name }))
           }
         />
-      )}
-      {showAddTables && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="db-toolbox-add-tables-btn"
-          disabled={!tablePickValue || addingTables}
-          title={
-            !tablePickValue
-              ? t("database.toolbox.side.addTablesSelectFirst")
-              : t("database.toolbox.side.addTablesHint")
-          }
-          aria-label={t("database.toolbox.side.addTables")}
-          onClick={() => {
-            if (tablePickValue) {
-              onAddTable?.();
-            }
-          }}
-        >
-          {addingTables ? t("database.toolbox.side.loading") : t("database.toolbox.side.addTables")}
-        </Button>
       )}
       {schemaStatusFilters !== undefined && onSchemaStatusFiltersChange && (
         <MultiSelect
@@ -1150,7 +1148,10 @@ export function SyncSidePanel({
   onToggleSelect,
   onSelectAllChange,
   catalogTableNames = [],
-  onAddTables,
+  onSelectedTablesChange,
+  onRemoveTables,
+  listHighlight: listHighlightProp,
+  onListHighlightChange,
   addingTables = false,
   countingTables,
   sourceSelectedTableNames = [],
@@ -1184,10 +1185,27 @@ export function SyncSidePanel({
   analyzingTables,
 }: SyncSidePanelProps) {
   const { t } = useI18n();
-  const [tablePickValue, setTablePickValue] = useState("");
   const isTargetSync = tableListMode === "targetSync";
   const isSchemaAligned = tab === "schemaSync" && alignedTableNames !== undefined;
   const schemaCompareCaseSensitive = isSchemaCaseSensitive(schemaCaseSensitive);
+  /** 未受控时本地维护高亮；受控时由父级 listHighlight / onListHighlightChange 驱动 */
+  const [listHighlightLocal, setListHighlightLocal] = useState<Set<string>>(() => new Set());
+  const listHighlight = listHighlightProp ?? listHighlightLocal;
+  const listHighlightRef = useRef(listHighlight);
+  listHighlightRef.current = listHighlight;
+  const setListHighlight = useCallback(
+    (next: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      const resolved = typeof next === "function" ? next(listHighlightRef.current) : next;
+      if (onListHighlightChange) {
+        onListHighlightChange(resolved);
+      } else {
+        setListHighlightLocal(resolved);
+      }
+    },
+    [onListHighlightChange],
+  );
+  const listAnchorRef = useRef<string | null>(null);
+  const dataSyncListRef = useRef<HTMLUListElement | null>(null);
 
   const resolveSourceTable = useCallback(
     (name: string): SyncTableInfo | undefined => {
@@ -1258,9 +1276,27 @@ export function SyncSidePanel({
     [resolveSourceTable, sourceTableIndexes],
   );
 
-  useEffect(() => {
-    setTablePickValue("");
-  }, [connectionId, database, tab]);
+  const tablePickValues = useMemo(
+    () => snapshot.tables.map((table) => table.name).sort((a, b) => a.localeCompare(b)),
+    [snapshot.tables],
+  );
+
+  const tablePickOptions = useMemo(() => {
+    if (isTargetSync) {
+      return [];
+    }
+    return [...catalogTableNames].sort((a, b) => a.localeCompare(b));
+  }, [isTargetSync, catalogTableNames]);
+
+  const handleTablePickValuesChange = useCallback(
+    (values: string[]) => {
+      if (addingTables) {
+        return;
+      }
+      onSelectedTablesChange?.(values);
+    },
+    [addingTables, onSelectedTablesChange],
+  );
 
   const filteredTables = useMemo(() => {
     const tables = [...snapshot.tables].sort((a, b) => a.name.localeCompare(b.name));
@@ -1272,27 +1308,116 @@ export function SyncSidePanel({
     return tables.filter((table) => table.name.toLowerCase().includes(query));
   }, [snapshot.tables, tab, schemaTableSearch]);
 
-  const tablePickOptions = useMemo(() => {
-    if (isTargetSync) {
-      return [];
-    }
-    const added = new Set(snapshot.tables.map((tbl) => tbl.name));
-    return catalogTableNames.filter((name) => !added.has(name));
-  }, [isTargetSync, catalogTableNames, snapshot.tables]);
+  const filteredTableNames = useMemo(
+    () => filteredTables.map((table) => table.name),
+    [filteredTables],
+  );
 
   useEffect(() => {
-    if (tablePickValue && !tablePickOptions.includes(tablePickValue)) {
-      setTablePickValue("");
-    }
-  }, [tablePickValue, tablePickOptions]);
-
-  const handleAddTable = useCallback(() => {
-    if (!tablePickValue || addingTables) {
+    if (tab !== "dataSync" || isTargetSync) {
+      setListHighlight(new Set());
+      listAnchorRef.current = null;
       return;
     }
-    onAddTables?.([tablePickValue]);
-    setTablePickValue("");
-  }, [tablePickValue, addingTables, onAddTables]);
+    const alive = new Set(filteredTableNames);
+    setListHighlight((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const name of prev) {
+        if (alive.has(name)) {
+          next.add(name);
+        } else {
+          changed = true;
+        }
+      }
+      return changed || next.size !== prev.size ? next : prev;
+    });
+    if (listAnchorRef.current && !alive.has(listAnchorRef.current)) {
+      listAnchorRef.current = null;
+    }
+  }, [tab, isTargetSync, filteredTableNames]);
+
+  const applyListHighlightRange = useCallback((fromName: string, toName: string) => {
+    const fromIndex = filteredTableNames.indexOf(fromName);
+    const toIndex = filteredTableNames.indexOf(toName);
+    if (fromIndex < 0 || toIndex < 0) {
+      setListHighlight(new Set([toName]));
+      listAnchorRef.current = toName;
+      return;
+    }
+    const start = Math.min(fromIndex, toIndex);
+    const end = Math.max(fromIndex, toIndex);
+    setListHighlight(new Set(filteredTableNames.slice(start, end + 1)));
+  }, [filteredTableNames]);
+
+  const handleDataSyncRowClick = useCallback(
+    (tableName: string, event: MouseEvent) => {
+      dataSyncListRef.current?.focus();
+      if (event.shiftKey && listAnchorRef.current) {
+        applyListHighlightRange(listAnchorRef.current, tableName);
+        return;
+      }
+      if (event.ctrlKey || event.metaKey) {
+        setListHighlight((prev) => {
+          const next = new Set(prev);
+          if (next.has(tableName)) {
+            next.delete(tableName);
+          } else {
+            next.add(tableName);
+          }
+          return next;
+        });
+        listAnchorRef.current = tableName;
+        return;
+      }
+      setListHighlight(new Set([tableName]));
+      listAnchorRef.current = tableName;
+    },
+    [applyListHighlightRange],
+  );
+
+  const handleRemoveTables = useCallback(
+    (tableNames: string[]) => {
+      if (tableNames.length === 0 || !onRemoveTables) {
+        return;
+      }
+      onRemoveTables(tableNames);
+      setListHighlight((prev) => {
+        const removeSet = new Set(tableNames);
+        let changed = false;
+        const next = new Set<string>();
+        for (const name of prev) {
+          if (removeSet.has(name)) {
+            changed = true;
+          } else {
+            next.add(name);
+          }
+        }
+        return changed ? next : prev;
+      });
+      if (listAnchorRef.current && tableNames.includes(listAnchorRef.current)) {
+        listAnchorRef.current = null;
+      }
+    },
+    [onRemoveTables],
+  );
+
+  const handleDataSyncListKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") {
+        return;
+      }
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+      if (listHighlight.size === 0) {
+        return;
+      }
+      event.preventDefault();
+      handleRemoveTables(Array.from(listHighlight));
+    },
+    [listHighlight, handleRemoveTables],
+  );
 
   const targetSyncRows = useMemo(() => {
     const names = [...sourceSelectedTableNames].sort((a, b) => a.localeCompare(b));
@@ -1393,12 +1518,13 @@ export function SyncSidePanel({
           databases={databases}
           databasesLoading={databasesLoading}
           showAddTables={!isTargetSync && tab === "dataSync"}
-          tablePickValue={tablePickValue}
+          tablePickValues={tablePickValues}
           tablePickOptions={tablePickOptions}
-          onTablePickChange={!isTargetSync && tab === "dataSync" ? setTablePickValue : undefined}
+          onTablePickValuesChange={
+            !isTargetSync && tab === "dataSync" ? handleTablePickValuesChange : undefined
+          }
           catalogTablesLoading={catalogLoading}
           addingTables={addingTables}
-          onAddTable={handleAddTable}
           schemaSearchValue={
             tab === "schemaSync" && !isTargetSync ? (schemaTableSearch ?? "") : undefined
           }
@@ -1408,7 +1534,9 @@ export function SyncSidePanel({
           selectAllChecked={selectAllChecked}
           selectAllDisabled={selectableTableNames.length === 0}
           onSelectAllChange={
-            !isTargetSync && onSelectAllChange ? handleSelectAllClick : undefined
+            !isTargetSync && tab === "schemaSync" && onSelectAllChange
+              ? handleSelectAllClick
+              : undefined
           }
           toolbarLayout={
             showSchemaStatusFilter || showTargetAnalyze
@@ -1581,14 +1709,23 @@ export function SyncSidePanel({
             </ul>
           )
         ) : tab === "dataSync" ? (
-          <ul className="db-toolbox-table-list">
+          <ul
+            ref={dataSyncListRef}
+            className="db-toolbox-table-list db-toolbox-table-list--data-sync"
+            tabIndex={0}
+            role="listbox"
+            aria-multiselectable
+            aria-label={t("database.toolbox.side.sourceTables")}
+            onKeyDown={handleDataSyncListKeyDown}
+          >
             {filteredTables.map((table) => (
               <DataSyncTableRow
                 key={table.name}
                 table={table}
-                selected={selectedTables.has(table.name)}
                 counting={countingTables?.has(table.name) ?? false}
-                onToggleSelect={onToggleSelect}
+                highlighted={listHighlight.has(table.name)}
+                onSelect={(event) => handleDataSyncRowClick(table.name, event)}
+                onRemove={() => handleRemoveTables([table.name])}
               />
             ))}
           </ul>
@@ -1613,37 +1750,56 @@ export function SyncSidePanel({
 
 function DataSyncTableRow({
   table,
-  selected,
   counting,
-  onToggleSelect,
+  highlighted,
+  onSelect,
+  onRemove,
 }: {
   table: SyncTableInfo;
-  selected: boolean;
   counting: boolean;
-  onToggleSelect: (tableName: string) => void;
+  highlighted: boolean;
+  onSelect: (event: MouseEvent) => void;
+  onRemove: () => void;
 }) {
   const { t } = useI18n();
   const failed = table.rowCount !== null && table.rowCount < 0;
 
-  const metaLabel = !selected
-    ? "—"
-    : counting || table.rowCount === null
+  const metaLabel =
+    counting || table.rowCount === null
       ? t("database.toolbox.side.counting")
       : failed
         ? t("database.toolbox.side.countFailed")
         : t("database.toolbox.side.rowCount", { count: table.rowCount });
 
   return (
-    <li className="db-toolbox-table-row" data-schema-sync-row={table.name}>
-      <TableSelectCheckbox
-        tableName={table.name}
-        checked={selected}
-        onToggle={onToggleSelect}
-      />
+    <li
+      className={`db-toolbox-table-row db-toolbox-table-row--data-sync${highlighted ? " is-selected" : ""}`}
+      data-schema-sync-row={table.name}
+      role="option"
+      aria-selected={highlighted}
+      onClick={onSelect}
+    >
       <span className="db-toolbox-table-row__name">{table.name}</span>
-      <span className={`db-toolbox-table-row__meta${failed && selected ? " text-danger" : ""}`}>
+      <span className={`db-toolbox-table-row__meta${failed ? " text-danger" : ""}`}>
         {metaLabel}
       </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="db-toolbox-table-row__remove"
+        title={t("database.toolbox.side.removeTable")}
+        aria-label={t("database.toolbox.side.removeTable")}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12" aria-hidden>
+          <path d="M3 4.5h10M6 4.5V3.25A1.25 1.25 0 0 1 7.25 2h1.5A1.25 1.25 0 0 1 10 3.25V4.5" strokeLinecap="round" />
+          <path d="M5.25 4.5l.5 8.25A1.25 1.25 0 0 0 7 14h2a1.25 1.25 0 0 0 1.25-1.25l.5-8.25" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </Button>
     </li>
   );
 }

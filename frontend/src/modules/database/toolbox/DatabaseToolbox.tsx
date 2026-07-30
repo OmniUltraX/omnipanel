@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/Button";
-import { IconSettings, IconClock, IconFile } from "../../../components/ui/Icons";
+import { IconSettings, IconClock, IconFile, IconTrash } from "../../../components/ui/Icons";
 import { useDataLoading } from "../../../components/ui/DataLoading";
 import { SubWindow } from "../../../components/ui/SubWindow";
 import { appConfirm } from "../../../lib/appConfirm";
@@ -182,6 +182,7 @@ export function DatabaseToolbox({
   const autoSavePausedRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sourceSelected, setSourceSelected] = useState<Set<string>>(() => new Set());
+  const [sourceListHighlight, setSourceListHighlight] = useState<Set<string>>(() => new Set());
   const [tableTargetStatus, setTableTargetStatus] = useState<Record<string, TableTargetStatus>>({});
   const [tableSyncModes, setTableSyncModes] = useState<Record<string, DataSyncModes>>({});
   const [tableAnalysis, setTableAnalysis] = useState<Record<string, DataAnalysisResult>>({});
@@ -804,6 +805,91 @@ export function DatabaseToolbox({
       }
     },
     [connections, sourceConnId, sourceDb, tab],
+  );
+
+  const removeSourceTables = useCallback((tableNames: string[]) => {
+    if (tableNames.length === 0) {
+      return;
+    }
+    const removeSet = new Set(tableNames);
+    setSourceSnapshot((prev) => ({
+      ...prev,
+      tables: prev.tables.filter((table) => !removeSet.has(table.name)),
+    }));
+    setSourceSelected((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const name of removeSet) {
+        if (next.delete(name)) {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setSourceListHighlight((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const name of removeSet) {
+        if (next.delete(name)) {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setTableAnalysis((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const name of removeSet) {
+        if (name in next) {
+          delete next[name];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setTableTargetStatus((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const name of removeSet) {
+        if (name in next) {
+          delete next[name];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setTableSyncModes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const name of removeSet) {
+        if (name in next) {
+          delete next[name];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    for (const name of removeSet) {
+      lastAnalyzedSelectionRef.current.delete(name);
+    }
+  }, []);
+
+  /** 数据同步：多选下拉同步源表列表（选中添加并分析，取消则移除） */
+  const syncSourceTableSelection = useCallback(
+    (nextNames: string[]) => {
+      const nextSet = new Set(nextNames);
+      const currentNames = sourceSnapshotTablesRef.current.map((table) => table.name);
+      const currentSet = new Set(currentNames);
+      const toAdd = nextNames.filter((name) => !currentSet.has(name));
+      const toRemove = currentNames.filter((name) => !nextSet.has(name));
+      if (toRemove.length > 0) {
+        removeSourceTables(toRemove);
+      }
+      if (toAdd.length > 0) {
+        void addSourceTables(toAdd);
+      }
+    },
+    [addSourceTables, removeSourceTables],
   );
 
   const loadDataForCachedAnalysis = useCallback(
@@ -2373,7 +2459,8 @@ export function DatabaseToolbox({
     // 数据同步：按已保存表名逐个加载结构；结构同步源侧直接全库加载，仅恢复勾选
     pendingAddedTablesRef.current =
       tab === "dataSync" && addedNames.length > 0 ? addedNames : null;
-    setSourceSelected(new Set(config.selectedTables));
+    // 数据同步：列表中的表即参与同步/分析（不再用独立勾选）
+    setSourceSelected(new Set(tab === "dataSync" ? addedNames : config.selectedTables));
     setSourceExpanded(new Set(config.expandedTables ?? []));
     setTableSyncModes(
       normalizeTableSyncModes(config.tableSyncModes, config.tableSyncStrategies),
@@ -2447,7 +2534,10 @@ export function DatabaseToolbox({
       sourceDb,
       targetConnId,
       targetDb,
-      selectedTables: Array.from(sourceSelected),
+      selectedTables:
+        tab === "dataSync"
+          ? sourceSnapshot.tables.map((table) => table.name)
+          : Array.from(sourceSelected),
       addedTables:
         tab === "dataSync" ? sourceSnapshot.tables.map((table) => table.name) : undefined,
       expandedTables: Array.from(sourceExpanded),
@@ -3777,8 +3867,13 @@ export function DatabaseToolbox({
               onToggleTable={toggleSourceTable}
               selectedTables={sourceSelected}
               onToggleSelect={toggleSourceSelected}
-              onSelectAllChange={handleSourceSelectAll}
-              onAddTables={tab === "dataSync" ? (names) => void addSourceTables(names) : undefined}
+              onSelectAllChange={tab === "schemaSync" ? handleSourceSelectAll : undefined}
+              onSelectedTablesChange={
+                tab === "dataSync" ? syncSourceTableSelection : undefined
+              }
+              onRemoveTables={tab === "dataSync" ? removeSourceTables : undefined}
+              listHighlight={tab === "dataSync" ? sourceListHighlight : undefined}
+              onListHighlightChange={tab === "dataSync" ? setSourceListHighlight : undefined}
               addingTables={sourceAddingTables}
               countingTables={countingTables}
               alignedTableNames={visibleSchemaAlignedTableNames}
@@ -3875,6 +3970,28 @@ export function DatabaseToolbox({
           >
             <IconClock size={18} />
           </Button>
+          {tab === "dataSync" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="db-toolbox-footer__remove-selected"
+              disabled={sourceListHighlight.size === 0}
+              title={
+                sourceListHighlight.size === 0
+                  ? t("database.toolbox.side.removeSelectedDisabled")
+                  : t("database.toolbox.side.removeSelected", { count: sourceListHighlight.size })
+              }
+              aria-label={
+                sourceListHighlight.size === 0
+                  ? t("database.toolbox.side.removeSelectedDisabled")
+                  : t("database.toolbox.side.removeSelected", { count: sourceListHighlight.size })
+              }
+              onClick={() => removeSourceTables(Array.from(sourceListHighlight))}
+            >
+              <IconTrash size={18} />
+            </Button>
+          ) : null}
         </div>
         <div className="db-toolbox-footer__meta">
           {submitNotice ? (
