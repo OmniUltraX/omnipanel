@@ -1,5 +1,7 @@
 /** 托盘隐藏窗口追踪（跨 WebView 共享，整应用共用一个托盘图标）。 */
 
+import { syncTrayActiveToBackend } from "./quickLauncher";
+
 const RECENT_LABEL_KEY = "omnipanel.tray.recent-hidden-label";
 const HIDDEN_LABELS_KEY = "omnipanel.tray.hidden-labels";
 
@@ -17,6 +19,7 @@ function readHiddenLabels(): string[] {
 
 function writeHiddenLabels(labels: string[]): void {
   localStorage.setItem(HIDDEN_LABELS_KEY, JSON.stringify([...new Set(labels)]));
+  void syncTrayActiveToBackend(labels.length > 0);
 }
 
 export function markWindowHiddenToTray(label: string): void {

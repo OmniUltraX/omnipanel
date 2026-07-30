@@ -56,3 +56,4 @@ pub mod web_search;
 pub mod third_party_account;
 pub mod workflow;
 pub mod workspace_window;
+pub mod quick_launcher;

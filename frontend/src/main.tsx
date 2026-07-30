@@ -18,7 +18,9 @@ import { initDesktopShell } from "./lib/desktopShell";
 import { initProductionDiagnostics } from "./lib/productionDiagnostics";
 import { Bootstrap } from "./Bootstrap";
 import { WorkspaceWindowRoot } from "./WorkspaceWindowRoot";
+import { QuickLauncherRoot } from "./components/shell/QuickLauncherRoot";
 import { parseWorkspaceWindowParams, workspaceWindowDebugLog } from "./lib/workspaceWindow";
+import { isQuickLauncherWindow } from "./lib/quickLauncher";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 
 initProductionDiagnostics();
@@ -26,17 +28,20 @@ initDesktopShell();
 
 dismissHtmlBootSplash();
 
-const workspaceWindow = parseWorkspaceWindowParams();
+const quickLauncher = isQuickLauncherWindow();
+const workspaceWindow = quickLauncher ? null : parseWorkspaceWindowParams();
 
 void workspaceWindowDebugLog(
   `main.tsx boot role=${
-    workspaceWindow ? "workspace-window" : "main"
+    quickLauncher ? "quick-launcher" : workspaceWindow ? "workspace-window" : "main"
   } ws=${workspaceWindow?.workspaceId ?? "-"} href=${location.href}`,
 );
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {workspaceWindow ? (
+    {quickLauncher ? (
+      <QuickLauncherRoot />
+    ) : workspaceWindow ? (
       <WorkspaceWindowRoot workspaceId={workspaceWindow.workspaceId} />
     ) : (
       <Bootstrap />

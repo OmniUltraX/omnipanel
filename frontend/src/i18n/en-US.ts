@@ -848,7 +848,20 @@ export const enUS: TranslationDict = {
       toTray: "Minimize to tray",
       quit: "Quit application",
       trayShowAll: "Show all windows",
+      trayQuickOpen: "Quick open",
       trayQuit: "Quit",
+    },
+    quickLauncher: {
+      placeholder: "Search commands or connections…",
+      noResults: "No matches",
+      kinds: {
+        command: "Command",
+        ssh: "SSH",
+        database: "Database",
+        docker: "Docker",
+        file: "Files",
+        panel: "Panel",
+      },
     },
     commandPalette: {
       placeholder: "Search everywhere…",

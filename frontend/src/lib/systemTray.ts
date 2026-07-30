@@ -9,12 +9,14 @@ import {
   getRecentTrayHiddenLabel,
   getTrayHiddenLabels,
 } from "./trayHiddenWindows";
+import { QUICK_LAUNCHER_LABEL, showQuickLauncher } from "./quickLauncher";
 
 export const SYSTEM_TRAY_ID = "omnipanel-main-tray";
 
 let initPromise: Promise<void> | null = null;
 
 async function showWindowByLabel(label: string): Promise<boolean> {
+  if (label === QUICK_LAUNCHER_LABEL) return false;
   try {
     const windows = await getAllWindows();
     const win = windows.find((w) => w.label === label);
@@ -56,6 +58,7 @@ async function showAllWindows(): Promise<void> {
   try {
     const windows = await getAllWindows();
     for (const win of windows) {
+      if (win.label === QUICK_LAUNCHER_LABEL) continue;
       try {
         await win.show();
         await win.unminimize();
@@ -91,6 +94,7 @@ export async function ensureSystemTray(labels: {
   tooltip: string;
   showAll: string;
   quit: string;
+  quickOpen: string;
 }): Promise<void> {
   if (!isTauriRuntime()) return;
   if (getCurrentWindow().label !== "main") return;
@@ -102,6 +106,14 @@ export async function ensureSystemTray(labels: {
 
       const menu = await Menu.new({
         items: [
+          {
+            id: "quick-open",
+            text: labels.quickOpen,
+            action: () => {
+              if (getTrayHiddenLabels().length === 0) return;
+              void showQuickLauncher();
+            },
+          },
           {
             id: "show-all",
             text: labels.showAll,

@@ -610,6 +610,7 @@ fn build_and_run_tauri() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             // 主窗 create:false：按记忆几何创建并保持隐藏，等 HTML 首屏就绪再 show。
             // 须在 setup 最前，避免默认创建路径在主屏闪白框。
@@ -623,6 +624,12 @@ fn build_and_run_tauri() {
                     window.open_devtools();
                 }
             }
+
+            // 托盘态快捷启动窗：预创建并隐藏；Ctrl+Space 仅在托盘态生效
+            if let Err(e) = commands::quick_launcher::ensure_quick_launcher_window(app.handle()) {
+                tracing::warn!("预创建快捷启动窗失败: {e}");
+            }
+            commands::quick_launcher::register_global_shortcut(app.handle());
 
             let db_path =
                 omnipanel_store::meta_db_path().expect("无法定位 ~/.omnipd/store/omnipanel.db");
@@ -1132,6 +1139,13 @@ fn build_and_run_tauri() {
             // 工作区独立窗口
             commands::workspace_window::open_workspace_window,
             commands::workspace_window::close_all_workspace_windows,
+            // 托盘快捷启动窗
+            commands::quick_launcher::set_app_tray_active,
+            commands::quick_launcher::get_app_tray_active,
+            commands::quick_launcher::show_quick_launcher,
+            commands::quick_launcher::hide_quick_launcher,
+            commands::quick_launcher::toggle_quick_launcher,
+            commands::quick_launcher::set_quick_launcher_height,
             commands::workspace_window::app_exit,
             commands::workspace_window::main_window_show_splash,
             commands::workspace_window::main_window_reveal,

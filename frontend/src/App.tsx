@@ -57,6 +57,7 @@ import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "./lib/isTauriRuntime";
 import { ensureSystemTray } from "./lib/systemTray";
+import { initQuickLauncherActionListener } from "./lib/quickLauncherActions";
 import { handleWindowCloseRequested } from "./lib/windowCloseBehavior";
 import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
 import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDelivery";
@@ -263,6 +264,7 @@ function AppShell() {
       tooltip: "OmniPanel",
       showAll: t("shell.closeBehavior.trayShowAll"),
       quit: t("shell.closeBehavior.trayQuit"),
+      quickOpen: t("shell.closeBehavior.trayQuickOpen"),
     });
     getCurrentWindow()
       .onCloseRequested(async (event) => {
@@ -273,6 +275,12 @@ function AppShell() {
       });
     return () => unlisten?.();
   }, [t]);
+
+  // 托盘快捷启动窗 → 主窗动作分发
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    return initQuickLauncherActionListener();
+  }, []);
 
   // 主窗口几何记忆
   useEffect(() => {

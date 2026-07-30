@@ -844,7 +844,20 @@ export const zhCN = {
       toTray: "放到系统托盘",
       quit: "退出应用",
       trayShowAll: "显示全部窗口",
+      trayQuickOpen: "快捷打开",
       trayQuit: "退出",
+    },
+    quickLauncher: {
+      placeholder: "搜索命令或连接…",
+      noResults: "无匹配结果",
+      kinds: {
+        command: "命令",
+        ssh: "SSH",
+        database: "数据库",
+        docker: "Docker",
+        file: "文件",
+        panel: "面板",
+      },
     },
     commandPalette: {
       placeholder: "搜索全部…",
