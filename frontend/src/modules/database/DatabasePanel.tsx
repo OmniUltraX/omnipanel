@@ -3445,11 +3445,12 @@ export function DatabasePanel() {
   /**
    * 打开 SQL 草稿 tab（空白或预填 SQL），供 AI Follow openSqlDraft 意图调用。
    * 参考 openTableQuery 的结构，去掉 buildSelectAllFromTableSql。
+   * @returns 新建 tabId；连接不存在时返回 null
    */
   const openSqlDraftTab = useCallback(
-    (connId: string, dbName?: string | null, sql?: string | null) => {
+    (connId: string, dbName?: string | null, sql?: string | null): string | null => {
       const connection = connections.find((c) => c.id === connId);
-      if (!connection) return;
+      if (!connection) return null;
       const db = dbName ?? connection.database ?? "";
       const tabId = makeSqlTabId();
       const tab: SqlWorkspaceTab = {
@@ -3473,9 +3474,14 @@ export function DatabasePanel() {
       activateWorkspaceTab(tabId);
       setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
       setActiveConnIdIfChanged(connId);
+      return tabId;
     },
     [activateWorkspaceTab, connections, setActiveConnIdIfChanged, setSqlTabStates, setTabModes],
   );
+
+  /** 快捷启动 / follow：打开草稿后自动执行 */
+  const pendingSqlAutoRunRef = useRef<{ tabId: string; sql: string } | null>(null);
+  const [sqlAutoRunNonce, setSqlAutoRunNonce] = useState(0);
 
   const openSlowQueryLogTab = useCallback(
     (connection: DbConnectionConfig, availability: SlowLogAvailability) => {
@@ -4807,8 +4813,12 @@ export function DatabasePanel() {
   useUiFollowConsumer("database", useCallback((intent) => {
     switch (intent.type) {
       case "openSqlDraft": {
-        openSqlDraftTab(intent.connectionId, intent.database, intent.sql);
-        return true;
+        const tabId = openSqlDraftTab(intent.connectionId, intent.database, intent.sql);
+        if (intent.autoRun && tabId && intent.sql?.trim()) {
+          pendingSqlAutoRunRef.current = { tabId, sql: intent.sql.trim() };
+          setSqlAutoRunNonce((n) => n + 1);
+        }
+        return tabId != null;
       }
       case "selectTable": {
         const connection = connections.find((c) => c.id === intent.connectionId);
@@ -4993,6 +5003,18 @@ export function DatabasePanel() {
     updateSqlTabState,
     updateSqlResultSession,
   ]);
+
+  // 快捷启动 / follow openSqlDraft(autoRun)：草稿挂载后再执行
+  useEffect(() => {
+    if (!sqlAutoRunNonce) return;
+    const pending = pendingSqlAutoRunRef.current;
+    if (!pending) return;
+    pendingSqlAutoRunRef.current = null;
+    const timer = window.setTimeout(() => {
+      void runQuery(pending.sql, pending.tabId);
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [sqlAutoRunNonce, runQuery]);
 
   const cancelQuery = useCallback(async (tabIdOverride?: string) => {
     const tabId = tabIdOverride ?? activeWorkspaceTab?.id;

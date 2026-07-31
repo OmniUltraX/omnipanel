@@ -42,34 +42,22 @@ import type { Connection } from "../../ipc/bindings";
 import { openModuleWindow } from "../../lib/moduleWindow";
 import { dismissHtmlBootSplash } from "../../lib/dismissBootSplash";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
-import { initSettings, useSettingsStore } from "../../stores/settingsStore";
+import {
+  initAppearanceSyncSubscriber,
+  requestAppearanceSync,
+} from "../../lib/appearanceSync";
+import { initSettings } from "../../stores/settingsStore";
+import { readClipboardText } from "../../lib/quickLaunch/clipboard";
+import {
+  buildSuggestions,
+  primaryEntityKind,
+  type SuggestedAction,
+} from "../../lib/quickLaunch/buildSuggestions";
+import { type EntityKind } from "../../lib/quickLaunch/detectText";
+import { useQuickLauncherActionStatsStore } from "../../stores/quickLauncherActionStatsStore";
 
-/** 等待 settings persist 水合，确保主题与主窗设置一致。 */
-async function waitSettingsHydrated(timeoutMs = 400): Promise<void> {
-  const store = useSettingsStore;
-  if (store.persist.hasHydrated()) return;
-  await new Promise<void>((resolve) => {
-    const unsub = store.persist.onFinishHydration(() => {
-      unsub();
-      resolve();
-    });
-    window.setTimeout(() => {
-      unsub();
-      resolve();
-    }, timeoutMs);
-  });
-}
-
-/** 从 localStorage 重新拉取设置并应用到文档（跨 WebView 同步主题）。 */
-async function syncSettingsThemeFromStorage(): Promise<void> {
-  try {
-    await useSettingsStore.persist.rehydrate();
-  } catch {
-    /* ignore */
-  }
-  initSettings();
-}
-
+const CLIPBOARD_PREVIEW_H = 36;
+const SUGGESTION_SECTION_LABEL_H = 24;
 /** 与侧栏一致的模块图标行（点击打开独立窗） */
 const MODULE_ICON_DEFS: Array<{ key: ModuleKey; icon: ReactNode }> = [
   {
@@ -204,6 +192,19 @@ function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
   }
 }
 
+type ListItem =
+  | { kind: "match"; id: string; row: QuickLaunchMatchRow }
+  | { kind: "suggestion"; id: string; suggestion: SuggestedAction };
+
+function entityLabel(
+  kind: EntityKind,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const key = `shell.quickLauncher.entity.${kind}`;
+  const label = t(key);
+  return label === key ? kind : label;
+}
+
 function rowToRecentTarget(row: QuickLaunchMatchRow): QuickLaunchRecentTarget {
   switch (row.type) {
     case "ssh-connection":
@@ -258,6 +259,8 @@ export function QuickLauncherRoot() {
   const [soloMode, setSoloMode] = useState(readSoloMode);
   /** 焦点窗内按住 Ctrl 时显示模块序号角标 */
   const [ctrlHeld, setCtrlHeld] = useState(false);
+  const [clipboardText, setClipboardText] = useState("");
+  const [clipboardSensitive, setClipboardSensitive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const moduleButtonsRef = useRef<typeof MODULE_ICON_DEFS>([]);
@@ -265,12 +268,26 @@ export function QuickLauncherRoot() {
     async () => {},
   );
   const openMainWindowRef = useRef<() => Promise<void>>(async () => {});
+  const lastClipboardRef = useRef("");
   const unifiedConnections = useConnectionStore((s) => s.connections);
   const [dbConnections, setDbConnections] = useState<Connection[]>([]);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
   const schemaRevision = useDbSchemaCacheStore((s) => s.revision);
   const recentEntries = useQuickLauncherRecentStore((s) => s.entries);
   const recordRecentOpen = useQuickLauncherRecentStore((s) => s.recordOpen);
+  const actionUseCounts = useQuickLauncherActionStatsStore((s) => s.useCounts);
+  const recordActionUse = useQuickLauncherActionStatsStore((s) => s.recordUse);
+
+  const refreshClipboard = useCallback(async () => {
+    const result = await readClipboardText();
+    if (result.text === lastClipboardRef.current) {
+      setClipboardSensitive(result.sensitive);
+      return;
+    }
+    lastClipboardRef.current = result.text;
+    setClipboardText(result.text);
+    setClipboardSensitive(result.sensitive);
+  }, []);
 
   const reloadDbConnections = useCallback(async () => {
     try {
@@ -291,20 +308,18 @@ export function QuickLauncherRoot() {
     dismissHtmlBootSplash();
     document.documentElement.classList.add("quick-launcher-root");
     document.body.classList.add("quick-launcher-body");
-    // 先套一层主题，避免水合前闪错色
+    // 本窗 localStorage 与主窗隔离；先套默认，再经 appearanceSync 拉主窗配置
     initSettings();
+    const unsubAppearance = initAppearanceSyncSubscriber();
     let cancelled = false;
     void (async () => {
       try {
-        await waitSettingsHydrated();
-        if (cancelled) return;
-        // 水合后再应用：与设置中的主题 / 强调色 / 语言一致
-        initSettings();
         await Promise.all([
           initConnections(),
           reloadDbConnections(),
           initAppModuleStore().catch(() => {}),
           useDbSchemaCacheStore.getState().hydrate().catch(() => {}),
+          refreshClipboard(),
         ]);
       } catch (e) {
         console.warn("[quickLauncher] init failed", e);
@@ -315,20 +330,13 @@ export function QuickLauncherRoot() {
       }
     })();
 
-    // 主窗改主题会写 localStorage；此处监听以便已打开的启动窗同步
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== "omnipanel-settings") return;
-      void syncSettingsThemeFromStorage();
-    };
-    window.addEventListener("storage", onStorage);
-
     return () => {
       cancelled = true;
-      window.removeEventListener("storage", onStorage);
+      unsubAppearance();
       document.documentElement.classList.remove("quick-launcher-root");
       document.body.classList.remove("quick-launcher-body");
     };
-  }, [reloadDbConnections]);
+  }, [reloadDbConnections, refreshClipboard]);
 
   const ignoreBlurUntilRef = useRef(0);
 
@@ -341,17 +349,18 @@ export function QuickLauncherRoot() {
       // Ctrl+Space 唤醒时 Ctrl 仍按着，直接显示角标；托盘等其它入口则不显示
       setCtrlHeld(payload.ctrlHeld === true);
       setVisibleModuleKeys(getNavVisibleModuleKeys());
-      // 每次显示时从存储重拉主题（主窗可能已改设置）
-      void syncSettingsThemeFromStorage();
+      // 每次显示时向主窗请求外观（独立 data_directory 无法读主窗 localStorage）
+      void requestAppearanceSync();
       // 强制重载 schema / 数据库连接：主窗可能已变更
       void useDbSchemaCacheStore.getState().hydrate({ force: true }).catch(() => {});
       void reloadDbConnections();
+      void refreshClipboard();
       requestAnimationFrame(() => inputRef.current?.focus());
     }).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten?.();
-  }, [reloadDbConnections]);
+  }, [reloadDbConnections, refreshClipboard]);
 
   useEffect(() => {
     if (!ready) return;
@@ -388,7 +397,20 @@ export function QuickLauncherRoot() {
   const parsedQuery = useMemo(() => parseQuickLaunchQuery(query), [query]);
   const isEmptyQuery = query.trim().length === 0;
 
-  const rows = useMemo<QuickLaunchMatchRow[]>(() => {
+  /** 检测源：有输入用输入；空输入用剪贴板 */
+  const detectSourceText = isEmptyQuery ? clipboardText : query.trim();
+
+  const suggestions = useMemo(() => {
+    if (!detectSourceText) return [];
+    return buildSuggestions(detectSourceText, {
+      connections,
+      recentEntries,
+      actionUseCounts,
+      maxSuggestions: 5,
+    });
+  }, [detectSourceText, connections, recentEntries, actionUseCounts]);
+
+  const matchRows = useMemo<QuickLaunchMatchRow[]>(() => {
     // 无输入：展示最近打开（次数 ↓，同次数时间 ↓）
     if (isEmptyQuery) {
       const sorted = [...recentEntries].sort((a, b) => {
@@ -417,17 +439,58 @@ export function QuickLauncherRoot() {
     schemaRevision,
   ]);
 
+  const listItems = useMemo<ListItem[]>(() => {
+    const items: ListItem[] = [];
+    for (const s of suggestions) {
+      items.push({ kind: "suggestion", id: `sug:${s.actionKey}`, suggestion: s });
+    }
+    // 空输入时：建议在上，最近在下；有前缀匹配时：匹配结果优先，建议次之
+    if (isEmptyQuery || parsedQuery.kind === "plain") {
+      for (const row of matchRows) {
+        items.push({ kind: "match", id: row.id, row });
+      }
+    } else {
+      // ssh/db 前缀：匹配结果优先
+      const sugItems = items.splice(0, items.length);
+      for (const row of matchRows) {
+        items.push({ kind: "match", id: row.id, row });
+      }
+      items.push(...sugItems);
+    }
+    return items;
+  }, [suggestions, matchRows, isEmptyQuery, parsedQuery.kind]);
+
+  const clipboardEntityKind = useMemo(
+    () => (clipboardText ? primaryEntityKind(clipboardText) : null),
+    [clipboardText],
+  );
+
+  const showClipboardBar = isEmptyQuery && clipboardText.length > 0;
+
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query, rows.length]);
+  }, [query, listItems.length, clipboardText]);
 
   useEffect(() => {
-    const listH = rows.length > 0 ? Math.min(rows.length, 8) * 40 + 8 : 0;
-    const height = MODULE_BAR_H + INPUT_ROW_H + listH;
+    const suggestionH =
+      suggestions.length > 0
+        ? SUGGESTION_SECTION_LABEL_H + Math.min(suggestions.length, 5) * 40
+        : 0;
+    const matchCount = Math.max(0, listItems.length - suggestions.length);
+    const matchH = matchCount > 0 ? Math.min(matchCount, 8) * 40 + 8 : 0;
+    // 列表合并时用总行数估算更稳
+    const listH =
+      listItems.length > 0
+        ? Math.min(listItems.length, 10) * 40 + 8 + (suggestions.length > 0 ? SUGGESTION_SECTION_LABEL_H : 0)
+        : 0;
+    const clipH = showClipboardBar ? CLIPBOARD_PREVIEW_H : 0;
+    void suggestionH;
+    void matchH;
+    const height = MODULE_BAR_H + INPUT_ROW_H + clipH + listH;
     void setQuickLauncherHeight(height);
-  }, [rows.length]);
+  }, [listItems.length, suggestions.length, showClipboardBar]);
 
-  const activate = useCallback(
+  const activateMatch = useCallback(
     async (row: QuickLaunchMatchRow) => {
       recordRecentOpen(rowToRecentTarget(row), row.label);
       const action = rowToAction(row);
@@ -435,7 +498,6 @@ export function QuickLauncherRoot() {
         if (soloMode) {
           const moduleKey = moduleKeyForQuickLauncherAction(action);
           if (moduleKey) {
-            // SOLO：在对应模块独立窗中打开匹配项
             await runQuickLauncherActionInSoloModule(
               action,
               t(`shell.nav.${moduleKey}`),
@@ -451,6 +513,42 @@ export function QuickLauncherRoot() {
       }
     },
     [recordRecentOpen, soloMode, t],
+  );
+
+  const activateSuggestion = useCallback(
+    async (suggestion: SuggestedAction) => {
+      recordActionUse(suggestion.actionKey);
+      const action = suggestion.action;
+      try {
+        if (soloMode) {
+          const moduleKey = moduleKeyForQuickLauncherAction(action);
+          if (moduleKey) {
+            await runQuickLauncherActionInSoloModule(
+              action,
+              t(`shell.nav.${moduleKey}`),
+            );
+          } else {
+            await emitQuickLauncherAction(action);
+          }
+        } else {
+          await emitQuickLauncherAction(action);
+        }
+      } finally {
+        await hideQuickLauncher();
+      }
+    },
+    [recordActionUse, soloMode, t],
+  );
+
+  const activateItem = useCallback(
+    async (item: ListItem) => {
+      if (item.kind === "match") {
+        await activateMatch(item.row);
+      } else {
+        await activateSuggestion(item.suggestion);
+      }
+    },
+    [activateMatch, activateSuggestion],
   );
 
   const toggleSoloMode = useCallback(() => {
@@ -555,7 +653,7 @@ export function QuickLauncherRoot() {
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, Math.max(rows.length - 1, 0)));
+      setSelectedIndex((i) => Math.min(i + 1, Math.max(listItems.length - 1, 0)));
       return;
     }
     if (e.key === "ArrowUp") {
@@ -563,17 +661,17 @@ export function QuickLauncherRoot() {
       setSelectedIndex((i) => Math.max(i - 1, 0));
       return;
     }
-    // 右方向键：光标在末尾时，将选中项补全进输入框
+    // 右方向键：光标在末尾时，将选中「匹配项」补全进输入框
     if (e.key === "ArrowRight") {
-      const row = rows[selectedIndex];
+      const item = listItems[selectedIndex];
       const input = inputRef.current;
-      if (!row || !input) return;
+      if (!item || item.kind !== "match" || !input) return;
       const atEnd =
         input.selectionStart === input.value.length &&
         input.selectionEnd === input.value.length;
       if (!atEnd) return;
       e.preventDefault();
-      const next = rowToInsertQuery(row, query);
+      const next = rowToInsertQuery(item.row, query);
       if (next === query) return;
       setQuery(next);
       requestAnimationFrame(() => {
@@ -583,13 +681,13 @@ export function QuickLauncherRoot() {
       });
       return;
     }
-    if (e.key === "Enter" && rows[selectedIndex]) {
+    if (e.key === "Enter" && listItems[selectedIndex]) {
       e.preventDefault();
-      void activate(rows[selectedIndex]!);
+      void activateItem(listItems[selectedIndex]!);
     }
   };
 
-  const showEmptyHint = query.trim().length > 0 && rows.length === 0;
+  const showEmptyHint = query.trim().length > 0 && listItems.length === 0;
   const openMainTitle = `${t("shell.quickLauncher.openMain")} (Ctrl+\`)`;
 
   const recentLastUsedByKey = useMemo(() => {
@@ -678,21 +776,68 @@ export function QuickLauncherRoot() {
         />
         <kbd className="quick-launcher__kbd">ESC</kbd>
       </div>
-      {rows.length > 0 ? (
+      {showClipboardBar ? (
+        <div className="quick-launcher__clipboard" title={clipboardSensitive ? undefined : clipboardText}>
+          <span className="quick-launcher__clipboard-tag">
+            {clipboardEntityKind
+              ? entityLabel(clipboardEntityKind, t)
+              : t("shell.quickLauncher.clipboard.label")}
+          </span>
+          <span className="quick-launcher__clipboard-text">
+            {clipboardSensitive
+              ? t("shell.quickLauncher.clipboard.sensitive")
+              : clipboardText.replace(/\s+/g, " ").slice(0, 80)}
+          </span>
+        </div>
+      ) : null}
+      {listItems.length > 0 ? (
         <ul className="quick-launcher__list" role="listbox">
-          {rows.map((row, index) => {
+          {suggestions.length > 0 ? (
+            <li className="quick-launcher__section-label" aria-hidden>
+              {t("shell.quickLauncher.suggestions.title")}
+            </li>
+          ) : null}
+          {listItems.map((item, index) => {
+            if (item.kind === "suggestion") {
+              const s = item.suggestion;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === selectedIndex}
+                    className={`quick-launcher__item quick-launcher__item--suggestion${
+                      index === selectedIndex ? " is-selected" : ""
+                    }${s.dangerous ? " is-dangerous" : ""}`}
+                    onClick={() => void activateItem(item)}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                  >
+                    <span className="quick-launcher__item-module">
+                      {entityLabel(s.entityKind, t)}
+                    </span>
+                    <span className="quick-launcher__item-main">
+                      <span className="quick-launcher__item-label">{s.label}</span>
+                      {s.subtitle ? (
+                        <span className="quick-launcher__item-sub">{s.subtitle}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                </li>
+              );
+            }
+            const row = item.row;
             const moduleKey = quickLaunchRowModule(row);
             const lastUsedAt = recentLastUsedByKey.get(
               quickLaunchRecentKey(rowToRecentTarget(row)),
             );
             return (
-              <li key={row.id}>
+              <li key={item.id}>
                 <button
                   type="button"
                   role="option"
                   aria-selected={index === selectedIndex}
                   className={`quick-launcher__item${index === selectedIndex ? " is-selected" : ""}`}
-                  onClick={() => void activate(row)}
+                  onClick={() => void activateItem(item)}
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
                   <span className="quick-launcher__item-module">

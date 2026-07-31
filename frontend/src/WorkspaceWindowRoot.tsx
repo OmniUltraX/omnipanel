@@ -7,6 +7,7 @@ import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
+import { initAppearanceSyncSubscriber } from "./lib/appearanceSync";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
@@ -133,6 +134,11 @@ function WorkspaceWindowBoot({ workspaceId }: WorkspaceWindowRootProps) {
 
   useEffect(() => {
     return subscribePersistStoreCrossWindow("omnipanel-settings", useSettingsStore);
+  }, []);
+
+  // handoff 负责首屏；此处接收主窗后续主题/外观变更
+  useEffect(() => {
+    return initAppearanceSyncSubscriber();
   }, []);
 
   useCrossWindowDragInit();

@@ -14,7 +14,7 @@ export type UiFollowIntent =
   | { type: "focusModule"; module: FollowModuleKey }
   | { type: "openConnection"; module: FollowModuleKey; resourceId: string }
   | { type: "selectContainer"; connectionId: string; containerId: string }
-  | { type: "openSqlDraft"; connectionId: string; database?: string | null; sql?: string | null }
+  | { type: "openSqlDraft"; connectionId: string; database?: string | null; sql?: string | null; autoRun?: boolean }
   | { type: "selectTable"; connectionId: string; database: string; table: string }
   | { type: "selectDatabase"; connectionId: string; database: string }
   | { type: "revealTerminal"; sessionId: string; blockId?: string }

@@ -64,6 +64,7 @@ import { initWorkspaceAddSnapshotListener } from "./lib/workspaceSnapshotDeliver
 import { initTabStateTransferListener } from "./lib/tabStateTransfer";
 import { CrossWindowDragVisualLayer } from "./components/shell/CrossWindowDragVisualLayer";
 import { subscribePersistStoreCrossWindow } from "./lib/crossWindowPersist";
+import { initAppearanceSyncPublisher } from "./lib/appearanceSync";
 import { isCrossWindowDragRuntime } from "./lib/crossWindowDragEnabled";
 import { goWorkspaceHome, navigateToFeature } from "./lib/workspaceNavigation";
 import { syncEmbeddedWorkspacePanelVisibility } from "./lib/workspaceTabActions";
@@ -310,6 +311,11 @@ function AppShell() {
 
   useEffect(() => {
     return subscribePersistStoreCrossWindow("omnipanel-settings", useSettingsStore);
+  }, []);
+
+  // 独立 WebView（快捷启动 / 模块窗）无法共享 localStorage，由主窗广播外观
+  useEffect(() => {
+    return initAppearanceSyncPublisher();
   }, []);
 
   useCrossWindowDragInit();

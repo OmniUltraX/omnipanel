@@ -12,7 +12,20 @@ export type QuickLauncherAction =
   | { kind: "ssh-connection"; connectionId: string }
   | { kind: "db-connection"; connectionId: string }
   | { kind: "db-database"; connectionId: string; database: string }
-  | { kind: "db-table"; connectionId: string; database: string; table: string };
+  | { kind: "db-table"; connectionId: string; database: string; table: string }
+  | { kind: "run-terminal"; command: string; execute: boolean; resourceId?: string }
+  | {
+      kind: "run-sql";
+      connectionId: string;
+      database?: string;
+      sql: string;
+      mode: "execute" | "draft";
+    }
+  | { kind: "ask-ai"; prompt: string }
+  | { kind: "save-note"; title: string; content: string }
+  | { kind: "create-todo"; title: string }
+  | { kind: "open-url"; url: string; target: "http" | "browser" }
+  | { kind: "open-path"; path: string };
 
 declare global {
   interface Window {
@@ -64,32 +77,48 @@ export async function setQuickLauncherHeight(height: number): Promise<void> {
   await invoke("set_quick_launcher_height", { height });
 }
 
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0;
+}
+
 function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction {
   if (!payload || typeof payload !== "object") return false;
   const p = payload as Record<string, unknown>;
   switch (p.kind) {
     case "command":
     case "connection":
-      return typeof p.id === "string" && p.id.length > 0;
+      return isNonEmptyString(p.id);
     case "ssh-connection":
     case "db-connection":
-      return typeof p.connectionId === "string" && p.connectionId.length > 0;
+      return isNonEmptyString(p.connectionId);
     case "db-database":
-      return (
-        typeof p.connectionId === "string" &&
-        p.connectionId.length > 0 &&
-        typeof p.database === "string" &&
-        p.database.length > 0
-      );
+      return isNonEmptyString(p.connectionId) && isNonEmptyString(p.database);
     case "db-table":
       return (
-        typeof p.connectionId === "string" &&
-        p.connectionId.length > 0 &&
-        typeof p.database === "string" &&
-        p.database.length > 0 &&
-        typeof p.table === "string" &&
-        p.table.length > 0
+        isNonEmptyString(p.connectionId) &&
+        isNonEmptyString(p.database) &&
+        isNonEmptyString(p.table)
       );
+    case "run-terminal":
+      return isNonEmptyString(p.command) && typeof p.execute === "boolean";
+    case "run-sql":
+      return (
+        isNonEmptyString(p.connectionId) &&
+        isNonEmptyString(p.sql) &&
+        (p.mode === "execute" || p.mode === "draft")
+      );
+    case "ask-ai":
+      return isNonEmptyString(p.prompt);
+    case "save-note":
+      return isNonEmptyString(p.title) && typeof p.content === "string";
+    case "create-todo":
+      return isNonEmptyString(p.title);
+    case "open-url":
+      return (
+        isNonEmptyString(p.url) && (p.target === "http" || p.target === "browser")
+      );
+    case "open-path":
+      return isNonEmptyString(p.path);
     default:
       return false;
   }

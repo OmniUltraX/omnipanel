@@ -50,6 +50,10 @@ import { listenModuleWindowShown } from "./lib/moduleWindow";
 import { attachSnapMaximizeButton, OMNIPANEL_SNAP_MAXIMIZE_ID } from "./lib/snapLayout";
 import { registerUiFollowNavigate } from "./lib/ai/uiFollow";
 import { initModuleQuickLauncherActionListener } from "./lib/quickLauncherActions";
+import {
+  initAppearanceSyncSubscriber,
+  requestAppearanceSync,
+} from "./lib/appearanceSync";
 
 /** 模块窗内：注册 follow 导航 + 接收快捷启动 SOLO 动作。 */
 function ModuleWindowIpcBridge({ moduleKey }: { moduleKey: ModuleKey }) {
@@ -175,7 +179,11 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
     dismissHtmlBootSplash();
     document.documentElement.classList.add("module-window-root");
     document.body.classList.add("module-window-body");
+    // 独立 data_directory：主题须经主窗 appearanceSync，不能靠本窗 localStorage
+    initSettings();
+    const unsubAppearance = initAppearanceSyncSubscriber();
     return () => {
+      unsubAppearance();
       document.documentElement.classList.remove("module-window-root");
       document.body.classList.remove("module-window-body");
     };
@@ -191,7 +199,6 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
 
     const bootBackground = async () => {
       try {
-        initSettings();
         initConnectionPool();
 
         // 关键路径并行；hydrate 超时缩短，避免空等
@@ -263,6 +270,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
     const shownAbort = new AbortController();
     void listenModuleWindowShown((payload) => {
       if (payload.moduleKey !== moduleKey) return;
+      void requestAppearanceSync();
       void initConnections().catch(() => {});
       // 隐藏→显示后重绑 Snap overlay（其它模块窗冷开常见未挂上）
       const btn = document.getElementById(OMNIPANEL_SNAP_MAXIMIZE_ID);
