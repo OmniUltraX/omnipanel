@@ -11,25 +11,14 @@ import { createPortal } from "react-dom";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../i18n";
 import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
-import { useDataSyncUiStore } from "../../stores/dataSyncUiStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
-import {
-  useUserCenterUiStore,
-  type UserCenterPage,
-} from "../../stores/userCenterUiStore";
+import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
-import {
-  IconCheckCircle,
-  IconDownload,
-  IconGlobe,
-  IconMonitor,
-  IconSettings,
-  IconUser,
-} from "../ui/icons/Icons";
+import { IconGlobe, IconSettings, IconUser } from "../ui/icons/Icons";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = UserCenterPage | "settings" | "dataSync" | "website";
+type MenuAction = "account" | "settings" | "website";
 
 function isMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -45,14 +34,12 @@ export function SidebarUserButton() {
   const userCenterOpen = useUserCenterUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const settingsOpen = useSettingsUiStore((s) => s.open);
-  const openDataSync = useDataSyncUiStore((s) => s.openDataSync);
-  const dataSyncOpen = useDataSyncUiStore((s) => s.open);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
-  const active = userCenterOpen || settingsOpen || dataSyncOpen || menuOpen;
+  const active = userCenterOpen || settingsOpen || menuOpen;
 
   const updatePosition = useCallback(() => {
     const btn = buttonRef.current;
@@ -105,42 +92,19 @@ export function SidebarUserButton() {
       openSettings();
       return;
     }
-    if (action === "dataSync") {
-      openDataSync();
-      return;
-    }
     if (action === "website") {
       void openExternal(WEBSITE_URL);
       return;
     }
-    openUserCenter(action);
+    openUserCenter("account");
   };
 
   const items: { id: MenuAction; label: string; icon: ReactNode }[] = [
     {
       id: "account",
-      label: t("userCenter.nav.account"),
+      label: t("userCenter.title"),
       icon: <IconUser size={14} />,
     },
-    {
-      id: "subscription",
-      label: t("userCenter.nav.subscription"),
-      icon: <IconCheckCircle size={14} />,
-    },
-    {
-      id: "devices",
-      label: t("userCenter.nav.devices"),
-      icon: <IconMonitor size={14} />,
-    },
-    ...(isLoggedIn
-      ? [
-          {
-            id: "dataSync" as const,
-            label: t("dataSync.menuItem"),
-            icon: <IconDownload size={14} />,
-          },
-        ]
-      : []),
     {
       id: "website",
       label: t("userCenter.nav.website"),

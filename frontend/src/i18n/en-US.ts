@@ -6340,6 +6340,7 @@ export const enUS: TranslationDict = {
       account: "Profile",
       subscription: "Subscription",
       devices: "Devices",
+      dataSync: "Data Sync",
       website: "Visit Website",
     },
     login: {

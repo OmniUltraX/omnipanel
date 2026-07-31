@@ -47,7 +47,9 @@ pub fn normalize_localhost_url(url: &str) -> String {
     }
 }
 
-/// 按目标 URL 构建 HTTP 客户端：loopback 强制不走代理；其余按应用代理配置。
+/// 按目标 URL 构建 HTTP 客户端：
+/// - loopback / 应用代理关闭：强制 `.no_proxy()`，避免 reqwest 回退到系统或环境变量代理；
+/// - 应用代理开启：使用设置中的代理，并对 loopback 主机豁免。
 pub fn build_http_client_for_url(
     url: &str,
     proxy_config: &ProxyConfig,
@@ -57,9 +59,10 @@ pub fn build_http_client_for_url(
         .timeout(timeout)
         .redirect(reqwest::redirect::Policy::limited(10));
 
-    if is_loopback_http_url(url) {
+    if is_loopback_http_url(url) || !proxy_config.enabled || proxy_config.host.is_empty() {
+        // 关闭应用代理时必须显式 no_proxy，否则仍会读 HTTP(S)_PROXY / 系统代理。
         builder = builder.no_proxy();
-    } else if proxy_config.enabled && !proxy_config.host.is_empty() {
+    } else {
         let proxy_url = format!(
             "{}://{}:{}",
             proxy_config.protocol, proxy_config.host, proxy_config.port
@@ -105,16 +108,25 @@ pub async fn get_proxy_config(state: State<'_, AppState>) -> Result<ProxyConfig,
     Ok(state.proxy_config.lock().await.clone())
 }
 
+/// 构建直连客户端（忽略系统/环境变量代理）。
+fn build_direct_client() -> Client {
+    Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
+
 /// Build a reqwest `Client` configured with the given proxy settings.
+/// 应用代理关闭时强制直连，不回退到系统代理。
 pub fn build_proxy_client(config: &ProxyConfig) -> Client {
     if !config.enabled || config.host.is_empty() {
-        return Client::new();
+        return build_direct_client();
     }
 
     let proxy_url = format!("{}://{}:{}", config.protocol, config.host, config.port);
     let proxy = match reqwest::Proxy::all(&proxy_url) {
         Ok(p) => p,
-        Err(_) => return Client::new(),
+        Err(_) => return build_direct_client(),
     };
 
     let mut proxy = if !config.username.is_empty() {
@@ -127,5 +139,5 @@ pub fn build_proxy_client(config: &ProxyConfig) -> Client {
     Client::builder()
         .proxy(proxy)
         .build()
-        .unwrap_or_else(|_| Client::new())
+        .unwrap_or_else(|_| build_direct_client())
 }

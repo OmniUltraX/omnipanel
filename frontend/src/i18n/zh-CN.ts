@@ -6268,9 +6268,10 @@ export const zhCN = {
     openSettings: "打开完整设置",
     logout: "退出登录",
     nav: {
-      account: "个人中心",
+      account: "资料",
       subscription: "订阅管理",
       devices: "设备管理",
+      dataSync: "数据同步",
       website: "访问官网",
     },
     login: {

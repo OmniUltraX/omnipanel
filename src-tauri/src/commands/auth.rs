@@ -2082,9 +2082,10 @@ fn build_http_client_no_redirect(
         .timeout(timeout)
         .redirect(reqwest::redirect::Policy::none());
 
-    if is_loopback_http_url(url) {
+    if is_loopback_http_url(url) || !proxy_config.enabled || proxy_config.host.is_empty() {
+        // 与 build_http_client_for_url 一致：关闭应用代理时禁止回退系统/环境变量代理。
         builder = builder.no_proxy();
-    } else if proxy_config.enabled && !proxy_config.host.is_empty() {
+    } else {
         let proxy_url = format!(
             "{}://{}:{}",
             proxy_config.protocol, proxy_config.host, proxy_config.port

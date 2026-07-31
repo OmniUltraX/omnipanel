@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type UserCenterPage = "account" | "subscription" | "devices";
+export type UserCenterPage = "account" | "subscription" | "devices" | "dataSync";
 
 interface UserCenterUiState {
   open: boolean;

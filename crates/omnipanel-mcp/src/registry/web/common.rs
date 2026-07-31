@@ -259,9 +259,10 @@ pub fn build_http_client(
         .redirect(reqwest::redirect::Policy::limited(10))
         .user_agent("OmniPanel/1.0 (web-tools)");
 
-    if is_loopback_http_url(url) {
+    if is_loopback_http_url(url) || !proxy.enabled || proxy.host.is_empty() {
+        // 关闭应用代理时必须显式 no_proxy，否则仍会读 HTTP(S)_PROXY / 系统代理。
         builder = builder.no_proxy();
-    } else if proxy.enabled && !proxy.host.is_empty() {
+    } else {
         let proxy_url = format!("{}://{}:{}", proxy.protocol, proxy.host, proxy.port);
         let mut p = reqwest::Proxy::all(&proxy_url).map_err(|e| BackendError::Config(e.to_string()))?;
         if !proxy.username.is_empty() {

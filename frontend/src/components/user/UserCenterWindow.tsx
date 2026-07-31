@@ -17,7 +17,9 @@ export function UserCenterWindow() {
       ? t("userCenter.nav.subscription")
       : page === "devices"
         ? t("userCenter.nav.devices")
-        : t("userCenter.nav.account");
+        : page === "dataSync"
+          ? t("userCenter.nav.dataSync")
+          : t("userCenter.nav.account");
 
   return (
     <SubWindow
@@ -25,8 +27,8 @@ export function UserCenterWindow() {
       title={title}
       onClose={closeUserCenter}
       className="user-center-subwindow"
-      widthRatio={0.42}
-      heightRatio={0.68}
+      widthRatio={0.72}
+      heightRatio={0.78}
     >
       <UserCenterPanel />
     </SubWindow>

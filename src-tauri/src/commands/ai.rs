@@ -668,7 +668,13 @@ pub async fn ai_http_stream_post(
                 proxy
             };
             client_builder = client_builder.proxy(proxy);
+        } else {
+            // 代理 URL 无效时直连，避免回退到系统/环境变量代理。
+            client_builder = client_builder.no_proxy();
         }
+    } else {
+        // 关闭应用代理时必须显式 no_proxy，否则仍会读 HTTP(S)_PROXY / 系统代理。
+        client_builder = client_builder.no_proxy();
     }
 
     let client = client_builder

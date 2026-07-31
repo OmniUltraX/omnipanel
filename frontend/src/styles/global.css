@@ -22652,6 +22652,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 
 .user-center-panel {
     display: flex;
+    flex-direction: row;
     flex: 1;
     min-height: 0;
     height: 100%;
@@ -22940,7 +22941,16 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 .user-center-main {
     flex: 1;
     min-width: 0;
-    overflow-y: auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.user-center-main > .user-center-content,
+.user-center-main > .data-sync-panel {
+    flex: 1;
+    min-height: 0;
 }
 
 .user-center-content {
@@ -22950,6 +22960,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     padding: var(--sp-5);
     min-height: 100%;
     box-sizing: border-box;
+    overflow-y: auto;
 }
 
 .user-center-content--empty {

@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
 import { TextInput } from "../ui/form/TextInput";
 import { Select } from "../ui/form/Select";
-import { IconUser } from "../ui/icons/Icons";
+import {
+  IconCheckCircle,
+  IconDownload,
+  IconMonitor,
+  IconUser,
+} from "../ui/icons/Icons";
 import {
   LOCALE_OPTIONS,
   useSettingsStore,
@@ -13,7 +18,10 @@ import {
   type Theme,
 } from "../../stores/settingsStore";
 import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
-import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
+import {
+  useUserCenterUiStore,
+  type UserCenterPage,
+} from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
 import { appConfirm } from "../../lib/appConfirm";
@@ -32,6 +40,7 @@ import {
 } from "../../lib/auth/avatarImage";
 import { WechatLoginPanel } from "./WechatLoginPanel";
 import { UserCenterDevices } from "./UserCenterDevices";
+import { DataSyncPanel } from "./DataSyncPanel";
 import {
   AccountLinkBindPanel,
   type AccountLinkKind,
@@ -226,9 +235,25 @@ function AccountLinksSection({
   );
 }
 
+const NAV_ITEMS: {
+  id: UserCenterPage;
+  labelKey: string;
+  icon: ReactNode;
+}[] = [
+  { id: "account", labelKey: "userCenter.nav.account", icon: <IconUser size={14} /> },
+  {
+    id: "subscription",
+    labelKey: "userCenter.nav.subscription",
+    icon: <IconCheckCircle size={14} />,
+  },
+  { id: "devices", labelKey: "userCenter.nav.devices", icon: <IconMonitor size={14} /> },
+  { id: "dataSync", labelKey: "userCenter.nav.dataSync", icon: <IconDownload size={14} /> },
+];
+
 export function UserCenterPanel() {
   const { t } = useI18n();
   const page = useUserCenterUiStore((s) => s.page);
+  const setPage = useUserCenterUiStore((s) => s.setPage);
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
@@ -350,15 +375,16 @@ export function UserCenterPanel() {
         },
       ],
     });
-    if (!picked || Array.isArray(picked)) return;
+    if (typeof picked !== "string" || !picked) return;
 
     setUploadingAvatar(true);
     try {
       const bytes = await readFile(picked);
-      const dataUrl = await compressImageToAvatarDataUrl(bytes, guessImageMime(picked));
+      const mime = guessImageMime(picked);
+      const dataUrl = await compressImageToAvatarDataUrl(bytes, mime);
       const me = await updateProfile(token, { avatarUrl: dataUrl });
       setProfile({
-        nickname: me.nickname || nickname,
+        nickname: me.nickname,
         avatarUrl: me.avatarUrl,
         openid: me.openid,
         email: me.email,
@@ -390,131 +416,147 @@ export function UserCenterPanel() {
     return <WechatLoginPanel />;
   }
 
-  if (page === "subscription") {
-    return (
-      <div className="user-center-panel user-center-panel--page">
-        <div className="user-center-content">
-          <section className="user-center-section">
-            <h3 className="user-center-section__title">{t("userCenter.plan.title")}</h3>
-            <div className="user-center-plan">
-              <div className="user-center-plan__badge">{t("userCenter.plan.localBadge")}</div>
-              <p className="user-center-plan__text">{t("userCenter.plan.localDesc")}</p>
-            </div>
-          </section>
+  const accountPage = (
+    <div className="user-center-content">
+      <section className="user-center-section">
+        <h3 className="user-center-section__title">{t("userCenter.profile.title")}</h3>
+        <p className="user-center-section__desc">{t("userCenter.profile.desc")}</p>
+        <div className="user-center-profile">
+          <button
+            type="button"
+            className={`user-center-avatar${uploadingAvatar ? " is-busy" : ""}`}
+            onClick={() => void handlePickAvatar()}
+            disabled={uploadingAvatar}
+            title={t("userCenter.profile.changeAvatar")}
+            aria-label={t("userCenter.profile.changeAvatar")}
+          >
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" className="user-center-avatar__img" />
+            ) : (
+              <span aria-hidden>{avatarLetter || <IconUser size={20} />}</span>
+            )}
+            <span className="user-center-avatar__hint">
+              {uploadingAvatar
+                ? t("userCenter.profile.avatarUploading")
+                : t("userCenter.profile.changeAvatarShort")}
+            </span>
+          </button>
+          <div className="user-center-profile__fields">
+            <label className="user-center-field">
+              <span className="user-center-field__label">{t("userCenter.profile.nickname")}</span>
+              <TextInput
+                className="input"
+                value={nameDraft}
+                onChange={setNameDraft}
+                onBlur={() => void commitNickname()}
+                disabled={savingNickname}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    void commitNickname();
+                    (event.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder={t("userCenter.profile.nicknamePlaceholder")}
+              />
+            </label>
+          </div>
         </div>
-      </div>
-    );
-  }
+      </section>
 
-  if (page === "devices") {
-    return (
-      <div className="user-center-panel user-center-panel--page">
-        <UserCenterDevices />
+      {token ? (
+        <AccountLinksSection
+          token={token}
+          wechatOpenid={accountOpenid}
+          email={accountEmail}
+          githubId={accountGithubId}
+          onSessionExpired={() => {
+            clearProfile();
+            logout();
+            showToast(t("userCenter.profile.sessionExpired"));
+          }}
+        />
+      ) : null}
+
+      <section className="user-center-section">
+        <h3 className="user-center-section__title">{t("userCenter.preferences.title")}</h3>
+        <p className="user-center-section__desc">{t("userCenter.preferences.desc")}</p>
+        <div className="user-center-prefs">
+          <div className="user-center-pref-row">
+            <div className="user-center-pref-row__label">
+              <span>{t("userCenter.preferences.theme")}</span>
+            </div>
+            <Select
+              className="setting-select"
+              size="sm"
+              value={theme}
+              onChange={(v) => setTheme(v as Theme)}
+              searchable={false}
+              options={themeOptions}
+            />
+          </div>
+          <div className="user-center-pref-row">
+            <div className="user-center-pref-row__label">
+              <span>{t("userCenter.preferences.language")}</span>
+            </div>
+            <Select
+              className="setting-select"
+              size="sm"
+              value={locale}
+              onChange={(v) => setLocale(v as Locale)}
+              searchable={false}
+              options={localeOptions}
+            />
+          </div>
+        </div>
+      </section>
+
+      <div className="user-center-footer">
+        <Button type="button" variant="ghost" size="sm" onClick={handleLogout}>
+          {t("userCenter.logout")}
+        </Button>
       </div>
-    );
+    </div>
+  );
+
+  const subscriptionPage = (
+    <div className="user-center-content">
+      <section className="user-center-section">
+        <h3 className="user-center-section__title">{t("userCenter.plan.title")}</h3>
+        <div className="user-center-plan">
+          <div className="user-center-plan__badge">{t("userCenter.plan.localBadge")}</div>
+          <p className="user-center-plan__text">{t("userCenter.plan.localDesc")}</p>
+        </div>
+      </section>
+    </div>
+  );
+
+  let main: ReactNode;
+  if (page === "subscription") {
+    main = subscriptionPage;
+  } else if (page === "devices") {
+    main = <UserCenterDevices />;
+  } else if (page === "dataSync") {
+    main = <DataSyncPanel />;
+  } else {
+    main = accountPage;
   }
 
   return (
-    <div className="user-center-panel user-center-panel--page">
-      <div className="user-center-content">
-        <section className="user-center-section">
-          <h3 className="user-center-section__title">{t("userCenter.profile.title")}</h3>
-          <p className="user-center-section__desc">{t("userCenter.profile.desc")}</p>
-          <div className="user-center-profile">
-            <button
-              type="button"
-              className={`user-center-avatar${uploadingAvatar ? " is-busy" : ""}`}
-              onClick={() => void handlePickAvatar()}
-              disabled={uploadingAvatar}
-              title={t("userCenter.profile.changeAvatar")}
-              aria-label={t("userCenter.profile.changeAvatar")}
-            >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="user-center-avatar__img" />
-              ) : (
-                <span aria-hidden>{avatarLetter || <IconUser size={20} />}</span>
-              )}
-              <span className="user-center-avatar__hint">
-                {uploadingAvatar
-                  ? t("userCenter.profile.avatarUploading")
-                  : t("userCenter.profile.changeAvatarShort")}
-              </span>
-            </button>
-            <div className="user-center-profile__fields">
-              <label className="user-center-field">
-                <span className="user-center-field__label">{t("userCenter.profile.nickname")}</span>
-                <TextInput
-                  className="input"
-                  value={nameDraft}
-                  onChange={setNameDraft}
-                  onBlur={() => void commitNickname()}
-                  disabled={savingNickname}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      void commitNickname();
-                      (event.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  placeholder={t("userCenter.profile.nicknamePlaceholder")}
-                />
-              </label>
-            </div>
-          </div>
-        </section>
-
-        {token ? (
-          <AccountLinksSection
-            token={token}
-            wechatOpenid={accountOpenid}
-            email={accountEmail}
-            githubId={accountGithubId}
-            onSessionExpired={() => {
-              clearProfile();
-              logout();
-              showToast(t("userCenter.profile.sessionExpired"));
-            }}
-          />
-        ) : null}
-
-        <section className="user-center-section">
-          <h3 className="user-center-section__title">{t("userCenter.preferences.title")}</h3>
-          <p className="user-center-section__desc">{t("userCenter.preferences.desc")}</p>
-          <div className="user-center-prefs">
-            <div className="user-center-pref-row">
-              <div className="user-center-pref-row__label">
-                <span>{t("userCenter.preferences.theme")}</span>
-              </div>
-              <Select
-                className="setting-select"
-                size="sm"
-                value={theme}
-                onChange={(v) => setTheme(v as Theme)}
-                searchable={false}
-                options={themeOptions}
-              />
-            </div>
-            <div className="user-center-pref-row">
-              <div className="user-center-pref-row__label">
-                <span>{t("userCenter.preferences.language")}</span>
-              </div>
-              <Select
-                className="setting-select"
-                size="sm"
-                value={locale}
-                onChange={(v) => setLocale(v as Locale)}
-                searchable={false}
-                options={localeOptions}
-              />
-            </div>
-          </div>
-        </section>
-
-        <div className="user-center-footer">
-          <Button type="button" variant="ghost" size="sm" onClick={handleLogout}>
-            {t("userCenter.logout")}
-          </Button>
-        </div>
-      </div>
+    <div className="user-center-panel">
+      <nav className="user-center-nav" aria-label={t("userCenter.title")}>
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`user-center-nav-item${page === item.id ? " active" : ""}`}
+            onClick={() => setPage(item.id)}
+          >
+            {item.icon}
+            <span>{t(item.labelKey)}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="user-center-main">{main}</div>
     </div>
   );
 }
