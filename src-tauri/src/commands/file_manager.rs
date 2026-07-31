@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{ssh_config_from_json, SshAuth, SshConfig, SshSession};
-use omnipanel_store::{Connection, ConnectionKind, Vault};
+use omnipanel_store::{inject_ssh_vault_into_config, Connection, ConnectionKind, Vault};
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
@@ -118,13 +118,13 @@ pub struct FileManagerConnectionInfo {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileConnConfig {
     #[serde(default)]
-    protocol: String,
+    pub(crate) protocol: String,
     #[serde(default)]
-    host: String,
+    pub(crate) host: String,
     #[serde(default)]
-    port: Option<u16>,
+    pub(crate) port: Option<u16>,
     #[serde(default)]
-    user: String,
+    pub(crate) user: String,
     #[serde(default, rename = "rootPath")]
     pub(crate) root_path: String,
     /// FTPS TLS 开关（当前预留字段，后续接入显式 FTPS）。
@@ -132,16 +132,16 @@ pub(crate) struct FileConnConfig {
     #[serde(default)]
     tls: bool,
     #[serde(default, rename = "sshConnectionId")]
-    ssh_connection_id: Option<String>,
+    pub(crate) ssh_connection_id: Option<String>,
     #[serde(default)]
-    bucket: String,
+    pub(crate) bucket: String,
     /// aws | aliyun | tencent；缺省 aws（兼容旧连接）
     #[serde(default)]
-    provider: String,
+    pub(crate) provider: String,
     #[serde(default)]
     region: String,
     #[serde(default)]
-    endpoint: String,
+    pub(crate) endpoint: String,
     /// 前端生成公开链接用，后端 S3 API 不读取。
     #[serde(default, rename = "publicDomain")]
     #[allow(dead_code)]
@@ -149,7 +149,7 @@ pub(crate) struct FileConnConfig {
     #[serde(default)]
     prefix: String,
     #[serde(default, rename = "accessKey")]
-    access_key: String,
+    pub(crate) access_key: String,
 }
 
 pub(crate) fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, OmniError> {
@@ -390,7 +390,8 @@ fn local_write(path: &str, data: &[u8]) -> Result<(), OmniError> {
 
 // ─── SFTP backend ────────────────────────────────────────────────────────────
 
-async fn ssh_config_from_file_conn(
+/// 解析 SFTP 文件连接的实际 SSH 端点（含关联 SSH 连接上的 host/port/user）。
+pub(crate) async fn ssh_config_from_file_conn(
     state: &AppState,
     conn: &Connection,
     cfg: &FileConnConfig,
@@ -403,8 +404,12 @@ async fn ssh_config_from_file_conn(
         if ssh_conn.kind != ConnectionKind::Ssh {
             return Err(OmniError::invalid_input("关联连接不是 SSH 类型"));
         }
-        let secret = resolve_secret(&ssh_conn);
-        return ssh_config_from_json(&ssh_conn.config, secret.as_deref());
+        let (patched, secret) = inject_ssh_vault_into_config(
+            &ssh_conn.config,
+            &ssh_conn.id,
+            ssh_conn.credential_ref.as_deref(),
+        )?;
+        return ssh_config_from_json(&patched, secret.as_deref());
     }
     let secret = resolve_secret(conn).unwrap_or_default();
     let port = cfg.port.unwrap_or(22);
@@ -1475,7 +1480,7 @@ mod s3_search_tests {
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub(crate) enum FileProtocol {
     Local,
     Sftp,
@@ -1575,7 +1580,7 @@ async fn s3_delete_object(cfg: &FileConnConfig, secret: &str, key: &str) -> Resu
     Ok(())
 }
 
-async fn s3_get_object_bytes(
+pub(crate) async fn s3_get_object_bytes(
     cfg: &FileConnConfig,
     secret: &str,
     key: &str,
@@ -1591,7 +1596,7 @@ async fn s3_get_object_bytes(
     Ok(response.bytes().to_vec())
 }
 
-async fn s3_put_object_bytes(
+pub(crate) async fn s3_put_object_bytes(
     cfg: &FileConnConfig,
     secret: &str,
     key: &str,
@@ -1605,6 +1610,78 @@ async fn s3_put_object_bytes(
     bucket.put_object(key, data).await.map_err(|e| {
         OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
     })?;
+    Ok(())
+}
+
+/// 同桶服务端拷贝（不经本机）。
+pub(crate) async fn s3_copy_object_internal(
+    cfg: &FileConnConfig,
+    secret: &str,
+    from_key: &str,
+    to_key: &str,
+) -> Result<(), OmniError> {
+    if uses_sigv4_compat_client(cfg) {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前 S3 兼容端点暂不支持服务端拷贝",
+        ));
+    }
+    let bucket = s3_bucket(cfg, secret)?;
+    let code = bucket
+        .copy_object_internal(from_key, to_key)
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Io, "S3 服务端拷贝失败").with_cause(e.to_string())
+        })?;
+    if !(200..300).contains(&code) {
+        return Err(OmniError::new(
+            ErrorCode::Io,
+            format!("S3 服务端拷贝失败（HTTP {code}）"),
+        ));
+    }
+    Ok(())
+}
+
+/// 跨桶服务端拷贝（要求目标凭据能读源桶）。
+pub(crate) async fn s3_copy_object_from_bucket(
+    dest_cfg: &FileConnConfig,
+    dest_secret: &str,
+    source_bucket: &str,
+    source_key: &str,
+    dest_key: &str,
+) -> Result<(), OmniError> {
+    if uses_sigv4_compat_client(dest_cfg) {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前 S3 兼容端点暂不支持跨桶服务端拷贝",
+        ));
+    }
+    use s3::command::Command;
+    use s3::request::tokio_backend::HyperRequest;
+    use s3::request::Request;
+
+    let bucket = s3_bucket(dest_cfg, dest_secret)?;
+    let from = format!(
+        "{}/{}",
+        source_bucket.trim_matches('/'),
+        source_key.trim_start_matches('/')
+    );
+    let command = Command::CopyObject { from: from.as_str() };
+    let request = HyperRequest::new(bucket.as_ref(), dest_key, command)
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Io, "S3 跨桶拷贝请求失败").with_cause(e.to_string())
+        })?;
+    let response = request.response_data(false).await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "S3 跨桶拷贝失败").with_cause(e.to_string())
+    })?;
+    let code = response.status_code();
+    if !(200..300).contains(&code) {
+        return Err(OmniError::new(
+            ErrorCode::Io,
+            format!("S3 跨桶拷贝失败（HTTP {code}）"),
+        ));
+    }
     Ok(())
 }
 

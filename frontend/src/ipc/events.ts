@@ -54,6 +54,9 @@ export const BG_TASK_KNOWLEDGE_EVENT = "bg-task-knowledge-event" as const;
 /** 文件索引进度 */
 export const FILE_INDEX_PROGRESS = "file-index-progress" as const;
 
+/** 跨连接文件传输任务进度 */
+export const FILES_TRANSFER_PROGRESS = "files-transfer-progress" as const;
+
 /** 动作执行进度 */
 export const ACTION_PROGRESS = "action-progress" as const;
 
@@ -86,6 +89,7 @@ export type IpcEventName =
   | typeof BG_TASK_MYSQL_EXPORT_EVENT
   | typeof BG_TASK_KNOWLEDGE_EVENT
   | typeof FILE_INDEX_PROGRESS
+  | typeof FILES_TRANSFER_PROGRESS
   | typeof ACTION_PROGRESS
   | typeof TASK_OUTPUT
   | typeof TASK_STATUS
