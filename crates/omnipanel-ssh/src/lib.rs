@@ -10,6 +10,7 @@ mod gpu;
 mod openssh_config;
 mod process;
 mod stats;
+pub mod tmux;
 
 pub use gpu::{
     attach_process_gpu, parse_intel_lspci_output, parse_nvidia_gpu_output, parse_nvidia_process_gpu,
@@ -1138,6 +1139,17 @@ impl SshSession {
         Ok(buf)
     }
 
+    /// 远端路径是否存在（文件或目录）。
+    pub async fn sftp_exists(&self, remote_path: &str) -> bool {
+        let Some(_exec_permit) = self.exec_gate.clone().acquire_owned().await.ok() else {
+            return false;
+        };
+        let Ok(sftp) = self.open_sftp_inner().await else {
+            return false;
+        };
+        sftp.metadata(remote_path).await.is_ok()
+    }
+
     /// 远端文件大小（字节）；失败返回 None。
     pub async fn sftp_file_size(&self, remote_path: &str) -> Option<u64> {
         let _exec_permit = self.exec_gate.clone().acquire_owned().await.ok()?;
@@ -1158,6 +1170,36 @@ impl SshSession {
         sftp.write(path, data)
             .await
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string()))
+    }
+
+    /// 将本地文件流式上传到远端（分块拷贝，避免整文件进内存）。
+    pub async fn sftp_upload_from_file(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+    ) -> OmniResult<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let mut local = tokio::fs::File::open(local_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "打开本地文件失败").with_cause(e.to_string())
+        })?;
+        let mut remote = sftp.create(remote_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "创建远端文件失败").with_cause(e.to_string())
+        })?;
+        tokio::io::copy(&mut local, &mut remote).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string())
+        })?;
+        remote.flush().await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "刷新远端文件失败").with_cause(e.to_string())
+        })?;
+        Ok(())
     }
 
     pub async fn sftp_mkdir(&self, path: &str) -> OmniResult<()> {
