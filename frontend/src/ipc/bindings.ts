@@ -356,8 +356,36 @@ export const commands = {
 	sshWrite: (id: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_write", { id, data })),
 	/**  调整远端 PTY 窗口大小。 */
 	sshResize: (id: string, cols: number, rows: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_resize", { id, cols, rows })),
-	/**  断开并移除 SSH 会话。 */
+	/**
+	 *  断开并移除 SSH 会话。
+	 * 
+	 *  tmux 模式下只关闭该 Tab 对应的 window：同主机其他 Tab 与远端 tmux 会话不受影响。
+	 */
 	sshDisconnect: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_disconnect", { id })),
+	/**  查询远程终端当前的传输模式（tmux / 直连）与相关元信息。 */
+	sshTerminalInfo: (id: string) => typedError<SshTerminalInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_terminal_info", { id })),
+	/**
+	 *  逃生阀：把单个 Tab 从 tmux 切换为直连。
+	 * 
+	 *  远端 window 保留（其中的进程继续运行），本地改用独立连接；会话 id 不变，
+	 *  因此前端无需重建 Tab，输出流自动衔接。同主机其余 Tab 仍走 tmux。
+	 */
+	sshTerminalSetDirectMode: (id: string, cols: number, rows: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_terminal_set_direct_mode", { id, cols, rows })),
+	/**  抓取 tmux pane 内容用于重开 Tab 时恢复屏幕（替代直连模式的 scrollback 快照）。 */
+	sshTmuxCapturePane: (id: string, historyLines: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_capture_pane", { id, historyLines })),
+	/**
+	 *  列出连接对应主机上的远端 tmux 会话（含非本应用创建的）。
+	 * 
+	 *  走 exec 通道而非 control mode：即便当前没有打开任何终端，也能查看与治理
+	 *  遗留在远端的会话。
+	 */
+	sshTmuxListSessions: (connectionId: string) => typedError<TmuxSessionInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_sessions", { connectionId })),
+	/**
+	 *  终止远端 tmux 会话，其中的全部窗口与进程都会被杀掉。
+	 * 
+	 *  该操作不可撤销且会波及其他客户端的会话，因此无论成败都写入审计日志。
+	 */
+	sshTmuxKillSession: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_kill_session", { connectionId, name })),
 	/**  列出远端目录。 */
 	sftpList: (id: string, path: string) => typedError<SftpEntry[], OmniError_Serialize>(__TAURI_INVOKE("sftp_list", { id, path })),
 	/**  下载远端文件内容（字节）。 */
@@ -386,7 +414,7 @@ export const commands = {
 	/**  打开日志会话：探测文件大小与总行数。 */
 	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
 	/**  按行号范围读取（虚拟滚动按需切片，1-based）。 */
-	sftpLogReadLines: (id: string, path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
+	sftpLogReadLines: (id: string, path: string, startLine: number, endLine: number) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
 	/**
 	 *  读取文件末尾 N 行（用 tail -n N，O(N) 反向 seek，不扫描整个文件）。
 	 *  用于大日志文件打开时的首屏末尾预览，比 sed -n 'X,Yp' 快 30x。
@@ -510,6 +538,14 @@ export const commands = {
 	fileUploadFile: (connectionId: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_upload_file", { connectionId, path, data })),
 	/**  下载文件到本地路径。 */
 	fileDownloadFile: (connectionId: string, remotePath: string, localPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_download_file", { connectionId, remotePath, localPath })),
+	fileTransferPlan: (request: FileTransferPlanRequest) => typedError<FileTransferPlanResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_plan", { request })),
+	fileTransferEnqueue: (request: FileTransferEnqueueRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_enqueue", { request })),
+	fileTransferList: () => typedError<FileTransferListResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_list")),
+	fileTransferCancel: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_cancel", { jobId })),
+	fileTransferRetry: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_retry", { jobId })),
+	fileTransferClearFinished: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_clear_finished")),
+	fileTransferSetConcurrency: (concurrency: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_set_concurrency", { concurrency })),
+	fileTransferSetRateLimit: (rateLimitBps: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_set_rate_limit", { rateLimitBps })),
 	/**  创建目录。 */
 	fileMkdir: (connectionId: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_mkdir", { connectionId, path })),
 	/**  重命名文件/目录。 */
@@ -657,7 +693,7 @@ export const commands = {
 	/**  列出所有有观测记录的资源摘要（可按 resource_type 过滤）。 */
 	resourceListProfiles: (resourceType: string | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_profiles", { resourceType })),
 	/**  获取资源最新档案：每类 observation_kind 取最新一条，组装为 JSON 对象。 */
-	resourceGetProfile: (resourceType: string, resourceId: string) => typedError<"Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: Value[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: Value } }) & { Array?: never; Bool?: never; Number?: never; String?: never } | null, OmniError_Serialize>(__TAURI_INVOKE("resource_get_profile", { resourceType, resourceId })),
+	resourceGetProfile: (resourceType: string, resourceId: string) => typedError<any | null, OmniError_Serialize>(__TAURI_INVOKE("resource_get_profile", { resourceType, resourceId })),
 	/**  查找相似资源（基于指纹匹配，按相似度排序）。 */
 	resourceFindSimilar: (resourceType: string, resourceId: string, limit: number | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_find_similar", { resourceType, resourceId, limit })),
 	/**  清空资源的全部观测记录（重置档案）。 */
@@ -665,7 +701,7 @@ export const commands = {
 	/**  列出资源关联的 knowledge 条目（按更新时间倒序）。 */
 	resourceListKnowledge: (resourceType: string, resourceId: string) => typedError<KnowledgeEntry[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_knowledge", { resourceType, resourceId })),
 	/**  手动追加一条资源观测（observer=manual；如 kind=note 用于运维笔记）。 */
-	resourceSaveObservation: (resourceType: string, resourceId: string, observationKind: string, payload: "Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: Value[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: Value } }) & { Array?: never; Bool?: never; Number?: never; String?: never }, observer: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("resource_save_observation", { resourceType, resourceId, observationKind, payload, observer })),
+	resourceSaveObservation: (resourceType: string, resourceId: string, observationKind: string, payload: JsonValue, observer: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("resource_save_observation", { resourceType, resourceId, observationKind, payload, observer })),
 	/**
 	 *  采集 SSH 主机快照：hardware + services + topology 三类观测。
 	 * 
@@ -684,7 +720,7 @@ export const commands = {
 	 *  Phase 5 子任务 3：计算某资源某 kind 最近两次观测的 diff。
 	 *  供前端 UI 在快照面板上展示"自上次以来发生了什么变化"。
 	 */
-	resourceComputeObservationDiff: (resourceType: string, resourceId: string, observationKind: string) => typedError<"Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: Value[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: Value } }) & { Array?: never; Bool?: never; Number?: never; String?: never }, OmniError_Serialize>(__TAURI_INVOKE("resource_compute_observation_diff", { resourceType, resourceId, observationKind })),
+	resourceComputeObservationDiff: (resourceType: string, resourceId: string, observationKind: string) => typedError<JsonValue, OmniError_Serialize>(__TAURI_INVOKE("resource_compute_observation_diff", { resourceType, resourceId, observationKind })),
 	/**  将知识条目分块并向量化存储（同步命令，供兼容调用）。 */
 	knowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<KnowledgeVectorizeResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vectorize", { args })),
 	/**  查询条目的向量化状态。 */
@@ -846,20 +882,14 @@ export const commands = {
 	authDeviceIdentity: () => typedError<AuthDeviceIdentity, OmniError_Serialize>(__TAURI_INVOKE("auth_device_identity")),
 	/**  获取当前用户设备列表。 */
 	authListDevices: (token: string) => typedError<AuthDevice[], OmniError_Serialize>(__TAURI_INVOKE("auth_list_devices", { token })),
-	/**  删除已授权设备（DELETE /api/devices/{device_id}?app_id=）。 */
-	authDeleteDevice: (token: string, deviceId: string, appId: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId, appId })),
+	/**  删除已授权设备（DELETE /api/devices/{device_id}）。 */
+	authDeleteDevice: (token: string, deviceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId })),
 	/**  获取当前用户信息（GET /api/me）。 */
 	authGetMe: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_get_me", { token })),
 	/**  更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空。 */
 	authUpdateProfile: (token: string, nickname: string | null, avatarUrl: string | null) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_update_profile", { token, nickname, avatarUrl })),
 	/**  获取微信扫码登录二维码。 */
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
-	/**  获取侧栏小程序 / H5 公开二维码图片地址。 */
-	authPublicQrcodes: () => typedError<AuthPublicQrcodes, OmniError_Serialize>(__TAURI_INVOKE("auth_public_qrcodes")),
-	/**  刷新设备在线 presence（POST /api/presence）。 */
-	authPresence: (token: string) => typedError<AuthPresenceResult, OmniError_Serialize>(__TAURI_INVOKE("auth_presence", { token })),
-	/**  登出当前会话（POST /api/logout），服务端会立刻清除 presence。 */
-	authLogout: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_logout", { token })),
 	/**  通过后端代理 SSE，等待扫码登录成功。 */
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
 	/**  取消进行中的登录等待（刷新二维码 / 关闭面板时调用）。 */
@@ -1099,7 +1129,9 @@ export type AiModelProvider_Deserialize = {
 	providerName: string,
 	apiStandard: string,
 	baseUrl: string,
-	apiKey: string,
+	/**  明文仅提交时存在；load 返回空，用 `has_api_key` 表示钥匙串是否有密钥。 */
+	apiKey?: string,
+	hasApiKey?: boolean,
 	modelNames: string[],
 	manualModelNames?: string[],
 	excludedModelNames?: string[],
@@ -1117,7 +1149,9 @@ export type AiModelProvider_Serialize = {
 	providerName: string,
 	apiStandard: string,
 	baseUrl: string,
+	/**  明文仅提交时存在；load 返回空，用 `has_api_key` 表示钥匙串是否有密钥。 */
 	apiKey: string,
+	hasApiKey: boolean,
 	modelNames: string[],
 	manualModelNames: string[],
 	excludedModelNames: string[],
@@ -1322,20 +1356,12 @@ export type AuthDevice = {
 	osType: string,
 	ip: string,
 	lastLoginAt: string,
-	/**  最近登出时间（未登出可为空）。 */
-	lastLogoutAt: string,
 	userAgent: string,
 	createdAt: string,
 	updatedAt: string,
 	/**  `client` | `assistant` */
 	role: string,
 	appId: string,
-	/**  平台标识（服务端 `platform`）。 */
-	platform: string,
-	/**  会话落库状态：`logged_in` | `logged_out`。 */
-	loginStatus: string,
-	/**  Redis presence TTL 判定的实时在线状态。 */
-	online: boolean,
 };
 
 /**  本机设备身份（登录上报与「本机」标记共用）。 */
@@ -1364,18 +1390,6 @@ export type AuthLoginQrcode = {
 export type AuthLoginSuccess = {
 	token: string,
 	openid: string,
-};
-
-/**  设备在线心跳结果（POST /api/presence）。 */
-export type AuthPresenceResult = {
-	ok: boolean,
-	ttlSec: number | null,
-};
-
-/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
-export type AuthPublicQrcodes = {
-	miniappUrl: string,
-	h5Url: string,
 };
 
 /**  当前用户资料（GET/PATCH /api/me）。 */
@@ -1522,14 +1536,14 @@ export type CaptureStats = {
 /**
  *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
  * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
+ *  服务端 `userId` 为 int64，需兼容数字与字符串。
  */
 export type ChatLatestIndex = ChatLatestIndex_Serialize | ChatLatestIndex_Deserialize;
 
 /**
  *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
  * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
+ *  服务端 `userId` 为 int64，需兼容数字与字符串。
  */
 export type ChatLatestIndex_Deserialize = {
 	userId?: string,
@@ -1560,7 +1574,7 @@ export type ChatLatestIndex_Deserialize = {
 /**
  *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
  * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
+ *  服务端 `userId` 为 int64，需兼容数字与字符串。
  */
 export type ChatLatestIndex_Serialize = {
 	userId: string,
@@ -1815,13 +1829,16 @@ export type DbConnectionConfig = {
 	host: string,
 	port: number,
 	user: string,
-	password: string,
+	/**  明文仅提交时存在；持久化与列表返回为空，用 `has_password` 表示钥匙串是否有密码。 */
+	password?: string,
 	database: string,
 	/**  是否启用 SSL（MySQL 等）。 */
 	ssl?: boolean,
 	status?: string,
 	/**  是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。 */
 	enabled?: boolean,
+	/**  钥匙串中是否已保存密码。 */
+	has_password?: boolean,
 };
 
 export type DbDataSyncSqlGenerateResult = {
@@ -2860,6 +2877,77 @@ export type FileQuickPaths = {
 	downloads: string,
 };
 
+export type FileTransferConflictPolicy = "skip" | "overwrite" | "rename";
+
+export type FileTransferEndpoint = {
+	connectionId: string,
+	path: string,
+	kind: string,
+	name: string,
+};
+
+export type FileTransferEnqueueRequest = {
+	items: FileTransferItemSpec[],
+	destConnectionId: string,
+	destDir: string,
+	op: FileTransferOp,
+	conflictPolicy: FileTransferConflictPolicy,
+	forceRoute?: FileTransferRoute | null,
+	/**  ask | always | never */
+	remoteDirectPolicy?: string,
+};
+
+export type FileTransferItemSpec = {
+	connectionId: string,
+	path: string,
+	kind: string,
+	name: string,
+	size?: number | null,
+};
+
+export type FileTransferJob = {
+	id: string,
+	batchId: string,
+	op: FileTransferOp,
+	source: FileTransferEndpoint,
+	dest: FileTransferEndpoint,
+	route: FileTransferRoute,
+	routeReason: string,
+	state: FileTransferState,
+	bytesDone: number | null,
+	bytesTotal: number | null,
+	speedBps: number | null,
+	error: string | null,
+	progress: number | null,
+	/**  源指纹 size+mtime / sftp size，用于断点续传校验 */
+	sourceFingerprint?: string | null,
+	/**  本地 partial 路径（目标侧） */
+	partialPath?: string | null,
+};
+
+export type FileTransferListResult = {
+	jobs: FileTransferJob[],
+};
+
+export type FileTransferOp = "copy" | "move";
+
+export type FileTransferPlanRequest = {
+	sourceConnectionId: string,
+	destConnectionId: string,
+	forceRoute?: FileTransferRoute | null,
+	remoteDirectPolicy?: string,
+};
+
+export type FileTransferPlanResult = {
+	route: FileTransferRoute,
+	routeReason: string,
+	needsDirectConfirm: boolean,
+};
+
+export type FileTransferRoute = "fastpath" | "remoteDirect" | "relay";
+
+export type FileTransferState = "queued" | "probing" | "running" | "done" | "error" | "cancelled";
+
 /**  单块 GPU 设备。 */
 export type GpuDeviceStats = GpuDeviceStats_Serialize | GpuDeviceStats_Deserialize;
 
@@ -3037,6 +3125,12 @@ export type JinaOptsDto = {
 	domain: string,
 	noCache: boolean,
 };
+
+/**
+ *  IPC 用 JSON 任意值：裸 `serde_json::Value` 会被 specta 展开成递归枚举，
+ *  再经 PhasesFormat 分裂后会在 `gen:bindings` 时把堆内存撑爆。
+ */
+export type JsonValue = any;
 
 /**  保存知识库附件，返回可用于 Markdown 的相对资源描述。 */
 export type KnowledgeAssetSaved = {
@@ -4306,6 +4400,16 @@ export type SshProcessPort_Serialize = {
 	remotePort?: number | null,
 };
 
+/**  单个远程终端的传输信息，供前端展示模式标识。 */
+export type SshTerminalInfo = {
+	mode: TerminalMode,
+	host: string,
+	tmuxVersion: string | null,
+	tmuxSession: string | null,
+	/**  降级到直连的原因，`tmux` 模式下为 `None`。 */
+	fallbackReason: string | null,
+};
+
 /**  隧道信息。 */
 export type SshTunnelInfo = {
 	id: string,
@@ -4441,6 +4545,13 @@ export type TerminalHistoryRetainPolicy = {
 	maxBlocksPerSession: number,
 };
 
+/**  终端传输模式。 */
+export type TerminalMode = 
+/**  经 tmux control mode，连接复用且会话可持久。 */
+"tmux" | 
+/**  一 Tab 一条 SSH 连接的直连 shell。 */
+"direct";
+
 /**  第三方账户（列表展示，不含敏感凭据）。 */
 export type ThirdPartyAccount = {
 	id: string,
@@ -4460,6 +4571,17 @@ export type ThirdPartyAuthMethod = "api_key" | "password";
 
 /**  第三方平台。 */
 export type ThirdPartyPlatform = "github" | "gitlab" | "gitee" | "docker_hub" | "aws" | "aliyun" | "tencent" | "custom";
+
+/**  远端 tmux 会话概要，用于 `/server` 的会话治理视图。 */
+export type TmuxSessionInfo = {
+	name: string,
+	windows: number,
+	/**  创建时间（Unix 秒）。 */
+	created: number | null,
+	attached: boolean,
+	/**  是否由 OmniPanel 创建（按会话名前缀判定）。 */
+	managed: boolean,
+};
 
 /**  自定义待办列表。 */
 export type TodoList = {

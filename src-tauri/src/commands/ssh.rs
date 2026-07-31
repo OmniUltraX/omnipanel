@@ -14,14 +14,18 @@ use omnipanel_ssh::{
     is_private_key_pem_content, list_ssh_private_key_paths, load_ssh_config_hosts,
     ssh_config_from_json, ssh_config_to_connect_config, ssh_public_key_meta,
 };
-use omnipanel_store::{Connection, ConnectionKind, Vault};
+use omnipanel_store::{
+    inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, Vault,
+};
 use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::background::{HostSystemStats, PoolStatusEvent, SshHostOverview};
 use crate::output_buffer;
+use crate::ssh_tmux::{host_identity, AttachOutcome, SshTerminalInfo};
 use crate::state::AppState;
+use omnipanel_ssh::tmux::{self, TmuxSessionInfo};
 
 static SSH_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -46,6 +50,40 @@ pub async fn ssh_connect(
 ) -> Result<String, OmniError> {
     let id = format!("ssh-{}", SSH_COUNTER.fetch_add(1, Ordering::Relaxed));
 
+    // 优先走 tmux：同主机复用一条连接，且会话可跨应用重启存活。
+    // 任何不支持或失败都静默降级为直连——终端开不开得起来比用哪种模式重要。
+    let fallback_reason = match state
+        .tmux
+        .attach(
+            &state.app_handle,
+            &state.output_buffers,
+            &config,
+            &id,
+            cols,
+            rows,
+        )
+        .await
+    {
+        Ok(AttachOutcome::Attached { .. }) => return Ok(id),
+        Ok(AttachOutcome::Unsupported(reason)) => Some(reason),
+        Err(err) => {
+            tracing::warn!(target: "tmux", "tmux 接入失败，降级直连: {err}");
+            Some(err.user_message())
+        }
+    };
+
+    connect_direct(&state, config, cols, rows, id, fallback_reason).await
+}
+
+/// 建立一 Tab 一连接的直连 shell（tmux 不可用时的回退路径）。
+async fn connect_direct(
+    state: &AppState,
+    config: SshConfig,
+    cols: u16,
+    rows: u16,
+    id: String,
+    fallback_reason: Option<String>,
+) -> Result<String, OmniError> {
     let app = state.app_handle.clone();
     let buffers = state.output_buffers.clone();
     let session_id = id.clone();
@@ -65,15 +103,21 @@ pub async fn ssh_connect(
         }
     });
 
+    let host = host_identity(&config);
     let session = SshSession::connect(config, cols, rows, sink).await?;
     state.ssh_sessions.lock().await.insert(id.clone(), session);
+    state.tmux.record_direct(&id, host, fallback_reason).await;
     Ok(id)
 }
 
 fn resolve_connection_secret(conn: &Connection) -> Option<String> {
-    conn.credential_ref
-        .as_deref()
-        .and_then(|r| Vault::get(r).ok())
+    Vault::get(&crate::commands::connection::ssh_credential_ref(&conn.id))
+        .ok()
+        .or_else(|| {
+            conn.credential_ref
+                .as_deref()
+                .and_then(|r| Vault::get(r).ok())
+        })
 }
 
 /// 按已保存的连接 id 建立 SSH 会话（尊重 `auth.type`，密码认证不走私钥）。
@@ -92,8 +136,7 @@ pub async fn ssh_connect_connection(
     if conn.kind != ConnectionKind::Ssh {
         return Err(OmniError::new(ErrorCode::InvalidInput, "连接不是 SSH 类型"));
     }
-    let secret = resolve_connection_secret(&conn);
-    let config = ssh_config_from_json(&conn.config, secret.as_deref())?;
+    let config = crate::commands::connection::resolve_ssh_config(&conn)?;
     drop(storage);
     ssh_connect(state, config, cols, rows).await
 }
@@ -106,6 +149,9 @@ pub async fn ssh_write(
     id: String,
     data: Vec<u8>,
 ) -> Result<(), OmniError> {
+    if let Some(result) = state.tmux.write(&id, &data).await {
+        return result;
+    }
     let sessions = state.ssh_sessions.lock().await;
     let session = sessions
         .get(&id)
@@ -122,6 +168,9 @@ pub async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), OmniError> {
+    if let Some(result) = state.tmux.resize(&id, cols, rows).await {
+        return result;
+    }
     let sessions = state.ssh_sessions.lock().await;
     let session = sessions
         .get(&id)
@@ -130,14 +179,146 @@ pub async fn ssh_resize(
 }
 
 /// 断开并移除 SSH 会话。
+///
+/// tmux 模式下只关闭该 Tab 对应的 window：同主机其他 Tab 与远端 tmux 会话不受影响。
 #[tauri::command]
 #[specta::specta]
 pub async fn ssh_disconnect(state: State<'_, AppState>, id: String) -> Result<(), OmniError> {
-    if let Some(session) = state.ssh_sessions.lock().await.remove(&id) {
-        session.disconnect().await;
+    if !state.tmux.close(&id).await {
+        if let Some(session) = state.ssh_sessions.lock().await.remove(&id) {
+            session.disconnect().await;
+        }
+        state.tmux.forget_direct(&id).await;
     }
     output_buffer::remove(&state.output_buffers, &id);
     Ok(())
+}
+
+/// 查询远程终端当前的传输模式（tmux / 直连）与相关元信息。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_terminal_info(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<SshTerminalInfo, OmniError> {
+    state
+        .tmux
+        .info(&id)
+        .await
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("SSH 会话 {id} 不存在")))
+}
+
+/// 逃生阀：把单个 Tab 从 tmux 切换为直连。
+///
+/// 远端 window 保留（其中的进程继续运行），本地改用独立连接；会话 id 不变，
+/// 因此前端无需重建 Tab，输出流自动衔接。同主机其余 Tab 仍走 tmux。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_terminal_set_direct_mode(
+    state: State<'_, AppState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), OmniError> {
+    let config = state.tmux.config_of(&id).await.ok_or_else(|| {
+        OmniError::new(ErrorCode::NotFound, format!("会话 {id} 不在 tmux 模式"))
+    })?;
+    state.tmux.detach(&id).await;
+    connect_direct(
+        &state,
+        config,
+        cols,
+        rows,
+        id,
+        Some("用户手动切换为直连模式".to_string()),
+    )
+    .await?;
+    Ok(())
+}
+
+/// 抓取 tmux pane 内容用于重开 Tab 时恢复屏幕（替代直连模式的 scrollback 快照）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_tmux_capture_pane(
+    state: State<'_, AppState>,
+    id: String,
+    history_lines: u32,
+) -> Result<String, OmniError> {
+    let data = state.tmux.capture_pane(&id, history_lines).await?;
+    Ok(STANDARD.encode(&data))
+}
+
+/// 列出连接对应主机上的远端 tmux 会话（含非本应用创建的）。
+///
+/// 走 exec 通道而非 control mode：即便当前没有打开任何终端，也能查看与治理
+/// 遗留在远端的会话。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_tmux_list_sessions(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<TmuxSessionInfo>, OmniError> {
+    let session = state.ssh_pool.ensure_session(&connection_id).await?;
+    let out = session.exec_capture(&tmux::list_sessions_shell()).await?;
+    // 无 tmux server 时以非 0 退出并打印 "no server running"，按空列表处理
+    if out.exit_code != 0 {
+        return Ok(Vec::new());
+    }
+    Ok(out
+        .stdout
+        .lines()
+        .filter_map(|line| tmux::parse_session_line(line.as_bytes()))
+        .collect())
+}
+
+/// 终止远端 tmux 会话，其中的全部窗口与进程都会被杀掉。
+///
+/// 该操作不可撤销且会波及其他客户端的会话，因此无论成败都写入审计日志。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_tmux_kill_session(
+    state: State<'_, AppState>,
+    connection_id: String,
+    name: String,
+) -> Result<(), OmniError> {
+    let session = state.ssh_pool.ensure_session(&connection_id).await?;
+    let result = session
+        .exec_capture(&tmux::kill_session_shell(&name))
+        .await
+        .and_then(|out| out.ok_or_err("终止 tmux 会话失败"));
+
+    let env_tag = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_connection(&connection_id)
+            .ok()
+            .flatten()
+            .map(|c| c.env_tag)
+            .unwrap_or_else(|| "unknown".to_string())
+    };
+    let (status, detail) = match &result {
+        Ok(_) => ("success".to_string(), format!("session={name}")),
+        Err(e) => ("failed".to_string(), format!("error={}", e.message)),
+    };
+    let entry = AuditEntry {
+        ts: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or_default(),
+        action: "ssh.tmux.kill_session".to_string(),
+        target: format!("{connection_id}:{name}"),
+        // 终止会话会杀掉其中全部进程，生产环境按高风险记账
+        risk: if env_tag == "prod" { "high" } else { "medium" }.to_string(),
+        env_tag,
+        status,
+        detail,
+    };
+    {
+        let storage = state.storage.lock().await;
+        let _ = storage.append_audit(&entry);
+    }
+
+    result.map(|_| ())
 }
 
 async fn pool_session(state: &AppState, id: &str) -> Result<Arc<SshSession>, OmniError> {
@@ -1575,11 +1756,17 @@ pub async fn ssh_sync_config_hosts(
                 let mut conn = existing_conn.clone();
                 let mut merged_config = ssh_config;
                 let secret = resolve_connection_secret(existing_conn);
-                if let Ok(existing_cfg) =
-                    ssh_config_from_json(&existing_conn.config, secret.as_deref())
-                {
-                    if matches!(existing_cfg.auth, SshAuth::Password { .. }) {
-                        merged_config.auth = existing_cfg.auth;
+                if let Ok((patched, _)) = inject_ssh_vault_into_config(
+                    &existing_conn.config,
+                    &existing_conn.id,
+                    existing_conn.credential_ref.as_deref(),
+                ) {
+                    if let Ok(existing_cfg) =
+                        ssh_config_from_json(&patched, secret.as_deref())
+                    {
+                        if matches!(existing_cfg.auth, SshAuth::Password { .. }) {
+                            merged_config.auth = existing_cfg.auth;
+                        }
                     }
                 }
                 let config_json = serde_json::to_string(&merged_config).map_err(|e| {

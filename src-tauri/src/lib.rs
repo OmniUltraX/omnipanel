@@ -7,6 +7,7 @@ mod media_stream;
 mod output_buffer;
 mod panel;
 mod protocol;
+mod ssh_tmux;
 mod state;
 #[cfg(windows)]
 mod webview_dpi;
@@ -215,6 +216,11 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_write,
         commands::ssh::ssh_resize,
         commands::ssh::ssh_disconnect,
+        commands::ssh::ssh_terminal_info,
+        commands::ssh::ssh_terminal_set_direct_mode,
+        commands::ssh::ssh_tmux_capture_pane,
+        commands::ssh::ssh_tmux_list_sessions,
+        commands::ssh::ssh_tmux_kill_session,
         commands::ssh::sftp_list,
         commands::ssh::sftp_download,
         commands::ssh::sftp_cache_for_preview,
@@ -274,6 +280,14 @@ fn export_ipc_bindings() {
         commands::file_manager::file_read_file,
         commands::file_manager::file_upload_file,
         commands::file_manager::file_download_file,
+        commands::file_transfer::file_transfer_plan,
+        commands::file_transfer::file_transfer_enqueue,
+        commands::file_transfer::file_transfer_list,
+        commands::file_transfer::file_transfer_cancel,
+        commands::file_transfer::file_transfer_retry,
+        commands::file_transfer::file_transfer_clear_finished,
+        commands::file_transfer::file_transfer_set_concurrency,
+        commands::file_transfer::file_transfer_set_rate_limit,
         commands::file_manager::file_mkdir,
         commands::file_manager::file_rename,
         commands::file_manager::file_delete,
@@ -623,6 +637,7 @@ fn build_and_run_tauri() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         // Windows 11：自定义最大化按钮悬停弹出 Snap Layout（非 Windows 为 no-op）
         .plugin(
             tauri_plugin_snap_layout::init()
@@ -981,6 +996,11 @@ fn build_and_run_tauri() {
             commands::ssh::ssh_write,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_disconnect,
+            commands::ssh::ssh_terminal_info,
+            commands::ssh::ssh_terminal_set_direct_mode,
+            commands::ssh::ssh_tmux_capture_pane,
+            commands::ssh::ssh_tmux_list_sessions,
+            commands::ssh::ssh_tmux_kill_session,
             commands::ssh::sftp_list,
             commands::ssh::sftp_download,
             commands::ssh::sftp_cache_for_preview,
@@ -1047,6 +1067,14 @@ fn build_and_run_tauri() {
             commands::file_manager::file_read_file,
             commands::file_manager::file_upload_file,
             commands::file_manager::file_download_file,
+        commands::file_transfer::file_transfer_plan,
+        commands::file_transfer::file_transfer_enqueue,
+        commands::file_transfer::file_transfer_list,
+        commands::file_transfer::file_transfer_cancel,
+        commands::file_transfer::file_transfer_retry,
+        commands::file_transfer::file_transfer_clear_finished,
+        commands::file_transfer::file_transfer_set_concurrency,
+        commands::file_transfer::file_transfer_set_rate_limit,
             commands::file_manager::file_mkdir,
             commands::file_manager::file_rename,
             commands::file_manager::file_delete,

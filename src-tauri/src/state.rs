@@ -36,6 +36,7 @@ use crate::commands::ssh::SshTunnelInfo;
 use crate::log_store::LogStore;
 use crate::media_stream::MediaStreamServer;
 use crate::output_buffer::{self, OutputBuffers};
+use crate::ssh_tmux::TmuxManager;
 use omnipanel_mcp::SharedMcpManager;
 
 /// Docker 容器交互终端会话条目（含归属，便于切换/重进时回收旧 PTY）。
@@ -65,10 +66,12 @@ pub struct AppState {
     pub storage: Arc<Mutex<Storage>>,
     /// 动作执行引擎（按 kind 分发到各 Executor）。
     pub engine: Arc<ExecutionEngine>,
-    /// 活跃 SSH 会话（交互式）。
+    /// 活跃 SSH 会话（交互式，直连模式）。tmux 模式的会话不在此表内。
     pub ssh_sessions: Arc<Mutex<HashMap<String, SshSession>>>,
     /// SSH 连接池（端口探测 + 按需会话；池内会话由 `SshPool` 持有）。
     pub ssh_pool: Arc<SshPool>,
+    /// 远程终端的 tmux control mode 复用层（按 `user@host:port` 复用连接）。
+    pub tmux: Arc<TmuxManager>,
     /// 终端/SSH 输出 scrollback 缓冲（会话恢复用）。
     pub output_buffers: OutputBuffers,
     /// 后台任务日志存储。
@@ -99,6 +102,8 @@ pub struct AppState {
     pub file_index_tasks: Arc<StdMutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 本轮会话内已验证可用的文件连接（测试通过或成功列目录）。
     pub file_connection_online: Arc<StdMutex<HashSet<String>>>,
+    /// 跨连接文件传输引擎。
+    pub file_transfers: Arc<crate::commands::file_transfer::FileTransferEngine>,
     /// 网络代理配置（由前端通用设置同步而来）。
     pub proxy_config: Arc<Mutex<ProxyConfig>>,
     /// MCP 服务管理器（内置 OmniMCP + 用户自定义服务）。
@@ -175,6 +180,7 @@ impl AppState {
             engine: Arc::new(engine),
             ssh_sessions,
             ssh_pool,
+            tmux: Arc::new(TmuxManager::new()),
             output_buffers: output_buffer::new_buffers(),
             log_store,
             docker_ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -190,6 +196,7 @@ impl AppState {
             file_index_storage_dir: Arc::new(Mutex::new(file_index_storage_dir)),
             file_index_tasks: Arc::new(StdMutex::new(HashMap::new())),
             file_connection_online: Arc::new(StdMutex::new(HashSet::new())),
+            file_transfers: Arc::new(crate::commands::file_transfer::FileTransferEngine::new()),
             proxy_config: Arc::new(Mutex::new(ProxyConfig::default())),
             mcp_manager,
             acp_state: Arc::new(Mutex::new(crate::commands::acp::AcpState::default())),

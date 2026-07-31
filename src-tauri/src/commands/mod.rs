@@ -25,6 +25,7 @@ pub mod debug;
 pub mod docker;
 pub mod exec;
 pub mod file_manager;
+pub mod file_transfer;
 pub(crate) mod aliyun_oss;
 pub(crate) mod s3_list_compat;
 pub mod file_index;
