@@ -154,6 +154,18 @@ function ensureShellBlockInStore(sessionId: string, block: TerminalBlock): Termi
 }
 
 function armFeedCapture(sessionId: string, command: string, silent = false): string {
+  const prevBlockId = feedCaptures.get(sessionId);
+  if (prevBlockId) {
+    // 同会话重复 arm 会覆盖 capture；旧块若仍 running 会永久转圈
+    const prev = useBlocksStore.getState().findBlockById(prevBlockId);
+    if (prev?.status === "running") {
+      useBlocksStore.getState().updateBlock(prevBlockId, {
+        status: "failed",
+        exitCode: 130,
+      });
+    }
+  }
+
   const blockId = createBlockId();
   const cwd = resolveSessionCwd(sessionId);
   feedCaptures.set(sessionId, blockId);

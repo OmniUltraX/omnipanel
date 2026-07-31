@@ -20,6 +20,7 @@ import {
 import { extractCommandOutput, isEchoOnlyTerminalOutput, normalizeBlockCommand, stripTerminalControlSequences } from "./terminalOutputText";
 import { isResidualShellNoise } from "./terminalCommandEcho";
 import { useTerminalUiStore } from "./terminalUiStore";
+import { useTerminalRunStateStore } from "./terminalRunStateStore";
 import { TerminalAiThreadView } from "./TerminalAiThreadView";
 import { getResolvedAiThread } from "./aiThreadBridge";
 import { AiDockResizeHandle } from "./AiDockResizeHandle";
@@ -268,7 +269,15 @@ async function copyBlockText(text: string, okMsg: string) {
   }
 }
 
-function ShellBlockStopButton({ sessionId, running }: { sessionId: string; running: boolean }) {
+function ShellBlockStopButton({
+  sessionId,
+  blockId,
+  running,
+}: {
+  sessionId: string;
+  blockId: string;
+  running: boolean;
+}) {
   const { t } = useI18n();
   if (!running) return null;
 
@@ -281,6 +290,16 @@ function ShellBlockStopButton({ sessionId, running }: { sessionId: string; runni
       onClick={(event) => {
         event.stopPropagation();
         void interruptShell(sessionId);
+        // 孤儿 running 块（无对应 PTY 进程）也要能结束转圈
+        const existing = useBlocksStore.getState().findBlockById(blockId);
+        if (existing?.status === "running") {
+          useBlocksStore.getState().updateBlock(blockId, {
+            status: "failed",
+            exitCode: 130,
+          });
+        }
+        useTerminalUiStore.getState().endCommandLive(sessionId);
+        useTerminalRunStateStore.getState().returnToPrompt(sessionId);
       }}
     >
       ■
@@ -305,7 +324,6 @@ function ShellBlockToolbar({
 }) {
   const { t } = useI18n();
   const removeBlock = useBlocksStore((s) => s.removeBlock);
-  const running = block.status === "running";
 
   const handleDelete = async () => {
     const ok = await appConfirm(
@@ -320,7 +338,6 @@ function ShellBlockToolbar({
 
   return (
     <div className="term-warp-block__toolbar" role="toolbar" aria-label="命令操作">
-      <ShellBlockStopButton sessionId={sessionId} running={running} />
       <BlockAttachToAiButton block={block} sessionId={sessionId} onFocusInput={onFocusInput} />
       <button
         type="button"
@@ -801,7 +818,9 @@ function ShellBlockCard({
             <FeedSearchHighlightText text={cmd} query={searchHighlightQuery} />
           </span>
           {duration ? <span className="term-warp-prompt-line__dur">{duration}</span> : null}
-          {running ? <ShellBlockStopButton sessionId={sessionId} running /> : null}
+          {running ? (
+            <ShellBlockStopButton sessionId={sessionId} blockId={block.id} running />
+          ) : null}
           {running && !directoryPreview && !output && !block.attachedListing ? (
             <span className="term-warp-prompt-line__spinner" aria-label="执行中" />
           ) : null}
