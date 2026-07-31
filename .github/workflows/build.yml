@@ -194,7 +194,7 @@ jobs:
           const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
           conf.plugins.updater.endpoints = [
             oss,
-            'https://xget.xi-xu.me/gh/chaojimct/omnipanel/releases/latest/download/latest.json',
+            'https://xget.xi-xu.me/gh/OmniUltraX/omnipanel/releases/latest/download/latest.json',
             'https://github.com/OmniUltraX/omnipanel/releases/latest/download/latest.json',
           ];
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');

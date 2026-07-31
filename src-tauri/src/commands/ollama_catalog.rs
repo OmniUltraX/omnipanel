@@ -195,7 +195,7 @@ pub fn seed_catalog() -> Vec<LibraryModelEntry> {
 async fn fetch_library_html() -> Result<String, String> {
     let client = Client::builder()
         .no_proxy()
-        .user_agent("OmniPanel/0.1 (+https://github.com/omnipanel; local-model-catalog)")
+        .user_agent("OmniPanel/0.1 (+https://github.com/OmniUltraX/omnipanel; local-model-catalog)")
         .connect_timeout(Duration::from_secs(8))
         .timeout(Duration::from_secs(25))
         .build()
