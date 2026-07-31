@@ -8,4 +8,5 @@ export const DETAIL_TABS: DetailTab[] = [
   "overview",
   "tunnels",
   "monitoring",
+  "tmuxSessions",
 ];

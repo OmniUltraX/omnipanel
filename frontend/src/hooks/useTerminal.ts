@@ -4,6 +4,7 @@ import {
   commands,
 } from "../ipc/bindings";
 import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../ipc/events";
+import { unwrapCommand } from "../ipc/result";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
 import { Terminal, type IDisposable } from "@xterm/xterm";
@@ -20,6 +21,7 @@ import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useTerminalBackendStateStore } from "../stores/terminalBackendStateStore";
+import { useTerminalTransportStore } from "../stores/terminalTransportStore";
 import { useSkillPromptStore } from "../stores/skillPromptStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
 import { isInlineProgressChunk, renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
@@ -184,6 +186,13 @@ function findPaneById(sessionId: string) {
 function isRemotePane(sessionId: string): boolean {
   return findPaneById(sessionId)?.type === "remote";
 }
+
+/**
+ * tmux 模式恢复屏幕时抓取的历史行数。
+ *
+ * 与后端 `history-limit` 同量级：取太少会丢上下文，取太多会让重开 Tab 明显变慢。
+ */
+const TMUX_CAPTURE_HISTORY_LINES = 2000;
 
 function isSshBackendSessionId(backendSid: string): boolean {
   return backendSid.startsWith("ssh-");
@@ -365,18 +374,20 @@ function injectRemoteShellIntegration(write: (data: string) => void) {
     "export __OMNIPANEL_SHELL_INT=1;",
     "__omnipanel_prompt_start() { printf \"\\033]133;A\\007\"; printf \"\\033]1337;CurrentDir=%s\\007\" \"$PWD\"; };",
     "__omnipanel_cmd_start() { case \"${BASH_COMMAND:-}\" in __omnipanel_history_sync__|__omnipanel_emit_history*|*__OMNIPANEL_HIST_*|*HISTFILE*base64*) return;; esac; printf \"\\033]133;C\\007\"; };",
-    "__omnipanel_cmd_end() { case \"${BASH_COMMAND:-}\" in __omnipanel_history_sync__|__omnipanel_emit_history*|*__OMNIPANEL_HIST_*|*HISTFILE*base64*) return;; esac; printf \"\\033]133;D;%s\\007\" \"$?\"; };",
+    // 退出码由调用方在回调首行捕获后传入：函数内的赋值会把 $? 冲成 0
+    "__omnipanel_cmd_end() { local __ec=\"${1:-0}\"; case \"${BASH_COMMAND:-}\" in __omnipanel_history_sync__|__omnipanel_emit_history*|*__OMNIPANEL_HIST_*|*HISTFILE*base64*) return;; esac; printf \"\\033]133;D;%s\\007\" \"$__ec\"; };",
     "__omnipanel_emit_history() { local max=5000; export HISTCONTROL=\"${HISTCONTROL:+${HISTCONTROL}:}ignorespace\"; local f=\"${HISTFILE:-$HOME/.bash_history}\"; if [ -f \"$f\" ]; then blob=$(tail -n $max \"$f\" | base64 -w0 2>/dev/null || tail -n $max \"$f\" | base64 | tr -d '\\n'); pos=0; cs=8192; len=${#blob}; while [ $pos -lt $len ]; do printf '\\033]1337;HistoryPart;%s\\007' \"${blob:$pos:$cs}\"; pos=$((pos+cs)); done; fi; printf '\\033]1337;HistoryBlobEnd\\007'; };",
     "alias __omnipanel_history_sync__='__omnipanel_emit_history';",
     "if [ -n \"${BASH_VERSION:-}\" ]; then",
     "__omnipanel_in_prompt=0;",
-    "__omnipanel_pc() { __omnipanel_in_prompt=1; __omnipanel_cmd_end; __omnipanel_prompt_start; __omnipanel_in_prompt=0; };",
+    "__omnipanel_pc() { local __ec=$?; __omnipanel_in_prompt=1; __omnipanel_cmd_end \"$__ec\"; __omnipanel_prompt_start; __omnipanel_in_prompt=0; };",
     "PROMPT_COMMAND=\"__omnipanel_pc${PROMPT_COMMAND:+;$PROMPT_COMMAND}\";",
     "trap '(( __omnipanel_in_prompt == 0 )) && __omnipanel_cmd_start' DEBUG;",
     "elif [ -n \"${ZSH_VERSION:-}\" ]; then",
     "autoload -Uz add-zsh-hook 2>/dev/null;",
-    "add-zsh-hook precmd __omnipanel_prompt_start;",
-    "add-zsh-hook precmd __omnipanel_cmd_end;",
+    // 合并为单个 precmd：prompt_start 的 printf 会覆盖 $?，且顺序须先 D 后 A
+    "__omnipanel_zsh_precmd() { local __ec=$?; __omnipanel_cmd_end \"$__ec\"; __omnipanel_prompt_start; };",
+    "add-zsh-hook precmd __omnipanel_zsh_precmd;",
     "add-zsh-hook preexec __omnipanel_cmd_start;",
     "fi;",
     "__omnipanel_prompt_start;",
@@ -392,6 +403,7 @@ export function disposePaneBackendSession(paneId: string) {
   if (!pane?.backendSessionId) return;
   disposeBackendSession(paneId, pane.backendSessionId);
   useTerminalBackendStateStore.getState().removeInjectedSession(pane.backendSessionId);
+  useTerminalTransportStore.getState().clearTransport(paneId);
   useTerminalStore.getState().setBackendSessionId(paneId, null);
 }
 
@@ -406,6 +418,7 @@ export function disposeTabBackendSessions(tabId: string, knownBackendSessionId?:
   if (!backendSessionId) return;
   disposeBackendSession(sessionId, backendSessionId);
   useTerminalBackendStateStore.getState().removeInjectedSession(backendSessionId);
+  useTerminalTransportStore.getState().clearTransport(sessionId);
   useTerminalStore.getState().setBackendSessionId(sessionId, null);
 }
 
@@ -1024,13 +1037,58 @@ export function useTerminal(
       );
     }
 
-    // 复用已有后端会话（前端 remount / 切回标签）时，用后端 scrollback 快照重建屏幕。
+    /**
+     * 拉取远程会话的传输模式（tmux / 直连）。
+     *
+     * 模式由后端在建连时决定（远端 tmux 不可用会静默降级），前端只做展示与
+     * 恢复路径的分支，因此查询失败不影响终端可用性。
+     */
+    async function refreshTransportMode(sid: string) {
+      if (!resolveBackendTransport(sessionId, sid).remote) return;
+      try {
+        const res = await commands.sshTerminalInfo(sid);
+        if (destroyed || res.status !== "ok") return;
+        useTerminalTransportStore.getState().setTransport(sessionId, {
+          mode: res.data.mode,
+          host: res.data.host,
+          tmuxVersion: res.data.tmuxVersion ?? null,
+          tmuxSession: res.data.tmuxSession ?? null,
+          fallbackReason: res.data.fallbackReason ?? null,
+        });
+      } catch {
+        // 模式仅用于展示，查询失败保持原值即可
+      }
+    }
+
+    /**
+     * 取用于重建屏幕的内容（base64）。
+     *
+     * tmux 模式下进程活在远端，本地 scrollback 缓冲可能早已随应用重启清空，
+     * 必须从 pane 现场抓取才拿得到真实屏幕；抓取失败（如会话刚被切成直连）
+     * 退回本地快照，总比留一块空白屏幕好。
+     */
+    async function fetchRestoreSnapshot(sid: string): Promise<string> {
+      const useTmuxCapture =
+        useTerminalTransportStore.getState().getTransport(sessionId)?.mode === "tmux";
+      if (useTmuxCapture) {
+        try {
+          return await unwrapCommand(
+            commands.sshTmuxCapturePane(sid, TMUX_CAPTURE_HISTORY_LINES),
+          );
+        } catch (err) {
+          console.warn(`[Terminal ${sessionId}] tmux capture-pane 失败，回退本地快照:`, err);
+        }
+      }
+      return invoke<string>("terminal_snapshot", { id: sid });
+    }
+
+    // 复用已有后端会话（前端 remount / 切回标签）时，用后端快照重建屏幕。
     async function restoreSnapshot() {
       if (!backendSid || !term) return;
       restoring = true;
       useTerminalRunStateStore.getState().enterRecovering(sessionId);
       try {
-        const b64 = await invoke<string>("terminal_snapshot", { id: backendSid });
+        const b64 = await fetchRestoreSnapshot(backendSid);
         if (destroyed || !term) return;
         const bytes = decodeOutput(b64);
         term.reset();
@@ -1052,7 +1110,7 @@ export function useTerminal(
           }
           return;
         }
-        console.error(`[Terminal ${sessionId}] terminal_snapshot failed:`, err);
+        console.error(`[Terminal ${sessionId}] 恢复屏幕快照失败:`, err);
       } finally {
         restoring = false;
       }
@@ -1078,7 +1136,11 @@ export function useTerminal(
           currentCwd = savedCwd;
           useTerminalStore.getState().setSessionCwd(sessionId, savedCwd);
         }
-        void restoreSnapshot();
+        // 先确认模式，restoreSnapshot 据此决定走 tmux capture 还是本地快照
+        void (async () => {
+          await refreshTransportMode(reusableSid);
+          await restoreSnapshot();
+        })();
         flushPendingInput();
         const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
         if (transportRemote) {
@@ -1122,6 +1184,7 @@ export function useTerminal(
         backendSid = sid;
         registerRuntimeBackendSession(sessionId, sid);
         useTerminalStore.getState().setStatus(sessionId, "connected");
+        void refreshTransportMode(sid);
         flushPendingInput();
         const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
         if (transportRemote) {

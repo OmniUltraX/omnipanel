@@ -27,6 +27,7 @@ import {
   resolveCommandPromptSymbol,
 } from "./terminalSessionDisplay";
 import { TerminalPathBreadcrumb } from "./TerminalPathBreadcrumb";
+import { TerminalTransportBadge } from "./TerminalTransportBadge";
 import { useTerminalSessionStats } from "./useTerminalSessionStats";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { useTerminalRunStateStore } from "./terminalRunStateStore";
@@ -431,6 +432,7 @@ function TerminalSessionHeader({
   const headerRight = (
     <div className="term-session-header__right">
       {blockActions}
+      {session.type === "remote" ? <TerminalTransportBadge paneId={paneId} /> : null}
       {modeToggle}
       {rightMetaLine ? (
         <span className="term-session-meta">{rightMetaLine}</span>

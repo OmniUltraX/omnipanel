@@ -433,8 +433,9 @@ export const useTerminalStore = create<TerminalState>()(
           })),
           tabs: [...state.tabs.filter((t) => t.sessionId !== sessionId), newTab],
           detachedRuntime: restDetached,
-          activeTabId: tab.workspaceOnly ? state.activeTabId : (state.activeTabId ?? newTab.id),
-          activeSessionId: tab.workspaceOnly ? state.activeSessionId : sessionId,
+          // 非 workspaceOnly 新 Tab 始终切过去（原先仅在 activeTabId 为空时切换，导致「建了但不跳」）
+          activeTabId: becomesActive ? newTab.id : state.activeTabId,
+          activeSessionId: becomesActive ? sessionId : state.activeSessionId,
         });
         return newTab.id;
       },

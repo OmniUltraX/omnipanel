@@ -822,6 +822,35 @@
         flex-shrink: 0;
     }
 
+    /* 传输模式标识：低视觉权重，仅在需要时才被注意到 */
+    .term-transport-badge {
+        flex-shrink: 0;
+        padding: 1px 6px;
+        border: none;
+        border-radius: 2px;
+        font-size: 9px;
+        line-height: 16px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: var(--muted);
+        background: var(--surface);
+    }
+
+    button.term-transport-badge--tmux {
+        color: var(--accent);
+        background: var(--accent-soft);
+        cursor: pointer;
+    }
+
+    button.term-transport-badge--tmux:hover:not(:disabled) {
+        filter: brightness(1.15);
+    }
+
+    button.term-transport-badge:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
+
     .term-workspace {
         display: flex;
         flex-direction: column;

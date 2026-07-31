@@ -12,6 +12,7 @@ import { HostDetailToolbar } from "./HostDetailToolbar";
 import { HostTunnelsDetailTab } from "./detail/HostTunnelsDetailTab";
 import { MonitoringDetailTab } from "./detail/MonitoringDetailTab";
 import { OverviewDetailTab } from "./detail/OverviewDetailTab";
+import { TmuxSessionsDetailTab } from "./detail/TmuxSessionsDetailTab";
 import { SshModuleContextBridge } from "../ai/SshModuleContextBridge";
 import { isProdHost } from "../utils/sshProdGuard";
 
@@ -73,6 +74,9 @@ export function HostDetailPanel({ hostId }: Props) {
           <HostTunnelsDetailTab activeResource={activeResource} />
         )}
         {detailTab === "monitoring" && <MonitoringDetailTab activeResource={activeResource} />}
+        {detailTab === "tmuxSessions" && (
+          <TmuxSessionsDetailTab activeResource={activeResource} />
+        )}
       </div>
     </div>
   );

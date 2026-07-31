@@ -31,15 +31,24 @@ export function openSshTerminalSession(hostId: string): string | null {
   if (!host || host.type !== "ssh") return null;
 
   const tabId = useTerminalStore.getState().openOrFocusSshTab(hostId, host.name);
+  // addTab 在已有 activeTabId 时不会切到新 Tab；统一强制激活并同步 dock
+  useTerminalStore.getState().setActiveTab(tabId);
   useWorkspaceStore.getState().selectResource(hostId);
   navigateToPath(MODULE_PATHS.terminal);
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId } }),
+  );
   return tabId;
 }
 
 export function openLocalTerminalSession(): string {
   const tabId = useTerminalStore.getState().openOrFocusLocalTab();
+  useTerminalStore.getState().setActiveTab(tabId);
   useWorkspaceStore.getState().selectResource("local-terminal");
   navigateToPath(MODULE_PATHS.terminal);
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId } }),
+  );
   return tabId;
 }
 
