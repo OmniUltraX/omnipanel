@@ -1,16 +1,18 @@
 import { useCallback } from "react";
 import type { ServerEntry } from "./serverConnection";
 import { EMPTY_SERVER_PANEL_RESOURCE_CACHE } from "./serverPanelCache";
+import { useServerPanelCacheAutoRefresh } from "./useServerPanelCacheAutoRefresh";
 import { useServerPanelCacheStore } from "../../../stores/serverPanelCacheStore";
 
 interface UseServerWebsitesResult {
   items: Record<string, unknown>[];
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   refresh: () => Promise<void>;
 }
 
-/** 网站列表只读本地缓存；refresh 才会回源写入缓存。 */
+/** 网站列表读本地缓存；无缓存/过期时自动回源，refresh 强制写入缓存。 */
 export function useServerWebsites(server: ServerEntry | null): UseServerWebsitesResult {
   const serverId = server?.id ?? "";
   const entry = useServerPanelCacheStore((s) =>
@@ -30,9 +32,17 @@ export function useServerWebsites(server: ServerEntry | null): UseServerWebsites
     await refreshServer(server);
   }, [refreshServer, server]);
 
+  useServerPanelCacheAutoRefresh({
+    server,
+    refreshedAt: entry.refreshedAt,
+    refreshing,
+    refresh: refreshServer,
+  });
+
   return {
     items: entry.websites,
     loading: Boolean(server) && refreshing && !hasCache,
+    refreshing: Boolean(server) && refreshing,
     error: serverId ? entry.error : null,
     refresh,
   };

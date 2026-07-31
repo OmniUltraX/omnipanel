@@ -62,8 +62,9 @@ export function ServerCronjobsTab({ server }: Props) {
   const isBt = server.serviceType === "bt";
   const canManage = isOnePanel || isBt;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { soft?: boolean }) => {
+    // soft：已有列表时后台刷新，避免整表闪「加载中」
+    if (!opts?.soft) setLoading(true);
     setError(null);
     try {
       if (server.serviceType === "1panel") {
@@ -83,6 +84,7 @@ export function ServerCronjobsTab({ server }: Props) {
     }
   }, [server.address, server.key, server.serviceType]);
 
+  // 进入页签即拉取；同一 server 内依赖变更时软刷新
   useEffect(() => {
     void load();
   }, [load, server.id]);
@@ -139,7 +141,7 @@ export function ServerCronjobsTab({ server }: Props) {
           await client.deleteCronjobs([row.jobId]);
         }
         showToast(t("server.cronjobs.deleteSuccess"));
-        await load();
+        await load({ soft: true });
       } catch (err) {
         setError(formatCronError(err));
       } finally {
@@ -285,7 +287,7 @@ export function ServerCronjobsTab({ server }: Props) {
             disabled={loading}
             title={loading ? t("server.refreshing") : t("server.refresh")}
             aria-label={loading ? t("server.refreshing") : t("server.refresh")}
-            onClick={() => void load()}
+            onClick={() => void load({ soft: rows.length > 0 })}
           >
             <IconRefresh size={14} />
           </Button>
@@ -312,7 +314,7 @@ export function ServerCronjobsTab({ server }: Props) {
           setCreateOpen(false);
           setEditId(null);
         }}
-        onCreated={() => void load()}
+        onCreated={() => void load({ soft: true })}
       />
     </div>
   );

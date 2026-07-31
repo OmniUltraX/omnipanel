@@ -21,7 +21,6 @@ import {
 } from "../../../database/workspace/DbTablesPanelGrid";
 import { createBtPanelClient } from "../../../../lib/btpanel";
 import { createOnePanelClient } from "../../../../lib/onepanel";
-import { useServerPanelCacheStore } from "../../../../stores/serverPanelCacheStore";
 import type { ServerEntry } from "../serverConnection";
 import { useServerWebsites } from "../useServerWebsites";
 import { useServerCertificates } from "../useServerCertificates";
@@ -123,12 +122,11 @@ function formatWebsiteError(err: unknown): string {
 
 export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const { t } = useI18n();
-  const { items: rows, loading, error, refresh } = useServerWebsites(server);
-  const {
-    items: certificates,
-    loading: certificatesLoading,
-    error: certificatesError,
-  } = useServerCertificates(server);
+  const { items: rows, loading, refreshing, error, refresh } = useServerWebsites(server);
+  // 证书随 refreshServer 一并更新，此处只读缓存做到期天数关联
+  const { items: certificates, error: certificatesError } = useServerCertificates(server, {
+    autoRefresh: false,
+  });
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
   const [action, setAction] = useState<WebsiteAction | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -202,11 +200,6 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     const selected = gridWrapRef.current?.querySelector("tr.is-selected");
     selected?.scrollIntoView({ block: "nearest" });
   }, [selectedItemId, sortedRows.length]);
-
-  const serverRefreshing = useServerPanelCacheStore((s) =>
-    Boolean(s.refreshingServerIds[server.id]),
-  );
-  const refreshing = loading || certificatesLoading || serverRefreshing;
 
   const handleRefresh = () => {
     void refresh();

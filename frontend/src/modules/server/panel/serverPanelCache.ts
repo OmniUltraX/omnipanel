@@ -1,6 +1,19 @@
 import type { OnePanelApp, OnePanelInstalledApp } from "../../../lib/onepanel";
 import type { ServerEntry } from "./serverConnection";
 
+/** 打开页签时若缓存超过该时长则后台软刷新（有缓存不挡首屏）。 */
+export const SERVER_PANEL_CACHE_STALE_MS = 60_000;
+
+/** 无缓存或已过期时需要回源。 */
+export function isServerPanelCacheStale(
+  refreshedAt: number | null | undefined,
+  now = Date.now(),
+  staleMs = SERVER_PANEL_CACHE_STALE_MS,
+): boolean {
+  if (refreshedAt == null) return true;
+  return now - refreshedAt >= staleMs;
+}
+
 export type ServerPanelResourceCache = {
   websites: Record<string, unknown>[];
   certificates: Record<string, unknown>[];

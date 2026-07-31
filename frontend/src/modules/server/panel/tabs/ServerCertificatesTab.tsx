@@ -11,7 +11,6 @@ import { createOnePanelClient } from "../../../../lib/onepanel";
 import { createBtPanelClient } from "../../../../lib/btpanel";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
-import { useServerPanelCacheStore } from "../../../../stores/serverPanelCacheStore";
 import type { ServerEntry } from "../serverConnection";
 import { useServerCertificates } from "../useServerCertificates";
 import {
@@ -73,10 +72,7 @@ function formatCertError(err: unknown): string {
 
 export function ServerCertificatesTab({ server }: Props) {
   const { t } = useI18n();
-  const { items: rows, loading, error, refresh } = useServerCertificates(server);
-  const refreshing = useServerPanelCacheStore((s) =>
-    Boolean(s.refreshingServerIds[server.id]),
-  );
+  const { items: rows, loading, refreshing, error, refresh } = useServerCertificates(server);
   const [sortColumn, setSortColumn] = useState<CertSortColumn>("domain");
   const [sortDirection, setSortDirection] = useState<DbTablesPanelGridSortDirection>("asc");
   const [createOpen, setCreateOpen] = useState(false);

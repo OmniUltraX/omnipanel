@@ -17,7 +17,7 @@ import {
  * 第三方服务 / 服务器面板本地缓存：
  * - panelServers：面板实例列表（从 connectionStore 同步，读路径一律走本 store）
  * - resourcesByServerId：各面板的网站 / 证书 / 应用市场远程数据
- * 写路径：刷新按钮 / 单面板 refresh；业务变更后可调用 refreshServer / refreshServerApps。
+ * 写路径：页签挂载自动回源（无缓存 / 过期）/ 刷新按钮 / 业务变更后 refreshServer(Apps)。
  */
 type ServerPanelCacheState = {
   panelServers: ServerPanelCacheServerMeta[];
@@ -224,7 +224,15 @@ export const useServerPanelCacheStore = create<ServerPanelCacheState>()(
         const list = servers ?? get().panelServers;
         set({ refreshing: true });
         try {
-          await Promise.all(list.map((server) => get().refreshServer(server)));
+          await Promise.all(
+            list.flatMap((server) => {
+              const tasks: Promise<unknown>[] = [get().refreshServer(server)];
+              if (server.serviceType === "1panel") {
+                tasks.push(get().refreshServerApps(server));
+              }
+              return tasks;
+            }),
+          );
         } finally {
           set({ refreshing: false });
         }

@@ -143,12 +143,14 @@ export function connectionsToForm(
       form.user = cfg.user;
       if (cfg.auth.type === "privateKey") {
         form.authType = "privateKey";
-        form.pem = cfg.auth.pem ?? "";
-        form.keyPath = cfg.auth.keyPath ?? (cfg.auth.pem ? "" : "auto");
-        form.passphrase = cfg.auth.passphrase ?? "";
+        // pem / passphrase 在 Vault，编辑时不回显
+        form.pem = "";
+        form.keyPath = cfg.auth.keyPath ?? "auto";
+        form.passphrase = "";
       } else {
         form.authType = "password";
-        form.password = cfg.auth.password ?? "";
+        // 密码在 Vault，编辑时不回显；留空保存表示保留原凭据
+        form.password = "";
       }
     }
   }
@@ -159,7 +161,7 @@ export function connectionsToForm(
       form.group = panelConnection.group || "默认";
     }
     form.panelAddress = panel.address;
-    form.panelKey = panel.key;
+    form.panelKey = ""; // API Key 在 Vault，编辑不回显
     form.serviceType = panel.serviceType;
   }
   return form;
@@ -172,20 +174,11 @@ export function buildSshConnection(
   tags?: string[],
   existingConnection?: Connection,
 ): Connection {
-  let password = form.password;
-  if (
-    form.authType === "password" &&
-    !password.trim() &&
-    existingConnection
-  ) {
-    const existing = parseSshConfig(existingConnection);
-    if (existing?.auth.type === "password" && existing.auth.password) {
-      password = existing.auth.password;
-    }
-  }
+  // 留空 = 后端保留 Vault 中原凭据（不再从 config 回填明文）
+  void existingConnection;
   const auth =
     form.authType === "password"
-      ? { type: "password" as const, password }
+      ? { type: "password" as const, password: form.password }
       : {
           type: "privateKey" as const,
           ...(form.pem.trim() ? { pem: form.pem } : {}),
