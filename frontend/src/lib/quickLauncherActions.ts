@@ -1,13 +1,24 @@
-import { listenQuickLauncherAction, syncTrayActiveToBackend, type QuickLauncherAction } from "./quickLauncher";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import {
+  listenQuickLauncherAction,
+  syncTrayActiveToBackend,
+  type QuickLauncherAction,
+} from "./quickLauncher";
 import { clearWindowHiddenToTray, getTrayHiddenLabels } from "./trayHiddenWindows";
 import { focusMainWindow, goWorkspaceHome } from "./workspaceNavigation";
-import { MODULE_PATHS } from "./paths";
+import { MODULE_PATHS, type ModuleKey } from "./paths";
 import { navigateToPath, openLocalTerminalSession, openSshTerminalSession } from "./terminalSession";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useTerminalLeftPanelStore } from "../modules/terminal/terminalLeftPanelStore";
 import { followUiIntent } from "./ai/uiFollow";
+import {
+  listenModuleWindowShown,
+  openModuleWindow,
+  parseModuleWindowParams,
+} from "./moduleWindow";
 
 const DOCKER_ACTIVE_KEY = "omnipanel.docker.activeConnectionId";
+const MODULE_QUICK_ACTION_EVENT = "omnipanel:module-quick-action";
 
 async function wakeMainFromTray(): Promise<void> {
   for (const label of getTrayHiddenLabels()) {
@@ -23,6 +34,9 @@ async function runCommand(id: string): Promise<void> {
   switch (id) {
     case "workspace":
       goWorkspaceHome();
+      return;
+    case "focus-main":
+      // 仅唤醒/聚焦主窗，不导航、不受 SOLO 影响
       return;
     case "terminal":
       navigateToPath(MODULE_PATHS.terminal);
@@ -114,20 +128,29 @@ async function runLegacyConnection(id: string): Promise<void> {
   }
 }
 
-async function handleAction(action: QuickLauncherAction): Promise<void> {
+/** 资源类动作对应的目标模块（SOLO 独立窗）。 */
+export function moduleKeyForQuickLauncherAction(
+  action: QuickLauncherAction,
+): ModuleKey | null {
   switch (action.kind) {
-    case "command":
-      await runCommand(action.id);
-      return;
-    case "connection":
-      await runLegacyConnection(action.id);
-      return;
     case "ssh-connection":
-      await wakeMainFromTray();
+      return "terminal";
+    case "db-connection":
+    case "db-database":
+    case "db-table":
+      return "database";
+    default:
+      return null;
+  }
+}
+
+/** 在当前 WebView 内执行资源打开（SSH / DB）。 */
+export function applyQuickLauncherResourceAction(action: QuickLauncherAction): void {
+  switch (action.kind) {
+    case "ssh-connection":
       openSshTerminalSession(action.connectionId);
       return;
     case "db-connection":
-      await wakeMainFromTray();
       followUiIntent({
         type: "openConnection",
         module: "database",
@@ -135,7 +158,6 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
       });
       return;
     case "db-database":
-      await wakeMainFromTray();
       followUiIntent({
         type: "selectDatabase",
         connectionId: action.connectionId,
@@ -143,7 +165,6 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
       });
       return;
     case "db-table":
-      await wakeMainFromTray();
       followUiIntent({
         type: "selectTable",
         connectionId: action.connectionId,
@@ -156,11 +177,102 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
   }
 }
 
-/** 主窗口注册：监听快捷启动窗发出的动作。 */
+/** 发给模块独立窗执行的快捷启动资源动作。 */
+export async function emitModuleQuickLauncherAction(
+  action: QuickLauncherAction,
+): Promise<void> {
+  await emit(MODULE_QUICK_ACTION_EVENT, action);
+}
+
+/**
+ * SOLO：打开目标模块独立窗，再把资源动作广播给该窗执行。
+ * 冷启动等 module-window-shown；热复用走超时兜底。
+ * 面板未挂载时 follow 会入 pending，挂载后自动消费。
+ */
+export async function runQuickLauncherActionInSoloModule(
+  action: QuickLauncherAction,
+  moduleTitle: string,
+): Promise<void> {
+  const moduleKey = moduleKeyForQuickLauncherAction(action);
+  if (!moduleKey) return;
+
+  let delivered = false;
+  const deliver = async () => {
+    if (delivered) return;
+    delivered = true;
+    // 等独立窗 React 挂上 Panel / follow consumer
+    await new Promise((resolve) => window.setTimeout(resolve, 60));
+    await emitModuleQuickLauncherAction(action);
+  };
+
+  const unlistenShown = await listenModuleWindowShown((payload) => {
+    if (payload.moduleKey !== moduleKey) return;
+    void deliver().finally(() => {
+      unlistenShown();
+    });
+  });
+
+  try {
+    await openModuleWindow(moduleKey, moduleTitle);
+  } catch (e) {
+    unlistenShown();
+    throw e;
+  }
+
+  // 热复用时 shown 可能已错过或几乎同步；超时兜底投递一次
+  window.setTimeout(() => {
+    void deliver().finally(() => {
+      unlistenShown();
+    });
+  }, 450);
+}
+
+async function handleAction(action: QuickLauncherAction): Promise<void> {
+  switch (action.kind) {
+    case "command":
+      await runCommand(action.id);
+      return;
+    case "connection":
+      await runLegacyConnection(action.id);
+      return;
+    case "ssh-connection":
+    case "db-connection":
+    case "db-database":
+    case "db-table":
+      await wakeMainFromTray();
+      applyQuickLauncherResourceAction(action);
+      return;
+    default:
+      break;
+  }
+}
+
+/** 主窗口注册：监听快捷启动窗发出的动作（非 SOLO 路径）。 */
 export function initQuickLauncherActionListener(): () => void {
   let unlisten: (() => void) | undefined;
   void listenQuickLauncherAction((action) => {
     void handleAction(action);
+  }).then((fn) => {
+    unlisten = fn;
+  });
+  return () => unlisten?.();
+}
+
+/**
+ * 模块独立窗注册：接收 SOLO 模式下发来的资源打开动作。
+ * 仅处理与当前模块匹配的动作。
+ */
+export function initModuleQuickLauncherActionListener(moduleKey: ModuleKey): () => void {
+  let unlisten: UnlistenFn | undefined;
+  void listen<QuickLauncherAction>(MODULE_QUICK_ACTION_EVENT, (event) => {
+    const action = event.payload;
+    if (!action?.kind) return;
+    const target = moduleKeyForQuickLauncherAction(action);
+    if (target !== moduleKey) return;
+    // 确认当前确实是模块窗（避免主窗误收）
+    const params = parseModuleWindowParams();
+    if (!params || params.moduleKey !== moduleKey) return;
+    applyQuickLauncherResourceAction(action);
   }).then((fn) => {
     unlisten = fn;
   });

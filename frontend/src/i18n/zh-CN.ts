@@ -863,6 +863,7 @@ export const zhCN = {
       recentSubtitle: "最近 · {count} 次",
       neverUsed: "从未使用",
       modulesAria: "打开模块",
+      openMain: "打开主窗口",
       soloAria: "SOLO 模式：开启打开单模块窗口，关闭打开主窗口",
       soloOnHint: "SOLO 开：点击图标打开单模块窗口",
       soloOffHint: "SOLO 关：点击图标打开主窗口对应模块",

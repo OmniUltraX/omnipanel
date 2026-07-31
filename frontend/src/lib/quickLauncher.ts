@@ -110,6 +110,23 @@ export async function listenQuickLauncherAction(
   });
 }
 
-export async function listenQuickLauncherShown(handler: () => void): Promise<UnlistenFn> {
-  return listen("omnipanel:quick-launcher-shown", () => handler());
+export type QuickLauncherShownPayload = {
+  /** Ctrl+Space 唤醒时为 true，可直接显示热键角标 */
+  ctrlHeld?: boolean;
+};
+
+export async function listenQuickLauncherShown(
+  handler: (payload: QuickLauncherShownPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<QuickLauncherShownPayload | null>(
+    "omnipanel:quick-launcher-shown",
+    (event) => {
+      const payload = event.payload;
+      handler(
+        payload && typeof payload === "object"
+          ? { ctrlHeld: payload.ctrlHeld === true }
+          : {},
+      );
+    },
+  );
 }

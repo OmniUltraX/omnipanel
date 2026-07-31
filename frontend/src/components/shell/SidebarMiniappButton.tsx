@@ -8,12 +8,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
-import miniappQrcode from "../../assets/miniapp_qrcode.jpg";
 import h5Qrcode from "../../assets/h5_qrcode.png";
 import { IconClose, IconPhone } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
 
 const POPOVER_CLOSE_DELAY_MS = 160;
+
+/** 小程序码：从远端 API 拉取 */
+const MINIAPP_QRCODE_URL = "https://mp.99.protected.fun/h5-qrcode.png";
 
 type QrKind = "miniapp" | "h5";
 
@@ -101,7 +103,7 @@ export function SidebarMiniappButton() {
   };
 
   const active = popoverOpen || modalOpen;
-  const qrSrc = qrKind === "miniapp" ? miniappQrcode : h5Qrcode;
+  const qrSrc = qrKind === "miniapp" ? MINIAPP_QRCODE_URL : h5Qrcode;
   const titleKey =
     qrKind === "miniapp" ? "shell.miniapp.title" : "shell.miniapp.h5Title";
   const altKey =

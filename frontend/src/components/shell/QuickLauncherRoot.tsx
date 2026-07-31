@@ -19,6 +19,10 @@ import {
   type QuickLauncherAction,
 } from "../../lib/quickLauncher";
 import {
+  moduleKeyForQuickLauncherAction,
+  runQuickLauncherActionInSoloModule,
+} from "../../lib/quickLauncherActions";
+import {
   buildQuickLaunchMatches,
   buildQuickLaunchRecentRows,
   dbConnectionToQuickLaunchConnection,
@@ -38,6 +42,33 @@ import type { Connection } from "../../ipc/bindings";
 import { openModuleWindow } from "../../lib/moduleWindow";
 import { dismissHtmlBootSplash } from "../../lib/dismissBootSplash";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
+import { initSettings, useSettingsStore } from "../../stores/settingsStore";
+
+/** 等待 settings persist 水合，确保主题与主窗设置一致。 */
+async function waitSettingsHydrated(timeoutMs = 400): Promise<void> {
+  const store = useSettingsStore;
+  if (store.persist.hasHydrated()) return;
+  await new Promise<void>((resolve) => {
+    const unsub = store.persist.onFinishHydration(() => {
+      unsub();
+      resolve();
+    });
+    window.setTimeout(() => {
+      unsub();
+      resolve();
+    }, timeoutMs);
+  });
+}
+
+/** 从 localStorage 重新拉取设置并应用到文档（跨 WebView 同步主题）。 */
+async function syncSettingsThemeFromStorage(): Promise<void> {
+  try {
+    await useSettingsStore.persist.rehydrate();
+  } catch {
+    /* ignore */
+  }
+  initSettings();
+}
 
 /** 与侧栏一致的模块图标行（点击打开独立窗） */
 const MODULE_ICON_DEFS: Array<{ key: ModuleKey; icon: ReactNode }> = [
@@ -225,8 +256,15 @@ export function QuickLauncherRoot() {
     getNavVisibleModuleKeys(),
   );
   const [soloMode, setSoloMode] = useState(readSoloMode);
+  /** 焦点窗内按住 Ctrl 时显示模块序号角标 */
+  const [ctrlHeld, setCtrlHeld] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const moduleButtonsRef = useRef<typeof MODULE_ICON_DEFS>([]);
+  const openModuleFromIconRef = useRef<(moduleKey: ModuleKey) => Promise<void>>(
+    async () => {},
+  );
+  const openMainWindowRef = useRef<() => Promise<void>>(async () => {});
   const unifiedConnections = useConnectionStore((s) => s.connections);
   const [dbConnections, setDbConnections] = useState<Connection[]>([]);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
@@ -253,9 +291,15 @@ export function QuickLauncherRoot() {
     dismissHtmlBootSplash();
     document.documentElement.classList.add("quick-launcher-root");
     document.body.classList.add("quick-launcher-body");
+    // 先套一层主题，避免水合前闪错色
+    initSettings();
     let cancelled = false;
     void (async () => {
       try {
+        await waitSettingsHydrated();
+        if (cancelled) return;
+        // 水合后再应用：与设置中的主题 / 强调色 / 语言一致
+        initSettings();
         await Promise.all([
           initConnections(),
           reloadDbConnections(),
@@ -270,8 +314,17 @@ export function QuickLauncherRoot() {
         setReady(true);
       }
     })();
+
+    // 主窗改主题会写 localStorage；此处监听以便已打开的启动窗同步
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== "omnipanel-settings") return;
+      void syncSettingsThemeFromStorage();
+    };
+    window.addEventListener("storage", onStorage);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("storage", onStorage);
       document.documentElement.classList.remove("quick-launcher-root");
       document.body.classList.remove("quick-launcher-body");
     };
@@ -281,11 +334,15 @@ export function QuickLauncherRoot() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    void listenQuickLauncherShown(() => {
+    void listenQuickLauncherShown((payload) => {
       ignoreBlurUntilRef.current = Date.now() + 250;
       setQuery("");
       setSelectedIndex(0);
+      // Ctrl+Space 唤醒时 Ctrl 仍按着，直接显示角标；托盘等其它入口则不显示
+      setCtrlHeld(payload.ctrlHeld === true);
       setVisibleModuleKeys(getNavVisibleModuleKeys());
+      // 每次显示时从存储重拉主题（主窗可能已改设置）
+      void syncSettingsThemeFromStorage();
       // 强制重载 schema / 数据库连接：主窗可能已变更
       void useDbSchemaCacheStore.getState().hydrate({ force: true }).catch(() => {});
       void reloadDbConnections();
@@ -308,8 +365,11 @@ export function QuickLauncherRoot() {
     let unlisten: (() => void) | undefined;
     void getCurrentWindow()
       .onFocusChanged(({ payload: focused }) => {
-        if (!focused && Date.now() >= ignoreBlurUntilRef.current) {
-          void hideQuickLauncher();
+        if (!focused) {
+          setCtrlHeld(false);
+          if (Date.now() >= ignoreBlurUntilRef.current) {
+            void hideQuickLauncher();
+          }
         }
       })
       .then((fn) => {
@@ -322,6 +382,8 @@ export function QuickLauncherRoot() {
     const visible = new Set(visibleModuleKeys);
     return MODULE_ICON_DEFS.filter((item) => visible.has(item.key));
   }, [visibleModuleKeys]);
+
+  moduleButtonsRef.current = moduleButtons;
 
   const parsedQuery = useMemo(() => parseQuickLaunchQuery(query), [query]);
   const isEmptyQuery = query.trim().length === 0;
@@ -336,16 +398,6 @@ export function QuickLauncherRoot() {
       return buildQuickLaunchRecentRows({
         entries: sorted,
         connections,
-        labels: {
-          database: (connName, dbName) =>
-            t("shell.quickLauncher.kinds.dbDatabase", { connection: connName, database: dbName }),
-          table: (connName, dbName, tableName) =>
-            t("shell.quickLauncher.kinds.dbTable", {
-              connection: connName,
-              database: dbName,
-              table: tableName,
-            }),
-        },
       });
     }
 
@@ -355,18 +407,6 @@ export function QuickLauncherRoot() {
       query: parsedQuery,
       connections,
       schema: schemaSnapshot,
-      labels: {
-        sshConnection: t("shell.quickLauncher.kinds.ssh"),
-        dbConnection: t("shell.quickLauncher.kinds.database"),
-        database: (connName, dbName) =>
-          t("shell.quickLauncher.kinds.dbDatabase", { connection: connName, database: dbName }),
-        table: (connName, dbName, tableName) =>
-          t("shell.quickLauncher.kinds.dbTable", {
-            connection: connName,
-            database: dbName,
-            table: tableName,
-          }),
-      },
     });
   }, [
     isEmptyQuery,
@@ -375,7 +415,6 @@ export function QuickLauncherRoot() {
     connections,
     schemaSnapshot,
     schemaRevision,
-    t,
   ]);
 
   useEffect(() => {
@@ -391,10 +430,27 @@ export function QuickLauncherRoot() {
   const activate = useCallback(
     async (row: QuickLaunchMatchRow) => {
       recordRecentOpen(rowToRecentTarget(row), row.label);
-      await emitQuickLauncherAction(rowToAction(row));
-      await hideQuickLauncher();
+      const action = rowToAction(row);
+      try {
+        if (soloMode) {
+          const moduleKey = moduleKeyForQuickLauncherAction(action);
+          if (moduleKey) {
+            // SOLO：在对应模块独立窗中打开匹配项
+            await runQuickLauncherActionInSoloModule(
+              action,
+              t(`shell.nav.${moduleKey}`),
+            );
+          } else {
+            await emitQuickLauncherAction(action);
+          }
+        } else {
+          await emitQuickLauncherAction(action);
+        }
+      } finally {
+        await hideQuickLauncher();
+      }
     },
-    [recordRecentOpen],
+    [recordRecentOpen, soloMode, t],
   );
 
   const toggleSoloMode = useCallback(() => {
@@ -422,6 +478,74 @@ export function QuickLauncherRoot() {
     },
     [soloMode, t],
   );
+
+  /** 打开主窗口：始终聚焦主窗，不受 SOLO 开关限制 */
+  const openMainWindow = useCallback(async () => {
+    ignoreBlurUntilRef.current = Date.now() + 800;
+    try {
+      await emitQuickLauncherAction({ kind: "command", id: "focus-main" });
+    } finally {
+      await hideQuickLauncher();
+    }
+  }, []);
+
+  openModuleFromIconRef.current = openModuleFromIcon;
+  openMainWindowRef.current = openMainWindow;
+
+  // Ctrl 角标 + Ctrl+` 主窗 / Ctrl+1~9 模块（捕获阶段，避免被输入框吞掉）
+  useEffect(() => {
+    const digitIndex = (e: KeyboardEvent): number | null => {
+      const fromCode = (code: string, prefix: string): number | null => {
+        if (!code.startsWith(prefix)) return null;
+        const n = Number(code.slice(prefix.length));
+        if (!Number.isFinite(n) || n < 1 || n > 9) return null;
+        return n - 1;
+      };
+      return fromCode(e.code, "Digit") ?? fromCode(e.code, "Numpad");
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // 任意按键同步 Ctrl 状态（含唤醒后 Space 的后续事件）
+      if (e.key === "Control" || e.ctrlKey) {
+        setCtrlHeld(true);
+      }
+      if (e.key === "Control") return;
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      // Ctrl+`：打开主窗口（不受 SOLO 限制）
+      if (e.code === "Backquote" || e.key === "`") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCtrlHeld(false);
+        void openMainWindowRef.current();
+        return;
+      }
+      const index = digitIndex(e);
+      if (index == null) return;
+      const item = moduleButtonsRef.current[index];
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setCtrlHeld(false);
+      void openModuleFromIconRef.current(item.key);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Control" || !e.ctrlKey) {
+        setCtrlHeld(false);
+      }
+    };
+
+    const onWindowBlur = () => setCtrlHeld(false);
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, []);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -466,6 +590,7 @@ export function QuickLauncherRoot() {
   };
 
   const showEmptyHint = query.trim().length > 0 && rows.length === 0;
+  const openMainTitle = `${t("shell.quickLauncher.openMain")} (Ctrl+\`)`;
 
   const recentLastUsedByKey = useMemo(() => {
     const map = new Map<string, number>();
@@ -479,20 +604,52 @@ export function QuickLauncherRoot() {
     <div ref={rootRef} className="quick-launcher" data-ready={ready ? "1" : "0"}>
       <div className="quick-launcher__modules" role="toolbar" aria-label={t("shell.quickLauncher.modulesAria")}>
         <div className="quick-launcher__modules-icons">
-          {moduleButtons.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className="quick-launcher__module-btn"
-              title={t(`shell.nav.${item.key}`)}
-              aria-label={t(`shell.nav.${item.key}`)}
-              // 防止 mousedown 夺走输入框焦点触发失焦关闭
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => void openModuleFromIcon(item.key)}
-            >
-              {item.icon}
-            </button>
-          ))}
+          <button
+            type="button"
+            className="quick-launcher__module-btn quick-launcher__module-btn--main"
+            title={openMainTitle}
+            aria-label={openMainTitle}
+            // 防止 mousedown 夺走输入框焦点触发失焦关闭
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void openMainWindow()}
+          >
+            {ctrlHeld ? (
+              <span className="quick-launcher__module-badge" aria-hidden>
+                `
+              </span>
+            ) : null}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+          </button>
+          <span className="quick-launcher__modules-sep" aria-hidden />
+          {moduleButtons.map((item, index) => {
+            const hotkey = index < 9 ? index + 1 : null;
+            const title =
+              hotkey != null
+                ? `${t(`shell.nav.${item.key}`)} (Ctrl+${hotkey})`
+                : t(`shell.nav.${item.key}`);
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className="quick-launcher__module-btn"
+                title={title}
+                aria-label={title}
+                // 防止 mousedown 夺走输入框焦点触发失焦关闭
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void openModuleFromIcon(item.key)}
+              >
+                {ctrlHeld && hotkey != null ? (
+                  <span className="quick-launcher__module-badge" aria-hidden>
+                    {hotkey}
+                  </span>
+                ) : null}
+                {item.icon}
+              </button>
+            );
+          })}
         </div>
         <button
           type="button"

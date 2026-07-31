@@ -867,6 +867,7 @@ export const enUS: TranslationDict = {
       recentSubtitle: "Recent · {count}×",
       neverUsed: "Never used",
       modulesAria: "Open modules",
+      openMain: "Open main window",
       soloAria: "SOLO mode: on opens module window, off opens main window",
       soloOnHint: "SOLO on: click icon to open module window",
       soloOffHint: "SOLO off: click icon to open module in main window",

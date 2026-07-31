@@ -3,7 +3,15 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QuickLauncherShownPayload {
+    /// Ctrl+Space 唤醒时为 true：前端可直接显示热键角标，无需再按一次 Ctrl
+    ctrl_held: bool,
+}
 
 pub const QUICK_LAUNCHER_LABEL: &str = "quick-launcher";
 
@@ -132,7 +140,7 @@ pub fn ensure_quick_launcher_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn show_launcher(app: &AppHandle) -> Result<(), String> {
+fn show_launcher(app: &AppHandle, ctrl_held: bool) -> Result<(), String> {
     ensure_quick_launcher_window(app)?;
     let window = app
         .get_webview_window(QUICK_LAUNCHER_LABEL)
@@ -140,7 +148,10 @@ fn show_launcher(app: &AppHandle) -> Result<(), String> {
     center_on_cursor_monitor(app, &window);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
-    let _ = app.emit("omnipanel:quick-launcher-shown", ());
+    let _ = app.emit(
+        "omnipanel:quick-launcher-shown",
+        QuickLauncherShownPayload { ctrl_held },
+    );
     Ok(())
 }
 
@@ -155,7 +166,7 @@ fn hide_launcher(app: &AppHandle) -> Result<(), String> {
 /// 托盘菜单 / 前端调用：显示启动窗（不校验托盘态，由调用方保证）。
 #[tauri::command]
 pub fn show_quick_launcher(app: AppHandle) -> Result<(), String> {
-    show_launcher(&app)
+    show_launcher(&app, false)
 }
 
 #[tauri::command]
@@ -164,8 +175,8 @@ pub fn hide_quick_launcher(app: AppHandle) -> Result<(), String> {
 }
 
 /// 切换显隐。返回当前是否可见。
-#[tauri::command]
-pub fn toggle_quick_launcher(app: AppHandle) -> Result<bool, String> {
+/// `from_hotkey`：Ctrl+Space 唤醒时传 true，前端直接显示 Ctrl 角标。
+fn toggle_quick_launcher_inner(app: AppHandle, from_hotkey: bool) -> Result<bool, String> {
     ensure_quick_launcher_window(&app)?;
     let window = app
         .get_webview_window(QUICK_LAUNCHER_LABEL)
@@ -175,9 +186,14 @@ pub fn toggle_quick_launcher(app: AppHandle) -> Result<bool, String> {
         hide_launcher(&app)?;
         Ok(false)
     } else {
-        show_launcher(&app)?;
+        show_launcher(&app, from_hotkey)?;
         Ok(true)
     }
+}
+
+#[tauri::command]
+pub fn toggle_quick_launcher(app: AppHandle) -> Result<bool, String> {
+    toggle_quick_launcher_inner(app, false)
 }
 
 /// 调整启动窗高度（结果列表变化时由前端调用）。
@@ -208,7 +224,7 @@ pub fn register_global_shortcut(app: &AppHandle) {
         tauri::async_runtime::spawn(async move {
             // 极短延迟，降低与输入法抢焦点的竞态
             tokio::time::sleep(Duration::from_millis(16)).await;
-            let _ = toggle_quick_launcher(app);
+            let _ = toggle_quick_launcher_inner(app, true);
         });
     }) {
         tracing::warn!("注册快捷启动快捷键处理器失败: {e}");

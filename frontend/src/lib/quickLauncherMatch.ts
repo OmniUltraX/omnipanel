@@ -167,6 +167,51 @@ function connectionSearchBlob(conn: Connection): string {
   return [conn.name, conn.group ?? "", conn.config ?? "", ...(conn.tags ?? [])].join(" ");
 }
 
+/** 从连接 config 提取弱化描述，便于区分同名资源。 */
+export function connectionDetailHint(conn: Connection): string {
+  try {
+    const cfg = conn.config
+      ? (JSON.parse(conn.config) as Record<string, unknown>)
+      : {};
+    const host = typeof cfg.host === "string" ? cfg.host.trim() : "";
+    const port = typeof cfg.port === "number" && cfg.port > 0 ? cfg.port : null;
+    const user = typeof cfg.user === "string" ? cfg.user.trim() : "";
+    const database = typeof cfg.database === "string" ? cfg.database.trim() : "";
+    const dbType = typeof cfg.db_type === "string" ? cfg.db_type.trim() : "";
+    const hostPort = host ? (port ? `${host}:${port}` : host) : "";
+
+    if (conn.kind === "ssh") {
+      if (user && hostPort) return `${user}@${hostPort}`;
+      if (hostPort) return hostPort;
+    }
+
+    if (conn.kind === "database") {
+      const parts = [dbType, hostPort, database].filter(Boolean);
+      if (parts.length > 0) return parts.join(" · ");
+    }
+  } catch {
+    /* ignore */
+  }
+  return (conn.group ?? "").trim();
+}
+
+/** 库 / 表行：用所属连接名 + 主机区分同名库表。 */
+function dbResourceHint(conn: Connection): string {
+  let hostPort = "";
+  try {
+    const cfg = conn.config
+      ? (JSON.parse(conn.config) as Record<string, unknown>)
+      : {};
+    const host = typeof cfg.host === "string" ? cfg.host.trim() : "";
+    const port = typeof cfg.port === "number" && cfg.port > 0 ? cfg.port : null;
+    if (host) hostPort = port ? `${host}:${port}` : host;
+  } catch {
+    /* ignore */
+  }
+  if (conn.name && hostPort) return `${conn.name} · ${hostPort}`;
+  return conn.name || hostPort || connectionDetailHint(conn);
+}
+
 /**
  * 数据库连接存在独立存储（db_list_connections），不在统一 conn_list。
  * 转为 Connection 形态供快捷启动匹配 / 最近记录复用。
@@ -245,11 +290,6 @@ export function rowToInsertQuery(row: QuickLaunchMatchRow, currentQuery: string)
 export function buildQuickLaunchRecentRows(options: {
   entries: QuickLaunchRecentEntry[];
   connections: Connection[];
-  /** 副标题：连接上下文（时间改由列表右侧单独展示） */
-  labels: {
-    database: (connName: string, dbName: string) => string;
-    table: (connName: string, dbName: string, tableName: string) => string;
-  };
 }): QuickLaunchMatchRow[] {
   const byId = new Map(options.connections.map((c) => [c.id, c]));
   const rows: QuickLaunchMatchRow[] = [];
@@ -266,7 +306,7 @@ export function buildQuickLaunchRecentRows(options: {
         id: entry.key,
         connectionId: target.connectionId,
         label: conn.name || entry.label,
-        subtitle: "",
+        subtitle: connectionDetailHint(conn),
         score: entry.useCount,
       });
       continue;
@@ -280,7 +320,7 @@ export function buildQuickLaunchRecentRows(options: {
         id: entry.key,
         connectionId: target.connectionId,
         label: conn.name || entry.label,
-        subtitle: "",
+        subtitle: connectionDetailHint(conn),
         score: entry.useCount,
       });
       continue;
@@ -293,7 +333,7 @@ export function buildQuickLaunchRecentRows(options: {
         connectionId: target.connectionId,
         database: target.database,
         label: target.database,
-        subtitle: options.labels.database(conn.name, target.database),
+        subtitle: dbResourceHint(conn),
         score: entry.useCount,
       });
       continue;
@@ -306,7 +346,7 @@ export function buildQuickLaunchRecentRows(options: {
       database: target.database,
       table: target.table,
       label: `${target.database}.${target.table}`,
-      subtitle: options.labels.table(conn.name, target.database, target.table),
+      subtitle: dbResourceHint(conn),
       score: entry.useCount,
     });
   }
@@ -323,14 +363,8 @@ export function buildQuickLaunchMatches(options: {
   query: ParsedQuickLaunchQuery;
   connections: Connection[];
   schema: SchemaCacheSnapshot;
-  labels: {
-    sshConnection: string;
-    dbConnection: string;
-    database: (connName: string, dbName: string) => string;
-    table: (connName: string, dbName: string, tableName: string) => string;
-  };
 }): QuickLaunchMatchRow[] {
-  const { query, connections, schema, labels } = options;
+  const { query, connections, schema } = options;
 
   if (query.kind === "plain") {
     return [];
@@ -340,7 +374,7 @@ export function buildQuickLaunchMatches(options: {
     return matchSshConnections(connections, query.filter);
   }
 
-  return matchDbTargets(connections, schema, query, labels);
+  return matchDbTargets(connections, schema, query);
 }
 
 function matchSshConnections(
@@ -361,8 +395,8 @@ function matchSshConnections(
       id: `ssh:${conn.id}`,
       connectionId: conn.id,
       label: conn.name,
-      // 模块名改由列表左侧展示，连接级不再重复副标题
-      subtitle: "",
+      // label 后弱化展示 host，区分同名 SSH
+      subtitle: connectionDetailHint(conn),
       score,
     });
   }
@@ -373,16 +407,10 @@ function matchDbTargets(
   connections: Connection[],
   schema: SchemaCacheSnapshot,
   query: Extract<ParsedQuickLaunchQuery, { kind: "db" }>,
-  labels: {
-    dbConnection: string;
-    database: (connName: string, dbName: string) => string;
-    table: (connName: string, dbName: string, tableName: string) => string;
-  },
 ): QuickLaunchMatchRow[] {
   const { filter, databaseHint, tableHint } = query;
   const dbConns = connections.filter((c) => c.kind === "database");
   const rows: QuickLaunchMatchRow[] = [];
-  void labels.dbConnection;
 
   // `库.xxx`：只匹配该库下的表（xxx 为空则列出该库全部表）
   const isTableMode = databaseHint != null && databaseHint.length > 0;
@@ -412,7 +440,7 @@ function matchDbTargets(
             database: dbName,
             table: tableName,
             label: `${dbName}.${tableName}`,
-            subtitle: labels.table(conn.name, dbName, tableName),
+            subtitle: dbResourceHint(conn),
             score: Math.min(dbOk, tbOk) + 20,
           });
         }
@@ -428,7 +456,7 @@ function matchDbTargets(
         connectionId: conn.id,
         database: dbName,
         label: dbName,
-        subtitle: labels.database(conn.name, dbName),
+        subtitle: dbResourceHint(conn),
         score: dbScore,
       });
     }

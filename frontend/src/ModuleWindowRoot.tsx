@@ -8,7 +8,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { WindowResize } from "./components/shell/WindowResize";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
@@ -48,6 +48,25 @@ import {
 import { useI18n } from "./i18n";
 import { listenModuleWindowShown } from "./lib/moduleWindow";
 import { attachSnapMaximizeButton, OMNIPANEL_SNAP_MAXIMIZE_ID } from "./lib/snapLayout";
+import { registerUiFollowNavigate } from "./lib/ai/uiFollow";
+import { initModuleQuickLauncherActionListener } from "./lib/quickLauncherActions";
+
+/** 模块窗内：注册 follow 导航 + 接收快捷启动 SOLO 动作。 */
+function ModuleWindowIpcBridge({ moduleKey }: { moduleKey: ModuleKey }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    return registerUiFollowNavigate((path) => {
+      navigate(path);
+    });
+  }, [navigate]);
+
+  useEffect(() => {
+    return initModuleQuickLauncherActionListener(moduleKey);
+  }, [moduleKey]);
+
+  return null;
+}
 
 const MODULE_WINDOW_PANELS: Record<ModuleKey, ComponentType> = {
   terminal: LazyTerminalPanel,
@@ -262,6 +281,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
   return (
     <AiRuntimeProvider>
       <MemoryRouter initialEntries={[modulePath]} initialIndex={0}>
+        <ModuleWindowIpcBridge moduleKey={moduleKey} />
         <div className="module-window" data-ready="1" data-module={moduleKey}>
           {/* 复用主窗 .workspace 结构，使 AI dockview / 内容区 margin 样式生效 */}
           <div
