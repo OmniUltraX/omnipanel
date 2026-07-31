@@ -578,12 +578,20 @@ pub fn run() {
     // Windows + 大量 invoke_handler 命令注册时，main 线程默认 1MB 栈会溢出
     // （collect_commands! / generate_handler! 宏把所有命令展开成深层嵌套类型，
     // 单个 closure 栈帧过大，STATUS_STACK_OVERFLOW 0xc00000fd）。
-    // 把 specta bindings 导出 + tauri builder 都放到 16MB 栈子线程里跑。
-    let runtime = std::thread::Builder::new()
-        .stack_size(16 * 1024 * 1024)
-        .spawn(build_and_run_tauri)
-        .expect("failed to spawn tauri runtime thread");
-    runtime.join().expect("tauri runtime thread panicked");
+    // Win/Linux：放到 16MB 栈子线程 + any_thread()。
+    // macOS：tao 要求 EventLoop 必须在主线程，默认栈约 8MB，直接在主线程跑。
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        let runtime = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(build_and_run_tauri)
+            .expect("failed to spawn tauri runtime thread");
+        runtime.join().expect("tauri runtime thread panicked");
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        build_and_run_tauri();
+    }
 }
 
 fn build_and_run_tauri() {
