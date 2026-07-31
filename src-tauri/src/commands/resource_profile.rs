@@ -16,12 +16,30 @@ use omnipanel_store::{
     DbConnectionConfig, KnowledgeEntry, ResourceObservation, ResourceProfileSummary,
     load_database_connections,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use specta::Type;
 use tauri::State;
 
 use crate::state::AppState;
+
+/// IPC 用 JSON 任意值：裸 `serde_json::Value` 会被 specta 展开成递归枚举，
+/// 再经 PhasesFormat 分裂后会在 `gen:bindings` 时把堆内存撑爆。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+pub struct JsonValue(#[specta(type = specta_typescript::Any)] pub Value);
+
+impl From<Value> for JsonValue {
+    fn from(value: Value) -> Self {
+        Self(value)
+    }
+}
+
+impl From<JsonValue> for Value {
+    fn from(value: JsonValue) -> Self {
+        value.0
+    }
+}
 
 fn now_millis() -> i64 {
     SystemTime::now()
@@ -82,10 +100,11 @@ pub async fn resource_get_profile(
     state: State<'_, AppState>,
     resource_type: String,
     resource_id: String,
-) -> Result<Option<Value>, OmniError> {
+) -> Result<Option<JsonValue>, OmniError> {
     let storage = state.storage.lock().await;
     storage
         .get_latest_resource_profile(&resource_type, &resource_id)
+        .map(|opt| opt.map(JsonValue::from))
         .map_err(Into::into)
 }
 
@@ -145,10 +164,11 @@ pub async fn resource_compute_observation_diff(
     resource_type: String,
     resource_id: String,
     observation_kind: String,
-) -> Result<Value, OmniError> {
+) -> Result<JsonValue, OmniError> {
     let storage = state.storage.lock().await;
     storage
         .compute_observation_diff(&resource_type, &resource_id, &observation_kind)
+        .map(JsonValue::from)
         .map_err(Into::into)
 }
 
@@ -160,7 +180,7 @@ pub async fn resource_save_observation(
     resource_type: String,
     resource_id: String,
     observation_kind: String,
-    payload: Value,
+    payload: JsonValue,
     observer: Option<String>,
 ) -> Result<String, OmniError> {
     if !matches!(resource_type.as_str(), "ssh" | "database" | "docker" | "files") {
@@ -169,7 +189,7 @@ pub async fn resource_save_observation(
             format!("resource_type 非法：{resource_type}"),
         ));
     }
-    if !payload.is_object() {
+    if !payload.0.is_object() {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
             "payload 必须是 JSON 对象",
@@ -180,7 +200,7 @@ pub async fn resource_save_observation(
         resource_type: resource_type.clone(),
         resource_id: resource_id.clone(),
         observation_kind,
-        payload,
+        payload: payload.0,
         observed_at: now_millis(),
         observer: observer.unwrap_or_else(|| "manual".to_string()),
     };

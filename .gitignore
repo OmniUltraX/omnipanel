@@ -44,3 +44,6 @@ frontend/tauri-signing.key.pub
 /omnipanel-miniapp
 /agent
 /miniapp
+
+# local bindings diagnostic build dir
+target-bindings-diag/
