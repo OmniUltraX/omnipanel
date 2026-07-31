@@ -6,7 +6,7 @@ import {
 import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../ipc/events";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
-import { Terminal, type IDisposable, type ITheme } from "@xterm/xterm";
+import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -92,30 +92,8 @@ import {
 } from "../modules/terminal/terminalRunStateStore";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
+import { getTerminalTheme } from "../modules/terminal/terminalTheme";
 import { useModuleVisibility } from "../lib/moduleVisibility";
-
-const TERMINAL_THEME: ITheme = {
-  background: "#1a1717",
-  foreground: "#f4f1ed",
-  cursor: "#f4f1ed",
-  selectionBackground: "#5b504a",
-  black: "#1a1717",
-  red: "#ff6b6b",
-  green: "#51cf66",
-  yellow: "#ffd43b",
-  blue: "#74c0fc",
-  magenta: "#da77f2",
-  cyan: "#66d9e8",
-  white: "#f4f1ed",
-  brightBlack: "#7c6f66",
-  brightRed: "#ff8787",
-  brightGreen: "#69db7c",
-  brightYellow: "#ffe066",
-  brightBlue: "#91a7ff",
-  brightMagenta: "#e599f7",
-  brightCyan: "#99e9f2",
-  brightWhite: "#fff9f0",
-};
 
 type TerminalInputBinding = { dispose: () => void };
 
@@ -1202,7 +1180,7 @@ export function useTerminal(
           fontSize: settings.terminalFontSize,
           fontFamily: `"${settings.terminalFontFamily}", "IBM Plex Mono", ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
           lineHeight: settings.terminalLineHeight,
-          theme: TERMINAL_THEME,
+          theme: getTerminalTheme(settings.resolved),
           allowProposedApi: true,
           scrollback: settings.terminalScrollback,
         });
@@ -1592,6 +1570,19 @@ export function useTerminal(
     window.addEventListener("omnipanel-terminal-scroll", handler);
     return () => window.removeEventListener("omnipanel-terminal-scroll", handler);
   }, [sessionId]);
+
+  // 主题变化时动态更新终端主题，避免浅色主题下终端仍为深色
+  useEffect(() => {
+    const unsub = useSettingsStore.subscribe((state, prev) => {
+      if (state.resolved !== prev.resolved) {
+        const term = termRef.current;
+        if (term) {
+          term.options.theme = getTerminalTheme(state.resolved);
+        }
+      }
+    });
+    return unsub;
+  }, []);
 
   return { termRef, searchAddonRef };
 }

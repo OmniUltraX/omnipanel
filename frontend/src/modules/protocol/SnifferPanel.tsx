@@ -301,7 +301,7 @@ export function SnifferPanel() {
               display: "inline-flex",
               alignItems: "center",
               gap: "4px",
-              color: "#ef4444",
+              color: "var(--danger)",
               fontWeight: 600,
             }}
           >
@@ -310,7 +310,7 @@ export function SnifferPanel() {
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: "#ef4444",
+                background: "var(--danger)",
                 animation: "pulse 1s infinite",
               }}
             />
@@ -320,13 +320,13 @@ export function SnifferPanel() {
         <span>
           Packets: <strong>{stats.total_packets.toLocaleString()}</strong>
         </span>
-        <span style={{ color: "#3b82f6" }}>
+        <span style={{ color: "var(--accent)" }}>
           TCP: {stats.tcp_count.toLocaleString()}
         </span>
-        <span style={{ color: "#22c55e" }}>
+        <span style={{ color: "var(--success)" }}>
           UDP: {stats.udp_count.toLocaleString()}
         </span>
-        <span style={{ color: "#ef4444" }}>
+        <span style={{ color: "var(--danger)" }}>
           ICMP: {stats.icmp_count.toLocaleString()}
         </span>
         <span>

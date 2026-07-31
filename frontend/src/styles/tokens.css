@@ -34,6 +34,43 @@
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.12);
 
+  /* === 兼容性别名：将历史代码中未定义的变量统一映射到语义 token === */
+  /* 这样可一次性修复大量因 fallback 为深色而导致的浅色主题问题 */
+  /* —— 背景/表面 —— */
+  --bg-elevated: var(--surface);          /* 抬升的卡片/面板背景 */
+  --bg-panel: var(--surface);             /* 面板背景 */
+  --bg-base: var(--bg);                   /* 最底层背景 */
+  --bg-1: var(--bg-deeper);               /* 编号层级 1（最深） */
+  --panel-bg: var(--surface);             /* 面板背景（panel-bg） */
+  --surface-1: var(--bg-deeper);          /* 编号表面层级 1 */
+  --surface-2: var(--surface);            /* 编号表面层级 2 */
+  --surface-3: var(--surface-hover);      /* 编号表面层级 3 */
+  /* —— 前景/文本 —— */
+  --text-primary: var(--fg);              /* 主要文本 */
+  --text-1: var(--fg);                    /* 编号文本层级 1 */
+  --text-2: var(--fg-2);                  /* 编号文本层级 2 */
+  --text-3: var(--muted);                 /* 编号文本层级 3 */
+  --text-muted: var(--muted);             /* 静音文本 */
+  --text-tertiary: var(--meta);           /* 第三级文本 */
+  --fg-muted: var(--muted);               /* fg 的 muted 别名 */
+  --fg-1: var(--fg);                      /* 编号 fg 层级 1 */
+  --fg-3: var(--meta);                    /* 编号 fg 层级 3 */
+  /* —— 语义色别名 —— */
+  --warning: var(--warn);                 /* warning 与 warn 统一 */
+  --color-warning: var(--warn);           /* color- 前缀的 warning */
+  --color-danger: var(--danger);          /* color- 前缀的 danger */
+  --destructive: var(--danger);           /* shadcn 风格 destructive */
+  --accent-fg: #ffffff;                   /* accent 上的前景色（始终保持白） */
+  --accent-text: var(--accent);           /* accent 文本色 */
+  /* —— 边框别名 —— */
+  --border-color: var(--border);          /* 边框颜色别名 */
+  --border-subtle: var(--border-soft);    /* 细边框 */
+  --border-1: var(--border-soft);         /* 编号边框 1 */
+  /* —— 圆角别名 —— */
+  --radius-md: var(--r-lg);               /* 中等圆角 */
+  --radius-sm: var(--r-md);               /* 小圆角 */
+  --radius-lg: var(--r-lg);               /* 大圆角 */
+
   /* Typography */
   --font-ui: "Maple Mono NF CN", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
   --font-mono: "Maple Mono NF CN", "Berkeley Mono", "IBM Plex Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
@@ -128,6 +165,42 @@
   --warn-soft: rgba(255, 149, 0, 0.1);
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.1);
+
+  /* === 兼容性别名：浅色主题下，编号/历史变量名全部映射到浅色 token === */
+  /* —— 背景/表面 —— */
+  --bg-elevated: var(--surface);
+  --bg-panel: var(--surface);
+  --bg-base: var(--bg);
+  --bg-1: var(--bg-deeper);
+  --panel-bg: var(--surface);
+  --surface-1: var(--bg-deeper);
+  --surface-2: var(--surface);
+  --surface-3: var(--surface-hover);
+  /* —— 前景/文本 —— */
+  --text-primary: var(--fg);
+  --text-1: var(--fg);
+  --text-2: var(--fg-2);
+  --text-3: var(--muted);
+  --text-muted: var(--muted);
+  --text-tertiary: var(--meta);
+  --fg-muted: var(--muted);
+  --fg-1: var(--fg);
+  --fg-3: var(--meta);
+  /* —— 语义色别名 —— */
+  --warning: var(--warn);
+  --color-warning: var(--warn);
+  --color-danger: var(--danger);
+  --destructive: var(--danger);
+  --accent-fg: #ffffff;
+  --accent-text: var(--accent);
+  /* —— 边框别名 —— */
+  --border-color: var(--border);
+  --border-subtle: var(--border-soft);
+  --border-1: var(--border-soft);
+  /* —— 圆角别名 —— */
+  --radius-md: var(--r-lg);
+  --radius-sm: var(--r-md);
+  --radius-lg: var(--r-lg);
 
   color-scheme: light;
 }

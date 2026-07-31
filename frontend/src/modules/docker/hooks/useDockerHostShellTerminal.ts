@@ -7,13 +7,7 @@ import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../../../ipc/events";
 import { unwrapCommand } from "../../../ipc/result";
 import { safeTauriUnlisten } from "../../../lib/safeTauriUnlisten";
 import { useSettingsStore } from "../../../stores/settingsStore";
-
-const TERMINAL_THEME = {
-  background: "#1a1717",
-  foreground: "#f4f1ed",
-  cursor: "#f4f1ed",
-  selectionBackground: "#5b504a",
-};
+import { getTerminalTheme } from "../../../modules/terminal/terminalTheme";
 
 function toBytes(data: string): number[] {
   return Array.from(new TextEncoder().encode(data));
@@ -49,7 +43,7 @@ export function useDockerHostShellTerminal(
       fontSize: settings.terminalFontSize,
       fontFamily: `"${settings.terminalFontFamily}", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
       lineHeight: settings.terminalLineHeight,
-      theme: TERMINAL_THEME,
+      theme: getTerminalTheme(settings.resolved),
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
@@ -57,6 +51,13 @@ export function useDockerHostShellTerminal(
     term.loadAddon(fitAddon);
     term.open(mount);
     fitAddon.fit();
+
+    // 主题变化时动态更新终端主题
+    const unsubTheme = useSettingsStore.subscribe((state, prev) => {
+      if (state.resolved !== prev.resolved) {
+        term.options.theme = getTerminalTheme(state.resolved);
+      }
+    });
 
     let cancelled = false;
     let outputUnlisten: UnlistenFn | null = null;
@@ -111,6 +112,7 @@ export function useDockerHostShellTerminal(
     })();
 
     return () => {
+      unsubTheme();
       cancelled = true;
       dataDisposable.dispose();
       resizeObserver.disconnect();
@@ -146,7 +148,7 @@ export function useLocalDockerShellTerminal(
       fontSize: settings.terminalFontSize,
       fontFamily: `"${settings.terminalFontFamily}", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
       lineHeight: settings.terminalLineHeight,
-      theme: TERMINAL_THEME,
+      theme: getTerminalTheme(settings.resolved),
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
@@ -154,6 +156,13 @@ export function useLocalDockerShellTerminal(
     term.loadAddon(fitAddon);
     term.open(mount);
     fitAddon.fit();
+
+    // 主题变化时动态更新终端主题
+    const unsubTheme = useSettingsStore.subscribe((state, prev) => {
+      if (state.resolved !== prev.resolved) {
+        term.options.theme = getTerminalTheme(state.resolved);
+      }
+    });
 
     let cancelled = false;
     let outputUnlisten: UnlistenFn | null = null;
@@ -206,6 +215,7 @@ export function useLocalDockerShellTerminal(
     })();
 
     return () => {
+      unsubTheme();
       cancelled = true;
       dataDisposable.dispose();
       resizeObserver.disconnect();

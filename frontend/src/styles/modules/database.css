@@ -1322,9 +1322,9 @@
     }
 
     .db-mysql-deploy-tag--docker {
-        color: #2563eb;
-        background: color-mix(in srgb, #2563eb 12%, var(--surface));
-        border: 1px solid color-mix(in srgb, #2563eb 35%, transparent);
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     }
 
     .db-mysql-deploy-tag--unknown {
@@ -1459,8 +1459,8 @@
         min-height: 0;
         overflow: auto;
         padding: 10px 12px;
-        background: #0d1117;
-        color: #e6edf3;
+        background: var(--bg-deeper);
+        color: var(--fg);
         font-family: var(--font-mono), Consolas, "Courier New", monospace;
         font-size: 13px;
         line-height: 1.45;
@@ -1488,7 +1488,7 @@
 
     .db-cli-repl-prompt {
         flex-shrink: 0;
-        color: #7ee787;
+        color: var(--success);
         user-select: none;
         white-space: pre;
     }
@@ -1505,7 +1505,7 @@
         color: inherit;
         font: inherit;
         line-height: inherit;
-        caret-color: #e6edf3;
+        caret-color: var(--fg);
         overflow: hidden;
         field-sizing: content;
     }
@@ -1515,7 +1515,7 @@
     }
 
     .db-cli-repl-input::placeholder {
-        color: #6e7681;
+        color: var(--meta);
     }
 
     .db-cli-repl-filler {
@@ -8729,7 +8729,7 @@
     }
 
     .redis-key-tree-row--folder {
-        color: #d4b56a;
+        color: var(--warn);
     }
 
     .redis-key-tree-chevron {

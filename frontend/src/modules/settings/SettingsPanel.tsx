@@ -1619,8 +1619,8 @@ export function SettingsPanel() {
                     <span style={{ color: "#4ec9b0" }}>user@omnipanel</span>
                     <span style={{ color: "#6a9955" }}>:</span>
                     <span style={{ color: "#569cd6" }}>~/project</span>
-                    <span style={{ color: "#d4d4d4" }}>$ </span>
-                    <span style={{ color: "#d4d4d4" }}>git status</span>
+                    <span style={{ color: "var(--fg-2)" }}>$ </span>
+                    <span style={{ color: "var(--fg-2)" }}>git status</span>
                     {terminalCursorStyle === "block" && <span className="term-cursor term-cursor--block"> </span>}
                     {terminalCursorStyle === "bar" && <span className="term-cursor term-cursor--bar" />}
                     {terminalCursorStyle === "underline" && <span className="term-cursor term-cursor--underline" />}
@@ -1628,18 +1628,18 @@ export function SettingsPanel() {
                   <div style={{ color: "#569cd6" }}>On branch main</div>
                   <div style={{ color: "#6a9955" }}>Changes committed:</div>
                   <div>
-                    <span style={{ color: "#d4d4d4" }}>  modified: </span>
+                    <span style={{ color: "var(--fg-2)" }}>  modified: </span>
                     <span style={{ color: "#ce9178" }}>src/App.tsx</span>
                   </div>
                   <div>
-                    <span style={{ color: "#d4d4d4" }}>  new file: </span>
+                    <span style={{ color: "var(--fg-2)" }}>  new file: </span>
                     <span style={{ color: "#ce9178" }}>src/modules/ai/AgentPanel.tsx</span>
                   </div>
-                  <div style={{ color: "#d4d4d4" }}>$ <span className="term-cursor-blink" style={{
+                  <div style={{ color: "var(--fg-2)" }}>$ <span className="term-cursor-blink" style={{
                     display: "inline-block",
                     width: terminalCursorStyle === "block" ? `${terminalFontSize * 0.6}px` : terminalCursorStyle === "underline" ? `${terminalFontSize * 0.6}px` : "2px",
                     height: terminalCursorStyle === "block" ? `${terminalFontSize}px` : terminalCursorStyle === "underline" ? "2px" : `${terminalFontSize}px`,
-                    background: "#d4d4d4",
+                    background: "var(--fg-2)",
                     verticalAlign: terminalCursorStyle === "underline" ? "bottom" : "text-bottom",
                     animation: terminalCursorBlink ? "term-blink 1s step-end infinite" : "none",
                   }} /></div>
