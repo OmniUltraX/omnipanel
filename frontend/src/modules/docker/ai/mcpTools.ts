@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
+import { redactEnvArray, redactSecretsInText } from "../../../lib/ai/redactSecrets";
 import { runWithToolGate } from "../../../lib/ai/toolGate";
 import type {
   DockerContainerDetail,
@@ -170,11 +171,11 @@ async function dockerInspectContainer(args: Record<string, unknown>): Promise<st
     command: detail.command,
     restartPolicy: detail.restartPolicy,
     exitCode: detail.exitCode,
-    env: detail.env,
+    env: redactEnvArray(detail.env),
     mounts: detail.mounts,
     networks: detail.networks,
   };
-  return JSON.stringify(simplified, null, 2);
+  return redactSecretsInText(JSON.stringify(simplified, null, 2));
 }
 
 async function dockerContainerAction(args: Record<string, unknown>): Promise<string> {

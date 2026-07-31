@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
+import { redactSecretsInText } from "../../../lib/ai/redactSecrets";
 import { runWithToolGate } from "../../../lib/ai/toolGate";
 import type {
   FileEntry,
@@ -124,17 +125,19 @@ async function filesRead(args: Record<string, unknown>): Promise<string> {
     maxBytes,
   } satisfies FileReadFileInvokeArgs);
   const content = decodeBytesAsUtf8(bytes);
-  return JSON.stringify(
-    {
-      connectionId: connection_id,
-      path,
-      maxBytes,
-      actualBytes: bytes.length,
-      truncated: bytes.length >= maxBytes,
-      content,
-    },
-    null,
-    2,
+  return redactSecretsInText(
+    JSON.stringify(
+      {
+        connectionId: connection_id,
+        path,
+        maxBytes,
+        actualBytes: bytes.length,
+        truncated: bytes.length >= maxBytes,
+        content,
+      },
+      null,
+      2,
+    ),
   );
 }
 

@@ -3,6 +3,7 @@ pub mod orchestrator;
 pub mod prompts;
 pub mod provider;
 pub mod providers;
+pub mod redact;
 pub mod routing;
 pub mod types;
 

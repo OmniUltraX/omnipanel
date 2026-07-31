@@ -36,6 +36,8 @@ fn is_secret_key(key: &str) -> bool {
             | "privatekey"
             | "private_key"
             | "privatekeypath"
+            | "passphrase"
+            | "pem"
             | "credential"
             | "credential_ref"
             | "credentialref"
@@ -46,6 +48,7 @@ fn is_secret_key(key: &str) -> bool {
             | "authorization"
     ) || lower.contains("password")
         || lower.contains("secret")
+        || lower.contains("passphrase")
         || lower.ends_with("_token")
         || lower.ends_with("token")
             && !matches!(lower.as_str(), "continuationtoken" | "continuation_token")

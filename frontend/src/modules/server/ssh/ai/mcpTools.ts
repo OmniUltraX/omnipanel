@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../../lib/ai/context";
 import { optionalString, requireString } from "../../../../lib/ai/mcpToolArgs";
+import { redactSecretsInText } from "../../../../lib/ai/redactSecrets";
 import { runWithToolGate } from "../../../../lib/ai/toolGate";
 import type {
   HostSystemStats,
@@ -41,16 +42,18 @@ async function sshExec(args: Record<string, unknown>): Promise<string> {
       resourceId: resource_id,
       command,
     } satisfies SshExecInvokeArgs);
-    return JSON.stringify(
-      {
-        resourceId: resource_id,
-        command,
-        stdout: output.stdout,
-        stderr: output.stderr,
-        exitCode: output.exitCode,
-      },
-      null,
-      2,
+    return redactSecretsInText(
+      JSON.stringify(
+        {
+          resourceId: resource_id,
+          command,
+          stdout: output.stdout,
+          stderr: output.stderr,
+          exitCode: output.exitCode,
+        },
+        null,
+        2,
+      ),
     );
   };
 
