@@ -84,3 +84,8 @@ incremental = true
 # 依赖 crate 略优化：编译稍慢，但链接和整体 dev 体验往往更快
 [profile.dev.package."*"]
 opt-level = 1
+
+# 本地补丁：修复 specta-serde 字符串字面量枚举被重复 external-tag 改写导致的
+# Null.0 无限递归；保留深度超限 panic 便于回归定位。
+[patch.crates-io]
+specta-typescript = { path = "crates/specta-typescript-patch" }

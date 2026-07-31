@@ -99,8 +99,13 @@ export const commands = {
 	connSave: (connection: Connection) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("conn_save", { connection })),
 	/**  删除连接。 */
 	connDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id })),
-	/**  测试连接连通性。当前支持 database（MySQL）；其余类型将在对应里程碑接入。 */
-	connTest: (connection: Connection, secret?: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("conn_test", { connection, secret })),
+	/**
+	 *  测试连接连通性。当前支持 database（MySQL）；其余类型将在对应里程碑接入。
+	 * 
+	 *  `secret`：可选明文凭据（文件连接对话框「测试连接」用）。为空时回退到
+	 *  `connection.credential_ref` 指向的 Vault；保存前测试必须传入表单中的密钥。
+	 */
+	connTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("conn_test", { connection, secret })),
 	/**
 	 *  解析域名为 IP 地址，结果持久化到缓存，避免重复解析。
 	 *  传入已存在的 IP 地址直接返回；域名则先查缓存，未命中再 DNS 解析。
@@ -111,7 +116,7 @@ export const commands = {
 	/**  列出当前正在运行的后台任务。 */
 	bgTaskList: () => typedError<BackgroundTaskInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_list")),
 	/**  列出被动任务终态历史（SQLite，按结束时间倒序）。 */
-	bgTaskHistoryList: (limit: number | null) => typedError<BgTaskHistoryRecord[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_history_list", { limit })),
+	bgTaskHistoryList: (limit: number | null) => typedError<BgTaskHistoryRecord_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_history_list", { limit })),
 	/**  按条件列出任务中心事件索引。 */
 	taskEventsList: (module: string | null, workspaceId: string | null, resourceId: string | null, source: string | null, limit: number | null) => typedError<TaskEventRecord[], OmniError_Serialize>(__TAURI_INVOKE("task_events_list", { module, workspaceId, resourceId, source, limit })),
 	/**  取消后台任务。 */
@@ -238,6 +243,19 @@ export const commands = {
 	dockerCreateExecSession: (connectionId: string, containerId: string, shell: string | null, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_exec_session", { connectionId, containerId, shell, cols, rows })),
 	/**  在 Docker 连接对应的宿主机上打开交互 shell（SSH / 1Panel；本地 Engine 走本机终端）。 */
 	dockerCreateHostShellSession: (connectionId: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_host_shell_session", { connectionId, cols, rows })),
+	/**
+	 *  在容器内非交互式执行命令（一次性 capture stdout/stderr/exit_code）。
+	 * 
+	 *  与 `docker_create_exec_session` 区别：
+	 *  - 后者创建交互式 PTY 会话（适合用户终端 attach）；
+	 *  - 本命令一次性执行并返回结构化结果，适合 AI 工具调用、批处理脚本。
+	 * 
+	 *  实现路径：
+	 *  - Local/Remote Engine：`LocalDockerAdapter::exec_one_shot`（bollard exec API，tty=false）；
+	 *  - SSH：SSH session 上 `docker exec <container> <cmd>` via `exec_capture`；
+	 *  - 1Panel：暂不支持（返回 InvalidInput 错误）。
+	 */
+	dockerExecCommand: (connectionId: string, containerId: string, command: string) => typedError<DockerExecOneShotOutput, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_command", { connectionId, containerId, command })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerExecWrite: (sessionId: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_write", { sessionId, data })),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -282,7 +300,10 @@ export const commands = {
 	dockerTagImage: (connectionId: string, source: string, target: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_tag_image", { connectionId, source, target })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerBuildImage: (connectionId: string, context: DockerBuildContext, progressChannel: string) => typedError<DockerBuildResult, OmniError_Serialize>(__TAURI_INVOKE("docker_build_image", { connectionId, context, progressChannel })),
-	/**  在连接对应宿主机上执行 `docker …` CLI。 */
+	/**
+	 *  在连接对应宿主机上执行 `docker …` CLI（搜索页「运行容器」等）。
+	 *  `progress_channel`：按行推送 stdout/stderr，便于前端实时展示。
+	 */
 	dockerHostRunCli: (connectionId: string, command: string, progressChannel: string) => typedError<DockerHostCliResult, OmniError_Serialize>(__TAURI_INVOKE("docker_host_run_cli", { connectionId, command, progressChannel })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerStreamStats: (connectionId: string, containerId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_stats", { connectionId, containerId })),
@@ -341,26 +362,17 @@ export const commands = {
 	sftpList: (id: string, path: string) => typedError<SftpEntry[], OmniError_Serialize>(__TAURI_INVOKE("sftp_list", { id, path })),
 	/**  下载远端文件内容（字节）。 */
 	sftpDownload: (id: string, path: string) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("sftp_download", { id, path })),
-	/**  将远端媒体流式缓存到本地，返回本地绝对路径（供 convertFileSrc 播放）。 */
+	/**
+	 *  将远端媒体流式缓存到本地，返回本地绝对路径（供 convertFileSrc 播放）。
+	 *  `size` 参与缓存键：远端同路径文件变大/变小时自动失效。
+	 */
 	sftpCacheForPreview: (id: string, path: string, size: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("sftp_cache_for_preview", { id, path, size })),
-	/**  探测远端媒体时长/大小/封面（不下载整文件）。 */
+	/**  探测远端媒体时长/大小/封面：不下载整文件。 */
 	sftpProbeMedia: (id: string, path: string) => typedError<SftpMediaProbe, OmniError_Serialize>(__TAURI_INVOKE("sftp_probe_media", { id, path })),
-	/**  注册本地 Range 代理，返回边下边播 URL。 */
+	/**  注册本地 Range 代理令牌，返回可供 `<video>`/`<audio>` 边下边播的 URL。 */
 	sftpOpenMediaStream: (id: string, path: string) => typedError<SftpMediaStream, OmniError_Serialize>(__TAURI_INVOKE("sftp_open_media_stream", { id, path })),
 	/**  关闭边下边播流令牌。 */
 	sftpCloseMediaStream: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_close_media_stream", { token })),
-	/**  打开大日志会话：探测文件大小与总行数预估（wc -l）。 */
-	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
-	/**  按行号范围读取日志行（虚拟滚动按需切片，1-based）。 */
-	sftpLogReadLines: (id: string, path: string, startLine: number, endLine: number) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
-	/**  读取文件末尾 N 行（tail -n N，反向 seek 不扫描整个文件）。用于首屏末尾预览，比 sed 快 30x。行号基于 totalLinesHint 推算。 */
-	sftpLogTailInitial: (id: string, path: string, nLines: number, totalLinesHint: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_initial", { id, path, nLines, totalLinesHint })),
-	/**  搜索日志（grep -n），返回命中行列表。grep exit 1 = no match 非错误。 */
-	sftpLogSearch: (id: string, path: string, pattern: string, isRegex: boolean, maxResults: number | null, contextBefore: number | null, contextAfter: number | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, isRegex, maxResults, contextBefore, contextAfter })),
-	/**  开始实时跟踪（tail -F，支持文件轮转）。输出经 `sftp-log-tail-{token}` 事件推送。 */
-	sftpLogTailStart: (id: string, path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_start", { id, path, linesAfter })),
-	/**  停止实时跟踪。 */
-	sftpLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_stop", { token })),
 	/**  上传内容到远端文件（覆盖）。 */
 	sftpUpload: (id: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_upload", { id, path, data })),
 	/**  在远程服务器创建目录。 */
@@ -371,6 +383,30 @@ export const commands = {
 	sftpRename: (id: string, oldPath: string, newPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_rename", { id, oldPath, newPath })),
 	/**  修改远程文件权限（通过 exec chmod）。 */
 	sftpChmod: (id: string, path: string, mode: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_chmod", { id, path, mode })),
+	/**  打开日志会话：探测文件大小与总行数。 */
+	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
+	/**  按行号范围读取（虚拟滚动按需切片，1-based）。 */
+	sftpLogReadLines: (id: string, path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
+	/**
+	 *  读取文件末尾 N 行（用 tail -n N，O(N) 反向 seek，不扫描整个文件）。
+	 *  用于大日志文件打开时的首屏末尾预览，比 sed -n 'X,Yp' 快 30x。
+	 *  行号推算：如果有 totalLinesHint，从 (hint - N + 1) 开始；否则从 1 开始。
+	 */
+	sftpLogTailInitial: (id: string, path: string, nLines: number, totalLinesHint: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_initial", { id, path, nLines, totalLinesHint })),
+	/**
+	 *  搜索日志（grep -n），返回命中行列表。
+	 *  grep exit 1 = no match（非错误），其他非零 exit 视为错误。
+	 */
+	sftpLogSearch: (id: string, path: string, pattern: string, isRegex: boolean, maxResults: number | null, contextBefore: number | null, contextAfter: number | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, isRegex, maxResults, contextBefore, contextAfter })),
+	/**
+	 *  开始实时跟踪（tail -F，支持文件轮转）。
+	 *  输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端。
+	 * 
+	 *  `lines_after`：跟踪前先输出末尾 N 行（默认 0，只跟新行）。
+	 */
+	sftpLogTailStart: (id: string, path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_start", { id, path, linesAfter })),
+	/**  停止实时跟踪。 */
+	sftpLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_stop", { token })),
 	/**  本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。 */
 	sshPoolDownloadInstallBinary: (resourceId: string, url: string, remotePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_download_install_binary", { resourceId, url, remotePath })),
 	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */
@@ -404,9 +440,16 @@ export const commands = {
 	sshPoolExecCommand: (resourceId: string, command: string) => typedError<SshExecOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_exec_command", { resourceId, command })),
 	/**  对所有 SSH 主机重新进行端口可达性探测。 */
 	sshPoolProbeAll: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_all")),
-	/**  列出远端压缩包条目（不在本地下载文件，远端执行 unzip/tar/7z/unrar）。 */
+	/**
+	 *  列出远端压缩包条目（不在本地下载文件，远端执行 unzip/tar/7z/unrar）。
+	 *  远端工具缺失时返回 `tool_missing`，前端可调 `ssh_pool_install_archive_tool` 一键安装后重试。
+	 */
 	sshPoolListArchiveEntries: (resourceId: string, path: string) => typedError<ArchiveListResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_list_archive_entries", { resourceId, path })),
-	/**  在远端一键安装压缩包工具（unzip/tar/7z/unrar/zstd），自动检测包管理器。 */
+	/**
+	 *  在远端一键安装压缩包工具（unzip / tar / 7z / unrar / zstd）。
+	 *  自动检测包管理器（apt/dnf/yum/apk/pacman/zypper），优先用 sudo -n 非交互提权，
+	 *  失败回退无 sudo 直接安装（root 用户或免密场景）。
+	 */
 	sshPoolInstallArchiveTool: (resourceId: string, tool: string) => typedError<ArchiveToolInstallResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_archive_tool", { resourceId, tool })),
 	/**  拉取本机 CPU / 内存 / 磁盘指标。 */
 	localFetchStats: () => typedError<HostSystemStats_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_fetch_stats")),
@@ -448,7 +491,12 @@ export const commands = {
 	writeTextFile: (path: string, contents: string) => typedError<string, string>(__TAURI_INVOKE("write_text_file", { path, contents })),
 	/**  列出文件管理器可用连接（含内置本机）。 */
 	fileListConnections: () => typedError<FileManagerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("file_list_connections")),
-	/**  保存文件连接（凭据写入 Vault）。 */
+	/**
+	 *  保存文件连接（凭据写入 Vault）。
+	 * 
+	 *  注意：必须先分配 `connection.id`，再写入 Vault。
+	 *  历史 bug：新建时 id 仍为空就把 Secret 存成 `file-cred-`，导致多条连接共用同一钥匙串条目，后保存的覆盖先保存的。
+	 */
 	fileSaveConnection: (connection: Connection, secret: string | null) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("file_save_connection", { connection, secret })),
 	/**  测试文件连接。 */
 	fileTestConnection: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_test_connection", { connectionId })),
@@ -516,6 +564,10 @@ export const commands = {
 	/**  "folder" | "document" */
 	nodeType?: string,
 	sortOrder?: number | null,
+	/**  关联资源类型："" / "ssh" / "database" / "docker" / "files"（v23 引入） */
+	resourceType?: string,
+	/**  关联资源 id（与 resource_type 配对使用，空字符串表示不关联） */
+	resourceId?: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_get", { id })),
 	/**  保存（新建或更新）知识条目。 */
 	knowledgeSave: (entry: KnowledgeEntry) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_save", { entry })),
@@ -528,47 +580,71 @@ export const commands = {
 	/**  递增使用次数。 */
 	knowledgeIncrementUsage: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_increment_usage", { id })),
 	/**  列出全部待办列表。 */
-	knowledgeTodoList: () => typedError<KnowledgeTodoList[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_list")),
+	knowledgeTodoList: () => typedError<KnowledgeTodoList_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_list")),
 	/**  保存（新建或更新）待办列表。 */
-	knowledgeTodoSave: (list: KnowledgeTodoList) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_save", { list })),
+	knowledgeTodoSave: (list: KnowledgeTodoList_Deserialize) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_save", { list })),
 	/**  删除待办列表。 */
 	knowledgeTodoDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_delete", { id })),
-	/** 列出个人待办列表 */
 	todoListList: () => typedError<TodoList[], OmniError_Serialize>(__TAURI_INVOKE("todo_list_list")),
-	/** 保存个人待办列表 */
 	todoListSave: (list: TodoList) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_list_save", { list })),
-	/** 删除个人待办列表 */
 	todoListDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_list_delete", { id })),
-	/** 按视图查询待办任务 */
 	todoTaskList: (query: TodoTaskQuery) => typedError<TodoTask[], OmniError_Serialize>(__TAURI_INVOKE("todo_task_list", { query })),
-	/** 获取待办任务（含步骤） */
-	todoTaskGet: (id: string) => typedError<TodoTask | null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_get", { id })),
-	/** 保存待办任务；replaceSteps=true 时同步步骤 */
+	todoTaskGet: (id: string) => typedError<{
+	id: string,
+	listId: string,
+	title: string,
+	note?: string,
+	important?: boolean,
+	/**  加入「我的一天」的日历日（YYYY-MM-DD）；非今日则智能列表不展示。 */
+	myDayOn?: string | null,
+	dueAt?: number | null,
+	remindAt?: number | null,
+	recurrence?: TodoRecurrence | null,
+	completed?: boolean,
+	completedAt?: number | null,
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+	/**  列表查询时填充；保存时可一并替换。 */
+	steps?: TodoStep[],
+	stepsTotal?: number | null,
+	stepsDone?: number | null,
+} | null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_get", { id })),
 	todoTaskSave: (task: TodoTask, replaceSteps: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_save", { task, replaceSteps })),
-	/** 删除待办任务 */
 	todoTaskDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_delete", { id })),
-	/** 保存待办步骤 */
 	todoStepSave: (step: TodoStep) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_step_save", { step })),
-	/** 删除待办步骤 */
 	todoStepDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_step_delete", { id })),
 	/**  从 PDF 文件导入知识文档（提取文本并保存为 document 条目）。 */
 	knowledgeImportPdf: (path: string, parentId: string | null) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_import_pdf", { path, parentId })),
-	/** 列出全局标签树 */
+	/**  列出全局标签树（扁平，含可选计数）。 */
 	tagListTree: (includeCounts: boolean | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_list_tree", { includeCounts })),
-	/** 仅列出已绑定到指定资源范围的标签（筛选面板用） */
+	/**  仅列出已绑定到指定资源范围的标签（筛选面板用；打标编辑仍走全局）。 */
 	tagListUsedBy: (includeCounts: boolean | null, resourceKinds: string[] | null, connectionKinds: string[] | null, extraResourceIds: string[] | null, includeAncestors: boolean | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_list_used_by", { includeCounts, resourceKinds, connectionKinds, extraResourceIds, includeAncestors })),
+	/**  创建标签。 */
 	tagCreate: (name: string, parentId: string | null, color: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_create", { name, parentId, color })),
+	/**  重命名标签。 */
 	tagRename: (id: string, name: string) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_rename", { id, name })),
+	/**  移动标签。 */
 	tagMove: (id: string, newParentId: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_move", { id, newParentId })),
+	/**  删除标签（可选级联子孙）。 */
 	tagDelete: (id: string, cascade: boolean | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("tag_delete", { id, cascade })),
+	/**  设置标签颜色。 */
 	tagSetColor: (id: string, color: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_set_color", { id, color })),
+	/**  列出资源上的标签。 */
 	resourceListTags: (kind: string, resourceId: string) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_tags", { kind, resourceId })),
+	/**  全量替换资源的用户标签。 */
 	resourceSetTags: (kind: string, resourceId: string, paths: string[]) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_set_tags", { kind, resourceId, paths })),
+	/**  为资源追加标签。 */
 	resourceAddTag: (kind: string, resourceId: string, path: string, source: string | null) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_add_tag", { kind, resourceId, path, source })),
+	/**  移除资源上的标签。 */
 	resourceRemoveTag: (kind: string, resourceId: string, tagId: string) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_remove_tag", { kind, resourceId, tagId })),
+	/**  写入系统键标签（如 os）。 */
 	resourceSetSystemTag: (kind: string, resourceId: string, key: string, value: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("resource_set_system_tag", { kind, resourceId, key, value })),
+	/**  按标签查询资源。 */
 	tagQueryResources: (tagIds: string[], mode: string | null, kinds: string[] | null, includeDescendants: boolean | null) => typedError<TaggedResourceSummary[], OmniError_Serialize>(__TAURI_INVOKE("tag_query_resources", { tagIds, mode, kinds, includeDescendants })),
+	/**  标签路径补全。 */
 	tagSuggest: (query: string, limit: number | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_suggest", { query, limit })),
+	/**  全局搜索（多源 + 标签过滤）。 */
 	searchEverywhere: (query: string, tagIds: string[] | null, mode: string | null, limit: number | null) => typedError<SearchEverywhereHit[], OmniError_Serialize>(__TAURI_INVOKE("search_everywhere", { query, tagIds, mode, limit })),
 	/**  列出文档历史版本。 */
 	knowledgeListRevisions: (entryId: string) => typedError<KnowledgeRevision[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_list_revisions", { entryId })),
@@ -580,8 +656,8 @@ export const commands = {
 	knowledgeAssetPath: (entryId: string, fileName: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("knowledge_asset_path", { entryId, fileName })),
 	/**  列出所有有观测记录的资源摘要（可按 resource_type 过滤）。 */
 	resourceListProfiles: (resourceType: string | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_profiles", { resourceType })),
-	/**  获取资源最新档案：每类 observation_kind 取最新一条。 */
-	resourceGetProfile: (resourceType: string, resourceId: string) => typedError<Record<string, unknown> | null, OmniError_Serialize>(__TAURI_INVOKE("resource_get_profile", { resourceType, resourceId })),
+	/**  获取资源最新档案：每类 observation_kind 取最新一条，组装为 JSON 对象。 */
+	resourceGetProfile: (resourceType: string, resourceId: string) => typedError<"Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: Value[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: Value } }) & { Array?: never; Bool?: never; Number?: never; String?: never } | null, OmniError_Serialize>(__TAURI_INVOKE("resource_get_profile", { resourceType, resourceId })),
 	/**  查找相似资源（基于指纹匹配，按相似度排序）。 */
 	resourceFindSimilar: (resourceType: string, resourceId: string, limit: number | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_find_similar", { resourceType, resourceId, limit })),
 	/**  清空资源的全部观测记录（重置档案）。 */
@@ -589,19 +665,28 @@ export const commands = {
 	/**  列出资源关联的 knowledge 条目（按更新时间倒序）。 */
 	resourceListKnowledge: (resourceType: string, resourceId: string) => typedError<KnowledgeEntry[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_knowledge", { resourceType, resourceId })),
 	/**  手动追加一条资源观测（observer=manual；如 kind=note 用于运维笔记）。 */
-	resourceSaveObservation: (resourceType: string, resourceId: string, observationKind: string, payload: Record<string, unknown>, observer: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("resource_save_observation", { resourceType, resourceId, observationKind, payload, observer })),
-	/**  采集 SSH 主机快照：hardware + services + topology 三类观测。 */
+	resourceSaveObservation: (resourceType: string, resourceId: string, observationKind: string, payload: "Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: Value[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: Value } }) & { Array?: never; Bool?: never; Number?: never; String?: never }, observer: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("resource_save_observation", { resourceType, resourceId, observationKind, payload, observer })),
+	/**
+	 *  采集 SSH 主机快照：hardware + services + topology 三类观测。
+	 * 
+	 *  依赖 SSH 连接池中已建立的会话（前端需先调用 `ssh_connect_connection` 建立会话）。
+	 *  任一子任务失败不影响其他子任务，错误汇总到 `errors` 字段。
+	 */
 	resourceCollectSshSnapshot: (resourceId: string) => typedError<ResourceSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("resource_collect_ssh_snapshot", { resourceId })),
-	/**  采集数据库快照：overview + schema_summary + users 三类观测。 */
+	/**
+	 *  采集数据库快照：overview + schema_summary + users 三类观测。
+	 * 
+	 *  直接通过 `omnipanel-db::connect` 建立一次性连接，不依赖 AppState 中的连接池
+	 *  （避免与正在执行的查询争抢资源；采集本身频率极低）。
+	 */
 	resourceCollectDatabaseSnapshot: (connectionName: string) => typedError<ResourceSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("resource_collect_database_snapshot", { connectionName })),
-	/**  Phase 5 子任务 3：计算某资源某 kind 最近两次观测的 diff。 */
-	resourceComputeObservationDiff: (resourceType: string, resourceId: string, observationKind: string) => typedError<Record<string, unknown>, OmniError_Serialize>(__TAURI_INVOKE("resource_compute_observation_diff", { resourceType, resourceId, observationKind })),
+	/**
+	 *  Phase 5 子任务 3：计算某资源某 kind 最近两次观测的 diff。
+	 *  供前端 UI 在快照面板上展示"自上次以来发生了什么变化"。
+	 */
+	resourceComputeObservationDiff: (resourceType: string, resourceId: string, observationKind: string) => typedError<"Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: Value[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: Value } }) & { Array?: never; Bool?: never; Number?: never; String?: never }, OmniError_Serialize>(__TAURI_INVOKE("resource_compute_observation_diff", { resourceType, resourceId, observationKind })),
 	/**  将知识条目分块并向量化存储（同步命令，供兼容调用）。 */
 	knowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<KnowledgeVectorizeResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vectorize", { args })),
-	/**  同步前端 embedding 配置到后端（Skill MCP 向量化 / 混合召回）。 */
-	embeddingProviderSync: (provider: EmbeddingProviderConfig) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_sync", { provider })),
-	/**  读取后端已同步的 embedding 配置。 */
-	embeddingProviderGet: () => typedError<EmbeddingProviderConfig | null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_get")),
 	/**  查询条目的向量化状态。 */
 	knowledgeVectorStatus: (entryId: string) => typedError<{
 	entryId: string,
@@ -615,6 +700,32 @@ export const commands = {
 	/**  对单篇文档执行向量召回测试，返回匹配文本块及相似度。 */
 	knowledgeRecallTest: (args: KnowledgeRecallTestArgs) => typedError<KnowledgeRecallHit[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_recall_test", { args })),
 	knowledgeQueryDocument: (args: KnowledgeQueryDocumentArgs) => typedError<KnowledgeQueryHit[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_query_document", { args })),
+	/**  同步前端 embedding 配置到 `~/.omnipd/ai/embedding_provider.json`，供 MCP Skill 向量化读取。 */
+	embeddingProviderSync: (provider: EmbeddingProviderConfig) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_sync", { provider })),
+	/**  读取后端已同步的 embedding 配置。 */
+	embeddingProviderGet: () => typedError<{
+	providerId: string,
+	modelName: string,
+	baseUrl: string,
+	apiKey: string,
+	apiStandard: string,
+} | null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_get")),
+	/**  探测本机本地运行时（Ollama + LM Studio）与硬件推荐。 */
+	localRuntimeProbe: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_probe")),
+	/**  强制刷新 ollama.com/library 缓存并返回最新推荐。 */
+	localRuntimeRefreshCatalog: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_refresh_catalog")),
+	/**  尝试启动已安装的 Ollama（`ollama serve` 后台）。 */
+	localRuntimeStartOllama: () => typedError<boolean, string>(__TAURI_INVOKE("local_runtime_start_ollama")),
+	/**  用户确认后安装 Ollama（兼容同步命令；进度走后台任务更佳）。 */
+	localRuntimeInstallOllama: () => typedError<LocalRuntimeInstallResult, string>(__TAURI_INVOKE("local_runtime_install_ollama")),
+	/**  拉取模型（兼容同步命令）。 */
+	localRuntimeOllamaPull: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_pull", { model })),
+	/**  删除本地 Ollama 模型。 */
+	localRuntimeOllamaDelete: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_delete", { model })),
+	/**  探测任意 OpenAI 兼容本地端点。 */
+	localRuntimeProbeOpenaiCompat: (baseUrl: string) => typedError<OpenAiCompatProbeResult, string>(__TAURI_INVOKE("local_runtime_probe_openai_compat", { baseUrl })),
+	/**  返回官方下载页 URL（供前端打开）。 */
+	localRuntimeOllamaDownloadUrl: () => typedError<string, string>(__TAURI_INVOKE("local_runtime_ollama_download_url")),
 	/**  列出所有工作流。 */
 	workflowList: () => typedError<Workflow[], OmniError_Serialize>(__TAURI_INVOKE("workflow_list")),
 	/**  按 id 获取工作流详情（含步骤）。 */
@@ -731,67 +842,90 @@ export const commands = {
 	webSearchJinaKeyConfigured: () => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("web_search_jina_key_configured")),
 	webSearchTestBackend: (backend: string) => typedError<WebSearchTestResultDto, OmniError_Serialize>(__TAURI_INVOKE("web_search_test_backend", { backend })),
 	webSearchTestFetch: (url: string) => typedError<WebFetchTestResultDto, OmniError_Serialize>(__TAURI_INVOKE("web_search_test_fetch", { url })),
-	// Auth (WeChat QR login)
+	/**  读取本机设备身份（用于列表「本机」标记）。 */
 	authDeviceIdentity: () => typedError<AuthDeviceIdentity, OmniError_Serialize>(__TAURI_INVOKE("auth_device_identity")),
+	/**  获取当前用户设备列表。 */
 	authListDevices: (token: string) => typedError<AuthDevice[], OmniError_Serialize>(__TAURI_INVOKE("auth_list_devices", { token })),
+	/**  删除已授权设备（DELETE /api/devices/{device_id}）。 */
 	authDeleteDevice: (token: string, deviceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId })),
+	/**  获取当前用户信息（GET /api/me）。 */
 	authGetMe: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_get_me", { token })),
+	/**  更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空。 */
 	authUpdateProfile: (token: string, nickname: string | null, avatarUrl: string | null) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_update_profile", { token, nickname, avatarUrl })),
+	/**  获取微信扫码登录二维码。 */
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
+	/**  获取侧栏小程序 / H5 公开二维码图片地址。 */
+	authPublicQrcodes: () => typedError<AuthPublicQrcodes, OmniError_Serialize>(__TAURI_INVOKE("auth_public_qrcodes")),
+	/**  刷新设备在线 presence（POST /api/presence）。 */
+	authPresence: (token: string) => typedError<AuthPresenceResult, OmniError_Serialize>(__TAURI_INVOKE("auth_presence", { token })),
+	/**  登出当前会话（POST /api/logout），服务端会立刻清除 presence。 */
+	authLogout: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_logout", { token })),
+	/**  通过后端代理 SSE，等待扫码登录成功。 */
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
+	/**  取消进行中的登录等待（刷新二维码 / 关闭面板时调用）。 */
 	authLoginCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_cancel_wait", { loginId })),
-	/** 发送邮箱登录验证码（POST /api/login/email/send）。 */
+	/**  发送邮箱登录验证码（POST /api/login/email/send）。 */
 	authLoginEmailSend: (email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email_send", { email })),
-	/** 邮箱验证码登录（POST /api/login/email）。 */
+	/**  邮箱验证码登录（POST /api/login/email）。 */
 	authLoginEmail: (email: string, code: string) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email", { email, code })),
-	/** GitHub OAuth：系统浏览器授权，本机回环接收 token。 */
+	/**  GitHub OAuth 登录：系统浏览器授权，本机回环接收 `?token=`。 */
 	authLoginGithub: () => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github")),
-	/** 取消 GitHub 登录等待。 */
+	/**  取消进行中的 GitHub 登录等待。 */
 	authLoginGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github_cancel")),
-	/** 查询账号绑定状态（GET /api/account/links）。 */
+	/**  查询账号绑定状态（GET /api/account/links）。 */
 	authAccountLinks: (token: string) => typedError<AuthAccountLinks, OmniError_Serialize>(__TAURI_INVOKE("auth_account_links", { token })),
-	/** 创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。 */
+	/**  创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。 */
 	authLinkWechatQrcode: (token: string) => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_qrcode", { token })),
-	/** SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）。 */
+	/**  SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）。 */
 	authLinkWechatWait: (token: string, loginId: string, expireInSec: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_wait", { token, loginId, expireInSec })),
-	/** 取消微信绑定等待。 */
+	/**  取消微信绑定等待。 */
 	authLinkWechatCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_cancel_wait", { loginId })),
-	/** 发送邮箱绑定验证码（POST /api/account/links/email/send）。 */
+	/**  发送邮箱绑定验证码。 */
 	authLinkEmailSend: (token: string, email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email_send", { token, email })),
-	/** 邮箱验证码绑定（POST /api/account/links/email）。 */
+	/**  邮箱验证码绑定。 */
 	authLinkEmail: (token: string, email: string, code: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email", { token, email, code })),
-	/** GitHub OAuth 绑定：系统浏览器授权并轮询绑定状态。 */
+	/**  GitHub OAuth 绑定：系统浏览器授权，轮询 `/api/account/links` 直到绑定成功。 */
 	authLinkGithub: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github", { token })),
-	/** 取消 GitHub 绑定等待。 */
+	/**  取消进行中的 GitHub 绑定等待。 */
 	authLinkGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github_cancel")),
-	/** 解绑微信（DELETE /api/account/links/wechat）。 */
+	/**  解绑微信（DELETE /api/account/links/wechat）。 */
 	authUnlinkWechat: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_wechat", { token })),
-	/** 解绑 GitHub（DELETE /api/account/links/github）。 */
+	/**  解绑 GitHub（DELETE /api/account/links/github）。 */
 	authUnlinkGithub: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_github", { token })),
-	/** 解绑邮箱（DELETE /api/account/links/email）。 */
+	/**  解绑邮箱（DELETE /api/account/links/email）。 */
 	authUnlinkEmail: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_email", { token })),
+	/**  申请绑定助手端二维码 payload（客户端本地画码，非微信小程序码）。 */
 	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
+	/**  通过后端代理 SSE，等待小程序扫码确认绑定（事件 `bound`）。 */
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
+	/**  取消进行中的绑定等待（刷新二维码 / 关闭弹窗时调用）。 */
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
-	/** 推送客户端元数据快照到 OSS（dryRun=true 时只组装不上传）。手动同步自 commands/assistant.rs */
+	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
-	/** 使用助手 STS 上传文本到 OSS（聊天记录分片）。手动同步自 commands/assistant.rs */
+	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
 	assistantUploadOssText: (request: AssistantUploadTextRequest) => typedError<AssistantUploadTextResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_upload_oss_text", { request })),
-	/** 读取助手→客户端聊天 latest 索引。手动同步自 commands/assistant_chat.rs */
-	assistantChatLatest: (token: string) => typedError<ChatLatestIndex | null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_latest", { token })),
-	/** 按 object key 拉取助手聊天 OSS 正文。手动同步自 commands/assistant_chat.rs */
+	/**  读取最近一条聊天索引（无则 `null`）。 */
+	assistantChatLatest: (token: string) => typedError<{
+	userId: string,
+	objectKey: string,
+	ossPath: string,
+	messageId: string,
+	createdAt: string,
+	publishedAt: string,
+} | null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_latest", { token })),
+	/**  按 object key 拉取 OSS 正文并解析为可展示文本。 */
 	assistantChatFetchObject: (token: string, objectKey: string) => typedError<AssistantChatInboundEvent, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_fetch_object", { token, objectKey })),
-	/** 启动助手聊天收件箱（latest + SSE）。手动同步自 commands/assistant_chat.rs */
+	/**  启动收件箱：先拉 latest，再挂 SSE `/api/assistant/chat/wait`；新消息经 App Event 推送。 */
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
-	/** 停止助手聊天收件箱。手动同步自 commands/assistant_chat.rs */
+	/**  停止收件箱 SSE 循环。 */
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
-	/** 推送本机 AI 会话快照（sync/{userId}/devices/{deviceId}/…）。手动同步自 commands/client_sync.rs */
+	/**  推送本机 AI 会话快照到 `sync/{userId}/devices/{deviceId}/ai-conversations/latest.json`。 */
 	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
-	/** 推送本机各业务模块快照。手动同步自 commands/client_sync_modules.rs */
+	/**  推送本机模块快照到 `sync/{userId}/devices/{deviceId}/modules/latest.json`。 */
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
-	/** 预览其它设备可同步条目。手动同步自 commands/client_sync_modules.rs */
+	/**  预览其它设备可同步数据（不含正文大字段以外的列表元数据）。 */
 	clientSyncPeekDevice: (request: ClientSyncPeekRequest) => typedError<ClientSyncPeekResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_peek_device", { request })),
-	/** 从其它设备导入勾选数据。手动同步自 commands/client_sync_modules.rs */
+	/**  从其它设备导入勾选的数据到本机。 */
 	clientSyncImportFromDevice: (request: ClientSyncImportRequest) => typedError<ClientSyncImportResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_import_from_device", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
@@ -807,23 +941,56 @@ export const commands = {
 	skillRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("skill_remove", { id })),
 	skillSetEnabled: (id: string, enabled: boolean) => typedError<SkillRecord, string>(__TAURI_INVOKE("skill_set_enabled", { id, enabled })),
 	skillImport: (sourcePath: string) => typedError<SkillRecord, string>(__TAURI_INVOKE("skill_import", { sourcePath })),
-	/** 获取 skill 的 DB 元数据（版本、统计、parent_version_id 等）。 */
-	skillGetDb: (id: string) => typedError<SkillDbRecord | null, string>(__TAURI_INVOKE("skill_get_db", { id })),
-	/** 列出所有 skill 的 DB 元数据（含统计）。 */
+	/**
+	 *  获取 skill 的 DB 元数据（版本、统计、parent_version_id 等）。
+	 *  如果文件层 skill 存在但 DB 记录缺失，会先懒同步创建 v1 记录。
+	 */
+	skillGetDb: (id: string) => typedError<{
+	id: string,
+	name: string,
+	description: string,
+	enabled: boolean,
+	version: number | null,
+	/**  上一版本 id（版本链）；空字符串表示初版 */
+	parentVersionId: string,
+	path: string,
+	successCount: number | null,
+	failureCount: number | null,
+	/**  最近一次应用时间（毫秒）；null 表示从未应用 */
+	lastAppliedAt?: number | null,
+	shareable: boolean,
+	createdAt: number | null,
+	updatedAt: number | null,
+} | null, string>(__TAURI_INVOKE("skill_get_db", { id })),
+	/**
+	 *  列出所有 skill 的 DB 元数据（含统计）。
+	 *  如果文件层 skill 存在但 DB 记录缺失，会先懒同步创建 v1 记录。
+	 */
 	skillListDb: () => typedError<SkillDbRecord[], string>(__TAURI_INVOKE("skill_list_db")),
-	/** 获取 skill 的版本链（从当前 id 向前追溯 parent_version_id，最多 50 层）。 */
+	/**  获取 skill 的版本链（从当前 id 向前追溯 parent_version_id，最多 50 层）。 */
 	skillGetVersionChain: (id: string) => typedError<SkillVersionChainEntry[], string>(__TAURI_INVOKE("skill_get_version_chain", { id })),
-	/** 列出 skill 的应用历史（按时间倒序，可限制条数，默认 20）。 */
+	/**  列出 skill 的应用历史（按时间倒序，可限制条数，默认 20）。 */
 	skillListApplications: (id: string, limit: number | null) => typedError<SkillApplication[], string>(__TAURI_INVOKE("skill_list_applications", { id, limit })),
-	/** 更新 skill 应用记录的 outcome（success/failure/partial）+ feedback。 */
+	/**
+	 *  更新 skill 应用记录的 outcome（success/failure/partial）+ feedback。
+	 *  供 UI 在用户标记应用结果后调用；调用后会自动重算对应 skill 的统计字段。
+	 */
 	skillUpdateApplicationOutcome: (applicationId: string, outcome: string, feedback: string | null) => typedError<null, string>(__TAURI_INVOKE("skill_update_application_outcome", { applicationId, outcome, feedback })),
-	/** 对全部已启用 skill 批量向量化（设置页「重建索引」）。 */
+	/**  将单个 skill 分块向量化写入 skill_chunks。 */
+	skillVectorize: (args: SkillVectorizeArgs) => typedError<SkillVectorizeResult, string>(__TAURI_INVOKE("skill_vectorize", { args })),
+	/**  查询 skill 向量化状态。 */
+	skillVectorStatus: (skillId: string) => typedError<{
+	skillId: string,
+	chunkCount: number | null,
+	embeddedAt: number | null,
+} | null, string>(__TAURI_INVOKE("skill_vector_status", { skillId })),
+	/**  对全部已启用 skill 批量向量化（设置页「重建索引」）。 */
 	skillVectorizeAll: (provider: EmbeddingProviderConfig) => typedError<SkillVectorizeResult[], string>(__TAURI_INVOKE("skill_vectorize_all", { provider })),
-	/** 列出智能体提示词（~/.omnipd/prompts）。 */
+	/**  列出全部可配置提示词。 */
 	agentPromptList: () => typedError<AgentPromptEntry[], string>(__TAURI_INVOKE("agent_prompt_list")),
-	/** 保存智能体提示词。 */
+	/**  保存提示词正文。 */
 	agentPromptSave: (id: string, content: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_save", { id, content })),
-	/** 恢复内置默认提示词。 */
+	/**  恢复内置默认提示词。 */
 	agentPromptReset: (id: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_reset", { id })),
 	providerRegistryLoad: () => typedError<ProvidersFile, string>(__TAURI_INVOKE("provider_registry_load")),
 	providerRegistrySave: (file: ProvidersFile) => typedError<null, string>(__TAURI_INVOKE("provider_registry_save", { file })),
@@ -846,8 +1013,11 @@ export const commands = {
 	aiListBackends: () => typedError<BackendInfo[], string>(__TAURI_INVOKE("ai_list_backends")),
 	aiListSessions: (source: string | null) => typedError<AiSessionRecord[], string>(__TAURI_INVOKE("ai_list_sessions", { source })),
 	aiListSessionTraces: (sessionId: string) => typedError<AiTraceRecord[], string>(__TAURI_INVOKE("ai_list_session_traces", { sessionId })),
+	/**  读取最近的内置工具审计记录（任务中心 History tab 使用）。 */
 	builtinToolAuditList: (limit: number | null) => typedError<BuiltinToolAuditRecord[], string>(__TAURI_INVOKE("builtin_tool_audit_list", { limit })),
+	/**  读取最近的全局审计日志（任务中心 History tab 使用）。 */
 	auditLogRecent: (limit: number | null) => typedError<AuditEntry[], string>(__TAURI_INVOKE("audit_log_recent", { limit })),
+	/**  追加一条全局审计日志（AI 工具审批通过后写入）。 */
 	auditLogAppend: (entry: AuditEntry) => typedError<null, string>(__TAURI_INVOKE("audit_log_append", { entry })),
 	/**
 	 *  应用前端 Agent Router（Gateway）配置：停旧实例并按开关/端口/Key/LAN 重启。
@@ -859,15 +1029,6 @@ export const commands = {
 	thirdPartyAccountList: () => typedError<ThirdPartyAccount[], string>(__TAURI_INVOKE("third_party_account_list")),
 	thirdPartyAccountUpsert: (input: UpsertThirdPartyAccountInput) => typedError<ThirdPartyAccount, string>(__TAURI_INVOKE("third_party_account_upsert", { input })),
 	thirdPartyAccountDelete: (id: string) => typedError<null, string>(__TAURI_INVOKE("third_party_account_delete", { id })),
-	// Local runtime (Ollama / LM Studio) — manually synced from src-tauri commands/local_runtime.rs
-	localRuntimeProbe: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_probe")),
-	localRuntimeRefreshCatalog: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_refresh_catalog")),
-	localRuntimeStartOllama: () => typedError<boolean, string>(__TAURI_INVOKE("local_runtime_start_ollama")),
-	localRuntimeInstallOllama: () => typedError<LocalRuntimeInstallResult, string>(__TAURI_INVOKE("local_runtime_install_ollama")),
-	localRuntimeOllamaPull: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_pull", { model })),
-	localRuntimeOllamaDelete: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_delete", { model })),
-	localRuntimeProbeOpenaiCompat: (baseUrl: string) => typedError<OpenAiCompatProbeResult, string>(__TAURI_INVOKE("local_runtime_probe_openai_compat", { baseUrl })),
-	localRuntimeOllamaDownloadUrl: () => typedError<string, string>(__TAURI_INVOKE("local_runtime_ollama_download_url")),
 };
 
 /* Types */
@@ -904,322 +1065,6 @@ export type ActionRequest = {
 	cwd?: string | null,
 };
 
-/**  微信扫码登录二维码（GET /api/login/qrcode）。 */
-export type AuthLoginQrcode = {
-	loginId: string,
-	scene: string,
-	ticket: string,
-	qrcodeUrl: string,
-	expireInSec: number,
-};
-
-/**  微信扫码登录成功（SSE login 事件载荷）。 */
-export type AuthLoginSuccess = {
-	token: string,
-	openid: string,
-};
-
-/** 邮箱验证码发送结果（开发模式可能直接返回 code）。 */
-export type AuthEmailCodeSent = {
-	email: string,
-	code: string,
-	expireInSec: number,
-	hint: string,
-};
-
-/** 单项账号绑定状态。 */
-export type AuthAccountLinkStatus = {
-	bound: boolean,
-	openid: string,
-	githubId: string,
-	email: string,
-};
-
-/** 账号绑定状态汇总（GET /api/account/links）。 */
-export type AuthAccountLinks = {
-	wechat: AuthAccountLinkStatus,
-	github: AuthAccountLinkStatus,
-	email: AuthAccountLinkStatus,
-};
-
-/**  本机设备身份（登录上报与「本机」标记共用）。 */
-export type AuthDeviceIdentity = {
-	deviceId: string,
-	deviceName: string,
-	osType: string,
-};
-
-	/**  已授权设备列表条目。 */
-	export type AuthDevice = {
-		id: number,
-		deviceId: string,
-		deviceName: string,
-		osType: string,
-		ip: string,
-		lastLoginAt: string,
-		userAgent: string,
-		createdAt: string,
-		updatedAt: string,
-		role: string,
-		appId: string,
-	};
-
-	/**  绑定助手端二维码 payload（客户端本地画码）。 */
-	export type AuthBindingsQrcode = {
-		bindId: string,
-		qrPayload: string,
-		expireInSec: number,
-	};
-
-	/**  绑定助手端成功。 */
-	export type AuthBindingsBound = {
-		bindId: string,
-	};
-
-/** 助手端快照推送请求（手动同步自 commands/assistant.rs）。 */
-export type AssistantConversationSnapshotItem = {
-	id: string,
-	title: string,
-	provider: string,
-	model: string,
-	modelSelectionId: string | null,
-	agentId: string | null,
-	messageCount: number,
-	createdAt: number,
-	updatedAt: number,
-	parentConversationId: string | null,
-	rootConversationId: string | null,
-	pinnedWorkspaceId: string | null,
-	linkedTerminalSessionId: string | null,
-};
-
-export type AssistantPushRequest = {
-	token: string,
-	dryRun: boolean,
-	bindId: string | null,
-	/** AI 会话列表元数据（不含消息正文）；缺省为空数组 */
-	conversations: AssistantConversationSnapshotItem[],
-};
-
-/** 助手端快照推送结果（手动同步自 omnipanel-assistant PushSnapshotResult）。 */
-export type PushSnapshotResult = {
-	/** 概览文件 object key（对外主入口） */
-	objectKey: string,
-	etag: string | null,
-	bytes: number,
-	/** 1 overview + 各模块列表文件 */
-	fileCount: number,
-	generatedAt: string,
-	dryRun: boolean,
-};
-
-/** 助手端聊天文本上传请求（手动同步自 commands/assistant.rs）。 */
-export type AssistantUploadTextRequest = {
-	token: string,
-	objectKey: string,
-	contents: string,
-};
-
-/** 助手端聊天文本上传结果（手动同步自 commands/assistant.rs）。 */
-export type AssistantUploadTextResult = {
-	objectKey: string,
-	etag: string | null,
-	bytes: number,
-};
-
-/** 客户端间会话同步推送请求（手动同步自 commands/client_sync.rs）。 */
-export type ClientSyncPushConversationsRequest = {
-	token: string,
-	bodyJson: string,
-};
-
-/** 客户端间会话同步推送结果（手动同步自 commands/client_sync.rs）。 */
-export type ClientSyncPushConversationsResult = {
-	objectKey: string,
-	etag: string | null,
-	bytes: number,
-};
-
-/** 客户端间模块 tombstone（手动同步自 commands/client_sync_modules.rs）。 */
-export type ClientSyncTombstoneDto = {
-	id: string,
-	deletedAt: number,
-};
-
-/** 客户端间模块推送请求。 */
-export type ClientSyncPushModulesRequest = {
-	token: string,
-	workspacesJson: string | null,
-	deletedConnections: ClientSyncTombstoneDto[],
-	deletedDatabases: ClientSyncTombstoneDto[],
-	deletedKnowledge: ClientSyncTombstoneDto[],
-	deletedHttpRequests: ClientSyncTombstoneDto[],
-	deletedHttpCollections: ClientSyncTombstoneDto[],
-	deletedHttpEnvironments: ClientSyncTombstoneDto[],
-	deletedWorkspaces: ClientSyncTombstoneDto[],
-};
-
-export type ClientSyncPushModulesResult = {
-	objectKey: string,
-	etag: string | null,
-	bytes: number,
-};
-
-export type ClientSyncPeekItem = {
-	id: string,
-	label: string,
-	detail: string,
-	updatedAt: number,
-	/** 树形父节点 id；空表示根级。连接分组为 `__group__:{name}`。 */
-	parentId: string,
-	/** `folder` | `item` */
-	kind: string,
-};
-
-export type ClientSyncPeekRequest = {
-	token: string,
-	deviceId: string,
-};
-
-export type ClientSyncPeekResult = {
-	deviceId: string,
-	modulesFound: boolean,
-	conversationsFound: boolean,
-	modulesUpdatedAt: number,
-	conversationsUpdatedAt: number,
-	connections: ClientSyncPeekItem[],
-	databases: ClientSyncPeekItem[],
-	knowledge: ClientSyncPeekItem[],
-	httpRequests: ClientSyncPeekItem[],
-	httpCollections: ClientSyncPeekItem[],
-	workspaces: ClientSyncPeekItem[],
-	conversations: ClientSyncPeekItem[],
-};
-
-export type ClientSyncImportSelection = {
-	connectionIds: string[],
-	databaseIds: string[],
-	knowledgeIds: string[],
-	httpRequestIds: string[],
-	httpCollectionIds: string[],
-	workspaceIds: string[],
-	conversationIds: string[],
-};
-
-export type ClientSyncImportRequest = {
-	token: string,
-	deviceId: string,
-	selection: ClientSyncImportSelection,
-};
-
-export type ClientSyncImportResult = {
-	appliedConnections: number,
-	appliedDatabases: number,
-	appliedKnowledge: number,
-	appliedHttpRequests: number,
-	appliedWorkspaces: number,
-	workspacesJson: string | null,
-	conversationsJson: string | null,
-};
-
-/** 助手→客户端聊天 latest 索引（手动同步自 omnipanel-assistant ChatLatestIndex）。 */
-export type ChatLatestIndex = {
-	userId: string,
-	objectKey: string,
-	ossPath: string,
-	messageId: string,
-	createdAt: string,
-	publishedAt: string,
-};
-
-/** 助手→客户端聊天入站事件（手动同步自 commands/assistant_chat.rs）。 */
-export type AssistantChatInboundEvent = {
-	messageId: string,
-	objectKey: string,
-	createdAt: string,
-	text: string,
-};
-
-/**  当前用户资料（GET/PATCH /api/me）。 */
-export type AuthUserProfile = {
-	id: number,
-	openid: string,
-	nickname: string,
-	avatarUrl: string,
-	email: string,
-	githubId: string,
-	/**
-	 * 对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。
-	 */
-	ossPath: string
-};
-
-/* Local runtime types — manually synced from src-tauri commands/local_runtime.rs + ollama_recommend.rs */
-export type LocalRuntimeStatus = "not_installed" | "installed_not_running" | "running";
-
-export type LocalModelInfo = {
-	name: string,
-	sizeBytes: number,
-	digest: string,
-	family: string,
-};
-
-export type OllamaProbeResult = {
-	status: LocalRuntimeStatus,
-	endpoint: string,
-	openaiBaseUrl: string,
-	version: string | null,
-	cliPath: string | null,
-	models: LocalModelInfo[],
-	error: string | null,
-};
-
-export type OpenAiCompatProbeResult = {
-	reachable: boolean,
-	endpoint: string,
-	models: string[],
-	error: string | null,
-};
-
-export type LocalHardwareInfo = {
-	totalMemoryMb: number,
-	vramMb: number,
-	hasDiscreteGpu: boolean,
-	gpuName: string | null,
-	hardwareTier: string,
-	quantPref: string,
-	maxParamB: number,
-};
-
-export type RecommendedModel = {
-	name: string,
-	scenario: string,
-	kind: string,
-	approxSizeGb: number,
-	description: string,
-	tier: string,
-	quantHint: string,
-	pulls: number | null,
-	fromLibrary: boolean,
-};
-
-export type LocalRuntimeProbeResult = {
-	ollama: OllamaProbeResult,
-	lmStudio: OpenAiCompatProbeResult,
-	hardware: LocalHardwareInfo,
-	totalMemoryMb: number,
-	hardwareTier: string,
-	recommendedModels: RecommendedModel[],
-	catalogSource: string,
-};
-
-export type LocalRuntimeInstallResult = {
-	method: string,
-	started: boolean,
-	message: string,
-	manualUrl: string,
-};
-
 export type AgentInstallStatus = {
 	kind: AgentKind,
 	installed: boolean,
@@ -1229,6 +1074,15 @@ export type AgentInstallStatus = {
 };
 
 export type AgentKind = "omniagent" | "cursor" | "opencode" | "qwen";
+
+/**  提示词条目（设置页编辑）。 */
+export type AgentPromptEntry = {
+	/**  Agent id，如 `plan` / `terminal`；协议层为 `system-prompt.md` */
+	id: string,
+	content: string,
+	/**  用户目录绝对路径 */
+	path: string,
+};
 
 /**
  *  AI 提供商配置。前端 camelCase 字段名（providerName / baseUrl / ...），
@@ -1313,28 +1167,6 @@ export type AiTraceRecord = {
 	ts: number | null,
 };
 
-/** 内置工具审计记录（对应 builtin_tool_audit 表） */
-export type BuiltinToolAuditRecord = {
-	id: number,
-	source: string,
-	toolName: string,
-	durationMs: number,
-	success: boolean,
-	detail: string,
-	ts: number,
-};
-
-/** 全局审计日志条目（对应 audit_log 表） */
-export type AuditEntry = {
-	ts: number,
-	action: string,
-	target: string,
-	envTag: string,
-	risk: string,
-	status: string,
-	detail: string,
-};
-
 /**  接口 /models 返回的单条模型元数据。 */
 export type ApiModelMeta = ApiModelMeta_Serialize | ApiModelMeta_Deserialize;
 
@@ -1362,6 +1194,198 @@ export type AppModule = {
 /**  模块运行状态。 */
 export type AppModuleStatus = "open" | "closed" | "disabled";
 
+/**  单个压缩包条目 */
+export type ArchiveEntry = {
+	/**  条目相对路径（含目录层级） */
+	name: string,
+	/**  解压后字节数（无法解析时为 0） */
+	size: number | null,
+	/**  修改时间 Unix 秒（无法解析时为 null） */
+	modified: number | null,
+	/**  是否为目录 */
+	isDir: boolean,
+};
+
+/**  列压缩包条目结果 */
+export type ArchiveListResult = {
+	entries: ArchiveEntry[],
+	/**  检测到的格式：zip / tar / tar.gz / tar.bz2 / tar.xz / tar.zst / 7z / rar */
+	format: string,
+	/**  解压后总字节数 */
+	totalUncompressed: number | null,
+	/**  远端工具缺失时返回提示（如 "unzip"），前端可调 ssh_pool_install_archive_tool */
+	toolMissing: string | null,
+};
+
+/**  单个安装工具结果 */
+export type ArchiveToolInstallResult = {
+	/**  工具二进制名：unzip / 7z / unrar / zstd / tar */
+	tool: string,
+	installed: boolean,
+	/**  安装输出（成功或失败原因） */
+	message: string,
+};
+
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+export type AssistantChatInboundEvent = {
+	messageId: string,
+	objectKey: string,
+	createdAt: string,
+	text: string,
+};
+
+export type AssistantConversationSnapshotItem = {
+	id: string,
+	title: string,
+	provider: string,
+	model: string,
+	modelSelectionId?: string | null,
+	agentId?: string | null,
+	messageCount?: number,
+	createdAt: number | null,
+	updatedAt: number | null,
+	parentConversationId?: string | null,
+	rootConversationId?: string | null,
+	pinnedWorkspaceId?: string | null,
+	linkedTerminalSessionId?: string | null,
+};
+
+export type AssistantPushRequest = {
+	token: string,
+	dryRun?: boolean,
+	bindId?: string | null,
+	/**  前端注入的 AI 会话列表元数据（不含消息正文）。 */
+	conversations?: AssistantConversationSnapshotItem[],
+};
+
+export type AssistantUploadTextRequest = {
+	token: string,
+	/**  OSS object key，如 `omniminiapp/agent_chat_message/.../0.txt`（会去掉桶名前缀）。 */
+	objectKey: string,
+	contents: string,
+};
+
+export type AssistantUploadTextResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number | null,
+};
+
+/**  审计日志条目。所有高风险操作经执行引擎写入此表。 */
+export type AuditEntry = {
+	/**  Unix 毫秒时间戳 */
+	ts: number | null,
+	/**  动作类型（如 terminal.exec / ssh.connect / db.query） */
+	action: string,
+	/**  操作目标（连接 id、命令摘要等） */
+	target: string,
+	/**  环境标签 dev/test/staging/prod */
+	env_tag: string,
+	/**  风险等级 low/medium/high/critical */
+	risk: string,
+	/**  结果状态 success/failed/blocked 等 */
+	status: string,
+	/**  附加明细 */
+	detail: string,
+};
+
+/**  单项账号绑定状态。 */
+export type AuthAccountLinkStatus = {
+	bound: boolean,
+	openid?: string,
+	githubId?: string,
+	email?: string,
+};
+
+/**  账号绑定状态汇总（GET /api/account/links）。 */
+export type AuthAccountLinks = {
+	wechat: AuthAccountLinkStatus,
+	github: AuthAccountLinkStatus,
+	email: AuthAccountLinkStatus,
+};
+
+export type AuthBindingsBound = {
+	bindId: string,
+};
+
+/**  绑定助手端：本地画码用的 payload（非微信小程序码）。 */
+export type AuthBindingsQrcode = {
+	bindId: string,
+	qrPayload: string,
+	expireInSec: number,
+};
+
+export type AuthDevice = {
+	id: number | null,
+	deviceId: string,
+	deviceName: string,
+	osType: string,
+	ip: string,
+	lastLoginAt: string,
+	userAgent: string,
+	createdAt: string,
+	updatedAt: string,
+	/**  `client` | `assistant` */
+	role: string,
+	appId: string,
+	/**  Redis presence TTL 判定的实时在线状态 */
+	online: boolean,
+};
+
+/**  本机设备身份（登录上报与「本机」标记共用）。 */
+export type AuthDeviceIdentity = {
+	deviceId: string,
+	deviceName: string,
+	osType: string,
+};
+
+/**  邮箱验证码发送结果（开发模式可能直接返回 `code`）。 */
+export type AuthEmailCodeSent = {
+	email: string,
+	code: string,
+	expireInSec: number,
+	hint: string,
+};
+
+export type AuthLoginQrcode = {
+	loginId: string,
+	scene: string,
+	ticket: string,
+	qrcodeUrl: string,
+	expireInSec: number,
+};
+
+export type AuthLoginSuccess = {
+	token: string,
+	openid: string,
+};
+
+/**  设备在线心跳结果（POST /api/presence）。 */
+export type AuthPresenceResult = {
+	ok: boolean,
+	ttlSec: number | null,
+};
+
+/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
+export type AuthPublicQrcodes = {
+	miniappUrl: string,
+	h5Url: string,
+};
+
+/**  当前用户资料（GET/PATCH /api/me）。 */
+export type AuthUserProfile = {
+	id: number | null,
+	openid: string,
+	nickname: string,
+	/**  对应接口字段 `avatar_url`。 */
+	avatarUrl: string,
+	email: string,
+	/**  对应接口字段 `github_id`。 */
+	githubId: string,
+	/**  对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。 */
+	ossPath?: string,
+};
+
 export type BackendInfo = {
 	id: string,
 	label: string,
@@ -1370,39 +1394,6 @@ export type BackendInfo = {
 };
 
 export type BackgroundTaskInfo = BackgroundTaskInfo_Serialize | BackgroundTaskInfo_Deserialize;
-
-export type BgTaskHistoryRecord = {
-	id: string,
-	module: string,
-	kind: string,
-	title: string,
-	progress: string,
-	/**  pending/running/completed/failed/cancelled */
-	status: string,
-	index: number,
-	total: number,
-	rowCompleted: number | null,
-	rowTotal: number | null,
-	startedAt: number,
-	finishedAt?: number | null,
-	error?: string | null,
-};
-
-export type TaskEventRecord = {
-	id: string,
-	/**  bg_task | workflow | loop | approval | other */
-	source: string,
-	refId: string,
-	module: string,
-	workspaceId: string | null,
-	resourceId: string | null,
-	title: string,
-	status: string,
-	envTag: string,
-	risk: string,
-	ts: number,
-	detail: string,
-};
 
 export type BackgroundTaskInfo_Deserialize = {
 	id: string,
@@ -1442,6 +1433,56 @@ export type BackgroundTaskInfo_Serialize = {
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
+/**  被动后台任务终态历史（与 WorkerPool `BackgroundTaskInfo` 字段对齐）。 */
+export type BgTaskHistoryRecord = BgTaskHistoryRecord_Serialize | BgTaskHistoryRecord_Deserialize;
+
+/**  被动后台任务终态历史（与 WorkerPool `BackgroundTaskInfo` 字段对齐）。 */
+export type BgTaskHistoryRecord_Deserialize = {
+	id: string,
+	module: string,
+	kind: string,
+	title: string,
+	progress: string,
+	/**  pending/running/completed/failed/cancelled */
+	status: string,
+	index: number,
+	total: number,
+	rowCompleted: number | null,
+	rowTotal: number | null,
+	startedAt: number | null,
+	finishedAt: number | null,
+	error: string | null,
+};
+
+/**  被动后台任务终态历史（与 WorkerPool `BackgroundTaskInfo` 字段对齐）。 */
+export type BgTaskHistoryRecord_Serialize = {
+	id: string,
+	module: string,
+	kind: string,
+	title: string,
+	progress: string,
+	/**  pending/running/completed/failed/cancelled */
+	status: string,
+	index: number,
+	total: number,
+	rowCompleted: number | null,
+	rowTotal: number | null,
+	startedAt: number | null,
+	finishedAt?: number | null,
+	error?: string | null,
+};
+
+/**  内置工具审计记录（对应 builtin_tool_audit 表） */
+export type BuiltinToolAuditRecord = {
+	id: number | null,
+	source: string,
+	toolName: string,
+	durationMs: number | null,
+	success: boolean,
+	detail: string,
+	ts: number | null,
+};
+
 /**  从前端目录同步时的输入（不覆盖用户已设置的 enabled）。 */
 export type BuiltinToolCatalogEntry = {
 	tool_name: string,
@@ -1470,6 +1511,58 @@ export type CaptureStats = {
 	running: boolean,
 	packetCount: number | null,
 	startedAt: string,
+};
+
+/**
+ *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
+ * 
+ *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
+ */
+export type ChatLatestIndex = ChatLatestIndex_Serialize | ChatLatestIndex_Deserialize;
+
+/**
+ *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
+ * 
+ *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
+ */
+export type ChatLatestIndex_Deserialize = {
+	userId?: string,
+} | {
+	user_id?: string,
+} & {
+	objectKey: string,
+} | {
+	object_key: string,
+} & {
+	ossPath?: string,
+} | {
+	oss_path?: string,
+} & {
+	messageId?: string,
+} | {
+	message_id?: string,
+} & {
+	createdAt?: string,
+} | {
+	created_at?: string,
+} & {
+	publishedAt?: string,
+} | {
+	published_at?: string,
+};
+
+/**
+ *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
+ * 
+ *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
+ */
+export type ChatLatestIndex_Serialize = {
+	userId: string,
+	objectKey: string,
+	ossPath: string,
+	messageId: string,
+	createdAt: string,
+	publishedAt: string,
 };
 
 export type CliProviderPatchInput = {
@@ -1513,6 +1606,100 @@ export type CliProviderUpsertInput = {
 	disabledModelNames?: string[],
 	modelDiscoveryCommand?: string | null,
 	modelDiscoveryArgs?: string[],
+};
+
+export type ClientSyncImportRequest = {
+	token: string,
+	deviceId: string,
+	selection: ClientSyncImportSelection,
+};
+
+export type ClientSyncImportResult = {
+	appliedConnections: number | null,
+	appliedDatabases: number | null,
+	appliedKnowledge: number | null,
+	appliedHttpRequests: number | null,
+	appliedWorkspaces: number | null,
+	/**  勾选的工作区 JSON，由前端写入 workspaceStore。 */
+	workspacesJson: string | null,
+	/**  选中的会话完整 JSON（数组），由前端 merge 进 aiStore。 */
+	conversationsJson: string | null,
+};
+
+export type ClientSyncImportSelection = {
+	connectionIds?: string[],
+	databaseIds?: string[],
+	knowledgeIds?: string[],
+	httpRequestIds?: string[],
+	httpCollectionIds?: string[],
+	workspaceIds?: string[],
+	conversationIds?: string[],
+};
+
+export type ClientSyncPeekItem = {
+	id: string,
+	label: string,
+	detail?: string,
+	updatedAt: number | null,
+	/**  树形父节点 id；空表示根级。连接分组使用 `__group__:{name}` 虚拟节点。 */
+	parentId?: string,
+	/**  `folder` | `item`（空视为 item） */
+	kind?: string,
+};
+
+export type ClientSyncPeekRequest = {
+	token: string,
+	deviceId: string,
+};
+
+export type ClientSyncPeekResult = {
+	deviceId: string,
+	modulesFound: boolean,
+	conversationsFound: boolean,
+	modulesUpdatedAt: number | null,
+	conversationsUpdatedAt: number | null,
+	connections: ClientSyncPeekItem[],
+	databases: ClientSyncPeekItem[],
+	knowledge: ClientSyncPeekItem[],
+	httpRequests: ClientSyncPeekItem[],
+	httpCollections: ClientSyncPeekItem[],
+	workspaces: ClientSyncPeekItem[],
+	conversations: ClientSyncPeekItem[],
+};
+
+export type ClientSyncPushConversationsRequest = {
+	token: string,
+	/**  前端组装的 bundle JSON（含 schemaVersion / conversations / deleted）。 */
+	bodyJson: string,
+};
+
+export type ClientSyncPushConversationsResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number | null,
+};
+
+export type ClientSyncPushModulesRequest = {
+	token: string,
+	workspacesJson?: string | null,
+	deletedConnections?: ClientSyncTombstone[],
+	deletedDatabases?: ClientSyncTombstone[],
+	deletedKnowledge?: ClientSyncTombstone[],
+	deletedHttpRequests?: ClientSyncTombstone[],
+	deletedHttpCollections?: ClientSyncTombstone[],
+	deletedHttpEnvironments?: ClientSyncTombstone[],
+	deletedWorkspaces?: ClientSyncTombstone[],
+};
+
+export type ClientSyncPushModulesResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number | null,
+};
+
+export type ClientSyncTombstone = {
+	id: string,
+	deletedAt: number | null,
 };
 
 /**
@@ -1917,7 +2104,9 @@ export type DockerCapabilities = {
 };
 
 /**  Compose 生命周期动作。 */
-export type DockerComposeAction = "up" | "down" | "restart" | "stop" |
+export type DockerComposeAction = "up" | 
+/**  停止服务容器（`compose stop`），不删除容器与网络。 */
+"stop" | "down" | "restart" | 
 /**  重新构建镜像并拉起服务（`compose up -d --build --force-recreate`）。 */
 "rebuild" | "pull" | "logs";
 
@@ -2141,6 +2330,13 @@ export type DockerDiskUsageItem = {
 	activeCount: number | null,
 };
 
+/**  一次性 exec 的结构化输出（与 `omnipanel_docker::DockerOneShotExecOutput` 对齐）。 */
+export type DockerExecOneShotOutput = {
+	stdout: string,
+	stderr: string,
+	exitCode: number | null,
+};
+
 /**  容器内文件条目。 */
 export type DockerFileEntry = {
 	name: string,
@@ -2150,6 +2346,13 @@ export type DockerFileEntry = {
 	mode: number,
 	isDir: boolean,
 	isSymlink: boolean,
+};
+
+/**  宿主机一次性执行 `docker …` CLI 的结果（用于搜索页「运行容器」等）。 */
+export type DockerHostCliResult = {
+	stdout: string,
+	stderr: string,
+	exitCode: number,
 };
 
 /**  `docker inspect .Config` 关键字段。 */
@@ -2192,6 +2395,13 @@ export type DockerImageHistoryLayer = {
 	tags: string[],
 };
 
+/**  镜像搜索整页结果：条目列表 + 本次实际命中的 registry-mirrors base。 */
+export type DockerImageSearchPage = {
+	results: DockerImageSearchResult[],
+	/**  本次搜索实际命中的 mirror（如 `https://docker.1ms.run`）；Hub/CLI 回退时为 null。 */
+	sourceMirror: string | null,
+};
+
 /**  `docker search` 单条结果。 */
 export type DockerImageSearchResult = {
 	name: string,
@@ -2201,13 +2411,6 @@ export type DockerImageSearchResult = {
 	pullCount?: number | null,
 	isOfficial: boolean,
 	isAutomated: boolean,
-};
-
-/**  镜像搜索整页结果：条目列表 + 本次实际命中的 registry-mirrors base。 */
-export type DockerImageSearchPage = {
-	results: DockerImageSearchResult[],
-	/**  本次搜索实际命中的 mirror（如 `https://docker.1ms.run`）；Hub/CLI 回退时为 null。 */
-	sourceMirror: string | null,
 };
 
 /**  镜像列表项。 */
@@ -2367,21 +2570,6 @@ export type DockerPullResult = {
 	digest: string | null,
 };
 
-/**  宿主机一次性执行 `docker …` CLI 的结果。 */
-export type DockerHostCliResult = {
-	stdout: string,
-	stderr: string,
-	exitCode: number,
-};
-
-/**  镜像拉取/推送/构建的进度事件。 */
-export type DockerImageProgress = {
-	id: string,
-	status: string,
-	progress: number | null,
-	detail: string | null,
-};
-
 /**  资源统计（总览页）。 */
 export type DockerResourceSummary = {
 	containersTotal: number,
@@ -2533,6 +2721,7 @@ export type DockerVolumeSummary = {
 	inUse: boolean,
 };
 
+/**  Embedding 提供商配置（与前端 / Tauri `EmbeddingProviderConfig` 字段对齐）。 */
 export type EmbeddingProviderConfig = {
 	providerId: string,
 	modelName: string,
@@ -2796,7 +2985,7 @@ export type HttpEnvironment = {
 	id: string,
 	name: string,
 	baseUrl: string,
-	/**  与请求面板一致；空/null 表示无认证。 */
+	/**  与请求面板一致：Bearer Token / Basic Auth / API Key / OAuth 2.0 / Authorization；空表示无认证。 */
 	authType: string | null,
 	authValue: string | null,
 	createdAt: number | null,
@@ -2841,6 +3030,13 @@ export type HttpProviderRecord = {
 export type JinaOptsDto = {
 	domain: string,
 	noCache: boolean,
+};
+
+/**  保存知识库附件，返回可用于 Markdown 的相对资源描述。 */
+export type KnowledgeAssetSaved = {
+	entryId: string,
+	fileName: string,
+	absolutePath: string,
 };
 
 /**  分页查询文本块结果。 */
@@ -2892,7 +3088,7 @@ export type KnowledgeEntry = {
 	sortOrder?: number | null,
 	/**  关联资源类型："" / "ssh" / "database" / "docker" / "files"（v23 引入） */
 	resourceType?: string,
-	/**  关联资源 id（与 resourceType 配对使用，空字符串表示不关联） */
+	/**  关联资源 id（与 resource_type 配对使用，空字符串表示不关联） */
 	resourceId?: string,
 };
 
@@ -2929,6 +3125,15 @@ export type KnowledgeRecallTestArgs = {
 	minScore: number | null,
 };
 
+/**  知识文档历史版本快照。 */
+export type KnowledgeRevision = {
+	id: string,
+	entryId: string,
+	title: string,
+	content: string,
+	createdAt: number | null,
+};
+
 /**  FTS5 搜索结果：原文 + snippet 摘要。 */
 export type KnowledgeSearchResult = {
 	entry: KnowledgeEntry,
@@ -2937,122 +3142,62 @@ export type KnowledgeSearchResult = {
 	score: number | null,
 };
 
-/**  知识文档历史版本快照。 */
-export type KnowledgeRevision = {
-	id: string,
-	entryId: string,
-	title: string,
-	content: string,
-	createdAt: number,
-};
+/**  待办列表中的单项。 */
+export type KnowledgeTodoItem = KnowledgeTodoItem_Serialize | KnowledgeTodoItem_Deserialize;
 
-/**  保存知识库附件结果。 */
-export type KnowledgeAssetSaved = {
-	entryId: string,
-	fileName: string,
-	absolutePath: string,
+/**  待办列表中的单项。 */
+export type KnowledgeTodoItem_Deserialize = {
+	id: string,
+	/**  执行者。 */
+	executor?: string,
+	/**  任务描述与细节。 */
+	description?: string,
+	done: boolean,
+} & {
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	name?: string,
+} | {
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	text?: string,
 };
 
 /**  待办列表中的单项。 */
-export type KnowledgeTodoItem = {
+export type KnowledgeTodoItem_Serialize = {
 	id: string,
-	/**
-	 * 待办项名称；反序列化兼容旧字段 `text`。
-	 */
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
 	name: string,
-	/**
-	 * 执行者。
-	 */
+	/**  执行者。 */
 	executor: string,
-	/**
-	 * 任务描述与细节。
-	 */
+	/**  任务描述与细节。 */
 	description: string,
 	done: boolean,
 };
 
 /**  知识库待办列表。 */
-export type KnowledgeTodoList = {
+export type KnowledgeTodoList = KnowledgeTodoList_Serialize | KnowledgeTodoList_Deserialize;
+
+/**  知识库待办列表。 */
+export type KnowledgeTodoList_Deserialize = {
 	id: string,
 	title: string,
-	/**
-	 * 列表级任务描述（卡片摘要展示）。
-	 */
+	/**  列表级任务描述（卡片摘要展示）。 */
+	description?: string,
+	items: KnowledgeTodoItem_Deserialize[],
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+};
+
+/**  知识库待办列表。 */
+export type KnowledgeTodoList_Serialize = {
+	id: string,
+	title: string,
+	/**  列表级任务描述（卡片摘要展示）。 */
 	description: string,
-	items: KnowledgeTodoItem[],
-	sortOrder?: number | null,
-	createdAt?: number | null,
-	updatedAt?: number | null,
-};
-
-/** 个人待办列表 */
-export type TodoList = {
-	id: string,
-	title: string,
-	isDefault?: boolean | null,
-	sortOrder?: number | null,
-	createdAt?: number | null,
-	updatedAt?: number | null,
-};
-
-/** 待办步骤 */
-export type TodoStep = {
-	id: string,
-	taskId: string,
-	title: string,
-	done?: boolean | null,
-	sortOrder?: number | null,
-};
-
-/** 重复规则 */
-export type TodoRecurrence = {
-	freq: string,
-	interval?: number | null,
-};
-
-/** 个人待办任务 */
-export type TodoTask = {
-	id: string,
-	listId: string,
-	title: string,
-	note?: string | null,
-	important?: boolean | null,
-	myDayOn?: string | null,
-	dueAt?: number | null,
-	remindAt?: number | null,
-	recurrence?: TodoRecurrence | null,
-	completed?: boolean | null,
-	completedAt?: number | null,
-	sortOrder?: number | null,
-	createdAt?: number | null,
-	updatedAt?: number | null,
-	steps?: TodoStep[] | null,
-	stepsTotal?: number | null,
-	stepsDone?: number | null,
-};
-
-/** 任务查询 */
-export type TodoTaskQuery = {
-	view: string,
-	listId?: string | null,
-	includeCompleted?: boolean | null,
-	today?: string | null,
-};
-
-/**  资源档案摘要（按资源分组的观测汇总）。 */
-export type ResourceProfileSummary = {
-	resourceType: string,
-	resourceId: string,
-	latestObservedAt: number | null,
-	observationKinds: number | null,
-	knowledgeCount: number | null,
-	fingerprint: Record<string, unknown>,
-};
-
-/**  资源快照采集结果。 */
-export type ResourceSnapshotResult = {
-	savedKinds: string[],
-	errors: string[],
+	items: KnowledgeTodoItem_Serialize[],
+	sortOrder: number | null,
+	createdAt: number | null,
+	updatedAt: number | null,
 };
 
 /**  条目向量化状态摘要。 */
@@ -3073,6 +3218,76 @@ export type KnowledgeVectorizeResult = {
 	entryId: string,
 	chunkCount: number | null,
 	embeddedAt: number | null,
+};
+
+export type LocalHardwareInfo = {
+	totalMemoryMb: number | null,
+	vramMb: number | null,
+	hasDiscreteGpu: boolean,
+	gpuName: string | null,
+	hardwareTier: string,
+	/**  推荐量化档，如 Q4_K_M */
+	quantPref: string,
+	/**  估测可跑参数量（B） */
+	maxParamB: number | null,
+};
+
+/**  已安装模型摘要。 */
+export type LocalModelInfo = {
+	name: string,
+	sizeBytes: number | null,
+	digest: string,
+	family: string,
+};
+
+export type LocalRuntimeInstallResult = {
+	method: string,
+	started: boolean,
+	message: string,
+	manualUrl: string,
+};
+
+/**  聚合探测。 */
+export type LocalRuntimeProbeResult = {
+	ollama: OllamaProbeResult,
+	lmStudio: OpenAiCompatProbeResult,
+	hardware: LocalHardwareInfo,
+	/**  系统内存 MB（兼容旧字段） */
+	totalMemoryMb: number | null,
+	hardwareTier: string,
+	recommendedModels: RecommendedModel[],
+	/**  推荐清单来源说明 */
+	catalogSource: string,
+};
+
+/**  运行时状态。 */
+export type LocalRuntimeStatus = "not_installed" | "installed_not_running" | "running";
+
+/**  一行日志（带绝对行号，1-based）。 */
+export type LogLine = {
+	lineNo: number | null,
+	text: string,
+};
+
+/**  grep 命中（带行号与命中片段）。 */
+export type LogSearchHit = {
+	lineNo: number | null,
+	content: string,
+	/**  命中在 content 中的起止列（None 表示未提供精确列）。 */
+	matchStart: number | null,
+	matchEnd: number | null,
+};
+
+/**  日志会话元信息（打开时探测一次）。 */
+export type LogSessionInfo = {
+	sizeBytes: number | null,
+	/**  总行数预估（wc -l，可能比真实少 1 行如果末尾无换行）。 */
+	totalLines: number | null,
+};
+
+/**  跟踪句柄（返回 token 用于后续停止）。 */
+export type LogTailHandle = {
+	token: string,
 };
 
 export type McpEnvEntry = {
@@ -3232,6 +3447,17 @@ export type NetworkStats_Serialize = {
 	connections?: number | null,
 };
 
+/**  Ollama 探测结果。 */
+export type OllamaProbeResult = {
+	status: LocalRuntimeStatus,
+	endpoint: string,
+	openaiBaseUrl: string,
+	version: string | null,
+	cliPath: string | null,
+	models: LocalModelInfo[],
+	error: string | null,
+};
+
 /**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。 */
 export type OmniError = OmniError_Serialize | OmniError_Deserialize;
 
@@ -3260,6 +3486,14 @@ export type OnePanelBinaryPayload = {
 	contentBase64: string,
 	contentType: string,
 	filename: string | null,
+};
+
+/**  LM Studio / 自定义端点探测。 */
+export type OpenAiCompatProbeResult = {
+	reachable: boolean,
+	endpoint: string,
+	models: string[],
+	error: string | null,
 };
 
 export type OpenCodeInstallStatus = {
@@ -3308,11 +3542,36 @@ export type ProxyConfig = {
 	password: string,
 };
 
+export type PushSnapshotResult = {
+	/**  概览文件 object key（对外主入口） */
+	objectKey: string,
+	etag: string | null,
+	/**  全部文件字节数合计；用 f64 以兼容 specta/TS（禁止导出 u64） */
+	bytes: number | null,
+	/**  上传/组装的文件数（1 overview + N modules） */
+	fileCount: number | null,
+	generatedAt: string,
+	dryRun: boolean,
+};
+
 /**  Qdrant 按 point id 批量删除参数。 */
 export type QdrantDeletePointsArgs = {
 	connection: DbConnectionConfig,
 	collection: string,
 	pointIds: any[],
+};
+
+export type RecommendedModel = {
+	name: string,
+	/**  coding | chinese_chat | embedding */
+	scenario: string,
+	kind: string,
+	approxSizeGb: number | null,
+	description: string,
+	tier: string,
+	quantHint: string,
+	pulls: number | null,
+	fromLibrary: boolean,
 };
 
 /**  单个 key 的详情（类型 / TTL / 大小 / 值预览）。 */
@@ -3404,6 +3663,34 @@ export type RedisSlowLogEntry_Serialize = {
 	command: string,
 	clientAddr?: string | null,
 	clientName?: string | null,
+};
+
+/**  资源档案摘要：用于 `list_resources_with_profiles` 列表展示与 `find_similar`。 */
+export type ResourceProfileSummary = {
+	resourceType: string,
+	resourceId: string,
+	/**  每类观测的最新时间戳（Unix 毫秒） */
+	latestObservedAt: number | null,
+	/**  观测种类数 */
+	observationKinds: number | null,
+	/**  该资源关联的 knowledge 条目数 */
+	knowledgeCount: number | null,
+	/**  资源指纹：用于相似度匹配的关键属性摘要（JSON） */
+	fingerprint: any,
+};
+
+/**  采集结果：成功保存的观测种类列表 + 失败子任务的错误信息。 */
+export type ResourceSnapshotResult = {
+	/**  本次成功保存的 observation_kind 列表（如 ["hardware", "services", "topology"]）。 */
+	savedKinds: string[],
+	/**  失败的子任务错误描述（采集过程中某项失败不影响其他项）。 */
+	errors: string[],
+};
+
+/**  资源上的标签（含 source）。 */
+export type ResourceTagDto = {
+	tag: TagDto,
+	source: string,
 };
 
 export type RiskLevel = "low" | "medium" | "high" | "critical" | "read_only";
@@ -3685,6 +3972,15 @@ export type SearchConfigDto = {
 	autoOrder: string[],
 };
 
+/**  全局搜索命中。 */
+export type SearchEverywhereHit = {
+	kind: string,
+	id: string,
+	title: string,
+	subtitle: string | null,
+	score: number,
+};
+
 /**  SFTP 目录项。 */
 export type SftpEntry = {
 	name: string,
@@ -3694,65 +3990,61 @@ export type SftpEntry = {
 	size: number | null,
 };
 
-/** 远端媒体探测结果（不下载整文件）。 */
+/**  远端媒体探测结果（不下载整文件）。 */
 export type SftpMediaProbe = {
 	durationSecs: number | null,
 	size: number | null,
+	/**  JPEG 封面的 data URL（无封面时为 null） */
 	posterDataUrl: string | null,
 };
 
-/** 打开边下边播流后的句柄。 */
+/**  打开边下边播流后的句柄。 */
 export type SftpMediaStream = {
 	url: string,
 	token: string,
-	size: number,
+	size: number | null,
 	mime: string,
 };
 
-/** 大日志会话元信息（打开时探测一次）。 */
-export type LogSessionInfo = {
-	sizeBytes: number,
-	/** 总行数预估（wc -l，可能比真实少 1 行如果末尾无换行）。 */
-	totalLines: number | null,
-};
-
-/** 一行日志（带绝对行号，1-based）。 */
-export type LogLine = {
-	lineNo: number,
-	text: string,
-};
-
-/** grep 命中（带行号与命中片段）。 */
-export type LogSearchHit = {
-	lineNo: number,
-	content: string,
-	/** 命中在 content 中的起止列（null 表示未提供精确列）。 */
-	matchStart: number | null,
-	matchEnd: number | null,
-};
-
-/** 跟踪句柄（返回 token 用于后续停止）。 */
-export type LogTailHandle = {
-	token: string,
-};
-
-/** 跟踪事件 payload：通过 `sftp-log-tail-{token}` 事件推送给前端。 */
-export type LogTailChunk = {
-	token: string,
-	/** 本次推送的新行（已按 \n 切分，已去 \r）。 */
-	lines: string[],
-	/** 远端进程退出码（仅 Exit 事件有）。 */
-	exitCode: number | null,
-	/** 错误信息（仅 Closed / 异常有）。 */
-	error: string | null,
+/**  Skill 应用记录（每次 AI 调用 skill 时追加一条）。 */
+export type SkillApplication = {
+	id: string,
+	skillId: string,
+	sessionId: string,
+	resourceType: string,
+	resourceId: string,
+	/**  "pending" | "success" | "failure" | "partial" */
+	outcome: string,
+	feedback: string,
+	appliedAt: number | null,
 };
 
 export type SkillCreateInput = {
 	id: string,
+	/**  可省略：若 body 含 frontmatter，以 frontmatter 为准 */
 	name?: string,
 	description?: string,
 	body?: string,
 	enabled?: boolean,
+};
+
+/**  Skill DB 记录（与文件层 SkillRecord 互补，增加版本链和应用统计）。 */
+export type SkillDbRecord = {
+	id: string,
+	name: string,
+	description: string,
+	enabled: boolean,
+	version: number | null,
+	/**  上一版本 id（版本链）；空字符串表示初版 */
+	parentVersionId: string,
+	path: string,
+	successCount: number | null,
+	failureCount: number | null,
+	/**  最近一次应用时间（毫秒）；null 表示从未应用 */
+	lastAppliedAt?: number | null,
+	shareable: boolean,
+	createdAt: number | null,
+	updatedAt: number | null,
 };
 
 export type SkillDetail = {
@@ -3761,13 +4053,6 @@ export type SkillDetail = {
 	description: string,
 	enabled: boolean,
 	body: string,
-};
-
-/** 智能体提示词条目（~/.omnipd/prompts）。 */
-export type AgentPromptEntry = {
-	id: string,
-	content: string,
-	path: string,
 };
 
 /**  Skill 记录（列表/CRUD 用，含文件元信息）。 */
@@ -3781,57 +4066,39 @@ export type SkillRecord = {
 	updatedAt: number | null,
 };
 
-/**  Skill DB 记录（v24+ 引入，与文件层 SkillRecord 互补，含版本链和应用统计）。 */
-export type SkillDbRecord = {
-	id: string,
-	name: string,
-	description: string,
-	enabled: boolean,
-	version: number,
-	/** 上一版本 id（版本链）；空字符串表示初版 */
-	parentVersionId: string,
-	path: string,
-	successCount: number,
-	failureCount: number,
-	/** 最近一次应用时间（毫秒）；null 表示从未应用 */
-	lastAppliedAt: number | null,
-	shareable: boolean,
-	createdAt: number,
-	updatedAt: number,
-};
-
-/**  Skill 应用记录（每次 AI 调用 skill 时追加一条）。 */
-export type SkillApplication = {
-	id: string,
-	skillId: string,
-	sessionId: string,
-	resourceType: string,
-	resourceId: string,
-	/** "pending" | "success" | "failure" | "partial" | "refined" */
-	outcome: string,
-	feedback: string,
-	appliedAt: number,
-};
-
-/**  单个 skill 向量化结果。 */
-export type SkillVectorizeResult = {
-	skillId: string,
-	chunkCount: number,
-};
-
-/**  版本链条目：id + 版本号 + 创建时间。 */
-export type SkillVersionChainEntry = {
-	id: string,
-	version: number,
-	createdAt: number,
-};
-
 export type SkillUpdateInput = {
 	id: string,
 	name?: string | null,
 	description?: string | null,
 	body?: string | null,
 	enabled?: boolean | null,
+};
+
+/**  Skill 向量化状态。 */
+export type SkillVectorStatus = {
+	skillId: string,
+	chunkCount: number | null,
+	embeddedAt: number | null,
+};
+
+/**  Skill 向量化参数。 */
+export type SkillVectorizeArgs = {
+	skillId: string,
+	provider: EmbeddingProviderConfig,
+	chunkSize?: number,
+	chunkOverlap?: number,
+};
+
+export type SkillVectorizeResult = {
+	skillId: string,
+	chunkCount: number | null,
+};
+
+/**  版本链条目：id + 版本号 + 创建时间。 */
+export type SkillVersionChainEntry = {
+	id: string,
+	version: number | null,
+	createdAt: number | null,
 };
 
 /**  捕获的数据包。 */
@@ -3913,29 +4180,6 @@ export type SshExecOutput = {
 	stdout: string,
 	stderr: string,
 	exitCode: number,
-};
-
-/**  压缩包单个条目（名称、解压后大小、修改时间、是否目录）。 */
-export type ArchiveEntry = {
-	name: string,
-	size: number,
-	modified: number | null,
-	isDir: boolean,
-};
-
-/**  列压缩包条目结果。tool_missing 非空时前端可调 sshPoolInstallArchiveTool 一键安装后重试。 */
-export type ArchiveListResult = {
-	entries: ArchiveEntry[],
-	format: string,
-	totalUncompressed: number,
-	toolMissing: string | null,
-};
-
-/**  远端工具安装结果（成功/失败 + 详细消息）。 */
-export type ArchiveToolInstallResult = {
-	tool: string,
-	installed: boolean,
-	message: string,
 };
 
 /**  SSH host info for Docker connection binding. */
@@ -4101,6 +4345,28 @@ export type TableRowDiffPayload_Serialize = {
 	changedFields?: string[] | null,
 };
 
+/**  标签节点（扁平，前端组树）。 */
+export type TagDto = {
+	id: string,
+	name: string,
+	parentId: string | null,
+	path: string,
+	color: string | null,
+	kind: string,
+	createdAt: number | null,
+	updatedAt: number | null,
+	/**  绑定资源数（可选聚合） */
+	resourceCount: number | null,
+};
+
+/**  按标签查询到的资源摘要。 */
+export type TaggedResourceSummary = {
+	resourceKind: string,
+	resourceId: string,
+	title: string,
+	subtitle: string | null,
+};
+
 /**  Persisted workspace task/action. */
 export type Task = {
 	id: string,
@@ -4119,6 +4385,23 @@ export type Task = {
 	updated_at: number | null,
 	started_at: number | null,
 	finished_at: number | null,
+};
+
+/**  任务中心统一事件索引（历史时间轴筛选用）。 */
+export type TaskEventRecord = {
+	id: string,
+	/**  bg_task | workflow | loop | approval | other */
+	source: string,
+	refId: string,
+	module: string,
+	workspaceId: string | null,
+	resourceId: string | null,
+	title: string,
+	status: string,
+	envTag: string,
+	risk: string,
+	ts: number | null,
+	detail: string,
 };
 
 export type TaskRisk = "low" | "medium" | "high" | "critical";
@@ -4171,6 +4454,65 @@ export type ThirdPartyAuthMethod = "api_key" | "password";
 
 /**  第三方平台。 */
 export type ThirdPartyPlatform = "github" | "gitlab" | "gitee" | "docker_hub" | "aws" | "aliyun" | "tencent" | "custom";
+
+/**  自定义待办列表。 */
+export type TodoList = {
+	id: string,
+	title: string,
+	isDefault?: boolean,
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+};
+
+/**  重复规则（JSON 存库）。 */
+export type TodoRecurrence = {
+	/**  daily | weekdays | weekly | monthly | yearly | custom */
+	freq: string,
+	interval?: number,
+};
+
+/**  任务步骤。 */
+export type TodoStep = {
+	id: string,
+	taskId: string,
+	title: string,
+	done?: boolean,
+	sortOrder?: number | null,
+};
+
+/**  个人待办任务。 */
+export type TodoTask = {
+	id: string,
+	listId: string,
+	title: string,
+	note?: string,
+	important?: boolean,
+	/**  加入「我的一天」的日历日（YYYY-MM-DD）；非今日则智能列表不展示。 */
+	myDayOn?: string | null,
+	dueAt?: number | null,
+	remindAt?: number | null,
+	recurrence?: TodoRecurrence | null,
+	completed?: boolean,
+	completedAt?: number | null,
+	sortOrder?: number | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+	/**  列表查询时填充；保存时可一并替换。 */
+	steps?: TodoStep[],
+	stepsTotal?: number | null,
+	stepsDone?: number | null,
+};
+
+/**  任务查询：智能视图或自定义列表。 */
+export type TodoTaskQuery = {
+	/**  myDay | important | planned | tasks | list */
+	view: string,
+	listId?: string | null,
+	includeCompleted?: boolean,
+	/**  本地日历日 YYYY-MM-DD（我的一天过滤用）；缺省则用服务端 UTC 日。 */
+	today?: string | null,
+};
 
 export type ToolCallResult = {
 	content: string,
@@ -4305,38 +4647,6 @@ export type WorkflowStep = {
 };
 
 export type WorkflowType = "script" | "template" | "deploy" | "patrol" | "data_flow";
-
-export type TagDto = {
-	id: string;
-	name: string;
-	parentId: string | null;
-	path: string;
-	color: string | null;
-	kind: string;
-	createdAt: number;
-	updatedAt: number;
-	resourceCount: number;
-};
-
-export type ResourceTagDto = {
-	tag: TagDto;
-	source: string;
-};
-
-export type TaggedResourceSummary = {
-	resourceKind: string;
-	resourceId: string;
-	title: string;
-	subtitle: string | null;
-};
-
-export type SearchEverywhereHit = {
-	kind: string;
-	id: string;
-	title: string;
-	subtitle: string | null;
-	score: number;
-};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

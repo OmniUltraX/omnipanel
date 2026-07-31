@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { logoutSession } from "../lib/auth/loginApi";
+import { stopPresenceHeartbeat } from "../lib/auth/presenceHeartbeat";
 import {
   cancelAssistantSnapshotSync,
   scheduleAssistantSnapshotSync,
@@ -17,12 +19,13 @@ interface AuthState {
   token: string | null;
   openid: string | null;
   setSession: (session: { token: string; openid: string }) => void;
-  logout: () => void;
+  /** skipRemote：本地已判定会话失效时，跳过再调服务端 logout。 */
+  logout: (opts?: { skipRemote?: boolean }) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       token: null,
       openid: null,
       setSession: ({ token, openid }) => {
@@ -34,11 +37,18 @@ export const useAuthStore = create<AuthState>()(
         scheduleClientConversationSync({ immediate: true });
         scheduleClientModuleSync({ immediate: true });
       },
-      logout: () => {
+      logout: (opts) => {
+        const token = get().token?.trim() || null;
+        stopPresenceHeartbeat();
         cancelAssistantSnapshotSync();
         cancelClientConversationSync();
         cancelClientModuleSync();
         void stopAssistantChatInbox();
+        if (token && !opts?.skipRemote) {
+          void logoutSession(token).catch(() => {
+            /* 退出时网络失败可忽略，本地会话照样清掉 */
+          });
+        }
         set({ token: null, openid: null });
       },
     }),

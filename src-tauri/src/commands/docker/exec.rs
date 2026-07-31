@@ -7,6 +7,7 @@ use super::*;
 pub struct DockerExecOneShotOutput {
     pub stdout: String,
     pub stderr: String,
+    #[specta(type = f64)]
     pub exit_code: i64,
 }
 

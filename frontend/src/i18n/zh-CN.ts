@@ -677,6 +677,9 @@ export const zhCN = {
       tabMiniapp: "小程序",
       tabH5: "H5",
       switchAria: "切换二维码类型",
+      loading: "加载二维码…",
+      loadFailed: "二维码加载失败",
+      retry: "重试",
     },
     topbar: {
       aiAssistant: "AI 助手 ({shortcut})",
@@ -6373,6 +6376,8 @@ export const zhCN = {
       refresh: "刷新",
       networkHint: "无法连接认证服务器，请检查网络或 HTTP 代理后重试。",
       current: "本机",
+      online: "在线",
+      offline: "离线",
       unnamed: "未命名设备",
       unknownIp: "IP 未知",
       lastLogin: "最近登录",

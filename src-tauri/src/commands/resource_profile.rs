@@ -96,11 +96,15 @@ pub async fn resource_find_similar(
     state: State<'_, AppState>,
     resource_type: String,
     resource_id: String,
-    limit: Option<usize>,
+    limit: Option<f64>,
 ) -> Result<Vec<ResourceProfileSummary>, OmniError> {
     let storage = state.storage.lock().await;
     storage
-        .find_similar_resources(&resource_type, &resource_id, limit.unwrap_or(5))
+        .find_similar_resources(
+            &resource_type,
+            &resource_id,
+            limit.unwrap_or(5.0) as usize,
+        )
         .map_err(Into::into)
 }
 

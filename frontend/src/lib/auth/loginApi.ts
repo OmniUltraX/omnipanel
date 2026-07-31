@@ -40,12 +40,28 @@ export interface AuthDevice {
   /** `client` | `assistant` */
   role: string;
   appId: string;
+  /** Redis presence TTL 判定的实时在线状态 */
+  online: boolean;
 }
 
 export interface BindingsQrcodeResponse {
   bind_id: string;
   qr_payload: string;
   expire_in_sec: number;
+}
+
+export interface PublicQrcodesResponse {
+  miniapp_url: string;
+  h5_url: string;
+}
+
+/** 经 Tauri 后端代理获取侧栏小程序 / H5 公开二维码地址。 */
+export async function fetchPublicQrcodes(): Promise<PublicQrcodesResponse> {
+  const data = await unwrapCommand(commands.authPublicQrcodes());
+  return {
+    miniapp_url: data.miniappUrl,
+    h5_url: data.h5Url,
+  };
 }
 
 /** 经 Tauri 后端代理获取登录二维码（绕过 WebView CORS）。 */
@@ -312,6 +328,22 @@ export async function fetchDevices(
 /** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}）。 */
 export async function deleteDevice(token: string, deviceId: string): Promise<void> {
   await unwrapCommand(commands.authDeleteDevice(token, deviceId));
+}
+
+/** 刷新本机设备在线 presence（POST /api/presence）。 */
+export async function touchPresence(token: string): Promise<{ ok: boolean; ttlSec: number }> {
+  return unwrapCommand(commands.authPresence(token), {
+    quiet: true,
+    logLabel: "[auth]",
+  });
+}
+
+/** 登出当前会话（POST /api/logout），服务端立刻清除 presence。 */
+export async function logoutSession(token: string): Promise<void> {
+  await unwrapCommand(commands.authLogout(token), {
+    quiet: true,
+    logLabel: "[auth]",
+  });
 }
 
 /** 申请绑定助手端二维码 payload（本地画码）。 */

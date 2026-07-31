@@ -79,6 +79,15 @@ function DeviceList({
             <div className="user-center-device-item__body">
               <div className="user-center-device-item__title-row">
                 <span className="user-center-device-item__name">{name}</span>
+                <span
+                  className={`user-center-device-item__badge user-center-device-item__badge--presence${
+                    device.online ? " is-online" : " is-offline"
+                  }`}
+                >
+                  {device.online
+                    ? t("userCenter.devices.online")
+                    : t("userCenter.devices.offline")}
+                </span>
                 {isCurrent ? (
                   <span className="user-center-device-item__badge">
                     {t("userCenter.devices.current")}

@@ -345,7 +345,7 @@ async fn listen_chat_sse(
                         if data.trim().is_empty() {
                             continue;
                         }
-                        let index: ChatLatestIndex = match serde_json::from_str(&data) {
+                        let index: ChatLatestIndex = match ChatLatestIndex::parse_json(&data) {
                             Ok(v) => v,
                             Err(e) => {
                                 // 单条坏事件不拆掉整条 SSE（此前 numeric userId 会整链失败）

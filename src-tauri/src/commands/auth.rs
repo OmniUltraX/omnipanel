@@ -51,6 +51,23 @@ pub struct AuthLoginQrcode {
     pub expire_in_sec: u32,
 }
 
+/// 侧栏公开二维码地址（GET /api/public/qrcodes）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPublicQrcodes {
+    pub miniapp_url: String,
+    pub h5_url: String,
+}
+
+/// 设备在线心跳结果（POST /api/presence）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPresenceResult {
+    pub ok: bool,
+    #[specta(type = f64)]
+    pub ttl_sec: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthLoginSuccess {
@@ -115,6 +132,8 @@ pub struct AuthDevice {
     /// `client` | `assistant`
     pub role: String,
     pub app_id: String,
+    /// Redis presence TTL 判定的实时在线状态
+    pub online: bool,
 }
 
 /// 绑定助手端：本地画码用的 payload（非微信小程序码）。
@@ -241,6 +260,8 @@ struct ApiDeviceView {
     updated_at: Option<String>,
     role: Option<String>,
     app_id: Option<String>,
+    #[serde(default)]
+    online: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -248,6 +269,13 @@ struct ApiBindingsQrcodeResponse {
     bind_id: Option<String>,
     qr_payload: Option<String>,
     expire_in_sec: Option<u32>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiPublicQrcodesResponse {
+    miniapp_url: Option<String>,
+    h5_url: Option<String>,
     error: Option<String>,
 }
 
@@ -438,6 +466,7 @@ fn map_api_device(item: ApiDeviceView) -> AuthDevice {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "default".to_string()),
+        online: item.online.unwrap_or(false),
     }
 }
 
@@ -828,6 +857,180 @@ pub async fn auth_login_qrcode(
         qrcode_url,
         expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
     })
+}
+
+/// 获取侧栏小程序 / H5 公开二维码图片地址。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_public_qrcodes(
+    state: State<'_, AppState>,
+) -> Result<AuthPublicQrcodes, OmniError> {
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let url = auth_url("/api/public/qrcodes");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = client.get(&url).send().await.map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "获取公开二维码失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
+
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取公开二维码响应失败").with_cause(e.to_string()))?;
+
+    let parsed: ApiPublicQrcodesResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析公开二维码响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error));
+    }
+    if !status.is_success() {
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            format!("获取公开二维码失败 (HTTP {status})"),
+        )
+        .with_cause(body));
+    }
+
+    let miniapp_url = parsed
+        .miniapp_url
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "公开二维码响应缺少 miniapp_url"))?;
+    let h5_url = parsed
+        .h5_url
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "公开二维码响应缺少 h5_url"))?;
+
+    Ok(AuthPublicQrcodes {
+        miniapp_url,
+        h5_url,
+    })
+}
+
+/// 刷新设备在线 presence（POST /api/presence）。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_presence(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<AuthPresenceResult, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let identity = load_or_create_device_identity()?;
+    let url = auth_url("/api/presence");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(20)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = apply_client_identity_headers(
+        client
+            .post(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        &identity,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "刷新在线状态失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取 presence 响应失败").with_cause(e.to_string())
+    })?;
+
+    if status.as_u16() == 401 {
+        let msg = serde_json::from_str::<ApiErrorBody>(&body)
+            .ok()
+            .and_then(|b| b.error)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "登录已失效，请重新登录".to_string());
+        return Err(OmniError::new(ErrorCode::Auth, msg));
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ApiPresenceResponse {
+        ok: Option<bool>,
+        ttl_sec: Option<i64>,
+        error: Option<String>,
+    }
+
+    let parsed: ApiPresenceResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析 presence 响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error));
+    }
+    if !status.is_success() {
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            format!("刷新在线状态失败 (HTTP {status})"),
+        )
+        .with_cause(body));
+    }
+
+    Ok(AuthPresenceResult {
+        ok: parsed.ok.unwrap_or(true),
+        ttl_sec: parsed.ttl_sec.unwrap_or(180).max(30),
+    })
+}
+
+/// 登出当前会话（POST /api/logout），服务端会立刻清除 presence。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_logout(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<(), OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Ok(());
+    }
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let identity = load_or_create_device_identity()?;
+    let url = auth_url("/api/logout");
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(15)).map_err(
+        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
+    )?;
+
+    let resp = apply_client_identity_headers(
+        client
+            .post(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        &identity,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "登出失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
+
+    let status = resp.status();
+    // 401 / 已失效：本地照样清会话即可
+    if status.as_u16() == 401 || status.is_success() {
+        return Ok(());
+    }
+    let body = resp.text().await.unwrap_or_default();
+    Err(OmniError::new(
+        ErrorCode::Connection,
+        format!("登出失败 (HTTP {status})"),
+    )
+    .with_cause(body))
 }
 
 /// 通过后端代理 SSE，等待扫码登录成功。

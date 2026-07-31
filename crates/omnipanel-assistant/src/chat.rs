@@ -9,15 +9,11 @@ use crate::sts::AuthContext;
 
 /// `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
 ///
-/// 服务端 `userId` 为 int64，需兼容数字与字符串。
+/// 服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatLatestIndex {
-    #[serde(
-        default,
-        alias = "user_id",
-        deserialize_with = "deserialize_stringish"
-    )]
+    #[serde(default, alias = "user_id")]
     pub user_id: String,
     #[serde(alias = "object_key")]
     pub object_key: String,
@@ -31,6 +27,41 @@ pub struct ChatLatestIndex {
     pub published_at: String,
 }
 
+/// JSON 反序列化用：`userId` 兼容 number/string，避免 specta 导出 `deserialize_with`。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatLatestIndexRaw {
+    #[serde(
+        default,
+        alias = "user_id",
+        deserialize_with = "deserialize_stringish"
+    )]
+    user_id: String,
+    #[serde(alias = "object_key")]
+    object_key: String,
+    #[serde(default, alias = "oss_path")]
+    oss_path: String,
+    #[serde(default, alias = "message_id")]
+    message_id: String,
+    #[serde(default, alias = "created_at")]
+    created_at: String,
+    #[serde(default, alias = "published_at")]
+    published_at: String,
+}
+
+impl From<ChatLatestIndexRaw> for ChatLatestIndex {
+    fn from(raw: ChatLatestIndexRaw) -> Self {
+        Self {
+            user_id: raw.user_id,
+            object_key: raw.object_key,
+            oss_path: raw.oss_path,
+            message_id: raw.message_id,
+            created_at: raw.created_at,
+            published_at: raw.published_at,
+        }
+    }
+}
+
 impl ChatLatestIndex {
     /// 去重键：优先 messageId，否则 objectKey。
     pub fn dedupe_key(&self) -> String {
@@ -39,6 +70,11 @@ impl ChatLatestIndex {
             return mid.to_string();
         }
         self.object_key.trim().to_string()
+    }
+
+    /// 解析 JSON（`userId` 兼容 number/string）。
+    pub fn parse_json(raw: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str::<ChatLatestIndexRaw>(raw).map(Self::from)
     }
 }
 
@@ -62,7 +98,7 @@ struct LatestApiEnvelope {
     #[serde(default)]
     status: Option<String>,
     #[serde(default)]
-    data: Option<ChatLatestIndex>,
+    data: Option<ChatLatestIndexRaw>,
     #[serde(default)]
     error: Option<String>,
     #[serde(default)]
@@ -127,6 +163,7 @@ pub async fn fetch_chat_latest(auth: &AuthContext) -> OmniResult<Option<ChatLate
             }
             return Ok(env
                 .data
+                .map(ChatLatestIndex::from)
                 .filter(|d| !d.object_key.trim().is_empty()));
         }
         if let Some(err) = env.error.or(env.message) {
@@ -134,13 +171,15 @@ pub async fn fetch_chat_latest(auth: &AuthContext) -> OmniResult<Option<ChatLate
         }
     }
 
-    let index: ChatLatestIndex = serde_json::from_str(&text).map_err(|e| {
-        map_assistant_error_with_cause(
-            AssistantErrorKind::Inbox,
-            "解析聊天 latest 失败",
-            format!("{e}; body={text}"),
-        )
-    })?;
+    let index = serde_json::from_str::<ChatLatestIndexRaw>(&text)
+        .map(ChatLatestIndex::from)
+        .map_err(|e| {
+            map_assistant_error_with_cause(
+                AssistantErrorKind::Inbox,
+                "解析聊天 latest 失败",
+                format!("{e}; body={text}"),
+            )
+        })?;
     if index.object_key.trim().is_empty() {
         return Ok(None);
     }
@@ -352,7 +391,7 @@ mod tests {
           "created_at":"2026-07-27T10:00:00Z",
           "published_at":"2026-07-27T10:00:01Z"
         }"#;
-        let index: ChatLatestIndex = serde_json::from_str(raw).unwrap();
+        let index = ChatLatestIndex::from(serde_json::from_str::<ChatLatestIndexRaw>(raw).unwrap());
         assert_eq!(index.object_key, "agent_chat_message/u1/msg-001.json");
         assert_eq!(index.message_id, "msg-001");
     }
@@ -370,7 +409,7 @@ mod tests {
           "assistantAppId":"omni-assistant",
           "assistantDeviceId":"dev-1"
         }"#;
-        let index: ChatLatestIndex = serde_json::from_str(raw).unwrap();
+        let index = ChatLatestIndex::from(serde_json::from_str::<ChatLatestIndexRaw>(raw).unwrap());
         assert_eq!(index.user_id, "42");
         assert_eq!(index.object_key, "agent_chat_message/u1/msg-001.json");
         assert_eq!(index.dedupe_key(), "msg-001");

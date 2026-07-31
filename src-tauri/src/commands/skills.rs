@@ -405,9 +405,9 @@ pub async fn skill_get_version_chain(
 pub async fn skill_list_applications(
     state: State<'_, AppState>,
     id: String,
-    limit: Option<usize>,
+    limit: Option<f64>,
 ) -> Result<Vec<SkillApplication>, String> {
-    let limit = limit.unwrap_or(20).clamp(1, 200);
+    let limit = (limit.unwrap_or(20.0) as usize).clamp(1, 200);
     let storage = state.storage.lock().await;
     storage
         .list_skill_applications(&id, limit)

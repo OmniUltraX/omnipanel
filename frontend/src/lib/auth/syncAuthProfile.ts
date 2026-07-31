@@ -34,7 +34,7 @@ export async function syncAuthProfile(): Promise<void> {
     } catch (error) {
       if (isAuthSessionError(error)) {
         useUserProfileStore.getState().clearProfile();
-        useAuthStore.getState().logout();
+        useAuthStore.getState().logout({ skipRemote: true });
         return;
       }
       // 连接失败等：保留本地 profile，仅在开发时提示一次

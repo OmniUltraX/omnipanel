@@ -375,11 +375,12 @@ pub async fn sftp_cache_for_preview(
     state: State<'_, AppState>,
     id: String,
     path: String,
-    size: Option<u64>,
+    size: Option<f64>,
 ) -> Result<String, OmniError> {
-    let local = media_preview_cache_path(&app, &id, &path, size)?;
+    let size_u64 = size.map(|n| n.max(0.0) as u64);
+    let local = media_preview_cache_path(&app, &id, &path, size_u64)?;
     if local.is_file() {
-        if let Some(expected) = size {
+        if let Some(expected) = size_u64 {
             if let Ok(meta) = std::fs::metadata(&local) {
                 if meta.len() == expected {
                     return Ok(local.to_string_lossy().into_owned());
@@ -408,6 +409,7 @@ pub async fn sftp_cache_for_preview(
 #[serde(rename_all = "camelCase")]
 pub struct SftpMediaProbe {
     pub duration_secs: Option<f64>,
+    #[specta(type = Option<f64>)]
     pub size: Option<u64>,
     /// JPEG 封面的 data URL（无封面时为 null）
     pub poster_data_url: Option<String>,
@@ -419,6 +421,7 @@ pub struct SftpMediaProbe {
 pub struct SftpMediaStream {
     pub url: String,
     pub token: String,
+    #[specta(type = f64)]
     pub size: u64,
     pub mime: String,
 }
@@ -866,8 +869,10 @@ pub struct ArchiveEntry {
     /// 条目相对路径（含目录层级）
     pub name: String,
     /// 解压后字节数（无法解析时为 0）
+    #[specta(type = f64)]
     pub size: u64,
     /// 修改时间 Unix 秒（无法解析时为 null）
+    #[specta(type = Option<f64>)]
     pub modified: Option<i64>,
     /// 是否为目录
     pub is_dir: bool,
@@ -881,6 +886,7 @@ pub struct ArchiveListResult {
     /// 检测到的格式：zip / tar / tar.gz / tar.bz2 / tar.xz / tar.zst / 7z / rar
     pub format: String,
     /// 解压后总字节数
+    #[specta(type = f64)]
     pub total_uncompressed: u64,
     /// 远端工具缺失时返回提示（如 "unzip"），前端可调 ssh_pool_install_archive_tool
     pub tool_missing: Option<String>,
@@ -2163,8 +2169,10 @@ fn new_log_token() -> String {
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LogSessionInfo {
+    #[specta(type = f64)]
     pub size_bytes: u64,
     /// 总行数预估（wc -l，可能比真实少 1 行如果末尾无换行）。
+    #[specta(type = Option<f64>)]
     pub total_lines: Option<u64>,
 }
 
@@ -2172,6 +2180,7 @@ pub struct LogSessionInfo {
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LogLine {
+    #[specta(type = f64)]
     pub line_no: u64,
     pub text: String,
 }
@@ -2180,10 +2189,13 @@ pub struct LogLine {
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LogSearchHit {
+    #[specta(type = f64)]
     pub line_no: u64,
     pub content: String,
     /// 命中在 content 中的起止列（None 表示未提供精确列）。
+    #[specta(type = Option<f64>)]
     pub match_start: Option<usize>,
+    #[specta(type = Option<f64>)]
     pub match_end: Option<usize>,
 }
 
@@ -2254,9 +2266,11 @@ pub async fn sftp_log_read_lines(
     state: State<'_, AppState>,
     id: String,
     path: String,
-    start_line: u64,
-    end_line: u64,
+    start_line: f64,
+    end_line: f64,
 ) -> Result<Vec<LogLine>, OmniError> {
+    let start_line = start_line.max(0.0) as u64;
+    let end_line = end_line.max(0.0) as u64;
     if start_line == 0 {
         return Err(OmniError::new(ErrorCode::InvalidInput, "起始行号必须 ≥ 1"));
     }
@@ -2312,10 +2326,11 @@ pub async fn sftp_log_tail_initial(
     id: String,
     path: String,
     n_lines: u32,
-    total_lines_hint: Option<u64>,
+    total_lines_hint: Option<f64>,
 ) -> Result<Vec<LogLine>, OmniError> {
     const MAX_N: u32 = 5_000;
     let n = n_lines.min(MAX_N).max(1);
+    let total_lines_hint = total_lines_hint.map(|n| n.max(0.0) as u64);
 
     let cmd = format!("tail -n {n} {}", shell_quote_single(&path));
 

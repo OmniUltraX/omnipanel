@@ -8,14 +8,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
-import h5Qrcode from "../../assets/h5_qrcode.png";
+import { fetchPublicQrcodes } from "../../lib/auth/loginApi";
 import { IconClose, IconPhone } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
 
 const POPOVER_CLOSE_DELAY_MS = 160;
-
-/** 小程序码：从远端 API 拉取 */
-const MINIAPP_QRCODE_URL = "https://mp.99.protected.fun/h5-qrcode.png";
 
 type QrKind = "miniapp" | "h5";
 
@@ -26,8 +23,28 @@ export function SidebarMiniappButton() {
   const [modalOpen, setModalOpen] = useState(false);
   const [qrKind, setQrKind] = useState<QrKind>("miniapp");
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
+  const [miniappUrl, setMiniappUrl] = useState("");
+  const [h5Url, setH5Url] = useState("");
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
+
+  const loadQrcodes = useCallback(async () => {
+    setLoadState("loading");
+    try {
+      const data = await fetchPublicQrcodes();
+      setMiniappUrl(data.miniapp_url);
+      setH5Url(data.h5_url);
+      setLoadState("ready");
+    } catch (e) {
+      console.warn("[sidebarMiniapp] load qrcodes failed", e);
+      setLoadState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadQrcodes();
+  }, [loadQrcodes]);
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current != null) {
@@ -55,7 +72,10 @@ export function SidebarMiniappButton() {
     if (modalOpen) return;
     clearCloseTimer();
     setPopoverOpen(true);
-  }, [clearCloseTimer, modalOpen]);
+    if (loadState === "error" || loadState === "idle") {
+      void loadQrcodes();
+    }
+  }, [clearCloseTimer, modalOpen, loadState, loadQrcodes]);
 
   const updatePopoverPosition = useCallback(() => {
     const btn = buttonRef.current;
@@ -100,14 +120,49 @@ export function SidebarMiniappButton() {
   const handleClick = () => {
     closePopover();
     setModalOpen(true);
+    if (loadState === "error" || loadState === "idle") {
+      void loadQrcodes();
+    }
   };
 
   const active = popoverOpen || modalOpen;
-  const qrSrc = qrKind === "miniapp" ? MINIAPP_QRCODE_URL : h5Qrcode;
+  const qrSrc = qrKind === "miniapp" ? miniappUrl : h5Url;
   const titleKey =
     qrKind === "miniapp" ? "shell.miniapp.title" : "shell.miniapp.h5Title";
   const altKey =
     qrKind === "miniapp" ? "shell.miniapp.qrAlt" : "shell.miniapp.h5QrAlt";
+
+  const qrBody = (() => {
+    if (loadState === "loading" || loadState === "idle") {
+      return (
+        <div className="sidebar-miniapp-qr-status" aria-live="polite">
+          {t("shell.miniapp.loading")}
+        </div>
+      );
+    }
+    if (loadState === "error" || !qrSrc) {
+      return (
+        <div className="sidebar-miniapp-qr-status">
+          <p>{t("shell.miniapp.loadFailed")}</p>
+          <button
+            type="button"
+            className="sidebar-miniapp-qr-retry"
+            onClick={() => void loadQrcodes()}
+          >
+            {t("shell.miniapp.retry")}
+          </button>
+        </div>
+      );
+    }
+    return (
+      <img
+        className="sidebar-miniapp-popover__qr"
+        src={qrSrc}
+        alt={t(altKey)}
+        draggable={false}
+      />
+    );
+  })();
 
   const qrSwitch = (
     <div className="sidebar-miniapp-qr-switch" role="tablist" aria-label={t("shell.miniapp.switchAria")}>
@@ -160,12 +215,7 @@ export function SidebarMiniappButton() {
               onMouseLeave={scheduleClosePopover}
             >
               <p className="sidebar-miniapp-popover__title">{t(titleKey)}</p>
-              <img
-                className="sidebar-miniapp-popover__qr"
-                src={qrSrc}
-                alt={t(altKey)}
-                draggable={false}
-              />
+              {qrBody}
               {qrSwitch}
             </div>,
             document.body,
@@ -191,12 +241,31 @@ export function SidebarMiniappButton() {
               <IconClose size={16} />
             </button>
           </div>
-          <img
-            className="sidebar-miniapp-dialog__qr"
-            src={qrSrc}
-            alt={t(altKey)}
-            draggable={false}
-          />
+          {loadState === "ready" && qrSrc ? (
+            <img
+              className="sidebar-miniapp-dialog__qr"
+              src={qrSrc}
+              alt={t(altKey)}
+              draggable={false}
+            />
+          ) : (
+            <div className="sidebar-miniapp-qr-status sidebar-miniapp-qr-status--dialog">
+              {loadState === "error" || (!qrSrc && loadState !== "loading" && loadState !== "idle") ? (
+                <>
+                  <p>{t("shell.miniapp.loadFailed")}</p>
+                  <button
+                    type="button"
+                    className="sidebar-miniapp-qr-retry"
+                    onClick={() => void loadQrcodes()}
+                  >
+                    {t("shell.miniapp.retry")}
+                  </button>
+                </>
+              ) : (
+                t("shell.miniapp.loading")
+              )}
+            </div>
+          )}
           {qrSwitch}
         </div>
       </Modal>

@@ -516,6 +516,10 @@ export function DataSyncPanel() {
                       <span className="data-sync-device-item__name">{name}</span>
                       <span className="data-sync-device-item__meta">
                         {formatOsLabel(device.osType, t)}
+                        {" · "}
+                        {device.online
+                          ? t("userCenter.devices.online")
+                          : t("userCenter.devices.offline")}
                       </span>
                     </span>
                   </button>

@@ -445,6 +445,9 @@ fn export_ipc_bindings() {
         commands::auth::auth_get_me,
         commands::auth::auth_update_profile,
         commands::auth::auth_login_qrcode,
+        commands::auth::auth_public_qrcodes,
+        commands::auth::auth_presence,
+        commands::auth::auth_logout,
         commands::auth::auth_login_wait,
         commands::auth::auth_login_cancel_wait,
         commands::auth::auth_login_email_send,
@@ -543,6 +546,7 @@ fn export_ipc_bindings() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../frontend/src/ipc/bindings.ts");
 
     builder
+        .dangerously_cast_bigints_to_number()
         .export(specta_typescript::Typescript::default(), &out_path)
         .expect("failed to export typescript bindings");
 }
@@ -1207,6 +1211,9 @@ fn build_and_run_tauri() {
             commands::auth::auth_get_me,
             commands::auth::auth_update_profile,
             commands::auth::auth_login_qrcode,
+            commands::auth::auth_public_qrcodes,
+            commands::auth::auth_presence,
+            commands::auth::auth_logout,
             commands::auth::auth_login_wait,
             commands::auth::auth_login_cancel_wait,
             commands::auth::auth_login_email_send,

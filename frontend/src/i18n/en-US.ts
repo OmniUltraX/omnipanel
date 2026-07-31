@@ -681,6 +681,9 @@ export const enUS: TranslationDict = {
       tabMiniapp: "Mini Program",
       tabH5: "H5",
       switchAria: "Switch QR code type",
+      loading: "Loading QR code…",
+      loadFailed: "Failed to load QR code",
+      retry: "Retry",
     },
     topbar: {
       aiAssistant: "AI Assistant ({shortcut})",
@@ -6443,6 +6446,8 @@ export const enUS: TranslationDict = {
       refresh: "Refresh",
       networkHint: "Cannot reach the auth server. Check your network or HTTP proxy, then retry.",
       current: "This device",
+      online: "Online",
+      offline: "Offline",
       unnamed: "Unnamed device",
       unknownIp: "IP unknown",
       lastLogin: "Last sign-in",

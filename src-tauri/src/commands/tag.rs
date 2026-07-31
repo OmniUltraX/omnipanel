@@ -223,10 +223,10 @@ pub async fn tag_query_resources(
 pub async fn tag_suggest(
     state: State<'_, AppState>,
     query: String,
-    limit: Option<i64>,
+    limit: Option<f64>,
 ) -> Result<Vec<TagDto>, OmniError> {
     let storage = state.storage.lock().await;
-    storage.tag_suggest(&query, limit.unwrap_or(20))
+    storage.tag_suggest(&query, limit.unwrap_or(20.0) as i64)
 }
 
 /// 全局搜索（多源 + 标签过滤）。
@@ -237,13 +237,13 @@ pub async fn search_everywhere(
     query: String,
     tag_ids: Option<Vec<String>>,
     mode: Option<String>,
-    limit: Option<i64>,
+    limit: Option<f64>,
 ) -> Result<Vec<SearchEverywhereHit>, OmniError> {
     let storage = state.storage.lock().await;
     storage.search_everywhere(
         &query,
         tag_ids.as_deref().unwrap_or(&[]),
         parse_mode(mode.as_deref().unwrap_or("and")),
-        limit.unwrap_or(40),
+        limit.unwrap_or(40.0) as i64,
     )
 }
