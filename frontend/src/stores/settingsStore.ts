@@ -89,6 +89,24 @@ export const DEFAULT_PROXY: ProxyConfig = {
 
 export type AiDisplayMode = "subwindow" | "dockview";
 
+/**
+ * 发送给 AI 的上下文范围。
+ * - minimal / full：注入模块与终端摘要（密钥类内容仍强制打码）
+ * - none：不注入模块/终端/Composer 自动上下文
+ */
+export type AiDataSharing = "minimal" | "full" | "none";
+
+export const AI_DATA_SHARING_OPTIONS: readonly AiDataSharing[] = [
+  "minimal",
+  "full",
+  "none",
+];
+
+export function normalizeAiDataSharing(value: unknown): AiDataSharing {
+  if (value === "minimal" || value === "full" || value === "none") return value;
+  return "minimal";
+}
+
 /** 详情面板呈现方式：右侧滑入抽屉 / 居中浮动窗口 */
 export type DetailPanelMode = "drawer" | "floating";
 
@@ -197,6 +215,34 @@ export function clampFilePreviewThresholdBytes(value: number): FilePreviewThresh
   return DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES;
 }
 
+export const DEFAULT_FILE_TRANSFER_CONCURRENCY = 2;
+
+export function clampFileTransferConcurrency(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_FILE_TRANSFER_CONCURRENCY;
+  return Math.min(8, Math.max(1, Math.round(value)));
+}
+
+/** 0 = 不限制；单位字节/秒 */
+export const FILE_TRANSFER_RATE_LIMIT_OPTIONS = [
+  0,
+  512 * 1024,
+  1024 * 1024,
+  2 * 1024 * 1024,
+  5 * 1024 * 1024,
+  10 * 1024 * 1024,
+  50 * 1024 * 1024,
+] as const;
+export type FileTransferRateLimitBps = (typeof FILE_TRANSFER_RATE_LIMIT_OPTIONS)[number];
+export const DEFAULT_FILE_TRANSFER_RATE_LIMIT_BPS: FileTransferRateLimitBps = 0;
+
+export function clampFileTransferRateLimitBps(value: number): FileTransferRateLimitBps {
+  const n = Math.round(value);
+  if ((FILE_TRANSFER_RATE_LIMIT_OPTIONS as readonly number[]).includes(n)) {
+    return n as FileTransferRateLimitBps;
+  }
+  return DEFAULT_FILE_TRANSFER_RATE_LIMIT_BPS;
+}
+
 interface SettingsState {
   locale: Locale;
   uiDensity: UiDensity;
@@ -205,6 +251,8 @@ interface SettingsState {
   accentColor: AccentColor;
   proxy: ProxyConfig;
   aiDisplayMode: AiDisplayMode;
+  /** 发送给 AI 的数据范围（模块/终端上下文） */
+  aiDataSharing: AiDataSharing;
   aiDockWidth: number;
   detailPanelMode: DetailPanelMode;
   terminalFontFamily: string;
@@ -260,6 +308,12 @@ interface SettingsState {
   filePreviewThresholdBytes: FilePreviewThresholdBytes;
   /** 文件索引存储目录，空字符串表示默认 ~/.omnipd/files/index */
   fileIndexStorageDir: string;
+  /** 跨 SFTP 远程直传策略：ask | always | never */
+  fileRemoteDirectPolicy: "ask" | "always" | "never";
+  /** 跨连接传输并发数（1–8） */
+  fileTransferConcurrency: number;
+  /** 中继限速（字节/秒，0=不限制） */
+  fileTransferRateLimitBps: FileTransferRateLimitBps;
   /** 协议实验室可配置 Tab 的开关状态 */
   protocolLabTabs: Record<ControllableProtocolTabKey, "open" | "closed">;
   /** 点击窗口关闭按钮：询问 / 最小化到托盘 / 直接退出 */
@@ -273,6 +327,7 @@ interface SettingsState {
   setAccentColor: (color: AccentColor) => void;
   setProxy: (proxy: ProxyConfig) => void;
   setAiDisplayMode: (mode: AiDisplayMode) => void;
+  setAiDataSharing: (mode: AiDataSharing) => void;
   setAiDockWidth: (width: number) => void;
   setDetailPanelMode: (mode: DetailPanelMode) => void;
   setTerminalSettings: (patch: Partial<Pick<SettingsState,
@@ -306,7 +361,7 @@ interface SettingsState {
     | "sqlKeywordCase"
     | "formatSqlOnSave"
   >>) => void;
-  setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes" | "fileIndexStorageDir">>) => void;
+  setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes" | "fileIndexStorageDir" | "fileRemoteDirectPolicy" | "fileTransferConcurrency" | "fileTransferRateLimitBps">>) => void;
   setProtocolLabSettings: (
     patch: Partial<Pick<SettingsState, "protocolLabTabs">>,
   ) => void;
@@ -372,6 +427,7 @@ export const useSettingsStore = create<SettingsState>()(
       accentColor: "blue",
       proxy: { ...DEFAULT_PROXY },
       aiDisplayMode: "subwindow",
+      aiDataSharing: "minimal",
       aiDockWidth: AI_DOCK_WIDTH_DEFAULT,
       detailPanelMode: "drawer",
       terminalFontFamily: "Cascadia Code",
@@ -412,6 +468,9 @@ export const useSettingsStore = create<SettingsState>()(
       formatSqlOnSave: true,
       filePreviewThresholdBytes: DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
       fileIndexStorageDir: "",
+      fileRemoteDirectPolicy: "ask",
+      fileTransferConcurrency: DEFAULT_FILE_TRANSFER_CONCURRENCY,
+      fileTransferRateLimitBps: DEFAULT_FILE_TRANSFER_RATE_LIMIT_BPS,
       protocolLabTabs: { ...DEFAULT_CONTROLLABLE_PROTOCOL_STATUS },
       closeBehavior: "ask",
       resolved: resolveTheme("system"),
@@ -436,6 +495,8 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setProxy: (proxy) => set({ proxy }),
       setAiDisplayMode: (aiDisplayMode) => set({ aiDisplayMode }),
+      setAiDataSharing: (aiDataSharing) =>
+        set({ aiDataSharing: normalizeAiDataSharing(aiDataSharing) }),
       setAiDockWidth: (aiDockWidth) => set({ aiDockWidth }),
       setDetailPanelMode: (detailPanelMode) => set({ detailPanelMode }),
       setTerminalSettings: (patch) => set(patch),
@@ -513,6 +574,18 @@ export const useSettingsStore = create<SettingsState>()(
             patch.fileIndexStorageDir !== undefined
               ? patch.fileIndexStorageDir.trim()
               : state.fileIndexStorageDir,
+          fileRemoteDirectPolicy:
+            patch.fileRemoteDirectPolicy !== undefined
+              ? patch.fileRemoteDirectPolicy
+              : state.fileRemoteDirectPolicy,
+          fileTransferConcurrency:
+            patch.fileTransferConcurrency !== undefined
+              ? clampFileTransferConcurrency(patch.fileTransferConcurrency)
+              : state.fileTransferConcurrency,
+          fileTransferRateLimitBps:
+            patch.fileTransferRateLimitBps !== undefined
+              ? clampFileTransferRateLimitBps(patch.fileTransferRateLimitBps)
+              : state.fileTransferRateLimitBps,
         })),
       setProtocolLabSettings: (patch) =>
         set((state) => ({
@@ -555,6 +628,7 @@ export const useSettingsStore = create<SettingsState>()(
         accentColor: state.accentColor,
         proxy: state.proxy,
         aiDisplayMode: state.aiDisplayMode,
+        aiDataSharing: state.aiDataSharing,
         aiDockWidth: state.aiDockWidth,
         detailPanelMode: state.detailPanelMode,
         terminalFontFamily: state.terminalFontFamily,
@@ -594,6 +668,9 @@ export const useSettingsStore = create<SettingsState>()(
         formatSqlOnSave: state.formatSqlOnSave,
         filePreviewThresholdBytes: state.filePreviewThresholdBytes,
         fileIndexStorageDir: state.fileIndexStorageDir,
+        fileRemoteDirectPolicy: state.fileRemoteDirectPolicy,
+        fileTransferConcurrency: state.fileTransferConcurrency,
+        fileTransferRateLimitBps: state.fileTransferRateLimitBps,
         protocolLabTabs: state.protocolLabTabs,
         closeBehavior: state.closeBehavior,
       }),
@@ -617,8 +694,19 @@ export const useSettingsStore = create<SettingsState>()(
           filePreviewThresholdBytes:
             state?.filePreviewThresholdBytes ?? DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
           fileIndexStorageDir: state?.fileIndexStorageDir ?? "",
+          fileRemoteDirectPolicy:
+            state?.fileRemoteDirectPolicy === "always" || state?.fileRemoteDirectPolicy === "never"
+              ? state.fileRemoteDirectPolicy
+              : "ask",
+          fileTransferConcurrency: clampFileTransferConcurrency(
+            state?.fileTransferConcurrency ?? DEFAULT_FILE_TRANSFER_CONCURRENCY,
+          ),
+          fileTransferRateLimitBps: clampFileTransferRateLimitBps(
+            state?.fileTransferRateLimitBps ?? DEFAULT_FILE_TRANSFER_RATE_LIMIT_BPS,
+          ),
           protocolLabTabs: normalizeControllableProtocolStatus(state?.protocolLabTabs),
           closeBehavior: normalizeCloseBehavior(state?.closeBehavior),
+          aiDataSharing: normalizeAiDataSharing(state?.aiDataSharing),
         });
       },
     }

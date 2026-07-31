@@ -8,6 +8,7 @@ import {
 } from "../components/dock/dockViewLayout";
 import {
   type FileConnectionPanelSnapshot,
+  type FileDockOpenMode,
   type FilesWorkspaceSessionSnapshot,
   sanitizeFilesWorkspaceSession,
 } from "../modules/files/filesWorkspaceSession";
@@ -20,7 +21,8 @@ const LEGACY_DOCK_LAYOUT_KEY = "omnipanel.filesDockLayout.v3";
 interface FilesWorkspaceSessionState extends FilesWorkspaceSessionSnapshot {
   setSavedLayout: (layout: SerializedDockview | null) => void;
   setActivePanelId: (panelId: string | null) => void;
-  openConnection: (connId: string) => void;
+  openConnection: (connId: string, mode?: FileDockOpenMode) => void;
+  promotePreview: (connId: string) => void;
   closeConnection: (connId: string) => void;
   setPanelState: (connId: string, snapshot: FileConnectionPanelSnapshot) => void;
   pruneMissingConnections: (validConnIds: string[]) => void;
@@ -69,13 +71,52 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
       ...EMPTY_SESSION,
       setSavedLayout: (savedLayout) => set({ savedLayout }),
       setActivePanelId: (activePanelId) => set({ activePanelId }),
-      openConnection: (connId) =>
-        set((state) => ({
-          openConnIds: state.openConnIds.includes(connId)
+      openConnection: (connId, mode = "permanent") =>
+        set((state) => {
+          const alreadyOpen = state.openConnIds.includes(connId);
+          const isPermanent = alreadyOpen && state.previewConnId !== connId;
+          const withoutWorkspaceOnly = state.workspaceOnlyConnIds.filter((id) => id !== connId);
+
+          if (mode === "preview") {
+            if (isPermanent) {
+              return {
+                activePanelId: fileConnPanelId(connId),
+                workspaceOnlyConnIds: withoutWorkspaceOnly,
+              };
+            }
+
+            let openConnIds = [...state.openConnIds];
+            let savedLayout = state.savedLayout;
+            if (state.previewConnId && state.previewConnId !== connId) {
+              const oldPreview = state.previewConnId;
+              openConnIds = openConnIds.filter((id) => id !== oldPreview);
+              savedLayout = removeFileTabFromLayout(savedLayout, fileConnPanelId(oldPreview));
+            }
+            if (!openConnIds.includes(connId)) {
+              openConnIds = [...openConnIds, connId];
+            }
+            return {
+              openConnIds,
+              previewConnId: connId,
+              activePanelId: fileConnPanelId(connId),
+              savedLayout,
+              workspaceOnlyConnIds: withoutWorkspaceOnly,
+            };
+          }
+
+          const openConnIds = alreadyOpen
             ? state.openConnIds
-            : [...state.openConnIds, connId],
-          activePanelId: fileConnPanelId(connId),
-          workspaceOnlyConnIds: state.workspaceOnlyConnIds.filter((id) => id !== connId),
+            : [...state.openConnIds, connId];
+          return {
+            openConnIds,
+            previewConnId: state.previewConnId === connId ? null : state.previewConnId,
+            activePanelId: fileConnPanelId(connId),
+            workspaceOnlyConnIds: withoutWorkspaceOnly,
+          };
+        }),
+      promotePreview: (connId) =>
+        set((state) => ({
+          previewConnId: state.previewConnId === connId ? null : state.previewConnId,
         })),
       closeConnection: (connId) => {
         const tabId = fileConnPanelId(connId);
@@ -83,6 +124,7 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
         const openConnIds = state.openConnIds.filter((id) => id !== connId);
         set({
           openConnIds,
+          previewConnId: state.previewConnId === connId ? null : state.previewConnId,
           activePanelId: pickNextActivePanelId(state.openConnIds, connId, state.activePanelId),
           savedLayout: removeFileTabFromLayout(state.savedLayout, tabId),
           workspaceOnlyConnIds: state.workspaceOnlyConnIds.filter((id) => id !== connId),
@@ -90,10 +132,15 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
       },
       setConnectionWorkspaceOnly: (connId, workspaceOnly) =>
         set((state) => {
-          const set = new Set(state.workspaceOnlyConnIds);
-          if (workspaceOnly) set.add(connId);
-          else set.delete(connId);
-          return { workspaceOnlyConnIds: [...set] };
+          const next = new Set(state.workspaceOnlyConnIds);
+          if (workspaceOnly) next.add(connId);
+          else next.delete(connId);
+          return {
+            workspaceOnlyConnIds: [...next],
+            // 拖出工作区视为钉住
+            previewConnId:
+              workspaceOnly && state.previewConnId === connId ? null : state.previewConnId,
+          };
         }),
       setPanelState: (connId, snapshot) =>
         set((state) => ({
@@ -104,6 +151,12 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
         const state = get();
         const openConnIds = state.openConnIds.filter((id) => allowed.has(id));
         const workspaceOnlyConnIds = state.workspaceOnlyConnIds.filter((id) => allowed.has(id));
+        let previewConnId = state.previewConnId;
+        if (previewConnId && !allowed.has(previewConnId)) {
+          previewConnId = null;
+        } else if (previewConnId && !openConnIds.includes(previewConnId)) {
+          previewConnId = null;
+        }
         let activePanelId = state.activePanelId;
         if (activePanelId) {
           const activeConnId = activePanelId.replace(/^fm-conn:/, "");
@@ -119,22 +172,24 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
         if (
           openConnIds.length === state.openConnIds.length
           && workspaceOnlyConnIds.length === state.workspaceOnlyConnIds.length
+          && previewConnId === state.previewConnId
           && activePanelId === state.activePanelId
           && Object.keys(panelStates).length === Object.keys(state.panelStates).length
         ) {
           return;
         }
-        set({ openConnIds, activePanelId, panelStates, workspaceOnlyConnIds });
+        set({ openConnIds, activePanelId, previewConnId, panelStates, workspaceOnlyConnIds });
       },
       reset: () => set({ ...EMPTY_SESSION }),
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(createIndexedDBStorage),
       partialize: (state) => ({
         openConnIds: state.openConnIds,
         activePanelId: state.activePanelId,
+        previewConnId: state.previewConnId,
         savedLayout: state.savedLayout,
         panelStates: state.panelStates,
         workspaceOnlyConnIds: state.workspaceOnlyConnIds,
@@ -146,6 +201,7 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
             return sanitizeFilesWorkspaceSession({
               openConnIds: [],
               activePanelId: null,
+              previewConnId: null,
               savedLayout: legacyLayout,
               panelStates: {},
             });
@@ -156,4 +212,3 @@ export const useFilesWorkspaceSessionStore = create<FilesWorkspaceSessionState>(
     },
   ),
 );
-

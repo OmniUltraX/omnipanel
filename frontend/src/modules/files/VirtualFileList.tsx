@@ -43,6 +43,10 @@ export interface VirtualFileListProps {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   loadMoreLabel?: string;
+  onEntryDragStart?: (e: React.DragEvent, entry: FileEntry) => void;
+  onEntryDragOver?: (e: React.DragEvent, entry: FileEntry) => void;
+  onEntryDrop?: (e: React.DragEvent, entry: FileEntry) => void;
+  onEntryDragLeave?: (e: React.DragEvent, entry: FileEntry) => void;
 }
 
 export function VirtualFileList({
@@ -55,6 +59,10 @@ export function VirtualFileList({
   onLoadMore,
   loadingMore,
   loadMoreLabel,
+  onEntryDragStart,
+  onEntryDragOver,
+  onEntryDrop,
+  onEntryDragLeave,
 }: VirtualFileListProps) {
   const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -85,6 +93,11 @@ export function VirtualFileList({
         <div
           key={entry.path}
           className={`fm-file-row${selected?.path === entry.path ? " selected" : ""}`}
+          draggable={Boolean(onEntryDragStart)}
+          onDragStart={(e) => onEntryDragStart?.(e, entry)}
+          onDragOver={(e) => onEntryDragOver?.(e, entry)}
+          onDragLeave={(e) => onEntryDragLeave?.(e, entry)}
+          onDrop={(e) => onEntryDrop?.(e, entry)}
           onClick={() => onActivate(entry)}
           onContextMenu={(e) => onContextMenu(e, entry)}
           onDoubleClick={() => (isDir ? onActivate(entry) : onOpenFile(entry))}
@@ -100,7 +113,17 @@ export function VirtualFileList({
         </div>
       );
     },
-    [entries, selected?.path, onActivate, onContextMenu, onOpenFile],
+    [
+      entries,
+      selected?.path,
+      onActivate,
+      onContextMenu,
+      onOpenFile,
+      onEntryDragStart,
+      onEntryDragOver,
+      onEntryDrop,
+      onEntryDragLeave,
+    ],
   );
 
   return (
@@ -136,6 +159,10 @@ export interface VirtualFileGridProps {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   loadMoreLabel?: string;
+  onEntryDragStart?: (e: React.DragEvent, entry: FileEntry) => void;
+  onEntryDragOver?: (e: React.DragEvent, entry: FileEntry) => void;
+  onEntryDrop?: (e: React.DragEvent, entry: FileEntry) => void;
+  onEntryDragLeave?: (e: React.DragEvent, entry: FileEntry) => void;
 }
 
 export function VirtualFileGrid({
@@ -149,6 +176,10 @@ export function VirtualFileGrid({
   onLoadMore,
   loadingMore,
   loadMoreLabel,
+  onEntryDragStart,
+  onEntryDragOver,
+  onEntryDrop,
+  onEntryDragLeave,
 }: VirtualFileGridProps) {
   const { t } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -207,6 +238,11 @@ export function VirtualFileGrid({
               <div
                 key={entry.path}
                 className={`fm-grid-item${selected?.path === entry.path ? " selected" : ""}`}
+                draggable={Boolean(onEntryDragStart)}
+                onDragStart={(e) => onEntryDragStart?.(e, entry)}
+                onDragOver={(e) => onEntryDragOver?.(e, entry)}
+                onDragLeave={(e) => onEntryDragLeave?.(e, entry)}
+                onDrop={(e) => onEntryDrop?.(e, entry)}
                 onClick={() => onActivate(entry)}
                 onContextMenu={(e) => onContextMenu(e, entry)}
                 onDoubleClick={() => (isDir ? onActivate(entry) : onOpenFile(entry))}
@@ -222,7 +258,19 @@ export function VirtualFileGrid({
         </div>
       );
     },
-    [columns, connectionId, entries, selected?.path, onActivate, onContextMenu, onOpenFile],
+    [
+      columns,
+      connectionId,
+      entries,
+      selected?.path,
+      onActivate,
+      onContextMenu,
+      onOpenFile,
+      onEntryDragStart,
+      onEntryDragOver,
+      onEntryDrop,
+      onEntryDragLeave,
+    ],
   );
 
   return (

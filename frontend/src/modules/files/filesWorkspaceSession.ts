@@ -4,6 +4,9 @@ import { fileConnPanelId } from "./filesWorkspacePanels";
 
 export type FilePanelViewMode = "list" | "grid";
 
+/** 对齐数据库：单击预览 / 双击钉住 */
+export type FileDockOpenMode = "preview" | "permanent";
+
 export interface FileConnectionPanelSnapshot {
   viewMode: FilePanelViewMode;
   detailVisible: boolean;
@@ -20,6 +23,8 @@ export interface FileConnectionPanelSnapshot {
 export interface FilesWorkspaceSessionSnapshot {
   openConnIds: string[];
   activePanelId: string | null;
+  /** 全局最多一个预览连接；为 null 表示无预览槽 */
+  previewConnId: string | null;
   savedLayout: SerializedDockview | null;
   panelStates: Record<string, FileConnectionPanelSnapshot>;
   /** 已移动到工作区、主面板需隐藏的连接 id */
@@ -61,6 +66,7 @@ export function sanitizeFilesWorkspaceSession(
     return {
       openConnIds: [],
       activePanelId: null,
+      previewConnId: null,
       savedLayout: null,
       panelStates: {},
       workspaceOnlyConnIds: [],
@@ -74,6 +80,10 @@ export function sanitizeFilesWorkspaceSession(
   if (activePanelId && !openConnIds.some((id) => fileConnPanelId(id) === activePanelId)) {
     activePanelId = openConnIds.length > 0 ? fileConnPanelId(openConnIds[openConnIds.length - 1]!) : null;
   }
+  let previewConnId = typeof o.previewConnId === "string" ? o.previewConnId : null;
+  if (previewConnId && !openConnIds.includes(previewConnId)) {
+    previewConnId = null;
+  }
   const savedLayout = isLayoutUsable(o.savedLayout ?? null) ? o.savedLayout! : null;
   const panelStates: Record<string, FileConnectionPanelSnapshot> = {};
   if (o.panelStates && typeof o.panelStates === "object") {
@@ -85,5 +95,12 @@ export function sanitizeFilesWorkspaceSession(
   const workspaceOnlyConnIds = Array.isArray(o.workspaceOnlyConnIds)
     ? [...new Set(o.workspaceOnlyConnIds.filter((id): id is string => typeof id === "string"))]
     : [];
-  return { openConnIds, activePanelId, savedLayout, panelStates, workspaceOnlyConnIds };
+  return {
+    openConnIds,
+    activePanelId,
+    previewConnId,
+    savedLayout,
+    panelStates,
+    workspaceOnlyConnIds,
+  };
 }

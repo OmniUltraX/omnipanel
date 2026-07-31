@@ -8,6 +8,7 @@ import { useAiModelsStore } from "../stores/aiModelsStore";
 import { useAcpServicesStore, initAcpServicesStore } from "../stores/acpServicesStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useFileManagerStore } from "../stores/fileManagerStore";
+import { useFilesClipboardStore } from "../stores/filesClipboardStore";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
 import { useKnowledgeTodoStore } from "../stores/knowledgeTodoStore";
 import { useUserTodoStore } from "../stores/userTodoStore";
@@ -21,6 +22,7 @@ import { useShortcutsStore } from "../stores/shortcutsStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useTerminalDockLayoutStore } from "../stores/terminalDockLayoutStore";
 import { useFilesWorkspaceSessionStore } from "../stores/filesWorkspaceSessionStore";
+import { useFilesFavoritesStore } from "../stores/filesFavoritesStore";
 import { useWorkflowStore } from "../stores/workflowStore";
 import { DEFAULT_WORKSPACE, useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorkspaceBottomDockStore } from "../stores/workspaceBottomDockStore";
@@ -162,7 +164,10 @@ export async function clearAppUserData(): Promise<void> {
     activeGroupId: "default",
   });
   await clearDatabaseModuleData();
-  useFileManagerStore.setState({ transfers: [] });
+  useFileManagerStore.setState({ transfers: [], hydrated: false });
+  useFilesFavoritesStore.getState().reset();
+  useFilesClipboardStore.getState().clear();
+  useFilesWorkspaceSessionStore.getState().reset();
 
   const workspaceState = useWorkspaceStore.getState();
   for (const ws of [...workspaceState.workspaces]) {

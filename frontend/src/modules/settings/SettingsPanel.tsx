@@ -31,6 +31,7 @@ import {
   clampSqlEditorFontSize,
   clampSqlEditorLineHeight,
   FILE_PREVIEW_THRESHOLD_OPTIONS,
+  FILE_TRANSFER_RATE_LIMIT_OPTIONS,
   clampFilePreviewThresholdBytes,
   type Locale,
   type CloseBehavior,
@@ -64,6 +65,7 @@ import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState"
 import { Select } from "../../components/ui/form/Select";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { invoke } from "@tauri-apps/api/core";
 import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -902,9 +904,20 @@ export function SettingsPanel() {
   const [prodConfirm, setProdConfirm] = useState(true);
   const [dangerDetection, setDangerDetection] = useState(true);
   const [aiApproval, setAiApproval] = useState(true);
-  const [dataSentToAi, setDataSentToAi] = useState("最小化（已脱敏）");
   const [auditLog, setAuditLog] = useState(true);
-  const [sensitiveMask, setSensitiveMask] = useState(true);
+  const aiDataSharing = useSettingsStore((s) => s.aiDataSharing);
+  const setAiDataSharing = useSettingsStore((s) => s.setAiDataSharing);
+  const aiDataSharingLabel =
+    aiDataSharing === "full"
+      ? "完整上下文"
+      : aiDataSharing === "none"
+        ? "不发送"
+        : "最小化（已脱敏）";
+  const setAiDataSharingFromLabel = (label: string) => {
+    if (label === "完整上下文") setAiDataSharing("full");
+    else if (label === "不发送") setAiDataSharing("none");
+    else setAiDataSharing("minimal");
+  };
 
   // Terminal settings from store
   const terminalFontFamily = useSettingsStore((s) => s.terminalFontFamily);
@@ -942,6 +955,9 @@ export function SettingsPanel() {
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
   const filePreviewThresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
   const fileIndexStorageDir = useSettingsStore((s) => s.fileIndexStorageDir);
+  const fileRemoteDirectPolicy = useSettingsStore((s) => s.fileRemoteDirectPolicy);
+  const fileTransferConcurrency = useSettingsStore((s) => s.fileTransferConcurrency);
+  const fileTransferRateLimitBps = useSettingsStore((s) => s.fileTransferRateLimitBps);
   const setFileSettings = useSettingsStore((s) => s.setFileSettings);
   const [fileIndexStorageDraft, setFileIndexStorageDraft] = useState(fileIndexStorageDir);
   const [fileIndexStorageInfo, setFileIndexStorageInfo] = useState<FileIndexStorageInfo | null>(null);
@@ -1563,9 +1579,13 @@ export function SettingsPanel() {
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>发送给 AI 的数据</h4>
-                  <p>发送给 AI 提供商时包含哪些上下文</p>
+                  <p>发送给 AI 提供商时包含哪些上下文；密钥类内容始终打码</p>
                 </div>
-                <SettingSelect value={dataSentToAi} onChange={setDataSentToAi} options={["最小化（已脱敏）", "完整上下文", "不发送"]} />
+                <SettingSelect
+                  value={aiDataSharingLabel}
+                  onChange={setAiDataSharingFromLabel}
+                  options={["最小化（已脱敏）", "完整上下文", "不发送"]}
+                />
               </div>
               <div className="setting-row">
                 <div className="setting-label">
@@ -1577,9 +1597,9 @@ export function SettingsPanel() {
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>敏感数据脱敏</h4>
-                  <p>自动隐藏邮箱、手机号、Token 和密码</p>
+                  <p>工具结果与上下文中的密码、Token、API Key 等始终打码（不可关闭）</p>
                 </div>
-                <Toggle value={sensitiveMask} onChange={setSensitiveMask} />
+                <Toggle value={true} onChange={() => {}} />
               </div>
             </div>
           </div>
@@ -1948,6 +1968,78 @@ export function SettingsPanel() {
                   }
                   options={filePreviewThresholdOptions}
                   optionLabels={filePreviewThresholdLabels}
+                />
+              </div>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.files.remoteDirectPolicy")}</h4>
+                  <p>{t("settings.files.remoteDirectPolicyDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={fileRemoteDirectPolicy}
+                  onChange={(v) =>
+                    setFileSettings({
+                      fileRemoteDirectPolicy:
+                        v === "always" || v === "never" ? v : "ask",
+                    })
+                  }
+                  options={["ask", "always", "never"]}
+                  optionLabels={{
+                    ask: t("settings.files.remoteDirectAsk"),
+                    always: t("settings.files.remoteDirectAlways"),
+                    never: t("settings.files.remoteDirectNever"),
+                  }}
+                />
+              </div>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.files.transferConcurrency")}</h4>
+                  <p>{t("settings.files.transferConcurrencyDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(fileTransferConcurrency)}
+                  onChange={(v) => {
+                    const n = Number(v);
+                    setFileSettings({ fileTransferConcurrency: n });
+                    void commands.fileTransferSetConcurrency(n).then((r) => {
+                      try {
+                        unwrapCommand(r);
+                      } catch {
+                        /* ignore */
+                      }
+                    });
+                  }}
+                  options={["1", "2", "3", "4", "6", "8"]}
+                />
+              </div>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.files.transferRateLimit")}</h4>
+                  <p>{t("settings.files.transferRateLimitDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(fileTransferRateLimitBps)}
+                  onChange={(v) => {
+                    const n = Number(v);
+                    setFileSettings({ fileTransferRateLimitBps: n as typeof fileTransferRateLimitBps });
+                    void commands.fileTransferSetRateLimit(n).then((r) => {
+                      try {
+                        unwrapCommand(r);
+                      } catch {
+                        /* ignore */
+                      }
+                    });
+                  }}
+                  options={FILE_TRANSFER_RATE_LIMIT_OPTIONS.map(String)}
+                  optionLabels={Object.fromEntries(
+                    FILE_TRANSFER_RATE_LIMIT_OPTIONS.map((n) => [
+                      String(n),
+                      n === 0 ? t("settings.files.transferRateUnlimited") : `${formatFileSize(n)}/s`,
+                    ]),
+                  )}
                 />
               </div>
 

@@ -168,6 +168,8 @@
 .sidebar-tree-node:focus-within .tree-action-btn,
 .tree-node:hover .tree-action-btn,
 .tree-node:focus-within .tree-action-btn,
+.fm-favorite-item:hover .tree-action-btn,
+.fm-favorite-item:focus-within .tree-action-btn,
 .tree-action-btn--busy,
 .tree-action-btn--active {
     opacity: 1;

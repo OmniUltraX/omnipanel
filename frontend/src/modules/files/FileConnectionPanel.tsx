@@ -9,9 +9,29 @@ import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import type { FileEntry, FileIndexStatus, FileLocalSystemInfo, FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileIndexProgress } from "./fileApi";
-import { useFileManagerStore } from "../../stores/fileManagerStore";
+import {
+  addTransfer,
+  updateTransfer,
+  useFileManagerStore,
+  enqueueFileTransfer,
+  ensureFileTransferListener,
+  planFileTransfer,
+} from "../../stores/fileManagerStore";
+import { useFilesClipboardStore } from "../../stores/filesClipboardStore";
+import {
+  defaultFavoriteLabel,
+  useFilesFavoritesStore,
+} from "../../stores/filesFavoritesStore";
 import { quickInput } from "../../stores/quickInputStore";
+import { showToast } from "../../stores/toastStore";
 import { VirtualFileList, VirtualFileGrid } from "./VirtualFileList";
+import {
+  clearFilesDrag,
+  hasFilesDrag,
+  parseFilesDrag,
+  takePendingFilesTabDrop,
+  writeFilesDrag,
+} from "./filesDragTransfer";
 import {
   IconDetailPanel,
   IconGridView,
@@ -175,9 +195,17 @@ export function FileConnectionPanel({
   const { t } = useI18n();
   const connId = connection.id;
   const protocol = connection.protocol;
-  const addTransfer = useFileManagerStore((s) => s.addTransfer);
-  const updateTransfer = useFileManagerStore((s) => s.updateTransfer);
+  const favorites = useFilesFavoritesStore((s) => s.favorites);
+  const addFavorite = useFilesFavoritesStore((s) => s.addFavorite);
+  const removeFavorite = useFilesFavoritesStore((s) => s.removeFavorite);
+  const clipboardCopy = useFilesClipboardStore((s) => s.copy);
+  const clipboardCut = useFilesClipboardStore((s) => s.cut);
+  const clipboardItems = useFilesClipboardStore((s) => s.items);
+  const clipboardMode = useFilesClipboardStore((s) => s.mode);
+  const clipboardClear = useFilesClipboardStore((s) => s.clear);
   const filePreviewThresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
+  const fileRemoteDirectPolicy = useSettingsStore((s) => s.fileRemoteDirectPolicy);
+  const setFileSettings = useSettingsStore((s) => s.setFileSettings);
   const storedConnection = useConnectionStore((s) => s.connections.find((c) => c.id === connId));
   const s3BindKey = useMemo(
     () => (protocol === "s3" ? buildS3BindKey(storedConnection?.config) : ""),
@@ -623,7 +651,7 @@ export function FileConnectionPanel({
       }
     }
     void loadDir(currentPath);
-  }, [addTransfer, connId, currentPath, loadDir, protocol, updateTransfer]);
+  }, [connId, currentPath, loadDir, protocol]);
 
   const handleDownload = useCallback(async (entry: FileEntry) => {
     if (entry.kind === "dir") return;
@@ -637,7 +665,360 @@ export function FileConnectionPanel({
     } catch (e) {
       updateTransfer(xferId, { status: "error", error: fmtError(e) });
     }
-  }, [addTransfer, connId, updateTransfer]);
+  }, [connId]);
+
+  const clipboardFromEntry = useCallback(
+    (entry: FileEntry) => [
+      {
+        connectionId: connId,
+        path: entry.path,
+        name: entry.name,
+        kind: entry.kind,
+        size: entry.size ?? null,
+      },
+    ],
+    [connId],
+  );
+
+  const handleClipboardCopy = useCallback(
+    (entry?: FileEntry | null) => {
+      const target = entry ?? selected;
+      if (!target) return;
+      clipboardCopy(clipboardFromEntry(target));
+      showToast(t("files.clipboard.copied"));
+    },
+    [clipboardCopy, clipboardFromEntry, selected, t],
+  );
+
+  const handleClipboardCut = useCallback(
+    (entry?: FileEntry | null) => {
+      const target = entry ?? selected;
+      if (!target) return;
+      clipboardCut(clipboardFromEntry(target));
+      showToast(t("files.clipboard.cut"));
+    },
+    [clipboardCut, clipboardFromEntry, selected, t],
+  );
+
+  const resolveConflictPolicy = useCallback(
+    async (itemNames: string[]): Promise<"rename" | "overwrite" | "skip"> => {
+      const existingNames = new Set(entries.map((e) => e.name));
+      const conflictNames = itemNames.filter((name) => existingNames.has(name));
+      if (conflictNames.length === 0) return "rename";
+      const preview = conflictNames.slice(0, 5).join(", ");
+      const names = conflictNames.length > 5 ? `${preview}…` : preview;
+      const useRename = await appConfirm(
+        t("files.transfer.conflictBody", {
+          count: conflictNames.length,
+          names,
+        }),
+        t("files.transfer.conflictTitle"),
+        {
+          confirmLabel: t("files.transfer.conflictRename"),
+          cancelLabel: t("files.transfer.conflictMore"),
+        },
+      );
+      if (useRename) return "rename";
+      const overwrite = await appConfirm(
+        t("files.transfer.conflictOverwriteBody"),
+        t("files.transfer.conflictOverwriteTitle"),
+        {
+          confirmLabel: t("files.transfer.conflictOverwrite"),
+          cancelLabel: t("files.transfer.conflictSkip"),
+        },
+      );
+      return overwrite ? "overwrite" : "skip";
+    },
+    [entries, t],
+  );
+
+  const resolveRouteForPaste = useCallback(
+    async (
+      sourceConnectionId: string,
+    ): Promise<"remoteDirect" | "relay" | null> => {
+      if (!sourceConnectionId || sourceConnectionId === connId) return null;
+      const policy = fileRemoteDirectPolicy;
+      const plan = await planFileTransfer({
+        sourceConnectionId,
+        destConnectionId: connId,
+        remoteDirectPolicy: policy,
+      });
+      if (plan.needsDirectConfirm && policy === "ask") {
+        const ok = await appConfirm(
+          `${plan.routeReason}\n\n${t("files.transfer.directConfirmBody")}`,
+          t("files.transfer.directConfirmTitle"),
+          {
+            confirmLabel: t("files.transfer.useDirect"),
+            cancelLabel: t("files.transfer.useRelay"),
+          },
+        );
+        const forceRoute = ok ? "remoteDirect" : "relay";
+        const remember = await appConfirm(
+          t("files.transfer.rememberBody"),
+          t("files.transfer.rememberTitle"),
+          {
+            confirmLabel: t("common.confirm"),
+            cancelLabel: t("common.cancel"),
+          },
+        );
+        if (remember) {
+          setFileSettings({
+            fileRemoteDirectPolicy: forceRoute === "remoteDirect" ? "always" : "never",
+          });
+        }
+        return forceRoute;
+      }
+      if (policy === "always" || plan.route === "remoteDirect") return "remoteDirect";
+      if (policy === "never") return "relay";
+      return plan.route === "relay" ? "relay" : plan.route === "remoteDirect" ? "remoteDirect" : null;
+    },
+    [connId, fileRemoteDirectPolicy, setFileSettings, t],
+  );
+
+  const enqueueClipboardLike = useCallback(
+    async (
+      items: {
+        connectionId: string;
+        path: string;
+        kind: string;
+        name: string;
+        size?: number | null;
+      }[],
+      destDir: string,
+      op: "copy" | "move",
+    ) => {
+      if (items.length === 0) return;
+      await ensureFileTransferListener();
+      const sourceConnectionId = items[0]?.connectionId ?? "";
+      const forceRoute = await resolveRouteForPaste(sourceConnectionId);
+
+      // 跨连接且走中继：粗算本机带宽占用并确认
+      if (
+        sourceConnectionId &&
+        sourceConnectionId !== connId &&
+        (forceRoute === "relay" || forceRoute === null)
+      ) {
+        let route = forceRoute;
+        if (route === null) {
+          try {
+            const plan = await planFileTransfer({
+              sourceConnectionId,
+              destConnectionId: connId,
+              remoteDirectPolicy: fileRemoteDirectPolicy,
+            });
+            route = plan.route === "relay" ? "relay" : null;
+          } catch {
+            route = "relay";
+          }
+        }
+        if (route === "relay") {
+          const bytes = items.reduce((sum, it) => sum + (Number(it.size) || 0), 0);
+          if (bytes > 0) {
+            const ok = await appConfirm(
+              t("files.transfer.relayBandwidthBody", { size: formatFileSize(bytes) }),
+              t("files.transfer.relayBandwidthTitle"),
+              {
+                confirmLabel: t("files.transfer.relayBandwidthConfirm"),
+                cancelLabel: t("common.cancel"),
+              },
+            );
+            if (!ok) return;
+          }
+        }
+      }
+
+      const conflictPolicy = await resolveConflictPolicy(items.map((it) => it.name));
+      await enqueueFileTransfer({
+        items,
+        destConnectionId: connId,
+        destDir,
+        op,
+        conflictPolicy,
+        forceRoute,
+        remoteDirectPolicy: fileRemoteDirectPolicy,
+      });
+      showToast(t("files.transfer.enqueued"));
+      window.setTimeout(() => void loadDir(currentPath), 800);
+    },
+    [
+      connId,
+      currentPath,
+      fileRemoteDirectPolicy,
+      loadDir,
+      resolveConflictPolicy,
+      resolveRouteForPaste,
+      t,
+    ],
+  );
+
+  const handleClipboardPaste = useCallback(async () => {
+    if (clipboardItems.length === 0) return;
+    try {
+      await enqueueClipboardLike(
+        clipboardItems.map((it) => ({
+          connectionId: it.connectionId,
+          path: it.path,
+          kind: it.kind,
+          name: it.name,
+          size: it.size,
+        })),
+        protocol === "local"
+          ? currentPath || quickPaths?.home || ""
+          : currentPath || "/",
+        clipboardMode === "cut" ? "move" : "copy",
+      );
+      if (clipboardMode === "cut") clipboardClear();
+    } catch (e) {
+      showToast(fmtError(e));
+    }
+  }, [
+    clipboardClear,
+    clipboardItems,
+    clipboardMode,
+    currentPath,
+    enqueueClipboardLike,
+    protocol,
+    quickPaths?.home,
+  ]);
+
+  const handleEntryDragStart = useCallback(
+    (e: React.DragEvent, entry: FileEntry) => {
+      const target =
+        selected && selected.path === entry.path ? selected : entry;
+      writeFilesDrag(e.dataTransfer, {
+        connectionId: connId,
+        items: clipboardFromEntry(target),
+        mode: "copy",
+      });
+    },
+    [clipboardFromEntry, connId, selected],
+  );
+
+  const handleEntryDragOver = useCallback((e: React.DragEvent, entry: FileEntry) => {
+    if (!hasFilesDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    if (entry.kind === "dir") {
+      (e.currentTarget as HTMLElement).classList.add("fm-drop-target");
+    }
+  }, []);
+
+  const handleEntryDragLeave = useCallback((e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).classList.remove("fm-drop-target");
+  }, []);
+
+  const handleEntryDrop = useCallback(
+    async (e: React.DragEvent, entry: FileEntry) => {
+      (e.currentTarget as HTMLElement).classList.remove("fm-drop-target");
+      if (!hasFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const payload = parseFilesDrag(e.dataTransfer);
+      clearFilesDrag();
+      if (!payload?.items.length) return;
+      const destDir =
+        entry.kind === "dir"
+          ? entry.path
+          : protocol === "local"
+            ? currentPath || quickPaths?.home || ""
+            : currentPath || "/";
+      // 拖到自身目录无效
+      if (
+        payload.connectionId === connId &&
+        payload.items.every((it) => {
+          const parent = it.path.replace(/[/\\][^/\\]+$/, "") || "/";
+          return parent === destDir || it.path === destDir;
+        })
+      ) {
+        return;
+      }
+      try {
+        await enqueueClipboardLike(payload.items, destDir, "copy");
+      } catch (err) {
+        showToast(fmtError(err));
+      }
+    },
+    [connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home],
+  );
+
+  const handlePanelDragOver = useCallback((e: React.DragEvent) => {
+    if (!hasFilesDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handlePanelDrop = useCallback(
+    async (e: React.DragEvent) => {
+      if (!hasFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const payload = parseFilesDrag(e.dataTransfer);
+      clearFilesDrag();
+      if (!payload?.items.length) return;
+      if (payload.connectionId === connId) return;
+      const destDir =
+        protocol === "local"
+          ? currentPath || quickPaths?.home || ""
+          : currentPath || "/";
+      try {
+        await enqueueClipboardLike(payload.items, destDir, "copy");
+      } catch (err) {
+        showToast(fmtError(err));
+      }
+    },
+    [connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home],
+  );
+
+  useEffect(() => {
+    const onDragEnd = () => clearFilesDrag();
+    window.addEventListener("dragend", onDragEnd);
+    return () => window.removeEventListener("dragend", onDragEnd);
+  }, []);
+
+  // 从其他连接 Tab 标题拖入后，等本面板激活再入队
+  useEffect(() => {
+    const flush = () => {
+      if (!isActive) return;
+      const pending = takePendingFilesTabDrop(connId);
+      if (!pending?.items.length) return;
+      const destDir =
+        protocol === "local"
+          ? currentPath || quickPaths?.home || ""
+          : currentPath || "/";
+      void enqueueClipboardLike(pending.items, destDir, "copy").catch((err) => {
+        showToast(fmtError(err));
+      });
+    };
+    flush();
+    window.addEventListener("omnipanel-files-tab-drop", flush);
+    return () => window.removeEventListener("omnipanel-files-tab-drop", flush);
+  }, [isActive, connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === "c") {
+        e.preventDefault();
+        handleClipboardCopy();
+      } else if (key === "x") {
+        e.preventDefault();
+        handleClipboardCut();
+      } else if (key === "v") {
+        e.preventDefault();
+        void handleClipboardPaste();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleClipboardCopy, handleClipboardCut, handleClipboardPaste, isActive]);
 
   const handleMkdir = useCallback(async () => {
     const name = await quickInput({
@@ -717,6 +1098,38 @@ export function FileConnectionPanel({
     }
   }, [navigateTo]);
 
+  const currentFavorite = useMemo(
+    () =>
+      favorites.find(
+        (item) => item.connectionId === connId && item.path === currentPath,
+      ) ?? null,
+    [connId, currentPath, favorites],
+  );
+
+  const toggleFavoritePath = useCallback(
+    (path: string) => {
+      const existing = favorites.find(
+        (item) => item.connectionId === connId && item.path === path,
+      );
+      if (existing) {
+        removeFavorite(existing.id);
+        showToast(t("files.sidebar.favoriteRemoved"));
+        return;
+      }
+      const created = addFavorite({
+        connectionId: connId,
+        path,
+        label: defaultFavoriteLabel(path, connection.name),
+      });
+      if (created) {
+        showToast(t("files.sidebar.favoriteAdded"));
+      } else {
+        showToast(t("files.sidebar.favoriteExists"));
+      }
+    },
+    [addFavorite, connection.name, connId, favorites, removeFavorite, t],
+  );
+
   const handleFileContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
     e.preventDefault();
     setSelected(entry);
@@ -733,6 +1146,17 @@ export function FileConnectionPanel({
         onClick: () => (entry.kind === "file" ? handleOpenFile(entry) : handleEnter(entry)),
       },
     ];
+    if (entry.kind === "dir") {
+      const favPath = entry.path;
+      const isFav = favorites.some(
+        (item) => item.connectionId === connId && item.path === favPath,
+      );
+      items.push({
+        id: "favorite",
+        label: isFav ? t("files.sidebar.removeFavoriteCurrent") : t("files.sidebar.addFavorite"),
+        onClick: () => toggleFavoritePath(favPath),
+      });
+    }
     if (entry.kind === "file") {
       if (connId !== LOCAL_CONNECTION_ID) {
         items.push({
@@ -749,6 +1173,25 @@ export function FileConnectionPanel({
         });
       }
     }
+    items.push(
+      { id: "sep-clip", separator: true, label: "" },
+      {
+        id: "copy",
+        label: t("files.clipboard.copy"),
+        onClick: () => handleClipboardCopy(entry),
+      },
+      {
+        id: "cut",
+        label: t("files.clipboard.cutAction"),
+        onClick: () => handleClipboardCut(entry),
+      },
+      {
+        id: "paste",
+        label: t("files.clipboard.paste"),
+        disabled: clipboardItems.length === 0,
+        onClick: () => void handleClipboardPaste(),
+      },
+    );
     items.push(
       { id: "sep1", separator: true, label: "" },
       {
@@ -770,7 +1213,24 @@ export function FileConnectionPanel({
       },
     );
     return items;
-  }, [ctxMenu, handleCopyS3Link, handleDelete, handleDownload, handleEnter, handleOpenFile, handleRename, protocol, t]);
+  }, [
+    clipboardItems.length,
+    connId,
+    ctxMenu,
+    favorites,
+    handleClipboardCopy,
+    handleClipboardCut,
+    handleClipboardPaste,
+    handleCopyS3Link,
+    handleDelete,
+    handleDownload,
+    handleEnter,
+    handleOpenFile,
+    handleRename,
+    protocol,
+    t,
+    toggleFavoritePath,
+  ]);
 
   const effectiveLocalPath =
     protocol === "local" && !currentPath && quickPaths?.home ? quickPaths.home : currentPath;
@@ -1015,6 +1475,20 @@ export function FileConnectionPanel({
             <span className="fm-toolbar-divider" />
             <button
               type="button"
+              className={`fm-action-btn${currentFavorite ? " active" : ""}`}
+              onClick={() => toggleFavoritePath(currentPath)}
+              title={
+                currentFavorite
+                  ? t("files.sidebar.removeFavoriteCurrent")
+                  : t("files.sidebar.addFavoriteCurrent")
+              }
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill={currentFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5">
+                <path d="M8 2.2l1.6 3.2 3.5.5-2.5 2.5.6 3.5L8 10.4 4.8 11.9l.6-3.5L2.9 5.9l3.5-.5L8 2.2z" />
+              </svg>
+            </button>
+            <button
+              type="button"
               className="fm-action-btn"
               onClick={() => void handleUpload()}
               title={t("files.actions.upload")}
@@ -1042,7 +1516,11 @@ export function FileConnectionPanel({
         {error && <div className="fm-error-banner">{error}</div>}
         {copyToast && <div className="fm-copy-toast">{copyToast}</div>}
         <div className="fm-content-wrap">
-          <div className="fm-content">
+          <div
+            className="fm-content"
+            onDragOver={handlePanelDragOver}
+            onDrop={(e) => void handlePanelDrop(e)}
+          >
             {loading || (search.trim() && searchLoading) ? (
               <ModuleEmptyState preset="folder" title={t("files.loading")} />
             ) : displayEntries.length === 0 ? (
@@ -1064,6 +1542,10 @@ export function FileConnectionPanel({
                 onActivate={handleEnter}
                 onContextMenu={handleFileContextMenu}
                 onOpenFile={handleOpenFile}
+                onEntryDragStart={handleEntryDragStart}
+                onEntryDragOver={handleEntryDragOver}
+                onEntryDragLeave={handleEntryDragLeave}
+                onEntryDrop={(e, entry) => void handleEntryDrop(e, entry)}
                 {...listScrollProps}
               />
             ) : (
@@ -1075,6 +1557,10 @@ export function FileConnectionPanel({
                 onActivate={handleEnter}
                 onContextMenu={handleFileContextMenu}
                 onOpenFile={handleOpenFile}
+                onEntryDragStart={handleEntryDragStart}
+                onEntryDragOver={handleEntryDragOver}
+                onEntryDragLeave={handleEntryDragLeave}
+                onEntryDrop={(e, entry) => void handleEntryDrop(e, entry)}
                 {...listScrollProps}
               />
             )}
