@@ -464,6 +464,48 @@ const SCHEMA_PLAN_ADD_STEP: &str = r#"{
   "required": ["plan_id", "title"]
 }"#;
 
+const SCHEMA_ASK_USER: &str = r#"{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "description": "可选；表单总标题（如「确认部署目标」）" },
+    "questions": {
+      "type": "array",
+      "description": "澄清问题列表（1～5 题）。信息不清时优先用本工具，不要纯文本连问。",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "题目稳定 id（答案字典的 key，如 env）" },
+          "prompt": { "type": "string", "description": "题干（展示给用户）" },
+          "type": {
+            "type": "string",
+            "enum": ["single_choice", "multi_choice", "text"],
+            "description": "题型：单选 / 多选 / 填空"
+          },
+          "options": {
+            "type": "array",
+            "description": "选择题选项（single_choice / multi_choice 必填，至少 2 项；text 勿填）",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "选项 id（写入答案）" },
+                "label": { "type": "string", "description": "选项展示文案" }
+              },
+              "required": ["id", "label"]
+            },
+            "minItems": 2
+          },
+          "required": { "type": "boolean", "description": "是否必填，默认 true" },
+          "placeholder": { "type": "string", "description": "填空题占位提示（仅 text）" }
+        },
+        "required": ["id", "prompt", "type"]
+      }
+    }
+  },
+  "required": ["questions"]
+}"#;
+
 const SCHEMA_PLAN_UPDATE_STEP: &str = r#"{
   "type": "object",
   "properties": {
@@ -1071,6 +1113,17 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: false,
     },
+    BuiltinToolSpec {
+        tool_name: "omni_ask_user",
+        module_key: "web",
+        // 描述前 140 字会进 ACP compact schema，MUST 语义放最前。
+        description:
+            "MUST：凡需用户选择/确认/补充关键参数时调用（单选/多选/填空，1～5题）。\
+             禁止正文纯文本列选项。提交或跳过后返回结构化答案。仅收集意图，不代替危险操作确认。",
+        input_schema: SCHEMA_ASK_USER,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
 ];
 
 /// 按工具名查找 spec。
@@ -1083,14 +1136,17 @@ pub fn builtin_tool_module_key(tool_name: &str) -> Option<&'static str> {
     builtin_tool_spec(tool_name).map(|s| s.module_key)
 }
 
-/// 会话级进度工具（`omni_plan_*`）：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
+/// 跨模块工具（`omni_plan_*` / `omni_ask_user`）：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
 ///
-/// 模块 Agent（terminal / docker / database…）做多步骤任务时需要在会话顶部展示 todolist；
+/// 模块 Agent（terminal / docker / database…）需要会话级 todolist 与结构化澄清；
 /// 若严格按 `module_key` 隔离，这些工具永远不会注入，模型也就无法调用。
 pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        "omni_plan_create" | "omni_plan_add_step" | "omni_plan_update_step"
+        "omni_plan_create"
+            | "omni_plan_add_step"
+            | "omni_plan_update_step"
+            | "omni_ask_user"
     )
 }
 
@@ -1155,6 +1211,7 @@ mod tests {
             "omni_plan_create",
             "omni_plan_add_step",
             "omni_plan_update_step",
+            "omni_ask_user",
         ] {
             assert_eq!(builtin_tool_module_key(name), Some("web"), "{name}");
             assert!(builtin_tool_is_cross_module(name), "{name}");

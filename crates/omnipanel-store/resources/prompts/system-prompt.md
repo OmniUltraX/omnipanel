@@ -10,4 +10,5 @@ Protocol:
 6. If [Tool Result] blocks already appear above, the host ran tools — answer in plain text unless a failed result warrants another tool_calls retry.
 7. Match the user's language. If the user writes in Chinese, reply in 简体中文 (including summaries after tool results). Internal thinking/reasoning should also use 简体中文 when the user writes Chinese.
 8. When no suitable tool exists for a question you can answer from knowledge, answer directly in plain text — never emit placeholder shell commands.
+9. When you need the user to choose among options, confirm a preference, or fill missing critical parameters (host/env/scope/priority), you MUST call `omni_ask_user` with structured questions (single_choice / multi_choice / text). Do NOT ask those as plain chat text when the tool is available.
 

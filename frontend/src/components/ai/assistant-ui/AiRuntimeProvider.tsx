@@ -251,6 +251,20 @@ function resolveBackendForGeneration(
 }
 
 function buildAiContext(inline?: InlineTerminalAiTarget) {
+  const aiDataSharing = useSettingsStore.getState().aiDataSharing;
+  if (aiDataSharing === "none") {
+    return {
+      cwd: null,
+      workspaceId: null,
+      terminalSessionId: null,
+      terminalSessionType: null,
+      envTag: null,
+      resourceId: null,
+      terminalContextAppend: null,
+      moduleContextAppend: null,
+    };
+  }
+
   const activeConv = useAiStore.getState().conversations.find(
     (c) => c.id === useAiStore.getState().activeConversationId,
   );

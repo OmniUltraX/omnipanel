@@ -26,6 +26,9 @@ function aiMessageCacheKey(msg: AiMessage): string {
       if (p.type === "plan") {
         return `plan:${p.plan.id}:${p.plan.status}:${p.plan.steps.length}:${p.plan.updatedAt}`;
       }
+      if (p.type === "user-question") {
+        return `ask:${p.form.formId}:${p.form.status}:${p.form.updatedAt}`;
+      }
       if (p.type === "sub-conversation-cluster") {
         return `cluster:${p.clusterId}:${p.status}:${p.children.length}:${p.finishedAt ?? 0}`;
       }
@@ -51,8 +54,15 @@ function extractThreadParts(message: ThreadAssistantMessage): AiMessagePart[] {
     if (part.type === "data") {
       const data = (part as { type: "data"; data?: unknown }).data;
       if (data && typeof data === "object" && data !== null) {
+        // user-question：formId + questions + toolCallId（须先于 plan，避免误匹配）
+        if ("formId" in data && "questions" in data && "toolCallId" in data) {
+          parts.push({
+            type: "user-question",
+            form: data as import("../../../lib/ai/aiMessageParts").UserQuestionFormData,
+          });
+        }
         // plan part 识别：有 id + steps + title
-        if ("id" in data && "steps" in data && "title" in data) {
+        else if ("id" in data && "steps" in data && "title" in data) {
           parts.push({ type: "plan", plan: data as import("../../../lib/ai/aiMessageParts").PlanData });
         }
         // cluster part 识别：有 clusterId + children + toolCallId
@@ -147,6 +157,11 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
       parts.push({
         type: "data",
         data: part.plan,
+      } as unknown as ThreadAssistantMessage["content"][number]);
+    } else if (part.type === "user-question") {
+      parts.push({
+        type: "data",
+        data: part.form,
       } as unknown as ThreadAssistantMessage["content"][number]);
     } else if (part.type === "sub-conversation-cluster") {
       // 写入 data part（与 plan 同模式）：除 type 外的 field 全部传入 data

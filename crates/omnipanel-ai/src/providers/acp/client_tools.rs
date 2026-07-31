@@ -67,6 +67,12 @@ pub fn build_available_functions_section(tools: &[ToolDef]) -> String {
     section.push_str("Callable names: ");
     section.push_str(&names.join(", "));
     section.push('\n');
+    if names.iter().any(|n| *n == "omni_ask_user") {
+        section.push_str(
+            "Clarification rule: when offering choices or needing critical missing params \
+             (host/env/scope/next step), call omni_ask_user — never plain-text option lists.\n",
+        );
+    }
     section.push_str("Compact schemas (name + short description + required/optional fields):\n");
     section.push('[');
     section.push_str(&compact_items.join(","));

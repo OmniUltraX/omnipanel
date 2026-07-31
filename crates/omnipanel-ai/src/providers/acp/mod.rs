@@ -550,9 +550,10 @@ fn pick_reject_once_option(options: &[(String, String)]) -> &str {
 /// 将客户端工具执行结果格式化为 ACP 后续 prompt。
 pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved: bool) -> String {
     use crate::providers::acp::client_tools::parse_tool_result_exit_code;
+    use crate::redact::redact_secrets_in_text;
 
     let body = if approved {
-        result.to_string()
+        redact_secrets_in_text(result)
     } else {
         "用户拒绝执行".to_string()
     };
@@ -560,8 +561,8 @@ pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved:
     if !approved {
         return format!(
             "[Tool Result — {tool_name}]\n{body}\n\n[System — 工具已执行完毕]\n\
-             用户拒绝了命令执行。请用自然语言说明并询问是否需要其他方式。\n\
-             不要再次输出 tool_calls JSON。\n"
+             用户拒绝了命令执行。请用自然语言简要说明；若需要用户在多种替代方案中选择，\
+             必须调用 omni_ask_user，不要用正文纯文本列选项。\n"
         );
     }
 
@@ -577,8 +578,9 @@ pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved:
 
     format!(
         "[Tool Result — {tool_name}]\n{body}\n\n[System — 工具已执行完毕]\n\
-         上方工具输出里已有真实结果。若已足够回答用户，请用自然语言直接回答；\
-         若仍需继续调查/执行，可再次输出 tool_calls JSON（消息体仅含 JSON）。\n"
+         上方工具输出里已有真实结果。若已足够回答用户，用自然语言直接给出结论；\
+         若仍需继续调查/执行，再次输出 tool_calls JSON（消息体仅含 JSON）；\
+         若需要用户选择下一步/主机/范围等，必须调用 omni_ask_user，禁止用正文纯文本列选项提问。\n"
     )
 }
 
@@ -586,6 +588,7 @@ pub fn format_client_tool_result_prompt(tool_name: &str, result: &str, approved:
 /// 单个结果时等价于 `format_client_tool_result_prompt`，保持失败/拒绝语义。
 pub fn format_client_tool_results_prompt(results: &[(String, String, bool)]) -> String {
     use crate::providers::acp::client_tools::parse_tool_result_exit_code;
+    use crate::redact::redact_secrets_in_text;
 
     if results.len() == 1 {
         let (name, result, approved) = &results[0];
@@ -606,15 +609,16 @@ pub fn format_client_tool_results_prompt(results: &[(String, String, bool)]) -> 
                 any_failed = true;
             }
         }
-        blocks.push_str(&format!("[Tool Result — {name}]\n{result}\n\n"));
+        let body = redact_secrets_in_text(result);
+        blocks.push_str(&format!("[Tool Result — {name}]\n{body}\n\n"));
     }
 
     let system = if any_rejected {
-        "[System — 部分工具被拒绝]\n用户拒绝了部分命令执行。请用自然语言说明并询问是否需要其他方式。\n不要再次输出 tool_calls JSON。\n"
+        "[System — 部分工具被拒绝]\n用户拒绝了部分命令执行。请用自然语言简要说明；若需要用户在多种替代方案中选择，必须调用 omni_ask_user，不要用正文纯文本列选项。\n"
     } else if any_failed {
         "[System — 命令执行失败]\n上方部分命令未成功。请根据 [Terminal Context] 中的 shell/OS 选择正确的命令，通过 tool_calls JSON 再试一次；不要使用错误平台的命令。\n"
     } else {
-        "[System — 工具已执行完毕]\n上方工具输出里已有真实结果。若已足够回答用户，请用自然语言直接回答；若仍需继续调查/执行，可再次输出 tool_calls JSON（消息体仅含 JSON）。\n"
+        "[System — 工具已执行完毕]\n上方工具输出里已有真实结果。若已足够回答用户，用自然语言直接给出结论；若仍需继续调查/执行，再次输出 tool_calls JSON（消息体仅含 JSON）；若需要用户选择下一步/主机/范围等，必须调用 omni_ask_user，禁止用正文纯文本列选项提问。\n"
     };
     format!("{blocks}{system}")
 }
@@ -795,7 +799,8 @@ mod tests {
         let p = format_client_tool_results_prompt(&results);
         assert_eq!(p.matches("[Tool Result — ").count(), 2);
         assert!(p.contains("[System — 工具已执行完毕]"));
-        assert!(p.contains("可再次输出 tool_calls JSON"));
+        assert!(p.contains("再次输出 tool_calls JSON"));
+        assert!(p.contains("omni_ask_user"));
     }
 
     #[test]
@@ -826,6 +831,7 @@ mod tests {
         )];
         let p = format_client_tool_results_prompt(&results);
         assert!(p.contains("[Tool Result — omni_terminal_run_terminal_command]"));
-        assert!(p.contains("可再次输出 tool_calls JSON"));
+        assert!(p.contains("再次输出 tool_calls JSON"));
+        assert!(p.contains("omni_ask_user"));
     }
 }

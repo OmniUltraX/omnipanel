@@ -75,6 +75,48 @@ export type SubConversationClusterStatus =
   | "failed"
   | "cancelled";
 
+/** 澄清题型 */
+export type AskUserQuestionType = "single_choice" | "multi_choice" | "text";
+
+/** 澄清选项 */
+export interface AskUserOption {
+  id: string;
+  label: string;
+}
+
+/** 单道澄清题 */
+export interface AskUserQuestion {
+  id: string;
+  prompt: string;
+  type: AskUserQuestionType;
+  options?: AskUserOption[];
+  required?: boolean;
+  placeholder?: string;
+}
+
+/** 澄清表单状态 */
+export type UserQuestionFormStatus =
+  | "pending"
+  | "answered"
+  | "skipped"
+  | "superseded";
+
+/** 答案：单选/填空为 string，多选为 string[] */
+export type AskUserAnswerValue = string | string[];
+
+/** 澄清表单（写入 message parts 持久化） */
+export interface UserQuestionFormData {
+  formId: string;
+  toolCallId: string;
+  conversationId: string;
+  title?: string;
+  questions: AskUserQuestion[];
+  status: UserQuestionFormStatus;
+  answers?: Record<string, AskUserAnswerValue>;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** 有序消息片段：流式按到达顺序追加，供 UI 交错渲染 */
 export type AiMessagePart =
   | { type: "text"; text: string }
@@ -90,6 +132,10 @@ export type AiMessagePart =
   | {
       type: "plan";
       plan: PlanData;
+    }
+  | {
+      type: "user-question";
+      form: UserQuestionFormData;
     }
   | {
       type: "sub-conversation-cluster";
@@ -132,8 +178,12 @@ export function deriveCompatFields(parts: AiMessagePart[]): {
         status: part.status,
       });
     }
-    // plan / cluster 类型跳过：不参与 content/reasoning/toolCalls 派生
-    if (part.type === "plan" || part.type === "sub-conversation-cluster") {
+    // plan / cluster / user-question 类型跳过：不参与 content/reasoning/toolCalls 派生
+    if (
+      part.type === "plan" ||
+      part.type === "sub-conversation-cluster" ||
+      part.type === "user-question"
+    ) {
       continue;
     }
   }
@@ -296,6 +346,26 @@ export function upsertPlanInParts(
     return next;
   }
   return [...parts, { type: "plan", plan }];
+}
+
+/**
+ * 更新或插入 user-question part。
+ * 同 formId 替换；否则追加。
+ */
+export function upsertUserQuestionInParts(
+  parts: AiMessagePart[],
+  form: UserQuestionFormData,
+): AiMessagePart[] {
+  const idx = parts.findIndex(
+    (p) => p.type === "user-question" && p.form.formId === form.formId,
+  );
+  const nextForm = { ...form, updatedAt: Date.now() };
+  if (idx >= 0) {
+    const next = [...parts];
+    next[idx] = { type: "user-question", form: nextForm };
+    return next;
+  }
+  return [...parts, { type: "user-question", form: nextForm }];
 }
 
 /**

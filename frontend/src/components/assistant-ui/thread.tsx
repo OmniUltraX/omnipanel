@@ -78,6 +78,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { PlanView, usePlanCollapsed } from "../ai/PlanView";
+import { UserQuestionForm } from "../ai/UserQuestionForm";
 import {
   clampPlanStickyHeight,
   MAX_PLAN_STICKY_HEIGHT,
@@ -92,9 +93,28 @@ import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
 import type {
   PlanData,
   SubConversationClusterPartData,
+  UserQuestionFormData,
 } from "../../lib/ai/aiMessageParts";
 import { textFromMessageParts } from "../../lib/ai/parseMarkdownChecklist";
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
+
+/** 从 data part 提取澄清表单；非 ask-user 返回 null */
+function extractUserQuestionFromDataPart(
+  part: { type: string; data?: unknown },
+): UserQuestionFormData | null {
+  if (part.type !== "data" || !part.data) return null;
+  const data = part.data;
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "formId" in data &&
+    "questions" in data &&
+    "toolCallId" in data
+  ) {
+    return data as UserQuestionFormData;
+  }
+  return null;
+}
 
 /** 从 data part 提取 plan 数据；非 plan 返回 null */
 function extractPlanFromDataPart(part: { type: string; data?: unknown }): PlanData | null {
@@ -128,6 +148,10 @@ function extractClusterFromDataPart(
     return data as SubConversationClusterPartData;
   }
   return null;
+}
+
+function isHiddenAskUserToolCall(part: { toolName?: string }): boolean {
+  return part.toolName === "omni_ask_user";
 }
 
 /**
@@ -699,8 +723,15 @@ const TerminalAssistantMessage: FC = () => {
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":
+                if (isHiddenAskUserToolCall(part)) return null;
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data": {
+                const askForm = extractUserQuestionFromDataPart(
+                  part as { type: string; data?: unknown },
+                );
+                if (askForm) {
+                  return <UserQuestionForm form={askForm} />;
+                }
                 // 终端内联：plan 改由标题栏进度徽章悬浮展示，避免消息流内嵌大块 todolist
                 const planData = extractPlanFromDataPart(part as { type: string; data?: unknown });
                 if (planData) {
@@ -846,8 +877,15 @@ const AssistantMessage: FC = () => {
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":
+                if (isHiddenAskUserToolCall(part)) return null;
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data": {
+                const askForm = extractUserQuestionFromDataPart(
+                  part as { type: string; data?: unknown },
+                );
+                if (askForm) {
+                  return <UserQuestionForm form={askForm} />;
+                }
                 const planData = extractPlanFromDataPart(part as { type: string; data?: unknown });
                 if (planData) {
                   return <PlanView planId={planData.id} snapshot={planData} />;

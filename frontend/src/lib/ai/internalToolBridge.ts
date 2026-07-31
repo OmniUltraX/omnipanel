@@ -33,6 +33,9 @@ const PLAN_TOOLS = new Set([
   "omni_plan_update_step",
 ]);
 
+/** 结构化澄清表单 */
+const ASK_USER_TOOL = "omni_ask_user";
+
 /** 模型未按 schema 填 command 时回传的可操作提示（引导其重试而非误报“用户拒绝”）。 */
 const MISSING_COMMAND_HINT =
   '工具调用缺少必填参数 command。请在 arguments 中提供 JSON，例如 {"command":"date"}，然后重试。';
@@ -373,6 +376,16 @@ export async function dispatchPendingTool(options: {
       toolName: options.toolName,
       argsJson: options.argsJson,
       inline: options.inline ?? null,
+    });
+  }
+
+  // 结构化澄清表单：写 part 后等人提交，不立即回传
+  if (options.toolName === ASK_USER_TOOL) {
+    const { dispatchAskUserTool } = await import("./orchestration/askUserToolDispatcher");
+    return dispatchAskUserTool({
+      conversationId: options.conversationId,
+      toolCallId: options.toolCallId,
+      argsJson: options.argsJson,
     });
   }
 

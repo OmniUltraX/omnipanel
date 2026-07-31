@@ -35,6 +35,33 @@ fn apply_tool_allowlist(mut defs: Vec<ToolDef>, allowlist: Option<&[String]>) ->
     defs
 }
 
+/// 把跨模块澄清/计划工具提到列表前部，降低长工具列表下被模型忽略的概率。
+fn prioritize_cross_module_tools(mut defs: Vec<ToolDef>) -> Vec<ToolDef> {
+    defs.sort_by_key(|d| {
+        if d.function.name == "omni_ask_user" {
+            0u8
+        } else if omnipanel_store::builtin_tool_is_cross_module(&d.function.name) {
+            1u8
+        } else {
+            2u8
+        }
+    });
+    defs
+}
+
+fn log_injected_tools(conversation_id: &str, filter: Option<&str>, defs: &[ToolDef]) {
+    let has_ask_user = defs.iter().any(|d| d.function.name == "omni_ask_user");
+    let names: Vec<&str> = defs.iter().map(|d| d.function.name.as_str()).collect();
+    tracing::info!(
+        conversation_id = %conversation_id,
+        module_filter = ?filter,
+        tool_count = defs.len(),
+        has_omni_ask_user = has_ask_user,
+        tools = ?names,
+        "ai_chat: injected tools"
+    );
+}
+
 /// 模块隔离：指定 filter（非 master）时，工具必须属于该 module_key。
 fn ensure_tool_allowed_by_module_filter(
     tool_name: &str,
@@ -99,6 +126,7 @@ impl ToolExecutor for RegistryToolExecutor {
                     port: p.port,
                     username: p.username.clone(),
                     password: p.password.clone(),
+                    has_password: !p.password.is_empty(),
                 }
             };
             return match ToolRegistry::execute_isolated(storage, name, args, Some(proxy)).await {
@@ -410,10 +438,14 @@ async fn build_http_provider(
         Duration::from_secs(300),
     )?;
 
-    let api_key = if snapshot.api_key.trim().is_empty() {
+    let api_key = crate::commands::ai_models::resolve_ai_provider_api_key(
+        &snapshot.provider_id,
+        &snapshot.api_key,
+    );
+    let api_key = if api_key.trim().is_empty() {
         "sk-none".to_string()
     } else {
-        snapshot.api_key.clone()
+        api_key
     };
 
     let standard = snapshot.api_standard.to_lowercase();
@@ -576,7 +608,11 @@ pub async fn ai_chat_stream(
                 .to_internal_tool_defs(filter)
                 .await
                 .map_err(|e| e.to_string())?;
-            let tool_defs = apply_tool_allowlist(tool_defs, tool_allowlist.as_deref());
+            let tool_defs = prioritize_cross_module_tools(apply_tool_allowlist(
+                tool_defs,
+                tool_allowlist.as_deref(),
+            ));
+            log_injected_tools(&conversation_id, filter, &tool_defs);
             (Some(tool_defs), ())
         }
         InternalToolsMode::None => (None, ()),
@@ -689,6 +725,7 @@ async fn execute_acp_web_tool(state: &AppState, name: &str, arguments: &str) -> 
             port: p.port,
             username: p.username.clone(),
             password: p.password.clone(),
+            has_password: !p.password.is_empty(),
         }
     };
     let args: serde_json::Value =
@@ -767,7 +804,12 @@ async fn run_acp_internal_turn(
                     .to_internal_tool_defs(filter)
                     .await
                     .map_err(|e| e.to_string())?;
-                apply_tool_allowlist(defs, tool_allowlist.as_deref())
+                let defs = prioritize_cross_module_tools(apply_tool_allowlist(
+                    defs,
+                    tool_allowlist.as_deref(),
+                ));
+                log_injected_tools(conversation_id, filter, &defs);
+                defs
             }
             InternalToolsMode::None => Vec::new(),
         }

@@ -186,6 +186,15 @@ const GLOBAL_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
       throw new Error("UiDelegated 工具，由前端 planToolDispatcher 处理");
     },
   },
+  {
+    name: "omni_ask_user",
+    description:
+      "MUST：凡需用户选择/确认/补充关键参数时调用（单选/多选/填空）。禁止正文纯文本列选项。",
+    inputSchema: { type: "object", properties: {} },
+    handler: async () => {
+      throw new Error("UiDelegated 工具，由前端 askUserToolDispatcher 处理");
+    },
+  },
 ];
 
 /** Rust 内置 web 工具（与 omnipanel-store BUILTIN_TOOL_SPECS 对齐） */

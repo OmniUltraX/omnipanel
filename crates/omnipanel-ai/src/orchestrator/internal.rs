@@ -45,6 +45,9 @@ impl InternalOrchestrator {
         } else {
             None
         };
+        let has_ask_user = tools
+            .as_ref()
+            .is_some_and(|defs| defs.iter().any(|d| d.function.name == "omni_ask_user"));
 
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -143,6 +146,8 @@ impl InternalOrchestrator {
                     name: None,
                 });
 
+                let called_ask_user = tool_calls.iter().any(|tc| tc.function.name == "omni_ask_user");
+
                 for tc in &tool_calls {
                     // 重新广播完整 arguments：流式分片可能被后端累积而未逐片转发，
                     // 前端据此拿到完整命令用于内联审批 dock。
@@ -177,6 +182,22 @@ impl InternalOrchestrator {
                         tool_call_id: Some(tc.id.clone()),
                         tool_calls: None,
                         name: Some(tc.function.name.clone()),
+                    });
+                }
+
+                // HTTP 工具续轮：与 ACP client_tools 续写对齐——有 omni_ask_user 时禁止正文列选项。
+                if has_ask_user && !called_ask_user {
+                    messages.push(ChatMessage {
+                        role: Role::User,
+                        content: "[System — 工具已执行完毕]\n\
+                             上方工具输出里已有真实结果。若已足够回答用户，用自然语言直接给出结论；\
+                             若仍需继续调查/执行，再次调用工具；\
+                             若需要用户选择下一步/主机/范围等，必须调用 omni_ask_user，\
+                             禁止用正文纯文本列选项（A/B/C 或 1/2/3）提问。"
+                            .to_string(),
+                        tool_call_id: None,
+                        tool_calls: None,
+                        name: None,
                     });
                 }
 

@@ -238,6 +238,81 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
         DEFAULT_FILES_AGENT_PROMPT,
     );
     let _ = migrate_plan_todolist_tool_rename();
+    let _ = migrate_ask_user_prompt_guidance();
+
+    Ok(())
+}
+
+/// 将内置默认结构的 agent / system 提示词升级为引导使用 `omni_ask_user`。
+/// 仅在仍像官方默认文案、且尚未提及该工具时替换/修补，避免覆盖用户深度自定义。
+fn migrate_ask_user_prompt_guidance() -> OmniResult<()> {
+    // run：旧版默认（含 omni_create_todolist / 「先问关键问题」）整篇替换
+    {
+        let path = agent_prompt_path("run")?;
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                let trimmed = current.trim();
+                if trimmed.starts_with("# OmniPanel · 执行助手")
+                    && !trimmed.contains("omni_ask_user")
+                    && (trimmed.contains("先问关键问题")
+                        || trimmed.contains("omni_create_todolist")
+                        || trimmed.contains("先问 1～3 个关键问题"))
+                {
+                    fs::write(&path, DEFAULT_RUN_AGENT_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
+
+    // terminal：官方默认结构且未引导 ask_user → 整篇替换
+    {
+        let path = agent_prompt_path("terminal")?;
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                let trimmed = current.trim();
+                if trimmed.starts_with("# OmniPanel · 终端 Agent")
+                    && !trimmed.contains("omni_ask_user")
+                    && trimmed.contains("## 命令与工具习惯")
+                {
+                    fs::write(&path, DEFAULT_TERMINAL_AGENT_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
+
+    // plan：缺 ask_user 且仍是官方 Plan 标题 → 整篇替换
+    {
+        let path = agent_prompt_path("plan")?;
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                let trimmed = current.trim();
+                if trimmed.starts_with("# OmniPanel · 计划助手（Plan）")
+                    && !trimmed.contains("omni_ask_user")
+                {
+                    fs::write(&path, DEFAULT_PLAN_AGENT_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
+
+    // system-prompt：补协议第 9 条（仅当仍是官方 Client Tool API 文案且无 ask_user）
+    {
+        let path = prompts_root()?.join(files::SYSTEM_PROMPT);
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                let trimmed = current.trim();
+                if trimmed.starts_with("[System — OmniPanel Client Tool API]")
+                    && !trimmed.contains("omni_ask_user")
+                {
+                    fs::write(&path, DEFAULT_SYSTEM_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
 
     Ok(())
 }

@@ -16,6 +16,7 @@ import {
   partsFromFlatFields,
   updateToolCallInParts,
   upsertPlanInParts,
+  upsertUserQuestionInParts,
   upsertToolCallInParts,
   upsertClusterInParts,
   updateClusterChildInParts,
@@ -26,6 +27,7 @@ import {
   type SubConversationChildState,
   type SubConversationClusterPartData,
   type SubConversationClusterStatus,
+  type UserQuestionFormData,
 } from "../lib/ai/aiMessageParts";
 import {
   ASSISTANT_PAGE_AGENT_ID,
@@ -64,6 +66,9 @@ export type {
   SubConversationClusterPartData,
   SubConversationClusterStatus,
   SubConversationSpawnSpec,
+  UserQuestionFormData,
+  AskUserQuestion,
+  AskUserAnswerValue,
 } from "../lib/ai/aiMessageParts";
 export {
   coalescePartsByToolSegments,
@@ -71,6 +76,7 @@ export {
   partsFromFlatFields,
   stripLeakedToolCallsJson,
   upsertClusterInParts,
+  upsertUserQuestionInParts,
   updateClusterChildInParts,
   updateClusterStatusInParts,
 } from "../lib/ai/aiMessageParts";
@@ -256,6 +262,12 @@ interface AiStore {
     conversationId: string,
     messageId: string,
     plan: PlanData,
+  ) => void;
+  /** 流式 upsert user-question part（同 formId 更新，否则追加） */
+  upsertStreamUserQuestion: (
+    conversationId: string,
+    messageId: string,
+    form: UserQuestionFormData,
   ) => void;
   /** 流式 upsert sub-conversation-cluster part（同 clusterId 更新，否则追加） */
   upsertStreamCluster: (
@@ -608,6 +620,22 @@ export const useAiStore = create<AiStore>()(
               messages: c.messages.map((m) => {
                 if (m.id !== messageId) return m;
                 const parts = upsertPlanInParts(partsFromFlatFields(m), plan);
+                return withUpdatedParts(m, parts);
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        })),
+
+      upsertStreamUserQuestion: (conversationId, messageId, form) =>
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            return {
+              ...c,
+              messages: c.messages.map((m) => {
+                if (m.id !== messageId) return m;
+                const parts = upsertUserQuestionInParts(partsFromFlatFields(m), form);
                 return withUpdatedParts(m, parts);
               }),
               updatedAt: Date.now(),
