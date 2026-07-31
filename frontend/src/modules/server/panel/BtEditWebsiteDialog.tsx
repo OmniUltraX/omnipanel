@@ -139,7 +139,7 @@ export function BtEditWebsiteDialog({
       ) : (
         <>
           <FormField label={t("server.create.website.domain")}>
-            <TextInput value={siteName ?? ""} disabled />
+            <TextInput value={siteName ?? ""} onChange={() => {}} disabled />
           </FormField>
           <FormField label={t("server.create.remark")}>
             <TextInput
