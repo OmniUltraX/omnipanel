@@ -729,7 +729,9 @@ fn err_msg(e: OmniError) -> String {
 
 /// 打开可复用的数据库驱动（供后台同步任务分页读取，避免每页新建连接池）。
 pub(crate) async fn open_db_driver(c: &DbConnectionConfig) -> Result<Box<dyn DbDriver>, String> {
-    omnipanel_db::connect(&to_params(c)).await.map_err(err_msg)
+    let mut c = c.clone();
+    omnipanel_store::fill_db_password_from_vault(&mut c);
+    omnipanel_db::connect(&to_params(&c)).await.map_err(err_msg)
 }
 
 pub(crate) fn query_result_to_row_maps(
@@ -751,6 +753,8 @@ pub(crate) fn query_result_to_row_maps(
 
 /// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。
 fn to_params(c: &DbConnectionConfig) -> DbParams {
+    let mut c = c.clone();
+    omnipanel_store::fill_db_password_from_vault(&mut c);
     DbParams {
         db_type: c.db_type.clone(),
         host: c.host.clone(),
@@ -1111,7 +1115,8 @@ pub async fn db_patch_schema_cache(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn db_test_connection(connection: DbConnectionConfig) -> Result<String, String> {
+pub async fn db_test_connection(mut connection: DbConnectionConfig) -> Result<String, String> {
+    omnipanel_store::fill_db_password_from_vault(&mut connection);
     let db_type = connection.db_type.to_lowercase();
     // MySQL/MariaDB 复用 mysql_pool 缓存，避免与 listDatabases 等查询建立两个独立连接池
     if matches!(db_type.as_str(), "mysql" | "mariadb") {

@@ -33,6 +33,7 @@ mod task_events;
 mod terminal_history;
 mod third_party_account;
 mod vault;
+mod ssh_vault;
 mod http_proxy;
 mod web_search;
 mod workflow;
@@ -71,8 +72,8 @@ pub use embedding_config::{
     save_embedding_provider, EmbeddingProviderConfig,
 };
 pub use database::{
-    DatabaseConnectionStore, DbConnectionConfig, load_database_connections,
-    save_database_connections,
+    fill_db_password_from_vault, DatabaseConnectionStore, DbConnectionConfig,
+    load_database_connections, save_database_connections,
 };
 pub use http::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult};
@@ -82,7 +83,10 @@ pub use knowledge_vector::{
     KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
     KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text, cosine_similarity,
 };
-pub use http_proxy::{load_http_proxy_config, save_http_proxy_config, HttpProxyConfig};
+pub use http_proxy::{
+    load_http_proxy_config, load_http_proxy_config_with_secret, save_http_proxy_config,
+    HttpProxyConfig,
+};
 pub use web_search::{
     default_auto_order, delete_exa_api_key, delete_jina_api_key, delete_zhihu_secret,
     exa_api_key_configured, jina_api_key_configured, load_exa_api_key, load_jina_api_key,
@@ -134,6 +138,10 @@ pub use third_party_account::{
     ThirdPartyAccount, ThirdPartyAuthMethod, ThirdPartyPlatform, UpsertThirdPartyAccountInput,
 };
 pub use vault::Vault;
+pub use ssh_vault::{
+    ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
+    inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
+};
 pub use workflow::{
     ExecutionStatus, RiskLevel, SaveStepRequest, SaveWorkflowRequest, StepStatus, StepType,
     Workflow, WorkflowDetail, WorkflowExecution, WorkflowExecutionDetail, WorkflowExecutionStep,

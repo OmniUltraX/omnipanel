@@ -29,6 +29,7 @@ use omnipanel_docker::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshConfig, SshSession};
+use omnipanel_store::Vault;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -171,12 +172,27 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
             Ok(DockerTarget::Remote(docker))
         }
         Some(DockerConnectionSource::OnePanel) => {
-            let panel = cfg.onepanel.as_ref().ok_or_else(|| {
+            let mut panel = cfg.onepanel.ok_or_else(|| {
                 OmniError::new(
                     ErrorCode::InvalidInput,
                     "onepanel 类型缺少 Docker 1Panel 配置",
                 )
             })?;
+            if panel.api_key.trim().is_empty() {
+                if let Ok(key) = Vault::get(&format!("docker-onepanel-{connection_id}")) {
+                    panel.api_key = key;
+                } else if let Some(r) = conn.credential_ref.as_deref() {
+                    if let Ok(key) = Vault::get(r) {
+                        panel.api_key = key;
+                    }
+                }
+            }
+            if panel.api_key.trim().is_empty() {
+                return Err(OmniError::new(
+                    ErrorCode::Auth,
+                    "1Panel API 密钥未配置（请重新填写并保存连接）",
+                ));
+            }
             let adapter = OnePanelAdapter::new(
                 OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure),
                 connection_id.to_string(),
@@ -261,9 +277,33 @@ pub(crate) async fn ensure_docker_ssh(
         tracing::info!("Docker 连接 {connection_id} 复用 SSH 池会话 {ssh_id}");
         state.ssh_pool.ensure_session(ssh_id).await?
     } else {
-        let ssh = ssh.ok_or_else(|| {
+        let mut ssh = ssh.ok_or_else(|| {
             OmniError::new(ErrorCode::InvalidInput, "ssh-engine 类型缺少 Docker SSH 配置")
         })?;
+        // 内嵌 SSH：从 Vault 回填密码 / PEM
+        if let omnipanel_ssh::SshAuth::Password { ref mut password } = ssh.auth {
+            if password.is_empty() {
+                if let Ok(pw) = Vault::get(&format!("docker-ssh-password-{connection_id}")) {
+                    *password = pw;
+                }
+            }
+        } else if let omnipanel_ssh::SshAuth::PrivateKey {
+            ref mut pem,
+            ref mut passphrase,
+            ..
+        } = ssh.auth
+        {
+            if pem.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+                if let Ok(p) = Vault::get(&format!("docker-ssh-pem-{connection_id}")) {
+                    *pem = Some(p);
+                }
+            }
+            if passphrase.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+                if let Ok(pp) = Vault::get(&format!("docker-ssh-passphrase-{connection_id}")) {
+                    *passphrase = Some(pp);
+                }
+            }
+        }
         Arc::new(SshSession::connect_no_shell(ssh).await?)
     };
 

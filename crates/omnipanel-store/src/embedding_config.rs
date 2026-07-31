@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::paths::ai_config_dir;
+use crate::ssh_vault::embedding_api_key_ref;
+use crate::vault::Vault;
 
 const EMBEDDING_FILE: &str = "embedding_provider.json";
 const DEFAULT_OLLAMA_BASE: &str = "http://127.0.0.1:11434";
@@ -54,13 +56,23 @@ pub fn load_embedding_provider() -> OmniResult<Option<EmbeddingProviderConfig>> 
         )
         .with_cause(e.to_string())
     })?;
-    let cfg: EmbeddingProviderConfig = serde_json::from_str(&raw).map_err(|e| {
+    let mut cfg: EmbeddingProviderConfig = serde_json::from_str(&raw).map_err(|e| {
         OmniError::new(
             omnipanel_error::ErrorCode::InvalidInput,
             "解析 embedding 配置失败",
         )
         .with_cause(e.to_string())
     })?;
+    if !cfg.api_key.trim().is_empty() {
+        let _ = Vault::store(embedding_api_key_ref(), cfg.api_key.trim());
+        cfg.api_key.clear();
+        let _ = save_embedding_provider(&cfg);
+    }
+    if cfg.api_key.trim().is_empty() {
+        if let Ok(key) = Vault::get(embedding_api_key_ref()) {
+            cfg.api_key = key;
+        }
+    }
     if cfg.model_name.trim().is_empty() || cfg.base_url.trim().is_empty() {
         return Ok(None);
     }
@@ -87,7 +99,12 @@ pub fn save_embedding_provider(cfg: &EmbeddingProviderConfig) -> OmniResult<()> 
             .with_cause(e.to_string())
     })?;
     let path = dir.join(EMBEDDING_FILE);
-    let raw = serde_json::to_string_pretty(cfg).map_err(|e| {
+    let mut to_save = cfg.clone();
+    if !cfg.api_key.trim().is_empty() {
+        Vault::store(embedding_api_key_ref(), cfg.api_key.trim())?;
+    }
+    to_save.api_key.clear();
+    let raw = serde_json::to_string_pretty(&to_save).map_err(|e| {
         OmniError::new(
             omnipanel_error::ErrorCode::Internal,
             "序列化 embedding 配置失败",

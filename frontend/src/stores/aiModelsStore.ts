@@ -17,8 +17,10 @@ export interface AiModelProvider {
   apiStandard: ApiStandard;
   /** 接口 Base URL（去掉末尾斜杠后保存） */
   baseUrl: string;
-  /** API Key（在 UI 中掩码显示） */
+  /** API Key（在 UI 中掩码显示；磁盘仅存 hasApiKey，明文在钥匙串） */
   apiKey: string;
+  /** 钥匙串中是否已配置 API Key */
+  hasApiKey?: boolean;
   /** 该提供商下的模型名称列表（手动 + 接口拉取合并） */
   modelNames: string[];
   /** 用户手动添加的模型名称（modelNames 的子集） */
@@ -287,6 +289,7 @@ interface LooseProvider {
   apiStandard: string;
   baseUrl: string;
   apiKey: string;
+  hasApiKey?: boolean;
   modelNames: string[];
   manualModelNames?: string[];
   excludedModelNames?: string[];
@@ -307,6 +310,7 @@ function toStrictProvider(p: LooseProvider): AiModelProvider {
     apiStandard: std,
     baseUrl: p.baseUrl,
     apiKey: p.apiKey,
+    hasApiKey: Boolean(p.hasApiKey) || Boolean(p.apiKey?.trim()),
     modelNames: Array.isArray(p.modelNames) ? p.modelNames : [],
     manualModelNames: normalizeManualModelNames(
       Array.isArray(p.manualModelNames) ? p.manualModelNames : undefined,
@@ -339,7 +343,9 @@ function serializeProviderForDisk(provider: AiModelProvider) {
     providerName: provider.providerName,
     apiStandard: provider.apiStandard,
     baseUrl: provider.baseUrl,
+    // 仅在用户新填时提交明文；留空表示保留 Vault
     apiKey: provider.apiKey,
+    hasApiKey: provider.hasApiKey ?? Boolean(provider.apiKey.trim()),
     modelNames: provider.modelNames,
     manualModelNames: provider.manualModelNames ?? [],
     excludedModelNames: provider.excludedModelNames ?? [],
@@ -623,7 +629,27 @@ export const useAiModelsStore = create<AiModelsState>()(
 }),
     {
       name: "omnipanel-ai-models",
-      storage: createJSONStorage(() => localStorage),
+      // 不把 apiKey 明文写入 localStorage 缓存
+      storage: createJSONStorage(() => ({
+        getItem: (name) => localStorage.getItem(name),
+        setItem: (name, value) => {
+          try {
+            const parsed = JSON.parse(value) as {
+              state?: { providers?: AiModelProvider[] };
+            };
+            if (parsed.state?.providers) {
+              parsed.state.providers = parsed.state.providers.map((p) => ({
+                ...p,
+                apiKey: "",
+              }));
+            }
+            localStorage.setItem(name, JSON.stringify(parsed));
+          } catch {
+            localStorage.setItem(name, value);
+          }
+        },
+        removeItem: (name) => localStorage.removeItem(name),
+      })),
       partialize: (state) => ({ providers: state.providers }),
     },
   ),

@@ -117,11 +117,11 @@ function applyBoundSshToForm(form: DockerForm, conn: Connection): DockerForm {
   }
   if (auth?.type === "privateKey") {
     next.sshAuth = "privateKey";
-    next.sshPem = typeof auth.pem === "string" ? auth.pem : "";
-    next.sshPassphrase = typeof auth.passphrase === "string" ? auth.passphrase : "";
+    next.sshPem = "";
+    next.sshPassphrase = "";
   } else {
     next.sshAuth = "password";
-    next.sshPassword = typeof auth?.password === "string" ? auth.password : "";
+    next.sshPassword = "";
   }
   return next;
 }
@@ -201,11 +201,11 @@ function connectionToForm(conn: Connection): DockerForm {
       if (auth) {
         if (auth.type === "privateKey") {
           base.sshAuth = "privateKey";
-          if (typeof auth.pem === "string") base.sshPem = auth.pem;
-          if (typeof auth.passphrase === "string") base.sshPassphrase = auth.passphrase;
+          base.sshPem = "";
+          base.sshPassphrase = "";
         } else {
           base.sshAuth = "password";
-          if (typeof auth.password === "string") base.sshPassword = auth.password;
+          base.sshPassword = "";
         }
       }
     }
@@ -217,7 +217,7 @@ function connectionToForm(conn: Connection): DockerForm {
     const panel = cfg.onepanel as Record<string, unknown> | undefined;
     if (panel) {
       if (typeof panel.baseUrl === "string") base.panelBaseUrl = panel.baseUrl;
-      if (typeof panel.apiKey === "string") base.panelApiKey = panel.apiKey;
+      base.panelApiKey = "";
       if (panel.insecure === true) base.panelInsecure = true;
     }
   }

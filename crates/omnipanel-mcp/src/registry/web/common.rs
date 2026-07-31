@@ -280,7 +280,7 @@ pub fn build_http_client(
 pub fn effective_proxy(override_proxy: Option<&HttpProxyConfig>) -> HttpProxyConfig {
     override_proxy
         .cloned()
-        .or_else(|| omnipanel_store::load_http_proxy_config().ok())
+        .or_else(|| omnipanel_store::load_http_proxy_config_with_secret().ok())
         .unwrap_or_default()
 }
 

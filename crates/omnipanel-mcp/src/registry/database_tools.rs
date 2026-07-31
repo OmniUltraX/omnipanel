@@ -98,13 +98,14 @@ async fn resolve_connection(connection_name: &str) -> Result<DbConnectionConfig,
 /// 与 `resolve_connection` 相同，但不拒绝 Redis（processlist / kill / slow_log 支持 Redis）。
 async fn resolve_connection_any(connection_name: &str) -> Result<DbConnectionConfig, String> {
     let connections = load_database_connections().map_err(|e| e.to_string())?;
-    let conn = connections
+    let mut conn = connections
         .into_iter()
         .find(|c| c.name == connection_name)
         .ok_or_else(|| format!("连接不存在：{connection_name}"))?;
     if !conn.enabled {
         return Err(format!("连接已禁用：{connection_name}"));
     }
+    omnipanel_store::fill_db_password_from_vault(&mut conn);
     Ok(conn)
 }
 

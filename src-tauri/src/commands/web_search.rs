@@ -74,6 +74,7 @@ fn proxy_from_state(config: &ProxyConfig) -> omnipanel_store::HttpProxyConfig {
         port: config.port,
         username: config.username.clone(),
         password: config.password.clone(),
+        has_password: !config.password.is_empty(),
     }
 }
 

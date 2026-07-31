@@ -7,6 +7,8 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 
 use crate::paths;
+use crate::ssh_vault::db_password_ref;
+use crate::vault::Vault;
 
 /// 数据库连接配置（与前端 `DbConnectionConfig` / Tauri IPC 一致）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -17,6 +19,8 @@ pub struct DbConnectionConfig {
     pub host: String,
     pub port: u16,
     pub user: String,
+    /// 明文仅提交时存在；持久化与列表返回为空，用 `has_password` 表示钥匙串是否有密码。
+    #[serde(default)]
     pub password: String,
     pub database: String,
     /// 是否启用 SSL（MySQL 等）。
@@ -27,6 +31,9 @@ pub struct DbConnectionConfig {
     /// 是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// 钥匙串中是否已保存密码。
+    #[serde(default)]
+    pub has_password: bool,
 }
 
 fn default_enabled() -> bool {
@@ -109,7 +116,22 @@ impl DatabaseConnectionStore {
 
     pub fn open_at(path: &Path) -> OmniResult<Self> {
         let list = load_database_connections_from(path)?;
-        let map = list
+        // 迁移：明文密码进 Vault 并 scrub
+        let mut migrated = Vec::new();
+        for mut conn in list {
+            if !conn.password.trim().is_empty() {
+                let _ = Vault::store(&db_password_ref(&conn.id), &conn.password);
+                conn.has_password = true;
+                conn.password.clear();
+            } else {
+                conn.has_password = Vault::get(&db_password_ref(&conn.id))
+                    .ok()
+                    .is_some_and(|p| !p.is_empty());
+            }
+            migrated.push(conn);
+        }
+        let _ = save_database_connections_to(path, &migrated);
+        let map = migrated
             .into_iter()
             .map(|conn| (conn.id.clone(), conn))
             .collect();
@@ -121,9 +143,30 @@ impl DatabaseConnectionStore {
 
     pub fn list(&self) -> OmniResult<Vec<DbConnectionConfig>> {
         let store = self.inner.lock().map_err(|_| lock_err())?;
-        let mut list: Vec<_> = store.values().cloned().collect();
+        let mut list: Vec<_> = store
+            .values()
+            .cloned()
+            .map(|mut c| {
+                c.has_password = Vault::get(&db_password_ref(&c.id))
+                    .ok()
+                    .is_some_and(|p| !p.is_empty())
+                    || c.has_password;
+                c.password.clear();
+                c
+            })
+            .collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(list)
+    }
+
+    /// 取连接并注入 Vault 密码（供后端建连）。
+    pub fn get_with_secret(&self, id: &str) -> OmniResult<Option<DbConnectionConfig>> {
+        let store = self.inner.lock().map_err(|_| lock_err())?;
+        let Some(mut conn) = store.get(id).cloned() else {
+            return Ok(None);
+        };
+        fill_db_password_from_vault(&mut conn);
+        Ok(Some(conn))
     }
 
     pub fn save(&self, mut connection: DbConnectionConfig) -> OmniResult<DbConnectionConfig> {
@@ -133,6 +176,16 @@ impl DatabaseConnectionStore {
         if connection.status.is_empty() {
             connection.status = "unknown".to_string();
         }
+        if !connection.password.trim().is_empty() {
+            Vault::store(&db_password_ref(&connection.id), connection.password.trim())?;
+            connection.has_password = true;
+        } else {
+            connection.has_password = Vault::get(&db_password_ref(&connection.id))
+                .ok()
+                .is_some_and(|p| !p.is_empty())
+                || connection.has_password;
+        }
+        connection.password.clear();
         let mut store = self.inner.lock().map_err(|_| lock_err())?;
         store.insert(connection.id.clone(), connection.clone());
         let snapshot: Vec<_> = store.values().cloned().collect();
@@ -147,7 +200,21 @@ impl DatabaseConnectionStore {
         let snapshot: Vec<_> = store.values().cloned().collect();
         drop(store);
         save_database_connections_to(&self.path, &snapshot)?;
+        let _ = Vault::delete(&db_password_ref(id));
         Ok(())
+    }
+}
+
+/// 从钥匙串填充密码（就地）。
+pub fn fill_db_password_from_vault(conn: &mut DbConnectionConfig) {
+    if !conn.password.trim().is_empty() {
+        return;
+    }
+    if let Ok(pw) = Vault::get(&db_password_ref(&conn.id)) {
+        if !pw.is_empty() {
+            conn.password = pw;
+            conn.has_password = true;
+        }
     }
 }
 
@@ -187,6 +254,7 @@ mod tests {
             ssl: false,
             status: "unknown".into(),
             enabled: true,
+            has_password: false,
         }
     }
 

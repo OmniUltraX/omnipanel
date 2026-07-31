@@ -12,7 +12,7 @@ use omnipanel_ssh::{
     SshProcessInfo, SshSession, NVIDIA_PROCESS_GPU_QUERY,
 };
 use omnipanel_store::Connection;
-use omnipanel_store::{ConnectionKind, Storage, Vault};
+use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage};
 use serde::Serialize;
 use serde_json;
 use specta::Type;
@@ -413,18 +413,23 @@ impl SshPool {
         let mut specs = Vec::new();
         let mut errors = Vec::new();
         for conn in connections {
-            let secret = conn
-                .credential_ref
-                .as_deref()
-                .and_then(|r| Vault::get(r).ok());
-            match ssh_config_from_json(&conn.config, secret.as_deref()) {
-                Ok(config) => {
-                    specs.push(ConnSpec {
-                        resource_id: conn.id.clone(),
-                        name: conn.name.clone(),
-                        config,
-                    });
-                }
+            match inject_ssh_vault_into_config(
+                &conn.config,
+                &conn.id,
+                conn.credential_ref.as_deref(),
+            ) {
+                Ok((patched, secret)) => match ssh_config_from_json(&patched, secret.as_deref()) {
+                    Ok(config) => {
+                        specs.push(ConnSpec {
+                            resource_id: conn.id.clone(),
+                            name: conn.name.clone(),
+                            config,
+                        });
+                    }
+                    Err(e) => {
+                        errors.push((conn.id.clone(), conn.name.clone(), e.to_string()));
+                    }
+                },
                 Err(e) => {
                     errors.push((conn.id.clone(), conn.name.clone(), e.to_string()));
                 }

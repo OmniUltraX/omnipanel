@@ -39,6 +39,8 @@ function resolveHttpConfigFromSelection(selectionId: string | null): AiModelConf
   const providers = useAiModelsStore.getState().providers;
   const resolved = resolveModelSelection(providers, normalized);
   if (!resolved) return null;
+  // 密钥仅在 Vault、前端无明文时，走内部后端（由 Rust 读钥匙串）
+  if (!resolved.apiKey.trim()) return null;
   return {
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,

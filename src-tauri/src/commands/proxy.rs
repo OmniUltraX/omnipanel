@@ -95,6 +95,7 @@ pub async fn set_proxy_config(
         host: config.host,
         port: config.port,
         username: config.username,
+        has_password: !config.password.is_empty(),
         password: config.password,
     };
     omnipanel_store::save_http_proxy_config(&store_proxy).map_err(|e| e.to_string())?;

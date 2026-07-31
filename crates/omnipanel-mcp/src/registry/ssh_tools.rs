@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use omnipanel_ssh::{ssh_config_from_json, ExecOutput, SshSession};
-use omnipanel_store::{ConnectionKind, Storage, Vault};
+use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -38,11 +38,13 @@ fn resolve_ssh_config(storage: &Storage, resource_id: &str) -> Result<(String, o
     if conn.kind != ConnectionKind::Ssh {
         return Err(format!("连接 {resource_id} 不是 SSH 类型"));
     }
-    let secret = conn
-        .credential_ref
-        .as_deref()
-        .and_then(|r| Vault::get(r).ok());
-    let config = ssh_config_from_json(&conn.config, secret.as_deref())
+    let (patched, secret) = inject_ssh_vault_into_config(
+        &conn.config,
+        &conn.id,
+        conn.credential_ref.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    let config = ssh_config_from_json(&patched, secret.as_deref())
         .map_err(|e| format!("SSH 配置解析失败: {}", e.user_message()))?;
     Ok((conn.name, config))
 }

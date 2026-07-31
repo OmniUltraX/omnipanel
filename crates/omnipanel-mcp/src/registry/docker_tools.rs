@@ -23,7 +23,7 @@ use omnipanel_docker::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{ssh_config_from_json, SshConfig, SshSession};
-use omnipanel_store::{ConnectionKind, Storage, Vault};
+use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -126,11 +126,13 @@ fn resolve_ssh_config_for_docker(
         if ssh_conn.kind != ConnectionKind::Ssh {
             return Err(format!("绑定连接 {bound_id} 不是 SSH 类型"));
         }
-        let secret = ssh_conn
-            .credential_ref
-            .as_deref()
-            .and_then(|r| Vault::get(r).ok());
-        return ssh_config_from_json(&ssh_conn.config, secret.as_deref())
+        let (patched, secret) = inject_ssh_vault_into_config(
+            &ssh_conn.config,
+            &ssh_conn.id,
+            ssh_conn.credential_ref.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+        return ssh_config_from_json(&patched, secret.as_deref())
             .map_err(|e| format!("SSH 配置解析失败: {}", e.user_message()));
     }
     cfg.ssh
