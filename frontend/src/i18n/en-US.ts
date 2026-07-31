@@ -6448,6 +6448,7 @@ export const enUS: TranslationDict = {
       current: "This device",
       online: "Online",
       offline: "Offline",
+      loggedInOffline: "Signed in · offline",
       unnamed: "Unnamed device",
       unknownIp: "IP unknown",
       lastLogin: "Last sign-in",

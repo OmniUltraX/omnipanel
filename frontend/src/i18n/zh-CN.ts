@@ -6378,6 +6378,7 @@ export const zhCN = {
       current: "本机",
       online: "在线",
       offline: "离线",
+      loggedInOffline: "已登录·离线",
       unnamed: "未命名设备",
       unknownIp: "IP 未知",
       lastLogin: "最近登录",

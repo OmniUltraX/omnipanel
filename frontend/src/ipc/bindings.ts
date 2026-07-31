@@ -846,8 +846,8 @@ export const commands = {
 	authDeviceIdentity: () => typedError<AuthDeviceIdentity, OmniError_Serialize>(__TAURI_INVOKE("auth_device_identity")),
 	/**  获取当前用户设备列表。 */
 	authListDevices: (token: string) => typedError<AuthDevice[], OmniError_Serialize>(__TAURI_INVOKE("auth_list_devices", { token })),
-	/**  删除已授权设备（DELETE /api/devices/{device_id}）。 */
-	authDeleteDevice: (token: string, deviceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId })),
+	/**  删除已授权设备（DELETE /api/devices/{device_id}?app_id=）。 */
+	authDeleteDevice: (token: string, deviceId: string, appId: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId, appId })),
 	/**  获取当前用户信息（GET /api/me）。 */
 	authGetMe: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_get_me", { token })),
 	/**  更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空。 */
@@ -1322,13 +1322,19 @@ export type AuthDevice = {
 	osType: string,
 	ip: string,
 	lastLoginAt: string,
+	/**  最近登出时间（未登出可为空）。 */
+	lastLogoutAt: string,
 	userAgent: string,
 	createdAt: string,
 	updatedAt: string,
 	/**  `client` | `assistant` */
 	role: string,
 	appId: string,
-	/**  Redis presence TTL 判定的实时在线状态 */
+	/**  平台标识（服务端 `platform`）。 */
+	platform: string,
+	/**  会话落库状态：`logged_in` | `logged_out`。 */
+	loginStatus: string,
+	/**  Redis presence TTL 判定的实时在线状态。 */
 	online: boolean,
 };
 

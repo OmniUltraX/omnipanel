@@ -97,10 +97,14 @@ function DeviceList({
               <div className="user-center-device-item__meta">
                 <span>{formatOsLabel(device.osType, t)}</span>
                 <span>{device.ip.trim() || t("userCenter.devices.unknownIp")}</span>
+                {device.appId.trim() ? <span>{device.appId}</span> : null}
                 <span>
                   {t("userCenter.devices.lastLogin")}:{" "}
                   {formatDeviceTime(device.lastLoginAt, locale)}
                 </span>
+                {!device.online && device.loginStatus === "logged_in" ? (
+                  <span>{t("userCenter.devices.loggedInOffline")}</span>
+                ) : null}
               </div>
             </div>
             <Button
@@ -234,7 +238,7 @@ export function UserCenterDevices() {
 
       setDeletingId(device.deviceId);
       try {
-        await deleteDevice(token, device.deviceId);
+        await deleteDevice(token, device.deviceId, device.appId);
         setDevices((prev) => prev.filter((item) => item.deviceId !== device.deviceId));
         showToast(t("userCenter.devices.deleteSuccess"));
         if (isCurrent) {

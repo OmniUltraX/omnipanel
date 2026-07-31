@@ -126,13 +126,19 @@ pub struct AuthDevice {
     pub os_type: String,
     pub ip: String,
     pub last_login_at: String,
+    /// 最近登出时间（未登出可为空）。
+    pub last_logout_at: String,
     pub user_agent: String,
     pub created_at: String,
     pub updated_at: String,
     /// `client` | `assistant`
     pub role: String,
     pub app_id: String,
-    /// Redis presence TTL 判定的实时在线状态
+    /// 平台标识（服务端 `platform`）。
+    pub platform: String,
+    /// 会话落库状态：`logged_in` | `logged_out`。
+    pub login_status: String,
+    /// Redis presence TTL 判定的实时在线状态。
     pub online: bool,
 }
 
@@ -255,11 +261,14 @@ struct ApiDeviceView {
     os_type: Option<String>,
     ip: Option<String>,
     last_login_at: Option<String>,
+    last_logout_at: Option<String>,
     user_agent: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
     role: Option<String>,
     app_id: Option<String>,
+    platform: Option<String>,
+    login_status: Option<String>,
     #[serde(default)]
     online: Option<bool>,
 }
@@ -450,6 +459,11 @@ fn map_api_device(item: ApiDeviceView) -> AuthDevice {
         .map(|s| s.trim().to_ascii_lowercase())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "client".to_string());
+    let login_status = item
+        .login_status
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "logged_out".to_string());
     AuthDevice {
         id: item.id.unwrap_or(0),
         device_id: item.device_id.unwrap_or_default(),
@@ -457,6 +471,7 @@ fn map_api_device(item: ApiDeviceView) -> AuthDevice {
         os_type: item.os_type.unwrap_or_default(),
         ip: item.ip.unwrap_or_default(),
         last_login_at: item.last_login_at.unwrap_or_default(),
+        last_logout_at: item.last_logout_at.unwrap_or_default(),
         user_agent: item.user_agent.unwrap_or_default(),
         created_at: item.created_at.unwrap_or_default(),
         updated_at: item.updated_at.unwrap_or_default(),
@@ -466,6 +481,8 @@ fn map_api_device(item: ApiDeviceView) -> AuthDevice {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "default".to_string()),
+        platform: item.platform.unwrap_or_default(),
+        login_status,
         online: item.online.unwrap_or(false),
     }
 }
@@ -580,13 +597,14 @@ pub async fn auth_list_devices(
         .collect())
 }
 
-/// 删除已授权设备（DELETE /api/devices/{device_id}）。
+/// 删除已授权设备（DELETE /api/devices/{device_id}?app_id=）。
 #[tauri::command]
 #[specta::specta]
 pub async fn auth_delete_device(
     state: State<'_, AppState>,
     token: String,
     device_id: String,
+    app_id: Option<String>,
 ) -> Result<(), OmniError> {
     let token = token.trim().to_string();
     let device_id = device_id.trim().to_string();
@@ -597,9 +615,18 @@ pub async fn auth_delete_device(
         return Err(OmniError::new(ErrorCode::InvalidInput, "device_id 不能为空"));
     }
 
+    let app_id = app_id
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "default".to_string());
+
     let proxy_config = state.proxy_config.lock().await.clone();
     let identity = load_or_create_device_identity()?;
-    let url = auth_url(&format!("/api/devices/{}", urlencoding_encode(&device_id)));
+    let url = auth_url(&format!(
+        "/api/devices/{}?app_id={}",
+        urlencoding_encode(&device_id),
+        urlencoding_encode(&app_id)
+    ));
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
@@ -635,7 +662,7 @@ pub async fn auth_delete_device(
         return Err(OmniError::new(ErrorCode::Connection, msg).with_cause(body));
     }
 
-    // 成功体形如 { "status": "deleted", "device_id": "xxx" }；兼容空响应
+    // 成功体形如 { "status": "deleted", "device_id": "xxx", "app_id": "..." }；兼容空响应
     if !body.trim().is_empty() {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
             if let Some(error) = value.get("error").and_then(|v| v.as_str()).filter(|s| !s.is_empty())

@@ -34,12 +34,17 @@ export interface AuthDevice {
   osType: string;
   ip: string;
   lastLoginAt: string;
+  /** 最近登出时间（未登出可为空） */
+  lastLogoutAt: string;
   userAgent: string;
   createdAt: string;
   updatedAt: string;
   /** `client` | `assistant` */
   role: string;
   appId: string;
+  platform: string;
+  /** `logged_in` | `logged_out` */
+  loginStatus: string;
   /** Redis presence TTL 判定的实时在线状态 */
   online: boolean;
 }
@@ -325,9 +330,13 @@ export async function fetchDevices(
   });
 }
 
-/** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}）。 */
-export async function deleteDevice(token: string, deviceId: string): Promise<void> {
-  await unwrapCommand(commands.authDeleteDevice(token, deviceId));
+/** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}?app_id=）。 */
+export async function deleteDevice(
+  token: string,
+  deviceId: string,
+  appId?: string | null,
+): Promise<void> {
+  await unwrapCommand(commands.authDeleteDevice(token, deviceId, appId ?? null));
 }
 
 /** 刷新本机设备在线 presence（POST /api/presence）。 */

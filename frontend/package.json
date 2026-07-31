@@ -12,7 +12,7 @@
         "lint": "node -e \"console.log('lint disabled')\"",
         "preview": "vite preview",
         "test": "vitest",
-        "tauri": "tauri",
+        "tauri": "node ../scripts/tauri.mjs",
         "postinstall": "patch-package",
         "validate-signing": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/validate-signing-key.ps1"
     },
@@ -54,6 +54,7 @@
         "lucide-react": "^1.21.0",
         "node-sql-parser": "^5.4.0",
         "omnipanel": "file:..",
+        "p-queue": "^9.3.3",
         "pinyin-pro": "^3.28.1",
         "qrcode": "^1.5.4",
         "radix-ui": "^1.6.0",
@@ -76,9 +77,6 @@
         "vscode-languageserver-types": "^3.17.5",
         "zod": "^4.4.3",
         "zustand": "^5.0.13"
-    },
-    "overrides": {
-        "p-queue": "^9.0.1"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",

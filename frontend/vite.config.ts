@@ -41,7 +41,6 @@ export default defineConfig({
       "p-queue",
       "eventemitter3",
       "p-timeout",
-      "base64-js",
       "standardwebhooks-cjs",
       "node-sql-parser-cjs",
       "@stablelib/base64",
