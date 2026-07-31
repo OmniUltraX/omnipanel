@@ -773,11 +773,15 @@ impl SshPool {
     // ── 按需 SSH 会话（概览 / SFTP / 进程）────────────────────────────────
 
     /// 获取或建立连接池中的 SSH 会话（`connect_no_shell`）。
+    /// 若池中会话已断开（keepalive 失败 / 服务器主动关闭），自动移除并重建。
     pub async fn ensure_session(&self, resource_id: &str) -> OmniResult<Arc<SshSession>> {
+        // 快速路径：池中存在且仍然存活
         {
             let pool = self.pool_sessions.lock().await;
             if let Some(session) = pool.get(resource_id) {
-                return Ok(Arc::clone(session));
+                if !session.is_closed() {
+                    return Ok(Arc::clone(session));
+                }
             }
         }
 
@@ -790,11 +794,24 @@ impl SshPool {
         };
         let _connect_guard = connect_lock.lock().await;
 
-        // 持锁后再检一次，合并并发建连
+        // 持锁后再检一次，合并并发建连；同时清理死会话
         {
-            let pool = self.pool_sessions.lock().await;
+            let mut pool = self.pool_sessions.lock().await;
             if let Some(session) = pool.get(resource_id) {
-                return Ok(Arc::clone(session));
+                if !session.is_closed() {
+                    return Ok(Arc::clone(session));
+                }
+                // 会话已断：移除并通知前端，随后走重建流程
+                pool.remove(resource_id);
+                drop(pool);
+                self.log
+                    .log(
+                        "ssh-pool",
+                        "info",
+                        &format!("SSH 会话已断开，正在重建: {resource_id}"),
+                    )
+                    .await;
+                self.emit_session(resource_id, false).await;
             }
         }
 

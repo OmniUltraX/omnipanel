@@ -1158,12 +1158,12 @@
     .term-path-nav--block .term-path-crumb {
         font-size: 11px;
         font-weight: 600;
-        color: #7c6f66;
+        color: var(--meta);
         max-width: 10rem;
     }
 
     .term-path-nav--block .term-path-crumb.is-current {
-        color: #a89f96;
+        color: var(--meta);
     }
 
     .term-session-muted {
@@ -1709,7 +1709,7 @@
         margin: 0;
         border: none;
         border-radius: 0;
-        background: #141210;
+        background: var(--bg-deeper);
     }
 
     .term-warp-feed {
@@ -1719,7 +1719,7 @@
         overflow-anchor: none;
         scroll-behavior: auto;
         padding: var(--sp-3) var(--sp-4);
-        background: #141210;
+        background: var(--bg-deeper);
         font-family: var(--font-mono);
     }
 
@@ -1792,7 +1792,7 @@
         padding: var(--sp-2);
         border: 1px solid var(--border);
         border-radius: var(--r-md);
-        background: color-mix(in srgb, var(--surface) 94%, #141210);
+        background: color-mix(in srgb, var(--surface) 94%, var(--bg-deeper));
         backdrop-filter: blur(6px);
     }
 
@@ -2089,7 +2089,7 @@
         cursor: row-resize;
         touch-action: none;
         border-radius: 0 0 var(--r-md) var(--r-md);
-        background: color-mix(in srgb, var(--accent) 8%, #1a1717);
+        background: color-mix(in srgb, var(--accent) 8%, var(--bg-deeper));
         transition: background 0.15s ease;
     }
 
@@ -2106,7 +2106,7 @@
 
     .term-warp-ai-dock__resize:hover,
     .term-warp-ai-dock__resize:active {
-        background: color-mix(in srgb, var(--accent) 18%, #1a1717);
+        background: color-mix(in srgb, var(--accent) 18%, var(--bg-deeper));
     }
 
     .term-warp-ai-dock__resize:hover::after,
@@ -2121,7 +2121,7 @@
         padding: 5px 8px 3px;
         border: 1px solid var(--border-soft);
         border-radius: var(--r-sm);
-        background: color-mix(in srgb, #1a1717 55%, transparent);
+        background: color-mix(in srgb, var(--bg-deeper) 55%, transparent);
         overflow: hidden;
     }
 
@@ -2161,7 +2161,7 @@
         flex-shrink: 0;
         margin-top: 0;
         padding: 4px 10px 6px;
-        border-top: 1px solid color-mix(in srgb, var(--meta) 20%, #1a1717);
+        border-top: 1px solid color-mix(in srgb, var(--meta) 20%, var(--bg-deeper));
     }
 
     /* 右下角操作：引用 / 复制命令 / 复制输出（hover 显示） */
@@ -2203,7 +2203,7 @@
 
     .term-warp-block__toolbar-btn:hover {
         background: color-mix(in srgb, var(--accent) 18%, transparent);
-        color: #f8f4e8;
+        color: var(--fg);
     }
 
     .term-warp-output-collapsed {
@@ -2224,7 +2224,7 @@
 
     .term-warp-output-collapsed:hover {
         background: color-mix(in srgb, var(--accent) 16%, transparent);
-        color: #f8f4e8;
+        color: var(--fg);
     }
 
     /* Block 左下角收起：与 block-separator 同系分隔线 */
@@ -2265,12 +2265,12 @@
 
     .term-warp-block__collapse-btn:hover {
         background: color-mix(in srgb, var(--meta, #9a938a) 12%, transparent);
-        color: #f0ebe4;
+        color: var(--fg);
     }
 
     .term-warp-block--ai .term-warp-block__collapse-btn:hover {
         background: color-mix(in srgb, var(--accent) 14%, transparent);
-        color: #f8f4e8;
+        color: var(--fg);
     }
 
     .term-warp-prompt-line {
@@ -2295,7 +2295,7 @@
     }
 
     .term-warp-prompt-line__cmd {
-        color: #f8f4e8;
+        color: var(--fg);
         font-weight: 500;
     }
 
@@ -2323,7 +2323,7 @@
         line-height: 1.55;
         white-space: pre-wrap;
         word-break: break-word;
-        color: #d4cfc8;
+        color: var(--fg-2);
     }
 
     .term-warp-output-empty {
@@ -2417,7 +2417,7 @@
         border: none;
         background: none;
         font: inherit;
-        color: #d4cfc8;
+        color: var(--fg-2);
         text-align: left;
         white-space: nowrap;
     }
@@ -2495,7 +2495,7 @@
     }
 
     .term-ls-entry--file {
-        color: #d4cfc8;
+        color: var(--fg-2);
     }
 
     .term-ls-listing--long {
@@ -2519,7 +2519,7 @@
     .term-ls-long-row__meta,
     .term-ls-long-row__prefix,
     .term-ls-long-row__field {
-        color: #7c6f66;
+        color: var(--meta);
         flex: 0 0 auto;
         white-space: pre;
         font-variant-ligatures: none;
@@ -2540,7 +2540,7 @@
     }
 
     .term-ls-long-row__size {
-        color: #7c6f66;
+        color: var(--meta);
         flex: 0 0 var(--ls-size-width, auto);
         width: var(--ls-size-width, auto);
         min-width: var(--ls-size-width, auto);
@@ -2550,7 +2550,7 @@
     }
 
     .term-ls-long-row__trailing {
-        color: #7c6f66;
+        color: var(--meta);
         flex: 0 0 auto;
         white-space: pre;
         font-variant-ligatures: none;
@@ -2569,9 +2569,9 @@
 
     /* AI 卡片：统一深色面板，避免吸顶候选切换时渐变背景闪烁 */
     .term-warp-block--ai {
-        border: 1px solid color-mix(in srgb, var(--meta) 22%, #1a1717);
+        border: 1px solid color-mix(in srgb, var(--meta) 22%, var(--bg-deeper));
         border-radius: var(--r-md);
-        background: #1a1717;
+        background: var(--bg-deeper);
         box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
     }
 
@@ -2598,7 +2598,7 @@
     }
 
     .term-warp-block--ai .term-warp-block__title {
-        color: #f0ebe4;
+        color: var(--fg);
         font-weight: 600;
     }
 
@@ -2621,7 +2621,7 @@
         padding: 5px 8px 3px;
         border: 1px solid var(--border-soft);
         border-radius: var(--r-sm);
-        background: color-mix(in srgb, #1a1717 55%, transparent);
+        background: color-mix(in srgb, var(--bg-deeper) 55%, transparent);
         overflow: hidden;
         transition:
             background 0.35s ease,
@@ -2630,7 +2630,7 @@
     }
 
     .term-warp-block--scroll-highlight {
-        background: color-mix(in srgb, var(--accent) 10%, #1a1717 45%) !important;
+        background: color-mix(in srgb, var(--accent) 10%, var(--bg-deeper) 45%) !important;
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
         animation: term-warp-block-highlight-fade 1.4s ease forwards;
     }
@@ -2638,11 +2638,11 @@
     @keyframes term-warp-block-highlight-fade {
         0%,
         70% {
-            background: color-mix(in srgb, var(--accent) 10%, #1a1717 45%);
+            background: color-mix(in srgb, var(--accent) 10%, var(--bg-deeper) 45%);
             box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
         }
         100% {
-            background: color-mix(in srgb, #1a1717 55%, transparent);
+            background: color-mix(in srgb, var(--bg-deeper) 55%, transparent);
             box-shadow: none;
         }
     }
@@ -2717,8 +2717,8 @@
     }
 
     .term-warp-block--ai.term-warp-block--collapsed:hover {
-        background: #1a1717;
-        border-color: color-mix(in srgb, var(--accent) 45%, #1a1717);
+        background: var(--bg-deeper);
+        border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-deeper));
     }
 
     .term-warp-block__summary {
@@ -2812,7 +2812,7 @@
 
     .term-warp-ai-nav__btn:hover {
         background: color-mix(in srgb, var(--accent) 14%, var(--panel, #1c1b19));
-        color: #f8f4e8;
+        color: var(--fg);
         border-color: color-mix(in srgb, var(--accent) 38%, transparent);
     }
 

@@ -14,6 +14,7 @@ import {
   getPromptPrefix,
   seedMockTerminal,
 } from "./mockTerminal";
+import { getTerminalTheme } from "./terminalTheme";
 import { triggerAiDrawerToggle } from "../../hooks/useAiDrawerShortcut";
 
 const isTauriRuntime =
@@ -132,12 +133,7 @@ export function TerminalView({
       fontSize: settings.terminalFontSize,
       fontFamily: `"${settings.terminalFontFamily}", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
       lineHeight: settings.terminalLineHeight,
-      theme: {
-        background: "#1a1717",
-        foreground: "#fdfcfc",
-        cursor: "#fdfcfc",
-        selectionBackground: "#007aff30",
-      },
+      theme: getTerminalTheme(settings.resolved),
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
@@ -166,6 +162,19 @@ export function TerminalView({
       termRef.current = null;
     };
   }, [onSenderChange, resource, sessionId, setStatus, startup]);
+
+  // 主题变化时动态更新终端主题（web 版终端）
+  useEffect(() => {
+    const unsub = useSettingsStore.subscribe((state, prev) => {
+      if (state.resolved !== prev.resolved) {
+        const term = termRef.current;
+        if (term) {
+          term.options.theme = getTerminalTheme(state.resolved);
+        }
+      }
+    });
+    return unsub;
+  }, []);
 
   return (
     <div

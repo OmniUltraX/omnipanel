@@ -554,6 +554,7 @@ fn is_ssh_session_dead_error(err: &str) -> bool {
 async fn open_session_channel_retry(
     session: &client::Handle<Client>,
     attempts: u32,
+    closed: &Arc<AtomicBool>,
 ) -> OmniResult<Channel<russh::client::Msg>> {
     let mut last_err: Option<String> = None;
     for attempt in 0..attempts {
@@ -562,8 +563,9 @@ async fn open_session_channel_retry(
             Err(e) => {
                 let err_str = e.to_string();
                 last_err = Some(err_str.clone());
-                // 连接已断：继续退避只会拖慢 Docker/侧栏恢复
+                // 连接已断：标记会话为已关闭，让连接池下次 ensure_session 时重建
                 if is_ssh_session_dead_error(&err_str) {
+                    closed.store(true, Ordering::Relaxed);
                     break;
                 }
                 if attempt + 1 < attempts {
@@ -633,6 +635,17 @@ pub struct SshSession {
     shell_tx: Option<mpsc::UnboundedSender<ShellMsg>>,
     /// 串行化同连接上的 exec/SFTP channel（russh Handle 不支持并发 `channel_open_session`）。
     exec_gate: Arc<Semaphore>,
+    /// 标记底层连接已断开（channel 打开失败 / shell I/O 任务退出 / 服务器主动断开）。
+    /// 连接池据此跳过死会话并自动重建。
+    closed: Arc<AtomicBool>,
+}
+
+impl SshSession {
+    /// 返回底层连接是否已断开。
+    /// 同时检查显式标志和 russh Handle 的 sender 状态。
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed) || self.session.is_closed()
+    }
 }
 
 impl SshSession {
@@ -645,6 +658,9 @@ impl SshSession {
     ) -> OmniResult<Self> {
         let client_config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(3600)),
+            // 每 30s 发送 keepalive，防止 NAT / 防火墙 / 服务器空闲超时断连。
+            // 连续 3 次未收到回复则判定连接已死（russh 默认 keepalive_max = 3）。
+            keepalive_interval: Some(Duration::from_secs(30)),
             ..Default::default()
         });
 
@@ -672,7 +688,8 @@ impl SshSession {
             }
         }
 
-        let mut channel = open_session_channel_retry(&session, CHANNEL_OPEN_ATTEMPTS).await?;
+        let closed = Arc::new(AtomicBool::new(false));
+        let mut channel = open_session_channel_retry(&session, CHANNEL_OPEN_ATTEMPTS, &closed).await?;
         channel
             .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
             .await
@@ -684,6 +701,7 @@ impl SshSession {
         })?;
 
         let (shell_tx, mut shell_rx) = mpsc::unbounded_channel::<ShellMsg>();
+        let closed_flag = closed.clone();
 
         tokio::spawn(async move {
             loop {
@@ -720,6 +738,8 @@ impl SshSession {
                     }
                 }
             }
+            // shell 通道关闭意味着底层连接已断，标记会话为已关闭
+            closed_flag.store(true, Ordering::Relaxed);
             sink(SshEvent::Disconnected);
         });
 
@@ -727,6 +747,7 @@ impl SshSession {
             session,
             shell_tx: Some(shell_tx),
             exec_gate: Arc::new(Semaphore::new(1)),
+            closed,
         })
     }
 
@@ -735,6 +756,8 @@ impl SshSession {
     pub async fn connect_no_shell(config: SshConfig) -> OmniResult<Self> {
         let client_config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(3600)),
+            // 每 30s 发送 keepalive，防止 NAT / 防火墙 / 服务器空闲超时断连。
+            keepalive_interval: Some(Duration::from_secs(30)),
             ..Default::default()
         });
 
@@ -766,6 +789,7 @@ impl SshSession {
             session,
             shell_tx: None,
             exec_gate: Arc::new(Semaphore::new(1)),
+            closed: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -802,7 +826,7 @@ impl SshSession {
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
         // 与 exec_stream / exec_pty 一致：走带退避的 open，避免瞬时抖动直接打到前端
-        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
             .await
             .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
 
@@ -861,7 +885,7 @@ impl SshSession {
             .await
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
             .await
             .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
         if let Err(e) = channel.exec(true, command).await {
@@ -911,7 +935,7 @@ impl SshSession {
         })?
         .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
             .await
             .map_err(|e| e.or_ssh_context("打开 SSH PTY 通道失败"))?;
         if let Err(e) = channel
@@ -967,7 +991,7 @@ impl SshSession {
     }
 
     async fn open_sftp_inner(&self) -> OmniResult<SftpSession> {
-        let channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS)
+        let channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
             .await
             .map_err(|e| e.or_ssh_context("打开 SFTP 通道失败"))?;
         channel.request_subsystem(true, "sftp").await.map_err(|e| {
