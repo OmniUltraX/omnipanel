@@ -30,8 +30,13 @@ export function TerminalPathBreadcrumb({
         : resolveAbsoluteTerminalCwd(path, user);
     onRunCommand(terminalCdCommand(absolute));
   };
+  // Unix 根路径引导：第一个 crumb 是 "/" 时，把它单独渲染为根节点，
+  // 后续段之间用 "/" 分隔。
+  //
+  // 注意：WSL 的 sessionType === "local" 但路径是 Unix 风格（/root, /home/user），
+  // 不能用 sessionType !== "local" 排除，否则会走 Windows 分支，
+  // 渲染成 "/ / root"（根节点 + 多余的分隔符 + 段名）。
   const unixRootTrail =
-    sessionType !== "local" &&
     crumbs.length > 0 &&
     crumbs[0]?.label === "/" &&
     crumbs[0]?.path === "/";

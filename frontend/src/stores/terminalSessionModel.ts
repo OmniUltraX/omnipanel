@@ -1,4 +1,4 @@
-import type { TerminalSessionInfo, TerminalSessionType, TerminalTab } from "./terminalTypes";
+import type { LocalShellSpec, TerminalSessionInfo, TerminalSessionType, TerminalTab } from "./terminalTypes";
 
 export type TerminalSessionLifecycle = "active" | "suspended" | "ended";
 
@@ -39,23 +39,66 @@ function normalizePersistedSessionCwd(cwd: string, type: TerminalSessionType): s
   return cwd;
 }
 
+const VALID_SHELL_KINDS = new Set<LocalShellKind>([
+  "bash", "zsh", "powershell", "powershell5", "fish", "cmd", "wsl",
+]);
+
+/** 从持久化数据中安全恢复 shellSpec，非法值返回 null */
+export function normalizePersistedShellSpec(raw: unknown): LocalShellSpec | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.kind !== "string" || !VALID_SHELL_KINDS.has(obj.kind as LocalShellKind)) {
+    return null;
+  }
+  return {
+    kind: obj.kind as LocalShellKind,
+    path: typeof obj.path === "string" ? obj.path : null,
+    wslDistro: typeof obj.wslDistro === "string" ? obj.wslDistro : null,
+  };
+}
+
 export function createTerminalSessionId(): string {
   sessionCounter += 1;
   return `tsess-${sessionCounter}`;
 }
 
+/** 根据 shellSpec 推导 shellLabel 显示名 */
+function shellLabelFromSpec(spec: LocalShellSpec | null | undefined): string {
+  if (!spec) return "Shell";
+  switch (spec.kind) {
+    case "powershell":
+      return "PowerShell 7";
+    case "powershell5":
+      return "Windows PowerShell 5";
+    case "cmd":
+      return "CMD";
+    case "wsl":
+      return spec.wslDistro ? `${spec.wslDistro} (WSL)` : "WSL";
+    case "bash":
+      return "Bash";
+    case "zsh":
+      return "Zsh";
+    case "fish":
+      return "Fish";
+    default:
+      return "Shell";
+  }
+}
+
 export function defaultSessionInfo(
   resourceId: string,
   type: TerminalSessionType,
+  shellSpec?: LocalShellSpec | null,
 ): TerminalSessionInfo {
   if (type === "local") {
     return {
       type: "local",
       resourceId,
-      shellLabel: "PowerShell",
+      shellLabel: shellSpec ? shellLabelFromSpec(shellSpec) : "PowerShell",
       cwd: "~",
       purpose: "Local Workspace",
       commandPack: [],
+      shellSpec: shellSpec ?? null,
     };
   }
   return {
@@ -65,6 +108,7 @@ export function defaultSessionInfo(
     cwd: "~/",
     purpose: "SSH Workbench",
     commandPack: [],
+    shellSpec: null,
   };
 }
 
@@ -124,6 +168,7 @@ export function normalizePersistedSession(raw: unknown): TerminalSession | null 
     commandPack: Array.isArray(sessionSource.commandPack)
       ? (sessionSource.commandPack as unknown[]).filter((c): c is string => typeof c === "string")
       : [],
+    shellSpec: normalizePersistedShellSpec(sessionSource.shellSpec),
   };
   const lifecycle =
     item.lifecycle === "active" || item.lifecycle === "ended" ? item.lifecycle : "suspended";
@@ -177,6 +222,7 @@ export function migrateLegacyTabsToSessions(
       commandPack: Array.isArray(sessionSource.commandPack)
         ? (sessionSource.commandPack as unknown[]).filter((c): c is string => typeof c === "string")
         : [],
+      shellSpec: normalizePersistedShellSpec(sessionSource.shellSpec),
     }, raw.id);
     entity.lifecycle = "suspended";
     sessions.push(entity);

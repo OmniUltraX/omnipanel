@@ -17,6 +17,7 @@ import {
   findTerminalPane,
   useTerminalStore,
 } from "../stores/terminalStore";
+import type { LocalShellSpec } from "../stores/terminalTypes";
 import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -235,9 +236,41 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
     if (res.status === "ok") return res.data;
     throw normalizeBackendError(res.error, "SSH 终端创建失败");
   }
-  return invoke<string>("create_terminal", { cols, rows }).catch((err) => {
+  // shellSpec 回退：旧持久化数据可能没有 shellSpec 字段（只有 shellLabel）。
+  // 从 shellLabel 推断 WSL/PowerShell/Cmd，避免误启动默认 shell。
+  const resolvedShell = pane?.shellSpec ?? inferShellSpecFromLabel(pane?.shellLabel) ?? null;
+  return invoke<string>("create_terminal", {
+    cols,
+    rows,
+    shell: resolvedShell,
+  }).catch((err) => {
     throw normalizeBackendError(err, "本地 PTY 创建失败");
   });
+}
+
+/**
+ * 从 shellLabel 推断 ShellSpec（用于旧持久化数据回退）。
+ *
+ * 新版本 addLocalTerminalTab 会写入完整 shellSpec，但旧版本持久化的 tab
+ * 只有 shellLabel（如 "Ubuntu (WSL)"），恢复时 shellSpec 为 null，导致后端
+ * detect_shell() 误启动 PowerShell。这里从 label 反推 kind。
+ */
+function inferShellSpecFromLabel(label: string | null | undefined): LocalShellSpec | null {
+  if (!label) return null;
+  const text = label.toLowerCase();
+  if (/\bwsl\b/.test(text)) {
+    // "Ubuntu (WSL)" → wslDistro="Ubuntu"
+    const match = label.match(/^([^(]+)/);
+    const distro = match ? match[1].trim() : null;
+    return { kind: "wsl", path: null, wslDistro: distro };
+  }
+  if (/powershell|pwsh/.test(text)) {
+    return { kind: "powershell", path: null, wslDistro: null };
+  }
+  if (text === "cmd" || text === "cmd.exe") {
+    return { kind: "cmd", path: null, wslDistro: null };
+  }
+  return null;
 }
 
 /**
@@ -606,7 +639,7 @@ export function useTerminal(
     function sendCommand(cmd: string) {
       recordTerminalSessionActivity(sessionId, Date.now(), { command: cmd });
       const pane = findPaneById(sessionId);
-      const shell = resolveTerminalShellFamily(pane?.type ?? "local", pane?.shellLabel);
+      const shell = resolveTerminalShellFamily(pane?.type ?? "local", pane?.shellLabel, pane?.shellSpec);
       writeToBackend(formatPtyCommandInput(cmd, shell));
     }
 
@@ -748,6 +781,7 @@ export function useTerminal(
                 const shellFamily = resolveTerminalShellFamily(
                   paneForShell?.type ?? "local",
                   paneForShell?.shellLabel,
+                  paneForShell?.shellSpec,
                 );
                 const deferForMultiline =
                   shellFamily !== "powershell" &&
@@ -1083,9 +1117,10 @@ export function useTerminal(
     }
 
     // 复用已有后端会话（前端 remount / 切回标签）时，用后端快照重建屏幕。
+    // restoring 标志由调用方（ensureBackendSession）提前设置，确保 capture-pane
+    // 期间实时 %output 事件被丢弃，避免快照与 tmux 重放流重复写入 xterm。
     async function restoreSnapshot() {
       if (!backendSid || !term) return;
-      restoring = true;
       useTerminalRunStateStore.getState().enterRecovering(sessionId);
       try {
         const b64 = await fetchRestoreSnapshot(backendSid);
@@ -1105,14 +1140,14 @@ export function useTerminal(
           useTerminalStore.getState().setBackendSessionId(sessionId, null);
           backendSid = null;
           useTerminalRunStateStore.getState().enterRecovering(sessionId);
+          // 递归重建前必须释放 restoring，否则新 session 的事件会被丢弃
+          restoring = false;
           if (term) {
             void ensureBackendSession(term.cols, term.rows);
           }
           return;
         }
         console.error(`[Terminal ${sessionId}] 恢复屏幕快照失败:`, err);
-      } finally {
-        restoring = false;
       }
     }
 
@@ -1129,6 +1164,10 @@ export function useTerminal(
       if (reusableSid) {
         shellBootstrapReattached = true;
         backendSid = reusableSid;
+        // 提前置 restoring：从 backendSid 赋值到 restoreSnapshot 完成之间，
+        // tmux control mode attach 会通过 %output 重放 pane 当前屏幕内容，
+        // 若不丢弃会与 capture-pane 快照内容重叠导致输出重复显示（用户看到的 3 次重复）。
+        restoring = true;
         registerRuntimeBackendSession(sessionId, reusableSid);
         useTerminalStore.getState().setStatus(sessionId, "connected");
         const savedCwd = resolveSavedSessionCwd(sessionId);
@@ -1138,8 +1177,12 @@ export function useTerminal(
         }
         // 先确认模式，restoreSnapshot 据此决定走 tmux capture 还是本地快照
         void (async () => {
-          await refreshTransportMode(reusableSid);
-          await restoreSnapshot();
+          try {
+            await refreshTransportMode(reusableSid);
+            await restoreSnapshot();
+          } finally {
+            restoring = false;
+          }
         })();
         flushPendingInput();
         const transportRemote = resolveBackendTransport(sessionId, backendSid).remote;
@@ -1440,6 +1483,11 @@ export function useTerminal(
       if (remoteInitEchoFilterTimer) {
         clearTimeout(remoteInitEchoFilterTimer);
         remoteInitEchoFilterTimer = null;
+      }
+      // 重连视为新会话：重建 echo filter，过滤 ensureBackendSession 注入的
+      // shell integration 脚本 PTY 回显（含 OmniPanelInit token），否则回显噪声直接写入 xterm
+      if (remote) {
+        remoteInitEchoFilter = createRemoteInitEchoFilter(queueOutput);
       }
       // 3) 重新创建 backend session（ensureBackendSession 内部会 spawn 新 PTY 并触发 restoreSnapshot）
       void ensureBackendSession(term.cols, term.rows);

@@ -21,7 +21,7 @@ export { isCdOnlyCommand, normalizeAutoLsCommand, stripAutoLsSuffix } from "./te
 
 function resolveShellFamilyForSession(sessionId?: string) {
   const pane = sessionId ? findTerminalPane(sessionId) : null;
-  return resolveTerminalShellFamily(pane?.type ?? "remote", pane?.shellLabel);
+  return resolveTerminalShellFamily(pane?.type ?? "remote", pane?.shellLabel, pane?.shellSpec);
 }
 
 export function isTerminalAutoLsEnabled(): boolean {

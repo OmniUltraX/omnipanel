@@ -34,7 +34,7 @@ export const SHELL_HISTORY_SYNC_COMMAND_POWERSHELL = [
 export function resolveShellHistorySyncCommand(sessionId: string): string | null {
   const pane = findTerminalPane(sessionId);
   if (!pane) return null;
-  const shell = resolveTerminalShellFamily(pane.type, pane.shellLabel);
+  const shell = resolveTerminalShellFamily(pane.type, pane.shellLabel, pane.shellSpec);
   if (shell === "posix") return SHELL_HISTORY_SYNC_COMMAND;
   if (shell === "powershell") return SHELL_HISTORY_SYNC_COMMAND_POWERSHELL;
   return null;

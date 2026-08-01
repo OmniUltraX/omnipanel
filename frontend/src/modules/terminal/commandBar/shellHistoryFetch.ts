@@ -116,7 +116,7 @@ async function fetchLocalShellHistory(sessionId: string): Promise<boolean> {
     return useSessionShellHistoryStore.getState().getCommands(sessionId).length > 0;
   }
 
-  const shell = resolveTerminalShellFamily(pane.type, pane.shellLabel);
+  const shell = resolveTerminalShellFamily(pane.type, pane.shellLabel, pane.shellSpec);
   const paths = buildLocalShellHistoryPaths(shell);
   if (paths.length === 0) return false;
 

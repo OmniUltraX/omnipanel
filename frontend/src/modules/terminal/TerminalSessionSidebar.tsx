@@ -630,7 +630,25 @@ export function TerminalSessionSidebar({
                     onActivate={() => toggleExpanded(group.resourceId)}
                     onPointerDown={(event) => handleConnectionPointerDown(event, group.resourceId)}
                     contextMenuItems={buildConnectionCtxItems(group)}
-                    trailing={<span className="server-tree-badge">{group.sessions.length}</span>}
+                    trailing={
+                      <>
+                        <span className="server-tree-badge">{group.sessions.length}</span>
+                        <div className="tree-node-actions">
+                          <button
+                            type="button"
+                            className="tree-action-btn tree-action-btn--add"
+                            title={t("terminal.sessions.newUnderConnection")}
+                            aria-label={t("terminal.sessions.newUnderConnection")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onCreateSession(group.resourceId, group.name);
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </>
+                    }
                   />
                   {expanded ? (
                     <div className="server-tree-children">

@@ -7442,6 +7442,45 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: var(--border);
     }
 
+    .topbar-add-menu-search {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-1) var(--sp-2);
+        margin-bottom: var(--sp-1);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .topbar-add-menu-search-icon {
+        flex-shrink: 0;
+        width: 14px;
+        height: 14px;
+        color: var(--meta);
+    }
+
+    .topbar-add-menu-search-input {
+        flex: 1;
+        min-width: 0;
+        padding: var(--sp-1) 0;
+        border: none;
+        background: transparent;
+        color: var(--fg);
+        font: inherit;
+        font-size: 12px;
+        outline: none;
+    }
+
+    .topbar-add-menu-search-input::placeholder {
+        color: var(--meta);
+    }
+
+    .topbar-add-menu-empty {
+        padding: var(--sp-3) var(--sp-2);
+        text-align: center;
+        font-size: 12px;
+        color: var(--meta);
+    }
+
     .topbar-tabs--segment .topbar-tab,
     .topbar-tabs--connection .topbar-tab {
         cursor: pointer;
@@ -20212,6 +20251,13 @@ button.omni-btn-tool[aria-pressed="true"] {
 
 .vsplit-sidebar-section--sized > .vsplit-sidebar-section__body {
     overflow-y: auto;
+}
+
+.vsplit-sidebar-section__measure {
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 auto;
+    min-height: 0;
 }
 
 .vsplit-sidebar-section__resize {

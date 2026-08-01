@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type {
+  LocalShellSpec,
   TerminalConnectionStatus,
   TerminalPane,
   TerminalSessionInfo,
@@ -14,6 +15,7 @@ import {
   defaultSessionInfo,
   migrateLegacyTabsToSessions,
   normalizePersistedSession,
+  normalizePersistedShellSpec,
   syncSessionCounterFromIds,
   tabFromSession,
   type TerminalDetachedRuntime,
@@ -21,6 +23,9 @@ import {
 } from "./terminalSessionModel";
 
 export type {
+  LocalShellInfo,
+  LocalShellKind,
+  LocalShellSpec,
   TerminalConnectionStatus,
   TerminalPane,
   TerminalSessionInfo,
@@ -106,7 +111,7 @@ interface TerminalState {
   ) => TerminalTab | undefined;
   openOrFocusSshTab: (hostId: string, title: string) => string;
   openOrFocusLocalTab: (title?: string) => string;
-  addLocalTerminalTab: (title?: string, workspaceId?: string) => string;
+  addLocalTerminalTab: (title?: string, workspaceId?: string, shellSpec?: LocalShellSpec | null) => string;
   addSshTerminalTab: (hostId: string, title: string, workspaceId?: string) => string;
   /** 自增指定会话的 reconnect 版本号，触发 useTerminal 重建后端会话 */
   bumpReconnect: (sessionId: string) => void;
@@ -169,6 +174,7 @@ export function findTerminalPane(id: string): TerminalPane | undefined {
       commandPack: session.commandPack,
       terminal: tab.terminal,
       status: tab.status,
+      shellSpec: session.shellSpec ?? null,
     };
   }
   const state = useTerminalStore.getState();
@@ -188,6 +194,7 @@ export function findTerminalPane(id: string): TerminalPane | undefined {
     commandPack: session.commandPack,
     terminal: null,
     status: runtime?.status ?? "disconnected",
+    shellSpec: session.shellSpec ?? null,
   };
 }
 
@@ -242,6 +249,7 @@ function normalizeLegacyPersistedTab(tab: unknown): TerminalTab | null {
     commandPack: Array.isArray(sessionSource.commandPack)
       ? (sessionSource.commandPack as unknown[]).filter((c): c is string => typeof c === "string")
       : [],
+    shellSpec: normalizePersistedShellSpec(sessionSource.shellSpec),
   };
   const createdAt = typeof raw.createdAt === "number" ? raw.createdAt : Date.now();
   const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : raw.id;
@@ -637,17 +645,17 @@ export const useTerminalStore = create<TerminalState>()(
         return get().addLocalTerminalTab(title);
       },
 
-      addLocalTerminalTab: (title = "本地终端", workspaceId?: string) => {
+      addLocalTerminalTab: (title = "本地终端", workspaceId?: string, shellSpec?: LocalShellSpec | null) => {
         const sessionId = get().createSession(
           title,
-          defaultSessionInfo("local-terminal", "local"),
+          defaultSessionInfo("local-terminal", "local", shellSpec),
         );
         return get().addTab({
           id: sessionId,
           sessionId,
           title,
           workspaceId,
-          session: defaultSessionInfo("local-terminal", "local"),
+          session: defaultSessionInfo("local-terminal", "local", shellSpec),
         });
       },
 
