@@ -45,6 +45,7 @@ import {
 } from "./taskCenterSelection";
 
 const SECTION_STORAGE_KEY = "omnipanel-task-center-sidebar-sections";
+const SIZE_STORAGE_KEY = "omnipanel-task-center-sidebar-sizes";
 
 type ActivitySectionKey = "passive" | "active" | "plans";
 type InboxSectionKey = "mine" | "suggestions";
@@ -394,6 +395,8 @@ export function TaskCenterSidebar({
           expanded={activitySections.sections.active}
           onToggle={() => activitySections.toggleSection("active")}
           actions={<CountBadge count={activeJobs.length} />}
+          autoSize
+          autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "activity-active" }}
         >
           {activeJobs.length === 0 ? (
             <p className="fm-conn-empty">{t("taskCenter.activity.emptyActive")}</p>
@@ -421,6 +424,8 @@ export function TaskCenterSidebar({
           expanded={activitySections.sections.plans}
           onToggle={() => activitySections.toggleSection("plans")}
           actions={<CountBadge count={specs.length} />}
+          autoSize
+          autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "activity-plans" }}
         >
           {specs.length === 0 ? (
             <p className="fm-conn-empty">{t("taskCenter.activity.empty")}</p>
@@ -558,6 +563,8 @@ export function TaskCenterSidebar({
           title={t("taskCenter.inbox.suggestions")}
           expanded={inboxSections.sections.suggestions}
           onToggle={() => inboxSections.toggleSection("suggestions")}
+          autoSize
+          autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "inbox-suggestions" }}
           actions={
             inbox.length > 0 ? (
               <div className="schema-toolbar schema-toolbar--inline">
@@ -662,6 +669,8 @@ export function TaskCenterSidebar({
           expanded={historySections.sections.jobs}
           onToggle={() => historySections.toggleSection("jobs")}
           actions={<CountBadge count={filteredHistoryJobs.length} />}
+          autoSize
+          autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "history-jobs" }}
         >
           {historyModules.length > 0 ? (
             <div className="task-center-sidebar__module-filter">

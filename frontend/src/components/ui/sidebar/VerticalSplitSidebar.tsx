@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -12,6 +13,10 @@ export interface VerticalSplitSidebarSectionConfig {
   title: string;
   expanded: boolean;
   onToggle: () => void;
+  /** 非受控自动高度：未传 bodyHeightPx 时，组件按内容自动测量高度并支持拖拽 */
+  autoSize?: boolean;
+  /** autoSize 模式下按 id 持久化高度到 localStorage */
+  autoSizePersist?: { storageKey: string; id: string };
 }
 
 export interface VerticalSplitSidebarProps {
@@ -35,6 +40,8 @@ export function VerticalSplitSidebarSection({
   onBodyHeightChange,
   minBodyHeightPx = 72,
   maxBodyHeightPx = 480,
+  autoSize = false,
+  autoSizePersist,
 }: VerticalSplitSidebarSectionConfig & {
   actions?: ReactNode;
   children: ReactNode;
@@ -48,8 +55,17 @@ export function VerticalSplitSidebarSection({
   maxBodyHeightPx?: number;
 }) {
   const showBody = expanded || keepMounted;
-  const sized = typeof bodyHeightPx === "number" && Number.isFinite(bodyHeightPx);
-  const resizable = sized && typeof onBodyHeightChange === "function" && expanded;
+  const controlled = typeof bodyHeightPx === "number" && Number.isFinite(bodyHeightPx);
+  const autoActive = !controlled && autoSize;
+
+  // autoSize 非受控模式：内部维护高度，用户拖过后停止自动跟随
+  const [autoHeight, setAutoHeight] = useState<number | undefined>(() => {
+    if (!autoActive || !autoSizePersist) return undefined;
+    return readPersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id);
+  });
+  const userSizedRef = useRef<boolean>(autoActive && Number.isFinite(autoHeight));
+
+  const measureRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     pointerId: number;
     startY: number;
@@ -61,30 +77,66 @@ export function VerticalSplitSidebarSection({
     [maxBodyHeightPx, minBodyHeightPx],
   );
 
+  // 自动测量内容高度（未手动拖拽时跟随内容）
+  useLayoutEffect(() => {
+    if (!autoActive || !expanded || userSizedRef.current) return;
+    const el = measureRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.getBoundingClientRect().height;
+      if (!Number.isFinite(h) || h <= 0) return;
+      const next = clampHeight(h);
+      setAutoHeight((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [autoActive, expanded, clampHeight]);
+
+  // 合并受控/非受控：受控优先
+  const effectiveHeight = controlled
+    ? bodyHeightPx
+    : autoActive
+      ? (autoHeight ?? minBodyHeightPx)
+      : undefined;
+  const effectiveOnChange = controlled
+    ? onBodyHeightChange
+    : autoActive
+      ? (h: number) => {
+          userSizedRef.current = true;
+          setAutoHeight(h);
+          if (autoSizePersist) writePersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id, h);
+        }
+      : undefined;
+
+  const sized = typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight);
+  const resizable = sized && typeof effectiveOnChange === "function" && expanded;
+
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!onBodyHeightChange || typeof bodyHeightPx !== "number") return;
+      if (!effectiveOnChange || typeof effectiveHeight !== "number") return;
       event.preventDefault();
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = {
         pointerId: event.pointerId,
         startY: event.clientY,
-        startHeight: bodyHeightPx,
+        startHeight: effectiveHeight,
       };
     },
-    [bodyHeightPx, onBodyHeightChange],
+    [effectiveHeight, effectiveOnChange],
   );
 
   const onResizePointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId || !onBodyHeightChange) return;
-      // 手柄在段顶部：向下拖增大本段高度
-      const next = clampHeight(drag.startHeight + (event.clientY - drag.startY));
-      onBodyHeightChange(next);
+      if (!drag || drag.pointerId !== event.pointerId || !effectiveOnChange) return;
+      // 手柄在段顶部：向上拖增大本段高度（边界上移挤压上段、本段变高）
+      const next = clampHeight(drag.startHeight - (event.clientY - drag.startY));
+      effectiveOnChange(next);
     },
-    [clampHeight, onBodyHeightChange],
+    [clampHeight, effectiveOnChange],
   );
 
   const onResizePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -111,7 +163,7 @@ export function VerticalSplitSidebarSection({
           className="vsplit-sidebar-section__resize"
           role="separator"
           aria-orientation="horizontal"
-          aria-valuenow={bodyHeightPx}
+          aria-valuenow={effectiveHeight}
           aria-valuemin={minBodyHeightPx}
           aria-valuemax={maxBodyHeightPx}
           onPointerDown={onResizePointerDown}
@@ -149,9 +201,19 @@ export function VerticalSplitSidebarSection({
             "vsplit-sidebar-section__body",
             !expanded && keepMounted && "vsplit-sidebar-section__body--hidden",
           )}
-          style={sized && expanded ? { height: bodyHeightPx, flex: "0 0 auto" } : undefined}
+          style={
+            sized && expanded
+              ? { height: effectiveHeight, flex: "0 0 auto", overflowY: "auto" }
+              : undefined
+          }
         >
-          {children}
+          {autoActive ? (
+            <div ref={measureRef} className="vsplit-sidebar-section__measure">
+              {children}
+            </div>
+          ) : (
+            children
+          )}
         </div>
       ) : null}
     </section>
@@ -243,4 +305,28 @@ export function usePersistedVerticalSplitSizes<T extends string>(storageKey: str
   const isUserSized = useCallback((key: T) => userSizedKeysRef.current.has(key), []);
 
   return { sizes, setSize, isUserSized };
+}
+
+/** autoSize 模式下按 id 读写单段高度（存储为 { [id]: number }） */
+function readPersistedSizeValue(storageKey: string, id: string): number | undefined {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const v = parsed[id];
+    return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writePersistedSizeValue(storageKey: string, id: string, value: number) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    parsed[id] = value;
+    localStorage.setItem(storageKey, JSON.stringify(parsed));
+  } catch {
+    // ignore
+  }
 }

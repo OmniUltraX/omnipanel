@@ -22,8 +22,23 @@ function pendingKey(sessionId: string, command: string): string {
   return `${sessionId}::${normalizeBlockCommand(command)}`;
 }
 
-/** Command Bar 用户发起的 shell 命令，供结束后判断是否触发 AI */
-export function registerUserShellCommand(sessionId: string, command: string): void {
+/**
+ * 命令失败后自动触发 AI 的能力已禁用。
+ *
+ * 背景：原逻辑在命令退出码非 0（或输出含错误关键词）时直接发起 AI 会话，
+ * 提示词为"命令执行失败，请分析原因并给出可执行的修复建议"。
+ * 用户反馈此行为过于激进——输错一个命令就自动弹 AI，体验割裂。
+ *
+ * 当前状态：两个导出函数均为 no-op，调用点保留不变（便于将来恢复或改造）。
+ * 若后续需要重新启用，建议改为"失败后弹轻量确认条询问用户是否需要 AI 分析"，
+ * 而非恢复自动触发。改造点集中在本文件，无需改动 useTerminal / useTerminalTabDockPane。
+ */
+export function registerUserShellCommand(_sessionId: string, _command: string): void {
+  return;
+}
+
+/** @deprecated 已禁用，保留以维持调用点签名兼容。未来改造见上方说明。 */
+function _registerUserShellCommandImpl(sessionId: string, command: string): void {
   if (!isWarpDisplay(sessionId)) return;
   const normalized = normalizeBlockCommand(command);
   if (!normalized) return;
@@ -58,8 +73,16 @@ function hasRunningAi(sessionId: string): boolean {
     .some((block) => block.kind === "ai" && block.status === "running");
 }
 
-/** OSC 133 命令结束时尝试根据 shell 结果自动触发 AI */
-export function tryPostShellAiTrigger(sessionId: string, block: TerminalBlock): void {
+/**
+ * OSC 133 命令结束时尝试根据 shell 结果自动触发 AI。
+ * @deprecated 已禁用——见文件顶部说明。当前为 no-op。
+ */
+export function tryPostShellAiTrigger(_sessionId: string, _block: TerminalBlock): void {
+  return;
+}
+
+/** @deprecated 原 implementation，保留供未来改造参考。 */
+function _tryPostShellAiTriggerImpl(sessionId: string, block: TerminalBlock): void {
   if (!isWarpDisplay(sessionId)) return;
   if (block.kind === "ai") return;
   if (triggeredBlockIds.has(block.id)) return;

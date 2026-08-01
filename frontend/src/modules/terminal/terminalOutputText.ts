@@ -112,8 +112,11 @@ function stripLeadingEchoLines(lines: string[], sent: string): string[] {
 
 /** 剥离尾部被窄 PTY 硬折行的 shell prompt（如 [ro/ot@.../]#）。 */
 function stripTrailingPromptLines(lines: string[]): string[] {
+  // 从末尾往前扫，优先匹配最少的尾部行。
+  // 如果从前扫，WRAPPED_PROMPT_SUFFIX_RE 的 .* 会跨过命令输出匹配到首个 @，
+  // 把整个块当成一个超长 prompt 误剥离（如 ls 输出末尾跟 prompt 的场景）。
   const minStart = Math.max(0, lines.length - MAX_WRAPPED_PROMPT_LINES);
-  for (let start = minStart; start < lines.length; start += 1) {
+  for (let start = lines.length - 1; start >= minStart; start -= 1) {
     const compact = lines
       .slice(start)
       .join("")

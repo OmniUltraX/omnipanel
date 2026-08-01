@@ -22,6 +22,7 @@ import type { DbTreeChartFileNode } from "../../../stores/dbTreeChartFileStore";
 import type { SyncTask } from "../toolbox/types";
 
 const SECTION_STORAGE_KEY = "omnipanel-db-schema-sidebar-sections";
+const SIZE_STORAGE_KEY = "omnipanel-db-schema-sidebar-sizes";
 
 type SectionKey = "connections" | "queries" | "syncTasks";
 
@@ -84,6 +85,8 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
           title: t("database.sidebar.queries"),
           expanded: sections.queries,
           onToggle: () => toggleSection("queries"),
+          autoSize: true,
+          autoSizePersist: { storageKey: SIZE_STORAGE_KEY, id: "queries" },
         }}
       />
       <SyncTaskListPanel
@@ -93,6 +96,8 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
           title: t("database.sidebar.syncTasks"),
           expanded: sections.syncTasks,
           onToggle: () => toggleSection("syncTasks"),
+          autoSize: true,
+          autoSizePersist: { storageKey: SIZE_STORAGE_KEY, id: "syncTasks" },
         }}
       />
     </VerticalSplitSidebar>

@@ -33,6 +33,7 @@ use omnipanel_ai::provider::AiProviderRegistry;
 
 use crate::background::{BackgroundWorkerPool, default_worker_count, SshPool};
 use crate::commands::ssh::SshTunnelInfo;
+use crate::commands::ssh_capabilities::CapabilityCache;
 use crate::log_store::LogStore;
 use crate::media_stream::MediaStreamServer;
 use crate::output_buffer::{self, OutputBuffers};
@@ -128,6 +129,10 @@ pub struct AppState {
     pub media_stream: Arc<MediaStreamServer>,
     /// 活跃日志跟踪流（按 token 索引），用于 sftp_log_tail_stop 主动停止。
     pub log_tail_streams: Arc<Mutex<HashMap<String, omnipanel_ssh::SshStreamHandle>>>,
+    /// 远端工具能力探测结果缓存（按 resource_id 索引，TTL 5 分钟）。
+    pub capability_cache: Arc<CapabilityCache>,
+    /// 终端 tmux 模式偏好：auto / always / never，由前端设置同步。
+    pub terminal_tmux_mode: Arc<std::sync::Mutex<String>>,
 }
 
 impl AppState {
@@ -211,6 +216,8 @@ impl AppState {
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             media_stream,
             log_tail_streams: Arc::new(Mutex::new(HashMap::new())),
+            capability_cache: Arc::new(CapabilityCache::new()),
+            terminal_tmux_mode: Arc::new(std::sync::Mutex::new("auto".to_string())),
         }
     }
 }

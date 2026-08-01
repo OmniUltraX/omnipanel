@@ -32,7 +32,7 @@ impl SshSession {
     /// 探测远端 tmux 能力。任何失败都归为 [`TmuxCapability::Unavailable`]，
     /// 由调用方降级为直连 shell——探测本身绝不应让连接流程失败。
     pub async fn probe_tmux(&self) -> TmuxCapability {
-        match self.exec_capture(commands::version_probe_command()).await {
+        match self.exec_capture(&commands::version_probe_command()).await {
             Ok(out) => probe::evaluate(Some(out.exit_code), &out.stdout, &out.stderr),
             Err(err) => TmuxCapability::Unavailable(err.user_message()),
         }

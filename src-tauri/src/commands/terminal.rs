@@ -6,7 +6,7 @@ use tauri::{Emitter, State};
 
 use crate::output_buffer;
 use crate::state::AppState;
-use omnipanel_core::terminal::{Terminal, TerminalConfig};
+use omnipanel_core::terminal::{Terminal, TerminalConfig, ShellSpec, ShellInfo, list_available_shells};
 
 static TERMINAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -16,12 +16,14 @@ pub async fn create_terminal(
     state: State<'_, AppState>,
     cols: u16,
     rows: u16,
+    shell: Option<ShellSpec>,
 ) -> Result<String, String> {
     let id = format!("term-{}", TERMINAL_COUNTER.fetch_add(1, Ordering::Relaxed));
 
     let config = TerminalConfig {
         cols,
         rows,
+        shell,
         ..Default::default()
     };
     let mut session =
@@ -139,4 +141,12 @@ pub async fn close_terminal(state: State<'_, AppState>, id: String) -> Result<()
 pub async fn terminal_snapshot(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let bytes = output_buffer::snapshot(&state.output_buffers, &id).unwrap_or_default();
     Ok(STANDARD.encode(bytes))
+}
+
+/// 枚举当前系统可用的本地 shell（PowerShell / CMD / WSL 发行版等），
+/// 供前端「新建本地终端」菜单分类展示。
+#[tauri::command]
+#[specta::specta]
+pub async fn list_shells() -> Result<Vec<ShellInfo>, String> {
+    Ok(list_available_shells())
 }

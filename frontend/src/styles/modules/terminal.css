@@ -2314,7 +2314,7 @@
     }
 
     .term-warp-prompt-line__path {
-        color: #6eb5ff;
+        color: var(--term-ls-dir);
         flex-shrink: 0;
     }
 
@@ -2371,7 +2371,7 @@
     }
 
     .term-warp-output--error {
-        color: #ff8787;
+        color: var(--danger);
     }
 
     .term-warp-ssh-jump {
@@ -2479,48 +2479,49 @@
 
     .term-ls-entry--openable:hover,
     .term-ls-entry--openable:focus-visible {
-        background: color-mix(in srgb, #74c0fc 18%, transparent);
+        background: color-mix(in srgb, var(--term-ls-dir) 18%, transparent);
         outline: none;
     }
 
     .term-ls-entry--dir {
-        color: #74c0fc;
+        color: var(--term-ls-dir);
         font-weight: 600;
     }
 
     .term-ls-entry--link {
-        color: #66d9e8;
+        color: var(--term-ls-link);
         font-style: italic;
     }
 
     .term-ls-entry--link.term-ls-entry--clickable:hover,
     .term-ls-entry--link.term-ls-entry--clickable:focus-visible {
-        color: #99e9f2;
+        color: var(--term-ls-link);
+        filter: brightness(1.15);
     }
 
     .term-ls-entry--exec {
-        color: #69db7c;
+        color: var(--term-ls-exec);
         font-weight: 500;
     }
 
     .term-ls-entry--archive {
-        color: #ff8787;
+        color: var(--term-ls-archive);
     }
 
     .term-ls-entry--image {
-        color: #da77f2;
+        color: var(--term-ls-image);
     }
 
     .term-ls-entry--media {
-        color: #e599f7;
+        color: var(--term-ls-media);
     }
 
     .term-ls-entry--code {
-        color: #ffe066;
+        color: var(--term-ls-code);
     }
 
     .term-ls-entry--config {
-        color: #91a7ff;
+        color: var(--term-ls-config);
     }
 
     .term-ls-entry--file {
@@ -2633,7 +2634,7 @@
 
     .term-warp-block--ai .term-warp-block__badge {
         background: color-mix(in srgb, var(--accent) 35%, transparent);
-        color: #fff;
+        color: var(--accent);
         font-weight: 600;
         letter-spacing: 0.06em;
     }
@@ -2936,7 +2937,7 @@
         border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
         border-radius: 6px;
         background: color-mix(in srgb, var(--danger) 12%, transparent);
-        color: #ff8787;
+        color: var(--danger);
         font-size: 10px;
         line-height: 1;
         cursor: pointer;
@@ -2945,7 +2946,7 @@
     .term-warp-block__stop:hover {
         background: color-mix(in srgb, var(--danger) 22%, transparent);
         border-color: color-mix(in srgb, var(--danger) 65%, transparent);
-        color: #ffa8a8;
+        color: var(--danger);
     }
 
     .term-warp-block--ai.term-warp-block--collapsed {

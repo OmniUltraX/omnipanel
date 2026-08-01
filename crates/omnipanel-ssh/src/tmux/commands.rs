@@ -100,16 +100,22 @@ fn tmux_quote(value: &str) -> String {
 ///
 /// `new-session -A` 语义为「存在则 attach，不存在则新建」，这正是跨进程复用
 /// 已有会话所需；`-D` 使其他已 attach 的客户端被顶下线，避免尺寸相互干扰。
+///
+/// PATH 前缀确保找到正确版本的 tmux，优先级：
+/// `~/.omnipanel/bin` > `/snap/bin` > `/usr/local/bin` > 系统 PATH
+/// 覆盖 snap 安装、源码编译安装、内置二进制安装三种场景。
 pub fn control_mode_command(session_name: &str, cols: u16, rows: u16) -> String {
     format!(
-        "tmux -CC new-session -A -D -s {} -x {cols} -y {rows}",
+        "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -CC new-session -A -D -s {} -x {cols} -y {rows}",
         shell_quote(session_name)
     )
 }
 
 /// 探测远端 tmux 版本的命令。
-pub fn version_probe_command() -> &'static str {
-    "tmux -V"
+///
+/// PATH 前缀与 `control_mode_command` 一致，确保探测到的是实际会使用的 tmux。
+pub fn version_probe_command() -> String {
+    "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -V".to_string()
 }
 
 /// 新建 window，并回显 `<window_id> <pane_id>` 便于登记映射。
@@ -157,12 +163,20 @@ pub fn list_sessions() -> String {
 ///
 /// 无会话时 tmux 以非 0 退出并打印 "no server running"，调用方按空列表处理。
 pub fn list_sessions_shell() -> String {
-    format!("tmux {}", list_sessions())
+    format!(
+        "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux {}",
+        list_sessions()
+    )
 }
 
 /// 走 exec 通道终止会话的 shell 命令。
+///
+/// PATH 前缀与 `control_mode_command` 一致，确保 snap/源码编译安装的 tmux 也能找到。
 pub fn kill_session_shell(session_name: &str) -> String {
-    format!("tmux kill-session -t {}", shell_quote(session_name))
+    format!(
+        "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux kill-session -t {}",
+        shell_quote(session_name)
+    )
 }
 
 /// 列出会话内的 window 与其 pane，用于重连后重建映射。
@@ -298,7 +312,7 @@ mod tests {
         let cmd = control_mode_command("omnipanel-ws", 120, 40);
         assert_eq!(
             cmd,
-            "tmux -CC new-session -A -D -s 'omnipanel-ws' -x 120 -y 40"
+            "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -CC new-session -A -D -s 'omnipanel-ws' -x 120 -y 40"
         );
         assert!(cmd.contains("-A"), "必须支持 attach-or-create");
     }

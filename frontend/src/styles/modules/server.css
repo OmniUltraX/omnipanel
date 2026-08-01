@@ -2944,4 +2944,179 @@
         text-align: right;
         white-space: nowrap;
     }
+
+    /* ---- 工具能力（Capabilities）---- */
+    .capabilities {
+        padding: var(--sp-3) var(--sp-4) var(--sp-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-3);
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .capabilities__header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--sp-3);
+    }
+
+    .capabilities__header-actions {
+        display: flex;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+    }
+
+    .capabilities__intro {
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--muted);
+        max-width: 72ch;
+    }
+
+    .capabilities__meta {
+        display: flex;
+        gap: var(--sp-3);
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+    .cap-meta {
+        font-family: var(--font-mono);
+    }
+
+    .cap-meta--slow {
+        color: var(--warn, #e0a800);
+    }
+
+    .cap-meta--count {
+        font-family: inherit;
+    }
+
+    .capabilities__error {
+        font-size: 12px;
+        color: var(--danger);
+    }
+
+    .capabilities__empty {
+        font-size: 12px;
+        color: var(--muted);
+        padding: var(--sp-4) 0;
+    }
+
+    .capabilities__group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .capabilities__group-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding-bottom: var(--sp-1);
+        border-bottom: 1px solid var(--border-subtle, var(--border));
+    }
+
+    .capabilities__group-count {
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--muted);
+        background: var(--bg-soft, var(--bg-secondary, transparent));
+        padding: 0 6px;
+        border-radius: 8px;
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .capabilities__list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: var(--sp-2);
+    }
+
+    .capabilities__tool {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-1);
+        padding: var(--sp-2) var(--sp-3);
+        border: 1px solid var(--border-subtle, var(--border));
+        border-radius: 6px;
+        background: var(--bg-card, var(--bg, transparent));
+    }
+
+    .capabilities__tool-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+    }
+
+    .capabilities__tool-name {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text);
+    }
+
+    .capabilities__tool-detail {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        min-height: 16px;
+    }
+
+    .cap-detail {
+        font-size: 11px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+    }
+
+    .cap-detail--path {
+        opacity: 0.7;
+    }
+
+    .cap-detail--warn {
+        color: var(--warn, #e0a800);
+    }
+
+    .cap-detail--muted {
+        font-family: inherit;
+    }
+
+    .capabilities__tool-actions {
+        display: flex;
+        gap: var(--sp-2);
+        margin-top: var(--sp-1);
+    }
+
+    .cap-badge {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 3px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .cap-badge--ok {
+        color: var(--success, #28a745);
+        background: var(--success-soft, rgba(40, 167, 69, 0.12));
+    }
+
+    .cap-badge--warn {
+        color: var(--warn, #e0a800);
+        background: var(--warn-soft, rgba(224, 168, 0, 0.12));
+    }
+
+    .cap-badge--muted {
+        color: var(--muted);
+        background: var(--bg-soft, var(--bg-secondary, transparent));
+    }
 }

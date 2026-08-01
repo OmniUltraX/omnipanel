@@ -76,8 +76,8 @@ export function ApprovalActionBar({
     if (keys.length > 0) {
       showToast(
         scope === "permanent"
-          ? t("terminal.approval.whitelistPermanentToast", { cmd: label })
-          : t("terminal.approval.whitelistSessionToast", { cmd: label }),
+          ? t("ai.approval.whitelistPermanentToast", { cmd: label })
+          : t("ai.approval.whitelistSessionToast", { cmd: label }),
       );
     }
     run("confirm");
@@ -140,18 +140,18 @@ export function ApprovalActionBar({
               <button
                 type="button"
                 className="term-warp-toolcall__edit-btn"
-                title={t("terminal.approval.whitelistPermanentDesc", { cmd: whitelistCmdLabel })}
+                title={t("ai.approval.whitelistPermanentDesc", { cmd: whitelistCmdLabel })}
                 onClick={() => runWithWhitelist("permanent")}
               >
-                {t("terminal.approval.whitelistPermanent", { cmd: whitelistCmdLabel })}
+                {t("ai.approval.whitelistPermanent", { cmd: whitelistCmdLabel })}
               </button>
               <button
                 type="button"
                 className="term-warp-toolcall__edit-btn"
-                title={t("terminal.approval.whitelistSessionDesc", { cmd: whitelistCmdLabel })}
+                title={t("ai.approval.whitelistSessionDesc", { cmd: whitelistCmdLabel })}
                 onClick={() => runWithWhitelist("session")}
               >
-                {t("terminal.approval.whitelistSession", { cmd: whitelistCmdLabel })}
+                {t("ai.approval.whitelistSession", { cmd: whitelistCmdLabel })}
               </button>
             </>
           ) : null}

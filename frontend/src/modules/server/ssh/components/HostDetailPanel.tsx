@@ -9,6 +9,7 @@ import { DETAIL_TABS } from "../constants";
 import { useSshHostContext } from "../hooks/useSshHostContext";
 import { useSshHostActions } from "../hooks/useSshHostActions";
 import { HostDetailToolbar } from "./HostDetailToolbar";
+import { CapabilitiesDetailTab } from "./detail/CapabilitiesDetailTab";
 import { HostTunnelsDetailTab } from "./detail/HostTunnelsDetailTab";
 import { MonitoringDetailTab } from "./detail/MonitoringDetailTab";
 import { OverviewDetailTab } from "./detail/OverviewDetailTab";
@@ -76,6 +77,9 @@ export function HostDetailPanel({ hostId }: Props) {
         {detailTab === "monitoring" && <MonitoringDetailTab activeResource={activeResource} />}
         {detailTab === "tmuxSessions" && (
           <TmuxSessionsDetailTab activeResource={activeResource} />
+        )}
+        {detailTab === "capabilities" && (
+          <CapabilitiesDetailTab activeResource={activeResource} />
         )}
       </div>
     </div>

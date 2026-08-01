@@ -13,6 +13,20 @@ const streamCarry = new Map<string, string>();
 const blobParts = new Map<string, string[]>();
 const pendingLines = new Map<string, string[]>();
 
+/**
+ * 检查 OSC 序列是否完整（以 `\x1b]` 开头，包含 BEL `\x07` 或 ST `\x1b\\` 结尾）。
+ *
+ * 用于跨 chunk carry 判断：不完整的 OSC 不能交给 stripTerminalControlSequences
+ * 正则处理（会因缺少结尾而漏匹配，导致 `]7;file://host/path` 等内容泄漏显示）。
+ */
+function isOscComplete(text: string): boolean {
+  if (text.length < 3) return false;
+  const body = text.slice(2); // 跳过 \x1b]
+  if (body.includes("\x07")) return true; // BEL 结尾
+  if (body.includes("\x1b\\")) return true; // ST 结尾
+  return false;
+}
+
 function decodeHistoryBlob(b64: string): string {
   try {
     const binary = atob(b64);
@@ -78,13 +92,20 @@ function stripShellHistoryOsc(sessionId: string, text: string): string {
   const input = carry + text;
   streamCarry.set(sessionId, "");
 
-  const lastEsc = input.lastIndexOf("\x1b");
+  // 暂存未完成的 OSC 序列（任意 OSC，不只是 1337）。
+  // OSC 以 \x1b] 开头，以 \x07 (BEL) 或 \x1b\\ (ST) 结尾。
+  // 跨 chunk 拆分时如果不暂存，不完整的 OSC 会被 stripTerminalControlSequences
+  // 正则漏匹配（因缺少结尾），导致 ]7;file://host/path 等内容作为文本泄漏显示。
+  //
+  // 注意：不能只检查 \x1b]1337; —— OSC 7 (cwd 上报)、OSC 0 (标题) 等序列
+  // 也会跨 chunk，同样需要暂存。
+  const oscStart = input.lastIndexOf("\x1b]");
   let processable = input;
-  if (lastEsc !== -1) {
-    const tail = input.slice(lastEsc);
-    if (!tail.includes("\x07")) {
+  if (oscStart !== -1) {
+    const tail = input.slice(oscStart);
+    if (!isOscComplete(tail)) {
       streamCarry.set(sessionId, tail);
-      processable = input.slice(0, lastEsc);
+      processable = input.slice(0, oscStart);
     }
   }
 
@@ -113,7 +134,9 @@ function stripShellHistoryOsc(sessionId: string, text: string): string {
 
 /** 从 PTY 原始输出解析 Shell 历史 OSC（支持分片与 Blob 批量传输） */
 export function processShellHistoryOsc(sessionId: string, text: string): string {
-  if (!text.includes("\x1b]1337;") && !streamCarry.has(sessionId)) {
+  // 检测任意 OSC（\x1b]）而非仅 1337——OSC 7/0 等跨 chunk 时也需要 carry 处理，
+  // 否则不完整的 OSC 会泄漏到 stripTerminalControlSequences 之后的文本中。
+  if (!text.includes("\x1b]") && !streamCarry.has(sessionId)) {
     return text;
   }
 

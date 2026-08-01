@@ -61,6 +61,7 @@ import {
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 
 const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
+const SIZE_STORAGE_KEY = "omnipanel-knowledge-sidebar-sizes";
 
 type SidebarSectionKey = KnowledgeLibrarySection;
 
@@ -1025,6 +1026,8 @@ export function KnowledgeSidebar() {
                     expanded={sections.imported}
                     onToggle={() => toggleSection("imported")}
                     actions={renderImportedActions()}
+                    autoSize
+                    autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "imported" }}
                   >
                     {renderSectionTree("imported")}
                   </VerticalSplitSidebarSection>

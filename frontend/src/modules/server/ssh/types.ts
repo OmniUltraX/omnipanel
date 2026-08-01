@@ -2,7 +2,8 @@ export type DetailTab =
   | "overview"
   | "tunnels"
   | "monitoring"
-  | "tmuxSessions";
+  | "tmuxSessions"
+  | "capabilities";
 
 export type LaunchPreset = {
   id: string;

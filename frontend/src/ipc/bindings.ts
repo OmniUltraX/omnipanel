@@ -4,7 +4,7 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	createTerminal: (cols: number, rows: number) => typedError<string, string>(__TAURI_INVOKE("create_terminal", { cols, rows })),
+	createTerminal: (cols: number, rows: number, shell: ShellSpec | null) => typedError<string, string>(__TAURI_INVOKE("create_terminal", { cols, rows, shell })),
 	writeTerminal: (id: string, data: number[]) => typedError<null, string>(__TAURI_INVOKE("write_terminal", { id, data })),
 	resizeTerminal: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_terminal", { id, cols, rows })),
 	closeTerminal: (id: string) => typedError<null, string>(__TAURI_INVOKE("close_terminal", { id })),
@@ -13,6 +13,8 @@ export const commands = {
 	 *  对本地终端与远程 SSH 会话通用（按 backend session id 索引）。
 	 */
 	terminalSnapshot: (id: string) => typedError<string, string>(__TAURI_INVOKE("terminal_snapshot", { id })),
+	/**  枚举当前系统可用的本地 shell（PowerShell / CMD / WSL 发行版等），供前端「新建本地终端」菜单分类展示。 */
+	listShells: () => typedError<ShellInfo[], string>(__TAURI_INVOKE("list_shells")),
 	/**  加载指定会话的终端历史块（按 timestamp 升序）。 */
 	terminalHistoryLoadSession: (sessionId: string) => typedError<TerminalHistoryBlockRecord[], OmniError_Serialize>(__TAURI_INVOKE("terminal_history_load_session", { sessionId })),
 	/**  增量 upsert 会话内块，并按保留策略 prune。 */
@@ -479,6 +481,16 @@ export const commands = {
 	 *  失败回退无 sudo 直接安装（root 用户或免密场景）。
 	 */
 	sshPoolInstallArchiveTool: (resourceId: string, tool: string) => typedError<ArchiveToolInstallResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_archive_tool", { resourceId, tool })),
+	/**  探测远端主机已安装的工具能力（批量脚本，1 次 RTT），结果按主机缓存 5 分钟。 */
+	sshPoolProbeCapabilities: (resourceId: string, force: boolean | null) => typedError<CapabilityProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_capabilities", { resourceId, force })),
+	/**  失效某主机的能力缓存。 */
+	sshPoolInvalidateCapabilities: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_invalidate_capabilities", { resourceId })),
+	/**  统一安装远端工具（按 manifest 声明分发到包管理器 / 二进制下载 / 手动指引）。 */
+	sshPoolInstallTool: (resourceId: string, toolId: string) => typedError<InstallToolResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_tool", { resourceId, toolId })),
+	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
+	setTerminalTmuxMode: (mode: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("set_terminal_tmux_mode", { mode })),
+	/**  清除 tmux unsupported 缓存，让下次开终端 Tab 时重新探测远端 tmux。 */
+	invalidateTmuxCache: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("invalidate_tmux_cache")),
 	/**  拉取本机 CPU / 内存 / 磁盘指标。 */
 	localFetchStats: () => typedError<HostSystemStats_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_fetch_stats")),
 	/**  列出本机进程。 */
@@ -1258,6 +1270,56 @@ export type ArchiveToolInstallResult = {
 	installed: boolean,
 	/**  安装输出（成功或失败原因） */
 	message: string,
+};
+
+/**  工具分类 */
+export type ToolCategory = "terminal" | "database" | "archive" | "transfer" | "monitoring" | "system";
+
+/**  工具状态 */
+export type ToolState =
+	| { kind: "ready", version: string | null, path: string | null }
+	| { kind: "needInstall" }
+	| { kind: "tooOld", version: string, required: string }
+	| { kind: "unsupported", reason: string };
+
+/**  安装方式 */
+export type InstallMethod =
+	| { kind: "none" }
+	| { kind: "packageManager", packages: Record<string, string> }
+	| { kind: "downloadBinary", url: string, remotePath: string }
+	| { kind: "shellScript", script: string }
+	| { kind: "manual", instructions: string };
+
+/**  单个工具的探测结果 */
+export type RemoteToolCapability = {
+	id: string,
+	labelKey: string,
+	category: ToolCategory,
+	state: ToolState,
+	installMethod: InstallMethod,
+	relatedModules: string[],
+};
+
+/**  一次能力探测的完整结果 */
+export type CapabilityProbeResult = {
+	resourceId: string,
+	tools: RemoteToolCapability[],
+	/**  探测耗时（毫秒） */
+	elapsedMs: number,
+	/**  探测时间戳（Unix 毫秒） */
+	probedAt: number,
+	/**  批量脚本未覆盖、需单独探测的工具 id */
+	lazyProbeIds: string[],
+};
+
+/**  安装工具的结果 */
+export type InstallToolResult = {
+	toolId: string,
+	installed: boolean,
+	/**  安装输出或失败原因 */
+	message: string,
+	/**  安装后重新探测的状态 */
+	state: ToolState | null,
 };
 
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
@@ -4243,6 +4305,21 @@ export type SshConfigEntry = {
 	user: string | null,
 	port: number | null,
 	identityFile: string | null,
+};
+
+export type ShellKind = "bash" | "zsh" | "powershell" | "powershell5" | "fish" | "cmd" | "wsl";
+
+export type ShellSpec = {
+	kind: ShellKind,
+	path: string | null,
+	wslDistro: string | null,
+};
+
+export type ShellInfo = {
+	kind: ShellKind,
+	label: string,
+	path: string,
+	wslDistro: string | null,
 };
 
 export type SshConfigSyncFailure = {

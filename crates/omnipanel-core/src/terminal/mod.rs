@@ -1,13 +1,15 @@
 mod config;
 mod event;
 
-pub use config::TerminalConfig;
+pub use config::{ShellSpec, TerminalConfig};
 pub use event::TerminalEvent;
 
 use std::io::{Read, Write};
 
 use anyhow::{Context, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 
 // Embedded shell integration scripts
 const BASH_INTEGRATION: &str = include_str!("../../resources/shell-integration/bash.sh");
@@ -38,8 +40,9 @@ impl Terminal {
             })
             .context("failed to open PTY")?;
 
-        let (shell, shell_kind) = detect_shell();
-        let mut cmd = CommandBuilder::new(&shell);
+        // 解析要启动的 shell：config.shell 优先，否则自动检测
+        let (shell, shell_kind) = resolve_shell(config.shell.as_ref());
+        let mut cmd = build_shell_command(shell_kind, &shell, config.shell.as_ref());
 
         if let Some(dir) = &config.working_dir {
             cmd.cwd(dir);
@@ -78,6 +81,20 @@ impl Terminal {
                     .unwrap_or_else(|_| "/dev/null".to_string());
                 cmd.arg("-C");
                 cmd.arg(format!("source '{}'", script_path));
+            }
+            ShellKind::Wsl => {
+                // WSL 默认 shell 是 bash。把集成脚本写到 Windows 临时目录，
+                // 转成 WSL 可访问的 /mnt/<drive>/... 路径后用 --init-file 注入。
+                let script_path = write_temp_script("bash", BASH_INTEGRATION)
+                    .unwrap_or_else(|_| "/dev/null".to_string());
+                if let Some(wsl_path) = windows_to_wsl_path(&script_path) {
+                    cmd.arg("--cd");
+                    cmd.arg("~");
+                    cmd.arg("--");
+                    cmd.arg("bash");
+                    cmd.arg("--init-file");
+                    cmd.arg(&wsl_path);
+                }
             }
             ShellKind::Cmd => {
                 // cmd.exe has no script injection mechanism
@@ -156,7 +173,8 @@ impl Drop for Terminal {
 }
 
 /// Shell type detected on the current platform.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
 pub enum ShellKind {
     Bash,
     Zsh,
@@ -164,6 +182,8 @@ pub enum ShellKind {
     PowerShell5,
     Fish,
     Cmd,
+    /// Windows Subsystem for Linux（通过 wsl.exe 启动）。
+    Wsl,
 }
 
 /// Detect the best available shell on this platform.
@@ -193,6 +213,187 @@ pub fn detect_shell() -> (String, ShellKind) {
         };
         (shell, kind)
     }
+}
+
+/// 解析最终要启动的 shell：显式指定优先，否则自动检测。
+fn resolve_shell(spec: Option<&ShellSpec>) -> (String, ShellKind) {
+    if let Some(s) = spec {
+        let default_prog = match s.kind {
+            ShellKind::PowerShell => "pwsh",
+            ShellKind::PowerShell5 => "powershell",
+            ShellKind::Cmd => "cmd.exe",
+            ShellKind::Wsl => "wsl.exe",
+            ShellKind::Bash => "bash",
+            ShellKind::Zsh => "zsh",
+            ShellKind::Fish => "fish",
+        };
+        let prog = s.path.clone().unwrap_or_else(|| default_prog.to_string());
+        return (prog, s.kind);
+    }
+    detect_shell()
+}
+
+/// 按 shell 种类构造启动命令。WSL 需要附加发行版参数。
+fn build_shell_command(
+    kind: ShellKind,
+    shell: &str,
+    spec: Option<&ShellSpec>,
+) -> CommandBuilder {
+    let mut cmd = CommandBuilder::new(shell);
+    if kind == ShellKind::Wsl {
+        // wsl.exe -d <distro> ...
+        if let Some(distro) = spec.and_then(|s| s.wsl_distro.as_deref()) {
+            cmd.arg("-d");
+            cmd.arg(distro);
+        }
+    }
+    cmd
+}
+
+/// 把 Windows 路径（C:\Users\...）转成 WSL 路径（/mnt/c/Users/...）。
+/// 非 Windows 路径或无法解析时返回 None。
+#[cfg(windows)]
+fn windows_to_wsl_path(path: &str) -> Option<String> {
+    let p = std::path::Path::new(path);
+    let canonical = p.canonicalize().ok()?;
+    let s = canonical.to_string_lossy();
+    // 形如 \\?\C:\Users\... 或 C:\Users\...
+    let trimmed = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 3 || bytes[1] != b':' || bytes[2] != b'\\' {
+        return None;
+    }
+    let drive = (bytes[0] as char).to_ascii_lowercase();
+    let rest = &trimmed[3..];
+    Some(format!("/mnt/{drive}/{}", rest.replace('\\', "/")))
+}
+
+#[cfg(not(windows))]
+fn windows_to_wsl_path(_path: &str) -> Option<String> {
+    None
+}
+
+/// 可在 UI 中供用户选择的 shell 描述。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellInfo {
+    pub kind: ShellKind,
+    /// 展示名，如 "PowerShell 7" / "CMD" / "Ubuntu-22.04 (WSL)"。
+    pub label: String,
+    /// 可执行文件路径（WSL 为 wsl.exe）。
+    pub path: String,
+    /// WSL 发行版名称（仅 Wsl kind）。
+    pub wsl_distro: Option<String>,
+}
+
+/// 枚举当前系统可用的本地 shell，供前端新建终端菜单展示。
+///
+/// Windows：pwsh / powershell / cmd / 已安装的 WSL 发行版。
+/// Unix：$SHELL（以及 bash/zsh/fish 中存在的）。
+pub fn list_available_shells() -> Vec<ShellInfo> {
+    let mut list = Vec::new();
+    if cfg!(windows) {
+        if let Some(path) = which("pwsh") {
+            list.push(ShellInfo {
+                kind: ShellKind::PowerShell,
+                label: "PowerShell 7".to_string(),
+                path,
+                wsl_distro: None,
+            });
+        }
+        if let Some(path) = which("powershell") {
+            list.push(ShellInfo {
+                kind: ShellKind::PowerShell5,
+                label: "Windows PowerShell 5".to_string(),
+                path,
+                wsl_distro: None,
+            });
+        }
+        let cmd_path = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+        list.push(ShellInfo {
+            kind: ShellKind::Cmd,
+            label: "命令提示符".to_string(),
+            path: which("cmd.exe").unwrap_or(cmd_path),
+            wsl_distro: None,
+        });
+        // 枚举 WSL 发行版：wsl.exe -l -q
+        // 注意：Tauri 以 windows 子系统编译（无控制台），wsl.exe 是控制台程序，
+        // 直接 spawn 会弹出可见的 cmd 窗口一闪而过。必须设置 CREATE_NO_WINDOW。
+        if let Some(wsl_exe) = which("wsl.exe") {
+            let mut wsl_cmd = std::process::Command::new(&wsl_exe);
+            wsl_cmd.arg("-l").arg("-q");
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                wsl_cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            if let Ok(output) = wsl_cmd.output() {
+                // wsl.exe 输出是 UTF-16LE（带 BOM）
+                let bom_stripped = strip_utf16_bom(&output.stdout);
+                let u16s: Vec<u16> = bom_stripped
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect();
+                let text = String::from_utf16_lossy(&u16s);
+                for line in text.lines() {
+                    let distro = line.trim();
+                    if distro.is_empty() || distro.contains("WSL") {
+                        continue;
+                    }
+                    list.push(ShellInfo {
+                        kind: ShellKind::Wsl,
+                        label: format!("{distro} (WSL)"),
+                        path: wsl_exe.clone(),
+                        wsl_distro: Some(distro.to_string()),
+                    });
+                }
+            }
+        }
+    } else {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let kind = if shell.contains("zsh") {
+            ShellKind::Zsh
+        } else if shell.contains("fish") {
+            ShellKind::Fish
+        } else {
+            ShellKind::Bash
+        };
+        list.push(ShellInfo {
+            kind,
+            label: shell.clone(),
+            path: shell.clone(),
+            wsl_distro: None,
+        });
+        for (name, k) in &[
+            ("bash", ShellKind::Bash),
+            ("zsh", ShellKind::Zsh),
+            ("fish", ShellKind::Fish),
+        ] {
+            if let Some(path) = which(name) {
+                if path != shell {
+                    list.push(ShellInfo {
+                        kind: *k,
+                        label: name.to_string(),
+                        path,
+                        wsl_distro: None,
+                    });
+                }
+            }
+        }
+    }
+    list
+}
+
+/// 去掉 UTF-16 BOM（FF FE 或 FE FF）。
+fn strip_utf16_bom(bytes: &[u8]) -> Vec<u8> {
+    if bytes.len() >= 2 {
+        let bom = &bytes[..2];
+        if bom == [0xFF, 0xFE] || bom == [0xFE, 0xFF] {
+            return bytes[2..].to_vec();
+        }
+    }
+    bytes.to_vec()
 }
 
 /// Write a shell integration script to a temp file.

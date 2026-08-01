@@ -45,6 +45,7 @@ pub mod protocol;
 pub mod proxy;
 pub mod resource_profile;
 pub mod ssh;
+pub mod ssh_capabilities;
 pub mod system;
 pub mod tag;
 pub mod task;

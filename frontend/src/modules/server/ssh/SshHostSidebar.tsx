@@ -15,6 +15,7 @@ import { TunnelsSidebarPanel } from "./components/TunnelsSidebarPanel";
 import { KeysSidebarPanel } from "./components/KeysSidebarPanel";
 
 const SECTION_STORAGE_KEY = "omnipanel-ssh-host-sidebar-sections";
+const SIZE_STORAGE_KEY = "omnipanel-ssh-host-sidebar-sizes";
 
 type SectionKey = "hosts" | "tunnels" | "keys";
 
@@ -124,6 +125,8 @@ export function SshHostSidebar({
         title={t("ssh.tabs.tunnels")}
         expanded={sections.tunnels}
         keepMounted
+        autoSize
+        autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "tunnels" }}
         onToggle={() => {
           toggleSection("tunnels");
           setSection("tunnels");
@@ -147,6 +150,8 @@ export function SshHostSidebar({
         title={t("ssh.tabs.keys")}
         expanded={sections.keys}
         keepMounted
+        autoSize
+        autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "keys" }}
         onToggle={() => {
           toggleSection("keys");
           setSection("keys");

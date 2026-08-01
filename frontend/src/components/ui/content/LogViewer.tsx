@@ -42,6 +42,38 @@ function readAllTerminalText(term: Terminal): string {
 function readLogTerminalTheme(): ITheme {
   const style = getComputedStyle(document.documentElement);
   const get = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  // 检测当前主题：data-theme="light" 或 color-scheme: light
+  const isLight =
+    document.documentElement.getAttribute("data-theme") === "light" ||
+    style.getPropertyValue("color-scheme").trim() === "light";
+
+  if (isLight) {
+    // 浅色主题：背景跟随 --bg-deeper（浅灰），ANSI 用深色保证对比度
+    return {
+      background: get("--bg-deeper", "#e8e8ed"),
+      foreground: get("--fg", "#1d1d1f"),
+      cursor: get("--fg", "#1d1d1f"),
+      selectionBackground: get("--accent-soft", "rgba(0, 122, 255, 0.18)"),
+      black: "#000000",
+      red: "#c91b00",
+      green: "#008400",
+      yellow: "#a8810c",
+      blue: "#0451a5",
+      magenta: "#a800b0",
+      cyan: "#0a7a83",
+      white: "#5a5a5a",
+      brightBlack: "#3a3a3c",
+      brightRed: "#e60023",
+      brightGreen: "#00a300",
+      brightYellow: "#b58900",
+      brightBlue: "#0066ff",
+      brightMagenta: "#c400cc",
+      brightCyan: "#0099b0",
+      brightWhite: "#000000",
+    };
+  }
+
+  // 暗色主题：保留原配色，语义色从 CSS 变量读取保持一致
   return {
     background: get("--bg-deeper", "#1a1717"),
     foreground: get("--fg", "#fdfcfc"),

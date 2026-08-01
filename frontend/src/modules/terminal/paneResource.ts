@@ -16,6 +16,7 @@ export function buildSessionInfoForResource(resourceId: string): TerminalSession
       cwd: "~/",
       purpose: "Local Workspace",
       commandPack: [],
+      shellSpec: null,
     };
   }
   return {
@@ -25,5 +26,6 @@ export function buildSessionInfoForResource(resourceId: string): TerminalSession
     cwd: "~/",
     purpose: "SSH Workbench",
     commandPack: [],
+    shellSpec: null,
   };
 }

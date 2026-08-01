@@ -3,11 +3,15 @@ import { useLocation } from "react-router-dom";
 import {
   useTerminalStore,
   type TerminalTab,
+  type LocalShellSpec,
+  type LocalShellInfo,
 } from "../../stores/terminalStore";
 import {
   clearPaneBackendPending,
   disposeSessionBackend,
 } from "../../hooks/useTerminal";
+import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import {
   resolveResourceById,
   useConnectionStore,
@@ -17,7 +21,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
-import type { TopbarTabDef } from "../../stores/topbarStore";
+import type { TopbarAddMenuItem, TopbarTabDef } from "../../stores/topbarStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { TerminalTabDockPane } from "./TerminalTabDockPane";
 import { TerminalModuleContextBridge } from "./ai/TerminalModuleContextBridge";
@@ -253,6 +257,22 @@ export function TerminalPanel() {
     tabId: string;
     currentTitle: string;
   } | null>(null);
+  // 可用本地 shell 列表（PowerShell / CMD / WSL 发行版等），供新建菜单分类展示
+  const [availableShells, setAvailableShells] = useState<LocalShellInfo[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    unwrapCommand(commands.listShells(), { quiet: true })
+      .then((shells) => {
+        if (!cancelled) setAvailableShells(shells as LocalShellInfo[]);
+      })
+      .catch(() => {
+        // 静默失败：菜单仍保留「本地终端（自动检测）」项
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isActiveRoute) return;
@@ -591,25 +611,43 @@ export function TerminalPanel() {
   );
 
   const addMenuItems = useMemo(
-    () => [
-      {
-        id: LOCAL_TERMINAL_RESOURCE_ID,
-        label: t("terminal.newSession.local"),
-        subtitle: t("terminal.newSession.localDesc"),
-      },
-      ...sshHosts.map((host) => ({
-        id: host.id,
-        label: host.name,
-        subtitle: host.subtitle,
-      })),
-      {
+    () => {
+      const items: TopbarAddMenuItem[] = [
+        {
+          id: LOCAL_TERMINAL_RESOURCE_ID,
+          label: t("terminal.newSession.local"),
+          subtitle: t("terminal.newSession.localDesc"),
+        },
+      ];
+      // 按后端探测结果列出可用本地 shell（PowerShell / CMD / WSL 发行版）
+      availableShells.forEach((shell, index) => {
+        items.push({
+          id: `local-shell:${index}`,
+          label: shell.label,
+          subtitle: shell.wslDistro
+            ? t("terminal.newSession.wslDesc")
+            : undefined,
+          dividerBefore: index === 0,
+        });
+      });
+      const hasShells = availableShells.length > 0;
+      sshHosts.forEach((host, index) => {
+        items.push({
+          id: host.id,
+          label: host.name,
+          subtitle: host.subtitle,
+          dividerBefore: hasShells && index === 0,
+        });
+      });
+      items.push({
         id: "manage-hosts",
         label: t("terminal.newSession.manageHosts"),
         subtitle: t("terminal.newSession.manageHostsDesc"),
         dividerBefore: true,
-      },
-    ],
-    [sshHosts, t],
+      });
+      return items;
+    },
+    [sshHosts, availableShells, t],
   );
 
   const handleTopbarAdd = useCallback(() => {
@@ -654,6 +692,24 @@ export function TerminalPanel() {
         setActiveTab(tabId);
         return;
       }
+      // 指定本地 shell 的新建终端：id 格式 local-shell:<index>
+      if (id.startsWith("local-shell:")) {
+        const index = Number(id.slice("local-shell:".length));
+        const shell = availableShells[index];
+        if (shell) {
+          const shellSpec: LocalShellSpec = {
+            kind: shell.kind,
+            path: shell.path,
+            wslDistro: shell.wslDistro,
+          };
+          const tabId = addLocalTerminalTab(shell.label, undefined, shellSpec);
+          selectResource(LOCAL_TERMINAL_RESOURCE_ID);
+          focusSessionsPanel();
+          setDockActiveId(tabId);
+          setActiveTab(tabId);
+        }
+        return;
+      }
       const host = sshHosts.find((item) => item.id === id);
       if (host) {
         const tabId = addSshTerminalTab(host.id, host.name);
@@ -666,6 +722,7 @@ export function TerminalPanel() {
     [
       addLocalTerminalTab,
       addSshTerminalTab,
+      availableShells,
       selectResource,
       setActiveTab,
       sshHosts,

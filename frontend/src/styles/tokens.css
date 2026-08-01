@@ -34,6 +34,16 @@
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.12);
 
+  /* Terminal ls entry colors — 暗色背景下的鲜艳色 */
+  --term-ls-dir: #74c0fc;
+  --term-ls-link: #66d9e8;
+  --term-ls-exec: #69db7c;
+  --term-ls-archive: #ff8787;
+  --term-ls-image: #da77f2;
+  --term-ls-media: #e599f7;
+  --term-ls-code: #ffe066;
+  --term-ls-config: #91a7ff;
+
   /* === 兼容性别名：将历史代码中未定义的变量统一映射到语义 token === */
   /* 这样可一次性修复大量因 fallback 为深色而导致的浅色主题问题 */
   /* —— 背景/表面 —— */
@@ -165,6 +175,16 @@
   --warn-soft: rgba(255, 149, 0, 0.1);
   --danger: #ff3b30;
   --danger-soft: rgba(255, 59, 48, 0.1);
+
+  /* Terminal ls entry colors — 浅色背景下保证对比度 ≥ 4.5:1 (WCAG AA) */
+  --term-ls-dir: #0451a5;
+  --term-ls-link: #0a7a83;
+  --term-ls-exec: #008400;
+  --term-ls-archive: #c91b00;
+  --term-ls-image: #a800b0;
+  --term-ls-media: #a800b0;
+  --term-ls-code: #a8810c;
+  --term-ls-config: #6f42c1;
 
   /* === 兼容性别名：浅色主题下，编号/历史变量名全部映射到浅色 token === */
   /* —— 背景/表面 —— */

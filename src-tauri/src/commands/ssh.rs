@@ -50,8 +50,20 @@ pub async fn ssh_connect(
 ) -> Result<String, OmniError> {
     let id = format!("ssh-{}", SSH_COUNTER.fetch_add(1, Ordering::Relaxed));
 
+    // 读取 tmux 偏好：auto（默认，探测可用就用）/ always（强制，不可用报错）/ never（直连）
+    let tmux_mode = state
+        .terminal_tmux_mode
+        .lock()
+        .map(|m| m.clone())
+        .unwrap_or_else(|_| "auto".to_string());
+
+    if tmux_mode == "never" {
+        // 用户明确要求直连，跳过 tmux
+        return connect_direct(&state, config, cols, rows, id, Some("disabled_by_user".to_string())).await;
+    }
+
     // 优先走 tmux：同主机复用一条连接，且会话可跨应用重启存活。
-    // 任何不支持或失败都静默降级为直连——终端开不开得起来比用哪种模式重要。
+    // always 模式下不降级；auto 模式下任何不支持或失败都静默降级为直连。
     let fallback_reason = match state
         .tmux
         .attach(
@@ -65,14 +77,56 @@ pub async fn ssh_connect(
         .await
     {
         Ok(AttachOutcome::Attached { .. }) => return Ok(id),
-        Ok(AttachOutcome::Unsupported(reason)) => Some(reason),
+        Ok(AttachOutcome::Unsupported(reason)) => {
+            if tmux_mode == "always" {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    format!("已设置为强制 tmux 模式，但远端不支持：{reason}"),
+                ));
+            }
+            Some(reason)
+        }
         Err(err) => {
             tracing::warn!(target: "tmux", "tmux 接入失败，降级直连: {err}");
+            if tmux_mode == "always" {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    format!("已设置为强制 tmux 模式，但接入失败：{}", err.user_message()),
+                ));
+            }
             Some(err.user_message())
         }
     };
 
     connect_direct(&state, config, cols, rows, id, fallback_reason).await
+}
+
+/// 同步终端 tmux 模式偏好到后端（auto / always / never）。
+#[tauri::command]
+#[specta::specta]
+pub async fn set_terminal_tmux_mode(
+    state: State<'_, AppState>,
+    mode: String,
+) -> Result<(), OmniError> {
+    let mode = mode.trim().to_lowercase();
+    let mode = match mode.as_str() {
+        "auto" | "always" | "never" => mode,
+        _ => "auto".to_string(),
+    };
+    if let Ok(mut guard) = state.terminal_tmux_mode.lock() {
+        *guard = mode;
+    }
+    Ok(())
+}
+
+/// 清除 tmux unsupported 缓存，让下次开终端 Tab 时重新探测远端 tmux。
+///
+/// 用户在能力治理 Tab 安装/升级 tmux 后，或从「始终直连」切回「自动」时调用。
+#[tauri::command]
+#[specta::specta]
+pub async fn invalidate_tmux_cache(state: State<'_, AppState>) -> Result<(), OmniError> {
+    state.tmux.invalidate_all().await;
+    Ok(())
 }
 
 /// 建立一 Tab 一连接的直连 shell（tmux 不可用时的回退路径）。
@@ -321,7 +375,7 @@ pub async fn ssh_tmux_kill_session(
     result.map(|_| ())
 }
 
-async fn pool_session(state: &AppState, id: &str) -> Result<Arc<SshSession>, OmniError> {
+pub(crate) async fn pool_session(state: &AppState, id: &str) -> Result<Arc<SshSession>, OmniError> {
     state.ssh_pool.ensure_session(id).await
 }
 
@@ -950,16 +1004,19 @@ fn assert_allowed_binary_download_url(url: &str) -> Result<(), OmniError> {
     }
 }
 
-/// 本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。
-#[tauri::command]
-#[specta::specta]
-pub async fn ssh_pool_download_install_binary(
-    state: State<'_, AppState>,
-    resource_id: String,
-    url: String,
-    remote_path: String,
+/// 本机下载二进制并经 SFTP 安装到远端的内部实现（命令函数的薄包装底层）。
+///
+/// `url_whitelist` 为 true 时走 my2sql 白名单校验；false 时跳过（已由调用方校验）。
+pub(crate) async fn download_install_binary_inner(
+    state: &AppState,
+    resource_id: &str,
+    url: &str,
+    remote_path: &str,
+    url_whitelist: bool,
 ) -> Result<String, OmniError> {
-    assert_allowed_binary_download_url(&url)?;
+    if url_whitelist {
+        assert_allowed_binary_download_url(url)?;
+    }
     let remote_path = remote_path.trim();
     if remote_path.is_empty() || remote_path.contains('\0') {
         return Err(OmniError::new(ErrorCode::InvalidInput, "远程安装路径无效"));
@@ -967,14 +1024,14 @@ pub async fn ssh_pool_download_install_binary(
 
     let proxy_config = state.proxy_config.lock().await.clone();
     let client = crate::commands::proxy::build_http_client_for_url(
-        &url,
+        url,
         &proxy_config,
         std::time::Duration::from_secs(120),
     )
     .map_err(|e| OmniError::new(ErrorCode::Connection, format!("创建下载客户端失败: {e}")))?;
 
     let response = client
-        .get(&url)
+        .get(url)
         .send()
         .await
         .map_err(|e| OmniError::new(ErrorCode::Connection, format!("下载失败: {e}")))?;
@@ -995,7 +1052,7 @@ pub async fn ssh_pool_download_install_binary(
         ));
     }
 
-    let session = pool_session(&state, &resource_id).await?;
+    let session = pool_session(state, resource_id).await?;
 
     let abs_path = if remote_path.starts_with("~/") || remote_path == "~" {
         let home = session.exec_capture("printf %s \"$HOME\"").await?;
@@ -1032,6 +1089,18 @@ pub async fn ssh_pool_download_install_binary(
         .ok_or_err("chmod 失败")?;
 
     Ok(abs_path)
+}
+
+/// 本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_download_install_binary(
+    state: State<'_, AppState>,
+    resource_id: String,
+    url: String,
+    remote_path: String,
+) -> Result<String, OmniError> {
+    download_install_binary_inner(&state, &resource_id, &url, &remote_path, true).await
 }
 
 fn shell_single_quote(value: &str) -> String {

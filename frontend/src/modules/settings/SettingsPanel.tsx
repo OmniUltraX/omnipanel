@@ -38,6 +38,7 @@ import {
   type ProxyProtocol,
   type AiDisplayMode,
   type DetailPanelMode,
+  type TerminalTmuxMode,
 } from "../../stores/settingsStore";
 import { ProtocolLabSettingsSection } from "../../components/settings/ProtocolLabSettingsSection";
 import { KnowledgeEmbeddingModelSelect } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
@@ -933,6 +934,7 @@ export function SettingsPanel() {
   const terminalAutoLsAfterCd = useSettingsStore((s) => s.terminalAutoLsAfterCd);
   const terminalAutoLsCommand = useSettingsStore((s) => s.terminalAutoLsCommand);
   const terminalAutoReconnectSsh = useSettingsStore((s) => s.terminalAutoReconnectSsh);
+  const terminalTmuxMode = useSettingsStore((s) => s.terminalTmuxMode);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
   const terminalHistorySessions = useTerminalHistoryStore((s) => s.sessionCount);
   const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.blockCount);
@@ -1758,6 +1760,29 @@ export function SettingsPanel() {
                 <Toggle
                   value={terminalAutoReconnectSsh}
                   onChange={(v) => setTerminalSettings({ terminalAutoReconnectSsh: v })}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.tmuxMode")}</h4>
+                  <p>{t("settings.terminal.tmuxModeDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={terminalTmuxMode}
+                  onChange={(v) => {
+                    setTerminalSettings({ terminalTmuxMode: v as TerminalTmuxMode });
+                    void commands.setTerminalTmuxMode(v).catch(() => {});
+                    // 从 never 切回 auto/always 时清除 unsupported 缓存，让新 Tab 重新探测
+                    if (v !== "never") {
+                      void commands.invalidateTmuxCache().catch(() => {});
+                    }
+                  }}
+                  options={["auto", "always", "never"]}
+                  optionLabels={[
+                    t("settings.terminal.tmuxModeAuto"),
+                    t("settings.terminal.tmuxModeAlways"),
+                    t("settings.terminal.tmuxModeNever"),
+                  ]}
                 />
               </div>
 

@@ -80,8 +80,8 @@ export function ToolCallBar({
     if (keys.length > 0) {
       showToast(
         scope === "permanent"
-          ? t("terminal.approval.whitelistPermanentToast", { cmd: label })
-          : t("terminal.approval.whitelistSessionToast", { cmd: label }),
+          ? t("ai.approval.whitelistPermanentToast", { cmd: label })
+          : t("ai.approval.whitelistSessionToast", { cmd: label }),
       );
     }
     approve(editing ? draft : undefined);
@@ -109,29 +109,29 @@ export function ToolCallBar({
       className="term-warp-toolcall__run"
       onClick={() => approve(editing ? draft : undefined)}
     >
-      {t("terminal.approval.execute")}
+      {t("ai.approval.execute")}
     </button>
     <button
       type="button"
       className="term-warp-toolcall__edit-btn"
-      title={t("terminal.approval.whitelistPermanentDesc", { cmd: whitelistCmdLabel })}
+      title={t("ai.approval.whitelistPermanentDesc", { cmd: whitelistCmdLabel })}
       onClick={() => approveWithWhitelist("permanent")}
     >
-      {t("terminal.approval.whitelistPermanent", { cmd: whitelistCmdLabel })}
+      {t("ai.approval.whitelistPermanent", { cmd: whitelistCmdLabel })}
     </button>
     <button
       type="button"
       className="term-warp-toolcall__edit-btn"
-      title={t("terminal.approval.whitelistSessionDesc", { cmd: whitelistCmdLabel })}
+      title={t("ai.approval.whitelistSessionDesc", { cmd: whitelistCmdLabel })}
       onClick={() => approveWithWhitelist("session")}
     >
-      {t("terminal.approval.whitelistSession", { cmd: whitelistCmdLabel })}
+      {t("ai.approval.whitelistSession", { cmd: whitelistCmdLabel })}
     </button>
     <button type="button" className="term-warp-toolcall__edit-btn" onClick={fillCommandBar}>
-      {t("terminal.approval.edit")}
+      {t("ai.approval.edit")}
     </button>
     <button type="button" className="term-warp-toolcall__reject" onClick={reject}>
-      {t("terminal.approval.reject")}
+      {t("ai.approval.reject")}
     </button>
   </>
 ) : null;

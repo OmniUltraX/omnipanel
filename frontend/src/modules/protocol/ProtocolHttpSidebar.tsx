@@ -63,6 +63,7 @@ import {
 import { PROTO_TREE_DND_DEBUG, dndLog } from "./protocolTreeDnDDebug";
 
 const SECTION_STORAGE_KEY = "omnipanel-protocol-http-sidebar-sections.v2";
+const SIZE_STORAGE_KEY = "omnipanel-protocol-http-sidebar-sizes";
 
 type ContextTarget =
   | { kind: "root" }
@@ -857,6 +858,8 @@ export function ProtocolHttpSidebar() {
           title={t("protocol.sidebar.history")}
           expanded={sections.history}
           onToggle={() => toggleSection("history")}
+          autoSize
+          autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "history" }}
           actions={
             <div className="schema-toolbar schema-toolbar--inline">
               <button

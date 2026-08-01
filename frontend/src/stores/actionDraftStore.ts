@@ -3,6 +3,7 @@ import type { DangerCheckResult, DangerLevel } from "../lib/commandGuard";
 import { errorToString } from "../lib/errorToString";
 import type { EnvironmentTag } from "../lib/resourceRegistry";
 import { commands } from "../ipc/bindings";
+import { t } from "../i18n";
 
 export type ActionDraftKind =
   | "sql"
@@ -100,8 +101,8 @@ let seq = 0;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 const DEFAULT_ACTIONS: ApprovalActionDef[] = [
-  { id: "confirm", label: "执行", variant: "primary" },
-  { id: "reject", label: "拒绝", variant: "secondary", reject: true },
+  { id: "confirm", label: t("ai.approval.execute"), variant: "primary" },
+  { id: "reject", label: t("ai.approval.reject"), variant: "secondary", reject: true },
 ];
 
 /** 与 draft 对象分离存放，避免状态更新时丢失 Promise 回调导致确认后永久挂起 */

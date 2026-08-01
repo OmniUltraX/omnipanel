@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -27,6 +27,12 @@ use crate::output_buffer::{self, OutputBuffers};
 /// 保活是为了让「关掉再开」不必重新握手认证；超时后回收以免长期占用远端资源。
 /// 注意回收的只是本地连接，远端 tmux 会话及其中的进程不受影响。
 const IDLE_REAP_DELAY: Duration = Duration::from_secs(300);
+
+/// 「不支持 tmux」标记的 TTL：与 `ssh_capabilities` 的能力缓存对齐。
+///
+/// 用户可能在装好 tmux 后立刻开终端，无 TTL 会导致本进程内永久降级。
+/// 过期后重新探测，既能避免频繁重试，又能让安装/升级后自动恢复。
+const UNSUPPORTED_TTL: Duration = Duration::from_secs(300);
 
 /// 主机身份：同一 `user@host:port` 复用同一条 control 连接与 tmux 会话。
 pub fn host_identity(config: &SshConfig) -> String {
@@ -85,6 +91,12 @@ struct DirectRecord {
     reason: Option<String>,
 }
 
+/// 「不支持 tmux」的缓存条目：降级原因 + 标记时刻，TTL 过期后允许重新探测。
+struct UnsupportedEntry {
+    reason: String,
+    marked_at: Instant,
+}
+
 /// attach 结果。接入成功后的版本与会话名经 `info` 查询，无需在此回传。
 pub enum AttachOutcome {
     Attached,
@@ -103,7 +115,8 @@ pub struct TmuxManager {
     /// 走直连的会话，供前端查询模式与降级原因。
     direct: Mutex<HashMap<String, DirectRecord>>,
     /// 已知不可用的主机及原因，避免每次开 Tab 都重复探测。
-    unsupported: Mutex<HashMap<String, String>>,
+    /// 条目带 TTL，过期后重新探测，让用户安装/升级 tmux 后能自动恢复。
+    unsupported: Mutex<HashMap<String, UnsupportedEntry>>,
 }
 
 impl TmuxManager {
@@ -123,7 +136,8 @@ impl TmuxManager {
     ) -> OmniResult<AttachOutcome> {
         let host_key = host_identity(config);
 
-        if let Some(reason) = self.unsupported.lock().await.get(&host_key).cloned() {
+        // 过期的 unsupported 条目视为不存在，让安装/升级 tmux 后能自动恢复
+        if let Some(reason) = self.unsupported_reason(&host_key).await {
             return Ok(AttachOutcome::Unsupported(reason));
         }
 
@@ -136,11 +150,8 @@ impl TmuxManager {
                 Some(host) => host,
                 None => {
                     let reason = self
-                        .unsupported
-                        .lock()
+                        .unsupported_reason(&host_key)
                         .await
-                        .get(&host_key)
-                        .cloned()
                         .unwrap_or_else(|| "远端 tmux 不可用".to_string());
                     return Ok(AttachOutcome::Unsupported(reason));
                 }
@@ -188,6 +199,29 @@ impl TmuxManager {
         }
     }
 
+    /// 取未过期的 unsupported 原因；过期条目会被清除并返回 `None`。
+    async fn unsupported_reason(&self, host_key: &str) -> Option<String> {
+        let mut map = self.unsupported.lock().await;
+        let expired = map
+            .get(host_key)
+            .map(|e| e.marked_at.elapsed() >= UNSUPPORTED_TTL)
+            .unwrap_or(false);
+        if expired {
+            map.remove(host_key);
+            return None;
+        }
+        map.get(host_key).map(|e| e.reason.clone())
+    }
+
+    /// 清除全部 unsupported 缓存，让下次开 Tab 重新探测。
+    ///
+    /// 在用户于能力治理 Tab 刷新探测或安装/升级 tmux 后调用，避免本进程内
+    /// 残留的旧标记导致新 Tab 仍降级直连。全清代价低（低频操作），且重新
+    /// 探测本身有 connect_lock 串行保护。
+    pub async fn invalidate_all(&self) {
+        self.unsupported.lock().await.clear();
+    }
+
     /// 建立新的 control 连接。返回 `Ok(None)` 表示远端不支持（已记入缓存）。
     async fn spawn_host(
         self: &Arc<Self>,
@@ -208,15 +242,18 @@ impl TmuxManager {
         {
             Ok(control) => control,
             Err(err) => {
-                // 探测失败或版本过低：记入缓存后降级，不向用户抛错
+                // 探测失败或版本过低：记入缓存（带 TTL）后降级，不向用户抛错
                 tracing::info!(
                     target: "tmux",
                     "主机 {host_key} 不支持 tmux control mode，降级直连: {err}"
                 );
-                self.unsupported
-                    .lock()
-                    .await
-                    .insert(host_key.to_string(), err.user_message());
+                self.unsupported.lock().await.insert(
+                    host_key.to_string(),
+                    UnsupportedEntry {
+                        reason: err.user_message(),
+                        marked_at: Instant::now(),
+                    },
+                );
                 return Ok(None);
             }
         };

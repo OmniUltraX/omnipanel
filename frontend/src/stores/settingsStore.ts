@@ -112,6 +112,16 @@ export type DetailPanelMode = "drawer" | "floating";
 
 export type TerminalCursorStyle = "block" | "bar" | "underline";
 
+/** 远程终端 tmux 复用模式：auto（探测可用就用）/ always（强制，不可用报错）/ never（直连） */
+export type TerminalTmuxMode = "auto" | "always" | "never";
+
+export const TERMINAL_TMUX_MODE_OPTIONS: readonly TerminalTmuxMode[] = ["auto", "always", "never"];
+
+export function normalizeTerminalTmuxMode(value: unknown): TerminalTmuxMode {
+  if (value === "auto" || value === "always" || value === "never") return value;
+  return "auto";
+}
+
 export const AI_DOCK_WIDTH_MIN = 280;
 export const AI_DOCK_WIDTH_DEFAULT = 380;
 
@@ -271,6 +281,8 @@ interface SettingsState {
   terminalAutoLsCommand: string;
   /** SSH 断线后自动重连（指数退避，最多 5 次） */
   terminalAutoReconnectSsh: boolean;
+  /** 远程终端 tmux 复用模式：auto / always / never */
+  terminalTmuxMode: TerminalTmuxMode;
   knowledgeChunkSize: number;
   knowledgeChunkOverlap: number;
   knowledgeTopN: number;
@@ -335,7 +347,7 @@ interface SettingsState {
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
     "terminalGpuAccel" | "terminalCopyOnSelect" | "terminalHistoryPersist" |
     "terminalHistoryMaxBlocks" | "terminalAutoLsAfterCd" | "terminalAutoLsCommand" |
-    "terminalAutoReconnectSsh"
+    "terminalAutoReconnectSsh" | "terminalTmuxMode"
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" |
@@ -443,6 +455,7 @@ export const useSettingsStore = create<SettingsState>()(
       terminalAutoLsAfterCd: true,
       terminalAutoLsCommand: "ls",
       terminalAutoReconnectSsh: true,
+      terminalTmuxMode: "auto",
       knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
       knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
       knowledgeTopN: KNOWLEDGE_TOP_N.default,
@@ -643,6 +656,7 @@ export const useSettingsStore = create<SettingsState>()(
         terminalHistoryMaxBlocks: state.terminalHistoryMaxBlocks,
         terminalAutoLsAfterCd: state.terminalAutoLsAfterCd,
         terminalAutoLsCommand: state.terminalAutoLsCommand,
+        terminalTmuxMode: state.terminalTmuxMode,
         knowledgeChunkSize: state.knowledgeChunkSize,
         knowledgeChunkOverlap: state.knowledgeChunkOverlap,
         knowledgeTopN: state.knowledgeTopN,
@@ -707,6 +721,7 @@ export const useSettingsStore = create<SettingsState>()(
           protocolLabTabs: normalizeControllableProtocolStatus(state?.protocolLabTabs),
           closeBehavior: normalizeCloseBehavior(state?.closeBehavior),
           aiDataSharing: normalizeAiDataSharing(state?.aiDataSharing),
+          terminalTmuxMode: normalizeTerminalTmuxMode(state?.terminalTmuxMode),
         });
       },
     }
@@ -724,6 +739,13 @@ export function initSettings() {
   applyDocumentUiScale(state.uiScale);
   applyDocumentAccentColor(state.accentColor);
   applyDocumentTheme(state.theme);
+
+  // 同步持久化的 tmux 模式偏好到后端（后端为内存态，需每次启动同步）
+  void import("../ipc/bindings").then(({ commands }) =>
+    commands.setTerminalTmuxMode(state.terminalTmuxMode).catch(() => {
+      // 非 Tauri 环境或后端未就绪时静默忽略
+    }),
+  );
 
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (useSettingsStore.getState().theme === "system") {
