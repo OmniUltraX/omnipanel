@@ -4,7 +4,17 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	createTerminal: (cols: number, rows: number, shell: ShellSpec | null) => typedError<string, string>(__TAURI_INVOKE("create_terminal", { cols, rows, shell })),
+	createTerminal: (cols: number, rows: number, shell: {
+	/**  shell 种类。 */
+	kind: ShellKind,
+	/**
+	 *  可执行文件路径（如 "C:\\Program Files\\PowerShell\\7\\pwsh.exe"）。
+	 *  None 时按 kind 取默认程序名（pwsh / powershell / cmd.exe / wsl.exe）。
+	 */
+	path: string | null,
+	/**  WSL 发行版名称（仅 Wsl kind 生效），如 "Ubuntu-22.04"。None 时用默认发行版。 */
+	wslDistro: string | null,
+} | null) => typedError<string, string>(__TAURI_INVOKE("create_terminal", { cols, rows, shell })),
 	writeTerminal: (id: string, data: number[]) => typedError<null, string>(__TAURI_INVOKE("write_terminal", { id, data })),
 	resizeTerminal: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_terminal", { id, cols, rows })),
 	closeTerminal: (id: string) => typedError<null, string>(__TAURI_INVOKE("close_terminal", { id })),
@@ -13,7 +23,10 @@ export const commands = {
 	 *  对本地终端与远程 SSH 会话通用（按 backend session id 索引）。
 	 */
 	terminalSnapshot: (id: string) => typedError<string, string>(__TAURI_INVOKE("terminal_snapshot", { id })),
-	/**  枚举当前系统可用的本地 shell（PowerShell / CMD / WSL 发行版等），供前端「新建本地终端」菜单分类展示。 */
+	/**
+	 *  枚举当前系统可用的本地 shell（PowerShell / CMD / WSL 发行版等），
+	 *  供前端「新建本地终端」菜单分类展示。
+	 */
 	listShells: () => typedError<ShellInfo[], string>(__TAURI_INVOKE("list_shells")),
 	/**  加载指定会话的终端历史块（按 timestamp 升序）。 */
 	terminalHistoryLoadSession: (sessionId: string) => typedError<TerminalHistoryBlockRecord[], OmniError_Serialize>(__TAURI_INVOKE("terminal_history_load_session", { sessionId })),
@@ -416,7 +429,7 @@ export const commands = {
 	/**  打开日志会话：探测文件大小与总行数。 */
 	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
 	/**  按行号范围读取（虚拟滚动按需切片，1-based）。 */
-	sftpLogReadLines: (id: string, path: string, startLine: number, endLine: number) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
+	sftpLogReadLines: (id: string, path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
 	/**
 	 *  读取文件末尾 N 行（用 tail -n N，O(N) 反向 seek，不扫描整个文件）。
 	 *  用于大日志文件打开时的首屏末尾预览，比 sed -n 'X,Yp' 快 30x。
@@ -481,15 +494,32 @@ export const commands = {
 	 *  失败回退无 sudo 直接安装（root 用户或免密场景）。
 	 */
 	sshPoolInstallArchiveTool: (resourceId: string, tool: string) => typedError<ArchiveToolInstallResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_archive_tool", { resourceId, tool })),
-	/**  探测远端主机已安装的工具能力（批量脚本，1 次 RTT），结果按主机缓存 5 分钟。 */
+	/**
+	 *  探测远端主机的能力（批量脚本 + 懒探测标记）。
+	 * 
+	 *  返回缓存（若未过期），否则执行批量探测脚本。
+	 *  `force` 为 true 时跳过缓存。
+	 */
 	sshPoolProbeCapabilities: (resourceId: string, force: boolean | null) => typedError<CapabilityProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_capabilities", { resourceId, force })),
-	/**  失效某主机的能力缓存。 */
+	/**  失效某主机的能力缓存（安装后或手动触发时调用）。 */
 	sshPoolInvalidateCapabilities: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_invalidate_capabilities", { resourceId })),
-	/**  统一安装远端工具（按 manifest 声明分发到包管理器 / 二进制下载 / 手动指引）。 */
+	/**
+	 *  统一安装远端工具。
+	 * 
+	 *  按 manifest 声明的 install_method 分发：
+	 *  - `PackageManager`：检测包管理器后调 `ssh_pool_install_archive_tool` 的内部逻辑
+	 *  - `DownloadBinary`：调 `ssh_pool_download_install_binary` 的内部逻辑
+	 *  - `Manual`：返回安装指引文本
+	 *  - `None`：不支持安装
+	 */
 	sshPoolInstallTool: (resourceId: string, toolId: string) => typedError<InstallToolResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_tool", { resourceId, toolId })),
 	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
 	setTerminalTmuxMode: (mode: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("set_terminal_tmux_mode", { mode })),
-	/**  清除 tmux unsupported 缓存，让下次开终端 Tab 时重新探测远端 tmux。 */
+	/**
+	 *  清除 tmux unsupported 缓存，让下次开终端 Tab 时重新探测远端 tmux。
+	 * 
+	 *  用户在能力治理 Tab 安装/升级 tmux 后，或从「始终直连」切回「自动」时调用。
+	 */
 	invalidateTmuxCache: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("invalidate_tmux_cache")),
 	/**  拉取本机 CPU / 内存 / 磁盘指标。 */
 	localFetchStats: () => typedError<HostSystemStats_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_fetch_stats")),
@@ -894,14 +924,20 @@ export const commands = {
 	authDeviceIdentity: () => typedError<AuthDeviceIdentity, OmniError_Serialize>(__TAURI_INVOKE("auth_device_identity")),
 	/**  获取当前用户设备列表。 */
 	authListDevices: (token: string) => typedError<AuthDevice[], OmniError_Serialize>(__TAURI_INVOKE("auth_list_devices", { token })),
-	/**  删除已授权设备（DELETE /api/devices/{device_id}）。 */
-	authDeleteDevice: (token: string, deviceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId })),
+	/**  删除已授权设备（DELETE /api/devices/{device_id}?app_id=）。 */
+	authDeleteDevice: (token: string, deviceId: string, appId: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId, appId })),
 	/**  获取当前用户信息（GET /api/me）。 */
 	authGetMe: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_get_me", { token })),
 	/**  更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空。 */
 	authUpdateProfile: (token: string, nickname: string | null, avatarUrl: string | null) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_update_profile", { token, nickname, avatarUrl })),
 	/**  获取微信扫码登录二维码。 */
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
+	/**  获取侧栏小程序 / H5 公开二维码图片地址。 */
+	authPublicQrcodes: () => typedError<AuthPublicQrcodes, OmniError_Serialize>(__TAURI_INVOKE("auth_public_qrcodes")),
+	/**  刷新设备在线 presence（POST /api/presence）。 */
+	authPresence: (token: string) => typedError<AuthPresenceResult, OmniError_Serialize>(__TAURI_INVOKE("auth_presence", { token })),
+	/**  登出当前会话（POST /api/logout），服务端会立刻清除 presence。 */
+	authLogout: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_logout", { token })),
 	/**  通过后端代理 SSE，等待扫码登录成功。 */
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
 	/**  取消进行中的登录等待（刷新二维码 / 关闭面板时调用）。 */
@@ -1272,56 +1308,6 @@ export type ArchiveToolInstallResult = {
 	message: string,
 };
 
-/**  工具分类 */
-export type ToolCategory = "terminal" | "database" | "archive" | "transfer" | "monitoring" | "system";
-
-/**  工具状态 */
-export type ToolState =
-	| { kind: "ready", version: string | null, path: string | null }
-	| { kind: "needInstall" }
-	| { kind: "tooOld", version: string, required: string }
-	| { kind: "unsupported", reason: string };
-
-/**  安装方式 */
-export type InstallMethod =
-	| { kind: "none" }
-	| { kind: "packageManager", packages: Record<string, string> }
-	| { kind: "downloadBinary", url: string, remotePath: string }
-	| { kind: "shellScript", script: string }
-	| { kind: "manual", instructions: string };
-
-/**  单个工具的探测结果 */
-export type RemoteToolCapability = {
-	id: string,
-	labelKey: string,
-	category: ToolCategory,
-	state: ToolState,
-	installMethod: InstallMethod,
-	relatedModules: string[],
-};
-
-/**  一次能力探测的完整结果 */
-export type CapabilityProbeResult = {
-	resourceId: string,
-	tools: RemoteToolCapability[],
-	/**  探测耗时（毫秒） */
-	elapsedMs: number,
-	/**  探测时间戳（Unix 毫秒） */
-	probedAt: number,
-	/**  批量脚本未覆盖、需单独探测的工具 id */
-	lazyProbeIds: string[],
-};
-
-/**  安装工具的结果 */
-export type InstallToolResult = {
-	toolId: string,
-	installed: boolean,
-	/**  安装输出或失败原因 */
-	message: string,
-	/**  安装后重新探测的状态 */
-	state: ToolState | null,
-};
-
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
 export type AssistantChatInboundEvent = {
 	messageId: string,
@@ -1418,12 +1404,20 @@ export type AuthDevice = {
 	osType: string,
 	ip: string,
 	lastLoginAt: string,
+	/**  最近登出时间（未登出可为空）。 */
+	lastLogoutAt: string,
 	userAgent: string,
 	createdAt: string,
 	updatedAt: string,
 	/**  `client` | `assistant` */
 	role: string,
 	appId: string,
+	/**  平台标识（服务端 `platform`）。 */
+	platform: string,
+	/**  会话落库状态：`logged_in` | `logged_out`。 */
+	loginStatus: string,
+	/**  Redis presence TTL 判定的实时在线状态。 */
+	online: boolean,
 };
 
 /**  本机设备身份（登录上报与「本机」标记共用）。 */
@@ -1452,6 +1446,18 @@ export type AuthLoginQrcode = {
 export type AuthLoginSuccess = {
 	token: string,
 	openid: string,
+};
+
+/**  设备在线心跳结果（POST /api/presence）。 */
+export type AuthPresenceResult = {
+	ok: boolean,
+	ttlSec: number | null,
+};
+
+/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
+export type AuthPublicQrcodes = {
+	miniappUrl: string,
+	h5Url: string,
 };
 
 /**  当前用户资料（GET/PATCH /api/me）。 */
@@ -1585,6 +1591,18 @@ export type BuiltinToolRecord = {
 	input_schema: string,
 };
 
+/**  一次探测的完整结果。 */
+export type CapabilityProbeResult = {
+	resourceId: string,
+	tools: RemoteToolCapability[],
+	/**  探测耗时（毫秒）。 */
+	elapsedMs: number,
+	/**  探测时间戳（Unix 毫秒）。 */
+	probedAt: number,
+	/**  批量脚本未覆盖、需单独探测的工具 id（前端可懒查）。 */
+	lazyProbeIds: string[],
+};
+
 /**  抓包统计信息。 */
 export type CaptureStats = {
 	captureId: string,
@@ -1598,14 +1616,14 @@ export type CaptureStats = {
 /**
  *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
  * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串。
+ *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
  */
 export type ChatLatestIndex = ChatLatestIndex_Serialize | ChatLatestIndex_Deserialize;
 
 /**
  *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
  * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串。
+ *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
  */
 export type ChatLatestIndex_Deserialize = {
 	userId?: string,
@@ -1636,7 +1654,7 @@ export type ChatLatestIndex_Deserialize = {
 /**
  *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
  * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串。
+ *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
  */
 export type ChatLatestIndex_Serialize = {
 	userId: string,
@@ -3183,6 +3201,31 @@ export type HttpProviderRecord = {
 	createdAt: number | null,
 };
 
+/**  安装方式声明。 */
+export type InstallMethod = 
+/**  无需安装或不可安装。 */
+{ kind: "none" } | 
+/**  系统包管理器安装（apt/dnf/yum/apk/pacman/zypper）。 */
+{ kind: "packageManager"; 
+/**  按包管理器映射包名，未列出的包管理器无法安装。 */
+packages: { [key in string]: string } } | 
+/**  本机下载二进制 + SFTP 上传。 */
+{ kind: "downloadBinary"; url: string; remote_path: string } | 
+/**  在远端执行 shell 脚本安装（如从源码编译，绕过老系统仓库版本过低）。 */
+{ kind: "shellScript"; script: string } | 
+/**  仅展示手动安装指引（无法自动安装）。 */
+{ kind: "manual"; instructions: string };
+
+/**  安装结果。 */
+export type InstallToolResult = {
+	toolId: string,
+	installed: boolean,
+	/**  安装输出或失败原因。 */
+	message: string,
+	/**  安装后重新探测的状态（成功时为 Ready）。 */
+	state: ToolState | null,
+};
+
 export type JinaOptsDto = {
 	domain: string,
 	noCache: boolean,
@@ -3310,17 +3353,11 @@ export type KnowledgeTodoItem = KnowledgeTodoItem_Serialize | KnowledgeTodoItem_
 /**  待办列表中的单项。 */
 export type KnowledgeTodoItem_Deserialize = {
 	id: string,
-	/**  执行者。 */
+	name?: string,
+	text?: string,
 	executor?: string,
-	/**  任务描述与细节。 */
 	description?: string,
 	done: boolean,
-} & {
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
-	name?: string,
-} | {
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
-	text?: string,
 };
 
 /**  待办列表中的单项。 */
@@ -3827,6 +3864,17 @@ export type RedisSlowLogEntry_Serialize = {
 	clientName?: string | null,
 };
 
+/**  批量探测后单个工具的结果。 */
+export type RemoteToolCapability = {
+	id: string,
+	labelKey: string,
+	category: ToolCategory,
+	state: ToolState,
+	/**  安装方式（前端展示"一键安装"按钮用）。 */
+	installMethod: InstallMethod,
+	relatedModules: string[],
+};
+
 /**  资源档案摘要：用于 `list_resources_with_profiles` 列表展示与 `find_similar`。 */
 export type ResourceProfileSummary = {
 	resourceType: string,
@@ -4168,6 +4216,35 @@ export type SftpMediaStream = {
 	mime: string,
 };
 
+/**  可在 UI 中供用户选择的 shell 描述。 */
+export type ShellInfo = {
+	kind: ShellKind,
+	/**  展示名，如 "PowerShell 7" / "CMD" / "Ubuntu-22.04 (WSL)"。 */
+	label: string,
+	/**  可执行文件路径（WSL 为 wsl.exe）。 */
+	path: string,
+	/**  WSL 发行版名称（仅 Wsl kind）。 */
+	wslDistro: string | null,
+};
+
+/**  Shell type detected on the current platform. */
+export type ShellKind = "bash" | "zsh" | "powershell" | "powershell5" | "fish" | "cmd" | 
+/**  Windows Subsystem for Linux（通过 wsl.exe 启动）。 */
+"wsl";
+
+/**  调用方显式指定的 shell 规格。 */
+export type ShellSpec = {
+	/**  shell 种类。 */
+	kind: ShellKind,
+	/**
+	 *  可执行文件路径（如 "C:\\Program Files\\PowerShell\\7\\pwsh.exe"）。
+	 *  None 时按 kind 取默认程序名（pwsh / powershell / cmd.exe / wsl.exe）。
+	 */
+	path: string | null,
+	/**  WSL 发行版名称（仅 Wsl kind 生效），如 "Ubuntu-22.04"。None 时用默认发行版。 */
+	wslDistro: string | null,
+};
+
 /**  Skill 应用记录（每次 AI 调用 skill 时追加一条）。 */
 export type SkillApplication = {
 	id: string,
@@ -4305,21 +4382,6 @@ export type SshConfigEntry = {
 	user: string | null,
 	port: number | null,
 	identityFile: string | null,
-};
-
-export type ShellKind = "bash" | "zsh" | "powershell" | "powershell5" | "fish" | "cmd" | "wsl";
-
-export type ShellSpec = {
-	kind: ShellKind,
-	path: string | null,
-	wslDistro: string | null,
-};
-
-export type ShellInfo = {
-	kind: ShellKind,
-	label: string,
-	path: string,
-	wslDistro: string | null,
 };
 
 export type SshConfigSyncFailure = {
@@ -4724,6 +4786,21 @@ export type ToolCallResult = {
 	isError: boolean,
 };
 
+/**  工具分类，前端按分类分组展示。 */
+export type ToolCategory = 
+/**  终端复用与持久会话。 */
+"terminal" | 
+/**  数据库客户端与工具。 */
+"database" | 
+/**  压缩与归档。 */
+"archive" | 
+/**  文件传输。 */
+"transfer" | 
+/**  系统监控与进程。 */
+"monitoring" | 
+/**  系统基础命令。 */
+"system";
+
 export type ToolInfo = ToolInfo_Serialize | ToolInfo_Deserialize;
 
 export type ToolInfo_Deserialize = {
@@ -4735,6 +4812,17 @@ export type ToolInfo_Serialize = {
 	name: string,
 	description: string | null,
 };
+
+/**  工具状态。 */
+export type ToolState = 
+/**  已就绪：二进制存在且（如有版本要求）版本达标。 */
+{ kind: "ready"; version: string | null; path: string | null } | 
+/**  待安装：二进制缺失，但 manifest 声明了可自动安装的方式。 */
+{ kind: "needInstall" } | 
+/**  版本过低：已安装但低于最低要求。 */
+{ kind: "tooOld"; version: string; required: string } | 
+/**  不支持：缺失且无法自动安装（仅展示手动指引）。 */
+{ kind: "unsupported"; reason: string };
 
 /**  隧道类型。 */
 export type TunnelType = "local" | "remote" | "dynamic";

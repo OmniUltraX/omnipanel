@@ -210,7 +210,7 @@ export function TagTreePanel({
           <span className="tag-tree-row__name" title={tag.path}>
             {tag.name}
           </span>
-          {tag.resourceCount > 0 ? (
+          {tag.resourceCount != null && tag.resourceCount > 0 ? (
             <span className="tag-tree-row__count">{tag.resourceCount}</span>
           ) : null}
           {!scoped && tag.kind !== "system" ? (

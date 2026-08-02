@@ -51,14 +51,6 @@ pub(crate) fn ssh_credential_ref(connection_id: &str) -> String {
     ssh_password_ref(connection_id)
 }
 
-pub(crate) fn ssh_pem_cred_ref(connection_id: &str) -> String {
-    ssh_pem_ref(connection_id)
-}
-
-pub(crate) fn ssh_passphrase_cred_ref(connection_id: &str) -> String {
-    ssh_passphrase_ref(connection_id)
-}
-
 /// 从 Vault 注入密钥后解析 SSH 配置（config 内明文为空时回退钥匙串）。
 pub(crate) fn resolve_ssh_config(conn: &Connection) -> Result<SshConfig, OmniError> {
     let (patched, password) = inject_ssh_vault_into_config(

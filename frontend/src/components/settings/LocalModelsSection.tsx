@@ -428,7 +428,9 @@ export function LocalModelsSection() {
           <>
             <p className="setting-hint">
               {t("settings.localModels.hardware", {
-                memory: Math.round((probe.hardware?.totalMemoryMb ?? probe.totalMemoryMb) / 1024),
+                memory: Math.round(
+                  (probe.hardware?.totalMemoryMb ?? probe.totalMemoryMb ?? 0) / 1024,
+                ),
                 tier: t(`settings.localModels.tier.${probe.hardwareTier}`),
               })}
             </p>
@@ -437,14 +439,14 @@ export function LocalModelsSection() {
                 {t("settings.localModels.hardwareDetail", {
                   gpu: probe.hardware.gpuName || t("settings.localModels.hardwareGpuUnknown"),
                   vram:
-                    probe.hardware.vramMb > 0
-                      ? `${Math.round(probe.hardware.vramMb / 1024)} GB`
+                    (probe.hardware.vramMb ?? 0) > 0
+                      ? `${Math.round((probe.hardware.vramMb ?? 0) / 1024)} GB`
                       : t("settings.localModels.hardwareVramUnknown"),
                   discrete: probe.hardware.hasDiscreteGpu
                     ? t("settings.localModels.hardwareDiscreteYes")
                     : t("settings.localModels.hardwareDiscreteNo"),
                   quant: probe.hardware.quantPref,
-                  maxB: Math.max(1, Math.round(probe.hardware.maxParamB)),
+                  maxB: Math.max(1, Math.round(probe.hardware.maxParamB ?? 0)),
                 })}
               </p>
             ) : null}
@@ -508,7 +510,7 @@ export function LocalModelsSection() {
                 {probe.ollama.models.map((m) => (
                   <li key={m.name} className="local-runtime-model-row">
                     <span className="local-runtime-model-name">{m.name}</span>
-                    <span className="setting-hint">{formatBytes(m.sizeBytes)}</span>
+                    <span className="setting-hint">{formatBytes(m.sizeBytes ?? 0)}</span>
                     <Button
                       variant="ghost"
                       size="sm"

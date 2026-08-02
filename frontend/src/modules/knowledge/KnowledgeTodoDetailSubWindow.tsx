@@ -24,15 +24,19 @@ function normalizeDraft(list: KnowledgeTodoList): KnowledgeTodoList {
   };
 }
 
+function todoItemLabel(item: KnowledgeTodoList["items"][number]): string {
+  return item.name ?? ("text" in item ? item.text : undefined) ?? "";
+}
+
 function sanitizeForSave(draft: KnowledgeTodoList, fallbackTitle: string): KnowledgeTodoList {
   const title = draft.title.trim() || fallbackTitle;
   const description = (draft.description ?? "").trim();
   const items = draft.items
     .map((item) => ({
       ...item,
-      name: item.name.trim(),
-      executor: item.executor.trim(),
-      description: item.description.trim(),
+      name: todoItemLabel(item).trim(),
+      executor: (item.executor ?? "").trim(),
+      description: (item.description ?? "").trim(),
     }))
     .filter((item) => item.name.length > 0 || item.executor.length > 0 || item.description.length > 0);
   return {
@@ -264,7 +268,7 @@ export function KnowledgeTodoDetailSubWindow({
                         clearable={false}
                         copyable={false}
                         className="knowledge-todo-detail__cell-input"
-                        value={item.name}
+                        value={todoItemLabel(item)}
                         placeholder={t("knowledge.todos.itemNamePlaceholder")}
                         onChange={(name) => updateItemField(item.id, "name", name)}
                       />
@@ -274,7 +278,7 @@ export function KnowledgeTodoDetailSubWindow({
                         clearable={false}
                         copyable={false}
                         className="knowledge-todo-detail__cell-input"
-                        value={item.executor}
+                        value={item.executor ?? ""}
                         placeholder={t("knowledge.todos.itemExecutorPlaceholder")}
                         onChange={(executor) => updateItemField(item.id, "executor", executor)}
                       />
@@ -282,7 +286,7 @@ export function KnowledgeTodoDetailSubWindow({
                     <td>
                       <textarea
                         className="knowledge-todo-detail__cell-textarea"
-                        value={item.description}
+                        value={item.description ?? ""}
                         placeholder={t("knowledge.todos.itemDescriptionPlaceholder")}
                         rows={2}
                         onChange={(e) => updateItemField(item.id, "description", e.target.value)}

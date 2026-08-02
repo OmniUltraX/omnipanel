@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { commands, type KnowledgeTodoItem, type KnowledgeTodoList } from "../ipc/bindings";
+import { commands, type KnowledgeTodoItem_Serialize, type KnowledgeTodoList } from "../ipc/bindings";
 import { formatIpcError } from "../ipc/result";
 
 export function newTodoId(): string {
@@ -10,8 +10,8 @@ export function newTodoId(): string {
 }
 
 export function createTodoItem(
-  partial: Partial<Pick<KnowledgeTodoItem, "name" | "executor" | "description" | "done">> = {},
-): KnowledgeTodoItem {
+  partial: Partial<Pick<KnowledgeTodoItem_Serialize, "name" | "executor" | "description" | "done">> = {},
+): KnowledgeTodoItem_Serialize {
   return {
     id: newTodoId(),
     name: partial.name ?? "",

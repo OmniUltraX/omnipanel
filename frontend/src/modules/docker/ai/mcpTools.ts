@@ -171,7 +171,7 @@ async function dockerInspectContainer(args: Record<string, unknown>): Promise<st
     command: detail.command,
     restartPolicy: detail.restartPolicy,
     exitCode: detail.exitCode,
-    env: redactEnvArray(detail.env),
+    env: redactEnvArray(detail.env.map((kv) => `${kv.key}=${kv.value}`)),
     mounts: detail.mounts,
     networks: detail.networks,
   };

@@ -5,9 +5,16 @@ import { Button, TextInput } from "../../../components/ui";
 import { useI18n } from "../../../i18n";
 import {
   commands,
-  type DockerImageProgress,
   type DockerImageSearchResult,
 } from "../../../ipc/bindings";
+
+/** 镜像拉取/推送进度事件 payload（与后端 DockerImageProgress 对齐）。 */
+type DockerImageProgress = {
+  id: string;
+  status: string;
+  progress?: number | null;
+  detail?: string | null;
+};
 import { formatIpcError, unwrapCommand } from "../../../ipc/result";
 import { showToast } from "../../../stores/toastStore";
 import { buildDockerImageHomepageUrl } from "../dockerImageHomepageUrl";

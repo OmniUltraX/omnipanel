@@ -129,10 +129,21 @@ export async function fetchAccountLinks(
   token: string,
   options?: { quiet?: boolean },
 ): Promise<AccountLinks> {
-  return unwrapCommand(commands.authAccountLinks(token), {
+  const data = await unwrapCommand(commands.authAccountLinks(token), {
     quiet: options?.quiet,
     logLabel: "[auth]",
   });
+  const mapStatus = (s: (typeof data)["wechat"]): AccountLinkStatus => ({
+    bound: s.bound,
+    openid: s.openid ?? "",
+    githubId: s.githubId ?? "",
+    email: s.email ?? "",
+  });
+  return {
+    wechat: mapStatus(data.wechat),
+    github: mapStatus(data.github),
+    email: mapStatus(data.email),
+  };
 }
 
 /** 申请微信绑定二维码。 */
@@ -324,10 +335,11 @@ export async function fetchDevices(
   token: string,
   options?: { quiet?: boolean },
 ): Promise<AuthDevice[]> {
-  return unwrapCommand(commands.authListDevices(token), {
+  const list = await unwrapCommand(commands.authListDevices(token), {
     quiet: options?.quiet,
     logLabel: "[auth]",
   });
+  return list.map((d) => ({ ...d, id: d.id ?? 0 }));
 }
 
 /** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}?app_id=）。 */
@@ -341,10 +353,11 @@ export async function deleteDevice(
 
 /** 刷新本机设备在线 presence（POST /api/presence）。 */
 export async function touchPresence(token: string): Promise<{ ok: boolean; ttlSec: number }> {
-  return unwrapCommand(commands.authPresence(token), {
+  const data = await unwrapCommand(commands.authPresence(token), {
     quiet: true,
     logLabel: "[auth]",
   });
+  return { ok: data.ok, ttlSec: data.ttlSec ?? 0 };
 }
 
 /** 登出当前会话（POST /api/logout），服务端立刻清除 presence。 */

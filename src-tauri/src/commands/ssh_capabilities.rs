@@ -75,6 +75,7 @@ pub enum ToolState {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InstallMethod {
     /// 无需安装或不可安装。
+    #[allow(dead_code)]
     None,
     /// 系统包管理器安装（apt/dnf/yum/apk/pacman/zypper）。
     PackageManager {

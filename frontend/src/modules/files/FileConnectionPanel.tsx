@@ -12,7 +12,6 @@ import type { FileIndexProgress } from "./fileApi";
 import {
   addTransfer,
   updateTransfer,
-  useFileManagerStore,
   enqueueFileTransfer,
   ensureFileTransferListener,
   planFileTransfer,
@@ -770,7 +769,7 @@ export function FileConnectionPanel({
       }
       if (policy === "always" || plan.route === "remoteDirect") return "remoteDirect";
       if (policy === "never") return "relay";
-      return plan.route === "relay" ? "relay" : plan.route === "remoteDirect" ? "remoteDirect" : null;
+      return plan.route === "relay" ? "relay" : null;
     },
     [connId, fileRemoteDirectPolicy, setFileSettings, t],
   );

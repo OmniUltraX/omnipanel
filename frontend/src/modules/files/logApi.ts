@@ -4,10 +4,17 @@ import {
   type LogLine,
   type LogSearchHit,
   type LogSessionInfo,
-  type LogTailChunk,
   type LogTailHandle,
 } from "../../ipc/bindings";
 import { unwrapCommandResult, type CommandResult, type IpcErrorLike } from "../../ipc/result";
+
+/** 跟踪事件 payload（与后端 LogTailChunk 对齐）。 */
+export type LogTailChunk = {
+  token: string;
+  lines: string[];
+  exitCode?: number | null;
+  error?: string | null;
+};
 
 function unwrap<T>(res: CommandResult<T, IpcErrorLike>, op: string): T {
   return unwrapCommandResult(res, { logLabel: "[logViewer]", debugContext: { op } });

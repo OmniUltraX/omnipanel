@@ -284,7 +284,7 @@ function PeekTreeTable({
                   {item.detail || "—"}
                 </td>
                 <td className="data-sync-table__time">
-                  {formatUpdatedAt(item.updatedAt, locale)}
+                  {formatUpdatedAt(item.updatedAt ?? 0, locale)}
                 </td>
               </tr>
             );
@@ -446,11 +446,11 @@ export function DataSyncPanel() {
         }
       }
       const total =
-        result.appliedConnections +
-        result.appliedDatabases +
-        result.appliedKnowledge +
-        result.appliedHttpRequests +
-        result.appliedWorkspaces +
+        (result.appliedConnections ?? 0) +
+        (result.appliedDatabases ?? 0) +
+        (result.appliedKnowledge ?? 0) +
+        (result.appliedHttpRequests ?? 0) +
+        (result.appliedWorkspaces ?? 0) +
         conversationN;
       showToast(t("dataSync.importSuccess", { n: Math.round(total) }));
       setSelection(emptyImportSelection());
@@ -475,7 +475,7 @@ export function DataSyncPanel() {
   };
 
   const httpSelected = useMemo(
-    () => [...selection.httpCollectionIds, ...selection.httpRequestIds],
+    () => [...(selection.httpCollectionIds ?? []), ...(selection.httpRequestIds ?? [])],
     [selection.httpCollectionIds, selection.httpRequestIds],
   );
 
@@ -569,7 +569,7 @@ export function DataSyncPanel() {
               {tab === "connections" ? (
                 <PeekTreeTable
                   items={peek.connections}
-                  selected={selection.connectionIds}
+                  selected={selection.connectionIds ?? []}
                   onChangeSelected={(ids) =>
                     setSelection((s) => ({ ...s, connectionIds: ids }))
                   }
@@ -580,7 +580,7 @@ export function DataSyncPanel() {
               {tab === "databases" ? (
                 <PeekTreeTable
                   items={peek.databases}
-                  selected={selection.databaseIds}
+                  selected={selection.databaseIds ?? []}
                   onChangeSelected={(ids) =>
                     setSelection((s) => ({ ...s, databaseIds: ids }))
                   }
@@ -591,7 +591,7 @@ export function DataSyncPanel() {
               {tab === "knowledge" ? (
                 <PeekTreeTable
                   items={peek.knowledge}
-                  selected={selection.knowledgeIds}
+                  selected={selection.knowledgeIds ?? []}
                   onChangeSelected={(ids) =>
                     setSelection((s) => ({ ...s, knowledgeIds: ids }))
                   }
@@ -611,7 +611,7 @@ export function DataSyncPanel() {
               {tab === "conversations" ? (
                 <PeekTreeTable
                   items={peek.conversations}
-                  selected={selection.conversationIds}
+                  selected={selection.conversationIds ?? []}
                   onChangeSelected={(ids) =>
                     setSelection((s) => ({ ...s, conversationIds: ids }))
                   }
@@ -622,7 +622,7 @@ export function DataSyncPanel() {
               {tab === "workspaces" ? (
                 <PeekTreeTable
                   items={peek.workspaces}
-                  selected={selection.workspaceIds}
+                  selected={selection.workspaceIds ?? []}
                   onChangeSelected={(ids) =>
                     setSelection((s) => ({ ...s, workspaceIds: ids }))
                   }

@@ -276,7 +276,7 @@ export function UserCenterDevices() {
           <p className="user-center-section__desc user-center-devices__error">{errorMessage}</p>
           <div className="user-center-devices__actions">
             {sessionExpired ? (
-              <Button type="button" variant="secondary" size="sm" onClick={logout}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => logout()}>
                 {t("userCenter.logout")}
               </Button>
             ) : (

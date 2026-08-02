@@ -66,7 +66,7 @@ import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState"
 import { Select } from "../../components/ui/form/Select";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
-import { unwrapCommand } from "../../ipc/result";
+import { unwrapCommandResult } from "../../ipc/result";
 import { invoke } from "@tauri-apps/api/core";
 import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -317,10 +317,12 @@ function SettingSelect({
   value: string;
   onChange: (v: string) => void;
   options: string[];
-  optionLabels?: string[];
+  optionLabels?: string[] | Record<string, string>;
 }) {
   const selectOptions = optionLabels
-    ? options.map((v, i) => ({ value: v, label: optionLabels[i] ?? v }))
+    ? Array.isArray(optionLabels)
+      ? options.map((v, i) => ({ value: v, label: optionLabels[i] ?? v }))
+      : options.map((v) => ({ value: v, label: optionLabels[v] ?? v }))
     : options;
   return (
     <Select
@@ -2030,7 +2032,7 @@ export function SettingsPanel() {
                     setFileSettings({ fileTransferConcurrency: n });
                     void commands.fileTransferSetConcurrency(n).then((r) => {
                       try {
-                        unwrapCommand(r);
+                        unwrapCommandResult(r);
                       } catch {
                         /* ignore */
                       }
@@ -2052,7 +2054,7 @@ export function SettingsPanel() {
                     setFileSettings({ fileTransferRateLimitBps: n as typeof fileTransferRateLimitBps });
                     void commands.fileTransferSetRateLimit(n).then((r) => {
                       try {
-                        unwrapCommand(r);
+                        unwrapCommandResult(r);
                       } catch {
                         /* ignore */
                       }

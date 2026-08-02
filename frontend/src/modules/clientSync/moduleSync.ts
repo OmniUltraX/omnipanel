@@ -100,7 +100,7 @@ async function runPush(): Promise<void> {
       console.info(
         "[client-sync:modules] push ok",
         result.objectKey,
-        `${Math.round(result.bytes)}B`,
+        `${Math.round(result.bytes ?? 0)}B`,
       );
     } catch (err) {
       console.warn("[client-sync:modules] push failed:", formatIpcError(err));

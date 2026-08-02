@@ -137,7 +137,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
                   ) : null}
                 </td>
                 <td>{session.windows}</td>
-                <td>{formatCreated(session.created)}</td>
+                <td>{formatCreated(session.created ?? 0)}</td>
                 <td>
                   {session.attached
                     ? t("ssh.tmuxSessions.attached")

@@ -38,7 +38,7 @@ export function registerUserShellCommand(_sessionId: string, _command: string): 
 }
 
 /** @deprecated 已禁用，保留以维持调用点签名兼容。未来改造见上方说明。 */
-function _registerUserShellCommandImpl(sessionId: string, command: string): void {
+export function _registerUserShellCommandImpl(sessionId: string, command: string): void {
   if (!isWarpDisplay(sessionId)) return;
   const normalized = normalizeBlockCommand(command);
   if (!normalized) return;
@@ -82,7 +82,7 @@ export function tryPostShellAiTrigger(_sessionId: string, _block: TerminalBlock)
 }
 
 /** @deprecated 原 implementation，保留供未来改造参考。 */
-function _tryPostShellAiTriggerImpl(sessionId: string, block: TerminalBlock): void {
+export function _tryPostShellAiTriggerImpl(sessionId: string, block: TerminalBlock): void {
   if (!isWarpDisplay(sessionId)) return;
   if (block.kind === "ai") return;
   if (triggeredBlockIds.has(block.id)) return;

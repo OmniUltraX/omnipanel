@@ -101,7 +101,7 @@ export function KnowledgeHistoryPanel({
                 >
                   <span>{rev.title || currentTitle}</span>
                   <span className="knowledge-history__time">
-                    {new Date(rev.createdAt).toLocaleString()}
+                    {new Date(rev.createdAt ?? 0).toLocaleString()}
                   </span>
                 </button>
               </li>

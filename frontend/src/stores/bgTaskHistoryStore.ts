@@ -63,7 +63,7 @@ export const useBgTaskHistoryStore = create<BgTaskHistoryState>()(
             total: r.total,
             rowCompleted: r.rowCompleted ?? null,
             rowTotal: r.rowTotal ?? null,
-            startedAt: r.startedAt,
+            startedAt: r.startedAt ?? 0,
             finishedAt: r.finishedAt ?? null,
             error: r.error ?? null,
           }));

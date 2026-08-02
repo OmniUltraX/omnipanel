@@ -183,12 +183,12 @@ export function emptyImportSelection(): ClientSyncImportSelection {
 
 export function selectionCount(sel: ClientSyncImportSelection): number {
   return (
-    sel.connectionIds.length +
-    sel.databaseIds.length +
-    sel.knowledgeIds.length +
-    sel.httpRequestIds.length +
-    sel.httpCollectionIds.length +
-    sel.workspaceIds.length +
-    sel.conversationIds.length
+    (sel.connectionIds ?? []).length +
+    (sel.databaseIds ?? []).length +
+    (sel.knowledgeIds ?? []).length +
+    (sel.httpRequestIds ?? []).length +
+    (sel.httpCollectionIds ?? []).length +
+    (sel.workspaceIds ?? []).length +
+    (sel.conversationIds ?? []).length
   );
 }

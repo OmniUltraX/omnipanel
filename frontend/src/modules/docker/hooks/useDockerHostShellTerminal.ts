@@ -184,7 +184,7 @@ export function useLocalDockerShellTerminal(
 
     void (async () => {
       try {
-        const sessionId = await unwrapCommand(commands.createTerminal(term.cols, term.rows));
+        const sessionId = await unwrapCommand(commands.createTerminal(term.cols, term.rows, null));
         if (cancelled) {
           void commands.closeTerminal(sessionId);
           return;

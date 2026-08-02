@@ -479,7 +479,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const dragRowHeightRef = useRef<{ rowIndex: number; height: number } | null>(null);
   /** 列宽拖拽中的全列宽度快照（Canvas / 表头共用） */
   const dragColumnWidthsRef = useRef<Record<string, number> | null>(null);
-  const [gridRenderMode, setGridRenderMode] = useState<GridRenderMode>(() =>
+  const [gridRenderMode] = useState<GridRenderMode>(() =>
     readStoredGridRenderMode(),
   );
   const gridRenderModeRef = useRef(gridRenderMode);

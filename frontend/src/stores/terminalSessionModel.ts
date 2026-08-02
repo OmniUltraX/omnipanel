@@ -1,4 +1,4 @@
-import type { LocalShellSpec, TerminalSessionInfo, TerminalSessionType, TerminalTab } from "./terminalTypes";
+import type { LocalShellKind, LocalShellSpec, TerminalSessionInfo, TerminalSessionType, TerminalTab } from "./terminalTypes";
 
 export type TerminalSessionLifecycle = "active" | "suspended" | "ended";
 

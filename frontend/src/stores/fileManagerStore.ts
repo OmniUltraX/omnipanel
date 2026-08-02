@@ -79,8 +79,8 @@ export async function ensureFileTransferListener(): Promise<void> {
   });
   try {
     const { fileTransferConcurrency, fileTransferRateLimitBps } = useSettingsStore.getState();
-    await unwrapCommand(await commands.fileTransferSetConcurrency(fileTransferConcurrency));
-    await unwrapCommand(await commands.fileTransferSetRateLimit(fileTransferRateLimitBps));
+    await unwrapCommand(commands.fileTransferSetConcurrency(fileTransferConcurrency));
+    await unwrapCommand(commands.fileTransferSetRateLimit(fileTransferRateLimitBps));
   } catch {
     /* ignore */
   }
@@ -103,7 +103,7 @@ export const useFileManagerStore = create<FileManagerState>((set) => ({
   hydrateTransfers: async () => {
     await ensureFileTransferListener();
     try {
-      const res = await unwrapCommand(await commands.fileTransferList());
+      const res = await unwrapCommand(commands.fileTransferList());
       const jobs = (res.jobs ?? []).map((j) =>
         normalizeJob(j as unknown as Record<string, unknown>),
       );
@@ -114,7 +114,7 @@ export const useFileManagerStore = create<FileManagerState>((set) => ({
   },
   clearDoneTransfers: async () => {
     try {
-      await unwrapCommand(await commands.fileTransferClearFinished());
+      await unwrapCommand(commands.fileTransferClearFinished());
     } catch {
       /* ignore */
     }
@@ -125,10 +125,10 @@ export const useFileManagerStore = create<FileManagerState>((set) => ({
     }));
   },
   cancelTransfer: async (jobId) => {
-    await unwrapCommand(await commands.fileTransferCancel(jobId));
+    await unwrapCommand(commands.fileTransferCancel(jobId));
   },
   retryTransfer: async (jobId) => {
-    await unwrapCommand(await commands.fileTransferRetry(jobId));
+    await unwrapCommand(commands.fileTransferRetry(jobId));
   },
 }));
 
@@ -156,7 +156,7 @@ export async function planFileTransfer(input: {
 }) {
   await ensureFileTransferListener();
   return unwrapCommand(
-    await commands.fileTransferPlan({
+    commands.fileTransferPlan({
       sourceConnectionId: input.sourceConnectionId,
       destConnectionId: input.destConnectionId,
       forceRoute: input.forceRoute ?? null,
@@ -168,7 +168,7 @@ export async function planFileTransfer(input: {
 export async function enqueueFileTransfer(input: EnqueueTransferInput): Promise<string> {
   await ensureFileTransferListener();
   return unwrapCommand(
-    await commands.fileTransferEnqueue({
+    commands.fileTransferEnqueue({
       items: input.items.map((it) => ({
         connectionId: it.connectionId,
         path: it.path,

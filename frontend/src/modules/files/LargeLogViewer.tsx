@@ -90,8 +90,10 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
           return;
         }
         for (const l of lines) {
-          linesRef.current.set(l.lineNo, l.text);
-          if (l.lineNo > maxLineNoRef.current) maxLineNoRef.current = l.lineNo;
+          const lineNo = l.lineNo ?? 0;
+          if (lineNo <= 0) continue;
+          linesRef.current.set(lineNo, l.text);
+          if (lineNo > maxLineNoRef.current) maxLineNoRef.current = lineNo;
         }
         loadedChunksRef.current.add(chunkKey);
         chunkLruRef.current.push(chunkKey);
@@ -144,12 +146,14 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
           if (cancelled) return;
           if (lines.length > 0) {
             // 标记末尾 chunk 已加载，避免虚拟滚动重复触发 ensureChunk
-            const firstLine = lines[0]!.lineNo;
-            const lastLine = lines[lines.length - 1]!.lineNo;
+            const firstLine = lines[0]!.lineNo ?? 0;
+            const lastLine = lines[lines.length - 1]!.lineNo ?? 0;
             const chunkStart = Math.floor((firstLine - 1) / CHUNK_SIZE) * CHUNK_SIZE + 1;
             for (const l of lines) {
-              linesRef.current.set(l.lineNo, l.text);
-              if (l.lineNo > maxLineNoRef.current) maxLineNoRef.current = l.lineNo;
+              const lineNo = l.lineNo ?? 0;
+              if (lineNo <= 0) continue;
+              linesRef.current.set(lineNo, l.text);
+              if (lineNo > maxLineNoRef.current) maxLineNoRef.current = lineNo;
             }
             loadedChunksRef.current.add(String(chunkStart));
             chunkLruRef.current.push(String(chunkStart));
@@ -269,7 +273,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
         (chunk) => {
           if (chunk.lines.length > 0) {
             const startLine = maxLineNoRef.current + 1;
-            chunk.lines.forEach((text, i) => {
+            chunk.lines.forEach((text: string, i: number) => {
               const lineNo = startLine + i;
               linesRef.current.set(lineNo, text);
               if (lineNo > maxLineNoRef.current) maxLineNoRef.current = lineNo;
@@ -510,7 +514,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
                   key={hit.lineNo}
                   type="button"
                   className={`log-viewer__hit${activeHitLine === hit.lineNo ? " active" : ""}`}
-                  onClick={() => jumpToLine(hit.lineNo)}
+                  onClick={() => jumpToLine(hit.lineNo ?? 0)}
                 >
                   <span className="log-viewer__hit-line">L{hit.lineNo}</span>
                   <span className="log-viewer__hit-content">{hit.content}</span>

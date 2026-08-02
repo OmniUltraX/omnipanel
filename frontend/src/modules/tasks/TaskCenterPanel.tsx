@@ -575,14 +575,14 @@ function AuditList({ entries }: { entries: AuditEntry[] }) {
       </div>
       <div className="task-center-table__body">
         {entries.map((entry, i) => {
-          const prod = isProdEnvTag(entry.envTag);
+          const prod = isProdEnvTag(entry.env_tag);
           return (
             <div
               key={`${entry.ts}-${i}`}
               className={`task-center-table__row${prod ? " task-center-table__row--prod" : ""}`}
             >
               <div className="task-center-table__cell task-center-table__cell--ts">
-                {formatTs(entry.ts)}
+                {formatTs(entry.ts ?? 0)}
               </div>
               <div className="task-center-table__cell task-center-table__cell--action">
                 <code>{entry.action}</code>
@@ -591,12 +591,12 @@ function AuditList({ entries }: { entries: AuditEntry[] }) {
                 {entry.target}
               </div>
               <div className="task-center-table__cell task-center-table__cell--env">
-                {entry.envTag ? (
+                {entry.env_tag ? (
                   <span
                     className={`env-badge${prod ? " env-prod" : ""}`}
-                    title={entry.envTag}
+                    title={entry.env_tag}
                   >
-                    {prod ? t("taskCenter.history.envProd") : entry.envTag}
+                    {prod ? t("taskCenter.history.envProd") : entry.env_tag}
                   </span>
                 ) : (
                   "—"
@@ -659,14 +659,14 @@ function ToolAuditList({ records }: { records: BuiltinToolAuditRecord[] }) {
         {records.map((rec) => (
           <div key={rec.id} className="task-center-table__row">
             <div className="task-center-table__cell task-center-table__cell--ts">
-              {formatTs(rec.ts)}
+              {formatTs(rec.ts ?? 0)}
             </div>
             <div className="task-center-table__cell task-center-table__cell--source">{rec.source}</div>
             <div className="task-center-table__cell task-center-table__cell--action">
               <code>{rec.toolName}</code>
             </div>
             <div className="task-center-table__cell task-center-table__cell--duration">
-              {formatDuration(rec.durationMs)}
+              {formatDuration(rec.durationMs ?? 0)}
             </div>
             <div
               className={`task-center-table__cell task-center-table__cell--status ${rec.success ? "status-success" : "status-failed"}`}
