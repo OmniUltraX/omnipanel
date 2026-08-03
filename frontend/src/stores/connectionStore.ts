@@ -50,6 +50,7 @@ const KIND_TO_TYPE: Record<ConnectionKind, ResourceType> = {
   docker: "docker",
   protocol: "protocol",
   panel: "server",
+  cloud: "server",
   file: "file",
 };
 
@@ -68,9 +69,21 @@ function deriveSubtitle(connection: Connection): string {
     const user = typeof cfg.user === "string" ? cfg.user : undefined;
     const database = typeof cfg.database === "string" ? cfg.database : undefined;
     const address = typeof cfg.address === "string" ? cfg.address : undefined;
+    const region = typeof cfg.region === "string" ? cfg.region : undefined;
+    const regions = Array.isArray(cfg.regions)
+      ? cfg.regions.filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+      : [];
+    const provider = typeof cfg.provider === "string" ? cfg.provider : undefined;
     if (host && user) return `${user}@${host}${port ? `:${port}` : ""}`;
     if (host) return `${host}${port ? `:${port}` : ""}`;
     if (address) return address;
+    if (provider && regions.length > 0) {
+      return regions.length === 1
+        ? `${provider} · ${regions[0]}`
+        : `${provider} · ${regions.length} regions`;
+    }
+    if (provider && region) return `${provider} · ${region}`;
+    if (region) return region;
     if (database) return database;
   } catch {
     // config 非合法 JSON 时忽略，回退到 group

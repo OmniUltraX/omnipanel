@@ -25,7 +25,7 @@ import {
 import type { ServerSidebarNavigate } from "./serverSidebarNav";
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { serverEntryMatchesSearch } from "../serverTreeSearch";
-import { ServerTreeIcon, serverTreeNodeClassName } from "./serverTreeIcons";
+import { ServerTreeIcon, serverTreeIconKindForPanel, serverTreeNodeClassName } from "./serverTreeIcons";
 
 type ServerTreeBranchProps = {
   server: ServerEntry;
@@ -267,9 +267,10 @@ export function ServerPanelTreeSidebar({
         {sortedServers.length === 0 ? (
           <div className="empty-state compact">{t("common.noResources")}</div>
         ) : (
-          sortedServers.map((server) => {
+            sortedServers.map((server) => {
             const serverKey = makeServerTreeKey(server.id);
             const serverExpanded = isExpanded(serverKey);
+            const iconKind = serverTreeIconKindForPanel(server.serviceType);
             return (
               <div key={server.id} className="server-tree-server">
                 <SidebarTreeNode
@@ -277,9 +278,9 @@ export function ServerPanelTreeSidebar({
                   module="server"
                   nodeType="server"
                   treeKey={serverKey}
-                  icon={<ServerTreeIcon kind="server" />}
+                  icon={<ServerTreeIcon kind={iconKind} />}
                   className={serverTreeNodeClassName(
-                    "server",
+                    iconKind,
                     server.serviceType === "bt"
                       ? "server-tree-node--bt"
                       : "server-tree-node--onepanel",

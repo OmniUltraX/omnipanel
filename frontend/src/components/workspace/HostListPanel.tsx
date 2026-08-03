@@ -37,6 +37,7 @@ import {
   getLinkedConnectionIds,
   parsePanelConfig,
 } from "../../modules/server/panel/serverConnection";
+import { BrandIconImg, resolvePanelBrandIcon } from "../../modules/server/brandIcons";
 import { SSH_PATH } from "../../modules/server/ssh/constants";
 import type { Connection } from "../../ipc/bindings";
 
@@ -72,12 +73,14 @@ function HostPanelBadge({ sshId }: { sshId: string }) {
   const panel = findPanelForSsh(connections, sshId);
   if (!panel) return null;
   const serviceType = parsePanelConfig(panel).serviceType;
+  const brand = resolvePanelBrandIcon(serviceType);
   const label =
     serviceType === "1panel"
       ? t("server.serviceType.1panel")
       : t("server.serviceType.bt");
   return (
     <span className="host-panel-badge" title={t("server.hostList.panelConfigured")}>
+      {brand ? <BrandIconImg kind={brand} size={12} className="host-panel-badge-icon" /> : null}
       {label}
     </span>
   );

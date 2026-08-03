@@ -10,6 +10,7 @@ import type { Connection } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
+import { BrandIconImg } from "../server/brandIcons";
 
 /** Backend type from docker_probe_ssh_docker */
 interface DockerAutoDetectResult {
@@ -428,6 +429,11 @@ export function DockerConnectionDialog({
                   className={`engine-chip${form.source === opt.value ? " engine-chip--active" : ""}`}
                   onClick={() => update("source", opt.value)}
                 >
+                  {opt.value === "onepanel" ? (
+                    <span className="engine-chip-icon">
+                      <BrandIconImg kind="1panel" size={18} className="engine-chip-logo" />
+                    </span>
+                  ) : null}
                   <div className="engine-chip-title">{opt.label}</div>
                   <div className="engine-chip-hint">{opt.hint}</div>
                 </button>

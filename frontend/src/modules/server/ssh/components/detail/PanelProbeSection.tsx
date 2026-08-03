@@ -11,6 +11,7 @@ import {
   parseSshConfig,
 } from "../../../panel/serverConnection";
 import { usePanelProbe } from "../../hooks/usePanelProbe";
+import { BrandIconImg } from "../../../brandIcons";
 
 type Props = {
   resourceId: string;
@@ -162,6 +163,11 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
             <div key={panel.kind} className="capabilities__tool">
               <div className="capabilities__tool-head">
                 <span className="capabilities__tool-name">
+                  <BrandIconImg
+                    kind={panel.kind === "bt" ? "bt" : "1panel"}
+                    size={14}
+                    className="server-tree-brand-icon"
+                  />
                   {panel.kind === "bt" ? "宝塔面板" : "1Panel"}
                 </span>
                 <span

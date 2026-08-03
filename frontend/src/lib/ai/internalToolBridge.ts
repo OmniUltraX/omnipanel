@@ -107,7 +107,8 @@ async function handleModulePendingTool(options: {
  * - 子会话集群（omni_spawn_sub_conversations）：走 subConversationRunner；
  * - SSH 体检（omni_orchestration_ssh_fleet_health）：走 subConversationRunner；
  * - Plan 工具（omni_plan_create/add_step/update_step）：走 planToolDispatcher；
- * - 其它模块（含 omni_ssh_exec）：调用注册的 handler 直接执行。
+ * - 终端内联 AI 的 omni_ssh_exec：走当前 Tab PTY + 命令块 / 审批条；
+ * - 其它模块（含侧栏 omni_ssh_exec）：调用注册的 handler 直接执行。
  * 全部通过 `ai_chat_tool_result` 回传结果。
  */
 export async function dispatchPendingTool(options: {
@@ -161,6 +162,21 @@ export async function dispatchPendingTool(options: {
       conversationId: options.conversationId,
       toolCallId: options.toolCallId,
       argsJson: options.argsJson,
+    });
+  }
+
+  // 终端内联会话：omni_ssh_exec 走当前 Tab PTY，生成可见命令块（含审批条）
+  if (options.inline && options.toolName === SSH_EXEC_TOOL_NAME) {
+    const { dispatchInlineTerminalPendingTool } = await import(
+      "../../modules/terminal/inlineToolBridge"
+    );
+    return dispatchInlineTerminalPendingTool({
+      conversationId: options.conversationId,
+      toolCallId: options.toolCallId,
+      toolName: options.toolName,
+      argsJson: options.argsJson,
+      blockId: options.inline.blockId,
+      sessionId: options.inline.sessionId,
     });
   }
 

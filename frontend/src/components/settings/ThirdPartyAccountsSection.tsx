@@ -7,6 +7,7 @@ import {
   type ThirdPartyAccount,
 } from "../../stores/thirdPartyAccountsStore";
 import { ThirdPartyAccountDialog } from "./ThirdPartyAccountDialog";
+import { BrandIconImg } from "../../modules/server/brandIcons";
 
 export function ThirdPartyAccountsSection() {
   const { t } = useI18n();
@@ -88,6 +89,11 @@ export function ThirdPartyAccountsSection() {
                     <span className="ai-provider-expand-placeholder" aria-hidden />
                     <div className="ai-provider-summary">
                       <div className="ai-provider-title-row">
+                        {account.platform === "aliyun" ? (
+                          <BrandIconImg kind="aliyun" size={16} className="server-tree-brand-icon" />
+                        ) : account.platform === "docker_hub" ? (
+                          <BrandIconImg kind="docker" size={16} className="server-tree-brand-icon" />
+                        ) : null}
                         <span className="ai-provider-name">{account.name}</span>
                         <span className="ai-model-row-standard">
                           {t(`settings.accounts.platforms.${account.platform}`)}

@@ -256,6 +256,9 @@ pub async fn conn_save(
         ConnectionKind::Docker | ConnectionKind::Panel => {
             connection = normalize_docker_or_panel_connection(connection)?;
         }
+        ConnectionKind::Cloud => {
+            connection = crate::commands::cloud::normalize_cloud_connection(connection)?;
+        }
         _ => {}
     }
 
@@ -289,6 +292,7 @@ pub async fn conn_delete(state: State<'_, AppState>, id: String) -> Result<(), O
         let _ = Vault::delete(&format!("docker-ssh-pem-{}", conn.id));
         let _ = Vault::delete(&format!("docker-ssh-passphrase-{}", conn.id));
         let _ = Vault::delete(&format!("panel-key-{}", conn.id));
+        let _ = Vault::delete(&crate::commands::cloud::cloud_secret_ref(&conn.id));
     }
     Ok(())
 }
@@ -377,6 +381,9 @@ pub async fn conn_test(
                 );
             }
             Ok(msg)
+        }
+        ConnectionKind::Cloud => {
+            crate::commands::cloud::cloud_test(state, connection, secret).await
         }
         other => Err(OmniError::new(
             ErrorCode::InvalidInput,

@@ -8,30 +8,47 @@ import { useI18n } from "../../../i18n";
 import type { ServerEntry } from "./serverConnection";
 import { useServerSidebarLinkage } from "./ServerSidebarLinkageContext";
 import { ServerPanelTreeSidebar } from "./ServerPanelTreeSidebar";
+import { CloudTreeSidebar } from "../cloud/CloudTreeSidebar";
+import type { CloudAccount } from "../cloud/cloudForm";
+import type { CloudSidebarNavigate } from "../cloud/cloudSidebarNav";
 
 const SECTION_STORAGE_KEY = "omnipanel-server-panel-sidebar-sections";
 
-type SectionKey = "servers";
+type SectionKey = "servers" | "cloud";
 
 export interface ServerPanelSidebarProps {
   servers: ServerEntry[];
+  cloudAccounts: CloudAccount[];
   onCreateServer?: () => void;
   onEditServer?: (server: ServerEntry) => void;
   onDeleteServer?: (serverIds: string | string[]) => void;
+  onCreateCloud?: () => void;
+  onEditCloud?: (account: CloudAccount) => void;
+  onDeleteCloud?: (accountIds: string | string[]) => void;
+  onNavigateCloud?: CloudSidebarNavigate;
+  activeCloudAccountId?: string | null;
+  activeCloudNavKey?: string | null;
 }
 
 export function ServerPanelSidebar({
   servers,
+  cloudAccounts,
   onCreateServer,
   onEditServer,
   onDeleteServer,
+  onCreateCloud,
+  onEditCloud,
+  onDeleteCloud,
+  onNavigateCloud,
+  activeCloudAccountId = null,
+  activeCloudNavKey = null,
 }: ServerPanelSidebarProps) {
   const { t } = useI18n();
   const { activeServerId, activeNavKey, onNavigate } = useServerSidebarLinkage();
   const [searchQuery, setSearchQuery] = useState("");
   const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections<SectionKey>(
     SECTION_STORAGE_KEY,
-    { servers: true },
+    { servers: true, cloud: true },
   );
 
   useEffect(() => {
@@ -40,6 +57,13 @@ export function ServerPanelSidebar({
     }
     setSectionExpanded("servers", true);
   }, [activeServerId, setSectionExpanded]);
+
+  useEffect(() => {
+    if (!activeCloudAccountId) {
+      return;
+    }
+    setSectionExpanded("cloud", true);
+  }, [activeCloudAccountId, setSectionExpanded]);
 
   return (
     <VerticalSplitSidebar className="server-panel-sidebar">
@@ -62,6 +86,21 @@ export function ServerPanelSidebar({
             title: t("server.sidebar.title"),
             expanded: sections.servers,
             onToggle: () => toggleSection("servers"),
+          }}
+        />
+        <CloudTreeSidebar
+          accounts={cloudAccounts}
+          activeAccountId={activeCloudAccountId}
+          activeNavKey={activeCloudNavKey}
+          searchQuery={searchQuery}
+          onNavigate={onNavigateCloud ?? (() => {})}
+          onCreateAccount={onCreateCloud}
+          onEditAccount={onEditCloud}
+          onDeleteAccount={onDeleteCloud}
+          section={{
+            title: t("server.cloud.sidebar.title"),
+            expanded: sections.cloud,
+            onToggle: () => toggleSection("cloud"),
           }}
         />
       </ScopedSearch>

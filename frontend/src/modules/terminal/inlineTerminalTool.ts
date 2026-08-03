@@ -3,6 +3,7 @@ import {
   type AiThreadToolCall,
   type TerminalBlock,
 } from "../../stores/blocksStore";
+import { SSH_EXEC_TOOL_NAME } from "../../lib/ai/toolHost";
 import { getResolvedAiThread } from "./aiThreadBridge";
 import { getPendingInlineToolScope } from "./inlineToolBridge";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
@@ -22,9 +23,15 @@ function resolveToolCallCommand(item: AiThreadToolCall): string {
   return "";
 }
 
-/** 历史内联「终端跑命令」工具已移除；保留函数以免调用方断裂，恒为 false。 */
-export function isInlineTerminalToolName(_toolName: string): boolean {
-  return false;
+/** 在终端会话内联展示 / 审批的「跑命令」类工具（含历史别名）。 */
+const INLINE_TERMINAL_TOOL_NAMES = new Set([
+  SSH_EXEC_TOOL_NAME,
+  "omni_terminal_run_terminal_command",
+  "run_terminal_command",
+]);
+
+export function isInlineTerminalToolName(toolName: string): boolean {
+  return INLINE_TERMINAL_TOOL_NAMES.has(toolName);
 }
 
 export type ActiveInlineTerminalTool = {
@@ -50,13 +57,13 @@ export function findActiveInlineTerminalTool(
         isInlineTerminalToolName(entry.toolName) &&
         (entry.status === "pending" || entry.status === "running")
       ) {
-        const scope = getPendingInlineToolScope(block.id, entry.id);
-        if (scope && scope.sessionId !== sessionId) continue;
+        const scope = getPendingInlineToolScope(entry.id, sessionId);
+        if (scope.terminalSessionId && scope.terminalSessionId !== sessionId) continue;
         const command = resolveToolCallCommand(entry);
         if (
           command &&
           !shouldRequireTerminalApproval(command, mode, {
-            conversationId: entry.conversationId,
+            conversationId: scope.conversationId,
             terminalSessionId: sessionId,
           })
         ) {

@@ -417,6 +417,42 @@ export function newInlineToolCallId(): string {
   return createBlockId();
 }
 
+/**
+ * 终端内联 AI 会话中的 `omni_ssh_exec`：走当前 Tab 的 PTY 执行并生成 shell 命令块，
+ * 不再静默走 ssh_pool_exec（侧栏 / 非内联仍用模块 handler）。
+ */
+export async function dispatchInlineTerminalPendingTool(options: {
+  conversationId: string;
+  toolCallId: string;
+  toolName: string;
+  argsJson: string;
+  blockId: string;
+  sessionId: string;
+}): Promise<void> {
+  const command = parseCommandFromArgs(options.argsJson);
+  const pane = findTerminalPane(options.sessionId);
+  const resourceId = pane?.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
+  const riskLevel = assessRisk(command, resourceId);
+
+  useBlocksStore.getState().updateAiThreadItem(options.blockId, options.toolCallId, {
+    toolName: options.toolName,
+    args: options.argsJson,
+    command,
+    status: "pending",
+    riskLevel,
+  } as Partial<AiThreadToolCall>);
+
+  useTerminalUiStore.getState().setExpandedAiBlock(options.sessionId, options.blockId);
+
+  await waitForInlineToolDecision(
+    options.blockId,
+    options.toolCallId,
+    options.sessionId,
+    command,
+    options.conversationId,
+  );
+}
+
 export function cancelInlineToolByActionId(actionId: string): void {
   for (const [toolCallId, pending] of pendingByToolCallId.entries()) {
     void actionId;

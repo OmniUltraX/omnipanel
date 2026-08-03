@@ -20,7 +20,7 @@ import {
   makeDockerTreeKey,
 } from "./dockerResourceLabels";
 import type { DockerSidebarNavigate } from "./dockerSidebarNav";
-import { DockerTreeIcon, dockerTreeNodeClassName } from "./dockerTreeIcons";
+import { DockerTreeIcon, dockerConnectionIconKind, dockerTreeNodeClassName } from "./dockerTreeIcons";
 import {
   connectionSupportsSidebarResources,
   refreshDockerConnectionSidebarCache,
@@ -288,6 +288,7 @@ export function DockerPanelTreeSidebar({
             const connectionKey = makeDockerTreeKey(connection.connectionId);
             const connectionExpanded = isExpanded(connectionKey);
             const supportsResources = connectionSupportsSidebarResources(connection);
+            const connectionIconKind = dockerConnectionIconKind(connection.source);
             return (
               <div key={connection.connectionId} className="server-tree-server docker-tree-connection">
                 <SidebarTreeNode
@@ -295,8 +296,8 @@ export function DockerPanelTreeSidebar({
                   module="docker"
                   nodeType="connection"
                   treeKey={connectionKey}
-                  icon={<DockerTreeIcon kind="connection" />}
-                  className={dockerTreeNodeClassName("connection")}
+                  icon={<DockerTreeIcon kind={connectionIconKind} />}
+                  className={dockerTreeNodeClassName(connectionIconKind)}
                   shouldIgnoreClick={(target) =>
                     Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
                   }

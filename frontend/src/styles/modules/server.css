@@ -273,6 +273,9 @@
 
     .host-panel-badge {
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         padding: 2px 8px;
         border-radius: var(--r-sm);
         font-size: 10px;
@@ -283,6 +286,14 @@
         line-height: 1.4;
         align-self: center;
         margin-right: var(--sp-2);
+    }
+
+    .host-panel-badge-icon {
+        display: block;
+        width: 12px;
+        height: 12px;
+        object-fit: contain;
+        flex-shrink: 0;
     }
 
     .host-status {
@@ -3059,6 +3070,9 @@
     }
 
     .capabilities__tool-name {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         font-family: var(--font-mono);
         font-size: 13px;
         font-weight: 500;

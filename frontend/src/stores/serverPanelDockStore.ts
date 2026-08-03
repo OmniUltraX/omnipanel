@@ -3,8 +3,11 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   findPreviewDockTab,
+  findTabIdForCloud,
   findTabIdForServer,
   findTabIdForServerResource,
+  makeCloudTab,
+  makeCloudTabId,
   makeServerResourceTab,
   makeServerResourceTabId,
   makeServerTabId,
@@ -19,6 +22,7 @@ interface ServerPanelDockState {
   activeTabId: string | null;
   dockLayout: SerializedDockview | null;
   selectServer: (serverId: string, mode?: ServerPanelDockOpenMode) => void;
+  selectCloud: (accountId: string, mode?: ServerPanelDockOpenMode) => void;
   selectServerResource: (
     serverId: string,
     kind: ServerPanelResourceKind,
@@ -110,6 +114,14 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
             preview,
             label: "",
           })),
+        );
+      },
+
+      selectCloud: (accountId, mode = "permanent") => {
+        set((state) =>
+          openOrFocusTab(state, mode, findTabIdForCloud(state.tabs, accountId), (id, preview) =>
+            makeCloudTab(id || makeCloudTabId(), accountId, preview),
+          ),
         );
       },
 

@@ -265,4 +265,9 @@ export class BtPanelApiError extends Error {
   get isAuthError(): boolean {
     return this.status === 401;
   }
+
+  /** 是否为宝塔 API IP 白名单拒绝。 */
+  get isIpWhitelistError(): boolean {
+    return /IP校验失败|IP.?校验|IP.?白名单/i.test(this.message);
+  }
 }

@@ -200,6 +200,13 @@ export const commands = {
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
 	/**  宝塔面板连通性测试。 */
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
+	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
+	cloudTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_test", { connection, secret })),
+	cloudListOss: (connectionId: string, region: string | null) => typedError<CloudOssBucket[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_oss", { connectionId, region })),
+	cloudListSwas: (connectionId: string, region: string | null) => typedError<CloudSwasInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_swas", { connectionId, region })),
+	cloudListDomains: (connectionId: string) => typedError<CloudDomainItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_domains", { connectionId })),
+	cloudListEcs: (connectionId: string, region: string | null) => typedError<CloudEcsInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_ecs", { connectionId, region })),
+	cloudListCerts: (connectionId: string) => typedError<CloudCertificateItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_certs", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -1339,56 +1346,6 @@ export type ArchiveToolInstallResult = {
 	message: string,
 };
 
-/**  工具分类 */
-export type ToolCategory = "terminal" | "database" | "archive" | "transfer" | "monitoring" | "system";
-
-/**  工具状态 */
-export type ToolState =
-	| { kind: "ready", version: string | null, path: string | null }
-	| { kind: "needInstall" }
-	| { kind: "tooOld", version: string, required: string }
-	| { kind: "unsupported", reason: string };
-
-/**  安装方式 */
-export type InstallMethod =
-	| { kind: "none" }
-	| { kind: "packageManager", packages: Record<string, string> }
-	| { kind: "downloadBinary", url: string, remotePath: string }
-	| { kind: "shellScript", script: string }
-	| { kind: "manual", instructions: string };
-
-/**  单个工具的探测结果 */
-export type RemoteToolCapability = {
-	id: string,
-	labelKey: string,
-	category: ToolCategory,
-	state: ToolState,
-	installMethod: InstallMethod,
-	relatedModules: string[],
-};
-
-/**  一次能力探测的完整结果 */
-export type CapabilityProbeResult = {
-	resourceId: string,
-	tools: RemoteToolCapability[],
-	/**  探测耗时（毫秒） */
-	elapsedMs: number,
-	/**  探测时间戳（Unix 毫秒） */
-	probedAt: number,
-	/**  批量脚本未覆盖、需单独探测的工具 id */
-	lazyProbeIds: string[],
-};
-
-/**  安装工具的结果 */
-export type InstallToolResult = {
-	toolId: string,
-	installed: boolean,
-	/**  安装输出或失败原因 */
-	message: string,
-	/**  安装后重新探测的状态 */
-	state: ToolState | null,
-};
-
 /**  单个面板（宝塔/1Panel）的探测结果 */
 export type PanelProbeItem = {
 	/**  面板类型：bt（宝塔） / 1panel */
@@ -1936,7 +1893,62 @@ export type Connection = {
 };
 
 /**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
-export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | "protocol" | "file";
+export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | "cloud" | "protocol" | "file";
+
+export type CloudOssBucket = {
+	name: string,
+	location: string,
+	creationDate: string,
+	storageClass: string,
+	extranetEndpoint: string,
+	intranetEndpoint: string,
+	region: string,
+};
+
+export type CloudSwasInstance = {
+	instanceId: string,
+	instanceName: string,
+	status: string,
+	regionId: string,
+	publicIpAddress: string,
+	privateIpAddress: string,
+	imageId: string,
+	instancePlan: string,
+	creationTime: string,
+};
+
+export type CloudDomainItem = {
+	domainName: string,
+	instanceId: string,
+	registrationDate: string,
+	expirationDate: string,
+	domainStatus: string,
+	domainType: string,
+};
+
+export type CloudEcsInstance = {
+	instanceId: string,
+	instanceName: string,
+	status: string,
+	regionId: string,
+	zoneId: string,
+	instanceType: string,
+	publicIpAddress: string,
+	privateIpAddress: string,
+	osName: string,
+	creationTime: string,
+};
+
+export type CloudCertificateItem = {
+	orderId: string,
+	name: string,
+	domain: string,
+	status: string,
+	productName: string,
+	certType: string,
+	buyDate: string,
+	endDate: string,
+};
 
 /**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
 export type CpuStats = CpuStats_Serialize | CpuStats_Deserialize;

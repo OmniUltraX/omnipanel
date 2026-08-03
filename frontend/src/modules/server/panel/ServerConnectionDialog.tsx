@@ -4,7 +4,7 @@ import { FormDialog } from "../../../components/ui/form/FormDialog";
 import { PasswordInput } from "../../../components/ui/form/PasswordInput";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
-import { createBtPanelClient } from "../../../lib/btpanel";
+import { createBtPanelClient, BtPanelApiError } from "../../../lib/btpanel";
 import { createOnePanelClient } from "../../../lib/onepanel";
 import type { Connection } from "../../../ipc/bindings";
 import {
@@ -15,6 +15,8 @@ import {
 } from "./panelForm";
 import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../../tags/tagKinds";
+import onePanelIcon from "../../../assets/icons/1Panel.svg";
+import baotaIcon from "../../../assets/icons/Baota.svg";
 
 interface ServerConnectionDialogProps {
   open: boolean;
@@ -98,9 +100,15 @@ export function ServerConnectionDialog({
         });
       }
     } catch (err) {
+      const detail =
+        err instanceof BtPanelApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
       setPanelStatus({
         kind: "error",
-        message: t("server.create.testFailed", { error: String(err) }),
+        message: t("server.create.testFailed", { error: detail }),
       });
     } finally {
       setTestingPanel(false);
@@ -194,14 +202,20 @@ export function ServerConnectionDialog({
             className={`engine-chip${form.serviceType === "bt" ? " engine-chip--active" : ""}`}
             onClick={() => update("serviceType", "bt")}
           >
-            <span>{t("server.serviceType.bt")}</span>
+            <span className="engine-chip-icon">
+              <img src={baotaIcon} alt="" className="engine-chip-logo" draggable={false} />
+            </span>
+            <span className="engine-chip-label">{t("server.serviceType.bt")}</span>
           </button>
           <button
             type="button"
             className={`engine-chip${form.serviceType === "1panel" ? " engine-chip--active" : ""}`}
             onClick={() => update("serviceType", "1panel")}
           >
-            <span>{t("server.serviceType.1panel")}</span>
+            <span className="engine-chip-icon">
+              <img src={onePanelIcon} alt="" className="engine-chip-logo" draggable={false} />
+            </span>
+            <span className="engine-chip-label">{t("server.serviceType.1panel")}</span>
           </button>
         </div>
       </div>

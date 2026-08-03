@@ -3,7 +3,7 @@ export type ServerPanelDockOpenMode = "preview" | "permanent";
 
 export type ServerPanelResourceKind = "websites" | "certificates" | "cronjobs";
 
-export type ServerPanelWorkspaceTabKind = "server" | ServerPanelResourceKind;
+export type ServerPanelWorkspaceTabKind = "server" | "cloud" | ServerPanelResourceKind;
 
 export type ServerOverviewPanelTab = {
   id: string;
@@ -11,6 +11,14 @@ export type ServerOverviewPanelTab = {
   label: string;
   serverId: string;
   /** @deprecated 旧「单击预览」槽位；新打开固定为常驻（false/undefined） */
+  preview?: boolean;
+};
+
+export type CloudOverviewPanelTab = {
+  id: string;
+  kind: "cloud";
+  label: string;
+  serverId: string;
   preview?: boolean;
 };
 
@@ -40,6 +48,7 @@ export type ServerCronjobsPanelTab = {
 
 export type ServerPanelWorkspaceTab =
   | ServerOverviewPanelTab
+  | CloudOverviewPanelTab
   | ServerWebsitesPanelTab
   | ServerCertificatesPanelTab
   | ServerCronjobsPanelTab;
@@ -69,7 +78,11 @@ export function sanitizeServerPanelDockTabs(
 
 function isServerPanelWorkspaceTabKind(kind: string): kind is ServerPanelWorkspaceTabKind {
   return (
-    kind === "server" || kind === "websites" || kind === "certificates" || kind === "cronjobs"
+    kind === "server" ||
+    kind === "cloud" ||
+    kind === "websites" ||
+    kind === "certificates" ||
+    kind === "cronjobs"
   );
 }
 
@@ -79,6 +92,14 @@ export function findTabIdForServer(
   serverId: string,
 ): string | undefined {
   return tabs.find((tab) => tab.kind === "server" && tab.serverId === serverId)?.id;
+}
+
+/** 查找已打开的云账户总览 Tab */
+export function findTabIdForCloud(
+  tabs: ServerPanelWorkspaceTab[],
+  accountId: string,
+): string | undefined {
+  return tabs.find((tab) => tab.kind === "cloud" && tab.serverId === accountId)?.id;
 }
 
 /** 查找已打开的资源列表面板 Tab */
@@ -94,6 +115,10 @@ export function makeServerTabId(): string {
   return `srvtab:${Date.now()}`;
 }
 
+export function makeCloudTabId(): string {
+  return `cloudtab:${Date.now()}`;
+}
+
 export function makeServerResourceTabId(kind: ServerPanelResourceKind): string {
   return `srv${kind}:${Date.now()}`;
 }
@@ -102,6 +127,12 @@ export function isServerOverviewTab(
   tab: ServerPanelWorkspaceTab,
 ): tab is ServerOverviewPanelTab {
   return tab.kind === "server";
+}
+
+export function isCloudOverviewTab(
+  tab: ServerPanelWorkspaceTab,
+): tab is CloudOverviewPanelTab {
+  return tab.kind === "cloud";
 }
 
 export function isServerResourceTab(
@@ -117,4 +148,12 @@ export function makeServerResourceTab(
   preview: boolean,
 ): ServerPanelWorkspaceTab {
   return { id, kind, serverId, preview, label: "" };
+}
+
+export function makeCloudTab(
+  id: string,
+  accountId: string,
+  preview: boolean,
+): CloudOverviewPanelTab {
+  return { id, kind: "cloud", serverId: accountId, preview, label: "" };
 }

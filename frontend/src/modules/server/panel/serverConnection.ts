@@ -34,6 +34,12 @@ export interface SshConfigJson {
   auth: SshAuthJson;
   panelConnectionId?: string;
   publicIp?: string;
+  /** 从云厂商 ECS/SWAS 加入终端时写入，用于反查关联 */
+  cloudSource?: {
+    accountId: string;
+    kind: "ecs" | "swas" | "oss";
+    resourceId: string;
+  };
 }
 
 export interface UnifiedServerFormData {

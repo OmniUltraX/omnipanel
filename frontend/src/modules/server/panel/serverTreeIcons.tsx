@@ -1,3 +1,9 @@
+import {
+  BrandIconImg,
+  resolvePanelBrandIcon,
+  type BrandIconKind,
+} from "../brandIcons";
+
 const iconProps = {
   viewBox: "0 0 24 24",
   fill: "none",
@@ -10,13 +16,30 @@ const iconProps = {
 
 export type ServerTreeIconKind =
   | "server"
+  | "bt"
+  | "1panel"
+  | "aliyun"
   | "apps"
   | "websites"
   | "certificates"
   | "cronjobs"
   | "website";
 
+function isBrandKind(kind: ServerTreeIconKind): kind is BrandIconKind {
+  return kind === "bt" || kind === "1panel" || kind === "aliyun";
+}
+
+export function serverTreeIconKindForPanel(
+  serviceType: string | null | undefined,
+): ServerTreeIconKind {
+  return resolvePanelBrandIcon(serviceType) ?? "server";
+}
+
 export function ServerTreeIcon({ kind }: { kind: ServerTreeIconKind }) {
+  if (isBrandKind(kind)) {
+    return <BrandIconImg kind={kind} />;
+  }
+
   switch (kind) {
     case "server":
       return (

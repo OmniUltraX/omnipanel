@@ -14148,6 +14148,14 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
     }
 
+    .server-item__brand-icon {
+        display: block;
+        width: 14px;
+        height: 14px;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+
     .server-item__name {
         flex: 1;
         min-width: 0;
@@ -14450,12 +14458,26 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--accent);
     }
 
-    .server-sidebar-body .server-tree-node--server.server-tree-node--bt .tree-icon {
+    .server-sidebar-body .server-tree-brand-icon {
+        display: block;
+        width: 13px;
+        height: 13px;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+
+    .server-sidebar-body .server-tree-node--server.server-tree-node--bt .tree-icon,
+    .server-sidebar-body .server-tree-node--bt .tree-icon {
         color: #e6a23c;
     }
 
-    .server-sidebar-body .server-tree-node--server.server-tree-node--onepanel .tree-icon {
+    .server-sidebar-body .server-tree-node--server.server-tree-node--onepanel .tree-icon,
+    .server-sidebar-body .server-tree-node--1panel .tree-icon {
         color: var(--success);
+    }
+
+    .server-sidebar-body .server-tree-node--aliyun .tree-icon {
+        color: #ff8826;
     }
 
     .server-sidebar-body .server-tree-node--websites .tree-icon {
@@ -14556,6 +14578,38 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-height: 0;
         height: 100%;
         overflow: auto;
+    }
+
+    .cloud-resource-name-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .cloud-resource-name-cell__text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .cloud-resource-linked-tag {
+        flex-shrink: 0;
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10px;
+        font-weight: 600;
+    }
+
+    .cloud-resource-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
     }
 
     .server-resource-table__row--active {

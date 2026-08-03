@@ -1910,16 +1910,22 @@ pub(crate) fn bind_file_connection_secret(
 
     // 未提交新 Secret：若仍绑在共享 key 上，把现有内容复制到本连接专属 key
     // （止血用：共享槽里往往是「最后保存的那条」密钥，其它连接仍需各自重填）
+    // 同时支持从云账户 `cloud-secret-*` 等其它 Vault key 复制到文件连接专属 key。
     if let Some(old) = old_ref {
-        if is_shared_file_credential_ref(&old) {
+        if old != desired {
             if let Ok(existing) = Vault::get(&old) {
-                Vault::store(&desired, &existing)?;
-                connection.credential_ref = Some(desired);
-                tracing::warn!(
-                    connection_id = %connection.id,
-                    old_ref = %old,
-                    "文件连接凭据曾共用钥匙串条目，已迁移到专属 key；若签名失败请按连接重新填写 SecretKey"
-                );
+                if !existing.trim().is_empty() {
+                    Vault::store(&desired, &existing)?;
+                    connection.credential_ref = Some(desired);
+                    if is_shared_file_credential_ref(&old) {
+                        tracing::warn!(
+                            connection_id = %connection.id,
+                            old_ref = %old,
+                            "文件连接凭据曾共用钥匙串条目，已迁移到专属 key；若签名失败请按连接重新填写 SecretKey"
+                        );
+                    }
+                    return Ok(());
+                }
             }
         }
     }

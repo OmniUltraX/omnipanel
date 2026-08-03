@@ -1,6 +1,11 @@
+import { BrandIconImg, type BrandIconKind } from "../../modules/server/brandIcons";
+
 /** 模块分段 Tab / 顶栏 segment 模式图标（与 server 侧栏 ServerTreeIcon 视觉一致） */
 export type SegmentTabIconKind =
   | "server"
+  | "bt"
+  | "1panel"
+  | "aliyun"
   | "monitor"
   | "processes"
   | "apps"
@@ -13,6 +18,9 @@ export type SegmentTabIconKind =
 
 const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "server",
+  "bt",
+  "1panel",
+  "aliyun",
   "monitor",
   "processes",
   "apps",
@@ -22,6 +30,10 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "services",
   "logs",
 ]);
+
+function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is BrandIconKind {
+  return icon === "bt" || icon === "1panel" || icon === "aliyun";
+}
 
 export function isSegmentTabIconKind(icon: string): icon is SegmentTabIconKind {
   return SEGMENT_TAB_ICON_KINDS.has(icon);
@@ -34,6 +46,10 @@ export function SegmentTabIcon({
   icon: SegmentTabIconKind;
   size?: number;
 }) {
+  if (isBrandSegmentIcon(icon)) {
+    return <BrandIconImg kind={icon} size={size} />;
+  }
+
   const props = {
     viewBox: "0 0 24 24",
     fill: "none",

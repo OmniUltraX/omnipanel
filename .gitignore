@@ -1,5 +1,7 @@
 # Rust / Cargo
 target/
+# 独立 CARGO_TARGET_DIR（如 gen:bindings 避开 app 占用）
+target-gen-bindings/
 **/*.rs.bk
 
 # Node

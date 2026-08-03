@@ -8,6 +8,7 @@ import {
 } from "../ui/VerticalSplitSidebar";
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
 import type { ServerPanelDockOpenMode } from "../../modules/server/panel/serverPanelWorkspaceTabs";
+import { BrandIconImg, resolvePanelBrandIcon } from "../../modules/server/brandIcons";
 
 interface ServerSidebarProps {
   servers: ServerEntry[];
@@ -80,7 +81,9 @@ export function ServerSidebar({
         {sortedServers.length === 0 ? (
           <div className="empty-state compact">{t("common.noResources")}</div>
         ) : (
-          sortedServers.map((server) => (
+          sortedServers.map((server) => {
+            const brand = resolvePanelBrandIcon(server.serviceType);
+            return (
             <button
               key={server.id}
               type="button"
@@ -91,6 +94,14 @@ export function ServerSidebar({
             >
               <div className="server-item__main">
                 <div className="server-item__row1">
+                  {brand ? (
+                    <BrandIconImg
+                      kind={brand}
+                      size={14}
+                      className="server-item__brand-icon"
+                      title={t(`server.serviceType.${server.serviceType}`)}
+                    />
+                  ) : null}
                   <span className="server-item__name">{server.name}</span>
                   <span
                     className={`badge badge-muted server-item__type-tag server-item__type-tag--${server.serviceType === "bt" ? "bt" : "onepanel"}`}
@@ -101,7 +112,8 @@ export function ServerSidebar({
                 <div className="server-item__address">{server.address}</div>
               </div>
             </button>
-          ))
+            );
+          })
         )}
       </div>
       {ctxPos && (

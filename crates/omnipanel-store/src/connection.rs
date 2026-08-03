@@ -11,6 +11,8 @@ pub enum ConnectionKind {
     Database,
     Docker,
     Panel,
+    /// 云厂商账户（阿里云等），与面板并列挂在第三方服务模块。
+    Cloud,
     Protocol,
     File,
 }
@@ -22,6 +24,7 @@ impl ConnectionKind {
             ConnectionKind::Database => "database",
             ConnectionKind::Docker => "docker",
             ConnectionKind::Panel => "panel",
+            ConnectionKind::Cloud => "cloud",
             ConnectionKind::Protocol => "protocol",
             ConnectionKind::File => "file",
         }
@@ -33,6 +36,7 @@ impl ConnectionKind {
             "database" => Ok(ConnectionKind::Database),
             "docker" => Ok(ConnectionKind::Docker),
             "panel" => Ok(ConnectionKind::Panel),
+            "cloud" => Ok(ConnectionKind::Cloud),
             "protocol" => Ok(ConnectionKind::Protocol),
             "file" => Ok(ConnectionKind::File),
             other => Err(OmniError::new(
@@ -177,7 +181,7 @@ impl Storage {
                 ConnectionKind::Database => "database",
                 ConnectionKind::Docker => "docker",
                 ConnectionKind::File => "files",
-                ConnectionKind::Panel | ConnectionKind::Protocol => "ssh",
+                ConnectionKind::Panel | ConnectionKind::Cloud | ConnectionKind::Protocol => "ssh",
             };
             let _ = self.delete_resource_observations(rt, id);
         }
