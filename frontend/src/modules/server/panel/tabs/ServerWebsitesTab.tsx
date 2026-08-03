@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { TextInput } from "../../../../components/ui/form/TextInput";
 import {
   IconFile,
   IconFolder,
@@ -10,6 +11,7 @@ import {
   IconPlay,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconSettings,
   IconStop,
   IconTrash,
@@ -32,6 +34,7 @@ import {
   websiteCertificateInfo,
   websiteNumericId,
   websiteRowGroup,
+  websiteRowGroupId,
   websiteRowId,
   websiteRowLabel,
   websiteRowPath,
@@ -52,6 +55,7 @@ import {
 import { CreateWebsiteDialog, EditWebsiteDialog } from "../ServerResourceCreateDialogs";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
+import { enrichWebsitesWithGroups } from "../serverPanelCacheRefresh";
 
 interface Props {
   server: ServerEntry;
@@ -80,6 +84,7 @@ type WebsiteGridRow = {
   url: string | null;
   type: string;
   group: string;
+  groupId: string | null;
   path: string;
   status: string;
   certDaysLeft: number | null;
@@ -122,7 +127,7 @@ function formatWebsiteError(err: unknown): string {
 
 export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const { t } = useI18n();
-  const { items: rows, loading, refreshing, error, refresh } = useServerWebsites(server);
+  const { items: rows, siteGroups, loading, refreshing, error, refresh } = useServerWebsites(server);
   // 证书随 refreshServer 一并更新，此处只读缓存做到期天数关联
   const { items: certificates, error: certificatesError } = useServerCertificates(server, {
     autoRefresh: false,
@@ -136,10 +141,90 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const [statusBusyId, setStatusBusyId] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | "running" | "stopped">("");
+  const [sslFilter, setSslFilter] = useState<"" | "yes" | "no" | "expired">("");
+  const [remoteRows, setRemoteRows] = useState<Record<string, unknown>[] | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
 
   const isOnePanel = server.serviceType === "1panel";
   const isBt = server.serviceType === "bt";
   const canManage = isOnePanel || isBt;
+
+  useEffect(() => {
+    setGroupFilter("");
+    setTypeFilter("");
+    setStatusFilter("");
+    setSslFilter("");
+    setSearchInput("");
+    setSearchQuery("");
+    setRemoteRows(null);
+    setRemoteError(null);
+  }, [server.id]);
+
+  // 搜索防抖：输入即滤
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchQuery(searchInput.trim());
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  // 宝塔：筛选项变化时远端局部重拉（type / search），失败则回退本地筛选
+  useEffect(() => {
+    if (!isBt) {
+      setRemoteRows(null);
+      setRemoteError(null);
+      setRemoteLoading(false);
+      return;
+    }
+    const hasFilter = Boolean(searchQuery) || Boolean(groupFilter);
+    if (!hasFilter) {
+      setRemoteRows(null);
+      setRemoteError(null);
+      setRemoteLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setRemoteLoading(true);
+        setRemoteError(null);
+        try {
+          const client = createBtPanelClient(server.address, server.key, server.id);
+          const typeId =
+            groupFilter && /^-?\d+$/.test(groupFilter) ? Number(groupFilter) : -1;
+          const result = await client.getWebsiteList({
+            limit: 200,
+            type: typeId,
+            search: searchQuery || undefined,
+          });
+          if (cancelled) return;
+          const enriched = enrichWebsitesWithGroups(
+            Array.isArray(result.data)
+              ? (result.data as unknown as Record<string, unknown>[])
+              : [],
+            siteGroups ?? [],
+          );
+          setRemoteRows(enriched);
+        } catch (err) {
+          if (cancelled) return;
+          setRemoteRows(null);
+          setRemoteError(formatWebsiteError(err));
+        } finally {
+          if (!cancelled) setRemoteLoading(false);
+        }
+      })();
+    }, 320);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [groupFilter, isBt, searchQuery, server.address, server.id, server.key, siteGroups]);
 
   const formatWebsiteType = useCallback(
     (type: string) => {
@@ -155,7 +240,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
 
   const gridRows = useMemo<WebsiteGridRow[]>(
     () =>
-      rows.map((row, index) => {
+      (remoteRows ?? rows ?? []).map((row, index) => {
         const cert = websiteCertificateInfo(row, certificates);
         let url = websiteRowUrl(row);
         if (cert.hasCert && url?.startsWith("http://")) {
@@ -169,6 +254,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           url,
           type: websiteRowType(row),
           group: websiteRowGroup(row),
+          groupId: websiteRowGroupId(row),
           path: websiteRowPath(row),
           status: websiteRowStatus(row),
           certDaysLeft: cert.daysLeft,
@@ -178,11 +264,69 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           sslId: websiteSslId(row),
         };
       }),
-    [certificates, rows],
+    [certificates, remoteRows, rows],
   );
 
+  // 类型选项来自完整缓存，避免筛选后选项消失
+  const typeOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of rows ?? []) {
+      const type = websiteRowType(row);
+      if (type && type !== "—") set.add(type);
+    }
+    return [...set].sort((a, b) =>
+      formatWebsiteType(a).localeCompare(formatWebsiteType(b), undefined, {
+        sensitivity: "base",
+        numeric: true,
+      }),
+    );
+  }, [formatWebsiteType, rows]);
+
+  const filteredRows = useMemo(() => {
+    const remoteActive = isBt && remoteRows != null;
+    const q = searchQuery.trim().toLowerCase();
+    return gridRows.filter((row) => {
+      // 分组 / 搜索：宝塔远端已筛时不再本地复筛
+      if (!remoteActive) {
+        if (groupFilter) {
+          const matchId = row.groupId != null && row.groupId === groupFilter;
+          const matchName = row.group === groupFilter;
+          if (!matchId && !matchName) return false;
+        }
+        if (q) {
+          const haystack = [row.domain, row.siteName, row.path, row.group, row.type, row.status]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (!haystack.includes(q)) return false;
+        }
+      }
+      if (typeFilter && row.type !== typeFilter) return false;
+      if (statusFilter === "running" && !isWebsiteRunning(row.status)) return false;
+      if (statusFilter === "stopped" && !isWebsiteStopped(row.status)) return false;
+      if (sslFilter === "yes" && !row.hasCert) return false;
+      if (sslFilter === "no" && row.hasCert) return false;
+      if (
+        sslFilter === "expired" &&
+        !(row.hasCert && row.certDaysLeft != null && row.certDaysLeft < 0)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    gridRows,
+    groupFilter,
+    isBt,
+    remoteRows,
+    searchQuery,
+    sslFilter,
+    statusFilter,
+    typeFilter,
+  ]);
+
   const sortedRows = useMemo(() => {
-    const next = [...gridRows];
+    const next = [...filteredRows];
     next.sort((a, b) => {
       if (sortColumn === "certificate") {
         return compareNullableNumber(a.certDaysLeft, b.certDaysLeft, sortDirection);
@@ -193,7 +337,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       return compareText(a[sortColumn], b[sortColumn], sortDirection);
     });
     return next;
-  }, [formatWebsiteType, gridRows, sortColumn, sortDirection]);
+  }, [filteredRows, formatWebsiteType, sortColumn, sortDirection]);
 
   useEffect(() => {
     if (!selectedItemId) return;
@@ -229,13 +373,18 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           await client.operateWebsite(row.websiteId, operate);
         }
         await refresh();
+        showToast(
+          operate === "stop"
+            ? t("server.websites.stopSuccess")
+            : t("server.websites.startSuccess"),
+        );
       } catch (err) {
         setStatusError(formatWebsiteError(err));
       } finally {
         setStatusBusyId(null);
       }
     },
-    [canManage, isBt, refresh, server.address, server.key, statusBusyId, t],
+    [canManage, isBt, refresh, server.address, server.id, server.key, statusBusyId, t],
   );
 
   const handleEditWebsite = useCallback((row: WebsiteGridRow) => {
@@ -247,7 +396,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     async (row: WebsiteGridRow) => {
       if (!canManage || row.websiteId == null || actionBusyId != null) return;
       const confirmed = await appConfirm(
-        t("server.websites.deleteConfirm", { name: row.domain }),
+        isBt
+          ? t("server.websites.deleteConfirmWithPath", { name: row.domain })
+          : t("server.websites.deleteConfirm", { name: row.domain }),
       );
       if (!confirmed) return;
       setActionBusyId(row.websiteId);
@@ -269,7 +420,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, isBt, refresh, server.address, server.key, t],
+    [actionBusyId, canManage, isBt, refresh, server.address, server.id, server.key, t],
   );
 
   const toggleSort = (columnId: string) => {
@@ -593,14 +744,17 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   ]);
 
   const renderTable = () => {
-    if (loading && gridRows.length === 0) {
+    if ((loading || remoteLoading) && gridRows.length === 0) {
       return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
     }
-    if (error && gridRows.length === 0) {
+    if (error && gridRows.length === 0 && !remoteRows) {
       return <div className="db-tables-panel-error">{error}</div>;
     }
     if (gridRows.length === 0) {
       return <div className="db-tables-panel-empty">{t("server.websites.empty")}</div>;
+    }
+    if (sortedRows.length === 0) {
+      return <div className="db-tables-panel-empty">{t("server.websites.filterEmpty")}</div>;
     }
     return (
       <DbTablesPanelGrid
@@ -618,12 +772,23 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     );
   };
 
+  const applySearch = () => setSearchQuery(searchInput.trim());
+  const hasActiveFilters = Boolean(
+    searchQuery || groupFilter || typeFilter || statusFilter || sslFilter,
+  );
+  const countLabel = hasActiveFilters
+    ? t("server.websites.filteredCount", {
+        filtered: sortedRows.length,
+        total: rows.length,
+      })
+    : String(rows.length);
+
   return (
     <div className="server-panel-tab server-websites-panel">
       <div className="server-panel-tab-toolbar">
         <span className="server-panel-tab-title">
           {t("server.tabs.websites")}
-          <span className="badge badge-muted server-panel-tab-count">{gridRows.length}</span>
+          <span className="badge badge-muted server-panel-tab-count">{countLabel}</span>
         </span>
         <div className="server-panel-tab-actions">
           <Button
@@ -650,8 +815,87 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           </Button>
         </div>
       </div>
-      {(error && gridRows.length > 0) || (certificatesError && gridRows.length > 0) || statusError ? (
-        <div className="db-tables-panel-error">{statusError ?? error ?? certificatesError}</div>
+      <div className="server-websites-filters">
+        <div className="server-websites-filters__search">
+          <TextInput
+            className="input"
+            value={searchInput}
+            onChange={setSearchInput}
+            placeholder={t("server.websites.searchPlaceholder")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") applySearch();
+            }}
+          />
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            title={t("server.websites.search")}
+            aria-label={t("server.websites.search")}
+            onClick={applySearch}
+          >
+            <IconSearch size={14} />
+          </Button>
+        </div>
+        <select
+          className="input server-websites-filters__group"
+          value={groupFilter}
+          onChange={(event) => setGroupFilter(event.target.value)}
+          aria-label={t("server.websites.columns.group")}
+        >
+          <option value="">{t("server.websites.allGroups")}</option>
+          {(siteGroups ?? []).map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input server-websites-filters__group"
+          value={typeFilter}
+          onChange={(event) => setTypeFilter(event.target.value)}
+          aria-label={t("server.websites.columns.type")}
+        >
+          <option value="">{t("server.websites.allTypes")}</option>
+          {typeOptions.map((type) => (
+            <option key={type} value={type}>
+              {formatWebsiteType(type)}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input server-websites-filters__group"
+          value={statusFilter}
+          onChange={(event) =>
+            setStatusFilter(event.target.value as "" | "running" | "stopped")
+          }
+          aria-label={t("server.websites.columns.status")}
+        >
+          <option value="">{t("server.websites.allStatuses")}</option>
+          <option value="running">{t("server.websites.statusRunning")}</option>
+          <option value="stopped">{t("server.websites.statusStopped")}</option>
+        </select>
+        <select
+          className="input server-websites-filters__group"
+          value={sslFilter}
+          onChange={(event) =>
+            setSslFilter(event.target.value as "" | "yes" | "no" | "expired")
+          }
+          aria-label={t("server.websites.columns.certificate")}
+        >
+          <option value="">{t("server.websites.allSsl")}</option>
+          <option value="yes">{t("server.websites.sslYes")}</option>
+          <option value="no">{t("server.websites.sslNo")}</option>
+          <option value="expired">{t("server.websites.certExpired")}</option>
+        </select>
+      </div>
+      {(error && gridRows.length > 0) ||
+      (certificatesError && gridRows.length > 0) ||
+      statusError ||
+      remoteError ? (
+        <div className="db-tables-panel-error">
+          {statusError ?? remoteError ?? error ?? certificatesError}
+        </div>
       ) : null}
       <div ref={gridWrapRef} className="db-tables-panel-grid-wrap server-websites-grid-wrap">
         {renderTable()}

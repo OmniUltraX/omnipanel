@@ -3,11 +3,7 @@ import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/Button";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
-import {
-  createBtPanelClient,
-  defaultBtCreateAppExtras,
-  pickBtAppVersion,
-} from "../../../../lib/btpanel";
+import { createBtPanelClient } from "../../../../lib/btpanel";
 import {
   createOnePanelClient,
   type OnePanelApp,
@@ -90,14 +86,45 @@ function buildInstalledKeySet(installed: OnePanelInstalledApp[]): Set<string> {
   return keys;
 }
 
-/** 仅 data/blob/内嵌 base64 可直接显示；http(s)/相对路径需走后端代理。 */
-function resolveIconSrc(icon: string | undefined, iconCache: Record<string, string>): string | null {
+/**
+ * 解析可直接用于 <img src> 的地址。
+ * allowRemotePanelIcon=false（宝塔）：勿拼面板 http(s)，安全入口下会返回 HTML；改走懒加载 data URL。
+ */
+function resolveIconSrc(
+  icon: string | undefined,
+  iconCache: Record<string, string>,
+  panelBaseUrl?: string,
+  allowRemotePanelIcon = true,
+): string | null {
   if (!icon) return null;
   if (icon.startsWith("data:") || icon.startsWith("blob:")) {
     return icon;
   }
+  if (icon.startsWith("http://") || icon.startsWith("https://")) {
+    return allowRemotePanelIcon ? icon : iconCache[icon] ?? null;
+  }
+  if (icon.startsWith("/")) {
+    if (!allowRemotePanelIcon) return iconCache[icon] ?? null;
+    if (!panelBaseUrl) return null;
+    try {
+      return new URL(icon, panelBaseUrl.endsWith("/") ? panelBaseUrl : `${panelBaseUrl}/`).toString();
+    } catch {
+      return null;
+    }
+  }
+  // 宝塔软件商店：ico-redis.png → /static/img/soft_ico/...
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(icon) || icon.startsWith("ico-")) {
+    if (!allowRemotePanelIcon) return iconCache[icon] ?? null;
+    if (!panelBaseUrl) return iconCache[icon] ?? null;
+    try {
+      const base = panelBaseUrl.replace(/\/$/, "");
+      return `${base}/static/img/soft_ico/${icon.replace(/^\//, "")}`;
+    } catch {
+      return null;
+    }
+  }
   // 部分接口把 icon 直接返回为 base64
-  if (!icon.startsWith("/") && !icon.startsWith("http") && /^[A-Za-z0-9+/=]+$/.test(icon) && icon.length > 64) {
+  if (/^[A-Za-z0-9+/=]+$/.test(icon) && icon.length > 64) {
     return `data:image/png;base64,${icon}`;
   }
   return iconCache[icon] ?? null;
@@ -125,7 +152,7 @@ export function ServerAppsTab({ server }: Props) {
   const { t, locale } = useI18n();
   const isOnePanel = server.serviceType === "1panel";
   const isBt = server.serviceType === "bt";
-  const marketSupported = isOnePanel || isBt;
+  const supportsApps = isOnePanel || isBt;
 
   const {
     apps,
@@ -138,6 +165,7 @@ export function ServerAppsTab({ server }: Props) {
 
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
   const [installedOnly, setInstalledOnly] = useState(false);
   const [iconCache, setIconCache] = useState<Record<string, string>>(() =>
     peekServerAppIconCache(server.id).icons,
@@ -145,7 +173,6 @@ export function ServerAppsTab({ server }: Props) {
   const [brokenIconKeys, setBrokenIconKeys] = useState<ReadonlySet<string>>(
     () => peekServerAppIconCache(server.id).broken,
   );
-  /** 分批拉取图标：每批完成后自增以继续下一批 */
   const [iconLoadTick, setIconLoadTick] = useState(0);
   const iconCacheRef = useRef(iconCache);
   const brokenIconKeysRef = useRef(brokenIconKeys);
@@ -155,52 +182,83 @@ export function ServerAppsTab({ server }: Props) {
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [dockerHint, setDockerHint] = useState<string | null>(null);
 
-  const error = !marketSupported
+  const error = !supportsApps
     ? t("server.appMarket.unsupported")
     : actionError ?? cacheError;
 
-  /** 同步/刷新应用商店后写入本地缓存。 */
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(search.trim()), 280);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setCategory("");
+    setDockerHint(null);
+    setActionError(null);
+    const peeked = peekServerAppIconCache(server.id);
+    setIconCache(peeked.icons);
+    setBrokenIconKeys(peeked.broken);
+    iconInflightRef.current.clear();
+    setIconLoadTick(0);
+  }, [server.id]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const app of apps) {
+      const type = (app.type || "").trim();
+      if (type) set.add(type);
+      for (const tag of app.tags ?? []) {
+        const name = (tag.name || tag.key || "").trim();
+        if (name) set.add(name);
+      }
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [apps]);
+
+  /** 同步远程应用商店后写入本地缓存（1Panel 有远端同步；宝塔直接刷新列表）。 */
   const handleSyncRemote = useCallback(async () => {
-    if (!marketSupported || syncing || refreshing) return;
+    if (!supportsApps || syncing || refreshing) return;
     setSyncing(true);
     setActionError(null);
     try {
       if (isOnePanel) {
         const client = createOnePanelClient(server.address, server.key, server.id);
         await client.syncAppsRemote();
-        showToast(t("server.appMarket.syncSuccess"));
-      }
-      // 宝塔：force=1 由 refresh → getApps(force) 完成；此处直接刷新缓存
-      if (isBt) {
+      } else if (isBt) {
         const client = createBtPanelClient(server.address, server.key, server.id);
-        await client.getApps({ p: 1, row: 200, query: "", force: 1, appType: "all" });
-        showToast(t("server.appMarket.syncSuccess"));
+        // force=1 触发软件商店远端刷新
+        await client.getSoftList({ p: 1, type: 0, query: "", force: 1, row: 50 });
+        try {
+          await client.getDockerApps();
+          setDockerHint(null);
+        } catch {
+          setDockerHint(t("server.appMarket.dockerStoreHint"));
+        }
       }
+      showToast(t("server.appMarket.syncSuccess"));
       await refresh();
     } catch (err) {
       setActionError(formatError(err));
     } finally {
       setSyncing(false);
     }
-  }, [
-    isBt,
-    isOnePanel,
-    marketSupported,
-    refresh,
-    refreshing,
-    server.address,
-    server.id,
-    server.key,
-    syncing,
-    t,
-  ]);
+  }, [isBt, isOnePanel, refresh, refreshing, server.address, server.id, server.key, supportsApps, syncing, t]);
 
   const installedKeys = useMemo(() => buildInstalledKeySet(installedApps), [installedApps]);
 
   const cards = useMemo<MarketCard[]>(() => {
     return apps
       .filter((app) => appMatchesQuery(app, query))
+      .filter((app) => {
+        if (!category) return true;
+        const type = (app.type || "").trim();
+        if (type === category) return true;
+        return (app.tags ?? []).some(
+          (tag) => (tag.name || "").trim() === category || (tag.key || "").trim() === category,
+        );
+      })
       .map((app) => {
         const key = (app.key || "").trim().toLowerCase();
         const name = (app.name || "").trim().toLowerCase();
@@ -211,22 +269,13 @@ export function ServerAppsTab({ server }: Props) {
         return { ...app, isInstalled };
       })
       .filter((app) => !installedOnly || app.isInstalled);
-  }, [apps, installedKeys, installedOnly, query]);
-
-  // 切换面板：从会话缓存回填（同面板再进页可瞬时恢复图标）
-  useEffect(() => {
-    const cached = peekServerAppIconCache(server.id);
-    setIconCache(cached.icons);
-    setBrokenIconKeys(cached.broken);
-    iconInflightRef.current.clear();
-    setIconLoadTick(0);
-  }, [server.id]);
+  }, [apps, category, installedKeys, installedOnly, query]);
 
   // 懒加载缺失图标（1Panel / 宝塔均走后端代理为 data URL）
   useEffect(() => {
-    if (!marketSupported || cards.length === 0) return;
+    if (!supportsApps || cards.length === 0) return;
     let cancelled = false;
-
+    const allowRemote = isOnePanel;
     const missing = cards
       .map((app) => app.key?.trim())
       .filter((key): key is string => Boolean(key))
@@ -236,12 +285,25 @@ export function ServerAppsTab({ server }: Props) {
         if (iconInflightRef.current.has(key)) return false;
         const app = cards.find((item) => item.key === key);
         if (!app) return false;
-        // data:/blob: 可直接显示；相对路径 / http(s) 需代理
-        return !resolveIconSrc(app.icon, iconCacheRef.current);
+        // data/blob 可直接展示；相对路径 / 宝塔静态路径需代理
+        if (resolveIconSrc(app.icon, iconCacheRef.current, server.address, allowRemote)) {
+          return false;
+        }
+        if (isBt) {
+          const icon = (app.icon || "").trim();
+          // 仅 Docker 商店路径走鉴权下载；软件商店 ico-*.png 暂无代理接口
+          const isDockerIcon =
+            !icon ||
+            icon.includes("/soft_ico/dkapp/") ||
+            icon.includes("ico-dkapp_");
+          if (!isDockerIcon) return false;
+        }
+        return true;
       })
-      .slice(0, 16);
+      .slice(0, 12);
 
     if (missing.length === 0) return;
+
     for (const key of missing) iconInflightRef.current.add(key);
 
     void (async () => {
@@ -251,18 +313,10 @@ export function ServerAppsTab({ server }: Props) {
         missing.map(async (key) => {
           try {
             const url = isBt
-              ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(
-                  key,
-                )
-              : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(
-                  key,
-                );
-            if (url?.startsWith("data:") || url?.startsWith("blob:")) {
-              next[key] = url;
-            } else {
-              // 非 data URL 在 WebView 中不可靠，视为失败走占位
-              failed.push(key);
-            }
+              ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(key)
+              : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(key);
+            if (url) next[key] = url;
+            else failed.push(key);
           } catch {
             failed.push(key);
           } finally {
@@ -283,14 +337,23 @@ export function ServerAppsTab({ server }: Props) {
           return merged;
         });
       }
-      // 继续拉取下一批
-      setIconLoadTick((n) => n + 1);
+      // 还有未加载的则继续下一批
+      setIconLoadTick((tick) => tick + 1);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [cards, iconLoadTick, isBt, marketSupported, server.address, server.id, server.key]);
+  }, [
+    cards,
+    iconLoadTick,
+    isBt,
+    isOnePanel,
+    server.address,
+    server.id,
+    server.key,
+    supportsApps,
+  ]);
 
   const handleSearch = () => {
     setQuery(search.trim());
@@ -298,10 +361,13 @@ export function ServerAppsTab({ server }: Props) {
 
   const handleInstall = useCallback(
     async (app: MarketCard) => {
-      if (!marketSupported || installingKey || app.isInstalled) return;
+      if (!supportsApps || installingKey || app.isInstalled) return;
       const label = app.name || app.key;
+      const versionHint = pickLatestVersion(app.versions);
       const confirmed = await appConfirm(
-        t("server.appMarket.installConfirm", { name: label }),
+        versionHint
+          ? t("server.appMarket.installConfirmWithVersion", { name: label, version: versionHint })
+          : t("server.appMarket.installConfirm", { name: label }),
         t("server.appMarket.install"),
       );
       if (!confirmed) return;
@@ -311,67 +377,66 @@ export function ServerAppsTab({ server }: Props) {
       try {
         if (isBt) {
           const client = createBtPanelClient(server.address, server.key, server.id);
-          const market = await client.getApps({
-            p: 1,
-            row: 200,
-            query: app.key,
-            force: 0,
-            appType: "all",
-          });
-          const btApp =
-            market.items.find((item) => item.appname === app.key) ??
-            market.items.find(
-              (item) => item.appname?.toLowerCase() === app.key.toLowerCase(),
+          const version = pickLatestVersion(app.versions) || "";
+          // 优先走软件商店安装；找不到版本时再尝试 Docker 商店定义
+          if (version) {
+            const msg = await client.installSoft(app.key, version);
+            showToast(msg || t("server.appMarket.btInstallQueued", { name: label }));
+          } else {
+            const market = await client.getDockerApps();
+            const def = market.items.find(
+              (item) =>
+                (item.appname || "").trim().toLowerCase() === (app.key || "").trim().toLowerCase(),
             );
-          if (!btApp) {
-            throw new Error(t("server.appMarket.installNoDetail"));
+            if (!def) {
+              throw new Error(t("server.appMarket.btNoAppDefinition"));
+            }
+            const msg = await client.installDockerAppFromDefinition(def);
+            showToast(msg || t("server.appMarket.btInstallQueued", { name: label }));
           }
-          const version = pickBtAppVersion(btApp);
-          if (!version) {
-            throw new Error(t("server.appMarket.installNoVersion"));
+          try {
+            const tasks = await client.getTaskCount();
+            if (typeof tasks === "number" && tasks > 0) {
+              showToast(t("server.appMarket.btInstallQueued", { name: label }));
+            }
+          } catch {
+            // 任务计数失败不影响安装成功提示
           }
-          const serviceName = `docker_${btApp.appname}`.replace(/[^a-zA-Z0-9_-]/g, "_");
-          await client.createApp({
-            appName: btApp.appname,
-            serviceName,
-            mVersion: version.mVersion,
-            sVersion: version.sVersion,
-            allowAccess: true,
-            disableDomain: true,
-            extras: defaultBtCreateAppExtras(btApp),
-          });
-        } else {
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          let versions = app.versions ?? [];
-          let appId = app.id;
-          let appType = app.type || "runtime";
-
-          if (versions.length === 0 || !appId) {
-            const detail = await client.getApp(app.key);
-            versions = detail.versions ?? versions;
-            appId = detail.id || appId;
-            appType = detail.type || appType;
-          }
-
-          const version = pickLatestVersion(versions);
-          if (!version || !appId) {
-            throw new Error(t("server.appMarket.installNoVersion"));
-          }
-
-          const appDetail = await client.getAppDetail(appId, version, appType);
-          if (!appDetail.id) {
-            throw new Error(t("server.appMarket.installNoDetail"));
-          }
-
-          const instanceName = app.key || app.name;
-          await client.installApp({
-            appDetailId: appDetail.id,
-            name: instanceName,
-            params: defaultParamsFromDetail(appDetail.params),
-            pullImage: true,
-            allowPort: true,
-          });
+          await refresh();
+          return;
         }
+
+        const client = createOnePanelClient(server.address, server.key, server.id);
+        let versions = app.versions ?? [];
+        let appId = app.id;
+        let appType = app.type || "runtime";
+
+        if (versions.length === 0 || !appId) {
+          const detail = await client.getApp(app.key);
+          versions = detail.versions ?? versions;
+          appId = detail.id || appId;
+          appType = detail.type || appType;
+        }
+
+        const version = pickLatestVersion(versions);
+        if (!version || !appId) {
+          throw new Error(t("server.appMarket.installNoVersion"));
+        }
+
+        const appDetail = await client.getAppDetail(appId, version, appType);
+        if (!appDetail.id) {
+          throw new Error(t("server.appMarket.installNoDetail"));
+        }
+
+        const defaults = defaultParamsFromDetail(appDetail.params);
+        const instanceName = app.key || app.name;
+        await client.installApp({
+          appDetailId: appDetail.id,
+          name: instanceName,
+          params: defaults,
+          pullImage: true,
+          allowPort: true,
+        });
         showToast(t("server.appMarket.installSuccess", { name: label }));
         await refresh();
       } catch (err) {
@@ -380,16 +445,7 @@ export function ServerAppsTab({ server }: Props) {
         setInstallingKey(null);
       }
     },
-    [
-      installingKey,
-      isBt,
-      marketSupported,
-      refresh,
-      server.address,
-      server.id,
-      server.key,
-      t,
-    ],
+    [installingKey, isBt, refresh, server.address, server.id, server.key, supportsApps, t],
   );
 
   const busyMeta = loading || refreshing || syncing;
@@ -403,20 +459,16 @@ export function ServerAppsTab({ server }: Props) {
             variant="icon"
             size="icon-xs"
             className="db-tables-panel-meta-refresh-btn"
-            disabled={!marketSupported || busyMeta}
+            disabled={!supportsApps || busyMeta}
             title={
               syncing || refreshing
                 ? t("server.appMarket.syncing")
-                : isBt
-                  ? t("server.appMarket.refresh")
-                  : t("server.appMarket.sync")
+                : t("server.appMarket.sync")
             }
             aria-label={
               syncing || refreshing
                 ? t("server.appMarket.syncing")
-                : isBt
-                  ? t("server.appMarket.refresh")
-                  : t("server.appMarket.sync")
+                : t("server.appMarket.sync")
             }
             onClick={() => void handleSyncRemote()}
           >
@@ -431,6 +483,22 @@ export function ServerAppsTab({ server }: Props) {
           </span>
         </div>
         <div className="server-apps-toolbar__right">
+          {categories.length > 0 ? (
+            <select
+              className="input server-app-market__category"
+              value={category}
+              disabled={busyMeta}
+              onChange={(event) => setCategory(event.target.value)}
+              aria-label={t("server.appMarket.allCategories")}
+            >
+              <option value="">{t("server.appMarket.allCategories")}</option>
+              {categories.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <div className="server-app-market__search">
             <TextInput
               className="input"
@@ -465,6 +533,7 @@ export function ServerAppsTab({ server }: Props) {
       </div>
 
       {error ? <div className="server-apps-error">{error}</div> : null}
+      {dockerHint && !error ? <div className="server-apps-hint">{dockerHint}</div> : null}
 
       <div className="server-apps-body">
         {loading && cards.length === 0 ? (
@@ -476,12 +545,9 @@ export function ServerAppsTab({ server }: Props) {
         {cards.length > 0 ? (
           <div className="server-app-grid">
             {cards.map((app, index) => {
-              const iconKey = app.key || app.name || String(index);
               const iconSrc =
-                brokenIconKeys.has(iconKey)
-                  ? null
-                  : resolveIconSrc(app.icon, iconCache) ||
-                    (app.key ? iconCache[app.key] : null);
+                resolveIconSrc(app.icon, iconCache, server.address, isOnePanel) ||
+                (app.key ? iconCache[app.key] : null);
               const desc = appDescription(app, locale);
               const busy = installingKey === app.key;
               const cardKey = `${app.id || "app"}:${app.key || app.name || index}`;
@@ -495,20 +561,19 @@ export function ServerAppsTab({ server }: Props) {
                           src={iconSrc}
                           alt=""
                           draggable={false}
-                          onError={() => {
-                            setBrokenIconKeys((prev) => {
-                              if (prev.has(iconKey)) return prev;
-                              const next = new Set(prev);
-                              next.add(iconKey);
-                              return next;
-                            });
+                          onError={(event) => {
+                            (event.currentTarget as HTMLImageElement).style.display = "none";
+                            const fallback = event.currentTarget.nextElementSibling;
+                            if (fallback instanceof HTMLElement) fallback.style.display = "flex";
                           }}
                         />
-                      ) : (
-                        <div className="server-app-card__icon server-app-card__icon--placeholder">
-                          {(app.name || app.key || "?").slice(0, 1).toUpperCase()}
-                        </div>
-                      )}
+                      ) : null}
+                      <div
+                        className="server-app-card__icon server-app-card__icon--placeholder"
+                        style={iconSrc ? { display: "none" } : undefined}
+                      >
+                        {(app.name || app.key || "?").slice(0, 1).toUpperCase()}
+                      </div>
                       <div className="server-app-card__titles">
                         <div className="server-app-card__name" title={app.name || app.key}>
                           {app.name || app.key || "—"}
@@ -551,7 +616,7 @@ export function ServerAppsTab({ server }: Props) {
                         type="button"
                         variant="secondary"
                         size="sm"
-                        disabled={!marketSupported || busy || installingKey != null}
+                        disabled={!supportsApps || busy || installingKey != null}
                         onClick={() => void handleInstall(app)}
                       >
                         {busy ? t("server.appMarket.installing") : t("server.appMarket.install")}

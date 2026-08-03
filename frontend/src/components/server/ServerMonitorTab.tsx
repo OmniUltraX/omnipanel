@@ -162,7 +162,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
             op.getDashboardBase(),
             op.getDashboardCurrent(),
           ]);
-          setDashboard({ ...base, currentInfo: current });
+          setDashboard({ ...base, currentInfo: current ?? base.currentInfo });
         } else {
           await refreshDashboardCurrent();
         }

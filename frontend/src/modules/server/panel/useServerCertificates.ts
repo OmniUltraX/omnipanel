@@ -50,7 +50,7 @@ export function useServerCertificates(
   });
 
   return {
-    items: entry.certificates,
+    items: Array.isArray(entry.certificates) ? entry.certificates : [],
     loading: Boolean(server) && refreshing && !hasCache,
     refreshing: Boolean(server) && refreshing,
     error: serverId ? entry.error : null,

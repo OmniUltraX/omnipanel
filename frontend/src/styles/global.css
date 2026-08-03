@@ -14828,6 +14828,37 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: 100%;
     }
 
+    .server-websites-filters {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-3);
+        flex-wrap: wrap;
+    }
+
+    .server-websites-filters__search {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        flex: 1 1 220px;
+        min-width: 180px;
+        max-width: 360px;
+    }
+
+    .server-websites-filters__search .input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .server-websites-filters__group {
+        width: auto;
+        min-width: 140px;
+        max-width: 220px;
+        height: 28px;
+        padding: 0 8px;
+        font-size: 12px;
+    }
+
     .server-websites-grid-wrap {
         flex: 1;
         min-height: 0;
@@ -14945,6 +14976,21 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex-shrink: 0;
         user-select: none;
         white-space: nowrap;
+    }
+
+    .server-app-market__category {
+        max-width: 160px;
+        flex-shrink: 0;
+    }
+
+    .server-apps-hint {
+        margin: 0 var(--sp-4) var(--sp-2);
+        padding: 6px 10px;
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--color-warning, #c9a227) 12%, transparent);
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
     }
 
     .server-app-market__search .input {
@@ -20648,12 +20694,15 @@ button.omni-btn-tool[aria-pressed="true"] {
 .vsplit-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
 .vsplit-sidebar-section__actions .schema-toolbar--inline > button,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
 .schema-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > .btn-icon,
-.schema-toolbar.schema-toolbar--inline > button {
+.schema-toolbar.schema-toolbar--inline > button,
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
     width: 24px;
     height: 24px;
     min-width: 24px;
@@ -20665,13 +20714,30 @@ button.omni-btn-tool[aria-pressed="true"] {
 .schema-toolbar.schema-toolbar--inline > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > .btn-icon,
 .schema-toolbar.schema-toolbar--inline > button,
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
 .vsplit-sidebar-section__actions .schema-toolbar--inline > button,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
-.schema-sidebar-section__actions .schema-toolbar--inline > button {
+.schema-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
     border-radius: 0;
+}
+
+/* 工具栏内下拉触发器：展开/聚焦时不要单独描边方框，与旁路 icon 一致 */
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
+    --tw-ring-shadow: 0 0 #0000;
+    box-shadow: none;
+}
+
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > .icon-dropdown-button__trigger--open,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > .icon-dropdown-button__trigger--open,
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > .icon-dropdown-button__trigger--open {
+    background: var(--accent-soft, color-mix(in srgb, var(--accent) 12%, transparent));
 }
 
 .vsplit-sidebar-section__title,

@@ -3,6 +3,8 @@ import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
 import { IconRefresh } from "@/components/ui/Icons";
+import { appConfirm } from "@/lib/appConfirm";
+import { showToast } from "@/stores/toastStore";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
@@ -17,6 +19,7 @@ import {
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
+import { syncPanelsFromSshConnections } from "./syncPanelsFromSsh";
 import { usePersistedServerTreeExpanded } from "./usePersistedServerTreeExpanded";
 import {
   makeServerTreeKey,
@@ -147,6 +150,7 @@ export function ServerPanelTreeSidebar({
 }: ServerPanelTreeSidebarProps) {
   const { t } = useI18n();
   const refreshConnections = useConnectionStore((s) => s.refresh);
+  const saveConn = useConnectionStore((s) => s.save);
   const connectionsLoading = useConnectionStore((s) => s.loading);
   const syncPanelServersFromConnections = useServerPanelCacheStore(
     (s) => s.syncPanelServersFromConnections,
@@ -156,6 +160,7 @@ export function ServerPanelTreeSidebar({
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
+  const [syncingFromSsh, setSyncingFromSsh] = useState(false);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
@@ -170,6 +175,62 @@ export function ServerPanelTreeSidebar({
       await refreshAllResources(panelServers);
     })();
   }, [refreshAllResources, refreshConnections, syncPanelServersFromConnections]);
+
+  const handleSyncFromSsh = useCallback(() => {
+    void (async () => {
+      const ok = await appConfirm(
+        t("server.sidebar.syncFromSshMsg"),
+        t("server.sidebar.syncFromSshTitle"),
+        {
+          confirmLabel: t("server.sidebar.syncFromSshConfirm"),
+          kind: "warning",
+        },
+      );
+      if (!ok) return;
+
+      setSyncingFromSsh(true);
+      try {
+        await refreshConnections();
+        const connections = useConnectionStore.getState().connections;
+        const sshCount = connections.filter((c) => c.kind === "ssh").length;
+        if (sshCount === 0) {
+          showToast(t("server.sidebar.syncFromSshNoSsh"));
+          return;
+        }
+
+        showToast(t("server.sidebar.syncFromSshStarted"));
+        const result = await syncPanelsFromSshConnections({
+          connections,
+          saveConn,
+        });
+
+        await refreshConnections();
+        const next = useConnectionStore.getState().connections;
+        syncPanelServersFromConnections(next);
+
+        showToast(
+          t("server.sidebar.syncFromSshDone", {
+            added: result.added,
+            updated: result.updated,
+            skipped: result.skipped,
+            failed: result.failed,
+          }),
+        );
+        if (result.errors.length > 0) {
+          const preview = result.errors.slice(0, 3).join("；");
+          showToast(
+            result.errors.length > 3
+              ? `${preview}… (+${result.errors.length - 3})`
+              : preview,
+          );
+        }
+      } catch (err) {
+        showToast(String(err));
+      } finally {
+        setSyncingFromSsh(false);
+      }
+    })();
+  }, [refreshConnections, saveConn, syncPanelServersFromConnections, t]);
 
   useEffect(() => {
     if (!activeServerId) return;
@@ -229,23 +290,40 @@ export function ServerPanelTreeSidebar({
     },
   ];
 
-  const refreshPanelsButton = (
-    <Button
-      type="button"
-      variant="icon"
-      size="icon-xs"
-      className="server-sidebar-refresh"
-      title={t("server.sidebar.refreshPanels")}
-      aria-label={t("server.sidebar.refreshPanels")}
-      disabled={connectionsLoading || cacheRefreshing}
-      onClick={handleRefreshPanels}
-    >
-      <IconRefresh size={14} />
-    </Button>
-  );
-
-  const addServerButton = (
+  const toolbarActions = (
     <div className="schema-toolbar schema-toolbar--inline">
+      <Button
+        type="button"
+        variant="icon"
+        size="icon-xs"
+        className="server-sidebar-refresh"
+        title={
+          syncingFromSsh
+            ? t("server.sidebar.syncFromSshRunning")
+            : t("server.sidebar.syncFromSsh")
+        }
+        aria-label={t("server.sidebar.syncFromSsh")}
+        disabled={connectionsLoading || syncingFromSsh}
+        onClick={handleSyncFromSsh}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 3v12" />
+          <path d="m8 11 4 4 4-4" />
+          <path d="M4 19h16" />
+        </svg>
+      </Button>
+      <Button
+        type="button"
+        variant="icon"
+        size="icon-xs"
+        className="server-sidebar-refresh"
+        title={t("server.sidebar.refreshPanels")}
+        aria-label={t("server.sidebar.refreshPanels")}
+        disabled={connectionsLoading || cacheRefreshing || syncingFromSsh}
+        onClick={handleRefreshPanels}
+      >
+        <IconRefresh size={14} />
+      </Button>
       <Button
         type="button"
         variant="icon"
@@ -330,8 +408,7 @@ export function ServerPanelTreeSidebar({
           actions={
             <>
               <span className="badge badge-muted">{servers.length}</span>
-              {refreshPanelsButton}
-              {addServerButton}
+              {toolbarActions}
             </>
           }
         >
@@ -346,8 +423,7 @@ export function ServerPanelTreeSidebar({
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("server.sidebar.title")}</span>
         <span className="badge badge-muted">{servers.length}</span>
-        {refreshPanelsButton}
-        {addServerButton}
+        {toolbarActions}
       </div>
       {panelBody}
     </div>

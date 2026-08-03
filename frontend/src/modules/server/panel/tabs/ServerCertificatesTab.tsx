@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
-import { IconDownload, IconFile, IconPencil, IconPlus, IconRefresh, IconTrash } from "../../../../components/ui/Icons";
+import { TextInput } from "../../../../components/ui/form/TextInput";
+import { IconDownload, IconFile, IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from "../../../../components/ui/Icons";
 import {
   DbTablesPanelGrid,
   type DbTablesPanelGridColumn,
@@ -80,9 +81,16 @@ export function ServerCertificatesTab({ server }: Props) {
   const [logsTarget, setLogsTarget] = useState<{ sslId: number; title: string } | null>(null);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const isOnePanel = server.serviceType === "1panel";
   const isBt = server.serviceType === "bt";
   const canManage = isOnePanel || isBt;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 280);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   const formatStatus = useCallback(
     (status: string) => {
@@ -147,8 +155,26 @@ export function ServerCertificatesTab({ server }: Props) {
     [rows],
   );
 
+  const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return gridRows;
+    return gridRows.filter((row) => {
+      const haystack = [
+        row.domain,
+        row.remark,
+        row.status,
+        row.provider,
+        row.expireRaw ?? "",
+        row.daysLeft != null ? String(row.daysLeft) : "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [gridRows, searchQuery]);
+
   const sortedRows = useMemo(() => {
-    const next = [...gridRows];
+    const next = [...filteredRows];
     next.sort((a, b) => {
       if (sortColumn === "expire") {
         return compareNullableNumber(a.daysLeft, b.daysLeft, sortDirection);
@@ -171,7 +197,7 @@ export function ServerCertificatesTab({ server }: Props) {
       return compareText(a[sortColumn], b[sortColumn], sortDirection);
     });
     return next;
-  }, [formatProvider, formatStatus, gridRows, sortColumn, sortDirection]);
+  }, [filteredRows, formatProvider, formatStatus, sortColumn, sortDirection]);
 
   const toggleSort = (columnId: string) => {
     const next = columnId as CertSortColumn;
@@ -456,8 +482,8 @@ export function ServerCertificatesTab({ server }: Props) {
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
                 disabled={!canLogs || busy}
-                title={canLogs ? t("server.certificates.logs") : t("server.create.panelOnly")}
-                aria-label={canLogs ? t("server.certificates.logs") : t("server.create.panelOnly")}
+                title={canLogs ? t("server.certificates.logs") : t("server.certificates.onePanelOnly")}
+                aria-label={canLogs ? t("server.certificates.logs") : t("server.certificates.onePanelOnly")}
                 onClick={() => {
                   if (!canLogs || row.certId == null) return;
                   setLogsTarget({
@@ -474,8 +500,8 @@ export function ServerCertificatesTab({ server }: Props) {
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
                 disabled={!canEdit || busy}
-                title={canEdit ? t("server.certificates.edit") : t("server.create.panelOnly")}
-                aria-label={canEdit ? t("server.certificates.edit") : t("server.create.panelOnly")}
+                title={canEdit ? t("server.certificates.edit") : t("server.certificates.onePanelOnly")}
+                aria-label={canEdit ? t("server.certificates.edit") : t("server.certificates.onePanelOnly")}
                 onClick={() => handleEdit(row)}
               >
                 <IconPencil size={14} />
@@ -512,6 +538,12 @@ export function ServerCertificatesTab({ server }: Props) {
   ]);
 
   const busy = loading || refreshing;
+  const countLabel = searchQuery
+    ? t("server.certificates.filteredCount", {
+        filtered: sortedRows.length,
+        total: gridRows.length,
+      })
+    : String(gridRows.length);
 
   const renderTable = () => {
     if (busy && gridRows.length === 0) {
@@ -522,6 +554,9 @@ export function ServerCertificatesTab({ server }: Props) {
     }
     if (gridRows.length === 0) {
       return <div className="db-tables-panel-empty">{t("server.certificates.empty")}</div>;
+    }
+    if (sortedRows.length === 0) {
+      return <div className="db-tables-panel-empty">{t("server.certificates.filterEmpty")}</div>;
     }
     return (
       <DbTablesPanelGrid
@@ -543,7 +578,7 @@ export function ServerCertificatesTab({ server }: Props) {
       <div className="server-panel-tab-toolbar">
         <span className="server-panel-tab-title">
           {t("server.tabs.certificates")}
-          <span className="badge badge-muted server-panel-tab-count">{gridRows.length}</span>
+          <span className="badge badge-muted server-panel-tab-count">{countLabel}</span>
         </span>
         <div className="server-panel-tab-actions">
           <Button
@@ -571,6 +606,30 @@ export function ServerCertificatesTab({ server }: Props) {
           </Button>
         </div>
       </div>
+      <div className="server-websites-filters">
+        <div className="server-websites-filters__search">
+          <TextInput
+            className="input"
+            value={searchInput}
+            onChange={setSearchInput}
+            placeholder={t("server.certificates.searchPlaceholder")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") setSearchQuery(searchInput.trim());
+            }}
+          />
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-xs"
+            title={t("server.websites.search")}
+            aria-label={t("server.websites.search")}
+            onClick={() => setSearchQuery(searchInput.trim())}
+          >
+            <IconSearch size={14} />
+          </Button>
+        </div>
+      </div>
+      {isBt ? <div className="form-hint" style={{ padding: "0 12px 8px" }}>{t("server.certificates.btAcmeHint")}</div> : null}
       {(error || actionError) && gridRows.length > 0 ? (
         <div className="db-tables-panel-error">{actionError ?? error}</div>
       ) : null}

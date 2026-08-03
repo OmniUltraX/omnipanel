@@ -807,6 +807,7 @@ export const enUS: TranslationDict = {
         database: "Database",
         knowledge: "Knowledge",
         localModels: "Local models",
+        server: "Server",
       },
     },
     workspacePreview: {
@@ -4238,6 +4239,17 @@ export const enUS: TranslationDict = {
       edit: "Edit",
       delete: "Delete",
       refreshPanels: "Refresh local cache",
+      syncFromSsh: "Sync panels from SSH",
+      syncFromSshTitle: "Sync panels from SSH?",
+      syncFromSshMsg:
+        "Probe all SSH hosts for BT / 1Panel. If API is off, OmniPanel will try to enable it (allow-all whitelist) and save panel connections. Progress appears in the bottom-left background tasks and can be cancelled. Existing same-type links will be updated.",
+      syncFromSshConfirm: "Start sync",
+      syncFromSshRunning: "Syncing…",
+      syncFromSshNoSsh: "No SSH connections to sync",
+      syncFromSshProgress: "Syncing {current}/{total}: {name}",
+      syncFromSshDone:
+        "Sync done: added {added}, updated {updated}, skipped {skipped}, failed {failed}",
+      syncFromSshStarted: "Sync started — watch progress in the bottom-left tasks",
       treeLoading: "Loading…",
       treeEmpty: "No items",
       treeUnsupported: "Resource list is not available for this panel type",
@@ -4522,6 +4534,8 @@ export const enUS: TranslationDict = {
           month: "Monthly",
         },
         required: "Please fill in required fields",
+        scriptDangerConfirm:
+          "The script may contain dangerous commands (e.g. destructive deletes). Submit anyway?",
         success: "Cron job created",
       },
       database: {
@@ -4614,6 +4628,12 @@ export const enUS: TranslationDict = {
       installNoDetail: "Unable to resolve app install detail",
       unsupported: "App market is only available for 1Panel / BT Panel",
       refresh: "Refresh app list",
+      btInstallQueued: "Install task submitted: {name}. Check BT Panel tasks for progress.",
+      btNoAppDefinition: "App definition not found in the store. Refresh the list and try again.",
+      allCategories: "All categories",
+      installConfirmWithVersion:
+        "Install \"{name}\"? Version {version} will be used with default parameters.",
+      dockerStoreHint: "Docker app store unavailable (update the app list in BT Panel)",
     },
     monitor: {
       cpu: "CPU",
@@ -4658,6 +4678,17 @@ export const enUS: TranslationDict = {
     },
     websites: {
       empty: "No websites",
+      searchPlaceholder: "Search domain or path…",
+      search: "Search",
+      allGroups: "All groups",
+      allTypes: "All types",
+      allStatuses: "All statuses",
+      allSsl: "All certificates",
+      statusRunning: "Running",
+      statusStopped: "Stopped",
+      sslYes: "Has certificate",
+      sslNo: "No certificate",
+      filterEmpty: "No websites match the current filters",
       columns: {
         domain: "Domain",
         type: "Type",
@@ -4686,7 +4717,12 @@ export const enUS: TranslationDict = {
       edit: "Edit",
       delete: "Delete",
       deleteConfirm: "Delete website \"{name}\"? This cannot be undone.",
+      deleteConfirmWithPath:
+        "Delete website \"{name}\"? The site directory will also be removed. This cannot be undone.",
       deleteSuccess: "Website deleted",
+      startSuccess: "Website started",
+      stopSuccess: "Website stopped",
+      filteredCount: "{filtered} / {total}",
       editTitle: "Edit website",
       editSuccess: "Website updated",
       favorite: "Favorite",
@@ -4696,6 +4732,7 @@ export const enUS: TranslationDict = {
       errorLog: "Error log",
       logsEmpty: "No logs",
       certEmpty: "No certificate bound",
+      detailEmpty: "No details",
       certDaysLeft: "{days} days left",
       certExpiresToday: "Expires today",
       certExpired: "Expired",
@@ -4739,6 +4776,15 @@ export const enUS: TranslationDict = {
     certificates: {
       empty: "No certificates",
       create: "Create certificate",
+      searchPlaceholder: "Search domain or remark…",
+      filterEmpty: "No certificates match the current filters",
+      filteredCount: "{filtered} / {total}",
+      btAcmeHint:
+        "BT Panel ACME apply is not supported in OmniPanel. Upload/deploy here, or use the panel UI.",
+      btSslClose: "Disable site SSL",
+      btSslCloseSuccess: "Site SSL disabled",
+      btSslCloseConfirm: "Disable SSL for site \"{name}\"?",
+      onePanelOnly: "1Panel only",
       autoRenewYes: "Yes",
       autoRenewNo: "No",
       columns: {
@@ -4783,6 +4829,15 @@ export const enUS: TranslationDict = {
     cronjobs: {
       empty: "No cron jobs",
       create: "Create cron job",
+      searchPlaceholder: "Search name or type…",
+      filterEmpty: "No cron jobs match the current filters",
+      filteredCount: "{filtered} / {total}",
+      runOnce: "Run now",
+      runOnceSuccess: "Triggered: {name}",
+      enable: "Enable",
+      disable: "Disable",
+      enableSuccess: "Cron job enabled",
+      disableSuccess: "Cron job disabled",
       columns: {
         name: "Name",
         schedule: "Schedule",

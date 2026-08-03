@@ -307,6 +307,103 @@ export interface BtInstalledAppsResult {
   page?: string;
 }
 
+/** Docker 应用商店版本项（get_apps）。 */
+export interface BtDockerAppVersion {
+  m_version?: string;
+  /** 子版本列表，或单个字符串（不同面板版本形态不一） */
+  s_version?: string[] | string;
+}
+
+export interface BtDockerAppEnv {
+  key?: string;
+  type?: string;
+  desc?: string;
+  default?: string | number | boolean | null;
+}
+
+export interface BtDockerAppField {
+  attr?: string;
+  name?: string;
+  type?: string;
+  default?: string | number | boolean | null;
+}
+
+/** POST /mod/docker/com/get_apps[/stype] 应用条目。 */
+export interface BtDockerApp {
+  appid?: number;
+  appname: string;
+  apptitle?: string;
+  appdesc?: string;
+  apptype?: string;
+  icon?: string;
+  version?: string;
+  installed?: boolean;
+  appversion?: BtDockerAppVersion[];
+  depend?: unknown[];
+  env?: BtDockerAppEnv[];
+  field?: BtDockerAppField[];
+}
+
+export interface BtDockerAppsResult {
+  items: BtDockerApp[];
+  total: number;
+}
+
+/** POST /plugin?action=get_soft_list 查询参数。 */
+export interface BtSoftListParams {
+  p?: number;
+  /** 分类 id；0=全部 */
+  type?: number;
+  query?: string;
+  force?: boolean | number;
+  row?: number;
+}
+
+export interface BtSoftVersion {
+  m_version?: string;
+  version?: string;
+  setup?: boolean;
+  soft_id?: number;
+}
+
+/** 软件商店条目（get_soft_list.list.data）。 */
+export interface BtSoftItem {
+  id?: number;
+  name: string;
+  title?: string;
+  title_en?: string;
+  ps?: string;
+  ps_en?: string;
+  type?: number;
+  icon?: string;
+  setup?: boolean;
+  version?: string;
+  versions?: BtSoftVersion[];
+  task?: string | number;
+  price?: number;
+}
+
+export interface BtSoftListResult {
+  items: BtSoftItem[];
+  total: number;
+  /** 分类：id → 标题 */
+  types: Array<{ id: number; title: string }>;
+}
+
+/** POST /mod/docker/com/create_app[/stype] 通用安装参数。 */
+export interface BtCreateDockerAppParams {
+  appName: string;
+  serviceName: string;
+  mVersion: string;
+  sVersion: string;
+  allowAccess?: boolean;
+  cpus?: string | number;
+  memoryLimit?: string | number;
+  disableDomain?: boolean;
+  /** 应用专属 env/field 参数 */
+  extra?: Record<string, string | number | boolean | null | undefined>;
+}
+
 export interface BtRequestOptions {
   /** 含 query 的路径，如 `/system?action=GetSystemTotal` */
   path: string;
