@@ -20694,12 +20694,15 @@ button.omni-btn-tool[aria-pressed="true"] {
 .vsplit-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
 .vsplit-sidebar-section__actions .schema-toolbar--inline > button,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
 .schema-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > .btn-icon,
-.schema-toolbar.schema-toolbar--inline > button {
+.schema-toolbar.schema-toolbar--inline > button,
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
     width: 24px;
     height: 24px;
     min-width: 24px;
@@ -20711,13 +20714,30 @@ button.omni-btn-tool[aria-pressed="true"] {
 .schema-toolbar.schema-toolbar--inline > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > .btn-icon,
 .schema-toolbar.schema-toolbar--inline > button,
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
 .vsplit-sidebar-section__actions .schema-toolbar--inline > button,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > .btn-icon,
-.schema-sidebar-section__actions .schema-toolbar--inline > button {
+.schema-sidebar-section__actions .schema-toolbar--inline > button,
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
     border-radius: 0;
+}
+
+/* 工具栏内下拉触发器：展开/聚焦时不要单独描边方框，与旁路 icon 一致 */
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
+    --tw-ring-shadow: 0 0 #0000;
+    box-shadow: none;
+}
+
+.schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > .icon-dropdown-button__trigger--open,
+.vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > .icon-dropdown-button__trigger--open,
+.schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > .icon-dropdown-button__trigger--open {
+    background: var(--accent-soft, color-mix(in srgb, var(--accent) 12%, transparent));
 }
 
 .vsplit-sidebar-section__title,
