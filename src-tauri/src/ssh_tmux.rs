@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use omnipanel_error::{OmniError, OmniResult};
-use omnipanel_ssh::tmux::{commands as tmux_commands, ControllerEvent, TmuxController, TmuxSink};
+use omnipanel_ssh::tmux::{commands as tmux_commands, ControllerEvent, PaneId, TmuxController, TmuxSink};
 use omnipanel_ssh::{SshConfig, SshSession};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -57,6 +57,8 @@ pub struct SshTerminalInfo {
     pub host: String,
     pub tmux_version: Option<String>,
     pub tmux_session: Option<String>,
+    /// tmux pane id（如 `%5`），用于关 Tab 后重连恢复原 window。
+    pub tmux_pane_id: Option<u32>,
     /// 降级到直连的原因，`tmux` 模式下为 `None`。
     pub fallback_reason: Option<String>,
 }
@@ -81,6 +83,8 @@ struct SessionBinding {
     controller: Arc<TmuxController>,
     version: String,
     session_name: String,
+    /// 该 Tab 对应的 pane id，用于前端持久化后重连恢复原 window。
+    pane_id: Option<u32>,
     /// 保留连接配置，供「切直连」逃生阀原地重建会话而无需前端重新发起连接。
     config: SshConfig,
 }
@@ -104,6 +108,17 @@ pub enum AttachOutcome {
     Unsupported(String),
 }
 
+/// 单个 tmux 会话当前被 OmniPanel 的多少个 Tab 关联。
+///
+/// 关联计数来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
+/// terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TmuxTabStat {
+    pub session_name: String,
+    pub tab_count: usize,
+}
+
 /// 按主机复用 tmux 控制器。
 #[derive(Default)]
 pub struct TmuxManager {
@@ -125,6 +140,11 @@ impl TmuxManager {
     }
 
     /// 把一个远程终端接入 tmux；返回 [`AttachOutcome::Unsupported`] 表示应降级直连。
+    ///
+    /// - `session_name_override` 为 `Some` 时 attach 到指定会话名（用于从远端会话列表
+    ///   进入某个具体会话）；为 `None` 时用默认的 `omnipanel-<host>` 会话名。
+    /// - `pane_id_override` 为 `Some` 时尝试 attach 回该 pane 对应的原 window（关 Tab
+    ///   保留进程后重连恢复），匹配不到则降级为新建 window。
     pub async fn attach(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -133,24 +153,39 @@ impl TmuxManager {
         session_id: &str,
         cols: u16,
         rows: u16,
+        session_name_override: Option<&str>,
+        pane_id_override: Option<u32>,
     ) -> OmniResult<AttachOutcome> {
         let host_key = host_identity(config);
+        // 先归一化 session_name：None 时用默认的 omnipanel-<host>。
+        // cache_key 统一基于 session_name，确保默认会话（sshConnectConnection 路径）
+        // 与显式传入同名会话（sshTmuxAttachSession 重连路径）复用同一条 control 连接。
+        // 否则两条路径的 cache_key 不同会建立第二条 control 连接，new-session -D 把
+        // 已有 client 顶下线，表现为「同主机多组 Tab 互踢、不可同时连接」。
+        let session_name = match session_name_override {
+            Some(name) => tmux_commands::sanitize_session_name(name),
+            None => tmux_commands::session_name_for_workspace(&host_key),
+        };
+        let cache_key = format!("{host_key}:{session_name}");
 
         // 过期的 unsupported 条目视为不存在，让安装/升级 tmux 后能自动恢复
-        if let Some(reason) = self.unsupported_reason(&host_key).await {
+        if let Some(reason) = self.unsupported_reason(&cache_key).await {
             return Ok(AttachOutcome::Unsupported(reason));
         }
 
-        let lock = self.connect_lock(&host_key).await;
+        let lock = self.connect_lock(&cache_key).await;
         let _guard = lock.lock().await;
 
-        let host = match self.live_host(&host_key).await {
+        let host = match self.live_host(&cache_key).await {
             Some(host) => host,
-            None => match self.spawn_host(app, buffers, config, &host_key, cols, rows).await? {
+            None => match self
+                .spawn_host(app, buffers, config, &cache_key, cols, rows, &session_name)
+                .await?
+            {
                 Some(host) => host,
                 None => {
                     let reason = self
-                        .unsupported_reason(&host_key)
+                        .unsupported_reason(&cache_key)
                         .await
                         .unwrap_or_else(|| "远端 tmux 不可用".to_string());
                     return Ok(AttachOutcome::Unsupported(reason));
@@ -158,18 +193,38 @@ impl TmuxManager {
             },
         };
 
-        host.controller
-            .create_window(session_id, cols, rows, None)
-            .await?;
+        // 优先 attach 回原 window（关 Tab 保留进程后重连），匹配不到则新建
+        let pane_id = if let Some(pid) = pane_id_override {
+            match host
+                .controller
+                .attach_to_existing_pane(session_id, &host.session_name, PaneId(pid))
+                .await?
+            {
+                Some(entry) => Some(entry.pane.0),
+                None => {
+                    // 原 window 已不存在（远端会话被 kill），降级新建
+                    host.controller
+                        .create_window(session_id, cols, rows, None)
+                        .await?;
+                    None
+                }
+            }
+        } else {
+            host.controller
+                .create_window(session_id, cols, rows, None)
+                .await?;
+            None
+        };
 
         self.direct.lock().await.remove(session_id);
         self.sessions.lock().await.insert(
             session_id.to_string(),
             SessionBinding {
-                host_key,
+                host_key: cache_key,
                 controller: host.controller.clone(),
                 version: host.version.clone(),
                 session_name: host.session_name.clone(),
+                pane_id,
                 config: config.clone(),
             },
         );
@@ -223,17 +278,20 @@ impl TmuxManager {
     }
 
     /// 建立新的 control 连接。返回 `Ok(None)` 表示远端不支持（已记入缓存）。
+    ///
+    /// `session_name` 由调用方在 `attach` 中归一化好传入（None 已替换为默认会话名），
+    /// 这里直接用于 `new-session -s <name>`，不再二次推导。
     async fn spawn_host(
         self: &Arc<Self>,
         app: &AppHandle,
         buffers: &OutputBuffers,
         config: &SshConfig,
-        host_key: &str,
+        cache_key: &str,
         cols: u16,
         rows: u16,
+        session_name: &str,
     ) -> OmniResult<Option<Arc<TmuxHost>>> {
         let session = Arc::new(SshSession::connect_no_shell(config.clone()).await?);
-        let session_name = tmux_commands::session_name_for_workspace(host_key);
 
         let sink = self.build_sink(app, buffers);
         let control = match session
@@ -245,10 +303,10 @@ impl TmuxManager {
                 // 探测失败或版本过低：记入缓存（带 TTL）后降级，不向用户抛错
                 tracing::info!(
                     target: "tmux",
-                    "主机 {host_key} 不支持 tmux control mode，降级直连: {err}"
+                    "主机 {cache_key} 不支持 tmux control mode，降级直连: {err}"
                 );
                 self.unsupported.lock().await.insert(
-                    host_key.to_string(),
+                    cache_key.to_string(),
                     UnsupportedEntry {
                         reason: err.user_message(),
                         marked_at: Instant::now(),
@@ -267,7 +325,7 @@ impl TmuxManager {
         self.hosts
             .lock()
             .await
-            .insert(host_key.to_string(), host.clone());
+            .insert(cache_key.to_string(), host.clone());
         Ok(Some(host))
     }
 
@@ -322,6 +380,7 @@ impl TmuxManager {
                 host: b.host_key.clone(),
                 tmux_version: Some(b.version.clone()),
                 tmux_session: Some(b.session_name.clone()),
+                tmux_pane_id: b.pane_id,
                 fallback_reason: None,
             });
         }
@@ -334,8 +393,34 @@ impl TmuxManager {
                 host: d.host.clone(),
                 tmux_version: None,
                 tmux_session: None,
+                tmux_pane_id: None,
                 fallback_reason: d.reason.clone(),
             })
+    }
+
+    /// 统计指定主机上每个 tmux 会话当前被几个 Tab 关联。
+    ///
+    /// 遍历 `sessions` 表，筛选 `host_key` 匹配的条目（`host_key` 形如
+    /// `user@host:port` 或 `user@host:port:session_name`），按 `session_name`
+    /// 分组计数。直连会话不计入（它们没有 tmux 会话名）。
+    pub async fn tab_stats_for_host(&self, host_key: &str) -> Vec<TmuxTabStat> {
+        let sessions = self.sessions.lock().await;
+        let mut map: HashMap<String, usize> = HashMap::new();
+        for binding in sessions.values() {
+            // host_key 可能是 "user@host:port"（默认会话）或 "user@host:port:session"（指定会话），
+            // 都以原始 host_identity 开头，因此用前缀匹配
+            if binding.host_key == host_key
+                || binding.host_key.starts_with(&format!("{host_key}:"))
+            {
+                *map.entry(binding.session_name.clone()).or_insert(0) += 1;
+            }
+        }
+        map.into_iter()
+            .map(|(session_name, tab_count)| TmuxTabStat {
+                session_name,
+                tab_count,
+            })
+            .collect()
     }
 
     /// 登记一个直连会话及其降级原因。
@@ -381,14 +466,17 @@ impl TmuxManager {
         controller.capture_pane(session_id, history_lines).await
     }
 
-    /// 关闭一个 Tab：只 kill 对应 window，远端 tmux 会话与其他 Tab 不受影响。
-    /// 返回是否由 tmux 处理。
+    /// 关闭一个终端 Tab：从本地映射摘除，但**不 kill 远端 window**。
+    ///
+    /// 下载等耗时命令继续在远端跑；重新打开同一会话时用持久化的 pane_id
+    /// 走 `attach_to_existing_pane` 恢复原 window 的屏幕与进程。
+    /// 真正要杀掉远端 window 需在远端会话治理视图点「终止」。
     pub async fn close(self: &Arc<Self>, session_id: &str) -> bool {
         let Some((host_key, controller)) = self.binding(session_id).await else {
             return false;
         };
-        if let Err(err) = controller.close_window(session_id).await {
-            tracing::warn!(target: "tmux", "关闭 window 失败: {err}");
+        if let Err(err) = controller.detach_window(session_id) {
+            tracing::warn!(target: "tmux", "摘除 window 映射失败: {err}");
         }
         self.forget_session(session_id).await;
         self.schedule_idle_reap(host_key);

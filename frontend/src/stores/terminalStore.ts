@@ -98,6 +98,8 @@ interface TerminalState {
   setStatus: (sessionId: string, status: TerminalConnectionStatus) => void;
   setBackendSessionId: (sessionId: string, backendSessionId: string | null) => void;
   setSessionCwd: (sessionId: string, cwd: string) => void;
+  setSessionTmuxSession: (sessionId: string, tmuxSession: string | null) => void;
+  setSessionTmuxPaneId: (sessionId: string, tmuxPaneId: number | null) => void;
   setTabResource: (tabId: string, session: TerminalSessionInfo) => void;
   renameTab: (tabId: string, title: string) => void;
   setTabWorkspaceOnly: (tabId: string, workspaceOnly: boolean) => void;
@@ -112,7 +114,7 @@ interface TerminalState {
   openOrFocusSshTab: (hostId: string, title: string) => string;
   openOrFocusLocalTab: (title?: string) => string;
   addLocalTerminalTab: (title?: string, workspaceId?: string, shellSpec?: LocalShellSpec | null) => string;
-  addSshTerminalTab: (hostId: string, title: string, workspaceId?: string) => string;
+  addSshTerminalTab: (hostId: string, title: string, workspaceId?: string, tmuxSession?: string | null, tmuxPaneId?: number | null) => string;
   /** 自增指定会话的 reconnect 版本号，触发 useTerminal 重建后端会话 */
   bumpReconnect: (sessionId: string) => void;
 }
@@ -175,6 +177,8 @@ export function findTerminalPane(id: string): TerminalPane | undefined {
       terminal: tab.terminal,
       status: tab.status,
       shellSpec: session.shellSpec ?? null,
+      tmuxSession: session.tmuxSession ?? null,
+      tmuxPaneId: session.tmuxPaneId ?? null,
     };
   }
   const state = useTerminalStore.getState();
@@ -195,6 +199,8 @@ export function findTerminalPane(id: string): TerminalPane | undefined {
     terminal: null,
     status: runtime?.status ?? "disconnected",
     shellSpec: session.shellSpec ?? null,
+    tmuxSession: session.tmuxSession ?? null,
+    tmuxPaneId: session.tmuxPaneId ?? null,
   };
 }
 
@@ -250,6 +256,10 @@ function normalizeLegacyPersistedTab(tab: unknown): TerminalTab | null {
       ? (sessionSource.commandPack as unknown[]).filter((c): c is string => typeof c === "string")
       : [],
     shellSpec: normalizePersistedShellSpec(sessionSource.shellSpec),
+    tmuxSession:
+      typeof sessionSource.tmuxSession === "string" ? sessionSource.tmuxSession : null,
+    tmuxPaneId:
+      typeof sessionSource.tmuxPaneId === "number" ? sessionSource.tmuxPaneId : null,
   };
   const createdAt = typeof raw.createdAt === "number" ? raw.createdAt : Date.now();
   const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : raw.id;
@@ -539,6 +549,52 @@ export const useTerminalStore = create<TerminalState>()(
           };
         }),
 
+      setSessionTmuxSession: (sessionId, tmuxSession) =>
+        set((state) => {
+          const sessions = updateSessionById(state.sessions, sessionId, (s) => ({
+            ...s,
+            session: { ...s.session, tmuxSession },
+          }));
+          const tabs = updateTabById(state.tabs, sessionId, (tab) =>
+            tab.sessionId === sessionId || tab.id === sessionId
+              ? { ...tab, session: { ...tab.session, tmuxSession } }
+              : tab,
+          );
+          const pane = state.embeddedPanes[sessionId];
+          if (!pane) return { tabs, sessions };
+          return {
+            tabs,
+            sessions,
+            embeddedPanes: {
+              ...state.embeddedPanes,
+              [sessionId]: { ...pane, tmuxSession },
+            },
+          };
+        }),
+
+      setSessionTmuxPaneId: (sessionId, tmuxPaneId) =>
+        set((state) => {
+          const sessions = updateSessionById(state.sessions, sessionId, (s) => ({
+            ...s,
+            session: { ...s.session, tmuxPaneId },
+          }));
+          const tabs = updateTabById(state.tabs, sessionId, (tab) =>
+            tab.sessionId === sessionId || tab.id === sessionId
+              ? { ...tab, session: { ...tab.session, tmuxPaneId } }
+              : tab,
+          );
+          const pane = state.embeddedPanes[sessionId];
+          if (!pane) return { tabs, sessions };
+          return {
+            tabs,
+            sessions,
+            embeddedPanes: {
+              ...state.embeddedPanes,
+              [sessionId]: { ...pane, tmuxPaneId },
+            },
+          };
+        }),
+
       setTabResource: (tabId, session) =>
         set((state) => ({
           tabs: updateTabById(state.tabs, tabId, (tab) => ({
@@ -659,14 +715,17 @@ export const useTerminalStore = create<TerminalState>()(
         });
       },
 
-      addSshTerminalTab: (hostId, title, workspaceId?: string) => {
-        const sessionId = get().createSession(title, defaultSessionInfo(hostId, "remote"));
+      addSshTerminalTab: (hostId, title, workspaceId?: string, tmuxSession?: string | null, tmuxPaneId?: number | null) => {
+        const sessionId = get().createSession(
+          title,
+          defaultSessionInfo(hostId, "remote", null, tmuxSession ?? null, tmuxPaneId ?? null),
+        );
         return get().addTab({
           id: sessionId,
           sessionId,
           title,
           workspaceId,
-          session: defaultSessionInfo(hostId, "remote"),
+          session: defaultSessionInfo(hostId, "remote", null, tmuxSession ?? null, tmuxPaneId ?? null),
         });
       },
 

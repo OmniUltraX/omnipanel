@@ -11,12 +11,16 @@ crate-type = ["lib"]
 default = []
 # 仅用于排查打包问题；正式发布勿启用（macOS 使用私有 API，无法上架 App Store）。
 debug-inspector = ["tauri/devtools"]
+# 开发期 MCP Bridge（UI 自动化 / IPC 监控 / 日志抓取）。
+# `tauri dev` 默认开启 debug_assertions 但不会启用本 feature，
+# 需在开发时显式传 `--features dev-mcp` 或在 .cargo/config.toml 里默认开启。
+dev-mcp = ["dep:tauri-plugin-mcp-bridge"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png", "dynamic-acl"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -24,6 +28,10 @@ tauri-plugin-updater = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-snap-layout = "1"
+# 开发期 MCP Bridge：仅 debug_assertions 下激活 WebSocket server (默认端口 9223)，
+# 供 @hypothesi/tauri-mcp-server 连接以做 UI 自动化 / IPC 监控 / 日志抓取。
+# 生产构建 (release) 该插件为零代码路径，不影响打包。
+tauri-plugin-mcp-bridge = { version = "0.12", optional = true }
 omnipanel-core = { path = "../crates/omnipanel-core" }
 omnipanel-ai = { path = "../crates/omnipanel-ai" }
 omnipanel-error = { path = "../crates/omnipanel-error" }

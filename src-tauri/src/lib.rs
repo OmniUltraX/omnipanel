@@ -221,7 +221,9 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_terminal_set_direct_mode,
         commands::ssh::ssh_tmux_capture_pane,
         commands::ssh::ssh_tmux_list_sessions,
+        commands::ssh::ssh_tmux_tab_stats,
         commands::ssh::ssh_tmux_kill_session,
+        commands::ssh::ssh_tmux_attach_session,
         commands::ssh::sftp_list,
         commands::ssh::sftp_download,
         commands::ssh::sftp_cache_for_preview,
@@ -261,6 +263,7 @@ fn export_ipc_bindings() {
         commands::ssh_capabilities::ssh_pool_probe_capabilities,
         commands::ssh_capabilities::ssh_pool_invalidate_capabilities,
         commands::ssh_capabilities::ssh_pool_install_tool,
+        commands::ssh_capabilities::ssh_pool_probe_panels,
         commands::ssh::set_terminal_tmux_mode,
         commands::ssh::invalidate_tmux_cache,
         commands::system::local_fetch_stats,
@@ -637,6 +640,12 @@ fn build_and_run_tauri() {
     #[cfg(not(any(windows, target_os = "linux")))]
     let builder = tauri::Builder::default();
 
+    // 开发期 MCP Bridge：仅在 `--features dev-mcp` 下激活，
+    // 启动 WebSocket server (默认 0.0.0.0:9223) 供 @hypothesi/tauri-mcp-server 连接。
+    // 生产构建 (release) 该插件为零代码路径，不影响打包。
+    #[cfg(feature = "dev-mcp")]
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
     builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -651,6 +660,14 @@ fn build_and_run_tauri() {
                 .build(),
         )
         .setup(|app| {
+            // 开发期 MCP Bridge capability：仅 `--features dev-mcp` 下加载。
+            // JSON 放在 capabilities/ 目录外（dev-capabilities/），避免被
+            // tauri-build 默认 pattern 自动收集，从而保证 release 构建零引用。
+            #[cfg(feature = "dev-mcp")]
+            if let Err(e) = app.add_capability(include_str!("../dev-capabilities/dev-mcp.json")) {
+                tracing::warn!("加载 MCP Bridge capability 失败: {e}");
+            }
+
             // 主窗 create:false：按记忆几何创建并保持隐藏，等 HTML 首屏就绪再 show。
             // 须在 setup 最前，避免默认创建路径在主屏闪白框。
             commands::workspace_window::create_main_window(app.handle())
@@ -1007,7 +1024,9 @@ fn build_and_run_tauri() {
             commands::ssh::ssh_terminal_set_direct_mode,
             commands::ssh::ssh_tmux_capture_pane,
             commands::ssh::ssh_tmux_list_sessions,
+            commands::ssh::ssh_tmux_tab_stats,
             commands::ssh::ssh_tmux_kill_session,
+            commands::ssh::ssh_tmux_attach_session,
             commands::ssh::sftp_list,
             commands::ssh::sftp_download,
             commands::ssh::sftp_cache_for_preview,
@@ -1056,6 +1075,7 @@ fn build_and_run_tauri() {
         commands::ssh_capabilities::ssh_pool_probe_capabilities,
         commands::ssh_capabilities::ssh_pool_invalidate_capabilities,
         commands::ssh_capabilities::ssh_pool_install_tool,
+        commands::ssh_capabilities::ssh_pool_probe_panels,
         commands::ssh::set_terminal_tmux_mode,
         commands::ssh::invalidate_tmux_cache,
             // Local system monitor

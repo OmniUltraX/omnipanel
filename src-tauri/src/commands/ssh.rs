@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::background::{HostSystemStats, PoolStatusEvent, SshHostOverview};
 use crate::output_buffer;
-use crate::ssh_tmux::{host_identity, AttachOutcome, SshTerminalInfo};
+use crate::ssh_tmux::{host_identity, AttachOutcome, SshTerminalInfo, TmuxTabStat};
 use crate::state::AppState;
 use omnipanel_ssh::tmux::{self, TmuxSessionInfo};
 
@@ -47,6 +47,7 @@ pub async fn ssh_connect(
     config: SshConfig,
     cols: u16,
     rows: u16,
+    pane_id: Option<u32>,
 ) -> Result<String, OmniError> {
     let id = format!("ssh-{}", SSH_COUNTER.fetch_add(1, Ordering::Relaxed));
 
@@ -73,6 +74,8 @@ pub async fn ssh_connect(
             &id,
             cols,
             rows,
+            None,
+            pane_id,
         )
         .await
     {
@@ -182,6 +185,7 @@ pub async fn ssh_connect_connection(
     connection_id: String,
     cols: u16,
     rows: u16,
+    pane_id: Option<u32>,
 ) -> Result<String, OmniError> {
     let storage = state.storage.lock().await;
     let conn = storage
@@ -192,7 +196,7 @@ pub async fn ssh_connect_connection(
     }
     let config = crate::commands::connection::resolve_ssh_config(&conn)?;
     drop(storage);
-    ssh_connect(state, config, cols, rows).await
+    ssh_connect(state, config, cols, rows, pane_id).await
 }
 
 /// 写入远端 shell。
@@ -325,6 +329,25 @@ pub async fn ssh_tmux_list_sessions(
         .collect())
 }
 
+/// 查询当前 OmniPanel 在该主机上每个 tmux 会话关联的 Tab 数。
+///
+/// 关联数据来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
+/// terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_tmux_tab_stats(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<TmuxTabStat>, OmniError> {
+    let config = state
+        .ssh_pool
+        .get_ssh_config(&connection_id)
+        .await
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "未找到 SSH 连接配置"))?;
+    let host_key = host_identity(&config);
+    Ok(state.tmux.tab_stats_for_host(&host_key).await)
+}
+
 /// 终止远端 tmux 会话，其中的全部窗口与进程都会被杀掉。
 ///
 /// 该操作不可撤销且会波及其他客户端的会话，因此无论成败都写入审计日志。
@@ -373,6 +396,57 @@ pub async fn ssh_tmux_kill_session(
     }
 
     result.map(|_| ())
+}
+
+/// Attach 到远端指定名称的 tmux 会话，在终端模块开一个新 Tab。
+///
+/// 与 `ssh_connect` 的区别：`ssh_connect` 用固定会话名 `omnipanel-<host>`，
+/// 本命令允许用户从远端会话列表选择任意会话名进入（含非 OmniPanel 创建的）。
+/// `pane_id` 不为 None 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
+/// 匹配不到则新建 window。返回后端会话 id（`ssh-{n}`），前端据此创建终端 Tab。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_tmux_attach_session(
+    state: State<'_, AppState>,
+    connection_id: String,
+    session_name: String,
+    cols: u16,
+    rows: u16,
+    pane_id: Option<u32>,
+) -> Result<String, OmniError> {
+    let config = state
+        .ssh_pool
+        .get_ssh_config(&connection_id)
+        .await
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "未找到 SSH 连接配置"))?;
+
+    let id = format!("ssh-{}", SSH_COUNTER.fetch_add(1, Ordering::Relaxed));
+
+    // attach 到用户指定的会话名（-A = attach-or-create，已存在则 attach）
+    match state
+        .tmux
+        .attach(
+            &state.app_handle,
+            &state.output_buffers,
+            &config,
+            &id,
+            cols,
+            rows,
+            Some(&session_name),
+            pane_id,
+        )
+        .await
+    {
+        Ok(AttachOutcome::Attached) => Ok(id),
+        Ok(AttachOutcome::Unsupported(reason)) => Err(OmniError::new(
+            ErrorCode::Internal,
+            format!("无法接入 tmux 会话 {session_name}: {reason}"),
+        )),
+        Err(err) => Err(OmniError::new(
+            ErrorCode::Internal,
+            format!("接入 tmux 会话 {session_name} 失败: {}", err.user_message()),
+        )),
+    }
 }
 
 pub(crate) async fn pool_session(state: &AppState, id: &str) -> Result<Arc<SshSession>, OmniError> {
@@ -1905,7 +1979,7 @@ pub async fn ssh_connect_config_host(
         )
     })?;
     let config = ssh_config_to_connect_config(&entry)?;
-    ssh_connect(state, config, cols, rows).await
+    ssh_connect(state, config, cols, rows, None).await
 }
 
 /// 列出远程进程列表。

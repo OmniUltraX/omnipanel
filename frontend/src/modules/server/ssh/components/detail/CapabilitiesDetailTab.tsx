@@ -4,6 +4,7 @@ import { appConfirm } from "@/lib/appConfirm";
 import { useI18n } from "@/i18n";
 import type { WorkspaceResource } from "@/lib/resourceRegistry";
 import { showToast } from "@/stores/toastStore";
+import { useConnectionStore } from "@/stores/connectionStore";
 import type {
   InstallMethod,
   RemoteToolCapability,
@@ -12,6 +13,7 @@ import type {
 } from "@/ipc/bindings";
 
 import { selectCapabilities, useCapabilitiesStore } from "../../stores/capabilitiesStore";
+import { PanelProbeSection } from "./PanelProbeSection";
 
 type Props = {
   activeResource: WorkspaceResource | null;
@@ -73,6 +75,11 @@ function manualInstructions(method: InstallMethod): string | null {
 export function CapabilitiesDetailTab({ activeResource }: Props) {
   const { t } = useI18n();
   const resourceId = activeResource?.id ?? null;
+  const connections = useConnectionStore((s) => s.connections);
+  const connection = useMemo(
+    () => (resourceId ? connections.find((c) => c.id === resourceId) ?? null : null),
+    [connections, resourceId],
+  );
 
   const entry = useCapabilitiesStore((s) => selectCapabilities(s, resourceId));
   const probe = useCapabilitiesStore((s) => s.probe);
@@ -247,6 +254,10 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
           </div>
         </section>
       ))}
+
+      {resourceId ? (
+        <PanelProbeSection resourceId={resourceId} connection={connection} />
+      ) : null}
     </div>
   );
 }

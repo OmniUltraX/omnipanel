@@ -89,6 +89,8 @@ export function defaultSessionInfo(
   resourceId: string,
   type: TerminalSessionType,
   shellSpec?: LocalShellSpec | null,
+  tmuxSession?: string | null,
+  tmuxPaneId?: number | null,
 ): TerminalSessionInfo {
   if (type === "local") {
     return {
@@ -99,6 +101,8 @@ export function defaultSessionInfo(
       purpose: "Local Workspace",
       commandPack: [],
       shellSpec: shellSpec ?? null,
+      tmuxSession: null,
+      tmuxPaneId: null,
     };
   }
   return {
@@ -109,6 +113,8 @@ export function defaultSessionInfo(
     purpose: "SSH Workbench",
     commandPack: [],
     shellSpec: null,
+    tmuxSession: tmuxSession ?? null,
+    tmuxPaneId: tmuxPaneId ?? null,
   };
 }
 
@@ -169,6 +175,10 @@ export function normalizePersistedSession(raw: unknown): TerminalSession | null 
       ? (sessionSource.commandPack as unknown[]).filter((c): c is string => typeof c === "string")
       : [],
     shellSpec: normalizePersistedShellSpec(sessionSource.shellSpec),
+    tmuxSession:
+      typeof sessionSource.tmuxSession === "string" ? sessionSource.tmuxSession : null,
+    tmuxPaneId:
+      typeof sessionSource.tmuxPaneId === "number" ? sessionSource.tmuxPaneId : null,
   };
   const lifecycle =
     item.lifecycle === "active" || item.lifecycle === "ended" ? item.lifecycle : "suspended";
@@ -223,6 +233,10 @@ export function migrateLegacyTabsToSessions(
         ? (sessionSource.commandPack as unknown[]).filter((c): c is string => typeof c === "string")
         : [],
       shellSpec: normalizePersistedShellSpec(sessionSource.shellSpec),
+      tmuxSession:
+        typeof sessionSource.tmuxSession === "string" ? sessionSource.tmuxSession : null,
+      tmuxPaneId:
+        typeof sessionSource.tmuxPaneId === "number" ? sessionSource.tmuxPaneId : null,
     }, raw.id);
     entity.lifecycle = "suspended";
     sessions.push(entity);

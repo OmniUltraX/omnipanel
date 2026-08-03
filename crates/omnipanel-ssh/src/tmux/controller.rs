@@ -318,6 +318,44 @@ impl TmuxController {
         Ok(())
     }
 
+    /// 从本地映射摘除一个 Tab，但**不 kill 远端 window**。
+    ///
+    /// 用于「关 Tab 保留进程」场景：下载等耗时命令继续在远端跑，
+    /// 重新打开同一会话时可用 `attach_to_existing_pane` 恢复。
+    pub fn detach_window(&self, session_id: &str) -> OmniResult<()> {
+        self.state().registry.unregister(session_id);
+        Ok(())
+    }
+
+    /// 重连后按持久化的 pane_id 找回原 window 并重新登记。
+    ///
+    /// 通过 `list-panes -s` 查询会话内全部 window/pane，匹配 pane_id 即拿到 window_id，
+    /// 然后 `adopt_window` 把 session_id 重新关联到原 window。匹配不到（window 已被杀）
+    /// 时返回 `None`，调用方应降级为 `create_window`。
+    pub async fn attach_to_existing_pane(
+        &self,
+        session_id: &str,
+        session_name: &str,
+        pane_id: PaneId,
+    ) -> OmniResult<Option<PaneEntry>> {
+        let lines = self.run_command(&commands::list_windows(session_name)).await?;
+        for line in lines {
+            if let Some((window, pane, _name)) = parse_pane_line(&line) {
+                if pane == pane_id {
+                    self.adopt_window(session_id, window, pane);
+                    // 切到该 window，让 control mode 开始重放屏幕
+                    self.fire_command(&commands::select_window(window))?;
+                    return Ok(Some(PaneEntry {
+                        session_id: session_id.to_string(),
+                        window,
+                        pane,
+                    }));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// 写入按键/粘贴内容。
     pub fn write(&self, session_id: &str, data: &[u8]) -> OmniResult<()> {
         let entry = self.entry_of(session_id)?;

@@ -45,6 +45,25 @@ export type TerminalSessionInfo = {
   commandPack: string[];
   /** 本地终端显式指定的 shell；远程会话或自动检测时为 null */
   shellSpec?: LocalShellSpec | null;
+  /**
+   * 远端 tmux 会话名；仅 SSH 远程会话有值。
+   *
+   * - `ssh_connect` 默认走 `omnipanel-<host>` 会话，会回填此字段；
+   * - 用户从远端会话列表「进入」指定会话时，按所选会话名赋值；
+   * - 直连模式下为 null（与 transportStore.tmuxSession === null 对齐）。
+   *
+   * 用于在远端会话治理视图显示「N 个 Tab 正在使用」关联标记，
+   * 以及应用重启后恢复 Tab 与远端会话的对应关系。
+   */
+  tmuxSession?: string | null;
+  /**
+   * 远端 tmux pane id（数值形式，对应 tmux `%5` 这样的标识）。
+   *
+   * 关 Tab 时后端只 detach 不 kill 远端 window，进程继续运行；
+   * 重连时把 paneId 传回后端 attach 回原 window，从而恢复历史输出
+   * 与进行中的耗时进程（下载、编译等）。直连模式或新建 Tab 时为 null。
+   */
+  tmuxPaneId?: number | null;
 };
 
 export type TerminalConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -76,6 +95,10 @@ export interface TerminalPane {
   status: TerminalConnectionStatus;
   /** 本地终端显式指定的 shell；远程会话为 null */
   shellSpec?: LocalShellSpec | null;
+  /** 远端 tmux 会话名；仅 SSH 远程会话有值，用于关联远端会话治理视图 */
+  tmuxSession?: string | null;
+  /** 远端 tmux pane id；用于重连时 attach 回原 window 恢复进程与历史 */
+  tmuxPaneId?: number | null;
 }
 
 export type TerminalTabInput = Omit<

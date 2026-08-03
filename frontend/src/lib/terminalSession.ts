@@ -1,3 +1,5 @@
+import { commands } from "../ipc/bindings";
+import { formatIpcError, unwrapCommand } from "../ipc/result";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { resolveResourceById } from "../stores/connectionStore";
@@ -33,6 +35,44 @@ export function openSshTerminalSession(hostId: string): string | null {
   const tabId = useTerminalStore.getState().openOrFocusSshTab(hostId, host.name);
   // addTab 在已有 activeTabId 时不会切到新 Tab；统一强制激活并同步 dock
   useTerminalStore.getState().setActiveTab(tabId);
+  useWorkspaceStore.getState().selectResource(hostId);
+  navigateToPath(MODULE_PATHS.terminal);
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId } }),
+  );
+  return tabId;
+}
+
+/**
+ * 从远端会话治理视图「进入」指定 tmux 会话：建连并开新 Tab。
+ *
+ * 调用方（TmuxSessionsDetailTab.handleEnter）已先检查当前窗口是否已有该会话的 Tab，
+ * 有则聚焦、无则调用本函数开新 Tab。本函数只负责「建连 + 开 Tab」，不做去重。
+ *
+ * 「重新连接」语义：Tab 关闭时后端只 detach（不 kill 会话），远端进程继续运行；
+ * 再次「进入」同一会话即恢复之前的操作上下文（tmux attach 会重放屏幕 + 接管 PTY）。
+ */
+export async function attachTmuxSession(
+  hostId: string,
+  sessionName: string,
+  cols = 80,
+  rows = 24,
+): Promise<string> {
+  const store = useTerminalStore.getState();
+  const host = resolveResourceById(hostId);
+  const title = host?.name ? `${host.name} · ${sessionName}` : sessionName;
+
+  const backendSid = await unwrapCommand(
+    commands.sshTmuxAttachSession(hostId, sessionName, cols, rows),
+  ).catch((err) => {
+    throw new Error(formatIpcError(err));
+  });
+
+  const tabId = store.addSshTerminalTab(hostId, title, undefined, sessionName);
+  // addTab 总是把 backendSessionId 置空（runtime 未注入），这里显式回填，
+  // 让 useTerminal 的 ensureBackendSession 走 reusableSid 分支而非重新建连。
+  store.setBackendSessionId(tabId, backendSid);
+  store.setActiveTab(tabId);
   useWorkspaceStore.getState().selectResource(hostId);
   navigateToPath(MODULE_PATHS.terminal);
   window.dispatchEvent(
