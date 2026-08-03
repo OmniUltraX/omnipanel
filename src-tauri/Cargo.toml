@@ -28,7 +28,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-snap-layout = "1"
-# 开发期 MCP Bridge：仅 debug_assertions 下激活 WebSocket server (默认端口 9223)，
+# 开发期 MCP Bridge：仅 `--features dev-mcp` 激活 WebSocket server (默认端口 9223)，
 # 供 @hypothesi/tauri-mcp-server 连接以做 UI 自动化 / IPC 监控 / 日志抓取。
 # 生产构建 (release) 该插件为零代码路径，不影响打包。
 tauri-plugin-mcp-bridge = { version = "0.12", optional = true }

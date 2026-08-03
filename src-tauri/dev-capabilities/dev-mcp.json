@@ -1,0 +1,6 @@
+{
+  "identifier": "dev-mcp",
+  "description": "Dev-only MCP Bridge permissions for Cursor / Claude UI automation",
+  "windows": ["*"],
+  "permissions": ["mcp-bridge:default"]
+}
