@@ -825,6 +825,7 @@
     /* 传输模式标识：低视觉权重，仅在需要时才被注意到 */
     .term-transport-badge {
         flex-shrink: 0;
+        max-width: 140px;
         padding: 1px 6px;
         border: none;
         border-radius: 2px;
@@ -834,6 +835,9 @@
         letter-spacing: 0.03em;
         color: var(--muted);
         background: var(--surface);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     button.term-transport-badge--tmux {

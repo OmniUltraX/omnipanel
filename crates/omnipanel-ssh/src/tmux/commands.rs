@@ -150,6 +150,11 @@ pub fn kill_window(window: WindowId) -> String {
     format!("kill-window -t {window}")
 }
 
+/// 切换会话的活跃 window（重连后让 control mode 重放目标 window 的屏幕）。
+pub fn select_window(window: WindowId) -> String {
+    format!("select-window -t {window}")
+}
+
 pub fn kill_session(session_name: &str) -> String {
     format!("kill-session -t {}", tmux_quote(session_name))
 }

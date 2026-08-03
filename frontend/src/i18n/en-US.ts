@@ -3059,6 +3059,7 @@ export const enUS: TranslationDict = {
     },
     transport: {
       tmux: "tmux",
+      tmuxWithSession: "tmux·{session}",
       direct: "Direct",
       tmuxHint:
         "Via remote tmux {version}, session {session}. Tabs on this host share one SSH connection, and remote work keeps running after you quit — reopen a tab to pick up where you left off. Click to switch to a direct connection.",
@@ -3237,12 +3238,19 @@ export const enUS: TranslationDict = {
       managed: "OmniPanel",
       managedHint: "Created by OmniPanel",
       openTerminal: "Open terminal",
+      enter: "Enter",
+      enterBusy: "Entering…",
+      switchToTab: "Switch to Tab",
+      linked: "Open in tab",
+      linkedCount: "{count} tabs in use",
+      linkedHint: "This session is already open in terminal tab(s). Click \"Switch to Tab\" to focus the first one.",
       kill: "Kill",
       killConfirm:
         "Killing session {name} terminates its {windows} window(s) and every process inside. Unsaved work will be lost.",
       killProdWarning:
         "This is a production host. The action cannot be undone and affects anyone else attached to the session.",
       killDone: "Killed session {name}",
+      enterFailed: "Failed to enter session",
     },
     toolCapabilities: {
       intro:
@@ -3286,6 +3294,23 @@ export const enUS: TranslationDict = {
         unsupported: "Unsupported",
         unsupportedDesc: "Manual install required",
       },
+    },
+    panelProbe: {
+      title: "Server Panels",
+      noneDetected: "No panels detected (BT / 1Panel)",
+      apiOn: "API Enabled",
+      apiOff: "API Disabled",
+      keyDetected: "API Key detected — one-click add",
+      needKey: "No key read — fill it in after adding",
+      entrance: "Entrance",
+      addToPanel: "Add to Server Panel",
+      update: "Update Panel Connection",
+      addWithKeyHint: "Auto-fill address and key, ready to use",
+      addNoKeyHint: "Pre-fill address, then set API Key in panel editor",
+      addedWithKey: "Added {type} panel (with API Key, ready to use)",
+      addedNoKey: "Added {type} panel (address pre-filled, set API Key in editor)",
+      overwriteTitle: "Update linked panel connection?",
+      overwriteMsg: "This SSH host is already linked to panel \"{name}\". Overwrite its address and key with detected values?",
     },
     connect: "Connect",
     status: {

@@ -16,6 +16,8 @@ export interface TerminalTransportInfo {
   host: string;
   tmuxVersion: string | null;
   tmuxSession: string | null;
+  /** tmux pane id（数值），用于重连时 attach 回原 window 恢复进程与历史。 */
+  tmuxPaneId: number | null;
   /** 降级到直连的原因，`tmux` 模式下为 null。 */
   fallbackReason: string | null;
 }
@@ -43,6 +45,7 @@ export const useTerminalTransportStore = create<TerminalTransportState>((set, ge
         prev.host === info.host &&
         prev.tmuxVersion === info.tmuxVersion &&
         prev.tmuxSession === info.tmuxSession &&
+        prev.tmuxPaneId === info.tmuxPaneId &&
         prev.fallbackReason === info.fallbackReason
       ) {
         return state;

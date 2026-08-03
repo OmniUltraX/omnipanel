@@ -363,10 +363,17 @@ export const commands = {
 	/**
 	 *  建立 SSH 连接并请求交互式 shell。返回会话 id；
 	 *  shell 输出复用 `terminal-output` 事件，前端 xterm 无需区分本地/远程。
+	 *
+	 *  `paneId` 不为 null 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
+	 *  匹配不到则新建 window。
 	 */
-	sshConnect: (config: SshConfig_Deserialize, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect", { config, cols, rows })),
-	/**  按已保存的连接 id 建立 SSH 会话（尊重 `auth.type`，密码认证不走私钥）。 */
-	sshConnectConnection: (connectionId: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_connection", { connectionId, cols, rows })),
+	sshConnect: (config: SshConfig_Deserialize, cols: number, rows: number, paneId?: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect", { config, cols, rows, paneId })),
+	/**
+	 *  按已保存的连接 id 建立 SSH 会话（尊重 `auth.type`，密码认证不走私钥）。
+	 *
+	 *  `paneId` 用于重连时 attach 回原 window（关 Tab 保留进程后恢复）。
+	 */
+	sshConnectConnection: (connectionId: string, cols: number, rows: number, paneId?: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_connection", { connectionId, cols, rows, paneId })),
 	/**  写入远端 shell。 */
 	sshWrite: (id: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_write", { id, data })),
 	/**  调整远端 PTY 窗口大小。 */
@@ -396,11 +403,29 @@ export const commands = {
 	 */
 	sshTmuxListSessions: (connectionId: string) => typedError<TmuxSessionInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_sessions", { connectionId })),
 	/**
+	 *  查询当前 OmniPanel 在该主机上每个 tmux 会话关联的 Tab 数。
+	 *
+	 *  关联数据来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
+	 *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
+	 */
+	sshTmuxTabStats: (connectionId: string) => typedError<TmuxTabStat[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_tab_stats", { connectionId })),
+	/**
 	 *  终止远端 tmux 会话，其中的全部窗口与进程都会被杀掉。
 	 * 
 	 *  该操作不可撤销且会波及其他客户端的会话，因此无论成败都写入审计日志。
 	 */
 	sshTmuxKillSession: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_kill_session", { connectionId, name })),
+	/**
+	 *  Attach 到远端指定名称的 tmux 会话，在终端模块开一个新 Tab。
+	 *
+	 *  与 `ssh_connect` 的区别：`ssh_connect` 用固定会话名 `omnipanel-<host>`，
+	 *  本命令允许用户从远端会话列表选择任意会话名进入（含非 OmniPanel 创建的）。
+	 *  返回后端会话 id（`ssh-{n}`），前端据此创建终端 Tab 并关联 tmuxSession 字段。
+	 *
+	 *  `paneId` 不为 null 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
+	 *  匹配不到则新建 window。
+	 */
+	sshTmuxAttachSession: (connectionId: string, sessionName: string, cols: number, rows: number, paneId?: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_attach_session", { connectionId, sessionName, cols, rows, paneId })),
 	/**  列出远端目录。 */
 	sftpList: (id: string, path: string) => typedError<SftpEntry[], OmniError_Serialize>(__TAURI_INVOKE("sftp_list", { id, path })),
 	/**  下载远端文件内容（字节）。 */
@@ -513,6 +538,12 @@ export const commands = {
 	 *  - `None`：不支持安装
 	 */
 	sshPoolInstallTool: (resourceId: string, toolId: string) => typedError<InstallToolResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_tool", { resourceId, toolId })),
+	/**
+	 *  探测远端主机上已安装的面板（宝塔 / 1Panel）。
+	 *  返回每个面板的安装状态、访问地址、端口、安全入口、API 开启状态及（如能读到的）API Key。
+	 *  API Key 属敏感凭据，前端应直接写入 Vault，不得传给 AI 或日志输出。
+	 */
+	sshPoolProbePanels: (resourceId: string) => typedError<PanelProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_panels", { resourceId })),
 	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
 	setTerminalTmuxMode: (mode: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("set_terminal_tmux_mode", { mode })),
 	/**
@@ -1306,6 +1337,89 @@ export type ArchiveToolInstallResult = {
 	installed: boolean,
 	/**  安装输出（成功或失败原因） */
 	message: string,
+};
+
+/**  工具分类 */
+export type ToolCategory = "terminal" | "database" | "archive" | "transfer" | "monitoring" | "system";
+
+/**  工具状态 */
+export type ToolState =
+	| { kind: "ready", version: string | null, path: string | null }
+	| { kind: "needInstall" }
+	| { kind: "tooOld", version: string, required: string }
+	| { kind: "unsupported", reason: string };
+
+/**  安装方式 */
+export type InstallMethod =
+	| { kind: "none" }
+	| { kind: "packageManager", packages: Record<string, string> }
+	| { kind: "downloadBinary", url: string, remotePath: string }
+	| { kind: "shellScript", script: string }
+	| { kind: "manual", instructions: string };
+
+/**  单个工具的探测结果 */
+export type RemoteToolCapability = {
+	id: string,
+	labelKey: string,
+	category: ToolCategory,
+	state: ToolState,
+	installMethod: InstallMethod,
+	relatedModules: string[],
+};
+
+/**  一次能力探测的完整结果 */
+export type CapabilityProbeResult = {
+	resourceId: string,
+	tools: RemoteToolCapability[],
+	/**  探测耗时（毫秒） */
+	elapsedMs: number,
+	/**  探测时间戳（Unix 毫秒） */
+	probedAt: number,
+	/**  批量脚本未覆盖、需单独探测的工具 id */
+	lazyProbeIds: string[],
+};
+
+/**  安装工具的结果 */
+export type InstallToolResult = {
+	toolId: string,
+	installed: boolean,
+	/**  安装输出或失败原因 */
+	message: string,
+	/**  安装后重新探测的状态 */
+	state: ToolState | null,
+};
+
+/**  单个面板（宝塔/1Panel）的探测结果 */
+export type PanelProbeItem = {
+	/**  面板类型：bt（宝塔） / 1panel */
+	kind: string,
+	/**  是否已安装 */
+	installed: boolean,
+	/**  面板访问地址（含协议和端口）；未安装时为空 */
+	address: string,
+	/**  面板端口；未安装时为 0 */
+	port: number,
+	/**  1Panel 安全入口（如 /abc123）；宝塔无此概念时为空 */
+	entrance: string,
+	/**  API 是否已开启 */
+	apiEnabled: boolean,
+	/**
+	 *  从面板配置文件读到的 API Key（仅当 apiEnabled=true 且能读到时）；
+	 *  读不到时为空字符串。敏感字段，前端不得传给 AI 或日志输出。
+	 */
+	apiKey: string,
+	/**  额外提示信息（如版本号、读取失败原因等） */
+	note: string,
+};
+
+/**  面板探测完整结果 */
+export type PanelProbeResult = {
+	resourceId: string,
+	panels: PanelProbeItem[],
+	/**  探测耗时（毫秒） */
+	elapsedMs: number,
+	/**  探测时间戳（Unix 毫秒） */
+	probedAt: number,
 };
 
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
@@ -4545,6 +4659,8 @@ export type SshTerminalInfo = {
 	host: string,
 	tmuxVersion: string | null,
 	tmuxSession: string | null,
+	/**  tmux pane id（如 `%5`），用于关 Tab 后重连恢复原 window。 */
+	tmuxPaneId: number | null,
 	/**  降级到直连的原因，`tmux` 模式下为 `None`。 */
 	fallbackReason: string | null,
 };
@@ -4720,6 +4836,12 @@ export type TmuxSessionInfo = {
 	attached: boolean,
 	/**  是否由 OmniPanel 创建（按会话名前缀判定）。 */
 	managed: boolean,
+};
+
+/**  单个 tmux 会话当前被 OmniPanel 的多少个 Tab 关联（跨所有窗口）。 */
+export type TmuxTabStat = {
+	sessionName: string,
+	tabCount: number,
 };
 
 /**  自定义待办列表。 */

@@ -378,50 +378,10 @@ pub static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| vec![
         },
         related_modules: &["docker"],
     },
-    ToolSpec {
-        id: "mysqldump",
-        label_key: "mysqldump",
-        category: ToolCategory::Database,
-        min_version: None,
-        min_version_label: None,
-        install: InstallMethod::PackageManager {
-            packages: [
-                ("apt", "mysql-client"),
-                ("dnf", "mariadb-client"),
-                ("yum", "mariadb-client"),
-                ("apk", "mariadb-client"),
-                ("pacman", "mariadb-clients"),
-                ("zypper", "mariadb-client"),
-            ]
-            .iter()
-            .cloned()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect(),
-        },
-        related_modules: &["database.export"],
-    },
-    ToolSpec {
-        id: "mysql",
-        label_key: "mysql",
-        category: ToolCategory::Database,
-        min_version: None,
-        min_version_label: None,
-        install: InstallMethod::PackageManager {
-            packages: [
-                ("apt", "mysql-client"),
-                ("dnf", "mariadb-client"),
-                ("yum", "mariadb-client"),
-                ("apk", "mariadb-client"),
-                ("pacman", "mariadb-clients"),
-                ("zypper", "mariadb-client"),
-            ]
-            .iter()
-            .cloned()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect(),
-        },
-        related_modules: &["database.cli"],
-    },
+    // mysqldump / mysql / psql 已移除：
+    // - MySQL/PostgreSQL 的 CLI tab 是客户端 sqlx 直连模拟提示符，不依赖远端 CLI
+    // - 导入导出未来改造为客户端直连（纯 SQL / LOAD DATA），不依赖 mysqldump
+    // - 在远端检测这些 CLI 属于多余：有数据库连接就够了，不需要服务器上的命令行客户端
     ToolSpec {
         id: "my2sql",
         label_key: "my2sql",
@@ -433,28 +393,6 @@ pub static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| vec![
             remote_path: "~/.omnipanel/bin/my2sql".to_string(),
         },
         related_modules: &["database.binlog"],
-    },
-    ToolSpec {
-        id: "psql",
-        label_key: "psql",
-        category: ToolCategory::Database,
-        min_version: None,
-        min_version_label: None,
-        install: InstallMethod::PackageManager {
-            packages: [
-                ("apt", "postgresql-client"),
-                ("dnf", "postgresql"),
-                ("yum", "postgresql"),
-                ("apk", "postgresql-client"),
-                ("pacman", "postgresql"),
-                ("zypper", "postgresql"),
-            ]
-            .iter()
-            .cloned()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect(),
-        },
-        related_modules: &["database.cli"],
     },
     ToolSpec {
         id: "redis-cli",
@@ -1282,6 +1220,303 @@ async fn install_via_shell_script(
     };
 
     Ok((installed, message))
+}
+
+// ============================================================================
+// 面板探测（宝塔 / 1Panel）：独立于 ToolManifest，返回结构化结果
+// ============================================================================
+
+/// 单个面板的探测结果。
+///
+/// `api_key` 字段仅当面板 API 已开启且能从配置文件读到时才非空。
+/// 该字段属于敏感凭据，前端拿到后应直接写入 Vault，不应日志输出或传给 AI。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelProbeItem {
+    /// 面板类型：bt（宝塔） / 1panel
+    pub kind: String,
+    /// 是否已安装
+    pub installed: bool,
+    /// 面板访问地址（含协议和端口，如 http://192.168.1.10:8888）；未安装时为空
+    pub address: String,
+    /// 面板端口；未安装时为 0
+    pub port: u16,
+    /// 1Panel 安全入口（如 /abc123）；宝塔无此概念时为空
+    pub entrance: String,
+    /// API 是否已开启
+    pub api_enabled: bool,
+    /// 从面板配置文件读到的 API Key（仅当 api_enabled=true 且能读到时）；
+    /// 读不到时为空字符串。敏感字段，前端不得传给 AI 或日志输出。
+    pub api_key: String,
+    /// 额外提示信息（如版本号、读取失败原因等）
+    pub note: String,
+}
+
+/// 面板探测完整结果。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelProbeResult {
+    pub resource_id: String,
+    pub panels: Vec<PanelProbeItem>,
+    /// 探测耗时（毫秒）
+    pub elapsed_ms: u64,
+    /// 探测时间戳（Unix 毫秒）
+    pub probed_at: i64,
+}
+
+/// 一次 SSH exec 同时探测宝塔和 1Panel 面板。
+///
+/// 输出格式（每个面板一段）：
+/// ```text
+/// @PANEL:bt
+/// installed:1
+/// port:8888
+/// address:http://127.0.0.1:8888
+/// api_enabled:1
+/// api_key:xxxxxx
+/// note:v7.9.0
+/// @ENDPANEL:bt
+/// @PANEL:1panel
+/// installed:0
+/// @ENDPANEL:1panel
+/// ```
+///
+/// 设计要点：
+/// - 一次 RTT 同时探测两类面板，降低延迟
+/// - 宝塔：检查 `/www/server/panel` 目录 + `data/default.db` 或 `data/api.json`
+/// - 1Panel：检查 `/opt/1panel` 目录 + `db/1panel.db` 或 `conf/app.yaml`
+/// - api_key 仅在 API 已开启时尝试读取，读不到不报错（返回空串）
+/// - 非 root 用户可能无权读面板配置文件，此时 api_key 为空但 installed 仍为 true
+fn build_panel_probe_script() -> String {
+    r#"#!/bin/bash
+set +e
+
+# ===== 宝塔面板 =====
+probe_bt() {
+    echo "@PANEL:bt"
+    if [ ! -d /www/server/panel ]; then
+        echo "installed:0"
+        echo "@ENDPANEL:bt"
+        return
+    fi
+    echo "installed:1"
+
+    # 端口：优先 port.pl，回退 8888
+    port=""
+    if [ -f /www/server/panel/data/port.pl ]; then
+        port=$(cat /www/server/panel/data/port.pl 2>/dev/null | tr -dc '0-9')
+    fi
+    [ -z "$port" ] && port=8888
+    echo "port:$port"
+
+    # 协议：ssl.pl 存在则 https
+    proto="http"
+    [ -f /www/server/panel/data/ssl.pl ] && proto="https"
+    echo "address:${proto}://127.0.0.1:${port}"
+
+    # 版本
+    version=""
+    if [ -f /www/server/panel/config/config.json ]; then
+        version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' /www/server/panel/config/config.json 2>/dev/null | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"//;s/"//')
+    fi
+
+    # API 状态与 key
+    api_enabled=0
+    api_key=""
+    # 新版（v7+）：default.db 的 config 表
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f /www/server/panel/data/default.db ]; then
+        api_open=$(sqlite3 /www/server/panel/data/default.db "SELECT value FROM config WHERE key='api_open'" 2>/dev/null | head -1)
+        if [ "$api_open" = "1" ] || [ "$api_open" = "true" ]; then
+            api_enabled=1
+            api_key=$(sqlite3 /www/server/panel/data/default.db "SELECT value FROM config WHERE key='api_sk'" 2>/dev/null | head -1)
+        fi
+    fi
+    # 旧版（5.x）：data/api.json
+    if [ "$api_enabled" = "0" ] && [ -f /www/server/panel/data/api.json ]; then
+        api_open=$(grep -oE '"open"[[:space:]]*:[[:space:]]*[^,}]*' /www/server/panel/data/api.json 2>/dev/null | head -1)
+        case "$api_open" in
+            *true*|*1*) api_enabled=1 ;;
+        esac
+        if [ "$api_enabled" = "1" ]; then
+            # 旧版字段为 secret
+            api_key=$(grep -oE '"secret"[[:space:]]*:[[:space:]]*"[^"]*"' /www/server/panel/data/api.json 2>/dev/null | head -1 | sed 's/.*"secret"[[:space:]]*:[[:space:]]*"//;s/"//')
+            [ -z "$api_key" ] && api_key=$(grep -oE '"key"[[:space:]]*:[[:space:]]*"[^"]*"' /www/server/panel/data/api.json 2>/dev/null | head -1 | sed 's/.*"key"[[:space:]]*:[[:space:]]*"//;s/"//')
+        fi
+    fi
+
+    echo "api_enabled:$api_enabled"
+    # api_key 可能含特殊字符，用 base64 包裹避免污染分段协议
+    if [ -n "$api_key" ]; then
+        echo "api_key:$(printf '%s' "$api_key" | base64 2>/dev/null || echo '')"
+    else
+        echo "api_key:"
+    fi
+    echo "note:${version}"
+    echo "@ENDPANEL:bt"
+}
+
+# ===== 1Panel =====
+probe_1panel() {
+    echo "@PANEL:1panel"
+    # v1: /opt/1panel  v2: /opt/1panel  数据目录可能在 /opt/1panel 或 /var/lib/1panel
+    panel_dir=""
+    for d in /opt/1panel /usr/local/1panel; do
+        if [ -d "$d" ]; then panel_dir="$d"; break; fi
+    done
+    if [ -z "$panel_dir" ]; then
+        echo "installed:0"
+        echo "@ENDPANEL:1panel"
+        return
+    fi
+    echo "installed:1"
+
+    # 端口与安全入口：从 app.yaml 读
+    port=""
+    entrance=""
+    entrance_path=""
+    # app.yaml 可能位置
+    for f in "$panel_dir/conf/app.yaml" "$panel_dir/app.yaml" /etc/1panel/app.yaml; do
+        if [ -f "$f" ]; then entrance_path="$f"; break; fi
+    done
+    if [ -n "$entrance_path" ]; then
+        port=$(grep -E '^[[:space:]]*port:' "$entrance_path" 2>/dev/null | head -1 | sed 's/.*port:[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g' | tr -dc '0-9')
+        entrance=$(grep -E '^[[:space:]]*entrance:' "$entrance_path" 2>/dev/null | head -1 | sed 's/.*entrance:[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g')
+        [ -z "$port" ] && port=$(grep -E '^[[:space:]]*port[[:space:]]*=' "$entrance_path" 2>/dev/null | head -1 | sed 's/.*port[[:space:]]*=[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g' | tr -dc '0-9')
+    fi
+    [ -z "$port" ] && port=10086
+    echo "port:$port"
+
+    proto="http"
+    # 1panel 默认 https（9443/10086 通常配 ssl）
+    if grep -qE '^[[:space:]]*(ssl|https)[[:space:]]*:' "$entrance_path" 2>/dev/null; then
+        proto="https"
+    fi
+    echo "address:${proto}://127.0.0.1:${port}"
+    [ -n "$entrance" ] && echo "entrance:/${entrance}"
+
+    # API key：1panel v1/v2 存在 sqlite settings 表，字段 key='ServerKey' 或类似
+    # 也可能从 1pctl 命令读取，但 1pctl 不暴露 api key，只能读数据库
+    api_enabled=0
+    api_key=""
+    db_path=""
+    for db in "$panel_dir/db/1panel.db" /var/lib/1panel/db/1panel.db /opt/1panel/db/1Panel.db; do
+        if [ -f "$db" ]; then db_path="$db"; break; fi
+    done
+    if [ -n "$db_path" ] && command -v sqlite3 >/dev/null 2>&1; then
+        # 1Panel 的 API key 在 settings 表，key 名为 'ServerKey' 或类似
+        # 尝试多种可能的 key 名
+        for k in ServerKey ApiKey PanelKey api_key server_key; do
+            val=$(sqlite3 "$db_path" "SELECT value FROM settings WHERE key='$k'" 2>/dev/null | head -1)
+            if [ -n "$val" ]; then
+                api_key="$val"
+                api_enabled=1
+                break
+            fi
+        done
+    fi
+
+    echo "api_enabled:$api_enabled"
+    if [ -n "$api_key" ]; then
+        echo "api_key:$(printf '%s' "$api_key" | base64 2>/dev/null || echo '')"
+    else
+        echo "api_key:"
+    fi
+    version=""
+    if command -v 1pctl >/dev/null 2>&1; then
+        version=$(1pctl version 2>/dev/null | head -1)
+    fi
+    echo "note:${version}"
+    echo "@ENDPANEL:1panel"
+}
+
+probe_bt
+probe_1panel
+"#.to_string()
+}
+
+/// 解析面板探测输出。
+fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
+    let mut panels = Vec::new();
+    let mut current_kind: Option<String> = None;
+    let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for line in output.lines() {
+        if let Some(kind) = line.strip_prefix("@PANEL:") {
+            current_kind = Some(kind.trim().to_string());
+            fields.clear();
+        } else if let Some(kind) = line.strip_prefix("@ENDPANEL:") {
+            if let Some(k) = current_kind.take() {
+                if k == kind.trim() {
+                    let installed = fields.get("installed").map(|v| v == "1").unwrap_or(false);
+                    let port: u16 = fields
+                        .get("port")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let address = fields.get("address").cloned().unwrap_or_default();
+                    let entrance = fields.get("entrance").cloned().unwrap_or_default();
+                    let api_enabled = fields.get("api_enabled").map(|v| v == "1").unwrap_or(false);
+                    // api_key 是 base64 编码的，需解码
+                    let api_key_b64 = fields.get("api_key").map(|v| v.as_str()).unwrap_or("");
+                    let api_key = if api_key_b64.is_empty() {
+                        String::new()
+                    } else {
+                        use base64::Engine;
+                        base64::engine::general_purpose::STANDARD
+                            .decode(api_key_b64)
+                            .ok()
+                            .and_then(|bytes| String::from_utf8(bytes).ok())
+                            .unwrap_or_default()
+                    };
+                    let note = fields.get("note").cloned().unwrap_or_default();
+                    panels.push(PanelProbeItem {
+                        kind: k,
+                        installed,
+                        address,
+                        port,
+                        entrance,
+                        api_enabled,
+                        api_key,
+                        note,
+                    });
+                }
+            }
+        } else if current_kind.is_some() {
+            if let Some(idx) = line.find(':') {
+                let key = line[..idx].trim().to_string();
+                let value = line[idx + 1..].to_string();
+                fields.insert(key, value);
+            }
+        }
+    }
+    panels
+}
+
+/// 探测远端主机上已安装的面板（宝塔 / 1Panel）。
+///
+/// 返回每个面板的安装状态、访问地址、端口、安全入口、API 开启状态及（如能读到的）API Key。
+/// API Key 属敏感凭据，前端应直接写入 Vault，不得传给 AI 或日志输出。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_probe_panels(
+    state: State<'_, AppState>,
+    resource_id: String,
+) -> Result<PanelProbeResult, OmniError> {
+    let session = pool_session(&state, &resource_id).await?;
+    let start = Instant::now();
+
+    let script = build_panel_probe_script();
+    let output = session.exec_capture(&script).await?;
+    let panels = parse_panel_probe_output(&output.stdout);
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    let probed_at = chrono::Utc::now().timestamp_millis();
+
+    Ok(PanelProbeResult {
+        resource_id,
+        panels,
+        elapsed_ms,
+        probed_at,
+    })
 }
 
 // ============================================================================

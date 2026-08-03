@@ -232,13 +232,33 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
     if (!conn) {
       throw new Error("未找到对应的 SSH 连接配置，请先在 SSH 管理中添加连接");
     }
-    const res = await commands.sshConnectConnection(conn.id, cols, rows);
+    // 该 Tab 显式关联到某个 tmux 会话名（从远端会话列表「进入」创建，或重启后恢复）：
+    // 走 sshTmuxAttachSession 复用同一会话，避免落到默认 omnipanel-<host> 会话。
+    // 同时传回 paneId：关 Tab 时后端只 detach 不 kill 远端 window，重连 attach 回原
+    // window 即可恢复进行中的耗时进程（下载、编译等）与历史输出。
+    if (pane.tmuxSession) {
+      const res = await commands.sshTmuxAttachSession(
+        conn.id,
+        pane.tmuxSession,
+        cols,
+        rows,
+        pane.tmuxPaneId ?? null,
+      );
+      if (res.status === "ok") return res.data;
+      throw normalizeBackendError(res.error, "接入 tmux 会话失败");
+    }
+    const res = await commands.sshConnectConnection(conn.id, cols, rows, pane.tmuxPaneId ?? null);
     if (res.status === "ok") return res.data;
     throw normalizeBackendError(res.error, "SSH 终端创建失败");
   }
   // shellSpec 回退：旧持久化数据可能没有 shellSpec 字段（只有 shellLabel）。
   // 从 shellLabel 推断 WSL/PowerShell/Cmd，避免误启动默认 shell。
-  const resolvedShell = pane?.shellSpec ?? inferShellSpecFromLabel(pane?.shellLabel) ?? null;
+  let resolvedShell = pane?.shellSpec ?? inferShellSpecFromLabel(pane?.shellLabel) ?? null;
+  // CMD 已下线：旧持久化 tab 的 shellSpec.kind="cmd" 回退到 powershell5。
+  // 后端 resolve_shell 也会做同族回退，但这里提前转可让 shellLabel 在 UI 上正确显示。
+  if (resolvedShell?.kind === "cmd") {
+    resolvedShell = { kind: "powershell5", path: null, wslDistro: null };
+  }
   return invoke<string>("create_terminal", {
     cols,
     rows,
@@ -264,11 +284,19 @@ function inferShellSpecFromLabel(label: string | null | undefined): LocalShellSp
     const distro = match ? match[1].trim() : null;
     return { kind: "wsl", path: null, wslDistro: distro };
   }
-  if (/powershell|pwsh/.test(text)) {
+  // pwsh / "PowerShell 7" → PowerShell 7+；纯 "PowerShell" → 系统自带 5.1
+  // 系统未装 pwsh 时，ShellKind::PowerShell 会在后端 spawn "pwsh" 失败，
+  // 回退到 powershell5（"powershell.exe" 在所有 Windows 上可用）。
+  if (text.includes("pwsh") || text.includes("powershell 7") || text.includes("powershell core")) {
     return { kind: "powershell", path: null, wslDistro: null };
   }
-  if (text === "cmd" || text === "cmd.exe") {
-    return { kind: "cmd", path: null, wslDistro: null };
+  if (text.includes("powershell")) {
+    return { kind: "powershell5", path: null, wslDistro: null };
+  }
+  // CMD 已从 shell 列表移除（无 shell integration，核心功能失效）。
+  // 旧持久化 tab 的 shellLabel="CMD" 回退到 powershell5（所有 Windows 可用）。
+  if (text === "cmd" || text === "cmd.exe" || text.includes("命令提示符")) {
+    return { kind: "powershell5", path: null, wslDistro: null };
   }
   return null;
 }
@@ -1082,13 +1110,31 @@ export function useTerminal(
       try {
         const res = await commands.sshTerminalInfo(sid);
         if (destroyed || res.status !== "ok") return;
-        useTerminalTransportStore.getState().setTransport(sessionId, {
+        const info = {
           mode: res.data.mode,
           host: res.data.host,
           tmuxVersion: res.data.tmuxVersion ?? null,
           tmuxSession: res.data.tmuxSession ?? null,
+          tmuxPaneId: res.data.tmuxPaneId ?? null,
           fallbackReason: res.data.fallbackReason ?? null,
-        });
+        };
+        useTerminalTransportStore.getState().setTransport(sessionId, info);
+        // 同步 transport 的 tmuxSession / tmuxPaneId 到 session info：
+        // - 默认 sshConnectConnection 走 omnipanel-<host> 会话，session.tmuxSession 此时为 null，
+        //   回填后远端会话治理视图才能显示「N 个 Tab 正在使用」关联标记。
+        // - 用户从远端会话列表「进入」时 tmuxSession 已显式赋值，此处保持一致。
+        // - 直连模式下 tmuxSession 为 null，同步清除 session.tmuxSession 避免误导。
+        // - tmuxPaneId 是后端建连时分配的 pane 标识，关 Tab 后重连据此 attach 回原 window
+        //   恢复进行中的进程与历史；首次建连为 null，重连时为已持久化的值。
+        const pane = findPaneById(sessionId);
+        const currentTmuxSession = pane?.tmuxSession ?? null;
+        const currentTmuxPaneId = pane?.tmuxPaneId ?? null;
+        if (info.tmuxSession !== currentTmuxSession) {
+          useTerminalStore.getState().setSessionTmuxSession(sessionId, info.tmuxSession);
+        }
+        if (info.tmuxPaneId !== currentTmuxPaneId) {
+          useTerminalStore.getState().setSessionTmuxPaneId(sessionId, info.tmuxPaneId);
+        }
       } catch {
         // 模式仅用于展示，查询失败保持原值即可
       }

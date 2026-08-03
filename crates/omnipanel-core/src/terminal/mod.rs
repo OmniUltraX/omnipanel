@@ -216,19 +216,33 @@ pub fn detect_shell() -> (String, ShellKind) {
 }
 
 /// 解析最终要启动的 shell：显式指定优先，否则自动检测。
+/// path 为 None 时，若默认 prog 不在 PATH 中，尝试回退到同族可用 shell
+/// （例如 PowerShell 7 未装时回退到 Windows PowerShell 5.1）。
 fn resolve_shell(spec: Option<&ShellSpec>) -> (String, ShellKind) {
     if let Some(s) = spec {
-        let default_prog = match s.kind {
-            ShellKind::PowerShell => "pwsh",
-            ShellKind::PowerShell5 => "powershell",
-            ShellKind::Cmd => "cmd.exe",
-            ShellKind::Wsl => "wsl.exe",
-            ShellKind::Bash => "bash",
-            ShellKind::Zsh => "zsh",
-            ShellKind::Fish => "fish",
+        let (default_prog, kind) = match s.kind {
+            ShellKind::PowerShell => ("pwsh", ShellKind::PowerShell),
+            ShellKind::PowerShell5 => ("powershell", ShellKind::PowerShell5),
+            ShellKind::Cmd => ("cmd.exe", ShellKind::Cmd),
+            ShellKind::Wsl => ("wsl.exe", ShellKind::Wsl),
+            ShellKind::Bash => ("bash", ShellKind::Bash),
+            ShellKind::Zsh => ("zsh", ShellKind::Zsh),
+            ShellKind::Fish => ("fish", ShellKind::Fish),
         };
-        let prog = s.path.clone().unwrap_or_else(|| default_prog.to_string());
-        return (prog, s.kind);
+        // 用户显式指定了 path，直接用
+        if let Some(p) = &s.path {
+            return (p.clone(), kind);
+        }
+        // path 为 None：prog 在 PATH 中即可用，否则尝试同族回退
+        if which(default_prog).is_some() {
+            return (default_prog.to_string(), kind);
+        }
+        // PowerShell 7 (pwsh) 未装 → 回退到 Windows PowerShell 5.1
+        if kind == ShellKind::PowerShell && which("powershell").is_some() {
+            return ("powershell".to_string(), ShellKind::PowerShell5);
+        }
+        // 无可用回退，仍返回原 prog（spawn 会失败并给出明确错误）
+        return (default_prog.to_string(), kind);
     }
     detect_shell()
 }
@@ -309,13 +323,10 @@ pub fn list_available_shells() -> Vec<ShellInfo> {
                 wsl_distro: None,
             });
         }
-        let cmd_path = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
-        list.push(ShellInfo {
-            kind: ShellKind::Cmd,
-            label: "命令提示符".to_string(),
-            path: which("cmd.exe").unwrap_or(cmd_path),
-            wsl_distro: None,
-        });
+        // 不暴露 CMD：cmd.exe 没有脚本注入机制（无 shell integration），
+        // OmniPanel 的命令块/退出码/cwd 追踪/AI 命令解析等核心功能全失效。
+        // Windows PowerShell 5 在所有 Windows 上可用且功能完整，足以替代。
+        // ShellKind::Cmd 仍保留在 enum 里供 inferShellSpecFromLabel 等回退路径使用。
         // 枚举 WSL 发行版：wsl.exe -l -q
         // 注意：Tauri 以 windows 子系统编译（无控制台），wsl.exe 是控制台程序，
         // 直接 spawn 会弹出可见的 cmd 窗口一闪而过。必须设置 CREATE_NO_WINDOW。
@@ -339,6 +350,13 @@ pub fn list_available_shells() -> Vec<ShellInfo> {
                 for line in text.lines() {
                     let distro = line.trim();
                     if distro.is_empty() || distro.contains("WSL") {
+                        continue;
+                    }
+                    // 过滤 Docker Desktop 内部 distro：docker-desktop 是 Alpine-based
+                    // busybox 系统（Docker 引擎的 VM 工具），没有完整用户环境
+                    // （无 bash/apt/常用命令），用户进去后体验极差。
+                    // docker-desktop-data 是旧版数据 distro，同样不该暴露。
+                    if distro == "docker-desktop" || distro == "docker-desktop-data" {
                         continue;
                     }
                     list.push(ShellInfo {
