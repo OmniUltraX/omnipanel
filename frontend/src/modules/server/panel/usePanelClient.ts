@@ -7,8 +7,8 @@ export function usePanelClient(server: ServerEntry | null) {
   return useMemo(() => {
     if (!server) return null;
     if (server.serviceType === "1panel") {
-      return createOnePanelClient(server.address, server.key);
+      return createOnePanelClient(server.address, server.key, server.id);
     }
-    return createBtPanelClient(server.address, server.key);
-  }, [server?.address, server?.key, server?.serviceType]);
+    return createBtPanelClient(server.address, server.key, server.id);
+  }, [server?.id, server?.address, server?.key, server?.serviceType]);
 }

@@ -1272,24 +1272,46 @@ pub struct PanelProbeResult {
 /// installed:1
 /// port:8888
 /// address:http://127.0.0.1:8888
+/// entrance:/baota
 /// api_enabled:1
-/// api_key:xxxxxx
-/// note:v7.9.0
+/// api_key:<base64>
+/// note:v11.7.0
 /// @ENDPANEL:bt
-/// @PANEL:1panel
-/// installed:0
-/// @ENDPANEL:1panel
 /// ```
 ///
 /// 设计要点：
 /// - 一次 RTT 同时探测两类面板，降低延迟
-/// - 宝塔：检查 `/www/server/panel` 目录 + `data/default.db` 或 `data/api.json`
-/// - 1Panel：检查 `/opt/1panel` 目录 + `db/1panel.db` 或 `conf/app.yaml`
-/// - api_key 仅在 API 已开启时尝试读取，读不到不报错（返回空串）
-/// - 非 root 用户可能无权读面板配置文件，此时 api_key 为空但 installed 仍为 true
+/// - 宝塔：`/www/server/panel` + `config/api.json`（含 open/key）+ `data/admin_path.pl`
+/// - 1Panel v2：`/opt/1panel/db/core.db` settings（ServerPort/SecurityEntrance/ApiKey/…）
+/// - 1Panel v1 回退：`conf/app.yaml` + `1panel.db`
+/// - api_key 有则读取（即使 API 未开启也带回，便于预填）；api_enabled 反映面板侧开关
+/// - 非 root 可能读不到配置：installed 仍可为 true，api_key 为空
 fn build_panel_probe_script() -> String {
     r#"#!/bin/bash
 set +e
+
+b64() {
+    if [ -n "$1" ]; then
+        printf '%s' "$1" | base64 2>/dev/null | tr -d '\n'
+    fi
+}
+
+# 从简单 JSON 抽 "key":"value"（不依赖 jq/python）
+json_str() {
+    # $1=file $2=field
+    grep -oE "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$1" 2>/dev/null | head -1 \
+        | sed "s/.*\"$2\"[[:space:]]*:[[:space:]]*\"//;s/\"[[:space:]]*$//"
+}
+
+json_bool_true() {
+    # $1=file $2=field → 0/1
+    local line
+    line=$(grep -oE "\"$2\"[[:space:]]*:[[:space:]]*(true|false|1|0)" "$1" 2>/dev/null | head -1)
+    case "$line" in
+        *true*|*:1) echo 1 ;;
+        *) echo 0 ;;
+    esac
+}
 
 # ===== 宝塔面板 =====
 probe_bt() {
@@ -1301,56 +1323,56 @@ probe_bt() {
     fi
     echo "installed:1"
 
-    # 端口：优先 port.pl，回退 8888
     port=""
     if [ -f /www/server/panel/data/port.pl ]; then
-        port=$(cat /www/server/panel/data/port.pl 2>/dev/null | tr -dc '0-9')
+        port=$(tr -dc '0-9' < /www/server/panel/data/port.pl 2>/dev/null)
     fi
     [ -z "$port" ] && port=8888
     echo "port:$port"
 
-    # 协议：ssl.pl 存在则 https
     proto="http"
     [ -f /www/server/panel/data/ssl.pl ] && proto="https"
     echo "address:${proto}://127.0.0.1:${port}"
 
-    # 版本
-    version=""
-    if [ -f /www/server/panel/config/config.json ]; then
-        version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' /www/server/panel/config/config.json 2>/dev/null | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"//;s/"//')
+    # 安全入口（后台路径），如 /baota
+    if [ -f /www/server/panel/data/admin_path.pl ]; then
+        ap=$(tr -d '\r\n' < /www/server/panel/data/admin_path.pl 2>/dev/null)
+        case "$ap" in
+            /*) echo "entrance:$ap" ;;
+            "") ;;
+            *) echo "entrance:/$ap" ;;
+        esac
     fi
 
-    # API 状态与 key
+    version=""
+    # common.py: g.version = '11.7.0'
+    if [ -f /www/server/panel/class/common.py ]; then
+        version=$(grep -oE "version *= *'[0-9.]+'" /www/server/panel/class/common.py 2>/dev/null | head -1 | tr -dc '0-9.')
+    fi
+    if [ -z "$version" ] && [ -f /www/server/panel/data/version.pl ]; then
+        version=$(tr -dc '0-9.' < /www/server/panel/data/version.pl 2>/dev/null)
+    fi
+    # 仅接受数字版本，过滤噪声
+    case "$version" in
+        [0-9]*.*) ;;
+        *) version="" ;;
+    esac
+
     api_enabled=0
     api_key=""
-    # 新版（v7+）：default.db 的 config 表
-    if command -v sqlite3 >/dev/null 2>&1 && [ -f /www/server/panel/data/default.db ]; then
-        api_open=$(sqlite3 /www/server/panel/data/default.db "SELECT value FROM config WHERE key='api_open'" 2>/dev/null | head -1)
-        if [ "$api_open" = "1" ] || [ "$api_open" = "true" ]; then
-            api_enabled=1
-            api_key=$(sqlite3 /www/server/panel/data/default.db "SELECT value FROM config WHERE key='api_sk'" 2>/dev/null | head -1)
-        fi
-    fi
-    # 旧版（5.x）：data/api.json
-    if [ "$api_enabled" = "0" ] && [ -f /www/server/panel/data/api.json ]; then
-        api_open=$(grep -oE '"open"[[:space:]]*:[[:space:]]*[^,}]*' /www/server/panel/data/api.json 2>/dev/null | head -1)
-        case "$api_open" in
-            *true*|*1*) api_enabled=1 ;;
-        esac
-        if [ "$api_enabled" = "1" ]; then
-            # 旧版字段为 secret
-            api_key=$(grep -oE '"secret"[[:space:]]*:[[:space:]]*"[^"]*"' /www/server/panel/data/api.json 2>/dev/null | head -1 | sed 's/.*"secret"[[:space:]]*:[[:space:]]*"//;s/"//')
-            [ -z "$api_key" ] && api_key=$(grep -oE '"key"[[:space:]]*:[[:space:]]*"[^"]*"' /www/server/panel/data/api.json 2>/dev/null | head -1 | sed 's/.*"key"[[:space:]]*:[[:space:]]*"//;s/"//')
-        fi
+    api_file=""
+    for f in /www/server/panel/config/api.json /www/server/panel/data/api.json; do
+        if [ -f "$f" ]; then api_file="$f"; break; fi
+    done
+    if [ -n "$api_file" ]; then
+        api_enabled=$(json_bool_true "$api_file" open)
+        # 仅读 key：token 是 md5(key)，不能当作 API 密钥回填
+        api_key=$(json_str "$api_file" key)
+        [ -z "$api_key" ] && api_key=$(json_str "$api_file" secret)
     fi
 
     echo "api_enabled:$api_enabled"
-    # api_key 可能含特殊字符，用 base64 包裹避免污染分段协议
-    if [ -n "$api_key" ]; then
-        echo "api_key:$(printf '%s' "$api_key" | base64 2>/dev/null || echo '')"
-    else
-        echo "api_key:"
-    fi
+    echo "api_key:$(b64 "$api_key")"
     echo "note:${version}"
     echo "@ENDPANEL:bt"
 }
@@ -1358,72 +1380,92 @@ probe_bt() {
 # ===== 1Panel =====
 probe_1panel() {
     echo "@PANEL:1panel"
-    # v1: /opt/1panel  v2: /opt/1panel  数据目录可能在 /opt/1panel 或 /var/lib/1panel
     panel_dir=""
-    for d in /opt/1panel /usr/local/1panel; do
+    for d in /opt/1panel /usr/local/1panel /var/lib/1panel; do
         if [ -d "$d" ]; then panel_dir="$d"; break; fi
     done
-    if [ -z "$panel_dir" ]; then
+    if [ -z "$panel_dir" ] && { command -v 1pctl >/dev/null 2>&1 || [ -d /etc/1panel ]; }; then
+        panel_dir="/opt/1panel"
+    fi
+    if [ -z "$panel_dir" ] || { [ ! -d "$panel_dir" ] && ! command -v 1pctl >/dev/null 2>&1; }; then
         echo "installed:0"
         echo "@ENDPANEL:1panel"
         return
     fi
     echo "installed:1"
 
-    # 端口与安全入口：从 app.yaml 读
     port=""
     entrance=""
-    entrance_path=""
-    # app.yaml 可能位置
-    for f in "$panel_dir/conf/app.yaml" "$panel_dir/app.yaml" /etc/1panel/app.yaml; do
-        if [ -f "$f" ]; then entrance_path="$f"; break; fi
-    done
-    if [ -n "$entrance_path" ]; then
-        port=$(grep -E '^[[:space:]]*port:' "$entrance_path" 2>/dev/null | head -1 | sed 's/.*port:[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g' | tr -dc '0-9')
-        entrance=$(grep -E '^[[:space:]]*entrance:' "$entrance_path" 2>/dev/null | head -1 | sed 's/.*entrance:[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g')
-        [ -z "$port" ] && port=$(grep -E '^[[:space:]]*port[[:space:]]*=' "$entrance_path" 2>/dev/null | head -1 | sed 's/.*port[[:space:]]*=[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g' | tr -dc '0-9')
-    fi
-    [ -z "$port" ] && port=10086
-    echo "port:$port"
-
-    proto="http"
-    # 1panel 默认 https（9443/10086 通常配 ssl）
-    if grep -qE '^[[:space:]]*(ssl|https)[[:space:]]*:' "$entrance_path" 2>/dev/null; then
-        proto="https"
-    fi
-    echo "address:${proto}://127.0.0.1:${port}"
-    [ -n "$entrance" ] && echo "entrance:/${entrance}"
-
-    # API key：1panel v1/v2 存在 sqlite settings 表，字段 key='ServerKey' 或类似
-    # 也可能从 1pctl 命令读取，但 1pctl 不暴露 api key，只能读数据库
     api_enabled=0
     api_key=""
-    db_path=""
-    for db in "$panel_dir/db/1panel.db" /var/lib/1panel/db/1panel.db /opt/1panel/db/1Panel.db; do
-        if [ -f "$db" ]; then db_path="$db"; break; fi
-    done
-    if [ -n "$db_path" ] && command -v sqlite3 >/dev/null 2>&1; then
-        # 1Panel 的 API key 在 settings 表，key 名为 'ServerKey' 或类似
-        # 尝试多种可能的 key 名
-        for k in ServerKey ApiKey PanelKey api_key server_key; do
-            val=$(sqlite3 "$db_path" "SELECT value FROM settings WHERE key='$k'" 2>/dev/null | head -1)
-            if [ -n "$val" ]; then
-                api_key="$val"
-                api_enabled=1
+    api_status=""
+    version=""
+    proto="http"
+
+    # v2：core.db settings；v1：1panel.db
+    if command -v sqlite3 >/dev/null 2>&1; then
+        for db in "$panel_dir/db/core.db" /opt/1panel/db/core.db /var/lib/1panel/db/core.db \
+                  "$panel_dir/db/1panel.db" /var/lib/1panel/db/1panel.db /opt/1panel/db/1Panel.db; do
+            [ -f "$db" ] || continue
+            sp=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ServerPort' LIMIT 1;" 2>/dev/null | head -1)
+            [ -n "$sp" ] && port=$(printf '%s' "$sp" | tr -dc '0-9')
+            se=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SecurityEntrance' LIMIT 1;" 2>/dev/null | head -1)
+            [ -n "$se" ] && entrance="$se"
+            ssl=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SSL' LIMIT 1;" 2>/dev/null | head -1)
+            case "$ssl" in Enable|enable|true|1|TRUE) proto="https" ;; esac
+            ak=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ApiKey' LIMIT 1;" 2>/dev/null | head -1)
+            [ -z "$ak" ] && ak=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ServerKey' LIMIT 1;" 2>/dev/null | head -1)
+            [ -n "$ak" ] && api_key="$ak"
+            api_status=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ApiInterfaceStatus' LIMIT 1;" 2>/dev/null | head -1)
+            sv=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SystemVersion' LIMIT 1;" 2>/dev/null | head -1)
+            [ -n "$sv" ] && version="$sv"
+            if [ -n "$port" ] || [ -n "$api_key" ]; then
                 break
             fi
         done
     fi
 
-    echo "api_enabled:$api_enabled"
-    if [ -n "$api_key" ]; then
-        echo "api_key:$(printf '%s' "$api_key" | base64 2>/dev/null || echo '')"
-    else
-        echo "api_key:"
+    # v1 回退：app.yaml
+    if [ -z "$port" ] || [ -z "$entrance" ]; then
+        yaml=""
+        for f in "$panel_dir/conf/app.yaml" "$panel_dir/app.yaml" /etc/1panel/app.yaml; do
+            if [ -f "$f" ]; then yaml="$f"; break; fi
+        done
+        if [ -n "$yaml" ]; then
+            [ -z "$port" ] && port=$(grep -E '^[[:space:]]*port:' "$yaml" 2>/dev/null | head -1 | sed 's/.*port:[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g' | tr -dc '0-9')
+            if [ -z "$entrance" ]; then
+                entrance=$(grep -E '^[[:space:]]*entrance:' "$yaml" 2>/dev/null | head -1 | sed 's/.*entrance:[[:space:]]*//;s/#.*//;s/[[:space:]]*$//;s/"//g')
+            fi
+            if grep -qiE '^[[:space:]]*(ssl|https)[[:space:]]*:[[:space:]]*(true|enable|1)' "$yaml" 2>/dev/null; then
+                proto="https"
+            fi
+        fi
     fi
-    version=""
-    if command -v 1pctl >/dev/null 2>&1; then
-        version=$(1pctl version 2>/dev/null | head -1)
+
+    case "$api_status" in
+        Enable|enable|true|1|TRUE) api_enabled=1 ;;
+        Disable|disable|false|0|FALSE) api_enabled=0 ;;
+        *)
+            # v1 无 ApiInterfaceStatus：有 key 即视为开启
+            [ -n "$api_key" ] && api_enabled=1
+            ;;
+    esac
+
+    [ -z "$port" ] && port=10086
+    echo "port:$port"
+    echo "address:${proto}://127.0.0.1:${port}"
+    if [ -n "$entrance" ]; then
+        case "$entrance" in
+            /*) echo "entrance:$entrance" ;;
+            *) echo "entrance:/$entrance" ;;
+        esac
+    fi
+
+    echo "api_enabled:$api_enabled"
+    echo "api_key:$(b64 "$api_key")"
+
+    if [ -z "$version" ] && command -v 1pctl >/dev/null 2>&1; then
+        version=$(1pctl version 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -oE 'v?[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
     fi
     echo "note:${version}"
     echo "@ENDPANEL:1panel"
@@ -1434,6 +1476,29 @@ probe_1panel
 "#.to_string()
 }
 
+/// 去掉 ANSI 转义与首尾空白（1pctl 输出常带颜色码）。
+fn scrub_probe_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(n) = chars.next() {
+                    if n.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if c != '\r' {
+            out.push(c);
+        }
+    }
+    out.trim().to_string()
+}
+
 /// 解析面板探测输出。
 fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
     let mut panels = Vec::new();
@@ -1441,22 +1506,35 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
     let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for line in output.lines() {
+        let line = line.trim_end_matches('\r');
         if let Some(kind) = line.strip_prefix("@PANEL:") {
             current_kind = Some(kind.trim().to_string());
             fields.clear();
         } else if let Some(kind) = line.strip_prefix("@ENDPANEL:") {
             if let Some(k) = current_kind.take() {
                 if k == kind.trim() {
-                    let installed = fields.get("installed").map(|v| v == "1").unwrap_or(false);
+                    let installed = fields.get("installed").map(|v| v.trim() == "1").unwrap_or(false);
                     let port: u16 = fields
                         .get("port")
-                        .and_then(|v| v.parse().ok())
+                        .and_then(|v| v.trim().parse().ok())
                         .unwrap_or(0);
-                    let address = fields.get("address").cloned().unwrap_or_default();
-                    let entrance = fields.get("entrance").cloned().unwrap_or_default();
-                    let api_enabled = fields.get("api_enabled").map(|v| v == "1").unwrap_or(false);
+                    let address = fields
+                        .get("address")
+                        .map(|v| scrub_probe_text(v))
+                        .unwrap_or_default();
+                    let entrance = fields
+                        .get("entrance")
+                        .map(|v| scrub_probe_text(v))
+                        .unwrap_or_default();
+                    let api_enabled = fields
+                        .get("api_enabled")
+                        .map(|v| v.trim() == "1")
+                        .unwrap_or(false);
                     // api_key 是 base64 编码的，需解码
-                    let api_key_b64 = fields.get("api_key").map(|v| v.as_str()).unwrap_or("");
+                    let api_key_b64 = fields
+                        .get("api_key")
+                        .map(|v| v.trim())
+                        .unwrap_or("");
                     let api_key = if api_key_b64.is_empty() {
                         String::new()
                     } else {
@@ -1467,7 +1545,10 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
                             .and_then(|bytes| String::from_utf8(bytes).ok())
                             .unwrap_or_default()
                     };
-                    let note = fields.get("note").cloned().unwrap_or_default();
+                    let note = fields
+                        .get("note")
+                        .map(|v| scrub_probe_text(v))
+                        .unwrap_or_default();
                     panels.push(PanelProbeItem {
                         kind: k,
                         installed,
@@ -1484,7 +1565,9 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
             if let Some(idx) = line.find(':') {
                 let key = line[..idx].trim().to_string();
                 let value = line[idx + 1..].to_string();
-                fields.insert(key, value);
+                if !key.is_empty() {
+                    fields.insert(key, value);
+                }
             }
         }
     }
@@ -1506,7 +1589,13 @@ pub async fn ssh_pool_probe_panels(
 
     let script = build_panel_probe_script();
     let output = session.exec_capture(&script).await?;
-    let panels = parse_panel_probe_output(&output.stdout);
+    // 部分环境 stdout/stderr 混写；合并后再解析
+    let combined = if output.stderr.trim().is_empty() {
+        output.stdout
+    } else {
+        format!("{}\n{}", output.stdout, output.stderr)
+    };
+    let panels = parse_panel_probe_output(&combined);
 
     let elapsed_ms = start.elapsed().as_millis() as u64;
     let probed_at = chrono::Utc::now().timestamp_millis();
@@ -1517,6 +1606,391 @@ pub async fn ssh_pool_probe_panels(
         elapsed_ms,
         probed_at,
     })
+}
+
+/// 开启面板 API 的结果。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EnablePanelApiResult {
+    pub kind: String,
+    /// 是否已成功开启（或原本已开启）
+    pub enabled: bool,
+    /// 当前 API Key（敏感；前端写入 Vault，勿日志/勿传 AI）
+    pub api_key: String,
+    /// 人类可读说明（含白名单策略提示）
+    pub message: String,
+    /// 是否执行了服务重启（1Panel 为刷缓存常需重启 core）
+    pub restarted: bool,
+}
+
+/// 通过 SSH 在远端开启宝塔 / 1Panel 的 API 接口。
+///
+/// - 宝塔：改写 `config/api.json` 的 `open`/`key`/`limit_addr`（每次请求热读，一般无需重启）
+/// - 1Panel：更新 `core.db` settings，并尝试重启 core 以刷新内存缓存
+/// - `allow_all=true`：白名单放行全部（宝塔 `*` / 1Panel `0.0.0.0/0`）；需前端二次确认
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_enable_panel_api(
+    state: State<'_, AppState>,
+    resource_id: String,
+    kind: String,
+    allow_all: bool,
+) -> Result<EnablePanelApiResult, OmniError> {
+    let kind = kind.trim().to_ascii_lowercase();
+    if kind != "bt" && kind != "1panel" {
+        return Err(OmniError::invalid_input("kind 须为 bt 或 1panel"));
+    }
+
+    let session = pool_session(&state, &resource_id).await?;
+    let script = build_enable_panel_api_script(&kind, allow_all);
+    let output = session.exec_capture(&script).await?;
+    let combined = if output.stderr.trim().is_empty() {
+        output.stdout
+    } else {
+        format!("{}\n{}", output.stdout, output.stderr)
+    };
+
+    parse_enable_panel_api_output(&kind, &combined)
+}
+
+fn build_enable_panel_api_script(kind: &str, allow_all: bool) -> String {
+    let allow = if allow_all { "1" } else { "0" };
+    // KIND / ALLOW_ALL 经环境变量传入，避免嵌入 Python 字符串转义问题
+    format!(
+        r#"#!/bin/bash
+set +e
+export OMNI_PANEL_KIND='{kind}'
+export OMNI_ALLOW_ALL='{allow}'
+
+PY=
+for c in \
+    /www/server/panel/pyenv/bin/python3 \
+    /www/server/panel/pyenv/bin/python \
+    python3 \
+    /usr/bin/python3 \
+    /usr/local/bin/python3 \
+    python; do
+    if [ -x "$c" ]; then PY="$c"; break; fi
+    if command -v "$c" >/dev/null 2>&1; then PY=$(command -v "$c"); break; fi
+done
+# 1Panel：无 Python 时可用 sqlite3 CLI 回退
+if [ -z "$PY" ] && [ "$OMNI_PANEL_KIND" = "1panel" ] && command -v sqlite3 >/dev/null 2>&1; then
+    db=""
+    for p in /opt/1panel/db/core.db /var/lib/1panel/db/core.db /opt/1panel/db/1panel.db; do
+        [ -f "$p" ] && db="$p" && break
+    done
+    if [ -n "$db" ]; then
+        key=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ApiKey' LIMIT 1;" 2>/dev/null)
+        [ -z "$key" ] && key=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ServerKey' LIMIT 1;" 2>/dev/null)
+        if [ -z "$key" ]; then
+            key=$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 32)
+            now=$(date '+%Y-%m-%d %H:%M:%S')
+            sqlite3 "$db" "INSERT INTO settings (created_at,updated_at,key,value,about) VALUES ('$now','$now','ApiKey','$key','');" 2>/dev/null
+        fi
+        now=$(date '+%Y-%m-%d %H:%M:%S')
+        sqlite3 "$db" "UPDATE settings SET value='Enable', updated_at='$now' WHERE key='ApiInterfaceStatus';" 2>/dev/null
+        if [ "$OMNI_ALLOW_ALL" = "1" ]; then
+            sqlite3 "$db" "UPDATE settings SET value='0.0.0.0/0', updated_at='$now' WHERE key='IpWhiteList';" 2>/dev/null
+        fi
+        restarted=0
+        systemctl restart 1panel-core >/dev/null 2>&1 && restarted=1
+        [ "$restarted" = "0" ] && 1pctl restart core >/dev/null 2>&1 && restarted=1
+        echo "@RESULT:ok"
+        echo "api_key:$(printf '%s' "$key" | base64 2>/dev/null | tr -d '\n')"
+        echo "message:1Panel API 已开启（sqlite3 回退）"
+        echo "restarted:$restarted"
+        echo "@END"
+        exit 0
+    fi
+fi
+if [ -z "$PY" ]; then
+    echo "@RESULT:err"
+    echo "api_key:"
+    echo "message:远端未找到可用的 Python（已尝试 panel/pyenv 与 python3）"
+    echo "restarted:0"
+    echo "@END"
+    exit 0
+fi
+
+"$PY" - <<'PY'
+import base64, hashlib, json, os, secrets, sqlite3, string, time
+
+kind = os.environ.get("OMNI_PANEL_KIND", "").strip().lower()
+allow_all = os.environ.get("OMNI_ALLOW_ALL", "1") == "1"
+
+def emit(ok: bool, api_key: str = "", message: str = "", restarted: bool = False):
+    print("@RESULT:ok" if ok else "@RESULT:err")
+    if api_key:
+        print("api_key:" + base64.b64encode(api_key.encode()).decode())
+    else:
+        print("api_key:")
+    print("message:" + (message or "").replace("\n", " "))
+    print("restarted:1" if restarted else "restarted:0")
+    print("@END")
+
+def gen_key(n: int) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(n))
+
+def enable_bt():
+    path = "/www/server/panel/config/api.json"
+    if not os.path.isdir("/www/server/panel"):
+        emit(False, message="未安装宝塔面板")
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = {{}}
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {{}}
+        except Exception as e:
+            emit(False, message=f"读取 api.json 失败: {{e}}")
+            return
+        try:
+            bak = path + ".omni.bak." + str(int(time.time()))
+            with open(bak, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except Exception:
+            pass
+    # 只用 key；token 是面板侧 md5(key)，绝不能当密钥复用
+    key = (data.get("key") or "").strip()
+    if not key:
+        key = gen_key(16)
+    data["open"] = True
+    data["key"] = key
+    # 新版宝塔校验：request_token = md5(request_time + token)，其中 token 必须为 md5(key)
+    data["token"] = hashlib.md5(key.encode("utf-8")).hexdigest()
+    if allow_all:
+        data["limit_addr"] = ["*"]
+    else:
+        addrs = data.get("limit_addr") or []
+        if not isinstance(addrs, list):
+            addrs = []
+        if not addrs:
+            addrs = ["127.0.0.1"]
+        data["limit_addr"] = addrs
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.chmod(path, 0o600)
+    except Exception as e:
+        emit(False, message=f"写入 api.json 失败: {{e}}")
+        return
+    wl = "全部 IP (*)" if allow_all else "保留原白名单（可能不含本机公网 IP）"
+    emit(True, api_key=key, message=f"宝塔 API 已开启；白名单: {{wl}}", restarted=False)
+
+def find_1panel_db():
+    for p in (
+        "/opt/1panel/db/core.db",
+        "/var/lib/1panel/db/core.db",
+        "/usr/local/1panel/db/core.db",
+        "/opt/1panel/db/1panel.db",
+        "/var/lib/1panel/db/1panel.db",
+    ):
+        if os.path.isfile(p):
+            return p
+    return None
+
+def set_setting(conn, key, value):
+    cur = conn.execute("SELECT id FROM settings WHERE key=? LIMIT 1", (key,))
+    row = cur.fetchone()
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    if row:
+        conn.execute(
+            "UPDATE settings SET value=?, updated_at=? WHERE key=?",
+            (value, now, key),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO settings (created_at, updated_at, key, value, about) VALUES (?,?,?,?,?)",
+            (now, now, key, value, ""),
+        )
+
+def enable_1panel():
+    if not (os.path.isdir("/opt/1panel") or os.path.isdir("/etc/1panel") or os.path.isfile("/usr/local/bin/1pctl")):
+        emit(False, message="未安装 1Panel")
+        return
+    db = find_1panel_db()
+    if not db:
+        emit(False, message="未找到 1Panel 数据库 (core.db)")
+        return
+    try:
+        conn = sqlite3.connect(db, timeout=10)
+        conn.execute("PRAGMA busy_timeout=5000")
+        cur = conn.execute("SELECT value FROM settings WHERE key='ApiKey' LIMIT 1")
+        row = cur.fetchone()
+        key = (row[0] if row and row[0] else "").strip()
+        if not key:
+            cur = conn.execute("SELECT value FROM settings WHERE key='ServerKey' LIMIT 1")
+            row = cur.fetchone()
+            key = (row[0] if row and row[0] else "").strip()
+        if not key:
+            key = gen_key(32)
+            set_setting(conn, "ApiKey", key)
+        set_setting(conn, "ApiInterfaceStatus", "Enable")
+        if allow_all:
+            set_setting(conn, "IpWhiteList", "0.0.0.0/0")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        emit(False, message=f"更新 1Panel settings 失败: {{e}}")
+        return
+
+    # 用 shell 调 systemctl/1pctl（部分环境 PATH/无 TTY 时 list 形式 subprocess 会失败）
+    restarted = False
+    for cmd in (
+        "systemctl restart 1panel-core >/dev/null 2>&1",
+        "1pctl restart core >/dev/null 2>&1",
+        "/bin/systemctl restart 1panel-core >/dev/null 2>&1",
+    ):
+        try:
+            if os.system(cmd) == 0:
+                restarted = True
+                break
+        except Exception:
+            continue
+
+    wl = "0.0.0.0/0" if allow_all else "保留原白名单"
+    msg = f"1Panel API 已开启；白名单: {{wl}}"
+    if restarted:
+        msg += "；已重启 core 以刷新缓存"
+    else:
+        msg += "；未能自动重启 core，若暂时不可用请手动 1pctl restart core"
+    emit(True, api_key=key, message=msg, restarted=restarted)
+
+if kind == "bt":
+    enable_bt()
+elif kind == "1panel":
+    enable_1panel()
+else:
+    emit(False, message=f"未知面板类型: {{kind}}")
+PY
+"#,
+        kind = kind,
+        allow = allow
+    )
+}
+
+fn parse_enable_panel_api_output(kind: &str, output: &str) -> Result<EnablePanelApiResult, OmniError> {
+    let mut ok: Option<bool> = None;
+    let mut api_key_b64 = String::new();
+    let mut message = String::new();
+    let mut restarted = false;
+
+    for line in output.lines() {
+        let line = line.trim_end_matches('\r');
+        if line == "@RESULT:ok" {
+            ok = Some(true);
+        } else if line == "@RESULT:err" {
+            ok = Some(false);
+        } else if line == "@END" {
+            break;
+        } else if let Some(v) = line.strip_prefix("api_key:") {
+            api_key_b64 = v.trim().to_string();
+        } else if let Some(v) = line.strip_prefix("message:") {
+            message = scrub_probe_text(v);
+        } else if let Some(v) = line.strip_prefix("restarted:") {
+            restarted = v.trim() == "1";
+        }
+    }
+
+    let Some(success) = ok else {
+        let snippet = scrub_probe_text(&output.chars().take(400).collect::<String>());
+        return Err(OmniError::new(ErrorCode::Ssh, "开启面板 API 未返回有效结果")
+            .with_cause(if snippet.is_empty() {
+                "远端无输出（是否缺少 python3？）".into()
+            } else {
+                snippet
+            }));
+    };
+
+    let api_key = if api_key_b64.is_empty() {
+        String::new()
+    } else {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(api_key_b64.trim())
+            .ok()
+            .and_then(|b| String::from_utf8(b).ok())
+            .unwrap_or_default()
+    };
+
+    if !success {
+        return Err(OmniError::new(ErrorCode::Ssh, "开启面板 API 失败").with_cause(message));
+    }
+
+    Ok(EnablePanelApiResult {
+        kind: kind.to_string(),
+        enabled: true,
+        api_key,
+        message,
+        restarted,
+    })
+}
+
+#[cfg(test)]
+mod panel_probe_tests {
+    use super::{parse_enable_panel_api_output, parse_panel_probe_output, scrub_probe_text};
+    use base64::Engine;
+
+    #[test]
+    fn parse_bt_and_1panel_segments() {
+        let key = "secret-key-1";
+        let key_b64 = base64::engine::general_purpose::STANDARD.encode(key);
+        let out = format!(
+            r#"@PANEL:bt
+installed:1
+port:7777
+address:http://127.0.0.1:7777
+entrance:/baota
+api_enabled:0
+api_key:{key_b64}
+note:11.7.0
+@ENDPANEL:bt
+@PANEL:1panel
+installed:1
+port:7777
+address:http://127.0.0.1:7777
+entrance:/ca8b44c8e4
+api_enabled:1
+api_key:{key_b64}
+note:v2.2.3
+@ENDPANEL:1panel
+"#
+        );
+        let panels = parse_panel_probe_output(&out);
+        assert_eq!(panels.len(), 2);
+        assert!(panels[0].installed);
+        assert_eq!(panels[0].kind, "bt");
+        assert_eq!(panels[0].port, 7777);
+        assert_eq!(panels[0].entrance, "/baota");
+        assert!(!panels[0].api_enabled);
+        assert_eq!(panels[0].api_key, key);
+        assert!(panels[1].installed);
+        assert_eq!(panels[1].kind, "1panel");
+        assert!(panels[1].api_enabled);
+        assert_eq!(panels[1].entrance, "/ca8b44c8e4");
+    }
+
+    #[test]
+    fn scrub_ansi_and_cr() {
+        let s = scrub_probe_text("\u{1b}[0;34mv2.2.3\u{1b}[0m\r");
+        assert_eq!(s, "v2.2.3");
+    }
+
+    #[test]
+    fn parse_enable_ok() {
+        let key = "abc123Key";
+        let key_b64 = base64::engine::general_purpose::STANDARD.encode(key);
+        let out = format!(
+            "@RESULT:ok\napi_key:{key_b64}\nmessage:ok done\nrestarted:1\n@END\n"
+        );
+        let res = parse_enable_panel_api_output("bt", &out).unwrap();
+        assert!(res.enabled);
+        assert_eq!(res.api_key, key);
+        assert!(res.restarted);
+        assert!(res.message.contains("ok"));
+    }
 }
 
 // ============================================================================

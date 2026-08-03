@@ -118,6 +118,7 @@ fn export_ipc_bindings() {
         commands::db_mysql_export::db_mysql_export_delete,
         commands::db_mysql_export::bg_task_submit_db_mysql_export,
         commands::db_mysql_export::bg_task_submit_db_mysql_import,
+        commands::panel::panel_resolve_api_key,
         commands::panel::panel_1panel_request,
         commands::panel::panel_1panel_test_connection,
         commands::panel::panel_1panel_app_icon,
@@ -271,6 +272,7 @@ fn export_ipc_bindings() {
         commands::ssh_capabilities::ssh_pool_invalidate_capabilities,
         commands::ssh_capabilities::ssh_pool_install_tool,
         commands::ssh_capabilities::ssh_pool_probe_panels,
+        commands::ssh_capabilities::ssh_pool_enable_panel_api,
         commands::ssh::set_terminal_tmux_mode,
         commands::ssh::invalidate_tmux_cache,
         commands::system::local_fetch_stats,
@@ -926,6 +928,7 @@ fn build_and_run_tauri() {
         commands::db_mysql_export::bg_task_submit_db_mysql_export,
         commands::db_mysql_export::bg_task_submit_db_mysql_import,
             // 面板 API
+            commands::panel::panel_resolve_api_key,
             commands::panel::panel_1panel_request,
             commands::panel::panel_1panel_test_connection,
             commands::panel::panel_1panel_app_icon,
@@ -1090,6 +1093,7 @@ fn build_and_run_tauri() {
         commands::ssh_capabilities::ssh_pool_invalidate_capabilities,
         commands::ssh_capabilities::ssh_pool_install_tool,
         commands::ssh_capabilities::ssh_pool_probe_panels,
+        commands::ssh_capabilities::ssh_pool_enable_panel_api,
         commands::ssh::set_terminal_tmux_mode,
         commands::ssh::invalidate_tmux_cache,
             // Local system monitor

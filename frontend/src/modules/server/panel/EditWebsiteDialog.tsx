@@ -122,7 +122,7 @@ function OnePanelEditWebsiteDialog({
     setError(null);
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const [detail, groupList] = await Promise.all([
           client.getWebsite(websiteId),
           client.searchGroups("website").catch(() => [] as OnePanelGroup[]),
@@ -174,7 +174,7 @@ function OnePanelEditWebsiteDialog({
     setBusy(true);
     setError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       const body: OnePanelWebsiteUpdate = {
         id: websiteId,
         primaryDomain: primaryDomain.trim(),

@@ -152,7 +152,7 @@ function OnePanelCreateCronjobDialog({
     setOptionsLoading(true);
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const groupList = await client.searchGroups("cronjob").catch(() => [] as OnePanelGroup[]);
         if (cancelled) return;
         setGroups(groupList);
@@ -256,7 +256,7 @@ function OnePanelCreateCronjobDialog({
     setBusy(true);
     setError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       if (isEdit && editId != null) {
         const body: OnePanelCronjobUpdate = { ...buildBody(), id: editId };
         await client.updateCronjob(body);

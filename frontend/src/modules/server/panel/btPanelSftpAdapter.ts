@@ -19,7 +19,7 @@ function parseBtDirItem(raw: string, isDir: boolean): SftpEntry | null {
 
 /** 通过宝塔文件 API 浏览宿主机目录（用于网站站点路径）。 */
 export function makeBtPanelSftpAdapter(server: ServerEntry): SftpPanelAdapter {
-  const client = createBtPanelClient(server.address, server.key);
+  const client = createBtPanelClient(server.address, server.key, server.id);
 
   return {
     capabilities: {

@@ -142,7 +142,7 @@ export function ServerAppsTab({ server }: Props) {
     setSyncing(true);
     setActionError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       await client.syncAppsRemote();
       showToast(t("server.appMarket.syncSuccess"));
       await refresh();
@@ -174,7 +174,7 @@ export function ServerAppsTab({ server }: Props) {
   useEffect(() => {
     if (!isOnePanel || cards.length === 0) return;
     let cancelled = false;
-    const client = createOnePanelClient(server.address, server.key);
+    const client = createOnePanelClient(server.address, server.key, server.id);
     const missing = cards
       .map((app) => app.key?.trim())
       .filter((key): key is string => Boolean(key))
@@ -226,7 +226,7 @@ export function ServerAppsTab({ server }: Props) {
       setInstallingKey(app.key);
       setActionError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         let versions = app.versions ?? [];
         let appId = app.id;
         let appType = app.type || "runtime";

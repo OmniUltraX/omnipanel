@@ -43,7 +43,7 @@ function bytesToBase64(bytes: number[]): string {
 
 /** 通过 1Panel 文件 API 浏览宿主机目录（用于网站站点路径）。 */
 export function makeOnePanelSftpAdapter(server: ServerEntry): SftpPanelAdapter {
-  const client = createOnePanelClient(server.address, server.key);
+  const client = createOnePanelClient(server.address, server.key, server.id);
 
   return {
     capabilities: {

@@ -36,6 +36,8 @@ import {
 export interface OnePanelClientOptions {
   host: string;
   apiKey: string;
+  /** 连接 ID：apiKey 为空时从 Vault 解析密钥 */
+  connectionId?: string;
   /** 默认 true：在 Tauri 环境走 Rust 后端，避免 WebView CORS。 */
   useTauri?: boolean;
 }
@@ -166,13 +168,34 @@ function parseResponseText<T>(text: string): T {
 
 export class OnePanelClient {
   private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private apiKey: string;
+  private readonly connectionId?: string;
   private readonly useTauri: boolean;
+  private resolvePromise: Promise<string> | null = null;
 
   constructor(options: OnePanelClientOptions) {
     this.baseUrl = normalizeOnePanelBaseUrl(options.host);
     this.apiKey = options.apiKey;
+    this.connectionId = options.connectionId;
     this.useTauri = options.useTauri ?? true;
+  }
+
+  private async resolveApiKey(): Promise<string> {
+    if (this.apiKey.trim()) return this.apiKey;
+    if (!this.connectionId) {
+      throw new OnePanelApiError("缺少 1Panel API 密钥", 0);
+    }
+    if (!this.resolvePromise) {
+      this.resolvePromise = (async () => {
+        const result = await commands.panelResolveApiKey(this.connectionId!);
+        if (result.status === "error") {
+          throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+        }
+        this.apiKey = result.data;
+        return this.apiKey;
+      })();
+    }
+    return this.resolvePromise;
   }
 
   /** 原始请求：path 不含 `/api/v2` 前缀，如 `/toolbox/device/base`。 */
@@ -180,11 +203,12 @@ export class OnePanelClient {
     const method = (options.method ?? "GET").toUpperCase();
     const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
     const pathWithQuery = `${path}${buildQueryString(options.query)}`;
+    const apiKey = await this.resolveApiKey();
 
     if (this.useTauri && isTauriRuntime()) {
       const result = await commands.panel1panelRequest(
         this.baseUrl,
-        this.apiKey,
+        apiKey,
         method,
         pathWithQuery,
         serializeRequestBody(method, options.body),
@@ -195,7 +219,7 @@ export class OnePanelClient {
       return parseResponseText<T>(result.data);
     }
 
-    return this.requestViaFetch<T>(method, pathWithQuery, options.body);
+    return this.requestViaFetch<T>(method, pathWithQuery, options.body, apiKey);
   }
 
   /** 原始文本响应（日志下载等非 JSON 接口）。 */
@@ -206,11 +230,12 @@ export class OnePanelClient {
   ): Promise<string> {
     const upperMethod = method.toUpperCase();
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const apiKey = await this.resolveApiKey();
 
     if (this.useTauri && isTauriRuntime()) {
       const result = await commands.panel1panelRequestText(
         this.baseUrl,
-        this.apiKey,
+        apiKey,
         upperMethod,
         normalizedPath,
         serializeRequestBody(upperMethod, body),
@@ -221,10 +246,15 @@ export class OnePanelClient {
       return result.data;
     }
 
-    return this.requestTextViaFetch(upperMethod, normalizedPath, body);
+    return this.requestTextViaFetch(upperMethod, normalizedPath, body, apiKey);
   }
 
-  private async requestTextViaFetch(method: string, path: string, body?: unknown): Promise<string> {
+  private async requestTextViaFetch(
+    method: string,
+    path: string,
+    body: unknown | undefined,
+    apiKey: string,
+  ): Promise<string> {
     const timestamp = Math.floor(Date.now() / 1000);
     const hasBody = body != null || method === "POST" || method === "PUT" || method === "PATCH";
     const res = await fetch(`${this.baseUrl}/api/v2${path}`, {
@@ -232,7 +262,7 @@ export class OnePanelClient {
       headers: {
         Accept: "application/json, text/plain, */*",
         ...(hasBody ? { "Content-Type": "application/json" } : {}),
-        ...buildOnePanelAuthHeaders(this.apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp),
       },
       body: hasBody ? JSON.stringify(body ?? {}) : undefined,
     });
@@ -255,7 +285,12 @@ export class OnePanelClient {
     });
   }
 
-  private async requestViaFetch<T>(method: string, pathWithQuery: string, body?: unknown): Promise<T> {
+  private async requestViaFetch<T>(
+    method: string,
+    pathWithQuery: string,
+    body: unknown | undefined,
+    apiKey: string,
+  ): Promise<T> {
     const timestamp = Math.floor(Date.now() / 1000);
     const hasBody = body != null || method === "POST" || method === "PUT" || method === "PATCH";
     const res = await fetch(`${this.baseUrl}/api/v2${pathWithQuery}`, {
@@ -263,7 +298,7 @@ export class OnePanelClient {
       headers: {
         Accept: "application/json",
         ...(hasBody ? { "Content-Type": "application/json" } : {}),
-        ...buildOnePanelAuthHeaders(this.apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp),
       },
       body: hasBody ? JSON.stringify(body ?? {}) : undefined,
     });
@@ -590,10 +625,11 @@ export class OnePanelClient {
    */
   async downloadWebsiteSsl(id: number): Promise<{ filename: string; bytes: Uint8Array }> {
     const fallbackName = `ssl-${id}.zip`;
+    const apiKey = await this.resolveApiKey();
     if (this.useTauri && isTauriRuntime()) {
       const result = await commands.panel1panelRequestBytes(
         this.baseUrl,
-        this.apiKey,
+        apiKey,
         "POST",
         "/websites/ssl/download",
         serializeRequestBody("POST", { id }),
@@ -616,13 +652,14 @@ export class OnePanelClient {
     id: number,
     fallbackName: string,
   ): Promise<{ filename: string; bytes: Uint8Array }> {
+    const apiKey = await this.resolveApiKey();
     const timestamp = Math.floor(Date.now() / 1000);
     const res = await fetch(`${this.baseUrl}/api/v2/websites/ssl/download`, {
       method: "POST",
       headers: {
         Accept: "application/json, application/zip, */*",
         "Content-Type": "application/json",
-        ...buildOnePanelAuthHeaders(this.apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp),
       },
       body: JSON.stringify({ id }),
     });
@@ -795,10 +832,11 @@ export class OnePanelClient {
     contentBase64: string;
     overwrite?: boolean;
   }): Promise<void> {
+    const apiKey = await this.resolveApiKey();
     if (this.useTauri && isTauriRuntime()) {
       const result = await commands.panel1panelUploadFile(
         this.baseUrl,
-        this.apiKey,
+        apiKey,
         params.path,
         params.filename,
         params.contentBase64,
@@ -822,7 +860,7 @@ export class OnePanelClient {
       method: "POST",
       headers: {
         Accept: "application/json, text/plain, */*",
-        ...buildOnePanelAuthHeaders(this.apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp),
       },
       body: form,
     });
@@ -919,24 +957,25 @@ export class OnePanelClient {
       throw new OnePanelApiError("应用 key 不能为空", 0);
     }
 
+    const apiKey = await this.resolveApiKey();
     if (this.useTauri && isTauriRuntime()) {
-      const result = await commands.panel1panelAppIcon(this.baseUrl, this.apiKey, key);
+      const result = await commands.panel1panelAppIcon(this.baseUrl, apiKey, key);
       if (result.status === "error") {
         throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
       }
       return result.data;
     }
 
-    return this.fetchAppIconViaFetch(key);
+    return this.fetchAppIconViaFetch(key, apiKey);
   }
 
-  private async fetchAppIconViaFetch(appKey: string): Promise<string> {
+  private async fetchAppIconViaFetch(appKey: string, apiKey: string): Promise<string> {
     const timestamp = Math.floor(Date.now() / 1000);
     const res = await fetch(`${this.baseUrl}/api/v2/apps/icon/${encodeURIComponent(appKey)}`, {
       method: "GET",
       headers: {
         Accept: "application/json, image/*, */*",
-        ...buildOnePanelAuthHeaders(this.apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp),
       },
     });
 
@@ -1138,7 +1177,11 @@ function normalizeAppItem(raw: OnePanelApp | Record<string, unknown>): OnePanelA
   };
 }
 
-/** 从服务器连接配置创建客户端。 */
-export function createOnePanelClient(host: string, apiKey: string): OnePanelClient {
-  return new OnePanelClient({ host, apiKey });
+/** 从服务器连接配置创建客户端。connectionId 用于 Vault 中空密钥时回源。 */
+export function createOnePanelClient(
+  host: string,
+  apiKey: string,
+  connectionId?: string,
+): OnePanelClient {
+  return new OnePanelClient({ host, apiKey, connectionId });
 }

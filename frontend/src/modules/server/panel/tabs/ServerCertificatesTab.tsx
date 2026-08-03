@@ -194,7 +194,7 @@ export function ServerCertificatesTab({ server }: Props) {
       setActionBusyId(row.certId);
       setActionError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const { filename, bytes } = await client.downloadWebsiteSsl(row.certId);
         const safeName =
           filename.trim() ||
@@ -228,14 +228,14 @@ export function ServerCertificatesTab({ server }: Props) {
       setActionError(null);
       try {
         if (isBt) {
-          const client = createBtPanelClient(server.address, server.key);
+          const client = createBtPanelClient(server.address, server.key, server.id);
           await client.removeSslCert({
             id: row.certId ?? undefined,
             hash: row.certHash ?? undefined,
           });
         } else {
           if (row.certId == null) return;
-          const client = createOnePanelClient(server.address, server.key);
+          const client = createOnePanelClient(server.address, server.key, server.id);
           await client.deleteWebsiteSsl([row.certId]);
         }
         showToast(t("server.certificates.deleteSuccess"));
@@ -258,7 +258,7 @@ export function ServerCertificatesTab({ server }: Props) {
       setActionBusyId(row.certId);
       setActionError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         await client.updateWebsiteSsl({
           id: row.certId,
           primaryDomain: row.domain,

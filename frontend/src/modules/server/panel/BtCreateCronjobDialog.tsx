@@ -76,7 +76,7 @@ export function BtCreateCronjobDialog({
     setLoading(true);
     void (async () => {
       try {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const detail = await client.getCronDetail(editId);
         if (cancelled) return;
         setName(asString(detail.name));
@@ -137,7 +137,7 @@ export function BtCreateCronjobDialog({
     setBusy(true);
     setError(null);
     try {
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       if (isEdit && editId != null) {
         await client.modifyCrontab(editId, buildParams());
         showToast(t("server.cronjobs.editSuccess"));

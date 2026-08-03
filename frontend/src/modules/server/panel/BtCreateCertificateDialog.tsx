@@ -52,7 +52,7 @@ export function BtCreateCertificateDialog({ open, server, onClose, onCreated }: 
     setOptionsLoading(true);
     void (async () => {
       try {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const result = await client.getWebsiteList({ limit: 200 });
         if (cancelled) return;
         const names = result.data
@@ -84,7 +84,7 @@ export function BtCreateCertificateDialog({ open, server, onClose, onCreated }: 
     setBusy(true);
     setError(null);
     try {
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       await client.setSiteSsl(siteName.trim(), privateKey.trim(), certificate.trim());
       showToast(t("server.create.certificate.uploadSuccess"));
       await refreshServer(server);

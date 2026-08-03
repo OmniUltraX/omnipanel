@@ -358,10 +358,10 @@ pub async fn conn_test(
                         crate::panel::onepanel::test_connection(&cfg.address, &cfg.key).await?;
                     Ok(panel_success_message(&data))
                 }
-                "bt" => Err(OmniError::new(
-                    ErrorCode::InvalidInput,
-                    "宝塔面板连接测试尚未实现",
-                )),
+                "bt" => {
+                    crate::panel::btpanel::test_connection(&cfg.address, &cfg.key).await?;
+                    Ok("连接成功：宝塔面板".to_string())
+                }
                 other => Err(OmniError::invalid_input(format!(
                     "不支持的面板类型：{other}"
                 ))),

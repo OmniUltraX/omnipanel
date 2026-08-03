@@ -191,7 +191,7 @@ function OnePanelCreateWebsiteDialog({
     setOptionsLoading(true);
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const [groupList, certList, siteList] = await Promise.all([
           client.searchGroups("website").catch(() => [] as OnePanelGroup[]),
           client.searchCertificates().catch(() => [] as unknown[]),
@@ -250,7 +250,7 @@ function OnePanelCreateWebsiteDialog({
     let cancelled = false;
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const status = runtimeLang === "php" ? "normal" : "running";
         const list = await client.searchRuntimes({
           type: runtimeLang,
@@ -278,7 +278,7 @@ function OnePanelCreateWebsiteDialog({
     let cancelled = false;
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const result = await client.searchInstalledApps({
           type: "website",
           unused: true,
@@ -356,7 +356,7 @@ function OnePanelCreateWebsiteDialog({
     setBusy(true);
     setError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       const body: OnePanelWebsiteCreate = {
         type,
         alias: siteAlias,

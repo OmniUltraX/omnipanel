@@ -1,5 +1,43 @@
 use omnipanel_error::OmniError;
+use omnipanel_store::{ConnectionKind, Vault};
 use serde_json::Value;
+use tauri::State;
+
+use crate::state::AppState;
+
+/// 从 Vault 解析面板 API 密钥（config.key 落库时会被清空）。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_resolve_api_key(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<String, OmniError> {
+    if connection_id.trim().is_empty() {
+        return Err(OmniError::invalid_input("连接 ID 不能为空"));
+    }
+
+    let storage = state.storage.lock().await;
+    let conn = storage.get_connection(&connection_id)?.ok_or_else(|| {
+        OmniError::invalid_input(format!("面板连接不存在：{connection_id}"))
+    })?;
+    drop(storage);
+
+    if conn.kind != ConnectionKind::Panel {
+        return Err(OmniError::invalid_input("目标连接不是面板类型"));
+    }
+
+    let key = conn
+        .credential_ref
+        .as_deref()
+        .and_then(|r| Vault::get(r).ok())
+        .or_else(|| Vault::get(&format!("panel-key-{connection_id}")).ok())
+        .unwrap_or_default();
+
+    if key.trim().is_empty() {
+        return Err(OmniError::invalid_input("未找到面板 API 密钥，请重新保存连接"));
+    }
+    Ok(key)
+}
 
 /// 通用 1Panel API 请求（由 Rust 后端发起，避免 WebView CORS）。
 /// `body` 为 JSON 字符串；返回 JSON 字符串。

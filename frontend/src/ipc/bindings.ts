@@ -197,6 +197,8 @@ export const commands = {
 	 *  通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
 	 *  `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
 	 */
+	/**  从 Vault 解析面板 API 密钥（config.key 落库后会被清空）。 */
+	panelResolveApiKey: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_resolve_api_key", { connectionId })),
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
 	/**  宝塔面板连通性测试。 */
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
@@ -551,6 +553,11 @@ export const commands = {
 	 *  API Key 属敏感凭据，前端应直接写入 Vault，不得传给 AI 或日志输出。
 	 */
 	sshPoolProbePanels: (resourceId: string) => typedError<PanelProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_panels", { resourceId })),
+	/**
+	 *  通过 SSH 在远端开启宝塔 / 1Panel 的 API 接口。
+	 *  `allowAll=true` 时白名单放行全部（需前端二次确认）。返回的 apiKey 属敏感凭据。
+	 */
+	sshPoolEnablePanelApi: (resourceId: string, kind: string, allowAll: boolean) => typedError<EnablePanelApiResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_enable_panel_api", { resourceId, kind, allowAll })),
 	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
 	setTerminalTmuxMode: (mode: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("set_terminal_tmux_mode", { mode })),
 	/**
@@ -1377,6 +1384,19 @@ export type PanelProbeResult = {
 	elapsedMs: number,
 	/**  探测时间戳（Unix 毫秒） */
 	probedAt: number,
+};
+
+/**  开启面板 API 的结果 */
+export type EnablePanelApiResult = {
+	kind: string,
+	/**  是否已成功开启（或原本已开启） */
+	enabled: boolean,
+	/**  当前 API Key（敏感；前端写入 Vault，勿日志/勿传 AI） */
+	apiKey: string,
+	/**  人类可读说明（含白名单策略提示） */
+	message: string,
+	/**  是否执行了服务重启（1Panel 为刷缓存常需重启 core） */
+	restarted: boolean,
 };
 
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */

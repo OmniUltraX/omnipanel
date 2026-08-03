@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { commands, type PanelProbeResult } from "@/ipc/bindings";
+import { formatIpcError, unwrapCommand } from "@/ipc/result";
 
 /**
  * 面板（宝塔 / 1Panel）探测 hook。
@@ -22,10 +23,10 @@ export function usePanelProbe(resourceId: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const res = await commands.sshPoolProbePanels(id);
+      const res = await unwrapCommand(commands.sshPoolProbePanels(id));
       setResult(res);
     } catch (e) {
-      setError(String(e));
+      setError(formatIpcError(e));
       setResult(null);
     } finally {
       setLoading(false);

@@ -96,13 +96,13 @@ export function ServerMonitorTab({ server, active = true }: Props) {
     async (options?: { silent?: boolean }) => {
       try {
         if (server.serviceType === "1panel") {
-          const op = createOnePanelClient(server.address, server.key);
+          const op = createOnePanelClient(server.address, server.key, server.id);
           const current = await op.getDashboardCurrent();
           setDashboard((prev) =>
             prev ? { ...prev, currentInfo: current } : { currentInfo: current },
           );
         } else {
-          const bt = createBtPanelClient(server.address, server.key);
+          const bt = createBtPanelClient(server.address, server.key, server.id);
           const [total, network, disks] = await Promise.all([
             bt.getSystemTotal(),
             bt.getNetwork(),
@@ -157,7 +157,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
       setError(null);
       try {
         if (server.serviceType === "1panel") {
-          const op = createOnePanelClient(server.address, server.key);
+          const op = createOnePanelClient(server.address, server.key, server.id);
           const [base, current] = await Promise.all([
             op.getDashboardBase(),
             op.getDashboardCurrent(),

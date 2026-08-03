@@ -2,7 +2,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import { appConfirm } from "@/lib/appConfirm";
 import { useI18n } from "@/i18n";
-import type { Connection, PanelProbeItem } from "@/ipc/bindings";
+import { commands, type Connection, type PanelProbeItem } from "@/ipc/bindings";
+import { formatIpcError, unwrapCommand } from "@/ipc/result";
 import { showToast } from "@/stores/toastStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 import {
@@ -24,7 +25,7 @@ type Props = {
  *
  * 自动探测 SSH 主机上已安装的宝塔 / 1Panel 面板：
  * - 已安装且 API 已开启且能读到 key → 一键添加（全自动）
- * - 已安装但 API 未开启或读不到 key → 打开对话框预填地址，用户填 key
+ * - 已安装但 API 未开启 → 可一键开启 API（白名单放行全部，需确认）后再添加
  * - 未安装 → 不展示该面板
  *
  * 安全：探测到的 api_key 仅在本组件内存中短暂停留，保存时经 connSave
@@ -36,6 +37,7 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
   const connections = useConnectionStore((s) => s.connections);
   const saveConn = useConnectionStore((s) => s.save);
   const [adding, setAdding] = useState<string | null>(null);
+  const [enabling, setEnabling] = useState<string | null>(null);
 
   // 从 SSH connection 提取真实 host，替换探测结果里的 127.0.0.1
   const sshHost = useMemo(() => {
@@ -60,6 +62,40 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
     [sshHost],
   );
 
+  const panelTypeLabel = useCallback(
+    (kind: string) => (kind === "bt" ? "宝塔" : "1Panel"),
+    [],
+  );
+
+  const handleEnableApi = useCallback(
+    async (panel: PanelProbeItem) => {
+      const typeLabel = panelTypeLabel(panel.kind);
+      const ok = await appConfirm(
+        t("ssh.panelProbe.enableApiMsg", { type: typeLabel }),
+        t("ssh.panelProbe.enableApiTitle"),
+        {
+          confirmLabel: t("ssh.panelProbe.enableApiConfirm"),
+          kind: "warning",
+        },
+      );
+      if (!ok) return;
+
+      setEnabling(panel.kind);
+      try {
+        const res = await unwrapCommand(
+          commands.sshPoolEnablePanelApi(resourceId, panel.kind, true),
+        );
+        showToast(t("ssh.panelProbe.enableApiOk", { message: res.message }));
+        refresh();
+      } catch (e) {
+        showToast(formatIpcError(e));
+      } finally {
+        setEnabling(null);
+      }
+    },
+    [resourceId, panelTypeLabel, t, refresh],
+  );
+
   const handleAdd = useCallback(
     async (panel: PanelProbeItem) => {
       if (!connection) return;
@@ -69,18 +105,14 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
       // 已关联同类型 panel：提示是否覆盖
       if (linkedPanel) {
         const ok = await appConfirm(
-          t("ssh.panelProbe.overwriteTitle"),
           t("ssh.panelProbe.overwriteMsg", { name: linkedPanel.name }),
+          t("ssh.panelProbe.overwriteTitle"),
         );
         if (!ok) return;
       }
 
       setAdding(panel.kind);
       try {
-        // 有 key：全自动保存
-        // 无 key：保存地址+关联，key 留空（用户后续在面板编辑里填）
-        //   注意：buildPanelConnection 要求 form.panelKey，空串也能保存
-        //   后端 connSave 会把非空 key 存入 Vault，空 key 保持空
         const form = {
           name:
             connection.name && connection.name.trim()
@@ -141,6 +173,15 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
       <h4 className="capabilities__group-title">
         {t("ssh.panelProbe.title")}
         <span className="capabilities__group-count">{installedPanels.length}</span>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => refresh()}
+          disabled={loading}
+          style={{ marginLeft: "auto" }}
+        >
+          {loading ? t("common.loading") : t("common.refresh")}
+        </button>
       </h4>
 
       {loading && !result ? (
@@ -159,6 +200,8 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
           const isLinked = linkedPanel?.id != null;
           const sameKind = isLinked && linkedPanel != null;
           const isAdding = adding === panel.kind;
+          const isEnabling = enabling === panel.kind;
+          const busy = isAdding || isEnabling || loading;
           return (
             <div key={panel.kind} className="capabilities__tool">
               <div className="capabilities__tool-head">
@@ -192,9 +235,11 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
                     {t("ssh.panelProbe.entrance")}: {panel.entrance}
                   </span>
                 ) : null}
-                {panel.apiEnabled ? (
+                {panel.apiKey ? (
                   <span className="cap-detail cap-detail--ok">
-                    {t("ssh.panelProbe.keyDetected")}
+                    {panel.apiEnabled
+                      ? t("ssh.panelProbe.keyDetected")
+                      : t("ssh.panelProbe.keyButApiOff")}
                   </span>
                 ) : (
                   <span className="cap-detail cap-detail--warn">
@@ -203,11 +248,24 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
                 )}
               </div>
               <div className="capabilities__tool-actions">
+                {!panel.apiEnabled ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void handleEnableApi(panel)}
+                    disabled={busy}
+                    title={t("ssh.panelProbe.enableApiHint")}
+                  >
+                    {isEnabling
+                      ? t("ssh.panelProbe.enablingApi")
+                      : t("ssh.panelProbe.enableApi")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
                   onClick={() => void handleAdd(panel)}
-                  disabled={isAdding}
+                  disabled={busy}
                   title={
                     panel.apiKey
                       ? t("ssh.panelProbe.addWithKeyHint")
