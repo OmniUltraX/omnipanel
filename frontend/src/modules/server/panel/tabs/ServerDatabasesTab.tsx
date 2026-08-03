@@ -80,11 +80,11 @@ export function ServerDatabasesTab({ server }: Props) {
     setError(null);
     try {
       if (server.serviceType === "1panel") {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const items = await client.searchDatabases();
         setRows(items as Record<string, unknown>[]);
       } else {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const result = await client.getDatabaseList({ limit: 100 });
         setRows(result.data);
       }
@@ -139,7 +139,7 @@ export function ServerDatabasesTab({ server }: Props) {
       setActionBusyId(row.dbId);
       setError(null);
       try {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         await client.deleteDatabase({
           id: row.dbId,
           name: row.name,

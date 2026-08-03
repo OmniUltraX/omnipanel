@@ -232,7 +232,7 @@ function OnePanelCreateCertificateDialog({
     setOptionsLoading(true);
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const [acmeList, dnsList] = await Promise.all([
           client.searchAcmeAccounts().catch(() => [] as OnePanelAcmeAccount[]),
           client.searchDnsAccounts().catch(() => [] as OnePanelDnsAccount[]),
@@ -309,7 +309,7 @@ function OnePanelCreateCertificateDialog({
     setError(null);
     abortApplyRef.current = false;
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
 
       if (isEdit && editId != null) {
         const body: OnePanelWebsiteSslUpdate = {

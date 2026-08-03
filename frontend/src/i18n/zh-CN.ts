@@ -3283,6 +3283,7 @@ export const zhCN = {
       apiOn: "API 已开启",
       apiOff: "API 未开启",
       keyDetected: "已读取到 API Key，可一键添加",
+      keyButApiOff: "已读取到 API Key，但面板 API 未开启（可点下方开启，或添加后手动开启）",
       needKey: "未读到 Key，添加后需手动填写",
       entrance: "安全入口",
       addToPanel: "添加到服务器面板",
@@ -3293,6 +3294,14 @@ export const zhCN = {
       addedNoKey: "已添加 {type} 面板（地址已预填，请前往面板编辑填写 API Key）",
       overwriteTitle: "更新已关联的面板连接？",
       overwriteMsg: "该 SSH 主机已关联面板「{name}」，是否用检测结果覆盖其地址和 Key？",
+      enableApi: "开启 API",
+      enablingApi: "正在开启…",
+      enableApiTitle: "开启面板 API？",
+      enableApiMsg:
+        "将通过 SSH 修改远端「{type}」配置以开启 API，并把访问白名单设为全部来源（* / 0.0.0.0/0）。\n\n任何能拿到 Key 的客户端都可调用面板接口，请确认这是受控环境后再继续。",
+      enableApiConfirm: "确认开启",
+      enableApiOk: "API 已开启：{message}",
+      enableApiHint: "在远端开启 API（白名单放行全部），便于本机 OmniPanel 直连",
     },
     connect: "连接",
     status: {

@@ -64,7 +64,7 @@ export function CreateDatabaseDialog({ open, server, onClose, onCreated }: Props
     setBusy(true);
     setError(null);
     try {
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       await client.addDatabase({
         name: name.trim(),
         dbUser: dbUser.trim() || name.trim(),

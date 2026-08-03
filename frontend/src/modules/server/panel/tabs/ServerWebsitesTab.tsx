@@ -218,14 +218,14 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       try {
         if (isBt) {
           if (!row.siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key);
+          const client = createBtPanelClient(server.address, server.key, server.id);
           if (operate === "stop") {
             await client.stopWebsite(row.websiteId, row.siteName);
           } else {
             await client.startWebsite(row.websiteId, row.siteName);
           }
         } else {
-          const client = createOnePanelClient(server.address, server.key);
+          const client = createOnePanelClient(server.address, server.key, server.id);
           await client.operateWebsite(row.websiteId, operate);
         }
         await refresh();
@@ -255,10 +255,10 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       try {
         if (isBt) {
           if (!row.siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key);
+          const client = createBtPanelClient(server.address, server.key, server.id);
           await client.deleteWebsite(row.websiteId, row.siteName, { path: true });
         } else {
-          const client = createOnePanelClient(server.address, server.key);
+          const client = createOnePanelClient(server.address, server.key, server.id);
           await client.deleteWebsite(row.websiteId);
         }
         showToast(t("server.websites.deleteSuccess"));

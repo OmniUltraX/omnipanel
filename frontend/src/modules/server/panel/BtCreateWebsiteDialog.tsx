@@ -67,7 +67,7 @@ export function BtCreateWebsiteDialog({ open, server, onClose, onCreated }: Prop
     setOptionsLoading(true);
     void (async () => {
       try {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const [versions, types] = await Promise.all([
           client.getPhpVersions().catch(() => [] as BtPhpVersion[]),
           client.getSiteTypes().catch(() => [] as BtSiteType[]),
@@ -114,7 +114,7 @@ export function BtCreateWebsiteDialog({ open, server, onClose, onCreated }: Prop
     setBusy(true);
     setError(null);
     try {
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       const version = siteKind === "static" ? "00" : phpVersion;
       await client.addSite({
         domain: domain.trim(),

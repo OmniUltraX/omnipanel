@@ -95,7 +95,7 @@ export function WebsiteInfoSubWindow({
       try {
         if (server.serviceType === "bt") {
           if (!siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key);
+          const client = createBtPanelClient(server.address, server.key, server.id);
           const [sites, domains, phpInfo, ssl] = await Promise.all([
             client.getWebsiteList({ limit: 200 }),
             client.getSiteDomains(websiteId).catch(() => null),
@@ -113,7 +113,7 @@ export function WebsiteInfoSubWindow({
           if (!cancelled) setData(detail);
           return;
         }
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const detail = await client.getWebsite(websiteId);
         if (!cancelled) setData(detail);
       } catch (err) {
@@ -246,7 +246,7 @@ export function WebsiteLogsSubWindow({
       setLoading(true);
       setError(null);
       try {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const content =
           name === "error.log"
             ? await client.getSiteErrorLogs(siteName)
@@ -264,7 +264,7 @@ export function WebsiteLogsSubWindow({
     setLoading(true);
     setError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       const result = await client.readWebsiteLog({ id: websiteId, name });
       setText(result.content);
     } catch (err) {
@@ -350,7 +350,7 @@ export function CertificateLogsSubWindow({
     setLoading(true);
     setError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       const result = await client.readSslLog({ id: sslId, latest: true });
       setText(result.content);
     } catch (err) {
@@ -419,7 +419,7 @@ export function WebsiteConfigSubWindow({
     if (!open) return null;
     if (server.serviceType === "bt") {
       if (!siteName) return null;
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       return {
         async readText() {
           const file = await client.getNginxConfig(siteName);
@@ -432,7 +432,7 @@ export function WebsiteConfigSubWindow({
       };
     }
     if (websiteId == null || server.serviceType !== "1panel") return null;
-    const client = createOnePanelClient(server.address, server.key);
+    const client = createOnePanelClient(server.address, server.key, server.id);
     return {
       async readText() {
         const file = await client.getWebsiteConfig(websiteId, "openresty");
@@ -499,7 +499,7 @@ export function WebsiteCertSubWindow({
       try {
         if (server.serviceType === "bt") {
           if (!siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key);
+          const client = createBtPanelClient(server.address, server.key, server.id);
           const detail = (await client.getSiteSsl(siteName)) as Record<string, unknown>;
           if (!cancelled) {
             if (!detail || Object.keys(detail).length === 0) {
@@ -511,7 +511,7 @@ export function WebsiteCertSubWindow({
           }
           return;
         }
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         let detail: Record<string, unknown> = {};
         if (websiteId != null) {
           try {

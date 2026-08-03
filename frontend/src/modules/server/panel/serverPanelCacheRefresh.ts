@@ -24,7 +24,7 @@ export async function fetchServerPanelResources(
   const entry = emptyServerPanelResourceCache();
   try {
     if (server.serviceType === "1panel") {
-      const client = createOnePanelClient(server.address, server.key);
+      const client = createOnePanelClient(server.address, server.key, server.id);
       // 分开拉取：证书接口可能 gzip，避免一侧失败拖垮另一侧
       const [websitesResult, certificatesResult] = await Promise.allSettled([
         client.searchWebsites(),
@@ -46,7 +46,7 @@ export async function fetchServerPanelResources(
       }
       entry.error = errors.length > 0 ? errors.join("；") : null;
     } else if (server.serviceType === "bt") {
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       // 证书接口在部分版本不稳定，避免拖垮网站列表
       const [siteResult, certificatesResult] = await Promise.allSettled([
         client.getWebsiteList({ limit: 100 }),
@@ -96,7 +96,7 @@ export async function fetchServerPanelApps(
   }
 
   try {
-    const client = createOnePanelClient(server.address, server.key);
+    const client = createOnePanelClient(server.address, server.key, server.id);
     const [marketResult, installedResult] = await Promise.allSettled([
       client.searchApps({ page: 1, pageSize: 200, name: "" }),
       client.searchInstalledApps({ page: 1, pageSize: 500, all: true }),

@@ -3301,6 +3301,7 @@ export const enUS: TranslationDict = {
       apiOn: "API Enabled",
       apiOff: "API Disabled",
       keyDetected: "API Key detected — one-click add",
+      keyButApiOff: "API Key found, but panel API is disabled (enable below, or enable manually later)",
       needKey: "No key read — fill it in after adding",
       entrance: "Entrance",
       addToPanel: "Add to Server Panel",
@@ -3311,6 +3312,14 @@ export const enUS: TranslationDict = {
       addedNoKey: "Added {type} panel (address pre-filled, set API Key in editor)",
       overwriteTitle: "Update linked panel connection?",
       overwriteMsg: "This SSH host is already linked to panel \"{name}\". Overwrite its address and key with detected values?",
+      enableApi: "Enable API",
+      enablingApi: "Enabling…",
+      enableApiTitle: "Enable panel API?",
+      enableApiMsg:
+        "This will modify remote \"{type}\" settings over SSH to enable the API and set the IP whitelist to allow all (* / 0.0.0.0/0).\n\nAnyone with the API key can call the panel. Continue only in a trusted environment.",
+      enableApiConfirm: "Enable",
+      enableApiOk: "API enabled: {message}",
+      enableApiHint: "Enable API on the remote host (whitelist allow-all) for OmniPanel direct access",
     },
     connect: "Connect",
     status: {

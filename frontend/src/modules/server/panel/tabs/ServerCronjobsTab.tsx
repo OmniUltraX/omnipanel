@@ -68,11 +68,11 @@ export function ServerCronjobsTab({ server }: Props) {
     setError(null);
     try {
       if (server.serviceType === "1panel") {
-        const client = createOnePanelClient(server.address, server.key);
+        const client = createOnePanelClient(server.address, server.key, server.id);
         const items = await client.searchCronjobs();
         setRows(items as Record<string, unknown>[]);
       } else {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const result = await client.getCronList({ limit: 100 });
         setRows(result.data as unknown as Record<string, unknown>[]);
       }
@@ -134,10 +134,10 @@ export function ServerCronjobsTab({ server }: Props) {
       setError(null);
       try {
         if (isBt) {
-          const client = createBtPanelClient(server.address, server.key);
+          const client = createBtPanelClient(server.address, server.key, server.id);
           await client.deleteCrontab(row.jobId);
         } else {
-          const client = createOnePanelClient(server.address, server.key);
+          const client = createOnePanelClient(server.address, server.key, server.id);
           await client.deleteCronjobs([row.jobId]);
         }
         showToast(t("server.cronjobs.deleteSuccess"));

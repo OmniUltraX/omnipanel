@@ -26,6 +26,8 @@ import {
 export interface BtPanelClientOptions {
   host: string;
   apiSk: string;
+  /** 连接 ID：apiSk 为空时从 Vault 解析密钥 */
+  connectionId?: string;
   /** 默认 true：在 Tauri 环境走 Rust 后端，避免 WebView CORS 并复用 Cookie。 */
   useTauri?: boolean;
 }
@@ -84,24 +86,46 @@ export function btNginxVhostPath(siteName: string): string {
 
 export class BtPanelClient {
   private readonly baseUrl: string;
-  private readonly apiSk: string;
+  private apiSk: string;
+  private readonly connectionId?: string;
   private readonly useTauri: boolean;
+  private resolvePromise: Promise<string> | null = null;
 
   constructor(options: BtPanelClientOptions) {
     this.baseUrl = normalizeBtPanelBaseUrl(options.host);
     this.apiSk = options.apiSk;
+    this.connectionId = options.connectionId;
     this.useTauri = options.useTauri ?? true;
+  }
+
+  private async resolveApiSk(): Promise<string> {
+    if (this.apiSk.trim()) return this.apiSk;
+    if (!this.connectionId) {
+      throw new BtPanelApiError("缺少宝塔 API 密钥", 0);
+    }
+    if (!this.resolvePromise) {
+      this.resolvePromise = (async () => {
+        const result = await commands.panelResolveApiKey(this.connectionId!);
+        if (result.status === "error") {
+          throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+        }
+        this.apiSk = result.data;
+        return this.apiSk;
+      })();
+    }
+    return this.resolvePromise;
   }
 
   /** 原始 POST 请求。path 含 query，如 `/system?action=GetSystemTotal`。 */
   async request<T = unknown>(options: BtRequestOptions): Promise<T> {
     const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
     const tolerate = Boolean(options.tolerateFalseStatus);
+    const apiSk = await this.resolveApiSk();
 
     if (this.useTauri && isTauriRuntime()) {
       const result = await commands.panelBtRequest(
         this.baseUrl,
-        this.apiSk,
+        apiSk,
         path,
         serializeParams(options.params),
       );
@@ -111,15 +135,16 @@ export class BtPanelClient {
       return parseResponseText<T>(result.data, tolerate);
     }
 
-    return this.requestViaFetch<T>(path, options.params, tolerate);
+    return this.requestViaFetch<T>(path, apiSk, options.params, tolerate);
   }
 
   private async requestViaFetch<T>(
     path: string,
+    apiSk: string,
     params?: BtRequestOptions["params"],
     tolerateFalseStatus = false,
   ): Promise<T> {
-    const form = new URLSearchParams(buildBtAuthFields(this.apiSk));
+    const form = new URLSearchParams(buildBtAuthFields(apiSk));
     if (params) {
       for (const [key, value] of Object.entries(params)) {
         if (value == null) continue;
@@ -616,7 +641,11 @@ function unwrapInstalledApps(payload: unknown): BtInstalledAppsResult {
   return { items: [], total: 0 };
 }
 
-/** 从服务器连接配置创建客户端。 */
-export function createBtPanelClient(host: string, apiSk: string): BtPanelClient {
-  return new BtPanelClient({ host, apiSk });
+/** 从服务器连接配置创建客户端。connectionId 用于 Vault 中空密钥时回源。 */
+export function createBtPanelClient(
+  host: string,
+  apiSk: string,
+  connectionId?: string,
+): BtPanelClient {
+  return new BtPanelClient({ host, apiSk, connectionId });
 }

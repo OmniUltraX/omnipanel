@@ -60,7 +60,7 @@ export function BtEditWebsiteDialog({
     setError(null);
     void (async () => {
       try {
-        const client = createBtPanelClient(server.address, server.key);
+        const client = createBtPanelClient(server.address, server.key, server.id);
         const [versions, phpInfo, sites] = await Promise.all([
           client.getPhpVersions().catch(() => [] as BtPhpVersion[]),
           client.getSitePhpVersion(siteName).catch(() => ({}) as Record<string, unknown>),
@@ -102,7 +102,7 @@ export function BtEditWebsiteDialog({
     setBusy(true);
     setError(null);
     try {
-      const client = createBtPanelClient(server.address, server.key);
+      const client = createBtPanelClient(server.address, server.key, server.id);
       await client.setSiteRemark(websiteId, remark.trim());
       if (phpVersion && phpVersion !== "00") {
         await client.setSitePhpVersion(siteName, phpVersion);
