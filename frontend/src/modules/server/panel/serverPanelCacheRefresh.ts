@@ -1,4 +1,8 @@
-import { createBtPanelClient } from "../../../lib/btpanel";
+import {
+  createBtPanelClient,
+  mapBtAppToOnePanel,
+  mapBtInstalledAppToOnePanel,
+} from "../../../lib/btpanel";
 import {
   createOnePanelClient,
   type OnePanelApp,
@@ -88,10 +92,51 @@ export async function fetchServerPanelApps(
     appsError: null,
   };
 
+  if (server.serviceType === "bt") {
+    try {
+      const client = createBtPanelClient(server.address, server.key, server.id);
+      const [marketResult, installedResult] = await Promise.allSettled([
+        client.getApps({ p: 1, row: 200, query: "", force: 0, appType: "all" }),
+        client.getInstalledApps({ p: 1, row: 200, query: "", appType: "all" }),
+      ]);
+
+      const errors: string[] = [];
+      let apps: OnePanelApp[] = [];
+      let installedApps: OnePanelInstalledApp[] = [];
+
+      if (marketResult.status === "fulfilled") {
+        apps = marketResult.value.items.map((item, index) => mapBtAppToOnePanel(item, index));
+      } else {
+        errors.push(`应用市场：${formatError(marketResult.reason)}`);
+      }
+      if (installedResult.status === "fulfilled") {
+        installedApps = installedResult.value.items.map(mapBtInstalledAppToOnePanel);
+      } else {
+        errors.push(`已安装：${formatError(installedResult.reason)}`);
+      }
+
+      if (errors.length > 0 && apps.length === 0 && installedApps.length === 0) {
+        throw new Error(errors.join("；"));
+      }
+
+      return {
+        apps,
+        installedApps,
+        appsRefreshedAt: Date.now(),
+        appsError: errors.length > 0 ? errors.join("；") : null,
+      };
+    } catch (err) {
+      return {
+        ...empty,
+        appsError: formatError(err),
+      };
+    }
+  }
+
   if (server.serviceType !== "1panel") {
     return {
       ...empty,
-      appsError: "当前仅支持 1Panel 应用市场",
+      appsError: "当前仅支持 1Panel / 宝塔应用市场",
     };
   }
 

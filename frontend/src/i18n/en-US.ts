@@ -4558,7 +4558,7 @@ export const enUS: TranslationDict = {
       type: "Type",
       loading: "Loading…",
       empty: "No installed apps",
-      unsupported: "Only 1Panel installed apps are supported",
+      unsupported: "Only 1Panel / BT Panel installed apps are supported",
       updateAvailable: "Update",
       drawer: {
         detail: "Details",
@@ -4612,7 +4612,8 @@ export const enUS: TranslationDict = {
       installSuccess: "Install submitted: {name}",
       installNoVersion: "Unable to resolve app version",
       installNoDetail: "Unable to resolve app install detail",
-      unsupported: "App market is only available for 1Panel",
+      unsupported: "App market is only available for 1Panel / BT Panel",
+      refresh: "Refresh app list",
     },
     monitor: {
       cpu: "CPU",

@@ -1,4 +1,5 @@
 import { commands, type OmniError_Serialize } from "../../ipc/bindings";
+import { btDockerAppIconUrl } from "./appsMap";
 import { buildBtAuthFields, normalizeBtPanelBaseUrl } from "./auth";
 import {
   BtPanelApiError,
@@ -10,6 +11,9 @@ import {
   type BtDirListResult,
   type BtDiskInfo,
   type BtFileBodyResult,
+  type BtAppsParams,
+  type BtAppsResult,
+  type BtCreateAppParams,
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
@@ -476,6 +480,42 @@ export class BtPanelClient {
     await this.saveFileBody(btNginxVhostPath(siteName), content);
   }
 
+  /**
+   * 获取 Docker 应用商店图标（data URL）。
+   * 面板安全入口会拦截匿名 /static 访问，因此经 Rust 鉴权下载磁盘图标。
+   */
+  async getAppIconDataUrl(appName: string): Promise<string> {
+    const name = appName.trim();
+    if (!name) {
+      throw new BtPanelApiError("应用名称不能为空", 0);
+    }
+    if (this.useTauri && isTauriRuntime()) {
+      const apiSk = await this.resolveApiSk();
+      const result = await commands.panelBtAppIcon(this.baseUrl, apiSk, name);
+      if (result.status === "error") {
+        throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+      }
+      return result.data;
+    }
+    // 浏览器开发态：直接拼 URL（需地址含安全入口，且可能受 CORS 限制）
+    return btDockerAppIconUrl(this.baseUrl, name);
+  }
+
+  /** POST /mod/docker/com/get_apps — Docker 应用商店列表。 */
+  async getApps(params: BtAppsParams = {}): Promise<BtAppsResult> {
+    const payload = await this.request<unknown>({
+      path: "/mod/docker/com/get_apps",
+      params: {
+        p: params.p ?? 1,
+        row: params.row ?? 200,
+        query: params.query ?? "",
+        force: params.force ?? 0,
+        app_type: params.appType ?? "all",
+      },
+    });
+    return unwrapAppsPayload(payload);
+  }
+
   /** POST /mod/docker/com/get_installed_apps — Docker 已安装应用列表。 */
   async getInstalledApps(params: BtInstalledAppsParams = {}): Promise<BtInstalledAppsResult> {
     const payload = await this.request<unknown>({
@@ -487,7 +527,29 @@ export class BtPanelClient {
         query: params.query ?? "",
       },
     });
-    return unwrapInstalledApps(payload);
+    return unwrapAppsPayload(payload) as BtInstalledAppsResult;
+  }
+
+  /** POST /mod/docker/com/create_app — 从应用商店安装 Docker 应用。 */
+  async createApp(params: BtCreateAppParams): Promise<void> {
+    const allowAccess =
+      params.allowAccess === false || params.allowAccess === "0" ? "0" : "1";
+    await this.request({
+      path: "/mod/docker/com/create_app",
+      params: {
+        ...(params.extras ?? {}),
+        app_name: params.appName,
+        service_name: params.serviceName,
+        m_version: params.mVersion,
+        s_version: params.sVersion,
+        allow_access: allowAccess,
+        ...(params.cpus != null ? { cpus: params.cpus } : {}),
+        ...(params.memoryLimit != null ? { memory_limit: params.memoryLimit } : {}),
+        ...(params.disableDomain === true || params.disableDomain === "1"
+          ? { disable_domain: "1" }
+          : {}),
+      },
+    });
   }
 
   /** /data?action=getData — 数据库列表（table=databases）。 */
@@ -657,9 +719,12 @@ function parseTotalFromPage(page: unknown, fallback: number): number {
   return Number.isFinite(total) ? total : fallback;
 }
 
-function unwrapInstalledApps(payload: unknown): BtInstalledAppsResult {
+/** 解析宝塔 Docker 应用列表（get_apps / get_installed_apps 同构：data + page）。 */
+function unwrapAppsPayload<T = BtApp | BtInstalledApp>(
+  payload: unknown,
+): { items: T[]; total: number; page?: string } {
   if (Array.isArray(payload)) {
-    return { items: payload as BtInstalledApp[], total: payload.length };
+    return { items: payload as T[], total: payload.length };
   }
   if (!payload || typeof payload !== "object") {
     return { items: [], total: 0 };
@@ -667,7 +732,7 @@ function unwrapInstalledApps(payload: unknown): BtInstalledAppsResult {
 
   const root = payload as Record<string, unknown>;
   if (Array.isArray(root.data)) {
-    const items = root.data as BtInstalledApp[];
+    const items = root.data as T[];
     return {
       items,
       total: parseTotalFromPage(root.page, items.length),

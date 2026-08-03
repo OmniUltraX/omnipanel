@@ -17,7 +17,7 @@ export function isServerPanelCacheStale(
 export type ServerPanelResourceCache = {
   websites: Record<string, unknown>[];
   certificates: Record<string, unknown>[];
-  /** 应用市场列表（1Panel） */
+  /** 应用市场列表（1Panel / 宝塔，统一映射为 OnePanelApp） */
   apps: OnePanelApp[];
   /** 已安装应用（用于市场卡片「已安装」标记） */
   installedApps: OnePanelInstalledApp[];

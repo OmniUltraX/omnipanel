@@ -162,6 +162,9 @@ export function DockerPanelTreeSidebar({
   const { isExpanded, toggle, ensureExpanded } = usePersistedDockerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxConnection, setCtxConnection] = useState<DockerConnectionInfo | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 最近一次指针交互落在侧栏内时，才响应 Delete（避免右侧面板误触） */
+  const sidebarHotkeysArmedRef = useRef(false);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
@@ -201,6 +204,7 @@ export function DockerPanelTreeSidebar({
   const handleContextMenu = (event: MouseEvent, connection: DockerConnectionInfo) => {
     if (isBuiltinLocalDockerConnection(connection.connectionId)) return;
     event.preventDefault();
+    sidebarHotkeysArmedRef.current = true;
     setCtxPos({ x: event.clientX, y: event.clientY });
     setCtxConnection(connection);
   };
@@ -212,6 +216,62 @@ export function DockerPanelTreeSidebar({
     }
     return map;
   }, [connections]);
+
+  const isDeletableConnectionKey = useCallback(
+    (key: string) => {
+      const connectionId = connectionKeyById.get(key);
+      return Boolean(connectionId && !isBuiltinLocalDockerConnection(connectionId));
+    },
+    [connectionKeyById],
+  );
+
+  const resolveDeletableConnectionIds = useCallback(
+    (clickedKey?: string | null) => {
+      const keys =
+        clickedKey != null
+          ? resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
+              filter: isDeletableConnectionKey,
+            })
+          : Array.from(selectedIdsRef.current).filter(isDeletableConnectionKey);
+      return keys
+        .map((key) => connectionKeyById.get(key))
+        .filter((id): id is string => Boolean(id));
+    },
+    [connectionKeyById, isDeletableConnectionKey],
+  );
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      sidebarHotkeysArmedRef.current = Boolean(
+        rootRef.current?.contains(event.target as Node),
+      );
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
+
+  useEffect(() => {
+    if (!onDeleteConnection) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" || event.defaultPrevented || event.isComposing) return;
+      if (!sidebarHotkeysArmedRef.current) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
+        )
+      ) {
+        return;
+      }
+      const ids = resolveDeletableConnectionIds();
+      if (ids.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDeleteConnection(ids.length === 1 ? ids[0]! : ids);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [onDeleteConnection, resolveDeletableConnectionIds]);
 
   const ctxItems: ContextMenuItem[] = [
     {
@@ -225,13 +285,9 @@ export function DockerPanelTreeSidebar({
       danger: true,
       onClick: () => {
         if (!ctxConnection || !onDeleteConnection) return;
-        const clickedKey = makeDockerTreeKey(ctxConnection.connectionId);
-        const keys = resolveSidebarTreeDeleteTargets(clickedKey, selectedIdsRef.current, {
-          filter: (id) => connectionKeyById.has(id) && !isBuiltinLocalDockerConnection(connectionKeyById.get(id)!),
-        });
-        const ids = keys
-          .map((key) => connectionKeyById.get(key))
-          .filter((id): id is string => Boolean(id));
+        const ids = resolveDeletableConnectionIds(
+          makeDockerTreeKey(ctxConnection.connectionId),
+        );
         if (ids.length === 0) return;
         onDeleteConnection(ids.length === 1 ? ids[0]! : ids);
       },
@@ -367,7 +423,7 @@ export function DockerPanelTreeSidebar({
 
   if (section) {
     return (
-      <div className="server-sidebar docker-sidebar">
+      <div ref={rootRef} className="server-sidebar docker-sidebar">
         <VerticalSplitSidebarSection
           {...section}
           actions={
@@ -384,7 +440,7 @@ export function DockerPanelTreeSidebar({
   }
 
   return (
-    <div className="server-sidebar docker-sidebar">
+    <div ref={rootRef} className="server-sidebar docker-sidebar">
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("docker.sidebar.title")}</span>
         <span className="badge badge-muted">{connections.length}</span>

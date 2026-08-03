@@ -39,7 +39,7 @@ export function useServerApps(server: ServerEntry | null): UseServerAppsResult {
     refreshedAt: entry.appsRefreshedAt,
     refreshing,
     refresh: refreshServerApps,
-    enabled: server?.serviceType === "1panel",
+    enabled: server?.serviceType === "1panel" || server?.serviceType === "bt",
   });
 
   return {

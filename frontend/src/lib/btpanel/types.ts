@@ -198,11 +198,78 @@ export interface BtInstalledAppsParams {
   query?: string;
 }
 
+/** POST /mod/docker/com/get_apps 查询参数（应用商店）。 */
+export interface BtAppsParams {
+  appType?: string;
+  p?: number;
+  row?: number;
+  query?: string;
+  /** 1=强制刷新远端应用列表；0=读缓存 */
+  force?: 0 | 1;
+}
+
 /** 宝塔 Docker 应用配置字段。 */
 export interface BtAppInfoField {
   fieldKey: string;
   fieldTitle: string;
   fieldValue: string | number | boolean | null;
+}
+
+/** get_apps 返回的版本项。 */
+export interface BtAppVersion {
+  m_version: string;
+  s_version: string[] | string;
+}
+
+/** get_apps 安装参数定义（env）。 */
+export interface BtAppEnvField {
+  key: string;
+  type?: string;
+  desc?: string;
+  default?: string | number | boolean | null;
+}
+
+/** get_apps UI 配置字段（field）。 */
+export interface BtAppUiField {
+  attr: string;
+  name?: string;
+  type?: string;
+  default?: string | number | boolean | null;
+}
+
+/** POST /mod/docker/com/get_apps 应用商店条目。 */
+export interface BtApp {
+  appname: string;
+  apptitle: string;
+  appdesc?: string;
+  apptype?: string;
+  appid?: number;
+  icon?: string;
+  installed?: boolean;
+  appversion?: BtAppVersion[];
+  depend?: unknown[];
+  env?: BtAppEnvField[];
+  field?: BtAppUiField[];
+}
+
+export interface BtAppsResult {
+  items: BtApp[];
+  total: number;
+  page?: string;
+}
+
+/** POST /mod/docker/com/create_app 安装参数。 */
+export interface BtCreateAppParams {
+  appName: string;
+  serviceName: string;
+  mVersion: string;
+  sVersion: string;
+  allowAccess?: boolean | string;
+  cpus?: string | number;
+  memoryLimit?: string | number;
+  disableDomain?: boolean | string;
+  /** 应用专属参数（来自 get_apps 的 env/field） */
+  extras?: Record<string, string | number | boolean>;
 }
 
 /** POST /mod/docker/com/get_installed_apps 应用条目。 */

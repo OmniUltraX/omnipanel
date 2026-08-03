@@ -14,7 +14,14 @@ export {
   type BtDirListResult,
   type BtDiskInfo,
   type BtFileBodyResult,
+  type BtApp,
+  type BtAppEnvField,
   type BtAppInfoField,
+  type BtAppsParams,
+  type BtAppsResult,
+  type BtAppUiField,
+  type BtAppVersion,
+  type BtCreateAppParams,
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
@@ -33,3 +40,12 @@ export {
   createBtPanelClient,
   type BtPanelClientOptions,
 } from "./client";
+export {
+  btDockerAppIconPath,
+  btDockerAppIconUrl,
+  defaultBtCreateAppExtras,
+  flattenBtAppVersions,
+  mapBtAppToOnePanel,
+  mapBtInstalledAppToOnePanel,
+  pickBtAppVersion,
+} from "./appsMap";

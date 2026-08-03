@@ -175,6 +175,8 @@ export const commands = {
 	bgTaskSubmitDbMysqlExport: (connection: DbConnectionConfig, databaseName: string, deployment: MysqlExportDeployment_Deserialize) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_mysql_export", { connection, databaseName, deployment })),
 	/**  提交 MySQL SQL 导入后台任务。 */
 	bgTaskSubmitDbMysqlImport: (connection: DbConnectionConfig, databaseName: string, deployment: MysqlExportDeployment_Deserialize, source: MysqlImportSource_Deserialize) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_mysql_import", { connection, databaseName, deployment, source })),
+	/**  从 Vault 解析面板 API 密钥（config.key 落库时会被清空）。 */
+	panelResolveApiKey: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_resolve_api_key", { connectionId })),
 	/**
 	 *  通用 1Panel API 请求（由 Rust 后端发起，避免 WebView CORS）。
 	 *  `body` 为 JSON 字符串；返回 JSON 字符串。
@@ -197,9 +199,9 @@ export const commands = {
 	 *  通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
 	 *  `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
 	 */
-	/**  从 Vault 解析面板 API 密钥（config.key 落库后会被清空）。 */
-	panelResolveApiKey: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_resolve_api_key", { connectionId })),
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
+	/**  获取宝塔 Docker 应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。 */
+	panelBtAppIcon: (host: string, apiSk: string, appName: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_app_icon", { host, apiSk, appName })),
 	/**  宝塔面板连通性测试。 */
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
 	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
@@ -372,17 +374,10 @@ export const commands = {
 	/**
 	 *  建立 SSH 连接并请求交互式 shell。返回会话 id；
 	 *  shell 输出复用 `terminal-output` 事件，前端 xterm 无需区分本地/远程。
-	 *
-	 *  `paneId` 不为 null 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
-	 *  匹配不到则新建 window。
 	 */
-	sshConnect: (config: SshConfig_Deserialize, cols: number, rows: number, paneId?: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect", { config, cols, rows, paneId })),
-	/**
-	 *  按已保存的连接 id 建立 SSH 会话（尊重 `auth.type`，密码认证不走私钥）。
-	 *
-	 *  `paneId` 用于重连时 attach 回原 window（关 Tab 保留进程后恢复）。
-	 */
-	sshConnectConnection: (connectionId: string, cols: number, rows: number, paneId?: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_connection", { connectionId, cols, rows, paneId })),
+	sshConnect: (config: SshConfig_Deserialize, cols: number, rows: number, paneId: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect", { config, cols, rows, paneId })),
+	/**  按已保存的连接 id 建立 SSH 会话（尊重 `auth.type`，密码认证不走私钥）。 */
+	sshConnectConnection: (connectionId: string, cols: number, rows: number, paneId: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_connection", { connectionId, cols, rows, paneId })),
 	/**  写入远端 shell。 */
 	sshWrite: (id: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_write", { id, data })),
 	/**  调整远端 PTY 窗口大小。 */
@@ -413,7 +408,7 @@ export const commands = {
 	sshTmuxListSessions: (connectionId: string) => typedError<TmuxSessionInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_sessions", { connectionId })),
 	/**
 	 *  查询当前 OmniPanel 在该主机上每个 tmux 会话关联的 Tab 数。
-	 *
+	 * 
 	 *  关联数据来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
 	 *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
 	 */
@@ -426,15 +421,13 @@ export const commands = {
 	sshTmuxKillSession: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_kill_session", { connectionId, name })),
 	/**
 	 *  Attach 到远端指定名称的 tmux 会话，在终端模块开一个新 Tab。
-	 *
+	 * 
 	 *  与 `ssh_connect` 的区别：`ssh_connect` 用固定会话名 `omnipanel-<host>`，
 	 *  本命令允许用户从远端会话列表选择任意会话名进入（含非 OmniPanel 创建的）。
-	 *  返回后端会话 id（`ssh-{n}`），前端据此创建终端 Tab 并关联 tmuxSession 字段。
-	 *
-	 *  `paneId` 不为 null 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
-	 *  匹配不到则新建 window。
+	 *  `pane_id` 不为 None 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
+	 *  匹配不到则新建 window。返回后端会话 id（`ssh-{n}`），前端据此创建终端 Tab。
 	 */
-	sshTmuxAttachSession: (connectionId: string, sessionName: string, cols: number, rows: number, paneId?: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_attach_session", { connectionId, sessionName, cols, rows, paneId })),
+	sshTmuxAttachSession: (connectionId: string, sessionName: string, cols: number, rows: number, paneId: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_attach_session", { connectionId, sessionName, cols, rows, paneId })),
 	/**  列出远端目录。 */
 	sftpList: (id: string, path: string) => typedError<SftpEntry[], OmniError_Serialize>(__TAURI_INVOKE("sftp_list", { id, path })),
 	/**  下载远端文件内容（字节）。 */
@@ -515,6 +508,7 @@ export const commands = {
 	/**  强制终止远程进程（默认 SIGKILL）。 */
 	sshPoolKillProcess: (resourceId: string, pid: number, signal: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_kill_process", { resourceId, pid, signal })),
 	sshPoolExecCommand: (resourceId: string, command: string) => typedError<SshExecOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_exec_command", { resourceId, command })),
+	sshPoolCreateRunScript: (resourceId: string, name: string, content: string, args: string[] | null, timeoutSecs: number | null) => typedError<SshCreateRunScriptOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_create_run_script", { resourceId, name, content, args, timeoutSecs })),
 	/**  对所有 SSH 主机重新进行端口可达性探测。 */
 	sshPoolProbeAll: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_all")),
 	/**
@@ -549,13 +543,17 @@ export const commands = {
 	sshPoolInstallTool: (resourceId: string, toolId: string) => typedError<InstallToolResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_tool", { resourceId, toolId })),
 	/**
 	 *  探测远端主机上已安装的面板（宝塔 / 1Panel）。
+	 * 
 	 *  返回每个面板的安装状态、访问地址、端口、安全入口、API 开启状态及（如能读到的）API Key。
 	 *  API Key 属敏感凭据，前端应直接写入 Vault，不得传给 AI 或日志输出。
 	 */
 	sshPoolProbePanels: (resourceId: string) => typedError<PanelProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_panels", { resourceId })),
 	/**
 	 *  通过 SSH 在远端开启宝塔 / 1Panel 的 API 接口。
-	 *  `allowAll=true` 时白名单放行全部（需前端二次确认）。返回的 apiKey 属敏感凭据。
+	 * 
+	 *  - 宝塔：改写 `config/api.json` 的 `open`/`key`/`limit_addr`（每次请求热读，一般无需重启）
+	 *  - 1Panel：更新 `core.db` settings，并尝试重启 core 以刷新内存缓存
+	 *  - `allow_all=true`：白名单放行全部（宝塔 `*` / 1Panel `0.0.0.0/0`）；需前端二次确认
 	 */
 	sshPoolEnablePanelApi: (resourceId: string, kind: string, allowAll: boolean) => typedError<EnablePanelApiResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_enable_panel_api", { resourceId, kind, allowAll })),
 	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
@@ -1353,52 +1351,6 @@ export type ArchiveToolInstallResult = {
 	message: string,
 };
 
-/**  单个面板（宝塔/1Panel）的探测结果 */
-export type PanelProbeItem = {
-	/**  面板类型：bt（宝塔） / 1panel */
-	kind: string,
-	/**  是否已安装 */
-	installed: boolean,
-	/**  面板访问地址（含协议和端口）；未安装时为空 */
-	address: string,
-	/**  面板端口；未安装时为 0 */
-	port: number,
-	/**  1Panel 安全入口（如 /abc123）；宝塔无此概念时为空 */
-	entrance: string,
-	/**  API 是否已开启 */
-	apiEnabled: boolean,
-	/**
-	 *  从面板配置文件读到的 API Key（仅当 apiEnabled=true 且能读到时）；
-	 *  读不到时为空字符串。敏感字段，前端不得传给 AI 或日志输出。
-	 */
-	apiKey: string,
-	/**  额外提示信息（如版本号、读取失败原因等） */
-	note: string,
-};
-
-/**  面板探测完整结果 */
-export type PanelProbeResult = {
-	resourceId: string,
-	panels: PanelProbeItem[],
-	/**  探测耗时（毫秒） */
-	elapsedMs: number,
-	/**  探测时间戳（Unix 毫秒） */
-	probedAt: number,
-};
-
-/**  开启面板 API 的结果 */
-export type EnablePanelApiResult = {
-	kind: string,
-	/**  是否已成功开启（或原本已开启） */
-	enabled: boolean,
-	/**  当前 API Key（敏感；前端写入 Vault，勿日志/勿传 AI） */
-	apiKey: string,
-	/**  人类可读说明（含白名单策略提示） */
-	message: string,
-	/**  是否执行了服务重启（1Panel 为刷缓存常需重启 core） */
-	restarted: boolean,
-};
-
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
 export type AssistantChatInboundEvent = {
 	messageId: string,
@@ -1893,48 +1845,15 @@ export type ClientSyncTombstone = {
 	deletedAt: number | null,
 };
 
-/**
- *  统一连接模型。敏感凭据不在此，仅以 `credential_ref` 关联 [`crate::Vault`]。
- *  `config` 为 JSON 文本（不同 kind 字段不同，由前端按类型解析）。
- */
-export type Connection = {
-	id: string,
-	kind: ConnectionKind,
+export type CloudCertificateItem = {
+	orderId: string,
 	name: string,
-	group?: string,
-	envTag?: string,
-	/**  全局资源标签，如 `os:Ubuntu 24.04.2 LTS`（key:value 字符串列表） */
-	tags?: string[],
-	/**  连接配置 JSON 文本（host/port/user/database 等，因 kind 而异） */
-	config?: string,
-	credentialRef?: string | null,
-	createdAt?: number | null,
-	updatedAt?: number | null,
-};
-
-/**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
-export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | "cloud" | "protocol" | "file";
-
-export type CloudOssBucket = {
-	name: string,
-	location: string,
-	creationDate: string,
-	storageClass: string,
-	extranetEndpoint: string,
-	intranetEndpoint: string,
-	region: string,
-};
-
-export type CloudSwasInstance = {
-	instanceId: string,
-	instanceName: string,
+	domain: string,
 	status: string,
-	regionId: string,
-	publicIpAddress: string,
-	privateIpAddress: string,
-	imageId: string,
-	instancePlan: string,
-	creationTime: string,
+	productName: string,
+	certType: string,
+	buyDate: string,
+	endDate: string,
 };
 
 export type CloudDomainItem = {
@@ -1959,16 +1878,51 @@ export type CloudEcsInstance = {
 	creationTime: string,
 };
 
-export type CloudCertificateItem = {
-	orderId: string,
+export type CloudOssBucket = {
 	name: string,
-	domain: string,
-	status: string,
-	productName: string,
-	certType: string,
-	buyDate: string,
-	endDate: string,
+	location: string,
+	creationDate: string,
+	storageClass: string,
+	extranetEndpoint: string,
+	intranetEndpoint: string,
+	region: string,
 };
+
+export type CloudSwasInstance = {
+	instanceId: string,
+	instanceName: string,
+	status: string,
+	regionId: string,
+	publicIpAddress: string,
+	privateIpAddress: string,
+	imageId: string,
+	instancePlan: string,
+	creationTime: string,
+};
+
+/**
+ *  统一连接模型。敏感凭据不在此，仅以 `credential_ref` 关联 [`crate::Vault`]。
+ *  `config` 为 JSON 文本（不同 kind 字段不同，由前端按类型解析）。
+ */
+export type Connection = {
+	id: string,
+	kind: ConnectionKind,
+	name: string,
+	group?: string,
+	envTag?: string,
+	/**  全局资源标签，如 `os:Ubuntu 24.04.2 LTS`（key:value 字符串列表） */
+	tags?: string[],
+	/**  连接配置 JSON 文本（host/port/user/database 等，因 kind 而异） */
+	config?: string,
+	credentialRef?: string | null,
+	createdAt?: number | null,
+	updatedAt?: number | null,
+};
+
+/**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
+export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | 
+/**  云厂商账户（阿里云等），与面板并列挂在第三方服务模块。 */
+"cloud" | "protocol" | "file";
 
 /**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
 export type CpuStats = CpuStats_Serialize | CpuStats_Deserialize;
@@ -2979,6 +2933,19 @@ export type EmbeddingProviderConfig = {
 	apiStandard: string,
 };
 
+/**  开启面板 API 的结果。 */
+export type EnablePanelApiResult = {
+	kind: string,
+	/**  是否已成功开启（或原本已开启） */
+	enabled: boolean,
+	/**  当前 API Key（敏感；前端写入 Vault，勿日志/勿传 AI） */
+	apiKey: string,
+	/**  人类可读说明（含白名单策略提示） */
+	message: string,
+	/**  是否执行了服务重启（1Panel 为刷缓存常需重启 core） */
+	restarted: boolean,
+};
+
 /**  错误分类码。前端按 `code` 决定提示文案与重试策略。 */
 export type ErrorCode = 
 /**  未归类的内部错误 */
@@ -3499,11 +3466,17 @@ export type KnowledgeTodoItem = KnowledgeTodoItem_Serialize | KnowledgeTodoItem_
 /**  待办列表中的单项。 */
 export type KnowledgeTodoItem_Deserialize = {
 	id: string,
-	name?: string,
-	text?: string,
+	/**  执行者。 */
 	executor?: string,
+	/**  任务描述与细节。 */
 	description?: string,
 	done: boolean,
+} & {
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	name?: string,
+} | {
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	text?: string,
 };
 
 /**  待办列表中的单项。 */
@@ -3848,6 +3821,44 @@ export type OpenCodeInstallStatus = {
 	executablePath: string | null,
 	/**  `opencode --version` 输出（若可用）。 */
 	version: string | null,
+};
+
+/**
+ *  单个面板的探测结果。
+ * 
+ *  `api_key` 字段仅当面板 API 已开启且能从配置文件读到时才非空。
+ *  该字段属于敏感凭据，前端拿到后应直接写入 Vault，不应日志输出或传给 AI。
+ */
+export type PanelProbeItem = {
+	/**  面板类型：bt（宝塔） / 1panel */
+	kind: string,
+	/**  是否已安装 */
+	installed: boolean,
+	/**  面板访问地址（含协议和端口，如 http://192.168.1.10:8888）；未安装时为空 */
+	address: string,
+	/**  面板端口；未安装时为 0 */
+	port: number,
+	/**  1Panel 安全入口（如 /abc123）；宝塔无此概念时为空 */
+	entrance: string,
+	/**  API 是否已开启 */
+	apiEnabled: boolean,
+	/**
+	 *  从面板配置文件读到的 API Key（仅当 api_enabled=true 且能读到时）；
+	 *  读不到时为空字符串。敏感字段，前端不得传给 AI 或日志输出。
+	 */
+	apiKey: string,
+	/**  额外提示信息（如版本号、读取失败原因等） */
+	note: string,
+};
+
+/**  面板探测完整结果。 */
+export type PanelProbeResult = {
+	resourceId: string,
+	panels: PanelProbeItem[],
+	/**  探测耗时（毫秒） */
+	elapsedMs: number,
+	/**  探测时间戳（Unix 毫秒） */
+	probedAt: number,
 };
 
 /**  单类连接的活跃 / 空闲统计。 */
@@ -4560,6 +4571,14 @@ export type SshConfig_Serialize = {
 	publicIp: string | null,
 };
 
+/**  在远端 `~/.omnipanel/scripts/<name>` 创建脚本并执行。 */
+export type SshCreateRunScriptOutput = {
+	remotePath: string,
+	stdout: string,
+	stderr: string,
+	exitCode: number,
+};
+
 /**  非交互执行远程命令（连接池 exec channel）。 */
 export type SshExecOutput = {
 	stdout: string,
@@ -4870,7 +4889,12 @@ export type TmuxSessionInfo = {
 	managed: boolean,
 };
 
-/**  单个 tmux 会话当前被 OmniPanel 的多少个 Tab 关联（跨所有窗口）。 */
+/**
+ *  单个 tmux 会话当前被 OmniPanel 的多少个 Tab 关联。
+ * 
+ *  关联计数来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
+ *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
+ */
 export type TmuxTabStat = {
 	sessionName: string,
 	tabCount: number,

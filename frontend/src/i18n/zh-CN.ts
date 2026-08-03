@@ -4496,7 +4496,7 @@ export const zhCN = {
       type: "类型",
       loading: "加载中…",
       empty: "暂无已安装应用",
-      unsupported: "当前仅支持查看 1Panel 已安装应用",
+      unsupported: "当前仅支持查看 1Panel / 宝塔已安装应用",
       updateAvailable: "可更新",
       drawer: {
         detail: "详情",
@@ -4550,7 +4550,8 @@ export const zhCN = {
       installSuccess: "已提交安装：{name}",
       installNoVersion: "无法获取应用版本信息",
       installNoDetail: "无法获取应用安装详情",
-      unsupported: "当前仅支持 1Panel 应用市场",
+      unsupported: "当前仅支持 1Panel / 宝塔应用市场",
+      refresh: "刷新应用列表",
     },
     monitor: {
       cpu: "CPU",

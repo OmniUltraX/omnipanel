@@ -191,3 +191,14 @@ pub async fn panel_bt_test_connection(host: String, api_sk: String) -> Result<bo
     crate::panel::btpanel::test_connection(&host, &api_sk).await?;
     Ok(true)
 }
+
+/// 获取宝塔 Docker 应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_bt_app_icon(
+    host: String,
+    api_sk: String,
+    app_name: String,
+) -> Result<String, OmniError> {
+    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name).await
+}
