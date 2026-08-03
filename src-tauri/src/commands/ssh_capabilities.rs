@@ -1282,8 +1282,8 @@ pub struct PanelProbeResult {
 /// 设计要点：
 /// - 一次 RTT 同时探测两类面板，降低延迟
 /// - 宝塔：`/www/server/panel` + `config/api.json`（含 open/key）+ `data/admin_path.pl`
-/// - 1Panel v2：`/opt/1panel/db/core.db` settings（ServerPort/SecurityEntrance/ApiKey/…）
-/// - 1Panel v1 回退：`conf/app.yaml` + `1panel.db`
+/// - 1Panel：优先 `1pctl user-info` 解析真实端口/入口（例：`http://$LOCAL_IP:7777/777777`）
+/// - 1Panel 次要：core.db ApiKey / SSL；v1 回退 app.yaml；禁止静默默认 10086
 /// - api_key 有则读取（即使 API 未开启也带回，便于预填）；api_enabled 反映面板侧开关
 /// - 非 root 可能读不到配置：installed 仍可为 true，api_key 为空
 fn build_panel_probe_script() -> String {
@@ -1402,30 +1402,133 @@ probe_1panel() {
     version=""
     proto="http"
 
-    # v2：core.db settings；v1：1panel.db
-    if command -v sqlite3 >/dev/null 2>&1; then
-        for db in "$panel_dir/db/core.db" /opt/1panel/db/core.db /var/lib/1panel/db/core.db \
-                  "$panel_dir/db/1panel.db" /var/lib/1panel/db/1panel.db /opt/1panel/db/1Panel.db; do
-            [ -f "$db" ] || continue
-            sp=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ServerPort' LIMIT 1;" 2>/dev/null | head -1)
-            [ -n "$sp" ] && port=$(printf '%s' "$sp" | tr -dc '0-9')
-            se=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SecurityEntrance' LIMIT 1;" 2>/dev/null | head -1)
-            [ -n "$se" ] && entrance="$se"
-            ssl=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SSL' LIMIT 1;" 2>/dev/null | head -1)
-            case "$ssl" in Enable|enable|true|1|TRUE) proto="https" ;; esac
-            ak=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ApiKey' LIMIT 1;" 2>/dev/null | head -1)
-            [ -z "$ak" ] && ak=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ServerKey' LIMIT 1;" 2>/dev/null | head -1)
-            [ -n "$ak" ] && api_key="$ak"
-            api_status=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ApiInterfaceStatus' LIMIT 1;" 2>/dev/null | head -1)
-            sv=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SystemVersion' LIMIT 1;" 2>/dev/null | head -1)
-            [ -n "$sv" ] && version="$sv"
-            if [ -n "$port" ] || [ -n "$api_key" ]; then
-                break
+    # ★ 权威来源：1pctl user-info（与面板实际监听一致，勿猜默认 10086）
+    # 示例：面板地址: http://$LOCAL_IP:7777/777777
+    if command -v 1pctl >/dev/null 2>&1; then
+        ui=$(1pctl user-info 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+        addr_line=$(printf '%s\n' "$ui" | grep -E '面板地址|Panel address' | head -1)
+        panel_url=$(printf '%s\n' "$addr_line" | grep -oE 'https?://[^[:space:]]+' | head -1)
+        if [ -n "$panel_url" ]; then
+            case "$panel_url" in
+                https://*) proto="https" ;;
+                http://*) proto="http" ;;
+            esac
+            # 取 host:port/path 段
+            rest=${panel_url#*://}
+            hostport=${rest%%/*}
+            path_part=${rest#"$hostport"}
+            case "$hostport" in
+                *:*)
+                    ui_port=${hostport##*:}
+                    ui_port=$(printf '%s' "$ui_port" | tr -dc '0-9')
+                    [ -n "$ui_port" ] && port="$ui_port"
+                    ;;
+            esac
+            if [ -n "$path_part" ] && [ "$path_part" != "/" ]; then
+                entrance=$(printf '%s' "$path_part" | sed 's#^/##;s#/.*##')
             fi
-        done
+        fi
+        # 1pctl 脚本里的 ORIGINAL_PORT 作补充（user-info 未解析出端口时）
+        if [ -z "$port" ]; then
+            for ctl in "$(command -v 1pctl 2>/dev/null)" /usr/bin/1pctl /usr/local/bin/1pctl; do
+                [ -n "$ctl" ] && [ -f "$ctl" ] || continue
+                op=$(grep -E '^ORIGINAL_PORT=' "$ctl" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -dc '0-9')
+                [ -n "$op" ] && port="$op" && break
+            done
+        fi
+        if [ -z "$entrance" ]; then
+            for ctl in "$(command -v 1pctl 2>/dev/null)" /usr/bin/1pctl /usr/local/bin/1pctl; do
+                [ -n "$ctl" ] && [ -f "$ctl" ] || continue
+                oe=$(grep -E '^ORIGINAL_ENTRANCE=' "$ctl" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+                [ -n "$oe" ] && entrance="$oe" && break
+            done
+        fi
     fi
 
-    # v1 回退：app.yaml
+    # 次要：core.db / 1panel.db（仅补 api_key / ssl / 版本；端口以 user-info 为准，避免脏默认值覆盖）
+    db_candidates=""
+    for ctl in /usr/bin/1pctl /usr/local/bin/1pctl "$(command -v 1pctl 2>/dev/null)"; do
+        [ -n "$ctl" ] && [ -f "$ctl" ] || continue
+        base=$(grep -E '^BASE_DIR=' "$ctl" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+        [ -n "$base" ] || continue
+        db_candidates="$db_candidates $base/1panel/db/core.db $base/db/core.db $base/1panel/db/1panel.db $base/1panel/db/1Panel.db"
+    done
+    db_candidates="$db_candidates $panel_dir/db/core.db /opt/1panel/db/core.db /var/lib/1panel/db/core.db /usr/local/1panel/db/core.db /data/1panel/db/core.db"
+    db_candidates="$db_candidates $panel_dir/db/1panel.db $panel_dir/db/1Panel.db /var/lib/1panel/db/1panel.db /opt/1panel/db/1panel.db /opt/1panel/db/1Panel.db"
+    # 读 settings：优先 sqlite3 CLI；很多精简机只有 python3（ali99 即此）
+    read_1panel_settings() {
+        _db="$1"
+        [ -f "$_db" ] || return 1
+        if command -v sqlite3 >/dev/null 2>&1; then
+            if [ -z "$port" ]; then
+                sp=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='ServerPort' LIMIT 1;" 2>/dev/null | head -1)
+                [ -z "$sp" ] && sp=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='SystemPort' LIMIT 1;" 2>/dev/null | head -1)
+                [ -n "$sp" ] && port=$(printf '%s' "$sp" | tr -dc '0-9')
+            fi
+            if [ -z "$entrance" ]; then
+                se=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='SecurityEntrance' LIMIT 1;" 2>/dev/null | head -1)
+                [ -n "$se" ] && entrance="$se"
+            fi
+            ssl=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='SSL' LIMIT 1;" 2>/dev/null | head -1)
+            case "$ssl" in Enable|enable|true|1|TRUE) proto="https" ;; esac
+            ak=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='ApiKey' LIMIT 1;" 2>/dev/null | head -1)
+            [ -z "$ak" ] && ak=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='ServerKey' LIMIT 1;" 2>/dev/null | head -1)
+            [ -n "$ak" ] && api_key="$ak"
+            api_status=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='ApiInterfaceStatus' LIMIT 1;" 2>/dev/null | head -1)
+            sv=$(sqlite3 "$_db" "SELECT value FROM settings WHERE key='SystemVersion' LIMIT 1;" 2>/dev/null | head -1)
+            [ -n "$sv" ] && version="$sv"
+            return 0
+        fi
+        PY=
+        for c in python3 /usr/bin/python3 /usr/local/bin/python3 python; do
+            if command -v "$c" >/dev/null 2>&1; then PY=$(command -v "$c"); break; fi
+        done
+        [ -n "$PY" ] || return 1
+        # 输出: port|entrance|ssl|api_key|api_status|version （字段内不含 |）
+        _line=$("$PY" - "$_db" <<'PY' 2>/dev/null
+import sqlite3, sys
+db = sys.argv[1]
+def g(cur, k):
+    r = cur.execute("SELECT value FROM settings WHERE key=? LIMIT 1", (k,)).fetchone()
+    return (r[0] if r and r[0] is not None else "") or ""
+try:
+    conn = sqlite3.connect(db)
+    cur = conn.cursor()
+    port = g(cur, "ServerPort") or g(cur, "SystemPort")
+    entrance = g(cur, "SecurityEntrance")
+    ssl = g(cur, "SSL")
+    api_key = g(cur, "ApiKey") or g(cur, "ServerKey")
+    api_status = g(cur, "ApiInterfaceStatus")
+    version = g(cur, "SystemVersion")
+    conn.close()
+    def clean(s):
+        return str(s).replace("|", " ").replace("\\n", " ").replace("\\r", "")
+    print("|".join(clean(x) for x in (port, entrance, ssl, api_key, api_status, version)))
+except Exception:
+    pass
+PY
+)
+        [ -n "$_line" ] || return 1
+        IFS='|' read -r _sp _se _ssl _ak _as _sv <<EOF
+$_line
+EOF
+        if [ -z "$port" ] && [ -n "$_sp" ]; then port=$(printf '%s' "$_sp" | tr -dc '0-9'); fi
+        if [ -z "$entrance" ] && [ -n "$_se" ]; then entrance="$_se"; fi
+        case "$_ssl" in Enable|enable|true|1|TRUE) proto="https" ;; esac
+        [ -n "$_ak" ] && api_key="$_ak"
+        [ -n "$_as" ] && api_status="$_as"
+        [ -n "$_sv" ] && version="$_sv"
+        return 0
+    }
+    for db in $db_candidates; do
+        [ -f "$db" ] || continue
+        read_1panel_settings "$db" || continue
+        if [ -n "$api_key" ] || [ -n "$api_status" ] || [ -n "$version" ]; then
+            break
+        fi
+    done
+
+    # 再次：app.yaml（仅在仍缺端口/入口时）
     if [ -z "$port" ] || [ -z "$entrance" ]; then
         yaml=""
         for f in "$panel_dir/conf/app.yaml" "$panel_dir/app.yaml" /etc/1panel/app.yaml; do
@@ -1446,13 +1549,39 @@ probe_1panel() {
         Enable|enable|true|1|TRUE) api_enabled=1 ;;
         Disable|disable|false|0|FALSE) api_enabled=0 ;;
         *)
-            # v1 无 ApiInterfaceStatus：有 key 即视为开启
             [ -n "$api_key" ] && api_enabled=1
             ;;
     esac
 
-    [ -z "$port" ] && port=10086
+    # 禁止静默落默认 10086：读不到端口就报空，让前端提示探测失败
+    if [ -z "$port" ]; then
+        echo "port:0"
+        echo "address:"
+        echo "note:无法解析面板端口（请检查 1pctl user-info）"
+        echo "api_enabled:0"
+        echo "api_key:"
+        echo "@ENDPANEL:1panel"
+        return
+    fi
     echo "port:$port"
+
+    # settings 未标明 SSL 时，用本机 curl/openssl 判断是否 TLS-only
+    if [ "$proto" = "http" ] && [ -n "$port" ]; then
+        if command -v curl >/dev/null 2>&1; then
+            https_code=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 2 "https://127.0.0.1:${port}/" 2>/dev/null || true)
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 "http://127.0.0.1:${port}/" 2>/dev/null || true)
+            [ -z "$https_code" ] && https_code=000
+            [ -z "$http_code" ] && http_code=000
+            if [ "$https_code" != "000" ] && [ "$http_code" = "000" ]; then
+                proto="https"
+            fi
+        elif command -v openssl >/dev/null 2>&1; then
+            if echo | openssl s_client -connect "127.0.0.1:${port}" -servername 127.0.0.1 </dev/null 2>/dev/null | grep -q 'BEGIN CERTIFICATE'; then
+                proto="https"
+            fi
+        fi
+    fi
+
     echo "address:${proto}://127.0.0.1:${port}"
     if [ -n "$entrance" ]; then
         case "$entrance" in
@@ -1676,9 +1805,27 @@ done
 # 1Panel：无 Python 时可用 sqlite3 CLI 回退
 if [ -z "$PY" ] && [ "$OMNI_PANEL_KIND" = "1panel" ] && command -v sqlite3 >/dev/null 2>&1; then
     db=""
-    for p in /opt/1panel/db/core.db /var/lib/1panel/db/core.db /opt/1panel/db/1panel.db; do
-        [ -f "$p" ] && db="$p" && break
+    # 优先从 1pctl BASE_DIR 推导
+    for ctl in /usr/bin/1pctl /usr/local/bin/1pctl "$(command -v 1pctl 2>/dev/null)"; do
+        [ -n "$ctl" ] && [ -f "$ctl" ] || continue
+        base=$(grep -E '^BASE_DIR=' "$ctl" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+        [ -n "$base" ] || continue
+        for p in "$base/1panel/db/core.db" "$base/db/core.db" "$base/1panel/db/1panel.db" "$base/1panel/db/1Panel.db"; do
+            [ -f "$p" ] && db="$p" && break
+        done
+        [ -n "$db" ] && break
     done
+    if [ -z "$db" ]; then
+        for p in /opt/1panel/db/core.db /var/lib/1panel/db/core.db /usr/local/1panel/db/core.db \
+                 /data/1panel/db/core.db /opt/1panel/db/1panel.db /opt/1panel/db/1Panel.db; do
+            [ -f "$p" ] && db="$p" && break
+        done
+    fi
+    if [ -z "$db" ]; then
+        db=$(find /opt /var/lib /usr/local /data /home -maxdepth 5 \
+            \( -name core.db -o -name 1panel.db -o -name 1Panel.db \) \
+            -path '*1panel*' 2>/dev/null | head -1)
+    fi
     if [ -n "$db" ]; then
         key=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ApiKey' LIMIT 1;" 2>/dev/null)
         [ -z "$key" ] && key=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='ServerKey' LIMIT 1;" 2>/dev/null)
@@ -1688,16 +1835,25 @@ if [ -z "$PY" ] && [ "$OMNI_PANEL_KIND" = "1panel" ] && command -v sqlite3 >/dev
             sqlite3 "$db" "INSERT INTO settings (created_at,updated_at,key,value,about) VALUES ('$now','$now','ApiKey','$key','');" 2>/dev/null
         fi
         now=$(date '+%Y-%m-%d %H:%M:%S')
-        sqlite3 "$db" "UPDATE settings SET value='Enable', updated_at='$now' WHERE key='ApiInterfaceStatus';" 2>/dev/null
+        # v1 要小写 enable，v2 要 Enable；按版本/库名选择
+        ver=$(sqlite3 "$db" "SELECT value FROM settings WHERE key='SystemVersion' LIMIT 1;" 2>/dev/null | head -1 | tr 'A-Z' 'a-z')
+        base=$(basename "$db" | tr 'A-Z' 'a-z')
+        api_status=Enable
+        case "$ver" in v1*|1.*) api_status=enable ;; esac
+        case "$base" in 1panel.db) api_status=enable ;; esac
+        sqlite3 "$db" "UPDATE settings SET value='$api_status', updated_at='$now' WHERE key='ApiInterfaceStatus';" 2>/dev/null
+        sqlite3 "$db" "UPDATE settings SET value='0', updated_at='$now' WHERE key='ApiKeyValidityTime';" 2>/dev/null
         if [ "$OMNI_ALLOW_ALL" = "1" ]; then
             sqlite3 "$db" "UPDATE settings SET value='0.0.0.0/0', updated_at='$now' WHERE key='IpWhiteList';" 2>/dev/null
         fi
         restarted=0
         systemctl restart 1panel-core >/dev/null 2>&1 && restarted=1
+        [ "$restarted" = "0" ] && systemctl restart 1panel >/dev/null 2>&1 && restarted=1
         [ "$restarted" = "0" ] && 1pctl restart core >/dev/null 2>&1 && restarted=1
+        [ "$restarted" = "0" ] && 1pctl restart >/dev/null 2>&1 && restarted=1
         echo "@RESULT:ok"
         echo "api_key:$(printf '%s' "$key" | base64 2>/dev/null | tr -d '\n')"
-        echo "message:1Panel API 已开启（sqlite3 回退）"
+        echo "message:1Panel API 已开启（sqlite3 回退；库=$db；status=$api_status）"
         echo "restarted:$restarted"
         echo "@END"
         exit 0
@@ -1780,15 +1936,92 @@ def enable_bt():
     emit(True, api_key=key, message=f"宝塔 API 已开启；白名单: {{wl}}", restarted=False)
 
 def find_1panel_db():
-    for p in (
+    candidates = []
+    # 官方推荐：从 1pctl 读 BASE_DIR（可能是 /opt，也可能是自定义路径）
+    for ctl in (
+        "/usr/bin/1pctl",
+        "/usr/local/bin/1pctl",
+        "/usr/local/bin/1panel",
+    ):
+        if not os.path.isfile(ctl):
+            continue
+        try:
+            with open(ctl, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line.startswith("BASE_DIR="):
+                        continue
+                    base = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if not base:
+                        continue
+                    candidates.extend([
+                        os.path.join(base, "1panel", "db", "core.db"),
+                        os.path.join(base, "db", "core.db"),
+                        os.path.join(base, "1panel", "db", "1panel.db"),
+                        os.path.join(base, "1panel", "db", "1Panel.db"),
+                        os.path.join(base, "db", "1panel.db"),
+                        os.path.join(base, "db", "1Panel.db"),
+                    ])
+        except Exception:
+            pass
+    # which 1pctl 解析（脚本可能不在固定路径）
+    try:
+        import shutil
+        which = shutil.which("1pctl")
+        if which and which not in (
+            "/usr/bin/1pctl",
+            "/usr/local/bin/1pctl",
+        ):
+            with open(which, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("BASE_DIR="):
+                        base = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if base:
+                            candidates.extend([
+                                os.path.join(base, "1panel", "db", "core.db"),
+                                os.path.join(base, "db", "core.db"),
+                                os.path.join(base, "1panel", "db", "1panel.db"),
+                                os.path.join(base, "1panel", "db", "1Panel.db"),
+                            ])
+    except Exception:
+        pass
+    # 常见默认路径
+    candidates.extend([
         "/opt/1panel/db/core.db",
         "/var/lib/1panel/db/core.db",
         "/usr/local/1panel/db/core.db",
+        "/data/1panel/db/core.db",
+        "/home/1panel/db/core.db",
         "/opt/1panel/db/1panel.db",
+        "/opt/1panel/db/1Panel.db",
         "/var/lib/1panel/db/1panel.db",
-    ):
+        "/var/lib/1panel/db/1Panel.db",
+    ])
+    seen = set()
+    for p in candidates:
+        if not p or p in seen:
+            continue
+        seen.add(p)
         if os.path.isfile(p):
             return p
+    # 浅层查找（限制深度，避免全盘扫描）
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            "find /opt /var/lib /usr/local /data /home -maxdepth 5 "
+            "\\( -name core.db -o -name 1panel.db -o -name 1Panel.db \\) "
+            "-path '*1panel*' 2>/dev/null | head -20",
+            shell=True,
+            text=True,
+            timeout=8,
+        )
+        for line in out.splitlines():
+            p = line.strip()
+            if p and os.path.isfile(p):
+                return p
+    except Exception:
+        pass
     return None
 
 def set_setting(conn, key, value):
@@ -1807,12 +2040,27 @@ def set_setting(conn, key, value):
         )
 
 def enable_1panel():
-    if not (os.path.isdir("/opt/1panel") or os.path.isdir("/etc/1panel") or os.path.isfile("/usr/local/bin/1pctl")):
+    has_ctl = False
+    try:
+        import shutil
+        has_ctl = shutil.which("1pctl") is not None
+    except Exception:
+        has_ctl = False
+    if not (
+        os.path.isdir("/opt/1panel")
+        or os.path.isdir("/etc/1panel")
+        or os.path.isdir("/var/lib/1panel")
+        or os.path.isdir("/usr/local/1panel")
+        or os.path.isfile("/usr/local/bin/1pctl")
+        or os.path.isfile("/usr/bin/1pctl")
+        or has_ctl
+        or find_1panel_db()
+    ):
         emit(False, message="未安装 1Panel")
         return
     db = find_1panel_db()
     if not db:
-        emit(False, message="未找到 1Panel 数据库 (core.db)")
+        emit(False, message="未找到 1Panel 数据库 (core.db)。请确认 1pctl BASE_DIR 或数据目录可访问")
         return
     try:
         conn = sqlite3.connect(db, timeout=10)
@@ -1827,21 +2075,37 @@ def enable_1panel():
         if not key:
             key = gen_key(32)
             set_setting(conn, "ApiKey", key)
-        set_setting(conn, "ApiInterfaceStatus", "Enable")
+        # v1 认 enable，v2 认 Enable（大小写敏感，写错会「API 接口禁止访问」）
+        ver = ""
+        try:
+            cur = conn.execute("SELECT value FROM settings WHERE key='SystemVersion' LIMIT 1")
+            row = cur.fetchone()
+            ver = ((row[0] if row and row[0] else "") or "").strip().lower()
+        except Exception:
+            ver = ""
+        db_base = os.path.basename(db).lower()
+        api_status = "enable" if (ver.startswith("v1") or ver.startswith("1.") or db_base == "1panel.db") else "Enable"
+        set_setting(conn, "ApiInterfaceStatus", api_status)
+        set_setting(conn, "ApiKeyValidityTime", "0")
         if allow_all:
             set_setting(conn, "IpWhiteList", "0.0.0.0/0")
         conn.commit()
         conn.close()
     except Exception as e:
-        emit(False, message=f"更新 1Panel settings 失败: {{e}}")
+        emit(False, message=f"更新 1Panel settings 失败 ({{db}}): {{e}}")
         return
 
     # 用 shell 调 systemctl/1pctl（部分环境 PATH/无 TTY 时 list 形式 subprocess 会失败）
     restarted = False
     for cmd in (
+        "systemctl restart 1panel >/dev/null 2>&1",
         "systemctl restart 1panel-core >/dev/null 2>&1",
+        "1pctl restart >/dev/null 2>&1",
         "1pctl restart core >/dev/null 2>&1",
+        "/bin/systemctl restart 1panel >/dev/null 2>&1",
         "/bin/systemctl restart 1panel-core >/dev/null 2>&1",
+        "docker restart 1panel >/dev/null 2>&1",
+        "docker restart 1panel-v2 >/dev/null 2>&1",
     ):
         try:
             if os.system(cmd) == 0:
@@ -1851,7 +2115,7 @@ def enable_1panel():
             continue
 
     wl = "0.0.0.0/0" if allow_all else "保留原白名单"
-    msg = f"1Panel API 已开启；白名单: {{wl}}"
+    msg = f"1Panel API 已开启；库={{db}}；status={{api_status}}；白名单: {{wl}}"
     if restarted:
         msg += "；已重启 core 以刷新缓存"
     else:
@@ -1990,6 +2254,28 @@ note:v2.2.3
         assert_eq!(res.api_key, key);
         assert!(res.restarted);
         assert!(res.message.contains("ok"));
+    }
+
+    #[test]
+    fn parse_1panel_user_info_style_address() {
+        let key_b64 = base64::engine::general_purpose::STANDARD.encode("k");
+        let out = format!(
+            r#"@PANEL:1panel
+installed:1
+port:7777
+address:http://127.0.0.1:7777
+entrance:/777777
+api_enabled:1
+api_key:{key_b64}
+note:v2
+@ENDPANEL:1panel
+"#
+        );
+        let panels = parse_panel_probe_output(&out);
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].port, 7777);
+        assert_eq!(panels[0].entrance, "/777777");
+        assert_eq!(panels[0].address, "http://127.0.0.1:7777");
     }
 }
 

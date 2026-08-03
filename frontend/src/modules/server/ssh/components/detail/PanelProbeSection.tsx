@@ -43,7 +43,7 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
   const sshHost = useMemo(() => {
     if (!connection) return null;
     const cfg = parseSshConfig(connection);
-    return cfg?.host ?? null;
+    return (cfg?.publicIp || cfg?.host || "").trim() || null;
   }, [connection]);
 
   // 当前 SSH 已关联的 panel connection（避免重复添加）

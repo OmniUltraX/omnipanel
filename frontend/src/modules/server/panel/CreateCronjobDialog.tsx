@@ -10,12 +10,15 @@ import {
   type OnePanelCronjobUpdate,
   type OnePanelGroup,
 } from "@/lib/onepanel";
+import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import type { ServerEntry } from "./serverConnection";
 import { BtCreateCronjobDialog } from "./BtCreateCronjobDialog";
 
 const CRONJOB_TYPES: OnePanelCronjobType[] = ["shell", "curl", "clean", "ntp"];
 const EXECUTORS = ["bash", "sh", "python", "python3"] as const;
+const DANGEROUS_SCRIPT_RE =
+  /\b(rm\s+-rf|mkfs|dd\s+if=|>\s*\/dev\/sd|drop\s+database|shutdown|reboot|format\s+[a-z]:)\b/i;
 
 function scriptLanguageForExecutor(executor: string): "shell" | "python" {
   return executor.startsWith("python") ? "python" : "shell";
@@ -251,6 +254,13 @@ function OnePanelCreateCronjobDialog({
     if (!canSubmit) {
       setError(t("server.create.cronjob.required"));
       return;
+    }
+    if (type === "shell" && DANGEROUS_SCRIPT_RE.test(script)) {
+      const ok = await appConfirm(
+        t("server.create.cronjob.scriptDangerConfirm"),
+        t("common.confirm"),
+      );
+      if (!ok) return;
     }
 
     setBusy(true);

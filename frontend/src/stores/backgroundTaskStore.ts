@@ -80,7 +80,40 @@ export function getRunningBackgroundTasks(): BackgroundTaskInfo[] {
 }
 
 export async function cancelBackgroundTask(id: string): Promise<void> {
+  const local = localTaskCancelHandlers.get(id);
+  if (local) {
+    local();
+    return;
+  }
   await unwrapCommand(commands.bgTaskCancel(id));
+}
+
+/** 前端本地任务取消句柄（不经 Tauri bg_task）。 */
+const localTaskCancelHandlers = new Map<string, () => void>();
+
+export function registerLocalBackgroundTaskCancel(
+  id: string,
+  onCancel: () => void,
+): () => void {
+  localTaskCancelHandlers.set(id, onCancel);
+  return () => {
+    localTaskCancelHandlers.delete(id);
+  };
+}
+
+/** 创建/更新前端本地后台任务，并可选记入历史。 */
+export function upsertLocalBackgroundTask(task: BackgroundTaskInfo): void {
+  useBackgroundTaskStore.getState().upsertTask(task);
+  if (
+    task.status === "completed" ||
+    task.status === "failed" ||
+    task.status === "cancelled"
+  ) {
+    useBgTaskHistoryStore.getState().upsertHistory(task);
+    window.setTimeout(() => {
+      useBackgroundTaskStore.getState().removeTask(task.id);
+    }, 8000);
+  }
 }
 
 export async function cancelAllRunningBackgroundTasks(): Promise<void> {

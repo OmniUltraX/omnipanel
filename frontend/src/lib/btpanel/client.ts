@@ -10,9 +10,15 @@ import {
   type BtDirListResult,
   type BtDiskInfo,
   type BtFileBodyResult,
+  type BtCreateDockerAppParams,
+  type BtDockerApp,
+  type BtDockerAppsResult,
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
+  type BtSoftItem,
+  type BtSoftListParams,
+  type BtSoftListResult,
   type BtNetworkInfo,
   type BtPhpVersion,
   type BtRequestOptions,
@@ -273,7 +279,16 @@ export class BtPanelClient {
 
   /** /site?action=get_site_types — 网站分类。 */
   async getSiteTypes(): Promise<BtSiteType[]> {
-    return this.request<BtSiteType[]>({ path: "/site?action=get_site_types" });
+    const payload = await this.request<unknown>({ path: "/site?action=get_site_types" });
+    if (Array.isArray(payload)) {
+      return payload as BtSiteType[];
+    }
+    if (payload && typeof payload === "object") {
+      const root = payload as Record<string, unknown>;
+      if (Array.isArray(root.data)) return root.data as BtSiteType[];
+      if (Array.isArray(root.list)) return root.list as BtSiteType[];
+    }
+    return [];
   }
 
   /** /site?action=GetPHPVersion — 已安装 PHP 版本。 */
@@ -490,6 +505,118 @@ export class BtPanelClient {
     return unwrapInstalledApps(payload);
   }
 
+  /**
+   * POST /plugin?action=get_soft_list — 传统软件商店列表（Nginx/PHP/插件等）。
+   * 多数面板版本可用；Docker 商店未初始化时以此作为应用市场主数据源。
+   */
+  async getSoftList(params: BtSoftListParams = {}): Promise<BtSoftListResult> {
+    const payload = await this.request<unknown>({
+      path: "/plugin?action=get_soft_list",
+      params: {
+        p: params.p ?? 1,
+        type: params.type ?? 0,
+        query: params.query ?? "",
+        force: params.force ? 1 : 0,
+        row: params.row ?? 100,
+      },
+    });
+    return unwrapSoftList(payload);
+  }
+
+  /** POST /plugin?action=install_plugin — 安装软件商店应用（异步任务）。 */
+  async installSoft(name: string, version: string): Promise<string> {
+    const result = await this.request<{ msg?: string; status?: boolean }>({
+      path: "/plugin?action=install_plugin",
+      params: {
+        sName: name,
+        version,
+        min_version: version,
+        type: 0,
+      },
+    });
+    return result.msg?.trim() || "已提交安装任务";
+  }
+
+  /**
+   * POST /mod/docker/com/get_apps[/stype] — Docker 应用商店列表。
+   * 官方文档路径带 `/stype`；旧版无后缀时自动回退。
+   */
+  async getDockerApps(): Promise<BtDockerAppsResult> {
+    try {
+      const payload = await this.request<unknown>({
+        path: "/mod/docker/com/get_apps/stype",
+      });
+      return unwrapDockerApps(payload);
+    } catch (error) {
+      if (!(error instanceof BtPanelApiError)) throw error;
+      const payload = await this.request<unknown>({
+        path: "/mod/docker/com/get_apps",
+      });
+      return unwrapDockerApps(payload);
+    }
+  }
+
+  /**
+   * POST /mod/docker/com/create_app[/stype] — 从商店安装 Docker 应用。
+   * 安装参数需来自 getDockerApps 返回的 env/field/appversion。
+   */
+  async createDockerApp(params: BtCreateDockerAppParams): Promise<string> {
+    const body: Record<string, string | number | boolean | undefined | null> = {
+      app_name: params.appName,
+      service_name: params.serviceName,
+      m_version: params.mVersion,
+      s_version: params.sVersion,
+      allow_access: params.allowAccess === false ? "0" : "1",
+      ...(params.cpus != null ? { cpus: params.cpus } : {}),
+      ...(params.memoryLimit != null ? { memory_limit: params.memoryLimit } : {}),
+      ...(params.disableDomain ? { disable_domain: "1" } : {}),
+      ...(params.extra ?? {}),
+    };
+    try {
+      const result = await this.request<{ msg?: string; status?: boolean }>({
+        path: "/mod/docker/com/create_app/stype",
+        params: body,
+      });
+      return result.msg?.trim() || "应用创建成功";
+    } catch (error) {
+      if (!(error instanceof BtPanelApiError)) throw error;
+      const result = await this.request<{ msg?: string; status?: boolean }>({
+        path: "/mod/docker/com/create_app",
+        params: body,
+      });
+      return result.msg?.trim() || "应用创建成功";
+    }
+  }
+
+  /** 按默认参数从商店定义安装应用（MVP）。 */
+  async installDockerAppFromDefinition(
+    app: BtDockerApp,
+    options?: { serviceName?: string },
+  ): Promise<string> {
+    const appName = (app.appname || "").trim();
+    if (!appName) {
+      throw new BtPanelApiError("应用标识为空", 0);
+    }
+    const version = pickDockerAppVersion(app);
+    if (!version) {
+      throw new BtPanelApiError("无法获取应用版本信息", 0);
+    }
+    const extra = buildDockerAppDefaultParams(app);
+    const isWebsite = (app.apptype || "").toLowerCase().includes("website");
+    const serviceName =
+      (options?.serviceName || "").trim() ||
+      `docker_${appName}`.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 48);
+    return this.createDockerApp({
+      appName,
+      serviceName,
+      mVersion: version.mVersion,
+      sVersion: version.sVersion,
+      allowAccess: true,
+      disableDomain: isWebsite,
+      extra,
+    });
+  }
+
   /** /data?action=getData — 数据库列表（table=databases）。 */
   async getDatabaseList(params: { p?: number; limit?: number } = {}): Promise<BtDataListResult<Record<string, unknown>>> {
     return this.getDataTable("databases", {
@@ -598,6 +725,22 @@ export class BtPanelClient {
     });
   }
 
+  /** /crontab?action=set_cron_status — 切换计划任务启用状态。 */
+  async setCronStatus(id: number): Promise<void> {
+    await this.request({
+      path: "/crontab?action=set_cron_status",
+      params: { id },
+    });
+  }
+
+  /** /crontab?action=StartTask — 立即执行一次计划任务。 */
+  async startCronTask(id: number): Promise<void> {
+    await this.request({
+      path: "/crontab?action=StartTask",
+      params: { id },
+    });
+  }
+
   /** /ssl?action=get_cert_list — 证书夹列表（官方接口；旧 GetSSLList 会报参数无效）。 */
   async getSslList(): Promise<Record<string, unknown>[]> {
     try {
@@ -676,6 +819,140 @@ function unwrapInstalledApps(payload: unknown): BtInstalledAppsResult {
   }
 
   return { items: [], total: 0 };
+}
+
+function unwrapSoftList(payload: unknown): BtSoftListResult {
+  if (!payload || typeof payload !== "object") {
+    return { items: [], total: 0, types: [] };
+  }
+  const root = payload as Record<string, unknown>;
+  const listRoot = root.list;
+  let items: BtSoftItem[] = [];
+  let total = 0;
+  if (Array.isArray(listRoot)) {
+    items = listRoot as BtSoftItem[];
+    total = items.length;
+  } else if (listRoot && typeof listRoot === "object") {
+    const obj = listRoot as Record<string, unknown>;
+    if (Array.isArray(obj.data)) {
+      items = obj.data as BtSoftItem[];
+      total = parseTotalFromPage(obj.page, items.length);
+    }
+  }
+  const typesRaw = root.type;
+  const types: Array<{ id: number; title: string }> = [];
+  if (Array.isArray(typesRaw)) {
+    for (const item of typesRaw) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const id = Number(row.id);
+      const title = String(row.title ?? row.name ?? "").trim();
+      if (Number.isFinite(id) && title) types.push({ id, title });
+    }
+  }
+  return {
+    items: items.filter((item) => item && typeof item.name === "string" && item.name.trim()),
+    total,
+    types,
+  };
+}
+
+function unwrapDockerApps(payload: unknown): BtDockerAppsResult {
+  if (Array.isArray(payload)) {
+    return { items: payload as BtDockerApp[], total: payload.length };
+  }
+  if (!payload || typeof payload !== "object") {
+    return { items: [], total: 0 };
+  }
+  const root = payload as Record<string, unknown>;
+  const list = Array.isArray(root.data)
+    ? root.data
+    : Array.isArray(root.list)
+      ? root.list
+      : Array.isArray(root.apps)
+        ? root.apps
+        : null;
+  if (!list) return { items: [], total: 0 };
+  const items = (list as BtDockerApp[]).filter((item) => item && typeof item.appname === "string");
+  return { items, total: items.length };
+}
+
+function pickDockerAppVersion(app: BtDockerApp): { mVersion: string; sVersion: string } | null {
+  const versions = app.appversion;
+  if (!Array.isArray(versions) || versions.length === 0) {
+    const raw = (app.version || "").trim();
+    if (!raw) return null;
+    const [m, ...rest] = raw.split(".");
+    return { mVersion: m || raw, sVersion: rest.join(".") || "0" };
+  }
+  const first = versions[0];
+  if (!first) return null;
+  const mVersion = String(first.m_version ?? "").trim();
+  const sRaw = first.s_version;
+  const sVersion = Array.isArray(sRaw)
+    ? String(sRaw[0] ?? "0").trim()
+    : String(sRaw ?? "0").trim();
+  if (!mVersion) return null;
+  return { mVersion, sVersion: sVersion || "0" };
+}
+
+function randomPort(): number {
+  return 30000 + Math.floor(Math.random() * 10000);
+}
+
+function randomSecret(length = 16): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < length; i += 1) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)]!;
+  }
+  return out;
+}
+
+/** 从 get_apps 的 env/field 生成默认安装参数。 */
+function buildDockerAppDefaultParams(app: BtDockerApp): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  const applyDefault = (key: string, type: string | undefined, fallback: unknown) => {
+    if (!key || key in out) return;
+    if (fallback !== undefined && fallback !== null && fallback !== "") {
+      if (typeof fallback === "string" || typeof fallback === "number" || typeof fallback === "boolean") {
+        out[key] = fallback;
+        return;
+      }
+    }
+    const lowerType = (type || "").toLowerCase();
+    const lowerKey = key.toLowerCase();
+    if (lowerType === "port" || lowerKey.endsWith("_port") || lowerKey === "port") {
+      out[key] = randomPort();
+      return;
+    }
+    if (
+      lowerType === "password" ||
+      lowerKey.includes("password") ||
+      lowerKey.includes("passwd") ||
+      lowerKey.includes("secret")
+    ) {
+      out[key] = randomSecret(16);
+      return;
+    }
+    if (lowerType === "checkbox" || lowerType === "bool" || lowerType === "boolean") {
+      out[key] = true;
+    }
+  };
+
+  for (const field of app.field ?? []) {
+    applyDefault(String(field.attr ?? "").trim(), field.type, field.default);
+  }
+  for (const env of app.env ?? []) {
+    const key = String(env.key ?? "").trim();
+    if (key === "version") {
+      const ver = pickDockerAppVersion(app);
+      if (ver) out.version = `${ver.mVersion}.${ver.sVersion}`;
+      continue;
+    }
+    applyDefault(key, env.type, env.default);
+  }
+  return out;
 }
 
 /** 从服务器连接配置创建客户端。connectionId 用于 Vault 中空密钥时回源。 */

@@ -4,6 +4,7 @@ import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
 import { TextInput } from "@/components/ui/form/TextInput";
 import { CodeEditor } from "@/components/ui/content/CodeEditor";
 import { createBtPanelClient, type BtCrontabParams } from "@/lib/btpanel";
+import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import type { ServerEntry } from "./serverConnection";
 
@@ -17,6 +18,9 @@ type Props = {
 
 const CYCLE_TYPES = ["minute-n", "hour", "day", "day-n", "week", "month"] as const;
 const S_TYPES = ["toShell", "toUrl"] as const;
+
+const DANGEROUS_SCRIPT_RE =
+  /\b(rm\s+-rf|mkfs|dd\s+if=|>\s*\/dev\/sd|drop\s+database|shutdown|reboot|format\s+[a-z]:)\b/i;
 
 function formatError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -133,6 +137,13 @@ export function BtCreateCronjobDialog({
     if (!canSubmit) {
       setError(t("server.create.cronjob.required"));
       return;
+    }
+    if (sType === "toShell" && DANGEROUS_SCRIPT_RE.test(sBody)) {
+      const ok = await appConfirm(
+        t("server.create.cronjob.scriptDangerConfirm"),
+        t("common.confirm"),
+      );
+      if (!ok) return;
     }
     setBusy(true);
     setError(null);

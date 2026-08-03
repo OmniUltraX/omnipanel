@@ -1,11 +1,15 @@
 import { useCallback } from "react";
 import type { ServerEntry } from "./serverConnection";
-import { EMPTY_SERVER_PANEL_RESOURCE_CACHE } from "./serverPanelCache";
+import {
+  EMPTY_SERVER_PANEL_RESOURCE_CACHE,
+  type ServerPanelSiteGroup,
+} from "./serverPanelCache";
 import { useServerPanelCacheAutoRefresh } from "./useServerPanelCacheAutoRefresh";
 import { useServerPanelCacheStore } from "../../../stores/serverPanelCacheStore";
 
 interface UseServerWebsitesResult {
   items: Record<string, unknown>[];
+  siteGroups: ServerPanelSiteGroup[];
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -40,7 +44,8 @@ export function useServerWebsites(server: ServerEntry | null): UseServerWebsites
   });
 
   return {
-    items: entry.websites,
+    items: Array.isArray(entry.websites) ? entry.websites : [],
+    siteGroups: Array.isArray(entry.siteGroups) ? entry.siteGroups : [],
     loading: Boolean(server) && refreshing && !hasCache,
     refreshing: Boolean(server) && refreshing,
     error: serverId ? entry.error : null,

@@ -8,6 +8,8 @@ import { TextEditorSubWindow } from "../../../components/textEditor/TextEditorSu
 import type { TextEditorIO } from "../../../components/textEditor/types";
 import { createBtPanelClient } from "../../../lib/btpanel";
 import { createOnePanelClient } from "../../../lib/onepanel";
+import { appConfirm } from "../../../lib/appConfirm";
+import { showToast } from "../../../stores/toastStore";
 import { makeBtPanelSftpAdapter } from "./btPanelSftpAdapter";
 import { makeOnePanelSftpAdapter } from "./onePanelSftpAdapter";
 import type { ServerEntry } from "./serverConnection";
@@ -29,17 +31,26 @@ function KvPanel({
   rows,
   loading,
   error,
+  emptyText,
 }: {
   rows: Array<{ label: string; value: string }>;
   loading?: boolean;
   error?: string | null;
+  emptyText?: string;
 }) {
   const { t } = useI18n();
   if (loading) {
-    return <div className="server-apps-empty">{t("server.refreshing")}</div>;
+    return <div className="server-apps-empty">{t("common.loading")}</div>;
   }
   if (error) {
     return <div className="server-apps-error">{error}</div>;
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="server-apps-empty">
+        {emptyText || t("server.websites.detailEmpty")}
+      </div>
+    );
   }
   return (
     <div className="drawer-section server-website-detail">
@@ -480,6 +491,42 @@ export function WebsiteCertSubWindow({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [closingSsl, setClosingSsl] = useState(false);
+
+  const reload = async () => {
+    if (server.serviceType === "bt") {
+      if (!siteName) throw new Error(t("server.websites.missingSiteName"));
+      const client = createBtPanelClient(server.address, server.key, server.id);
+      const detail = (await client.getSiteSsl(siteName)) as Record<string, unknown>;
+      if (!detail || Object.keys(detail).length === 0) {
+        setError(t("server.websites.certEmpty"));
+        setData(null);
+      } else {
+        setError(null);
+        setData(detail);
+      }
+      return;
+    }
+    const client = createOnePanelClient(server.address, server.key, server.id);
+    let detail: Record<string, unknown> = {};
+    if (websiteId != null) {
+      try {
+        detail = await client.getWebsiteSsl(websiteId);
+      } catch {
+        detail = {};
+      }
+    }
+    if ((!detail || Object.keys(detail).length === 0) && sslId != null) {
+      detail = await client.getSslById(sslId);
+    }
+    if (!detail || Object.keys(detail).length === 0) {
+      setError(t("server.websites.certEmpty"));
+      setData(null);
+    } else {
+      setError(null);
+      setData(detail);
+    }
+  };
 
   useEffect(() => {
     if (!open) {
@@ -497,40 +544,7 @@ export function WebsiteCertSubWindow({
     setError(null);
     void (async () => {
       try {
-        if (server.serviceType === "bt") {
-          if (!siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          const detail = (await client.getSiteSsl(siteName)) as Record<string, unknown>;
-          if (!cancelled) {
-            if (!detail || Object.keys(detail).length === 0) {
-              setError(t("server.websites.certEmpty"));
-              setData(null);
-            } else {
-              setData(detail);
-            }
-          }
-          return;
-        }
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        let detail: Record<string, unknown> = {};
-        if (websiteId != null) {
-          try {
-            detail = await client.getWebsiteSsl(websiteId);
-          } catch {
-            detail = {};
-          }
-        }
-        if ((!detail || Object.keys(detail).length === 0) && sslId != null) {
-          detail = await client.getSslById(sslId);
-        }
-        if (!cancelled) {
-          if (!detail || Object.keys(detail).length === 0) {
-            setError(t("server.websites.certEmpty"));
-            setData(null);
-          } else {
-            setData(detail);
-          }
-        }
+        await reload();
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
@@ -543,7 +557,30 @@ export function WebsiteCertSubWindow({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随窗口打开参数刷新
   }, [open, server, websiteId, siteName, sslId, t]);
+
+  const handleCloseSsl = async () => {
+    if (server.serviceType !== "bt" || !siteName || closingSsl) return;
+    const confirmed = await appConfirm(
+      t("server.certificates.btSslCloseConfirm", { name: siteName }),
+      t("server.certificates.btSslClose"),
+    );
+    if (!confirmed) return;
+    setClosingSsl(true);
+    setError(null);
+    try {
+      const client = createBtPanelClient(server.address, server.key, server.id);
+      await client.closeSiteSsl(siteName);
+      showToast(t("server.certificates.btSslCloseSuccess"));
+      setData(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setClosingSsl(false);
+    }
+  };
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -583,10 +620,23 @@ export function WebsiteCertSubWindow({
       heightRatio={0.72}
       className="server-website-subwindow"
     >
-      <KvPanel rows={rows} loading={loading} error={error} />
+      <KvPanel rows={rows} loading={loading} error={error} emptyText={t("server.websites.certEmpty")} />
       {data && typeof data.primaryDomain === "string" ? (
         <div className="form-hint" style={{ padding: "0 12px 12px" }}>
           {certificateRowLabel(data)}
+        </div>
+      ) : null}
+      {server.serviceType === "bt" && siteName && data ? (
+        <div style={{ padding: "0 12px 12px", display: "flex", gap: 8 }}>
+          <Button
+            type="button"
+            variant="danger"
+            size="sm"
+            disabled={closingSsl || loading}
+            onClick={() => void handleCloseSsl()}
+          >
+            {closingSsl ? t("common.saving") : t("server.certificates.btSslClose")}
+          </Button>
         </div>
       ) : null}
     </SubWindow>

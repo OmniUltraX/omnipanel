@@ -222,6 +222,26 @@ export class OnePanelClient {
     return this.requestViaFetch<T>(method, pathWithQuery, options.body, apiKey);
   }
 
+  /**
+   * v1 OrderBy=created_at，v2 OrderBy=createdAt；oneof 失败时自动换一种再试。
+   */
+  private async requestWithOrderByFallback<T = unknown>(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
+    try {
+      return await this.request<T>({ method: "POST", path, body });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/OrderBy/i.test(msg) || !/oneof/i.test(msg)) throw err;
+      const orderBy = String(body.orderBy ?? "");
+      const alt =
+        orderBy === "createdAt" ? "created_at" : orderBy === "created_at" ? "createdAt" : "";
+      if (!alt) throw err;
+      return this.request<T>({ method: "POST", path, body: { ...body, orderBy: alt } });
+    }
+  }
+
   /** 原始文本响应（日志下载等非 JSON 接口）。 */
   async requestText(
     method: string,
@@ -257,22 +277,33 @@ export class OnePanelClient {
   ): Promise<string> {
     const timestamp = Math.floor(Date.now() / 1000);
     const hasBody = body != null || method === "POST" || method === "PUT" || method === "PATCH";
-    const res = await fetch(`${this.baseUrl}/api/v2${path}`, {
-      method,
-      headers: {
-        Accept: "application/json, text/plain, */*",
-        ...(hasBody ? { "Content-Type": "application/json" } : {}),
-        ...buildOnePanelAuthHeaders(apiKey, timestamp),
-      },
-      body: hasBody ? JSON.stringify(body ?? {}) : undefined,
-    });
-
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
-      throw new OnePanelApiError(`1Panel API 错误 (${res.status}): ${hint}`, res.status, text);
+    const headers = {
+      Accept: "application/json, text/plain, */*",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...buildOnePanelAuthHeaders(apiKey, timestamp),
+    };
+    const payload = hasBody ? JSON.stringify(body ?? {}) : undefined;
+    let lastErr: Error | null = null;
+    for (const prefix of ["/api/v2", "/api/v1"]) {
+      const res = await fetch(`${this.baseUrl}${prefix}${path}`, {
+        method,
+        headers,
+        body: payload,
+      });
+      const text = await res.text().catch(() => "");
+      const trimmed = text.trim().toLowerCase();
+      if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
+        lastErr = new OnePanelApiError("1Panel 返回了 HTML 页面而非 JSON", res.status, text);
+        continue;
+      }
+      if (!res.ok) {
+        const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
+        lastErr = new OnePanelApiError(`1Panel API 错误 (${res.status}): ${hint}`, res.status, text);
+        continue;
+      }
+      return text;
     }
-    return text;
+    throw lastErr ?? new OnePanelApiError("1Panel 请求失败", 0);
   }
 
   /** POST /containers/download/log — 下载 Compose 应用日志文本。 */
@@ -293,32 +324,47 @@ export class OnePanelClient {
   ): Promise<T> {
     const timestamp = Math.floor(Date.now() / 1000);
     const hasBody = body != null || method === "POST" || method === "PUT" || method === "PATCH";
-    const res = await fetch(`${this.baseUrl}/api/v2${pathWithQuery}`, {
-      method,
-      headers: {
-        Accept: "application/json",
-        ...(hasBody ? { "Content-Type": "application/json" } : {}),
-        ...buildOnePanelAuthHeaders(apiKey, timestamp),
-      },
-      body: hasBody ? JSON.stringify(body ?? {}) : undefined,
-    });
-
-    const text = await res.text().catch(() => "");
-    if (!res.ok) {
-      const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
-      throw new OnePanelApiError(`1Panel API 错误 (${res.status}): ${hint}`, res.status, text);
+    const headers = {
+      Accept: "application/json",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...buildOnePanelAuthHeaders(apiKey, timestamp),
+    };
+    const payload = hasBody ? JSON.stringify(body ?? {}) : undefined;
+    let lastErr: Error | null = null;
+    for (const prefix of ["/api/v2", "/api/v1"]) {
+      const res = await fetch(`${this.baseUrl}${prefix}${pathWithQuery}`, {
+        method,
+        headers,
+        body: payload,
+      });
+      const text = await res.text().catch(() => "");
+      const trimmed = text.trim().toLowerCase();
+      if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
+        lastErr = new OnePanelApiError("1Panel 返回了 HTML 页面而非 JSON", res.status, text);
+        continue;
+      }
+      if (!res.ok) {
+        const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
+        lastErr = new OnePanelApiError(`1Panel API 错误 (${res.status}): ${hint}`, res.status, text);
+        continue;
+      }
+      return parseResponseText<T>(text);
     }
-
-    return parseResponseText<T>(text);
+    throw lastErr ?? new OnePanelApiError("1Panel 请求失败", 0);
   }
 
-  /** 连通性测试（官方文档示例接口）。 */
+  /** 连通性测试（兼容 v1 / v2）。 */
   async testConnection(): Promise<boolean> {
     try {
       await this.getDeviceBase();
       return true;
     } catch {
-      return false;
+      try {
+        await this.getOsInfo();
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -345,10 +391,17 @@ export class OnePanelClient {
 
   /** GET /dashboard/current/:ioOption/:netOption — 仪表盘实时指标。 */
   async getDashboardCurrent(ioOption = "all", netOption = "all"): Promise<OnePanelDashboardCurrent> {
-    return this.request<OnePanelDashboardCurrent>({
-      method: "GET",
-      path: `/dashboard/current/${ioOption}/${netOption}`,
-    });
+    try {
+      return await this.request<OnePanelDashboardCurrent>({
+        method: "GET",
+        path: `/dashboard/current/${ioOption}/${netOption}`,
+      });
+    } catch {
+      // 1Panel v1 无 current 接口；实时数据挂在 /dashboard/base
+      const base = await this.getDashboardBase(ioOption, netOption);
+      if (base.currentInfo) return base.currentInfo;
+      throw new OnePanelApiError("1Panel 未返回实时监控数据", 0);
+    }
   }
 
   /** POST /hosts/monitor/search — 监控历史时序。 */
@@ -372,13 +425,17 @@ export class OnePanelClient {
     });
   }
 
-  /** GET /dashboard/current/top/cpu|mem — Top 进程。 */
+  /** GET /dashboard/current/top/cpu|mem — Top 进程（v1 无此接口时返回空）。 */
   async getTopProcesses(kind: "cpu" | "mem" = "cpu"): Promise<OnePanelProcess[]> {
-    const data = await this.request<OnePanelProcess[] | { items?: OnePanelProcess[] }>({
-      method: "GET",
-      path: `/dashboard/current/top/${kind}`,
-    });
-    return unwrapList(data);
+    try {
+      const data = await this.request<OnePanelProcess[] | { items?: OnePanelProcess[] }>({
+        method: "GET",
+        path: `/dashboard/current/top/${kind}`,
+      });
+      return unwrapList(data);
+    } catch {
+      return [];
+    }
   }
 
   /** POST /process/listening — 监听端口进程（备用）。 */
@@ -561,14 +618,26 @@ export class OnePanelClient {
     });
   }
 
-  /** POST /cronjobs/load/info — 计划任务详情。 */
+  /** POST /cronjobs/load/info — 计划任务详情（v1 无此接口时回退 search）。 */
   async loadCronjobInfo(id: number): Promise<Record<string, unknown>> {
-    const data = await this.request<Record<string, unknown>>({
-      method: "POST",
-      path: "/cronjobs/load/info",
-      body: { id },
-    });
-    return data && typeof data === "object" ? data : {};
+    try {
+      const data = await this.request<Record<string, unknown>>({
+        method: "POST",
+        path: "/cronjobs/load/info",
+        body: { id },
+      });
+      return data && typeof data === "object" ? data : {};
+    } catch {
+      const items = await this.searchCronjobs({ pageSize: 200 });
+      const hit = items.find((item) => {
+        const row = item as Record<string, unknown>;
+        return Number(row.id) === Number(id);
+      }) as Record<string, unknown> | undefined;
+      if (!hit) {
+        throw new OnePanelApiError(`未找到计划任务 #${id}`, 404);
+      }
+      return hit;
+    }
   }
 
   /** POST /cronjobs/del — 删除计划任务。 */
@@ -584,6 +653,24 @@ export class OnePanelClient {
         cleanData: options.cleanData ?? false,
         cleanRemoteData: options.cleanRemoteData ?? false,
       },
+    });
+  }
+
+  /** POST /cronjobs/status — 更新计划任务启用状态。 */
+  async updateCronjobStatus(id: number, status: "Enable" | "Disable"): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/cronjobs/status",
+      body: { id, status },
+    });
+  }
+
+  /** POST /cronjobs/handle — 立即执行一次计划任务。 */
+  async handleCronjobOnce(id: number): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/cronjobs/handle",
+      body: { id },
     });
   }
 
@@ -677,21 +764,19 @@ export class OnePanelClient {
     return { filename, bytes };
   }
 
-  /** POST /websites/search — 网站列表（完整路径 `/api/v2/websites/search`）。 */
+  /** POST /websites/search — 网站列表。 */
   async searchWebsites(body: Record<string, unknown> = {}): Promise<unknown[]> {
-    const data = await this.request<unknown>({
-      method: "POST",
-      path: "/websites/search",
-      body: {
-        page: 1,
-        pageSize: 100,
-        name: "",
-        websiteGroupId: 0,
-        orderBy: "createdAt",
-        order: "descending",
-        ...body,
-      },
-    });
+    const payload = {
+      page: 1,
+      pageSize: 100,
+      name: "",
+      websiteGroupId: 0,
+      // 默认 v2；v1 会在 requestWithOrderByFallback 里改成 created_at
+      orderBy: "createdAt",
+      order: "descending",
+      ...body,
+    };
+    const data = await this.requestWithOrderByFallback<unknown>("/websites/search", payload);
     return unwrapList(data);
   }
 
@@ -735,7 +820,8 @@ export class OnePanelClient {
   }
 
   /**
-   * POST /files/read/website?operateNode=local — 按行读取网站日志。
+   * 按行读取网站日志。
+   * v2: POST /files/read/website；v1: POST /websites/log。
    * name 通常为 access.log / error.log。
    */
   async readWebsiteLog(params: {
@@ -744,19 +830,39 @@ export class OnePanelClient {
     page?: number;
     pageSize?: number;
   }): Promise<{ content: string; end?: boolean; path?: string }> {
-    const data = await this.request<Record<string, unknown>>({
-      method: "POST",
-      path: "/files/read/website",
-      query: { operateNode: "local" },
-      body: {
-        id: Number(params.id),
-        type: "website",
-        name: params.name ?? "access.log",
-        page: params.page ?? 1,
-        pageSize: params.pageSize ?? 500,
-      },
-    });
-    return parseFileLineContent(data);
+    const name = params.name ?? "access.log";
+    const page = params.page ?? 1;
+    const pageSize = params.pageSize ?? 500;
+    const id = Number(params.id);
+    try {
+      const data = await this.request<Record<string, unknown>>({
+        method: "POST",
+        path: "/files/read/website",
+        query: { operateNode: "local" },
+        body: {
+          id,
+          type: "website",
+          name,
+          page,
+          pageSize,
+        },
+      });
+      return parseFileLineContent(data);
+    } catch {
+      const logType = name.replace(/\.log$/i, "") || "access";
+      const data = await this.request<Record<string, unknown>>({
+        method: "POST",
+        path: "/websites/log",
+        body: {
+          id,
+          operate: "get",
+          logType,
+          page,
+          pageSize,
+        },
+      });
+      return parseFileLineContent(data);
+    }
   }
 
   /**
@@ -918,19 +1024,17 @@ export class OnePanelClient {
 
   /** POST /cronjobs/search — 计划任务列表。 */
   async searchCronjobs(body: Record<string, unknown> = {}): Promise<unknown[]> {
-    const data = await this.request<unknown>({
-      method: "POST",
-      path: "/cronjobs/search",
-      body: {
-        page: 1,
-        pageSize: 100,
-        info: "",
-        groupIDs: [],
-        orderBy: "createdAt",
-        order: "descending",
-        ...body,
-      },
-    });
+    const payload = {
+      page: 1,
+      pageSize: 100,
+      info: "",
+      groupIDs: [],
+      // 默认 v2 createdAt；v1 自动回退 created_at
+      orderBy: "createdAt",
+      order: "descending",
+      ...body,
+    };
+    const data = await this.requestWithOrderByFallback<unknown>("/cronjobs/search", payload);
     return unwrapList(data);
   }
 

@@ -123,6 +123,66 @@ async fn send_request(
     path: &str,
     body: Option<Value>,
 ) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
+    match send_request_with_api_fallback(host, api_key, method, path, body.clone()).await {
+        Ok(v) => Ok(v),
+        Err(err) => {
+            // 探测/同步偶发写成 http，而面板实际为 HTTPS（自签）→ 自动回退重试一次
+            let base = host.trim();
+            if let Some(rest) = base.strip_prefix("http://") {
+                let https_host = format!("https://{rest}");
+                match send_request_with_api_fallback(&https_host, api_key, method, path, body).await
+                {
+                    Ok(v) => Ok(v),
+                    Err(_) => Err(err),
+                }
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
+
+/// 优先 `/api/v2`，遇 HTML/路由不存在时回退 `/api/v1`（1Panel 1.x）。
+async fn send_request_with_api_fallback(
+    host: &str,
+    api_key: &str,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
+    let mut last_err: Option<OmniError> = None;
+    for api_prefix in ["/api/v2", "/api/v1"] {
+        match send_request_once(host, api_key, method, path, body.clone(), api_prefix).await {
+            Ok(v) => {
+                // 某些错误路径会以 HTTP 200 + HTML 伪装（入口页），需换 API 版本再试
+                let text = String::from_utf8_lossy(&v.2);
+                let trimmed = text.trim_start_matches('\u{feff}').trim();
+                let lower = trimmed.to_ascii_lowercase();
+                if lower.starts_with("<!doctype") || lower.starts_with("<html") {
+                    last_err = Some(
+                        OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
+                            .with_cause(truncate_text(trimmed, 300)),
+                    );
+                    continue;
+                }
+                return Ok(v);
+            }
+            Err(err) => {
+                last_err = Some(err);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| OmniError::internal("1Panel 请求失败")))
+}
+
+async fn send_request_once(
+    host: &str,
+    api_key: &str,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+    api_prefix: &str,
+) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
     let base = normalize_base_url(host)?;
     let timestamp = current_timestamp();
     let token = build_token(api_key, timestamp);
@@ -136,10 +196,12 @@ async fn send_request(
     } else {
         format!("/{path}")
     };
-    let url = format!("{base}/api/v2{path}");
+    let url = format!("{base}{api_prefix}{path}");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
+        // 面板常见自签 HTTPS；与宝塔客户端一致放行，否则握手失败会变成「error sending request」
+        .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
 
@@ -351,57 +413,71 @@ async fn send_multipart(
     timeout_secs: u64,
 ) -> Result<(), OmniError> {
     let base = normalize_base_url(host)?;
-    let timestamp = current_timestamp();
-    let token = build_token(api_key, timestamp);
     let url_path = if path.starts_with('/') {
         path.to_string()
     } else {
         format!("/{path}")
     };
-    let url = format!("{base}/api/v2{url_path}");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()
-        .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
+    let mut last_err: Option<OmniError> = None;
+    for api_prefix in ["/api/v2", "/api/v1"] {
+        let timestamp = current_timestamp();
+        let token = build_token(api_key, timestamp);
+        let url = format!("{base}{api_prefix}{url_path}");
 
-    let resp = client
-        .post(&url)
-        .header("Accept", "application/json, text/plain, */*")
-        .header(
-            "Content-Type",
-            format!("multipart/form-data; boundary={boundary}"),
-        )
-        .header("1Panel-Token", token)
-        .header("1Panel-Timestamp", timestamp.to_string())
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "1Panel 上传失败").with_cause(e.to_string())
-        })?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
 
-    let status = resp.status();
-    let bytes = resp.bytes().await.unwrap_or_default();
+        let resp = match client
+            .post(&url)
+            .header("Accept", "application/json, text/plain, */*")
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .header("1Panel-Token", token)
+            .header("1Panel-Timestamp", timestamp.to_string())
+            .body(body.clone())
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(
+                    OmniError::new(ErrorCode::Connection, "1Panel 上传失败").with_cause(e.to_string()),
+                );
+                continue;
+            }
+        };
 
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        let text = String::from_utf8_lossy(&bytes).into_owned();
-        return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text));
-    }
+        let status = resp.status();
+        let bytes = resp.bytes().await.unwrap_or_default();
+        let text = String::from_utf8_lossy(&bytes);
+        let trimmed = text.trim_start_matches('\u{feff}').trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("<!doctype") || lower.starts_with("<html") {
+            last_err = Some(
+                OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
+                    .with_cause(truncate_text(trimmed, 300)),
+            );
+            continue;
+        }
 
-    if !status.is_success() {
-        return Err(
-            OmniError::new(ErrorCode::Connection, format!("1Panel 上传失败 ({status})"))
-                .with_cause(truncate_text(
-                    std::str::from_utf8(&bytes).unwrap_or(""),
-                    300,
-                )),
-        );
-    }
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text.into_owned()));
+        }
 
-    // 成功时也可能返回 JSON envelope，code != 200 视为失败
-    if let Ok(text) = std::str::from_utf8(&bytes) {
-        let trimmed = text.trim();
+        if !status.is_success() {
+            last_err = Some(
+                OmniError::new(ErrorCode::Connection, format!("1Panel 上传失败 ({status})"))
+                    .with_cause(truncate_text(trimmed, 300)),
+            );
+            continue;
+        }
+
         if trimmed.starts_with('{') {
             if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
                 if let Some(code) = value.get("code").and_then(|v| v.as_i64())
@@ -415,9 +491,11 @@ async fn send_multipart(
                 }
             }
         }
+
+        return Ok(());
     }
 
-    Ok(())
+    Err(last_err.unwrap_or_else(|| OmniError::internal("1Panel 上传失败")))
 }
 
 async fn upload_file_single(
@@ -520,9 +598,34 @@ pub async fn upload_file(
     }
 }
 
-/// 连通性测试（官方文档示例接口 POST /toolbox/device/base）。
+/// 连通性测试：兼容 1Panel v2（device/base）与 v1（dashboard/base/os）。
 pub async fn test_connection(host: &str, api_key: &str) -> Result<Value, OmniError> {
-    request(host, api_key, "POST", "/toolbox/device/base", None).await
+    let candidates = [
+        ("POST", "/toolbox/device/base", None),
+        ("GET", "/dashboard/base/os", None),
+        ("GET", "/dashboard/base/all/all", None),
+    ];
+    let mut last_err: Option<OmniError> = None;
+    for (method, path, body) in candidates {
+        match request(host, api_key, method, path, body).await {
+            Ok(value) => {
+                if let Some(code) = value.get("code").and_then(|v| v.as_i64()) {
+                    if code == 200 {
+                        return Ok(value);
+                    }
+                    let message = value
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1Panel API 错误");
+                    last_err = Some(OmniError::new(ErrorCode::Connection, message));
+                    continue;
+                }
+                return Ok(value);
+            }
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| OmniError::internal("1Panel 连通性测试失败")))
 }
 
 fn resolve_icon_value(base: &str, data: &Value) -> Result<String, OmniError> {
@@ -603,56 +706,79 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
     }
 
     let base = normalize_base_url(host)?;
-    let timestamp = current_timestamp();
-    let token = build_token(api_key, timestamp);
-    let url = format!("{base}/api/v2/apps/icon/{key}");
+    let mut last_err: Option<OmniError> = None;
+    for api_prefix in ["/api/v2", "/api/v1"] {
+        let timestamp = current_timestamp();
+        let token = build_token(api_key, timestamp);
+        let url = format!("{base}{api_prefix}/apps/icon/{key}");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
 
-    let resp = client
-        .get(&url)
-        .header("Accept", "application/json, image/*, */*")
-        .header("1Panel-Token", token)
-        .header("1Panel-Timestamp", timestamp.to_string())
-        .send()
-        .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "获取应用图标失败").with_cause(e.to_string())
-        })?;
+        let resp = match client
+            .get(&url)
+            .header("Accept", "application/json, image/*, */*")
+            .header("1Panel-Token", token)
+            .header("1Panel-Timestamp", timestamp.to_string())
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(
+                    OmniError::new(ErrorCode::Connection, "获取应用图标失败")
+                        .with_cause(e.to_string()),
+                );
+                continue;
+            }
+        };
 
-    let status = resp.status();
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
 
-    let bytes = resp.bytes().await.unwrap_or_default();
+        let bytes = resp.bytes().await.unwrap_or_default();
+        let text = String::from_utf8_lossy(&bytes);
+        let trimmed = text.trim_start_matches('\u{feff}').trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("<!doctype") || lower.starts_with("<html") {
+            last_err = Some(
+                OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
+                    .with_cause(truncate_text(trimmed, 300)),
+            );
+            continue;
+        }
 
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误"));
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误"));
+        }
+
+        if !status.is_success() {
+            last_err = Some(
+                OmniError::new(
+                    ErrorCode::Connection,
+                    format!("获取应用图标失败 ({status})"),
+                )
+                .with_cause(truncate_text(trimmed, 300)),
+            );
+            continue;
+        }
+
+        return icon_bytes_to_data_url(&base, &content_type, &bytes);
     }
 
-    if !status.is_success() {
-        return Err(OmniError::new(
-            ErrorCode::Connection,
-            format!("获取应用图标失败 ({status})"),
-        )
-        .with_cause(truncate_text(
-            std::str::from_utf8(&bytes).unwrap_or(""),
-            300,
-        )));
-    }
-
-    icon_bytes_to_data_url(&base, &content_type, &bytes)
+    Err(last_err.unwrap_or_else(|| OmniError::not_found("应用图标为空")))
 }
 
 #[cfg(test)]

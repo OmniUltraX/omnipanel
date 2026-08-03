@@ -62,9 +62,9 @@ export function websiteRowType(row: Record<string, unknown>): string {
   return text || "—";
 }
 
-/** 网站分组名称（1Panel WebsiteDTO.group） */
+/** 网站分组名称（1Panel WebsiteDTO.group；宝塔 type_id → type_name/group） */
 export function websiteRowGroup(row: Record<string, unknown>): string {
-  const direct = row.group ?? row.groupName ?? row.websiteGroup;
+  const direct = row.group ?? row.groupName ?? row.websiteGroup ?? row.type_name ?? row.typeName;
   if (typeof direct === "string" && direct.trim()) {
     return direct.trim();
   }
@@ -75,6 +75,14 @@ export function websiteRowGroup(row: Record<string, unknown>): string {
     }
   }
   return "—";
+}
+
+/** 网站分组 ID（1Panel websiteGroupId；宝塔 type_id） */
+export function websiteRowGroupId(row: Record<string, unknown>): string | null {
+  const raw = row.type_id ?? row.websiteGroupId ?? row.websiteGroupID ?? row.groupId;
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
+  return null;
 }
 
 /** 是否为运行中状态（用于启停按钮） */

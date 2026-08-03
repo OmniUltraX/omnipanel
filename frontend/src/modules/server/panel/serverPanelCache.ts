@@ -14,10 +14,18 @@ export function isServerPanelCacheStale(
   return now - refreshedAt >= staleMs;
 }
 
+/** 网站分组（宝塔 site types / 1Panel website groups） */
+export type ServerPanelSiteGroup = {
+  id: string;
+  name: string;
+};
+
 export type ServerPanelResourceCache = {
   websites: Record<string, unknown>[];
   certificates: Record<string, unknown>[];
-  /** 应用市场列表（1Panel） */
+  /** 网站分组列表（筛选下拉用） */
+  siteGroups: ServerPanelSiteGroup[];
+  /** 应用市场列表（1Panel / 宝塔 Docker 商店，统一为卡片模型） */
   apps: OnePanelApp[];
   /** 已安装应用（用于市场卡片「已安装」标记） */
   installedApps: OnePanelInstalledApp[];
@@ -32,6 +40,7 @@ export type ServerPanelResourceCache = {
 export const EMPTY_SERVER_PANEL_RESOURCE_CACHE: ServerPanelResourceCache = {
   websites: [],
   certificates: [],
+  siteGroups: [],
   apps: [],
   installedApps: [],
   refreshedAt: null,
@@ -42,6 +51,7 @@ export const EMPTY_SERVER_PANEL_RESOURCE_CACHE: ServerPanelResourceCache = {
 
 export const EMPTY_SERVER_PANEL_WEBSITES = EMPTY_SERVER_PANEL_RESOURCE_CACHE.websites;
 export const EMPTY_SERVER_PANEL_CERTIFICATES = EMPTY_SERVER_PANEL_RESOURCE_CACHE.certificates;
+export const EMPTY_SERVER_PANEL_SITE_GROUPS = EMPTY_SERVER_PANEL_RESOURCE_CACHE.siteGroups;
 export const EMPTY_SERVER_PANEL_APPS = EMPTY_SERVER_PANEL_RESOURCE_CACHE.apps;
 export const EMPTY_SERVER_PANEL_INSTALLED_APPS = EMPTY_SERVER_PANEL_RESOURCE_CACHE.installedApps;
 
@@ -49,6 +59,7 @@ export function emptyServerPanelResourceCache(): ServerPanelResourceCache {
   return {
     websites: [],
     certificates: [],
+    siteGroups: [],
     apps: [],
     installedApps: [],
     refreshedAt: null,
@@ -58,7 +69,7 @@ export function emptyServerPanelResourceCache(): ServerPanelResourceCache {
   };
 }
 
-/** 兼容旧版本地缓存缺少 apps 字段。 */
+/** 兼容旧版本地缓存缺少 apps / siteGroups 字段。 */
 export function normalizeServerPanelResourceCache(
   raw: Partial<ServerPanelResourceCache> | null | undefined,
 ): ServerPanelResourceCache {
@@ -66,6 +77,7 @@ export function normalizeServerPanelResourceCache(
   return {
     websites: Array.isArray(raw.websites) ? raw.websites : [],
     certificates: Array.isArray(raw.certificates) ? raw.certificates : [],
+    siteGroups: Array.isArray(raw.siteGroups) ? raw.siteGroups : [],
     apps: Array.isArray(raw.apps) ? raw.apps : [],
     installedApps: Array.isArray(raw.installedApps) ? raw.installedApps : [],
     refreshedAt: typeof raw.refreshedAt === "number" ? raw.refreshedAt : null,
