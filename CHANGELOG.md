@@ -2,6 +2,43 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.0] - 2026-08-03
+
+### 新增
+
+- **服务器 · 面板四域与 1Panel/宝塔打通**
+  - 网站 / 应用 / 证书 / 计划任务四域完善；SSH 探测宝塔与 1Panel，支持一键开启 API 并写入面板连接
+  - 1Panel **v1 / v2** 兼容：API 开关（`enable` / `Enable`）、`OrderBy`、监控 / 日志 / 任务接口自动回退
+  - 无 `sqlite3` 时用 Python 读库取 ApiKey；禁止静默默认错误端口
+  - 宝塔应用市场与应用图标处理增强；面板资源缓存过期自动回源
+- **云厂商**：新增云资源侧栏与多云厂商图标 / 入口
+- **SSH · tmux 远端会话治理**
+  - tmux control mode 协议与会话管理；终端传输模式 UI；三段式安装与快捷启动文案
+- **文件 · 跨连接传输**
+  - 跨连接文件传输引擎；收藏 / 全局收藏与侧栏体验完善
+- **快捷启动（Quick Launcher）**
+  - 全局快捷键唤起；剪贴板实体识别；跨窗外观同步
+- **AI**
+  - `omni_ask_user` 结构化澄清表单；工具结果与上下文敏感信息脱敏
+- **安全 · Vault**：凭据统一写入系统钥匙串，避免前端落盘明文
+- **数据库**：SQL 结果预览与单元格交互；表预览分页大小；列宽与末列拉伸优化
+- **窗口 / 侧栏**：模块窗 Snap Layout；小程序入口支持 H5 二维码；个人中心菜单合并
+- **开发**：Tauri MCP Bridge，便于 Cursor 调试驱动桌面端
+
+### 修复
+
+- **侧栏**：恢复 `VerticalSplitSidebar` 的 `autoSize` / 高度持久化与段顶拖拽方向（误删回归）
+- **终端**：WSL 会话误启为 PowerShell、路径显示；Blocks 孤儿 running 无法停止；OSC 133 退出码
+- **SSH**：连接池死连接；浅色主题深色残留
+- **数据库**：连接栏导入下拉按钮与旁路 icon 画风不一致
+- **平台**：macOS EventLoop 非主线程启动崩溃；`gen:bindings` 堆溢出与 64 位类型导出；`tsc` / cargo 警告清理
+- **发布**：Release / updater 下载端点与 User-Agent 对齐新仓库路径 `OmniUltraX/omnipanel`
+
+### 变更
+
+- 发版仍由 `v*` tag 触发 `.github/workflows/build.yml`：校验 OSS → Win/macOS 构建 → GitHub Release → 同步阿里云 OSS → OmniServer 微信广播
+- 官网下载区继续消费 OSS `latest.json` / `versions.json`（与 updater 同源）
+
 ## [0.6.7] - 2026-07-29
 
 ### 新增

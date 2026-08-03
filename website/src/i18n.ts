@@ -19,7 +19,7 @@ const zh: Dict = {
   "nav.home": "OmniPanel 首页",
   "hero.title": "一个窗口，管理服务器、数据库、容器与工作流",
   "hero.lead":
-    "一个 AI，贯穿开发运维上下文。OmniPanel 是你的个人工程操作系统 —— 终端、SSH、数据库、Docker、监控和 AI 在同一个工作台中无缝协作。",
+    "一个 AI，贯穿开发运维上下文。OmniPanel 是你的个人工程操作系统 —— 终端、SSH（含 tmux）、数据库、Docker、宝塔/1Panel 面板、云资源与 AI 在同一个工作台中无缝协作。",
   "hero.ctaDownload": "下载 OmniPanel",
   "hero.ctaSource": "查看源码",
   "showcase.eyebrow": "Product Screenshots",
@@ -41,16 +41,17 @@ const zh: Dict = {
   "modules.eyebrow": "Core Modules",
   "modules.title": "八大模块，覆盖日常开发运维完整闭环",
   "mod.terminal.p": "多标签分屏、Blocks 输出分组、命令历史、危险命令二次确认，专业级终端体验。",
-  "mod.ssh.p": "连接管理、可视化文件传输、端口转发、跳板机、批量命令与主机监控。",
-  "mod.db.p": "SQL 编辑器、百万行虚拟滚动网格、ER 图、NL2SQL、数据同步与导出。",
+  "mod.ssh.p": "连接管理、可视化文件传输、端口转发、跳板机；tmux 远端会话治理与主机监控。",
+  "mod.db.p": "SQL 编辑器、百万行虚拟滚动网格、ER 图、NL2SQL、结果预览与数据同步导出。",
   "mod.docker.p": "容器生命周期、实时日志跟踪、容器 Shell、Compose 编排，支持本地 / SSH / 1Panel。",
   "mod.docker.tagLog": "日志流",
-  "mod.server.p": "系统监控、进程管理、远程文件、宝塔与 1Panel 面板 API 集成。",
+  "mod.server.p": "系统监控、进程与远程文件；宝塔 / 1Panel 网站·应用·证书·计划任务；云厂商资源入口。",
   "mod.server.tagMon": "监控",
   "mod.server.tagBt": "宝塔",
+  "mod.server.tagCloud": "云厂商",
   "mod.protocol.p": "HTTP/API 调试、WebSocket、MQTT、串口 —— 协议调试统一工作区。",
-  "mod.ai.p": "上下文感知、操作链编排、多模型支持，AI 只建议不越权，危险操作需确认。",
-  "mod.workflow.p": "命令模板、部署流水线、排障手册，参数化执行与完整审计记录。",
+  "mod.ai.p": "上下文感知、操作链编排、结构化澄清表单与敏感信息脱敏；AI 只建议不越权，危险操作需确认。",
+  "mod.workflow.p": "命令模板、部署流水线、排障手册与快捷启动，参数化执行与完整审计记录。",
   "mod.workflow.tagTpl": "模板",
   "mod.workflow.tagAudit": "审计",
   "ai.eyebrow": "AI Native",
@@ -146,7 +147,7 @@ const en: Dict = {
   "nav.home": "OmniPanel home",
   "hero.title": "One window for servers, databases, containers, and workflows",
   "hero.lead":
-    "One AI across your engineering context. OmniPanel is your personal ops OS — terminal, SSH, databases, Docker, monitoring, and AI in a single workspace.",
+    "One AI across your engineering context. OmniPanel is your personal ops OS — terminal, SSH (with tmux), databases, Docker, BT/1Panel, cloud resources, and AI in a single workspace.",
   "hero.ctaDownload": "Download OmniPanel",
   "hero.ctaSource": "View source",
   "showcase.eyebrow": "Product Screenshots",
@@ -171,18 +172,22 @@ const en: Dict = {
   "mod.terminal.p":
     "Split panes, Blocks output grouping, command history, and confirmations for dangerous commands.",
   "mod.ssh.p":
-    "Connection manager, visual SFTP, port forwarding, jump hosts, batch commands, and host monitoring.",
-  "mod.db.p": "SQL editor, million-row virtual grid, ER diagrams, NL2SQL, sync and export.",
+    "Connection manager, visual SFTP, port forwarding, jump hosts; tmux remote session governance and host monitoring.",
+  "mod.db.p":
+    "SQL editor, million-row virtual grid, ER diagrams, NL2SQL, result preview, sync and export.",
   "mod.docker.p":
     "Container lifecycle, live logs, container shell, Compose — local, SSH host, or 1Panel.",
   "mod.docker.tagLog": "Log stream",
-  "mod.server.p": "System metrics, processes, remote files, BT Panel and 1Panel API integration.",
+  "mod.server.p":
+    "System metrics, processes, remote files; BT / 1Panel sites·apps·certs·cron; cloud vendor entry.",
   "mod.server.tagMon": "Metrics",
   "mod.server.tagBt": "BT Panel",
+  "mod.server.tagCloud": "Cloud",
   "mod.protocol.p": "HTTP/API, WebSocket, MQTT, serial — one workspace for protocol debugging.",
   "mod.ai.p":
-    "Context-aware assistance, action chains, multi-model support. AI suggests; you approve risky ops.",
-  "mod.workflow.p": "Command templates, deploy pipelines, runbooks — parameterized runs with audit trails.",
+    "Context-aware assistance, action chains, structured ask-user forms, and secret redaction. AI suggests; you approve risky ops.",
+  "mod.workflow.p":
+    "Command templates, deploy pipelines, runbooks, and Quick Launcher — parameterized runs with audit trails.",
   "mod.workflow.tagTpl": "Templates",
   "mod.workflow.tagAudit": "Audit",
   "ai.eyebrow": "AI Native",

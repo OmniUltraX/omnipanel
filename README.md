@@ -47,13 +47,18 @@ AI Agent inspection report — structured health checks grounded in live contain
 | Module | Description |
 |--------|-------------|
 | **Terminal** | Multi-tab & split panes, Blocks output grouping, VT100/VT220 compatibility |
-| **SSH / SFTP** | Connection manager, visual file transfer, tunnels, jump hosts, batch commands |
+| **SSH / SFTP** | Connection manager, SFTP, tunnels, jump hosts; **tmux** remote session governance |
+| **Files** | Local / remote browsing, favorites, **cross-connection transfer** |
 | **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools, multi-engine support |
 | **Docker** | Local / remote Engine / SSH host / 1Panel — containers, images, Compose, networks, volumes |
-| **Server** | Live system monitor, remote files, process/service management, panel integrations |
+| **Server** | Host monitor; **BT Panel / 1Panel** (sites, apps, certs, cron); **cloud vendors** |
 | **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |
-| **AI Assistant** | Context-aware ops (terminal, schema, containers, logs), Plans, Skills, multi-model |
-| **Workflow / Tasks** | Templates, runbooks, task center, auditable execution |
+| **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |
+| **Workflow / Tasks** | Templates, runbooks, task center, Quick Launcher, auditable execution |
+
+### What's new in v0.7.0
+
+Panel domains + 1Panel v1/v2 compatibility, SSH tmux sessions, cross-connection file transfer, Quick Launcher, Vault credentials, cloud vendor entry — see [CHANGELOG.md](./CHANGELOG.md).
 
 ### 🛠️ Tech Stack
 
@@ -136,13 +141,18 @@ AI Agent 服务巡检：基于真实容器与主机上下文生成结构化健�
 | 模块 | 说明 |
 |------|------|
 | **终端** | 多标签分屏，Blocks 输出分组，VT100/VT220 高兼容 |
-| **SSH / SFTP** | 连接管理、可视化传文件、隧道、跳板机、批量命令 |
+| **SSH / SFTP** | 连接管理、SFTP、隧道、跳板机；**tmux** 远端会话治理 |
+| **文件** | 本地 / 远程浏览、收藏、**跨连接传输** |
 | **数据库** | SQL 编辑器、虚拟滚动网格、NL2SQL、多引擎支持 |
 | **Docker** | 本地 / 远程 Engine / SSH 宿主机 / 1Panel — 容器、镜像、Compose、网络、卷 |
-| **服务器管理** | 实时监控、远程文件、进程/服务、面板集成 |
+| **服务器管理** | 主机监控；**宝塔 / 1Panel**（网站、应用、证书、计划任务）；**云厂商**入口 |
 | **协议调试** | HTTP/API、WebSocket、MQTT、串口 —— 统一工作区 |
-| **AI 助手** | 上下文感知运维（终端、库表、容器、日志），Plan / Skills，多模型 |
-| **工作流 / 任务** | 模板、排障手册、任务中心、可审计执行 |
+| **AI 助手** | 上下文感知运维，Plan / Skills，`omni_ask_user`，敏感信息脱敏，多模型 |
+| **工作流 / 任务** | 模板、排障手册、任务中心、快捷启动，可审计执行 |
+
+### v0.7.0 新增亮点
+
+面板四域与 1Panel v1/v2 兼容、SSH tmux 会话、跨连接文件传输、快捷启动、Vault 钥匙串凭据、云厂商入口 —— 详见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ### 🛠️ 技术栈
 
