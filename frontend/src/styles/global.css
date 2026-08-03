@@ -15774,6 +15774,215 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
+    .settings-nav-folder {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .settings-nav-folder__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        width: 100%;
+        border: 0;
+        background: transparent;
+        padding: var(--sp-2) var(--sp-4) var(--sp-2) calc(var(--sp-4) + 2px);
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.12s, color 0.12s;
+    }
+
+    .settings-nav-folder__header:hover,
+    .settings-nav-folder__header.is-active {
+        background: var(--surface);
+        color: var(--fg);
+    }
+
+    .settings-nav-folder__label {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+    }
+
+    .settings-nav-folder__label svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+    }
+
+    .settings-nav-folder__chevron {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        opacity: 0.75;
+        transition: transform 0.15s ease;
+    }
+
+    .settings-nav-folder.is-open .settings-nav-folder__chevron {
+        transform: rotate(180deg);
+    }
+
+    .settings-nav-folder__items {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .settings-nav-item--nested {
+        padding-left: calc(var(--sp-4) + 22px);
+    }
+
+    .agent-config-workspace {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-sizing: border-box;
+        background: var(--bg);
+    }
+
+    /* 勿被 .settings-panel.active:has(.skills-layout) 误改结构 */
+    .settings-panel.active.agent-config-workspace,
+    .settings-panel.active.agent-config-workspace:has(.skills-layout) {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .agent-config-header {
+        flex-shrink: 0;
+        padding: var(--sp-4) var(--sp-4) var(--sp-2);
+    }
+
+    .agent-config-header__title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--fg);
+    }
+
+    .agent-config-header__desc {
+        margin: var(--sp-1) 0 0;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.4;
+    }
+
+    .agent-config-tabs {
+        flex-shrink: 0;
+        margin: 0;
+        padding: 0 var(--sp-4);
+    }
+
+    .agent-config-main {
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        padding: 0;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+    }
+
+    .agent-config-main > .settings-subsection,
+    .agent-config-main > .agent-prompt-solo {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: var(--sp-3);
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    /* Skills / 内置工具嵌在智能体右栏：强制左列表 + 右详情 */
+    .agent-config-main .skills-section {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        overflow: hidden;
+    }
+
+    .agent-config-main .skills-section > .setting-hint {
+        flex-shrink: 0;
+        margin: 0 0 var(--sp-2);
+    }
+
+    .agent-config-main .skills-layout {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: stretch;
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+        height: 100%;
+        gap: var(--sp-3);
+        overflow: hidden;
+        margin: 0;
+    }
+
+    .agent-config-main .skills-sidebar {
+        flex: 0 0 200px !important;
+        width: 200px !important;
+        max-width: 200px !important;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .agent-config-main .skills-content,
+    .agent-config-main .builtin-tools-content {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .agent-config-main .builtin-tools-table-wrap {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .agent-prompt-solo {
+        padding: var(--sp-4) !important;
+    }
+
+    .agent-prompt-solo .agent-prompt-detail,
+    .agent-prompt-solo .skills-detail-form {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .agent-prompt-solo .skills-field--body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .agent-prompt-solo .agent-prompt-textarea {
+        flex: 1;
+        min-height: 240px;
+    }
+
     .agent-prompt-detail-header {
         display: flex;
         align-items: flex-start;
@@ -15826,6 +16035,15 @@ button.omni-btn-tool[aria-pressed="true"] {
         width: 100%;
         overflow-y: auto;
         padding: var(--sp-6);
+    }
+
+    .settings-main:has(.agent-config-workspace) {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
+        min-height: 0;
+        height: 100%;
     }
 
     .settings-section {
@@ -17234,7 +17452,8 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
     }
 
-    .settings-panel.active:has(.skills-layout),
+    /* 智能体工作区自管左右分栏，勿套用 column */
+    .settings-panel.active:has(.skills-layout):not(.agent-config-workspace),
     .settings-section:has(.skills-layout) {
         flex: 1;
         min-height: 0;
@@ -17417,6 +17636,13 @@ button.omni-btn-tool[aria-pressed="true"] {
     .skills-content.builtin-tools-content {
         padding: 0;
         gap: var(--sp-2);
+    }
+
+    .skills-content.builtin-tools-content--solo {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
     }
 
     .skills-content.builtin-tools-content > .setting-hint {
@@ -22939,6 +23165,47 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     min-height: 0;
     overflow: hidden;
     padding: 0;
+}
+
+/* 个人中心退出后：与登录页一致的多方式登录 */
+.user-center-login-embed {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    align-items: flex-start;
+    justify-content: center;
+    padding: var(--sp-5);
+    box-sizing: border-box;
+}
+
+.user-center-login-embed .auth-login-methods {
+    width: min(100%, 360px);
+    margin: 0 auto;
+}
+
+.auth-login-methods__title {
+    margin: 0 0 var(--sp-1);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+    text-align: center;
+}
+
+.auth-login-methods__desc {
+    margin: 0 0 var(--sp-4);
+    font-size: 12px;
+    color: var(--meta);
+    line-height: 1.45;
+    text-align: center;
+}
+
+.auth-login-methods .login-page__body {
+    min-height: 220px;
+}
+
+.auth-login-methods .login-page__methods {
+    margin-top: var(--sp-4);
 }
 
 .user-center-panel {

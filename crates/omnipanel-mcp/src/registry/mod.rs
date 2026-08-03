@@ -1,11 +1,10 @@
-pub mod database_tools;
+﻿pub mod database_tools;
 pub mod docker_tools;
 pub mod external;
 pub mod files_tools;
 pub mod native;
 pub mod omnimcp_execute;
 pub mod ssh_tools;
-pub mod terminal_tools;
 pub mod web;
 pub mod web_tools;
 
@@ -172,7 +171,7 @@ mod tests {
         let tools = registry.list_enabled(None).await.unwrap();
         let term = tools
             .iter()
-            .find(|t| t.name == "omni_terminal_run_terminal_command")
+            .find(|t| t.name == "omni_ssh_exec")
             .expect("terminal 工具应存在");
         assert_eq!(term.kind, ToolExecutionKind::UiDelegated);
         assert_eq!(
@@ -192,12 +191,12 @@ mod tests {
         storage
             .lock()
             .await
-            .builtin_tool_set_internal_enabled("omni_terminal_run_terminal_command", false)
+            .builtin_tool_set_internal_enabled("omni_ssh_exec", false)
             .unwrap();
         let tools = registry.list_enabled(None).await.unwrap();
         assert!(!tools
             .iter()
-            .any(|t| t.name == "omni_terminal_run_terminal_command"));
+            .any(|t| t.name == "omni_ssh_exec"));
     }
 
     #[tokio::test]
@@ -231,7 +230,7 @@ mod tests {
         assert!(
             !tools
                 .iter()
-                .any(|t| t.name == "omni_terminal_run_terminal_command"),
+                .any(|t| t.name == "omni_ssh_exec"),
             "web 过滤不得包含终端工具"
         );
         assert!(
@@ -246,7 +245,7 @@ mod tests {
         let tools = registry.list_enabled(Some("terminal")).await.unwrap();
         assert!(tools
             .iter()
-            .any(|t| t.name == "omni_terminal_run_terminal_command"));
+            .any(|t| t.name == "omni_ssh_exec"));
         assert!(!tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"));
         assert!(!tools.iter().any(|t| t.name == "load_skill"));
         // 会话级 plan 对模块 Agent 开放（跨模块），其余须为 terminal

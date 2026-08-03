@@ -3,7 +3,6 @@ import {
   type AiThreadToolCall,
   type TerminalBlock,
 } from "../../stores/blocksStore";
-import { OMNI_TERMINAL_RUN_TERMINAL_COMMAND } from "./ai/mcpTools";
 import { getResolvedAiThread } from "./aiThreadBridge";
 import { getPendingInlineToolScope } from "./inlineToolBridge";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
@@ -23,11 +22,9 @@ function resolveToolCallCommand(item: AiThreadToolCall): string {
   return "";
 }
 
-export function isInlineTerminalToolName(toolName: string): boolean {
-  return (
-    toolName === OMNI_TERMINAL_RUN_TERMINAL_COMMAND ||
-    toolName.endsWith(`/${OMNI_TERMINAL_RUN_TERMINAL_COMMAND}`)
-  );
+/** 历史内联「终端跑命令」工具已移除；保留函数以免调用方断裂，恒为 false。 */
+export function isInlineTerminalToolName(_toolName: string): boolean {
+  return false;
 }
 
 export type ActiveInlineTerminalTool = {
@@ -53,8 +50,16 @@ export function findActiveInlineTerminalTool(
         isInlineTerminalToolName(entry.toolName) &&
         (entry.status === "pending" || entry.status === "running")
       ) {
+        const scope = getPendingInlineToolScope(block.id, entry.id);
+        if (scope && scope.sessionId !== sessionId) continue;
         const command = resolveToolCallCommand(entry);
-        if (!shouldRequireTerminalApproval(command, mode, getPendingInlineToolScope(entry.id, sessionId))) {
+        if (
+          command &&
+          !shouldRequireTerminalApproval(command, mode, {
+            conversationId: entry.conversationId,
+            terminalSessionId: sessionId,
+          })
+        ) {
           continue;
         }
         return { blockId: block.id, item: entry };

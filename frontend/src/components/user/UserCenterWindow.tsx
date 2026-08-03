@@ -12,7 +12,7 @@ export function UserCenterWindow() {
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
 
   const title = !isLoggedIn
-    ? t("userCenter.login.title")
+    ? t("app.login.title")
     : page === "subscription"
       ? t("userCenter.nav.subscription")
       : page === "devices"

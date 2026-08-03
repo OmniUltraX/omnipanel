@@ -522,6 +522,48 @@ pub async fn ssh_pool_exec_command(
     })
 }
 
+/// 在远端 `~/.omnipanel/scripts/<name>` 创建脚本并执行。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SshCreateRunScriptOutput {
+    pub remote_path: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_pool_create_run_script(
+    state: State<'_, AppState>,
+    resource_id: String,
+    name: String,
+    content: String,
+    args: Option<Vec<String>>,
+    timeout_secs: Option<u64>,
+) -> Result<SshCreateRunScriptOutput, OmniError> {
+    let timeout = timeout_secs.unwrap_or(120).clamp(1, 600);
+    let script_args = args.unwrap_or_default();
+    let session = pool_session(&state, &resource_id).await?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout),
+        session.create_run_script(&name, &content, &script_args),
+    )
+    .await
+    .map_err(|_| {
+        OmniError::new(
+            ErrorCode::Timeout,
+            format!("创建/执行脚本超时（{timeout}s）"),
+        )
+    })??;
+    Ok(SshCreateRunScriptOutput {
+        remote_path: output.remote_path,
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exit_code: output.exit_code,
+    })
+}
+
 /// 对所有 SSH 主机重新进行端口可达性探测。
 #[tauri::command]
 #[specta::specta]

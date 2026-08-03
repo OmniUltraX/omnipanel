@@ -38,7 +38,7 @@ import {
   compressImageToAvatarDataUrl,
   guessImageMime,
 } from "../../lib/auth/avatarImage";
-import { WechatLoginPanel } from "./WechatLoginPanel";
+import { AuthLoginMethods } from "./AuthLoginMethods";
 import { UserCenterDevices } from "./UserCenterDevices";
 import { DataSyncPanel } from "./DataSyncPanel";
 import {
@@ -413,7 +413,11 @@ export function UserCenterPanel() {
   };
 
   if (!isLoggedIn) {
-    return <WechatLoginPanel />;
+    return (
+      <div className="user-center-login-embed">
+        <AuthLoginMethods showTitle />
+      </div>
+    );
   }
 
   const accountPage = (

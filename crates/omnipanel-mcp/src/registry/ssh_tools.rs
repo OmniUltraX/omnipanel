@@ -89,6 +89,75 @@ pub async fn exec_command(args: Value, storage: Arc<Mutex<Storage>>) -> Result<S
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
+fn require_content(args: &Value) -> Result<String, String> {
+    match args.get("content") {
+        Some(Value::String(s)) => Ok(s.clone()),
+        Some(_) => Err("参数 content 必须是字符串".to_string()),
+        None => Err("缺少必填参数: content".to_string()),
+    }
+}
+
+fn optional_string_args(args: &Value) -> Vec<String> {
+    args.get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn timeout_secs(args: &Value, default: u64) -> u64 {
+    args.get("timeout_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(default)
+        .clamp(1, 600)
+}
+
+/// 在远端 `~/.omnipanel/scripts/<name>` 创建脚本并执行（同名覆盖）。
+pub async fn create_run_script(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, String> {
+    let resource_id = require_str(&args, "resource_id")?;
+    let name = require_str(&args, "name")?;
+    let content = require_content(&args)?;
+    let script_args = optional_string_args(&args);
+    let timeout = timeout_secs(&args, 120);
+
+    let (conn_name, ssh_config) = {
+        let storage = storage.lock().await;
+        resolve_ssh_config(&storage, &resource_id)?
+    };
+
+    let session = tokio::time::timeout(
+        Duration::from_secs(SSH_EXEC_TIMEOUT_SECS),
+        SshSession::connect_no_shell(ssh_config),
+    )
+    .await
+    .map_err(|_| format!("SSH 连接超时（{SSH_EXEC_TIMEOUT_SECS}s）"))?
+    .map_err(|e| format!("SSH 连接失败: {}", e.user_message()))?;
+
+    let output = tokio::time::timeout(
+        Duration::from_secs(timeout),
+        session.create_run_script(&name, &content, &script_args),
+    )
+    .await
+    .map_err(|_| format!("创建/执行脚本超时（{timeout}s）"))?
+    .map_err(|e| format!("创建/执行脚本失败: {}", e.user_message()))?;
+
+    session.disconnect().await;
+
+    Ok(serde_json::to_string(&serde_json::json!({
+        "resourceId": resource_id,
+        "connectionName": conn_name,
+        "name": name,
+        "remotePath": output.remote_path,
+        "stdout": output.stdout,
+        "stderr": output.stderr,
+        "exitCode": output.exit_code,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
 /// 在一次性 SSH 会话上拉取系统指标。复用 `ssh_pool::fetch_stats` 的底层
 /// 采集逻辑代价较大（需 ssh_pool AppState），此处采取简化策略：执行
 /// `top -bn1` / `free -m` / `df -h` / `uptime` 等通用命令，由 AI 自行解析。

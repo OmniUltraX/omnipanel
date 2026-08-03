@@ -1,4 +1,4 @@
-//! 外部 MCP 服务工具在内部编排中的命名与解析。
+﻿//! 外部 MCP 服务工具在内部编排中的命名与解析。
 
 const PREFIX: &str = "extmcp::";
 const SEP: &str = "::";
@@ -38,6 +38,6 @@ mod tests {
 
     #[test]
     fn builtin_omni_not_external() {
-        assert!(!is_external_mcp_registry_name("omni_terminal_run_terminal_command"));
+        assert!(!is_external_mcp_registry_name("omni_ssh_exec"));
     }
 }
