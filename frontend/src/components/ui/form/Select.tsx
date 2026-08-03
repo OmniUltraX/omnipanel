@@ -201,10 +201,21 @@ export function Select({
     const spaceBelow = window.innerHeight - rect.bottom;
     const shouldDropUp = spaceBelow < 240 && rect.top > spaceBelow;
     setDropUp(shouldDropUp);
+
+    // 水平：优先与 trigger 左对齐；超出右边界时改为右对齐并夹入视口
+    const margin = 8;
+    const preferredWidth = Math.max(rect.width, panelMinWidth ?? 0);
+    const width = Math.min(preferredWidth, Math.max(120, window.innerWidth - margin * 2));
+    let left = rect.left;
+    if (left + width > window.innerWidth - margin) {
+      left = rect.right - width;
+    }
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+
     setPanelStyle({
       position: "fixed",
-      left: rect.left,
-      width: Math.max(rect.width, panelMinWidth ?? 0),
+      left,
+      width,
       zIndex: panelZIndex,
       visibility: "visible",
       ...(shouldDropUp
