@@ -201,7 +201,7 @@ export const commands = {
 	 */
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
 	/**  获取宝塔 Docker 应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。 */
-	panelBtAppIcon: (host: string, apiSk: string, appName: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_app_icon", { host, apiSk, appName })),
+	panelBtAppIcon: (host: string, apiSk: string, appName: string, iconFile: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_app_icon", { host, apiSk, appName, iconFile })),
 	/**  宝塔面板连通性测试。 */
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
 	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */

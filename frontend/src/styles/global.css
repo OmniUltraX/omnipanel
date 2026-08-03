@@ -14979,6 +14979,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .server-app-market__category {
+        width: 140px;
         max-width: 160px;
         flex-shrink: 0;
     }

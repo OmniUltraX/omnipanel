@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/Button";
+import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
 import { createBtPanelClient } from "../../../../lib/btpanel";
@@ -87,44 +88,21 @@ function buildInstalledKeySet(installed: OnePanelInstalledApp[]): Set<string> {
 }
 
 /**
- * 解析可直接用于 <img src> 的地址。
- * allowRemotePanelIcon=false（宝塔）：勿拼面板 http(s)，安全入口下会返回 HTML；改走懒加载 data URL。
+ * 仅 data/blob/内嵌 base64 可直接显示。
+ * http(s)/相对路径在安全入口与 WebView 下不可靠，必须经后端代理成 data URL 后写入 iconCache。
  */
-function resolveIconSrc(
-  icon: string | undefined,
-  iconCache: Record<string, string>,
-  panelBaseUrl?: string,
-  allowRemotePanelIcon = true,
-): string | null {
+function resolveIconSrc(icon: string | undefined, iconCache: Record<string, string>): string | null {
   if (!icon) return null;
   if (icon.startsWith("data:") || icon.startsWith("blob:")) {
     return icon;
   }
-  if (icon.startsWith("http://") || icon.startsWith("https://")) {
-    return allowRemotePanelIcon ? icon : iconCache[icon] ?? null;
-  }
-  if (icon.startsWith("/")) {
-    if (!allowRemotePanelIcon) return iconCache[icon] ?? null;
-    if (!panelBaseUrl) return null;
-    try {
-      return new URL(icon, panelBaseUrl.endsWith("/") ? panelBaseUrl : `${panelBaseUrl}/`).toString();
-    } catch {
-      return null;
-    }
-  }
-  // 宝塔软件商店：ico-redis.png → /static/img/soft_ico/...
-  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(icon) || icon.startsWith("ico-")) {
-    if (!allowRemotePanelIcon) return iconCache[icon] ?? null;
-    if (!panelBaseUrl) return iconCache[icon] ?? null;
-    try {
-      const base = panelBaseUrl.replace(/\/$/, "");
-      return `${base}/static/img/soft_ico/${icon.replace(/^\//, "")}`;
-    } catch {
-      return null;
-    }
-  }
   // 部分接口把 icon 直接返回为 base64
-  if (/^[A-Za-z0-9+/=]+$/.test(icon) && icon.length > 64) {
+  if (
+    !icon.startsWith("/") &&
+    !icon.startsWith("http") &&
+    /^[A-Za-z0-9+/=]+$/.test(icon) &&
+    icon.length > 64
+  ) {
     return `data:image/png;base64,${icon}`;
   }
   return iconCache[icon] ?? null;
@@ -170,9 +148,8 @@ export function ServerAppsTab({ server }: Props) {
   const [iconCache, setIconCache] = useState<Record<string, string>>(() =>
     peekServerAppIconCache(server.id).icons,
   );
-  const [brokenIconKeys, setBrokenIconKeys] = useState<ReadonlySet<string>>(
-    () => peekServerAppIconCache(server.id).broken,
-  );
+  // 不回填 broken：旧会话里失败标记会挡住修复后的重试
+  const [brokenIconKeys, setBrokenIconKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [iconLoadTick, setIconLoadTick] = useState(0);
   const iconCacheRef = useRef(iconCache);
   const brokenIconKeysRef = useRef(brokenIconKeys);
@@ -199,7 +176,7 @@ export function ServerAppsTab({ server }: Props) {
     setActionError(null);
     const peeked = peekServerAppIconCache(server.id);
     setIconCache(peeked.icons);
-    setBrokenIconKeys(peeked.broken);
+    setBrokenIconKeys(new Set());
     iconInflightRef.current.clear();
     setIconLoadTick(0);
   }, [server.id]);
@@ -216,6 +193,14 @@ export function ServerAppsTab({ server }: Props) {
     }
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [apps]);
+
+  const categoryOptions = useMemo(
+    () => [
+      { value: "", label: t("server.appMarket.allCategories") },
+      ...categories.map((item) => ({ value: item, label: item })),
+    ],
+    [categories, t],
+  );
 
   /** 同步远程应用商店后写入本地缓存（1Panel 有远端同步；宝塔直接刷新列表）。 */
   const handleSyncRemote = useCallback(async () => {
@@ -275,7 +260,7 @@ export function ServerAppsTab({ server }: Props) {
   useEffect(() => {
     if (!supportsApps || cards.length === 0) return;
     let cancelled = false;
-    const allowRemote = isOnePanel;
+
     const missing = cards
       .map((app) => app.key?.trim())
       .filter((key): key is string => Boolean(key))
@@ -285,25 +270,12 @@ export function ServerAppsTab({ server }: Props) {
         if (iconInflightRef.current.has(key)) return false;
         const app = cards.find((item) => item.key === key);
         if (!app) return false;
-        // data/blob 可直接展示；相对路径 / 宝塔静态路径需代理
-        if (resolveIconSrc(app.icon, iconCacheRef.current, server.address, allowRemote)) {
-          return false;
-        }
-        if (isBt) {
-          const icon = (app.icon || "").trim();
-          // 仅 Docker 商店路径走鉴权下载；软件商店 ico-*.png 暂无代理接口
-          const isDockerIcon =
-            !icon ||
-            icon.includes("/soft_ico/dkapp/") ||
-            icon.includes("ico-dkapp_");
-          if (!isDockerIcon) return false;
-        }
-        return true;
+        // data:/blob: 可直接显示；相对路径 / http(s) 需代理
+        return !resolveIconSrc(app.icon, iconCacheRef.current);
       })
-      .slice(0, 12);
+      .slice(0, 16);
 
     if (missing.length === 0) return;
-
     for (const key of missing) iconInflightRef.current.add(key);
 
     void (async () => {
@@ -312,11 +284,23 @@ export function ServerAppsTab({ server }: Props) {
       await Promise.all(
         missing.map(async (key) => {
           try {
+            const app = cards.find((item) => item.key === key);
             const url = isBt
-              ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(key)
-              : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(key);
-            if (url) next[key] = url;
-            else failed.push(key);
+              ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(
+                  key,
+                  app?.icon,
+                )
+              : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(
+                  key,
+                );
+            // 非 data URL 在 WebView 中不可靠，视为失败走占位
+            if (url?.startsWith("data:") || url?.startsWith("blob:")) {
+              next[key] = url;
+              const iconKey = (app?.icon || "").trim();
+              if (iconKey) next[iconKey] = url;
+            } else {
+              failed.push(key);
+            }
           } catch {
             failed.push(key);
           } finally {
@@ -337,23 +321,14 @@ export function ServerAppsTab({ server }: Props) {
           return merged;
         });
       }
-      // 还有未加载的则继续下一批
-      setIconLoadTick((tick) => tick + 1);
+      // 继续拉取下一批
+      setIconLoadTick((n) => n + 1);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [
-    cards,
-    iconLoadTick,
-    isBt,
-    isOnePanel,
-    server.address,
-    server.id,
-    server.key,
-    supportsApps,
-  ]);
+  }, [cards, iconLoadTick, isBt, server.address, server.id, server.key, supportsApps]);
 
   const handleSearch = () => {
     setQuery(search.trim());
@@ -484,20 +459,16 @@ export function ServerAppsTab({ server }: Props) {
         </div>
         <div className="server-apps-toolbar__right">
           {categories.length > 0 ? (
-            <select
-              className="input server-app-market__category"
+            <Select
+              className="server-app-market__category"
+              size="sm"
               value={category}
+              onChange={setCategory}
+              options={categoryOptions}
               disabled={busyMeta}
-              onChange={(event) => setCategory(event.target.value)}
+              searchable={categories.length > 8}
               aria-label={t("server.appMarket.allCategories")}
-            >
-              <option value="">{t("server.appMarket.allCategories")}</option>
-              {categories.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+            />
           ) : null}
           <div className="server-app-market__search">
             <TextInput
@@ -546,8 +517,8 @@ export function ServerAppsTab({ server }: Props) {
           <div className="server-app-grid">
             {cards.map((app, index) => {
               const iconSrc =
-                resolveIconSrc(app.icon, iconCache, server.address, isOnePanel) ||
-                (app.key ? iconCache[app.key] : null);
+                (app.key ? iconCache[app.key] : null) ||
+                resolveIconSrc(app.icon, iconCache);
               const desc = appDescription(app, locale);
               const busy = installingKey === app.key;
               const cardKey = `${app.id || "app"}:${app.key || app.name || index}`;

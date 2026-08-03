@@ -412,34 +412,107 @@ async fn resolve_security_entrance(host: &str, api_sk: &str) -> Option<String> {
     resolved
 }
 
-/// 获取 Docker 应用商店图标，返回 data URL。
+fn is_safe_icon_token(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// 从接口返回的 icon 字段提取安全文件名（如 `ico-redis.png`）。
+fn soft_icon_basename(icon_file: &str) -> Option<String> {
+    let normalized = icon_file.trim().replace('\\', "/");
+    let name = normalized.rsplit('/').next().unwrap_or("").trim();
+    if is_safe_icon_token(name) {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
+
+/// 获取宝塔应用商店图标，返回 data URL。
 ///
+/// 覆盖 Docker 商店（`dkapp/ico-dkapp_*`）与软件商店（`soft_ico/ico-*`）。
 /// 面板开启「安全入口」时，直接 GET `/static/...` 会返回 HTML。
 /// 策略：先读 admin_path 拼 `{入口}/static/...`，再回退鉴权下载磁盘文件。
 pub async fn fetch_docker_app_icon(
     host: &str,
     api_sk: &str,
     app_name: &str,
+    icon_file: Option<&str>,
 ) -> Result<String, OmniError> {
     let name = app_name.trim();
     if name.is_empty() {
         return Err(OmniError::invalid_input("应用名称不能为空"));
     }
     // 仅允许安全的文件名片段，避免路径穿越
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
+    if !is_safe_icon_token(name) {
         return Err(OmniError::invalid_input("非法的应用名称"));
     }
 
-    let static_rel = format!("/static/img/soft_ico/dkapp/ico-dkapp_{name}.png");
-    let mut last_err = OmniError::not_found("未找到应用图标");
+    let icon_hint = icon_file.map(str::trim).filter(|s| !s.is_empty());
+    let soft_file = icon_hint.and_then(soft_icon_basename);
+    let mut static_rels: Vec<String> = Vec::new();
+    let mut disk_paths: Vec<String> = Vec::new();
 
-    // 1) 带安全入口的静态路径（与浏览器访问一致）
-    if let Some(entrance) = resolve_security_entrance(host, api_sk).await {
-        let path = format!("{entrance}{static_rel}");
-        match fetch_static_bytes(host, &path).await {
+    // 接口已给相对路径时优先原样尝试（如 /static/img/soft_ico/dkapp/...）
+    if let Some(hint) = icon_hint {
+        if hint.starts_with("/static/") && !hint.contains("..") {
+            static_rels.push(hint.to_string());
+        }
+    }
+
+    if let Some(file) = soft_file.as_deref() {
+        let is_dkapp = file.starts_with("ico-dkapp_")
+            || icon_hint.is_some_and(|h| h.contains("/dkapp/") || h.contains("\\dkapp\\"));
+        if is_dkapp {
+            static_rels.push(format!("/static/img/soft_ico/dkapp/{file}"));
+            disk_paths.push(format!(
+                "/www/server/panel/BTPanel/static/img/soft_ico/dkapp/{file}"
+            ));
+        } else {
+            static_rels.push(format!("/static/img/soft_ico/{file}"));
+            disk_paths.push(format!(
+                "/www/server/panel/BTPanel/static/img/soft_ico/{file}"
+            ));
+        }
+    }
+
+    // Docker 应用商店
+    static_rels.push(format!("/static/img/soft_ico/dkapp/ico-dkapp_{name}.png"));
+    disk_paths.extend([
+        format!("/www/server/panel/BTPanel/static/img/soft_ico/dkapp/ico-dkapp_{name}.png"),
+        format!("/www/dk_project/dk_app/apps/{name}/ico-dkapp_{name}.png"),
+        format!("/www/server/panel/data/dk_app/apps/{name}/ico-dkapp_{name}.png"),
+    ]);
+
+    // 软件商店常见命名：ico-{name}.png
+    if soft_file.is_none() {
+        static_rels.push(format!("/static/img/soft_ico/ico-{name}.png"));
+        disk_paths.push(format!(
+            "/www/server/panel/BTPanel/static/img/soft_ico/ico-{name}.png"
+        ));
+    }
+
+    let mut last_err = OmniError::not_found("未找到应用图标");
+    let entrance = resolve_security_entrance(host, api_sk).await;
+
+    for static_rel in &static_rels {
+        // 1) 带安全入口的静态路径（与浏览器访问一致）
+        if let Some(ref ent) = entrance {
+            let path = format!("{ent}{static_rel}");
+            match fetch_static_bytes(host, &path).await {
+                Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {
+                    Ok(url) => return Ok(url),
+                    Err(err) => last_err = err,
+                },
+                Err(err) => last_err = err,
+            }
+        }
+
+        // 2) 地址本身已含入口，或未开启入口时直取 /static
+        match fetch_static_bytes(host, static_rel).await {
             Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {
                 Ok(url) => return Ok(url),
                 Err(err) => last_err = err,
@@ -448,21 +521,7 @@ pub async fn fetch_docker_app_icon(
         }
     }
 
-    // 2) 地址本身已含入口，或未开启入口时直取 /static
-    match fetch_static_bytes(host, &static_rel).await {
-        Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {
-            Ok(url) => return Ok(url),
-            Err(err) => last_err = err,
-        },
-        Err(err) => last_err = err,
-    }
-
     // 3) 鉴权下载磁盘上的图标文件
-    let disk_paths = [
-        format!("/www/server/panel/BTPanel/static/img/soft_ico/dkapp/ico-dkapp_{name}.png"),
-        format!("/www/dk_project/dk_app/apps/{name}/ico-dkapp_{name}.png"),
-        format!("/www/server/panel/data/dk_app/apps/{name}/ico-dkapp_{name}.png"),
-    ];
     for path in disk_paths {
         match download_file_bytes(host, api_sk, &path).await {
             Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {

@@ -496,23 +496,30 @@ export class BtPanelClient {
   }
 
   /**
-   * 获取 Docker 应用商店图标（data URL）。
+   * 获取应用商店图标（data URL）。
    * 面板安全入口会拦截匿名 /static 访问，因此经 Rust 鉴权下载磁盘图标。
+   * @param iconFile 软件商店 icon 字段（如 `ico-redis.png`）；Docker 商店可省略。
    */
-  async getAppIconDataUrl(appName: string): Promise<string> {
+  async getAppIconDataUrl(appName: string, iconFile?: string | null): Promise<string> {
     const name = appName.trim();
     if (!name) {
       throw new BtPanelApiError("应用名称不能为空", 0);
     }
+    const file = (iconFile ?? "").trim() || null;
     if (this.useTauri && isTauriRuntime()) {
       const apiSk = await this.resolveApiSk();
-      const result = await commands.panelBtAppIcon(this.baseUrl, apiSk, name);
+      const result = await commands.panelBtAppIcon(this.baseUrl, apiSk, name, file);
       if (result.status === "error") {
         throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
       }
       return result.data;
     }
     // 浏览器开发态：直接拼 URL（需地址含安全入口，且可能受 CORS 限制）
+    if (file) {
+      const base = this.baseUrl.replace(/\/$/, "");
+      const basename = file.replace(/^.*[/\\]/, "");
+      return `${base}/static/img/soft_ico/${basename}`;
+    }
     return btDockerAppIconUrl(this.baseUrl, name);
   }
 

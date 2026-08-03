@@ -192,13 +192,21 @@ pub async fn panel_bt_test_connection(host: String, api_sk: String) -> Result<bo
     Ok(true)
 }
 
-/// 获取宝塔 Docker 应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
+/// 获取宝塔应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
+/// `icon_file` 可选，软件商店一般为 `ico-xxx.png`；为空时按 app_name 推断 Docker/软件路径。
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_bt_app_icon(
     host: String,
     api_sk: String,
     app_name: String,
+    icon_file: Option<String>,
 ) -> Result<String, OmniError> {
-    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name).await
+    crate::panel::btpanel::fetch_docker_app_icon(
+        &host,
+        &api_sk,
+        &app_name,
+        icon_file.as_deref(),
+    )
+    .await
 }
