@@ -1,4 +1,4 @@
-import { commands } from "../../ipc/bindings";
+﻿import { commands } from "../../ipc/bindings";
 import { useAiStore } from "../../stores/aiStore";
 import { submitAiPrompt } from "../../lib/ai/submitAiPrompt";
 import type { TerminalBlock } from "../../stores/blocksStore";
@@ -31,7 +31,7 @@ export function buildNaturalLanguagePrompt(
   parts.push(query);
   if (cwd) parts.push(`\n当前目录：${cwd}`);
   parts.push(
-    "\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 omni_terminal_run_terminal_command 工具。",
+    "\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 omni_ssh_exec 工具。",
   );
   return parts.join("\n");
 }

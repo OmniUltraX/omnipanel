@@ -1,4 +1,4 @@
-//! 内置工具注册表 — 持久化于 omnipanel.db 的 builtin_tools 表。
+﻿//! 内置工具注册表 — 持久化于 omnipanel.db 的 builtin_tools 表。
 
 use std::collections::HashSet;
 
@@ -366,16 +366,16 @@ mod tests {
     fn builtin_tool_module_sync() {
         let storage = Storage::open_in_memory().unwrap();
         storage
-            .builtin_tool_set_enabled("omni_terminal_run_terminal_command", true)
+            .builtin_tool_set_enabled("omni_ssh_exec", true)
             .unwrap();
         storage
             .app_module_set_status("terminal", AppModuleStatus::Closed)
             .unwrap();
         assert!(!storage
-            .builtin_tool_is_enabled("omni_terminal_run_terminal_command")
+            .builtin_tool_is_enabled("omni_ssh_exec")
             .unwrap());
         assert!(!storage
-            .builtin_tool_is_available("omni_terminal_run_terminal_command")
+            .builtin_tool_is_available("omni_ssh_exec")
             .unwrap());
     }
 
@@ -403,29 +403,29 @@ mod tests {
     fn builtin_tool_sync_and_toggle() {
         let storage = Storage::open_in_memory().unwrap();
         let list = storage.builtin_tool_list().unwrap();
-        assert!(list.iter().any(|t| t.tool_name == "omni_terminal_run_terminal_command"));
+        assert!(list.iter().any(|t| t.tool_name == "omni_ssh_exec"));
 
         storage
-            .builtin_tool_set_enabled("omni_terminal_run_terminal_command", false)
+            .builtin_tool_set_enabled("omni_ssh_exec", false)
             .unwrap();
         assert!(!storage
-            .builtin_tool_is_enabled("omni_terminal_run_terminal_command")
+            .builtin_tool_is_enabled("omni_ssh_exec")
             .unwrap());
 
         // 前端 catalog 不再覆盖内置工具描述：单一真相源以后端 spec 为准，
         // 且用户开关（internal_enabled=false）保留。
         storage
             .builtin_tool_sync_catalog(&[BuiltinToolCatalogEntry {
-                tool_name: "omni_terminal_run_terminal_command".to_string(),
+                tool_name: "omni_ssh_exec".to_string(),
                 module_key: "terminal".to_string(),
                 description: "updated desc".to_string(),
             }])
             .unwrap();
         assert!(!storage
-            .builtin_tool_is_enabled("omni_terminal_run_terminal_command")
+            .builtin_tool_is_enabled("omni_ssh_exec")
             .unwrap());
         let tool = storage
-            .builtin_tool_get("omni_terminal_run_terminal_command")
+            .builtin_tool_get("omni_ssh_exec")
             .unwrap();
         assert_ne!(tool.description, "updated desc");
         assert!(!tool.input_schema.is_empty(), "内置工具应带 spec schema");
@@ -437,7 +437,7 @@ mod tests {
         let list = storage.builtin_tool_list().unwrap();
         let term = list
             .iter()
-            .find(|t| t.tool_name == "omni_terminal_run_terminal_command")
+            .find(|t| t.tool_name == "omni_ssh_exec")
             .unwrap();
         let schema: serde_json::Value = serde_json::from_str(&term.input_schema).unwrap();
         let required = schema.get("required").and_then(|r| r.as_array()).unwrap();
@@ -448,7 +448,7 @@ mod tests {
     fn external_exposed_allows_all_builtin_tools_when_module_open() {
         let storage = Storage::open_in_memory().unwrap();
         assert!(storage
-            .builtin_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
+            .builtin_tool_set_external_exposed("omni_ssh_exec", true)
             .is_ok());
         assert!(storage
             .builtin_tool_set_external_exposed("omni_database_list_connections", true)
@@ -462,7 +462,7 @@ mod tests {
             .app_module_set_status("terminal", AppModuleStatus::Closed)
             .unwrap();
         let err = storage
-            .builtin_tool_set_external_exposed("omni_terminal_run_terminal_command", true)
+            .builtin_tool_set_external_exposed("omni_ssh_exec", true)
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidInput);
     }

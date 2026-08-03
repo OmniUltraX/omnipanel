@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 工具→Follow意图映射 + 结果感知推断。
  *
  * 设计理念：
@@ -171,6 +171,18 @@ export function followIntentsForTool(
       }
     }
 
+    if (toolName === "omni_ssh_create_run_script") {
+      const name = str(args.name);
+      if (name) {
+        intents.push({
+          type: "revealSftpPath",
+          resourceId: connectionId,
+          path: `~/.omnipanel/scripts/${name}`,
+        });
+        return intents;
+      }
+    }
+
     // 默认：切到终端（SSH 管理）+ 选中连接
     intents.push({ type: "openConnection", module: "terminal", resourceId: connectionId });
     return intents;
@@ -185,11 +197,6 @@ export function followIntentsForTool(
       intents.push({ type: "openConnection", module: "files", resourceId: connectionId });
     }
     return intents;
-  }
-
-  // === 终端工具 ===
-  if (toolName === "omni_terminal_run_terminal_command" && sessionId) {
-    return [{ type: "revealTerminal", sessionId }];
   }
 
   // === 工作区工具 ===

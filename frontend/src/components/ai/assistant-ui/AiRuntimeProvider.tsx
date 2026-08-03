@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import type {
   AppendMessage,
@@ -103,7 +103,7 @@ function resolveKnowledgeEmbeddingProviderForRag() {
 
 const EMPTY_MESSAGE_LIST: ThreadMessage[] = [];
 
-const TERMINAL_CLIENT_TOOL = "omni_terminal_run_terminal_command";
+const TERMINAL_CLIENT_TOOL = "omni_ssh_exec";
 
 function parseTerminalCommand(argsJson: string): string {
   try {

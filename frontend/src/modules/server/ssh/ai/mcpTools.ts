@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+﻿import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../../lib/ai/context";
 import { optionalString, requireString } from "../../../../lib/ai/mcpToolArgs";
@@ -21,8 +21,7 @@ import type {
  * 设计要点：
  * - `resource_id` / `connection_id` 都是 connections 表中的 SSH 连接 id；
  *   AI 可先调用 Native 工具 `omni_ssh_list_connections` 获取候选主机。
- * - exec 命令直接走连接池的 exec channel（非交互式 capture），与终端
- *   `omni_terminal_run_terminal_command` 走 PTY 不同：这里返回结构化
+ * - exec 命令直接走连接池的 exec channel（非交互式 capture），返回结构化
  *   `{stdout, stderr, exit_code}`，不会污染终端 UI。
  * - 危险命令的审批目前依赖后端 exec channel 的语义；后续若加危险命令
  *   拦截，可在 `ssh_pool_exec_command` 实现层统一加。
@@ -60,6 +59,92 @@ async function sshExec(args: Record<string, unknown>): Promise<string> {
   return runWithToolGate(
     {
       toolName: "omni_ssh_exec",
+      args,
+      resourceId: resource_id,
+      channel: "ui-delegated",
+    },
+    run,
+  );
+}
+
+interface SshCreateRunScriptInvokeArgs {
+  resourceId: string;
+  name: string;
+  content: string;
+  args?: string[];
+  timeoutSecs?: number;
+}
+
+interface SshCreateRunScriptOutput {
+  remotePath: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+function optionalStringList(args: Record<string, unknown>, key: string): string[] | undefined {
+  const value = args[key];
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error(`参数 ${key} 必须是字符串数组`);
+  }
+  return value.map((item, index) => {
+    if (typeof item !== "string") {
+      throw new Error(`参数 ${key}[${index}] 必须是字符串`);
+    }
+    return item;
+  });
+}
+
+function optionalPositiveInt(
+  args: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = args[key];
+  if (value == null || value === "") return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`参数 ${key} 必须是正数`);
+  }
+  return Math.floor(value);
+}
+
+async function sshCreateRunScript(args: Record<string, unknown>): Promise<string> {
+  const resource_id = requireString(args, "resource_id");
+  const name = requireString(args, "name");
+  if (typeof args.content !== "string") {
+    throw new Error("缺少必填参数：content");
+  }
+  const content = args.content;
+  const scriptArgs = optionalStringList(args, "args");
+  const timeoutSecs = optionalPositiveInt(args, "timeout_secs");
+
+  const run = async () => {
+    const output = await invoke<SshCreateRunScriptOutput>("ssh_pool_create_run_script", {
+      resourceId: resource_id,
+      name,
+      content,
+      args: scriptArgs,
+      timeoutSecs,
+    } satisfies SshCreateRunScriptInvokeArgs);
+    return redactSecretsInText(
+      JSON.stringify(
+        {
+          resourceId: resource_id,
+          name,
+          remotePath: output.remotePath,
+          stdout: output.stdout,
+          stderr: output.stderr,
+          exitCode: output.exitCode,
+        },
+        null,
+        2,
+      ),
+    );
+  };
+
+  return runWithToolGate(
+    {
+      toolName: "omni_ssh_create_run_script",
       args,
       resourceId: resource_id,
       channel: "ui-delegated",
@@ -168,6 +253,38 @@ export const SSH_MODULE_TOOLS: BuiltinToolRegistration[] = [
       required: ["resource_id", "command"],
     },
     handler: sshExec,
+  },
+  {
+    name: "omni_ssh_create_run_script",
+    description:
+      "在指定 SSH 主机上创建脚本并立即执行：写入 ~/.omnipanel/scripts/<name>（同名覆盖），\
+chmod +x 后以 bash 运行。适合多行脚本或需落盘复用；简单一行命令优先用 omni_ssh_exec。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource_id: resourceIdSchema,
+        name: {
+          type: "string",
+          description:
+            "脚本文件名（仅字母/数字/点/下划线/连字符）；写入 ~/.omnipanel/scripts/",
+        },
+        content: {
+          type: "string",
+          description: "脚本正文（建议自带 shebang）",
+        },
+        args: {
+          type: "array",
+          items: { type: "string" },
+          description: "可选；传给脚本的参数",
+        },
+        timeout_secs: {
+          type: "integer",
+          description: "可选；超时秒数，默认 120，最大 600",
+        },
+      },
+      required: ["resource_id", "name", "content"],
+    },
+    handler: sshCreateRunScript,
   },
   {
     name: "omni_ssh_get_stats",

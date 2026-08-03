@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+﻿use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::ir::{StreamEvent, ToolStatus};
@@ -85,7 +85,7 @@ pub fn translate_update_value(
 /// 对齐 cursor-gateway stream.go EventToolCall 分支 + translator.MapNativeToolToClient：
 /// 1. 先查 rawInput 是否含 shell 命令（`command`/`shellToolCall`/`script`），这是最优先判断
 /// 2. 再看工具名/title 是否为 shell 类
-/// 3. Shell → 重写为 `omni_terminal_run_terminal_command` + Pending
+/// 3. Shell → 重写为 `omni_ssh_exec` + Pending
 /// 4. 非 shell（WebSearch/WebFetch/Read/Write/Edit/Find/Grep）→ 按 NativeToolKind 映射
 /// 5. 无法识别 → client-tools 模式下抑制该 tool_call，防止 UI 卡住
 fn translate_tool_call(update: &serde_json::Value, options: &TranslateOptions) -> Vec<StreamEvent> {

@@ -27,15 +27,6 @@ pub struct BuiltinToolSpec {
     pub omnimcp_backend: bool,
 }
 
-const SCHEMA_TERMINAL_RUN: &str = r#"{
-  "type": "object",
-  "properties": {
-    "command": { "type": "string", "description": "要在当前活动终端会话中执行的 shell 命令，例如 date、ls -la。危险命令会进入用户确认流程。" },
-    "session_id": { "type": "string", "description": "可选，指定终端 tab id；默认使用当前活动终端。" }
-  },
-  "required": ["command"]
-}"#;
-
 const SCHEMA_DB_GET_DATABASES: &str = r#"{
   "type": "object",
   "properties": {
@@ -332,6 +323,31 @@ const SCHEMA_SSH_EXEC: &str = r#"{
     "command": { "type": "string", "description": "要在远程主机上执行的非交互式 shell 命令。不支持 TUI/流式命令（如 top、vim、tail -f），请用 top -bn1 | head / tail -n 100 等替代。" }
   },
   "required": ["resource_id", "command"]
+}"#;
+
+const SCHEMA_SSH_CREATE_RUN_SCRIPT: &str = r#"{
+  "type": "object",
+  "properties": {
+    "resource_id": { "type": "string", "description": "SSH 主机连接 id（可先用 omni_ssh_list_connections 查询）" },
+    "name": {
+      "type": "string",
+      "description": "脚本文件名（写入 ~/.omnipanel/scripts/）。仅允许字母、数字、点、下划线与连字符；同名覆盖。"
+    },
+    "content": {
+      "type": "string",
+      "description": "脚本正文（建议自带 shebang，如 #!/usr/bin/env bash）。将以 bash 执行。"
+    },
+    "args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "可选；传给脚本的命令行参数"
+    },
+    "timeout_secs": {
+      "type": "integer",
+      "description": "可选；整次创建+执行的超时秒数，默认 120，最大 600"
+    }
+  },
+  "required": ["resource_id", "name", "content"]
 }"#;
 
 const SCHEMA_SSH_GET_STATS: &str = r#"{
@@ -651,6 +667,17 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         omnimcp_backend: true,
     },
     BuiltinToolSpec {
+        tool_name: "omni_ssh_create_run_script",
+        module_key: "terminal",
+        description:
+            "在指定 SSH 主机上创建脚本并立即执行：写入连接用户家目录下的 ~/.omnipanel/scripts/<name>（同名覆盖），\
+             chmod +x 后以 bash 运行，返回 remote_path/stdout/stderr/exit_code。\
+             适合需要落盘复用或多行复杂逻辑的场景；简单一行命令优先用 omni_ssh_exec。危险内容进入用户确认流程。",
+        input_schema: SCHEMA_SSH_CREATE_RUN_SCRIPT,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
         tool_name: "omni_ssh_get_stats",
         module_key: "terminal",
         description:
@@ -783,14 +810,6 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
             "按文件名子串搜索（忽略大小写）。S3 协议下含 '/' 时按 key 前缀查询。\
              仅返回当前目录一层匹配项，不递归（递归搜索请配合 SSH find / grep）。",
         input_schema: SCHEMA_FILES_SEARCH,
-        exec_kind: ToolExecKind::UiDelegated,
-        omnimcp_backend: true,
-    },
-    BuiltinToolSpec {
-        tool_name: "omni_terminal_run_terminal_command",
-        module_key: "terminal",
-        description: "在当前活动终端会话中执行 shell 命令（运维、本地状态、用户明确的 CLI 工作流）。危险命令会进入用户确认流程；执行完成后返回退出码与输出。",
-        input_schema: SCHEMA_TERMINAL_RUN,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
     },
@@ -1179,11 +1198,12 @@ mod tests {
     }
 
     #[test]
-    fn terminal_tool_requires_command() {
-        let spec = builtin_tool_spec("omni_terminal_run_terminal_command").unwrap();
+    fn ssh_exec_tool_requires_command() {
+        let spec = builtin_tool_spec("omni_ssh_exec").unwrap();
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
         assert!(required.iter().any(|x| x.as_str() == Some("command")));
+        assert!(required.iter().any(|x| x.as_str() == Some("resource_id")));
         assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated);
     }
 
@@ -1193,7 +1213,7 @@ mod tests {
         assert!(builtin_tool_is_native("omni_knowledge_save_todolist"));
         assert!(builtin_tool_is_native("load_skill"));
         assert!(builtin_tool_is_native("omni_database_list_connections"));
-        assert!(!builtin_tool_is_native("omni_terminal_run_terminal_command"));
+        assert!(!builtin_tool_is_native("omni_ssh_exec"));
     }
 
     #[test]
@@ -1227,6 +1247,7 @@ mod tests {
         assert!(builtin_tool_is_native("omni_ssh_list_connections"));
         for name in [
             "omni_ssh_exec",
+            "omni_ssh_create_run_script",
             "omni_ssh_get_stats",
             "omni_ssh_list_tunnels",
             "omni_ssh_create_tunnel",
@@ -1235,6 +1256,19 @@ mod tests {
             assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated, "{name}");
             assert_eq!(spec.module_key, "terminal", "{name}");
             assert!(spec.omnimcp_backend, "{name}");
+        }
+    }
+
+    #[test]
+    fn ssh_create_run_script_schema_requires_core_fields() {
+        let spec = builtin_tool_spec("omni_ssh_create_run_script").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        for key in ["resource_id", "name", "content"] {
+            assert!(
+                required.iter().any(|x| x.as_str() == Some(key)),
+                "缺少 required: {key}"
+            );
         }
     }
 

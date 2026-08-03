@@ -1,4 +1,4 @@
-use std::path::Path;
+﻿use std::path::Path;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::Connection as SqliteConnection;
@@ -295,7 +295,7 @@ const MIGRATIONS: &[&str] = &[
         enabled INTEGER NOT NULL DEFAULT 1
     );
     INSERT OR IGNORE INTO mcp_tools (tool_name, module_key, description, enabled) VALUES
-        ('omni_terminal_run_terminal_command', 'terminal', '在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。', 1),
+        ('omni_ssh_exec', 'terminal', '在当前活动终端会话中执行 shell 命令。危险命令会进入用户确认流程；执行完成后返回退出码与输出。', 1),
         ('omni_database_get_databases_from_connection', 'database', '根据连接名获取该连接下的数据库列表，可选关键字过滤。', 1),
         ('omni_database_get_tables_from_database', 'database', '根据连接名和数据库名获取表列表，可选关键字过滤。', 1),
         ('omni_database_get_table_info', 'database', '根据连接名、数据库名和表名获取表结构信息（MySQL/MariaDB 执行 DESC，其他引擎使用 introspect）。', 1),

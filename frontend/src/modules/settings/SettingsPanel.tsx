@@ -58,7 +58,12 @@ import { ModulesSettingsSection } from "../../components/settings/ModulesSetting
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
-import { AgentConfigSection } from "../../components/settings/AgentConfigSection";
+import {
+  AgentConfigSection,
+  agentSectionId,
+  agentSettingsNavItems,
+  parseAgentSectionId,
+} from "../../components/settings/AgentConfigSection";
 import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
 import { Button } from "../../components/ui/primitives/Button";
@@ -71,6 +76,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
+import { ALL_AGENT_IDS, type AgentId } from "../../lib/ai/agents";
 
 type Section =
   | "general"
@@ -78,8 +84,6 @@ type Section =
   | "appearance"
   | "keybindings"
   | "ai"
-  | "agent"
-  | "localModels"
   | "aiServices"
   | "security"
   | "accounts"
@@ -88,20 +92,31 @@ type Section =
   | "files"
   | "protocol"
   | "knowledge"
-  | "data";
+  | "data"
+  | `agent:${AgentId}`;
 
 type NavGroupId = "general" | "ai" | "modules";
 
-interface NavItem {
+type NavLeaf = {
+  kind?: "item";
   id: Section;
   label: string;
   icon: ReactNode;
-}
+};
+
+type NavFolder = {
+  kind: "folder";
+  id: string;
+  label: string;
+  icon: ReactNode;
+};
+
+type NavEntry = NavLeaf | NavFolder;
 
 interface NavGroup {
   id: NavGroupId;
   label: string;
-  items: NavItem[];
+  items: NavEntry[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
@@ -177,7 +192,8 @@ const NAV_GROUPS: NavGroup[] = [
         ),
       },
       {
-        id: "agent",
+        kind: "folder",
+        id: "agents",
         label: "智能体",
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -194,19 +210,6 @@ const NAV_GROUPS: NavGroup[] = [
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="2" y="3" width="20" height="14" rx="2" />
             <path d="M8 21h8M12 17v4" />
-          </svg>
-        ),
-      },
-      {
-        id: "localModels",
-        label: "本地模型",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <path d="M8 21h8M12 17v4" />
-            <circle cx="8" cy="10" r="1.5" fill="currentColor" stroke="none" />
-            <circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none" />
-            <circle cx="16" cy="10" r="1.5" fill="currentColor" stroke="none" />
           </svg>
         ),
       },
@@ -291,8 +294,13 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 function navGroupIdForSection(section: Section): NavGroupId {
+  if (parseAgentSectionId(section)) return "ai";
   for (const group of NAV_GROUPS) {
-    if (group.items.some((item) => item.id === section)) {
+    if (
+      group.items.some(
+        (item) => item.kind !== "folder" && (item as NavLeaf).id === section,
+      )
+    ) {
       return group.id;
     }
   }
@@ -852,6 +860,8 @@ function AiSection() {
     <div className="settings-panel active">
       <ModelsSection />
       <div className="settings-section-divider" />
+      <LocalModelsSection />
+      <div className="settings-section-divider" />
       <AgentSectionContent />
       <div className="settings-section-divider" />
       <AiScenarioSection />
@@ -869,11 +879,18 @@ export function SettingsPanel() {
     ai: true,
     modules: false,
   }));
+  const [agentsFolderOpen, setAgentsFolderOpen] = useState(true);
+
+  const agentNavChildren = useMemo(() => agentSettingsNavItems(t), [t]);
+  const activeAgentId = parseAgentSectionId(activeSection);
 
   const selectSection = useCallback((section: Section) => {
     setActiveSection(section);
     const groupId = navGroupIdForSection(section);
     setOpenGroups((prev) => (prev[groupId] ? prev : { ...prev, [groupId]: true }));
+    if (parseAgentSectionId(section)) {
+      setAgentsFolderOpen(true);
+    }
   }, []);
 
   const toggleGroup = useCallback((groupId: NavGroupId) => {
@@ -1188,16 +1205,71 @@ export function SettingsPanel() {
                 </button>
                 {expanded ? (
                   <div className="settings-nav-group__items">
-                    {group.items.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`settings-nav-item ${activeSection === item.id ? "active" : ""}`}
-                        onClick={() => selectSection(item.id)}
-                      >
-                        {item.icon}
-                        {item.label}
-                      </div>
-                    ))}
+                    {group.items.map((item) => {
+                      if (item.kind === "folder") {
+                        const folderOpen = agentsFolderOpen;
+                        const childActive = Boolean(activeAgentId);
+                        return (
+                          <div
+                            key={item.id}
+                            className={`settings-nav-folder${folderOpen ? " is-open" : ""}`}
+                          >
+                            <button
+                              type="button"
+                              className={`settings-nav-folder__header${childActive ? " is-active" : ""}`}
+                              aria-expanded={folderOpen}
+                              onClick={() => {
+                                setAgentsFolderOpen((v) => !v);
+                                if (!folderOpen && !activeAgentId) {
+                                  selectSection(agentSectionId(ALL_AGENT_IDS[0]));
+                                }
+                              }}
+                            >
+                              <span className="settings-nav-folder__label">
+                                {item.icon}
+                                {item.label}
+                              </span>
+                              <svg
+                                className="settings-nav-folder__chevron"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden
+                              >
+                                <path d="M6 9l6 6 6-6" />
+                              </svg>
+                            </button>
+                            {folderOpen ? (
+                              <div className="settings-nav-folder__items">
+                                {agentNavChildren.map((child) => (
+                                  <div
+                                    key={child.id}
+                                    className={`settings-nav-item settings-nav-item--nested${
+                                      activeSection === child.id ? " active" : ""
+                                    }`}
+                                    onClick={() => selectSection(child.id)}
+                                  >
+                                    {child.label}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`settings-nav-item ${activeSection === item.id ? "active" : ""}`}
+                          onClick={() => selectSection(item.id)}
+                        >
+                          {item.icon}
+                          {item.label}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>
@@ -1532,17 +1604,7 @@ export function SettingsPanel() {
         {/* AI (Models / Scenarios / Other) */}
         {activeSection === "ai" && <AiSection />}
 
-        {activeSection === "agent" && (
-          <div className="settings-panel active">
-            <AgentConfigSection />
-          </div>
-        )}
-
-        {activeSection === "localModels" && (
-          <div className="settings-panel active">
-            <LocalModelsSection />
-          </div>
-        )}
+        {activeAgentId ? <AgentConfigSection agentId={activeAgentId} /> : null}
 
         {activeSection === "aiServices" && <AiServicesSection />}
 

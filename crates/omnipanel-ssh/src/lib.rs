@@ -291,6 +291,48 @@ impl ExecOutput {
     }
 }
 
+/// POSIX shell 单引号包裹（用于拼接远程命令参数）。
+pub fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// 校验远端脚本文件名：仅 `[A-Za-z0-9._-]`，禁止路径穿越。
+pub fn validate_remote_script_name(name: &str) -> OmniResult<&str> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "脚本名不能为空"));
+    }
+    if name.len() > 128 {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "脚本名过长（最多 128 字符）",
+        ));
+    }
+    if name == "." || name == ".." {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "非法脚本名"));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "脚本名仅允许字母、数字、点、下划线与连字符",
+        ));
+    }
+    Ok(name)
+}
+
+/// `create_run_script` 的执行结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRunScriptOutput {
+    pub remote_path: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
 /// shell channel 的输出事件。
 #[derive(Debug, Clone)]
 pub enum SshEvent {
@@ -1249,6 +1291,59 @@ impl SshSession {
         Ok(())
     }
 
+    /// 在连接用户家目录下创建并执行脚本：`~/.omnipanel/scripts/<name>`（同名覆盖）。
+    ///
+    /// 流程：解析 `$HOME` → `mkdir -p` → SFTP 写入 → `chmod +x` → `bash <path> [args...]`。
+    pub async fn create_run_script(
+        &self,
+        name: &str,
+        content: &str,
+        args: &[String],
+    ) -> OmniResult<CreateRunScriptOutput> {
+        let name = validate_remote_script_name(name)?;
+
+        let home_out = self
+            .exec_capture(r#"printf '%s' "$HOME""#)
+            .await?
+            .ok_or_err("解析远程 HOME 失败")?;
+        let home = home_out.stdout.trim();
+        if home.is_empty() || !home.starts_with('/') {
+            return Err(OmniError::new(
+                ErrorCode::Ssh,
+                format!("无法解析远程 HOME（得到: {home:?}）"),
+            ));
+        }
+
+        let scripts_dir = format!("{home}/.omnipanel/scripts");
+        let remote_path = format!("{scripts_dir}/{name}");
+
+        let mkdir_cmd = format!("mkdir -p {}", shell_single_quote(&scripts_dir));
+        self.exec_capture(&mkdir_cmd)
+            .await?
+            .ok_or_err("创建脚本目录失败")?;
+
+        self.sftp_upload(&remote_path, content.as_bytes()).await?;
+
+        let chmod_cmd = format!("chmod +x {}", shell_single_quote(&remote_path));
+        self.exec_capture(&chmod_cmd)
+            .await?
+            .ok_or_err("设置脚本可执行权限失败")?;
+
+        let mut run_cmd = format!("bash {}", shell_single_quote(&remote_path));
+        for arg in args {
+            run_cmd.push(' ');
+            run_cmd.push_str(&shell_single_quote(arg));
+        }
+        let output = self.exec_capture(&run_cmd).await?;
+
+        Ok(CreateRunScriptOutput {
+            remote_path,
+            stdout: output.stdout,
+            stderr: output.stderr,
+            exit_code: output.exit_code,
+        })
+    }
+
     /// 仅拉取进程列表（不采集端口，用于快速刷新）。
     pub async fn process_list_fast(&self) -> OmniResult<Vec<SshProcessInfo>> {
         use crate::process::{parse_ps_output, PS_LIST_SCRIPT, PS_AUX_CMD, PS_EO_CMD};
@@ -1408,5 +1503,29 @@ mod tests {
         let err = retry_with_backoff(&mut op, 3).await.unwrap_err();
         assert_eq!(calls, 3);
         assert!(err.cause.as_deref().unwrap_or("").contains("always-fail #3"));
+    }
+
+    #[test]
+    fn validate_remote_script_name_accepts_safe_names() {
+        assert_eq!(
+            validate_remote_script_name("fix-nginx.sh").unwrap(),
+            "fix-nginx.sh"
+        );
+        assert_eq!(validate_remote_script_name("a_b.1").unwrap(), "a_b.1");
+    }
+
+    #[test]
+    fn validate_remote_script_name_rejects_path_traversal() {
+        assert!(validate_remote_script_name("../x").is_err());
+        assert!(validate_remote_script_name("a/b").is_err());
+        assert!(validate_remote_script_name("a b").is_err());
+        assert!(validate_remote_script_name("").is_err());
+        assert!(validate_remote_script_name("..").is_err());
+    }
+
+    #[test]
+    fn shell_single_quote_escapes_apostrophe() {
+        assert_eq!(shell_single_quote("a'b"), "'a'\\''b'");
+        assert_eq!(shell_single_quote("plain"), "'plain'");
     }
 }

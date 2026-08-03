@@ -1,4 +1,4 @@
-//! Client-tools prompt 构建与 tool_calls JSON 解析（对齐 cursor-gateway translator/client_tools.go）。
+﻿//! Client-tools prompt 构建与 tool_calls JSON 解析（对齐 cursor-gateway translator/client_tools.go）。
 //!
 //! 提示词正文从 `~/.omnipd/prompts/` 读取（见 omnipanel_store::agent_prompt）。
 
@@ -242,7 +242,7 @@ pub fn parse_client_tool_calls(text: &str) -> Vec<ParsedToolCall> {
     vec![]
 }
 
-/// 从解析结果中选取终端工具调用（优先 omni_terminal_run_terminal_command）。
+/// 从解析结果中选取终端工具调用（优先 omni_ssh_exec）。
 pub fn pick_terminal_tool_call(calls: &[ParsedToolCall]) -> Option<&ParsedToolCall> {
     calls
         .iter()
@@ -376,10 +376,10 @@ mod tests {
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "command": { "type": "string" },
-                        "session_id": { "type": "string" }
+                        "resource_id": { "type": "string" },
+                        "command": { "type": "string" }
                     },
-                    "required": ["command"]
+                    "required": ["resource_id", "command"]
                 }),
             },
         }
@@ -391,7 +391,7 @@ mod tests {
         let p = build_client_tools_prompt("当前的时间", None, &tools);
         assert!(p.contains("OmniPanel Client Tool API"));
         assert!(p.contains("[User]\n当前的时间"));
-        assert!(p.contains("omni_terminal_run_terminal_command"));
+        assert!(p.contains("omni_ssh_exec"));
         assert!(p.contains("tool_calls"));
     }
 
@@ -415,10 +415,10 @@ mod tests {
         };
         let tools = [terminal_tool_def(), db_tool];
         let section = build_available_functions_section(&tools);
-        assert!(section.contains("omni_terminal_run_terminal_command"));
+        assert!(section.contains("omni_ssh_exec"));
         assert!(section.contains("omni_database_execute_sql"));
-        // 终端可选字段 session_id 出现在 optional
-        assert!(section.contains("session_id"));
+        // SSH exec 必填 resource_id
+        assert!(section.contains("resource_id"));
         // compact schema 保留短 description
         assert!(section.contains("\"description\":\"run terminal command\""));
     }
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn parse_tool_calls_from_json() {
-        let raw = r#"{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"date\"}"}}]}"#;
+        let raw = r#"{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_ssh_exec","arguments":"{\"command\":\"date\"}"}}]}"#;
         let calls = parse_client_tool_calls(raw);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, TERMINAL_CLIENT_TOOL);
@@ -464,7 +464,7 @@ mod tests {
     fn parse_tool_calls_from_fenced_json() {
         let raw = r#"Here:
 ```json
-{"tool_calls":[{"id":"x","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"Get-Date\"}"}}]}
+{"tool_calls":[{"id":"x","type":"function","function":{"name":"omni_ssh_exec","arguments":"{\"command\":\"Get-Date\"}"}}]}
 ```"#;
         let calls = parse_client_tool_calls(raw);
         assert_eq!(calls.len(), 1);

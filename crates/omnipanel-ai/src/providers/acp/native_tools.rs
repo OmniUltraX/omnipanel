@@ -1,12 +1,12 @@
 //! 将 Cursor ACP 内置工具映射为 OmniPanel 客户端工具（对齐 cursor-gateway translator/native_tools）。
 //!
 //! 支持的原生工具分类：
-//! - Shell: 映射为 `omni_terminal_run_terminal_command`
+//! - Shell: 映射为 `omni_ssh_exec`
 //! - WebSearch: 映射为 `omni_web_search`
 //! - WebFetch: 映射为 `omni_web_fetch`
-//! - Read/Write/Edit/Find/Grep: 映射为 `omni_terminal_run_terminal_command`（用 cat/echo/sed/find/grep）
+//! - Read/Write/Edit/Find/Grep: 映射为 `omni_ssh_exec`（用 cat/echo/sed/find/grep；需 SSH resource_id，可由前端会话注入）
 
-pub const TERMINAL_CLIENT_TOOL: &str = "omni_terminal_run_terminal_command";
+pub const TERMINAL_CLIENT_TOOL: &str = "omni_ssh_exec";
 pub const WEB_SEARCH_CLIENT_TOOL: &str = "omni_web_search";
 pub const WEB_FETCH_CLIENT_TOOL: &str = "omni_web_fetch";
 
@@ -166,7 +166,7 @@ fn shell_escape(path: &str) -> String {
     }
 }
 
-/// 将原生 shell 工具映射为 `omni_terminal_run_terminal_command` 参数 JSON。
+/// 将原生 shell 工具映射为 `omni_ssh_exec` 参数 JSON（resource_id 可由前端从会话注入）。
 pub fn map_native_shell_to_terminal_tool(raw_input: &serde_json::Value) -> Option<String> {
     let command = extract_native_shell_command(raw_input)?;
     serde_json::to_string(&serde_json::json!({ "command": command })).ok()
@@ -201,14 +201,14 @@ pub fn map_native_web_fetch(raw: &serde_json::Value) -> Option<String> {
     serde_json::to_string(&serde_json::json!({ "url": url })).ok()
 }
 
-/// 将原生 Read 工具映射为 `omni_terminal_run_terminal_command { command: "cat path" }`。
+/// 将原生 Read 工具映射为 `omni_ssh_exec { command: "cat path" }`。
 pub fn map_native_read_to_terminal(raw: &serde_json::Value) -> Option<String> {
     let path = extract_file_path(raw)?;
     let cmd = format!("cat {}", shell_escape(&path));
     serde_json::to_string(&serde_json::json!({ "command": cmd })).ok()
 }
 
-/// 将原生 Write 工具映射为 `omni_terminal_run_terminal_command { command: "cat > path <<'EOF'...EOF" }`。
+/// 将原生 Write 工具映射为 `omni_ssh_exec { command: "cat > path <<'EOF'...EOF" }`。
 pub fn map_native_write_to_terminal(raw: &serde_json::Value) -> Option<String> {
     let path = extract_file_path(raw)?;
     let content = raw
@@ -225,7 +225,7 @@ pub fn map_native_write_to_terminal(raw: &serde_json::Value) -> Option<String> {
     serde_json::to_string(&serde_json::json!({ "command": cmd })).ok()
 }
 
-/// 将原生 Edit 工具映射为 `omni_terminal_run_terminal_command`（用 perl -i 实现跨平台替换）。
+/// 将原生 Edit 工具映射为 `omni_ssh_exec`（用 perl -i 实现跨平台替换）。
 pub fn map_native_edit_to_terminal(raw: &serde_json::Value) -> Option<String> {
     let path = extract_file_path(raw)?;
     let old = raw
@@ -251,7 +251,7 @@ pub fn map_native_edit_to_terminal(raw: &serde_json::Value) -> Option<String> {
     serde_json::to_string(&serde_json::json!({ "command": cmd })).ok()
 }
 
-/// 将原生 Find 工具映射为 `omni_terminal_run_terminal_command { command: "find path -name query" }`。
+/// 将原生 Find 工具映射为 `omni_ssh_exec { command: "find path -name query" }`。
 pub fn map_native_find_to_terminal(raw: &serde_json::Value) -> Option<String> {
     let query = raw
         .get("query")
@@ -267,7 +267,7 @@ pub fn map_native_find_to_terminal(raw: &serde_json::Value) -> Option<String> {
     serde_json::to_string(&serde_json::json!({ "command": cmd })).ok()
 }
 
-/// 将原生 Grep 工具映射为 `omni_terminal_run_terminal_command { command: "grep -rn pattern path" }`。
+/// 将原生 Grep 工具映射为 `omni_ssh_exec { command: "grep -rn pattern path" }`。
 pub fn map_native_grep_to_terminal(raw: &serde_json::Value) -> Option<String> {
     let pattern = raw
         .get("pattern")

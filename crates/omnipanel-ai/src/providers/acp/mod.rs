@@ -1,4 +1,4 @@
-pub mod client;
+﻿pub mod client;
 pub mod client_tools;
 pub mod native_tools;
 pub mod translate;
@@ -786,12 +786,12 @@ mod tests {
     fn multi_results_all_success() {
         let results = vec![
             (
-                "omni_terminal_run_terminal_command".to_string(),
+                "omni_ssh_exec".to_string(),
                 "{\"command\":\"a\",\"exitCode\":0}".to_string(),
                 true,
             ),
             (
-                "omni_terminal_run_terminal_command".to_string(),
+                "omni_ssh_exec".to_string(),
                 "{\"command\":\"b\",\"exitCode\":0}".to_string(),
                 true,
             ),
@@ -807,12 +807,12 @@ mod tests {
     fn multi_results_with_rejection() {
         let results = vec![
             (
-                "omni_terminal_run_terminal_command".to_string(),
+                "omni_ssh_exec".to_string(),
                 "{\"command\":\"a\",\"exitCode\":0}".to_string(),
                 true,
             ),
             (
-                "omni_terminal_run_terminal_command".to_string(),
+                "omni_ssh_exec".to_string(),
                 String::new(),
                 false,
             ),
@@ -825,12 +825,12 @@ mod tests {
     #[test]
     fn single_result_delegates_to_single_formatter() {
         let results = vec![(
-            "omni_terminal_run_terminal_command".to_string(),
+            "omni_ssh_exec".to_string(),
             "{\"command\":\"date\",\"exitCode\":0}".to_string(),
             true,
         )];
         let p = format_client_tool_results_prompt(&results);
-        assert!(p.contains("[Tool Result — omni_terminal_run_terminal_command]"));
+        assert!(p.contains("[Tool Result — omni_ssh_exec]"));
         assert!(p.contains("再次输出 tool_calls JSON"));
         assert!(p.contains("omni_ask_user"));
     }

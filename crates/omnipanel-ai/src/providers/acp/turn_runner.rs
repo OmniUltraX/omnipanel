@@ -1,4 +1,4 @@
-//! Reusable ACP turn-running primitives.
+﻿//! Reusable ACP turn-running primitives.
 //!
 //! Extracted from the Tauri command layer (`run_acp_internal_turn`) so that
 //! both the internal chat (multi-round tool loop in `ai_chat.rs`) and the
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn drain_held_content_splits_mixed_plain_and_json() {
         let buf = Arc::new(StdMutex::new(
-            "好的，我来查\n{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"omni_terminal_run_terminal_command\",\"arguments\":\"{}\"}}]}".to_string(),
+            "好的，我来查\n{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"omni_ssh_exec\",\"arguments\":\"{}\"}}]}".to_string(),
         ));
         assert_eq!(
             AcpRoundRunner::drain_held_content(&buf).as_deref(),

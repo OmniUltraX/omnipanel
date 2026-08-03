@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   appendTextLikePart,
   coalescePartsByToolSegments,
@@ -68,7 +68,7 @@ describe("AiMessage ordered parts", () => {
       {
         type: "tool-call",
         id: "c1",
-        name: "omni_terminal_run_terminal_command",
+        name: "omni_ssh_exec",
         arguments: "{}",
         status: "completed",
       },
@@ -82,7 +82,7 @@ describe("AiMessage ordered parts", () => {
       {
         type: "tool-call",
         id: "c2",
-        name: "omni_terminal_run_terminal_command",
+        name: "omni_ssh_exec",
         arguments: "{}",
         status: "running",
       },

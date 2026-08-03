@@ -1,7 +1,6 @@
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import type { WorkspaceAction } from "../../../stores/actionStore";
 import type { TerminalBlock } from "../../../stores/blocksStore";
-import { requireString } from "../../../lib/ai/mcpToolArgs";
 import { useTerminalStore, findTerminalPane } from "../../../stores/terminalStore";
 import { resolveResourceById } from "../../../stores/connectionStore";
 import { executeAiTerminalCommand } from "../executeAiTerminalCommand";
@@ -21,7 +20,10 @@ export type TerminalCommandCoreResult =
       block?: TerminalBlock;
     };
 
-/** 供 inlineToolBridge 与 MCP 工具共用的终端命令执行核心 */
+/**
+ * 终端 PTY 内执行命令的核心（供 UI/内联审批等本地路径复用）。
+ * 对外 AI 工具已统一为 `omni_ssh_exec`，不再注册为内置工具。
+ */
 export async function executeTerminalCommandCore(
   args: TerminalCommandCoreArgs,
 ): Promise<TerminalCommandCoreResult> {
@@ -65,37 +67,5 @@ export async function executeTerminalCommandCore(
   };
 }
 
-async function runTerminalCommand(args: Record<string, unknown>): Promise<string> {
-  const command = requireString(args, "command");
-  const { outputJson } = await executeTerminalCommandCore({
-    command,
-    session_id: typeof args.session_id === "string" ? args.session_id : undefined,
-  });
-  return outputJson;
-}
-
-/** 终端模块 MCP 工具名（omni_{module}_{function_name}） */
-export const OMNI_TERMINAL_RUN_TERMINAL_COMMAND = "omni_terminal_run_terminal_command";
-
-export const TERMINAL_MODULE_TOOLS: BuiltinToolRegistration[] = [
-  {
-    name: OMNI_TERMINAL_RUN_TERMINAL_COMMAND,
-    description:
-      "在当前终端会话执行 shell 命令并返回退出码与输出（运维、本地状态、用户明确的 CLI 工作流）。不支持交互式/TUI/流式命令（如 top、vim、tail -f、claude）；请改用批处理替代（如 top -bn1 | head、tail -n 100）。安装类长任务（npm/docker/apt）可执行但可能耗时较长。",
-    inputSchema: {
-      type: "object",
-      properties: {
-        command: {
-          type: "string",
-          description: "要执行的 shell 命令（非交互式）",
-        },
-        session_id: {
-          type: "string",
-          description: "可选，指定终端 tab id；默认使用当前活动终端",
-        },
-      },
-      required: ["command"],
-    },
-    handler: runTerminalCommand,
-  },
-];
+/** 终端模块不再注册独立「跑命令」工具（与 omni_ssh_exec 合并）。 */
+export const TERMINAL_MODULE_TOOLS: BuiltinToolRegistration[] = [];

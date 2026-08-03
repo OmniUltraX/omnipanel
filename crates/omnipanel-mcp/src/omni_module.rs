@@ -1,4 +1,4 @@
-//! OmniMCP 模块感知：从 HTTP 请求头 `X-Omni-Module` 解析当前模块，并按模块过滤工具。
+﻿//! OmniMCP 模块感知：从 HTTP 请求头 `X-Omni-Module` 解析当前模块，并按模块过滤工具。
 
 use http::request::Parts;
 use rmcp::{model::Tool, service::RequestContext, RoleServer};
@@ -121,7 +121,7 @@ mod tests {
             Some("database")
         );
         assert_eq!(
-            omni_tool_module_key("omni_terminal_run_terminal_command"),
+            omni_tool_module_key("omni_ssh_exec"),
             Some("terminal")
         );
         assert_eq!(omni_tool_module_key("other_tool"), None);
@@ -154,7 +154,7 @@ mod tests {
         let tools = vec![
             Tool::new("omni_plan_create", "plan", schema.clone()),
             Tool::new("omni_knowledge_save_todolist", "todo", schema.clone()),
-            Tool::new("omni_terminal_run_terminal_command", "term", schema),
+            Tool::new("omni_ssh_exec", "term", schema),
         ];
         let filtered = filter_tools_for_request(
             tools,
@@ -163,7 +163,7 @@ mod tests {
         );
         let names: Vec<_> = filtered.iter().map(|t| t.name.as_ref()).collect();
         assert!(names.contains(&"omni_plan_create"));
-        assert!(names.contains(&"omni_terminal_run_terminal_command"));
+        assert!(names.contains(&"omni_ssh_exec"));
         assert!(!names.contains(&"omni_knowledge_save_todolist"));
     }
 

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { useI18n } from "../../i18n";
 import { commands, type AgentPromptEntry } from "../../ipc/bindings";
 import { appConfirm } from "../../lib/appConfirm";
-import { isAgentId } from "../../lib/ai/agents";
+import { ALL_AGENT_IDS, getAgentDefinition, isAgentId, type AgentId } from "../../lib/ai/agents";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
@@ -13,13 +13,22 @@ import { SkillsSection } from "./SkillsSection";
 import { WebSearchSettingsSection } from "./WebSearchSettingsSection";
 import { HarnessInventoryPanel } from "./HarnessInventoryPanel";
 
-type AgentTab =
+export type AgentConfigTab =
   | "prompts"
+  | "harness"
   | "skills"
   | "builtin"
   | "webSearch"
-  | "externalMcp"
-  | "harness";
+  | "externalMcp";
+
+const AGENT_CONFIG_TABS: { id: AgentConfigTab; labelKey: string }[] = [
+  { id: "prompts", labelKey: "settings.agent.tabPrompts" },
+  { id: "harness", labelKey: "settings.agent.tabHarness" },
+  { id: "skills", labelKey: "settings.agent.tabSkills" },
+  { id: "builtin", labelKey: "settings.agent.tabBuiltin" },
+  { id: "webSearch", labelKey: "settings.agent.tabWebSearch" },
+  { id: "externalMcp", labelKey: "settings.agent.tabExternalMcp" },
+];
 
 function agentLabelKey(id: string): string {
   return isAgentId(id) ? `ai.agents.${id}.label` : "settings.agent.prompts.unknown";
@@ -32,9 +41,12 @@ function agentDescKey(id: string): string {
 function PromptEditor({
   entry,
   onSaved,
+  compactHeader = false,
 }: {
   entry: AgentPromptEntry;
   onSaved: (next: AgentPromptEntry) => void;
+  /** 智能体配置页页头已展示名称时，内容区不再重复标题 */
+  compactHeader?: boolean;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(entry.content);
@@ -95,11 +107,17 @@ function PromptEditor({
       <div className="skills-detail-form">
         <div className="agent-prompt-detail-header">
           <div className="min-w-0">
-            <h3 className="settings-subsection-title">{t(agentLabelKey(entry.id))}</h3>
-            <p className="setting-hint settings-subsection-desc">
-              {t(agentDescKey(entry.id))}
-            </p>
-            <p className="setting-hint agent-prompt-path">{entry.path}</p>
+            {compactHeader ? (
+              <p className="setting-hint agent-prompt-path">{entry.path}</p>
+            ) : (
+              <>
+                <h3 className="settings-subsection-title">{t(agentLabelKey(entry.id))}</h3>
+                <p className="setting-hint settings-subsection-desc">
+                  {t(agentDescKey(entry.id))}
+                </p>
+                <p className="setting-hint agent-prompt-path">{entry.path}</p>
+              </>
+            )}
           </div>
           <div className="settings-section-actions">
             <Button
@@ -136,10 +154,10 @@ function PromptEditor({
   );
 }
 
-function PromptsPanel() {
+/** 单个智能体的提示词编辑（不再内嵌智能体列表）。 */
+function AgentPromptPanel({ agentId }: { agentId: AgentId }) {
   const { t } = useI18n();
-  const [entries, setEntries] = useState<AgentPromptEntry[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [entry, setEntry] = useState<AgentPromptEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -149,11 +167,11 @@ function PromptsPanel() {
     try {
       const res = await commands.agentPromptList();
       if (res.status === "ok") {
-        setEntries(res.data);
-        setSelectedId((prev) => {
-          if (prev && res.data.some((e) => e.id === prev)) return prev;
-          return res.data[0]?.id ?? null;
-        });
+        const found = res.data.find((e) => e.id === agentId) ?? null;
+        setEntry(found);
+        if (!found) {
+          setError(t("settings.agent.prompts.empty"));
+        }
       } else {
         setError(
           typeof res.error === "string" ? res.error : t("settings.agent.prompts.loadFailed"),
@@ -164,148 +182,126 @@ function PromptsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [agentId, t]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const selected = useMemo(
-    () => entries.find((e) => e.id === selectedId) ?? null,
-    [entries, selectedId],
-  );
-
   const handleSaved = useCallback((next: AgentPromptEntry) => {
-    setEntries((prev) => prev.map((e) => (e.id === next.id ? next : e)));
+    setEntry(next);
   }, []);
 
-  return (
-    <div className="settings-subsection skills-section agent-prompts-section">
-      {error ? (
-        <div className="settings-subsection" style={{ marginBottom: 8 }}>
-          <p className="setting-hint setting-hint--error">{error}</p>
-          <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
-            {t("settings.agent.prompts.retry")}
-          </Button>
-        </div>
-      ) : null}
-
-      <div className="skills-layout agent-prompts-layout">
-        <aside
-          className="skills-sidebar"
-          aria-label={t("settings.agent.prompts.sidebarTitle")}
-        >
-          {loading ? (
-            <p className="setting-hint skills-sidebar-hint">
-              {t("settings.agent.prompts.loading")}
-            </p>
-          ) : entries.length === 0 ? (
-            <p className="setting-hint skills-sidebar-hint">
-              {t("settings.agent.prompts.empty")}
-            </p>
-          ) : (
-            <ul className="skills-sidebar-list">
-              {entries.map((entry) => {
-                const active = entry.id === selectedId;
-                return (
-                  <li key={entry.id} className="skills-sidebar-row">
-                    <button
-                      type="button"
-                      className={`skills-sidebar-item${active ? " is-active" : ""}`}
-                      onClick={() => setSelectedId(entry.id)}
-                    >
-                      <span className="skills-sidebar-item__name">
-                        {t(agentLabelKey(entry.id))}
-                      </span>
-                      {entry.id === "plan" ? (
-                        <span className="agent-prompt-sidebar-tag">
-                          {t("ai.agents.planToolTag")}
-                        </span>
-                      ) : null}
-                      {entry.id === "run" ? (
-                        <span className="agent-prompt-sidebar-tag">
-                          {t("ai.agents.runToolTag")}
-                        </span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </aside>
-
-        <div className="skills-content">
-          {!selected && !loading ? (
-            <ModuleEmptyState title={t("settings.agent.prompts.selectHint")} />
-          ) : null}
-          {selected ? (
-            <PromptEditor
-              key={selected.id}
-              entry={selected}
-              onSaved={handleSaved}
-            />
-          ) : null}
-        </div>
+  if (loading) {
+    return (
+      <div className="settings-subsection">
+        <p className="setting-hint">{t("settings.agent.prompts.loading")}</p>
       </div>
+    );
+  }
+
+  if (error && !entry) {
+    return (
+      <div className="settings-subsection">
+        <p className="setting-hint setting-hint--error">{error}</p>
+        <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
+          {t("settings.agent.prompts.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  if (!entry) {
+    return <ModuleEmptyState title={t("settings.agent.prompts.empty")} />;
+  }
+
+  return (
+    <div className="settings-subsection agent-prompt-solo">
+      <PromptEditor key={entry.id} entry={entry} onSaved={handleSaved} compactHeader />
     </div>
   );
 }
 
-export function AgentConfigSection() {
+export function parseAgentSectionId(section: string): AgentId | null {
+  if (!section.startsWith("agent:")) return null;
+  const id = section.slice("agent:".length);
+  return isAgentId(id) ? id : null;
+}
+
+export function agentSectionId(agentId: AgentId): `agent:${AgentId}` {
+  return `agent:${agentId}`;
+}
+
+export function agentSettingsNavItems(
+  t: (key: string) => string,
+): { id: `agent:${AgentId}`; label: string }[] {
+  return ALL_AGENT_IDS.map((id) => ({
+    id: agentSectionId(id),
+    label: t(getAgentDefinition(id).labelKey),
+  }));
+}
+
+/**
+ * 单个智能体配置：顶部 Tab + 内容区。
+ * 内置工具按该 Agent 的 moduleFilter 隔离；Skills / Web / MCP 仍为全局面板。
+ */
+export function AgentConfigSection({ agentId }: { agentId: AgentId }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<AgentTab>("prompts");
+  const [tab, setTab] = useState<AgentConfigTab>("prompts");
+  const def = getAgentDefinition(agentId);
+
+  // 切换智能体时回到提示词
+  useEffect(() => {
+    setTab("prompts");
+  }, [agentId]);
+
+  let main: ReactNode;
+  if (tab === "prompts") {
+    main = <AgentPromptPanel agentId={agentId} />;
+  } else if (tab === "harness") {
+    main = <HarnessInventoryPanel />;
+  } else if (tab === "skills") {
+    main = <SkillsSection />;
+  } else if (tab === "builtin") {
+    main = <BuiltinToolsSettingsSection agentId={agentId} />;
+  } else if (tab === "webSearch") {
+    main = (
+      <div className="settings-subsection">
+        <WebSearchSettingsSection />
+      </div>
+    );
+  } else {
+    main = (
+      <div className="settings-subsection">
+        <p className="setting-hint settings-subsection-desc">
+          {t("settings.mcpServices.description")}
+        </p>
+        <McpServicesSection contentOnly externalOnly />
+      </div>
+    );
+  }
 
   return (
-    <div className="settings-section">
-      <div className="settings-section-header">
-        <div>
-          <h2>{t("settings.agent.title")}</h2>
-          <p className="section-desc">{t("settings.agent.desc")}</p>
-        </div>
-      </div>
-
-      <div className="settings-tabs" role="tablist">
-        {(
-          [
-            ["prompts", t("settings.agent.tabPrompts")],
-            ["harness", t("settings.agent.tabHarness")],
-            ["skills", t("settings.agent.tabSkills")],
-            ["builtin", t("settings.agent.tabBuiltin")],
-            ["webSearch", t("settings.agent.tabWebSearch")],
-            ["externalMcp", t("settings.agent.tabExternalMcp")],
-          ] as const
-        ).map(([id, label]) => (
+    <div className="settings-panel active agent-config-workspace">
+      <header className="agent-config-header">
+        <h2 className="agent-config-header__title">{t(def.labelKey)}</h2>
+        <p className="agent-config-header__desc">{t(def.descriptionKey)}</p>
+      </header>
+      <div className="settings-tabs agent-config-tabs" role="tablist" aria-label={t(def.labelKey)}>
+        {AGENT_CONFIG_TABS.map((item) => (
           <button
-            key={id}
+            key={item.id}
             type="button"
             role="tab"
-            aria-selected={tab === id}
-            className={`settings-tab${tab === id ? " is-active" : ""}`}
-            onClick={() => setTab(id)}
+            aria-selected={tab === item.id}
+            className={`settings-tab${tab === item.id ? " is-active" : ""}`}
+            onClick={() => setTab(item.id)}
           >
-            {label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
-
-      {tab === "prompts" ? <PromptsPanel /> : null}
-      {tab === "harness" ? <HarnessInventoryPanel /> : null}
-      {tab === "skills" ? <SkillsSection /> : null}
-      {tab === "builtin" ? <BuiltinToolsSettingsSection /> : null}
-      {tab === "webSearch" ? (
-        <div className="settings-subsection">
-          <WebSearchSettingsSection />
-        </div>
-      ) : null}
-      {tab === "externalMcp" ? (
-        <div className="settings-subsection">
-          <p className="setting-hint settings-subsection-desc">
-            {t("settings.mcpServices.description")}
-          </p>
-          <McpServicesSection contentOnly externalOnly />
-        </div>
-      ) : null}
+      <div className="agent-config-main">{main}</div>
     </div>
   );
 }

@@ -11,7 +11,6 @@ use super::docker_tools;
 use super::files_tools;
 use super::native;
 use super::ssh_tools;
-use super::terminal_tools;
 use super::web;
 
 /// 在 OmniMCP HTTP 路径执行工具；返回 JSON 文本。
@@ -79,8 +78,8 @@ pub async fn execute_omnimcp_tool(
         "omni_database_show_processlist" => database_tools::show_processlist(arguments).await,
         "omni_database_kill_query" => database_tools::kill_query(arguments).await,
         "omni_database_slow_log_summary" => database_tools::slow_log_summary(arguments).await,
-        "omni_terminal_run_terminal_command" => terminal_tools::run_terminal_command(arguments).await,
         "omni_ssh_exec" => ssh_tools::exec_command(arguments, storage).await,
+        "omni_ssh_create_run_script" => ssh_tools::create_run_script(arguments, storage).await,
         "omni_ssh_get_stats" => ssh_tools::get_stats(arguments, storage).await,
         "omni_ssh_list_tunnels" => Ok(serde_json::to_string(&serde_json::json!({
             "tunnels": [],
