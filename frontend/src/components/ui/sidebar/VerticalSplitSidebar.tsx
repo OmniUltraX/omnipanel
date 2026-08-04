@@ -64,6 +64,10 @@ export function VerticalSplitSidebarSection({
     return readPersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id);
   });
   const userSizedRef = useRef<boolean>(autoActive && Number.isFinite(autoHeight));
+  /** 侧栏拖宽时内容换行会触发 ResizeObserver；有稳定高度后忽略纯宽度变化 */
+  const measuredBoxRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const autoHeightRef = useRef(autoHeight);
+  autoHeightRef.current = autoHeight;
 
   const measureRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -77,16 +81,28 @@ export function VerticalSplitSidebarSection({
     [maxBodyHeightPx, minBodyHeightPx],
   );
 
-  // 自动测量内容高度（未手动拖拽时跟随内容）
+  // 自动测量内容高度（未手动拖拽时跟随内容；侧栏宽度变化不改已有高度）
   useLayoutEffect(() => {
     if (!autoActive || !expanded || userSizedRef.current) return;
     const el = measureRef.current;
     if (!el) return;
     const measure = () => {
-      const h = el.getBoundingClientRect().height;
+      if (userSizedRef.current) return;
+      const rect = el.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
       if (!Number.isFinite(h) || h <= 0) return;
+      const prev = measuredBoxRef.current;
+      const hasStableHeight =
+        (autoHeightRef.current != null && Number.isFinite(autoHeightRef.current)) || prev.h > 0;
+      // 宽度变了且已有高度：视为侧栏拖宽引起的重排，保持当前折叠面板高度
+      if (hasStableHeight && prev.w > 0 && Math.abs(w - prev.w) > 0.5) {
+        measuredBoxRef.current = { w, h: prev.h > 0 ? prev.h : clampHeight(h) };
+        return;
+      }
       const next = clampHeight(h);
-      setAutoHeight((prev) => (prev === next ? prev : next));
+      measuredBoxRef.current = { w, h: next };
+      setAutoHeight((prevHeight) => (prevHeight === next ? prevHeight : next));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -105,6 +121,7 @@ export function VerticalSplitSidebarSection({
     : autoActive
       ? (h: number) => {
           userSizedRef.current = true;
+          measuredBoxRef.current = { w: measuredBoxRef.current.w, h };
           setAutoHeight(h);
           if (autoSizePersist) writePersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id, h);
         }

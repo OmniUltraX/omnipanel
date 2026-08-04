@@ -15,6 +15,7 @@ export type UiFollowIntent =
   | { type: "openConnection"; module: FollowModuleKey; resourceId: string }
   | { type: "selectContainer"; connectionId: string; containerId: string }
   | { type: "openSqlDraft"; connectionId: string; database?: string | null; sql?: string | null; autoRun?: boolean }
+  | { type: "openSqlFile"; fileId: string }
   | { type: "selectTable"; connectionId: string; database: string; table: string }
   | { type: "selectDatabase"; connectionId: string; database: string }
   | { type: "revealTerminal"; sessionId: string; blockId?: string }
@@ -35,6 +36,7 @@ export function resolveIntentModule(intent: UiFollowIntent): FollowModuleKey | n
     case "selectContainer":
       return "docker";
     case "openSqlDraft":
+    case "openSqlFile":
     case "selectTable":
     case "selectDatabase":
       return "database";

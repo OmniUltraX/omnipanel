@@ -75,6 +75,7 @@ pub async fn execute_omnimcp_tool(
         }
         "omni_database_get_table_info" => database_tools::get_table_info(arguments).await,
         "omni_database_execute_sql" => database_tools::execute_sql(arguments).await,
+        "omni_database_create_run_sql" => database_tools::create_run_sql(arguments).await,
         "omni_database_show_processlist" => database_tools::show_processlist(arguments).await,
         "omni_database_kill_query" => database_tools::kill_query(arguments).await,
         "omni_database_slow_log_summary" => database_tools::slow_log_summary(arguments).await,

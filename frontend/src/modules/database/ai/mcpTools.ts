@@ -16,6 +16,7 @@ import { connectionWithDatabase } from "../toolbox/types";
 import { runWithToolGate } from "../../../lib/ai/toolGate";
 import { makeQueryRunId } from "../sql/queryRun";
 import type { QueryResult } from "../workspace/dbWorkspaceState";
+import { useDbSqlFileStore } from "../../../stores/dbSqlFileStore";
 
 function assertSqlIdentifier(name: string, label: string): string {
   const trimmed = name.trim();
@@ -138,6 +139,74 @@ async function executeSql(args: Record<string, unknown>): Promise<string> {
   return runWithToolGate(
     {
       toolName: "omni_database_execute_sql",
+      args,
+      resourceId: connectionName,
+      channel: "ui-delegated",
+    },
+    run,
+  );
+}
+
+function assertSqlScriptName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error("缺少必填参数：name");
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) {
+    throw new Error(`脚本文件名仅允许字母/数字/点/下划线/连字符：${name}`);
+  }
+  return trimmed.toLowerCase().endsWith(".sql") ? trimmed : `${trimmed}.sql`;
+}
+
+/**
+ * 创建 SQL 脚本文件并立即执行（对标 omni_ssh_create_run_script）。
+ * 落盘到数据库模块 SQL 文件树，绑定连接/库，适合多语句复杂逻辑。
+ */
+async function createRunSql(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const databaseName = requireString(args, "database_name");
+  const name = assertSqlScriptName(requireString(args, "name"));
+  const sql = requireString(args, "sql");
+  const baseConn = await resolveConnectionByName(connectionName);
+  const conn = connectionWithDatabase(baseConn, databaseName);
+
+  const run = async () => {
+    const store = useDbSqlFileStore.getState();
+    const file = store.addFile(null, name, sql);
+    store.updateFileBinding(file.id, baseConn.id, databaseName);
+    await store.flushToDisk();
+
+    const result = await invoke<QueryResult>("db_execute_query", {
+      connection: conn,
+      sql,
+      runId: makeQueryRunId(),
+    });
+
+    return JSON.stringify(
+      {
+        connection: connectionName,
+        connectionId: baseConn.id,
+        database: databaseName,
+        name: file.name,
+        fileId: file.id,
+        created: true,
+        result:
+          result.columns.length === 0
+            ? { rowsAffected: result.rowsAffected }
+            : {
+                columns: result.columns,
+                rows: result.rows,
+                rowsAffected: result.rowsAffected,
+              },
+      },
+      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+      2,
+    );
+  };
+
+  return runWithToolGate(
+    {
+      toolName: "omni_database_create_run_sql",
       args,
       resourceId: connectionName,
       channel: "ui-delegated",
@@ -523,6 +592,30 @@ export const DATABASE_MODULE_TOOLS: BuiltinToolRegistration[] = [
       required: ["connection_name", "database_name", "sql"],
     },
     handler: executeSql,
+  },
+  {
+    name: "omni_database_create_run_sql",
+    description:
+      "创建 SQL 脚本并立即执行：写入数据库模块 SQL 文件树（同名自动去重），绑定连接/数据库后执行。\
+适合多语句迁移、批处理或需落盘复用的复杂逻辑；简单单条查询优先用 omni_database_execute_sql。危险 SQL 会进入用户确认流程。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        database_name: databaseNameSchema,
+        name: {
+          type: "string",
+          description:
+            "脚本文件名（仅字母/数字/点/下划线/连字符）；可省略 .sql 后缀",
+        },
+        sql: {
+          type: "string",
+          description: "脚本正文（可含多条语句与复杂逻辑）",
+        },
+      },
+      required: ["connection_name", "database_name", "name", "sql"],
+    },
+    handler: createRunSql,
   },
   {
     name: "omni_database_show_processlist",

@@ -74,7 +74,6 @@ import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { ProtocolNewTabDialog } from "./modules/protocol/ProtocolNewTabDialog";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { SshToTerminalRedirect } from "./modules/terminal/SshToTerminalRedirect";
@@ -704,10 +703,6 @@ function AppShell() {
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
       <ApprovalDialog />
-      <ProtocolNewTabDialog
-        open={protocolNewTabPickerOpen}
-        onOpenChange={setProtocolNewTabPickerOpen}
-      />
       </div>
     </AiRuntimeProvider>
   );

@@ -67,24 +67,3 @@ export const useProtocolTopbarStore = create<ProtocolTopbarState>((set, get) => 
     parentFolderId: get().pickerParentFolderId,
   }),
 }));
-
-export type ProtocolPickerSelectHandler = (
-  protocol: ProtocolTabKey,
-  context: ProtocolPickerContext,
-) => void | Promise<void>;
-
-let pickerSelectHandler: ProtocolPickerSelectHandler | null = null;
-
-export function registerProtocolPickerSelectHandler(handler: ProtocolPickerSelectHandler | null) {
-  pickerSelectHandler = handler;
-}
-
-export async function dispatchProtocolPickerSelect(protocol: ProtocolTabKey, sessionName: string) {
-  const context: ProtocolPickerContext = {
-    ...useProtocolTopbarStore.getState().getPickerContext(),
-    sessionName: sessionName.trim(),
-  };
-  if (pickerSelectHandler) {
-    await pickerSelectHandler(protocol, context);
-  }
-}

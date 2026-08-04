@@ -13,7 +13,7 @@ import { ProtocolHttpSidebar } from "./ProtocolHttpSidebar";
 import { ProtocolEnvironmentHeaderButton } from "./ProtocolEnvironmentHeaderButton";
 import { ProtocolSessionPanel } from "./ProtocolSessionPanel";
 import { useProtocolAddMenu } from "./useProtocolAddMenu";
-import { useProtocolPickerHandler } from "./useProtocolPickerHandler";
+import { ProtocolNewTabDialogHost } from "./ProtocolNewTabDialog";
 import { ProtocolHttpProvider, useProtocolHttpOptional } from "./ProtocolHttpContext";
 
 function ProtocolPanelInner() {
@@ -39,7 +39,6 @@ function ProtocolPanelInner() {
   const requestNewTabPicker = useProtocolTopbarStore((s) => s.requestNewTabPicker);
 
   const { selectableProtocols } = useProtocolAddMenu();
-  useProtocolPickerHandler();
 
   const visibleProtocols = useMemo(
     () => getVisibleProtocolTabs(protocolLabTabs),
@@ -213,6 +212,8 @@ export function ProtocolPanel() {
   return (
     <ProtocolHttpProvider>
       <ProtocolPanelInner />
+      {/* 对话框须在 Provider 内：主窗 / 独立窗都能直接 createRequest，不依赖模块级 handler */}
+      <ProtocolNewTabDialogHost />
     </ProtocolHttpProvider>
   );
 }

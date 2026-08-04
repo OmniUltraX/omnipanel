@@ -313,20 +313,86 @@ fn apply_client_identity_headers_with_app(
         .header("X-Device-OS", ascii_header_value(&identity.os_type, "unknown"))
 }
 
-fn is_client_device_not_found(message: &str) -> bool {
-    message.to_ascii_lowercase().contains("client device not found")
+/// 绑定出码时「按 app_id 找不到本机设备」类错误（服务端文案不完全统一）。
+/// 命中后应换下一个候选 X-App-Id 重试，而不是立刻失败。
+fn is_binding_device_lookup_miss(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("client device not found")
+        || lower.contains("ticket not found")
+        || lower.contains("device not found")
+        || lower.contains("bind ticket not found")
 }
 
 fn bindings_api_error(message: String) -> OmniError {
-    if is_client_device_not_found(&message) {
-        OmniError::new(
-            ErrorCode::Internal,
-            "本机客户端设备未落库或不匹配，请重新登录后再绑定助手端",
-        )
-        .with_cause(message)
+    if is_binding_device_lookup_miss(&message) {
+        let user_msg = if message.to_ascii_lowercase().contains("ticket") {
+            "绑定凭证无效或本机设备未匹配，请刷新二维码；若仍失败请重新登录后再绑定助手端"
+        } else {
+            "本机客户端设备未落库或不匹配，请重新登录后再绑定助手端"
+        };
+        OmniError::new(ErrorCode::Internal, user_msg).with_cause(message)
     } else {
         OmniError::new(ErrorCode::Internal, message)
     }
+}
+
+/// 组装绑定出码用的 X-App-Id 候选：优先本机已落库的 app_id，再回退文档约定值。
+async fn resolve_binding_app_id_candidates(
+    client: &reqwest::Client,
+    token: &str,
+    identity: &AuthDeviceIdentity,
+) -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    let push_unique = |list: &mut Vec<String>, app_id: &str| {
+        let trimmed = app_id.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if !list.iter().any(|item| item == trimmed) {
+            list.push(trimmed.to_string());
+        }
+    };
+
+    let url = auth_url("/api/devices");
+    if let Ok(resp) = apply_client_identity_headers(
+        client
+            .get(&url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        identity,
+    )
+    .send()
+    .await
+    {
+        if let Ok(body) = resp.text().await {
+            if let Ok(parsed) = serde_json::from_str::<ApiDeviceListResponse>(&body) {
+                for item in parsed.items.unwrap_or_default() {
+                    let device_id = item.device_id.as_deref().unwrap_or("").trim();
+                    if device_id != identity.device_id {
+                        continue;
+                    }
+                    if let Some(app_id) = item.app_id.as_deref() {
+                        push_unique(&mut candidates, app_id);
+                    }
+                }
+            }
+        }
+    }
+
+    push_unique(&mut candidates, CLIENT_APP_ID);
+    push_unique(&mut candidates, CLIENT_APP_ID_FALLBACK);
+    candidates
+}
+
+/// 微信 showqrcode 的 ticket 必须 UrlEncode，否则含特殊字符时会报 ticket not found。
+fn normalize_wechat_qrcode_url(qrcode_url: &str, ticket: &str) -> String {
+    let ticket = ticket.trim();
+    if ticket.is_empty() {
+        return qrcode_url.to_string();
+    }
+    format!(
+        "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket={}",
+        urlencoding_encode(ticket)
+    )
 }
 
 fn ascii_header_value(raw: &str, fallback: &str) -> String {
@@ -565,12 +631,8 @@ pub async fn auth_list_devices(
     })?;
 
     if status.as_u16() == 401 {
-        let msg = serde_json::from_str::<ApiErrorBody>(&body)
-            .ok()
-            .and_then(|b| b.error)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "登录已失效，请重新登录".to_string());
-        return Err(OmniError::new(ErrorCode::Auth, msg));
+        // 服务端对失效 token 常返回 {"error":"ticket not found"}，需归一为会话失效文案。
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
     }
 
     let parsed: ApiDeviceListResponse = serde_json::from_str(&body).map_err(|e| {
@@ -579,6 +641,14 @@ pub async fn auth_list_devices(
     })?;
 
     if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        // 偶发与绑定同一文案；给设备列表页可读提示
+        if is_binding_device_lookup_miss(&error) {
+            return Err(OmniError::new(
+                ErrorCode::Auth,
+                "登录已失效，请重新登录",
+            )
+            .with_cause(error));
+        }
         return Err(OmniError::new(ErrorCode::Internal, error));
     }
     if !status.is_success() {
@@ -687,13 +757,31 @@ fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
     }
 }
 
+/// 将服务端会话失效类英文文案（如 `ticket not found`）规范为可读中文。
+fn normalize_session_error_message(message: &str, fallback: &str) -> String {
+    let lower = message.trim().to_ascii_lowercase();
+    if lower.is_empty()
+        || lower.contains("ticket not found")
+        || lower == "unauthorized"
+        || lower.contains("invalid token")
+        || lower.contains("missing token")
+        || lower.contains("session expired")
+    {
+        return fallback.to_string();
+    }
+    message.trim().to_string()
+}
+
 fn parse_auth_error(body: &str, fallback: &str) -> OmniError {
     let msg = serde_json::from_str::<ApiErrorBody>(body)
         .ok()
         .and_then(|b| b.error)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| fallback.to_string());
-    OmniError::new(ErrorCode::Auth, msg)
+    OmniError::new(
+        ErrorCode::Auth,
+        normalize_session_error_message(&msg, fallback),
+    )
 }
 
 /// 获取当前用户信息（GET /api/me）。
@@ -877,11 +965,12 @@ pub async fn auth_login_qrcode(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| OmniError::new(ErrorCode::Internal, "二维码响应缺少 qrcode_url"))?;
 
+    let ticket = parsed.ticket.unwrap_or_default();
     Ok(AuthLoginQrcode {
         login_id,
         scene: parsed.scene.unwrap_or_default(),
-        ticket: parsed.ticket.unwrap_or_default(),
-        qrcode_url,
+        ticket: ticket.clone(),
+        qrcode_url: normalize_wechat_qrcode_url(&qrcode_url, &ticket),
         expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
     })
 }
@@ -978,12 +1067,7 @@ pub async fn auth_presence(
     })?;
 
     if status.as_u16() == 401 {
-        let msg = serde_json::from_str::<ApiErrorBody>(&body)
-            .ok()
-            .and_then(|b| b.error)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "登录已失效，请重新登录".to_string());
-        return Err(OmniError::new(ErrorCode::Auth, msg));
+        return Err(parse_auth_error(&body, "登录已失效，请重新登录"));
     }
 
     #[derive(Debug, Deserialize)]
@@ -1617,11 +1701,12 @@ pub async fn auth_link_wechat_qrcode(
         .qrcode_url
         .filter(|s| !s.is_empty())
         .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 qrcode_url"))?;
+    let ticket = parsed.ticket.unwrap_or_default();
     Ok(AuthLoginQrcode {
         login_id,
         scene: parsed.scene.unwrap_or_default(),
-        ticket: parsed.ticket.unwrap_or_default(),
-        qrcode_url,
+        ticket: ticket.clone(),
+        qrcode_url: normalize_wechat_qrcode_url(&qrcode_url, &ticket),
         expire_in_sec: parsed.expire_in_sec.unwrap_or(300).max(1),
     })
 }
@@ -2122,16 +2207,17 @@ pub async fn auth_bindings_qrcode(
         |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
     )?;
 
-    // 服务端按 X-App-Id 精确匹配已落库 client 设备；文档约定 omni-client，
-    // 但历史登录可能写入 default，故按优先级尝试。
+    // 服务端按 X-App-Id 精确匹配已落库 client 设备。
+    // 优先用设备列表里本机实际 app_id；并兼容 ticket not found / client device not found 等文案后换下一个候选重试。
+    let app_ids = resolve_binding_app_id_candidates(&client, &token, &identity).await;
     let mut last_not_found: Option<String> = None;
-    for app_id in [CLIENT_APP_ID, CLIENT_APP_ID_FALLBACK] {
+    for app_id in app_ids {
         let resp = apply_client_identity_headers_with_app(
             client
                 .post(&url)
                 .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
             &identity,
-            app_id,
+            &app_id,
         )
         .send()
         .await
@@ -2155,7 +2241,7 @@ pub async fn auth_bindings_qrcode(
         })?;
 
         if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
-            if is_client_device_not_found(&error) {
+            if is_binding_device_lookup_miss(&error) {
                 last_not_found = Some(error);
                 continue;
             }
@@ -2167,7 +2253,7 @@ pub async fn auth_bindings_qrcode(
                 .and_then(|b| b.error)
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| format!("获取绑定二维码失败 (HTTP {status})"));
-            if is_client_device_not_found(&msg) {
+            if is_binding_device_lookup_miss(&msg) {
                 last_not_found = Some(msg);
                 continue;
             }
@@ -2183,7 +2269,7 @@ pub async fn auth_bindings_qrcode(
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| bind_id.clone());
 
-        remember_binding_app_id(&bind_id, app_id);
+        remember_binding_app_id(&bind_id, &app_id);
         return Ok(AuthBindingsQrcode {
             bind_id,
             qr_payload,
@@ -2479,4 +2565,36 @@ fn urlencoding_encode(value: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binding_lookup_miss_matches_ticket_not_found() {
+        assert!(is_binding_device_lookup_miss("ticket not found"));
+        assert!(is_binding_device_lookup_miss("Ticket Not Found"));
+        assert!(is_binding_device_lookup_miss("client device not found"));
+        assert!(!is_binding_device_lookup_miss("missing token"));
+    }
+
+    #[test]
+    fn normalize_session_error_maps_ticket_not_found() {
+        assert_eq!(
+            normalize_session_error_message("ticket not found", "登录已失效，请重新登录"),
+            "登录已失效，请重新登录"
+        );
+        assert_eq!(
+            normalize_session_error_message("other business error", "登录已失效，请重新登录"),
+            "other business error"
+        );
+    }
+
+    #[test]
+    fn normalize_wechat_qrcode_url_encodes_special_chars() {
+        let ticket = "abc+/=def";
+        let url = normalize_wechat_qrcode_url("https://example.com/ignored", ticket);
+        assert!(url.contains("ticket=abc%2B%2F%3Ddef"));
+    }
 }

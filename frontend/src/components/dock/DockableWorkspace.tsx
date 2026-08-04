@@ -180,15 +180,32 @@ async function toggleDockWindowMaximize(): Promise<void> {
   }
 }
 
+/** 仅认本 dock 根下的节点，忽略嵌套 DockableWorkspace（如 SQL 结果会话标签栏） */
+function belongsToDockRoot(root: HTMLElement, el: HTMLElement): boolean {
+  return el.closest(".dockable-workspace") === root;
+}
+
 function findTabBarChromeTarget(
   root: HTMLElement,
   target: EventTarget | null,
 ): HTMLElement | null {
   if (!(target instanceof HTMLElement)) return null;
   const tabBar = target.closest<HTMLElement>(".dv-tabs-and-actions-container");
-  if (!tabBar || !root.contains(tabBar)) return null;
+  if (!tabBar || !root.contains(tabBar) || !belongsToDockRoot(root, tabBar)) return null;
   if (target.closest(TAB_BAR_INTERACTIVE_SELECTOR)) return null;
   return tabBar;
+}
+
+function findOwnedTabHeader(
+  root: HTMLElement,
+  target: EventTarget | null,
+): HTMLElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
+  if (!tabHeader || !root.contains(tabHeader) || !belongsToDockRoot(root, tabHeader)) {
+    return null;
+  }
+  return tabHeader;
 }
 
 const DOCK_TAB_NO_DRAG_SELECTOR = [
@@ -725,12 +742,14 @@ export function DockableWorkspace({
   }, []);
 
   // 单组件：所有 panel 共享一个 React 组件，渲染内容靠 params.tabId + contentRev
-  // 注意：key 仅含 contentRev，softRev 变化时 reconcile 而非 remount
+  // 注意：key 仅含 contentRev；softRev 参与读取以触发 reconcile（如 selectionReporting），但不 remount
   const components = useMemo(
     () => ({
       [COMPONENT_NAME]: (props: IDockviewPanelProps<PanelParams>) => {
         const tabId = props.params.tabId;
         const contentRev = props.params.contentRev ?? 0;
+        // 读取 softRev，避免被 tree-shake / 编译器当成无用 props
+        void (props.params.softRev ?? 0);
         return (
           <div
             key={`${tabId}:${contentRev}`}
@@ -1225,24 +1244,16 @@ export function DockableWorkspace({
     const root = wrapperRef.current;
     if (!root || !layoutReady) return;
 
-    const findTabHeader = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) return null;
-      const tabHeader = target.closest<HTMLElement>(
-        ".dv-default-tab[data-dock-tab-id]",
-      );
-      return tabHeader && root.contains(tabHeader) ? tabHeader : null;
-    };
-
     const onCapturePointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (target.closest(".dv-default-tab-action")) return;
 
-      const tabHeader = findTabHeader(target);
-      const tabEl = (tabHeader?.closest(".dv-tab") ??
-        target.closest(".dv-tab")) as HTMLElement | null;
-      if (!tabEl || !root.contains(tabEl)) return;
+      const tabHeader = findOwnedTabHeader(root, target);
+      const tabEl = (tabHeader?.closest(".dv-tab") ?? null) as HTMLElement | null;
+      // 必须用本 dock 拥有的 tabHeader，避免嵌套结果标签栏触发父 dock 乐观切换
+      if (!tabEl || !belongsToDockRoot(root, tabEl)) return;
 
       const tabId = tabHeader?.dataset.dockTabId;
       // 只信 React 侧 activeTabId，不读 dv-active-tab 类名：
@@ -1277,7 +1288,7 @@ export function DockableWorkspace({
     const onCaptureClick = (event: MouseEvent) => {
       if (!onTabClickRef.current) return;
       if (event.button !== 0) return;
-      const tabHeader = findTabHeader(event.target);
+      const tabHeader = findOwnedTabHeader(root, event.target);
       const tabId = tabHeader?.dataset.dockTabId;
       const armedId = pressedActiveTabIdRef.current;
       pressedActiveTabIdRef.current = null;
@@ -1306,7 +1317,7 @@ export function DockableWorkspace({
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
+      const tabHeader = findOwnedTabHeader(root, target);
       const panelId = tabHeader?.dataset.dockTabId;
       if (!panelId) return;
       window.dispatchEvent(
@@ -1340,7 +1351,7 @@ export function DockableWorkspace({
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      const tabHeader = target.closest<HTMLElement>(".dv-default-tab[data-dock-tab-id]");
+      const tabHeader = findOwnedTabHeader(root, target);
       const panelId = tabHeader?.dataset.dockTabId;
       if (!panelId) return;
       window.dispatchEvent(
@@ -1359,25 +1370,18 @@ export function DockableWorkspace({
     return () => root.removeEventListener("pointerdown", onGrab, true);
   }, [dockScope, tabs.length]);
 
-  // Tab 双击：拦截冒泡，避免触发无边框窗口 drag-region 最大化；具体行为由 onTabDoubleClick 决定
+  // Tab 双击：仅处理本 dock 的标签；嵌套结果标签栏由内层 dock 自行 pin，避免误触窗体最大化
   useEffect(() => {
     const root = wrapperRef.current;
     if (!root) return;
 
-    const findTabHeader = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) return null;
-      const tabHeader = target.closest<HTMLElement>(
-        ".dv-default-tab[data-dock-tab-id]",
-      );
-      return tabHeader && root.contains(tabHeader) ? tabHeader : null;
-    };
-
     const onCaptureDoubleClick = (event: MouseEvent) => {
-      const tabHeader = findTabHeader(event.target);
+      const tabHeader = findOwnedTabHeader(root, event.target);
       const tabId = tabHeader?.dataset.dockTabId;
       if (!tabId) return;
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
       onTabDoubleClickRef.current?.(tabId);
     };
 

@@ -18,6 +18,32 @@ describe("decideToolInvocation", () => {
     expect(r.decision).toBe("approve");
   });
 
+  it("allows read-only create_run_sql", () => {
+    const r = decideToolInvocation({
+      toolName: "omni_database_create_run_sql",
+      args: {
+        sql: "SELECT 1;\nSELECT 2",
+        connection_name: "local",
+        database_name: "db",
+        name: "check.sql",
+      },
+    });
+    expect(r.decision).toBe("allow");
+  });
+
+  it("approves write create_run_sql", () => {
+    const r = decideToolInvocation({
+      toolName: "omni_database_create_run_sql",
+      args: {
+        sql: "UPDATE t SET a=1; DELETE FROM t WHERE id=1",
+        connection_name: "local",
+        database_name: "db",
+        name: "migrate",
+      },
+    });
+    expect(r.decision).toBe("approve");
+  });
+
   it("approves kill_query", () => {
     const r = decideToolInvocation({
       toolName: "omni_database_kill_query",

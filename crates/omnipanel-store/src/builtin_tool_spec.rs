@@ -66,6 +66,23 @@ const SCHEMA_DB_EXECUTE_SQL: &str = r#"{
   "required": ["connection_name", "database_name", "sql"]
 }"#;
 
+const SCHEMA_DB_CREATE_RUN_SQL: &str = r#"{
+  "type": "object",
+  "properties": {
+    "connection_name": { "type": "string", "description": "数据库连接名称（与侧栏连接名一致）" },
+    "database_name": { "type": "string", "description": "数据库名" },
+    "name": {
+      "type": "string",
+      "description": "SQL 脚本文件名（写入数据库模块 SQL 文件树）。仅允许字母、数字、点、下划线与连字符；可省略 .sql 后缀。"
+    },
+    "sql": {
+      "type": "string",
+      "description": "脚本正文（可含多条语句与复杂逻辑）。将落盘为 .sql 文件并立即执行；简单单条查询优先用 omni_database_execute_sql。"
+    }
+  },
+  "required": ["connection_name", "database_name", "name", "sql"]
+}"#;
+
 const SCHEMA_DB_SHOW_PROCESSLIST: &str = r#"{
   "type": "object",
   "properties": {
@@ -854,6 +871,16 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         omnimcp_backend: true,
     },
     BuiltinToolSpec {
+        tool_name: "omni_database_create_run_sql",
+        module_key: "database",
+        description:
+            "创建 SQL 脚本并立即执行：写入数据库模块 SQL 文件树（同名自动去重），绑定连接/数据库后执行脚本正文。\
+             适合多语句迁移、批处理或需落盘复用的复杂逻辑；简单单条查询优先用 omni_database_execute_sql。危险 SQL 进入用户确认流程。",
+        input_schema: SCHEMA_DB_CREATE_RUN_SQL,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
         tool_name: "omni_database_show_processlist",
         module_key: "database",
         description: "查看数据库当前会话/进程列表（MySQL/MariaDB 查 information_schema.PROCESSLIST；PostgreSQL 查 pg_stat_activity；Redis 执行 CLIENT LIST），用于排查长运行查询、锁等待。",
@@ -1448,12 +1475,26 @@ mod tests {
             "omni_database_show_processlist",
             "omni_database_kill_query",
             "omni_database_slow_log_summary",
+            "omni_database_create_run_sql",
         ] {
             let spec = builtin_tool_spec(name).unwrap_or_else(|| panic!("{name} 未注册"));
             assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated, "{name}");
             assert_eq!(spec.module_key, "database", "{name}");
             assert!(spec.omnimcp_backend, "{name}");
             assert!(!builtin_tool_is_native(name), "{name} 不应是 Native");
+        }
+    }
+
+    #[test]
+    fn database_create_run_sql_schema_requires_core_fields() {
+        let spec = builtin_tool_spec("omni_database_create_run_sql").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        for key in ["connection_name", "database_name", "name", "sql"] {
+            assert!(
+                required.iter().any(|x| x.as_str() == Some(key)),
+                "缺少 required: {key}"
+            );
         }
     }
 

@@ -8,6 +8,7 @@
  *
  * 例：
  * - omni_database_execute_sql(args.sql) → openSqlDraft(sql)
+ * - omni_database_create_run_sql(result.fileId) → openSqlFile(fileId)
  * - omni_database_create_database(result.database) → selectDatabase(database)
  * - omni_ssh_exec(args.command 含 "touch/echo > /cat >") → revealSftpPath(解析路径)
  * - omni_files_write(args.path) → openFile(path)
@@ -109,7 +110,21 @@ export function followIntentsForTool(
   // === 数据库工具 ===
   if (toolName.startsWith("omni_database_")) {
     const intents: UiFollowIntent[] = [{ type: "focusModule", module: "database" }];
-    if (!connectionId) return intents;
+
+    // 创建并执行 SQL 脚本 → 打开落盘的 SQL 文件（不依赖 connectionId）
+    if (toolName === "omni_database_create_run_sql" && parsedResult) {
+      const fileId = str(parsedResult.fileId) ?? str(parsedResult.file_id);
+      if (fileId) {
+        intents.push({ type: "openSqlFile", fileId });
+        return intents;
+      }
+    }
+
+    const resolvedConnectionId =
+      connectionId ??
+      str(parsedResult?.connectionId) ??
+      str(parsedResult?.connection_id);
+    if (!resolvedConnectionId) return intents;
 
     // 结果感知：从工具结果提取新创建的资源
     if (parsedResult) {
@@ -117,7 +132,7 @@ export function followIntentsForTool(
       if (toolName.includes("create_database") || toolName.includes("create_db")) {
         const dbName = str(parsedResult.database) ?? str(parsedResult.database_name) ?? str(args.database_name);
         if (dbName) {
-          intents.push({ type: "selectDatabase", connectionId, database: dbName });
+          intents.push({ type: "selectDatabase", connectionId: resolvedConnectionId, database: dbName });
           return intents;
         }
       }
@@ -126,17 +141,22 @@ export function followIntentsForTool(
         const dbName = str(parsedResult.database) ?? str(args.database);
         const tableName = str(parsedResult.table) ?? str(parsedResult.table_name);
         if (dbName && tableName) {
-          intents.push({ type: "selectTable", connectionId, database: dbName, table: tableName });
+          intents.push({
+            type: "selectTable",
+            connectionId: resolvedConnectionId,
+            database: dbName,
+            table: tableName,
+          });
           return intents;
         }
       }
     }
 
-    // 参数感知：执行 SQL → openSqlDraft
+    // 参数感知：执行 SQL → openSqlDraft（create_run_sql 已在上方单独处理）
     if (toolName.includes("execute_sql") || toolName.includes("run_sql")) {
       intents.push({
         type: "openSqlDraft",
-        connectionId,
+        connectionId: resolvedConnectionId,
         database: str(args.database) ?? str(args.database_name),
         sql,
       });
@@ -146,7 +166,7 @@ export function followIntentsForTool(
     // 默认：切到数据库 + 选中连接
     intents.push({
       type: "openSqlDraft",
-      connectionId,
+      connectionId: resolvedConnectionId,
       database: str(args.database) ?? str(args.database_name),
       sql: null,
     });

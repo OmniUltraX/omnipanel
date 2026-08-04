@@ -89,7 +89,9 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
   const handleTabDoubleClick = useCallback(
     (sessionId: string) => {
       const session = sessions.find((item) => item.id === sessionId);
-      if (session && !session.pinned) {
+      if (!session) return;
+      // 临时结果 → 固定；已固定则保持（与工作区 preview 升格一致）
+      if (!session.pinned) {
         onPinSession(sessionId, true);
       }
     },
@@ -127,6 +129,8 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     ];
   }, [contextMenuSession, onCloseSession, onPinSession, t]);
 
+  // 勿把 activeId 写进 contentKey：切结果标签会触发 contentRev remount → 结果区/侧栏闪烁。
+  // 激活态由 DockableWorkspace 的 softRev 局部 reconcile 更新 selectionReporting。
   const panelContentKeysByTab = useMemo(() => {
     const keys: Record<string, string> = {};
     for (const session of sessions) {
@@ -138,12 +142,11 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
           ? `${session.result.columns.length}:${session.result.rows.length}`
           : "0",
         String(session.resultPage ?? 0),
-        session.id === resolvedActiveId ? "a" : "i",
         detailCollapsed ? "0" : "1",
       ].join("|");
     }
     return keys;
-  }, [sessions, resolvedActiveId, detailCollapsed]);
+  }, [sessions, detailCollapsed]);
 
   const renderPanel = useCallback(
     (sessionId: string) => {

@@ -8,6 +8,11 @@
 - **多库/多连接互不干扰的并行检查**：用 `omni_spawn_sub_conversations`（若工具可用），不要在一个会话里交错污染上下文。
 - 高风险写操作、生产库变更须先征得用户确认（走确认闸）。
 
+## 工具选择
+
+- 简单单条查询 / DML：优先 `omni_database_execute_sql`。
+- 多语句迁移、批处理或需落盘复用的复杂脚本：用 `omni_database_create_run_sql`（写入 SQL 文件树并执行；参数 `name` + `sql`）。
+
 ## 工作原则
 
 - 先只读后变更；结论基于真实查询结果。

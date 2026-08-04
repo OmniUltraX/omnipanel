@@ -521,8 +521,9 @@ export function isAuthSessionError(error: unknown): boolean {
   const message = String((error as { message?: unknown }).message ?? "");
   const cause = String((error as { cause?: unknown }).cause ?? "");
   const text = `${message}\n${cause}`;
-  // 仅真正会话失效才登出；绑定冲突 / 用户取消等业务 Auth 错误不踢登录
-  return /登录已失效|缺少登录凭证|missing token|unauthorized|session expired|凭证无效|未登录/i.test(
+  // 仅真正会话失效才登出；绑定冲突 / 用户取消等业务 Auth 错误不踢登录。
+  // 服务端对失效 token 可能返回 ticket not found（设备列表 / 绑定等接口）。
+  return /登录已失效|缺少登录凭证|missing token|unauthorized|session expired|凭证无效|未登录|ticket not found/i.test(
     text,
   );
 }

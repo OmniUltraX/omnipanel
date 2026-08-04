@@ -216,6 +216,51 @@ pub async fn execute_sql(args: Value) -> Result<String, String> {
     Ok(format_query_result(&result))
 }
 
+fn assert_sql_script_name(name: &str) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("缺少必填参数: name".to_string());
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
+        return Err(format!(
+            "脚本文件名仅允许字母/数字/点/下划线/连字符：{name}"
+        ));
+    }
+    let normalized = if trimmed.to_ascii_lowercase().ends_with(".sql") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}.sql")
+    };
+    Ok(normalized)
+}
+
+/// 创建并执行复杂 SQL 脚本（OmniMCP 后端路径：无 UI 文件树，直接执行脚本正文）。
+pub async fn create_run_sql(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let database_name = require_str(&args, "database_name")?;
+    let name = assert_sql_script_name(&require_str(&args, "name")?)?;
+    let sql = require_str(&args, "sql")?;
+    let conn = resolve_connection(&connection_name).await?;
+    let params = with_database(&conn, &database_name);
+    // 复杂脚本可能含多语句；不对整段做 SELECT limit 包裹，由驱动按语句拆分执行。
+    let driver = connect(&params).await.map_err(|e| e.user_message())?;
+    let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
+    let query = serde_json::from_str::<Value>(&format_query_result(&result)).unwrap_or(Value::Null);
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "database": database_name,
+        "name": name,
+        "created": true,
+        "note": "OmniMCP 后端路径已执行脚本；UI 文件树落盘仅在应用内 UiDelegated 路径生效。",
+        "result": query,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
 /// 查看数据库当前会话/进程列表，用于排查长运行查询、锁等待。
 pub async fn show_processlist(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;

@@ -4820,6 +4820,12 @@ export function DatabasePanel() {
         }
         return tabId != null;
       }
+      case "openSqlFile": {
+        const file = useDbSqlFileStore.getState().getNode(intent.fileId);
+        if (!file || file.type !== "file") return false;
+        openSqlFile(file);
+        return true;
+      }
       case "selectTable": {
         const connection = connections.find((c) => c.id === intent.connectionId);
         if (!connection) return false;
@@ -4845,7 +4851,14 @@ export function DatabasePanel() {
       default:
         return false;
     }
-  }, [connections, handleSelectConnection, handleSelectDatabase, handleSelectTable, openSqlDraftTab]));
+  }, [
+    connections,
+    handleSelectConnection,
+    handleSelectDatabase,
+    handleSelectTable,
+    openSqlDraftTab,
+    openSqlFile,
+  ]));
 
   const runQuery = useCallback(async (
     sqlOverride?: string,

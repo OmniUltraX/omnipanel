@@ -4,21 +4,23 @@ import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
 import { useProtocolAddMenu } from "./useProtocolAddMenu";
-import { defaultProtocolSessionName } from "./createProtocolSession";
-import {
-  dispatchProtocolPickerSelect,
-  useProtocolTopbarStore,
-} from "../../stores/protocolTopbarStore";
+import { createProtocolSession, defaultProtocolSessionName } from "./createProtocolSession";
+import { useProtocolHttpOptional } from "./ProtocolHttpContext";
+import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
+import { showToast } from "../../stores/toastStore";
 
 interface ProtocolNewTabDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+/** 须挂在 ProtocolHttpProvider 内，避免跨 WebView / 模块级 handler 静默失败 */
 export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialogProps) {
   const { t } = useI18n();
+  const http = useProtocolHttpOptional();
   const { menuItems } = useProtocolAddMenu();
   const pickerIntent = useProtocolTopbarStore((s) => s.pickerIntent);
+  const pickerParentFolderId = useProtocolTopbarStore((s) => s.pickerParentFolderId);
   const pickerPreselectedProtocol = useProtocolTopbarStore((s) => s.pickerPreselectedProtocol);
   const isNewRequest = pickerIntent === "new-request";
 
@@ -62,9 +64,25 @@ export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialo
       return;
     }
     setNameError(null);
-    await dispatchProtocolPickerSelect(selectedProtocol, trimmed);
+
+    if (selectedProtocol === "http" && !http) {
+      showToast(t("protocol.http.createRequestFailed"));
+      return;
+    }
+
+    await createProtocolSession({
+      protocol: selectedProtocol,
+      name: trimmed,
+      parentFolderId: pickerParentFolderId,
+      http: http
+        ? {
+            createRequest: (name, parentFolderId) => http.createRequest(name, parentFolderId),
+          }
+        : null,
+      t: t as (key: string) => string,
+    });
     onOpenChange(false);
-  }, [onOpenChange, selectedProtocol, sessionName, t]);
+  }, [http, onOpenChange, pickerParentFolderId, selectedProtocol, sessionName, t]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);
@@ -146,4 +164,11 @@ export function ProtocolNewTabDialog({ open, onOpenChange }: ProtocolNewTabDialo
       </div>
     </FormDialog>
   );
+}
+
+/** 订阅 store 开关；挂在 ProtocolPanel / Provider 内即可主窗与独立窗共用 */
+export function ProtocolNewTabDialogHost() {
+  const open = useProtocolTopbarStore((s) => s.newTabPickerOpen);
+  const setOpen = useProtocolTopbarStore((s) => s.setNewTabPickerOpen);
+  return <ProtocolNewTabDialog open={open} onOpenChange={setOpen} />;
 }
