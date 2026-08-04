@@ -1,0 +1,180 @@
+# 在默认分支预热发版缓存。
+#
+# GitHub Actions cache 按 ref 隔离：tag 发版只能可靠读取「默认分支」上的缓存，
+# 读不到上一个 v* tag 写的缓存。因此必须在 master 上跑与 Build & Release
+# 相同 key 的 rust-cache / npm 预热，发版才能命中。
+#
+# 不再启用 sccache→GHA：会写入海量小 key，撑爆仓库 10GB 配额，反而把
+# rust-cache 挤掉（此前发版 sccache 命中率长期为 0%）。
+name: Warm Release Cache
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'src-tauri/**'
+      - 'crates/**'
+      - 'frontend/**'
+      - '.github/workflows/warm-cache.yml'
+      - '.github/workflows/build.yml'
+  schedule:
+    # 每周一 04:00 UTC，避免缓存 LRU 过期（约 7 天未访问会被淘汰）
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: '预热平台'
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - windows
+          - macos
+
+concurrency:
+  group: warm-release-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  CARGO_INCREMENTAL: '0'
+  # 与发版一致：跳过 prebuild→cargo run 生成 bindings
+  SKIP_GEN_BINDINGS: '1'
+
+jobs:
+  # 回收 sccache/GHA 碎片，给 master 上的 rust-cache 腾配额
+  reclaim-quota:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete sccache GHA fragment caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deleted=0
+          # key= 为前缀匹配；sccache 曾写入数千条小缓存把配额打满
+          while true; do
+            mapfile -t ids < <(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100&key=sccache" \
+              --jq '.actions_caches[].id')
+            if [ "${#ids[@]}" -eq 0 ]; then
+              break
+            fi
+            for id in "${ids[@]}"; do
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" >/dev/null
+              deleted=$((deleted + 1))
+            done
+            echo "Deleted batch (total=${deleted})"
+          done
+          echo "Reclaimed sccache cache entries: ${deleted}"
+
+          # 顺带清掉旧版 v0-rust release 半成品缓存（immutable，曾锁死预热）
+          for key in \
+            v0-rust-release-Windows_NT-x64-8af1e26a-25b50cc3 \
+            v0-rust-release-Darwin-arm64-af5aa912-25b50cc3
+          do
+            mapfile -t ids < <(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=20&key=${key}" \
+              --jq '.actions_caches[].id' || true)
+            for id in "${ids[@]:-}"; do
+              [ -z "${id:-}" ] && continue
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" >/dev/null || true
+              echo "Deleted stale cache id=${id} key=${key}"
+            done
+          done
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/cache/usage" \
+            --jq '"usage: count=\(.active_caches_count) size_mb=\((.active_caches_size_in_bytes / 1048576) | floor)"'
+
+  prepare-matrix:
+    needs: reclaim-quota
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - name: Select build matrix
+        id: set
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PLATFORMS="${{ inputs.platforms }}"
+          else
+            PLATFORMS="all"
+          fi
+          case "$PLATFORMS" in
+            windows)
+              MATRIX='[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","args":""}]'
+              ;;
+            macos)
+              MATRIX='[{"platform":"macos-latest","target":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]'
+              ;;
+            *)
+              MATRIX='[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","args":""},{"platform":"macos-latest","target":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]'
+              ;;
+          esac
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Selected platforms=$PLATFORMS"
+
+  warm:
+    needs: prepare-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # 必须与 build.yml 的 prefix-key / shared-key 一致。
+      # 禁止 cache-on-failure：失败半成品会占住 immutable key，后续预热无法覆盖。
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          prefix-key: v1-rust
+          shared-key: release
+          cache-all-crates: true
+          cache-workspace-crates: true
+          cache-on-failure: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      # 预热 frontend 构建（发版 beforeBuildCommand 会跑 build:ci）
+      - name: Build frontend
+        run: npm run build:ci
+        working-directory: frontend
+
+      # release 产物进 ./target，与 rust-cache workspaces 对齐；不做签名/打包
+      - name: Warm release cargo build
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: '0'
+          SKIP_GEN_BINDINGS: '1'
+        run: |
+          set -euo pipefail
+          cargo build --release -p omnipanel-app ${{ matrix.args }}

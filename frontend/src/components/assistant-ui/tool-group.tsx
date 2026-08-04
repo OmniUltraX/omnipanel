@@ -2,12 +2,10 @@
 
 import {
   useCallback,
-  useRef,
   useState,
 } from "react";
 import { ChevronDownIcon, LoaderIcon } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { useScrollLock } from "@assistant-ui/react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -47,31 +45,25 @@ function ToolGroupRoot({
   children,
   ...props
 }: ToolGroupRootProps) {
-  const collapsibleRef = useRef<HTMLDivElement>(null);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
-  const lockScroll = useScrollLock(collapsibleRef, ANIMATION_DURATION);
 
   const isControlled = controlledOpen !== undefined;
   const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
-      lockScroll();
       if (!isControlled) {
         setUncontrolledOpen(open);
       }
       controlledOnOpenChange?.(open);
     },
-    [lockScroll, isControlled, controlledOnOpenChange],
+    [isControlled, controlledOnOpenChange],
   );
 
   return (
     <Collapsible
-      ref={collapsibleRef}
       data-slot="tool-group-root"
       data-variant={variant ?? "outline"}
-      open={isOpen}
-      onOpenChange={handleOpenChange}
       className={cn(
         toolGroupVariants({ variant }),
         "group/tool-group-root",
@@ -83,6 +75,8 @@ function ToolGroupRoot({
         } as React.CSSProperties
       }
       {...props}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
     >
       {children}
     </Collapsible>
@@ -104,10 +98,10 @@ function ToolGroupTrigger({
     <CollapsibleTrigger
       data-slot="tool-group-trigger"
       className={cn(
-        "aui-tool-group-trigger group/trigger flex items-center gap-2 text-sm transition-colors",
+        "aui-tool-group-trigger group/trigger flex w-full items-center gap-2 text-sm transition-colors",
         "group-data-[variant=ghost]/tool-group-root:text-muted-foreground group-data-[variant=ghost]/tool-group-root:hover:text-foreground group-data-[variant=ghost]/tool-group-root:py-1",
-        "group-data-[variant=outline]/tool-group-root:w-full group-data-[variant=outline]/tool-group-root:px-4",
-        "group-data-[variant=muted]/tool-group-root:w-full group-data-[variant=muted]/tool-group-root:px-4",
+        "group-data-[variant=outline]/tool-group-root:px-4",
+        "group-data-[variant=muted]/tool-group-root:px-4",
         className,
       )}
       {...props}
@@ -121,10 +115,8 @@ function ToolGroupTrigger({
       <span
         data-slot="tool-group-trigger-label"
         className={cn(
-          "aui-tool-group-trigger-label-wrapper relative inline-block text-start leading-none font-medium",
+          "aui-tool-group-trigger-label-wrapper relative inline-block grow text-start leading-none font-medium",
           "group-data-[variant=ghost]/tool-group-root:font-normal",
-          "group-data-[variant=outline]/tool-group-root:grow",
-          "group-data-[variant=muted]/tool-group-root:grow",
         )}
       >
         <span>{label}</span>

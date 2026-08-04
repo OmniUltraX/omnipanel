@@ -17,7 +17,7 @@ use omnipanel_ssh::{
 use omnipanel_store::{
     inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, Vault,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -2541,6 +2541,7 @@ pub async fn ssh_delete_key(name: String) -> Result<(), OmniError> {
 //
 // 设计：远端命令（sed / grep / tail -F）作为引擎，Tauri 命令做封装，
 //      前端虚拟滚动按行号切片拉取；跟踪走 exec_stream + Tauri event 推送。
+//      超大文件（wc -l 超时）用采样估算行数，前端改走末尾窗口模式避免 sed 全扫。
 // ============================================================================
 
 /// 单引号 shell 转义：把字符串包成 'xxx'，内部单引号转义为 '"'"'。
@@ -2561,15 +2562,87 @@ fn new_log_token() -> String {
     )
 }
 
+/// 解析日志命令可用的 SSH 会话：文件 SFTP 缓存 → 文件连接关联 SSH → SSH 连接池。
+/// 注：交互式 `ssh_sessions` 存的是拥有型 `SshSession`（非 Arc），大日志路径统一走连接池 / 文件缓存。
+/// 必须先解析 file→sshConnectionId，再 ensure_session；否则会对 file-* id 误走 SSH 建连并卡住。
+async fn resolve_log_session(state: &AppState, id: &str) -> Result<Arc<SshSession>, OmniError> {
+    {
+        let sessions = state.file_sftp_sessions.lock().await;
+        if let Some(session) = sessions.get(id) {
+            return Ok(session.clone());
+        }
+    }
+
+    // 文件连接：优先走关联的 sshConnectionId（与 file_manager::sftp_session_for 一致）
+    let linked_ssh = {
+        let storage = state.storage.lock().await;
+        match storage.get_connection(id) {
+            Ok(Some(conn)) if conn.kind == ConnectionKind::File => {
+                serde_json::from_str::<serde_json::Value>(&conn.config)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("sshConnectionId")
+                            .and_then(|x| x.as_str())
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                    })
+            }
+            _ => None,
+        }
+    };
+    if let Some(ssh_id) = linked_ssh {
+        return state.ssh_pool.ensure_session(&ssh_id).await;
+    }
+
+    state.ssh_pool.ensure_session(id).await
+}
+
+/// 采样估算行数：读文件头 512KB，用「字节/换行」外推全文件（GB 级文件避免 wc -l 卡死）。
+async fn estimate_line_count(session: &SshSession, path: &str, size: u64) -> Option<u64> {
+    if size == 0 {
+        return Some(0);
+    }
+    const SAMPLE_BYTES: u64 = 512 * 1024;
+    let sample = SAMPLE_BYTES.min(size);
+    let cmd = format!(
+        "head -c {sample} {} | wc -cl",
+        shell_quote_single(path)
+    );
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        session.exec_capture(&cmd),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if output.exit_code != 0 {
+        return None;
+    }
+    let mut parts = output.stdout.split_whitespace();
+    let lines: u64 = parts.next()?.parse().ok()?;
+    let bytes: u64 = parts.next()?.parse().ok()?;
+    if bytes == 0 {
+        return None;
+    }
+    if lines == 0 {
+        // 采样区无换行：按 ~80 字节/行兜底
+        return Some((size / 80).max(1));
+    }
+    let est = ((size as f64) * (lines as f64) / (bytes as f64)).round() as u64;
+    Some(est.max(1))
+}
+
 /// 日志会话元信息（打开时探测一次）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LogSessionInfo {
     #[specta(type = f64)]
     pub size_bytes: u64,
-    /// 总行数预估（wc -l，可能比真实少 1 行如果末尾无换行）。
+    /// 总行数（精确 wc -l，或采样估算）。
     #[specta(type = Option<f64>)]
     pub total_lines: Option<u64>,
+    /// true = total_lines 来自采样估算（wc -l 超时/失败），前端应走末尾窗口模式。
+    pub lines_estimated: bool,
 }
 
 /// 一行日志（带绝对行号，1-based）。
@@ -2593,6 +2666,29 @@ pub struct LogSearchHit {
     pub match_start: Option<usize>,
     #[specta(type = Option<f64>)]
     pub match_end: Option<usize>,
+}
+
+/// 日志搜索选项（合并参数以符合 specta 参数个数上限）。
+#[derive(Debug, Clone, Default, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LogSearchOptions {
+    pub is_regex: Option<bool>,
+    pub max_results: Option<u32>,
+    pub context_before: Option<u32>,
+    pub context_after: Option<u32>,
+    /// 从后往前搜（大日志默认建议 true）
+    pub reverse: Option<bool>,
+    /// 仅搜该行之前（向上续搜，作结果过滤；大文件请配合 skip_matches）
+    #[specta(type = Option<f64>)]
+    pub before_line: Option<u64>,
+    /// 仅搜该行之后（向下续搜）
+    #[specta(type = Option<f64>)]
+    pub after_line: Option<u64>,
+    /// 反搜从 EOF 起步时用于还原真实行号
+    #[specta(type = Option<f64>)]
+    pub total_lines_hint: Option<u64>,
+    /// 从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页
+    pub skip_matches: Option<u32>,
 }
 
 /// 跟踪句柄（返回 token 用于后续停止）。
@@ -2623,39 +2719,34 @@ pub async fn sftp_log_open(
     id: String,
     path: String,
 ) -> Result<LogSessionInfo, OmniError> {
-    // size：sftp_file_size 内部已有 exec_gate + sftp channel，锁内 await 可接受（参考 sftp_open_media_stream）
-    let size = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(session) = sessions.get(&id) {
-            session.sftp_file_size(&path).await
-        } else {
-            drop(sessions);
-            pool_session(&state, &id).await?.sftp_file_size(&path).await
-        }
-    }
-    .unwrap_or(0);
+    let session = resolve_log_session(&state, &id).await?;
+    let size = session.sftp_file_size(&path).await.unwrap_or(0);
 
-    // total_lines：wc -l < file（不读最后一行无 \n 的情况，但作为预估够用）
-    // 加 3s 超时保护，避免 GB 级文件或慢磁盘卡住首屏（超时返回 None，前端用 tail 推算）
+    // 精确行数：wc -l，3s 超时；失败则采样估算，避免 GB 级文件卡死首屏
     let wc_cmd = format!("wc -l < {}", shell_quote_single(&path));
-    let wc_fut = async {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(session) = sessions.get(&id) {
-            session.exec_command(&wc_cmd).await
-        } else {
-            drop(sessions);
-            pool_session(&state, &id).await?.exec_command(&wc_cmd).await
-        }
-    };
-    let total_lines = match tokio::time::timeout(std::time::Duration::from_secs(3), wc_fut).await {
-        Ok(Ok(s)) => s.trim().parse::<u64>().ok(),
-        _ => None, // 超时或错误：返回 None，前端用 tail 行号兜底
-    };
+    let (total_lines, lines_estimated) =
+        match tokio::time::timeout(std::time::Duration::from_secs(3), session.exec_command(&wc_cmd))
+            .await
+        {
+            Ok(Ok(s)) => match s.trim().parse::<u64>() {
+                Ok(n) => (Some(n), false),
+                Err(_) => (estimate_line_count(&session, &path, size).await, true),
+            },
+            _ => (estimate_line_count(&session, &path, size).await, true),
+        };
 
-    Ok(LogSessionInfo { size_bytes: size, total_lines })
+    // 采样也失败时 lines_estimated=false 且 total_lines=None，前端按纯窗口模式兜底
+    let lines_estimated = lines_estimated && total_lines.is_some();
+
+    Ok(LogSessionInfo {
+        size_bytes: size,
+        total_lines,
+        lines_estimated,
+    })
 }
 
 /// 按行号范围读取（虚拟滚动按需切片，1-based）。
+/// 超大文件中部/尾部的 sed 扫描可能很慢，默认 30s 超时。
 #[tauri::command]
 #[specta::specta]
 pub async fn sftp_log_read_lines(
@@ -2677,20 +2768,37 @@ pub async fn sftp_log_read_lines(
     const MAX_LINES_PER_CALL: u64 = 5_000;
     let safe_end = start_line + (end_line - start_line).min(MAX_LINES_PER_CALL - 1);
 
-    let cmd = format!(
-        "sed -n '{},{}p' {}",
-        start_line,
-        safe_end,
-        shell_quote_single(&path)
-    );
+    // 末尾加 `{safe_end}q`：打印完目标区间后立即退出，避免继续扫到 EOF（21GB 文件上可差几个数量级）
+    let cmd = if start_line == 1 {
+        // 文件头用 head 更快更稳
+        format!(
+            "head -n {} {}",
+            safe_end,
+            shell_quote_single(&path)
+        )
+    } else {
+        format!(
+            "sed -n '{start},{end}p;{end}q' {}",
+            shell_quote_single(&path),
+            start = start_line,
+            end = safe_end,
+        )
+    };
 
-    let output = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(session) = sessions.get(&id) {
-            session.exec_capture(&cmd).await?
-        } else {
-            drop(sessions);
-            pool_session(&state, &id).await?.exec_capture(&cmd).await?
+    let session = resolve_log_session(&state, &id).await?;
+    let output = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        session.exec_capture(&cmd),
+    )
+    .await
+    {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            return Err(OmniError::new(
+                ErrorCode::Timeout,
+                "读取日志行超时（文件过大时请用末尾预览或搜索定位）",
+            ));
         }
     };
 
@@ -2701,6 +2809,9 @@ pub async fn sftp_log_read_lines(
     // 统一换行：CRLF → LF，去除末尾换行后 split
     let stdout = output.stdout.replace("\r\n", "\n");
     let trimmed = stdout.strip_suffix('\n').unwrap_or(&stdout);
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
     let lines: Vec<LogLine> = trimmed
         .split('\n')
         .enumerate()
@@ -2730,13 +2841,17 @@ pub async fn sftp_log_tail_initial(
 
     let cmd = format!("tail -n {n} {}", shell_quote_single(&path));
 
-    let output = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(session) = sessions.get(&id) {
-            session.exec_capture(&cmd).await?
-        } else {
-            drop(sessions);
-            pool_session(&state, &id).await?.exec_capture(&cmd).await?
+    let session = resolve_log_session(&state, &id).await?;
+    let output = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        session.exec_capture(&cmd),
+    )
+    .await
+    {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            return Err(OmniError::new(ErrorCode::Timeout, "读取日志末尾超时"));
         }
     };
 
@@ -2768,6 +2883,9 @@ pub async fn sftp_log_tail_initial(
 
 /// 搜索日志（grep -n），返回命中行列表。
 /// grep exit 1 = no match（非错误），其他非零 exit 视为错误。
+///
+/// 大文件持续反搜请用 `skip_matches`（tac | grep -m skip+max），
+/// **禁止**对超大 before_line 做 `head -n`（会扫整文件超时）。
 #[tauri::command]
 #[specta::specta]
 pub async fn sftp_log_search(
@@ -2775,48 +2893,133 @@ pub async fn sftp_log_search(
     id: String,
     path: String,
     pattern: String,
-    is_regex: bool,
-    max_results: Option<u32>,
-    context_before: Option<u32>,
-    context_after: Option<u32>,
+    options: Option<LogSearchOptions>,
 ) -> Result<Vec<LogSearchHit>, OmniError> {
-    const DEFAULT_MAX: u32 = 2000;
-    const ABSOLUTE_MAX: u32 = 20_000;
-    let max = max_results.unwrap_or(DEFAULT_MAX).min(ABSOLUTE_MAX);
+    const DEFAULT_MAX: u32 = 200;
+    const ABSOLUTE_MAX: u32 = 5_000;
+    let opts = options.unwrap_or_default();
+    let is_regex = opts.is_regex.unwrap_or(false);
+    let max = opts.max_results.unwrap_or(DEFAULT_MAX).min(ABSOLUTE_MAX);
+    let reverse = opts.reverse.unwrap_or(false);
+    let before = opts.before_line.filter(|&n| n > 1);
+    let after = opts.after_line.filter(|&n| n > 0);
+    let total_hint = opts.total_lines_hint.filter(|&n| n > 0);
+    let skip = opts.skip_matches.unwrap_or(0);
+    let context_before = opts.context_before;
+    let context_after = opts.context_after;
 
     let pattern_quoted = format!("'{}'", pattern.replace('\'', "'\"'\"'"));
-    let mut cmd = String::from("grep -n --color=never --line-buffered");
-    cmd.push_str(if is_regex { " -E" } else { " -F" });
-    if let Some(b) = context_before {
-        cmd.push_str(&format!(" -B {b}"));
-    }
-    if let Some(a) = context_after {
-        cmd.push_str(&format!(" -A {a}"));
-    }
-    cmd.push_str(&format!(" -m {max} {pattern_quoted} {}", shell_quote_single(&path)));
+    let path_q = shell_quote_single(&path);
+    let grep_flags = if is_regex { "-E" } else { "-F" };
+    let context_args = if reverse {
+        String::new()
+    } else {
+        let mut s = String::new();
+        if let Some(b) = context_before {
+            s.push_str(&format!(" -B {b}"));
+        }
+        if let Some(a) = context_after {
+            s.push_str(&format!(" -A {a}"));
+        }
+        s
+    };
 
-    let output = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(session) = sessions.get(&id) {
-            session.exec_capture(&cmd).await?
+    // take = 已跳过 + 本页，从同一端一次取够再切片，避免 head -n 四亿行
+    let take = skip.saturating_add(max).max(1);
+
+    let (cmd, line_base, invert_relative) = if reverse {
+        if let Some(total) = total_hint {
+            // 始终从 EOF 反扫，用 -m take 截断；大文件可持续翻页
+            let cmd = format!(
+                "tac {path_q} | grep -n --color=never --line-buffered {grep_flags}{context_args} -m {take} {pattern_quoted}"
+            );
+            (cmd, Some(total), true)
         } else {
-            drop(sessions);
-            pool_session(&state, &id).await?.exec_capture(&cmd).await?
+            // 无总行数：全文件 grep 后取末尾 take（可能慢，但仍比错误 head 可控）
+            let cmd = format!(
+                "grep -n --color=never --line-buffered {grep_flags}{context_args} {pattern_quoted} {path_q} | tail -n {take}"
+            );
+            (cmd, None, false)
+        }
+    } else if let Some(after_l) = after {
+        // 有 skip：从文件头持续正搜；仅 after 无 skip 时才 tail 切片（大 after 可能慢）
+        if skip > 0 {
+            let cmd = format!(
+                "grep -n --color=never --line-buffered {grep_flags}{context_args} -m {take} {pattern_quoted} {path_q}"
+            );
+            (cmd, None, false)
+        } else {
+            let start = after_l + 1;
+            let cmd = format!(
+                "tail -n +{start} {path_q} | grep -n --color=never --line-buffered {grep_flags}{context_args} -m {max} {pattern_quoted}"
+            );
+            (cmd, Some(after_l), false)
+        }
+    } else {
+        // 正搜首页 / 带 skip 的持续正搜
+        let cmd = format!(
+            "grep -n --color=never --line-buffered {grep_flags}{context_args} -m {take} {pattern_quoted} {path_q}"
+        );
+        (cmd, None, false)
+    };
+
+    let session = resolve_log_session(&state, &id).await?;
+    let output = match tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        session.exec_capture(&cmd),
+    )
+    .await
+    {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            return Err(OmniError::new(
+                ErrorCode::Timeout,
+                "搜索超时（关键词过宽时命中太密/太稀都会变慢，请换更具体的模式后点「向上」继续）",
+            ));
         }
     };
 
-    // grep exit 1 = no match，不是错误
     if output.exit_code != 0 && output.exit_code != 1 {
-        return Err(OmniError::new(ErrorCode::Ssh, "搜索失败")
-            .with_cause(output.stderr.trim().to_string()));
+        let stderr = output.stderr.trim();
+        if output.stdout.trim().is_empty() && !stderr.is_empty() {
+            return Err(OmniError::new(ErrorCode::Ssh, "搜索失败").with_cause(stderr.to_string()));
+        }
     }
+
     let mut hits = Vec::new();
     for line in output.stdout.lines() {
-        // 行格式：`行号:内容`（context 行格式为 `行号-内容`，简化处理仍按 : 切）
         let sep_idx = line.find(|c: char| c == ':' || c == '-');
         if let Some(idx) = sep_idx {
-            if let Ok(line_no) = line[..idx].parse::<u64>() {
+            if let Ok(rel_no) = line[..idx].parse::<u64>() {
+                if rel_no == 0 {
+                    continue;
+                }
                 let content = line[idx + 1..].to_string();
+                let line_no = if let Some(base) = line_base {
+                    if invert_relative {
+                        base.saturating_sub(rel_no).saturating_add(1)
+                    } else {
+                        base.saturating_add(rel_no)
+                    }
+                } else {
+                    rel_no
+                };
+                if line_no == 0 {
+                    continue;
+                }
+                // before_line：只要更早的命中（持续向上时的保险过滤）
+                if let Some(b) = before {
+                    if line_no >= b {
+                        continue;
+                    }
+                }
+                // after_line：只要更晚的命中
+                if let Some(a) = after {
+                    if line_no <= a {
+                        continue;
+                    }
+                }
                 hits.push(LogSearchHit {
                     line_no,
                     content,
@@ -2826,6 +3029,38 @@ pub async fn sftp_log_search(
             }
         }
     }
+
+    if reverse {
+        hits.sort_by(|a, b| b.line_no.cmp(&a.line_no));
+        hits.dedup_by(|a, b| a.line_no == b.line_no);
+        // tac -m take 得到的是从末尾起的前 take 条；去掉已展示的 skip 条，留下本页
+        if skip > 0 {
+            let skip_usize = skip as usize;
+            if hits.len() > skip_usize {
+                hits = hits.split_off(skip_usize);
+            } else {
+                hits.clear();
+            }
+        }
+        if hits.len() > max as usize {
+            hits.truncate(max as usize);
+        }
+    } else {
+        hits.sort_by(|a, b| a.line_no.cmp(&b.line_no));
+        hits.dedup_by(|a, b| a.line_no == b.line_no);
+        if skip > 0 {
+            let skip_usize = skip as usize;
+            if hits.len() > skip_usize {
+                hits = hits.split_off(skip_usize);
+            } else {
+                hits.clear();
+            }
+        }
+        if hits.len() > max as usize {
+            hits.truncate(max as usize);
+        }
+    }
+
     Ok(hits)
 }
 
@@ -2850,18 +3085,11 @@ pub async fn sftp_log_tail_start(
 
     let (tx, mut rx) = mpsc::unbounded_channel::<StreamChunk>();
 
-    // exec_stream 内部 acquire exec_gate + open channel + spawn 读 task
-    // 这一步通常很快（< 1s），在 ssh_sessions 锁内可接受
-    let handle = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(session) = sessions.get(&id) {
-            session.exec_stream(&cmd, tx).await
-        } else {
-            drop(sessions);
-            pool_session(&state, &id).await?.exec_stream(&cmd, tx).await
-        }
-    }
-    .map_err(|e| OmniError::new(ErrorCode::Ssh, "启动日志跟踪失败").with_cause(e.to_string()))?;
+    let session = resolve_log_session(&state, &id).await?;
+    let handle = session
+        .exec_stream(&cmd, tx)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Ssh, "启动日志跟踪失败").with_cause(e.to_string()))?;
 
     let token = new_log_token();
     let event_name = format!("sftp-log-tail-{token}");

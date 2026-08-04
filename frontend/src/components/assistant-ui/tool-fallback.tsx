@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -9,7 +9,6 @@ import {
   XCircleIcon,
 } from "lucide-react";
 import {
-  useScrollLock,
   useToolCallElapsed,
   type ToolApprovalOption,
   type ToolCallMessagePart,
@@ -44,30 +43,24 @@ function ToolFallbackRoot({
   children,
   ...props
 }: ToolFallbackRootProps) {
-  const collapsibleRef = useRef<HTMLDivElement>(null);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
-  const lockScroll = useScrollLock(collapsibleRef, ANIMATION_DURATION);
 
   const isControlled = controlledOpen !== undefined;
   const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
-      lockScroll();
       if (!isControlled) {
         setUncontrolledOpen(open);
       }
       controlledOnOpenChange?.(open);
     },
-    [lockScroll, isControlled, controlledOnOpenChange],
+    [isControlled, controlledOnOpenChange],
   );
 
   return (
     <Collapsible
-      ref={collapsibleRef}
       data-slot="tool-fallback-root"
-      open={isOpen}
-      onOpenChange={handleOpenChange}
       className={cn(
         "aui-tool-fallback-root group/tool-fallback-root w-full",
         className,
@@ -78,6 +71,8 @@ function ToolFallbackRoot({
         } as React.CSSProperties
       }
       {...props}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
     >
       {children}
     </Collapsible>
@@ -143,7 +138,7 @@ function ToolFallbackTrigger({
     <CollapsibleTrigger
       data-slot="tool-fallback-trigger"
       className={cn(
-        "aui-tool-fallback-trigger group/trigger text-muted-foreground hover:text-foreground flex w-fit items-center gap-2 py-1 text-sm transition-colors",
+        "aui-tool-fallback-trigger group/trigger text-muted-foreground hover:text-foreground flex w-full items-center gap-2 py-1 text-sm transition-colors",
         className,
       )}
       {...props}
@@ -159,7 +154,7 @@ function ToolFallbackTrigger({
       <span
         data-slot="tool-fallback-trigger-label"
         className={cn(
-          "aui-tool-fallback-trigger-label-wrapper relative inline-block text-start leading-none",
+          "aui-tool-fallback-trigger-label-wrapper relative inline-block grow text-start leading-none",
           isCancelled && "text-muted-foreground line-through",
         )}
       >

@@ -62,22 +62,30 @@ export async function searchLog(
     maxResults?: number | null;
     contextBefore?: number | null;
     contextAfter?: number | null;
+    /** 默认 false；大日志建议 true（从后往前） */
+    reverse?: boolean;
+    /** 仅搜此行之前（向上续搜） */
+    beforeLine?: number | null;
+    /** 仅搜此行之后（向下续搜） */
+    afterLine?: number | null;
+    /** 反搜从 EOF 起步时用于还原真实行号 */
+    totalLinesHint?: number | null;
+    /** 已跳过的命中数（持续翻页） */
+    skipMatches?: number | null;
   },
 ): Promise<LogSearchHit[]> {
-  const isRegex = options?.isRegex ?? false;
-  const maxResults = options?.maxResults ?? null;
-  const contextBefore = options?.contextBefore ?? null;
-  const contextAfter = options?.contextAfter ?? null;
   return unwrap(
-    await commands.sftpLogSearch(
-      id,
-      path,
-      pattern,
-      isRegex,
-      maxResults,
-      contextBefore,
-      contextAfter,
-    ),
+    await commands.sftpLogSearch(id, path, pattern, {
+      isRegex: options?.isRegex ?? false,
+      maxResults: options?.maxResults ?? null,
+      contextBefore: options?.contextBefore ?? null,
+      contextAfter: options?.contextAfter ?? null,
+      reverse: options?.reverse ?? false,
+      beforeLine: options?.beforeLine ?? null,
+      afterLine: options?.afterLine ?? null,
+      totalLinesHint: options?.totalLinesHint ?? null,
+      skipMatches: options?.skipMatches ?? null,
+    }),
     "sftpLogSearch",
   );
 }

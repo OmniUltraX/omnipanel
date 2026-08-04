@@ -472,8 +472,13 @@ export const commands = {
 	/**
 	 *  搜索日志（grep -n），返回命中行列表。
 	 *  grep exit 1 = no match（非错误），其他非零 exit 视为错误。
+	 * 
+	 *  - `reverse=true`：从文件末尾（或 `before_line` 之前）往前搜，适合大日志默认场景
+	 *  - `before_line`：仅搜索该行号之前（续搜「向上」）
+	 *  - `after_line`：仅搜索该行号之后（续搜「向下」）
+	 *  - `total_lines_hint`：反搜从 EOF 起步时，把 tac 相对行号还原为真实行号
 	 */
-	sftpLogSearch: (id: string, path: string, pattern: string, isRegex: boolean, maxResults: number | null, contextBefore: number | null, contextAfter: number | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, isRegex, maxResults, contextBefore, contextAfter })),
+	sftpLogSearch: (id: string, path: string, pattern: string, options: LogSearchOptions | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, options })),
 	/**
 	 *  开始实时跟踪（tail -F，支持文件轮转）。
 	 *  输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端。
@@ -3600,11 +3605,31 @@ export type LogSearchHit = {
 	matchEnd: number | null,
 };
 
+/**  日志搜索选项（合并参数以符合 specta 参数个数上限）。 */
+export type LogSearchOptions = {
+	isRegex: boolean | null,
+	maxResults: number | null,
+	contextBefore: number | null,
+	contextAfter: number | null,
+	/**  从后往前搜（大日志默认建议 true） */
+	reverse: boolean | null,
+	/**  仅搜该行之前（向上续搜） */
+	beforeLine: number | null,
+	/**  仅搜该行之后（向下续搜） */
+	afterLine: number | null,
+	/**  反搜从 EOF 起步时，把 tac 相对行号还原为真实行号 */
+	totalLinesHint: number | null,
+	/**  从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页 */
+	skipMatches: number | null,
+};
+
 /**  日志会话元信息（打开时探测一次）。 */
 export type LogSessionInfo = {
 	sizeBytes: number | null,
-	/**  总行数预估（wc -l，可能比真实少 1 行如果末尾无换行）。 */
+	/**  总行数（精确 wc -l，或采样估算）。 */
 	totalLines: number | null,
+	/**  true = totalLines 来自采样估算（wc -l 超时/失败），前端应走末尾窗口模式。 */
+	linesEstimated: boolean,
 };
 
 /**  跟踪句柄（返回 token 用于后续停止）。 */

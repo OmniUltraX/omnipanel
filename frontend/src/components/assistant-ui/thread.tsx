@@ -768,12 +768,15 @@ const TerminalAssistantMessage: FC = () => {
 
       <div
         data-slot="aui_assistant-message-footer"
-        className={cn("ms-2 flex items-center", ACTION_BAR_HEIGHT)}
+        className={cn(
+          "ms-2 flex items-center pointer-events-none",
+          ACTION_BAR_HEIGHT,
+        )}
       >
         <ActionBarPrimitive.Root
           hideWhenRunning
           autohide="not-last"
-          className="aui-assistant-action-bar-root text-muted-foreground flex gap-1"
+          className="aui-assistant-action-bar-root text-muted-foreground pointer-events-auto flex gap-1"
         >
           <ActionBarPrimitive.Copy asChild>
             <TooltipIconButton tooltip={t("ai.composer.buttonCopy")}>
