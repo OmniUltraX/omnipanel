@@ -16,8 +16,7 @@ on:
       - 'Cargo.toml'
       - 'src-tauri/**'
       - 'crates/**'
-      - 'frontend/package-lock.json'
-      - 'frontend/package.json'
+      - 'frontend/**'
       - '.github/workflows/warm-cache.yml'
       - '.github/workflows/build.yml'
   schedule:
