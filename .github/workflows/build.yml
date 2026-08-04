@@ -20,9 +20,8 @@ permissions:
   contents: write
 
 env:
-  # sccache：跨 run 复用 rustc 编译产物（与 rust-cache 互补）
-  SCCACHE_GHA_ENABLED: 'true'
-  RUSTC_WRAPPER: sccache
+  # 跨 run 依赖 rust-cache（由 warm-cache.yml 在 master 预热）。
+  # 不再开 sccache→GHA：海量小 key 会撑爆 10GB 配额，挤掉 rust-cache。
   CARGO_INCREMENTAL: '0'
 
 jobs:
@@ -127,16 +126,16 @@ jobs:
           targets: ${{ matrix.target }}
 
       # workspace 根在仓库根，产物在 ./target（不是 src-tauri/target）
-      # shared-key：各 tag / workflow_dispatch 共用同一前缀，提高命中率
+      # shared-key: release — 必须与 warm-cache.yml 一致。
+      # Actions cache 按 ref 隔离：tag 只能可靠读到默认分支（master）上的缓存，
+      # 读不到上一个 v* tag 写入的缓存；依赖 Warm Release Cache 在 master 预热。
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
           shared-key: release
           cache-all-crates: true
-
-      - name: Configure sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+          cache-on-failure: true
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -268,8 +267,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 使用仓库内已提交的 bindings.ts，避免 Windows 上 prebuild→cargo run 栈溢出
           SKIP_GEN_BINDINGS: '1'
-          RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: 'true'
           CARGO_INCREMENTAL: '0'
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
@@ -280,11 +277,6 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
-
-      - name: Show sccache stats
-        if: always()
-        shell: bash
-        run: sccache --show-stats || true
 
       - name: Broadcast version to WeChat via OmniServer
         # 仅在 Windows 产物构建成功后广播一次，避免矩阵多平台重复通知
