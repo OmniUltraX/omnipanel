@@ -2,6 +2,16 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.2] - 2026-08-04
+
+### 新增
+
+- **开发 / 正式并存**：Agent Router / 内置 OmniMCP 默认端口错开（8766 / 12757 vs 8765 / 12756），避免 Dev 与正式版抢端口
+
+### 变更
+
+- **发版 CI**：修正 rust-cache 指向仓库根 `target/`；接入 sccache；`workflow_dispatch` 可只构建 Windows；release 显式关闭 LTO 并 strip 符号
+
 ## [0.7.1] - 2026-08-04
 
 ### 修复
