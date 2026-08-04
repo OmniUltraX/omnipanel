@@ -14,6 +14,7 @@ import {
 } from "./terminalFilePreviewStore";
 
 async function readRemoteBytesSftp(id: string, path: string, maxBytes: number): Promise<number[]> {
+  // 注意：大文本/未知大小应由 FilePreviewContent 分流到 LargeLogViewer，避免走到这里整文件下载
   const all = await invoke<number[]>("sftp_download", { id, path });
   if (all.length <= maxBytes) return all;
   return all.slice(0, maxBytes);
@@ -104,6 +105,7 @@ export function TerminalFilePreviewSubWindow() {
       open
       entry={targetToFileEntry(target)}
       connectionId={target.connectionId}
+      sshResourceId={target.resourceId ?? undefined}
       onClose={close}
       customIO={customIO}
       showFileTree

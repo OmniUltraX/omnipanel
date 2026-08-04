@@ -30,6 +30,11 @@ export interface FilePreviewSubWindowProps {
   onSaved?: (entry: FileEntry) => void;
   /** 自定义 IO 适配器（终端场景用，绕开 file_manager.connectionId） */
   customIO?: import("./FilePreviewContent").FilePreviewIO;
+  /**
+   * SSH 资源 id（文件管理 SFTP 关联的 sshConnectionId，或 SSH 会话 id）。
+   * 用于 >10MB 文本/JSON 分流到 LargeLogViewer。
+   */
+  sshResourceId?: string;
   /** 显示左侧目录树（终端预览等） */
   showFileTree?: boolean;
   /** 目录树会话（本地 / SSH）；缺省按 connectionId 视为本地 */
@@ -46,6 +51,7 @@ export function FilePreviewSubWindow({
   onDownload,
   onSaved,
   customIO,
+  sshResourceId,
   showFileTree = false,
   treeSession,
   onSelectEntry,
@@ -222,6 +228,7 @@ export function FilePreviewSubWindow({
               onDirtyChange={setDirty}
               onTextPreviewMetaChange={setTextPreviewMeta}
               customIO={customIO}
+              sshResourceId={sshResourceId}
             />
           </div>
         </div>

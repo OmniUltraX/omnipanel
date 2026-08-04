@@ -400,17 +400,19 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
 
       // 大于 10MB 直接禁止预览（即使强制也不行 —— 一次性加载 10MB 字符串会卡）
       // 流式媒体走 asset/缓存路径，不受该阈值限制
-      // 例外：text/json + SSH 远程资源走 LargeLogViewer 流式预览（sed/grep/tail）
+      // 例外：text/json + SSH 远程资源走 LargeLogViewer（含 size 未知：避免整文件 sftp_download）
+      const canStreamLargeText =
+        (initialKind === "text" || initialKind === "json") && Boolean(sshResourceId);
+      if (
+        canStreamLargeText &&
+        (largeStrategy === "blocked" || largeStrategy === "unknown")
+      ) {
+        setLoading(false);
+        return () => {
+          cancelled = true;
+        };
+      }
       if (largeStrategy === "blocked" && !isStreamableMediaKind(initialKind)) {
-        const canStreamLargeText =
-          (initialKind === "text" || initialKind === "json") && Boolean(sshResourceId);
-        if (canStreamLargeText) {
-          // 不设 error，让 render 阶段分流到 LargeLogViewer
-          setLoading(false);
-          return () => {
-            cancelled = true;
-          };
-        }
         setLoading(false);
         setError(
           t("files.preview.tooLarge", {
@@ -521,6 +523,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       largeStrategy,
       onDirtyChange,
       onTextPreviewMetaChange,
+      sshResourceId,
       t,
       thresholdBytes,
     ]);
@@ -537,10 +540,10 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       };
     }, [largeStrategy, forceFull, entry.size, loadedBytes, draftText]);
 
-    // 大日志文件分流：>10MB 的 text/json + SSH 远程资源走 LargeLogViewer
-    // （sed/grep/tail 流式预览，不一次性加载进 JS 内存）
+    // 大日志文件分流：>10MB 或 size 未知的 text/json + SSH → LargeLogViewer
+    // （sed/grep/tail 流式预览；size 未知时也必须走这里，避免整文件下载）
     if (
-      largeStrategy === "blocked" &&
+      (largeStrategy === "blocked" || largeStrategy === "unknown") &&
       (previewKind === "text" || previewKind === "json") &&
       sshResourceId
     ) {

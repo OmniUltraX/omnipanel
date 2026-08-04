@@ -94,7 +94,11 @@ a {
 .ai-message-list .ai-msg-body,
 .ai-message-list .ai-msg-body *,
 .aui-user-message-content,
-.aui-user-message-content * {
+.aui-user-message-content *,
+.log-viewer__viewport,
+.log-viewer__viewport .log-viewer__row,
+.log-viewer__viewport .log-viewer__text,
+.log-viewer__viewport .log-viewer__text * {
     -webkit-user-select: text !important;
     user-select: text !important;
 }
@@ -111,7 +115,10 @@ a {
 .content-preview-text-toolbar,
 .content-preview-text-toolbar *,
 .db-cell-editor-blob-preview-toolbar,
-.db-cell-editor-blob-preview-toolbar * {
+.db-cell-editor-blob-preview-toolbar *,
+.log-viewer__toolbar,
+.log-viewer__toolbar *,
+.log-viewer__lineno {
     -webkit-user-select: none !important;
     user-select: none !important;
 }
@@ -21758,6 +21765,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     text-overflow: ellipsis;
     white-space: pre;
     color: var(--fg-2);
+    cursor: text;
 }
 
 .log-viewer__placeholder {

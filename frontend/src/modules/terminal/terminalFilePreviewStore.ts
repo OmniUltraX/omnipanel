@@ -125,11 +125,32 @@ export function resolvePreviewConnectionId(
   return resourceId;
 }
 
-/** 解析 ls 长格式 size 列（如 "12,345" / "1024"） */
+const LS_HUMAN_SIZE_MULT: Record<string, number> = {
+  K: 1024,
+  M: 1024 ** 2,
+  G: 1024 ** 3,
+  T: 1024 ** 4,
+  P: 1024 ** 5,
+  E: 1024 ** 6,
+};
+
+/** 解析 ls 长格式 size 列：纯数字（"12,345"）或 -lh 人性化（"22G" / "1.5M"） */
 export function parseLsLongSizeBytes(longSize: string | undefined | null): number | null {
   if (!longSize) return null;
   const trimmed = longSize.trim();
-  if (!trimmed || trimmed === "<DIR>" || /[a-zA-Z]/.test(trimmed)) return null;
-  const n = Number(trimmed.replace(/,/g, ""));
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  if (!trimmed || trimmed === "<DIR>") return null;
+  // 纯数字（可带千分位逗号）
+  if (/^[\d,]+$/.test(trimmed)) {
+    const n = Number(trimmed.replace(/,/g, ""));
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  // ls -lh：1.5K / 22M / 21G / 1T（可选 B 后缀）
+  const human = trimmed.match(/^(\d+(?:\.\d+)?)\s*([KMGTPE])B?$/i);
+  if (!human) return null;
+  const value = Number(human[1]);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const unit = human[2]!.toUpperCase();
+  const mult = LS_HUMAN_SIZE_MULT[unit];
+  if (!mult) return null;
+  return Math.round(value * mult);
 }

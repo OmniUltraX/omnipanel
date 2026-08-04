@@ -206,6 +206,13 @@ export function FileConnectionPanel({
   const fileRemoteDirectPolicy = useSettingsStore((s) => s.fileRemoteDirectPolicy);
   const setFileSettings = useSettingsStore((s) => s.setFileSettings);
   const storedConnection = useConnectionStore((s) => s.connections.find((c) => c.id === connId));
+  /** SFTP 关联的 SSH 连接 id；大日志流式预览依赖它。无关联时回退为文件连接 id（后端可再解析）。 */
+  const sshResourceId = useMemo(() => {
+    if (protocol !== "sftp") return undefined;
+    const cfg = parseFileConfigJson(storedConnection?.config ?? "{}");
+    const linked = cfg.sshConnectionId?.trim();
+    return linked || connId;
+  }, [protocol, storedConnection?.config, connId]);
   const s3BindKey = useMemo(
     () => (protocol === "s3" ? buildS3BindKey(storedConnection?.config) : ""),
     [protocol, storedConnection?.config],
@@ -1653,6 +1660,7 @@ export function FileConnectionPanel({
         open={previewEntry != null}
         entry={previewEntry}
         connectionId={connId}
+        sshResourceId={sshResourceId}
         onClose={() => setPreviewEntry(null)}
         onSaved={() => void loadDir(currentPath)}
         onDownload={
