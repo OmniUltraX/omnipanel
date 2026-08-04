@@ -2,6 +2,22 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.4] - 2026-08-04
+
+### 新增
+
+- **文件 · 超大日志预览**：末尾窗口模式、可选中文本、正搜/反搜与持续翻页（`skip_matches`，避免大文件 `head` 超时）
+- **数据库 · MCP**：`create_run_sql`，支持执行复杂 SQL 脚本
+
+### 修复
+
+- **终端 · AI**：tool group / tool fallback 触发区域过窄、空 action bar 挡点击；吸顶滚动锁干扰
+- **日志搜索**：`LogSearchOptions.totalLinesHint` 与 bindings 对齐；`lineNo` 可空导致 `tsc` 失败
+
+### 变更
+
+- **发版 CI**：在 master 预热 rust-cache / npm（tag 可从默认分支命中）；关闭 sccache→GHA，避免海量碎片撑爆缓存配额
+
 ## [0.7.3] - 2026-08-04
 
 ### 新增
