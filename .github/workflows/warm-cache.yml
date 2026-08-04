@@ -74,6 +74,22 @@ jobs:
             echo "Deleted batch (total=${deleted})"
           done
           echo "Reclaimed sccache cache entries: ${deleted}"
+
+          # 顺带清掉旧版 v0-rust release 半成品缓存（immutable，曾锁死预热）
+          for key in \
+            v0-rust-release-Windows_NT-x64-8af1e26a-25b50cc3 \
+            v0-rust-release-Darwin-arm64-af5aa912-25b50cc3
+          do
+            mapfile -t ids < <(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=20&key=${key}" \
+              --jq '.actions_caches[].id' || true)
+            for id in "${ids[@]:-}"; do
+              [ -z "${id:-}" ] && continue
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" >/dev/null || true
+              echo "Deleted stale cache id=${id} key=${key}"
+            done
+          done
+
           gh api "repos/${GITHUB_REPOSITORY}/actions/cache/usage" \
             --jq '"usage: count=\(.active_caches_count) size_mb=\((.active_caches_size_in_bytes / 1048576) | floor)"'
 
@@ -125,14 +141,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # 必须与 build.yml 完全一致，否则 tag 发版无法按 key 命中
+      # 必须与 build.yml 的 prefix-key / shared-key 一致。
+      # 禁止 cache-on-failure：失败半成品会占住 immutable key，后续预热无法覆盖。
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          prefix-key: v1-rust
           shared-key: release
           cache-all-crates: true
-          cache-on-failure: true
+          cache-workspace-crates: true
+          cache-on-failure: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

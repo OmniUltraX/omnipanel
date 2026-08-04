@@ -2,6 +2,16 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.5] - 2026-08-04
+
+### 修复
+
+- **发版 CI**：微信广播超时不再导致整次发版失败（阻断 OSS 同步）；rust-cache 换新 key 并禁止失败半成品锁死缓存
+
+### 变更
+
+- 发版只恢复 master 预热缓存、不写回 tag 缓存，避免配额浪费与 immutable key 踩坑
+
 ## [0.7.4] - 2026-08-04
 
 ### 新增

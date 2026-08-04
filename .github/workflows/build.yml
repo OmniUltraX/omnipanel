@@ -126,16 +126,18 @@ jobs:
           targets: ${{ matrix.target }}
 
       # workspace 根在仓库根，产物在 ./target（不是 src-tauri/target）
-      # shared-key: release — 必须与 warm-cache.yml 一致。
-      # Actions cache 按 ref 隔离：tag 只能可靠读到默认分支（master）上的缓存，
-      # 读不到上一个 v* tag 写入的缓存；依赖 Warm Release Cache 在 master 预热。
+      # prefix-key / shared-key 必须与 warm-cache.yml 一致。
+      # Actions cache 按 ref 隔离且 key 不可覆盖：只从 master 预热恢复，发版不写回
+      # （避免 tag 写入无用缓存占配额；也避免失败半成品把 key 锁死）。
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          prefix-key: v1-rust
           shared-key: release
           cache-all-crates: true
-          cache-on-failure: true
+          cache-workspace-crates: true
+          save-if: 'false'
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -281,7 +283,9 @@ jobs:
       - name: Broadcast version to WeChat via OmniServer
         # 仅在 Windows 产物构建成功后广播一次，避免矩阵多平台重复通知
         # tag 发版才广播；手动试构建跳过
+        # OmniServer 偶发不可达：软失败，不得拖垮发版 / 阻断 publish-oss
         if: success() && matrix.platform == 'windows-latest' && github.ref_type == 'tag'
+        continue-on-error: true
         shell: bash
         env:
           BASE_URL: ${{ secrets.OMNISERVER_BASE_URL }}
@@ -294,12 +298,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ] || [ -z "${TOKEN:-}" ]; then
-            echo "缺少 OMNISERVER_BASE_URL / OMNISERVER_ADMIN_TOKEN"
-            exit 1
+            echo "::warning::缺少 OMNISERVER_BASE_URL / OMNISERVER_ADMIN_TOKEN，跳过微信广播"
+            exit 0
           fi
           if [ -z "${CHANGELOG:-}" ]; then
-            echo "缺少 CHANGELOG 正文（请确认 CHANGELOG.md 含 ## [${VERSION}] 段落）"
-            exit 1
+            echo "::warning::缺少 CHANGELOG 正文，跳过微信广播"
+            exit 0
           fi
           BODY=$(jq -nc \
             --arg version "${VERSION}" \
@@ -314,16 +318,20 @@ jobs:
               dry_run: false
             }')
           echo "Broadcast payload version=${VERSION}"
+          set +e
           HTTP_CODE=$(curl -sS -o /tmp/broadcast-resp.json -w "%{http_code}" \
+            --connect-timeout 10 --max-time 30 \
             -X POST "${BASE_URL%/}/broadcast/version" \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${BODY}")
-          echo "Broadcast HTTP ${HTTP_CODE}"
-          cat /tmp/broadcast-resp.json || true
+          CURL_RC=$?
+          set -e
+          echo "Broadcast HTTP ${HTTP_CODE:-000} curl_rc=${CURL_RC}"
+          cat /tmp/broadcast-resp.json 2>/dev/null || true
           echo
-          if [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
-            echo "::error::OmniServer broadcast/version 失败（HTTP ${HTTP_CODE}）"
+          if [ "${CURL_RC}" -ne 0 ] || [ -z "${HTTP_CODE:-}" ] || [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
+            echo "::warning::OmniServer broadcast/version 失败（HTTP ${HTTP_CODE:-000} curl_rc=${CURL_RC}），不阻断发版"
             exit 1
           fi
 
