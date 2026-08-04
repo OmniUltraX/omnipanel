@@ -63,7 +63,6 @@ export function followIntentsForTool(
   const connectionId =
     str(args.connection_id) ?? str(args.connectionId) ?? str(args.resource_id);
   const containerId = str(args.container_id) ?? str(args.containerId);
-  const sessionId = str(args.session_id) ?? str(args.sessionId);
   const path = str(args.path);
   const sql = str(args.sql) ?? str(args.query);
   const parsedResult = parseResult(result);

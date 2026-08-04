@@ -138,7 +138,7 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
           connection.group || "默认",
           connection.id,
           linkedPanel?.id,
-          linkedPanel?.createdAt,
+          linkedPanel?.createdAt ?? undefined,
         );
 
         const saved = await saveConn(draft);
