@@ -2,6 +2,17 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.1] - 2026-08-04
+
+### 修复
+
+- **启动 / 登录**：release 首启时前端早于 `AppState` 注册发起 IPC（如 `auth_login_qrcode`）导致 `state not managed`；改为先 `manage` 再创建 WebView
+- **退出**：关闭主窗后快捷启动 / 模块预热隐藏窗残留进程；`app_exit` 强制销毁全部窗口，主窗 `Destroyed` 兜底退出
+
+### 新增
+
+- **开发构建**：独立 `OmniPanel Dev` identifier / 产品名 / DEV 角标图标与窗口标题，可与正式安装版并存
+
 ## [0.7.0] - 2026-08-03
 
 ### 新增

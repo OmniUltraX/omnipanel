@@ -17,6 +17,18 @@ if (args[0] === "dev" && !hasFeatures) {
   args.splice(1, 0, "--features", "dev-mcp");
 }
 
+// 开发构建使用独立 identifier / 产品名 / 带 DEV 角标图标，可与正式安装版并存。
+// 显式传 --config 时不覆盖。
+const isDevFlavor =
+  args[0] === "dev" || (args[0] === "build" && args.includes("--debug"));
+const hasConfig =
+  args.includes("--config") ||
+  args.includes("-c") ||
+  args.some((a) => a.startsWith("--config=") || a.startsWith("-c="));
+if (isDevFlavor && !hasConfig) {
+  args.splice(1, 0, "--config", "src-tauri/tauri.dev.conf.json");
+}
+
 const result = spawnSync("cargo", ["tauri", ...args], {
   cwd: repoRoot,
   stdio: "inherit",

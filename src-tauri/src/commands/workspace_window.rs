@@ -191,11 +191,51 @@ pub async fn close_all_workspace_windows(app: AppHandle) -> Result<usize, String
     Ok(closed)
 }
 
+/// 正在退出：防止 main Destroyed 与 `app_exit` 互相重入。
+static APP_EXITING: AtomicBool = AtomicBool::new(false);
+
+/// 销毁全部 WebView（快捷启动/模块预热窗 `prevent_close`，必须用 destroy）。
+fn destroy_all_webview_windows(app: &AppHandle) {
+    let labels: Vec<String> = app.webview_windows().into_keys().collect();
+    for label in labels {
+        if let Some(window) = app.get_webview_window(&label) {
+            append_log(app, &format!("destroy window label={label}"));
+            let _ = window.destroy();
+        }
+    }
+}
+
 /// 退出整个应用进程（托盘常驻 / 多窗口隐藏后也需要此路径）。
 #[tauri::command]
 pub fn app_exit(app: AppHandle) {
+    if APP_EXITING.swap(true, Ordering::SeqCst) {
+        append_log(&app, "app_exit ignored (already exiting)");
+        return;
+    }
     append_log(&app, "app_exit");
+    // 先拆掉隐藏常驻窗，否则 exit 后仍可能残留进程/WebView2
+    destroy_all_webview_windows(&app);
     app.exit(0);
+}
+
+/// 主窗被销毁时兜底退出（前端 onCloseRequested 未挂上时原生关窗会留下快捷启动等隐藏窗）。
+fn on_main_window_destroyed(app: &AppHandle) {
+    if APP_EXITING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    append_log(app, "main destroyed → force exit remaining windows");
+    destroy_all_webview_windows(app);
+    app.exit(0);
+}
+
+/// 给主窗挂 Destroyed 兜底（托盘隐藏不会 destroy main）。
+fn hook_main_window_lifetime(app: &AppHandle, window: &tauri::WebviewWindow) {
+    let app_destroy = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            on_main_window_destroyed(&app_destroy);
+        }
+    });
 }
 
 /// 根据屏幕坐标（物理像素）命中 Webview 窗口 label，用于跨窗口 tab 拖拽落点判定。
@@ -830,6 +870,7 @@ pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
     let resolved = resolved_main_bounds(app);
 
     if let Some(window) = app.get_webview_window("main") {
+        hook_main_window_lifetime(app, &window);
         place_main_for_boot(app, &window, resolved.as_ref());
         schedule_main_window_reveal_fallback(app.clone());
         return Ok(());
@@ -871,6 +912,13 @@ pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| format!("创建主窗口失败: {e}"))?;
 
+    // 开发构建在前端就绪前就改掉标题，避免任务栏短暂显示正式版名称。
+    #[cfg(debug_assertions)]
+    {
+        let _ = window.set_title("OmniPanel Dev");
+    }
+
+    hook_main_window_lifetime(app, &window);
     place_main_for_boot(app, &window, resolved.as_ref());
     schedule_main_window_reveal_fallback(app.clone());
 

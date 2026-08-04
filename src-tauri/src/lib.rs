@@ -678,28 +678,9 @@ fn build_and_run_tauri() {
                 tracing::warn!("加载 MCP Bridge capability 失败: {e}");
             }
 
-            // 主窗 create:false：按记忆几何创建并保持隐藏，等 HTML 首屏就绪再 show。
-            // 须在 setup 最前，避免默认创建路径在主屏闪白框。
-            commands::workspace_window::create_main_window(app.handle())
-                .expect("创建主窗口失败");
-            if let Some(window) = app.get_webview_window("main") {
-                #[cfg(windows)]
-                webview_dpi::hook_window(&window);
-                #[cfg(any(debug_assertions, feature = "debug-inspector"))]
-                if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
-                    window.open_devtools();
-                }
-            }
-
-            // 快捷启动窗：预创建并隐藏；Ctrl+Space 随时切换
-            if let Err(e) = commands::quick_launcher::ensure_quick_launcher_window(app.handle()) {
-                tracing::warn!("预创建快捷启动窗失败: {e}");
-            }
-            commands::quick_launcher::register_global_shortcut(app.handle());
-
-            // 模块独立窗：延迟预创建并隐藏，首次「在新窗口打开」走热复用
-            commands::module_window::schedule_prewarm_module_windows(app.handle());
-
+            // 必须先 manage(AppState)，再创建任何会加载前端的 WebView。
+            // release 本地资源加载极快，窗先建会导致首屏 IPC（如 auth_login_qrcode）
+            // 在 State 注册前到达，报 "state not managed"。
             let db_path =
                 omnipanel_store::meta_db_path().expect("无法定位 ~/.omnipd/store/omnipanel.db");
             if let Some(parent) = db_path.parent() {
@@ -741,6 +722,27 @@ fn build_and_run_tauri() {
             let ssh_pool = app_state.ssh_pool.clone();
             let ai_registry = app_state.ai_registry.clone();
             app.manage(app_state);
+
+            // 主窗 create:false：按记忆几何创建；State 已就绪后再 show/加载 HTML。
+            commands::workspace_window::create_main_window(app.handle())
+                .expect("创建主窗口失败");
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                webview_dpi::hook_window(&window);
+                #[cfg(any(debug_assertions, feature = "debug-inspector"))]
+                if std::env::var("OMNIPANEL_OPEN_DEVTOOLS").is_ok() {
+                    window.open_devtools();
+                }
+            }
+
+            // 快捷启动窗：预创建并隐藏；Ctrl+Space 随时切换
+            if let Err(e) = commands::quick_launcher::ensure_quick_launcher_window(app.handle()) {
+                tracing::warn!("预创建快捷启动窗失败: {e}");
+            }
+            commands::quick_launcher::register_global_shortcut(app.handle());
+
+            // 模块独立窗：延迟预创建并隐藏，首次「在新窗口打开」走热复用
+            commands::module_window::schedule_prewarm_module_windows(app.handle());
 
             // Try to auto-register Ollama provider (silent skip if unavailable)
             tauri::async_runtime::spawn(async move {
