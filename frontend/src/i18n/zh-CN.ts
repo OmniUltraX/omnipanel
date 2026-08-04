@@ -4922,14 +4922,15 @@ export const zhCN = {
     },
     aiServices: {
       title: "服务",
-      desc: "Agent Router（:8765）与 OmniMCP（:12756）独立配置",
+      desc: "Agent Router 与 OmniMCP 独立配置（开发版默认 :8766 / :12757，正式版 :8765 / :12756）",
       tabRouter: "Agent Router",
       tabOmniMcp: "OmniMCP",
       tabTraces: "Trace 分析",
       router: {
         enabled: "启用 Agent Router",
-        enabledDesc: "在本地启动 OpenAI 兼容网关，默认监听 127.0.0.1:8765",
+        enabledDesc: "在本地启动 OpenAI 兼容网关（开发版默认 :8766，正式版 :8765）",
         port: "端口",
+        devPortRemapHint: "开发版为避免与正式版冲突，实际监听 :{listen}",
         apiKey: "API Key（可选）",
         apiKeyPlaceholder: "留空则不校验",
         bindLan: "绑定 LAN",

@@ -85,6 +85,13 @@ incremental = true
 [profile.dev.package."*"]
 opt-level = 1
 
+# 发版：显式关闭 LTO（避免误开 fat LTO 把 Windows 链接拖到 30min+）。
+# strip 减小安装包 / updater 下载体积。
+[profile.release]
+lto = false
+codegen-units = 16
+strip = "symbols"
+
 # 本地补丁：修复 specta-serde 字符串字面量枚举被重复 external-tag 改写导致的
 # Null.0 无限递归；保留深度超限 panic 便于回归定位。
 [patch.crates-io]

@@ -5,9 +5,19 @@ use specta::Type;
 
 pub const BUILTIN_SERVICE_ID: &str = "omnimcp-builtin";
 pub const BUILTIN_SERVICE_NAME: &str = "OmniMCP";
-/// 内置 OmniMCP HTTP 服务固定端口（127.0.0.1）。
-pub const BUILTIN_MCP_PORT: u16 = 12756;
+/// 正式版 OmniMCP 端口；开发构建用 `12757`，避免与安装版并存时 EADDRINUSE。
+pub const BUILTIN_MCP_PORT: u16 = if cfg!(debug_assertions) { 12757 } else { 12756 };
+
+/// 内置 OmniMCP HTTP endpoint（随 `BUILTIN_MCP_PORT` 变化）。
+pub fn builtin_mcp_endpoint() -> String {
+    format!("http://127.0.0.1:{BUILTIN_MCP_PORT}/mcp")
+}
+
+/// 兼容旧代码：正式版固定字符串；开发构建请用 [`builtin_mcp_endpoint`]。
+#[cfg(not(debug_assertions))]
 pub const BUILTIN_MCP_ENDPOINT: &str = "http://127.0.0.1:12756/mcp";
+#[cfg(debug_assertions)]
+pub const BUILTIN_MCP_ENDPOINT: &str = "http://127.0.0.1:12757/mcp";
 /// 客户端请求头：指定当前 OmniPanel 模块，服务端据此过滤 MCP 工具列表。
 pub const X_OMNI_MODULE_HEADER: &str = "x-omni-module";
 /// 请求头值为 `master` 时返回全部可用工具；未携带或值为空时不返回任何工具。

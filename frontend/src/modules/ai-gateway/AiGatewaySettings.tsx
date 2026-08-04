@@ -9,13 +9,19 @@ import { TraceListView } from "./TraceListView";
 import { OmniMcpToolsExposureSection } from "../../components/settings/OmniMcpToolsExposureSection";
 import { McpServiceToolList } from "../../components/settings/McpServiceToolList";
 import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleBuiltinCatalog";
+import {
+  DEFAULT_GATEWAY_PORT,
+  OMNIMCP_BUILTIN_MCP_URL,
+  RELEASE_GATEWAY_PORT,
+  resolveGatewayListenPort,
+} from "../../lib/ai/localServicePorts";
 
 type Tab = "router" | "omnimcp" | "traces";
 
 const MCP_CURSOR_SNIPPET = `{
   "mcpServers": {
     "omnipanel": {
-      "url": "http://127.0.0.1:12756/mcp"
+      "url": "${OMNIMCP_BUILTIN_MCP_URL}"
     }
   }
 }`;
@@ -48,15 +54,16 @@ export function AiGatewaySettings() {
   const mcpExternalRequireApproval = useSettingsStore((s) => s.mcpExternalRequireApproval);
   const setAiGatewaySettings = useSettingsStore((s) => s.setAiGatewaySettings);
 
+  const listenPort = resolveGatewayListenPort(aiGatewayPort);
+
   const curlExample = useMemo(() => {
-    const port = aiGatewayPort || 8765;
     const auth = aiGatewayApiKey.trim()
       ? `-H "Authorization: Bearer ${aiGatewayApiKey.trim()}" `
       : "";
     return `curl ${auth}-H "Content-Type: application/json" -H "X-Conversation-Id: demo" \\
-  http://127.0.0.1:${port}/v1/chat/completions \\
+  http://127.0.0.1:${listenPort}/v1/chat/completions \\
   -d '{"model":"http:provider_1::gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hello"}]}'`;
-  }, [aiGatewayPort, aiGatewayApiKey]);
+  }, [listenPort, aiGatewayApiKey]);
 
   const copyText = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -107,13 +114,23 @@ export function AiGatewaySettings() {
           <div className="setting-row">
             <div className="setting-label">
               <h4>{t("settings.aiServices.router.port")}</h4>
+              {import.meta.env.DEV &&
+              (aiGatewayPort || RELEASE_GATEWAY_PORT) === RELEASE_GATEWAY_PORT ? (
+                <p>
+                  {t("settings.aiServices.router.devPortRemapHint", {
+                    listen: String(listenPort),
+                  })}
+                </p>
+              ) : null}
             </div>
             <div className="setting-control setting-control--narrow">
               <TextInput
                 size="sm"
-                value={String(aiGatewayPort)}
+                value={String(aiGatewayPort || DEFAULT_GATEWAY_PORT)}
                 onChange={(v) =>
-                  setAiGatewaySettings({ aiGatewayPort: Number(v) || 8765 })
+                  setAiGatewaySettings({
+                    aiGatewayPort: Number(v) || DEFAULT_GATEWAY_PORT,
+                  })
                 }
               />
             </div>
@@ -155,7 +172,7 @@ export function AiGatewaySettings() {
       {tab === "omnimcp" ? (
         <div className="settings-subsection">
           <p className="setting-hint settings-subsection-desc">
-            {t("settings.aiServices.omnimcp.desc", { url: "http://127.0.0.1:12756/mcp" })}
+            {t("settings.aiServices.omnimcp.desc", { url: OMNIMCP_BUILTIN_MCP_URL })}
           </p>
           <div className="setting-row">
             <div className="setting-label">

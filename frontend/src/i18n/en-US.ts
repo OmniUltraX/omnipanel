@@ -4990,14 +4990,15 @@ export const enUS: TranslationDict = {
     },
     aiServices: {
       title: "Services",
-      desc: "Independent configuration for Agent Router (:8765) and OmniMCP (:12756)",
+      desc: "Independent Agent Router and OmniMCP settings (dev defaults :8766 / :12757, release :8765 / :12756)",
       tabRouter: "Agent Router",
       tabOmniMcp: "OmniMCP",
       tabTraces: "Trace Analysis",
       router: {
         enabled: "Enable Agent Router",
-        enabledDesc: "Start a local OpenAI-compatible gateway on 127.0.0.1:8765 by default",
+        enabledDesc: "Start a local OpenAI-compatible gateway (dev default :8766, release :8765)",
         port: "Port",
+        devPortRemapHint: "Dev build listens on :{listen} to avoid conflicting with release",
         apiKey: "API Key (optional)",
         apiKeyPlaceholder: "Leave empty to skip auth",
         bindLan: "Bind LAN",

@@ -16,6 +16,29 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::acp_resolver::AcpResolver;
 use crate::router::GatewayRouter;
 
+/// 正式版 Agent Router 默认端口。
+pub const RELEASE_GATEWAY_PORT: u16 = 8765;
+/// 开发构建默认端口（与正式版错开）。
+pub const DEV_GATEWAY_PORT: u16 = 8766;
+
+/// 解析实际监听端口：`0` 用构建默认；开发态若仍是正式版默认 `8765` 则改为 `8766`。
+pub fn resolve_gateway_port(port: u16) -> u16 {
+    let port = if port == 0 {
+        if cfg!(debug_assertions) {
+            DEV_GATEWAY_PORT
+        } else {
+            RELEASE_GATEWAY_PORT
+        }
+    } else {
+        port
+    };
+    if cfg!(debug_assertions) && port == RELEASE_GATEWAY_PORT {
+        DEV_GATEWAY_PORT
+    } else {
+        port
+    }
+}
+
 #[derive(Clone)]
 pub struct GatewayConfig {
     pub bind_addr: String,

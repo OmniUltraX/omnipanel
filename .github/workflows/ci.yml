@@ -32,10 +32,12 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      # workspace 根在仓库根，产物在 ./target（不是 src-tauri/target）
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: '. -> target'
+          shared-key: ci
 
       - uses: actions/setup-node@v4
         with:
