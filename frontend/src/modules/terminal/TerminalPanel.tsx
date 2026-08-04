@@ -385,6 +385,11 @@ export function TerminalPanel() {
       removeTabSync: () => {
         clearTerminalBackendSessionTouch(sessionId);
         endSession(sessionId);
+        // 结束会话时清掉块历史与 pane 绑定，避免日后 ID/序号回退时「新会话」灌入旧记录
+        void useTerminalHistoryStore.getState().clearSession(sessionId);
+        void import("./tmuxPaneSessionIndex").then(({ useTmuxPaneSessionIndex }) => {
+          useTmuxPaneSessionIndex.getState().removeBySessionId(sessionId);
+        });
 
         const nextActive = useTerminalStore.getState().activeTabId;
         if (nextActive) {
@@ -411,18 +416,24 @@ export function TerminalPanel() {
     });
   }, [beginSuppressSshDockActivation, endSession, focusSessionsPanel, setActiveTab, setDockLayout]);
 
+  const connectionsLoaded = useConnectionStore((s) => s.loaded);
+
   useEffect(() => {
+    // 连接尚未从后端拉取完时 sshHosts 为空，切勿把全部远程会话当成孤儿结束
+    if (!connectionsLoaded) return;
     const validIds = new Set(sshHosts.map((host) => host.id));
-    const orphans = sessions.filter(
-      (session) =>
-        session.lifecycle !== "ended" &&
-        session.session.type === "remote" &&
-        !validIds.has(session.session.resourceId),
-    );
+    const orphans = sessions.filter((session) => {
+      if (session.lifecycle === "ended") return false;
+      if (session.session.type !== "remote") return false;
+      if (validIds.has(session.session.resourceId)) return false;
+      // OpenSSH config / SEED 等仍能解析的资源保留
+      if (resolveResourceById(session.session.resourceId)) return false;
+      return true;
+    });
     for (const orphan of orphans) {
       handleEndSession(orphan.id);
     }
-  }, [handleEndSession, sessions, sshHosts]);
+  }, [connectionsLoaded, handleEndSession, sessions, sshHosts]);
 
   const handleCloseTabs = useCallback(
     (ids: string[]) => {

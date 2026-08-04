@@ -20,6 +20,7 @@ import {
   parentPath,
   sortFileEntries,
 } from "../../modules/files/utils";
+import { splitLocalBreadcrumb as splitLocalPathBreadcrumb } from "../../modules/files/localFilesystem";
 import { SftpComposer } from "../sftp/SftpComposer";
 import {
   buildFileEntryContextMenuItems,
@@ -46,24 +47,6 @@ function IconFolderPlus() {
       <line x1="9" y1="14" x2="15" y2="14" />
     </svg>
   );
-}
-
-function splitLocalBreadcrumb(path: string): { label: string; path: string }[] {
-  if (!path) return [{ label: "~", path: "" }];
-  const sep = path.includes("\\") ? "\\" : "/";
-  const parts = path.split(sep).filter(Boolean);
-  const out: { label: string; path: string }[] = [];
-  let acc = "";
-  for (let i = 0; i < parts.length; i++) {
-    if (i === 0 && parts[0].endsWith(":")) {
-      acc = `${parts[0]}${sep}`;
-      out.push({ label: parts[0], path: acc });
-      continue;
-    }
-    acc = acc ? `${acc}${parts[i]}${sep}` : `${sep}${parts[i]}${sep}`;
-    out.push({ label: parts[i], path: acc.replace(/[\\/]+$/, "") || acc });
-  }
-  return out.length ? out : [{ label: path, path }];
 }
 
 function isLocalRoot(path: string): boolean {
@@ -142,13 +125,30 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     initRef.current = true;
     void (async () => {
       try {
+        // 记录序号：await 期间若 navigate 已 loadDir，勿再回落到 Windows 家目录
+        const seqAtStart = loadSeqRef.current;
         const qp = await loadQuickPaths();
         setQuickPaths(qp);
-        await loadDir(qp.home);
+        if (loadSeqRef.current !== seqAtStart) return;
+
+        const pending = useSshDetailNavigationStore.getState().pendingLocalNavigate;
+        if (pending?.path?.trim()) {
+          const consumed = consumeLocalNavigate();
+          if (consumed) {
+            handledLocalNavNonceRef.current = consumed.nonce;
+            await loadDir(consumed.path);
+            return;
+          }
+        }
+
+        const start = initialPath?.trim() || qp.home;
+        await loadDir(start);
       } catch (e) {
         setError(fmtError(e));
       }
     })();
+    // 仅首次挂载：后续 cwd 跟随由 pendingLocalNavigate 驱动
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -236,7 +236,19 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
-  const pathCrumbs = splitLocalBreadcrumb(path);
+  const pathCrumbs = useMemo(
+    () =>
+      splitLocalPathBreadcrumb(
+        path,
+        {
+          computer: t("files.local.computer"),
+          home: t("files.quick.home"),
+          root: t("files.local.root"),
+        },
+        { platform: "windows", computerRoot: "\\\\" },
+      ),
+    [path, t],
+  );
   const selectedEntry = entries.find((entry) => entry.name === selectedName) ?? null;
 
   const startPathEdit = () => {

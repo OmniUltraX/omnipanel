@@ -63,7 +63,11 @@ export function VerticalSplitSidebarSection({
     if (!autoActive || !autoSizePersist) return undefined;
     return readPersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id);
   });
-  const userSizedRef = useRef<boolean>(autoActive && Number.isFinite(autoHeight));
+  const [userSized, setUserSized] = useState(
+    () => autoActive && Number.isFinite(autoHeight),
+  );
+  const userSizedRef = useRef(userSized);
+  userSizedRef.current = userSized;
 
   const measureRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -78,12 +82,15 @@ export function VerticalSplitSidebarSection({
   );
 
   // 自动测量内容高度（未手动拖拽时跟随内容）
+  // userSized 进入依赖：拖高后 effect 清理并拆除 ResizeObserver，
+  // 避免侧栏横向改宽触发内容重排时把高度测回去。
   useLayoutEffect(() => {
-    if (!autoActive || !expanded || userSizedRef.current) return;
+    if (!autoActive || !expanded || userSized) return;
     const el = measureRef.current;
     if (!el) return;
     const measure = () => {
-      const h = el.getBoundingClientRect().height;
+      if (userSizedRef.current) return;
+      const h = el.scrollHeight || el.getBoundingClientRect().height;
       if (!Number.isFinite(h) || h <= 0) return;
       const next = clampHeight(h);
       setAutoHeight((prev) => (prev === next ? prev : next));
@@ -92,7 +99,7 @@ export function VerticalSplitSidebarSection({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [autoActive, expanded, clampHeight]);
+  }, [autoActive, expanded, clampHeight, userSized]);
 
   // 合并受控/非受控：受控优先
   const effectiveHeight = controlled
@@ -105,6 +112,7 @@ export function VerticalSplitSidebarSection({
     : autoActive
       ? (h: number) => {
           userSizedRef.current = true;
+          setUserSized(true);
           setAutoHeight(h);
           if (autoSizePersist) writePersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id, h);
         }

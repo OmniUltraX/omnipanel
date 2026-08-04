@@ -21,6 +21,34 @@ pub struct TmuxSessionInfo {
     pub managed: bool,
 }
 
+/// 会话内单个 window（OmniPanel 约定 1 window = 1 pane）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TmuxWindowInfo {
+    /// tmux window id，如 `@3`。
+    pub window_id: String,
+    /// pane 数字 id（来自 `%3` → `3`），用于 attach 重连。
+    pub pane_id: u32,
+    /// window 名称。
+    pub name: String,
+}
+
+/// 解析 [`list_windows`] / exec 输出的一行：`@N\t%M\tname`。
+pub fn parse_window_info_line(line: &[u8]) -> Option<TmuxWindowInfo> {
+    let text = String::from_utf8_lossy(line);
+    let mut parts = text.split('\t');
+    let window_raw = parts.next()?.trim();
+    let pane_raw = parts.next()?.trim();
+    let name = parts.next().unwrap_or("").trim().to_string();
+    let window_num: u32 = window_raw.strip_prefix('@')?.parse().ok()?;
+    let pane_id: u32 = pane_raw.strip_prefix('%')?.parse().ok()?;
+    Some(TmuxWindowInfo {
+        window_id: format!("@{window_num}"),
+        pane_id,
+        name,
+    })
+}
+
 /// 解析 [`list_sessions`] 输出的一行。
 ///
 /// 与 control mode 无关，走 exec 通道直接执行 `tmux list-sessions` 时同样适用。
@@ -192,6 +220,14 @@ pub fn list_windows(session_name: &str) -> String {
     )
 }
 
+/// 走 exec 通道列出指定会话内 window（无需已开终端 / control mode）。
+pub fn list_windows_shell(session_name: &str) -> String {
+    format!(
+        "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux {}",
+        list_windows(session_name)
+    )
+}
+
 /// 抓取 pane 的可见内容与历史，用于重开 Tab 时恢复屏幕。
 ///
 /// `-e` 保留 SGR 等转义序列，否则恢复出来的内容会丢失颜色；
@@ -358,5 +394,15 @@ mod tests {
         assert!(list_sessions().contains("#{session_name}"));
         assert!(list_sessions().contains('\t'));
         assert!(list_windows("ws").contains("#{window_id}"));
+        assert!(list_windows_shell("ws").contains("list-panes"));
+    }
+
+    #[test]
+    fn parse_window_info_line_extracts_ids() {
+        let info = parse_window_info_line(b"@2\t%5\tbash").unwrap();
+        assert_eq!(info.window_id, "@2");
+        assert_eq!(info.pane_id, 5);
+        assert_eq!(info.name, "bash");
+        assert!(parse_window_info_line(b"garbage").is_none());
     }
 }

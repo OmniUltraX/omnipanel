@@ -3213,7 +3213,7 @@ export const zhCN = {
     },
     tmuxSessions: {
       intro:
-        "远端 tmux 会话在应用关闭后仍继续运行。此处可查看并清理不再需要的会话，包括不是由 OmniPanel 创建的。",
+        "远端 tmux 会话在应用关闭后仍继续运行。此处可查看并清理不再需要的会话，包括不是由 OmniPanel 创建的。点击窗口数可展开并恢复单个窗口。",
       empty: "该主机上没有 tmux 会话",
       name: "会话名",
       windows: "窗口数",
@@ -3235,6 +3235,14 @@ export const zhCN = {
       killProdWarning: "这是生产环境主机，操作不可撤销，且会影响其他连着该会话的人。",
       killDone: "已终止会话 {name}",
       enterFailed: "进入会话失败",
+      expandWindows: "展开窗口列表",
+      windowsEmpty: "该会话下没有窗口",
+      windowLinked: "已打开",
+      windowHasHistory: "有本地历史",
+      windowOrphan: "可恢复",
+      enterWindow: "进入",
+      restoreWindow: "恢复",
+      newWindow: "新建窗口",
     },
     toolCapabilities: {
       intro:

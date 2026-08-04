@@ -3228,7 +3228,7 @@ export const enUS: TranslationDict = {
     },
     tmuxSessions: {
       intro:
-        "Remote tmux sessions keep running after you quit OmniPanel. Review and clean up sessions you no longer need, including ones OmniPanel did not create.",
+        "Remote tmux sessions keep running after you quit OmniPanel. Review and clean up sessions you no longer need, including ones OmniPanel did not create. Expand the window count to restore individual windows.",
       empty: "No tmux sessions on this host",
       name: "Session",
       windows: "Windows",
@@ -3252,6 +3252,14 @@ export const enUS: TranslationDict = {
         "This is a production host. The action cannot be undone and affects anyone else attached to the session.",
       killDone: "Killed session {name}",
       enterFailed: "Failed to enter session",
+      expandWindows: "Expand window list",
+      windowsEmpty: "No windows in this session",
+      windowLinked: "Open",
+      windowHasHistory: "Has local history",
+      windowOrphan: "Restorable",
+      enterWindow: "Enter",
+      restoreWindow: "Restore",
+      newWindow: "New window",
     },
     toolCapabilities: {
       intro:

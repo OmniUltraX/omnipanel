@@ -13,9 +13,11 @@ import type {
 import {
   createSessionEntity,
   defaultSessionInfo,
+  getTerminalSessionCounter,
   migrateLegacyTabsToSessions,
   normalizePersistedSession,
   normalizePersistedShellSpec,
+  raiseTerminalSessionCounter,
   syncSessionCounterFromIds,
   tabFromSession,
   type TerminalDetachedRuntime,
@@ -764,6 +766,8 @@ export const useTerminalStore = create<TerminalState>()(
           })),
         activeTabId: state.activeTabId,
         activeSessionId: state.activeSessionId,
+        // 高水位：ended 会话不落盘后仍避免 tsess 序号回退
+        sessionSeq: getTerminalSessionCounter(),
       }),
       migrate: (persistedState, version) => {
         const persisted = persistedState as Record<string, unknown> | undefined;
@@ -780,6 +784,9 @@ export const useTerminalStore = create<TerminalState>()(
             .filter((s) => openIds.has(s.id))
             .map((s) => tabFromSession(s));
           syncSessionCounterFromIds(sessions);
+          if (typeof persisted.sessionSeq === "number") {
+            raiseTerminalSessionCounter(persisted.sessionSeq);
+          }
           syncTabCounterFromTabs(tabs);
           return {
             ...persisted,
@@ -794,7 +801,11 @@ export const useTerminalStore = create<TerminalState>()(
                 ? activeTabId
                 : tabs[0]?.sessionId ?? null,
             detachedRuntime: {},
+            sessionSeq: getTerminalSessionCounter(),
           } as unknown as TerminalState;
+        }
+        if (typeof persisted.sessionSeq === "number") {
+          raiseTerminalSessionCounter(persisted.sessionSeq);
         }
         return persistedState as TerminalState;
       },
@@ -805,6 +816,7 @@ export const useTerminalStore = create<TerminalState>()(
               tabs?: Array<Record<string, unknown>>;
               activeTabId?: string | null;
               activeSessionId?: string | null;
+              sessionSeq?: number;
             }
           | undefined;
         if (!persisted) return currentState;
@@ -824,6 +836,9 @@ export const useTerminalStore = create<TerminalState>()(
           }));
 
         syncSessionCounterFromIds(sessions);
+        if (typeof persisted.sessionSeq === "number") {
+          raiseTerminalSessionCounter(persisted.sessionSeq);
+        }
         syncTabCounterFromTabs(tabs);
 
         const activeTabId =

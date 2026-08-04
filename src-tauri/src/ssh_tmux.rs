@@ -193,7 +193,8 @@ impl TmuxManager {
             },
         };
 
-        // 优先 attach 回原 window（关 Tab 保留进程后重连），匹配不到则新建
+        // 优先 attach 回原 window（关 Tab 保留进程后重连），匹配不到则新建。
+        // create_window 返回的 PaneEntry 必须回填，否则前端无法在关 Tab 后按 pane 恢复。
         let pane_id = if let Some(pid) = pane_id_override {
             match host
                 .controller
@@ -203,17 +204,19 @@ impl TmuxManager {
                 Some(entry) => Some(entry.pane.0),
                 None => {
                     // 原 window 已不存在（远端会话被 kill），降级新建
-                    host.controller
+                    let entry = host
+                        .controller
                         .create_window(session_id, cols, rows, None)
                         .await?;
-                    None
+                    Some(entry.pane.0)
                 }
             }
         } else {
-            host.controller
+            let entry = host
+                .controller
                 .create_window(session_id, cols, rows, None)
                 .await?;
-            None
+            Some(entry.pane.0)
         };
 
         self.direct.lock().await.remove(session_id);

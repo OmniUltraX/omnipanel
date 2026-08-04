@@ -16,6 +16,13 @@ export function isWindowsLocalPath(path: string, platform?: string): boolean {
 
 function splitWindowsPath(path: string): string[] {
   const normalized = path.replace(/\//g, "\\").replace(/\\+$/, "");
+  // UNC：\\wsl$\Ubuntu\home\... → ["\\\\wsl$", "Ubuntu", "home", ...]
+  if (normalized.startsWith("\\\\")) {
+    const rest = normalized.slice(2);
+    const parts = rest.split("\\").filter(Boolean);
+    if (parts.length === 0) return [];
+    return [`\\\\${parts[0]}`, ...parts.slice(1)];
+  }
   const match = normalized.match(/^([A-Za-z]:)(?:\\(.*))?$/);
   if (!match) {
     return normalized.split("\\").filter(Boolean);
@@ -27,6 +34,11 @@ function splitWindowsPath(path: string): string[] {
 
 function joinWindowsPath(parts: string[]): string {
   if (parts.length === 0) return LOCAL_COMPUTER_ROOT;
+  if (parts[0]?.startsWith("\\\\")) {
+    // UNC：\\server\share\...
+    if (parts.length === 1) return `${parts[0]}\\`;
+    return `${parts[0]}\\${parts.slice(1).join("\\")}`;
+  }
   if (parts.length === 1) return `${parts[0]}\\`;
   return `${parts[0]}\\${parts.slice(1).join("\\")}`;
 }
@@ -36,6 +48,12 @@ export function parentLocalPath(path: string, platform?: string): string {
   if (isWindowsLocalPath(path, platform)) {
     if (isComputerRoot(path)) return path;
     const parts = splitWindowsPath(path);
+    if (parts.length === 0) return LOCAL_COMPUTER_ROOT;
+    // UNC：\\server\share 再上一级回到「此电脑」
+    if (parts[0]?.startsWith("\\\\")) {
+      if (parts.length <= 2) return LOCAL_COMPUTER_ROOT;
+      return joinWindowsPath(parts.slice(0, -1));
+    }
     if (parts.length <= 1) return LOCAL_COMPUTER_ROOT;
     return joinWindowsPath(parts.slice(0, -1));
   }

@@ -25,7 +25,7 @@ use crate::background::{HostSystemStats, PoolStatusEvent, SshHostOverview};
 use crate::output_buffer;
 use crate::ssh_tmux::{host_identity, AttachOutcome, SshTerminalInfo, TmuxTabStat};
 use crate::state::AppState;
-use omnipanel_ssh::tmux::{self, TmuxSessionInfo};
+use omnipanel_ssh::tmux::{self, TmuxSessionInfo, TmuxWindowInfo};
 
 static SSH_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -326,6 +326,30 @@ pub async fn ssh_tmux_list_sessions(
         .stdout
         .lines()
         .filter_map(|line| tmux::parse_session_line(line.as_bytes()))
+        .collect())
+}
+
+/// 列出指定远端 tmux 会话内的 window（1 window = 1 pane）。
+///
+/// 走 exec 通道，无需当前已打开终端；用于远端会话治理页展开窗口树。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_tmux_list_windows(
+    state: State<'_, AppState>,
+    connection_id: String,
+    session_name: String,
+) -> Result<Vec<TmuxWindowInfo>, OmniError> {
+    let session = state.ssh_pool.ensure_session(&connection_id).await?;
+    let out = session
+        .exec_capture(&tmux::list_windows_shell(&session_name))
+        .await?;
+    if out.exit_code != 0 {
+        return Ok(Vec::new());
+    }
+    Ok(out
+        .stdout
+        .lines()
+        .filter_map(|line| tmux::parse_window_info_line(line.as_bytes()))
         .collect())
 }
 

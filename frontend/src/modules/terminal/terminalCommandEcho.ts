@@ -92,6 +92,11 @@ export function looksLikeShellCommandEcho(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
+  // 空目录常见：输出只剩 ls / ls/ / dir 等命令回显
+  if (/^(ls|dir|ll|la|l|gci|get-childitem)(?:\s+-\S+)*\/?\s*$/i.test(trimmed)) {
+    return true;
+  }
+
   const lines = trimmed.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length > 0 && lines.every(looksLikeShellCommandEchoLine)) {
     return true;

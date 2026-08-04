@@ -13,6 +13,8 @@ import type { CloudAccount } from "../cloud/cloudForm";
 import type { CloudSidebarNavigate } from "../cloud/cloudSidebarNav";
 
 const SECTION_STORAGE_KEY = "omnipanel-server-panel-sidebar-sections";
+/** 与数据库 / SSH 侧栏一致：次要段 autoSize 高度持久化 */
+const SIZE_STORAGE_KEY = "omnipanel-server-panel-sidebar-sizes";
 
 type SectionKey = "servers" | "cloud";
 
@@ -101,6 +103,9 @@ export function ServerPanelSidebar({
             title: t("server.cloud.sidebar.title"),
             expanded: sections.cloud,
             onToggle: () => toggleSection("cloud"),
+            // 与数据库「查询/同步」、SSH「隧道/密钥」一致：按内容自适应，可拖拽并持久化
+            autoSize: true,
+            autoSizePersist: { storageKey: SIZE_STORAGE_KEY, id: "cloud" },
           }}
         />
       </ScopedSearch>
