@@ -227,6 +227,9 @@ export function filterHistoryForRequest(
 
 export function methodColor(method: string): string {
   const m = method.toUpperCase();
+  if (m === "SSE" || m.startsWith("SSE/") || m.startsWith("SSE:")) {
+    return "var(--info, #2196f3)";
+  }
   if (m === "GET") return "var(--success, #4caf50)";
   if (m === "POST") return "var(--warning, #ff9800)";
   if (m === "PUT") return "var(--info, #2196f3)";
@@ -238,6 +241,7 @@ export function methodColor(method: string): string {
 
 export function formatMethodBadge(method: string): string {
   const m = method.toUpperCase();
+  if (m === "SSE" || m.startsWith("SSE/") || m.startsWith("SSE:")) return "SSE";
   if (m === "DELETE") return "DEL";
   if (m === "WEBSOCKET") return "WS";
   return m;

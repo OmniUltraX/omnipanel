@@ -817,6 +817,9 @@ fn build_and_run_tauri() {
             commands::protocol::ws_send_binary,
             commands::protocol::ws_ping,
             commands::protocol::ws_close,
+            // Protocol Lab — SSE
+            commands::protocol::sse_connect,
+            commands::protocol::sse_close,
             // Protocol Lab — MQTT
             commands::protocol::mqtt_connect,
             commands::protocol::mqtt_subscribe,

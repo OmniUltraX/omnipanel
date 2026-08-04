@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FormField } from "../../components/ui/form/FormDialog";
 import { Button } from "../../components/ui/primitives/Button";
 import { TextInput } from "../../components/ui/form/TextInput";
@@ -48,6 +48,10 @@ export function HttpEnvironmentManageDialog({
   const [authValue, setAuthValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 用户点「新建」后禁止用列表回填冲掉空白表单 */
+  const preferCreateRef = useRef(false);
+  /** 打开瞬间列表可能仍为空：仅允许这一次「列表到齐后自动选中」 */
+  const allowHydrateSelectRef = useRef(false);
 
   const resetForm = useCallback(() => {
     setEditingId(null);
@@ -60,6 +64,8 @@ export function HttpEnvironmentManageDialog({
   }, []);
 
   const loadEnv = useCallback((env: HttpEnvironment) => {
+    preferCreateRef.current = false;
+    allowHydrateSelectRef.current = false;
     setEditingId(env.id);
     setIsCreating(false);
     setName(env.name);
@@ -70,6 +76,8 @@ export function HttpEnvironmentManageDialog({
   }, []);
 
   const startCreate = useCallback(() => {
+    preferCreateRef.current = true;
+    allowHydrateSelectRef.current = false;
     setIsCreating(true);
     setEditingId(null);
     setName("");
@@ -81,13 +89,24 @@ export function HttpEnvironmentManageDialog({
 
   useEffect(() => {
     if (!open) {
+      preferCreateRef.current = false;
+      allowHydrateSelectRef.current = false;
       resetForm();
       return;
     }
     if (environments[0]) {
       loadEnv(environments[0]);
     } else {
-      startCreate();
+      // 打开时列表尚未就绪：允许列表到齐后选中第一项；用户随后点新建会关掉该许可
+      allowHydrateSelectRef.current = true;
+      preferCreateRef.current = false;
+      setIsCreating(true);
+      setEditingId(null);
+      setName("");
+      setBaseUrl("");
+      setAuthType("none");
+      setAuthValue("");
+      setError(null);
     }
     // 仅在打开时初始化选中项
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open 驱动初始化
@@ -95,7 +114,8 @@ export function HttpEnvironmentManageDialog({
 
   useEffect(() => {
     if (!open || editingId || !isCreating) return;
-    // 打开瞬间列表尚未加载：空白新建态下列表到齐后切到第一项
+    if (preferCreateRef.current || !allowHydrateSelectRef.current) return;
+    // 打开瞬间列表尚未加载：空白新建态下列表到齐后切到第一项（用户主动新建除外）
     if (environments[0] && !name.trim() && !baseUrl.trim()) {
       loadEnv(environments[0]);
     }
@@ -140,6 +160,8 @@ export function HttpEnvironmentManageDialog({
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       });
+      preferCreateRef.current = false;
+      allowHydrateSelectRef.current = false;
       setEditingId(nextId);
       setIsCreating(false);
     } catch (err) {

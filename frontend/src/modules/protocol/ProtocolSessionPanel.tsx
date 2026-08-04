@@ -1,5 +1,6 @@
 import { useI18n } from "../../i18n";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
+import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { GrpcPanel } from "./GrpcPanel";
 import { ModbusPanel } from "./ModbusPanel";
 import { MqttPanel } from "./MqttPanel";
@@ -10,12 +11,17 @@ import { SerialPanel } from "./SerialPanel";
 import { SnifferPanel } from "./SnifferPanel";
 
 interface ProtocolHttpSessionPanelProps {
-  resourceId: string | null;
+  tabId: string;
   enabled: boolean;
 }
 
-function ProtocolHttpSessionPanel({ resourceId, enabled }: ProtocolHttpSessionPanelProps) {
+function ProtocolHttpSessionPanel({ tabId, enabled }: ProtocolHttpSessionPanelProps) {
   const { t } = useI18n();
+  // Dock 面板内容经 renderPanelRef 注入，props 不会随 bindTabResource 自动刷新；
+  // 必须从 store 订阅 resourceId，否则新建 HTTP 请求会一直停在「加载中」。
+  const resourceId = useProtocolWorkspaceStore(
+    (s) => s.tabs.find((tab) => tab.id === tabId)?.resourceId ?? null,
+  );
 
   if (!enabled) {
     return <div className="http-panel http-panel--inactive" aria-hidden />;
@@ -35,7 +41,8 @@ function ProtocolHttpSessionPanel({ resourceId, enabled }: ProtocolHttpSessionPa
 interface ProtocolSessionPanelProps {
   tabId: string;
   protocol: ProtocolTabKey;
-  resourceId: string | null;
+  /** @deprecated HTTP 面板改从 workspace store 按 tabId 读取；保留以免调用方类型断裂 */
+  resourceId?: string | null;
   enabled: boolean;
 }
 
@@ -43,13 +50,12 @@ interface ProtocolSessionPanelProps {
 export function ProtocolSessionPanel({
   tabId,
   protocol,
-  resourceId,
   enabled,
 }: ProtocolSessionPanelProps) {
   const { t } = useI18n();
 
   if (protocol === "http") {
-    return <ProtocolHttpSessionPanel resourceId={resourceId} enabled={enabled} />;
+    return <ProtocolHttpSessionPanel tabId={tabId} enabled={enabled} />;
   }
 
   if (protocol === "mqtt") {

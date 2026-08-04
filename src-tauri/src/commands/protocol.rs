@@ -11,12 +11,14 @@ use crate::protocol::redis_pubsub::{
 };
 use crate::protocol::serial::{self, PortInfo, SerialConfig};
 use crate::protocol::sniffer::{self, CaptureStats, NetworkInterface, SnifferPacket};
+use crate::protocol::sse::{self, SseConfig, SseEventMessage};
 use crate::protocol::ws::{self, WsConfig, WsMessage};
 use crate::state::AppState;
 use omnipanel_store::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
 
 static SERIAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 static WS_COUNTER: AtomicU64 = AtomicU64::new(1);
+static SSE_COUNTER: AtomicU64 = AtomicU64::new(1);
 static MQTT_COUNTER: AtomicU64 = AtomicU64::new(1);
 static REDIS_PUBSUB_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -226,6 +228,54 @@ pub async fn ws_close(state: State<'_, AppState>, id: String) -> Result<(), Stri
         Ok(())
     } else {
         Err(format!("WebSocket session {id} not found"))
+    }
+}
+
+// ──────────────────────────────────────────────
+// SSE Commands
+// ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn sse_connect(
+    state: State<'_, AppState>,
+    config: SseConfig,
+    on_event: Channel<SseEventMessage>,
+) -> Result<String, String> {
+    let id = format!("sse-{}", SSE_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SseEventMessage>();
+    let session_id = id.clone();
+    let app_handle = state.app_handle.clone();
+
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if on_event.send(msg).is_err() {
+                break;
+            }
+        }
+        let _ = app_handle.emit(
+            "sse-event",
+            serde_json::json!({
+                "session_id": session_id,
+                "event": "closed"
+            }),
+        );
+    });
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let session = sse::SseSession::connect(config, &proxy_config, tx).await?;
+    state.sse_sessions.lock().await.insert(id.clone(), session);
+    tracing::info!("SSE connected: {id}");
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn sse_close(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut sessions = state.sse_sessions.lock().await;
+    if sessions.remove(&id).is_some() {
+        tracing::info!("SSE closed: {id}");
+        Ok(())
+    } else {
+        Err(format!("SSE session {id} not found"))
     }
 }
 

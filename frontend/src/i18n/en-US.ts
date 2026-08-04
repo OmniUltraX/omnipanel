@@ -6008,7 +6008,7 @@ export const enUS: TranslationDict = {
       unsupported: "This protocol is not supported yet",
       devLocked: "In development",
       hint: {
-        http: "REST / WebSocket request debugging",
+        http: "REST / WebSocket / SSE request debugging",
         mqtt: "MQTT publish and subscribe",
         pubsub: "Redis Pub/Sub channels",
         serial: "Serial port communication",
@@ -6140,6 +6140,12 @@ export const enUS: TranslationDict = {
         Text: "Text",
         Binary: "Binary",
       },
+    },
+    sse: {
+      toggle: "SSE",
+      toggleHint: "Enable Server-Sent Events streaming",
+      pathPlaceholder: "/events",
+      noEvents: "No events yet",
     },
     mqtt: {
       brokerPlaceholder: "mqtt://broker.example.com:1883",

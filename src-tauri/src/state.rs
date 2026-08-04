@@ -11,6 +11,7 @@ use crate::protocol::mqtt::MqttSession;
 use crate::protocol::redis_pubsub::RedisPubSubSession;
 use crate::protocol::serial::SerialSession;
 use crate::protocol::sniffer::SnifferSession;
+use crate::protocol::sse::SseSession;
 use crate::protocol::ws::WsSession;
 use omnipanel_core::terminal::Terminal;
 use omnipanel_docker::DockerExecSession;
@@ -50,6 +51,7 @@ pub struct DockerExecSessionEntry {
 pub struct AppState {
     pub serial_sessions: Arc<Mutex<HashMap<String, SerialSession>>>,
     pub ws_sessions: Arc<Mutex<HashMap<String, WsSession>>>,
+    pub sse_sessions: Arc<Mutex<HashMap<String, SseSession>>>,
     pub mqtt_sessions: Arc<Mutex<HashMap<String, MqttSession>>>,
     pub redis_pubsub_sessions: Arc<Mutex<HashMap<String, RedisPubSubSession>>>,
     pub grpc_sessions: Arc<Mutex<HashMap<String, GrpcSession>>>,
@@ -170,6 +172,7 @@ impl AppState {
         Self {
             serial_sessions: Arc::new(Mutex::new(HashMap::new())),
             ws_sessions: Arc::new(Mutex::new(HashMap::new())),
+            sse_sessions: Arc::new(Mutex::new(HashMap::new())),
             mqtt_sessions: Arc::new(Mutex::new(HashMap::new())),
             redis_pubsub_sessions: Arc::new(Mutex::new(HashMap::new())),
             grpc_sessions: Arc::new(Mutex::new(HashMap::new())),

@@ -5937,7 +5937,7 @@ export const zhCN = {
       unsupported: "暂不支持该协议",
       devLocked: "开发中",
       hint: {
-        http: "REST / WebSocket 请求调试",
+        http: "REST / WebSocket / SSE 请求调试",
         mqtt: "MQTT 发布与订阅",
         pubsub: "Redis Pub/Sub 频道",
         serial: "串口通信",
@@ -6069,6 +6069,12 @@ export const zhCN = {
         Text: "文本",
         Binary: "二进制",
       },
+    },
+    sse: {
+      toggle: "SSE",
+      toggleHint: "勾选后以 SSE 流式连接；下方仍可选择 HTTP 方法",
+      pathPlaceholder: "/events",
+      noEvents: "暂无事件",
     },
     mqtt: {
       brokerPlaceholder: "mqtt://broker.example.com:1883",

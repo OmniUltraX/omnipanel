@@ -70,8 +70,73 @@ export const HTTP_METHOD_OPTIONS: HttpMethod[] = [
   "WEBSOCKET",
 ];
 
+/** SSE 模式下可选的真实 HTTP 动词（不含 WEBSOCKET） */
+export const SSE_HTTP_METHOD_OPTIONS: HttpMethod[] = HTTP_METHOD_OPTIONS.filter(
+  (m) => m !== "WEBSOCKET",
+);
+
+const KNOWN_HTTP_METHODS: HttpMethod[] = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+  "WEBSOCKET",
+];
+
+export function coerceHttpMethod(raw: string): HttpMethod {
+  const upper = raw.trim().toUpperCase();
+  return KNOWN_HTTP_METHODS.find((m) => m === upper) ?? "GET";
+}
+
+/** 持久化 method 是否表示 SSE（兼容旧值 `SSE` 与 `SSE/GET`） */
+export function isSseStoredMethod(raw: string): boolean {
+  const upper = raw.trim().toUpperCase();
+  return upper === "SSE" || upper.startsWith("SSE/") || upper.startsWith("SSE:");
+}
+
+/** 从库/历史中的 method 字段解析出真实动词与 SSE 开关 */
+export function parseStoredHttpMethod(raw: string): {
+  method: HttpMethod;
+  sseEnabled: boolean;
+} {
+  const trimmed = raw.trim();
+  const upper = trimmed.toUpperCase();
+  if (upper === "SSE") {
+    return { method: "GET", sseEnabled: true };
+  }
+  if (upper.startsWith("SSE/") || upper.startsWith("SSE:")) {
+    const method = coerceHttpMethod(trimmed.slice(4));
+    return {
+      method: method === "WEBSOCKET" ? "GET" : method,
+      sseEnabled: true,
+    };
+  }
+  return { method: coerceHttpMethod(trimmed), sseEnabled: false };
+}
+
+/** 保存时编码：SSE 开 → `SSE/GET`；关 → 原 method */
+export function encodeStoredHttpMethod(method: HttpMethod, sseEnabled: boolean): string {
+  if (sseEnabled && method !== "WEBSOCKET") {
+    return `SSE/${method}`;
+  }
+  return method;
+}
+
 export function isWebSocketMethod(method: string): boolean {
   return method.toUpperCase() === "WEBSOCKET";
+}
+
+/** @deprecated 请用 editor.sseEnabled；对已存 method 字符串仍可用 */
+export function isSseMethod(method: string): boolean {
+  return isSseStoredMethod(method);
+}
+
+/** WebSocket / SSE：长连接调试模式（非普通 HTTP 请求-响应） */
+export function isLiveStreamMethod(method: string, sseEnabled = false): boolean {
+  return isWebSocketMethod(method) || sseEnabled || isSseStoredMethod(method);
 }
 export type BodyType = "JSON" | "Form" | "Multipart" | "Raw" | "Binary";
 export type AuthType = "Bearer Token" | "Basic Auth" | "API Key" | "OAuth 2.0" | "Authorization";
@@ -109,6 +174,8 @@ export type {
 
 export interface HttpEditorState {
   method: HttpMethod;
+  /** 勾选后按 SSE 流式连接；method 仍为真实 HTTP 动词 */
+  sseEnabled: boolean;
   environmentId: string | null;
   url: string;
   pathParams: HttpPathParamPair[];
@@ -183,6 +250,7 @@ function generateId(): string {
 
 const DEFAULT_EDITOR: HttpEditorState = {
   method: "GET",
+  sseEnabled: false,
   environmentId: null,
   url: "/v1/users",
   pathParams: [],
@@ -250,7 +318,7 @@ function editorToSavedRequest(
   return {
     id: meta.id,
     name: meta.name.trim(),
-    method: editor.method,
+    method: encodeStoredHttpMethod(editor.method, editor.sseEnabled),
     url: editor.url,
     headers: serializeHttpHeaders(editor.headers),
     pathParams: serializePathParams(editor.pathParams),
@@ -463,12 +531,13 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   const saveEnvironment = useCallback(
     async (env: HttpEnvironment) => {
       const res = await commands.httpSaveEnvironment(env);
-      if (res.status === "ok") {
-        scheduleClientModuleSync();
-        await loadEnvironments();
-        writeStoredActiveEnvironmentId(env.id);
-        setEditorState((prev) => ({ ...prev, environmentId: env.id }));
+      if (res.status !== "ok") {
+        throw new Error(typeof res.error === "string" ? res.error : String(res.error));
       }
+      scheduleClientModuleSync();
+      await loadEnvironments();
+      writeStoredActiveEnvironmentId(env.id);
+      setEditorState((prev) => ({ ...prev, environmentId: env.id }));
     },
     [loadEnvironments],
   );
@@ -576,9 +645,11 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   const applyHistoryEntry = useCallback(
     (entry: HttpHistoryEntry) => {
       const split = splitUrlByEnvironment(entry.url, environments);
+      const parsed = parseStoredHttpMethod(entry.method);
       setEditorState((prev) => ({
         ...prev,
-        method: entry.method as HttpMethod,
+        method: parsed.method,
+        sseEnabled: parsed.sseEnabled,
         environmentId: entry.environmentId ?? split.environmentId ?? prev.environmentId,
         url: split.path,
       }));
@@ -642,8 +713,11 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         (req as SavedHttpRequest & { pathParams?: string }).pathParams,
       );
 
+      const parsed = parseStoredHttpMethod(req.method);
+
       setEditorState({
-        method: req.method as HttpMethod,
+        method: parsed.method,
+        sseEnabled: parsed.sseEnabled,
         environmentId,
         url: split.path,
         pathParams: syncPathParamsFromUrl(split.path, storedPathParams),

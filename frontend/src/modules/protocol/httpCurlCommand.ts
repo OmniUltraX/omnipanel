@@ -45,6 +45,9 @@ function appendAuthHeaders(
   return next;
 }
 
+/** 供 SSE / curl 等复用：把认证写进 header map。 */
+export { appendAuthHeaders as applyHttpAuthHeaders };
+
 /** 根据实际发送的请求参数生成 curl 命令（单行可折行）。 */
 export function buildHttpCurlCommand(input: HttpCurlCommandInput): string {
   const method = input.method.toUpperCase();

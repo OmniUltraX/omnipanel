@@ -10,6 +10,7 @@ import { quickInput } from "../../lib/quickInput";
 import {
   useProtocolHttp,
   HTTP_METHOD_OPTIONS,
+  SSE_HTTP_METHOD_OPTIONS,
   isWebSocketMethod,
   AUTH_TYPES,
   AUTH_TYPE_I18N_KEYS,
@@ -22,7 +23,9 @@ import { buildHeaderMap, createEmptyHeader, type HttpHeaderPair } from "./httpHe
 import { buildHttpCurlCommand } from "./httpCurlCommand";
 import { HttpHeaderKvRow } from "./HttpHeaderKvRow";
 import { HttpResponseSessionsDock } from "./HttpResponseSessionsDock";
+import { HttpSsePanel } from "./HttpSsePanel";
 import { HttpWebSocketPanel } from "./HttpWebSocketPanel";
+import { useSseSession } from "./useSseSession";
 import { useWebSocketSession } from "./useWebSocketSession";
 import type { HttpResponseData } from "./httpResponseState";
 import { resolveEffectiveAuth, resolveHttpRequestUrl } from "./httpEnvironment";
@@ -93,9 +96,12 @@ export function HttpPanel() {
     addResponseSession,
   } = useProtocolHttp();
 
-  const { method, environmentId, url, pathParams, params, headers, body, bodyType, authType, authValue } =
+  const { method, sseEnabled, environmentId, url, pathParams, params, headers, body, bodyType, authType, authValue } =
     editor;
   const isWebSocket = isWebSocketMethod(method);
+  const isSse = sseEnabled;
+  const isLiveStream = isWebSocket || isSse;
+  const sseAllowsBody = isSse && method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 
   const pathParamNames = useMemo(() => extractPathParamNames(url), [url]);
 
@@ -103,6 +109,11 @@ export function HttpPanel() {
     () => resolveHttpRequestUrl(url, environmentId, environments, pathParams),
     [url, environmentId, environments, pathParams],
   );
+
+  const activeEnv =
+    (environmentId ? environments.find((item) => item.id === environmentId) : null) ??
+    environments[0] ??
+    null;
 
   const {
     status: wsStatus,
@@ -114,18 +125,69 @@ export function HttpPanel() {
     disconnect: disconnectWs,
   } = useWebSocketSession(resolvedRequestUrl ?? "", headers);
 
+  const {
+    status: sseStatus,
+    events: sseEvents,
+    toggleConnect: toggleSseConnect,
+    disconnect: disconnectSse,
+    clearEvents: clearSseEvents,
+  } = useSseSession({
+    url: resolvedRequestUrl ?? "",
+    method,
+    headers,
+    params,
+    body: sseAllowsBody ? body : null,
+    bodyType,
+    authType,
+    authValue,
+    envAuthType: activeEnv?.authType,
+    envAuthValue: activeEnv?.authValue,
+  });
+
   useEffect(() => {
     if (!isWebSocket) {
       void disconnectWs();
     }
   }, [disconnectWs, isWebSocket]);
 
+  useEffect(() => {
+    if (!isSse) {
+      void disconnectSse();
+    }
+  }, [disconnectSse, isSse]);
+
   const setMethod = (value: HttpMethod) => {
-    if (value === "WEBSOCKET" && !url.trim()) {
-      setEditor({ method: value, url: "/ws" });
+    if (value === "WEBSOCKET") {
+      const patch: { method: HttpMethod; sseEnabled: boolean; url?: string } = {
+        method: value,
+        sseEnabled: false,
+      };
+      if (!url.trim()) {
+        patch.url = "/ws";
+      }
+      setEditor(patch);
       return;
     }
     setEditor({ method: value });
+  };
+
+  const setSseEnabled = (enabled: boolean) => {
+    if (enabled) {
+      const patch: {
+        sseEnabled: boolean;
+        method?: HttpMethod;
+        url?: string;
+      } = { sseEnabled: true };
+      if (isWebSocketMethod(method)) {
+        patch.method = "GET";
+      }
+      if (!url.trim()) {
+        patch.url = "/events";
+      }
+      setEditor(patch);
+      return;
+    }
+    setEditor({ sseEnabled: false });
   };
   const setEnvironmentId = (value: string) => setEditor({ environmentId: value || null });
   const setUrl = (value: string) => {
@@ -345,14 +407,28 @@ export function HttpPanel() {
 
   const tabs: ReqTab[] = useMemo(() => {
     const base: ReqTab[] = pathParamNames.length > 0 ? ["path"] : [];
+    if (isSse) {
+      return sseAllowsBody
+        ? [...base, "params", "headers", "body", "auth"]
+        : [...base, "params", "headers", "auth"];
+    }
     return [...base, "params", "headers", "body", "auth", "scripts"];
-  }, [pathParamNames.length]);
+  }, [isSse, pathParamNames.length, sseAllowsBody]);
 
   useEffect(() => {
     if (activeTab === "path" && pathParamNames.length === 0) {
       setActiveTab("params");
     }
   }, [activeTab, pathParamNames.length]);
+
+  useEffect(() => {
+    if (isSse && activeTab === "scripts") {
+      setActiveTab("params");
+    }
+    if (isSse && activeTab === "body" && !sseAllowsBody) {
+      setActiveTab("params");
+    }
+  }, [activeTab, isSse, sseAllowsBody]);
 
   const prevPathParamCountRef = useRef(0);
   useEffect(() => {
@@ -362,17 +438,18 @@ export function HttpPanel() {
     prevPathParamCountRef.current = pathParamNames.length;
   }, [pathParamNames.length]);
 
-  const bodyFill = !isWebSocket && activeTab === "body";
-  const hasResponsePanel = !isWebSocket && responseSessions.length > 0;
+  const bodyFill = !isLiveStream && activeTab === "body";
+  const hasResponsePanel = !isLiveStream && responseSessions.length > 0;
   const pathParamsReady = pathParamNames.length === 0 || !hasUnresolvedPathParams(url, pathParams);
   const canSendRequest = Boolean(resolvedRequestUrl?.trim()) && pathParamsReady;
+  const liveStatus = isWebSocket ? wsStatus : sseStatus;
   const environmentOptions = useMemo(
     () => environments.map((env) => ({ value: env.id, label: env.name })),
     [environments],
   );
 
   const editorContent = (
-    <div className={`http-panel${bodyFill ? " http-panel--body-fill" : ""}${isWebSocket ? " http-panel--ws" : ""}`}>
+    <div className={`http-panel${bodyFill ? " http-panel--body-fill" : ""}${isLiveStream ? " http-panel--ws" : ""}${isSse ? " http-panel--sse" : ""}`}>
       <div className="http-panel__chrome">
         {selectedRequest ? (
           <div className="http-request-name-row">
@@ -406,7 +483,8 @@ export function HttpPanel() {
             value={method}
             onChange={(v) => setMethod(v as HttpMethod)}
             searchable={false}
-            options={HTTP_METHOD_OPTIONS}
+            options={isSse ? SSE_HTTP_METHOD_OPTIONS : HTTP_METHOD_OPTIONS}
+            disabled={isLiveStream && liveStatus === "connected"}
           />
           <Select
             className="env-select"
@@ -420,32 +498,36 @@ export function HttpPanel() {
           <TextInput
             className="url-input"
             placeholder={
-              isWebSocket ? t("protocol.ws.pathPlaceholder") : t("protocol.http.pathPlaceholder")
+              isWebSocket
+                ? t("protocol.ws.pathPlaceholder")
+                : isSse
+                  ? t("protocol.sse.pathPlaceholder")
+                  : t("protocol.http.pathPlaceholder")
             }
             value={url}
             onChange={setUrl}
-            disabled={isWebSocket && wsStatus === "connected"}
+            disabled={isLiveStream && liveStatus === "connected"}
             title={resolvedRequestUrl ?? undefined}
           />
-          {isWebSocket ? (
+          {isLiveStream ? (
             <>
               <span
-                className={`badge http-ws-badge ${wsStatus === "connected" ? "badge-success" : "badge-muted"}`}
+                className={`badge http-ws-badge ${liveStatus === "connected" ? "badge-success" : "badge-muted"}`}
               >
-                {wsStatus === "connecting"
+                {liveStatus === "connecting"
                   ? t("protocol.common.connecting")
-                  : wsStatus === "connected"
+                  : liveStatus === "connected"
                     ? t("protocol.common.connected")
                     : t("protocol.common.disconnected")}
               </span>
               <button
-                className={`btn ${wsStatus === "connected" ? "btn-danger" : "btn-primary"}`}
-                onClick={() => void toggleWsConnect()}
-                disabled={wsStatus === "connecting" || !canSendRequest}
+                className={`btn ${liveStatus === "connected" ? "btn-danger" : "btn-primary"}`}
+                onClick={() => void (isWebSocket ? toggleWsConnect() : toggleSseConnect())}
+                disabled={liveStatus === "connecting" || !canSendRequest}
               >
-                {wsStatus === "connected"
+                {liveStatus === "connected"
                   ? t("protocol.common.disconnect")
-                  : wsStatus === "connecting"
+                  : liveStatus === "connecting"
                     ? t("protocol.common.connecting")
                     : t("protocol.common.connect")}
               </button>
@@ -472,6 +554,21 @@ export function HttpPanel() {
           >
             {t("protocol.common.save")}
           </button>
+        </div>
+
+        <div className="http-sse-row">
+          <label
+            className={`http-sse-toggle${sseEnabled ? " http-sse-toggle--active" : ""}`}
+            title={t("protocol.sse.toggleHint")}
+          >
+            <input
+              type="checkbox"
+              checked={sseEnabled}
+              onChange={(e) => setSseEnabled(e.target.checked)}
+              disabled={isLiveStream && liveStatus === "connected"}
+            />
+            <span>{t("protocol.sse.toggle")}</span>
+          </label>
         </div>
 
         {showSaveDialog ? (
@@ -555,7 +652,170 @@ export function HttpPanel() {
           </div>
         ) : null}
 
-        {!isWebSocket && activeTab === "path" ? (
+        {isSse ? (
+          <div className="http-panel__sse-content">
+            <div className="http-panel__sse-editor">
+              {activeTab === "path" ? (
+                <div className="req-panel active">
+                  <div className="kv-editor">
+                    {pathParams.map((p, i) => (
+                      <div className="kv-row kv-row--path-param" key={p.key}>
+                        <input
+                          type="checkbox"
+                          className="kv-check"
+                          checked={p.enabled}
+                          onChange={(e) =>
+                            updateKv(pathParams, setPathParams, i, "enabled", e.target.checked)
+                          }
+                        />
+                        <span className="http-path-param-key" title={p.key}>
+                          :{p.key}
+                        </span>
+                        <TextInput
+                          className="http-path-param-value"
+                          placeholder={t("protocol.http.pathParamValue")}
+                          value={p.value}
+                          onChange={(value) => updateKv(pathParams, setPathParams, i, "value", value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {activeTab === "params" ? (
+                <div className="req-panel active">
+                  <div className="kv-editor">
+                    {params.map((p, i) => (
+                      <div className="kv-row" key={i}>
+                        <input
+                          type="checkbox"
+                          className="kv-check"
+                          checked={p.enabled}
+                          onChange={(e) => updateKv(params, setParams, i, "enabled", e.target.checked)}
+                        />
+                        <TextInput
+                          placeholder={t("protocol.common.key")}
+                          value={p.key}
+                          onChange={(value) => updateKv(params, setParams, i, "key", value)}
+                        />
+                        <TextInput
+                          placeholder={t("protocol.common.value")}
+                          value={p.value}
+                          onChange={(value) => updateKv(params, setParams, i, "value", value)}
+                        />
+                        <div className="kv-del" onClick={() => removeKv(params, setParams, i)}>
+                          {"×"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => addKv(params, setParams)}>
+                    + {t("protocol.common.addParam")}
+                  </button>
+                </div>
+              ) : null}
+              {activeTab === "headers" ? (
+                <div className="req-panel active">
+                  <div className="kv-editor">
+                    {headers.map((h, i) => (
+                      <HttpHeaderKvRow
+                        key={i}
+                        pair={h}
+                        onChange={(patch) => {
+                          const next = [...headers];
+                          next[i] = { ...next[i], ...patch };
+                          setHeaders(next);
+                        }}
+                        onRemove={() => removeHeader(i)}
+                      />
+                    ))}
+                  </div>
+                  <div className="kv-editor-actions">
+                    <button className="btn btn-ghost btn-sm" onClick={addPresetHeader}>
+                      + {t("protocol.http.addPresetHeader")}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={addCustomHeader}>
+                      + {t("protocol.http.addCustomHeader")}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {activeTab === "body" && sseAllowsBody ? (
+                <div className="req-panel active">
+                  <div className="http-body-type-row">
+                    {(["JSON", "Form", "Multipart", "Raw", "Binary"] as BodyType[]).map((bt) => (
+                      <span
+                        key={bt}
+                        className="tag"
+                        style={{
+                          cursor: "pointer",
+                          borderColor: bodyType === bt ? "var(--accent)" : undefined,
+                          color: bodyType === bt ? "var(--accent)" : undefined,
+                        }}
+                        onClick={() => setBodyType(bt)}
+                      >
+                        {t(`protocol.http.bodyTypes.${bt}`)}
+                      </span>
+                    ))}
+                  </div>
+                  {bodyType === "JSON" ? (
+                    <div className="http-json-editor" style={{ minHeight: 160 }}>
+                      <CodeEditor
+                        key="http-sse-json-body"
+                        className="http-json-editor__cm"
+                        language="json"
+                        value={body}
+                        onChange={setBody}
+                        height="100%"
+                      />
+                    </div>
+                  ) : (
+                    <textarea
+                      className="body-editor"
+                      placeholder={t("protocol.http.requestBody")}
+                      value={body}
+                      onChange={(e) => setBody(e.target.value)}
+                    />
+                  )}
+                </div>
+              ) : null}
+              {activeTab === "auth" ? (
+                <div className="req-panel active">
+                  <div className="auth-section">
+                    <div className="form-row">
+                      <label>{t("protocol.http.tabs.auth")}</label>
+                      <div className="form-row-inline">
+                        <Select
+                          value={authType}
+                          onChange={(v) => setAuthType(v as AuthType)}
+                          searchable={false}
+                          options={AUTH_TYPES.map((type) => ({
+                            value: type,
+                            label: t(`protocol.http.authTypes.${AUTH_TYPE_I18N_KEYS[type]}`),
+                          }))}
+                          style={{ flex: 2 }}
+                        />
+                        <TextInput
+                          placeholder={t("protocol.http.token")}
+                          value={authValue}
+                          onChange={setAuthValue}
+                          style={{ flex: 3 }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <HttpSsePanel
+              events={sseEvents}
+              connected={sseStatus === "connected"}
+              onClear={clearSseEvents}
+            />
+          </div>
+        ) : null}
+
+        {!isLiveStream && activeTab === "path" ? (
           <div className="req-panel active">
             <div className="kv-editor">
               {pathParams.map((p, i) => (
@@ -583,7 +843,7 @@ export function HttpPanel() {
           </div>
         ) : null}
 
-        {!isWebSocket && activeTab === "params" ? (
+        {!isLiveStream && activeTab === "params" ? (
           <div className="req-panel active">
             <div className="kv-editor">
               {params.map((p, i) => (
@@ -616,7 +876,7 @@ export function HttpPanel() {
           </div>
         ) : null}
 
-        {!isWebSocket && activeTab === "headers" ? (
+        {!isLiveStream && activeTab === "headers" ? (
           <div className="req-panel active">
             <div className="kv-editor">
               {headers.map((h, i) => (
@@ -643,7 +903,7 @@ export function HttpPanel() {
           </div>
         ) : null}
 
-        {!isWebSocket && activeTab === "body" ? (
+        {!isLiveStream && activeTab === "body" ? (
           <div className={`req-panel active${bodyFill ? " req-panel--fill" : ""}`}>
             <div className="http-body-type-row">
               {(["JSON", "Form", "Multipart", "Raw", "Binary"] as BodyType[]).map((bt) => (
@@ -683,7 +943,7 @@ export function HttpPanel() {
           </div>
         ) : null}
 
-        {!isWebSocket && activeTab === "auth" ? (
+        {!isLiveStream && activeTab === "auth" ? (
           <div className="req-panel active">
             <div style={{ marginBottom: "var(--sp-3)" }}>
               <div
@@ -727,7 +987,7 @@ export function HttpPanel() {
           </div>
         ) : null}
 
-        {!isWebSocket && activeTab === "scripts" ? (
+        {!isLiveStream && activeTab === "scripts" ? (
           <div className="req-panel active">
             <div style={{ marginBottom: "var(--sp-2)" }}>
               <h4 style={{ fontSize: "12px", fontWeight: 600, marginBottom: "var(--sp-2)" }}>
