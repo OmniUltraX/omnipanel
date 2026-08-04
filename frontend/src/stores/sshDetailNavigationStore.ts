@@ -39,6 +39,8 @@ type SshDetailNavigationState = {
   revealInSftp: (resourceId: string, path: string) => void;
   /** 打开侧栏本地文件并跳到指定路径 */
   revealInFiles: (path: string) => void;
+  /** 仅同步本地文件面板路径（不强制展开侧栏；供 WSL/本地 cwd 跟随） */
+  requestLocalNavigate: (path: string) => void;
   requestTerminal: (resourceId: string, path: string) => void;
   consumeSftpPath: (resourceId: string) => PendingSftp | null;
   consumeTerminalCommand: (resourceId: string) => PendingTerminal | null;
@@ -80,6 +82,13 @@ export const useSshDetailNavigationStore = create<SshDetailNavigationState>((set
         path,
         nonce,
       },
+    });
+  },
+  requestLocalNavigate: (path) => {
+    const trimmed = path.trim();
+    if (!trimmed) return;
+    set({
+      pendingLocalNavigate: { path: trimmed, nonce: Date.now() },
     });
   },
   requestTerminal: (resourceId, path) => {

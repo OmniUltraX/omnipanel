@@ -3213,7 +3213,7 @@ export const zhCN = {
     },
     tmuxSessions: {
       intro:
-        "远端 tmux 会话在应用关闭后仍继续运行。此处可查看并清理不再需要的会话，包括不是由 OmniPanel 创建的。",
+        "远端 tmux 会话在应用关闭后仍继续运行。此处可查看并清理不再需要的会话，包括不是由 OmniPanel 创建的。点击窗口数可展开并恢复单个窗口。",
       empty: "该主机上没有 tmux 会话",
       name: "会话名",
       windows: "窗口数",
@@ -3235,6 +3235,14 @@ export const zhCN = {
       killProdWarning: "这是生产环境主机，操作不可撤销，且会影响其他连着该会话的人。",
       killDone: "已终止会话 {name}",
       enterFailed: "进入会话失败",
+      expandWindows: "展开窗口列表",
+      windowsEmpty: "该会话下没有窗口",
+      windowLinked: "已打开",
+      windowHasHistory: "有本地历史",
+      windowOrphan: "可恢复",
+      enterWindow: "进入",
+      restoreWindow: "恢复",
+      newWindow: "新建窗口",
     },
     toolCapabilities: {
       intro:
@@ -4922,14 +4930,15 @@ export const zhCN = {
     },
     aiServices: {
       title: "服务",
-      desc: "Agent Router（:8765）与 OmniMCP（:12756）独立配置",
+      desc: "Agent Router 与 OmniMCP 独立配置（开发版默认 :8766 / :12757，正式版 :8765 / :12756）",
       tabRouter: "Agent Router",
       tabOmniMcp: "OmniMCP",
       tabTraces: "Trace 分析",
       router: {
         enabled: "启用 Agent Router",
-        enabledDesc: "在本地启动 OpenAI 兼容网关，默认监听 127.0.0.1:8765",
+        enabledDesc: "在本地启动 OpenAI 兼容网关（开发版默认 :8766，正式版 :8765）",
         port: "端口",
+        devPortRemapHint: "开发版为避免与正式版冲突，实际监听 :{listen}",
         apiKey: "API Key（可选）",
         apiKeyPlaceholder: "留空则不校验",
         bindLan: "绑定 LAN",

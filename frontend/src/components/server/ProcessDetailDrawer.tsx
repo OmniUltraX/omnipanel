@@ -14,6 +14,7 @@ import { useSshDetailNavigationStore } from "@/stores/sshDetailNavigationStore";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { isLocalTerminalResource } from "@/modules/terminal/paneResource";
 import { buildProcessDirectoryList } from "@/modules/server/ssh/utils/parseCommandPaths";
+import { jumpSshSftp } from "@/modules/server/ssh/sshHostQuickJumps";
 
 type Props = {
   resourceId: string | null;
@@ -121,9 +122,7 @@ export function ProcessDetailDrawer({
   function handleOpenSftp(path: string) {
     if (!resourceId) return;
     useSshDetailNavigationStore.getState().requestSftp(resourceId, path);
-    navigate("/module/files", {
-      state: { openSftpForSshId: resourceId },
-    });
+    jumpSshSftp(resourceId, { path, navigate });
     onClose();
   }
 

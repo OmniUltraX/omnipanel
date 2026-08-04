@@ -494,7 +494,15 @@ export function tryParseLsListing(command: string, output: string): LsListing | 
     .trim();
   if (looksLikeShellCommandEcho(gridSource || text)) return null;
 
-  const tokens = tokenizePlainLsOutput(gridSource || text).filter((token) => !isGridNoiseToken(token));
+  const listingBase = lsListingCommandBase(listingCommand).toLowerCase();
+  const tokens = tokenizePlainLsOutput(gridSource || text).filter((token) => {
+    if (isGridNoiseToken(token)) return false;
+    // 空目录时 PTY 常只留下命令回显（ls / ls/），勿当成目录项
+    const normalized = normalizeLsEntryName(unquoteName(token)).toLowerCase();
+    if (LS_COMMAND_BASES.has(normalized)) return false;
+    if (listingBase && normalized === listingBase) return false;
+    return true;
+  });
   if (tokens.length < 1) return null;
 
   const invalid = tokens.some(

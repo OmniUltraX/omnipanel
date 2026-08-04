@@ -2601,12 +2601,19 @@
         margin-left: 0;
     }
 
-    /* AI 卡片：统一深色面板，避免吸顶候选切换时渐变背景闪烁 */
+    /* AI 卡片：统一面板底，避免吸顶候选切换时渐变背景闪烁；阴影按主题降噪 */
     .term-warp-block--ai {
+        --term-ai-card-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
         border: 1px solid color-mix(in srgb, var(--meta) 22%, var(--bg-deeper));
         border-radius: var(--r-md);
         background: var(--bg-deeper);
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+        box-shadow: var(--term-ai-card-shadow);
+    }
+
+    [data-theme="light"] .term-warp-block--ai {
+        --term-ai-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        background: color-mix(in srgb, var(--surface) 82%, var(--bg-deeper));
+        border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
     }
 
     .term-warp-block--ai.term-warp-block--collapsed {
@@ -2690,10 +2697,10 @@
         70% {
             box-shadow:
                 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
-                0 8px 28px rgba(0, 0, 0, 0.4);
+                var(--term-ai-card-shadow);
         }
         100% {
-            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--term-ai-card-shadow);
         }
     }
 
@@ -2753,6 +2760,11 @@
     .term-warp-block--ai.term-warp-block--collapsed:hover {
         background: var(--bg-deeper);
         border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-deeper));
+    }
+
+    [data-theme="light"] .term-warp-block--ai.term-warp-block--collapsed:hover {
+        background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+        border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
     }
 
     .term-warp-block__summary {
@@ -2836,18 +2848,18 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border: 1px solid color-mix(in srgb, var(--meta, #9a938a) 32%, transparent);
+        border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
         border-radius: 4px;
-        background: color-mix(in srgb, var(--panel, #1c1b19) 88%, #000);
-        color: color-mix(in srgb, var(--text, #f8f4e8) 72%, var(--meta, #9a938a));
+        background: color-mix(in srgb, var(--surface-hover) 70%, var(--surface));
+        color: var(--muted);
         cursor: pointer;
         transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
     }
 
     .term-warp-ai-nav__btn:hover {
-        background: color-mix(in srgb, var(--accent) 14%, var(--panel, #1c1b19));
+        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
         color: var(--fg);
-        border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
     }
 
     .term-warp-ai-nav__triangle {

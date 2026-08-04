@@ -21,8 +21,8 @@ use crate::store::{
     delete_custom_service, load_services_file, set_service_enabled, upsert_custom_service,
 };
 use crate::types::{
-    McpServiceConfig, McpServiceRuntimeStatus, McpServiceView, McpServicesFile, McpTransport,
-    BUILTIN_MCP_ENDPOINT, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
+    builtin_mcp_endpoint, McpServiceConfig, McpServiceRuntimeStatus, McpServiceView,
+    McpServicesFile, McpTransport, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
     OMNI_MODULE_MASTER,
 };
 use omnipanel_ai::types::ToolDef;
@@ -55,7 +55,10 @@ impl McpManager {
             storage: storage.clone(),
             tool_registry: ToolRegistry::new(storage),
         };
-        manager.start_builtin().await?;
+        // 端口被正式版/其他实例占用时不阻断应用启动，仅降级为 MCP 不可用。
+        if let Err(e) = manager.start_builtin().await {
+            tracing::error!(error = %e, "OmniMCP 内置服务启动失败，应用将继续运行");
+        }
         manager.sync_custom_services().await?;
         Ok(manager)
     }
@@ -322,7 +325,7 @@ impl McpManager {
         let listener = tokio::net::TcpListener::bind(&bind_addr)
             .await
             .with_context(|| format!("绑定 OmniMCP 端口 {bind_addr} 失败"))?;
-        let endpoint = BUILTIN_MCP_ENDPOINT.to_string();
+        let endpoint = builtin_mcp_endpoint();
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let storage = self.storage.clone();

@@ -61,9 +61,15 @@ import {
   loadQuickPaths,
   testFileConnection,
 } from "./fileApi";
-import { syncSshSftpConnections } from "./syncSshSftp";
+import { ensureSftpForSsh, syncSshSftpConnections } from "./syncSshSftp";
 import { LOCAL_CONNECTION_ID } from "./utils";
 import { FilesModuleContextBridge } from "./ai/FilesModuleContextBridge";
+import {
+  clearSftpDeepLink,
+  OPEN_SFTP_FOR_SSH_EVENT,
+  takeSftpDeepLink,
+  type SshSftpDeepLink,
+} from "../server/ssh/sshHostQuickJumps";
 
 type ConnCtxState = { x: number; y: number; conn: FileManagerConnectionInfo } | null;
 type FavCtxState = { x: number; y: number; favorite: FileFavorite } | null;
@@ -136,19 +142,7 @@ function FilesBrowserView() {
   const activeNavigateConnIdRef = useRef<string | null>(null);
   const pendingNavigateRef = useRef<{ connId: string; path: string } | null>(null);
   const bootstrappedDefaultRef = useRef(false);
-  const sftpDeepLinkHandledRef = useRef(false);
-
-  // 处理从 SSH 模块跳转过来的 SFTP 深链接
-  useEffect(() => {
-    if (sftpDeepLinkHandledRef.current) return;
-    const state = location.state as { openSftpForSshId?: string; openSftpHostName?: string } | null;
-    if (!state?.openSftpForSshId) return;
-    sftpDeepLinkHandledRef.current = true;
-    openNewConnectionDialog("sftp", state.openSftpForSshId);
-    // 清除 state，防止刷新时重复触发
-    window.history.replaceState({}, "");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state]);
+  const sftpDeepLinkHandledKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     migrateLayoutStorage("files", ["omnipanel.filesDockLayout.v3"]);
@@ -473,6 +467,81 @@ function FilesBrowserView() {
     setDialogInitialSshId(sshConnectionId);
     setDialogOpen(true);
   };
+
+  const openConnectionById = useCallback(
+    (connId: string, mode: FileDockOpenMode = "permanent") => {
+      openDockTabNow({
+        applyTabSync: () => {
+          openConnection(connId, mode);
+          const isPreview =
+            useFilesWorkspaceSessionStore.getState().previewConnId === connId;
+          patchDockTabPreviewMeta(fileConnPanelId(connId), isPreview);
+        },
+      });
+      setActivePanelId(fileConnPanelId(connId));
+    },
+    [openConnection, setActivePanelId],
+  );
+
+  const consumeSftpDeepLink = useCallback(
+    (link: SshSftpDeepLink, clearRouterState: boolean) => {
+      const key = `${link.openSftpForSshId}:${link.openSftpNonce}`;
+      if (sftpDeepLinkHandledKeyRef.current === key) return;
+      sftpDeepLinkHandledKeyRef.current = key;
+      clearSftpDeepLink();
+
+      void (async () => {
+        try {
+          const fileId = await ensureSftpForSsh(link.openSftpForSshId);
+          await loadConnections();
+          const targetPath = link.openSftpPath?.trim();
+          if (targetPath) {
+            navigateConnectionToPath(fileId, targetPath, "permanent");
+          } else {
+            openConnectionById(fileId, "permanent");
+          }
+        } catch {
+          openNewConnectionDialog("sftp", link.openSftpForSshId);
+        } finally {
+          if (clearRouterState) {
+            window.history.replaceState({}, "");
+          }
+        }
+      })();
+    },
+    [loadConnections, navigateConnectionToPath, openConnectionById],
+  );
+
+  // 处理从 SSH 模块跳转过来的 SFTP 深链接：优先打开已关联连接，缺失则自动创建
+  useEffect(() => {
+    const fromState = location.state as Partial<SshSftpDeepLink> | null;
+    if (fromState?.openSftpForSshId) {
+      consumeSftpDeepLink(
+        {
+          openSftpForSshId: fromState.openSftpForSshId,
+          openSftpHostName: fromState.openSftpHostName,
+          openSftpNonce: fromState.openSftpNonce ?? Date.now(),
+        },
+        true,
+      );
+      return;
+    }
+    const fromStorage = takeSftpDeepLink();
+    if (fromStorage) {
+      consumeSftpDeepLink(fromStorage, false);
+    }
+  }, [consumeSftpDeepLink, location.state]);
+
+  useEffect(() => {
+    const onOpenSftp = (event: Event) => {
+      const detail = (event as CustomEvent<SshSftpDeepLink>).detail;
+      if (!detail?.openSftpForSshId) return;
+      // 事件路径下 storage 可能已被 take，直接用 detail
+      consumeSftpDeepLink(detail, false);
+    };
+    window.addEventListener(OPEN_SFTP_FOR_SSH_EVENT, onOpenSftp);
+    return () => window.removeEventListener(OPEN_SFTP_FOR_SSH_EVENT, onOpenSftp);
+  }, [consumeSftpDeepLink]);
 
   const handleSyncSshSftp = useCallback(async () => {
     if (syncingSshSftp) return;

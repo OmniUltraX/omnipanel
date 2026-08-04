@@ -63,7 +63,11 @@ export function VerticalSplitSidebarSection({
     if (!autoActive || !autoSizePersist) return undefined;
     return readPersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id);
   });
-  const userSizedRef = useRef<boolean>(autoActive && Number.isFinite(autoHeight));
+  const [userSized, setUserSized] = useState(
+    () => autoActive && Number.isFinite(autoHeight),
+  );
+  const userSizedRef = useRef(userSized);
+  userSizedRef.current = userSized;
   /** 侧栏拖宽时内容换行会触发 ResizeObserver；有稳定高度后忽略纯宽度变化 */
   const measuredBoxRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const autoHeightRef = useRef(autoHeight);
@@ -82,15 +86,17 @@ export function VerticalSplitSidebarSection({
   );
 
   // 自动测量内容高度（未手动拖拽时跟随内容；侧栏宽度变化不改已有高度）
+  // userSized 进入依赖：拖高后 effect 清理并拆除 ResizeObserver，
+  // 避免侧栏横向改宽触发内容重排时把高度测回去。
   useLayoutEffect(() => {
-    if (!autoActive || !expanded || userSizedRef.current) return;
+    if (!autoActive || !expanded || userSized) return;
     const el = measureRef.current;
     if (!el) return;
     const measure = () => {
       if (userSizedRef.current) return;
       const rect = el.getBoundingClientRect();
       const w = rect.width;
-      const h = rect.height;
+      const h = el.scrollHeight || rect.height;
       if (!Number.isFinite(h) || h <= 0) return;
       const prev = measuredBoxRef.current;
       const hasStableHeight =
@@ -108,7 +114,7 @@ export function VerticalSplitSidebarSection({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [autoActive, expanded, clampHeight]);
+  }, [autoActive, expanded, clampHeight, userSized]);
 
   // 合并受控/非受控：受控优先
   const effectiveHeight = controlled
@@ -121,6 +127,7 @@ export function VerticalSplitSidebarSection({
     : autoActive
       ? (h: number) => {
           userSizedRef.current = true;
+          setUserSized(true);
           measuredBoxRef.current = { w: measuredBoxRef.current.w, h };
           setAutoHeight(h);
           if (autoSizePersist) writePersistedSizeValue(autoSizePersist.storageKey, autoSizePersist.id, h);

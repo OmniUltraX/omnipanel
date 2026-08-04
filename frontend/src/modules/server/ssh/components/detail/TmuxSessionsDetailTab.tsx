@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
-import { commands, type TmuxSessionInfo, type TmuxTabStat } from "@/ipc/bindings";
+import { commands, type TmuxSessionInfo, type TmuxTabStat, type TmuxWindowInfo } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
 import { useI18n } from "@/i18n";
 import { appConfirm } from "@/lib/appConfirm";
-import { attachTmuxSession, focusTerminalTab, openSshTerminalSession } from "@/lib/terminalSession";
+import {
+  attachTmuxSession,
+  attachTmuxSessionNewWindow,
+  focusTerminalTab,
+  openSshTerminalSession,
+} from "@/lib/terminalSession";
 import type { WorkspaceResource } from "@/lib/resourceRegistry";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { showToast } from "@/stores/toastStore";
 import { isProdHost } from "@/modules/server/ssh/utils/sshProdGuard";
+import { useTmuxPaneSessionIndex } from "@/modules/terminal/tmuxPaneSessionIndex";
 
 type Props = {
   activeResource: WorkspaceResource | null;
@@ -18,6 +24,13 @@ type Props = {
 function formatCreated(seconds: number | null): string {
   if (seconds == null || !seconds) return "—";
   return new Date(seconds * 1000).toLocaleString();
+}
+
+function shortSessionLabel(name: string): string {
+  if (!name.startsWith("omnipanel-")) return name;
+  const rest = name.slice("omnipanel-".length);
+  if (rest.length <= 28) return rest;
+  return `${rest.slice(0, 14)}…${rest.slice(-10)}`;
 }
 
 /**
@@ -39,16 +52,18 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [killing, setKilling] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [windowsBySession, setWindowsBySession] = useState<Record<string, TmuxWindowInfo[]>>({});
+  const [windowsLoading, setWindowsLoading] = useState<Record<string, boolean>>({});
+  const [windowsError, setWindowsError] = useState<Record<string, string>>({});
   const connection = useConnectionStore((s) =>
     connectionId ? s.connections.find((c) => c.id === connectionId) : undefined,
   );
   const isProd = isProdHost(activeResource, connection);
+  const paneBindings = useTmuxPaneSessionIndex((s) => s.bindings);
 
-  // 当前窗口的 tabs，仅用于「切换到 Tab」时拿 firstTabId 做聚焦。
-  // 关联计数以后端 tabStats 为准（跨窗口），不从这里算。
   const tabs = useTerminalStore((s) => s.tabs);
 
-  // 会话名 → 当前窗口内第一个关联 Tab 的 id（用于聚焦）。跨窗口的关联计数走后端。
   const firstTabIdBySession = useMemo(() => {
     const map = new Map<string, string>();
     for (const tab of tabs) {
@@ -61,7 +76,19 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     return map;
   }, [tabs, connectionId]);
 
-  // 后端 tabCount 查询：会话名 → 关联 Tab 数（跨所有窗口）。
+  const tabIdByPane = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tab of tabs) {
+      const name = tab.session?.tmuxSession;
+      const paneId = tab.session?.tmuxPaneId;
+      if (!name || paneId == null) continue;
+      if (tab.session?.resourceId !== connectionId) continue;
+      if (tab.workspaceOnly) continue;
+      map.set(`${name}::${paneId}`, tab.id);
+    }
+    return map;
+  }, [tabs, connectionId]);
+
   const tabCountBySession = useMemo(() => {
     const map = new Map<string, number>();
     for (const stat of tabStats) {
@@ -69,6 +96,16 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     }
     return map;
   }, [tabStats]);
+
+  const historyPaneSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of paneBindings) {
+      if (connectionId && b.resourceId === connectionId) {
+        set.add(`${b.tmuxSession}::${b.paneId}`);
+      }
+    }
+    return set;
+  }, [paneBindings, connectionId]);
 
   const load = useCallback(async () => {
     if (!connectionId) return;
@@ -94,7 +131,6 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     void load();
   }, [load]);
 
-  // 终端 tab 增删/状态变化时刷新关联计数（聚焦用的 firstTabId 走 store 订阅自动更新）。
   useEffect(() => {
     if (!connectionId) return;
     const refresh = () => {
@@ -105,6 +141,47 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     window.addEventListener("omnipanel-terminal-focus-tab", refresh);
     return () => window.removeEventListener("omnipanel-terminal-focus-tab", refresh);
   }, [connectionId]);
+
+  const loadWindows = useCallback(
+    async (sessionName: string) => {
+      if (!connectionId) return;
+      setWindowsLoading((prev) => ({ ...prev, [sessionName]: true }));
+      setWindowsError((prev) => {
+        const next = { ...prev };
+        delete next[sessionName];
+        return next;
+      });
+      try {
+        const list = await unwrapCommand(
+          commands.sshTmuxListWindows(connectionId, sessionName),
+        );
+        setWindowsBySession((prev) => ({ ...prev, [sessionName]: list }));
+      } catch (err) {
+        setWindowsError((prev) => ({
+          ...prev,
+          [sessionName]: formatIpcError(err),
+        }));
+        setWindowsBySession((prev) => ({ ...prev, [sessionName]: [] }));
+      } finally {
+        setWindowsLoading((prev) => ({ ...prev, [sessionName]: false }));
+      }
+    },
+    [connectionId],
+  );
+
+  const toggleExpand = useCallback(
+    (sessionName: string) => {
+      setExpanded((prev) => {
+        const nextOpen = !prev[sessionName];
+        const next = { ...prev, [sessionName]: nextOpen };
+        if (nextOpen && !windowsBySession[sessionName] && !windowsLoading[sessionName]) {
+          void loadWindows(sessionName);
+        }
+        return next;
+      });
+    },
+    [loadWindows, windowsBySession, windowsLoading],
+  );
 
   const handleKill = async (session: TmuxSessionInfo) => {
     if (!connectionId) return;
@@ -123,6 +200,16 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     try {
       await unwrapCommand(commands.sshTmuxKillSession(connectionId, session.name));
       showToast(t("ssh.tmuxSessions.killDone", { name: session.name }));
+      setExpanded((prev) => {
+        const next = { ...prev };
+        delete next[session.name];
+        return next;
+      });
+      setWindowsBySession((prev) => {
+        const next = { ...prev };
+        delete next[session.name];
+        return next;
+      });
       await load();
     } catch (err) {
       showToast(formatIpcError(err));
@@ -131,10 +218,14 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     }
   };
 
-  // 「进入」/「切换到 Tab」统一入口：
-  // - 当前窗口已有该会话的 Tab：直接聚焦（无需建连，无 loading 态）
-  // - 否则（其他窗口有 Tab 或完全无 Tab）：调 attachTmuxSession 建连并开新 Tab
-  const handleEnter = async (session: TmuxSessionInfo) => {
+  const refreshTabStats = useCallback(() => {
+    if (!connectionId) return;
+    void unwrapCommand(commands.sshTmuxTabStats(connectionId))
+      .then(setTabStats)
+      .catch(() => {});
+  }, [connectionId]);
+
+  const handleEnterSession = async (session: TmuxSessionInfo) => {
     if (!connectionId) return;
     const firstTabId = firstTabIdBySession.get(session.name);
     if (firstTabId) {
@@ -144,10 +235,51 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
     setAttaching(session.name);
     try {
       await attachTmuxSession(connectionId, session.name);
-      // 开新 Tab 后立即刷新计数
-      void unwrapCommand(commands.sshTmuxTabStats(connectionId))
-        .then(setTabStats)
-        .catch(() => {});
+      refreshTabStats();
+      if (expanded[session.name]) {
+        void loadWindows(session.name);
+      }
+    } catch (err) {
+      showToast(
+        `${t("ssh.tmuxSessions.enterFailed")}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setAttaching(null);
+    }
+  };
+
+  const handleEnterPane = async (sessionName: string, paneId: number) => {
+    if (!connectionId) return;
+    const localTabId = tabIdByPane.get(`${sessionName}::${paneId}`);
+    if (localTabId) {
+      focusTerminalTab(localTabId);
+      return;
+    }
+    const attachKey = `${sessionName}::${paneId}`;
+    setAttaching(attachKey);
+    try {
+      await attachTmuxSession(connectionId, sessionName, 80, 24, paneId);
+      refreshTabStats();
+      void loadWindows(sessionName);
+    } catch (err) {
+      showToast(
+        `${t("ssh.tmuxSessions.enterFailed")}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setAttaching(null);
+    }
+  };
+
+  const handleNewWindow = async (session: TmuxSessionInfo) => {
+    if (!connectionId) return;
+    setAttaching(`new:${session.name}`);
+    try {
+      await attachTmuxSessionNewWindow(connectionId, session.name);
+      refreshTabStats();
+      if (expanded[session.name]) {
+        void loadWindows(session.name);
+      }
+      await load();
     } catch (err) {
       showToast(
         `${t("ssh.tmuxSessions.enterFailed")}: ${err instanceof Error ? err.message : String(err)}`,
@@ -206,56 +338,161 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
             {sessions.map((session) => {
               const tabCount = tabCountBySession.get(session.name) ?? 0;
               const isLinked = tabCount > 0;
+              const isOpen = Boolean(expanded[session.name]);
+              const windows = windowsBySession[session.name] ?? [];
+              const winLoading = Boolean(windowsLoading[session.name]);
+              const winError = windowsError[session.name];
               return (
-                <tr key={session.name}>
-                  <td>
-                    <span className="tmux-sessions__name">{session.name}</span>
-                    {session.managed ? (
-                      <span className="tmux-sessions__tag" title={t("ssh.tmuxSessions.managedHint")}>
-                        {t("ssh.tmuxSessions.managed")}
-                      </span>
-                    ) : null}
-                    {isLinked ? (
-                      <span
-                        className="tmux-sessions__tag tmux-sessions__tag--in-use"
-                        title={t("ssh.tmuxSessions.linkedHint")}
+                <Fragment key={session.name}>
+                  <tr className={isOpen ? "tmux-sessions__row--expanded" : undefined}>
+                    <td>
+                      <div className="tmux-sessions__name-cell">
+                        <span className="tmux-sessions__name" title={session.name}>
+                          {shortSessionLabel(session.name)}
+                        </span>
+                        {session.managed ? (
+                          <span className="tmux-sessions__tag" title={t("ssh.tmuxSessions.managedHint")}>
+                            {t("ssh.tmuxSessions.managed")}
+                          </span>
+                        ) : null}
+                        {isLinked ? (
+                          <span
+                            className="tmux-sessions__tag tmux-sessions__tag--muted"
+                            title={t("ssh.tmuxSessions.linkedHint")}
+                          >
+                            {tabCount === 1
+                              ? t("ssh.tmuxSessions.linked")
+                              : t("ssh.tmuxSessions.linkedCount", { count: tabCount })}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className={`tmux-sessions__expand${isOpen ? " is-open" : ""}`}
+                        onClick={() => toggleExpand(session.name)}
+                        aria-expanded={isOpen}
+                        title={t("ssh.tmuxSessions.expandWindows")}
                       >
-                        {tabCount === 1
-                          ? t("ssh.tmuxSessions.linked")
-                          : t("ssh.tmuxSessions.linkedCount", { count: tabCount })}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td>{session.windows}</td>
-                  <td>{formatCreated(session.created)}</td>
-                  <td>
-                    {session.attached
-                      ? t("ssh.tmuxSessions.attached")
-                      : t("ssh.tmuxSessions.detached")}
-                  </td>
-                  <td className="tmux-sessions__actions">
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm btn-primary"
-                      onClick={() => void handleEnter(session)}
-                      disabled={attaching === session.name}
-                    >
-                      {attaching === session.name
-                        ? t("ssh.tmuxSessions.enterBusy")
-                        : isLinked
-                          ? t("ssh.tmuxSessions.switchToTab")
-                          : t("ssh.tmuxSessions.enter")}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm btn-danger"
-                      onClick={() => void handleKill(session)}
-                      disabled={killing === session.name}
-                    >
-                      {t("ssh.tmuxSessions.kill")}
-                    </button>
-                  </td>
-                </tr>
+                        <span className="tmux-sessions__expand-chevron" aria-hidden>
+                          ▸
+                        </span>
+                        <span className="tmux-sessions__expand-count">{session.windows}</span>
+                      </button>
+                    </td>
+                    <td>{formatCreated(session.created)}</td>
+                    <td>
+                      {session.attached
+                        ? t("ssh.tmuxSessions.attached")
+                        : t("ssh.tmuxSessions.detached")}
+                    </td>
+                    <td className="tmux-sessions__actions">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-primary"
+                        onClick={() => void handleEnterSession(session)}
+                        disabled={attaching === session.name}
+                      >
+                        {attaching === session.name
+                          ? t("ssh.tmuxSessions.enterBusy")
+                          : isLinked
+                            ? t("ssh.tmuxSessions.switchToTab")
+                            : t("ssh.tmuxSessions.enter")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm tmux-sessions__btn-danger"
+                        onClick={() => void handleKill(session)}
+                        disabled={killing === session.name}
+                      >
+                        {t("ssh.tmuxSessions.kill")}
+                      </button>
+                    </td>
+                  </tr>
+                  {isOpen ? (
+                    <tr className="tmux-sessions__tree-row">
+                      <td colSpan={5}>
+                        <div className="tmux-sessions__tree">
+                          {winLoading ? (
+                            <div className="tmux-sessions__tree-status">{t("common.loading")}</div>
+                          ) : null}
+                          {winError ? (
+                            <div className="tmux-sessions__tree-error">{winError}</div>
+                          ) : null}
+                          {!winLoading && !winError && windows.length === 0 ? (
+                            <div className="tmux-sessions__tree-status">
+                              {t("ssh.tmuxSessions.windowsEmpty")}
+                            </div>
+                          ) : null}
+                          {windows.length > 0 ? (
+                            <ul className="tmux-sessions__window-list">
+                              {windows.map((win) => {
+                                const paneKey = `${session.name}::${win.paneId}`;
+                                const localTabId = tabIdByPane.get(paneKey);
+                                const hasHistory = historyPaneSet.has(paneKey);
+                                const busy = attaching === paneKey;
+                                return (
+                                  <li key={`${win.windowId}-${win.paneId}`} className="tmux-sessions__window">
+                                    <div className="tmux-sessions__window-main">
+                                      <span className="tmux-sessions__window-name" title={win.name || win.windowId}>
+                                        {win.name?.trim() || win.windowId}
+                                      </span>
+                                      <span className="tmux-sessions__window-meta">
+                                        {win.windowId} · %{win.paneId}
+                                      </span>
+                                      {localTabId ? (
+                                        <span className="tmux-sessions__tag tmux-sessions__tag--muted">
+                                          {t("ssh.tmuxSessions.windowLinked")}
+                                        </span>
+                                      ) : hasHistory ? (
+                                        <span className="tmux-sessions__tag tmux-sessions__tag--muted">
+                                          {t("ssh.tmuxSessions.windowHasHistory")}
+                                        </span>
+                                      ) : (
+                                        <span className="tmux-sessions__tag tmux-sessions__tag--orphan">
+                                          {t("ssh.tmuxSessions.windowOrphan")}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="tmux-sessions__window-actions">
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-primary"
+                                        disabled={busy}
+                                        onClick={() => void handleEnterPane(session.name, win.paneId)}
+                                      >
+                                        {busy
+                                          ? t("ssh.tmuxSessions.enterBusy")
+                                          : localTabId
+                                            ? t("ssh.tmuxSessions.switchToTab")
+                                            : hasHistory
+                                              ? t("ssh.tmuxSessions.restoreWindow")
+                                              : t("ssh.tmuxSessions.enterWindow")}
+                                      </button>
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : null}
+                          <div className="tmux-sessions__tree-footer">
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={attaching === `new:${session.name}`}
+                              onClick={() => void handleNewWindow(session)}
+                            >
+                              {attaching === `new:${session.name}`
+                                ? t("ssh.tmuxSessions.enterBusy")
+                                : t("ssh.tmuxSessions.newWindow")}
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               );
             })}
           </tbody>

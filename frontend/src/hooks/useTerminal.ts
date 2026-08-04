@@ -1125,7 +1125,7 @@ export function useTerminal(
         // - 用户从远端会话列表「进入」时 tmuxSession 已显式赋值，此处保持一致。
         // - 直连模式下 tmuxSession 为 null，同步清除 session.tmuxSession 避免误导。
         // - tmuxPaneId 是后端建连时分配的 pane 标识，关 Tab 后重连据此 attach 回原 window
-        //   恢复进行中的进程与历史；首次建连为 null，重连时为已持久化的值。
+        //   恢复进行中的进程与历史；同步写入 pane↔sessionId 索引供远端会话树恢复。
         const pane = findPaneById(sessionId);
         const currentTmuxSession = pane?.tmuxSession ?? null;
         const currentTmuxPaneId = pane?.tmuxPaneId ?? null;
@@ -1134,6 +1134,22 @@ export function useTerminal(
         }
         if (info.tmuxPaneId !== currentTmuxPaneId) {
           useTerminalStore.getState().setSessionTmuxPaneId(sessionId, info.tmuxPaneId);
+        }
+        if (info.tmuxSession && info.tmuxPaneId != null) {
+          const resourceId =
+            findPaneById(sessionId)?.resourceId ??
+            useTerminalStore.getState().getSession(sessionId)?.session.resourceId;
+          if (resourceId) {
+            const { upsertTmuxPaneSessionBinding } = await import(
+              "../modules/terminal/tmuxPaneSessionIndex"
+            );
+            upsertTmuxPaneSessionBinding(
+              resourceId,
+              info.tmuxSession,
+              info.tmuxPaneId,
+              sessionId,
+            );
+          }
         }
       } catch {
         // 模式仅用于展示，查询失败保持原值即可

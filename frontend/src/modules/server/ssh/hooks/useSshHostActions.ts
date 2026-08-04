@@ -1,14 +1,14 @@
 import { useCallback } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
-import { MODULE_PATHS } from "../../../../lib/paths";
-import { useWorkspaceStore } from "../../../../stores/workspaceStore";
-import { useTerminalStore } from "../../../../stores/terminalStore";
-import { useTerminalLeftPanelStore } from "../../../terminal/terminalLeftPanelStore";
-import { SERVER_PATH } from "../../panel/constants";
+import { useI18n } from "../../../../i18n";
+import {
+  jumpSshDocker,
+  jumpSshPanel,
+  jumpSshSftp,
+  jumpSshTerminal,
+} from "../sshHostQuickJumps";
 import type { SshHostContext } from "./useSshHostContext";
-
-const DOCKER_ACTIVE_KEY = "omnipanel.docker.activeConnectionId";
 
 export function useSshHostActions(
   resource: WorkspaceResource | null,
@@ -18,55 +18,33 @@ export function useSshHostActions(
   },
 ) {
   const navigate = useNavigate();
-  const location = useLocation();
-  const focusSessions = useTerminalLeftPanelStore((s) => s.focusSessions);
-  const selectResource = useWorkspaceStore((s) => s.selectResource);
-  const setActivePath = useWorkspaceStore((s) => s.setActivePath);
-  const setActiveTab = useTerminalStore((s) => s.setActiveTab);
-  const openOrFocusSshTab = useTerminalStore((s) => s.openOrFocusSshTab);
+  const { t } = useI18n();
 
   const openTerminal = useCallback(() => {
     if (!resource) return;
-    const tabId = openOrFocusSshTab(resource.id, resource.name);
-    setActiveTab(tabId);
-    setActivePath(MODULE_PATHS.terminal);
-    focusSessions();
-    if (location.pathname !== MODULE_PATHS.terminal) {
-      navigate(MODULE_PATHS.terminal);
-    }
-  }, [focusSessions, location.pathname, navigate, openOrFocusSshTab, resource, setActivePath, setActiveTab]);
+    jumpSshTerminal(resource.id, resource.name);
+  }, [resource]);
 
   const openSftp = useCallback(() => {
     if (!resource) return;
-    navigate(MODULE_PATHS.files, {
-      state: { openSftpForSshId: resource.id, openSftpHostName: resource.name },
-    });
+    jumpSshSftp(resource.id, { hostName: resource.name, navigate });
   }, [navigate, resource]);
 
   const openDocker = useCallback(() => {
-    const conn = context.dockerConnection;
-    if (conn) {
-      try {
-        localStorage.setItem(DOCKER_ACTIVE_KEY, conn.connectionId);
-      } catch {
-        // ignore
-      }
-      navigate(MODULE_PATHS.docker, {
-        state: { selectDockerConnectionId: conn.connectionId },
-      });
-      return;
-    }
-    setActivePath(MODULE_PATHS.docker);
-    navigate(MODULE_PATHS.docker);
-  }, [context.dockerConnection, navigate, setActivePath]);
+    if (!resource) return;
+    void jumpSshDocker(
+      resource.id,
+      context.dockerConnection ? undefined : t("ssh.quickActions.dockerMissing"),
+    );
+  }, [context.dockerConnection, resource, t]);
 
   const openPanel = useCallback(() => {
-    const panel = context.panelConnection;
-    if (!panel) return;
-    selectResource(panel.id, SERVER_PATH);
-    setActivePath(MODULE_PATHS.server);
-    navigate(MODULE_PATHS.server);
-  }, [context.panelConnection, navigate, selectResource, setActivePath]);
+    if (!resource) return;
+    jumpSshPanel(
+      resource.id,
+      context.panelConnection ? undefined : t("ssh.quickActions.panelMissing"),
+    );
+  }, [context.panelConnection, resource, t]);
 
   const openTunnels = useCallback(() => {
     options?.onOpenTunnels?.();

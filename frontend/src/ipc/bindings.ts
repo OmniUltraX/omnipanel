@@ -407,6 +407,12 @@ export const commands = {
 	 */
 	sshTmuxListSessions: (connectionId: string) => typedError<TmuxSessionInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_sessions", { connectionId })),
 	/**
+	 *  列出指定远端 tmux 会话内的 window（1 window = 1 pane）。
+	 * 
+	 *  走 exec 通道，无需当前已打开终端；用于远端会话治理页展开窗口树。
+	 */
+	sshTmuxListWindows: (connectionId: string, sessionName: string) => typedError<TmuxWindowInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_windows", { connectionId, sessionName })),
+	/**
 	 *  查询当前 OmniPanel 在该主机上每个 tmux 会话关联的 Tab 数。
 	 * 
 	 *  关联数据来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
@@ -4885,6 +4891,16 @@ export type TmuxSessionInfo = {
 	attached: boolean,
 	/**  是否由 OmniPanel 创建（按会话名前缀判定）。 */
 	managed: boolean,
+};
+
+/** 会话内单个 window（OmniPanel 约定 1 window = 1 pane）。 */
+export type TmuxWindowInfo = {
+	/**  tmux window id，如 `@3`。 */
+	windowId: string,
+	/**  pane 数字 id（来自 `%3` → `3`），用于 attach 重连。 */
+	paneId: number,
+	/**  window 名称。 */
+	name: string,
 };
 
 /**

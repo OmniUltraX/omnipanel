@@ -23,12 +23,32 @@ let sessionCounter = 0;
 export function syncSessionCounterFromIds(sessions: Array<{ id: string }>): void {
   let max = 0;
   for (const item of sessions) {
-    const match = /^tsess-(\d+)$/.exec(item.id);
+    // tsess-<n> 或 tsess-<n>-<suffix>（后缀用于避免 ID 复用撞上旧历史）
+    const match = /^tsess-(\d+)(?:-|$)/.exec(item.id);
     if (match) max = Math.max(max, Number(match[1]));
     const legacy = /^tab-(\d+)$/.exec(item.id);
     if (legacy) max = Math.max(max, Number(legacy[1]));
   }
-  sessionCounter = max;
+  sessionCounter = Math.max(sessionCounter, max);
+}
+
+function sessionIdEntropy(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  }
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/** 读取当前会话序号高水位（供持久化，防止 ended 会话被剔除后计数器回退） */
+export function getTerminalSessionCounter(): number {
+  return sessionCounter;
+}
+
+/** 从持久化高水位抬升计数器（只升不降） */
+export function raiseTerminalSessionCounter(value: number): void {
+  if (Number.isFinite(value) && value > sessionCounter) {
+    sessionCounter = Math.floor(value);
+  }
 }
 
 /** 本地终端曾误用 ~/workspace 占位，与 PowerShell 实际起始目录不一致 */
@@ -59,7 +79,8 @@ export function normalizePersistedShellSpec(raw: unknown): LocalShellSpec | null
 
 export function createTerminalSessionId(): string {
   sessionCounter += 1;
-  return `tsess-${sessionCounter}`;
+  // 附带熵，避免 ended 会话从列表剔除后复用同一 ID，把 SQLite 旧历史灌进「新会话」
+  return `tsess-${sessionCounter}-${sessionIdEntropy()}`;
 }
 
 /** 根据 shellSpec 推导 shellLabel 显示名 */

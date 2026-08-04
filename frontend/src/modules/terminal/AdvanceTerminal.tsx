@@ -19,6 +19,7 @@ import { TerminalTabPaneView } from "./TerminalPaneView";
 import { AdvanceTerminalMonitorStack } from "./AdvanceTerminalMonitorStack";
 import { AdvanceTerminalSideEntry } from "./AdvanceTerminalSideEntry";
 import { useTerminalTabDockPane } from "./useTerminalTabDockPane";
+import { resolveLocalFilesPanelPath } from "./wslFilesystemPath";
 
 type LocalSidePanelId = "files" | "monitor";
 type RemoteSidePanelId = "sftp" | "tunnel" | "processes";
@@ -157,13 +158,21 @@ export function AdvanceTerminal({
   }, [openSidePanel]);
 
   const requestSftp = useSshDetailNavigationStore((s) => s.requestSftp);
+  const requestLocalNavigate = useSshDetailNavigationStore((s) => s.requestLocalNavigate);
   const pendingSideFocus = useSshDetailNavigationStore((s) => s.pendingSideFocus);
   const consumeSideFocus = useSshDetailNavigationStore((s) => s.consumeSideFocus);
   const lastSyncedSftpCwdRef = useRef<string | null>(null);
+  const lastSyncedLocalFilesCwdRef = useRef<string | null>(null);
   const handledSideFocusNonceRef = useRef<number | null>(null);
+
+  const localFilesInitialPath = useMemo(
+    () => (isLocal && tab ? resolveLocalFilesPanelPath(tab.session) : null),
+    [isLocal, tab?.session.cwd, tab?.session.shellLabel, tab?.session.shellSpec],
+  );
 
   useEffect(() => {
     lastSyncedSftpCwdRef.current = null;
+    lastSyncedLocalFilesCwdRef.current = null;
   }, [resource?.id, tabId]);
 
   useEffect(() => {
@@ -174,6 +183,16 @@ export function AdvanceTerminal({
     lastSyncedSftpCwdRef.current = sftpPath;
     requestSftp(resource.id, sftpPath);
   }, [isRemoteSsh, resource?.id, tab?.status, tab?.session.cwd, requestSftp]);
+
+  // WSL / 本地终端：文件侧栏跟随会话 cwd（WSL 映射到 \\wsl$\Distro\...）
+  useEffect(() => {
+    if (!isLocal || tab?.status !== "connected") return;
+    const filesPath = resolveLocalFilesPanelPath(tab.session);
+    if (!filesPath) return;
+    if (lastSyncedLocalFilesCwdRef.current === filesPath) return;
+    lastSyncedLocalFilesCwdRef.current = filesPath;
+    requestLocalNavigate(filesPath);
+  }, [isLocal, tab?.status, tab?.session, requestLocalNavigate]);
 
   // 从 ls block 右键「在 SFTP / 文件面板中显示」展开侧栏并聚焦
   useEffect(() => {
@@ -215,7 +234,8 @@ export function AdvanceTerminal({
         return {
           componentType: "files.local-panel",
           label: sideTab?.label ?? t("terminal.sideTabs.files"),
-          props: {},
+          props: localFilesInitialPath ? { initialPath: localFilesInitialPath } : {},
+          // 稳定 snapshot，避免 cwd 变化反复卸载侧栏；路径跟随走 requestLocalNavigate
           snapshotId: "files.local-panel",
         };
       }
@@ -253,7 +273,7 @@ export function AdvanceTerminal({
       }
       return null;
     },
-    [resource?.id, sideTabs, t],
+    [localFilesInitialPath, resource?.id, sideTabs, t],
   );
 
   const wrapSidePanel = useCallback(

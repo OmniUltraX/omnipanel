@@ -3,6 +3,11 @@ import { formatIpcError, unwrapCommand } from "../ipc/result";
 import { useTerminalStore } from "../stores/terminalStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { resolveResourceById } from "../stores/connectionStore";
+import { useTerminalHistoryStore } from "../stores/terminalHistoryStore";
+import {
+  upsertTmuxPaneSessionBinding,
+  useTmuxPaneSessionIndex,
+} from "../modules/terminal/tmuxPaneSessionIndex";
 import { MODULE_PATHS } from "./paths";
 
 export { createTerminalSessionId } from "../stores/terminalStore";
@@ -44,15 +49,84 @@ export function openSshTerminalSession(hostId: string): string | null {
 }
 
 /**
- * 从远端会话治理视图「进入」指定 tmux 会话：建连并开新 Tab。
+ * 从远端会话治理视图进入指定 tmux 会话 / window。
  *
- * 调用方（TmuxSessionsDetailTab.handleEnter）已先检查当前窗口是否已有该会话的 Tab，
- * 有则聚焦、无则调用本函数开新 Tab。本函数只负责「建连 + 开 Tab」，不做去重。
- *
- * 「重新连接」语义：Tab 关闭时后端只 detach（不 kill 会话），远端进程继续运行；
- * 再次「进入」同一会话即恢复之前的操作上下文（tmux attach 会重放屏幕 + 接管 PTY）。
+ * - `paneId` 有值：attach 回该 pane；若 pane↔sessionId 索引命中则复用前端会话
+ *   （Blocks / shell history / AI linkedTerminalSessionId 一并续上）。
+ * - `paneId` 为空：优先复用该 session 下最近绑定的 pane；否则 new-window。
  */
 export async function attachTmuxSession(
+  hostId: string,
+  sessionName: string,
+  cols = 80,
+  rows = 24,
+  paneId: number | null = null,
+): Promise<string> {
+  const store = useTerminalStore.getState();
+  const host = resolveResourceById(hostId);
+  const title = host?.name ? `${host.name} · ${sessionName}` : sessionName;
+  const index = useTmuxPaneSessionIndex.getState();
+
+  let resolvedPaneId = paneId;
+  if (resolvedPaneId == null) {
+    resolvedPaneId = index.latestForSession(hostId, sessionName)?.paneId ?? null;
+  }
+
+  let reuseSessionId: string | null = null;
+  if (resolvedPaneId != null) {
+    const binding = index.find(hostId, sessionName, resolvedPaneId);
+    if (binding) {
+      const entity = store.getSession(binding.sessionId);
+      if (entity && entity.lifecycle !== "ended") {
+        reuseSessionId = binding.sessionId;
+      }
+    }
+  }
+
+  const backendSid = await unwrapCommand(
+    commands.sshTmuxAttachSession(hostId, sessionName, cols, rows, resolvedPaneId),
+  ).catch((err) => {
+    throw new Error(formatIpcError(err));
+  });
+
+  let tabId: string;
+  if (reuseSessionId) {
+    tabId = store.openSessionTab(reuseSessionId);
+    store.setSessionTmuxSession(reuseSessionId, sessionName);
+    if (resolvedPaneId != null) {
+      store.setSessionTmuxPaneId(reuseSessionId, resolvedPaneId);
+    }
+    store.renameSession(reuseSessionId, title);
+  } else {
+    tabId = store.addSshTerminalTab(
+      hostId,
+      title,
+      undefined,
+      sessionName,
+      resolvedPaneId,
+    );
+  }
+
+  // addTab / openSessionTab 的 backendSessionId 可能来自旧 detachedRuntime，统一覆盖为本次 attach
+  store.setBackendSessionId(tabId, backendSid);
+  store.setActiveTab(tabId);
+
+  if (resolvedPaneId != null) {
+    upsertTmuxPaneSessionBinding(hostId, sessionName, resolvedPaneId, tabId);
+  }
+
+  void useTerminalHistoryStore.getState().restoreSession(tabId);
+
+  useWorkspaceStore.getState().selectResource(hostId);
+  navigateToPath(MODULE_PATHS.terminal);
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-terminal-focus-tab", { detail: { tabId } }),
+  );
+  return tabId;
+}
+
+/** 在指定 session 下强制新建一个 window（不复用 pane 绑定） */
+export async function attachTmuxSessionNewWindow(
   hostId: string,
   sessionName: string,
   cols = 80,
@@ -68,9 +142,7 @@ export async function attachTmuxSession(
     throw new Error(formatIpcError(err));
   });
 
-  const tabId = store.addSshTerminalTab(hostId, title, undefined, sessionName);
-  // addTab 总是把 backendSessionId 置空（runtime 未注入），这里显式回填，
-  // 让 useTerminal 的 ensureBackendSession 走 reusableSid 分支而非重新建连。
+  const tabId = store.addSshTerminalTab(hostId, title, undefined, sessionName, null);
   store.setBackendSessionId(tabId, backendSid);
   store.setActiveTab(tabId);
   useWorkspaceStore.getState().selectResource(hostId);

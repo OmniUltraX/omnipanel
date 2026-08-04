@@ -1,6 +1,11 @@
 import type { McpEnvEntry, McpTransportKind, UpsertMcpServiceInput } from "../../ipc/bindings";
+import {
+  isBuiltinOmniMcpUrl,
+  OMNIMCP_BUILTIN_MCP_URL,
+} from "../ai/localServicePorts";
 
-export const BUILTIN_OMNIMCP_URL = "http://127.0.0.1:12756/mcp";
+export const BUILTIN_OMNIMCP_URL = OMNIMCP_BUILTIN_MCP_URL;
+export { isBuiltinOmniMcpUrl };
 
 export interface ParsedMcpServerConfig {
   /** mcpServers 中的键名 */
@@ -138,11 +143,6 @@ export function parseMcpConfigJson(text: string): ParsedMcpServerConfig[] {
   }
 
   return servers;
-}
-
-export function isBuiltinOmniMcpUrl(url: string | undefined): boolean {
-  if (!url) return false;
-  return url.replace(/\/$/, "") === BUILTIN_OMNIMCP_URL.replace(/\/$/, "");
 }
 
 export function toUpsertMcpServiceInput(server: ParsedMcpServerConfig): UpsertMcpServiceInput {

@@ -21,8 +21,9 @@ pub mod session;
 
 pub use commands::{
     control_mode_command, is_omnipanel_session, kill_session_shell, list_sessions_shell,
-    parse_session_line, sanitize_session_name, session_name_for_workspace, version_probe_command,
-    TmuxSessionInfo, DEFAULT_HISTORY_LIMIT, SESSION_PREFIX,
+    list_windows_shell, parse_session_line, parse_window_info_line, sanitize_session_name,
+    session_name_for_workspace, version_probe_command, TmuxSessionInfo, TmuxWindowInfo,
+    DEFAULT_HISTORY_LIMIT, SESSION_PREFIX,
 };
 pub use controller::{ControllerEvent, TmuxController};
 pub use line::LineAssembler;

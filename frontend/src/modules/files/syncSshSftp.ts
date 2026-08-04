@@ -1,4 +1,5 @@
 import type { Connection } from "../../ipc/bindings";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 import { saveFileConnection } from "./fileApi";
 
@@ -31,6 +32,14 @@ function linkedSshId(conn: Connection): string | null {
   return id || null;
 }
 
+/** 按 sshConnectionId 查找已关联的 SFTP 文件连接。 */
+export function findSftpForSsh(
+  connections: Connection[],
+  sshId: string,
+): Connection | undefined {
+  return connections.find((c) => linkedSshId(c) === sshId);
+}
+
 function buildSftpFromSsh(ssh: Connection): Connection {
   const now = Math.floor(Date.now() / 1000);
   return {
@@ -48,6 +57,28 @@ function buildSftpFromSsh(ssh: Connection): Connection {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/**
+ * 确保 SSH 主机存在关联 SFTP 连接：已有则返回其 id，缺失则按 SSH 配置自动创建。
+ */
+export async function ensureSftpForSsh(sshId: string): Promise<string> {
+  const store = useConnectionStore.getState();
+  let existing = findSftpForSsh(store.connections, sshId);
+  if (existing) return existing.id;
+
+  const ssh = store.connections.find((c) => c.id === sshId && c.kind === "ssh");
+  if (!ssh) {
+    throw new Error(`SSH connection not found: ${sshId}`);
+  }
+
+  await saveFileConnection(buildSftpFromSsh(ssh), null);
+  await store.refresh();
+  existing = findSftpForSsh(useConnectionStore.getState().connections, sshId);
+  if (!existing) {
+    throw new Error(`Failed to create SFTP connection for SSH: ${sshId}`);
+  }
+  return existing.id;
 }
 
 /**

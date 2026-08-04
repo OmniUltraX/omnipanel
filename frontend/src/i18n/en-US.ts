@@ -3228,7 +3228,7 @@ export const enUS: TranslationDict = {
     },
     tmuxSessions: {
       intro:
-        "Remote tmux sessions keep running after you quit OmniPanel. Review and clean up sessions you no longer need, including ones OmniPanel did not create.",
+        "Remote tmux sessions keep running after you quit OmniPanel. Review and clean up sessions you no longer need, including ones OmniPanel did not create. Expand the window count to restore individual windows.",
       empty: "No tmux sessions on this host",
       name: "Session",
       windows: "Windows",
@@ -3252,6 +3252,14 @@ export const enUS: TranslationDict = {
         "This is a production host. The action cannot be undone and affects anyone else attached to the session.",
       killDone: "Killed session {name}",
       enterFailed: "Failed to enter session",
+      expandWindows: "Expand window list",
+      windowsEmpty: "No windows in this session",
+      windowLinked: "Open",
+      windowHasHistory: "Has local history",
+      windowOrphan: "Restorable",
+      enterWindow: "Enter",
+      restoreWindow: "Restore",
+      newWindow: "New window",
     },
     toolCapabilities: {
       intro:
@@ -4990,14 +4998,15 @@ export const enUS: TranslationDict = {
     },
     aiServices: {
       title: "Services",
-      desc: "Independent configuration for Agent Router (:8765) and OmniMCP (:12756)",
+      desc: "Independent Agent Router and OmniMCP settings (dev defaults :8766 / :12757, release :8765 / :12756)",
       tabRouter: "Agent Router",
       tabOmniMcp: "OmniMCP",
       tabTraces: "Trace Analysis",
       router: {
         enabled: "Enable Agent Router",
-        enabledDesc: "Start a local OpenAI-compatible gateway on 127.0.0.1:8765 by default",
+        enabledDesc: "Start a local OpenAI-compatible gateway (dev default :8766, release :8765)",
         port: "Port",
+        devPortRemapHint: "Dev build listens on :{listen} to avoid conflicting with release",
         apiKey: "API Key (optional)",
         apiKeyPlaceholder: "Leave empty to skip auth",
         bindLan: "Bind LAN",

@@ -7,6 +7,10 @@ import { TERMINAL_MODULE_TOOLS } from "../../../modules/terminal/ai/mcpTools";
 import { KNOWLEDGE_MODULE_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
 import { SSH_MODULE_TOOLS } from "../../../modules/server/ssh/ai/mcpTools";
 import { WORKSPACE_MODULE_TOOLS } from "../../../modules/workspace/ai/mcpTools";
+import {
+  OMNIMCP_BUILTIN_MCP_PORT,
+  OMNIMCP_BUILTIN_MCP_URL,
+} from "../localServicePorts";
 import type { BuiltinToolRegistration } from "./types";
 
 /** 内置工具目录模块键（含无前端路由的 web 模块） */
@@ -14,9 +18,8 @@ type BuiltinCatalogModuleKey = ModuleKey | "web";
 
 /** 与 Rust `BUILTIN_SERVICE_ID` 保持一致 */
 export const OMNIMCP_BUILTIN_SERVICE_ID = "omnimcp-builtin";
-/** 内置 OmniMCP HTTP 固定端口，与 Rust `BUILTIN_MCP_PORT` 一致 */
-export const OMNIMCP_BUILTIN_MCP_PORT = 12756;
-export const OMNIMCP_BUILTIN_MCP_URL = `http://127.0.0.1:${OMNIMCP_BUILTIN_MCP_PORT}/mcp`;
+/** 内置 OmniMCP HTTP 端口 / URL，与 Rust `BUILTIN_MCP_PORT` 一致（dev/release 不同） */
+export { OMNIMCP_BUILTIN_MCP_PORT, OMNIMCP_BUILTIN_MCP_URL };
 
 const MODULE_BUILTIN_CATALOG: Partial<Record<BuiltinCatalogModuleKey, BuiltinToolRegistration[]>> = {
   database: DATABASE_MODULE_TOOLS,

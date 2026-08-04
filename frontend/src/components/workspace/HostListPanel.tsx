@@ -38,16 +38,15 @@ import {
   parsePanelConfig,
 } from "../../modules/server/panel/serverConnection";
 import { BrandIconImg, resolvePanelBrandIcon } from "../../modules/server/brandIcons";
+import {
+  jumpSshDocker,
+  jumpSshPanel,
+  jumpSshSftp,
+  jumpSshTerminal,
+  sshHasPanel,
+} from "../../modules/server/ssh/sshHostQuickJumps";
 import { SSH_PATH } from "../../modules/server/ssh/constants";
 import type { Connection } from "../../ipc/bindings";
-
-const HOST_ICON = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="2" y="2" width="20" height="8" rx="2" />
-    <rect x="2" y="14" width="20" height="8" rx="2" />
-    <circle cx="6" cy="6" r="1" fill="currentColor" />
-  </svg>
-);
 
 interface HostListPanelProps {
   resources: WorkspaceResource[];
@@ -78,9 +77,13 @@ function HostPanelBadge({ sshId }: { sshId: string }) {
     serviceType === "1panel"
       ? t("server.serviceType.1panel")
       : t("server.serviceType.bt");
+  const typeClass = serviceType === "bt" ? "bt" : "onepanel";
   return (
-    <span className="host-panel-badge" title={t("server.hostList.panelConfigured")}>
-      {brand ? <BrandIconImg kind={brand} size={12} className="host-panel-badge-icon" /> : null}
+    <span
+      className={`resource-tag host-panel-tag host-panel-tag--${typeClass}`}
+      title={t("server.hostList.panelConfigured")}
+    >
+      {brand ? <BrandIconImg kind={brand} size={11} className="host-panel-tag-icon" /> : null}
       {label}
     </span>
   );
@@ -584,9 +587,45 @@ export function HostListPanel({
   const buildHostCtxItems = (host: WorkspaceResource): ContextMenuItem[] => {
     const currentGroup = normalizeSshGroup(host.group);
     const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== currentGroup);
+    const hasPanel = sshHasPanel(host.id);
     const items: ContextMenuItem[] = [
       { id: "host-connect", label: t("ssh.context.connect"), onClick: () => handleConnect("preview") },
       { id: "host-open-workspace", label: t("ssh.context.openInWorkspace"), onClick: () => handleConnect("permanent") },
+      { id: "host-sep-jump", separator: true, label: "" },
+      {
+        id: "host-open-terminal",
+        label: t("ssh.actions.openTerminal"),
+        onClick: () => {
+          setListCtxMenu(null);
+          jumpSshTerminal(host.id, host.name);
+        },
+      },
+      {
+        id: "host-open-sftp",
+        label: t("ssh.actions.openSftp"),
+        onClick: () => {
+          setListCtxMenu(null);
+          jumpSshSftp(host.id, { hostName: host.name, navigate });
+        },
+      },
+      {
+        id: "host-open-docker",
+        label: t("ssh.quickActions.docker"),
+        onClick: () => {
+          setListCtxMenu(null);
+          void jumpSshDocker(host.id, t("ssh.quickActions.dockerMissing"));
+        },
+      },
+      {
+        id: "host-open-panel",
+        label: t("ssh.quickActions.panel"),
+        disabled: !hasPanel,
+        disabledReason: hasPanel ? undefined : t("ssh.quickActions.panelMissing"),
+        onClick: () => {
+          setListCtxMenu(null);
+          jumpSshPanel(host.id, t("ssh.quickActions.panelMissing"));
+        },
+      },
       { id: "host-sep-1", separator: true, label: "" },
       { id: "host-edit", label: t("ssh.dialog.edit"), onClick: handleEdit },
       { id: "host-duplicate", label: t("ssh.context.duplicate"), onClick: handleDuplicateHost },
@@ -723,19 +762,18 @@ export function HostListPanel({
                       onDoubleClick={() => handleHostDoubleClick(host)}
                     >
                       <HostStatusIndicator resourceId={host.id} />
-                      <div className="host-icon">{HOST_ICON}</div>
                       <div className="host-info">
                         <div className="host-row-1">
                           <span className="host-name">{host.name}</span>
                           <div className="host-row-1-meta">
                             <HostResourceTags resourceId={host.id} />
+                            <HostPanelBadge sshId={host.id} />
                             <HostMonitoringBadge resourceId={host.id} />
                           </div>
                         </div>
                         <div className="host-row-2">{host.subtitle}</div>
                       </div>
                     </button>
-                    <HostPanelBadge sshId={host.id} />
                   </div>
                 ))}
               </HostGroupSection>

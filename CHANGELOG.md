@@ -2,6 +2,34 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.3] - 2026-08-04
+
+### 新增
+
+- **SSH · tmux 会话树**：窗口列表展开、按 pane 恢复终端；`ssh_tmux_list_windows`；pane↔sessionId 映射以续接 Blocks / 历史 / AI
+- **主机列表**：SSH 主机快捷跳转入口增强
+
+### 修复
+
+- **终端 · WSL 文件侧栏**：本地 WSL 会话误显示 Windows 家目录；cwd 映射到 `\\wsl$\发行版\...` 并跟随切换；忽略切 shell 残留的盘符路径
+- **终端 · 空目录 ls**：空目录命令回显不再被解析成伪目录项 `ls/`
+- **终端 · 会话**：远程会话在 connections 未加载时被误清；会话 ID 复用导致灌入旧历史
+- **终端 · AI 卡片**：浅色模式下卡片阴影与上下导航按钮配色过重/发黑
+
+### 变更
+
+- 本地文件面板支持 UNC（`\\wsl$`）面包屑与路径上一级；文件侧栏随本地终端 cwd 导航
+
+## [0.7.2] - 2026-08-04
+
+### 新增
+
+- **开发 / 正式并存**：Agent Router / 内置 OmniMCP 默认端口错开（8766 / 12757 vs 8765 / 12756），避免 Dev 与正式版抢端口
+
+### 变更
+
+- **发版 CI**：修正 rust-cache 指向仓库根 `target/`；接入 sccache；`workflow_dispatch` 可只构建 Windows；release 显式关闭 LTO 并 strip 符号
+
 ## [0.7.1] - 2026-08-04
 
 ### 修复

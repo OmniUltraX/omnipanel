@@ -465,7 +465,7 @@ export const useSettingsStore = create<SettingsState>()(
       aiScenarioAssistantModelSelectionId: null,
       aiScenarioTerminalModelSelectionId: null,
       aiGatewayEnabled: true,
-      aiGatewayPort: 8765,
+      aiGatewayPort: import.meta.env.DEV ? 8766 : 8765,
       aiGatewayApiKey: "",
       aiGatewayBindLan: false,
       mcpExternalRequireApproval: true,

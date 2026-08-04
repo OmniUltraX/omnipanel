@@ -1444,7 +1444,7 @@ pub async fn audit_log_append(
 }
 
 /// 应用前端 Agent Router（Gateway）配置：停旧实例并按开关/端口/Key/LAN 重启。
-/// 前端在启动时与设置变更时调用，使 :8765 相关设置真正生效。
+/// 前端在启动时与设置变更时调用；开发构建会将正式版默认端口错开到 :8766。
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_gateway_configure(
@@ -1470,7 +1470,7 @@ pub async fn ai_gateway_configure(
     }
 
     let host = if bind_lan { "0.0.0.0" } else { "127.0.0.1" };
-    let port = if port == 0 { 8765 } else { port };
+    let port = omnipanel_gateway::resolve_gateway_port(port);
     let bind = format!("{host}:{port}");
 
     // Build the ACP resolver so the gateway can serve CLI backends
@@ -1512,7 +1512,7 @@ pub async fn ai_services_probe(enabled: bool, port: u16) -> Result<AiServicesHea
         .build()
         .map_err(|e| e.to_string())?;
 
-    let port = if port == 0 { 8765 } else { port };
+    let port = omnipanel_gateway::resolve_gateway_port(port);
     let gateway = if enabled {
         let url = format!("http://127.0.0.1:{port}/gateway/healthz");
         client
@@ -1527,7 +1527,7 @@ pub async fn ai_services_probe(enabled: bool, port: u16) -> Result<AiServicesHea
 
     // GET /mcp 可能返回 4xx，但只要 TCP/HTTP 有响应即表示 OmniMCP 在监听。
     let mcp = client
-        .get("http://127.0.0.1:12756/mcp")
+        .get(omnipanel_mcp::builtin_mcp_endpoint())
         .send()
         .await
         .is_ok();

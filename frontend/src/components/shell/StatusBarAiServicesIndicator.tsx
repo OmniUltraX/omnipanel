@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import {
+  OMNIMCP_BUILTIN_MCP_PORT,
+  OMNIMCP_BUILTIN_MCP_URL,
+  resolveGatewayListenPort,
+} from "../../lib/ai/localServicePorts";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { useSettingsStore } from "../../stores/settingsStore";
 
@@ -15,13 +20,13 @@ async function probeViaTauri(enabled: boolean, port: number): Promise<AiServices
 
 async function probeViaFetch(enabled: boolean, port: number): Promise<AiServicesHealth> {
   const gateway = enabled
-    ? await fetch(`http://127.0.0.1:${port || 8765}/gateway/healthz`)
+    ? await fetch(`http://127.0.0.1:${port}/gateway/healthz`)
         .then((response) => response.ok)
         .catch(() => false)
     : false;
 
   // OmniMCP /mcp 是 POST 端点：任何响应（含 4xx/405）都说明服务在监听。
-  const mcp = await fetch("http://127.0.0.1:12756/mcp", { method: "GET" })
+  const mcp = await fetch(OMNIMCP_BUILTIN_MCP_URL, { method: "GET" })
     .then(() => true)
     .catch(() => false);
 
@@ -30,16 +35,17 @@ async function probeViaFetch(enabled: boolean, port: number): Promise<AiServices
 
 /** 状态栏 Agent Router / OmniMCP 指示点 */
 export function StatusBarAiServicesIndicator() {
-  const port = useSettingsStore((s) => s.aiGatewayPort);
+  const configuredPort = useSettingsStore((s) => s.aiGatewayPort);
   const enabled = useSettingsStore((s) => s.aiGatewayEnabled);
+  const port = resolveGatewayListenPort(configuredPort);
   const [routerOk, setRouterOk] = useState(false);
   const [mcpOk, setMcpOk] = useState(false);
 
   useEffect(() => {
     const check = () => {
       const probe = isTauriRuntime()
-        ? probeViaTauri(enabled, port || 8765)
-        : probeViaFetch(enabled, port || 8765);
+        ? probeViaTauri(enabled, port)
+        : probeViaFetch(enabled, port);
 
       void probe
         .then((health) => {
@@ -61,13 +67,13 @@ export function StatusBarAiServicesIndicator() {
       <span
         className="statusbar-dot"
         data-level={enabled && routerOk ? "ok" : "off"}
-        title={`Agent Router ${enabled && routerOk ? "运行中" : "未就绪"} (:${port || 8765})`}
+        title={`Agent Router ${enabled && routerOk ? "运行中" : "未就绪"} (:${port})`}
         aria-hidden
       />
       <span
         className="statusbar-dot"
         data-level={mcpOk ? "ok" : "off"}
-        title={`OmniMCP ${mcpOk ? "运行中" : "未就绪"} (:12756)`}
+        title={`OmniMCP ${mcpOk ? "运行中" : "未就绪"} (:${OMNIMCP_BUILTIN_MCP_PORT})`}
         aria-hidden
       />
     </>

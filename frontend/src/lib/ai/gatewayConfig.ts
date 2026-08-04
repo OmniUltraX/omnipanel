@@ -1,6 +1,7 @@
 import { commands } from "../../ipc/bindings";
 import { isTauriRuntime } from "../isTauriRuntime";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { resolveGatewayListenPort } from "./localServicePorts";
 
 let lastKey = "";
 let applying = false;
@@ -9,14 +10,15 @@ let applying = false;
 async function apply(): Promise<void> {
   if (!isTauriRuntime() || applying) return;
   const s = useSettingsStore.getState();
-  const key = `${s.aiGatewayEnabled}|${s.aiGatewayPort}|${s.aiGatewayApiKey}|${s.aiGatewayBindLan}|${s.mcpExternalRequireApproval}`;
+  const listenPort = resolveGatewayListenPort(s.aiGatewayPort);
+  const key = `${s.aiGatewayEnabled}|${listenPort}|${s.aiGatewayApiKey}|${s.aiGatewayBindLan}|${s.mcpExternalRequireApproval}`;
   if (key === lastKey) return;
   lastKey = key;
   applying = true;
   try {
     await commands.aiGatewayConfigure(
       s.aiGatewayEnabled,
-      s.aiGatewayPort || 8765,
+      listenPort,
       s.aiGatewayApiKey.trim() ? s.aiGatewayApiKey.trim() : null,
       s.aiGatewayBindLan,
       s.mcpExternalRequireApproval,
