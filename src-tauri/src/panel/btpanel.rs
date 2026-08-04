@@ -499,9 +499,12 @@ pub async fn fetch_docker_app_icon(
     let entrance = resolve_security_entrance(host, api_sk).await;
 
     for static_rel in &static_rels {
-        // 1) 带安全入口的静态路径（与浏览器访问一致）
-        if let Some(ref ent) = entrance {
-            let path = format!("{ent}{static_rel}");
+        // 先带安全入口，再直取 /static（地址本身已含入口或未开启入口时）
+        let candidates: Vec<String> = match &entrance {
+            Some(ent) => vec![format!("{ent}{static_rel}"), static_rel.clone()],
+            None => vec![static_rel.clone()],
+        };
+        for path in candidates {
             match fetch_static_bytes(host, &path).await {
                 Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {
                     Ok(url) => return Ok(url),
@@ -510,18 +513,9 @@ pub async fn fetch_docker_app_icon(
                 Err(err) => last_err = err,
             }
         }
-
-        // 2) 地址本身已含入口，或未开启入口时直取 /static
-        match fetch_static_bytes(host, static_rel).await {
-            Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {
-                Ok(url) => return Ok(url),
-                Err(err) => last_err = err,
-            },
-            Err(err) => last_err = err,
-        }
     }
 
-    // 3) 鉴权下载磁盘上的图标文件
+    // 鉴权下载磁盘上的图标文件
     for path in disk_paths {
         match download_file_bytes(host, api_sk, &path).await {
             Ok((ct, bytes)) => match bytes_to_image_data_url(&ct, &bytes) {

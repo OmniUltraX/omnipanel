@@ -63,7 +63,7 @@ export async function attachTmuxSession(
   const title = host?.name ? `${host.name} · ${sessionName}` : sessionName;
 
   const backendSid = await unwrapCommand(
-    commands.sshTmuxAttachSession(hostId, sessionName, cols, rows),
+    commands.sshTmuxAttachSession(hostId, sessionName, cols, rows, null),
   ).catch((err) => {
     throw new Error(formatIpcError(err));
   });

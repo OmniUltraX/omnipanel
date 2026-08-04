@@ -31,7 +31,9 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "logs",
 ]);
 
-function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is BrandIconKind {
+type SegmentBrandIconKind = Extract<BrandIconKind, SegmentTabIconKind>;
+
+function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is SegmentBrandIconKind {
   return icon === "bt" || icon === "1panel" || icon === "aliyun";
 }
 

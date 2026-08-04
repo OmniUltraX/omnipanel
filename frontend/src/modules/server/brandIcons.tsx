@@ -6,6 +6,9 @@ import dockerIcon from "../../assets/icons/docker.svg";
 /** 第三方 / 面板品牌图标（侧栏树、引擎选择等复用）。 */
 export type BrandIconKind = "bt" | "1panel" | "aliyun" | "docker";
 
+/** 面板侧栏 / Dock 用的品牌子集（不含 docker）。 */
+export type PanelBrandIconKind = Exclude<BrandIconKind, "docker">;
+
 const BRAND_ICONS: Record<BrandIconKind, string> = {
   bt: baotaIcon,
   "1panel": onePanelIcon,
@@ -19,7 +22,7 @@ export function getBrandIcon(kind: BrandIconKind): string {
 
 export function resolvePanelBrandIcon(
   serviceType: string | null | undefined,
-): BrandIconKind | null {
+): PanelBrandIconKind | null {
   const raw = (serviceType ?? "").trim().toLowerCase();
   if (raw === "bt" || raw === "baota") return "bt";
   if (raw === "1panel" || raw === "onepanel") return "1panel";

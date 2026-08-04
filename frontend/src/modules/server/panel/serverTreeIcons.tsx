@@ -25,7 +25,9 @@ export type ServerTreeIconKind =
   | "cronjobs"
   | "website";
 
-function isBrandKind(kind: ServerTreeIconKind): kind is BrandIconKind {
+type ServerTreeBrandIconKind = Extract<BrandIconKind, ServerTreeIconKind>;
+
+function isBrandKind(kind: ServerTreeIconKind): kind is ServerTreeBrandIconKind {
   return kind === "bt" || kind === "1panel" || kind === "aliyun";
 }
 

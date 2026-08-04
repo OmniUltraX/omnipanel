@@ -67,7 +67,7 @@ function isAuthFailure(error: { code?: string; message?: string } | null | undef
 async function probeSshConnection(
   connectionId: string,
 ): Promise<{ ok: true } | { ok: false; authFailed: boolean }> {
-  const res = await commands.sshConnectConnection(connectionId, 80, 24);
+  const res = await commands.sshConnectConnection(connectionId, 80, 24, null);
   if (res.status === "ok") {
     void commands.sshDisconnect(res.data);
     return { ok: true };

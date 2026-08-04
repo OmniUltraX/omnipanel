@@ -15,8 +15,8 @@ type Props = {
   activeResource: WorkspaceResource | null;
 };
 
-function formatCreated(seconds: number): string {
-  if (!seconds) return "—";
+function formatCreated(seconds: number | null): string {
+  if (seconds == null || !seconds) return "—";
   return new Date(seconds * 1000).toLocaleString();
 }
 

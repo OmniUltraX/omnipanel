@@ -264,7 +264,7 @@ export async function ensureSshReady(sshConnectionId: string): Promise<boolean> 
   }
 
   try {
-    const res = await commands.sshConnectConnection(sshConnectionId, 80, 24);
+    const res = await commands.sshConnectConnection(sshConnectionId, 80, 24, null);
     if (res.status === "ok") {
       return true;
     }

@@ -11,6 +11,7 @@ import {
   type BtDirListResult,
   type BtDiskInfo,
   type BtFileBodyResult,
+  type BtApp,
   type BtAppsParams,
   type BtAppsResult,
   type BtCreateAppParams,

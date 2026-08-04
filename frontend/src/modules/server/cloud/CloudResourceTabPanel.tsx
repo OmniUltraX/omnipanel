@@ -186,7 +186,17 @@ export function CloudResourceTabPanel({ account, region, tab, active }: CloudRes
       }
       setBusyId(row.id);
       try {
-        const saved = await addCloudInstanceToSsh(account, kind, row, saveConn);
+        const saved = await addCloudInstanceToSsh(
+          account,
+          kind,
+          {
+            id: row.id,
+            name: row.name || row.id,
+            publicIp: row.publicIp,
+            privateIp: row.privateIp,
+          },
+          saveConn,
+        );
         showToast(t("server.cloud.actions.addedSsh", { name: saved.name }));
       } catch (err) {
         const msg = String(err);
@@ -211,7 +221,12 @@ export function CloudResourceTabPanel({ account, region, tab, active }: CloudRes
       }
       setBusyId(row.id);
       try {
-        const saved = await addCloudOssToFile(account, cloudConnection, row);
+        const saved = await addCloudOssToFile(account, cloudConnection, {
+          id: row.id,
+          name: row.name || row.id,
+          region: row.region,
+          endpoint: row.endpoint,
+        });
         // 刷新 connection store，使侧栏/匹配立刻可见
         useConnectionStore.setState((s) => {
           const idx = s.connections.findIndex((c) => c.id === saved.id);

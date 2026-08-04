@@ -239,7 +239,7 @@ export async function syncPanelsFromSshConnections(options: {
             ssh.group || "默认",
             ssh.id,
             linkedSameType?.id,
-            linkedSameType?.createdAt,
+            linkedSameType?.createdAt ?? undefined,
           );
 
           const saved = await saveConn(draft);

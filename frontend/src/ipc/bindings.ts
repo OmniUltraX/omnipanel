@@ -3466,17 +3466,15 @@ export type KnowledgeTodoItem = KnowledgeTodoItem_Serialize | KnowledgeTodoItem_
 /**  待办列表中的单项。 */
 export type KnowledgeTodoItem_Deserialize = {
 	id: string,
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	name?: string,
+	/**  待办项名称旧字段，等同 name。 */
+	text?: string,
 	/**  执行者。 */
 	executor?: string,
 	/**  任务描述与细节。 */
 	description?: string,
 	done: boolean,
-} & {
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
-	name?: string,
-} | {
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
-	text?: string,
 };
 
 /**  待办列表中的单项。 */
