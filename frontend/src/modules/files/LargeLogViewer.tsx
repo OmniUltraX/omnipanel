@@ -517,8 +517,9 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
           if (sorted.length > 0) {
             // 反搜：定位到本批最靠后的命中；正搜：定位到第一条
             const focus = reverse ? sorted[sorted.length - 1]! : sorted[0]!;
-            setActiveHitLine(focus.lineNo);
-            jumpToLineRef.current(focus.lineNo ?? 0);
+            const focusLine = focus.lineNo ?? 0;
+            setActiveHitLine(focusLine > 0 ? focusLine : null);
+            if (focusLine > 0) jumpToLineRef.current(focusLine);
           } else {
             setActiveHitLine(null);
             setError("无匹配结果");
@@ -541,8 +542,9 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
         const batchAsc = sortHitsAsc(hits);
         const next =
           mode === "continueDown" ? batchAsc[0]! : batchAsc[batchAsc.length - 1]!;
-        setActiveHitLine(next.lineNo);
-        jumpToLineRef.current(next.lineNo ?? 0);
+        const nextLine = next.lineNo ?? 0;
+        setActiveHitLine(nextLine > 0 ? nextLine : null);
+        if (nextLine > 0) jumpToLineRef.current(nextLine);
       } catch (e) {
         setError(fmtError(e));
       } finally {
@@ -568,13 +570,15 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
     if (!searchPattern.trim()) return;
     if (searchResults.length > 0 && activeHitLine != null) {
       const older = searchResults
-        .filter((h) => h.lineNo < activeHitLine)
-        .sort((a, b) => b.lineNo - a.lineNo);
+        .filter((h) => (h.lineNo ?? -1) < activeHitLine)
+        .sort((a, b) => (b.lineNo ?? 0) - (a.lineNo ?? 0));
       if (older.length > 0) {
-        const next = older[0]!;
-        setActiveHitLine(next.lineNo);
-        jumpToLineRef.current(next.lineNo);
-        return;
+        const nextLine = older[0]!.lineNo ?? 0;
+        if (nextLine > 0) {
+          setActiveHitLine(nextLine);
+          jumpToLineRef.current(nextLine);
+          return;
+        }
       }
     }
     if (searchExhausted && searchResults.length > 0) {
@@ -589,13 +593,15 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
     if (!searchPattern.trim()) return;
     if (searchResults.length > 0 && activeHitLine != null) {
       const newer = searchResults
-        .filter((h) => h.lineNo > activeHitLine)
-        .sort((a, b) => a.lineNo - b.lineNo);
+        .filter((h) => (h.lineNo ?? Number.POSITIVE_INFINITY) > activeHitLine)
+        .sort((a, b) => (a.lineNo ?? 0) - (b.lineNo ?? 0));
       if (newer.length > 0) {
-        const next = newer[0]!;
-        setActiveHitLine(next.lineNo);
-        jumpToLineRef.current(next.lineNo);
-        return;
+        const nextLine = newer[0]!.lineNo ?? 0;
+        if (nextLine > 0) {
+          setActiveHitLine(nextLine);
+          jumpToLineRef.current(nextLine);
+          return;
+        }
       }
     }
     if (searchExhausted && searchResults.length > 0 && !searchReverse) {

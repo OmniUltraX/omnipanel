@@ -3617,6 +3617,8 @@ export type LogSearchOptions = {
 	beforeLine: number | null,
 	/**  仅搜该行之后（向下续搜） */
 	afterLine: number | null,
+	/**  反搜从 EOF 起步时，把 tac 相对行号还原为真实行号 */
+	totalLinesHint: number | null,
 	/**  从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页 */
 	skipMatches: number | null,
 };
