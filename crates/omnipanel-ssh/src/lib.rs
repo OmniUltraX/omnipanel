@@ -1201,7 +1201,12 @@ impl SshSession {
     }
 
     /// 上传内容到远端文件（覆盖）。
+    ///
+    /// 使用 `create`（CREATE|TRUNCATE|WRITE），而非 `write`（仅 WRITE）：
+    /// russh-sftp 的 `write` 不会创建不存在的文件，新文件会报 `No such file`。
     pub async fn sftp_upload(&self, path: &str, data: &[u8]) -> OmniResult<()> {
+        use tokio::io::AsyncWriteExt;
+
         let _exec_permit = self
             .exec_gate
             .clone()
@@ -1209,9 +1214,16 @@ impl SshSession {
             .await
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
         let sftp = self.open_sftp_inner().await?;
-        sftp.write(path, data)
-            .await
-            .map_err(|e| OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string()))
+        let mut file = sftp.create(path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string())
+        })?;
+        file.write_all(data).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string())
+        })?;
+        file.flush().await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "刷新远端文件失败").with_cause(e.to_string())
+        })?;
+        Ok(())
     }
 
     /// 将本地文件流式上传到远端（分块拷贝，避免整文件进内存）。

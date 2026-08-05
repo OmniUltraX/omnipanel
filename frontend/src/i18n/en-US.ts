@@ -1350,6 +1350,10 @@ export const enUS: TranslationDict = {
       deleteConfirm: "Delete \"{name}\"?",
       deleteS3FolderConfirm: "Delete folder \"{name}\" and all files inside? This cannot be undone.",
     },
+    drop: {
+      hint: "Drop files or folders here to upload (multiple allowed)",
+      noPath: "Could not read drop paths — use the upload button instead",
+    },
     transfers: {
       title: "Transfers",
       clear: "Clear completed",

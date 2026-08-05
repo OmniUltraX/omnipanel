@@ -21355,6 +21355,29 @@ button.omni-btn-tool[aria-pressed="true"] {
     display: flex;
     min-height: 0;
     overflow: hidden;
+    position: relative;
+}
+
+.fm-content-wrap--drag-over {
+    outline: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: -2px;
+}
+
+.fm-drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-4);
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-deeper));
+    border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+    pointer-events: none;
 }
 
 .fm-workspace-drop-zone {

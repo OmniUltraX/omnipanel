@@ -45,9 +45,13 @@ export function parseFilesDrag(dataTransfer: DataTransfer | null): FilesDragPayl
 }
 
 export function hasFilesDrag(dataTransfer: DataTransfer | null): boolean {
-  if (!dataTransfer) return Boolean(activePayload);
   if (activePayload) return true;
+  if (!dataTransfer) return false;
   const types = Array.from(dataTransfer.types ?? []);
+  // 系统拖放常带 Files + text/plain，不能把 text/plain 当成应用内拖拽
+  if (types.includes("Files")) {
+    return types.includes(FILES_DRAG_MIME);
+  }
   return types.includes(FILES_DRAG_MIME) || types.includes("text/plain");
 }
 

@@ -1346,6 +1346,10 @@ export const zhCN = {
       deleteConfirm: "确定删除「{name}」？",
       deleteS3FolderConfirm: "确定删除文件夹「{name}」及其中的所有文件？此操作不可恢复。",
     },
+    drop: {
+      hint: "拖放文件或文件夹到此处上传（支持多选）",
+      noPath: "无法读取拖放项路径，请改用上传按钮",
+    },
     transfers: {
       title: "传输",
       clear: "清除已完成",

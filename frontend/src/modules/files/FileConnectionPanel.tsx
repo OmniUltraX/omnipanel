@@ -7,7 +7,8 @@ import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import type { FileEntry, FileIndexStatus, FileLocalSystemInfo, FileManagerConnectionInfo } from "../../ipc/bindings";
+import { commands, type FileEntry, type FileIndexStatus, type FileLocalSystemInfo, type FileManagerConnectionInfo } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import type { FileIndexProgress } from "./fileApi";
 import {
   addTransfer,
@@ -16,7 +17,7 @@ import {
   ensureFileTransferListener,
   planFileTransfer,
 } from "../../stores/fileManagerStore";
-import { useFilesClipboardStore } from "../../stores/filesClipboardStore";
+import { useFilesClipboardStore, type FileClipboardItem } from "../../stores/filesClipboardStore";
 import {
   defaultFavoriteLabel,
   useFilesFavoritesStore,
@@ -31,6 +32,7 @@ import {
   takePendingFilesTabDrop,
   writeFilesDrag,
 } from "./filesDragTransfer";
+import { collectOsDropItems, hasOsFileDrag, type OsDropByteFile } from "./osFileDrop";
 import {
   IconDetailPanel,
   IconGridView,
@@ -56,7 +58,6 @@ import {
   renameRemote,
   searchFileIndex,
   searchS3Files,
-  uploadRemote,
 } from "./fileApi";
 import { mergeFileEntries } from "./mergeFileEntries";
 import { decodePreviewBytes, isTextPreviewFile } from "./filePreviewKind";
@@ -276,6 +277,8 @@ export function FileConnectionPanel({
   const [pathEditing, setPathEditing] = useState(false);
   const [pathInput, setPathInput] = useState("");
   const pathEditSkipCommitRef = useRef(false);
+  const [osDragOver, setOsDragOver] = useState(false);
+  const osDragDepthRef = useRef(0);
 
   const displayEntries = useMemo(() => {
     const q = search.trim();
@@ -638,27 +641,6 @@ export function FileConnectionPanel({
     };
   }, [selected, connId, filePreviewThresholdBytes]);
 
-  const handleUpload = useCallback(async () => {
-    const picked = await openFileDialog({ multiple: true });
-    if (!picked) return;
-    const files = Array.isArray(picked) ? picked : [picked];
-    for (const localPath of files) {
-      const name = localPath.split(/[/\\]/).pop() ?? localPath;
-      const remotePath = joinRemotePath(currentPath, name, protocol);
-      const xferId = addTransfer(name);
-      try {
-        updateTransfer(xferId, { progress: 10 });
-        const bytes = await readRemotePreview(LOCAL_CONNECTION_ID, localPath, 512 * 1024 * 1024);
-        updateTransfer(xferId, { progress: 50 });
-        await uploadRemote(connId, remotePath, bytes);
-        updateTransfer(xferId, { progress: 100, status: "done" });
-      } catch (e) {
-        updateTransfer(xferId, { status: "error", error: fmtError(e) });
-      }
-    }
-    void loadDir(currentPath);
-  }, [connId, currentPath, loadDir, protocol]);
-
   const handleDownload = useCallback(async (entry: FileEntry) => {
     if (entry.kind === "dir") return;
     const savePath = await saveFileDialog({ defaultPath: entry.name });
@@ -857,6 +839,105 @@ export function FileConnectionPanel({
     ],
   );
 
+  const currentDestDir = useCallback(() => {
+    return protocol === "local"
+      ? currentPath || quickPaths?.home || ""
+      : currentPath || "/";
+  }, [currentPath, protocol, quickPaths?.home]);
+
+  const handleUpload = useCallback(async () => {
+    const picked = await openFileDialog({ multiple: true });
+    if (!picked) return;
+    const files = Array.isArray(picked) ? picked : [picked];
+    if (files.length === 0) return;
+    const items: FileClipboardItem[] = files.map((localPath) => {
+      const name = localPath.split(/[/\\]/).pop() ?? localPath;
+      return {
+        connectionId: LOCAL_CONNECTION_ID,
+        path: localPath,
+        name,
+        kind: "file",
+        size: null,
+      };
+    });
+    try {
+      await enqueueClipboardLike(items, currentDestDir(), "copy");
+    } catch (e) {
+      showToast(fmtError(e));
+    }
+  }, [currentDestDir, enqueueClipboardLike]);
+
+  const uploadOsByteFiles = useCallback(
+    async (files: OsDropByteFile[], destDir: string) => {
+      if (files.length === 0) return;
+      await ensureFileTransferListener();
+      let pending = files;
+      const conflictPolicy = await resolveConflictPolicy(
+        pending.map((f) => f.relativePath.split("/").pop() || f.relativePath),
+      );
+      if (conflictPolicy === "skip") {
+        const existing = new Set(entries.map((e) => e.name));
+        pending = pending.filter((f) => {
+          const top = f.relativePath.split("/")[0] || f.relativePath;
+          return !existing.has(top);
+        });
+        if (pending.length === 0) return;
+      }
+      const policy = conflictPolicy === "skip" ? "rename" : conflictPolicy;
+      for (const item of pending) {
+        const parts = item.relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
+        if (parts.length === 0) continue;
+        let parentAcc = destDir;
+        for (let i = 0; i < parts.length - 1; i++) {
+          parentAcc = joinRemotePath(parentAcc, parts[i]!, protocol);
+          try {
+            await mkdirRemote(connId, parentAcc);
+          } catch {
+            /* 已存在 */
+          }
+        }
+        const remoteName = parts[parts.length - 1]!;
+        const remoteParent =
+          parts.length > 1
+            ? parts
+                .slice(0, -1)
+                .reduce((acc, part) => joinRemotePath(acc, part, protocol), destDir)
+            : destDir;
+        const buffer = await item.file.arrayBuffer();
+        const bytes = Array.from(new Uint8Array(buffer));
+        await unwrapCommand(
+          commands.fileTransferUploadLocalBytes(
+            remoteName,
+            bytes,
+            connId,
+            remoteParent,
+            policy,
+          ),
+        );
+      }
+      showToast(t("files.transfer.enqueued"));
+      window.setTimeout(() => void loadDir(currentPath), 800);
+    },
+    [connId, currentPath, entries, loadDir, protocol, resolveConflictPolicy, t],
+  );
+
+  const uploadOsDropToDir = useCallback(
+    async (dataTransfer: DataTransfer, destDir: string) => {
+      const { pathItems, byteFiles } = await collectOsDropItems(dataTransfer);
+      if (pathItems.length === 0 && byteFiles.length === 0) {
+        showToast(t("files.drop.noPath"));
+        return;
+      }
+      if (pathItems.length > 0) {
+        await enqueueClipboardLike(pathItems, destDir, "copy");
+      }
+      if (byteFiles.length > 0) {
+        await uploadOsByteFiles(byteFiles, destDir);
+      }
+    },
+    [enqueueClipboardLike, t, uploadOsByteFiles],
+  );
+
   const handleClipboardPaste = useCallback(async () => {
     if (clipboardItems.length === 0) return;
     try {
@@ -901,7 +982,8 @@ export function FileConnectionPanel({
   );
 
   const handleEntryDragOver = useCallback((e: React.DragEvent, entry: FileEntry) => {
-    if (!hasFilesDrag(e.dataTransfer)) return;
+    const dt = e.dataTransfer;
+    if (!hasFilesDrag(dt) && !hasOsFileDrag(dt)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
@@ -917,63 +999,105 @@ export function FileConnectionPanel({
   const handleEntryDrop = useCallback(
     async (e: React.DragEvent, entry: FileEntry) => {
       (e.currentTarget as HTMLElement).classList.remove("fm-drop-target");
-      if (!hasFilesDrag(e.dataTransfer)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const payload = parseFilesDrag(e.dataTransfer);
-      clearFilesDrag();
-      if (!payload?.items.length) return;
+      const dt = e.dataTransfer;
       const destDir =
-        entry.kind === "dir"
-          ? entry.path
-          : protocol === "local"
-            ? currentPath || quickPaths?.home || ""
-            : currentPath || "/";
-      // 拖到自身目录无效
-      if (
-        payload.connectionId === connId &&
-        payload.items.every((it) => {
-          const parent = it.path.replace(/[/\\][^/\\]+$/, "") || "/";
-          return parent === destDir || it.path === destDir;
-        })
-      ) {
+        entry.kind === "dir" ? entry.path : currentDestDir();
+
+      if (hasFilesDrag(dt)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const payload = parseFilesDrag(dt);
+        clearFilesDrag();
+        if (!payload?.items.length) return;
+        // 拖到自身目录无效
+        if (
+          payload.connectionId === connId &&
+          payload.items.every((it) => {
+            const parent = it.path.replace(/[/\\][^/\\]+$/, "") || "/";
+            return parent === destDir || it.path === destDir;
+          })
+        ) {
+          return;
+        }
+        try {
+          await enqueueClipboardLike(payload.items, destDir, "copy");
+        } catch (err) {
+          showToast(fmtError(err));
+        }
         return;
       }
+
+      if (!hasOsFileDrag(dt)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      osDragDepthRef.current = 0;
+      setOsDragOver(false);
       try {
-        await enqueueClipboardLike(payload.items, destDir, "copy");
+        await uploadOsDropToDir(dt, destDir);
       } catch (err) {
         showToast(fmtError(err));
       }
     },
-    [connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home],
+    [connId, currentDestDir, enqueueClipboardLike, uploadOsDropToDir],
   );
 
-  const handlePanelDragOver = useCallback((e: React.DragEvent) => {
-    if (!hasFilesDrag(e.dataTransfer)) return;
+  const handlePanelDragEnter = useCallback((e: React.DragEvent) => {
+    const dt = e.dataTransfer;
+    if (!hasOsFileDrag(dt) && !hasFilesDrag(dt)) return;
     e.preventDefault();
+    e.stopPropagation();
+    if (hasOsFileDrag(dt) && !hasFilesDrag(dt)) {
+      osDragDepthRef.current += 1;
+      setOsDragOver(true);
+    }
+  }, []);
+
+  const handlePanelDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    osDragDepthRef.current = Math.max(0, osDragDepthRef.current - 1);
+    if (osDragDepthRef.current === 0) setOsDragOver(false);
+  }, []);
+
+  const handlePanelDragOver = useCallback((e: React.DragEvent) => {
+    const dt = e.dataTransfer;
+    if (!hasFilesDrag(dt) && !hasOsFileDrag(dt)) return;
+    e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
   }, []);
 
   const handlePanelDrop = useCallback(
     async (e: React.DragEvent) => {
-      if (!hasFilesDrag(e.dataTransfer)) return;
+      const dt = e.dataTransfer;
+      osDragDepthRef.current = 0;
+      setOsDragOver(false);
+
+      if (hasFilesDrag(dt)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const payload = parseFilesDrag(dt);
+        clearFilesDrag();
+        if (!payload?.items.length) return;
+        if (payload.connectionId === connId) return;
+        try {
+          await enqueueClipboardLike(payload.items, currentDestDir(), "copy");
+        } catch (err) {
+          showToast(fmtError(err));
+        }
+        return;
+      }
+
+      if (!hasOsFileDrag(dt)) return;
       e.preventDefault();
       e.stopPropagation();
-      const payload = parseFilesDrag(e.dataTransfer);
-      clearFilesDrag();
-      if (!payload?.items.length) return;
-      if (payload.connectionId === connId) return;
-      const destDir =
-        protocol === "local"
-          ? currentPath || quickPaths?.home || ""
-          : currentPath || "/";
       try {
-        await enqueueClipboardLike(payload.items, destDir, "copy");
+        await uploadOsDropToDir(dt, currentDestDir());
       } catch (err) {
         showToast(fmtError(err));
       }
     },
-    [connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home],
+    [connId, currentDestDir, enqueueClipboardLike, uploadOsDropToDir],
   );
 
   useEffect(() => {
@@ -1521,12 +1645,19 @@ export function FileConnectionPanel({
         </div>
         {error && <div className="fm-error-banner">{error}</div>}
         {copyToast && <div className="fm-copy-toast">{copyToast}</div>}
-        <div className="fm-content-wrap">
-          <div
-            className="fm-content"
-            onDragOver={handlePanelDragOver}
-            onDrop={(e) => void handlePanelDrop(e)}
-          >
+        <div
+          className={`fm-content-wrap${osDragOver ? " fm-content-wrap--drag-over" : ""}`}
+          onDragEnter={handlePanelDragEnter}
+          onDragLeave={handlePanelDragLeave}
+          onDragOver={handlePanelDragOver}
+          onDrop={(e) => void handlePanelDrop(e)}
+        >
+          {osDragOver ? (
+            <div className="fm-drop-overlay" aria-hidden>
+              {t("files.drop.hint")}
+            </div>
+          ) : null}
+          <div className="fm-content">
             {loading || (search.trim() && searchLoading) ? (
               <ModuleEmptyState preset="folder" title={t("files.loading")} />
             ) : displayEntries.length === 0 ? (
