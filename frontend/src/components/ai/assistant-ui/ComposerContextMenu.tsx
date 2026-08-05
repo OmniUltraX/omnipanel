@@ -19,6 +19,7 @@ import {
 import { useI18n } from "../../../i18n";
 import type { ComposerContextItem } from "../../../stores/aiComposerContextStore";
 import { useAiComposerContextStore } from "../../../stores/aiComposerContextStore";
+import { useDbConnectionListStore } from "../../../stores/dbConnectionListStore";
 import {
   filterComposerContextOptions,
   useComposerContextCatalog,
@@ -182,6 +183,7 @@ export const ComposerContextMenu: FC<ComposerContextMenuProps> = ({
   const { t } = useI18n();
   const addItem = useAiComposerContextStore((s) => s.addItem);
   const catalog = useComposerContextCatalog();
+  const refreshDbConnections = useDbConnectionListStore((s) => s.refresh);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [menuPosition, setMenuPosition] = useState<{
@@ -289,8 +291,11 @@ export const ComposerContextMenu: FC<ComposerContextMenuProps> = ({
       setMenuPosition(null);
       setActiveRootIndex(0);
       setActiveSubIndex(0);
+      return;
     }
-  }, [open]);
+    // 打开菜单时刷新数据库连接列表，与本地落盘保持一致
+    void refreshDbConnections();
+  }, [open, refreshDbConnections]);
 
   // 过滤词变化时重置高亮
   useEffect(() => {

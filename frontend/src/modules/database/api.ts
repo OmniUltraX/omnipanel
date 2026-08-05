@@ -442,6 +442,10 @@ export async function saveConnection(connection: DbConnectionConfig): Promise<Db
   const saved = (await unwrapCommand(
     commands.dbSaveConnection(ipcConn(connection)),
   )) as DbConnectionConfig;
+  // 保持 AI @ 菜单等共享列表与本地落盘一致
+  void import("../../stores/dbConnectionListStore").then((m) =>
+    m.useDbConnectionListStore.getState().refresh(),
+  );
   scheduleAssistantSnapshotSync();
   scheduleClientModuleSync();
   return saved;
@@ -449,6 +453,9 @@ export async function saveConnection(connection: DbConnectionConfig): Promise<Db
 
 export async function deleteConnection(id: string): Promise<void> {
   await unwrapCommand(commands.dbDeleteConnection(id));
+  void import("../../stores/dbConnectionListStore").then((m) =>
+    m.useDbConnectionListStore.getState().refresh(),
+  );
   recordModuleTombstones("database", [id]);
   scheduleAssistantSnapshotSync();
   scheduleClientModuleSync({ immediate: true });

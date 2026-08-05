@@ -2,6 +2,7 @@ import { listConnections, type DbConnectionConfig } from "../api";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import { useDbSchemaTreeExpandedStore } from "../../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
+import { useDbConnectionListStore } from "../../../stores/dbConnectionListStore";
 
 /** Splash 阶段预取的连接列表，进入模块时可同步首屏渲染 */
 let bootstrappedDbConnections: DbConnectionConfig[] | null = null;
@@ -14,6 +15,7 @@ export function takeBootstrappedDbConnections(): DbConnectionConfig[] | null {
 export async function reloadBootstrappedDbConnections(): Promise<DbConnectionConfig[]> {
   const list = await listConnections().catch(() => [] as DbConnectionConfig[]);
   bootstrappedDbConnections = list;
+  useDbConnectionListStore.getState().hydrate(list);
   return list;
 }
 
@@ -30,4 +32,5 @@ export async function initDbSchemaUiStores(): Promise<void> {
   ]);
 
   bootstrappedDbConnections = list;
+  useDbConnectionListStore.getState().hydrate(list);
 }

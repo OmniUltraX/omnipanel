@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import type { ComposerContextItem } from "../../../stores/aiComposerContextStore";
 import { useAiComposerContextStore } from "../../../stores/aiComposerContextStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
+import { useDbConnectionListStore } from "../../../stores/dbConnectionListStore";
 import { useTerminalStore } from "../../../stores/terminalStore";
 
 export type ComposerContextCategoryId =
@@ -27,11 +28,21 @@ export type ComposerContextCatalog = {
   docker: ComposerContextOption[];
 };
 
-/** 从当前打开会话 / 连接列表构建 Composer 上下文候选。 */
+/** 从当前打开会话 / 本地已保存连接构建 Composer 上下文候选。 */
 export function useComposerContextCatalog(): ComposerContextCatalog {
   const selected = useAiComposerContextStore((s) => s.items);
   const tabs = useTerminalStore((s) => s.tabs);
   const connections = useConnectionStore((s) => s.connections);
+  const dbConnections = useDbConnectionListStore((s) => s.connections);
+  const dbLoaded = useDbConnectionListStore((s) => s.loaded);
+  const refreshDbConnections = useDbConnectionListStore((s) => s.refresh);
+
+  // 数据库连接在独立存储；统一 conn_list 不含真实 DB 连接。未 hydrate 时主动拉一次。
+  useEffect(() => {
+    if (!dbLoaded) {
+      void refreshDbConnections();
+    }
+  }, [dbLoaded, refreshDbConnections]);
 
   const selectedKey = useMemo(
     () => new Set(selected.map((item) => `${item.kind}:${item.id}`)),
@@ -59,14 +70,22 @@ export function useComposerContextCatalog(): ComposerContextCatalog {
         disabled: selectedKey.has(`ssh:${conn.id}`),
       }));
 
-    const database: ComposerContextOption[] = connections
-      .filter((c) => c.kind === "database")
-      .map((conn) => ({
+    // 真实来源：db_list_connections（与 Database 模块侧栏一致）
+    const database: ComposerContextOption[] = dbConnections.map((conn) => {
+      const hostPort =
+        conn.host && conn.port > 0
+          ? `${conn.host}:${conn.port}`
+          : conn.host || conn.database || undefined;
+      return {
         kind: "database" as const,
         id: conn.id,
         label: conn.name,
+        subtitle: hostPort
+          ? `${conn.db_type || "db"} · ${hostPort}`
+          : conn.db_type || undefined,
         disabled: selectedKey.has(`database:${conn.id}`),
-      }));
+      };
+    });
 
     const docker: ComposerContextOption[] = connections
       .filter((c) => c.kind === "docker")
@@ -78,7 +97,7 @@ export function useComposerContextCatalog(): ComposerContextCatalog {
       }));
 
     return { terminal, ssh, database, docker };
-  }, [tabs, connections, selectedKey]);
+  }, [tabs, connections, dbConnections, selectedKey]);
 }
 
 export function filterComposerContextOptions(

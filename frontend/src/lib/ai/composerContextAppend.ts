@@ -3,6 +3,7 @@ import {
   connectionToResource,
   useConnectionStore,
 } from "../../stores/connectionStore";
+import { getDbConnectionList } from "../../stores/dbConnectionListStore";
 import type { ComposerContextItem } from "../../stores/aiComposerContextStore";
 import { getComposerContextItems } from "../../stores/aiComposerContextStore";
 
@@ -19,7 +20,31 @@ function kindTitle(kind: ComposerContextItem["kind"]): string {
   }
 }
 
+function buildDatabaseItemAppend(item: ComposerContextItem): string {
+  const conn = getDbConnectionList().find((c) => c.id === item.id);
+  if (!conn) {
+    return [`## ${kindTitle("database")}`, `- 连接：${item.label}`, `- 连接 ID：${item.id}`].join(
+      "\n",
+    );
+  }
+  const lines = [
+    `## ${kindTitle("database")}`,
+    `- 连接名称：${conn.name}`,
+    `- 连接 ID：${conn.id}`,
+    `- 引擎：${conn.db_type}`,
+  ];
+  if (conn.host) {
+    lines.push(`- 地址：${conn.host}${conn.port > 0 ? `:${conn.port}` : ""}`);
+  }
+  if (conn.user) lines.push(`- 用户：${conn.user}`);
+  if (conn.database) lines.push(`- 默认库：${conn.database}`);
+  return lines.join("\n");
+}
+
 function buildConnectionItemAppend(item: ComposerContextItem): string {
+  if (item.kind === "database") {
+    return buildDatabaseItemAppend(item);
+  }
   const conn = useConnectionStore.getState().connections.find((c) => c.id === item.id);
   if (!conn) {
     return [`## ${kindTitle(item.kind)}`, `- 连接：${item.label}`, `- 连接 ID：${item.id}`].join(
