@@ -11,7 +11,6 @@ import {
   startDbDataSyncBackgroundTask,
   startDbSchemaSyncBackgroundTask,
   startDbDataSyncSqlExecute,
-  startDbSchemaSyncExecute,
   useDbSyncBackgroundTaskEvents,
 } from "./useDbSyncBackgroundTasks";
 import type { BackgroundTaskInfo } from "../../../stores/backgroundTaskStore";
@@ -101,7 +100,11 @@ const LARGE_TABLE_ROW_THRESHOLD = 10_000;
 /** 稳定空对象，避免 schemaDiffsForView 每次返回新 `{}` 触发对齐列表重算 */
 const EMPTY_SCHEMA_TABLE_DIFFS: Record<string, SchemaTableDiff> = {};
 
-const EXECUTE_TASK_KINDS = new Set(["dbDataSyncExecute", "dbSchemaSyncExecute"]);
+const EXECUTE_TASK_KINDS = new Set([
+  "dbDataSyncExecute",
+  "dbDataSyncSqlExecute",
+  "dbSchemaSyncExecute",
+]);
 const TERMINAL_EXECUTE_STATUSES = new Set(["completed", "failed"]);
 
 /** 跨组件实例去重：避免 Strict Mode / 重复订阅导致同步完成回调触发两次分析 */
@@ -3611,14 +3614,17 @@ export function DatabaseToolbox({
   );
 
   const executeConfirmedTables = useCallback(
-    async (tableNames: string[], sqlFilePath: string | null = null) => {
+    async (tableNames: string[], sqlFilePath: string) => {
       if (tableNames.length === 0) {
         return;
       }
 
-      const sourceConn = connections.find((c) => c.id === sourceConnId);
       const targetConn = connections.find((c) => c.id === targetConnId);
-      if (!sourceConn || !targetConn) {
+      if (!targetConn) {
+        return;
+      }
+      if (!sqlFilePath.trim()) {
+        setSubmitNotice(t("database.toolbox.executeConfirmMissingSqlFile"));
         return;
       }
 
@@ -3626,39 +3632,21 @@ export function DatabaseToolbox({
       setSubmitNotice(null);
 
       try {
-        let bgTaskId: string;
         if (tab === "dataSync") {
-          if (!sqlFilePath) {
-            setSubmitNotice(t("database.toolbox.executeConfirmMissingSqlFile"));
-            return;
-          }
           lockTablesForSync(tableNames);
           for (const name of tableNames) {
             submittingTablesRef.current.add(name);
           }
-          bgTaskId = await startDbDataSyncSqlExecute(
-            targetConn,
-            targetDb,
-            sqlFilePath,
-            tableNames,
-          );
-          executeTaskTablesRef.current.set(bgTaskId, tableNames);
+        }
+        const bgTaskId = await startDbDataSyncSqlExecute(
+          targetConn,
+          targetDb,
+          sqlFilePath,
+          tableNames,
+        );
+        executeTaskTablesRef.current.set(bgTaskId, tableNames);
+        if (tab === "dataSync") {
           ownedDataExecuteTaskIdsRef.current.add(bgTaskId);
-        } else {
-          bgTaskId = await startDbSchemaSyncExecute(
-            sourceConn,
-            targetConn,
-            sourceDb,
-            targetDb,
-            tableNames,
-            sourceTableColumns,
-            sourceTableIndexes,
-            targetSnapshot.tables,
-            schemaCompareCaseSensitive,
-            resolvedSchemaTableNameCase,
-            schemaCreateMissingTables,
-          );
-          executeTaskTablesRef.current.set(bgTaskId, tableNames);
         }
         recordSyncTaskRun(tableNames, bgTaskId);
         void useBackgroundTaskStore.getState().refreshRunning();
@@ -3688,27 +3676,17 @@ export function DatabaseToolbox({
     },
     [
       connections,
-      sourceConnId,
       targetConnId,
-      sourceDb,
       targetDb,
       tab,
       lockTablesForSync,
-      sourceTableColumns,
-      tableTargetStatus,
-      tableSyncModes,
-      sourceTableIndexes,
-      targetSnapshot.tables,
-      schemaCompareCaseSensitive,
-      resolvedSchemaTableNameCase,
-      schemaCreateMissingTables,
       recordSyncTaskRun,
       t,
     ],
   );
 
   const handleExecuteConfirm = useCallback(
-    (sqlFilePath: string | null) => {
+    (sqlFilePath: string) => {
       if (!executeConfirmSnapshot) {
         return;
       }

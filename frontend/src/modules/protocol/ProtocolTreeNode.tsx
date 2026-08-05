@@ -1,5 +1,10 @@
 import type { CSSProperties, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { SidebarTreeNode, type TreeRowMouseEvent, type SidebarTreeModule } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeNode,
+  useSidebarTreeSelection,
+  type TreeRowMouseEvent,
+  type SidebarTreeModule,
+} from "@/components/ui/sidebar-tree";
 
 export type ProtocolTreeNodeKind = "folder" | "request" | "entry";
 
@@ -13,10 +18,16 @@ interface ProtocolTreeNodeProps {
   label: ReactNode;
   icon?: ReactNode;
   prefix?: ReactNode;
+  /** 标题右侧附加内容（如 HTTP METHOD tag） */
+  afterLabel?: ReactNode;
+  trailing?: ReactNode;
   dataTreeKey: string;
   className?: string;
   onToggle: () => void;
-  onActivate?: () => void;
+  /** 单击：打开临时预览面板（多选仍由 SidebarTreeSelection 处理） */
+  onSelect?: (event: TreeRowMouseEvent) => void;
+  /** 双击：打开 / 升格为常驻面板 */
+  onActivate?: (event: TreeRowMouseEvent) => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
 }
@@ -31,13 +42,17 @@ export function ProtocolTreeNode({
   label,
   icon,
   prefix,
+  afterLabel,
+  trailing,
   dataTreeKey,
   className = "",
   onToggle,
+  onSelect,
   onActivate,
   onPointerDown,
   onContextMenu,
 }: ProtocolTreeNodeProps) {
+  const selection = useSidebarTreeSelection();
   const nodeStyle: CSSProperties = {
     ["--tree-depth" as string]: depth,
   };
@@ -56,6 +71,8 @@ export function ProtocolTreeNode({
       label={<span className="tree-label-name">{label}</span>}
       icon={icon}
       prefix={prefix}
+      afterLabel={afterLabel}
+      trailing={trailing}
       className={`tree-node--${kind} tree-node--layout-draggable${className}`}
       style={nodeStyle}
       dataAttrs={{
@@ -63,7 +80,15 @@ export function ProtocolTreeNode({
         "data-tree-kind": kind,
       }}
       onToggle={onToggle}
-      onActivate={onActivate ? (_event: TreeRowMouseEvent) => onActivate() : undefined}
+      onSelect={
+        onSelect || selection
+          ? (event: TreeRowMouseEvent) => {
+              selection?.handleSelect(dataTreeKey, event);
+              onSelect?.(event);
+            }
+          : undefined
+      }
+      onActivate={onActivate}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
     />

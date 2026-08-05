@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Button } from "../primitives/Button";
 
@@ -26,6 +26,17 @@ export interface WarnAlertProps {
   onClose: () => void;
 }
 
+function isEditableKeyTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  if (target.closest("textarea, select, [contenteditable='true']")) return true;
+  if (target instanceof HTMLInputElement) {
+    const type = target.type;
+    return type !== "button" && type !== "submit" && type !== "checkbox" && type !== "radio" && type !== "hidden";
+  }
+  return false;
+}
+
 /**
  * 通用警告确认弹窗。危险/覆盖类操作统一使用此组件，保持视觉与交互一致。
  *
@@ -50,6 +61,24 @@ export function WarnAlert({
       onClose();
     }
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.defaultPrevented || event.isComposing) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (isEditableKeyTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onConfirm();
+      if (closeOnConfirm) {
+        onClose();
+      }
+    };
+    // 捕获阶段：避免焦点在按钮上时浏览器默认再触发一次 click
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [open, onConfirm, onClose, closeOnConfirm]);
 
   return (
     <Modal open={open} onClose={onClose}>

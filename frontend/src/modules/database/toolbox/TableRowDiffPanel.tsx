@@ -87,6 +87,22 @@ export function TableRowDiffPanel({
   const [fieldResolutions, setFieldResolutions] = useState<RowDiffFieldResolutions>({});
 
   const cacheId = analysis?.diffCacheId;
+  const analysisRevision = useMemo(() => {
+    if (!analysis) {
+      return "";
+    }
+    const previewKey = (analysis.diffs ?? [])
+      .slice(0, 3)
+      .map((diff) => `${diff.rowKey}:${diff.kind}`)
+      .join(",");
+    return [
+      analysis.status,
+      analysis.diffRows ?? "",
+      analysis.truncated ? "1" : "0",
+      analysis.error ?? "",
+      previewKey,
+    ].join("|");
+  }, [analysis]);
   const inlineDiffs = useInlineDiffs(analysis);
   const useCache = Boolean(cacheId && analysis?.status === "diff");
   const columnNames = useMemo(() => columns.map((col) => col.name), [columns]);
@@ -113,7 +129,7 @@ export function TableRowDiffPanel({
     beginColumnResize,
     resetColumnWidth,
     resolveColumnWidth,
-  } = useRowDiffColumnResize(columnNames, `${tableName}|${cacheId ?? ""}`);
+  } = useRowDiffColumnResize(columnNames, `${tableName}|${cacheId ?? ""}|${analysisRevision}`);
 
   useEffect(() => {
     setPage(0);
@@ -123,7 +139,7 @@ export function TableRowDiffPanel({
     setPageError(null);
     setPageLoading(false);
     setFieldResolutions({});
-  }, [tableName, cacheId, analysis?.status, analysis?.diffRows]);
+  }, [tableName, cacheId, analysisRevision]);
 
   const kindFilterKey = kindFilters.slice().sort().join(",");
 
@@ -190,7 +206,7 @@ export function TableRowDiffPanel({
     return () => {
       cancelled = true;
     };
-  }, [useCache, cacheId, safePage, kindFilterKey, kindFilters, filterIgnoredDiff]);
+  }, [useCache, cacheId, analysisRevision, safePage, kindFilterKey, kindFilters, filterIgnoredDiff]);
 
   const displayDiffs = useCache ? pageDiffs : inlinePageDiffs;
 

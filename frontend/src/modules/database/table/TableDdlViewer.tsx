@@ -8,10 +8,17 @@ export const SQL_PREVIEW_VIRTUAL_LINE_THRESHOLD = 1000;
 
 interface TableDdlViewerProps {
   ddl: string;
+  /** 默认只读；同步确认框可设为可编辑 */
+  readOnly?: boolean;
+  onChange?: (value: string) => void;
 }
 
-/** 只读 SQL 编辑器，用于展示建表语句 / 同步预览 SQL。 */
-export function TableDdlViewer({ ddl }: TableDdlViewerProps) {
+/** SQL 预览 / 编辑器，用于建表语句与同步确认 SQL。 */
+export function TableDdlViewer({
+  ddl,
+  readOnly = true,
+  onChange,
+}: TableDdlViewerProps) {
   const highlightQuery = useScopedSearchQuery();
   const lineCount = useMemo(() => {
     if (!ddl) {
@@ -26,16 +33,17 @@ export function TableDdlViewer({ ddl }: TableDdlViewerProps) {
     return count;
   }, [ddl]);
 
-  if (lineCount > SQL_PREVIEW_VIRTUAL_LINE_THRESHOLD) {
+  // 可编辑时必须用编辑器；超大只读脚本仍走虚拟列表
+  if (readOnly && lineCount > SQL_PREVIEW_VIRTUAL_LINE_THRESHOLD) {
     return <VirtualSqlPreview ddl={ddl} />;
   }
 
   return (
-    <div className="table-ddl-viewer">
+    <div className={`table-ddl-viewer${readOnly ? "" : " table-ddl-viewer--editable"}`}>
       <SqlEditor
         value={ddl}
-        onChange={() => undefined}
-        readOnly
+        onChange={onChange ?? (() => undefined)}
+        readOnly={readOnly}
         openMode="table"
         highlightQuery={highlightQuery}
       />

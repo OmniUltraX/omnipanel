@@ -49,10 +49,14 @@ interface ProtocolSessionPanelProps {
 /** 协议实验室 Dock 会话面板：按协议渲染对应工作区。 */
 export function ProtocolSessionPanel({
   tabId,
-  protocol,
+  protocol: protocolProp,
   enabled,
 }: ProtocolSessionPanelProps) {
   const { t } = useI18n();
+  // 预览槽可在同 tabId 上替换协议 / 资源；props 可能滞后，以 store 为准
+  const protocol =
+    useProtocolWorkspaceStore((s) => s.tabs.find((tab) => tab.id === tabId)?.protocol) ??
+    protocolProp;
 
   if (protocol === "http") {
     return <ProtocolHttpSessionPanel tabId={tabId} enabled={enabled} />;
@@ -63,7 +67,7 @@ export function ProtocolSessionPanel({
     if (!enabled) {
       return <div className="protocol-session-panel protocol-session-panel--inactive" aria-hidden />;
     }
-    return <MqttProvider key={tabId}>{panel}</MqttProvider>;
+    return <MqttProvider key={`${tabId}:${protocol}`}>{panel}</MqttProvider>;
   }
 
   if (!enabled) {
@@ -71,19 +75,19 @@ export function ProtocolSessionPanel({
   }
 
   if (protocol === "pubsub") {
-    return <RedisPubSubPanel />;
+    return <RedisPubSubPanel key={`${tabId}:${protocol}`} />;
   }
   if (protocol === "serial") {
-    return <SerialPanel />;
+    return <SerialPanel key={`${tabId}:${protocol}`} />;
   }
   if (protocol === "grpc") {
-    return <GrpcPanel />;
+    return <GrpcPanel key={`${tabId}:${protocol}`} />;
   }
   if (protocol === "sniffer") {
-    return <SnifferPanel />;
+    return <SnifferPanel key={`${tabId}:${protocol}`} />;
   }
   if (protocol === "modbus") {
-    return <ModbusPanel />;
+    return <ModbusPanel key={`${tabId}:${protocol}`} />;
   }
 
   return (

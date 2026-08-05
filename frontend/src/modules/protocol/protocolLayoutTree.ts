@@ -1,10 +1,11 @@
 import type { HttpCollection, HttpHistoryEntry, SavedHttpRequest } from "../../ipc/bindings";
 import type { ProtocolTabKey } from "../../lib/protocolLabConfig";
 import type { ProtocolLabEntry } from "../../stores/protocolLabEntryStore";
-import type {
-  ProtocolDropTarget,
-  ProtocolHttpFolder,
-  ProtocolTreeNodeKey,
+import {
+  collectDescendantFolderIds,
+  type ProtocolDropTarget,
+  type ProtocolHttpFolder,
+  type ProtocolTreeNodeKey,
 } from "../../stores/protocolHttpLayoutStore";
 
 export type ProtocolTreeEntry =
@@ -82,6 +83,97 @@ export function listProtocolTreeChildren(
     .sort((a, b) => compareEntries(a, b));
 
   return [...result, ...rest];
+}
+
+/** 收集文件夹（含子孙文件夹）下将被级联删除的请求 / 协议条目 / 集合。 */
+export function collectProtocolFolderCascadeTargets(
+  folderIds: readonly string[],
+  folders: ProtocolHttpFolder[],
+  collections: HttpCollection[],
+  requests: SavedHttpRequest[],
+  collectionParents: Record<string, string | null>,
+  requestParents: Record<string, string | null>,
+  entryParents: Record<string, string | null>,
+  labEntries: ProtocolLabEntry[],
+): { requestIds: string[]; entryIds: string[]; collectionIds: string[] } {
+  const descendantFolderIds = new Set<string>();
+  for (const folderId of folderIds) {
+    for (const id of collectDescendantFolderIds(folders, folderId)) {
+      descendantFolderIds.add(id);
+    }
+  }
+
+  const collectionIds = collections
+    .filter((collection) => {
+      const parentId = collectionParents[collection.id] ?? null;
+      return parentId != null && descendantFolderIds.has(parentId);
+    })
+    .map((collection) => collection.id);
+  const collectionIdSet = new Set(collectionIds);
+
+  const requestIds = requests
+    .filter((request) => {
+      if (request.collectionId && collectionIdSet.has(request.collectionId)) {
+        return true;
+      }
+      const parentId = requestParents[request.id] ?? null;
+      return parentId != null && descendantFolderIds.has(parentId);
+    })
+    .map((request) => request.id);
+
+  const entryIds = labEntries
+    .filter((entry) => {
+      const parentId = entryParents[entry.id] ?? null;
+      return parentId != null && descendantFolderIds.has(parentId);
+    })
+    .map((entry) => entry.id);
+
+  return { requestIds, entryIds, collectionIds };
+}
+
+/** 深度优先收集协议树全部节点 key（含折叠子树），供 Ctrl+A 全选 / Shift 范围多选。 */
+export function collectAllProtocolTreeKeys(
+  parentId: string | null,
+  folders: ProtocolHttpFolder[],
+  collections: HttpCollection[],
+  requests: SavedHttpRequest[],
+  collectionParents: Record<string, string | null>,
+  requestParents: Record<string, string | null>,
+  entryParents: Record<string, string | null>,
+  labEntries: ProtocolLabEntry[],
+  siblingOrder: Record<string, ProtocolTreeNodeKey[]>,
+): ProtocolTreeNodeKey[] {
+  const children = listProtocolTreeChildren(
+    parentId,
+    folders,
+    collections,
+    requests,
+    collectionParents,
+    requestParents,
+    entryParents,
+    labEntries,
+    siblingOrder,
+  );
+  const keys: ProtocolTreeNodeKey[] = [];
+  for (const entry of children) {
+    keys.push(entry.key);
+    if (entry.kind === "folder") {
+      keys.push(
+        ...collectAllProtocolTreeKeys(
+          entry.folder.id,
+          folders,
+          collections,
+          requests,
+          collectionParents,
+          requestParents,
+          entryParents,
+          labEntries,
+          siblingOrder,
+        ),
+      );
+    }
+  }
+  return keys;
 }
 
 function compareEntries(a: ProtocolTreeEntry, b: ProtocolTreeEntry): number {

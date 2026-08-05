@@ -303,6 +303,11 @@ export async function readDataSyncSqlFile(filePath: string): Promise<string> {
   return invoke<string>("db_data_sync_read_sql_file", { filePath });
 }
 
+/** 保存可编辑后的同步 SQL，返回缓存文件路径。 */
+export async function writeDataSyncSqlFile(sql: string): Promise<string> {
+  return invoke<string>("db_data_sync_write_sql_file", { sql });
+}
+
 export async function startDbDataSyncSqlExecute(
   targetConn: DbConnectionConfig,
   targetDb: string,

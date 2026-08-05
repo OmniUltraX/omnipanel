@@ -693,8 +693,17 @@
     }
 
     .db-sync-execute-confirm__preview .table-ddl-viewer {
-        flex: 1;
-        min-height: 0;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .db-sync-execute-confirm__preview .table-ddl-viewer--editable .sql-codemirror-editor__host {
+      cursor: text;
+    }
+
+    .db-sync-execute-confirm__save-error {
+      margin: 0;
+      padding: 0 4px;
     }
 
     .db-sync-execute-confirm__preview .content-preview-view {

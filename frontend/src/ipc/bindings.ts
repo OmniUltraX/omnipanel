@@ -200,7 +200,10 @@ export const commands = {
 	 *  `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
 	 */
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
-	/**  获取宝塔 Docker 应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。 */
+	/**
+	 *  获取宝塔应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
+	 *  `icon_file` 可选，软件商店一般为 `ico-xxx.png`；为空时按 app_name 推断 Docker/软件路径。
+	 */
 	panelBtAppIcon: (host: string, apiSk: string, appName: string, iconFile: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_app_icon", { host, apiSk, appName, iconFile })),
 	/**  宝塔面板连通性测试。 */
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
@@ -461,7 +464,10 @@ export const commands = {
 	sftpChmod: (id: string, path: string, mode: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_chmod", { id, path, mode })),
 	/**  打开日志会话：探测文件大小与总行数。 */
 	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
-	/**  按行号范围读取（虚拟滚动按需切片，1-based）。 */
+	/**
+	 *  按行号范围读取（虚拟滚动按需切片，1-based）。
+	 *  超大文件中部/尾部的 sed 扫描可能很慢，默认 30s 超时。
+	 */
 	sftpLogReadLines: (id: string, path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
 	/**
 	 *  读取文件末尾 N 行（用 tail -n N，O(N) 反向 seek，不扫描整个文件）。
@@ -473,12 +479,25 @@ export const commands = {
 	 *  搜索日志（grep -n），返回命中行列表。
 	 *  grep exit 1 = no match（非错误），其他非零 exit 视为错误。
 	 * 
-	 *  - `reverse=true`：从文件末尾（或 `before_line` 之前）往前搜，适合大日志默认场景
-	 *  - `before_line`：仅搜索该行号之前（续搜「向上」）
-	 *  - `after_line`：仅搜索该行号之后（续搜「向下」）
-	 *  - `total_lines_hint`：反搜从 EOF 起步时，把 tac 相对行号还原为真实行号
+	 *  大文件持续反搜请用 `skip_matches`（tac | grep -m skip+max），
+	 *  **禁止**对超大 before_line 做 `head -n`（会扫整文件超时）。
 	 */
-	sftpLogSearch: (id: string, path: string, pattern: string, options: LogSearchOptions | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, options })),
+	sftpLogSearch: (id: string, path: string, pattern: string, options: {
+	isRegex: boolean | null,
+	maxResults: number | null,
+	contextBefore: number | null,
+	contextAfter: number | null,
+	/**  从后往前搜（大日志默认建议 true） */
+	reverse: boolean | null,
+	/**  仅搜该行之前（向上续搜，作结果过滤；大文件请配合 skip_matches） */
+	beforeLine: number | null,
+	/**  仅搜该行之后（向下续搜） */
+	afterLine: number | null,
+	/**  反搜从 EOF 起步时用于还原真实行号 */
+	totalLinesHint: number | null,
+	/**  从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页 */
+	skipMatches: number | null,
+} | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, options })),
 	/**
 	 *  开始实时跟踪（tail -F，支持文件轮转）。
 	 *  输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端。
@@ -636,7 +655,13 @@ export const commands = {
 	fileDownloadFile: (connectionId: string, remotePath: string, localPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_download_file", { connectionId, remotePath, localPath })),
 	fileTransferPlan: (request: FileTransferPlanRequest) => typedError<FileTransferPlanResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_plan", { request })),
 	fileTransferEnqueue: (request: FileTransferEnqueueRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_enqueue", { request })),
-	/**  上传浏览器拖拽/粘贴的本地文件字节到目标连接（后端写临时文件后入队传输引擎，自动获得进度/取消/断点续传）。 */
+	/**
+	 *  上传浏览器拖拽/粘贴的本地文件字节到目标连接。
+	 * 
+	 *  用于 SftpPanel/终端拖拽 File 对象（无绝对路径）的场景：
+	 *  后端先把 bytes 写入本地临时文件，再入队传输引擎（自动获得进度/取消/断点续传）。
+	 *  返回 batch_id，前端可通过 `files-transfer-progress` 事件监听进度。
+	 */
 	fileTransferUploadLocalBytes: (fileName: string, data: number[], destConnectionId: string, destDir: string, conflictPolicy: FileTransferConflictPolicy) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_upload_local_bytes", { fileName, data, destConnectionId, destDir, conflictPolicy })),
 	fileTransferList: () => typedError<FileTransferListResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_list")),
 	fileTransferCancel: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_cancel", { jobId })),
@@ -1155,7 +1180,7 @@ export const commands = {
 	auditLogAppend: (entry: AuditEntry) => typedError<null, string>(__TAURI_INVOKE("audit_log_append", { entry })),
 	/**
 	 *  应用前端 Agent Router（Gateway）配置：停旧实例并按开关/端口/Key/LAN 重启。
-	 *  前端在启动时与设置变更时调用，使 :8765 相关设置真正生效。
+	 *  前端在启动时与设置变更时调用；开发构建会将正式版默认端口错开到 :8766。
 	 */
 	aiGatewayConfigure: (enabled: boolean, port: number, apiKey: string | null, bindLan: boolean, mcpExternalRequireApproval: boolean) => typedError<null, string>(__TAURI_INVOKE("ai_gateway_configure", { enabled, port, apiKey, bindLan, mcpExternalRequireApproval })),
 	/**  由 Rust 后端探测 Agent Router / OmniMCP 是否可达，避免 WebView 直连 localhost 触发 CORS。 */
@@ -3479,15 +3504,17 @@ export type KnowledgeTodoItem = KnowledgeTodoItem_Serialize | KnowledgeTodoItem_
 /**  待办列表中的单项。 */
 export type KnowledgeTodoItem_Deserialize = {
 	id: string,
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
-	name?: string,
-	/**  待办项名称旧字段，等同 name。 */
-	text?: string,
 	/**  执行者。 */
 	executor?: string,
 	/**  任务描述与细节。 */
 	description?: string,
 	done: boolean,
+} & {
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	name?: string,
+} | {
+	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	text?: string,
 };
 
 /**  待办列表中的单项。 */
@@ -3615,11 +3642,11 @@ export type LogSearchOptions = {
 	contextAfter: number | null,
 	/**  从后往前搜（大日志默认建议 true） */
 	reverse: boolean | null,
-	/**  仅搜该行之前（向上续搜） */
+	/**  仅搜该行之前（向上续搜，作结果过滤；大文件请配合 skip_matches） */
 	beforeLine: number | null,
 	/**  仅搜该行之后（向下续搜） */
 	afterLine: number | null,
-	/**  反搜从 EOF 起步时，把 tac 相对行号还原为真实行号 */
+	/**  反搜从 EOF 起步时用于还原真实行号 */
 	totalLinesHint: number | null,
 	/**  从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页 */
 	skipMatches: number | null,
@@ -3630,7 +3657,7 @@ export type LogSessionInfo = {
 	sizeBytes: number | null,
 	/**  总行数（精确 wc -l，或采样估算）。 */
 	totalLines: number | null,
-	/**  true = totalLines 来自采样估算（wc -l 超时/失败），前端应走末尾窗口模式。 */
+	/**  true = total_lines 来自采样估算（wc -l 超时/失败），前端应走末尾窗口模式。 */
 	linesEstimated: boolean,
 };
 
@@ -4160,6 +4187,8 @@ export type SavedHttpRequest = {
 	collectionId: string | null,
 	environmentId: string | null,
 	pathParams: string,
+	/**  Query 参数 JSON：`[{key,value,enabled},...]` */
+	queryParams: string,
 	createdAt: number | null,
 	updatedAt: number | null,
 };
@@ -4920,16 +4949,6 @@ export type TmuxSessionInfo = {
 	managed: boolean,
 };
 
-/** 会话内单个 window（OmniPanel 约定 1 window = 1 pane）。 */
-export type TmuxWindowInfo = {
-	/**  tmux window id，如 `@3`。 */
-	windowId: string,
-	/**  pane 数字 id（来自 `%3` → `3`），用于 attach 重连。 */
-	paneId: number,
-	/**  window 名称。 */
-	name: string,
-};
-
 /**
  *  单个 tmux 会话当前被 OmniPanel 的多少个 Tab 关联。
  * 
@@ -4939,6 +4958,16 @@ export type TmuxWindowInfo = {
 export type TmuxTabStat = {
 	sessionName: string,
 	tabCount: number,
+};
+
+/**  会话内单个 window（OmniPanel 约定 1 window = 1 pane）。 */
+export type TmuxWindowInfo = {
+	/**  tmux window id，如 `@3`。 */
+	windowId: string,
+	/**  pane 数字 id（来自 `%3` → `3`），用于 attach 重连。 */
+	paneId: number,
+	/**  window 名称。 */
+	name: string,
 };
 
 /**  自定义待办列表。 */

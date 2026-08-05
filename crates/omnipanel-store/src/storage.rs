@@ -840,6 +840,15 @@ impl Storage {
             }
         }
         if let Err(err) = self.conn.execute(
+            "ALTER TABLE http_requests ADD COLUMN query_params TEXT NOT NULL DEFAULT '[]'",
+            [],
+        ) {
+            let msg = err.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(map_sqlite(err));
+            }
+        }
+        if let Err(err) = self.conn.execute(
             "ALTER TABLE http_history ADD COLUMN request_curl TEXT NOT NULL DEFAULT ''",
             [],
         ) {
@@ -1118,6 +1127,7 @@ mod tests {
             collection_id: None,
             environment_id: None,
             path_params: String::new(),
+            query_params: "[]".into(),
             created_at: 1,
             updated_at: 1,
         };

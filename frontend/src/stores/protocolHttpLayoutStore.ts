@@ -168,26 +168,32 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
           const collectionParents = { ...state.collectionParents };
           const requestParents = { ...state.requestParents };
           const entryParents = { ...state.entryParents };
+          // 文件夹级联删除：移除其下条目的父级映射（不再挪到根级）
           for (const [id, parentId] of Object.entries(collectionParents)) {
             if (parentId && descendantIds.has(parentId)) {
-              collectionParents[id] = null;
+              delete collectionParents[id];
             }
           }
           for (const [id, parentId] of Object.entries(requestParents)) {
             if (parentId && descendantIds.has(parentId)) {
-              requestParents[id] = null;
+              delete requestParents[id];
             }
           }
           for (const [id, parentId] of Object.entries(entryParents)) {
             if (parentId && descendantIds.has(parentId)) {
-              entryParents[id] = null;
+              delete entryParents[id];
             }
           }
-          const siblingOrder = { ...state.siblingOrder };
-          for (const key of Object.keys(siblingOrder)) {
-            siblingOrder[key] = siblingOrder[key].filter(
-              (nodeKey) => !nodeKey.startsWith(`folder:${folderId}`),
-            );
+          const removedFolderKeys = new Set(
+            [...descendantIds].map((id) => `folder:${id}`),
+          );
+          const siblingOrder: Record<string, ProtocolTreeNodeKey[]> = {};
+          for (const [key, order] of Object.entries(state.siblingOrder)) {
+            if (removedFolderKeys.has(key)) continue;
+            siblingOrder[key] = order.filter((nodeKey) => {
+              if (!nodeKey.startsWith("folder:")) return true;
+              return !descendantIds.has(nodeKey.slice("folder:".length));
+            });
           }
           return {
             folders,
@@ -346,4 +352,4 @@ export function protocolNodeKey(
   return `${kind}:${id}`;
 }
 
-export { parentKey as protocolParentKey };
+export { parentKey as protocolParentKey, collectDescendantFolderIds };

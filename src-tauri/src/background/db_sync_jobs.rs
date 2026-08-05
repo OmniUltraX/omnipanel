@@ -23,6 +23,21 @@ fn data_sync_table_concurrency() -> usize {
     default_worker_count().max(1).min(4) as usize
 }
 
+/// 每次分析生成唯一缓存 ID，避免重新分析后仍命中上一轮缓存内容。
+fn next_row_diff_cache_id(
+    source: &DbConnectionConfig,
+    target: &DbConnectionConfig,
+    table_name: &str,
+    ignored_fields: &HashSet<String>,
+) -> String {
+    let base = build_row_diff_cache_id(source, target, table_name, ignored_fields);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!("{base}_{millis}")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbSyncTableSpec {
@@ -262,7 +277,8 @@ async fn compare_table_rows(
         .collect();
     let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
 
-    let fetch_columns = build_fetch_columns(table_name, columns, &pk_columns, ignored_fields);
+    let source_select_exprs = build_fetch_select_exprs(&source.db_type, columns, &pk_columns);
+    let target_select_exprs = build_fetch_select_exprs(&target.db_type, columns, &pk_columns);
     let source_order = build_pk_order_clause(&source.db_type, &pk_columns);
     let target_order = build_pk_order_clause(&target.db_type, &pk_columns);
 
@@ -299,7 +315,7 @@ async fn compare_table_rows(
         fetch_all_rows(
             &source_conn,
             &table,
-            &fetch_columns,
+            &source_select_exprs,
             source_order.as_deref(),
             i64::from(source_total),
             &cancel_source,
@@ -310,7 +326,7 @@ async fn compare_table_rows(
         fetch_all_rows(
             &target_conn,
             &table,
-            &fetch_columns,
+            &target_select_exprs,
             target_order.as_deref(),
             i64::from(target_total),
             &cancel_target,
@@ -454,7 +470,7 @@ async fn compare_table_rows(
 
     if diff_count == 0 {
         report_rows(row_total, row_total);
-        let cache_id = build_row_diff_cache_id(source, target, table_name, ignored_fields);
+        let cache_id = next_row_diff_cache_id(source, target, table_name, ignored_fields);
         let diff_cache_id = match save_row_diff_cache(app, &cache_id, table_name, &[]) {
             Ok(()) => Some(cache_id),
             Err(e) => {
@@ -473,7 +489,7 @@ async fn compare_table_rows(
         }
     } else {
         report_rows(row_total, row_total);
-        let cache_id = build_row_diff_cache_id(source, target, table_name, ignored_fields);
+        let cache_id = next_row_diff_cache_id(source, target, table_name, ignored_fields);
         let diff_cache_id = match save_row_diff_cache(app, &cache_id, table_name, &all_diffs) {
             Ok(()) => Some(cache_id),
             Err(e) => {
@@ -962,10 +978,9 @@ fn quote_ident(db_type: &str, name: &str) -> String {
 }
 
 fn build_fetch_columns(
-    table: &str,
+    _table: &str,
     columns: &[DbColumnMeta],
     pk_columns: &[String],
-    ignored: &HashSet<String>,
 ) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -975,15 +990,47 @@ fn build_fetch_columns(
         }
     }
     for col in columns {
-        if !seen.insert(col.name.clone()) {
-            continue;
+        if seen.insert(col.name.clone()) {
+            out.push(col.name.clone());
         }
-        if is_ignored_compare_field(table, &col.name, ignored) {
-            continue;
-        }
-        out.push(col.name.clone());
     }
     out
+}
+
+fn is_mysql_bit_column_type(column_type: &str) -> bool {
+    column_type
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("bit")
+}
+
+/// 同步读行时的 SELECT 表达式。MySQL BIT 直读易被解码成 NULL（尤其值为 0），
+/// 用 CAST AS UNSIGNED 以整数返回，保证 INSERT/UPDATE 字面量为 0/1。
+fn select_expr_for_column(db_type: &str, col: &DbColumnMeta) -> String {
+    let ident = quote_ident(db_type, &col.name);
+    if is_mysql_engine(db_type) && is_mysql_bit_column_type(&col.column_type) {
+        format!("(CAST({ident} AS UNSIGNED)) AS {ident}")
+    } else {
+        ident
+    }
+}
+
+fn build_fetch_select_exprs(
+    db_type: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+) -> Vec<String> {
+    let names = build_fetch_columns("", columns, pk_columns);
+    names
+        .iter()
+        .map(|name| {
+            columns
+                .iter()
+                .find(|c| c.name.eq_ignore_ascii_case(name))
+                .map(|c| select_expr_for_column(db_type, c))
+                .unwrap_or_else(|| quote_ident(db_type, name))
+        })
+        .collect()
 }
 
 fn build_pk_order_clause(db_type: &str, pk_columns: &[String]) -> Option<String> {
@@ -1003,19 +1050,15 @@ async fn preview_table_column_page(
     driver: &dyn omnipanel_db::DbDriver,
     db_type: &str,
     table: &str,
-    columns: &[String],
+    select_exprs: &[String],
     limit: i64,
     offset: i64,
     order_by: Option<&str>,
 ) -> Result<Vec<HashMap<String, serde_json::Value>>, String> {
-    if columns.is_empty() {
+    if select_exprs.is_empty() {
         return Err("缺少表字段信息".to_string());
     }
-    let col_list = columns
-        .iter()
-        .map(|name| quote_ident(db_type, name))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let col_list = select_exprs.join(", ");
     let table_ident = quote_ident(db_type, table);
     let order_clause = order_by
         .filter(|clause| !clause.is_empty())
@@ -1033,7 +1076,7 @@ async fn preview_table_column_page(
 async fn fetch_all_rows(
     connection: &DbConnectionConfig,
     table_name: &str,
-    fetch_columns: &[String],
+    select_exprs: &[String],
     order_by: Option<&str>,
     total: i64,
     cancel: &AtomicBool,
@@ -1057,7 +1100,7 @@ async fn fetch_all_rows(
             driver.as_ref(),
             &db_type,
             table_name,
-            fetch_columns,
+            select_exprs,
             PAGE_SIZE,
             offset,
             order_by,
@@ -1310,7 +1353,7 @@ async fn fetch_table_row_keys(
         .map(|c| c.name.clone())
         .collect();
     let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
-    let fetch_columns = build_fetch_columns(table_name, columns, &pk_columns, &HashSet::new());
+    let select_exprs = build_fetch_select_exprs(&connection.db_type, columns, &pk_columns);
     let order_by = build_pk_order_clause(&connection.db_type, &pk_columns);
 
     let total = database::db_count_table(
@@ -1336,7 +1379,7 @@ async fn fetch_table_row_keys(
             driver.as_ref(),
             &db_type,
             table_name,
-            &fetch_columns,
+            &select_exprs,
             PAGE_SIZE,
             offset,
             order_by.as_deref(),
@@ -1369,6 +1412,7 @@ async fn fetch_table_rows_map(
         .map(|c| c.name.clone())
         .collect();
     let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let select_exprs = build_fetch_select_exprs(&connection.db_type, columns, &pk_columns);
     let order_by = build_pk_order_clause(&connection.db_type, &pk_columns);
 
     let total = database::db_count_table(
@@ -1394,7 +1438,7 @@ async fn fetch_table_rows_map(
             driver.as_ref(),
             &db_type,
             table_name,
-            &all_column_names,
+            &select_exprs,
             PAGE_SIZE,
             offset,
             order_by.as_deref(),
@@ -1720,6 +1764,72 @@ async fn generate_create_table_statement(
     Ok(Some(format_sql_statement(&sql)))
 }
 
+fn row_missing_sync_columns(
+    row: &HashMap<String, serde_json::Value>,
+    columns: &[DbColumnMeta],
+) -> bool {
+    columns.iter().any(|col| !row_has_column(row, &col.name))
+}
+
+/// 旧版分析缓存可能把 BIT 解成 Null（列键仍在）；生成 SQL 前需按源库重读。
+fn row_has_null_bit_columns(
+    row: &HashMap<String, serde_json::Value>,
+    columns: &[DbColumnMeta],
+) -> bool {
+    columns.iter().any(|col| {
+        is_mysql_bit_column_type(&col.column_type) && row_value(row, &col.name).is_null()
+    })
+}
+
+fn row_needs_sql_enrich(
+    row: &HashMap<String, serde_json::Value>,
+    columns: &[DbColumnMeta],
+) -> bool {
+    row_missing_sync_columns(row, columns) || row_has_null_bit_columns(row, columns)
+}
+
+/// 分析缓存可能因「忽略字段」、旧版取列不全或 BIT 误解码为 NULL 导致 source_row 不可用；
+/// 生成 INSERT 前按主键从源库补全 / 覆盖。
+async fn enrich_diff_source_rows_for_sql(
+    source: &DbConnectionConfig,
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    diffs: &mut [TableRowDiffPayload],
+) -> Result<(), String> {
+    let needs_enrich = diffs.iter().any(|diff| {
+        matches!(diff.kind.as_str(), "sourceOnly" | "changed")
+            && diff
+                .source_row
+                .as_ref()
+                .map(|row| row_needs_sql_enrich(row, columns))
+                .unwrap_or(false)
+    });
+    if !needs_enrich {
+        return Ok(());
+    }
+
+    let cancel = AtomicBool::new(false);
+    let rows_map = fetch_table_rows_map(source, table, columns, &cancel).await?;
+    let all_column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    for diff in diffs.iter_mut() {
+        if !matches!(diff.kind.as_str(), "sourceOnly" | "changed") {
+            continue;
+        }
+        let Some(row) = diff.source_row.as_ref() else {
+            continue;
+        };
+        if !row_needs_sql_enrich(row, columns) {
+            continue;
+        }
+        let key = build_row_key(row, pk_columns, &all_column_names);
+        if let Some(full) = rows_map.get(&key) {
+            diff.source_row = Some(full.clone());
+        }
+    }
+    Ok(())
+}
+
 fn collect_table_sync_sql_from_diffs(
     db_type: &str,
     table: &str,
@@ -1809,6 +1919,11 @@ fn write_sync_sql_file(app: &AppHandle, sql: &str) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 将（可编辑后的）同步 SQL 写入缓存目录，返回可执行路径。
+pub fn save_sync_sql_file(app: &AppHandle, sql: &str) -> Result<String, String> {
+    write_sync_sql_file(app, sql)
+}
+
 pub fn read_sync_sql_file(app: &AppHandle, sql_file_path: &str) -> Result<String, String> {
     use std::fs;
     use std::path::PathBuf;
@@ -1874,9 +1989,19 @@ pub async fn generate_data_sync_sql_script(
             .collect();
 
         let (mut stmts, stats) = if let Some(cache_id) = exec_spec.diff_cache_id.as_deref() {
-            let diffs = load_row_diff_cache_all(app, cache_id).map_err(|err| {
+            let mut diffs = load_row_diff_cache_all(app, cache_id).map_err(|err| {
                 format!("无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}")
             })?;
+            let mut source_for_enrich = source.clone();
+            source_for_enrich.database = source_db.clone();
+            enrich_diff_source_rows_for_sql(
+                &source_for_enrich,
+                &exec_spec.name,
+                &exec_spec.columns,
+                &pk_columns,
+                &mut diffs,
+            )
+            .await?;
             collect_table_sync_sql_from_diffs(
                 &target.db_type,
                 &exec_spec.name,
@@ -2137,15 +2262,9 @@ fn should_include_insert_column(row: &HashMap<String, serde_json::Value>, col: &
     }
     let value = row_value(row, &col.name);
     if value.is_null() {
-        // 预览未取到值 / 源端为 NULL：省略该列，让目标库 DEFAULT 生效（如 create_time）
-        return false;
-    }
-    if !col.nullable {
-        if let serde_json::Value::String(text) = &value {
-            if text.is_empty() {
-                return false;
-            }
-        }
+        // 可空列：省略以走目标库 DEFAULT（如 create_time）
+        // 非空列：必须显式写出（含 NULL），否则 MySQL 会报 1364（无默认值）
+        return !col.nullable;
     }
     true
 }
@@ -3377,5 +3496,60 @@ mod add_column_position_tests {
         assert!(matches!(position, MysqlAddColumnPosition::First));
         let sql = build_add_column_sql("mysql", "t", &source[0], position);
         assert!(sql.ends_with(" FIRST"));
+    }
+}
+
+#[cfg(test)]
+mod mysql_bit_sync_tests {
+    use super::{
+        is_mysql_bit_column_type, row_has_null_bit_columns, select_expr_for_column, sql_literal,
+    };
+    use crate::commands::database::DbColumnMeta;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn bit_col(name: &str) -> DbColumnMeta {
+        DbColumnMeta {
+            name: name.to_string(),
+            column_type: "bit(1)".to_string(),
+            is_pk: false,
+            is_fk: false,
+            nullable: true,
+            is_auto_increment: false,
+            comment: None,
+            length: Some(1),
+            default_value: None,
+        }
+    }
+
+    #[test]
+    fn detects_bit_column_types() {
+        assert!(is_mysql_bit_column_type("bit(1)"));
+        assert!(is_mysql_bit_column_type("BIT(64)"));
+        assert!(!is_mysql_bit_column_type("tinyint(1)"));
+    }
+
+    #[test]
+    fn mysql_bit_select_uses_cast_unsigned() {
+        let expr = select_expr_for_column("mysql", &bit_col("public_status"));
+        assert_eq!(
+            expr,
+            "(CAST(`public_status` AS UNSIGNED)) AS `public_status`"
+        );
+    }
+
+    #[test]
+    fn sql_literal_keeps_zero_for_bit_values() {
+        assert_eq!(sql_literal(&json!(0), "mysql"), "0");
+        assert_eq!(sql_literal(&json!(1), "mysql"), "1");
+    }
+
+    #[test]
+    fn null_bit_column_triggers_enrich() {
+        let mut row = HashMap::new();
+        row.insert("public_status".to_string(), json!(null));
+        assert!(row_has_null_bit_columns(&row, &[bit_col("public_status")]));
+        row.insert("public_status".to_string(), json!(0));
+        assert!(!row_has_null_bit_columns(&row, &[bit_col("public_status")]));
     }
 }

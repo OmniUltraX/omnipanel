@@ -37,10 +37,17 @@ pub struct SavedHttpRequest {
     pub collection_id: Option<String>,
     pub environment_id: Option<String>,
     pub path_params: String,
+    /// Query 参数 JSON：`[{key,value,enabled},...]`
+    #[serde(default = "default_empty_json_array")]
+    pub query_params: String,
     #[specta(type = f64)]
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
+}
+
+fn default_empty_json_array() -> String {
+    "[]".to_string()
 }
 
 /// HTTP 请求历史记录。
@@ -88,8 +95,8 @@ pub struct HttpCollection {
 impl Storage {
     pub fn http_save_request(&self, req: &SavedHttpRequest) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![req.id, req.name, req.method, req.url, req.headers, req.body, req.auth_type, req.auth_value, req.collection_id, req.environment_id, req.path_params, req.created_at, req.updated_at],
+            "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![req.id, req.name, req.method, req.url, req.headers, req.body, req.auth_type, req.auth_value, req.collection_id, req.environment_id, req.path_params, req.query_params, req.created_at, req.updated_at],
         ).map_err(|e| OmniError::new(ErrorCode::Database, "保存 HTTP 请求失败").with_cause(e.to_string()))?;
         Ok(())
     }
@@ -100,9 +107,9 @@ impl Storage {
     ) -> OmniResult<Vec<SavedHttpRequest>> {
         let conn = self.conn();
         let mut stmt = if collection_id.is_some() {
-            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, created_at, updated_at FROM http_requests WHERE collection_id = ?1 ORDER BY name")
+            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at FROM http_requests WHERE collection_id = ?1 ORDER BY name")
         } else {
-            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, created_at, updated_at FROM http_requests ORDER BY name")
+            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at FROM http_requests ORDER BY name")
         }.map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = if let Some(cid) = collection_id {
             stmt.query_map(params![cid], map_request)
@@ -315,7 +322,8 @@ fn map_request(row: &rusqlite::Row) -> rusqlite::Result<SavedHttpRequest> {
         collection_id: row.get(8)?,
         environment_id: row.get(9)?,
         path_params: row.get(10).unwrap_or_else(|_| "[]".to_string()),
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        query_params: row.get(11).unwrap_or_else(|_| "[]".to_string()),
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }

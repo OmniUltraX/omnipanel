@@ -6,7 +6,11 @@ import { useI18n } from "../../../i18n";
 import { TableDdlViewer } from "../table/TableDdlViewer";
 import { buildSyncTaskSqlPreview, type SyncTaskSqlPreviewInput } from "./syncTaskSqlPreview";
 import { syncExecuteConfirmLog, syncExecuteConfirmWarn } from "./syncExecuteConfirmDebug";
-import { generateDataSyncSql, readDataSyncSqlFile } from "./useDbSyncBackgroundTasks";
+import {
+  generateDataSyncSql,
+  readDataSyncSqlFile,
+  writeDataSyncSqlFile,
+} from "./useDbSyncBackgroundTasks";
 import { DEFAULT_DATA_SYNC_MODES, normalizeDataSyncModes } from "./types";
 
 interface SyncTaskExecuteConfirmDialogProps {
@@ -15,7 +19,8 @@ interface SyncTaskExecuteConfirmDialogProps {
   input: SyncTaskSqlPreviewInput | null;
   confirming?: boolean;
   onClose: () => void;
-  onConfirm: (sqlFilePath: string | null) => void;
+  /** 确认时传入已保存的可执行 SQL 文件路径 */
+  onConfirm: (sqlFilePath: string) => void;
 }
 
 function buildDataSyncExecSpecs(input: SyncTaskSqlPreviewInput) {
@@ -55,9 +60,9 @@ export function SyncTaskExecuteConfirmDialog({
 }: SyncTaskExecuteConfirmDialogProps) {
   const { t } = useI18n();
   const [sql, setSql] = useState("");
-  const [sqlFilePath, setSqlFilePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [previewResolved, setPreviewResolved] = useState(false);
 
   const previewInputKey = useMemo(() => {
@@ -87,9 +92,9 @@ export function SyncTaskExecuteConfirmDialog({
         previewInputKey: previewInputKey || null,
       });
       setSql("");
-      setSqlFilePath(null);
       setError(null);
       setLoading(false);
+      setSaving(false);
       setPreviewResolved(false);
       return;
     }
@@ -103,7 +108,6 @@ export function SyncTaskExecuteConfirmDialog({
     setLoading(true);
     setError(null);
     setPreviewResolved(false);
-    setSqlFilePath(null);
 
     const loadPreview = async () => {
       if (input.tab === "dataSync") {
@@ -125,25 +129,21 @@ export function SyncTaskExecuteConfirmDialog({
           input.targetDb,
           buildDataSyncExecSpecs(input),
         );
-        const text = await readDataSyncSqlFile(result.filePath);
-        return { sql: text, filePath: result.filePath };
+        return readDataSyncSqlFile(result.filePath);
       }
-      const text = await buildSyncTaskSqlPreview(input);
-      return { sql: text, filePath: null as string | null };
+      return buildSyncTaskSqlPreview(input);
     };
 
     void loadPreview()
-      .then(({ sql: text, filePath }) => {
+      .then((text) => {
         if (!cancelled) {
           syncExecuteConfirmLog("preview:done", {
             previewInputKey,
             textLength: text.length,
             lineCount: text.split("\n").length,
             previewHead: text.slice(0, 320),
-            filePath,
           });
           setSql(text);
-          setSqlFilePath(filePath);
           setPreviewResolved(true);
         }
       })
@@ -156,7 +156,6 @@ export function SyncTaskExecuteConfirmDialog({
           });
           setError(message);
           setSql("");
-          setSqlFilePath(null);
           setPreviewResolved(false);
         }
       })
@@ -182,6 +181,28 @@ export function SyncTaskExecuteConfirmDialog({
       ? t("database.toolbox.executeConfirmHintDataSql")
       : t("database.toolbox.executeConfirmHint");
 
+  const handleConfirm = () => {
+    const trimmed = sql.trim();
+    if (!trimmed) {
+      setError(t("database.toolbox.executeConfirmEmptySql"));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    void writeDataSyncSqlFile(sql)
+      .then((filePath) => {
+        onConfirm(filePath);
+      })
+      .catch((e) => {
+        setError(formatInvokeError(e));
+      })
+      .finally(() => {
+        setSaving(false);
+      });
+  };
+
+  const busy = loading || saving || confirming;
+
   return (
     <SubWindow
       open={open}
@@ -196,29 +217,26 @@ export function SyncTaskExecuteConfirmDialog({
         <div className="db-sync-execute-confirm__preview">
           {loading ? (
             <DataLoading total={1} current={0} message={loadingMessage} />
-          ) : error ? (
+          ) : error && !previewResolved ? (
             <p className="db-sync-script-preview__error">{error}</p>
           ) : previewResolved ? (
-            <TableDdlViewer ddl={sql} />
+            <TableDdlViewer ddl={sql} readOnly={false} onChange={setSql} />
           ) : null}
         </div>
+        {error && previewResolved ? (
+          <p className="db-sync-script-preview__error db-sync-execute-confirm__save-error">{error}</p>
+        ) : null}
         <div className="db-sync-execute-confirm__actions">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={confirming}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             {t("common.cancel")}
           </Button>
           <Button
             type="button"
             variant="default"
-            onClick={() => onConfirm(sqlFilePath)}
-            disabled={
-              loading ||
-              Boolean(error) ||
-              confirming ||
-              !previewResolved ||
-              (input?.tab === "dataSync" && !sqlFilePath)
-            }
+            onClick={handleConfirm}
+            disabled={busy || !previewResolved || !sql.trim()}
           >
-            {confirming
+            {confirming || saving
               ? t("database.toolbox.executeConfirmRunning")
               : t("database.toolbox.executeConfirmRun")}
           </Button>

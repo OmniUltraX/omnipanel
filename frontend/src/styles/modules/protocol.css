@@ -1946,7 +1946,32 @@
         color: var(--meta);
     }
 
-    .proto-tree-root .tree-node--request .h-method {
+    .proto-tree-root .proto-tree-protocol-icon {
+        display: block;
+        width: 14px;
+        height: 14px;
+        object-fit: contain;
+        flex-shrink: 0;
+        pointer-events: none;
+    }
+
+    .proto-tree-root .proto-method-tag {
+        flex-shrink: 0;
+        margin-left: 4px;
+        padding: 0 6px;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 16px;
+        border-radius: var(--r-sm, 4px);
+        background: transparent;
+        max-width: 64px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .proto-tree-root .tree-node--request .h-method,
+    .proto-tree-root .tree-node--entry .h-method {
         flex-shrink: 0;
         font-size: 10px;
         font-weight: 700;

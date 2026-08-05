@@ -201,6 +201,10 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
         return Value::Null;
     }
     let type_name = raw.type_info().name().to_lowercase();
+    // MySQL BIT(n)：协议层是位串/字节，不能按 String 解码，否则会落成 NULL。
+    if type_name == "bit" {
+        return decode_mysql_bit_column(row, index);
+    }
     if type_name.contains("int") {
         // BIGINT UNSIGNED 超出 i64 范围，先按 u64 尝试，避免 i64 溢出吞精度
         if let Ok(v) = row.try_get::<u64, _>(index) {
@@ -266,6 +270,42 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
     }
 }
 
+/// 将 MySQL BIT 列解码为整数（BIT(1) → 0/1），便于预览与同步 SQL。
+///
+/// 注意：sqlx 的 `u64`/`Vec<u8>` 对 BIT 的 `Type::compatible` 过严（常要求 UNSIGNED，
+/// 且 Vec 不声明兼容 BIT），`try_get` 会直接失败；必须用 `try_get_unchecked`
+/// 走 `uint_decode` 里对 `ColumnType::Bit` 的大端解码（含值为 0 的字节 `\0`）。
+fn decode_mysql_bit_column(row: &MySqlRow, index: usize) -> Value {
+    // Prefer unchecked u64: sqlx uint_decode 对 BIT 有大端专用路径；
+    // try_get::<u64> 常因缺少 UNSIGNED 标志被 Type::compatible 拒绝。
+    if let Ok(v) = row.try_get_unchecked::<u64, _>(index) {
+        return safe_int_to_value(v as i128);
+    }
+    if let Ok(bytes) = row.try_get_unchecked::<Vec<u8>, _>(index) {
+        return mysql_bit_bytes_to_value(&bytes);
+    }
+    if let Ok(v) = row.try_get::<bool, _>(index) {
+        return safe_int_to_value(if v { 1 } else { 0 });
+    }
+    Value::Null
+}
+
+/// MySQL 协议中 BIT 值按大端字节序打包。
+fn mysql_bit_bytes_to_value(bytes: &[u8]) -> Value {
+    if bytes.is_empty() {
+        return Value::Null;
+    }
+    let mut acc: u128 = 0;
+    for byte in bytes {
+        acc = (acc << 8) | u128::from(*byte);
+    }
+    if acc <= i128::MAX as u128 {
+        safe_int_to_value(acc as i128)
+    } else {
+        Value::String(acc.to_string())
+    }
+}
+
 fn is_mysql_blob_type(type_name: &str) -> bool {
     matches!(
         type_name,
@@ -321,5 +361,30 @@ fn safe_int_to_value(v: i128) -> Value {
         serde_json::json!(v)
     } else {
         Value::String(v.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mysql_bit_bytes_to_value;
+    use serde_json::json;
+
+    #[test]
+    fn bit1_bytes_decode_to_0_and_1() {
+        assert_eq!(mysql_bit_bytes_to_value(&[0x00]), json!(0));
+        assert_eq!(mysql_bit_bytes_to_value(&[0x01]), json!(1));
+    }
+
+    #[test]
+    fn bit_multi_byte_big_endian() {
+        // 0x01 0x00 → 256
+        assert_eq!(mysql_bit_bytes_to_value(&[0x01, 0x00]), json!(256));
+        // 0x00 0xFF → 255
+        assert_eq!(mysql_bit_bytes_to_value(&[0x00, 0xff]), json!(255));
+    }
+
+    #[test]
+    fn empty_bit_bytes_are_null() {
+        assert_eq!(mysql_bit_bytes_to_value(&[]), serde_json::Value::Null);
     }
 }

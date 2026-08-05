@@ -35,6 +35,7 @@ function ProtocolPanelInner() {
   const closeTab = useProtocolWorkspaceStore((s) => s.closeTab);
   const setSavedLayout = useProtocolWorkspaceStore((s) => s.setSavedLayout);
   const updateTabLabel = useProtocolWorkspaceStore((s) => s.updateTabLabel);
+  const promotePreviewTab = useProtocolWorkspaceStore((s) => s.promotePreviewTab);
 
   const requestNewTabPicker = useProtocolTopbarStore((s) => s.requestNewTabPicker);
 
@@ -71,9 +72,7 @@ function ProtocolPanelInner() {
     if (!selectRequest || !clearSelectedRequest || !isActiveRoute || !activeTabId) {
       return;
     }
-    const tab = useProtocolWorkspaceStore
-      .getState()
-      .tabs.find((item) => item.id === activeTabId);
+    const tab = tabs.find((item) => item.id === activeTabId);
     if (!tab || tab.protocol !== "http") {
       return;
     }
@@ -97,6 +96,7 @@ function ProtocolPanelInner() {
     savedRequests,
     selectRequest,
     selectedRequestId,
+    tabs,
   ]);
 
   useEffect(() => {
@@ -125,8 +125,19 @@ function ProtocolPanelInner() {
         closable: true,
         panelType: `protocol-${tab.protocol}`,
         tooltip: tab.label,
+        preview: tab.preview,
       })),
     [tabs],
+  );
+
+  const handleDockTabDoubleClick = useCallback(
+    (tabId: string) => {
+      const tab = useProtocolWorkspaceStore.getState().tabs.find((item) => item.id === tabId);
+      if (!tab?.preview) return;
+      promotePreviewTab(tabId);
+      setActiveTabId(tabId);
+    },
+    [promotePreviewTab, setActiveTabId],
   );
 
   const renderPanel = useCallback(
@@ -185,6 +196,7 @@ function ProtocolPanelInner() {
         activeTabId={activeTabId ?? ""}
         onActiveTabChange={setActiveTabId}
         onCloseTab={closeTab}
+        onTabDoubleClick={handleDockTabDoubleClick}
         savedLayout={savedLayout}
         onSavedLayoutChange={setSavedLayout}
         renderPanel={renderPanel}

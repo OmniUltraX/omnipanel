@@ -7,6 +7,7 @@ import { TextInput } from "../../components/ui/TextInput";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
 import { quickInput } from "../../lib/quickInput";
+import { showToast } from "../../stores/toastStore";
 import {
   useProtocolHttp,
   HTTP_METHOD_OPTIONS,
@@ -362,14 +363,20 @@ export function HttpPanel() {
 
   const handleSaveRequest = async () => {
     if (!saveRequestName.trim()) return;
-    await saveCurrentRequest(saveRequestName.trim(), activeCollectionId);
+    const id = await saveCurrentRequest(saveRequestName.trim(), activeCollectionId);
     setSaveRequestName("");
     setShowSaveDialog(false);
+    if (id) {
+      showToast(t("protocol.http.saveSuccess"));
+    } else {
+      showToast(t("protocol.http.saveFailed"));
+    }
   };
 
   const handlePersist = useCallback(async () => {
     if (selectedRequestId) {
-      await persistCurrentRequest();
+      const ok = await persistCurrentRequest();
+      showToast(ok ? t("protocol.http.saveSuccess") : t("protocol.http.saveFailed"));
       return;
     }
     const name = await quickInput({
@@ -379,7 +386,8 @@ export function HttpPanel() {
       validate: (value) => (value.trim() ? null : t("protocol.sidebar.folderNameRequired")),
     });
     if (!name) return;
-    await saveCurrentRequest(name.trim(), activeCollectionId);
+    const id = await saveCurrentRequest(name.trim(), activeCollectionId);
+    showToast(id ? t("protocol.http.saveSuccess") : t("protocol.http.saveFailed"));
   }, [activeCollectionId, persistCurrentRequest, saveCurrentRequest, selectedRequestId, t]);
 
   useEffect(() => {

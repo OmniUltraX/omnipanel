@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
@@ -18,7 +19,7 @@ import { appConfirm } from "../../lib/appConfirm";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { IconFolder } from "../../components/ui/icons/Icons";
-import { ProtocolSidebarNewButton } from "./ProtocolSidebarNewButton";
+import { ProtocolSidebarNewButton, runProtocolHttpImport } from "./ProtocolSidebarNewButton";
 import {
   useProtocolHttpLayoutStore,
   type ProtocolDropTarget,
@@ -26,21 +27,26 @@ import {
 } from "../../stores/protocolHttpLayoutStore";
 import {
   beforeKeyForAfterPosition,
+  collectAllProtocolTreeKeys,
+  collectProtocolFolderCascadeTargets,
   filterHistoryForRequest,
   formatMethodBadge,
-  formatProtocolBadge,
   listProtocolTreeChildren,
   listSiblingKeys,
   methodColor,
-  protocolColor,
   resolveEntryParent,
   resolveTreeEntryByKey,
   type ProtocolTreeEntry,
 } from "./protocolLayoutTree";
 import { ProtocolTreeNode } from "./ProtocolTreeNode";
 import {
+  ProtocolTreeDefaultIcon,
+  ProtocolTreeHttpIcon,
+} from "./protocolTreeIcons";
+import {
   SidebarTreeSelectionProvider,
   resolveSidebarTreeDeleteTargets,
+  useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
 import {
@@ -90,6 +96,75 @@ function dropHintClass(entryKey: ProtocolTreeNodeKey, dropHint: DropHint | null)
   return " tree-node--drop-inside";
 }
 
+/** 多选删除时只删「顶层」选中文件夹，避免祖先已删后重复删子文件夹。 */
+function filterTopLevelSelectedFolderIds(
+  folderIds: string[],
+  folders: { id: string; parentId: string | null }[],
+): string[] {
+  const selected = new Set(folderIds);
+  const parentById = new Map(folders.map((folder) => [folder.id, folder.parentId]));
+  return folderIds.filter((id) => {
+    let parentId = parentById.get(id) ?? null;
+    while (parentId) {
+      if (selected.has(parentId)) return false;
+      parentId = parentById.get(parentId) ?? null;
+    }
+    return true;
+  });
+}
+
+function ProtocolTreeHotkeys({
+  allKeys,
+  armedRef,
+  onDeleteSelected,
+}: {
+  allKeys: readonly string[];
+  armedRef: MutableRefObject<boolean>;
+  onDeleteSelected: (selected: ReadonlySet<string>) => boolean | Promise<boolean>;
+}) {
+  const selection = useSidebarTreeSelection();
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!armedRef.current) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
+        )
+      ) {
+        return;
+      }
+
+      const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key.toLowerCase() === "a") {
+        if (allKeys.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        selectionRef.current?.setSelectedIds(allKeys);
+        return;
+      }
+
+      if (event.key === "Delete") {
+        const selected = selectionRef.current?.selectedIds;
+        if (!selected || selected.size === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void Promise.resolve(onDeleteSelected(selected)).then((deleted) => {
+          if (deleted) selectionRef.current?.clearSelection();
+        });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [allKeys, armedRef, onDeleteSelected]);
+
+  return null;
+}
+
 export function ProtocolHttpSidebar() {
   const { t } = useI18n();
   const http = useProtocolHttpOptional();
@@ -128,6 +203,9 @@ export function ProtocolHttpSidebar() {
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
   }, []);
+  /** 最近一次指针交互落在协议侧栏内时，才响应 Ctrl+A / Delete（避免右侧面板误触） */
+  const sidebarHotkeysArmedRef = useRef(false);
+  const sidebarRootRef = useRef<HTMLElement>(null);
   const [isPointerDragging, setIsPointerDragging] = useState(false);
   const treeRootRef = useRef<HTMLDivElement>(null);
   const pointerDragRef = useRef<{
@@ -238,6 +316,181 @@ export function ProtocolHttpSidebar() {
     ],
   );
 
+  const allTreeKeys = useMemo(
+    () =>
+      collectAllProtocolTreeKeys(
+        null,
+        folders,
+        collections,
+        savedRequests,
+        collectionParents,
+        requestParents,
+        entryParents,
+        filteredLabEntries,
+        siblingOrder,
+      ),
+    [
+      folders,
+      collections,
+      savedRequests,
+      collectionParents,
+      requestParents,
+      entryParents,
+      filteredLabEntries,
+      siblingOrder,
+    ],
+  );
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      sidebarHotkeysArmedRef.current = Boolean(
+        sidebarRootRef.current?.contains(event.target as Node),
+      );
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
+
+  const closeTabsForResource = useCallback(
+    (resourceId: string, protocol?: string) => {
+      for (const tab of workspaceTabsForClose) {
+        if (tab.resourceId !== resourceId) continue;
+        if (protocol && tab.protocol !== protocol) continue;
+        closeWorkspaceTab(tab.id);
+      }
+    },
+    [closeWorkspaceTab, workspaceTabsForClose],
+  );
+
+  const deleteFoldersCascade = useCallback(
+    async (folderIds: string[]) => {
+      if (folderIds.length === 0) return;
+      const cascade = collectProtocolFolderCascadeTargets(
+        folderIds,
+        folders,
+        collectionsAll,
+        savedRequestsAll,
+        collectionParents,
+        requestParents,
+        entryParents,
+        labEntries,
+      );
+
+      for (const requestId of cascade.requestIds) {
+        if (http) {
+          await http.deleteSavedRequest(requestId);
+        }
+        closeTabsForResource(requestId, "http");
+      }
+      for (const entryId of cascade.entryIds) {
+        deleteLabEntry(entryId);
+        closeTabsForResource(entryId);
+      }
+      if (http) {
+        for (const collectionId of cascade.collectionIds) {
+          await http.deleteCollection(collectionId);
+        }
+      }
+      for (const folderId of folderIds) {
+        deleteFolder(folderId);
+      }
+    },
+    [
+      closeTabsForResource,
+      collectionParents,
+      collectionsAll,
+      deleteFolder,
+      deleteLabEntry,
+      entryParents,
+      folders,
+      http,
+      labEntries,
+      requestParents,
+      savedRequestsAll,
+    ],
+  );
+
+  const deleteSelectedTreeItems = useCallback(
+    async (selected: ReadonlySet<string>): Promise<boolean> => {
+      const requestKeys = [...selected].filter((key) => key.startsWith("request:"));
+      const entryKeys = [...selected].filter((key) => key.startsWith("entry:"));
+      const folderKeys = [...selected].filter((key) => key.startsWith("folder:"));
+      const total = requestKeys.length + entryKeys.length + folderKeys.length;
+      if (total === 0) return false;
+
+      const onlyFolders = folderKeys.length === total;
+      const onlyRequests = requestKeys.length + entryKeys.length === total;
+      const message =
+        total === 1
+          ? onlyFolders
+            ? t("protocol.sidebar.deleteFolderConfirm")
+            : t("protocol.sidebar.deleteRequestConfirm")
+          : t("sidebarTree.confirmDeleteSelected", { count: String(total) });
+      const title =
+        total === 1
+          ? onlyFolders
+            ? t("protocol.sidebar.deleteFolderTitle")
+            : t("protocol.sidebar.deleteRequestTitle")
+          : onlyFolders
+            ? t("protocol.sidebar.deleteFolderTitle")
+            : onlyRequests
+              ? t("protocol.sidebar.deleteRequestTitle")
+              : t("sidebarTree.delete");
+      const ok = await appConfirm(message, title);
+      if (!ok) return false;
+
+      const folderIds = filterTopLevelSelectedFolderIds(
+        folderKeys.map((key) => key.slice("folder:".length)),
+        folders,
+      );
+      const cascade = collectProtocolFolderCascadeTargets(
+        folderIds,
+        folders,
+        collectionsAll,
+        savedRequestsAll,
+        collectionParents,
+        requestParents,
+        entryParents,
+        labEntries,
+      );
+      const cascadedRequestIds = new Set(cascade.requestIds);
+      const cascadedEntryIds = new Set(cascade.entryIds);
+
+      for (const key of requestKeys) {
+        const requestId = key.slice("request:".length);
+        if (cascadedRequestIds.has(requestId)) continue;
+        if (http) {
+          await http.deleteSavedRequest(requestId);
+        }
+        closeTabsForResource(requestId, "http");
+      }
+
+      for (const key of entryKeys) {
+        const entryId = key.slice("entry:".length);
+        if (cascadedEntryIds.has(entryId)) continue;
+        deleteLabEntry(entryId);
+        closeTabsForResource(entryId);
+      }
+
+      await deleteFoldersCascade(folderIds);
+      return true;
+    },
+    [
+      closeTabsForResource,
+      collectionParents,
+      collectionsAll,
+      deleteFoldersCascade,
+      deleteLabEntry,
+      entryParents,
+      folders,
+      http,
+      labEntries,
+      requestParents,
+      savedRequestsAll,
+      t,
+    ],
+  );
+
   const handleCreateFolder = useCallback(
     async (parentId: string | null) => {
       const name = await quickInput({
@@ -264,11 +517,12 @@ export function ProtocolHttpSidebar() {
   }, [requestNewRequestPicker]);
 
   const handleSelectEntry = useCallback(
-    (entry: (typeof labEntries)[number]) => {
+    (entry: (typeof labEntries)[number], mode: "preview" | "permanent" = "preview") => {
       openSessionTab({
         protocol: entry.protocol,
         resourceId: entry.id,
         label: entry.name,
+        mode,
       });
       if (entry.protocol === "http") {
         setSectionExpanded("history", true);
@@ -278,11 +532,12 @@ export function ProtocolHttpSidebar() {
   );
 
   const handleSelectRequest = useCallback(
-    (req: (typeof savedRequests)[number]) => {
+    (req: (typeof savedRequests)[number], mode: "preview" | "permanent" = "preview") => {
       openSessionTab({
         protocol: "http",
         resourceId: req.id,
         label: req.name,
+        mode,
       });
       setSectionExpanded("history", true);
     },
@@ -484,6 +739,7 @@ export function ProtocolHttpSidebar() {
   const openContextMenu = useCallback((event: MouseEvent, target: ContextTarget) => {
     event.preventDefault();
     event.stopPropagation();
+    sidebarHotkeysArmedRef.current = true;
     setCtxMenu({ x: event.clientX, y: event.clientY, target });
   }, []);
 
@@ -504,6 +760,19 @@ export function ProtocolHttpSidebar() {
           id: "new-request",
           label: t("protocol.sidebar.newRequest"),
           onClick: () => handleCreateRequest(parentFolderId),
+        },
+        {
+          id: "import",
+          label: t("protocol.sidebar.import"),
+          onClick: () => {
+            if (!http?.importHttpDocument) return;
+            void runProtocolHttpImport({
+              parentFolderId,
+              importHttpDocument: http.importHttpDocument,
+              t,
+            });
+          },
+          disabled: !http,
         },
       );
     }
@@ -541,9 +810,11 @@ export function ProtocolHttpSidebar() {
             t("protocol.sidebar.deleteFolderTitle"),
           ).then((ok) => {
             if (!ok) return;
-            for (const key of keys) {
-              deleteFolder(key.slice("folder:".length));
-            }
+            const folderIds = filterTopLevelSelectedFolderIds(
+              keys.map((key) => key.slice("folder:".length)),
+              folders,
+            );
+            void deleteFoldersCascade(folderIds);
           });
         },
       });
@@ -691,7 +962,7 @@ export function ProtocolHttpSidebar() {
     handleCreateRequest,
     folders,
     renameFolder,
-    deleteFolder,
+    deleteFoldersCascade,
     http,
     savedRequests,
     labEntries,
@@ -751,6 +1022,7 @@ export function ProtocolHttpSidebar() {
         if (entry.kind === "request") {
           const req = entry.request;
           const selected = selectedResourceId === req.id;
+          const methodTint = methodColor(req.method);
           return (
             <ProtocolTreeNode
               key={entry.key}
@@ -760,17 +1032,27 @@ export function ProtocolHttpSidebar() {
               hasChildren={false}
               active={selected}
               label={req.name}
-              prefix={
-                <span className="h-method" style={{ color: methodColor(req.method) }}>
+              icon={<ProtocolTreeHttpIcon />}
+              afterLabel={
+                <span
+                  className="tag proto-method-tag"
+                  style={{ color: methodTint, borderColor: methodTint }}
+                >
                   {formatMethodBadge(req.method)}
                 </span>
               }
               dataTreeKey={entry.key}
               className={`${hintClass}${draggingClass}`}
               onToggle={() => {}}
+              onSelect={(e) => {
+                if (consumeSkipClick()) return;
+                // Ctrl/Meta/Shift 仅多选，不打开面板
+                if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                handleSelectRequest(req, "preview");
+              }}
               onActivate={() => {
                 if (consumeSkipClick()) return;
-                handleSelectRequest(req);
+                handleSelectRequest(req, "permanent");
               }}
               onPointerDown={(e) => onNodePointerDown(e, entry.key)}
               onContextMenu={(e) => openContextMenu(e, { kind: "request", requestId: req.id })}
@@ -789,17 +1071,24 @@ export function ProtocolHttpSidebar() {
             hasChildren={false}
             active={selected}
             label={labEntry.name}
-            prefix={
-              <span className="h-method" style={{ color: protocolColor(labEntry.protocol) }}>
-                {formatProtocolBadge(labEntry.protocol)}
-              </span>
+            icon={
+              labEntry.protocol === "http" ? (
+                <ProtocolTreeHttpIcon />
+              ) : (
+                <ProtocolTreeDefaultIcon />
+              )
             }
             dataTreeKey={entry.key}
             className={`${hintClass}${draggingClass}`}
             onToggle={() => {}}
+            onSelect={(e) => {
+              if (consumeSkipClick()) return;
+              if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+              handleSelectEntry(labEntry, "preview");
+            }}
             onActivate={() => {
               if (consumeSkipClick()) return;
-              handleSelectEntry(labEntry);
+              handleSelectEntry(labEntry, "permanent");
             }}
             onPointerDown={(e) => onNodePointerDown(e, entry.key)}
             onContextMenu={(e) => openContextMenu(e, { kind: "entry", entryId: labEntry.id })}
@@ -824,11 +1113,13 @@ export function ProtocolHttpSidebar() {
 
   return (
     <aside
+      ref={sidebarRootRef}
       className="proto-sidebar proto-sidebar--tree"
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest(".tree-node, .history-item, .vsplit-sidebar-section__header")) {
           return;
         }
+        sidebarHotkeysArmedRef.current = true;
         openContextMenu(e, { kind: "root" });
       }}
     >
@@ -839,11 +1130,22 @@ export function ProtocolHttpSidebar() {
           onToggle={() => toggleSection("apis")}
           actions={<ProtocolSidebarNewButton />}
         >
-          <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
+          <SidebarTreeSelectionProvider
+            orderedKeys={allTreeKeys}
+            onSelectedIdsChange={handleSelectedIdsChange}
+          >
+          <ProtocolTreeHotkeys
+            allKeys={allTreeKeys}
+            armedRef={sidebarHotkeysArmedRef}
+            onDeleteSelected={deleteSelectedTreeItems}
+          />
           <div
             ref={treeRootRef}
             className={`proto-tree-root${isPointerDragging && dropHint === null ? " proto-tree-root--drag-active" : ""}`}
-            onContextMenu={(e) => openContextMenu(e, { kind: "root" })}
+            onContextMenu={(e) => {
+              sidebarHotkeysArmedRef.current = true;
+              openContextMenu(e, { kind: "root" });
+            }}
           >
             {rootChildren.length === 0 ? (
               <div className="proto-empty">{t("protocol.sidebar.protocolListEmpty")}</div>

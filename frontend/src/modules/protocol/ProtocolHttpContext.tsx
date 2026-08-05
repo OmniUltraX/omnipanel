@@ -19,7 +19,7 @@ import { useProtocolHttpDockStore } from "../../stores/protocolHttpDockStore";
 import { useProtocolHttpLayoutStore } from "../../stores/protocolHttpLayoutStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
 import { formatHttpJsonBody } from "./httpJsonBody";
-import { parseHttpHeaders, serializeHttpHeaders } from "./httpHeaderUtils";
+import { parseHttpHeaders, serializeHttpHeaders, inferHeaderKeyKind, type HttpHeaderPair } from "./httpHeaderUtils";
 import { parsePathParams, serializePathParams, syncPathParamsFromUrl } from "./httpPathParams";
 import {
   historyEntryToSession,
@@ -37,6 +37,7 @@ import {
   writeStoredActiveEnvironmentId,
 } from "./httpEnvironment";
 import type { HttpPathParamPair } from "./httpPathParams";
+import type { ProtocolImportDocument, ProtocolImportStats } from "./import/protocolImportTypes";
 
 async function persistHttpRequest(req: SavedHttpRequest) {
   const res = await commands.httpSaveRequest(req);
@@ -215,6 +216,11 @@ interface ProtocolHttpContextValue {
   openRequestTab: (req: SavedHttpRequest) => void;
   clearSelectedRequest: () => void;
   createRequest: (name: string, parentFolderId: string | null) => Promise<SavedHttpRequest | null>;
+  /** 导入外部 API 文档（Apifox 等）到协议列表 */
+  importHttpDocument: (
+    document: ProtocolImportDocument,
+    parentFolderId: string | null,
+  ) => Promise<ProtocolImportStats>;
   saveCurrentRequest: (name: string, collectionId: string | null) => Promise<string | null>;
   persistCurrentRequest: () => Promise<boolean>;
   renameSavedRequest: (requestId: string, name: string) => Promise<void>;
@@ -322,6 +328,7 @@ function editorToSavedRequest(
     url: editor.url,
     headers: serializeHttpHeaders(editor.headers),
     pathParams: serializePathParams(editor.pathParams),
+    queryParams: serializePathParams(editor.params),
     body,
     authType: authTypeToStorage(editor.authType),
     authValue: editor.authValue,
@@ -709,10 +716,8 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         environments[0]?.id ??
         null;
 
-      const storedPathParams = parsePathParams(
-        (req as SavedHttpRequest & { pathParams?: string }).pathParams,
-      );
-
+      const storedPathParams = parsePathParams(req.pathParams);
+      const storedQueryParams = parsePathParams(req.queryParams ?? "[]");
       const parsed = parseStoredHttpMethod(req.method);
 
       setEditorState({
@@ -725,7 +730,10 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         bodyType: "JSON",
         authType,
         authValue: req.authValue ?? "",
-        params: [{ key: "", value: "", enabled: true }],
+        params:
+          storedQueryParams.length > 0
+            ? storedQueryParams
+            : [{ key: "", value: "", enabled: true }],
         headers: parseHeaders(req.headers),
       });
       if (environmentId) {
@@ -768,6 +776,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         url: "",
         headers: "{}",
         pathParams: "[]",
+        queryParams: "[]",
         body: "",
         authType: "",
         authValue: "",
@@ -792,6 +801,79 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       }
       console.error("[protocol] create request failed:", res.error);
       return null;
+    },
+    [loadSavedRequests],
+  );
+
+  const importHttpDocument = useCallback(
+    async (document: ProtocolImportDocument, parentFolderId: string | null) => {
+      const layout = useProtocolHttpLayoutStore.getState();
+      let folderCount = 0;
+      let requestCount = 0;
+
+      const toHeadersJson = (headers: { key: string; value: string; enabled: boolean }[]) => {
+        const pairs: HttpHeaderPair[] =
+          headers.length > 0
+            ? headers.map((h) => ({
+                key: h.key,
+                value: h.value,
+                enabled: h.enabled,
+                keyKind: inferHeaderKeyKind(h.key),
+                valueType: "string" as const,
+              }))
+            : [];
+        return serializeHttpHeaders(pairs);
+      };
+
+      const walk = async (
+        nodes: ProtocolImportDocument["roots"],
+        folderId: string | null,
+      ): Promise<void> => {
+        for (const node of nodes) {
+          if (node.kind === "folder") {
+            const folder = layout.addFolder(folderId, node.folder.name);
+            folderCount += 1;
+            await walk(node.folder.children, folder.id);
+            continue;
+          }
+          const now = Date.now();
+          const req: SavedHttpRequest = {
+            id: generateId(),
+            name: node.request.name.trim() || "Untitled",
+            method: node.request.method || "GET",
+            url: node.request.url || "/",
+            headers: toHeadersJson(node.request.headers),
+            pathParams: serializePathParams(node.request.pathParams),
+            queryParams: serializePathParams(node.request.queryParams),
+            body: node.request.body ?? "",
+            authType: node.request.authType || "",
+            authValue: node.request.authValue || "",
+            collectionId: null,
+            environmentId: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+          const res = await persistHttpRequest(req);
+          if (res.status !== "ok") {
+            throw new Error(
+              typeof res.error === "string" ? res.error : JSON.stringify(res.error),
+            );
+          }
+          layout.setRequestParent(req.id, folderId);
+          if (folderId) {
+            layout.ensureFolderExpanded(folderId);
+          }
+          layout.reorderSibling(
+            `request:${req.id}`,
+            folderId ? { kind: "folder", folderId } : { kind: "root" },
+          );
+          requestCount += 1;
+        }
+      };
+
+      await walk(document.roots, parentFolderId);
+      await loadSavedRequests();
+      return { folderCount, requestCount };
     },
     [loadSavedRequests],
   );
@@ -962,6 +1044,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       openRequestTab,
       clearSelectedRequest,
       createRequest,
+      importHttpDocument,
       saveCurrentRequest,
       persistCurrentRequest,
       renameSavedRequest,
@@ -1000,6 +1083,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       openRequestTab,
       clearSelectedRequest,
       createRequest,
+      importHttpDocument,
       saveCurrentRequest,
       persistCurrentRequest,
       renameSavedRequest,

@@ -3,10 +3,10 @@ use omnipanel_store::DbConnectionConfig;
 use tauri::State;
 
 use crate::background::db_sync_jobs::{
-    batch_table_ddl, preview_schema_sync_sql, DbDataSyncSqlGenerateResult, DbSyncExecTableSpec,
-    DbSyncSqlPreviewTable, DbSyncTableSpec, generate_data_sync_sql_script, read_sync_sql_file,
+    batch_table_ddl, generate_data_sync_sql_script, preview_schema_sync_sql, read_sync_sql_file,
     run_db_data_sync_analysis, run_db_data_sync_execute, run_db_data_sync_sql_file_execute,
-    run_db_schema_sync_analysis, run_db_schema_sync_execute,
+    run_db_schema_sync_analysis, run_db_schema_sync_execute, save_sync_sql_file,
+    DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncSqlPreviewTable, DbSyncTableSpec,
 };
 use crate::background::knowledge_vector_jobs::run_knowledge_vectorize_background;
 use crate::background::local_runtime_jobs::{
@@ -353,6 +353,16 @@ pub async fn db_data_sync_read_sql_file(
     file_path: String,
 ) -> Result<String, OmniError> {
     Ok(read_sync_sql_file(&app, &file_path)?)
+}
+
+/// 保存（可编辑后的）同步 SQL 到缓存目录，供确认执行使用。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_data_sync_write_sql_file(
+    app: tauri::AppHandle,
+    sql: String,
+) -> Result<String, OmniError> {
+    Ok(save_sync_sql_file(&app, &sql)?)
 }
 
 /// 提交数据同步 SQL 文件执行后台任务。

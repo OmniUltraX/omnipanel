@@ -39,6 +39,12 @@ pub struct RowDiffPageResult {
     pub kind_counts: RowDiffKindCounts,
 }
 
+/// save / load 必须共用同一块内存缓存，否则重新分析写盘后读侧仍命中旧结果。
+fn mem_cache() -> &'static Mutex<HashMap<String, RowDiffCacheFile>> {
+    static MEM_CACHE: OnceLock<Mutex<HashMap<String, RowDiffCacheFile>>> = OnceLock::new();
+    MEM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -77,10 +83,7 @@ fn count_kinds(diffs: &[TableRowDiffPayload]) -> RowDiffKindCounts {
 }
 
 fn load_cache_file(app: &AppHandle, cache_id: &str) -> Result<RowDiffCacheFile, String> {
-    static MEM_CACHE: OnceLock<Mutex<HashMap<String, RowDiffCacheFile>>> = OnceLock::new();
-    let mem = MEM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-
-    if let Ok(guard) = mem.lock() {
+    if let Ok(guard) = mem_cache().lock() {
         if let Some(cached) = guard.get(cache_id) {
             return Ok(cached.clone());
         }
@@ -95,7 +98,7 @@ fn load_cache_file(app: &AppHandle, cache_id: &str) -> Result<RowDiffCacheFile, 
     let file: RowDiffCacheFile = serde_json::from_str(&raw)
         .map_err(|e| format!("解析差异缓存失败 ({}): {e}", path.display()))?;
 
-    if let Ok(mut guard) = mem.lock() {
+    if let Ok(mut guard) = mem_cache().lock() {
         guard.insert(cache_id.to_string(), file.clone());
     }
     Ok(file)
@@ -148,9 +151,7 @@ pub fn save_row_diff_cache(
     fs::write(&tmp, json).map_err(|e| format!("写入差异缓存失败: {e}"))?;
     fs::rename(&tmp, &path).map_err(|e| format!("替换差异缓存失败: {e}"))?;
 
-    static MEM_CACHE: OnceLock<Mutex<HashMap<String, RowDiffCacheFile>>> = OnceLock::new();
-    let mem = MEM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(mut guard) = mem.lock() {
+    if let Ok(mut guard) = mem_cache().lock() {
         guard.insert(cache_id.to_string(), file);
     }
     Ok(())
