@@ -12,7 +12,7 @@
  *   conversationId 以 "term-inline:" 开头时自动走 blocksStore 路径
  */
 import { useAiStore } from "../../../stores/aiStore";
-import { useBlocksStore, type AiThreadMessage } from "../../../stores/blocksStore";
+import { useBlocksStore } from "../../../stores/blocksStore";
 import { reportToolResultWithRetry } from "../reportToolResult";
 import type { AskUserAnswerValue, UserQuestionFormData } from "../aiMessageParts";
 import {
@@ -41,11 +41,6 @@ const resolvedToolCallIds = new Set<string>();
 let formSeq = 0;
 function genFormId(): string {
   return `ask_${Date.now()}_${(++formSeq).toString(36)}`;
-}
-
-/** 终端内嵌会话的 conversationId 前缀（见 terminalAiContextBundle.resolveInlineConversationId） */
-function isInlineConversationId(conversationId: string): boolean {
-  return conversationId.startsWith("term-inline:");
 }
 
 /** 在 blocksStore 的 aiThread 中查找包含 toolCallId 的 assistant 消息 */
@@ -189,7 +184,7 @@ async function supersedePendingForms(
 ): Promise<void> {
   const pendingForms = collectPendingForms(conversationId, parent);
 
-  for (const { form, messageId } of pendingForms) {
+  for (const { form } of pendingForms) {
     if (form.toolCallId === exceptToolCallId) continue;
     if (resolvedToolCallIds.has(form.toolCallId)) continue;
 

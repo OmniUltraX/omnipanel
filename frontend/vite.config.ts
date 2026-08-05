@@ -4,14 +4,42 @@ import { createRequire } from "node:module";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import checker from "vite-plugin-checker";
 
 const frontendRoot = path.dirname(fileURLToPath(import.meta.url));
 const requireFromFrontend = createRequire(import.meta.url);
 
 const shimsDir = path.resolve(frontendRoot, "src/shims");
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
+export default defineConfig(({ command }) => ({
+  plugins: [
+    react(),
+    tailwindcss(),
+    // Vite 8 + vite-plugin-checker 兼容 shim：
+    // Vite 8 移除了 resolve 前的 stripBase，base 前缀的 runtime id 无法被插件 resolveId 匹配，
+    // 这里手动把 base 前缀过的 id 映射回 virtual 模块。参见 nuxt/nuxt#35765、fi3ework/vite-plugin-checker#661
+    {
+      name: "vite-plugin-checker-runtime-base-fix",
+      resolveId(id) {
+        if (id.endsWith("/@vite-plugin-checker-runtime")) {
+          return "virtual:@vite-plugin-checker-runtime";
+        }
+      },
+    },
+    // 仅 dev 模式启用 TS 检查；build 走 beforeBuildCommand 里的 `tsc -b`，避免重复
+    ...(command === "serve"
+      ? [
+          checker({
+            typescript: {
+              // root tsconfig.json 是 solution-style（files:[] + references），
+              // checker 用 tsc --noEmit 而非 tsc -b，需显式指向 app 配置才能命中 src/**
+              tsconfigPath: "tsconfig.app.json",
+            },
+            overlay: { initialIsOpen: false },
+          }),
+        ]
+      : []),
+  ],
   clearScreen: false,
   resolve: {
     alias: [
@@ -104,5 +132,5 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     css: false,
   },
-});
+}));
 
