@@ -34,6 +34,12 @@ import {
 } from "./filesDragTransfer";
 import { collectOsDropItems, hasOsFileDrag, type OsDropByteFile } from "./osFileDrop";
 import {
+  collectDroppedLocalEntries,
+  isOsFileDrag,
+  uploadDroppedLocalFiles,
+} from "./localOsFileDrop";
+import { promptTransferConflictPolicy } from "./transferConflict";
+import {
   IconDetailPanel,
   IconGridView,
   IconListView,
@@ -690,34 +696,12 @@ export function FileConnectionPanel({
 
   const resolveConflictPolicy = useCallback(
     async (itemNames: string[]): Promise<"rename" | "overwrite" | "skip"> => {
-      const existingNames = new Set(entries.map((e) => e.name));
-      const conflictNames = itemNames.filter((name) => existingNames.has(name));
-      if (conflictNames.length === 0) return "rename";
-      const preview = conflictNames.slice(0, 5).join(", ");
-      const names = conflictNames.length > 5 ? `${preview}…` : preview;
-      const useRename = await appConfirm(
-        t("files.transfer.conflictBody", {
-          count: conflictNames.length,
-          names,
-        }),
-        t("files.transfer.conflictTitle"),
-        {
-          confirmLabel: t("files.transfer.conflictRename"),
-          cancelLabel: t("files.transfer.conflictMore"),
-        },
+      return promptTransferConflictPolicy(
+        itemNames,
+        entries.map((e) => e.name),
       );
-      if (useRename) return "rename";
-      const overwrite = await appConfirm(
-        t("files.transfer.conflictOverwriteBody"),
-        t("files.transfer.conflictOverwriteTitle"),
-        {
-          confirmLabel: t("files.transfer.conflictOverwrite"),
-          cancelLabel: t("files.transfer.conflictSkip"),
-        },
-      );
-      return overwrite ? "overwrite" : "skip";
     },
-    [entries, t],
+    [entries],
   );
 
   const resolveRouteForPaste = useCallback(
@@ -982,12 +966,13 @@ export function FileConnectionPanel({
   );
 
   const handleEntryDragOver = useCallback((e: React.DragEvent, entry: FileEntry) => {
-    const dt = e.dataTransfer;
-    if (!hasFilesDrag(dt) && !hasOsFileDrag(dt)) return;
+    const internal = hasFilesDrag(e.dataTransfer);
+    const os = isOsFileDrag(e.dataTransfer);
+    if (!internal && !os) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
-    if (entry.kind === "dir") {
+    if (entry.kind === "dir" || os) {
       (e.currentTarget as HTMLElement).classList.add("fm-drop-target");
     }
   }, []);
@@ -999,16 +984,25 @@ export function FileConnectionPanel({
   const handleEntryDrop = useCallback(
     async (e: React.DragEvent, entry: FileEntry) => {
       (e.currentTarget as HTMLElement).classList.remove("fm-drop-target");
-      const dt = e.dataTransfer;
-      const destDir =
-        entry.kind === "dir" ? entry.path : currentDestDir();
+      const osPromise = isOsFileDrag(e.dataTransfer)
+        ? collectDroppedLocalEntries(e.dataTransfer)
+        : Promise.resolve([]);
+      const payload = hasFilesDrag(e.dataTransfer) ? parseFilesDrag(e.dataTransfer) : null;
+      // 先同步启动 os 收集（内部会立刻快照 DataTransfer）
+      const osFiles = await osPromise;
+      if (!payload?.items.length && osFiles.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearFilesDrag();
 
-      if (hasFilesDrag(dt)) {
-        e.preventDefault();
-        e.stopPropagation();
-        const payload = parseFilesDrag(dt);
-        clearFilesDrag();
-        if (!payload?.items.length) return;
+      const destDir =
+        entry.kind === "dir"
+          ? entry.path
+          : protocol === "local"
+            ? currentPath || quickPaths?.home || ""
+            : currentPath || "/";
+
+      if (payload?.items.length) {
         // 拖到自身目录无效
         if (
           payload.connectionId === connId &&
@@ -1027,26 +1021,40 @@ export function FileConnectionPanel({
         return;
       }
 
-      if (!hasOsFileDrag(dt)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      osDragDepthRef.current = 0;
-      setOsDragOver(false);
+      if (osFiles.length === 0) return;
       try {
-        await uploadOsDropToDir(dt, destDir);
+        const existingNames =
+          entry.kind === "dir"
+            ? undefined // 交给 upload 内 list 目标目录
+            : entries.map((e) => e.name);
+        const { ok, fail, skipped, lastError } = await uploadDroppedLocalFiles({
+          files: osFiles,
+          destConnectionId: connId,
+          destDir,
+          existingNames,
+        });
+        if (ok === 0 && fail === 0 && skipped > 0) {
+          showToast(t("files.transfer.conflictSkip"));
+        } else if (fail === 0) {
+          showToast(t("ssh.sftp.uploadSuccess", { count: ok }));
+        } else if (ok === 0) {
+          showToast(lastError || t("ssh.sftp.uploadFailed"));
+        } else {
+          showToast(t("ssh.sftp.uploadPartial", { ok, fail }));
+        }
+        void loadDir(currentPath);
       } catch (err) {
         showToast(fmtError(err));
       }
     },
-    [connId, currentDestDir, enqueueClipboardLike, uploadOsDropToDir],
+    [connId, currentPath, enqueueClipboardLike, entries, loadDir, protocol, quickPaths?.home, t],
   );
 
   const handlePanelDragEnter = useCallback((e: React.DragEvent) => {
-    const dt = e.dataTransfer;
-    if (!hasOsFileDrag(dt) && !hasFilesDrag(dt)) return;
+    if (!hasFilesDrag(e.dataTransfer) && !isOsFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (hasOsFileDrag(dt) && !hasFilesDrag(dt)) {
+    if (isOsFileDrag(e.dataTransfer) && !hasFilesDrag(e.dataTransfer)) {
       osDragDepthRef.current += 1;
       setOsDragOver(true);
     }
@@ -1061,43 +1069,66 @@ export function FileConnectionPanel({
 
   const handlePanelDragOver = useCallback((e: React.DragEvent) => {
     const dt = e.dataTransfer;
-    if (!hasFilesDrag(dt) && !hasOsFileDrag(dt)) return;
+    if (!hasFilesDrag(dt) && !isOsFileDrag(dt)) return;
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
+    dt.dropEffect = "copy";
   }, []);
 
   const handlePanelDrop = useCallback(
     async (e: React.DragEvent) => {
-      const dt = e.dataTransfer;
-      osDragDepthRef.current = 0;
-      setOsDragOver(false);
-
-      if (hasFilesDrag(dt)) {
-        e.preventDefault();
-        e.stopPropagation();
-        const payload = parseFilesDrag(dt);
-        clearFilesDrag();
-        if (!payload?.items.length) return;
-        if (payload.connectionId === connId) return;
-        try {
-          await enqueueClipboardLike(payload.items, currentDestDir(), "copy");
-        } catch (err) {
-          showToast(fmtError(err));
-        }
-        return;
-      }
-
-      if (!hasOsFileDrag(dt)) return;
+      const osPromise = isOsFileDrag(e.dataTransfer)
+        ? collectDroppedLocalEntries(e.dataTransfer)
+        : Promise.resolve([]);
+      const internal = hasFilesDrag(e.dataTransfer) ? parseFilesDrag(e.dataTransfer) : null;
+      const osFiles = await osPromise;
+      if (!internal?.items.length && osFiles.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
+      clearFilesDrag();
+
+      const destDir =
+        protocol === "local"
+          ? currentPath || quickPaths?.home || ""
+          : currentPath || "/";
+
+      // 应用内跨连接拖拽优先
+      if (internal?.items.length) {
+        if (internal.connectionId === connId) {
+          // 同连接拖到空白区：忽略；目录行 drop 另有处理
+        } else {
+          try {
+            await enqueueClipboardLike(internal.items, destDir, "copy");
+          } catch (err) {
+            showToast(fmtError(err));
+          }
+          return;
+        }
+      }
+
+      if (osFiles.length === 0) return;
       try {
-        await uploadOsDropToDir(dt, currentDestDir());
+        const { ok, fail, skipped, lastError } = await uploadDroppedLocalFiles({
+          files: osFiles,
+          destConnectionId: connId,
+          destDir,
+          existingNames: entries.map((e) => e.name),
+        });
+        if (ok === 0 && fail === 0 && skipped > 0) {
+          showToast(t("files.transfer.conflictSkip"));
+        } else if (fail === 0) {
+          showToast(t("ssh.sftp.uploadSuccess", { count: ok }));
+        } else if (ok === 0) {
+          showToast(lastError || t("ssh.sftp.uploadFailed"));
+        } else {
+          showToast(t("ssh.sftp.uploadPartial", { ok, fail }));
+        }
+        void loadDir(currentPath);
       } catch (err) {
         showToast(fmtError(err));
       }
     },
-    [connId, currentDestDir, enqueueClipboardLike, uploadOsDropToDir],
+    [connId, currentPath, enqueueClipboardLike, entries, loadDir, protocol, quickPaths?.home, t],
   );
 
   useEffect(() => {

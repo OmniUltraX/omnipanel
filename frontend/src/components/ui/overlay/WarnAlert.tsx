@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Button } from "../primitives/Button";
+import type { AppDialogAction } from "../../../stores/appDialogStore";
 
 const WARN_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20" aria-hidden>
@@ -24,6 +25,9 @@ export interface WarnAlertProps {
   closeOnConfirm?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  /** 多按钮模式：传入后替代 confirm/cancel；onChoose(id) 选中即关闭 */
+  actions?: AppDialogAction[];
+  onChoose?: (actionId: string) => void;
 }
 
 function isEditableKeyTarget(target: EventTarget | null): boolean {
@@ -40,8 +44,8 @@ function isEditableKeyTarget(target: EventTarget | null): boolean {
 /**
  * 通用警告确认弹窗。危险/覆盖类操作统一使用此组件，保持视觉与交互一致。
  *
- * 全局入口：`appConfirm` / `appAlert` → `AppDialogHost` → 本组件。
- * 模块内也可直接使用，但优先走 `appConfirm` 以保持 API 统一。
+ * 全局入口：`appConfirm` / `appAlert` / `appChoose` → `AppDialogHost` → 本组件。
+ * 模块内也可直接使用，但优先走 `appConfirm` / `appChoose` 以保持 API 统一。
  */
 export function WarnAlert({
   open,
@@ -54,6 +58,8 @@ export function WarnAlert({
   closeOnConfirm = true,
   onConfirm,
   onClose,
+  actions,
+  onChoose,
 }: WarnAlertProps) {
   const handleConfirm = () => {
     onConfirm();
@@ -79,6 +85,8 @@ export function WarnAlert({
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [open, onConfirm, onClose, closeOnConfirm]);
+
+  const hasActions = Array.isArray(actions) && actions.length > 0;
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -106,14 +114,29 @@ export function WarnAlert({
           {children}
         </div>
         <div className="warn-alert-footer">
-          {!alertOnly && (
-            <Button type="button" variant="secondary" onClick={onClose}>
-              {cancelLabel}
-            </Button>
+          {hasActions ? (
+            actions!.map((action) => (
+              <Button
+                key={action.id}
+                type="button"
+                variant={action.variant ?? "secondary"}
+                onClick={() => onChoose?.(action.id)}
+              >
+                {action.label}
+              </Button>
+            ))
+          ) : (
+            <>
+              {!alertOnly && (
+                <Button type="button" variant="secondary" onClick={onClose}>
+                  {cancelLabel}
+                </Button>
+              )}
+              <Button type="button" variant="warn" onClick={handleConfirm}>
+                {confirmLabel}
+              </Button>
+            </>
           )}
-          <Button type="button" variant="warn" onClick={handleConfirm}>
-            {confirmLabel}
-          </Button>
         </div>
       </div>
     </Modal>

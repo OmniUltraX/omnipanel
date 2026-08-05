@@ -55,7 +55,14 @@ import {
   useShortcutsStore,
 } from "../../stores/shortcutsStore";
 import { shortcutTitle } from "../../lib/shortcutTitle";
-import { commands } from "../../ipc/bindings";
+import {
+  collectDroppedLocalEntries,
+  collectDroppedLocalFiles,
+  formatDroppedLocalPaths,
+  isOsFileDrag,
+  uploadDroppedLocalFiles,
+} from "../files/localOsFileDrop";
+import { showToast } from "../../stores/toastStore";
 
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
@@ -96,6 +103,8 @@ function formatAttachedChipLabel(block: TerminalBlock): string {
 export type CommandInputHandle = {
   focus: () => void;
   setValue: (text: string) => void;
+  /** 在光标处插入文本（拖放本地路径等） */
+  insertText: (text: string) => void;
 };
 
 export type CommandInputProps = {
@@ -325,51 +334,56 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
       requestShellHistorySync(sessionId);
     }, [sessionId]);
 
+    const insertAtCursor = useCallback((text: string) => {
+      if (!text) return;
+      const el = textareaRef.current;
+      const start = el?.selectionStart ?? value.length;
+      const end = el?.selectionEnd ?? value.length;
+      const next = value.slice(0, start) + text + value.slice(end);
+      setValue(next);
+      setCursor(start + text.length);
+      requestAnimationFrame(() => {
+        const target = textareaRef.current;
+        if (!target) return;
+        const pos = start + text.length;
+        target.selectionStart = pos;
+        target.selectionEnd = pos;
+        syncCommandInputHeight(target);
+      });
+    }, [value]);
+
     // 粘贴上传：远端走传输引擎，本地插入文件路径
     const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = e.clipboardData?.files;
-      if (!files || files.length === 0) return; // 纯文本粘贴放行
+      const dt = e.clipboardData;
+      if (!dt || !isOsFileDrag(dt)) return; // 纯文本粘贴放行
       e.preventDefault();
       if (sessionType === "remote" && resourceId) {
-        const destDir = cwd || "/";
-        for (const file of Array.from(files)) {
-          if (!file.name) continue;
-          try {
-            const buffer = await file.arrayBuffer();
-            const bytes = Array.from(new Uint8Array(buffer));
-            const result = await commands.fileTransferUploadLocalBytes(
-              file.name,
-              bytes,
-              resourceId,
-              destDir,
-              "overwrite",
-            );
-            if (result.status !== "ok") {
-              console.error(`[CommandInput] 上传 ${file.name} 失败:`, result.error?.message);
-            }
-          } catch (err) {
-            console.error(`[CommandInput] 上传 ${file.name} 异常:`, err);
+        const files = await collectDroppedLocalEntries(dt);
+        if (files.length === 0) {
+          showToast(t("ssh.sftp.dropNoFiles"));
+          return;
+        }
+        try {
+          const { ok, fail, skipped, lastError } = await uploadDroppedLocalFiles({
+            files,
+            destConnectionId: resourceId,
+            destDir: cwd || "/",
+          });
+          if (ok === 0 && fail === 0 && skipped > 0) {
+            showToast(t("files.transfer.conflictSkip"));
+          } else if (fail === 0) {
+            showToast(t("ssh.sftp.uploadSuccess", { count: ok }));
+          } else {
+            showToast(lastError || t("ssh.sftp.uploadFailed"));
           }
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : t("ssh.sftp.uploadFailed"));
         }
       } else {
-        // 本地终端：插入文件路径到输入框
-        const paths = Array.from(files)
-          .filter((f) => f.name)
-          .map((f) => {
-            const path = (f as File & { path?: string }).path;
-            return path || f.name;
-          });
-        if (paths.length > 0) {
-          const quoted = paths.map((p) => `"${p.replace(/"/g, '\\"')}"`).join(" ");
-          const target = e.currentTarget;
-          const start = target.selectionStart ?? value.length;
-          const end = target.selectionEnd ?? value.length;
-          const next = value.slice(0, start) + quoted + value.slice(end);
-          setValue(next);
-          setCursor(start + quoted.length);
-        }
+        const topLevel = collectDroppedLocalFiles(dt);
+        insertAtCursor(formatDroppedLocalPaths(topLevel));
       }
-    }, [cwd, resourceId, sessionType, value]);
+    }, [cwd, insertAtCursor, resourceId, sessionType, t]);
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -381,7 +395,10 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
         const el = textareaRef.current;
         if (el) syncCommandInputHeight(el);
       },
-    }));
+      insertText: (text: string) => {
+        insertAtCursor(text);
+      },
+    }), [insertAtCursor]);
 
     const draftVersion = useCommandBarDraftStore((s) => s.draftVersion[sessionId] ?? 0);
 

@@ -7,6 +7,7 @@ import { findTerminalPane } from "../../stores/terminalStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../../modules/terminal/paneResource";
 import { errorToString } from "../errorToString";
 import { getToolHandler, SSH_EXEC_TOOL_NAME } from "./toolHost";
+import { runWithToolGate } from "./toolGate";
 
 const SPAWN_SUB_CONVERSATIONS_TOOL = "omni_spawn_sub_conversations";
 /** SSH 体检工具：已迁移到 sub-conv 模型，在 dispatchPendingTool 拦截后委托 subConversationRunner */
@@ -83,7 +84,24 @@ async function handleModulePendingTool(options: {
 
     injectSshResourceIdIfNeeded(options.toolName, args, options.terminalSessionId);
 
-    const output = await handler(args as never);
+    // 🔴 关键修复：所有模块工具（omni_ssh_exec、omni_files_write 等）在执行 handler
+    // 之前必须走统一 ToolGate 审批。critical/high 风险操作会被强制进审批队列，
+    // 仅当用户点击"确认"后 resolve 才会继续往下执行 handler。
+    const resourceId =
+      (typeof args.resource_id === "string" ? args.resource_id : undefined) ??
+      (typeof args.connection_id === "string" ? args.connection_id : undefined) ??
+      (typeof args.connection_name === "string" ? args.connection_name : undefined);
+
+    const output = await runWithToolGate(
+      {
+        toolName: options.toolName,
+        args,
+        resourceId,
+        channel: "native",
+      },
+      () => handler(args as never),
+    );
+
     const result = typeof output === "string" ? output : JSON.stringify(output, null, 2);
     const success = !result.toLowerCase().startsWith("error");
     await commands.aiChatToolResult(
