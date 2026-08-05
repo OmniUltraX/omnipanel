@@ -39,6 +39,8 @@ const HANDLER_ONLY_ALLOWLIST = new Set([
   "protocol::serial_set_dtr",
   "protocol::serial_set_rts",
   "protocol::serial_write",
+  "protocol::sse_close",
+  "protocol::sse_connect",
   "protocol::ws_close",
   "protocol::ws_connect",
   "protocol::ws_ping",
