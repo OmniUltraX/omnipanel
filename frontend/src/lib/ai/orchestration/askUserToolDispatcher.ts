@@ -38,13 +38,32 @@ function genFormId(): string {
 function findParentMessage(conversationId: string, toolCallId: string) {
   const conv = useAiStore.getState().conversations.find((c) => c.id === conversationId);
   if (!conv) return null;
-  const msg = conv.messages.find(
+
+  // 1) 精确匹配：消息 parts 里包含该 toolCallId（通常场景）
+  const matched = conv.messages.find(
     (m) =>
       Array.isArray(m.parts) &&
       m.parts.some((p) => p.type === "tool-call" && p.id === toolCallId),
   );
-  if (!msg) return null;
-  return { conv, msg };
+  if (matched) return { conv, msg: matched };
+
+  // 2) Fallback：在 streaming 异步写入或 tool-call part 尚未完整挂载时，
+  //    找不到精确匹配是正常的。此时回退到「会话最近一条 assistant 消息」：
+  //    只要 part 能写进去，后续 UI 就会正常渲染表单供用户提交。
+  //    （从后往前遍历即可得到最新一条）
+  for (let i = conv.messages.length - 1; i >= 0; i--) {
+    const m = conv.messages[i]!;
+    if (m.role === "assistant" && Array.isArray(m.parts)) {
+      return { conv, msg: m };
+    }
+  }
+
+  // 3) 连 assistant 消息都没有（极罕见）：退回到最新一条消息
+  if (conv.messages.length > 0) {
+    return { conv, msg: conv.messages[conv.messages.length - 1]! };
+  }
+
+  return null;
 }
 
 function persistForm(form: UserQuestionFormData, messageId: string): void {

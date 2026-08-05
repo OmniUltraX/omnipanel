@@ -16,6 +16,15 @@ type KnowledgeTodoDetailSubWindowProps = {
   onDeleteList: (id: string) => Promise<void>;
 };
 
+type AnyTodoItem = KnowledgeTodoList["items"][number] & {
+  id?: string;
+  name?: string;
+  executor?: string;
+  description?: string;
+  done?: boolean;
+  text?: string;
+};
+
 function normalizeDraft(list: KnowledgeTodoList): KnowledgeTodoList {
   return {
     ...list,
@@ -24,20 +33,25 @@ function normalizeDraft(list: KnowledgeTodoList): KnowledgeTodoList {
   };
 }
 
-function todoItemLabel(item: KnowledgeTodoList["items"][number]): string {
-  return item.name ?? ("text" in item ? item.text : undefined) ?? "";
+function todoItemLabel(item: AnyTodoItem): string {
+  return item.name ?? item.text ?? "";
 }
 
 function sanitizeForSave(draft: KnowledgeTodoList, fallbackTitle: string): KnowledgeTodoList {
   const title = draft.title.trim() || fallbackTitle;
   const description = (draft.description ?? "").trim();
   const items = draft.items
-    .map((item) => ({
-      ...item,
-      name: todoItemLabel(item).trim(),
-      executor: (item.executor ?? "").trim(),
-      description: (item.description ?? "").trim(),
-    }))
+    .map((raw) => {
+      const item = raw as AnyTodoItem;
+      return {
+        ...item,
+        name: todoItemLabel(item).trim(),
+        executor: (item.executor ?? "").trim(),
+        description: (item.description ?? "").trim(),
+        id: item.id!,
+        done: !!item.done,
+      } satisfies AnyTodoItem;
+    })
     .filter((item) => item.name.length > 0 || item.executor.length > 0 || item.description.length > 0);
   return {
     ...draft,
@@ -121,7 +135,11 @@ export function KnowledgeTodoDetailSubWindow({
       if (!prev) return prev;
       const next = {
         ...prev,
-        items: prev.items.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+        items: prev.items.map((raw) => {
+          const item = raw as AnyTodoItem;
+          if (item.id !== id) return raw;
+          return { ...raw, [field]: value };
+        }),
       };
       scheduleSave(next);
       return next;
@@ -140,7 +158,7 @@ export function KnowledgeTodoDetailSubWindow({
     if (!(await appConfirm(t("knowledge.todos.confirmDeleteItem")))) return;
     const next = {
       ...draft,
-      items: draft.items.filter((item) => item.id !== itemId),
+      items: draft.items.filter((raw) => (raw as AnyTodoItem).id !== itemId),
     };
     setDraft(next);
     if (saveTimerRef.current) {
@@ -261,7 +279,9 @@ export function KnowledgeTodoDetailSubWindow({
                   </td>
                 </tr>
               ) : (
-                draft.items.map((item) => (
+              draft.items.map((raw) => {
+                const item = raw as AnyTodoItem;
+                return (
                   <tr key={item.id} className={item.done ? "is-done" : undefined}>
                     <td>
                       <TextInput
@@ -270,7 +290,7 @@ export function KnowledgeTodoDetailSubWindow({
                         className="knowledge-todo-detail__cell-input"
                         value={todoItemLabel(item)}
                         placeholder={t("knowledge.todos.itemNamePlaceholder")}
-                        onChange={(name) => updateItemField(item.id, "name", name)}
+                        onChange={(name) => updateItemField(item.id!, "name", name)}
                       />
                     </td>
                     <td>
@@ -280,7 +300,7 @@ export function KnowledgeTodoDetailSubWindow({
                         className="knowledge-todo-detail__cell-input"
                         value={item.executor ?? ""}
                         placeholder={t("knowledge.todos.itemExecutorPlaceholder")}
-                        onChange={(executor) => updateItemField(item.id, "executor", executor)}
+                        onChange={(executor) => updateItemField(item.id!, "executor", executor)}
                       />
                     </td>
                     <td>
@@ -289,7 +309,7 @@ export function KnowledgeTodoDetailSubWindow({
                         value={item.description ?? ""}
                         placeholder={t("knowledge.todos.itemDescriptionPlaceholder")}
                         rows={2}
-                        onChange={(e) => updateItemField(item.id, "description", e.target.value)}
+                        onChange={(e) => updateItemField(item.id!, "description", e.target.value)}
                       />
                     </td>
                     <td>
@@ -315,7 +335,7 @@ export function KnowledgeTodoDetailSubWindow({
                           className="knowledge-todo-detail__icon-btn knowledge-todo-detail__icon-btn--danger"
                           title={t("knowledge.todos.removeItem")}
                           aria-label={t("knowledge.todos.removeItem")}
-                          onClick={() => void handleRemoveItem(item.id)}
+                          onClick={() => void handleRemoveItem(item.id!)}
                         >
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
                             <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
@@ -324,7 +344,8 @@ export function KnowledgeTodoDetailSubWindow({
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+              })
               )}
             </tbody>
           </table>

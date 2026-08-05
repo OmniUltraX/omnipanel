@@ -2,11 +2,11 @@
  * UiDelegated 工具总分派（Harness 写入口之一，见 `lib/ai/harness/writeEntries.ts`）。
  * Plan / 子会话并行 / 模块工具均经此进入，禁止业务旁路写 orchestration store。
  */
-import { commands } from "../../ipc/bindings";
 import { findTerminalPane } from "../../stores/terminalStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../../modules/terminal/paneResource";
 import { errorToString } from "../errorToString";
 import { getToolHandler, SSH_EXEC_TOOL_NAME } from "./toolHost";
+import { reportToolResultWithRetry } from "./reportToolResult";
 import { runWithToolGate } from "./toolGate";
 
 const SPAWN_SUB_CONVERSATIONS_TOOL = "omni_spawn_sub_conversations";
@@ -66,7 +66,7 @@ async function handleModulePendingTool(options: {
   try {
     const handler = getToolHandler(options.toolName);
     if (!handler) {
-      await commands.aiChatToolResult(
+      await reportToolResultWithRetry(
         options.conversationId,
         options.toolCallId,
         `未注册的工具 handler: ${options.toolName}`,
@@ -84,9 +84,10 @@ async function handleModulePendingTool(options: {
 
     injectSshResourceIdIfNeeded(options.toolName, args, options.terminalSessionId);
 
-    // 🔴 关键修复：所有模块工具（omni_ssh_exec、omni_files_write 等）在执行 handler
+    // 所有模块工具（omni_ssh_exec、omni_files_write 等）在执行 handler
     // 之前必须走统一 ToolGate 审批。critical/high 风险操作会被强制进审批队列，
-    // 仅当用户点击"确认"后 resolve 才会继续往下执行 handler。
+    // 仅当用户点击"确认"后 resolve 才会继续往下执行 handler；
+    // 用户 reject / dismiss / 审批超时都会在此处抛异常，走 catch 回传 AI。
     const resourceId =
       (typeof args.resource_id === "string" ? args.resource_id : undefined) ??
       (typeof args.connection_id === "string" ? args.connection_id : undefined) ??
@@ -104,17 +105,30 @@ async function handleModulePendingTool(options: {
 
     const result = typeof output === "string" ? output : JSON.stringify(output, null, 2);
     const success = !result.toLowerCase().startsWith("error");
-    await commands.aiChatToolResult(
+    await reportToolResultWithRetry(
       options.conversationId,
       options.toolCallId,
       result,
       success,
     );
   } catch (err) {
+    // 🔴 任何错误（含 ToolGate 审批拒绝、审批超时、handler 执行异常）都必须
+    //    用带重试的 reportToolResultWithRetry 明确回传给 AI；否则 AI 工具会
+    //    挂起无响应（前端看起来是"不仅没确认，也没执行"）
     const message = errorToString(err);
-    await commands
-      .aiChatToolResult(options.conversationId, options.toolCallId, message, false)
-      .catch(() => {});
+    await reportToolResultWithRetry(
+      options.conversationId,
+      options.toolCallId,
+      message,
+      false,
+    ).catch(() => {
+      // 重试全部失败后仅记录 console，不要再吞消息
+      // eslint-disable-next-line no-console
+      console.error(
+        `[internalToolBridge] 工具结果回传失败 ${options.toolName} ${options.toolCallId}`,
+        message,
+      );
+    });
   } finally {
     inFlightToolCalls.delete(key);
   }

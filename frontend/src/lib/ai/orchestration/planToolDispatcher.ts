@@ -57,13 +57,29 @@ function getInlineThread(blockId: string) {
 function findParentMessage(conversationId: string, toolCallId: string) {
   const conv = useAiStore.getState().conversations.find((c) => c.id === conversationId);
   if (!conv) return null;
-  const msg = conv.messages.find(
+
+  // 1) 精确匹配：消息 parts 里包含该 toolCallId
+  const matched = conv.messages.find(
     (m) =>
       Array.isArray(m.parts) &&
       m.parts.some((p) => p.type === "tool-call" && p.id === toolCallId),
   );
-  if (!msg) return null;
-  return { conv, msg };
+  if (matched) return { conv, msg: matched };
+
+  // 2) Fallback：异步 streaming 下 tool-call part 尚未完整挂载，
+  //    回退到最近一条 assistant 消息，避免 Plan 无法写入导致任务不展示
+  for (let i = conv.messages.length - 1; i >= 0; i--) {
+    const m = conv.messages[i]!;
+    if (m.role === "assistant" && Array.isArray(m.parts)) {
+      return { conv, msg: m };
+    }
+  }
+
+  if (conv.messages.length > 0) {
+    return { conv, msg: conv.messages[conv.messages.length - 1]! };
+  }
+
+  return null;
 }
 
 /** 终端 AI 块：找到携带该 toolCallId 的 assistant message */

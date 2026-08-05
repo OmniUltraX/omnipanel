@@ -19,7 +19,7 @@ import {
   sftpEntryRowClass,
 } from "./sftpEntryDisplay";
 import { FilePreviewSubWindow } from "../../modules/files/FilePreviewSubWindow";
-import { uploadRemote } from "../../modules/files/fileApi";
+import { uploadRemote, listDirectory, readRemotePreview } from "../../modules/files/fileApi";
 import {
   collectDroppedLocalEntries,
   isOsFileDrag,
@@ -617,6 +617,145 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       void loadDir(path);
     }
   };
+
+  const ensureRemoteDir = useCallback(
+    async (remoteDir: string) => {
+      if (!remoteDir || remoteDir === "/") return;
+      try {
+        if (adapter?.mkdir) {
+          await adapter.mkdir(remoteDir);
+        } else if (resourceId) {
+          await invoke("sftp_mkdir", { id: resourceId, path: remoteDir });
+        }
+      } catch {
+        /* 已存在或父级已建 */
+      }
+    },
+    [adapter, resourceId],
+  );
+
+  const writeRemoteBytes = useCallback(
+    async (remotePath: string, bytes: number[]) => {
+      if (adapter?.writeBytes) {
+        await adapter.writeBytes(remotePath, bytes);
+        return;
+      }
+      if (!resourceId) {
+        throw new Error("no upload target");
+      }
+      // SSH 资源 id 走 sftp 命令（连接池），不依赖文件连接表
+      await unwrapCommand(commands.sftpUpload(resourceId, remotePath, bytes));
+    },
+    [adapter, resourceId],
+  );
+
+  const uploadLeaves = useCallback(
+    async (leaves: LocalUploadLeaf[]) => {
+      if (!sessionKey || !canUpload) return;
+      if (leaves.length === 0) return;
+
+      setUploading(true);
+      setError(null);
+      setInfo(t("ssh.sftp.uploading", { count: leaves.length }));
+      let ok = 0;
+      let fail = 0;
+      let lastError: string | null = null;
+      const createdDirs = new Set<string>();
+
+      for (const leaf of leaves) {
+        try {
+          const parts = leaf.relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
+          if (parts.length === 0) continue;
+          let parentAcc = path;
+          for (let i = 0; i < parts.length - 1; i++) {
+            parentAcc = joinRemote(parentAcc, parts[i]!);
+            if (!createdDirs.has(parentAcc)) {
+              await ensureRemoteDir(parentAcc);
+              createdDirs.add(parentAcc);
+            }
+          }
+          const remotePath = joinRemote(path, leaf.relativePath);
+          let bytes = leaf.bytes;
+          if (bytes == null) {
+            if (!leaf.absPath) {
+              throw new Error("empty upload payload");
+            }
+            bytes = await readRemotePreview(
+              LOCAL_CONNECTION_ID,
+              leaf.absPath,
+              UPLOAD_MAX_BYTES,
+            );
+          }
+          await writeRemoteBytes(remotePath, bytes);
+          ok += 1;
+        } catch (e) {
+          fail += 1;
+          lastError = fmtSftpError(e);
+        }
+      }
+
+      setUploading(false);
+      if (fail === 0) {
+        setInfo(t("ssh.sftp.uploadSuccess", { count: ok }));
+      } else if (ok === 0) {
+        setError(lastError || t("ssh.sftp.uploadFailed"));
+        setInfo(null);
+      } else {
+        setInfo(t("ssh.sftp.uploadPartial", { ok, fail }));
+        if (lastError) setError(lastError);
+      }
+      void loadDir(path);
+    },
+    // loadDir 为组件内普通函数，随 path/session 变化即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canUpload, ensureRemoteDir, path, sessionKey, t, writeRemoteBytes],
+  );
+
+  const uploadLocalPathRoots = useCallback(
+    async (roots: { absPath: string; name: string; kind: "file" | "dir" }[]) => {
+      if (roots.length === 0) return;
+      try {
+        const leaves = await expandLocalUploadRoots(roots);
+        if (leaves.length === 0) {
+          setError(t("ssh.sftp.uploadEmptyFolder"));
+          return;
+        }
+        await uploadLeaves(leaves);
+      } catch (e) {
+        setError(fmtSftpError(e));
+      }
+    },
+    [t, uploadLeaves],
+  );
+
+  const handlePickUploadFiles = useCallback(async () => {
+    if (!canUpload || uploading) return;
+    const picked = await openFileDialog({ multiple: true });
+    if (!picked) return;
+    const files = Array.isArray(picked) ? picked : [picked];
+    await uploadLocalPathRoots(
+      files.map((absPath) => ({
+        absPath,
+        name: basenamePath(absPath),
+        kind: "file" as const,
+      })),
+    );
+  }, [canUpload, uploading, uploadLocalPathRoots]);
+
+  const handlePickUploadFolders = useCallback(async () => {
+    if (!canUpload || uploading) return;
+    const picked = await openFileDialog({ directory: true, multiple: true });
+    if (!picked) return;
+    const folders = Array.isArray(picked) ? picked : [picked];
+    await uploadLocalPathRoots(
+      folders.map((absPath) => ({
+        absPath,
+        name: basenamePath(absPath),
+        kind: "dir" as const,
+      })),
+    );
+  }, [canUpload, uploading, uploadLocalPathRoots]);
+
 
   const handlePaste = (e: React.ClipboardEvent) => {
     if (!canUpload || uploading) return;

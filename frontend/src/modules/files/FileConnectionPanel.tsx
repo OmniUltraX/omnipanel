@@ -7,8 +7,7 @@ import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import { commands, type FileEntry, type FileIndexStatus, type FileLocalSystemInfo, type FileManagerConnectionInfo } from "../../ipc/bindings";
-import { unwrapCommand } from "../../ipc/result";
+import type { FileEntry, FileIndexStatus, FileLocalSystemInfo, FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileIndexProgress } from "./fileApi";
 import {
   addTransfer,
@@ -32,7 +31,6 @@ import {
   takePendingFilesTabDrop,
   writeFilesDrag,
 } from "./filesDragTransfer";
-import { collectOsDropItems, hasOsFileDrag, type OsDropByteFile } from "./osFileDrop";
 import {
   collectDroppedLocalEntries,
   isOsFileDrag,
@@ -850,78 +848,6 @@ export function FileConnectionPanel({
       showToast(fmtError(e));
     }
   }, [currentDestDir, enqueueClipboardLike]);
-
-  const uploadOsByteFiles = useCallback(
-    async (files: OsDropByteFile[], destDir: string) => {
-      if (files.length === 0) return;
-      await ensureFileTransferListener();
-      let pending = files;
-      const conflictPolicy = await resolveConflictPolicy(
-        pending.map((f) => f.relativePath.split("/").pop() || f.relativePath),
-      );
-      if (conflictPolicy === "skip") {
-        const existing = new Set(entries.map((e) => e.name));
-        pending = pending.filter((f) => {
-          const top = f.relativePath.split("/")[0] || f.relativePath;
-          return !existing.has(top);
-        });
-        if (pending.length === 0) return;
-      }
-      const policy = conflictPolicy === "skip" ? "rename" : conflictPolicy;
-      for (const item of pending) {
-        const parts = item.relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
-        if (parts.length === 0) continue;
-        let parentAcc = destDir;
-        for (let i = 0; i < parts.length - 1; i++) {
-          parentAcc = joinRemotePath(parentAcc, parts[i]!, protocol);
-          try {
-            await mkdirRemote(connId, parentAcc);
-          } catch {
-            /* 已存在 */
-          }
-        }
-        const remoteName = parts[parts.length - 1]!;
-        const remoteParent =
-          parts.length > 1
-            ? parts
-                .slice(0, -1)
-                .reduce((acc, part) => joinRemotePath(acc, part, protocol), destDir)
-            : destDir;
-        const buffer = await item.file.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buffer));
-        await unwrapCommand(
-          commands.fileTransferUploadLocalBytes(
-            remoteName,
-            bytes,
-            connId,
-            remoteParent,
-            policy,
-          ),
-        );
-      }
-      showToast(t("files.transfer.enqueued"));
-      window.setTimeout(() => void loadDir(currentPath), 800);
-    },
-    [connId, currentPath, entries, loadDir, protocol, resolveConflictPolicy, t],
-  );
-
-  const uploadOsDropToDir = useCallback(
-    async (dataTransfer: DataTransfer, destDir: string) => {
-      const { pathItems, byteFiles } = await collectOsDropItems(dataTransfer);
-      if (pathItems.length === 0 && byteFiles.length === 0) {
-        showToast(t("files.drop.noPath"));
-        return;
-      }
-      if (pathItems.length > 0) {
-        await enqueueClipboardLike(pathItems, destDir, "copy");
-      }
-      if (byteFiles.length > 0) {
-        await uploadOsByteFiles(byteFiles, destDir);
-      }
-    },
-    [enqueueClipboardLike, t, uploadOsByteFiles],
-  );
-
   const handleClipboardPaste = useCallback(async () => {
     if (clipboardItems.length === 0) return;
     try {

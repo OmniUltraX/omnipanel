@@ -99,6 +99,15 @@ interface ActionDraftState {
 let seq = 0;
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+// critical 级危险操作（如 rm -rf、docker system prune）给用户更多考虑时间
+const CRITICAL_TIMEOUT_MS = 300_000; // 5 分钟
+const HIGH_TIMEOUT_MS = 180_000;     // 3 分钟
+
+function resolveTimeoutMs(risk?: DangerLevel): number {
+  if (risk === "critical") return CRITICAL_TIMEOUT_MS;
+  if (risk === "high") return HIGH_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
 
 const DEFAULT_ACTIONS: ApprovalActionDef[] = [
   { id: "confirm", label: t("ai.approval.execute"), variant: "primary" },
@@ -147,7 +156,7 @@ export const useActionDraftStore = create<ActionDraftState>((set, get) => ({
   enqueueAwaitable: (draft) =>
     new Promise<string>((resolve, reject) => {
       const id = `draft_${Date.now()}_${++seq}`;
-      const timeoutMs = draft.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const timeoutMs = draft.timeoutMs ?? resolveTimeoutMs(draft.risk);
 
       const timeoutHandle = setTimeout(() => {
         const waiter = pendingWaiters.get(id);
