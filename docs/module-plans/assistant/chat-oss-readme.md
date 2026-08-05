@@ -48,6 +48,7 @@ OSS **路径 / 桶 / 轮询策略不变**；需要改的是**读对象后的解�
 | `ai___message` | `content` | Markdown 纯文本（已聚合） | 助手正文 |
 | `tool_calling` | `tool_call` | **多行 JSON**（每行一次调用） | 工具调用 |
 | `tool___result` | `tool_result` | **多行 JSON**（每行一次结果） | 工具结果 |
+| `plan________` | `plan` | **多行 JSON**（每行一个 PlanData 快照） | 任务计划（PlanView） |
 | `error______` | `error` | 纯文本 | 错误提示 |
 
 注意标签里的下划线数量是约定的一部分（如 `ai___message`、`tool___result`），匹配时用**全字相等**，不要用模糊包含。
@@ -76,6 +77,7 @@ OSS **路径 / 桶 / 轮询策略不变**；需要改的是**读对象后的解�
 
 - `tool_calling` 行：`id` / `name` / `arguments`
 - `tool___result` 行：`id` / `status` / `result?`
+- `plan________` 行：完整 `PlanData`（`id` / `title` / `status` / `steps[]` / `createdAt` / `updatedAt`）；同 `id` 后写覆盖
 - `status`：`pending` / `running` / `completed` / `failed` 等
 - **同 section 内同 `id`**：后写覆盖先写（流式补全 arguments 时只留最新一行）
 - `tool_calling` 与 `tool___result` **不会**混在同一 section；中间若插入正文/思考会打断，新开 section
@@ -220,6 +222,7 @@ CPU 正常。
 | `ai___message` | 纯文本 Markdown | 对用户可见正文聚合 |
 | `tool_calling` | 多行 JSON（每行一次调用：`id` / `name` / `arguments`） | 连续并行调用并入同一 section；同 `id` 覆盖 |
 | `tool___result` | 多行 JSON（每行一次结果：`id` / `status` / `result?`） | 同上；`status` 如 `pending` / `running` / `completed` / `failed` |
+| `plan________` | 多行 JSON（每行一个 PlanData 快照） | 连续 plan 更新并入同一 section；同 `plan.id` 覆盖为最新；小程序渲染为 PlanView |
 | `error______` | 纯文本 | 流错误 |
 
 ### 聚合规则（上传前）
@@ -239,6 +242,7 @@ CPU 正常。
    - `ai___message` → Markdown 正文
    - `tool_calling` → **按行** `JSON.parse`，按 `id` 插入/更新工具项
    - `tool___result` → **按行**解析，更新对应 `id` 的状态与结果
+   - `plan________` → **按行**解析 PlanData，按 `id` 插入/更新计划块（渲染为 `.ai-plan-view`）
 4. 若遇到旧 `omni-chat-events.v1`，按 NDJSON `t` 字段解析（见历史实现）
 
 ## 助手端推荐拉取流程

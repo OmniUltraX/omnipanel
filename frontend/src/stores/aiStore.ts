@@ -72,6 +72,7 @@ export type {
 } from "../lib/ai/aiMessageParts";
 export {
   coalescePartsByToolSegments,
+  coalesceToolsInThinkingPhases,
   deriveCompatFields,
   partsFromFlatFields,
   stripLeakedToolCallsJson,
@@ -216,6 +217,13 @@ interface AiStore {
   createConversation: (
     provider?: string,
     model?: string,
+    options?: { agentId?: AgentId },
+  ) => string;
+  /**
+   * 确保存在指定 id 的会话：已有则激活；不存在则以该 id 新建（助手端入站路由用）。
+   */
+  ensureConversationId: (
+    id: string,
     options?: { agentId?: AgentId },
   ) => string;
   setConversationAgentId: (conversationId: string, agentId: AgentId) => void;
@@ -428,6 +436,59 @@ export const useAiStore = create<AiStore>()(
         return id;
       },
 
+      ensureConversationId: (id, options) => {
+        const wanted = String(id || "").trim();
+        if (!wanted) {
+          return get().createConversation(undefined, undefined, options);
+        }
+        const existing = get().conversations.find((c) => c.id === wanted);
+        if (existing) {
+          get().setActiveConversation(wanted);
+          return wanted;
+        }
+        const state = get();
+        const agentId = options?.agentId ?? ASSISTANT_PAGE_AGENT_ID;
+        const snapshot = useWorkspaceStore.getState().getSnapshot();
+        const providers = useAiModelsStore.getState().providers;
+        const modelSelectionId = resolveScenarioModelSelectionId(
+          providers,
+          state.currentModelSelectionId ??
+            useSettingsStore.getState().aiScenarioAssistantModelSelectionId,
+        );
+        const parsed = modelSelectionId ? parseModelSelectionId(modelSelectionId) : null;
+        const resolved = modelSelectionId
+          ? resolveModelSelection(providers, modelSelectionId)
+          : null;
+        const conv: AiConversation = {
+          id: wanted,
+          title: "新的对话",
+          messages: [],
+          provider: parsed?.providerId || state.currentProvider,
+          model: parsed?.modelName || resolved?.name || state.currentModel,
+          modelSelectionId,
+          selectedSkillIds: [...state.currentSkillIds],
+          agentId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          contextSnapshot: snapshot,
+          pinnedWorkspaceId: null,
+          linkedTerminalSessionId: null,
+          sourceBlockId: null,
+          context: [
+            ...(snapshot.activeResource
+              ? [{ type: "resource", label: snapshot.activeResource.name }]
+              : []),
+          ],
+        };
+        set((s) => ({
+          conversations: [conv, ...s.conversations],
+          activeConversationId: wanted,
+          viewingChildConversationId: null,
+        }));
+        scheduleConversationListSnapshotSync({ immediate: true });
+        return wanted;
+      },
+
       setConversationAgentId: (conversationId, agentId) =>
         set((state) => ({
           conversations: state.conversations.map((c) =>
@@ -441,6 +502,8 @@ export const useAiStore = create<AiStore>()(
         const conversation = get().conversations.find((c) => c.id === id);
         set({
           activeConversationId: id,
+          // 切会话时退出子会话只读视图，避免入站消息写到主会话却仍看着子会话
+          viewingChildConversationId: null,
           ...(conversation?.modelSelectionId
             ? { currentModelSelectionId: conversation.modelSelectionId }
             : {}),

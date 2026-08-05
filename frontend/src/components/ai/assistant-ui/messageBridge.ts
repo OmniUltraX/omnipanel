@@ -6,6 +6,7 @@ import type {
 
 import {
   coalescePartsByToolSegments,
+  coalesceToolsInThinkingPhases,
   deriveCompatFields,
   normalizeAiMessage,
   partsFromFlatFields,
@@ -13,6 +14,7 @@ import {
   type AiMessagePart,
   type ToolCallState,
 } from "../../../stores/aiStore";
+import { isHiddenChatToolName } from "../../../lib/ai/hiddenChatTools";
 
 const completedThreadMessageCache = new Map<string, ThreadMessage>();
 
@@ -127,7 +129,11 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
     } satisfies ThreadUserMessage;
   }
 
-  const ordered = coalescePartsByToolSegments(partsFromFlatFields(msg));
+  const ordered = coalesceToolsInThinkingPhases(
+    coalescePartsByToolSegments(partsFromFlatFields(msg)).filter(
+      (part) => part.type !== "tool-call" || !isHiddenChatToolName(part.name),
+    ),
+  );
   const parts: ThreadAssistantMessage["content"][number][] = [];
   for (const part of ordered) {
     if (part.type === "reasoning") {

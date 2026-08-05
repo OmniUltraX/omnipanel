@@ -2,6 +2,7 @@
 import {
   appendTextLikePart,
   coalescePartsByToolSegments,
+  coalesceToolsInThinkingPhases,
   deriveCompatFields,
   partsFromFlatFields,
   stripLeakedToolCallsJson,
@@ -111,5 +112,47 @@ describe("AiMessage ordered parts", () => {
       stripLeakedToolCallsJson('先说一句\n{"tool_calls":[{"id":"c1"}]}'),
     ).toBe("先说一句");
     expect(stripLeakedToolCallsJson("正常回答")).toBe("正常回答");
+  });
+
+  it("同一思考阶段内被 reasoning 隔开的工具合并为连续 tool-call", () => {
+    const parts: AiMessagePart[] = [
+      { type: "reasoning", text: "r1" },
+      {
+        type: "tool-call",
+        id: "t1",
+        name: "bash",
+        arguments: "{}",
+        status: "completed",
+      },
+      { type: "reasoning", text: "r2" },
+      {
+        type: "tool-call",
+        id: "t2",
+        name: "bash",
+        arguments: "{}",
+        status: "completed",
+      },
+      { type: "text", text: "结论" },
+      {
+        type: "tool-call",
+        id: "t3",
+        name: "bash",
+        arguments: "{}",
+        status: "completed",
+      },
+    ];
+    expect(coalesceToolsInThinkingPhases(parts).map((p) => p.type)).toEqual([
+      "reasoning",
+      "reasoning",
+      "tool-call",
+      "tool-call",
+      "text",
+      "tool-call",
+    ]);
+    expect(
+      coalesceToolsInThinkingPhases(parts)
+        .filter((p) => p.type === "tool-call")
+        .map((p) => (p as Extract<AiMessagePart, { type: "tool-call" }>).id),
+    ).toEqual(["t1", "t2", "t3"]);
   });
 });

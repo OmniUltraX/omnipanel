@@ -18,6 +18,7 @@ import {
   startChatOssRecording,
   stopChatOssRecording,
 } from "../../../lib/ai/chatOssRecorder";
+import { isHiddenChatToolName, isPlanToolName } from "../../../lib/ai/hiddenChatTools";
 import { createStreamAppendBatcher } from "../../../lib/ai/streamAppendBatcher";
 import { isTauriRuntime } from "../../../lib/isTauriRuntime";
 import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioModels";
@@ -25,7 +26,7 @@ import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioMo
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useTerminalStore, findTerminalPane } from "../../../stores/terminalStore";
-import { registerAiPromptSubmit, type InlineTerminalAiTarget } from "../../../lib/ai/submitAiPrompt";
+import { registerAiPromptSubmit, type InlineTerminalAiTarget, AiPromptBusyError } from "../../../lib/ai/submitAiPrompt";
 import { registerAiGenerationCancel } from "../../../lib/ai/cancelAiGeneration";
 import { useBlocksStore, isAiThreadMessage } from "../../../stores/blocksStore";
 import { useTerminalUiStore } from "../../../modules/terminal/terminalUiStore";
@@ -601,12 +602,15 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const upsertToolCall = (id: string, name: string, args: string) => {
       if (!name.trim()) return;
-      appendChatOssEvent({
-        t: "tool_call",
-        id,
-        name,
-        arguments: args,
-      });
+      // plan / ask_user：不写入 OSS 工具段；小程序只看 PlanView / 澄清结果
+      if (!isHiddenChatToolName(name)) {
+        appendChatOssEvent({
+          t: "tool_call",
+          id,
+          name,
+          arguments: args,
+        });
+      }
       toolMetaRef.current.set(id, { name, args });
       if (inline) {
         const block = useBlocksStore.getState().findBlockById(inline.blockId);
@@ -631,13 +635,16 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             );
           }
         } else {
-          useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
-            kind: "tool_call",
-            id,
-            toolName: name,
-            args,
-            status: "running",
-          });
+          // plan 工具不进独立 tool_call 条（待办由 PlanView 展示）；仍写入 message parts
+          if (!isPlanToolName(name)) {
+            useBlocksStore.getState().pushAiThreadItem(inline.blockId, {
+              kind: "tool_call",
+              id,
+              toolName: name,
+              args,
+              status: "running",
+            });
+          }
           // 在 assistant message parts 里插入 tool-call 边界，后续 content/reasoning delta 会 push 新 part
           if (inline.assistantTurnId) {
             useBlocksStore.getState().appendAiThreadMessagePart(
@@ -660,12 +667,15 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     };
 
     const updateToolCall = (id: string, status: string, result?: string) => {
-      appendChatOssEvent({
-        t: "tool_result",
-        id,
-        status,
-        ...(result !== undefined ? { result } : {}),
-      });
+      const metaForOss = toolMetaRef.current.get(id);
+      if (!metaForOss || !isHiddenChatToolName(metaForOss.name)) {
+        appendChatOssEvent({
+          t: "tool_result",
+          id,
+          status,
+          ...(result !== undefined ? { result } : {}),
+        });
+      }
       // 工具进入 pending：统一分派——终端走内联审批 dock / 侧栏执行桥，
       // 其余 UiDelegated 工具走注册的 handler，全部回传 ai_chat_tool_result。
       if (status === "pending") {
@@ -912,6 +922,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         userText: string,
         options?: {
           newConversation?: boolean;
+          conversationId?: string;
           contextChips?: { type: string; label: string }[];
           inline?: InlineTerminalAiTarget;
         },
@@ -925,6 +936,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         abortRef.current?.abort();
         setIsGenerating(false);
         await new Promise((resolve) => window.setTimeout(resolve, 0));
+      } else if (options?.conversationId) {
+        // 助手端入站指定会话：勿静默丢弃，交给收件箱排队重试
+        throw new AiPromptBusyError();
       } else {
         return;
       }
@@ -961,7 +975,18 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    let convId = options?.newConversation ? null : useAiStore.getState().activeConversationId;
+    const wantedId = String(options?.conversationId || "").trim();
+    let convId: string | null = null;
+    if (wantedId) {
+      // 助手端入站：强制投递到指定会话（已有则切过去，没有则按该 id 建）
+      convId = useAiStore.getState().ensureConversationId(wantedId, {
+        agentId: ASSISTANT_PAGE_AGENT_ID,
+      });
+    } else if (options?.newConversation) {
+      convId = null;
+    } else {
+      convId = useAiStore.getState().activeConversationId;
+    }
     if (!convId) {
       // 助手页新建会话固定绑定默认 Agent（run）
       convId = createConversation(undefined, undefined, {

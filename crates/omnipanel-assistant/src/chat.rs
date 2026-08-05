@@ -21,6 +21,9 @@ pub struct ChatLatestIndex {
     pub oss_path: String,
     #[serde(default, alias = "message_id")]
     pub message_id: String,
+    /// 目标 AI 会话 id（助手端当前选中；客户端按此投递）。
+    #[serde(default, alias = "session_id")]
+    pub session_id: String,
     #[serde(default, alias = "created_at")]
     pub created_at: String,
     #[serde(default, alias = "published_at")]
@@ -43,6 +46,8 @@ struct ChatLatestIndexRaw {
     oss_path: String,
     #[serde(default, alias = "message_id")]
     message_id: String,
+    #[serde(default, alias = "session_id")]
+    session_id: String,
     #[serde(default, alias = "created_at")]
     created_at: String,
     #[serde(default, alias = "published_at")]
@@ -56,6 +61,7 @@ impl From<ChatLatestIndexRaw> for ChatLatestIndex {
             object_key: raw.object_key,
             oss_path: raw.oss_path,
             message_id: raw.message_id,
+            session_id: raw.session_id,
             created_at: raw.created_at,
             published_at: raw.published_at,
         }
@@ -188,15 +194,37 @@ pub async fn fetch_chat_latest(auth: &AuthContext) -> OmniResult<Option<ChatLate
 
 /// 从 OSS 正文解析出可展示的助手消息文本。
 pub fn extract_inbound_message_text(raw: &str) -> String {
+    parse_inbound_chat_message(raw).text
+}
+
+/// 助手端上行消息解析结果。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InboundChatMessage {
+    pub text: String,
+    pub session_id: String,
+}
+
+/// 解析助手端写入的消息 JSON（text + session_id）；兼容纯文本与 sections。
+pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return String::new();
+        return InboundChatMessage::default();
     }
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let session_id = v
+            .get("session_id")
+            .or_else(|| v.get("sessionId"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         for key in ["text", "content", "message", "body"] {
             if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
                 if !s.is_empty() {
-                    return s.to_string();
+                    return InboundChatMessage {
+                        text: s.to_string(),
+                        session_id,
+                    };
                 }
             }
         }
@@ -213,14 +241,23 @@ pub fn extract_inbound_message_text(raw: &str) -> String {
                 }
             }
             if !out.is_empty() {
-                return out;
+                return InboundChatMessage {
+                    text: out,
+                    session_id,
+                };
             }
+        }
+        if !session_id.is_empty() {
+            // 有 session 但无正文时，继续走 sections / 原文分支
         }
     }
     // omni-chat-sections.v1：优先取 user_message / ai___message 段正文
     if trimmed.contains("|[") && trimmed.contains("]|") {
         if let Some(text) = extract_section_bodies(trimmed) {
-            return text;
+            return InboundChatMessage {
+                text,
+                session_id: String::new(),
+            };
         }
     }
     // 旧 NDJSON：拼接 content / text 行
@@ -242,10 +279,16 @@ pub fn extract_inbound_message_text(raw: &str) -> String {
             }
         }
         if !out.is_empty() {
-            return out;
+            return InboundChatMessage {
+                text: out,
+                session_id: String::new(),
+            };
         }
     }
-    trimmed.to_string()
+    InboundChatMessage {
+        text: trimmed.to_string(),
+        session_id: String::new(),
+    }
 }
 
 /// 解析 `----------------\n|[tag]|\n----------------\nbody` 段落。
@@ -298,7 +341,7 @@ fn extract_section_bodies(raw: &str) -> Option<String> {
             preferred.push_str(&body);
         } else if !matches!(
             tag.as_str(),
-            "tool_calling" | "tool___result" | "ai_reasoning" | "error______"
+            "tool_calling" | "tool___result" | "ai_reasoning" | "error______" | "plan________"
         ) {
             if !fallback.is_empty() {
                 fallback.push('\n');
@@ -343,6 +386,19 @@ mod tests {
         assert_eq!(
             extract_inbound_message_text(r#"{"message":"from-assistant"}"#),
             "from-assistant"
+        );
+        assert_eq!(
+            parse_inbound_chat_message(
+                r#"{"text":"hello","session_id":"conv_1","message_id":"msg-1"}"#
+            ),
+            InboundChatMessage {
+                text: "hello".into(),
+                session_id: "conv_1".into(),
+            }
+        );
+        assert_eq!(
+            parse_inbound_chat_message(r#"{"text":"hi","sessionId":"conv_2"}"#).session_id,
+            "conv_2"
         );
     }
 

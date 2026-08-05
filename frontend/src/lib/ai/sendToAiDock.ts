@@ -6,6 +6,8 @@ export interface SendToAiOptions {
   contextChips?: { type: string; label: string }[];
   /** 强制新会话 */
   newConversation?: boolean;
+  /** 指定已有会话（助手端入站：投递到选中会话） */
+  conversationId?: string;
   /** 打开抽屉（默认 true） */
   openDrawer?: boolean;
 }
@@ -24,6 +26,7 @@ export async function sendToAiDock(
   }
   await submitAiPrompt(text, {
     newConversation: options?.newConversation,
+    conversationId: options?.conversationId,
     contextChips: options?.contextChips,
   });
 }

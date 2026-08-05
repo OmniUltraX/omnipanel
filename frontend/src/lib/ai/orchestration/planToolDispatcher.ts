@@ -22,6 +22,8 @@ import {
 } from "../../../stores/blocksStore";
 import { reportToolResultWithRetry } from "../reportToolResult";
 import type { PlanData, PlanStep, PlanStepStatus } from "../aiMessageParts";
+import { appendChatOssEvent } from "../chatOssRecorder";
+import { isPlanToolName } from "../hiddenChatTools";
 
 export type PlanInlineTarget = {
   blockId: string;
@@ -147,6 +149,9 @@ function persistPlanPart(
       wrote = true;
     }
   }
+
+  // 同步到 OSS 聊天分片，供小程序端渲染 PlanView（无活跃录制时 no-op）
+  appendChatOssEvent({ t: "plan", plan });
 
   return wrote;
 }
@@ -483,11 +488,7 @@ export async function dispatchPlanUpdateStep(options: PlanDispatchOptions): Prom
 
 /** 判断是否是 plan 工具 */
 export function isPlanTool(toolName: string): boolean {
-  return (
-    toolName === "omni_plan_create" ||
-    toolName === "omni_plan_add_step" ||
-    toolName === "omni_plan_update_step"
-  );
+  return isPlanToolName(toolName);
 }
 
 /** 统一入口：根据工具名分派到对应的 plan dispatcher */
