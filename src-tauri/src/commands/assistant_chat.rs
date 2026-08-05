@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use omnipanel_assistant::{
-    extract_inbound_message_text, fetch_chat_latest, fetch_oss_sts, get_object_bytes, AuthContext,
+    fetch_chat_latest, fetch_oss_sts, get_object_bytes, parse_inbound_chat_message, AuthContext,
     ChatLatestIndex,
 };
 use omnipanel_error::{ErrorCode, OmniError};
@@ -32,6 +32,9 @@ pub struct AssistantChatInboundEvent {
     pub object_key: String,
     pub created_at: String,
     pub text: String,
+    /// 助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。
+    #[serde(default)]
+    pub session_id: String,
 }
 
 struct ChatInboxRuntime {
@@ -81,7 +84,7 @@ pub async fn assistant_chat_fetch_object(
     }
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
-    load_inbound_from_key(&auth, object_key.trim(), "", "").await
+    load_inbound_from_key(&auth, object_key.trim(), "", "", "").await
 }
 
 /// 启动收件箱：先拉 latest，再挂 SSE `/api/assistant/chat/wait`；新消息经 App Event 推送。
@@ -155,11 +158,17 @@ async fn load_inbound_from_key(
     object_key: &str,
     message_id: &str,
     created_at: &str,
+    session_id_hint: &str,
 ) -> Result<AssistantChatInboundEvent, OmniError> {
     let sts = fetch_oss_sts(auth).await?;
     let bytes = get_object_bytes(&auth.http, &sts, object_key).await?;
     let raw = String::from_utf8_lossy(&bytes);
-    let text = extract_inbound_message_text(&raw);
+    let parsed = parse_inbound_chat_message(&raw);
+    let session_id = if !parsed.session_id.trim().is_empty() {
+        parsed.session_id
+    } else {
+        session_id_hint.trim().to_string()
+    };
     Ok(AssistantChatInboundEvent {
         message_id: if message_id.is_empty() {
             object_key.to_string()
@@ -168,7 +177,8 @@ async fn load_inbound_from_key(
         },
         object_key: object_key.to_string(),
         created_at: created_at.to_string(),
-        text,
+        text: parsed.text,
+        session_id,
     })
 }
 
@@ -189,6 +199,7 @@ async fn handle_index(app: &AppHandle, auth: &AuthContext, index: ChatLatestInde
         &index.object_key,
         &index.message_id,
         &index.created_at,
+        &index.session_id,
     )
     .await
     {

@@ -1,6 +1,7 @@
 import { commands } from "../../ipc/bindings";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
+import type { PlanData } from "./aiMessageParts";
 
 const FLUSH_INTERVAL_MS = 3000;
 const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v2";
@@ -15,6 +16,8 @@ export const CHAT_OSS_SECTION_TAGS = {
   content: "ai___message",
   tool_call: "tool_calling",
   tool_result: "tool___result",
+  /** 任务计划快照（PlanData JSON）；供小程序端渲染 PlanView */
+  plan: "plan________",
   error: "error______",
 } as const;
 
@@ -27,6 +30,7 @@ export type ChatOssEvent =
   | { t: "reasoning"; text: string }
   | { t: "tool_call"; id: string; name: string; arguments: string }
   | { t: "tool_result"; id: string; status: string; result?: string }
+  | { t: "plan"; plan: PlanData }
   | { t: "error"; text: string };
 
 type ToolCallItem = { id: string; name: string; arguments: string };
@@ -36,7 +40,9 @@ type AggregatedSection =
   | { kind: "user" | "content" | "reasoning" | "error"; text: string }
   /** 连续并行工具调用聚成一段；`items` 内按 id 去重覆盖，多行 JSON 输出。 */
   | { kind: "tool_call"; items: ToolCallItem[] }
-  | { kind: "tool_result"; items: ToolResultItem[] };
+  | { kind: "tool_result"; items: ToolResultItem[] }
+  /** 连续 plan 快照并入同一 section；同 plan.id 覆盖为最新。 */
+  | { kind: "plan"; items: PlanData[] };
 
 type NextIdState = {
   /** 会话 id（conversation / session） */
@@ -114,6 +120,8 @@ function isEmptyEvent(event: ChatOssEvent): boolean {
       return !event.id.trim() || !event.name.trim();
     case "tool_result":
       return !event.id.trim();
+    case "plan":
+      return !event.plan?.id?.trim() || !Array.isArray(event.plan.steps);
     default:
       return true;
   }
@@ -157,6 +165,8 @@ function sectionBody(section: AggregatedSection): string {
           return JSON.stringify(payload);
         })
         .join("\n");
+    case "plan":
+      return section.items.map((item) => JSON.stringify(item)).join("\n");
     default:
       return "";
   }
@@ -187,6 +197,16 @@ function upsertToolResultItems(
   items: ToolResultItem[],
   item: ToolResultItem,
 ): ToolResultItem[] {
+  const idx = items.findIndex((x) => x.id === item.id);
+  if (idx >= 0) {
+    const next = items.slice();
+    next[idx] = item;
+    return next;
+  }
+  return [...items, item];
+}
+
+function upsertPlanItems(items: PlanData[], item: PlanData): PlanData[] {
   const idx = items.findIndex((x) => x.id === item.id);
   if (idx >= 0) {
     const next = items.slice();
@@ -251,6 +271,17 @@ export function aggregateChatOssEvent(
         };
       } else {
         next.push({ kind: "tool_result", items: [item] });
+      }
+      return next;
+    }
+    case "plan": {
+      if (last && last.kind === "plan") {
+        next[next.length - 1] = {
+          kind: "plan",
+          items: upsertPlanItems(last.items, event.plan),
+        };
+      } else {
+        next.push({ kind: "plan", items: [event.plan] });
       }
       return next;
     }

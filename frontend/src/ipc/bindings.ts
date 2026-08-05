@@ -1395,6 +1395,8 @@ export type AssistantChatInboundEvent = {
 	objectKey: string,
 	createdAt: string,
 	text: string,
+	/**  助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。 */
+	sessionId: string,
 };
 
 export type AssistantConversationSnapshotItem = {

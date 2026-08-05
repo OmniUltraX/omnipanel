@@ -7,6 +7,7 @@ import {
   type ToolCallState,
 } from "../../stores/aiStore";
 import { aiMessagesToThreadMessages } from "../../components/ai/assistant-ui/messageBridge";
+import { isPlanToolName } from "../../lib/ai/hiddenChatTools";
 import type { AiThreadItem, AiThreadMessage, AiThreadToolCall, TerminalBlock } from "../../stores/blocksStore";
 import { isAiThreadMessage, isAiThreadToolCall, useBlocksStore } from "../../stores/blocksStore";
 import { buildAiThreadItemSignature } from "./threadSignature";
@@ -114,6 +115,7 @@ function assistantMessageParts(
     parts.push({ type: "text", text: item.content });
   }
   for (const tool of followingTools) {
+    if (isPlanToolName(tool.toolName)) continue;
     parts.push(toolCallToPart(tool));
   }
   return parts;

@@ -2,11 +2,32 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [0.7.6] - 2026-08-05
+## [0.7.7] - 2026-08-05
 
 ### 修复
 
 - **AI · ask_user 工具**：修复 `omni_ask_user` 在终端内嵌会话不出现表单的问题。dispatcher 此前仅支持从 `useAiStore` 查找/写入父消息，导致终端内嵌会话（消息存储在 `useBlocksStore.<blockId>.aiThread`）找不到父消息而直接报错回传。现已支持双存储：根据 `inline.blockId` 自动切换到 blocksStore 路径，并新增 `upsertAiThreadUserQuestionPart` 方法写入 part；`UserQuestionForm` 的 `useLiveAskUserForm` 也按 `term-inline:` 前缀分流订阅，确保终端内嵌表单状态实时刷新
+
+## [0.7.6] - 2026-08-05
+
+### 新增
+
+- **助手 · 入站会话**：小程序消息携带 `sessionId`，桌面端自动切到对应会话并触发 AI 回复；忙时排队，成功后才标记已读
+- **助手 · Plan 同步**：聊天 OSS 增加 `plan________` 段落，桌面 Plan 待办可同步到助手端；`omni_plan_*` 工具调用在聊天中隐藏
+- **AI · 思考阶段工具合并**：同一思考阶段内连续工具调用合并为一组展示
+- **文件传输**：拖拽 / 粘贴上传、断点续传、后台任务统一展示；SFTP / 本地 OS 文件拖放增强
+- **协议 · SSE**：HTTP 面板支持 Server-Sent Events 会话
+- **数据库**：AI Composer 可挂载数据库连接上下文；MySQL BIT 列解码
+
+### 修复
+
+- **安全 · 危险命令审批**：修复 Windows 客户端 `rm -rf` 等危险命令绕过审批的根因
+- **安全 · ToolGate**：审批闭环、长耗时命令超时 / 拦截；工具结果失败必回传，避免 AI 工具挂起
+- **AI 助手页**：正文 / Markdown / 思考 / PlanView 可选中复制（全局 `user-select: none` 放行）
+
+### 变更
+
+- README 增加中文版并完善英文说明
 
 ## [0.7.5] - 2026-08-04
 

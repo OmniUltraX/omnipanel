@@ -55,6 +55,7 @@ describe("chatOssRecorder", () => {
       content: "ai___message",
       tool_call: "tool_calling",
       tool_result: "tool___result",
+      plan: "plan________",
       error: "error______",
     });
   });
@@ -149,6 +150,32 @@ describe("chatOssRecorder", () => {
     expect(encoded).toContain(
       '{"id":"c1","name":"omni_docker_list_containers","arguments":""}',
     );
+  });
+
+  it("同 id 的 plan 覆盖为最新快照并编码为 plan________", () => {
+    const planA = {
+      id: "plan_1",
+      title: "检查",
+      steps: [{ id: "s1", title: "uptime", status: "pending" as const }],
+      status: "executing" as const,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const planB = {
+      ...planA,
+      updatedAt: 2,
+      steps: [{ id: "s1", title: "uptime", status: "completed" as const }],
+      status: "completed" as const,
+    };
+    let sections = aggregateChatOssEvent([], { t: "plan", plan: planA });
+    sections = aggregateChatOssEvent(sections, { t: "plan", plan: planB });
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toEqual({ kind: "plan", items: [planB] });
+
+    const encoded = encodeChatOssSections(sections);
+    expect(encoded).toContain("|[plan________]|");
+    expect(encoded).toContain('"id":"plan_1"');
+    expect(encoded).toContain('"status":"completed"');
   });
 
   it("encodeChatOssSections 使用对齐标签与分隔符", () => {

@@ -95,12 +95,35 @@ a {
 .ai-message-list .ai-msg-body *,
 .aui-user-message-content,
 .aui-user-message-content *,
+/* AI 助手页：助手正文 / Markdown / 思考过程 / 工具结果可选中复制 */
+[data-slot="aui_assistant-message-content"],
+[data-slot="aui_assistant-message-content"] *,
+[data-slot="aui_chain-of-thought"],
+[data-slot="aui_chain-of-thought"] *,
+.aui-md,
+.aui-md *,
+[data-slot="ai-plan-view"],
+[data-slot="ai-plan-view"] *,
+[data-slot="plan-step"],
+[data-slot="plan-step"] *,
 .log-viewer__viewport,
 .log-viewer__viewport .log-viewer__row,
 .log-viewer__viewport .log-viewer__text,
 .log-viewer__viewport .log-viewer__text * {
     -webkit-user-select: text !important;
     user-select: text !important;
+}
+
+/* 助手消息内的操作条 / 折叠触发器仍禁止选中，避免拖选误触 */
+[data-slot="aui_assistant-message-footer"],
+[data-slot="aui_assistant-message-footer"] *,
+[data-slot="aui_assistant-message-indicator"],
+.aui-tool-group-trigger,
+.aui-tool-group-trigger *,
+.aui-code-header-root,
+.aui-code-header-root * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }
 
 /* 单元格 / 文件内容预览：支持选中复制 */

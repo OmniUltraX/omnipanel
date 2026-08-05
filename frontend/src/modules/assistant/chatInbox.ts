@@ -2,7 +2,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
 import { ASSISTANT_CHAT_INBOUND } from "../../ipc/events";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { ASSISTANT_PAGE_AGENT_ID } from "../../lib/ai/agents";
+import { AiPromptBusyError } from "../../lib/ai/submitAiPrompt";
 import { sendToAiDock } from "../../lib/ai/sendToAiDock";
+import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { safeTauriUnlisten } from "../../lib/safeTauriUnlisten";
 import { useAiStore } from "../../stores/aiStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -15,6 +18,16 @@ export type AssistantChatInboundPayload = {
   objectKey: string;
   createdAt: string;
   text: string;
+  /** 助手端当前选中会话；有则投递到该会话，勿新开 */
+  sessionId?: string;
+  /** 兼容后端 / 旧事件蛇形字段 */
+  session_id?: string;
+};
+
+type QueuedInbound = {
+  text: string;
+  conversationId?: string;
+  messageId?: string;
 };
 
 let startedToken: string | null = null;
@@ -22,7 +35,7 @@ let unlistenInbound: UnlistenFn | null = null;
 let startPromise: Promise<void> | null = null;
 
 /** 入站提示排队：当前正在生成时先入队，避免 submit 被直接丢弃。 */
-const inboundQueue: string[] = [];
+const inboundQueue: QueuedInbound[] = [];
 let drainingQueue = false;
 
 function loadSeenIds(): Set<string> {
@@ -47,13 +60,17 @@ function persistSeenIds(ids: Set<string>): void {
   }
 }
 
-function markSeen(messageId: string): boolean {
+function hasSeen(messageId: string): boolean {
   if (!messageId) return false;
+  return loadSeenIds().has(messageId);
+}
+
+function markSeen(messageId: string): void {
+  if (!messageId) return;
   const seen = loadSeenIds();
-  if (seen.has(messageId)) return false;
+  if (seen.has(messageId)) return;
   seen.add(messageId);
   persistSeenIds(seen);
-  return true;
 }
 
 function waitUntilIdle(timeoutMs = 120_000): Promise<boolean> {
@@ -74,6 +91,30 @@ function waitUntilIdle(timeoutMs = 120_000): Promise<boolean> {
   });
 }
 
+/** 切到目标会话、退出子会话只读视图、打开 AI 面板 */
+function prepareInboundUi(conversationId?: string): void {
+  const store = useAiStore.getState();
+  store.openDrawer();
+  store.setViewingChildConversation(null);
+  if (conversationId) {
+    store.ensureConversationId(conversationId, {
+      agentId: ASSISTANT_PAGE_AGENT_ID,
+    });
+  }
+}
+
+async function focusMainWindow(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    await win.unminimize().catch(() => {});
+    await win.setFocus().catch(() => {});
+  } catch {
+    // 非窗口环境忽略
+  }
+}
+
 async function drainInboundQueue(): Promise<void> {
   if (drainingQueue) return;
   drainingQueue = true;
@@ -84,15 +125,30 @@ async function drainInboundQueue(): Promise<void> {
         console.warn("[assistant-chat-inbox] wait for AI idle timed out");
         break;
       }
-      const text = inboundQueue.shift();
-      if (!text) continue;
+      const item = inboundQueue.shift();
+      if (!item?.text) continue;
+      if (item.messageId && hasSeen(item.messageId)) continue;
+
+      prepareInboundUi(item.conversationId);
+      await focusMainWindow();
+      // 等一帧，让会话切换与抽屉打开提交到 React
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+
       try {
-        await sendToAiDock(text, {
+        await sendToAiDock(item.text, {
           openDrawer: true,
+          conversationId: item.conversationId,
           contextChips: [{ type: "assistant-remote", label: "助手端" }],
         });
+        if (item.messageId) markSeen(item.messageId);
       } catch (err) {
+        if (err instanceof AiPromptBusyError) {
+          // 竞态：刚空闲又被占用 → 插回队头再等
+          inboundQueue.unshift(item);
+          continue;
+        }
         console.warn("[assistant-chat-inbox] submit failed", err);
+        // 失败不 markSeen，允许后续重试（同 messageId 仍可再入队）
       }
     }
   } finally {
@@ -103,6 +159,12 @@ async function drainInboundQueue(): Promise<void> {
   }
 }
 
+function resolveSessionId(payload: AssistantChatInboundPayload): string | undefined {
+  const raw = payload.sessionId ?? payload.session_id ?? "";
+  const id = String(raw).trim();
+  return id || undefined;
+}
+
 function applyInbound(payload: AssistantChatInboundPayload): void {
   const messageId = (payload.messageId || payload.objectKey || "").trim();
   const text = (payload.text || "").trim();
@@ -110,12 +172,20 @@ function applyInbound(payload: AssistantChatInboundPayload): void {
     console.warn("[assistant-chat-inbox] empty text, skip", payload);
     return;
   }
-  if (messageId && !markSeen(messageId)) {
+  if (messageId && hasSeen(messageId)) {
+    return;
+  }
+  if (messageId && inboundQueue.some((q) => q.messageId === messageId)) {
     return;
   }
 
-  // 走正式发消息链路：写入用户消息 + 触发 AI 生成（不是只塞进历史）
-  inboundQueue.push(text);
+  const conversationId = resolveSessionId(payload);
+
+  // 先切 UI，再入队触发生成（成功后才 markSeen）
+  prepareInboundUi(conversationId);
+  void focusMainWindow();
+
+  inboundQueue.push({ text, conversationId, messageId: messageId || undefined });
   void drainInboundQueue();
 }
 

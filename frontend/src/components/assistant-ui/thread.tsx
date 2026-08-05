@@ -79,6 +79,7 @@ import {
 } from "react";
 import { PlanView, usePlanCollapsed } from "../ai/PlanView";
 import { UserQuestionForm } from "../ai/UserQuestionForm";
+import { isHiddenChatToolName } from "../../lib/ai/hiddenChatTools";
 import {
   clampPlanStickyHeight,
   MAX_PLAN_STICKY_HEIGHT,
@@ -150,8 +151,8 @@ function extractClusterFromDataPart(
   return null;
 }
 
-function isHiddenAskUserToolCall(part: { toolName?: string }): boolean {
-  return part.toolName === "omni_ask_user";
+function isHiddenChatToolCall(part: { toolName?: string }): boolean {
+  return Boolean(part.toolName && isHiddenChatToolName(part.toolName));
 }
 
 /**
@@ -723,7 +724,7 @@ const TerminalAssistantMessage: FC = () => {
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":
-                if (isHiddenAskUserToolCall(part)) return null;
+                if (isHiddenChatToolCall(part)) return null;
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data": {
                 const askForm = extractUserQuestionFromDataPart(
@@ -880,7 +881,7 @@ const AssistantMessage: FC = () => {
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":
-                if (isHiddenAskUserToolCall(part)) return null;
+                if (isHiddenChatToolCall(part)) return null;
                 return part.toolUI ?? <ToolFallbackComponent {...part} />;
               case "data": {
                 const askForm = extractUserQuestionFromDataPart(

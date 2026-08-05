@@ -282,6 +282,44 @@ export function coalescePartsByToolSegments(parts: AiMessagePart[]): AiMessagePa
   return out;
 }
 
+/**
+ * 同一「思考阶段」内的工具调用挪到一起，便于 UI 收成一个 ToolGroup。
+ *
+ * 思考阶段：从消息开头 / 上一段可见正文之后，到下一段 `text` 或 `user-question` 之前。
+ * 阶段内先保留 reasoning / plan / cluster 等非工具 part 的相对顺序，再连续排出所有 tool-call。
+ * 不删除任何 part；隐藏工具（plan / ask_user）应在调用前已过滤。
+ */
+export function coalesceToolsInThinkingPhases(parts: AiMessagePart[]): AiMessagePart[] {
+  if (parts.length <= 1) return parts;
+
+  const out: AiMessagePart[] = [];
+  let phaseNonTools: AiMessagePart[] = [];
+  let phaseTools: AiMessagePart[] = [];
+
+  const flushPhase = () => {
+    if (phaseNonTools.length) out.push(...phaseNonTools);
+    if (phaseTools.length) out.push(...phaseTools);
+    phaseNonTools = [];
+    phaseTools = [];
+  };
+
+  for (const part of parts) {
+    // 可见正文 / 澄清表单结束当前思考阶段
+    if (part.type === "text" || part.type === "user-question") {
+      flushPhase();
+      out.push(part);
+      continue;
+    }
+    if (part.type === "tool-call") {
+      phaseTools.push(part);
+      continue;
+    }
+    phaseNonTools.push(part);
+  }
+  flushPhase();
+  return out;
+}
+
 /** 去掉误流入正文的完整/半截 tool_calls JSON（CLI client-tools 泄露兜底）。 */
 export function stripLeakedToolCallsJson(text: string): string {
   const trimmed = text.trim();

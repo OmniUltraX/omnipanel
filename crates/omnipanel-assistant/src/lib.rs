@@ -12,7 +12,10 @@ mod sanitize;
 mod sts;
 mod types;
 
-pub use chat::{extract_inbound_message_text, fetch_chat_latest, ChatLatestIndex};
+pub use chat::{
+    extract_inbound_message_text, fetch_chat_latest, parse_inbound_chat_message, ChatLatestIndex,
+    InboundChatMessage,
+};
 pub use client_sync::{
     device_conversations_latest_object_key, device_modules_latest_object_key,
     device_sync_latest_object_key, pull_conversations_json, pull_modules_json,

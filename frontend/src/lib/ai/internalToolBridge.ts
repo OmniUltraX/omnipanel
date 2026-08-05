@@ -6,18 +6,14 @@ import { findTerminalPane } from "../../stores/terminalStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../../modules/terminal/paneResource";
 import { errorToString } from "../errorToString";
 import { getToolHandler, SSH_EXEC_TOOL_NAME } from "./toolHost";
+import { PLAN_TOOL_NAMES } from "./hiddenChatTools";
 import { reportToolResultWithRetry } from "./reportToolResult";
-import { runWithToolGate } from "./toolGate";
 
 const SPAWN_SUB_CONVERSATIONS_TOOL = "omni_spawn_sub_conversations";
 /** SSH 体检工具：已迁移到 sub-conv 模型，在 dispatchPendingTool 拦截后委托 subConversationRunner */
 const SSH_FLEET_HEALTH_TOOL = "omni_orchestration_ssh_fleet_health";
 /** Plan 工具（todolist 范式）：在 dispatchPendingTool 拦截后委托 planToolDispatcher */
-const PLAN_TOOLS = new Set([
-  "omni_plan_create",
-  "omni_plan_add_step",
-  "omni_plan_update_step",
-]);
+const PLAN_TOOLS = new Set<string>(PLAN_TOOL_NAMES);
 
 /** 结构化澄清表单 */
 const ASK_USER_TOOL = "omni_ask_user";
