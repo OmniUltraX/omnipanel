@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::Connection as SqliteConnection;
@@ -632,6 +632,36 @@ const MIGRATIONS: &[&str] = &[
         FOREIGN KEY(task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_todo_steps_task ON todo_steps(task_id, sort_order);
+    "#,
+    // v31 — 文件传输任务持久化（断点续传 + 任务中心）
+    r#"
+    CREATE TABLE IF NOT EXISTS file_transfer_jobs (
+        id              TEXT PRIMARY KEY,
+        batch_id        TEXT NOT NULL,
+        op              TEXT NOT NULL,
+        src_connection_id TEXT NOT NULL,
+        src_path        TEXT NOT NULL,
+        src_kind        TEXT NOT NULL,
+        src_name        TEXT NOT NULL,
+        dst_connection_id TEXT NOT NULL,
+        dst_path        TEXT NOT NULL,
+        dst_kind        TEXT NOT NULL,
+        dst_name        TEXT NOT NULL,
+        route           TEXT NOT NULL,
+        route_reason    TEXT NOT NULL DEFAULT '',
+        state           TEXT NOT NULL,
+        bytes_done      REAL NOT NULL DEFAULT 0,
+        bytes_total     REAL,
+        speed_bps       REAL,
+        progress        REAL NOT NULL DEFAULT 0,
+        error           TEXT,
+        source_fingerprint TEXT,
+        partial_path    TEXT,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ftj_state ON file_transfer_jobs(state, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ftj_batch ON file_transfer_jobs(batch_id);
     "#,
 ];
 

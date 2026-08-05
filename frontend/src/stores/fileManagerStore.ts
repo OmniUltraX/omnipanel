@@ -4,6 +4,12 @@ import { commands } from "../ipc/bindings";
 import { FILES_TRANSFER_PROGRESS } from "../ipc/events";
 import { unwrapCommand } from "../ipc/result";
 import { useSettingsStore } from "./settingsStore";
+import {
+  registerLocalBackgroundTaskCancel,
+  upsertLocalBackgroundTask,
+  type BackgroundTaskInfo,
+  type BackgroundTaskStatus,
+} from "./backgroundTaskStore";
 
 export type FileTransferJobView = {
   id: string;
@@ -69,6 +75,77 @@ function normalizeJob(raw: Record<string, unknown>): FileTransferJobView {
 
 let listening = false;
 
+/** 把 FileTransferJobView 转换为 BackgroundTaskInfo，接入后台任务系统 */
+function jobToBackgroundTask(job: FileTransferJobView): BackgroundTaskInfo {
+  const statusMap: Record<FileTransferJobView["state"], BackgroundTaskStatus> = {
+    queued: "pending",
+    probing: "pending",
+    running: "running",
+    done: "completed",
+    error: "failed",
+    cancelled: "cancelled",
+  };
+  const status = statusMap[job.state];
+  const isTerminal = status === "completed" || status === "failed" || status === "cancelled";
+
+  // 进度文案：百分比 + 已传/总量 + 速度
+  const pct = Math.max(0, Math.min(100, Math.round(job.progress)));
+  const doneStr = formatBytes(job.bytesDone);
+  const totalStr = job.bytesTotal != null ? formatBytes(job.bytesTotal) : "?";
+  const speedStr = job.speedBps != null && job.speedBps > 0 ? ` · ${formatSpeed(job.speedBps)}` : "";
+  const progressText = job.state === "error"
+    ? (job.error ?? "传输失败")
+    : job.state === "cancelled"
+      ? "已取消"
+      : job.state === "done"
+        ? `${doneStr} / ${totalStr}`
+        : `${pct}% · ${doneStr} / ${totalStr}${speedStr}`;
+
+  return {
+    id: job.id,
+    module: "files",
+    kind: "file-transfer",
+    title: `${job.source.name} → ${job.dest.name || job.dest.path}`,
+    progress: progressText,
+    status,
+    index: 0,
+    total: 0,
+    startedAt: transfer_started_at_map.get(job.id) ?? Date.now(),
+    finishedAt: isTerminal ? Date.now() : null,
+    error: job.error,
+  };
+}
+
+/** 记录每个传输任务的首次出现时间，作为 startedAt */
+const transfer_started_at_map = new Map<string, number>();
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)}GB`;
+}
+
+function formatSpeed(bps: number): string {
+  return `${formatBytes(bps)}/s`;
+}
+
+/** 同步单个 transfer 到后台任务系统（含取消句柄注册） */
+function syncTransferToBackgroundTasks(job: FileTransferJobView): void {
+  if (!transfer_started_at_map.has(job.id) && job.state !== "done" && job.state !== "error" && job.state !== "cancelled") {
+    transfer_started_at_map.set(job.id, Date.now());
+  }
+  const task = jobToBackgroundTask(job);
+  upsertLocalBackgroundTask(task);
+
+  // 注册取消句柄（运行中才注册，终态后自动清理）
+  if (task.status === "pending" || task.status === "running") {
+    registerLocalBackgroundTaskCancel(job.id, () => {
+      void useFileManagerStore.getState().cancelTransfer(job.id);
+    });
+  }
+}
+
 export async function ensureFileTransferListener(): Promise<void> {
   if (listening) return;
   listening = true;
@@ -76,6 +153,7 @@ export async function ensureFileTransferListener(): Promise<void> {
     const job = normalizeJob((event.payload ?? {}) as Record<string, unknown>);
     if (!job.id) return;
     useFileManagerStore.getState().upsertTransfer(job);
+    syncTransferToBackgroundTasks(job);
   });
   try {
     const { fileTransferConcurrency, fileTransferRateLimitBps } = useSettingsStore.getState();
@@ -108,6 +186,10 @@ export const useFileManagerStore = create<FileManagerState>((set) => ({
         normalizeJob(j as unknown as Record<string, unknown>),
       );
       set({ transfers: jobs, hydrated: true });
+      // 同步到后台任务系统（应用启动后恢复未完成的传输）
+      for (const job of jobs) {
+        syncTransferToBackgroundTasks(job);
+      }
     } catch {
       set({ hydrated: true });
     }

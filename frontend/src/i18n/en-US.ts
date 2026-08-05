@@ -808,6 +808,7 @@ export const enUS: TranslationDict = {
         knowledge: "Knowledge",
         localModels: "Local models",
         server: "Server",
+        files: "File Transfer",
       },
     },
     workspacePreview: {
@@ -2972,6 +2973,7 @@ export const enUS: TranslationDict = {
   },
   terminal: {
     localTab: "local",
+    dropInsertPath: "Drop file to insert path",
     sidebar: { title: "Terminal Resources", collapse: "Collapse sidebar", expand: "Expand sidebar" },
     leftPanel: {
       sessions: "Sessions",

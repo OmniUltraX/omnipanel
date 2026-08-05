@@ -177,6 +177,11 @@ pub(crate) fn local_home() -> Result<PathBuf, OmniError> {
     Err(OmniError::new(ErrorCode::Internal, "无法获取用户主目录"))
 }
 
+/// 本机临时目录（供 file_transfer 等模块使用，返回 PathBuf）。
+pub(crate) fn local_temp_dir() -> Result<PathBuf, OmniError> {
+    Ok(std::env::temp_dir())
+}
+
 pub(crate) fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
     if path.is_empty() || path == "/" || path == "~" {
         local_home()

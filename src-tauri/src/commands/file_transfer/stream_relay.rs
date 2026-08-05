@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use omnipanel_error::{ErrorCode, OmniError};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::commands::file_manager::{
     load_file_connection, parse_file_config, protocol_of, resolve_local_path, resolve_secret,
@@ -11,8 +11,10 @@ use crate::commands::file_manager::{
 };
 use crate::state::AppState;
 
+use super::rate_limit::RATE_LIMIT_BPS;
 use super::resume::{
-    copy_local_resume, fingerprint_matches, local_partial_len, partial_dest_path, source_fingerprint,
+    copy_local_resume, fingerprint_matches, local_partial_len, partial_dest_path,
+    sftp_partial_len, source_fingerprint,
 };
 use super::types::{FileTransferJob, FileTransferState};
 use super::util::{emit_job, open_sftp, temp_transfer_path};
@@ -33,6 +35,10 @@ async fn set_progress(app: &AppHandle, job: &mut FileTransferJob, done: u64, tot
         _ => job.progress,
     };
     emit_job(app, job).await;
+    // 降频持久化进度（含 partial_path / source_fingerprint，支持断点续传握手）
+    if let Some(state) = app.try_state::<AppState>() {
+        state.file_transfers.persist_progress_throttled(job).await;
+    }
 }
 
 async fn download_to_local(
@@ -298,6 +304,74 @@ pub async fn run_relay(
             let src = resolve_local_path(&job.source.path)?;
             let meta = tokio::fs::metadata(&src).await.ok();
             let total = meta.map(|m| m.len());
+
+            // 判断目标协议；仅 SFTP 支持断点续传（其它协议走旧的覆盖式上传）
+            let dst_conn = load_file_connection(state, &job.dest.connection_id)
+                .await?
+                .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
+            let dst_cfg = parse_file_config(&dst_conn)?;
+            let is_sftp = matches!(protocol_of(&dst_cfg), FileProtocol::Sftp);
+
+            if is_sftp {
+                let session = open_sftp(state, &job.dest.connection_id).await?;
+                let partial_str = job
+                    .partial_path
+                    .clone()
+                    .unwrap_or_else(|| partial_dest_path(&job.dest.path));
+                job.partial_path = Some(partial_str.clone());
+
+                // 父目录创建（与 upload_from_local 一致）
+                if let Some(parent) = Path::new(&job.dest.path).parent() {
+                    let p = parent.to_string_lossy();
+                    if !p.is_empty() && p != "/" {
+                        let _ = session.sftp_mkdir(&p).await;
+                    }
+                }
+
+                let cur_fp = source_fingerprint(state, &job.source.connection_id, &job.source.path)
+                    .await
+                    .unwrap_or_default();
+                let mut start = 0u64;
+                if fingerprint_matches(job, &cur_fp) {
+                    start = sftp_partial_len(state, &job.dest.connection_id, &partial_str).await;
+                    if total == Some(start) && start > 0 {
+                        // partial 已完整，直接提交
+                        session.sftp_rename(&partial_str, &job.dest.path).await?;
+                        set_progress(app, job, start, total).await;
+                        job.partial_path = None;
+                        return Ok(());
+                    }
+                } else {
+                    // 指纹不匹配：源文件已变更，丢弃旧 partial 从头传
+                    let _ = session.sftp_remove(&partial_str).await;
+                    job.source_fingerprint = Some(cur_fp);
+                }
+                set_progress(app, job, start, total).await;
+
+                let done = session
+                    .sftp_upload_from_file_resume(
+                        &partial_str,
+                        &src,
+                        start,
+                        &cancel,
+                        Some(&RATE_LIMIT_BPS),
+                    )
+                    .await?;
+
+                // 裁剪到目标 size（防止 partial 大于 final，比如源文件在上次传输后被截断）
+                if let Some(total_v) = total {
+                    if done > total_v {
+                        session.sftp_set_length(&partial_str, total_v).await?;
+                    }
+                }
+
+                session.sftp_rename(&partial_str, &job.dest.path).await?;
+                set_progress(app, job, total.unwrap_or(done), total).await;
+                job.partial_path = None;
+                return Ok(());
+            }
+
+            // 非 SFTP：走旧的覆盖式上传（从 0 开始）
             set_progress(app, job, 0, total).await;
             upload_from_local(
                 state,

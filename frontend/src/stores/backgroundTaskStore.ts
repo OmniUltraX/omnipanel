@@ -11,6 +11,7 @@ import { initSchemaCacheBackgroundTasks } from "../modules/database/schema/schem
 import { initDbSyncTaskRunTracking } from "./dbSyncTaskRunTracking";
 import { useBgTaskHistoryStore } from "./bgTaskHistoryStore";
 import { initWorkflowLiveTasks } from "./workflowLiveStore";
+import { ensureFileTransferListener } from "./fileManagerStore";
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
@@ -216,6 +217,8 @@ export function initBackgroundTasks() {
   initSchemaCacheBackgroundTasks();
   initDbSyncTaskRunTracking();
   initWorkflowLiveTasks();
+  // 文件传输任务接入后台任务系统（左下角状态栏 + 后台任务弹窗）
+  void ensureFileTransferListener();
 
   const unsubs: Array<() => void> = [];
 

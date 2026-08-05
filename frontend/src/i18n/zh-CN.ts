@@ -804,6 +804,7 @@ export const zhCN = {
         knowledge: "知识库",
         localModels: "本地模型",
         server: "服务器",
+        files: "文件传输",
       },
     },
     workspacePreview: {
@@ -2959,6 +2960,7 @@ export const zhCN = {
   },
   terminal: {
     localTab: "local",
+    dropInsertPath: "拖放文件插入路径",
     sidebar: { title: "终端资源", collapse: "收起侧栏", expand: "展开侧栏" },
     leftPanel: {
       sessions: "会话",

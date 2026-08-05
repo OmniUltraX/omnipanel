@@ -55,6 +55,7 @@ import {
   useShortcutsStore,
 } from "../../stores/shortcutsStore";
 import { shortcutTitle } from "../../lib/shortcutTitle";
+import { commands } from "../../ipc/bindings";
 
 const CMD_INPUT_LINE_HEIGHT_PX = 24;
 const CMD_INPUT_MAX_HEIGHT_PX = 100;
@@ -323,6 +324,52 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
     const handleInputFocus = useCallback(() => {
       requestShellHistorySync(sessionId);
     }, [sessionId]);
+
+    // 粘贴上传：远端走传输引擎，本地插入文件路径
+    const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0) return; // 纯文本粘贴放行
+      e.preventDefault();
+      if (sessionType === "remote" && resourceId) {
+        const destDir = cwd || "/";
+        for (const file of Array.from(files)) {
+          if (!file.name) continue;
+          try {
+            const buffer = await file.arrayBuffer();
+            const bytes = Array.from(new Uint8Array(buffer));
+            const result = await commands.fileTransferUploadLocalBytes(
+              file.name,
+              bytes,
+              resourceId,
+              destDir,
+              "overwrite",
+            );
+            if (result.status !== "ok") {
+              console.error(`[CommandInput] 上传 ${file.name} 失败:`, result.error?.message);
+            }
+          } catch (err) {
+            console.error(`[CommandInput] 上传 ${file.name} 异常:`, err);
+          }
+        }
+      } else {
+        // 本地终端：插入文件路径到输入框
+        const paths = Array.from(files)
+          .filter((f) => f.name)
+          .map((f) => {
+            const path = (f as File & { path?: string }).path;
+            return path || f.name;
+          });
+        if (paths.length > 0) {
+          const quoted = paths.map((p) => `"${p.replace(/"/g, '\\"')}"`).join(" ");
+          const target = e.currentTarget;
+          const start = target.selectionStart ?? value.length;
+          const end = target.selectionEnd ?? value.length;
+          const next = value.slice(0, start) + quoted + value.slice(end);
+          setValue(next);
+          setCursor(start + quoted.length);
+        }
+      }
+    }, [cwd, resourceId, sessionType, value]);
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -704,6 +751,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
               value={value}
               disabled={disabled}
               onFocus={handleInputFocus}
+              onPaste={handlePaste}
               onChange={(event) => {
                 const next = event.target.value;
                 setValue(next);

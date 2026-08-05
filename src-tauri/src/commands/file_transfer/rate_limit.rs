@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-static RATE_LIMIT_BPS: AtomicU64 = AtomicU64::new(0);
+pub(crate) static RATE_LIMIT_BPS: AtomicU64 = AtomicU64::new(0);
 
 pub fn set_rate_limit_bps(bps: u64) {
     RATE_LIMIT_BPS.store(bps, Ordering::Relaxed);

@@ -1244,6 +1244,120 @@ impl SshSession {
         Ok(())
     }
 
+    /// 流式上传本地文件到远端，支持从 `start_offset` 续写（不截断已存在文件）。
+    ///
+    /// 用于断点续传：以 `OpenFlags::CREATE | WRITE`（不带 TRUNCATE）打开远端文件，
+    /// 双向 seek 到 `start_offset`，分块（256KB）拷贝剩余内容。每块检查 cancel 与可选限速。
+    /// 返回已写入的总字节数（含 `start_offset`）。完成后调用方需自行决定是否 rename partial→final。
+    ///
+    /// `rate_limit_bps`：若 `Some`，则按该值（字节/秒）限速；`None` 或 0 表示不限速。
+    pub async fn sftp_upload_from_file_resume(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+        start_offset: u64,
+        cancel: &std::sync::atomic::AtomicBool,
+        rate_limit_bps: Option<&std::sync::atomic::AtomicU64>,
+    ) -> Result<u64, OmniError> {
+        use russh_sftp::protocol::OpenFlags;
+        use std::sync::atomic::Ordering;
+        use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let mut local = tokio::fs::File::open(local_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "打开本地文件失败").with_cause(e.to_string())
+        })?;
+        if start_offset > 0 {
+            local
+                .seek(std::io::SeekFrom::Start(start_offset))
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "定位本地文件失败").with_cause(e.to_string())
+                })?;
+        }
+        // CREATE | WRITE 不带 TRUNCATE：已存在文件保留原内容，从 start_offset 续写
+        let mut remote = sftp
+            .open_with_flags(remote_path, OpenFlags::CREATE | OpenFlags::WRITE)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "创建远端文件失败").with_cause(e.to_string())
+            })?;
+        if start_offset > 0 {
+            remote
+                .seek(std::io::SeekFrom::Start(start_offset))
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Ssh, "定位远端文件失败").with_cause(e.to_string())
+                })?;
+        }
+        let mut buf = vec![0u8; 256 * 1024];
+        let mut done = start_offset;
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                remote.flush().await.ok();
+                return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
+            }
+            let n = local.read(&mut buf).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "读取本地文件失败").with_cause(e.to_string())
+            })?;
+            if n == 0 {
+                break;
+            }
+            remote.write_all(&buf[..n]).await.map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "写入远端文件失败").with_cause(e.to_string())
+            })?;
+            done += n as u64;
+            throttle_upload_bytes(rate_limit_bps, n as u64).await;
+        }
+        remote.flush().await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "刷新远端文件失败").with_cause(e.to_string())
+        })?;
+        Ok(done)
+    }
+
+    /// 设置远端文件大小（截断或扩展）。用于断点续传完成后裁剪 partial 残留大于 final 的情况。
+    pub async fn sftp_set_length(&self, remote_path: &str, len: u64) -> OmniResult<()> {
+        use russh_sftp::protocol::{FileAttributes, OpenFlags};
+
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let file = sftp
+            .open_with_flags(remote_path, OpenFlags::WRITE)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "打开远端文件失败").with_cause(e.to_string())
+            })?;
+        file.set_metadata(FileAttributes {
+            size: Some(len),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "设置远端文件大小失败").with_cause(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    /// 远端文件 mtime（Unix 秒）；失败返回 None。用于断点续传指纹。
+    pub async fn sftp_file_mtime(&self, remote_path: &str) -> Option<u64> {
+        let _exec_permit = self.exec_gate.clone().acquire_owned().await.ok()?;
+        let sftp = self.open_sftp_inner().await.ok()?;
+        let meta = sftp.metadata(remote_path).await.ok()?;
+        // russh-sftp 的 Metadata::mtime 返回 Option<u32>（SSH 协议为 u32）
+        meta.mtime.map(|t| t as u64)
+    }
+
     pub async fn sftp_mkdir(&self, path: &str) -> OmniResult<()> {
         let _exec_permit = self
             .exec_gate
@@ -1432,6 +1546,21 @@ impl SshSession {
         let ports_by_pid = self.collect_listen_ports().await.unwrap_or_default();
         attach_ports(&mut processes, &ports_by_pid);
         Ok(processes)
+    }
+}
+
+/// 上传分块限速：根据全局 rate_limit_bps（字节/秒）按本次块字节数 sleep。
+/// `limit` 为 `None` 或 0 时不限速。
+async fn throttle_upload_bytes(limit: Option<&std::sync::atomic::AtomicU64>, bytes: u64) {
+    use std::sync::atomic::Ordering;
+    if let Some(bps) = limit {
+        let bps = bps.load(Ordering::Relaxed);
+        if bps > 0 {
+            let secs = bytes as f64 / bps as f64;
+            if secs > 0.001 {
+                tokio::time::sleep(std::time::Duration::from_secs_f64(secs)).await;
+            }
+        }
     }
 }
 

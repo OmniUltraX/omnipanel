@@ -204,7 +204,9 @@ impl AppState {
             file_index_storage_dir: Arc::new(Mutex::new(file_index_storage_dir)),
             file_index_tasks: Arc::new(StdMutex::new(HashMap::new())),
             file_connection_online: Arc::new(StdMutex::new(HashSet::new())),
-            file_transfers: Arc::new(crate::commands::file_transfer::FileTransferEngine::new()),
+            file_transfers: Arc::new(
+                crate::commands::file_transfer::FileTransferEngine::new(storage.clone()).await,
+            ),
             proxy_config: Arc::new(Mutex::new(ProxyConfig::default())),
             mcp_manager,
             acp_state: Arc::new(Mutex::new(crate::commands::acp::AcpState::default())),

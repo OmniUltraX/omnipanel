@@ -636,6 +636,8 @@ export const commands = {
 	fileDownloadFile: (connectionId: string, remotePath: string, localPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_download_file", { connectionId, remotePath, localPath })),
 	fileTransferPlan: (request: FileTransferPlanRequest) => typedError<FileTransferPlanResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_plan", { request })),
 	fileTransferEnqueue: (request: FileTransferEnqueueRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_enqueue", { request })),
+	/**  上传浏览器拖拽/粘贴的本地文件字节到目标连接（后端写临时文件后入队传输引擎，自动获得进度/取消/断点续传）。 */
+	fileTransferUploadLocalBytes: (fileName: string, data: number[], destConnectionId: string, destDir: string, conflictPolicy: FileTransferConflictPolicy) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_upload_local_bytes", { fileName, data, destConnectionId, destDir, conflictPolicy })),
 	fileTransferList: () => typedError<FileTransferListResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_list")),
 	fileTransferCancel: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_cancel", { jobId })),
 	fileTransferRetry: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_retry", { jobId })),

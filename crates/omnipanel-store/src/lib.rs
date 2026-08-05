@@ -11,6 +11,7 @@ mod connection;
 mod database;
 mod file_index;
 mod file_index_storage;
+mod file_transfer;
 mod http;
 mod knowledge;
 mod knowledge_todo;
@@ -58,6 +59,7 @@ pub use file_index::{
     FileIndexBatchItem, FileIndexEntry, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,
 };
 pub use file_index_storage::{FileIndexStorage, resolve_file_index_db_path};
+pub use file_transfer::FileTransferJobRecord;
 pub use host_resolve_cache::{
     get_cached_addresses, load_host_resolve_cache, save_host_resolve_cache, upsert_cache_entry,
     HostResolveEntry,

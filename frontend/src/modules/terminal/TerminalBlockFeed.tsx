@@ -182,19 +182,7 @@ function buildFeedShellSignature(blocks: TerminalBlock[]): string {
     .join(";");
 }
 
-function scrollFeedToLatest(container: HTMLElement) {
-  container.scrollTop = container.scrollHeight;
-}
-
 const FEED_SCROLL_PIN_THRESHOLD_PX = FOLLOW_OUTPUT_PIN_THRESHOLD_PX;
-
-function scrollFeedToLatestIfFollowing(
-  container: HTMLElement,
-  followOutput: boolean,
-) {
-  if (!followOutput) return;
-  scrollFeedToLatest(container);
-}
 
 function BlockCollapseFooter({
   collapsed,
@@ -1103,7 +1091,6 @@ export function TerminalBlockFeed({
   const lastFeedScrollHeightRef = useRef(0);
   const prevActivitySignatureRef = useRef("");
   const prevShellSignatureRef = useRef("");
-  const feedScrollRafRef = useRef(0);
   /** tab 隐藏前最后一次可见的 scrollTop —— display:none 会丢失滚动位置，切回时据此恢复 */
   const savedScrollTopRef = useRef(0);
 
@@ -1247,15 +1234,30 @@ export function TerminalBlockFeed({
     ],
   );
 
-  // 重新测量并同步滚动条派生状态：pinned / canScroll / atTop。
-  // 稳定引用，供 scroll 监听与 tab 切回可见时复用。
-  // 注意：元素 display:none 时 clientHeight/scrollHeight/scrollTop 全为 0，
-  // 此时不能 sync —— 否则会用 0 尺寸把 followOutputRef 误判为 false（isScrollPinnedToBottom
-  // 会把 scrollHeight 突然变 0 当成"内容被清空"），并把 savedScrollTopRef 覆盖为 0。
-  const syncFeedScrollState = useCallback(() => {
+  // 程序触发滚动时间戳：在该时间之前的 scroll 事件视为程序触发，不更新 followOutputRef
+  const programmaticScrollUntilRef = useRef(0);
+
+  // 统一的滚动到底部调度器
+  const scheduleScrollToEndRef = useRef<(force?: boolean) => void>(() => {});
+
+  // 更新派生 UI 状态（canScroll/atTop/savedScrollTop）
+  const updateScrollUiState = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    if (el.clientHeight === 0) return; // 隐藏期间不测量
+    if (!el || el.clientHeight === 0) return;
+    const scrollHeight = el.scrollHeight;
+    const canScroll = scrollHeight - el.clientHeight > 1;
+    setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
+    const atTop = el.scrollTop <= 1;
+    setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
+    savedScrollTopRef.current = el.scrollTop;
+  }, []);
+
+  // 同步 followRef（仅在用户主动滚动时调用）
+  const syncFollowState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || el.clientHeight === 0) return;
+    // 程序触发的滚动不更新 followRef
+    if (performance.now() < programmaticScrollUntilRef.current) return;
     const scrollHeight = el.scrollHeight;
     const pinned = isScrollPinnedToBottom(
       el,
@@ -1265,28 +1267,71 @@ export function TerminalBlockFeed({
     lastFeedScrollHeightRef.current = scrollHeight;
     followOutputRef.current = pinned;
     setFeedPinnedToBottom((prev) => (prev === pinned ? prev : pinned));
-    // 滚动条状态：内容超出 / 顶部
-    const canScroll = scrollHeight - el.clientHeight > 1;
-    setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
-    const atTop = el.scrollTop <= 1;
-    setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
-    // 保存当前位置 —— tab 切走变 display:none 时浏览器会丢失 scrollTop，
-    // 切回后据此恢复用户阅读位置。
-    savedScrollTopRef.current = el.scrollTop;
   }, []);
 
+  // 立即滚到底
+  const doScrollToEnd = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max <= 0) return;
+    if (Math.abs(el.scrollTop - max) <= 2) {
+      updateScrollUiState();
+      lastFeedScrollHeightRef.current = el.scrollHeight;
+      return;
+    }
+    // 设置时间窗口：150ms 内的 scroll 事件都视为程序触发
+    programmaticScrollUntilRef.current = performance.now() + 150;
+    el.scrollTop = el.scrollHeight;
+    lastFeedScrollHeightRef.current = el.scrollHeight;
+    updateScrollUiState();
+  }, [updateScrollUiState]);
+
+  // scroll 事件处理：只更新派生状态 + 在用户主动滚动时更新 followRef
+  const handleScroll = useCallback(() => {
+    updateScrollUiState();
+    syncFollowState();
+  }, [updateScrollUiState, syncFollowState]);
+
+  // 绑定 scroll/resize 监听（仅挂载时绑定一次，不随块数变化重绑）
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-
-    syncFeedScrollState();
-    el.addEventListener("scroll", syncFeedScrollState, { passive: true });
-    window.addEventListener("resize", syncFeedScrollState);
+    // 初始同步一次状态
+    updateScrollUiState();
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
     return () => {
-      el.removeEventListener("scroll", syncFeedScrollState);
-      window.removeEventListener("resize", syncFeedScrollState);
+      el.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
     };
-  }, [visibleBlocks.length, syncFeedScrollState]);
+  }, [handleScroll, updateScrollUiState]);
+
+  // 初始化统一滚动调度器：单 rAF 即可——useLayoutEffect 在 DOM commit 后、layout 前执行，
+  // ResizeObserver 在 layout 后触发；rAF 在 layout+paint 前执行，此时 scrollHeight 已准确。
+  useLayoutEffect(() => {
+    let rafId = 0;
+    let forceScroll = false;
+
+    const performScroll = () => {
+      rafId = 0;
+      if (followOutputRef.current || forceScroll) {
+        doScrollToEnd();
+      }
+      forceScroll = false;
+    };
+
+    scheduleScrollToEndRef.current = (force = false) => {
+      if (force) forceScroll = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(performScroll);
+    };
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      scheduleScrollToEndRef.current = () => {};
+    };
+  }, [doScrollToEnd]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -1302,28 +1347,21 @@ export function TerminalBlockFeed({
     prevShellSignatureRef.current = shellSignature;
 
     if (!blockCountGrew && onlyAiThreadStream) return;
-    if (!blockCountGrew && !followOutputRef.current) return;
 
     if (blockCountGrew) {
+      // 新块出现：强制跟随到底
       followOutputRef.current = true;
       setFeedPinnedToBottom(true);
+      scheduleScrollToEndRef.current(true);
+      return;
     }
 
-    cancelAnimationFrame(feedScrollRafRef.current);
-    feedScrollRafRef.current = requestAnimationFrame(() => {
-      feedScrollRafRef.current = 0;
-      if (!blockCountGrew && !followOutputRef.current) return;
-      scrollFeedToLatest(el);
-    });
+    if (!followOutputRef.current) return;
+
+    scheduleScrollToEndRef.current(false);
   }, [activitySignature, shellSignature, visibleBlocks.length]);
 
-  // dockview 默认 onlyWhenVisible：切走 tab 时 content 元素从 DOM 摘离（removeChild），
-  // 切回时重新插入；React 组件不卸载，但浏览器会丢失 scrollTop。
-  // 注意：isActive prop 不会变化——dockview 的 renderPanel 只在 panel 创建时调用一次，
-  // 之后 tab 切换由 dockview 内部摘离/插入 DOM，不会重新调用 renderPanel。
-  // 因此这里用 IntersectionObserver 直接检测容器可见性变化，不依赖 isActive prop。
-  //  - 隐藏时 savedScrollTopRef 已保存最后可见的 scrollTop（见 syncFeedScrollState）
-  //  - 恢复可见时：若 followOutputRef 为真（贴底/有新输出）跳最新，否则恢复保存的位置
+  // dockview 切 tab 恢复可见时的滚动位置恢复
   const wasVisibleRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
@@ -1333,18 +1371,17 @@ export function TerminalBlockFeed({
       (entries) => {
         const visible = entries[0].isIntersecting && entries[0].intersectionRatio > 0;
         if (!wasVisibleRef.current && visible) {
-          // 从摘离态恢复可见：下一帧（布局完成后）再恢复滚动位置
           requestAnimationFrame(() => {
             const target = scrollRef.current;
             if (!target || target.clientHeight === 0) return;
             if (followOutputRef.current) {
-              scrollFeedToLatest(target);
+              doScrollToEnd();
             } else {
-              // 恢复用户上滚阅读的位置；clamp 到当前 scrollHeight 内
               const max = target.scrollHeight - target.clientHeight;
+              programmaticScrollUntilRef.current = performance.now() + 150;
               target.scrollTop = Math.max(0, Math.min(savedScrollTopRef.current, max));
+              updateScrollUiState();
             }
-            syncFeedScrollState();
           });
         }
         wasVisibleRef.current = visible;
@@ -1353,24 +1390,25 @@ export function TerminalBlockFeed({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [syncFeedScrollState]);
+  }, [doScrollToEnd, updateScrollUiState]);
 
-  // 首次挂载（容器从无到有）强制跳到底 —— 用户打开 tab 时直接看最新输出
+  // 首次挂载强制滚到底
   const didMountRef = useRef(false);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (didMountRef.current) return;
     didMountRef.current = true;
-    // 下一帧再跳（等 listRef 已渲染）
     requestAnimationFrame(() => {
       const target = scrollRef.current;
       if (!target) return;
-      target.scrollTop = target.scrollHeight;
       followOutputRef.current = true;
       setFeedPinnedToBottom(true);
+      programmaticScrollUntilRef.current = performance.now() + 150;
+      target.scrollTop = target.scrollHeight;
+      updateScrollUiState();
     });
-  }, [visibleBlocks.length]);
+  }, [updateScrollUiState]);
 
   const scrollFeedToTop = useCallback(() => {
     const el = scrollRef.current;
@@ -1383,46 +1421,45 @@ export function TerminalBlockFeed({
   const scrollFeedToBottomNow = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     followOutputRef.current = true;
     setFeedPinnedToBottom(true);
-  }, []);
+    doScrollToEnd();
+  }, [doScrollToEnd]);
 
+  // MutationObserver + ResizeObserver 双重保险：
+  // - ResizeObserver 捕获元素尺寸变化（最常见的内容增长场景）
+  // - MutationObserver 捕获 DOM 结构变化（节点新增、文本变化），在某些边缘情况下比 ResizeObserver 更快
   useEffect(() => {
     const list = listRef.current;
     const container = scrollRef.current;
     if (!list || !container) return;
 
-    let resizeRaf = 0;
-    const syncScrollState = () => {
-      const canScroll = container.scrollHeight - container.clientHeight > 1;
-      setFeedCanScroll((prev) => (prev === canScroll ? prev : canScroll));
-      const atTop = container.scrollTop <= 1;
-      setFeedAtTop((prev) => (prev === atTop ? prev : atTop));
-    };
-    const observer = new ResizeObserver(() => {
-      syncScrollState();
+    const scheduleIfFollowing = () => {
+      updateScrollUiState();
       if (!followOutputRef.current) return;
       if (container.querySelector(".term-warp-block--ai-sticky-docked")) return;
-      cancelAnimationFrame(resizeRaf);
-      resizeRaf = requestAnimationFrame(() => {
-        if (!followOutputRef.current) return;
-        scrollFeedToLatestIfFollowing(container, true);
-      });
-    });
-    observer.observe(list);
-    return () => {
-      cancelAnimationFrame(resizeRaf);
-      observer.disconnect();
+      scheduleScrollToEndRef.current(false);
     };
-  }, [visibleBlocks.length]);
 
-  useEffect(
-    () => () => {
-      cancelAnimationFrame(feedScrollRafRef.current);
-    },
-    [],
-  );
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleIfFollowing();
+    });
+    resizeObserver.observe(list);
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleIfFollowing();
+    });
+    mutationObserver.observe(list, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [updateScrollUiState]);
 
   if (renderableBlocks.length === 0) return null;
 

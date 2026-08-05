@@ -502,14 +502,22 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     let lastError: string | null = null;
 
     for (const file of list) {
-      const remotePath = path === "/" ? `/${file.name}` : `${path}/${file.name}`;
       try {
         const buffer = await file.arrayBuffer();
         const bytes = Array.from(new Uint8Array(buffer));
         if (adapter?.writeBytes) {
+          // adapter 模式（Docker 容器等）走直写字节
+          const remotePath = path === "/" ? `/${file.name}` : `${path}/${file.name}`;
           await adapter.writeBytes(remotePath, bytes);
         } else if (resourceId) {
-          const result = await commands.sftpUpload(resourceId, remotePath, bytes);
+          // SSH SFTP 走传输引擎：自动获得进度/取消/断点续传
+          const result = await commands.fileTransferUploadLocalBytes(
+            file.name,
+            bytes,
+            resourceId,
+            path,
+            "overwrite",
+          );
           if (result.status !== "ok") {
             throw new Error(result.error.message || "upload failed");
           }
@@ -534,6 +542,15 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       if (lastError) setError(lastError);
     }
     void loadDir(path);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (!canUpload || uploading) return;
+    const files = e.clipboardData?.files;
+    if (!files || files.length === 0) return;
+    // 仅在含文件时拦截，避免影响文本输入
+    e.preventDefault();
+    void uploadLocalFiles(files);
   };
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -740,6 +757,8 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
+          onPaste={handlePaste}
+          tabIndex={0}
         >
           {dragOver ? (
             <div className="sftp-drop-overlay" aria-hidden>

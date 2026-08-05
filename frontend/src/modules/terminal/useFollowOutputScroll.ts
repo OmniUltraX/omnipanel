@@ -42,19 +42,32 @@ export function useFollowOutputScroll(
   const scrollRafRef = useRef(0);
   const settleUntilRef = useRef(0);
   const wasEnabledRef = useRef(false);
+  // 程序触发滚动时间窗口标记（替代微任务，更可靠地覆盖延迟 scroll 事件）
+  const programmaticScrollUntilRef = useRef(0);
 
+  // 立即滚到底（同步方式）
   const scrollToEnd = useCallback(() => {
     const el = containerRef.current;
-    if (!el || !followRef.current) return;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max <= 0) return;
+    if (Math.abs(el.scrollTop - max) <= 2) {
+      lastScrollHeightRef.current = el.scrollHeight;
+      return;
+    }
+    programmaticScrollUntilRef.current = performance.now() + 150;
     el.scrollTop = el.scrollHeight;
+    lastScrollHeightRef.current = el.scrollHeight;
   }, [containerRef]);
 
   const scheduleScrollToEnd = useCallback(() => {
-    cancelAnimationFrame(scrollRafRef.current);
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = 0;
       if (settleUntilRef.current > performance.now()) return;
-      scrollToEnd();
+      if (followRef.current) {
+        scrollToEnd();
+      }
     });
   }, [scrollToEnd]);
 
@@ -63,6 +76,9 @@ export function useFollowOutputScroll(
     if (!el || !enabled) return;
 
     const syncPinned = () => {
+      if (el.clientHeight === 0) return;
+      // 程序触发的滚动不更新 followRef
+      if (performance.now() < programmaticScrollUntilRef.current) return;
       const scrollHeight = el.scrollHeight;
       followRef.current = isScrollPinnedToBottom(
         el,
@@ -72,7 +88,10 @@ export function useFollowOutputScroll(
       lastScrollHeightRef.current = scrollHeight;
     };
 
-    syncPinned();
+    // 初始同步（不更新 followRef，只记录 scrollHeight）
+    if (el.clientHeight > 0) {
+      lastScrollHeightRef.current = el.scrollHeight;
+    }
     el.addEventListener("scroll", syncPinned, { passive: true });
     return () => el.removeEventListener("scroll", syncPinned);
   }, [containerRef, enabled, pinThresholdPx]);
@@ -102,7 +121,13 @@ export function useFollowOutputScroll(
     if (!container) return;
 
     let observed: HTMLElement | null = null;
-    let observer: ResizeObserver | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let mutationObserver: MutationObserver | null = null;
+
+    const scheduleIfFollowing = () => {
+      if (!followRef.current) return;
+      scheduleScrollToEnd();
+    };
 
     const attachObserver = () => {
       const content =
@@ -110,22 +135,31 @@ export function useFollowOutputScroll(
         container.querySelector<HTMLElement>(".term-warp-ai-thread-root") ??
         (container.firstElementChild instanceof HTMLElement ? container.firstElementChild : null);
       if (!content || content === observed) return;
-      observer?.disconnect();
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
       observed = content;
-      observer = new ResizeObserver(() => {
-        if (!followRef.current) return;
-        scheduleScrollToEnd();
+      resizeObserver = new ResizeObserver(() => {
+        scheduleIfFollowing();
       });
-      observer.observe(content);
+      resizeObserver.observe(content);
+      mutationObserver = new MutationObserver(() => {
+        scheduleIfFollowing();
+      });
+      mutationObserver.observe(content, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
     };
 
     attachObserver();
-    const mutation = new MutationObserver(attachObserver);
-    mutation.observe(container, { childList: true, subtree: true });
+    const mo = new MutationObserver(attachObserver);
+    mo.observe(container, { childList: true, subtree: true });
 
     return () => {
-      mutation.disconnect();
-      observer?.disconnect();
+      mo.disconnect();
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
     };
   }, [containerRef, enabled, scheduleScrollToEnd]);
 

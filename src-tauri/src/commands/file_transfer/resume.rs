@@ -42,40 +42,6 @@ pub fn load_jobs() -> Vec<FileTransferJob> {
         .unwrap_or_default()
 }
 
-pub fn save_jobs(jobs: &[FileTransferJob]) {
-    let Ok(path) = store_path() else {
-        return;
-    };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    // 只持久化未完成 / 失败可重试；保留最近已完成若干条便于 UI
-    let mut keep: Vec<FileTransferJob> = jobs
-        .iter()
-        .filter(|j| {
-            matches!(
-                j.state,
-                FileTransferState::Queued
-                    | FileTransferState::Probing
-                    | FileTransferState::Running
-                    | FileTransferState::Error
-            )
-        })
-        .cloned()
-        .collect();
-    let mut done: Vec<_> = jobs
-        .iter()
-        .filter(|j| matches!(j.state, FileTransferState::Done | FileTransferState::Cancelled))
-        .cloned()
-        .collect();
-    done.sort_by(|a, b| b.id.cmp(&a.id));
-    keep.extend(done.into_iter().take(20));
-    let env = PersistEnvelope { jobs: keep };
-    if let Ok(bytes) = serde_json::to_vec_pretty(&env) {
-        let _ = std::fs::write(path, bytes);
-    }
-}
-
 /// 启动时规整：Running → Error（中断），Probing → Queued。
 pub fn normalize_after_load(mut jobs: Vec<FileTransferJob>) -> Vec<FileTransferJob> {
     for j in &mut jobs {
@@ -108,8 +74,9 @@ pub async fn source_fingerprint(
     }
     let session = open_sftp(state, connection_id).await.ok()?;
     let size = session.sftp_file_size(path).await.unwrap_or(0);
-    // SFTP 无稳定 mtime API 时用 size 作弱指纹
-    Some(format!("sftp:{connection_id}:{path}:{size}"))
+    // SFTP 指纹：size + mtime（Unix 秒）。russh-sftp metadata 暴露 mtime（SSH_FXP_ATTRS 协议字段）
+    let mtime = session.sftp_file_mtime(path).await.unwrap_or(0);
+    Some(format!("sftp:{connection_id}:{path}:{size}:{mtime}"))
 }
 
 pub fn fingerprint_matches(job: &FileTransferJob, current: &str) -> bool {
@@ -125,6 +92,18 @@ pub fn local_partial_len(path: &str) -> u64 {
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .unwrap_or(0)
+}
+
+/// 远端 partial 文件大小（字节）；不存在返回 0。
+pub async fn sftp_partial_len(
+    state: &AppState,
+    connection_id: &str,
+    remote_partial_path: &str,
+) -> u64 {
+    let Ok(session) = open_sftp(state, connection_id).await else {
+        return 0;
+    };
+    session.sftp_file_size(remote_partial_path).await.unwrap_or(0)
 }
 
 pub async fn copy_local_resume(
