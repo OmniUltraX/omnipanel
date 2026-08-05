@@ -4,6 +4,7 @@ import type { DangerLevel } from "../lib/commandGuard";
 import {
   appendTextLikePart,
   upsertPlanInParts,
+  upsertUserQuestionInParts,
   type AiMessagePart,
   type ToolCallState,
 } from "../lib/ai/aiMessageParts";
@@ -148,6 +149,12 @@ interface BlocksState {
     blockId: string,
     messageId: string,
     plan: import("../lib/ai/aiMessageParts").PlanData,
+  ) => void;
+  /** upsert user-question part 到 assistant message parts（同 formId 更新，否则追加） */
+  upsertAiThreadUserQuestionPart: (
+    blockId: string,
+    messageId: string,
+    form: import("../lib/ai/aiMessageParts").UserQuestionFormData,
   ) => void;
   findBlockById: (blockId: string) => TerminalBlock | null;
   getBlocks: (sessionId: string) => TerminalBlock[];
@@ -457,6 +464,18 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
         thread.map((item) => {
           if (item.id !== messageId || item.kind !== "message") return item;
           const parts = upsertPlanInParts(item.parts ?? [], plan);
+          return { ...item, parts };
+        }),
+      );
+      return nextBlocks ? { blocks: nextBlocks } : state;
+    }),
+
+  upsertAiThreadUserQuestionPart: (blockId, messageId, form) =>
+    set((state) => {
+      const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
+        thread.map((item) => {
+          if (item.id !== messageId || item.kind !== "message") return item;
+          const parts = upsertUserQuestionInParts(item.parts ?? [], form);
           return { ...item, parts };
         }),
       );

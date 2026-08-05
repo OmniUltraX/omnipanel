@@ -5,8 +5,14 @@
  * 1. AI 调用 → 后端挂起 → dispatchPendingTool 拦截 → 本 dispatcher 写 user-question part
  * 2. 用户提交/跳过 → aiChatToolResult 回传 → 会话续跑
  * 3. 同会话新的 ask_user 会 supersede 旧 pending 表单
+ *
+ * 双存储支持：
+ * - 侧边栏 AI 会话：消息存储在 useAiStore.conversations
+ * - 终端内嵌会话：消息存储在 useBlocksStore.<blockId>.aiThread
+ *   conversationId 以 "term-inline:" 开头时自动走 blocksStore 路径
  */
 import { useAiStore } from "../../../stores/aiStore";
+import { useBlocksStore, type AiThreadMessage } from "../../../stores/blocksStore";
 import { reportToolResultWithRetry } from "../reportToolResult";
 import type { AskUserAnswerValue, UserQuestionFormData } from "../aiMessageParts";
 import {
@@ -26,6 +32,8 @@ export type AskUserDispatchOptions = {
   conversationId: string;
   toolCallId: string;
   argsJson: string;
+  /** 终端内嵌场景：提供 blockId 后消息从 blocksStore 查找/写入 */
+  inline?: { blockId: string; assistantTurnId?: string | null } | null;
 };
 
 const resolvedToolCallIds = new Set<string>();
@@ -35,7 +43,63 @@ function genFormId(): string {
   return `ask_${Date.now()}_${(++formSeq).toString(36)}`;
 }
 
-function findParentMessage(conversationId: string, toolCallId: string) {
+/** 终端内嵌会话的 conversationId 前缀（见 terminalAiContextBundle.resolveInlineConversationId） */
+function isInlineConversationId(conversationId: string): boolean {
+  return conversationId.startsWith("term-inline:");
+}
+
+/** 在 blocksStore 的 aiThread 中查找包含 toolCallId 的 assistant 消息 */
+function findInlineParentMessage(blockId: string, toolCallId: string): {
+  messageId: string;
+} | null {
+  const block = useBlocksStore.getState().findBlockById(blockId);
+  if (!block?.aiThread) return null;
+  for (const item of block.aiThread) {
+    if (item.kind !== "message") continue;
+    const parts = item.parts ?? [];
+    const found = parts.some(
+      (p) => p.type === "tool-call" && p.id === toolCallId,
+    );
+    if (found) return { messageId: item.id };
+  }
+  // fallback：最后一条 assistant 消息
+  for (let i = block.aiThread.length - 1; i >= 0; i--) {
+    const item = block.aiThread[i]!;
+    if (item.kind === "message" && item.role === "assistant") {
+      return { messageId: item.id };
+    }
+  }
+  return null;
+}
+
+type ParentRef =
+  | { kind: "aiStore"; messageId: string }
+  | { kind: "blocksStore"; messageId: string; blockId: string }
+  | null;
+
+function findParentMessage(
+  conversationId: string,
+  toolCallId: string,
+  inline?: { blockId: string; assistantTurnId?: string | null } | null,
+): ParentRef {
+  // 终端内嵌场景：从 blocksStore 查找
+  if (inline?.blockId) {
+    const found = findInlineParentMessage(inline.blockId, toolCallId);
+    if (found) {
+      return { kind: "blocksStore", messageId: found.messageId, blockId: inline.blockId };
+    }
+    // assistantTurnId fallback
+    if (inline.assistantTurnId) {
+      return {
+        kind: "blocksStore",
+        messageId: inline.assistantTurnId,
+        blockId: inline.blockId,
+      };
+    }
+    return null;
+  }
+
+  // 侧边栏场景：从 aiStore 查找
   const conv = useAiStore.getState().conversations.find((c) => c.id === conversationId);
   if (!conv) return null;
 
@@ -45,7 +109,7 @@ function findParentMessage(conversationId: string, toolCallId: string) {
       Array.isArray(m.parts) &&
       m.parts.some((p) => p.type === "tool-call" && p.id === toolCallId),
   );
-  if (matched) return { conv, msg: matched };
+  if (matched) return { kind: "aiStore", messageId: matched.id };
 
   // 2) Fallback：在 streaming 异步写入或 tool-call part 尚未完整挂载时，
   //    找不到精确匹配是正常的。此时回退到「会话最近一条 assistant 消息」：
@@ -54,53 +118,95 @@ function findParentMessage(conversationId: string, toolCallId: string) {
   for (let i = conv.messages.length - 1; i >= 0; i--) {
     const m = conv.messages[i]!;
     if (m.role === "assistant" && Array.isArray(m.parts)) {
-      return { conv, msg: m };
+      return { kind: "aiStore", messageId: m.id };
     }
   }
 
   // 3) 连 assistant 消息都没有（极罕见）：退回到最新一条消息
   if (conv.messages.length > 0) {
-    return { conv, msg: conv.messages[conv.messages.length - 1]! };
+    return { kind: "aiStore", messageId: conv.messages[conv.messages.length - 1]!.id };
   }
 
   return null;
 }
 
-function persistForm(form: UserQuestionFormData, messageId: string): void {
-  useAiStore.getState().upsertStreamUserQuestion(form.conversationId, messageId, form);
+function persistForm(form: UserQuestionFormData, parent: ParentRef): void {
+  if (parent?.kind === "blocksStore") {
+    useBlocksStore
+      .getState()
+      .upsertAiThreadUserQuestionPart(parent.blockId, parent.messageId, form);
+    return;
+  }
+  if (parent?.kind === "aiStore") {
+    useAiStore
+      .getState()
+      .upsertStreamUserQuestion(form.conversationId, parent.messageId, form);
+  }
+}
+
+/** 从 ParentRef 拉取当前所有 user-question parts（用于 supersede 逻辑） */
+function collectPendingForms(
+  conversationId: string,
+  parent: ParentRef,
+): Array<{ form: UserQuestionFormData; messageId: string }> {
+  if (parent?.kind === "blocksStore") {
+    const block = useBlocksStore.getState().findBlockById(parent.blockId);
+    if (!block?.aiThread) return [];
+    const result: Array<{ form: UserQuestionFormData; messageId: string }> = [];
+    for (const item of block.aiThread) {
+      if (item.kind !== "message") continue;
+      const parts = item.parts ?? [];
+      for (const part of parts) {
+        if (part.type !== "user-question") continue;
+        if (part.form.status !== "pending") continue;
+        result.push({ form: part.form, messageId: item.id });
+      }
+    }
+    return result;
+  }
+  if (parent?.kind === "aiStore") {
+    const conv = useAiStore.getState().conversations.find((c) => c.id === conversationId);
+    if (!conv) return [];
+    const result: Array<{ form: UserQuestionFormData; messageId: string }> = [];
+    for (const msg of conv.messages) {
+      const parts = msg.parts ?? [];
+      for (const part of parts) {
+        if (part.type !== "user-question") continue;
+        if (part.form.status !== "pending") continue;
+        result.push({ form: part.form, messageId: msg.id });
+      }
+    }
+    return result;
+  }
+  return [];
 }
 
 /** 将同会话其它 pending 表单标为 superseded 并回传 skipped */
 async function supersedePendingForms(
   conversationId: string,
   exceptToolCallId: string,
+  parent: ParentRef,
 ): Promise<void> {
-  const conv = useAiStore.getState().conversations.find((c) => c.id === conversationId);
-  if (!conv) return;
+  const pendingForms = collectPendingForms(conversationId, parent);
 
-  for (const msg of conv.messages) {
-    const parts = msg.parts ?? [];
-    for (const part of parts) {
-      if (part.type !== "user-question") continue;
-      if (part.form.status !== "pending") continue;
-      if (part.form.toolCallId === exceptToolCallId) continue;
-      if (resolvedToolCallIds.has(part.form.toolCallId)) continue;
+  for (const { form, messageId } of pendingForms) {
+    if (form.toolCallId === exceptToolCallId) continue;
+    if (resolvedToolCallIds.has(form.toolCallId)) continue;
 
-      const next: UserQuestionFormData = {
-        ...part.form,
-        status: "superseded",
-        updatedAt: Date.now(),
-      };
-      useAiStore.getState().upsertStreamUserQuestion(conversationId, msg.id, next);
+    const next: UserQuestionFormData = {
+      ...form,
+      status: "superseded",
+      updatedAt: Date.now(),
+    };
+    persistForm(next, parent);
 
-      resolvedToolCallIds.add(part.form.toolCallId);
-      await reportToolResultWithRetry(
-        conversationId,
-        part.form.toolCallId,
-        serializeAskUserResult("skipped", {}),
-        true,
-      ).catch(() => {});
-    }
+    resolvedToolCallIds.add(form.toolCallId);
+    await reportToolResultWithRetry(
+      conversationId,
+      form.toolCallId,
+      serializeAskUserResult("skipped", {}),
+      true,
+    ).catch(() => {});
   }
 }
 
@@ -108,7 +214,7 @@ async function supersedePendingForms(
  * 挂起工具入口：校验入参 → 写 part → 等待用户（不立即回传）。
  */
 export async function dispatchAskUserTool(options: AskUserDispatchOptions): Promise<void> {
-  const { conversationId, toolCallId, argsJson } = options;
+  const { conversationId, toolCallId, argsJson, inline } = options;
 
   if (resolvedToolCallIds.has(toolCallId)) {
     return;
@@ -121,7 +227,7 @@ export async function dispatchAskUserTool(options: AskUserDispatchOptions): Prom
     return;
   }
 
-  const parent = findParentMessage(conversationId, toolCallId);
+  const parent = findParentMessage(conversationId, toolCallId, inline);
   if (!parent) {
     await reportToolResultWithRetry(
       conversationId,
@@ -133,7 +239,7 @@ export async function dispatchAskUserTool(options: AskUserDispatchOptions): Prom
     return;
   }
 
-  await supersedePendingForms(conversationId, toolCallId);
+  await supersedePendingForms(conversationId, toolCallId, parent);
 
   const form: UserQuestionFormData = {
     formId: genFormId(),
@@ -146,7 +252,7 @@ export async function dispatchAskUserTool(options: AskUserDispatchOptions): Prom
     updatedAt: Date.now(),
   };
 
-  persistForm(form, parent.msg.id);
+  persistForm(form, parent);
 }
 
 async function resolveForm(
@@ -154,11 +260,17 @@ async function resolveForm(
   status: "answered" | "skipped",
   answers?: Record<string, AskUserAnswerValue>,
 ): Promise<void> {
-  const store = useAiStore.getState();
-  let found: { conversationId: string; messageId: string; form: UserQuestionFormData } | null =
-    null;
+  // 先在 aiStore 里查
+  let found:
+    | {
+        conversationId: string;
+        parent: ParentRef;
+        form: UserQuestionFormData;
+      }
+    | null = null;
 
-  for (const conv of store.conversations) {
+  // 1) aiStore
+  for (const conv of useAiStore.getState().conversations) {
     for (const msg of conv.messages) {
       const part = msg.parts?.find(
         (p) => p.type === "user-question" && p.form.formId === formId,
@@ -166,13 +278,36 @@ async function resolveForm(
       if (part && part.type === "user-question") {
         found = {
           conversationId: conv.id,
-          messageId: msg.id,
+          parent: { kind: "aiStore", messageId: msg.id },
           form: part.form,
         };
         break;
       }
     }
     if (found) break;
+  }
+
+  // 2) blocksStore
+  if (!found) {
+    outer: for (const blocks of Object.values(useBlocksStore.getState().blocks)) {
+      for (const block of blocks) {
+        if (!block.aiThread) continue;
+        for (const item of block.aiThread) {
+          if (item.kind !== "message") continue;
+          const part = item.parts?.find(
+            (p) => p.type === "user-question" && p.form.formId === formId,
+          );
+          if (part && part.type === "user-question") {
+            found = {
+              conversationId: part.form.conversationId,
+              parent: { kind: "blocksStore", messageId: item.id, blockId: block.id },
+              form: part.form,
+            };
+            break outer;
+          }
+        }
+      }
+    }
   }
 
   if (!found) return;
@@ -193,7 +328,7 @@ async function resolveForm(
     updatedAt: Date.now(),
   };
 
-  persistForm(next, found.messageId);
+  persistForm(next, found.parent);
   resolvedToolCallIds.add(found.form.toolCallId);
 
   await reportToolResultWithRetry(

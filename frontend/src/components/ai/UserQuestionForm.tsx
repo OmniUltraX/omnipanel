@@ -11,6 +11,7 @@ import {
 } from "../../lib/ai/orchestration/askUserToolDispatcher";
 import { validateAskUserAnswers } from "../../lib/ai/orchestration/askUserSchema";
 import { useAiStore } from "../../stores/aiStore";
+import { useBlocksStore } from "../../stores/blocksStore";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/primitives/Button";
@@ -20,8 +21,33 @@ type Props = {
   form: UserQuestionFormData;
 };
 
+/** 终端内嵌会话的 conversationId 前缀（与 askUserToolDispatcher 保持一致） */
+function isInlineConversationId(conversationId: string): boolean {
+  return conversationId.startsWith("term-inline:");
+}
+
 function useLiveAskUserForm(snapshot: UserQuestionFormData): UserQuestionFormData {
-  return useAiStore((s) => {
+  // 终端内嵌场景：从 blocksStore 订阅
+  const inline = isInlineConversationId(snapshot.conversationId);
+  const inlineForm = useBlocksStore((s) => {
+    if (!inline) return null;
+    for (const blocks of Object.values(s.blocks)) {
+      for (const block of blocks) {
+        if (!block.aiThread) continue;
+        for (const item of block.aiThread) {
+          if (item.kind !== "message") continue;
+          const part = item.parts?.find(
+            (p) => p.type === "user-question" && p.form.formId === snapshot.formId,
+          );
+          if (part && part.type === "user-question") return part.form;
+        }
+      }
+    }
+    return null;
+  });
+  // 侧边栏场景：从 aiStore 订阅
+  const sidebarForm = useAiStore((s) => {
+    if (inline) return null;
     for (const conv of s.conversations) {
       if (conv.id !== snapshot.conversationId) continue;
       for (const msg of conv.messages) {
@@ -31,8 +57,9 @@ function useLiveAskUserForm(snapshot: UserQuestionFormData): UserQuestionFormDat
         if (part && part.type === "user-question") return part.form;
       }
     }
-    return snapshot;
+    return null;
   });
+  return (inline ? inlineForm : sidebarForm) ?? snapshot;
 }
 
 function optionLabel(q: AskUserQuestion, id: string): string {

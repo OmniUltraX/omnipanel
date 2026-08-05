@@ -176,10 +176,28 @@ export async function dispatchPendingTool(options: {
   // 结构化澄清表单：写 part 后等人提交，不立即回传
   if (options.toolName === ASK_USER_TOOL) {
     const { dispatchAskUserTool } = await import("./orchestration/askUserToolDispatcher");
+    // 终端内嵌场景：从 block aiThread 反查最近一条 assistant 消息 id，作为父消息 fallback
+    let assistantTurnId: string | null = null;
+    if (options.inline?.blockId) {
+      const block = await import("../../stores/blocksStore").then((m) =>
+        m.useBlocksStore.getState().findBlockById(options.inline!.blockId),
+      );
+      const thread = block?.aiThread ?? [];
+      for (let i = thread.length - 1; i >= 0; i -= 1) {
+        const item = thread[i]!;
+        if (item.kind === "message" && item.role === "assistant") {
+          assistantTurnId = item.id;
+          break;
+        }
+      }
+    }
     return dispatchAskUserTool({
       conversationId: options.conversationId,
       toolCallId: options.toolCallId,
       argsJson: options.argsJson,
+      inline: options.inline
+        ? { blockId: options.inline.blockId, assistantTurnId }
+        : null,
     });
   }
 

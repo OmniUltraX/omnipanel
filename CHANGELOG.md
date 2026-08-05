@@ -2,6 +2,12 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.6] - 2026-08-05
+
+### 修复
+
+- **AI · ask_user 工具**：修复 `omni_ask_user` 在终端内嵌会话不出现表单的问题。dispatcher 此前仅支持从 `useAiStore` 查找/写入父消息，导致终端内嵌会话（消息存储在 `useBlocksStore.<blockId>.aiThread`）找不到父消息而直接报错回传。现已支持双存储：根据 `inline.blockId` 自动切换到 blocksStore 路径，并新增 `upsertAiThreadUserQuestionPart` 方法写入 part；`UserQuestionForm` 的 `useLiveAskUserForm` 也按 `term-inline:` 前缀分流订阅，确保终端内嵌表单状态实时刷新
+
 ## [0.7.5] - 2026-08-04
 
 ### 修复
