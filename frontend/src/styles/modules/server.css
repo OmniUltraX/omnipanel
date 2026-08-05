@@ -1642,6 +1642,11 @@
         flex-shrink: 0;
     }
 
+    .sftp-toolbar .icon-dropdown-button.sftp-toolbar-icon-btn {
+        display: inline-flex;
+        align-items: center;
+    }
+
     .sftp-toolbar-icon-btn[aria-pressed="true"] {
         color: var(--accent);
         border-color: color-mix(in srgb, var(--accent) 45%, var(--border));

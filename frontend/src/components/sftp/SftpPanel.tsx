@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { Button } from "../ui/primitives/Button";
 import { TextInput } from "../ui/form/TextInput";
 import { FileEntryIcon } from "../ui/icons/FileEntryIcon";
 import { ContextMenu } from "../ui/menu/ContextMenu";
+import { IconDropdownButton } from "../ui/menu/IconDropdownButton";
 import { useSshDetailNavigationStore } from "../../stores/sshDetailNavigationStore";
 import { useI18n } from "../../i18n";
 import { pathToRemoteDir } from "../../modules/server/ssh/utils/parseCommandPaths";
@@ -18,7 +19,8 @@ import {
   sftpEntryRowClass,
 } from "./sftpEntryDisplay";
 import { FilePreviewSubWindow } from "../../modules/files/FilePreviewSubWindow";
-import { uploadRemote } from "../../modules/files/fileApi";
+import { listDirectory, readRemotePreview, uploadRemote } from "../../modules/files/fileApi";
+import { collectOsDropItems, hasOsFileDrag, type OsDropByteFile } from "../../modules/files/osFileDrop";
 import { LOCAL_CONNECTION_ID } from "../../modules/files/utils";
 import type { SftpPanelAdapter } from "./sftpAdapter";
 import { resolveSftpCapabilities } from "./sftpAdapter";
@@ -46,7 +48,54 @@ const QUICK_PATHS = [
   { label: "/tmp", path: "/tmp" },
 ];
 
+const UPLOAD_MAX_BYTES = 512 * 1024 * 1024;
+
 type ComposerMode = "mkdir" | "rename" | "chmod" | null;
+
+type LocalUploadLeaf = {
+  absPath?: string;
+  relativePath: string;
+  bytes?: number[];
+};
+
+function basenamePath(path: string): string {
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
+function joinRemote(base: string, relative: string): string {
+  const parts = relative.replace(/\\/g, "/").split("/").filter(Boolean);
+  let cur = base;
+  for (const part of parts) {
+    cur = cur === "/" ? `/${part}` : `${cur}/${part}`;
+  }
+  return cur;
+}
+
+async function expandLocalUploadRoots(
+  roots: { absPath: string; name: string; kind: "file" | "dir" }[],
+): Promise<LocalUploadLeaf[]> {
+  const out: LocalUploadLeaf[] = [];
+  const walkDir = async (dir: string, relBase: string) => {
+    const listed = await listDirectory(LOCAL_CONNECTION_ID, dir, null, null, { quiet: true });
+    for (const entry of listed.entries) {
+      const rel = `${relBase}/${entry.name}`.replace(/\\/g, "/");
+      if (entry.kind === "dir") {
+        await walkDir(entry.path, rel);
+      } else {
+        out.push({ absPath: entry.path, relativePath: rel });
+      }
+    }
+  };
+  for (const root of roots) {
+    if (root.kind === "dir") {
+      await walkDir(root.absPath, root.name);
+    } else {
+      out.push({ absPath: root.absPath, relativePath: root.name });
+    }
+  }
+  return out;
+}
 
 function IconUp() {
   return (
@@ -62,6 +111,16 @@ function IconFolderPlus() {
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
       <line x1="12" y1="11" x2="12" y2="17" />
       <line x1="9" y1="14" x2="15" y2="14" />
+    </svg>
+  );
+}
+
+function IconUpload() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   );
 }
@@ -483,66 +542,166 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
-  const hasFileDrag = (dt: DataTransfer | null): boolean => {
-    if (!dt) return false;
-    if (dt.types.includes("Files")) return true;
-    return Array.from(dt.items ?? []).some((item) => item.kind === "file");
-  };
-
-  const uploadLocalFiles = async (files: FileList | File[]) => {
-    if (!sessionKey || !canUpload || uploading) return;
-    const list = Array.from(files).filter((file) => file && file.name);
-    if (list.length === 0) return;
-
-    setUploading(true);
-    setError(null);
-    setInfo(t("ssh.sftp.uploading", { count: list.length }));
-    let ok = 0;
-    let fail = 0;
-    let lastError: string | null = null;
-
-    for (const file of list) {
+  const ensureRemoteDir = useCallback(
+    async (remoteDir: string) => {
+      if (!remoteDir || remoteDir === "/") return;
       try {
-        const buffer = await file.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buffer));
-        if (adapter?.writeBytes) {
-          // adapter 模式（Docker 容器等）走直写字节
-          const remotePath = path === "/" ? `/${file.name}` : `${path}/${file.name}`;
-          await adapter.writeBytes(remotePath, bytes);
+        if (adapter?.mkdir) {
+          await adapter.mkdir(remoteDir);
         } else if (resourceId) {
-          // SSH SFTP 走传输引擎：自动获得进度/取消/断点续传
-          const result = await commands.fileTransferUploadLocalBytes(
-            file.name,
-            bytes,
-            resourceId,
-            path,
-            "overwrite",
-          );
-          if (result.status !== "ok") {
-            throw new Error(result.error.message || "upload failed");
+          await invoke("sftp_mkdir", { id: resourceId, path: remoteDir });
+        }
+      } catch {
+        /* 已存在或父级已建 */
+      }
+    },
+    [adapter, resourceId],
+  );
+
+  const writeRemoteBytes = useCallback(
+    async (remotePath: string, bytes: number[]) => {
+      if (adapter?.writeBytes) {
+        await adapter.writeBytes(remotePath, bytes);
+        return;
+      }
+      if (!resourceId) {
+        throw new Error("no upload target");
+      }
+      // SSH 资源 id 走 sftp 命令（连接池），不依赖文件连接表
+      await unwrapCommand(commands.sftpUpload(resourceId, remotePath, bytes));
+    },
+    [adapter, resourceId],
+  );
+
+  const uploadLeaves = useCallback(
+    async (leaves: LocalUploadLeaf[]) => {
+      if (!sessionKey || !canUpload) return;
+      if (leaves.length === 0) return;
+
+      setUploading(true);
+      setError(null);
+      setInfo(t("ssh.sftp.uploading", { count: leaves.length }));
+      let ok = 0;
+      let fail = 0;
+      let lastError: string | null = null;
+      const createdDirs = new Set<string>();
+
+      for (const leaf of leaves) {
+        try {
+          const parts = leaf.relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
+          if (parts.length === 0) continue;
+          let parentAcc = path;
+          for (let i = 0; i < parts.length - 1; i++) {
+            parentAcc = joinRemote(parentAcc, parts[i]!);
+            if (!createdDirs.has(parentAcc)) {
+              await ensureRemoteDir(parentAcc);
+              createdDirs.add(parentAcc);
+            }
           }
+          const remotePath = joinRemote(path, leaf.relativePath);
+          let bytes = leaf.bytes;
+          if (bytes == null) {
+            if (!leaf.absPath) {
+              throw new Error("empty upload payload");
+            }
+            bytes = await readRemotePreview(LOCAL_CONNECTION_ID, leaf.absPath, UPLOAD_MAX_BYTES);
+          }
+          await writeRemoteBytes(remotePath, bytes);
+          ok += 1;
+        } catch (e) {
+          fail += 1;
+          lastError = fmtSftpError(e);
+        }
+      }
+
+      setUploading(false);
+      if (fail === 0) {
+        setInfo(t("ssh.sftp.uploadSuccess", { count: ok }));
+      } else if (ok === 0) {
+        setError(lastError || t("ssh.sftp.uploadFailed"));
+        setInfo(null);
+      } else {
+        setInfo(t("ssh.sftp.uploadPartial", { ok, fail }));
+        if (lastError) setError(lastError);
+      }
+      void loadDir(path);
+    },
+    // loadDir 为组件内普通函数，随 path/session 变化即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canUpload, ensureRemoteDir, path, sessionKey, t, writeRemoteBytes],
+  );
+
+  const uploadLocalFiles = useCallback(
+    async (files: FileList | File[] | OsDropByteFile[]) => {
+      const list = Array.from(files as Array<File | OsDropByteFile>).filter(Boolean);
+      if (list.length === 0) return;
+      const leaves: LocalUploadLeaf[] = [];
+      for (const item of list) {
+        if ("relativePath" in item && item.file) {
+          const buffer = await item.file.arrayBuffer();
+          leaves.push({
+            relativePath: item.relativePath.replace(/\\/g, "/"),
+            bytes: Array.from(new Uint8Array(buffer)),
+          });
         } else {
+          const file = item as File;
+          if (!file.name) continue;
+          const buffer = await file.arrayBuffer();
+          leaves.push({
+            relativePath: file.name,
+            bytes: Array.from(new Uint8Array(buffer)),
+          });
+        }
+      }
+      await uploadLeaves(leaves);
+    },
+    [uploadLeaves],
+  );
+
+  const uploadLocalPathRoots = useCallback(
+    async (roots: { absPath: string; name: string; kind: "file" | "dir" }[]) => {
+      if (roots.length === 0) return;
+      try {
+        const leaves = await expandLocalUploadRoots(roots);
+        if (leaves.length === 0) {
+          setError(t("ssh.sftp.uploadEmptyFolder"));
           return;
         }
-        ok += 1;
+        await uploadLeaves(leaves);
       } catch (e) {
-        fail += 1;
-        lastError = fmtSftpError(e);
+        setError(fmtSftpError(e));
       }
-    }
+    },
+    [t, uploadLeaves],
+  );
 
-    setUploading(false);
-    if (fail === 0) {
-      setInfo(t("ssh.sftp.uploadSuccess", { count: ok }));
-    } else if (ok === 0) {
-      setError(lastError || t("ssh.sftp.uploadFailed"));
-      setInfo(null);
-    } else {
-      setInfo(t("ssh.sftp.uploadPartial", { ok, fail }));
-      if (lastError) setError(lastError);
-    }
-    void loadDir(path);
-  };
+  const handlePickUploadFiles = useCallback(async () => {
+    if (!canUpload || uploading) return;
+    const picked = await openFileDialog({ multiple: true });
+    if (!picked) return;
+    const files = Array.isArray(picked) ? picked : [picked];
+    await uploadLocalPathRoots(
+      files.map((absPath) => ({
+        absPath,
+        name: basenamePath(absPath),
+        kind: "file" as const,
+      })),
+    );
+  }, [canUpload, uploading, uploadLocalPathRoots]);
+
+  const handlePickUploadFolders = useCallback(async () => {
+    if (!canUpload || uploading) return;
+    const picked = await openFileDialog({ directory: true, multiple: true });
+    if (!picked) return;
+    const folders = Array.isArray(picked) ? picked : [picked];
+    await uploadLocalPathRoots(
+      folders.map((absPath) => ({
+        absPath,
+        name: basenamePath(absPath),
+        kind: "dir" as const,
+      })),
+    );
+  }, [canUpload, uploading, uploadLocalPathRoots]);
 
   const handlePaste = (e: React.ClipboardEvent) => {
     if (!canUpload || uploading) return;
@@ -555,7 +714,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
 
   const handleDragEnter = (e: React.DragEvent) => {
     if (!canUpload || uploading) return;
-    if (!hasFileDrag(e.dataTransfer)) return;
+    if (!hasOsFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepthRef.current += 1;
@@ -572,7 +731,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
 
   const handleDragOver = (e: React.DragEvent) => {
     if (!canUpload || uploading) return;
-    if (!hasFileDrag(e.dataTransfer)) return;
+    if (!hasOsFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
@@ -584,9 +743,25 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     e.stopPropagation();
     dragDepthRef.current = 0;
     setDragOver(false);
-    const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-    void uploadLocalFiles(files);
+    void (async () => {
+      const { pathItems, byteFiles } = await collectOsDropItems(e.dataTransfer);
+      if (pathItems.length > 0) {
+        await uploadLocalPathRoots(
+          pathItems.map((it) => ({
+            absPath: it.path,
+            name: it.name,
+            kind: it.kind === "dir" ? ("dir" as const) : ("file" as const),
+          })),
+        );
+      }
+      if (byteFiles.length > 0) {
+        await uploadLocalFiles(byteFiles);
+      }
+      if (pathItems.length === 0 && byteFiles.length === 0) {
+        const files = e.dataTransfer.files;
+        if (files?.length) void uploadLocalFiles(files);
+      }
+    })();
   };
 
   const pathParts = path.split("/").filter(Boolean);
@@ -642,6 +817,32 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
           >
             <IconFolderPlus />
           </Button>
+        ) : null}
+        {canUpload ? (
+          <IconDropdownButton
+            title={t("ssh.sftp.upload")}
+            ariaLabel={t("ssh.sftp.upload")}
+            icon={<IconUpload />}
+            variant="secondary"
+            size="icon-sm"
+            className="sftp-toolbar-icon-btn"
+            disabled={uploading}
+            menuMinWidth={160}
+            items={[
+              {
+                id: "files",
+                label: t("ssh.sftp.uploadFiles"),
+                disabled: uploading,
+                onSelect: () => void handlePickUploadFiles(),
+              },
+              {
+                id: "folders",
+                label: t("ssh.sftp.uploadFolders"),
+                disabled: uploading,
+                onSelect: () => void handlePickUploadFolders(),
+              },
+            ]}
+          />
         ) : null}
         <div className={`sftp-path${pathEditing ? " sftp-path--editing" : ""}`}>
           {pathEditing ? (

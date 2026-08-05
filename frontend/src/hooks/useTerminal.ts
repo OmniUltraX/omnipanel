@@ -4,7 +4,7 @@ import {
   commands,
 } from "../ipc/bindings";
 import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../ipc/events";
-import { unwrapCommand } from "../ipc/result";
+import { formatIpcError, unwrapCommand } from "../ipc/result";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
 import { Terminal, type IDisposable } from "@xterm/xterm";
@@ -213,6 +213,70 @@ function backendSessionMatchesPane(sessionId: string, backendSid: string): boole
     return isSshBackendSessionId(backendSid);
   }
   return !isSshBackendSessionId(backendSid);
+}
+
+/**
+ * 后端会话是否仍存活。快捷打开 / 应用重启后前端可能仍缓存 backendSessionId，
+ * 但 Rust 侧会话已不存在；复用前必须探测。
+ */
+async function probeBackendSessionAlive(
+  sessionId: string,
+  backendSid: string,
+): Promise<boolean> {
+  if (resolveBackendTransport(sessionId, backendSid).remote) {
+    try {
+      const res = await commands.sshTerminalInfo(backendSid);
+      return res.status === "ok";
+    } catch {
+      return false;
+    }
+  }
+  try {
+    await invoke<string>("terminal_snapshot", { id: backendSid });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 会话已关闭 / 不存在：需清 backendSid 并重建。 */
+const SESSION_CLOSED_KEYWORDS = [
+  "已关闭",
+  "不存在",
+  "不在 tmux",
+  "closed",
+  "disconnected",
+  "not found",
+  "notfound",
+  "not open",
+  "not connected",
+  "connection lost",
+  "connection reset",
+  "connection aborted",
+  "broken pipe",
+  "pipe closed",
+  "channel not found",
+  "channel closed",
+  "session not found",
+  "eof",
+  "peer closed",
+];
+
+function isSessionClosedError(err: unknown): boolean {
+  // specta / Tauri 常直接 reject OmniError 对象，String(err) 会变成 [object Object]
+  if (err && typeof err === "object" && "code" in err) {
+    const code = String((err as { code?: unknown }).code ?? "").toLowerCase();
+    if (code === "notfound" || code === "not_found") return true;
+  }
+  const formatted = formatIpcError(err).toLowerCase();
+  const raw =
+    err instanceof Error
+      ? err.message.toLowerCase()
+      : typeof err === "string"
+        ? err.toLowerCase()
+        : "";
+  const haystack = `${formatted} ${raw}`;
+  return SESSION_CLOSED_KEYWORDS.some((kw) => haystack.includes(kw));
 }
 
 /** 远程 pane 走 SSH（ssh_connect_connection），本地 pane 走本地 PTY（create_terminal）。 */
@@ -493,7 +557,11 @@ export function disposeSessionBackend(sessionId: string, knownBackendSessionId?:
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const existingSid = findPaneById(sessionId)?.backendSessionId;
   if (existingSid && backendSessionMatchesPane(sessionId, existingSid)) {
-    return existingSid;
+    if (await probeBackendSessionAlive(sessionId, existingSid)) {
+      return existingSid;
+    }
+    useTerminalStore.getState().setBackendSessionId(sessionId, null);
+    useTerminalTransportStore.getState().clearTransport(sessionId);
   }
 
   const store = useTerminalBackendStateStore.getState();
@@ -607,32 +675,7 @@ export function useTerminal(
     /**
      * 任意一端（前端缓存的 backendSid 已清 / 后端 PTY 已 dispose / 远端 SSH 通道已关）
      * 写数据时抛回来的错误都视作"会话已关闭"，统一触发自动重连。
-     * 关键字覆盖 russh / conpty / Windows 套接字常见提示，匹配走小写。
      */
-    const SESSION_CLOSED_KEYWORDS = [
-      "已关闭",
-      "closed",
-      "disconnected",
-      "not found",
-      "not open",
-      "not connected",
-      "connection lost",
-      "connection reset",
-      "connection aborted",
-      "broken pipe",
-      "pipe closed",
-      "channel not found",
-      "channel closed",
-      "session not found",
-      "eof",
-      "peer closed",
-    ];
-
-    function isSessionClosedError(err: unknown): boolean {
-      const msg = String(err).toLowerCase();
-      return SESSION_CLOSED_KEYWORDS.some((kw) => msg.includes(kw));
-    }
-
     function writeToBackend(data: string) {
       if (!backendSid) {
         // 失去后端会话（exited 事件已到但还没收到，或本地 cached id 仍存在但后端已清）。
@@ -1220,6 +1263,14 @@ export function useTerminal(
         disposeBackendSession(sessionId, reusableSid);
         useTerminalBackendStateStore.getState().removeInjectedSession(reusableSid);
         useTerminalStore.getState().setBackendSessionId(sessionId, null);
+        reusableSid = null;
+      }
+
+      // 快捷打开 / 跨窗复用：持久化的 backendSessionId 可能已失效（进程重启或会话已断）
+      if (reusableSid && !(await probeBackendSessionAlive(sessionId, reusableSid))) {
+        useTerminalBackendStateStore.getState().removeInjectedSession(reusableSid);
+        useTerminalStore.getState().setBackendSessionId(sessionId, null);
+        useTerminalTransportStore.getState().clearTransport(sessionId);
         reusableSid = null;
       }
 
