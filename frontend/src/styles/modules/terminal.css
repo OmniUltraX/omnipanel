@@ -1727,6 +1727,15 @@
     }
 
     /* Terminal Blocks — Warp 式卡片流 */
+    .term-terminal-shell {
+        position: relative;
+    }
+
+    .term-terminal-shell--drag-over {
+        outline: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+        outline-offset: -2px;
+    }
+
     .term-terminal-shell--warp {
         display: flex;
         flex-direction: column;

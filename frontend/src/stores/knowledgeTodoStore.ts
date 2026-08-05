@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import { commands, type KnowledgeTodoItem_Serialize, type KnowledgeTodoList } from "../ipc/bindings";
+
+type AnyTodoItem = KnowledgeTodoList["items"][number] & {
+  id?: string;
+  done?: boolean;
+};
 import { formatIpcError } from "../ipc/result";
 
 export function newTodoId(): string {
@@ -140,16 +145,18 @@ export const useKnowledgeTodoStore = create<KnowledgeTodoStore>((set, get) => ({
   toggleItem: async (listId: string, itemId: string) => {
     const list = get().lists.find((l) => l.id === listId);
     if (!list) return;
-    const items = list.items.map((item) =>
-      item.id === itemId ? { ...item, done: !item.done } : item,
-    );
+    const items = list.items.map((raw) => {
+      const item = raw as AnyTodoItem;
+      if (item.id === itemId) return { ...raw, done: !item.done };
+      return raw;
+    });
     await get().saveList({ ...list, items });
   },
 
   removeItem: async (listId: string, itemId: string) => {
     const list = get().lists.find((l) => l.id === listId);
     if (!list) return;
-    const items = list.items.filter((item) => item.id !== itemId);
+    const items = list.items.filter((raw) => (raw as AnyTodoItem).id !== itemId);
     await get().saveList({ ...list, items });
   },
 

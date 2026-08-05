@@ -17,6 +17,13 @@ import type { TerminalBlock } from "../../stores/blocksStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
+import {
+  collectDroppedLocalEntries,
+  collectDroppedLocalFiles,
+  formatDroppedLocalPaths,
+  isOsFileDrag,
+  uploadDroppedLocalFiles,
+} from "../files/localOsFileDrop";
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
 import { TerminalBlockFeed } from "./TerminalBlockFeed";
@@ -41,6 +48,7 @@ import {
   clearNoisyShellBlocks,
 } from "./terminalBlockActions";
 import { interruptShell } from "./terminalShellRecovery";
+import { writeTerminalRaw } from "./terminalPaneSenders";
 import { shortcutTitle } from "../../lib/shortcutTitle";
 import { useShortcutsStore } from "../../stores/shortcutsStore";
 
@@ -498,11 +506,13 @@ function PaneViewBody(
 ) {
   const cmdRef = useRef<CommandInputHandle>(null);
   const feedPressRef = useRef<{ x: number; y: number } | null>(null);
+  const dragDepthRef = useRef(0);
   const [blockMenu, setBlockMenu] = useState<{
     block: TerminalBlock;
     position: { x: number; y: number };
   } | null>(null);
   const [reconnectKey, setReconnectKey] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const inputMode = useTerminalUiStore(
     (state) => state.inputModes[paneId] ?? "external",
   );
@@ -518,6 +528,81 @@ function PaneViewBody(
   const promptSymbol = resolveCommandPromptSymbol(session, parsed.user, resource);
   const sessionUser = parsed.user ?? (session.type === "local" ? null : "root");
   const liveNative = inputMode === "external" && fullTerminal;
+  const { t } = useI18n();
+
+  const handleOsDragEnter = useCallback((e: React.DragEvent) => {
+    if (!isOsFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setDragOver(true);
+  }, []);
+
+  const handleOsDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragOver(false);
+  }, []);
+
+  const handleOsDragOver = useCallback((e: React.DragEvent) => {
+    if (!isOsFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleOsDrop = useCallback(
+    async (e: React.DragEvent) => {
+      if (!isOsFileDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragDepthRef.current = 0;
+      setDragOver(false);
+
+      if (session.type === "remote" && session.resourceId) {
+        const files = await collectDroppedLocalEntries(e.dataTransfer);
+        if (files.length === 0) {
+          showToast(t("ssh.sftp.dropNoFiles"));
+          return;
+        }
+        try {
+          const { ok, fail, skipped, lastError: err } = await uploadDroppedLocalFiles({
+            files,
+            destConnectionId: session.resourceId,
+            destDir: session.cwd || "/",
+          });
+          if (ok === 0 && fail === 0 && skipped > 0) {
+            showToast(t("files.transfer.conflictSkip"));
+          } else if (fail === 0) {
+            showToast(t("ssh.sftp.uploadSuccess", { count: ok }));
+          } else if (ok === 0) {
+            showToast(err || t("ssh.sftp.uploadFailed"));
+          } else {
+            showToast(t("ssh.sftp.uploadPartial", { ok, fail }));
+          }
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : t("ssh.sftp.uploadFailed"));
+        }
+        return;
+      }
+
+      // 本地终端：只插顶层路径（文件夹不展开成文件列表）
+      const topLevel = collectDroppedLocalFiles(e.dataTransfer);
+      const quoted = formatDroppedLocalPaths(topLevel);
+      if (!quoted) {
+        showToast(t("ssh.sftp.dropNoFiles"));
+        return;
+      }
+      if (inputMode === "external" && !liveNative) {
+        cmdRef.current?.insertText(quoted);
+        cmdRef.current?.focus();
+      } else {
+        writeTerminalRaw(paneId, quoted);
+      }
+    },
+    [inputMode, liveNative, paneId, session.cwd, session.resourceId, session.type, t],
+  );
 
   const handleStopCommand = useCallback(() => {
     void interruptShell(paneId);
@@ -611,8 +696,12 @@ function PaneViewBody(
       {externalHeader}
       {!useExternalHeader ? sessionHeader : null}
       <div
-        className={`terminal-area term-terminal-shell${inputMode === "external" ? " term-terminal-shell--warp" : ""}`}
+        className={`terminal-area term-terminal-shell${inputMode === "external" ? " term-terminal-shell--warp" : ""}${dragOver ? " term-terminal-shell--drag-over" : ""}`}
         tabIndex={-1}
+        onDragEnter={handleOsDragEnter}
+        onDragLeave={handleOsDragLeave}
+        onDragOver={handleOsDragOver}
+        onDrop={(e) => void handleOsDrop(e)}
         onMouseDownCapture={(event) => {
           onActivate();
           if (liveNative) return;
@@ -643,6 +732,13 @@ function PaneViewBody(
           });
         }}
       >
+        {dragOver ? (
+          <div className="term-drop-overlay" aria-hidden>
+            {session.type === "remote"
+              ? t("ssh.sftp.dropHint")
+              : t("terminal.dropInsertPath")}
+          </div>
+        ) : null}
         {inputMode === "external" && !liveNative ? (
           <TerminalBlockFeed
             sessionId={paneId}

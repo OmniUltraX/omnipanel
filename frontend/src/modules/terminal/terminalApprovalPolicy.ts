@@ -201,6 +201,15 @@ export function isReadOnlyTerminalCommand(command: string): boolean {
 /**
  * 是否要求对 AI 自动执行的终端命令做人工确认。
  * 仅用于 AI 工具链路；用户在命令栏手动执行不走此策略。
+ *
+ * 关键安全规则（按优先级）：
+ * 1. 白名单内的命令一律放行（用户已明确授权）
+ * 2. **high / critical 级别的危险命令（如 rm -rf、DROP TABLE、docker system prune -af 等）
+ *    无论任何模式（包括 loose 宽松模式），一律强制要求审批
+ * 3. strict 模式：除白名单外全部审批
+ * 4. view 模式：仅审批非只读命令
+ * 5. loose 模式：除上述规则外一律放行
+ *
  * @param scope 会话白名单作用域（AI 会话 / 终端会话）
  */
 export function shouldRequireTerminalApproval(
@@ -208,8 +217,23 @@ export function shouldRequireTerminalApproval(
   mode: TerminalApprovalMode,
   scope?: CommandWhitelistScope | null,
 ): boolean {
-  if (mode === "loose") return false;
+  // 1) 危险等级检查：high / critical 级别命令 —— 无论白名单、无论模式，
+  //    一律强制要求审批。这是防止 rm -rf /xxx、DROP TABLE 等破坏性操作
+  //    被白名单或宽松模式绕过的绝对防线，不可省略。
+  const danger = checkCommand(command);
+  if (!danger.safe && (danger.level === "high" || danger.level === "critical")) {
+    return true;
+  }
+
+  // 2) 白名单优先：已明确授权的非危险命令直接放行
   if (isCommandWhitelisted(command, scope)) return false;
+
+  // 3) strict 模式除白名单外一律审批
   if (mode === "strict") return true;
+
+  // 4) loose 模式：除上述规则外一律放行
+  if (mode === "loose") return false;
+
+  // 5) view 模式：只读命令放行，其余需审批
   return !isReadOnlyTerminalCommand(command);
 }

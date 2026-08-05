@@ -147,6 +147,18 @@ export interface DangerCheckResult {
   matches: Array<{ desc: string; level: DangerLevel }>;
 }
 
+/**
+ * 检测命令的危险等级。
+ *
+ * ⚠️ 平台过滤已故意移除：命令可能通过 SSH 在远程 Unix 主机上执行，
+ * 也可能在本机经 WSL / Git Bash / Cygwin 运行 unix 命令。若按本地浏览器
+ * 平台（如 Windows）过滤掉 unix 专用规则，会导致 `rm -rf /xxx`、
+ * `mkfs.`、`dd of=/dev/...`、fork bomb 等高危命令在 Windows 客户端上
+ * 被判定为 safe，从而绕过审批直接执行（曾造成实际事故）。
+ *
+ * 因此一律检查全部规则，宁可误报（在 Windows 本地终端弹出 unix 命令确认），
+ * 也绝不漏报破坏性操作。
+ */
 export function checkCommand(
   command: string,
   envTag?: string
@@ -154,9 +166,7 @@ export function checkCommand(
   const matches: Array<{ desc: string; level: DangerLevel }> = [];
 
   for (const rule of DANGEROUS_PATTERNS) {
-    if (rule.platform && rule.platform !== (cfg.windows ? "windows" : "unix")) {
-      continue;
-    }
+    // 不再按 platform 过滤：见上方函数注释。
     if (rule.pattern.test(command)) {
       matches.push({ desc: rule.desc, level: rule.level });
     }
@@ -182,6 +192,3 @@ export function checkCommand(
 
   return { safe: false, level: maxLevel, matches };
 }
-
-// Simple platform detection
-const cfg = { windows: navigator.platform?.includes("Win") || false };

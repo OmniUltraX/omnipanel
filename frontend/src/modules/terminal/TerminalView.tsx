@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { useTerminal, type TerminalInputMode } from "../../hooks/useTerminal";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
@@ -16,9 +16,6 @@ import {
 } from "./mockTerminal";
 import { getTerminalTheme } from "./terminalTheme";
 import { triggerAiDrawerToggle } from "../../hooks/useAiDrawerShortcut";
-import { commands } from "../../ipc/bindings";
-import { useI18n } from "../../i18n";
-import { writeTerminalRaw } from "./terminalPaneSenders";
 
 const isTauriRuntime =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -179,104 +176,13 @@ export function TerminalView({
     return unsub;
   }, []);
 
-  // ─── 拖拽上传 ───────────────────────────────────────────────
-  const { t } = useI18n();
-  const [dragOver, setDragOver] = useState(false);
-  const dragDepthRef = useRef(0);
-
-  const hasFileDrag = (dt: DataTransfer | null): boolean => {
-    if (!dt) return false;
-    if (dt.types.includes("Files")) return true;
-    return Array.from(dt.items ?? []).some((item) => item.kind === "file");
-  };
-
-  const handleDragEnter = (e: React.DragEvent) => {
-    if (!hasFileDrag(e.dataTransfer)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepthRef.current += 1;
-    setDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) setDragOver(false);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    if (!hasFileDrag(e.dataTransfer)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    if (!hasFileDrag(e.dataTransfer)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepthRef.current = 0;
-    setDragOver(false);
-
-    const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-
-    if (paneType === "remote" && resource?.id) {
-      // 远端终端：走传输引擎上传到 cwd
-      const destDir = paneCwd || "/";
-      for (const file of Array.from(files)) {
-        if (!file.name) continue;
-        try {
-          const buffer = await file.arrayBuffer();
-          const bytes = Array.from(new Uint8Array(buffer));
-          const result = await commands.fileTransferUploadLocalBytes(
-            file.name,
-            bytes,
-            resource.id,
-            destDir,
-            "overwrite",
-          );
-          if (result.status !== "ok") {
-            console.error(`[Terminal] 上传 ${file.name} 失败:`, result.error?.message);
-          }
-        } catch (err) {
-          console.error(`[Terminal] 上传 ${file.name} 异常:`, err);
-        }
-      }
-    } else {
-      // 本地终端：插入文件路径到 PTY（不自动回车）
-      const paths = Array.from(files)
-        .filter((f) => f.name)
-        .map((f) => {
-          // 浏览器 File 对象有 path 属性（Tauri 环境）或用 name
-          const path = (f as File & { path?: string }).path;
-          return path || f.name;
-        });
-      if (paths.length > 0) {
-        // 用空格连接多个路径，每个路径用引号包裹（处理空格和特殊字符）
-        const quoted = paths.map((p) => `"${p.replace(/"/g, '\\"')}"`).join(" ");
-        writeTerminalRaw(sessionId, quoted);
-      }
-    }
-  };
+  // 系统文件拖放由 TerminalPaneView 在可见 shell 区域统一处理
+  //（命令栏模式下本 wrap 为 pointer-events:none，挂在此处无效）
 
   return (
     <div
       ref={containerRef}
-      className={`term-xterm-wrap${inputMode === "external" ? " term-xterm-wrap--live" : ""}${liveNative ? " term-xterm-wrap--live-native" : ""}${dragOver ? " term-xterm-wrap--drag-over" : ""}`}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={(e) => void handleDrop(e)}
-    >
-      {dragOver ? (
-        <div className="term-drop-overlay" aria-hidden>
-          {paneType === "remote"
-            ? t("ssh.sftp.dropHint")
-            : t("terminal.dropInsertPath")}
-        </div>
-      ) : null}
-    </div>
+      className={`term-xterm-wrap${inputMode === "external" ? " term-xterm-wrap--live" : ""}${liveNative ? " term-xterm-wrap--live-native" : ""}`}
+    />
   );
 }

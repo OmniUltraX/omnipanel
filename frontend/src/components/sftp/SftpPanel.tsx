@@ -19,8 +19,13 @@ import {
   sftpEntryRowClass,
 } from "./sftpEntryDisplay";
 import { FilePreviewSubWindow } from "../../modules/files/FilePreviewSubWindow";
-import { listDirectory, readRemotePreview, uploadRemote } from "../../modules/files/fileApi";
-import { collectOsDropItems, hasOsFileDrag, type OsDropByteFile } from "../../modules/files/osFileDrop";
+import { uploadRemote, listDirectory, readRemotePreview } from "../../modules/files/fileApi";
+import {
+  collectDroppedLocalEntries,
+  isOsFileDrag,
+  uploadDroppedLocalFiles,
+  type DroppedLocalEntry,
+} from "../../modules/files/localOsFileDrop";
 import { LOCAL_CONNECTION_ID } from "../../modules/files/utils";
 import type { SftpPanelAdapter } from "./sftpAdapter";
 import { resolveSftpCapabilities } from "./sftpAdapter";
@@ -542,6 +547,77 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
+  const uploadLocalFiles = async (files: DroppedLocalEntry[]) => {
+    if (!sessionKey || !canUpload || uploading) return;
+    const list = files.filter((file) => file.name);
+    if (list.length === 0) {
+      setError(t("ssh.sftp.dropNoFiles"));
+      setInfo(null);
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    setInfo(t("ssh.sftp.uploading", { count: list.length }));
+
+    try {
+      if (adapter?.writeBytes) {
+        let ok = 0;
+        let fail = 0;
+        let lastError: string | null = null;
+        for (const item of list) {
+          if (item.kind === "dir") {
+            fail += 1;
+            lastError = `当前目标不支持直接拖入文件夹: ${item.name}`;
+            continue;
+          }
+          try {
+            if (!item.file) throw new Error(`无法读取文件: ${item.name}`);
+            const buffer = await item.file.arrayBuffer();
+            const bytes = Array.from(new Uint8Array(buffer));
+            const rel = item.name.replace(/\\/g, "/");
+            const remotePath = path === "/" ? `/${rel}` : `${path}/${rel}`;
+            await adapter.writeBytes(remotePath, bytes);
+            ok += 1;
+          } catch (e) {
+            fail += 1;
+            lastError = fmtSftpError(e);
+          }
+        }
+        if (fail === 0) {
+          setInfo(t("ssh.sftp.uploadSuccess", { count: ok }));
+        } else if (ok === 0) {
+          setError(lastError || t("ssh.sftp.uploadFailed"));
+          setInfo(null);
+        } else {
+          setInfo(t("ssh.sftp.uploadPartial", { ok, fail }));
+          if (lastError) setError(lastError);
+        }
+      } else if (resourceId) {
+        const { ok, fail, skipped, lastError } = await uploadDroppedLocalFiles({
+          files: list,
+          destConnectionId: resourceId,
+          destDir: path,
+          existingNames: entries.map((e) => e.name),
+        });
+        if (ok === 0 && fail === 0 && skipped > 0) {
+          setInfo(t("files.transfer.conflictSkip"));
+        } else if (fail === 0) {
+          setInfo(t("ssh.sftp.uploadSuccess", { count: ok }));
+        } else if (ok === 0) {
+          setError(lastError || t("ssh.sftp.uploadFailed"));
+          setInfo(null);
+        } else {
+          setInfo(t("ssh.sftp.uploadPartial", { ok, fail }));
+          if (lastError) setError(lastError);
+        }
+      }
+    } finally {
+      setUploading(false);
+      void loadDir(path);
+    }
+  };
+
   const ensureRemoteDir = useCallback(
     async (remoteDir: string) => {
       if (!remoteDir || remoteDir === "/") return;
@@ -604,7 +680,11 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
             if (!leaf.absPath) {
               throw new Error("empty upload payload");
             }
-            bytes = await readRemotePreview(LOCAL_CONNECTION_ID, leaf.absPath, UPLOAD_MAX_BYTES);
+            bytes = await readRemotePreview(
+              LOCAL_CONNECTION_ID,
+              leaf.absPath,
+              UPLOAD_MAX_BYTES,
+            );
           }
           await writeRemoteBytes(remotePath, bytes);
           ok += 1;
@@ -629,33 +709,6 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     // loadDir 为组件内普通函数，随 path/session 变化即可
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canUpload, ensureRemoteDir, path, sessionKey, t, writeRemoteBytes],
-  );
-
-  const uploadLocalFiles = useCallback(
-    async (files: FileList | File[] | OsDropByteFile[]) => {
-      const list = Array.from(files as Array<File | OsDropByteFile>).filter(Boolean);
-      if (list.length === 0) return;
-      const leaves: LocalUploadLeaf[] = [];
-      for (const item of list) {
-        if ("relativePath" in item && item.file) {
-          const buffer = await item.file.arrayBuffer();
-          leaves.push({
-            relativePath: item.relativePath.replace(/\\/g, "/"),
-            bytes: Array.from(new Uint8Array(buffer)),
-          });
-        } else {
-          const file = item as File;
-          if (!file.name) continue;
-          const buffer = await file.arrayBuffer();
-          leaves.push({
-            relativePath: file.name,
-            bytes: Array.from(new Uint8Array(buffer)),
-          });
-        }
-      }
-      await uploadLeaves(leaves);
-    },
-    [uploadLeaves],
   );
 
   const uploadLocalPathRoots = useCallback(
@@ -703,18 +756,25 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     );
   }, [canUpload, uploading, uploadLocalPathRoots]);
 
+
   const handlePaste = (e: React.ClipboardEvent) => {
     if (!canUpload || uploading) return;
-    const files = e.clipboardData?.files;
-    if (!files || files.length === 0) return;
+    const dt = e.clipboardData;
+    if (!dt || !isOsFileDrag(dt)) return;
     // 仅在含文件时拦截，避免影响文本输入
     e.preventDefault();
-    void uploadLocalFiles(files);
+    void collectDroppedLocalEntries(dt).then((files) => {
+      if (files.length === 0) {
+        setError(t("ssh.sftp.dropNoFiles"));
+        return;
+      }
+      void uploadLocalFiles(files);
+    });
   };
 
   const handleDragEnter = (e: React.DragEvent) => {
     if (!canUpload || uploading) return;
-    if (!hasOsFileDrag(e.dataTransfer)) return;
+    if (!isOsFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepthRef.current += 1;
@@ -731,7 +791,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
 
   const handleDragOver = (e: React.DragEvent) => {
     if (!canUpload || uploading) return;
-    if (!hasOsFileDrag(e.dataTransfer)) return;
+    if (!isOsFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
@@ -743,25 +803,10 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
     e.stopPropagation();
     dragDepthRef.current = 0;
     setDragOver(false);
-    void (async () => {
-      const { pathItems, byteFiles } = await collectOsDropItems(e.dataTransfer);
-      if (pathItems.length > 0) {
-        await uploadLocalPathRoots(
-          pathItems.map((it) => ({
-            absPath: it.path,
-            name: it.name,
-            kind: it.kind === "dir" ? ("dir" as const) : ("file" as const),
-          })),
-        );
-      }
-      if (byteFiles.length > 0) {
-        await uploadLocalFiles(byteFiles);
-      }
-      if (pathItems.length === 0 && byteFiles.length === 0) {
-        const files = e.dataTransfer.files;
-        if (files?.length) void uploadLocalFiles(files);
-      }
-    })();
+    const dt = e.dataTransfer;
+    void collectDroppedLocalEntries(dt).then((files) => {
+      void uploadLocalFiles(files);
+    });
   };
 
   const pathParts = path.split("/").filter(Boolean);

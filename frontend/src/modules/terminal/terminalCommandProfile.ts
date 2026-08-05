@@ -33,6 +33,9 @@ const BATCH_TIMEOUT_MS = 15_000;
 const BATCH_IDLE_MS = 600;
 const PROGRESS_TIMEOUT_MS = 1_800_000;
 const PROGRESS_IDLE_MS = 3_000;
+// du / find / grep / rsync 等 IO 密集命令，最长 10 分钟超时，空闲判定也放宽到 5s
+const LONG_RUNNING_TIMEOUT_MS = 600_000;
+const LONG_RUNNING_IDLE_MS = 5_000;
 
 const PROGRESS_COMMAND_BASES = new Set([
   "npm",
@@ -56,6 +59,41 @@ const PROGRESS_COMMAND_BASES = new Set([
   "flatpak",
   "pacman",
   "zypper",
+]);
+
+/**
+ * 可能长时间运行的 IO/搜索/文件类命令：
+ * du（磁盘统计）、find（文件搜索）、grep/rg（递归搜索）、
+ * rsync/scp（文件同步）、tar/zip/unzip（压缩解压）等
+ * 给更长的超时时间，避免 AI 工具链因命令尚未跑完而超时误判
+ */
+const LONG_RUNNING_COMMAND_BASES = new Set([
+  "du",
+  "find",
+  "grep",
+  "rg",
+  "rsync",
+  "scp",
+  "sftp",
+  "tar",
+  "zip",
+  "unzip",
+  "7z",
+  "rar",
+  "unrar",
+  "dd",
+  "fsck",
+  "badblocks",
+  "smartctl",
+  "ncdu",
+  "tree",
+  "locate",
+  "updatedb",
+  "cp",      // 递归复制大目录
+  "mv",      // 跨分区移动大文件
+  "chmod",   // 递归改大量文件
+  "chown",   // 递归改大量文件
+  "rm",      // 递归删除大量文件可能很慢（不影响危险级别，只是超时）
 ]);
 
 const INTERACTIVE_COMMAND_BASES = new Set([
@@ -117,6 +155,10 @@ function isInteractiveCommand(command: string): boolean {
 
 function isProgressCommand(command: string): boolean {
   return PROGRESS_COMMAND_BASES.has(commandBaseName(command));
+}
+
+function isLongRunningCommand(command: string): boolean {
+  return LONG_RUNNING_COMMAND_BASES.has(commandBaseName(command));
 }
 
 function streamingAlternatives(command: string): string[] {
@@ -233,6 +275,17 @@ export function resolveCommandProfile(
       timeoutMs: PROGRESS_TIMEOUT_MS,
       outputIdleMs: PROGRESS_IDLE_MS,
       promoteInlineOnCr: true,
+      allowAiExecution: true,
+    };
+  }
+
+  // du / find / grep / rsync 等 IO 密集型命令，使用更长的超时
+  if (isLongRunningCommand(trimmed)) {
+    return {
+      kind: "progress",
+      timeoutMs: LONG_RUNNING_TIMEOUT_MS,
+      outputIdleMs: LONG_RUNNING_IDLE_MS,
+      promoteInlineOnCr: false,
       allowAiExecution: true,
     };
   }

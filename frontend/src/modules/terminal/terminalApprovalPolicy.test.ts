@@ -56,6 +56,28 @@ describe("isReadOnlyTerminalCommand", () => {
     expect(shouldRequireTerminalApproval("ls -la", "strict")).toBe(true);
     expect(shouldRequireTerminalApproval("ls -la", "loose")).toBe(false);
   });
+
+  it("critical/high danger commands ALWAYS require approval even in loose mode", () => {
+    // rm -rf 被 commandGuard 标记为 critical，即使 loose 模式也必须审批
+    expect(shouldRequireTerminalApproval("rm -rf /tmp/x", "loose")).toBe(true);
+    expect(shouldRequireTerminalApproval("rm -rf /var/lib/docker/overlay2/*", "loose")).toBe(true);
+    // sudo rm 被 commandGuard 标记为 high
+    expect(shouldRequireTerminalApproval("sudo rm -rf /", "loose")).toBe(true);
+    // docker system prune -af：high
+    expect(shouldRequireTerminalApproval("docker system prune -af", "loose")).toBe(true);
+    // DROP TABLE：high
+    expect(shouldRequireTerminalApproval("echo 'DROP TABLE users' | mysql db", "loose")).toBe(true);
+    // 但是只读命令（low 级别）在 loose 模式仍然放行
+    expect(shouldRequireTerminalApproval("du -sh /var", "loose")).toBe(false);
+    expect(shouldRequireTerminalApproval("ls -la", "loose")).toBe(false);
+    expect(shouldRequireTerminalApproval("ps aux | head", "loose")).toBe(false);
+  });
+
+  it("critical/high danger commands also require approval in view mode", () => {
+    expect(shouldRequireTerminalApproval("rm -rf /tmp/x", "view")).toBe(true);
+    expect(shouldRequireTerminalApproval("docker system prune -af", "view")).toBe(true);
+    expect(shouldRequireTerminalApproval("chmod 777 /etc/passwd", "view")).toBe(true);
+  });
 });
 
 describe("terminal command whitelist", () => {

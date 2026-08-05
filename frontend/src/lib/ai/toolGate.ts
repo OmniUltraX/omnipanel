@@ -239,7 +239,13 @@ export function canAutoAllowAcp(toolTitle: string, rawInput: string): boolean {
 }
 
 /**
- * 按 ToolGate 决策执行：allow 直跑，approve 进 Draft。
+ * 按 ToolGate 决策执行：allow 直跑，approve 进 Draft 等用户确认后再跑。
+ *
+ * 关键安全语义：
+ * - approve 路径下：只有当用户在 UI 上点击「确认」，`enqueueAwaitable` 的
+ *   Promise 才会 resolve；此时 resolve 返回的字符串就是 execute 的结果。
+ * - 若用户点击「拒绝」或「忽略」或审批超时：`enqueueAwaitable` Promise 会
+ *   reject → 冒泡到调用方抛错，execute 绝对不会被调用。
  */
 export async function runWithToolGate(
   input: ToolGateInput,
@@ -262,13 +268,15 @@ export async function runWithToolGate(
         ? (argsToRecord(input.args).connection_id as string)
         : undefined);
 
-  // 审批只做放行门闩；真正执行放在确认之后，避免长耗时工具堵在 resolveAction 里
-  await useActionDraftStore.getState().enqueueAwaitable({
+  // 审批 + 执行一体化：把真实的 execute 交给 draft 的 execute 回调，
+  // 这样只有用户点「确认」时才真正执行；若 reject/超时，则 enqueueAwaitable
+  // Promise 会 reject → 本函数直接抛错，不会继续执行。
+  return useActionDraftStore.getState().enqueueAwaitable({
     kind: gate.kind,
     source: "toolgate",
     title: gate.title,
     preview: `${gate.preview}\n\n[ToolGate] ${gate.reason} · risk=${gate.risk}`,
-    execute: async () => "approved",
+    execute,
     risk: gate.risk,
     riskCheck: gate.riskCheck,
     environment: gate.environment,
@@ -288,5 +296,4 @@ export async function runWithToolGate(
       resourceId,
     },
   });
-  return execute();
 }

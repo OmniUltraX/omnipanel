@@ -54,9 +54,7 @@ pub async fn file_transfer_upload_local_bytes(
     use crate::commands::file_manager::{local_temp_dir, LOCAL_CONNECTION_ID};
     use std::path::PathBuf;
 
-    if data.is_empty() {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "文件内容为空"));
-    }
+    // 允许空文件（0 字节）上传；内容经临时文件入队。
 
     // 写入本地临时文件
     let temp_dir = local_temp_dir().map_err(|e| {
