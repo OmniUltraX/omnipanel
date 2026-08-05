@@ -51,7 +51,9 @@ function injectSshResourceIdIfNeeded(
   args.resource_id = resourceId;
 }
 
-/** 非终端 UiDelegated 工具（数据库 / SSH 等）：调用已注册 handler 并回传结果。 */
+/** 非终端 UiDelegated 工具（数据库 / SSH 等）：调用已注册 handler 并回传结果。
+ * 各 handler 内部已自带 runWithToolGate 审批（sshExec / dockerAction / filesWrite 等），
+ * 此处不再重复 gate，避免双重审批弹窗。 */
 async function handleModulePendingTool(options: {
   conversationId: string;
   toolCallId: string;
@@ -84,24 +86,9 @@ async function handleModulePendingTool(options: {
 
     injectSshResourceIdIfNeeded(options.toolName, args, options.terminalSessionId);
 
-    // 所有模块工具（omni_ssh_exec、omni_files_write 等）在执行 handler
-    // 之前必须走统一 ToolGate 审批。critical/high 风险操作会被强制进审批队列，
-    // 仅当用户点击"确认"后 resolve 才会继续往下执行 handler；
-    // 用户 reject / dismiss / 审批超时都会在此处抛异常，走 catch 回传 AI。
-    const resourceId =
-      (typeof args.resource_id === "string" ? args.resource_id : undefined) ??
-      (typeof args.connection_id === "string" ? args.connection_id : undefined) ??
-      (typeof args.connection_name === "string" ? args.connection_name : undefined);
-
-    const output = await runWithToolGate(
-      {
-        toolName: options.toolName,
-        args,
-        resourceId,
-        channel: "native",
-      },
-      () => handler(args as never),
-    );
+    // handler 内部自带 runWithToolGate（见各模块 mcpTools.ts），
+    // 危险操作会在 handler 内部进入审批队列，用户确认后才真正执行。
+    const output = await handler(args as never);
 
     const result = typeof output === "string" ? output : JSON.stringify(output, null, 2);
     const success = !result.toLowerCase().startsWith("error");
@@ -112,8 +99,8 @@ async function handleModulePendingTool(options: {
       success,
     );
   } catch (err) {
-    // 🔴 任何错误（含 ToolGate 审批拒绝、审批超时、handler 执行异常）都必须
-    //    用带重试的 reportToolResultWithRetry 明确回传给 AI；否则 AI 工具会
+    // 🔴 任何错误（含 handler 内部 ToolGate 审批拒绝、审批超时、handler 执行异常）
+    //    都必须用带重试的 reportToolResultWithRetry 明确回传给 AI；否则 AI 工具会
     //    挂起无响应（前端看起来是"不仅没确认，也没执行"）
     const message = errorToString(err);
     await reportToolResultWithRetry(
@@ -122,7 +109,6 @@ async function handleModulePendingTool(options: {
       message,
       false,
     ).catch(() => {
-      // 重试全部失败后仅记录 console，不要再吞消息
       // eslint-disable-next-line no-console
       console.error(
         `[internalToolBridge] 工具结果回传失败 ${options.toolName} ${options.toolCallId}`,

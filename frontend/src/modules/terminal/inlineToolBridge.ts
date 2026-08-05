@@ -262,6 +262,17 @@ async function approveStaleInlineToolCall(
     return;
   }
 
+  // 🛡️ 防御性二次安全检查：stale 路径已丢失原始 pending waiter（热更新 / 会话恢复），
+  // 不再经过 waitForInlineToolDecision 的审批门。为防止高危命令（rm -rf / DROP TABLE /
+  // docker system prune -af 等）在此旁路被直接执行，一律拒绝并要求用户重新发起。
+  const staleDanger = checkCommand(command);
+  if (!staleDanger.safe && (staleDanger.level === "high" || staleDanger.level === "critical")) {
+    const reason = `高危命令（${staleDanger.level}）的审批会话已失效，已拒绝自动执行，请重新发起以触发审批`;
+    dismissStaleInlineToolCall(blockId, toolCallId, "rejected", reason);
+    showToast(reason);
+    return;
+  }
+
   approvingToolCallIds.add(toolCallId);
   try {
     useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {

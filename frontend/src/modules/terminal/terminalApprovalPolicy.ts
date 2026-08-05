@@ -217,20 +217,21 @@ export function shouldRequireTerminalApproval(
   mode: TerminalApprovalMode,
   scope?: CommandWhitelistScope | null,
 ): boolean {
-  // 1) 白名单优先：已明确授权的命令直接放行
-  if (isCommandWhitelisted(command, scope)) return false;
-
-  // 2) 危险等级检查：high / critical 级别命令 —— 即使 loose 模式也必须审批
-  //    这是防止 rm -rf /xxx 这类破坏性操作的最后一道防线，不可绕过
+  // 1) 危险等级检查：high / critical 级别命令 —— 无论白名单、无论模式，
+  //    一律强制要求审批。这是防止 rm -rf /xxx、DROP TABLE 等破坏性操作
+  //    被白名单或宽松模式绕过的绝对防线，不可省略。
   const danger = checkCommand(command);
   if (!danger.safe && (danger.level === "high" || danger.level === "critical")) {
     return true;
   }
 
+  // 2) 白名单优先：已明确授权的非危险命令直接放行
+  if (isCommandWhitelisted(command, scope)) return false;
+
   // 3) strict 模式除白名单外一律审批
   if (mode === "strict") return true;
 
-  // 4) loose 模式：除上述规则（白名单 + 高风险命令外，其余放行
+  // 4) loose 模式：除上述规则外一律放行
   if (mode === "loose") return false;
 
   // 5) view 模式：只读命令放行，其余需审批
