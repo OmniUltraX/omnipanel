@@ -2865,6 +2865,7 @@ export const zhCN = {
       collapse: "收起详情面板",
       wherePlaceholder: "过滤条件，例如 status = 1 AND name LIKE '%x%'",
       orderPlaceholder: "例如 id DESC",
+      resizeWhereOrder: "拖动调整 WHERE 与 ORDER BY 宽度",
       changeFilterAll: "全部行",
       changeFilterChanged: "变更项",
       changeFilterUpdate: "更新项",

@@ -5623,6 +5623,23 @@
         background: color-mix(in srgb, var(--surface) 92%, var(--bg));
     }
 
+    .db-table-query-bar.is-resizing {
+        cursor: col-resize;
+        user-select: none;
+    }
+
+    .db-table-query-bar.is-resizing * {
+        cursor: col-resize !important;
+    }
+
+    .db-table-query-fields {
+        display: flex;
+        align-items: stretch;
+        flex: 1;
+        min-width: 0;
+        gap: 0;
+    }
+
     .db-table-query-change {
         position: relative;
         flex-shrink: 0;
@@ -5714,12 +5731,70 @@
         align-items: center;
         gap: 6px;
         flex: 1;
-        min-width: 0;
+        min-width: 96px;
     }
 
     .db-table-query-field--order {
-        flex: 0.55;
-        max-width: 280px;
+        min-width: 120px;
+    }
+
+    .db-table-query-resize {
+        position: relative;
+        flex: 0 0 10px;
+        width: 10px;
+        margin: 0 2px;
+        cursor: col-resize;
+        touch-action: none;
+        align-self: stretch;
+    }
+
+    .db-table-query-resize::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        left: 50%;
+        width: 1px;
+        transform: translateX(-50%);
+        background: var(--border);
+        opacity: 0.9;
+    }
+
+    .db-table-query-resize__grip {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 3px;
+        height: 14px;
+        transform: translate(-50%, -50%);
+        border-radius: 1px;
+        background: color-mix(in srgb, var(--fg-2, var(--text-muted)) 55%, transparent);
+        opacity: 0.55;
+        pointer-events: none;
+    }
+
+    .db-table-query-resize:hover::before,
+    .db-table-query-bar.is-resizing .db-table-query-resize::before {
+        background: var(--accent);
+        opacity: 1;
+        width: 2px;
+    }
+
+    .db-table-query-resize:hover .db-table-query-resize__grip,
+    .db-table-query-bar.is-resizing .db-table-query-resize__grip,
+    .db-table-query-resize:focus-visible .db-table-query-resize__grip {
+        opacity: 1;
+        background: var(--accent);
+    }
+
+    .db-table-query-resize:focus-visible {
+        outline: none;
+    }
+
+    .db-table-query-resize:focus-visible::before {
+        background: var(--accent);
+        opacity: 1;
+        width: 2px;
     }
 
     .db-table-query-label {
@@ -5749,6 +5824,38 @@
     .db-table-query-input:focus {
         outline: none;
         border-color: var(--accent);
+    }
+
+    .db-table-query-cm.db-table-query-input {
+        display: flex;
+        align-items: center;
+        height: auto;
+        min-height: 24px;
+        padding: 0;
+        overflow: visible;
+        /* 背景由 CodeMirror 主题绘制（与 SQL 编辑器同色） */
+        background: transparent;
+        color: inherit;
+    }
+
+    .db-table-query-cm.db-table-query-input:focus-within {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .db-table-query-cm .cm-editor {
+        height: 100%;
+        width: 100%;
+        border-radius: 3px;
+    }
+
+    .db-table-query-cm .cm-editor.cm-focused {
+        outline: none;
+    }
+
+    /* 补全挂到 body 后仍兜底提高层级，避免被面板/对话框压住 */
+    body > .cm-tooltip.cm-tooltip-autocomplete {
+        z-index: 10050;
     }
 
     .db-table-detail-tab {

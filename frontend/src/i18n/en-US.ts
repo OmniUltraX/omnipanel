@@ -2878,6 +2878,7 @@ export const enUS: TranslationDict = {
       collapse: "Collapse detail panel",
       wherePlaceholder: "Filter, e.g. status = 1 AND name LIKE '%x%'",
       orderPlaceholder: "e.g. id DESC",
+      resizeWhereOrder: "Drag to resize WHERE and ORDER BY",
       changeFilterAll: "All rows",
       changeFilterChanged: "Changed",
       changeFilterUpdate: "Updated",

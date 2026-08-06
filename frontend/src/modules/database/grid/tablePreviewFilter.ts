@@ -179,7 +179,41 @@ export function formatFilterWhere(
       ? { fields, parseNumbers: "strict-limited" as const }
       : { parseNumbers: false }),
   }).trim();
-  return sql || undefined;
+  if (!sql) return undefined;
+  // react-querybuilder 会包一层外括号，表数据 WHERE 栏无需展示，否则回车规范化后难再解析/编辑
+  return stripWrappingParens(sql);
+}
+
+/** 去掉 formatQuery 产生的最外层配对括号（保留表达式内部括号）。 */
+function stripWrappingParens(sql: string): string {
+  let s = sql.trim();
+  while (s.length >= 2 && s.startsWith("(") && s.endsWith(")")) {
+    let depth = 0;
+    let inStr: "'" | '"' | null = null;
+    let wrapsWhole = true;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (inStr) {
+        if (ch === inStr && s[i - 1] !== "\\") inStr = null;
+        continue;
+      }
+      if (ch === "'" || ch === '"') {
+        inStr = ch;
+        continue;
+      }
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        depth--;
+        if (depth === 0 && i !== s.length - 1) {
+          wrapsWhole = false;
+          break;
+        }
+      }
+    }
+    if (!wrapsWhole || depth !== 0) break;
+    s = s.slice(1, -1).trim();
+  }
+  return s;
 }
 
 export function appendFilterRuleForColumn(
