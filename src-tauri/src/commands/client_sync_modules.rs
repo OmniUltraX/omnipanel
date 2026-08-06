@@ -10,10 +10,10 @@ use omnipanel_assistant::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    load_database_connections, Connection, DbConnectionConfig, HttpCollection, HttpEnvironment,
-    KnowledgeEntry, SavedHttpRequest, Vault,
+    db_password_ref, load_database_connections, Connection, DbConnectionConfig, HttpCollection,
+    HttpEnvironment, KnowledgeEntry, SavedHttpRequest, Vault,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use tauri::State;
 
@@ -40,6 +40,44 @@ pub struct ClientSyncConnectionItem {
     pub secret: Option<String>,
 }
 
+/// 数据库连接同步项：配置 + Vault 密码明文（同账号设备间恢复）。
+/// 反序列化兼容旧快照（数组元素曾是裸 `DbConnectionConfig`）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSyncDatabaseItem {
+    pub connection: DbConnectionConfig,
+    #[serde(default)]
+    pub secret: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ClientSyncDatabaseItem {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value.get("connection").is_some() {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Wrapped {
+                connection: DbConnectionConfig,
+                #[serde(default)]
+                secret: Option<String>,
+            }
+            let wrapped: Wrapped =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(Self {
+                connection: wrapped.connection,
+                secret: wrapped.secret.filter(|s| !s.is_empty()),
+            })
+        } else {
+            let connection: DbConnectionConfig =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(Self {
+                connection,
+                secret: None,
+            })
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSyncWorkspaceInfo {
@@ -64,7 +102,7 @@ pub struct ClientSyncModulesBundle {
     #[serde(default)]
     pub deleted_connections: Vec<ClientSyncTombstone>,
     #[serde(default)]
-    pub database_connections: Vec<DbConnectionConfig>,
+    pub database_connections: Vec<ClientSyncDatabaseItem>,
     #[serde(default)]
     pub deleted_databases: Vec<ClientSyncTombstone>,
     #[serde(default)]
@@ -149,6 +187,21 @@ fn collect_connection_items(
     Ok(out)
 }
 
+fn collect_database_items() -> Result<Vec<ClientSyncDatabaseItem>, OmniError> {
+    let list = load_database_connections()?;
+    let mut out = Vec::with_capacity(list.len());
+    for mut connection in list {
+        let secret = Vault::get(&db_password_ref(&connection.id))
+            .ok()
+            .filter(|s| !s.is_empty());
+        // 密码只走 secret 字段，配置体不落明文
+        connection.password.clear();
+        connection.has_password = secret.is_some();
+        out.push(ClientSyncDatabaseItem { connection, secret });
+    }
+    Ok(out)
+}
+
 fn collect_local_bundle(
     storage: &omnipanel_store::Storage,
     request: &ClientSyncPushModulesRequest,
@@ -159,7 +212,7 @@ fn collect_local_bundle(
         updated_at: now_ms(),
         connections: collect_connection_items(storage)?,
         deleted_connections: request.deleted_connections.clone(),
-        database_connections: load_database_connections()?,
+        database_connections: collect_database_items()?,
         deleted_databases: request.deleted_databases.clone(),
         knowledge: storage.list_knowledge(None, None)?,
         deleted_knowledge: request.deleted_knowledge.clone(),
@@ -393,7 +446,7 @@ fn filter_bundle(bundle: ClientSyncModulesBundle, sel: &ClientSyncImportSelectio
     let database_connections: Vec<_> = bundle
         .database_connections
         .into_iter()
-        .filter(|c| db_ids.contains(&c.id))
+        .filter(|c| db_ids.contains(&c.connection.id))
         .collect();
     let knowledge: Vec<_> = bundle
         .knowledge
@@ -501,11 +554,11 @@ pub async fn client_sync_peek_device(
                 result.databases = bundle
                     .database_connections
                     .iter()
-                    .map(|c| {
+                    .map(|item| {
                         peek_item(
-                            c.id.clone(),
-                            c.name.clone(),
-                            c.db_type.clone(),
+                            item.connection.id.clone(),
+                            item.connection.name.clone(),
+                            item.connection.db_type.clone(),
                             0.0,
                             "",
                             "item",
@@ -684,10 +737,17 @@ pub async fn client_sync_import_from_device(
         applied_workspaces = filtered.workspaces.len();
         workspaces_json = serde_json::to_string(&filtered.workspaces).ok();
 
-        // 走运行期 DatabaseConnectionStore.save：同时更新内存缓存与磁盘，
-        // 否则 db_list_connections 读内存缓存会漏掉导入的连接，侧栏不刷新。
-        for c in &filtered.database_connections {
-            state.db_connections.save(c.clone())?;
+        if !filtered.database_connections.is_empty() {
+            for item in &filtered.database_connections {
+                let mut c = item.connection.clone();
+                // 密码经 Vault 恢复；有 secret 时写入本机钥匙串
+                if let Some(secret) = item.secret.as_deref().filter(|s| !s.is_empty()) {
+                    c.password = secret.to_string();
+                } else {
+                    c.password.clear();
+                }
+                state.db_connections.save(c)?;
+            }
         }
 
         {
