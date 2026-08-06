@@ -6811,6 +6811,12 @@ export const zhCN = {
       unnamed: "未命名设备",
       unknownIp: "IP 未知",
       lastLogin: "最近登录",
+      meta: {
+        os: "系统",
+        ip: "IP",
+        app: "应用",
+        status: "状态",
+      },
       sessionExpired: "登录已失效，请重新登录",
       delete: "删除",
       deleting: "删除中…",
@@ -6840,6 +6846,15 @@ export const zhCN = {
       },
       assistantSync: {
         autoDesc: "登录后，模块元数据变更会自动同步到助手端（约数秒防抖）。",
+      },
+      vault: {
+        title: "设备识别码",
+        codeLabel: "设备识别码",
+        codeDigit: "第 {n} 位",
+        codeInvalid: "识别码须为 6 位字母或数字",
+        sync: "同步",
+        syncSuccess: "已同步 {n} 条凭据到云端",
+        needOssPath: "当前账号尚无 OSS 路径，请重新登录后再同步。",
       },
       os: {
         windows: "Windows",

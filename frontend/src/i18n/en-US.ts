@@ -6890,6 +6890,12 @@ export const enUS: TranslationDict = {
       unnamed: "Unnamed device",
       unknownIp: "IP unknown",
       lastLogin: "Last sign-in",
+      meta: {
+        os: "OS",
+        ip: "IP",
+        app: "App",
+        status: "Status",
+      },
       sessionExpired: "Session expired. Please sign in again.",
       delete: "Remove",
       deleting: "Removing…",
@@ -6919,6 +6925,15 @@ export const enUS: TranslationDict = {
       },
       assistantSync: {
         autoDesc: "After sign-in, module metadata changes sync to the assistant automatically (debounced a few seconds).",
+      },
+      vault: {
+        title: "Device code",
+        codeLabel: "Device code",
+        codeDigit: "Digit {n}",
+        codeInvalid: "Device code must be 6 alphanumeric characters",
+        sync: "Sync",
+        syncSuccess: "Synced {n} credentials to the cloud",
+        needOssPath: "No OSS path for this account yet. Sign in again before syncing.",
       },
       os: {
         windows: "Windows",

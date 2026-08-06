@@ -35,6 +35,7 @@ mod terminal_history;
 mod third_party_account;
 mod vault;
 mod ssh_vault;
+mod secrets_crypto;
 mod http_proxy;
 mod web_search;
 mod workflow;
@@ -140,6 +141,10 @@ pub use third_party_account::{
     ThirdPartyAccount, ThirdPartyAuthMethod, ThirdPartyPlatform, UpsertThirdPartyAccountInput,
 };
 pub use vault::Vault;
+pub use secrets_crypto::{
+    decode_salt_b64, decrypt_vault, derive_master_key, encrypt_vault_with_salt, generate_salt,
+    MasterKey, SecretsVaultEnvelope, SecretsVaultEntry, SecretsVaultPlaintext,
+};
 pub use ssh_vault::{
     ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
     inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,

@@ -1097,6 +1097,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
+ "rand_core 0.6.4",
  "typenum",
 ]
 
@@ -4771,6 +4772,9 @@ dependencies = [
 name = "omnipanel-store"
 version = "0.0.5"
 dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64 0.22.1",
  "getrandom 0.2.17",
  "keyring",
  "omnipanel-error",
@@ -4783,6 +4787,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
