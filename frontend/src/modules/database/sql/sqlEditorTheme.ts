@@ -171,6 +171,25 @@ export function getSqlInlineInputThemeExtensions(
   ];
 }
 
+function semanticHighlightTheme(colors: {
+  table: string;
+  alias: string;
+  column: string;
+  database: string;
+}) {
+  const inherit = { color: "inherit !important" as const };
+  return {
+    ".cm-sqlSemanticTable": { color: `${colors.table} !important` },
+    ".cm-sqlSemanticTable *": inherit,
+    ".cm-sqlSemanticAlias": { color: `${colors.alias} !important` },
+    ".cm-sqlSemanticAlias *": inherit,
+    ".cm-sqlSemanticColumn": { color: `${colors.column} !important` },
+    ".cm-sqlSemanticColumn *": inherit,
+    ".cm-sqlSemanticDatabase": { color: `${colors.database} !important` },
+    ".cm-sqlSemanticDatabase *": inherit,
+  };
+}
+
 const sharedAutocompleteTheme = {
   ".cm-tooltip": {
     backgroundColor: "var(--surface)",
@@ -385,6 +404,12 @@ function createDarkTheme(typography: SqlEditorTypography) {
         backgroundColor: "color-mix(in srgb, var(--warn) 35%, transparent)",
         borderRadius: "2px",
       },
+      ...semanticHighlightTheme({
+        table: "#e5c07b",
+        alias: "#c678dd",
+        column: "#ff9f0a",
+        database: "#64d2ff",
+      }),
       ...sharedAutocompleteTheme,
       ".cm-sql-function-signature": {
         position: "sticky",
@@ -510,6 +535,12 @@ function createLightTheme(typography: SqlEditorTypography) {
         backgroundColor: "color-mix(in srgb, var(--warn) 35%, transparent)",
         borderRadius: "2px",
       },
+      ...semanticHighlightTheme({
+        table: "#c18401",
+        alias: "#a626a4",
+        column: "#ff9500",
+        database: "#007aff",
+      }),
       ...sharedAutocompleteTheme,
       ".cm-sql-function-signature": {
         position: "sticky",

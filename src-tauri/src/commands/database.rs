@@ -2610,6 +2610,141 @@ pub async fn db_cancel_query(
     }
 }
 
+/// 在手动事务会话中执行 SQL（session_id 通常为 SQL Tab id）。
+/// 首次执行时自动 BEGIN；失败不自动 ROLLBACK。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_execute_query_in_session(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+    connection: DbConnectionConfig,
+    sql: String,
+    run_id: String,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<DbQueryResult, String> {
+    let wrapped = match limit {
+        Some(n) if n > 0 => omnipanel_db::wrap_select_with_limit(
+            &sql,
+            n as i64,
+            offset.unwrap_or(0) as i64,
+        ),
+        _ => sql,
+    };
+    let params = to_params(&connection);
+
+    let session_handle = {
+        let mut sessions = state.db_query_sessions.lock().await;
+        if let Some(existing) = sessions.get(&session_id) {
+            existing.clone()
+        } else {
+            let driver = omnipanel_db::connect_exclusive(&params)
+                .await
+                .map_err(err_msg)?;
+            let handle = Arc::new(Mutex::new(crate::state::DbQueryTxSession {
+                driver,
+                in_transaction: false,
+            }));
+            sessions.insert(session_id.clone(), handle.clone());
+            handle
+        }
+    };
+
+    {
+        let mut session = session_handle.lock().await;
+        if !session.in_transaction {
+            session.driver.execute("BEGIN").await.map_err(err_msg)?;
+            session.in_transaction = true;
+        }
+    }
+
+    let handle_for_task = session_handle.clone();
+    let handle = tokio::spawn(async move {
+        let mut session = handle_for_task.lock().await;
+        session.driver.execute(&wrapped).await.map_err(err_msg)
+    });
+    let abort_handle = handle.abort_handle();
+    state
+        .running_db_queries
+        .lock()
+        .await
+        .insert(run_id.clone(), abort_handle);
+
+    let result = match handle.await {
+        Ok(inner) => inner,
+        Err(join_err) if join_err.is_cancelled() => Err("查询已中断".to_string()),
+        Err(join_err) => Err(format!("查询任务失败: {join_err}")),
+    };
+
+    state.running_db_queries.lock().await.remove(&run_id);
+    result.map(to_db_query_result)
+}
+
+/// 提交手动事务会话。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_query_session_commit(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let handle = {
+        let sessions = state.db_query_sessions.lock().await;
+        sessions.get(&session_id).cloned()
+    };
+    let Some(handle) = handle else {
+        return Ok(());
+    };
+    let mut session = handle.lock().await;
+    if session.in_transaction {
+        session.driver.execute("COMMIT").await.map_err(err_msg)?;
+        session.in_transaction = false;
+    }
+    Ok(())
+}
+
+/// 回滚手动事务会话。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_query_session_rollback(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let handle = {
+        let sessions = state.db_query_sessions.lock().await;
+        sessions.get(&session_id).cloned()
+    };
+    let Some(handle) = handle else {
+        return Ok(());
+    };
+    let mut session = handle.lock().await;
+    if session.in_transaction {
+        session.driver.execute("ROLLBACK").await.map_err(err_msg)?;
+        session.in_transaction = false;
+    }
+    Ok(())
+}
+
+/// 关闭手动事务会话（若仍在事务中则先 ROLLBACK）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_query_session_close(
+    state: tauri::State<'_, crate::state::AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let handle = {
+        let mut sessions = state.db_query_sessions.lock().await;
+        sessions.remove(&session_id)
+    };
+    if let Some(handle) = handle {
+        let mut session = handle.lock().await;
+        if session.in_transaction {
+            let _ = session.driver.execute("ROLLBACK").await;
+            session.in_transaction = false;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisSearchKeysArgs {

@@ -354,6 +354,8 @@ function makeTooltip(dom: HTMLElement, destroy?: () => void): Tooltip {
 
   return {
     pos: 0,
+    // 大信息卡优先出现在目标下方，避免顶到 dock 标签栏
+    above: false,
     create() {
       return {
         dom,

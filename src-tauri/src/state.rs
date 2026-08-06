@@ -13,6 +13,7 @@ use crate::protocol::serial::SerialSession;
 use crate::protocol::sniffer::SnifferSession;
 use crate::protocol::sse::SseSession;
 use crate::protocol::ws::WsSession;
+use omnipanel_db::DbDriver;
 use omnipanel_core::terminal::Terminal;
 use omnipanel_docker::DockerExecSession;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
@@ -47,6 +48,14 @@ pub struct DockerExecSessionEntry {
     pub connection_id: String,
     pub container_id: String,
 }
+
+/// SQL 编辑器手动事务会话：独占连接 + 是否已 BEGIN。
+pub struct DbQueryTxSession {
+    pub driver: Box<dyn DbDriver>,
+    pub in_transaction: bool,
+}
+
+pub type DbQueryTxSessionHandle = Arc<Mutex<DbQueryTxSession>>;
 
 pub struct AppState {
     pub serial_sessions: Arc<Mutex<HashMap<String, SerialSession>>>,
@@ -95,6 +104,8 @@ pub struct AppState {
     pub running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// 正在运行的 SQL 查询 abort 句柄（按 runId 索引），用于 db_cancel_query。
     pub running_db_queries: Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>>,
+    /// SQL Tab 手动事务会话（按 sessionId=tabId 索引；独占连接以保持事务）。
+    pub db_query_sessions: Arc<Mutex<HashMap<String, DbQueryTxSessionHandle>>>,
     /// 文件管理器独立 SFTP 会话（按 file 连接 id 索引）。
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
     /// 文件索引独立 SQLite 存储（目录可在设置中配置）。
@@ -199,6 +210,7 @@ impl AppState {
             running_workflows: Arc::new(Mutex::new(HashMap::new())),
             running_tasks: Arc::new(Mutex::new(HashMap::new())),
             running_db_queries: Arc::new(Mutex::new(HashMap::new())),
+            db_query_sessions: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
             file_index_storage,
             file_index_storage_dir: Arc::new(Mutex::new(file_index_storage_dir)),

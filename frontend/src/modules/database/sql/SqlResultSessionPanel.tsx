@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
 import { Button } from "../../../components/ui/primitives/Button";
@@ -8,6 +8,8 @@ import { parseOmniBlobValue } from "../grid/omniBlobValue";
 import { useI18n } from "../../../i18n";
 import { estimateSqlResultTotalRows, type SqlResultSession } from "../workspace/dbWorkspaceState";
 import type { MutableRefObject } from "react";
+import { ImportToTableDialog, type ImportToTableDialogPayload } from "./ImportToTableDialog";
+import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
 
 export interface SqlResultSessionPanelProps {
   sqlTabId: string;
@@ -45,12 +47,14 @@ function SqlResultSessionFooterExtra({
   canExport,
   resultHasMore,
   estimatedTotalRows,
+  onImportToTable,
 }: {
   session: SqlResultSession;
   sqlTabId: string;
   canExport: boolean;
   resultHasMore: boolean;
   estimatedTotalRows: number;
+  onImportToTable?: () => void;
 }) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
@@ -81,6 +85,30 @@ function SqlResultSessionFooterExtra({
             <path d="M8 1.5v9" strokeLinecap="round" />
             <path d="M4.5 7L8 10.5 11.5 7" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M2.5 13h11" strokeLinecap="round" />
+          </svg>
+        </Button>
+      ) : null}
+      {canExport && onImportToTable ? (
+        <Button
+          variant="icon"
+          title={t("database.results.importToTable.button")}
+          aria-label={t("database.results.importToTable.button")}
+          disabled={session.running}
+          onClick={onImportToTable}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            width="14"
+            height="14"
+            aria-hidden
+          >
+            <path d="M8 14.5v-9" strokeLinecap="round" />
+            <path d="M4.5 9L8 5.5 11.5 9" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M2.5 3h11" strokeLinecap="round" />
+            <path d="M3.5 12.5h9" strokeLinecap="round" />
           </svg>
         </Button>
       ) : null}
@@ -117,6 +145,8 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
   const { t } = useI18n();
   const ws = useDbWorkspace();
   const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importPayload, setImportPayload] = useState<ImportToTableDialogPayload | null>(null);
 
   const activeCellRef = useRef<TableDataGridActiveCell | null>(null);
   const selectedCellsKeyRef = useRef<string | undefined>(undefined);
@@ -144,6 +174,25 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     [ws.goToQueryResultPage, sqlTabId, session.id],
   );
 
+  const openImportToTable = useCallback(() => {
+    if (!session.result || session.result.columns.length === 0) return;
+    const conn =
+      ws.connectionForSqlTab(sqlTabId, session.sql) ??
+      ws.resolveSqlTabConnection(sqlTabId);
+    if (!conn) return;
+    const tabState = useDbWorkspaceTabStore.getState().sqlTabStates[sqlTabId];
+    setImportPayload({
+      sourceConnection: conn,
+      sourceSql: session.sql.trim(),
+      sourceColumns: session.result.columns,
+      currentPageRows: session.result.rows.length,
+      resultHasMore,
+      defaultConnId: conn.id,
+      defaultDatabase: tabState?.database ?? conn.database ?? null,
+    });
+    setImportDialogOpen(true);
+  }, [resultHasMore, session.result, session.sql, sqlTabId, ws]);
+
   const sqlPreview = useMemo(() => {
     const compact = session.sql.replace(/\s+/g, " ").trim();
     return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact;
@@ -157,9 +206,10 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
         canExport={canExport}
         resultHasMore={resultHasMore}
         estimatedTotalRows={estimatedTotalRows}
+        onImportToTable={canExport ? openImportToTable : undefined}
       />
     ),
-    [session, sqlTabId, canExport, resultHasMore, estimatedTotalRows],
+    [session, sqlTabId, canExport, resultHasMore, estimatedTotalRows, openImportToTable],
   );
 
   const showStandaloneFooter =
@@ -290,6 +340,16 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           onRowBandSelect={selectionReporting ? onRowBandSelect : undefined}
         />
       </div>
+      <ImportToTableDialog
+        open={importDialogOpen}
+        payload={importPayload}
+        connections={ws.sqlConnections}
+        databasesByConnId={ws.databasesByConnId}
+        onClose={() => {
+          setImportDialogOpen(false);
+          setImportPayload(null);
+        }}
+      />
     </div>
   );
 });

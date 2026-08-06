@@ -17,6 +17,9 @@ export interface DatabaseWorkspaceContextHandlers {
   requestTabAction: DbWorkspaceSharedContextValue["requestTabAction"];
   runQuery: DbWorkspaceSharedContextValue["runQuery"];
   cancelQuery: DbWorkspaceSharedContextValue["cancelQuery"];
+  setSqlAutoCommit: DbWorkspaceSharedContextValue["setSqlAutoCommit"];
+  commitSqlTransaction: DbWorkspaceSharedContextValue["commitSqlTransaction"];
+  rollbackSqlTransaction: DbWorkspaceSharedContextValue["rollbackSqlTransaction"];
   goToQueryResultPage: DbWorkspaceSharedContextValue["goToQueryResultPage"];
   updateSqlTabState: DbWorkspaceSharedContextValue["updateSqlTabState"];
   closeSqlResultSession: DbWorkspaceSharedContextValue["closeSqlResultSession"];
@@ -68,6 +71,9 @@ export function useDatabaseWorkspaceContextValue(
         handlersRef.current.requestTabAction({ kind: "close", tabId }),
       runQuery: (...args) => handlersRef.current.runQuery(...args),
       cancelQuery: (...args) => handlersRef.current.cancelQuery(...args),
+      setSqlAutoCommit: (...args) => handlersRef.current.setSqlAutoCommit(...args),
+      commitSqlTransaction: (...args) => handlersRef.current.commitSqlTransaction(...args),
+      rollbackSqlTransaction: (...args) => handlersRef.current.rollbackSqlTransaction(...args),
       goToQueryResultPage: (...args) => handlersRef.current.goToQueryResultPage(...args),
       updateSqlTabState: (...args) => handlersRef.current.updateSqlTabState(...args),
       closeSqlResultSession: (...args) => handlersRef.current.closeSqlResultSession(...args),

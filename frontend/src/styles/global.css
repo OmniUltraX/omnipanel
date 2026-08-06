@@ -2559,13 +2559,23 @@ select,
     color: var(--fg);
 }
 
-/* SQL 缂栬緫鍣ㄨ〃/瀛楁鎮仠淇℃伅鍗★紙tooltip 鎸傝浇鍦?body锛?*/
+/* SQL 编辑器表/字段悬停信息卡（tooltip 挂载在 body） */
 .cm-tooltip:has(.db-sql-hover-card) {
     padding: 0;
     border: none;
     background: transparent;
     box-shadow: none;
     overflow: visible;
+    /* 高于 dock 标签栏 / 面板控件，避免顶部被挡住 */
+    z-index: 200000 !important;
+}
+
+body > .cm-tooltip:has(.db-sql-hover-card) {
+    z-index: 200000 !important;
+}
+
+body > .cm-tooltip.cm-tooltip-autocomplete {
+    z-index: 200000 !important;
 }
 
 /* 瑕嗙洊鍏ㄥ眬 user-select: none锛屾敮鎸佸鍒跺厓淇℃伅涓?SQL 瀹氫箟 */
@@ -2589,6 +2599,39 @@ select,
     box-shadow:
         0 10px 28px color-mix(in srgb, #000 24%, transparent),
         0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+/* 表 Hover：整体更紧凑，字段列表少占空间 */
+.db-sql-hover-card--table {
+    min-width: min(420px, 88vw);
+    max-width: min(520px, 92vw);
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.db-sql-hover-card--table .db-sql-hover-header {
+    gap: 2px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-header__title {
+    font-size: 12px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-meta {
+    gap: 4px 8px;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-section__head {
+    margin-bottom: 4px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-section__scroll {
+    max-height: min(220px, 34vh);
 }
 
 .db-sql-hover-card--missing-table .db-sql-hover-header__title {
@@ -2740,12 +2783,13 @@ select,
     width: 100%;
     min-width: 100%;
     table-layout: auto;
-    font-size: 12px;
+    font-size: 11px;
+    line-height: 1.3;
 }
 
 .db-sql-hover-table.db-data-table th,
 .db-sql-hover-table.db-data-table td {
-    padding: var(--sp-2) var(--sp-3);
+    padding: 3px 6px;
     border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border);
     vertical-align: middle;
@@ -2783,16 +2827,18 @@ select,
 
 .db-sql-hover-table__type {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--fg-2);
     white-space: nowrap;
 }
 
 .db-sql-hover-table__comment {
     color: var(--meta);
-    max-width: 240px;
-    white-space: normal;
-    word-break: break-word;
+    max-width: 160px;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .db-sql-hover-keys {
