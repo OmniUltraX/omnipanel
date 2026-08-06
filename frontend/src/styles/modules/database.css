@@ -6696,7 +6696,9 @@
         display: block;
         z-index: 2;
         pointer-events: auto;
-        touch-action: none;
+        /* 允许触控板/触摸双向平移滚动（macOS WKWebView 下 touch-action:none 会吃掉 deltaX），
+           仅禁用缩放/双击等手势，不影响单元格鼠标交互。 */
+        touch-action: pan-x pan-y;
     }
 
     .db-data-table-wrap--canvas.db-data-table-wrap--loading .db-data-table-canvas {

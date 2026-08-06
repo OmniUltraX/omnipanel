@@ -22,6 +22,10 @@ import {
   type TableDataGridActiveCell,
 } from "../grid/TableDataGrid";
 import { selectionTargetKey, selectionTargetsKey } from "../grid/tableDataGridSelection";
+import {
+  readStoredColSidebarCollapsed,
+  writeStoredColSidebarCollapsed,
+} from "../grid/colSidebarPersist";
 import { type CellEditorPanelHandle } from "../cell_editor";
 import { detectCellEditorKind, parseCellValue } from "../cell_editor/types";
 import { useI18n } from "../../../i18n";
@@ -124,7 +128,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const detailCollapseSyncingRef = useRef(false);
   const gridActionsRef = useRef<TableDataGridActions | null>(null);
   const [detailCollapsed, setDetailCollapsed] = useState(true);
-  const [colSidebarCollapsed, setColSidebarCollapsed] = useState(false);
+  const [colSidebarCollapsed, setColSidebarCollapsed] = useState(readStoredColSidebarCollapsed);
+  useEffect(() => {
+    writeStoredColSidebarCollapsed(colSidebarCollapsed);
+  }, [colSidebarCollapsed]);
   const [selectedRowCount, setSelectedRowCount] = useState(0);
   const [detailTab, setDetailTab] = useState<TableDetailTab>("record");
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
