@@ -283,6 +283,10 @@ interface SettingsState {
   terminalAutoReconnectSsh: boolean;
   /** 远程终端 tmux 复用模式：auto / always / never */
   terminalTmuxMode: TerminalTmuxMode;
+  /** 直通模式：自然语言 Enter 进入 Shell Agent 环 */
+  terminalPassthroughAiEnter: boolean;
+  /** Shell Agent：命令执行后自动把 observation 续轮（依赖既有 tool result 管线） */
+  terminalShellAgentAutocontinue: boolean;
   knowledgeChunkSize: number;
   knowledgeChunkOverlap: number;
   knowledgeTopN: number;
@@ -347,7 +351,8 @@ interface SettingsState {
     "terminalCursorStyle" | "terminalCursorBlink" | "terminalScrollback" |
     "terminalGpuAccel" | "terminalCopyOnSelect" | "terminalHistoryPersist" |
     "terminalHistoryMaxBlocks" | "terminalAutoLsAfterCd" | "terminalAutoLsCommand" |
-    "terminalAutoReconnectSsh" | "terminalTmuxMode"
+    "terminalAutoReconnectSsh" | "terminalTmuxMode" |
+    "terminalPassthroughAiEnter" | "terminalShellAgentAutocontinue"
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" |
@@ -456,6 +461,8 @@ export const useSettingsStore = create<SettingsState>()(
       terminalAutoLsCommand: "ls",
       terminalAutoReconnectSsh: true,
       terminalTmuxMode: "auto",
+      terminalPassthroughAiEnter: true,
+      terminalShellAgentAutocontinue: true,
       knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
       knowledgeChunkOverlap: KNOWLEDGE_CHUNK_OVERLAP.default,
       knowledgeTopN: KNOWLEDGE_TOP_N.default,
@@ -657,6 +664,8 @@ export const useSettingsStore = create<SettingsState>()(
         terminalAutoLsAfterCd: state.terminalAutoLsAfterCd,
         terminalAutoLsCommand: state.terminalAutoLsCommand,
         terminalTmuxMode: state.terminalTmuxMode,
+        terminalPassthroughAiEnter: state.terminalPassthroughAiEnter,
+        terminalShellAgentAutocontinue: state.terminalShellAgentAutocontinue,
         knowledgeChunkSize: state.knowledgeChunkSize,
         knowledgeChunkOverlap: state.knowledgeChunkOverlap,
         knowledgeTopN: state.knowledgeTopN,

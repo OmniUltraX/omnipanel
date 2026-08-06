@@ -27,6 +27,7 @@ import {
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
 import { TerminalBlockFeed } from "./TerminalBlockFeed";
+import { ShellAgentOverlay } from "./shellAgent/ShellAgentOverlay";
 import { type BlueprintSource } from "./sessionBlueprints";
 import {
   buildSessionMetaLine,
@@ -763,6 +764,9 @@ function PaneViewBody(
           onBlockRightClick={handleBlockRightClick}
           reconnectKey={reconnectKey}
         />
+        {inputMode === "interactive" || liveNative ? (
+          <ShellAgentOverlay sessionId={paneId} promptSymbol={promptSymbol} />
+        ) : null}
       </div>
       {inputMode === "external" && !liveNative ? (
         <CommandInput

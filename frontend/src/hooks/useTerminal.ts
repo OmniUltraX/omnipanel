@@ -87,7 +87,40 @@ import {
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
 import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
 import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
-import { hasFullTerminalSignal } from "../modules/terminal/fullTerminalSignals";
+import { hasFullTerminalSignal, hasFullTerminalExitSignal } from "../modules/terminal/fullTerminalSignals";
+import {
+  applyUserDataToLineBuffer,
+  createLineBuffer,
+  resetLineBuffer,
+  type LineBufferState,
+} from "../modules/terminal/passthroughAi/lineBuffer";
+import {
+  clearEnterGateFlags,
+  detectReverseSearchInOutput,
+  patchEnterGateFlags,
+} from "../modules/terminal/passthroughAi/enterGates";
+import { decidePassthroughEnter, type PassthroughEnterDecision } from "../modules/terminal/passthroughAi/decidePassthroughEnter";
+import {
+  anchorShellAgentThinkingCard,
+  clearRemoteInputLine,
+  startOrContinueShellAgent,
+} from "../modules/terminal/shellAgent/loop";
+import { useShellAgentStore } from "../modules/terminal/shellAgent/shellAgentStore";
+import {
+  tapTerminalOutput,
+  waitForTerminalOutputIdle,
+} from "../modules/terminal/terminalOutputTap";
+import {
+  measurePromptPrefixCols,
+  readActiveTerminalLine,
+  splitPromptAndBody,
+  stripShellPromptPrefix,
+} from "../modules/terminal/passthroughAi/screenLine";
+import { shouldRouteInputToAi } from "../modules/terminal/commandInputRouting";
+import {
+  registerXterm,
+  unregisterXterm,
+} from "../modules/terminal/xtermRegistry";
 import {
   FULL_TERMINAL_BLOCK_SUMMARY,
   useTerminalRunStateStore,
@@ -103,12 +136,52 @@ type TerminalInputBinding = { dispose: () => void };
 function bindTerminalInputMode(
   term: Terminal,
   mode: TerminalInputMode,
+  sessionId: string,
   writeToBackend: (data: string) => void,
   previous?: TerminalInputBinding | null,
+  lineBufferRef?: { current: LineBufferState },
 ): TerminalInputBinding {
   previous?.dispose();
 
   let inputDisposable: IDisposable | undefined;
+  const bufferRef = lineBufferRef ?? { current: createLineBuffer() };
+  /** keydown 已吞掉 Enter 时，同一击的 keypress/keyup 也必须 return false，否则 xterm 仍会 onData('\r') */
+  let swallowEnter = false;
+
+  const beginRouteAi = (query: string): void => {
+    swallowEnter = true;
+    const screenLine = readActiveTerminalLine(term);
+    const { prefix } = splitPromptAndBody(screenLine);
+    const promptIndentCols = measurePromptPrefixCols(term);
+    clearRemoteInputLine(sessionId);
+    bufferRef.current = resetLineBuffer(bufferRef.current);
+    patchEnterGateFlags(sessionId, { userTyping: false });
+
+    const prompt = prefix || "$ ";
+    // 等清行回显静默再画蓝字行（禁止裸 setTimeout 竞态）；
+    // 超时不静默也 fail-open 继续，避免吞掉用户输入。
+    void waitForTerminalOutputIdle(sessionId, 60, 800).then(() => {
+      try {
+        const paint = `\r\x1b[2K\x1b[32m${prompt}\x1b[0m\x1b[94m${query}\x1b[0m\r\n`;
+        term.write(paint, () => {
+          // 光标已在占位区首行行首：建 thinking 卡（占位+marker+decoration）
+          anchorShellAgentThinkingCard(sessionId, {
+            promptIndentCols: Math.max(2, promptIndentCols),
+            promptPrefix: prompt,
+            query,
+          });
+          void startOrContinueShellAgent(sessionId, query);
+        });
+      } catch {
+        void startOrContinueShellAgent(sessionId, query);
+      }
+    });
+  };
+
+  const decideEnter = (): PassthroughEnterDecision => {
+    const screenHint = stripShellPromptPrefix(readActiveTerminalLine(term));
+    return decidePassthroughEnter(sessionId, bufferRef.current, screenHint);
+  };
 
   if (mode === "external") {
     // 外部 Command Bar 模式：吞掉 xterm 键盘输入，仅保留 AI 快捷键
@@ -117,12 +190,80 @@ function bindTerminalInputMode(
       return false;
     });
   } else {
-    // 直通模式：仅拦截 AI 快捷键，其余按键交给 xterm → onData → PTY
+    // 直通模式：Esc 取消 Agent；Enter 可能入环；其余键进 PTY
     term.attachCustomKeyEventHandler((e) => {
       if (triggerAiDrawerToggle(e)) return false;
+
+      const isEnter =
+        e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+
+      if (isEnter && swallowEnter) {
+        if (e.type === "keyup") swallowEnter = false;
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        return false;
+      }
+
+      if (e.type === "keydown" && e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (useShellAgentStore.getState().isBusy(sessionId)) {
+          void import("../modules/terminal/shellAgent/loop").then(({ cancelShellAgent }) => {
+            cancelShellAgent(sessionId);
+          });
+          return false;
+        }
+      }
+
+      if (isEnter && (e.type === "keydown" || e.type === "keypress")) {
+        const composing =
+          e.type === "keydown" &&
+          ((e as KeyboardEvent).isComposing || (e as KeyboardEvent).keyCode === 229);
+
+        // IME 组词中：仅当屏幕行已经是 NL（字已上屏）时才拦截，否则放行确认上屏
+        if (composing) {
+          const hint = stripShellPromptPrefix(readActiveTerminalLine(term));
+          if (!hint || !shouldRouteInputToAi(hint)) {
+            return true;
+          }
+        }
+
+        const decision = decideEnter();
+        if (decision.action === "route_ai") {
+          e.preventDefault?.();
+          e.stopPropagation?.();
+          if (!swallowEnter) beginRouteAi(decision.query);
+          swallowEnter = true;
+          return false;
+        }
+      }
+
       return true;
     });
-    inputDisposable = term.onData(writeToBackend);
+    inputDisposable = term.onData((data) => {
+      if (swallowEnter && (data === "\r" || data === "\n" || data === "\r\n")) {
+        // 兜底复位：合成事件/部分输入法可能没有 keyup，吞掉这次 \r 后即释放
+        swallowEnter = false;
+        return;
+      }
+      if (data === "\r" || data === "\n" || data === "\r\n") {
+        // 最后兜底：若仍像 NL，吞掉 \r（避免 keypress 漏网）
+        const decision = decideEnter();
+        if (decision.action === "route_ai") {
+          if (!swallowEnter) beginRouteAi(decision.query);
+          return;
+        }
+        bufferRef.current = resetLineBuffer(bufferRef.current);
+        patchEnterGateFlags(sessionId, { reverseSearch: false, userTyping: false });
+      } else {
+        bufferRef.current = applyUserDataToLineBuffer(bufferRef.current, data);
+        patchEnterGateFlags(sessionId, {
+          userTyping: bufferRef.current.text.trim().length > 0,
+        });
+        if (data === "\x12") {
+          patchEnterGateFlags(sessionId, { reverseSearch: true });
+        }
+      }
+      writeToBackend(data);
+    });
     requestAnimationFrame(() => term.focus());
   }
 
@@ -601,6 +742,7 @@ export function useTerminal(
   activeRef.current = active;
   const writeToBackendRef = useRef<(data: string) => void>(() => {});
   const inputBindingRef = useRef<TerminalInputBinding | null>(null);
+  const lineBufferRef = useRef<LineBufferState>(createLineBuffer());
   const { active: moduleActive } = useModuleVisibility();
   const termRef = useRef<Terminal | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
@@ -764,6 +906,11 @@ export function useTerminal(
               useTerminalRunStateStore.getState().returnToPrompt(sessionId);
               useTerminalUiStore.getState().endCommandLive(sessionId);
               releaseFeedCapture(sessionId);
+              lineBufferRef.current = resetLineBuffer(lineBufferRef.current);
+              patchEnterGateFlags(sessionId, {
+                commandRunning: false,
+                reverseSearch: false,
+              });
               break;
             }
             case "B":
@@ -913,6 +1060,8 @@ export function useTerminal(
               }
               // 手动直通 + autoReturn 时，OSC 133 D 是最可靠的回 Command Bar 事件源
               tryAutoReturnAfterBlockEnd(sessionId, blockId);
+              lineBufferRef.current = resetLineBuffer(lineBufferRef.current);
+              patchEnterGateFlags(sessionId, { commandRunning: false });
               break;
             }
           }
@@ -1012,6 +1161,25 @@ export function useTerminal(
         trackTerminalOutputForAutoReturn(sessionId, merged);
         const rawText = decodeTerminalBytesRaw(merged);
         const runStore = useTerminalRunStateStore.getState();
+
+        // 直通 Shell Agent 门闩：alt-screen / reverse-i-search / 命令运行
+        if (hasFullTerminalSignal(merged)) {
+          patchEnterGateFlags(sessionId, { altScreen: true });
+        } else if (hasFullTerminalExitSignal(merged)) {
+          patchEnterGateFlags(sessionId, { altScreen: false });
+        }
+        if (detectReverseSearchInOutput(rawText)) {
+          patchEnterGateFlags(sessionId, { reverseSearch: true });
+        }
+        const runState = runStore.getRunState(sessionId);
+        patchEnterGateFlags(sessionId, {
+          commandRunning:
+            runState === "block-running" ||
+            runState === "inline-running" ||
+            runState === "ai-tool-running" ||
+            runState === "full-terminal",
+        });
+
         if (
           isWarpDisplay(sessionId) &&
           runStore.shouldShowLiveXterm(sessionId) &&
@@ -1070,6 +1238,7 @@ export function useTerminal(
         if (!text) return;
 
         feedTerminalOutputForWatch(sessionId, text);
+        tapTerminalOutput(sessionId, text);
         const outputBlockId =
           pendingBlock?.blockId ?? claimFeedCaptureBlockId(sessionId);
         if (runStore.shouldCaptureBlockOutput(sessionId, Boolean(outputBlockId))) {
@@ -1477,8 +1646,10 @@ export function useTerminal(
         inputBindingRef.current = bindTerminalInputMode(
           term,
           inputModeRef.current,
+          sessionId,
           writeToBackend,
           inputBindingRef.current,
+          lineBufferRef,
         );
 
         resizeObserver = new ResizeObserver(() => {
@@ -1501,28 +1672,36 @@ export function useTerminal(
         runtimeRef.current.container = container!;
 
         termRef.current = term;
+        registerXterm(sessionId, term);
         useTerminalStore.getState().setTerminal(sessionId, term);
 
+        // onCommand 仅旁路通知，不可覆盖 bindTerminalInputMode 的 customKeyEventHandler
+        //（否则直通 NL Enter 拦截会失效）。在 onData 路径外用独立订阅：
         if (onCommandRef.current) {
-          term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-            if (triggerAiDrawerToggle(e)) return true;
-            if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey && e.type === "keydown") {
+          disposables.push(
+            term.onKey(({ domEvent, key }) => {
+              if (
+                domEvent.key !== "Enter" ||
+                domEvent.ctrlKey ||
+                domEvent.altKey ||
+                domEvent.metaKey ||
+                domEvent.type !== "keydown"
+              ) {
+                return;
+              }
               const buf = term!.buffer.active;
               const y = buf.cursorY + buf.baseY;
               const line = buf.getLine(y);
-              if (line) {
-                let text = "";
-                for (let i = 0; i < line.length; i++) {
-                  text += line.getCell(i)?.getChars() || "";
-                }
-                text = text.replace(/\x1b\[[0-9;]*m/g, "").trim();
-                if (text.length > 0) {
-                  onCommandRef.current?.(text);
-                }
+              if (!line) return;
+              let text = "";
+              for (let i = 0; i < line.length; i++) {
+                text += line.getCell(i)?.getChars() || "";
               }
-            }
-            return true;
-          });
+              text = text.replace(/\x1b\[[0-9;]*m/g, "").trim();
+              if (text.length > 0) onCommandRef.current?.(text);
+              void key;
+            }),
+          );
         }
 
         contextmenuHandler = (e: MouseEvent) => {
@@ -1664,6 +1843,8 @@ export function useTerminal(
       registerRuntimeBackendSession(sessionId, null);
       inputBindingRef.current?.dispose();
       inputBindingRef.current = null;
+      clearEnterGateFlags(sessionId);
+      lineBufferRef.current = resetLineBuffer(lineBufferRef.current);
       for (const disposable of disposables) {
         disposable.dispose();
       }
@@ -1672,6 +1853,7 @@ export function useTerminal(
       outputBatcher?.dispose();
       webglAddon?.dispose();
       if (term) {
+        unregisterXterm(sessionId, term);
         term.dispose();
       }
       termRef.current = null;
@@ -1698,10 +1880,12 @@ export function useTerminal(
     inputBindingRef.current = bindTerminalInputMode(
       term,
       inputMode,
+      sessionId,
       (data) => writeToBackendRef.current(data),
       inputBindingRef.current,
+      lineBufferRef,
     );
-  }, [inputMode]);
+  }, [inputMode, sessionId]);
 
   useEffect(() => {
     const rt = runtimeRef.current;

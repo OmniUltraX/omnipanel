@@ -3062,6 +3062,18 @@ export const enUS: TranslationDict = {
       switchToNative: "Switch to native passthrough (vim/top/ssh)",
       switchToCommandBar: "Switch back to Command Bar",
     },
+    shellAgent: {
+      title: "Terminal Agent",
+      cancel: "Cancel",
+      newSession: "New session",
+      thinking: "Thinking…",
+      agreed: "Agreed",
+      agree: "Agree & run",
+      awaitingApproval: "Pending approval",
+      executing: "Running…",
+      observing: "Continuing from output…",
+      proposeCommand: "About to run:",
+    },
     transport: {
       tmux: "tmux",
       tmuxWithSession: "tmux·{session}",
@@ -5236,6 +5248,12 @@ export const enUS: TranslationDict = {
       tmuxModeAuto: "Auto (recommended)",
       tmuxModeAlways: "Force tmux",
       tmuxModeNever: "Always direct",
+      passthroughAiEnter: "Passthrough smart Enter (Shell Agent)",
+      passthroughAiEnterDesc:
+        "In native passthrough, natural-language Enter starts the AI → approve → run → continue loop. Normal commands, vim, and Ctrl+R stay native.",
+      shellAgentAutocontinue: "Agent auto-continue",
+      shellAgentAutocontinueDesc:
+        "Feed command results back to the model automatically. When off, type natural language again to continue.",
       historySection: "Command history",
       historySectionDesc: "Block Feed commands and AI threads are saved per session locally. Manage them in the terminal side panel.",
       historyPersist: "Persist terminal history",

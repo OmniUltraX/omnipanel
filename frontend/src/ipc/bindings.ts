@@ -150,6 +150,8 @@ export const commands = {
 	dbBatchTableDdl: (connection: DbConnectionConfig, schema: string | null, tables: string[]) => typedError<DbSyncSqlPreviewTable[], OmniError_Serialize>(__TAURI_INVOKE("db_batch_table_ddl", { connection, schema, tables })),
 	/**  读取数据同步 SQL 缓存文件（仅限 app_cache/data-sync-sql 目录）。 */
 	dbDataSyncReadSqlFile: (filePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("db_data_sync_read_sql_file", { filePath })),
+	/**  保存（可编辑后的）同步 SQL 到缓存目录，供确认执行使用。 */
+	dbDataSyncWriteSqlFile: (sql: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("db_data_sync_write_sql_file", { sql })),
 	/**  提交数据同步 SQL 文件执行后台任务。 */
 	bgTaskSubmitDbDataSyncSqlExecute: (target: DbConnectionConfig, sqlFilePath: string, tableNames: string[]) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_data_sync_sql_execute", { target, sqlFilePath, tableNames })),
 	/**  提交数据库结构同步执行后台任务（目标表不存在时自动建表）。 */
@@ -1069,6 +1071,8 @@ export const commands = {
 	objectKey: string,
 	ossPath: string,
 	messageId: string,
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	sessionId: string,
 	createdAt: string,
 	publishedAt: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_latest", { token })),
@@ -1396,7 +1400,7 @@ export type AssistantChatInboundEvent = {
 	createdAt: string,
 	text: string,
 	/**  助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。 */
-	sessionId: string,
+	sessionId?: string,
 };
 
 export type AssistantConversationSnapshotItem = {
@@ -1725,6 +1729,12 @@ export type ChatLatestIndex_Deserialize = {
 } | {
 	message_id?: string,
 } & {
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	sessionId?: string,
+} | {
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	session_id?: string,
+} & {
 	createdAt?: string,
 } | {
 	created_at?: string,
@@ -1744,6 +1754,8 @@ export type ChatLatestIndex_Serialize = {
 	objectKey: string,
 	ossPath: string,
 	messageId: string,
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	sessionId: string,
 	createdAt: string,
 	publishedAt: string,
 };
@@ -4190,7 +4202,7 @@ export type SavedHttpRequest = {
 	environmentId: string | null,
 	pathParams: string,
 	/**  Query 参数 JSON：`[{key,value,enabled},...]` */
-	queryParams: string,
+	queryParams?: string,
 	createdAt: number | null,
 	updatedAt: number | null,
 };

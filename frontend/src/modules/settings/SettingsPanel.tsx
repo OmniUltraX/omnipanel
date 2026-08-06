@@ -954,6 +954,8 @@ export function SettingsPanel() {
   const terminalAutoLsCommand = useSettingsStore((s) => s.terminalAutoLsCommand);
   const terminalAutoReconnectSsh = useSettingsStore((s) => s.terminalAutoReconnectSsh);
   const terminalTmuxMode = useSettingsStore((s) => s.terminalTmuxMode);
+  const terminalPassthroughAiEnter = useSettingsStore((s) => s.terminalPassthroughAiEnter);
+  const terminalShellAgentAutocontinue = useSettingsStore((s) => s.terminalShellAgentAutocontinue);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
   const terminalHistorySessions = useTerminalHistoryStore((s) => s.sessionCount);
   const terminalHistoryBlocks = useTerminalHistoryStore((s) => s.blockCount);
@@ -1847,6 +1849,26 @@ export function SettingsPanel() {
                     t("settings.terminal.tmuxModeAlways"),
                     t("settings.terminal.tmuxModeNever"),
                   ]}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.passthroughAiEnter")}</h4>
+                  <p>{t("settings.terminal.passthroughAiEnterDesc")}</p>
+                </div>
+                <Toggle
+                  value={terminalPassthroughAiEnter}
+                  onChange={(v) => setTerminalSettings({ terminalPassthroughAiEnter: v })}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.shellAgentAutocontinue")}</h4>
+                  <p>{t("settings.terminal.shellAgentAutocontinueDesc")}</p>
+                </div>
+                <Toggle
+                  value={terminalShellAgentAutocontinue}
+                  onChange={(v) => setTerminalSettings({ terminalShellAgentAutocontinue: v })}
                 />
               </div>
 

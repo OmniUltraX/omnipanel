@@ -98,7 +98,11 @@ export function cancelInlineAiBlock(sessionId: string, blockId: string): void {
   window.setTimeout(forceStopStuckBlock, 120);
 }
 
-/** 在终端 Block 流内发起自然语言 AI（Warp 式，不打开侧栏） */
+/**
+ * 在终端 Block 流内发起自然语言 AI（Warp 式，不打开侧栏）。
+ * 立即返回 blockId（block 已同步创建），AI 流在后台跑 ——
+ * Shell Agent 环需要在流进行期间（含等审批）就能用 blockId 渲染卡片。
+ */
 export async function submitInlineNaturalLanguage(
   sessionId: string,
   query: string,
@@ -108,15 +112,17 @@ export async function submitInlineNaturalLanguage(
   const blockId = beginAiBlock(sessionId, query, cwd);
   const prompt = buildNaturalLanguagePrompt(query, cwd, options?.blockContext);
 
-  try {
-    await submitAiPrompt(prompt, {
-      inline: { sessionId, blockId },
-    });
-  } catch (err) {
-    const message = errorToString(err);
-    pushAssistantErrorMessage(blockId, message || "AI 请求失败");
-    useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
-  }
+  void (async () => {
+    try {
+      await submitAiPrompt(prompt, {
+        inline: { sessionId, blockId },
+      });
+    } catch (err) {
+      const message = errorToString(err);
+      pushAssistantErrorMessage(blockId, message || "AI 请求失败");
+      useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
+    }
+  })();
 
   return blockId;
 }

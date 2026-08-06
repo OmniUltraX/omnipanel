@@ -18,6 +18,13 @@ import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { useTerminalUiStore } from "./terminalUiStore";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
+import { patchEnterGateFlags } from "./passthroughAi/enterGates";
+import {
+  notifyShellAgentApprovalPending,
+  notifyShellAgentExecuting,
+  notifyShellAgentIdle,
+} from "./shellAgent/loop";
+import { useShellAgentStore } from "./shellAgent/shellAgentStore";
 
 export interface InlineToolDecision {
   approved: boolean;
@@ -214,6 +221,15 @@ export function waitForInlineToolDecision(
       resolve,
     });
 
+    if (
+      useShellAgentStore.getState().isBusy(sessionId) ||
+      useShellAgentStore.getState().get(sessionId)?.blockId === blockId
+    ) {
+      notifyShellAgentApprovalPending(sessionId);
+      // Shell Agent 直通必须露出可点的同意/拒绝；不走 view/loose 静默自动同意
+      return;
+    }
+
     const mode = resolveTerminalApprovalMode(sessionId);
     if (
       !shouldRequireTerminalApproval(command, mode, {
@@ -283,6 +299,10 @@ async function approveStaleInlineToolCall(
     const pane = findTerminalPane(sessionId);
     const resourceId = pane?.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID;
     try {
+      const { clearRemoteInputLineBeforeExec } = await import("./shellAgent/loop");
+      clearRemoteInputLineBeforeExec(sessionId);
+      await new Promise<void>((r) => window.setTimeout(r, 60));
+
       const aiResult = await executeAiTerminalCommand({
         tabId: sessionId,
         command,
@@ -351,6 +371,13 @@ export async function approveInlineTerminalTool(
       status: "running",
     } as Partial<AiThreadToolCall>);
 
+    notifyShellAgentExecuting(pending.sessionId, true);
+    patchEnterGateFlags(pending.sessionId, { agentExecuting: true });
+
+    // 方案 C 执行序列：撤流内卡片 → (有残留输入才清行并等静默) → 灰字已同意 → 画 prompt → 注入
+    const { prepareShellAgentExecution } = await import("./shellAgent/loop");
+    await prepareShellAgentExecution(pending.sessionId, command);
+
     let decision: InlineToolDecision = { approved: false, result: "" };
     try {
       const aiResult = await executeAiTerminalCommand({
@@ -387,10 +414,20 @@ export async function approveInlineTerminalTool(
         status: "failed",
         result: message,
       } as Partial<AiThreadToolCall>);
-      decision = { approved: true, result: message, exitCode: 1 };
+      decision = { approved: false, result: message };
+    } finally {
+      // 勿在此 idle：还要 deliverToolResult 让模型续写总结 / 下一轮工具
+      notifyShellAgentExecuting(pending.sessionId, false);
+      const { notifyShellAgentObserving } = await import("./shellAgent/loop");
+      notifyShellAgentObserving(pending.sessionId);
+      patchEnterGateFlags(pending.sessionId, { agentExecuting: false });
     }
 
     pendingByToolCallId.delete(toolCallId);
+    {
+      const { notifyShellAgentStreaming } = await import("./shellAgent/loop");
+      notifyShellAgentStreaming(pending.sessionId);
+    }
     await deliverToolResultToBackend(
       conversationId,
       toolCallId,

@@ -20,6 +20,13 @@
         display: flex;
         flex-direction: column;
         position: relative;
+        box-sizing: border-box;
+    }
+
+    /* 原生 / 直通全屏终端：仅水平内边距，与 Warp feed 左右对齐 */
+    .term-terminal-shell .term-xterm-wrap:not(.term-xterm-wrap--live),
+    .term-terminal-shell--warp .term-xterm-wrap--live.term-xterm-wrap--live-native {
+        padding: 0 var(--sp-4);
     }
 
     .term-xterm-wrap .xterm {
@@ -1731,6 +1738,341 @@
         position: relative;
     }
 
+    /* 直通 Shell Agent：流内 decoration 卡片（portal 进 xterm decoration element）。
+       高度由内容决定，占位行数由 fitShellAgentCardToContent 同步。 */
+    .term-shell-agent-deco-card {
+        width: 100%;
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: flex-start;
+        box-sizing: border-box;
+        padding: 0;
+        background: transparent;
+    }
+
+    /* 已归档冻结的历史卡：留在 scrollback，保留完整样式 */
+    .term-shell-agent-deco-card--frozen {
+        pointer-events: none;
+        overflow: visible;
+    }
+
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card__note,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card__lead {
+        white-space: pre-wrap;
+        display: block;
+        -webkit-line-clamp: unset;
+        overflow: visible;
+    }
+
+    .term-shell-agent-deco-card .term-shell-agent-card {
+        pointer-events: auto;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        box-sizing: border-box;
+        padding: 4px 8px;
+        box-shadow: none;
+        margin-left: 0;
+    }
+
+    .term-shell-agent-deco-card .term-shell-agent-card__lead {
+        white-space: nowrap;
+        -webkit-line-clamp: 1;
+        margin-bottom: 4px;
+    }
+
+    .term-shell-agent-deco-card .term-shell-agent-card__code {
+        max-height: none;
+        padding: 4px 8px;
+    }
+
+    .term-shell-agent-deco-card .term-shell-agent-card__code code {
+        -webkit-line-clamp: unset;
+        white-space: pre-wrap;
+    }
+
+    .term-shell-agent-deco-card[data-card-kind="final"] {
+        overflow: auto;
+    }
+
+    .term-shell-agent-deco-card[data-card-kind="final"] .term-shell-agent-card {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .term-shell-agent-deco-card .term-shell-agent-card--final .term-shell-agent-card__note {
+        white-space: pre-wrap;
+        display: block;
+        -webkit-line-clamp: unset;
+        overflow: visible;
+    }
+
+    .term-shell-agent-deco-card .term-shell-agent-card__status {
+        margin-bottom: 4px;
+    }
+
+    .term-shell-agent-card {
+        border-radius: 6px;
+        border: 1px solid var(--border, #d0d0d0);
+        background: var(--surface, #f7f7f7);
+        padding: 8px 12px;
+        box-shadow: 0 4px 16px color-mix(in srgb, #000 8%, transparent);
+        color: var(--text, #1a1a1a);
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12.5px;
+        line-height: 1.4;
+    }
+
+    .term-shell-agent-card--note {
+        display: grid;
+        grid-template-columns: 8px 1fr auto;
+        column-gap: 8px;
+        align-items: start;
+        padding: 6px 10px;
+    }
+
+    .term-shell-agent-card--final {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        text-align: left;
+        background: var(--surface, #f7f7f7);
+        border: 1px solid var(--border, #d0d0d0);
+        box-shadow: 0 4px 16px color-mix(in srgb, #000 8%, transparent);
+    }
+
+    .term-shell-agent-card--cmd {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        text-align: left;
+    }
+
+    .term-shell-agent-card__dot {
+        width: 6px;
+        height: 6px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: var(--accent, #007aff);
+    }
+
+    .term-shell-agent-card__lead {
+        color: var(--text-muted, #666);
+        font-size: 12px;
+        margin-bottom: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .term-shell-agent-card__note {
+        color: var(--text, #1a1a1a);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .term-shell-agent-card--final .term-shell-agent-card__note {
+        white-space: normal;
+        display: block;
+        overflow: visible;
+        width: 100%;
+        -webkit-line-clamp: unset;
+    }
+
+    .term-shell-agent-card__footer {
+        display: flex;
+        justify-content: flex-start;
+        align-items: center;
+        width: 100%;
+        margin-top: 4px;
+    }
+
+    .term-shell-agent-card__status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 12px;
+    }
+
+    .term-shell-agent-card__agreed {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: #2f9e44;
+        font-weight: 600;
+    }
+
+    .term-shell-agent-card__pending-label {
+        color: #f08c00;
+    }
+
+    .term-shell-agent-card__code {
+        margin: 0;
+        padding: 8px 10px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--bg, #fff) 70%, #000 8%);
+        border: 1px solid var(--border, #d0d0d0);
+        overflow: hidden;
+        color: var(--text, #1a1a1a);
+        font-size: 12px;
+        max-height: 4.2em;
+    }
+
+    .term-shell-agent-card__code code {
+        font-family: inherit;
+        white-space: pre-wrap;
+        word-break: break-all;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .term-shell-agent-card__actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+        width: 100%;
+    }
+
+    .term-shell-agent-card__approve,
+    .term-shell-agent-card__reject {
+        appearance: none;
+        border-radius: 4px;
+        border: 1px solid transparent;
+        font-size: 12px;
+        padding: 2px 8px;
+        cursor: pointer;
+    }
+
+    .term-shell-agent-card--cmd .term-shell-agent-card__lead {
+        white-space: normal;
+        display: block;
+        margin-bottom: 8px;
+        color: var(--text, #1a1a1a);
+        overflow: visible;
+    }
+
+    .term-shell-agent-card__approve {
+        background: color-mix(in srgb, #2f9e44 18%, transparent);
+        border-color: color-mix(in srgb, #2f9e44 45%, transparent);
+        color: #2b8a3e;
+    }
+
+    .term-shell-agent-card__reject {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--text-muted);
+    }
+
+    /* 流内 Shell Agent Markdown（紧凑） */
+    .term-shell-agent-md {
+        width: 100%;
+        color: var(--text, #1a1a1a);
+        font-size: 12.5px;
+        line-height: 1.45;
+        text-align: left;
+    }
+
+    .term-shell-agent-md__p {
+        margin: 0 0 6px;
+    }
+
+    .term-shell-agent-md__p:last-child {
+        margin-bottom: 0;
+    }
+
+    .term-shell-agent-md__strong {
+        font-weight: 600;
+    }
+
+    .term-shell-agent-md__code {
+        font-family: inherit;
+        font-size: 12px;
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--bg, #fff) 70%, #000 8%);
+        border: 1px solid var(--border, #d0d0d0);
+    }
+
+    .term-shell-agent-md__pre {
+        margin: 6px 0;
+        padding: 6px 8px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--bg, #fff) 70%, #000 8%);
+        border: 1px solid var(--border, #d0d0d0);
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .term-shell-agent-md__ul,
+    .term-shell-agent-md__ol {
+        margin: 4px 0 6px 1.2em;
+        padding: 0;
+    }
+
+    .term-shell-agent-md__li {
+        margin: 2px 0;
+    }
+
+    .term-shell-agent-md__a {
+        color: var(--accent, #007aff);
+        text-decoration: underline;
+    }
+
+    .term-shell-agent-card--final .term-shell-agent-card__footer {
+        display: flex;
+    }
+
+    .term-shell-agent-card__link {
+        appearance: none;
+        border: none;
+        background: none;
+        padding: 0;
+        font-size: 12px;
+        color: var(--text-muted, #8a8a8a);
+        cursor: pointer;
+        text-align: left;
+        align-self: flex-start;
+    }
+
+    .term-shell-agent-card__link--inline {
+        margin-top: 4px;
+    }
+
+    .term-shell-agent-card__link:hover {
+        color: var(--accent, #74c0fc);
+    }
+
+    /* legacy */
+    .term-shell-agent-stream,
+    .term-shell-agent-overlay {
+        display: none;
+    }
+
+    .term-shell-agent-stream__user-line,
+    .term-shell-agent-stream__prompt,
+    .term-shell-agent-stream__nl {
+        display: none;
+    }
+
     .term-terminal-shell--drag-over {
         outline: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent);
         outline-offset: -2px;
@@ -1775,6 +2117,7 @@
         border: none;
         border-radius: 0;
         background: var(--bg-deeper);
+        box-sizing: border-box;
     }
 
     .term-warp-feed {
@@ -2633,19 +2976,12 @@
         margin-left: 0;
     }
 
-    /* AI 卡片：统一面板底，避免吸顶候选切换时渐变背景闪烁；阴影按主题降噪 */
+    /* AI 卡片：统一面板底，避免吸顶候选切换时渐变背景闪烁；阴影由 tokens --term-ai-card-shadow 驱动 */
     .term-warp-block--ai {
-        --term-ai-card-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
         border: 1px solid color-mix(in srgb, var(--meta) 22%, var(--bg-deeper));
         border-radius: var(--r-md);
         background: var(--bg-deeper);
         box-shadow: var(--term-ai-card-shadow);
-    }
-
-    [data-theme="light"] .term-warp-block--ai {
-        --term-ai-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-        background: color-mix(in srgb, var(--surface) 82%, var(--bg-deeper));
-        border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
     }
 
     .term-warp-block--ai.term-warp-block--collapsed {
@@ -2792,11 +3128,6 @@
     .term-warp-block--ai.term-warp-block--collapsed:hover {
         background: var(--bg-deeper);
         border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-deeper));
-    }
-
-    [data-theme="light"] .term-warp-block--ai.term-warp-block--collapsed:hover {
-        background: color-mix(in srgb, var(--accent) 4%, var(--surface));
-        border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
     }
 
     .term-warp-block__summary {
@@ -3754,4 +4085,19 @@ body.term-session-tree--dragging .tree-action-btn {
 .term-warp-feed .term-warp-output-collapsed {
     -webkit-user-select: none !important;
     user-select: none !important;
+}
+
+/*
+ * 浅色终端 AI 块：须在 @layer 外，确保覆盖组件层内阴影回退。
+ * v0.7.3 曾在 @layer components 内降噪，但元素级 --term-ai-card-shadow 回退仍可能压过主题 token。
+ */
+html[data-theme="light"] .term-warp-block--ai {
+    box-shadow: none;
+    background: color-mix(in srgb, var(--surface) 82%, var(--bg-deeper));
+    border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
+}
+
+html[data-theme="light"] .term-warp-block--ai.term-warp-block--collapsed:hover {
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
 }

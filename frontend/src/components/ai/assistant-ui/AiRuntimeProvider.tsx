@@ -396,6 +396,14 @@ function finalizeInlineBlock(
     exitCode: options.failed ? (options.aborted ? 130 : 1) : 0,
   });
   useTerminalUiStore.getState().setExpandedAiBlock(inline.sessionId, inline.blockId);
+
+  // 直通 Shell Agent：整轮真正结束（含 tool 续写）后再 idle + 重锚总结位置
+  void import("../../../modules/terminal/shellAgent").then((m) => {
+    const agent = m.useShellAgentStore.getState().get(inline.sessionId);
+    if (agent?.blockId === inline.blockId && agent.phase !== "cancelled") {
+      m.notifyShellAgentTurnFinished(inline.sessionId);
+    }
+  });
 }
 
 function mapToolStatus(status: string): ToolCallState["status"] {

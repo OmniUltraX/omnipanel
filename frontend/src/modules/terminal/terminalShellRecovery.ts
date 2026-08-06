@@ -1,5 +1,6 @@
 import { useTerminalUiStore } from "./terminalUiStore";
 import { writeTerminalRaw, hasTerminalRawWriter } from "./terminalPaneSenders";
+import { useShellAgentStore } from "./shellAgent/shellAgentStore";
 const PROMPT_RECENCY_MS = 350;
 
 /** OSC 133;A 或等价 prompt 就绪信号（由 useTerminal 写入） */
@@ -68,17 +69,39 @@ export async function ensureShellAtPrompt(
 /** AI 工具执行前：清掉可能残留的续行 / 子程序状态 */
 export async function prepareShellForAiTool(sessionId: string): Promise<void> {
   if (!hasTerminalRawWriter(sessionId)) return;
+  // Shell Agent 刚清行/绘蓝字后：信任近期 prompt，勿 Ctrl+C
+  const agent = useShellAgentStore.getState().get(sessionId);
+  if (agent && agent.phase !== "cancelled") {
+    markShellPromptReady(sessionId);
+    return;
+  }
   if (isShellPromptRecent(sessionId, 120)) return;
   await interruptShell(sessionId, 1);
   await sleep(100);
 }
 
-/** AI 工具执行后：确保回到 shell 主提示符，并回到 Command Bar 模式 */
+/**
+ * AI 工具执行后：确保回到 shell 主提示符。
+ * Shell Agent 直通环：命令已在真 PTY 跑完，禁止 Ctrl+C 清场（否则满屏 ^C）。
+ * 仅当会话带 autoReturn（命令栏临时进原生）时才切回 Command Bar。
+ */
 export async function recoverShellAfterAiTool(sessionId: string): Promise<void> {
+  const ui = useTerminalUiStore.getState();
+  const inputMode = ui.getInputMode(sessionId);
+  const agent = useShellAgentStore.getState().get(sessionId);
+  const inShellAgentLoop =
+    inputMode === "interactive" &&
+    Boolean(agent) &&
+    agent!.phase !== "cancelled";
+
+  if (inShellAgentLoop) {
+    markShellPromptReady(sessionId);
+    return;
+  }
+
   await ensureShellAtPrompt(sessionId, { maxAttempts: 3 });
 
-  const ui = useTerminalUiStore.getState();
-  if (ui.getInputMode(sessionId) === "interactive") {
+  if (ui.shouldAutoReturnToCommandBar(sessionId)) {
     ui.returnToCommandBar(sessionId);
   }
 }

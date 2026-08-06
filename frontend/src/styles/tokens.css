@@ -127,6 +127,9 @@
   --anim-fast: 120ms;
   --anim-normal: 200ms;
 
+  /* 终端 AI 卡片阴影（暗色保留轻微浮起感） */
+  --term-ai-card-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
+
   /* Layering — SubWindow 与其上方的 portaled 弹出层 */
   --z-subwindow-overlay: 1200;
   --z-subwindow-popover: 1300;
@@ -221,6 +224,9 @@
   --radius-md: var(--r-lg);
   --radius-sm: var(--r-md);
   --radius-lg: var(--r-lg);
+
+  /* 浅色终端 AI 块：扁平，无投影（与设计系统一致） */
+  --term-ai-card-shadow: none;
 
   color-scheme: light;
 }
