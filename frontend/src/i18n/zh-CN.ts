@@ -2309,6 +2309,7 @@ export const zhCN = {
       usernameDescription: "登录数据库使用的账户名",
       password: "密码",
       passwordDescription: "对应账户的登录密码",
+      passwordLoadingPlaceholder: "正在从钥匙串加载…",
       apiKey: "API Key",
       apiKeyDescription: "可选；填写后以 api-key 请求头发送给 Qdrant",
       ssl: "启用 SSL",

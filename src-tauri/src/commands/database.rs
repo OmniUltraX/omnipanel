@@ -1030,6 +1030,25 @@ pub async fn db_list_connections(
     state.db_connections.list().map_err(|e| e.to_string())
 }
 
+/// 编辑连接表单：从 Vault 取回明文密码（列表接口永不返回明文）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_get_connection_secret(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err("连接 id 为空".to_string());
+    }
+    let conn = state
+        .db_connections
+        .get_with_secret(id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "连接不存在".to_string())?;
+    Ok(conn.password)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn db_save_connection(

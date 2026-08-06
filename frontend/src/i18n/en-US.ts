@@ -2319,6 +2319,7 @@ export const enUS: TranslationDict = {
       usernameDescription: "Account used to sign in to the database",
       password: "Password",
       passwordDescription: "Password for the selected account",
+      passwordLoadingPlaceholder: "Loading from keychain…",
       apiKey: "API Key",
       apiKeyDescription: "Optional; sent as the api-key header to Qdrant",
       ssl: "Enable SSL",

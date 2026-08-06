@@ -83,8 +83,29 @@ export function ConnectionDialog({
     setStatus(null);
     setTesting(false);
     setSaving(false);
+
+    let cancelled = false;
+
+    // 列表接口不回传明文密码；编辑时从 Vault 拉取，才能显示/复制
     if (initialConnection?.id) {
-      let cancelled = false;
+      const shouldLoadSecret =
+        Boolean(initialConnection.has_password) ||
+        !(initialConnection.password ?? "").trim();
+      if (shouldLoadSecret) {
+        void unwrapCommand(commands.dbGetConnectionSecret(initialConnection.id), {
+          quiet: true,
+        })
+          .then((secret) => {
+            if (cancelled || !secret) return;
+            setForm((prev) =>
+              prev.password ? prev : { ...prev, password: secret },
+            );
+          })
+          .catch(() => {
+            // Vault 无密码或读取失败：保持空，由用户填写
+          });
+      }
+
       void unwrapCommand(commands.resourceListTags("connection", initialConnection.id))
         .then((list) => {
           if (!cancelled) {
@@ -94,11 +115,13 @@ export function ConnectionDialog({
         .catch(() => {
           if (!cancelled) setTags([]);
         });
-      return () => {
-        cancelled = true;
-      };
+    } else {
+      setTags([]);
     }
-    setTags([]);
+
+    return () => {
+      cancelled = true;
+    };
   }, [open, initialConnection]);
 
   const update = <K extends keyof ConnectionFormData>(key: K, value: ConnectionFormData[K]) => {
@@ -394,7 +417,11 @@ export function ConnectionDialog({
                     copyable
                     value={form.password}
                     onChange={(value) => update("password", value)}
-                    placeholder="••••••"
+                    placeholder={
+                      isEditMode && initialConnection?.has_password && !form.password
+                        ? t("database.dialog.passwordLoadingPlaceholder")
+                        : undefined
+                    }
                   />
                 </FormField>
               </div>

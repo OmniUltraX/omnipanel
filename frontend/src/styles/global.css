@@ -90,6 +90,15 @@ a {
     user-select: none;
 }
 
+/* 表单控件必须可选中：全局 none 在 WebView2 下会导致 password→text 切换后明文不渲染 */
+input,
+textarea,
+select,
+[contenteditable="true"] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
 /* 可读区域须放在 unlayered 规则中，否则无法覆盖上方 * 选择器（@layer components 优先级更低） */
 .ai-message-list .ai-msg-body,
 .ai-message-list .ai-msg-body *,
