@@ -101,6 +101,10 @@ import {
 } from "./canvas/gridRenderMode";
 import type { GridRenderMode } from "./canvas/gridRenderTypes";
 import {
+  readStoredColSidebarCollapsed,
+  writeStoredColSidebarCollapsed,
+} from "./colSidebarPersist";
+import {
   buildCellRangeClipboardText,
   buildSelectedRowsClipboardText,
   extractRowValuesFromIndex,
@@ -424,7 +428,10 @@ export const TableDataGrid = memo(function TableDataGrid({
   const cellOverlayRef = useRef(cellOverlay);
   cellOverlayRef.current = cellOverlay;
   const pinnedPreviewRef = useRef(false);
-  const [colSidebarCollapsed, setColSidebarCollapsed] = useState(false);
+  const [colSidebarCollapsed, setColSidebarCollapsed] = useState(readStoredColSidebarCollapsed);
+  useEffect(() => {
+    writeStoredColSidebarCollapsed(colSidebarCollapsed);
+  }, [colSidebarCollapsed]);
   const [navigatedColumnId, setNavigatedColumnId] = useState<string | null>(null);
   const pendingColumnFocusRef = useRef<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
