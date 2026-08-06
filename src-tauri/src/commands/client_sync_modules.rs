@@ -2,7 +2,7 @@
 //! 路径：`sync/{userId}/devices/{deviceId}/modules/latest.json`
 //! 数据变更时上传本机快照；从其它设备导入由用户手动触发。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_assistant::{
@@ -10,8 +10,8 @@ use omnipanel_assistant::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    load_database_connections, save_database_connections, Connection, DbConnectionConfig,
-    HttpCollection, HttpEnvironment, KnowledgeEntry, SavedHttpRequest, Vault,
+    load_database_connections, Connection, DbConnectionConfig, HttpCollection, HttpEnvironment,
+    KnowledgeEntry, SavedHttpRequest, Vault,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -684,15 +684,10 @@ pub async fn client_sync_import_from_device(
         applied_workspaces = filtered.workspaces.len();
         workspaces_json = serde_json::to_string(&filtered.workspaces).ok();
 
-        if !filtered.database_connections.is_empty() {
-            let mut map: HashMap<String, DbConnectionConfig> = load_database_connections()?
-                .into_iter()
-                .map(|c| (c.id.clone(), c))
-                .collect();
-            for c in &filtered.database_connections {
-                map.insert(c.id.clone(), c.clone());
-            }
-            save_database_connections(&map.into_values().collect::<Vec<_>>())?;
+        // 走运行期 DatabaseConnectionStore.save：同时更新内存缓存与磁盘，
+        // 否则 db_list_connections 读内存缓存会漏掉导入的连接，侧栏不刷新。
+        for c in &filtered.database_connections {
+            state.db_connections.save(c.clone())?;
         }
 
         {
