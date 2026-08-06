@@ -82,6 +82,10 @@ export type SqlTabState = {
   running: boolean;
   /** 当前可中断的查询 runId（与后端 db_cancel_query 配对） */
   activeQueryRunId: string | null;
+  /** 自动提交（默认 true）；关闭后进入手动事务模式 */
+  autoCommit: boolean;
+  /** 手动事务是否已 BEGIN（有未提交变更） */
+  inTransaction: boolean;
   /** 每次执行对应一个结果会话 */
   resultSessions: SqlResultSession[];
   activeResultSessionId: string | null;
@@ -269,6 +273,8 @@ export function createDefaultSqlTabState(database = "", connId = ""): SqlTabStat
     error: null,
     running: false,
     activeQueryRunId: null,
+    autoCommit: true,
+    inTransaction: false,
     resultSessions: [],
     activeResultSessionId: null,
   };

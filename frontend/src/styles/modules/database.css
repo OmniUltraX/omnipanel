@@ -5623,6 +5623,23 @@
         background: color-mix(in srgb, var(--surface) 92%, var(--bg));
     }
 
+    .db-table-query-bar.is-resizing {
+        cursor: col-resize;
+        user-select: none;
+    }
+
+    .db-table-query-bar.is-resizing * {
+        cursor: col-resize !important;
+    }
+
+    .db-table-query-fields {
+        display: flex;
+        align-items: stretch;
+        flex: 1;
+        min-width: 0;
+        gap: 0;
+    }
+
     .db-table-query-change {
         position: relative;
         flex-shrink: 0;
@@ -5714,12 +5731,70 @@
         align-items: center;
         gap: 6px;
         flex: 1;
-        min-width: 0;
+        min-width: 96px;
     }
 
     .db-table-query-field--order {
-        flex: 0.55;
-        max-width: 280px;
+        min-width: 120px;
+    }
+
+    .db-table-query-resize {
+        position: relative;
+        flex: 0 0 10px;
+        width: 10px;
+        margin: 0 2px;
+        cursor: col-resize;
+        touch-action: none;
+        align-self: stretch;
+    }
+
+    .db-table-query-resize::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        left: 50%;
+        width: 1px;
+        transform: translateX(-50%);
+        background: var(--border);
+        opacity: 0.9;
+    }
+
+    .db-table-query-resize__grip {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 3px;
+        height: 14px;
+        transform: translate(-50%, -50%);
+        border-radius: 1px;
+        background: color-mix(in srgb, var(--fg-2, var(--text-muted)) 55%, transparent);
+        opacity: 0.55;
+        pointer-events: none;
+    }
+
+    .db-table-query-resize:hover::before,
+    .db-table-query-bar.is-resizing .db-table-query-resize::before {
+        background: var(--accent);
+        opacity: 1;
+        width: 2px;
+    }
+
+    .db-table-query-resize:hover .db-table-query-resize__grip,
+    .db-table-query-bar.is-resizing .db-table-query-resize__grip,
+    .db-table-query-resize:focus-visible .db-table-query-resize__grip {
+        opacity: 1;
+        background: var(--accent);
+    }
+
+    .db-table-query-resize:focus-visible {
+        outline: none;
+    }
+
+    .db-table-query-resize:focus-visible::before {
+        background: var(--accent);
+        opacity: 1;
+        width: 2px;
     }
 
     .db-table-query-label {
@@ -5749,6 +5824,38 @@
     .db-table-query-input:focus {
         outline: none;
         border-color: var(--accent);
+    }
+
+    .db-table-query-cm.db-table-query-input {
+        display: flex;
+        align-items: center;
+        height: auto;
+        min-height: 24px;
+        padding: 0;
+        overflow: visible;
+        /* 背景由 CodeMirror 主题绘制（与 SQL 编辑器同色） */
+        background: transparent;
+        color: inherit;
+    }
+
+    .db-table-query-cm.db-table-query-input:focus-within {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    .db-table-query-cm .cm-editor {
+        height: 100%;
+        width: 100%;
+        border-radius: 3px;
+    }
+
+    .db-table-query-cm .cm-editor.cm-focused {
+        outline: none;
+    }
+
+    /* 补全挂到 body 后仍兜底提高层级，避免被面板/对话框压住 */
+    body > .cm-tooltip.cm-tooltip-autocomplete {
+        z-index: 200000;
     }
 
     .db-table-detail-tab {
@@ -6696,7 +6803,9 @@
         display: block;
         z-index: 2;
         pointer-events: auto;
-        touch-action: none;
+        /* 允许触控板/触摸双向平移滚动（macOS WKWebView 下 touch-action:none 会吃掉 deltaX），
+           仅禁用缩放/双击等手势，不影响单元格鼠标交互。 */
+        touch-action: pan-x pan-y;
     }
 
     .db-data-table-wrap--canvas.db-data-table-wrap--loading .db-data-table-canvas {
@@ -9829,6 +9938,189 @@
         border-bottom: 1px solid var(--border);
         gap: var(--sp-2);
         background: var(--bg);
+        flex-wrap: wrap;
+    }
+
+    .sql-toolbar-left {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
+    .sql-toolbar-left__anchor {
+        display: inline-flex;
+    }
+
+    .sql-toolbar-divider {
+        width: 1px;
+        height: 18px;
+        background: var(--border);
+        margin: 0 4px;
+        flex-shrink: 0;
+    }
+
+    .sql-toolbar-conn-select,
+    .sql-toolbar-db-select {
+        width: 148px;
+        min-width: 120px;
+        max-width: 180px;
+        flex: 0 1 148px;
+    }
+
+    .sql-toolbar-txn {
+        min-width: 34px;
+        gap: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+
+    .sql-toolbar-txn__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--success);
+    }
+
+    .sql-toolbar-txn.is-off .sql-toolbar-txn__dot {
+        background: var(--warn);
+    }
+
+    .sql-toolbar-txn__label {
+        font-family: var(--font-mono);
+        line-height: 1;
+    }
+
+    .sql-toolbar-stop:disabled {
+        opacity: 0.35;
+    }
+
+    .sql-toolbar-popover {
+        min-width: 280px;
+        max-width: min(420px, 92vw);
+        max-height: min(60vh, 520px);
+        overflow: auto;
+        padding: 10px 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--r-md, 8px);
+        box-shadow:
+            0 10px 28px color-mix(in srgb, #000 24%, transparent),
+            0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent);
+        color: var(--fg);
+        font-size: 12px;
+    }
+
+    .sql-toolbar-popover--history {
+        min-width: 360px;
+        max-width: min(520px, 94vw);
+    }
+
+    .sql-toolbar-popover__title {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    .sql-toolbar-popover__title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .sql-toolbar-popover__title-row .sql-toolbar-popover__title {
+        margin-bottom: 0;
+    }
+
+    .sql-toolbar-popover__section {
+        margin: 10px 0 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--fg-2);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .sql-toolbar-popover__field {
+        display: grid;
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .sql-toolbar-popover__field > span {
+        color: var(--meta);
+        font-size: 11px;
+    }
+
+    .sql-toolbar-popover__check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 8px;
+        font-size: 12px;
+    }
+
+    .sql-toolbar-popover__empty {
+        color: var(--meta);
+        padding: 12px 4px;
+    }
+
+    .sql-toolbar-history__group {
+        margin-bottom: 10px;
+    }
+
+    .sql-toolbar-history__group-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--fg-2);
+        margin-bottom: 4px;
+    }
+
+    .sql-toolbar-history__count {
+        font-variant-numeric: tabular-nums;
+        color: var(--meta);
+        font-weight: 500;
+    }
+
+    .sql-toolbar-history__list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .sql-toolbar-history__item {
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        padding: 6px 8px;
+        background: color-mix(in srgb, var(--fg) 2%, var(--surface));
+    }
+
+    .sql-toolbar-history__meta {
+        display: flex;
+        gap: 10px;
+        font-size: 10px;
+        color: var(--meta);
+        margin-bottom: 4px;
+    }
+
+    .sql-toolbar-history__sql {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.35;
+        max-height: 72px;
+        overflow: hidden;
     }
 
     .sql-toolbar-run {
@@ -10467,6 +10759,277 @@
 .db-import-preview-status--warn {
     color: var(--warning, #d97706);
     background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent);
+}
+
+.db-import-to-table-dialog .modal-body,
+.db-import-to-table-dialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+}
+
+.db-import-to-table-dialog__fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+}
+
+.db-import-to-table-dialog__fields .form-field--horizontal {
+    grid-template-columns: 72px minmax(0, 1fr);
+    column-gap: var(--sp-3);
+}
+
+.db-import-to-table-dialog__fields .form-field__control {
+    width: 100%;
+}
+
+.db-import-to-table-dialog__select {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.db-import-to-table-dialog__select .omni-select-trigger {
+    width: 100%;
+}
+
+.db-import-to-table-dialog__option-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--bg-deeper);
+}
+
+.db-import-to-table-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--fg);
+    cursor: pointer;
+    user-select: none;
+}
+
+.db-import-to-table-clear input {
+    margin: 0;
+}
+
+.db-import-to-table-dialog__warn {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--danger, #ff453a);
+}
+
+.db-import-to-table-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--fg) 3.5%, var(--bg-deeper));
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.db-import-to-table-summary__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.db-import-to-table-summary__chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+    color: var(--fg);
+    font-size: 12px;
+}
+
+.db-import-to-table-summary__chip--ok {
+    background: color-mix(in srgb, var(--success, #2f9e44) 16%, transparent);
+}
+
+.db-import-to-table-mapping {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--fg) 3.5%, var(--bg-deeper));
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.db-import-to-table-mapping__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.db-import-to-table-mapping__title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.db-import-to-table-mapping__table-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--bg-deeper);
+}
+
+.db-import-to-table-mapping__table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.db-import-to-table-mapping__table th,
+.db-import-to-table-mapping__table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-import-to-table-mapping__table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--fg) 4%, var(--bg-deeper));
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.db-import-to-table-mapping__table tbody tr:last-child th,
+.db-import-to-table-mapping__table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.db-import-to-table-mapping__table code {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 12px;
+    color: var(--fg);
+}
+
+.db-import-to-table-mapping__arrow {
+    width: 28px;
+    text-align: center;
+    color: var(--muted);
+}
+
+.db-import-to-table-mapping__empty {
+    color: var(--muted);
+}
+
+.db-import-to-table-mapping__row--muted {
+    opacity: 0.78;
+}
+
+.db-import-to-table-mapping__target-col {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.db-import-to-table-mapping__target-col code {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-import-to-table-mapping__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.db-import-to-table-mapping__badge--ok {
+    color: var(--success, #2f9e44);
+    background: color-mix(in srgb, var(--success, #2f9e44) 14%, transparent);
+}
+
+.db-import-to-table-mapping__badge--skip {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.db-import-to-table-mapping__badge--miss {
+    color: var(--warning, #d97706);
+    background: color-mix(in srgb, var(--warning, #d97706) 14%, transparent);
+}
+
+.db-import-to-table-mapping__badge--constant {
+    color: var(--accent, #3b82f6);
+    background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+}
+
+.db-import-to-table-mapping__constant-input {
+    width: 100%;
+    min-width: 0;
+}
+
+.db-import-to-table-summary__match {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.db-import-to-table-summary__line {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--muted);
+}
+
+.db-import-to-table-summary__line--ok {
+    color: var(--fg);
+}
+
+.db-import-to-table-summary__line--warn {
+    color: var(--warning, #d97706);
+}
+
+.db-import-to-table-summary__line--muted {
+    color: var(--muted);
+}
+
+.db-import-to-table-summary__hint {
+    color: var(--muted);
+    opacity: 0.9;
+}
+
+.db-import-to-table-summary__progress {
+    color: var(--accent, #3b82f6);
+    font-weight: 500;
 }
 
 /* 底部 meta 栏操作按钮区域（如「添加用户」「创建库」）—— 与刷新按钮并排在左侧 */

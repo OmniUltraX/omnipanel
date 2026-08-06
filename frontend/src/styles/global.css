@@ -90,6 +90,15 @@ a {
     user-select: none;
 }
 
+/* 表单控件必须可选中：全局 none 在 WebView2 下会导致 password→text 切换后明文不渲染 */
+input,
+textarea,
+select,
+[contenteditable="true"] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
 /* 可读区域须放在 unlayered 规则中，否则无法覆盖上方 * 选择器（@layer components 优先级更低） */
 .ai-message-list .ai-msg-body,
 .ai-message-list .ai-msg-body *,
@@ -2550,13 +2559,23 @@ a {
     color: var(--fg);
 }
 
-/* SQL 缂栬緫鍣ㄨ〃/瀛楁鎮仠淇℃伅鍗★紙tooltip 鎸傝浇鍦?body锛?*/
+/* SQL 编辑器表/字段悬停信息卡（tooltip 挂载在 body） */
 .cm-tooltip:has(.db-sql-hover-card) {
     padding: 0;
     border: none;
     background: transparent;
     box-shadow: none;
     overflow: visible;
+    /* 高于 dock 标签栏 / 面板控件，避免顶部被挡住 */
+    z-index: 200000 !important;
+}
+
+body > .cm-tooltip:has(.db-sql-hover-card) {
+    z-index: 200000 !important;
+}
+
+body > .cm-tooltip.cm-tooltip-autocomplete {
+    z-index: 200000 !important;
 }
 
 /* 瑕嗙洊鍏ㄥ眬 user-select: none锛屾敮鎸佸鍒跺厓淇℃伅涓?SQL 瀹氫箟 */
@@ -2580,6 +2599,39 @@ a {
     box-shadow:
         0 10px 28px color-mix(in srgb, #000 24%, transparent),
         0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+/* 表 Hover：整体更紧凑，字段列表少占空间 */
+.db-sql-hover-card--table {
+    min-width: min(420px, 88vw);
+    max-width: min(520px, 92vw);
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.db-sql-hover-card--table .db-sql-hover-header {
+    gap: 2px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-header__title {
+    font-size: 12px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-meta {
+    gap: 4px 8px;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-section__head {
+    margin-bottom: 4px;
+}
+
+.db-sql-hover-card--table .db-sql-hover-section__scroll {
+    max-height: min(220px, 34vh);
 }
 
 .db-sql-hover-card--missing-table .db-sql-hover-header__title {
@@ -2731,12 +2783,13 @@ a {
     width: 100%;
     min-width: 100%;
     table-layout: auto;
-    font-size: 12px;
+    font-size: 11px;
+    line-height: 1.3;
 }
 
 .db-sql-hover-table.db-data-table th,
 .db-sql-hover-table.db-data-table td {
-    padding: var(--sp-2) var(--sp-3);
+    padding: 3px 6px;
     border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border);
     vertical-align: middle;
@@ -2774,16 +2827,18 @@ a {
 
 .db-sql-hover-table__type {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--fg-2);
     white-space: nowrap;
 }
 
 .db-sql-hover-table__comment {
     color: var(--meta);
-    max-width: 240px;
-    white-space: normal;
-    word-break: break-word;
+    max-width: 160px;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .db-sql-hover-keys {
@@ -23898,6 +23953,57 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     gap: var(--sp-3);
 }
 
+.user-center-vault {
+    margin-bottom: var(--sp-4);
+}
+
+.user-center-vault__otp {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-top: var(--sp-3);
+}
+
+.user-center-vault__otp-cell {
+    width: 40px;
+    height: 44px;
+    box-sizing: border-box;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--bg-deeper);
+    color: var(--fg);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    caret-color: var(--accent);
+}
+
+.user-center-vault__otp-cell:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.user-center-vault__otp-cell:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.user-center-vault__warn {
+    margin-top: var(--sp-2);
+    color: var(--warn);
+}
+
+.user-center-vault__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+}
+
 .user-center-devices__header-actions {
     display: flex;
     align-items: center;
@@ -23967,68 +24073,74 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     margin-top: var(--sp-3);
 }
 
-.user-center-device-list {
+.user-center-device-grid {
     list-style: none;
     margin: var(--sp-3) 0 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--sp-3);
 }
 
-.user-center-device-item {
+.user-center-device-card {
     display: flex;
-    align-items: flex-start;
-    gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3);
+    flex-direction: column;
+    gap: var(--sp-3);
+    min-width: 0;
+    padding: var(--sp-3);
     border: 1px solid var(--border);
-    border-radius: var(--r-sm);
+    border-radius: var(--r-md, var(--r-sm));
     background: var(--surface);
 }
 
-.user-center-device-item.is-current {
-    border-color: var(--accent, var(--border));
+.user-center-device-card.is-current {
+    border-color: color-mix(in srgb, var(--accent, var(--border)) 55%, var(--border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, transparent) 18%, transparent);
 }
 
-.user-center-device-item__icon {
+.user-center-device-card__header {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    min-width: 0;
+}
+
+.user-center-device-card__icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     border-radius: var(--r-sm);
     background: var(--bg);
     color: var(--fg-2);
     flex-shrink: 0;
 }
 
-.user-center-device-item__body {
+.user-center-device-card__heading {
     min-width: 0;
     flex: 1;
-}
-
-.user-center-device-item__delete {
-    flex-shrink: 0;
-    align-self: center;
-    color: var(--danger, var(--fg-2));
-}
-
-.user-center-device-item__title-row {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
 }
 
-.user-center-device-item__name {
+.user-center-device-card__name {
     font-size: 13px;
+    font-weight: 600;
     color: var(--fg);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.user-center-device-item__badge {
+.user-center-device-card__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.user-center-device-card__badge {
     flex-shrink: 0;
     font-size: 10px;
     line-height: 1;
@@ -24039,23 +24151,54 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     border: 1px solid var(--border);
 }
 
-.user-center-device-item__badge--presence.is-online {
+.user-center-device-card__badge--presence.is-online {
     color: var(--success, #3d9a5f);
     border-color: color-mix(in srgb, var(--success, #3d9a5f) 35%, var(--border));
     background: color-mix(in srgb, var(--success, #3d9a5f) 12%, var(--bg));
 }
 
-.user-center-device-item__badge--presence.is-offline {
+.user-center-device-card__badge--presence.is-offline {
     color: var(--muted);
 }
 
-.user-center-device-item__meta {
-    margin-top: 4px;
+.user-center-device-card__meta {
+    margin: 0;
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+
+.user-center-device-card__meta-row {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
     font-size: 11px;
+}
+
+.user-center-device-card__meta-row dt {
+    margin: 0;
     color: var(--muted);
+}
+
+.user-center-device-card__meta-row dd {
+    margin: 0;
+    color: var(--fg-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-center-device-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--sp-1);
+    border-top: 1px solid var(--border);
+}
+
+.user-center-device-card__delete {
+    color: var(--danger, var(--fg-2));
 }
 
 .data-sync-subwindow .subwindow-body {

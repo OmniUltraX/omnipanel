@@ -52,6 +52,8 @@ export function PasswordInput({
     <div className={inputFieldActionClass(actionCount, size)}>
       <input
         {...rest}
+        // 切换 type 时强制 remount，避免 WebView 残留 password 掩码渲染
+        key={visible ? "password-shown" : "password-hidden"}
         id={inputId}
         className={className}
         type={visible ? "text" : "password"}
@@ -76,7 +78,11 @@ export function PasswordInput({
           title={visible ? t("common.hideSecret") : t("common.showSecret")}
           aria-label={visible ? t("common.hideSecret") : t("common.showSecret")}
           disabled={disabled}
-          onClick={() => setVisible((v) => !v)}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setVisible((v) => !v);
+          }}
         >
           {visible ? <EyeClosedIcon /> : <EyeOpenIcon />}
         </Button>

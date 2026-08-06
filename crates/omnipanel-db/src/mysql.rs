@@ -47,9 +47,18 @@ pub fn mysql_connect_options(params: &DbParams) -> MySqlConnectOptions {
 
 impl MySqlDriver {
     pub async fn connect(params: &DbParams) -> OmniResult<Self> {
+        Self::connect_with_pool_size(params, 2).await
+    }
+
+    /// 事务会话用：池大小为 1，保证 BEGIN/后续语句/COMMIT 落在同一连接。
+    pub async fn connect_exclusive(params: &DbParams) -> OmniResult<Self> {
+        Self::connect_with_pool_size(params, 1).await
+    }
+
+    async fn connect_with_pool_size(params: &DbParams, max_connections: u32) -> OmniResult<Self> {
         let opts = mysql_connect_options(params);
         let pool = MySqlPoolOptions::new()
-            .max_connections(2)
+            .max_connections(max_connections.max(1))
             .connect_with(opts)
             .await
             .map_err(|e| OmniError::connection("MySQL 连接失败").with_cause(e.to_string()))?;

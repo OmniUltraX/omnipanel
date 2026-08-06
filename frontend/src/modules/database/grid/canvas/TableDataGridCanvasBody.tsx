@@ -348,6 +348,15 @@ export const TableDataGridCanvasBody = forwardRef<
     // 捕获阶段确保一定收到滚动（部分 WebView 上冒泡可能被吃掉）
     wrap.addEventListener("scroll", onScroll, { passive: true, capture: true });
 
+    // Shift + 纵向滚动 → 横向滚动（macOS WKWebView 不会自动转换 deltaX）
+    const onWheel = (event: WheelEvent) => {
+      if (event.shiftKey && event.deltaY !== 0 && event.deltaX === 0) {
+        event.preventDefault();
+        wrap.scrollLeft += event.deltaY;
+      }
+    };
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+
     const ro = new ResizeObserver(() => {
       themeRef.current = null;
       measuredCacheRef.current = null; // 视口变化可能影响列宽，失效测量 cache
@@ -370,6 +379,7 @@ export const TableDataGridCanvasBody = forwardRef<
 
     return () => {
       wrap.removeEventListener("scroll", onScroll, true);
+      wrap.removeEventListener("wheel", onWheel);
       ro.disconnect();
       mo.disconnect();
       if (scrollIdleTimerRef.current != null) {

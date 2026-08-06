@@ -51,5 +51,14 @@ describe("tablePreviewFilterSql", () => {
     const text = buildWhereClauseText(filter, "postgres");
     expect(text.toLowerCase()).toContain("id");
     expect(text).toContain("1");
+    // 不应保留 formatQuery 的最外层括号，否则回车规范化后难以再编辑
+    expect(text.trim().startsWith("(")).toBe(false);
+  });
+
+  it("parseWhereClauseText accepts formerly paren-wrapped clauses", () => {
+    const parsed = parseWhereClauseText("(status = 1)");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.filter?.rules[0]).toMatchObject({ field: "status", operator: "=" });
   });
 });

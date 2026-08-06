@@ -145,6 +145,20 @@ pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
     }
 }
 
+/// 建立「独占连接」驱动（池大小 1），用于跨多次 execute 保持事务。
+/// 目前仅支持 MySQL / MariaDB / PostgreSQL。
+pub async fn connect_exclusive(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
+    match params.db_type.to_lowercase().as_str() {
+        "mysql" | "mariadb" => Ok(Box::new(mysql::MySqlDriver::connect_exclusive(params).await?)),
+        "postgres" | "postgresql" | "pg" => {
+            Ok(Box::new(postgres::PgDriver::connect_exclusive(params).await?))
+        }
+        other => Err(OmniError::invalid_input(format!(
+            "手动事务暂不支持该引擎：{other}"
+        ))),
+    }
+}
+
 pub async fn mongodb_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
     mongodb::MongoDriver::list_databases(params).await
 }

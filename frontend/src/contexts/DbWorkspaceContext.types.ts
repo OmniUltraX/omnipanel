@@ -30,6 +30,9 @@ export interface DbWorkspaceSharedContextValue {
     options?: { resultPage?: number; sessionId?: string },
   ) => Promise<void>;
   cancelQuery: (tabIdOverride?: string) => Promise<void>;
+  setSqlAutoCommit: (tabId: string, autoCommit: boolean) => Promise<void>;
+  commitSqlTransaction: (tabId: string) => Promise<void>;
+  rollbackSqlTransaction: (tabId: string) => Promise<void>;
   goToQueryResultPage: (tabId: string, page: number, sessionId?: string) => Promise<void>;
   updateSqlTabState: (id: string, patch: Partial<SqlTabState>) => void;
   closeSqlResultSession: (sqlTabId: string, sessionId: string) => void;

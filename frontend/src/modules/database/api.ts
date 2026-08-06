@@ -32,6 +32,8 @@ export interface DbConnectionConfig {
   status: string;
   /** 是否启用；`false` 时连接在侧栏显示为已关闭且不可展开查询 */
   enabled?: boolean;
+  /** 钥匙串中是否已保存密码（列表不返回明文） */
+  has_password?: boolean;
 }
 
 /** 未显式设为 `false` 时视为启用（兼容旧配置）。 */

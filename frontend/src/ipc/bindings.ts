@@ -45,6 +45,18 @@ export const commands = {
 	decryptNavicatPassword: (ciphertext: string) => typedError<string, string>(__TAURI_INVOKE("decrypt_navicat_password", { ciphertext })),
 	/**  批量解密 Navicat 密码；失败项返回空字符串。 */
 	decryptNavicatPasswords: (ciphertexts: string[]) => __TAURI_INVOKE<string[]>("decrypt_navicat_passwords", { ciphertexts }),
+	/**  编辑连接表单：从 Vault 取回明文密码（列表接口永不返回明文）。 */
+	dbGetConnectionSecret: (id: string) => typedError<string, string>(__TAURI_INVOKE("db_get_connection_secret", { id })),
+	/**  密文密钥库状态（是否已解锁、本机可导出条数）。 */
+	secretsVaultStatus: () => typedError<SecretsVaultStatus, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_status")),
+	/**  用主密码解锁：Argon2id 派生 Master Key，仅存内存。 */
+	secretsVaultUnlock: (deviceCode: string) => typedError<SecretsVaultStatus, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_unlock", { deviceCode })),
+	/**  清除内存中的 Master Key。 */
+	secretsVaultLock: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_lock")),
+	/**  导出本机钥匙串凭据，AES-GCM 加密后上传 OSS。 */
+	secretsVaultPush: (request: SecretsVaultPushRequest) => typedError<SecretsVaultPushResult, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_push", { request })),
+	/**  从 OSS 下载密文库，用设备识别码（主密码）解密后写回本机钥匙串。 */
+	secretsVaultPull: (request: SecretsVaultPullRequest) => typedError<SecretsVaultPullResult, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_pull", { request })),
 	dbSaveConnection: (connection: DbConnectionConfig) => typedError<DbConnectionConfig, string>(__TAURI_INVOKE("db_save_connection", { connection })),
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
 	dbLoadSchemaFilters: () => typedError<SchemaFiltersSnapshot, string>(__TAURI_INVOKE("db_load_schema_filters")),
@@ -2051,6 +2063,36 @@ export type DbColumnMeta_Serialize = {
 	length?: number | null,
 	/**  列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"） */
 	defaultValue?: string | null,
+};
+
+export type SecretsVaultStatus = {
+	unlocked: boolean,
+	hasLocalSalt: boolean,
+	secretCount: number,
+};
+
+export type SecretsVaultPushRequest = {
+	token: string,
+	deviceCode: string,
+	ossPath: string,
+};
+
+export type SecretsVaultPushResult = {
+	objectKey: string,
+	secretCount: number,
+	bytes: number,
+};
+
+export type SecretsVaultPullRequest = {
+	token: string,
+	deviceCode: string,
+	ossPath: string,
+};
+
+export type SecretsVaultPullResult = {
+	imported: number,
+	skipped: number,
+	secretCount: number,
 };
 
 /**  数据库连接配置（与前端 `DbConnectionConfig` / Tauri IPC 一致）。 */

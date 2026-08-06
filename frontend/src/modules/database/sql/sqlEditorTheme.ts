@@ -76,6 +76,120 @@ const lightHighlight = HighlightStyle.define([
   { tag: t.separator, color: "#636366" },
 ]);
 
+/** 表数据查询栏等轻量单行输入复用的语法高亮（不含主编辑器大 padding）。 */
+export function getSqlInlineHighlightStyle(isLight: boolean): HighlightStyle {
+  return isLight ? lightHighlight : darkHighlight;
+}
+
+/**
+ * WHERE / ORDER 等单行 SQL 输入主题：
+ * 与主 SQL 编辑器共用高亮色、字体排版、选区与补全浮层样式；
+ * 仅覆盖布局（无 gutter、紧凑行高），避免 12px 上下 padding 裁切文字。
+ */
+export function getSqlInlineInputThemeExtensions(
+  isLight: boolean,
+  typography: SqlEditorTypography = getSqlEditorTypographyFromStore(),
+): Extension[] {
+  const fontStack = sqlEditorFontStack(typography.fontFamily);
+  const fontSize = typography.fontSize;
+  const linePx = Math.max(22, Math.round(fontSize * Math.min(typography.lineHeight, 1.35)));
+  const fg = isLight ? "#1d1d1f" : "#fdfcfc";
+  const bg = isLight ? "#e8e8ed" : "#1a1717";
+
+  return [
+    syntaxHighlighting(isLight ? lightHighlight : darkHighlight, { fallback: true }),
+    EditorView.theme(
+      {
+        "&": {
+          height: `${linePx}px`,
+          minHeight: `${linePx}px`,
+          maxHeight: `${linePx}px`,
+          width: "100%",
+          backgroundColor: bg,
+          color: fg,
+          fontSize: `${fontSize}px`,
+          cursor: "text",
+        },
+        "&.cm-focused": { outline: "none" },
+        ".cm-scroller": {
+          overflowX: "auto",
+          overflowY: "hidden",
+          alignItems: "center",
+          fontFamily: fontStack,
+          fontSize: `${fontSize}px`,
+          lineHeight: `${linePx}px`,
+          cursor: "text",
+        },
+        ".cm-content": {
+          padding: "0 8px",
+          caretColor: fg,
+          minHeight: `${linePx}px`,
+          lineHeight: `${linePx}px`,
+          fontFamily: fontStack,
+          fontSize: `${fontSize}px`,
+          cursor: "text",
+        },
+        ".cm-line": {
+          padding: "0",
+          lineHeight: `${linePx}px`,
+        },
+        ".cm-gutters": { display: "none !important" },
+        ".cm-activeLine": { backgroundColor: "transparent !important" },
+        ".cm-activeLineGutter": { backgroundColor: "transparent !important" },
+        ".cm-cursor, .cm-dropCursor": { borderLeftColor: fg },
+        ".cm-selectionBackground": {
+          backgroundColor: isLight ? "#007aff18 !important" : "#007aff20 !important",
+        },
+        "&.cm-focused .cm-selectionBackground": {
+          backgroundColor: isLight ? "#007aff30 !important" : "#007aff40 !important",
+        },
+        ".cm-content ::selection": {
+          backgroundColor: isLight ? "#007aff30 !important" : "#007aff40 !important",
+        },
+        ".cm-selectionMatch, &.cm-focused .cm-selectionMatch": {
+          backgroundColor: "transparent !important",
+        },
+        ".cm-placeholder": {
+          color: isLight ? "#aeaeb2" : "#6e6e73",
+          fontStyle: "normal",
+          lineHeight: `${linePx}px`,
+        },
+        ...sharedAutocompleteTheme,
+        ".cm-tooltip": {
+          backgroundColor: "var(--surface)",
+          border: "1px solid var(--border)",
+          color: "var(--fg)",
+          borderRadius: "8px",
+          boxShadow:
+            "0 10px 28px color-mix(in srgb, #000 24%, transparent), 0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent)",
+          overflow: "hidden",
+          zIndex: "10050",
+        },
+      },
+      { dark: !isLight },
+    ),
+  ];
+}
+
+function semanticHighlightTheme(colors: {
+  table: string;
+  alias: string;
+  column: string;
+  database: string;
+}) {
+  const inherit = { color: "inherit !important" as const };
+  return {
+    ".cm-sqlSemanticTable": { color: `${colors.table} !important` },
+    ".cm-sqlSemanticTable *": inherit,
+    ".cm-sqlSemanticAlias": { color: `${colors.alias} !important` },
+    ".cm-sqlSemanticAlias *": inherit,
+    ".cm-sqlSemanticColumn": { color: `${colors.column} !important` },
+    ".cm-sqlSemanticColumn *": inherit,
+    ".cm-sqlSemanticDatabase": { color: `${colors.database} !important` },
+    ".cm-sqlSemanticDatabase *": inherit,
+  };
+}
+
 const sharedAutocompleteTheme = {
   ".cm-tooltip": {
     backgroundColor: "var(--surface)",
@@ -290,6 +404,12 @@ function createDarkTheme(typography: SqlEditorTypography) {
         backgroundColor: "color-mix(in srgb, var(--warn) 35%, transparent)",
         borderRadius: "2px",
       },
+      ...semanticHighlightTheme({
+        table: "#e5c07b",
+        alias: "#c678dd",
+        column: "#ff9f0a",
+        database: "#64d2ff",
+      }),
       ...sharedAutocompleteTheme,
       ".cm-sql-function-signature": {
         position: "sticky",
@@ -415,6 +535,12 @@ function createLightTheme(typography: SqlEditorTypography) {
         backgroundColor: "color-mix(in srgb, var(--warn) 35%, transparent)",
         borderRadius: "2px",
       },
+      ...semanticHighlightTheme({
+        table: "#c18401",
+        alias: "#a626a4",
+        column: "#ff9500",
+        database: "#007aff",
+      }),
       ...sharedAutocompleteTheme,
       ".cm-sql-function-signature": {
         position: "sticky",

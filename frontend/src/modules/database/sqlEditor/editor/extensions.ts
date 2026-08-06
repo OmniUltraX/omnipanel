@@ -8,6 +8,7 @@ import {
   highlightActiveLineGutter,
   drawSelection,
   dropCursor,
+  tooltips,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -37,6 +38,7 @@ import { createSqlHoverTooltip } from "../language/hover";
 import { createSqlLintRunGutter } from "../language/runStatementGutter";
 import { createFunctionSignaturePlugin } from "../language/signature";
 import { createInsertColumnInlayExtension } from "../language/insertColumnInlays";
+import { createSqlSemanticHighlight } from "../language/semantic";
 import { resolveSqlToRun } from "../language/selection";
 
 export interface SqlEditorExtensionOptions {
@@ -91,7 +93,29 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     createFunctionSignaturePlugin(getDbType),
     ...createInsertColumnInlayExtension(),
     createSqlLinter(getDbType, getSchemas),
+    // Hover / 补全挂到 body，并避开顶部 dock 标签栏，避免被裁切或遮挡
+    tooltips({
+      parent: document.body,
+      position: "fixed",
+      tooltipSpace: () => {
+        let top = 8;
+        for (const bar of document.querySelectorAll<HTMLElement>(".dv-tabs-and-actions-container")) {
+          const rect = bar.getBoundingClientRect();
+          // 仅避开窗口顶部可见的标签栏
+          if (rect.height < 8 || rect.width < 8) continue;
+          if (rect.top > 80) continue;
+          top = Math.max(top, Math.ceil(rect.bottom) + 6);
+        }
+        return {
+          top,
+          left: 8,
+          right: window.innerWidth - 8,
+          bottom: window.innerHeight - 8,
+        };
+      },
+    }),
     createSqlHoverTooltip(getSchemas, getDbType, getReadOnly),
+    createSqlSemanticHighlight(getSchemas, getDbType),
     autocompletion({
       activateOnTyping: true,
       maxRenderedOptions: 80,

@@ -96,6 +96,10 @@ import {
 } from "./api";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./sqlEditor/language/completionItems";
 import { formatSql } from "./sqlIntel/sqlFormat";
+import {
+  appendSuccessfulSqlQueryHistory,
+  resolveSqlHistoryScopeId,
+} from "./sql/sqlQueryHistoryStore";
 import { sqlRequiresDatabaseContext } from "./sqlIntel/connectionLevelSql";
 import { toCsv } from "./shared/csvExport";
 import { fetchAndApplyTableColumnMeta, isAutoIncrementColumn } from "./shared/columnMetaUtils";
@@ -4978,23 +4982,52 @@ export function DatabasePanel() {
     });
 
     const started = performance.now();
+    const useManualTxn = tabState.autoCommit === false;
     try {
-      const res = await invoke<QueryResult>("db_execute_query", {
-        connection: conn,
-        sql,
-        runId,
-        limit: pageSize,
-        offset: 0,
-      });
+      const res = useManualTxn
+        ? await invoke<QueryResult>("db_execute_query_in_session", {
+            sessionId: resolvedTabId,
+            connection: conn,
+            sql,
+            runId,
+            limit: pageSize,
+            offset: 0,
+          })
+        : await invoke<QueryResult>("db_execute_query", {
+            connection: conn,
+            sql,
+            runId,
+            limit: pageSize,
+            offset: 0,
+          });
+      const elapsed = Math.round(performance.now() - started);
       const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
       updateSqlResultSession(resolvedTabId, session.id, {
         result: res,
         resultPage: 0,
         resultHasMore: hasMore,
-        elapsed: Math.round(performance.now() - started),
+        elapsed,
         running: false,
       });
-      updateSqlTabState(resolvedTabId, { running: false, activeQueryRunId: null });
+      updateSqlTabState(resolvedTabId, {
+        running: false,
+        activeQueryRunId: null,
+        ...(useManualTxn ? { inTransaction: true } : {}),
+      });
+
+      const historyTab = workspaceTabsRef.current.find((item) => item.id === resolvedTabId);
+      const historyScope = resolveSqlHistoryScopeId(
+        historyTab?.kind === "sql" ? historyTab.sqlFileId : undefined,
+        resolvedTabId,
+      );
+      appendSuccessfulSqlQueryHistory(historyScope, {
+        sql,
+        elapsedMs: elapsed,
+        connectionName: conn.name,
+        database: conn.database,
+        rowsAffected: res.rowsAffected,
+        rowCount: res.rows.length,
+      });
     } catch (e) {
       updateSqlResultSession(resolvedTabId, session.id, {
         result: null,
@@ -5052,6 +5085,65 @@ export function DatabasePanel() {
     }
     updateSqlTabState(tabId, { running: false, activeQueryRunId: null });
   }, [activeWorkspaceTab, t, updateSqlResultSession, updateSqlTabState]);
+
+  const setSqlAutoCommit = useCallback(
+    async (tabId: string, autoCommit: boolean) => {
+      const tabState = useDbWorkspaceTabStore.getState().sqlTabStates[tabId];
+      if (!tabState) return;
+      if (autoCommit === tabState.autoCommit) return;
+
+      if (autoCommit) {
+        // 切回自动提交：若有未提交事务则提交并关闭会话
+        if (tabState.inTransaction) {
+          try {
+            await invoke("db_query_session_commit", { sessionId: tabId });
+          } catch (e) {
+            const message = typeof e === "string" ? e : JSON.stringify(e);
+            updateSqlTabState(tabId, { error: message });
+            return;
+          }
+        }
+        try {
+          await invoke("db_query_session_close", { sessionId: tabId });
+        } catch {
+          // ignore
+        }
+        updateSqlTabState(tabId, { autoCommit: true, inTransaction: false, error: null });
+        return;
+      }
+
+      updateSqlTabState(tabId, { autoCommit: false, error: null });
+    },
+    [updateSqlTabState],
+  );
+
+  const commitSqlTransaction = useCallback(
+    async (tabId: string) => {
+      try {
+        await invoke("db_query_session_commit", { sessionId: tabId });
+        updateSqlTabState(tabId, { inTransaction: false, error: null });
+      } catch (e) {
+        updateSqlTabState(tabId, {
+          error: typeof e === "string" ? e : JSON.stringify(e),
+        });
+      }
+    },
+    [updateSqlTabState],
+  );
+
+  const rollbackSqlTransaction = useCallback(
+    async (tabId: string) => {
+      try {
+        await invoke("db_query_session_rollback", { sessionId: tabId });
+        updateSqlTabState(tabId, { inTransaction: false, error: null });
+      } catch (e) {
+        updateSqlTabState(tabId, {
+          error: typeof e === "string" ? e : JSON.stringify(e),
+        });
+      }
+    },
+    [updateSqlTabState],
+  );
 
   const goToQueryResultPage = useCallback(
     async (tabId: string, page: number, sessionId?: string) => {
@@ -5193,6 +5285,9 @@ export function DatabasePanel() {
         closeTab: (tabId: string) => requestTabAction({ kind: "close", tabId }),
         runQuery,
         cancelQuery,
+        setSqlAutoCommit,
+        commitSqlTransaction,
+        rollbackSqlTransaction,
         goToQueryResultPage,
         updateSqlTabState,
         closeSqlResultSession,
@@ -5243,6 +5338,9 @@ export function DatabasePanel() {
     requestTabAction,
     runQuery,
     cancelQuery,
+    setSqlAutoCommit,
+    commitSqlTransaction,
+    rollbackSqlTransaction,
     updateSqlTabState,
     closeSqlResultSession,
     setSqlResultSessionPinned,

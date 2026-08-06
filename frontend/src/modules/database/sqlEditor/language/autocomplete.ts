@@ -378,6 +378,22 @@ function columnSuggestions(
   }));
 }
 
+/** `表.` 后首项：插入该表全部字段名（逗号连接，不含表前缀）。 */
+function allColumnsDotSuggestion(
+  tableName: string,
+  columns: DatabaseSchema["tables"][number]["columns"],
+): Completion | null {
+  if (columns.length === 0) return null;
+  const apply = columns.map((col) => col.name).join(", ");
+  const label = apply.length > 96 ? `${apply.slice(0, 93)}...` : apply;
+  return {
+    label,
+    type: "property",
+    detail: `全部字段 · ${tableName}`,
+    apply,
+  };
+}
+
 function mapCompletionItemToOption(
   item: {
     label: string;
@@ -474,6 +490,27 @@ function tableDotSuggestions(
       col.label,
     ),
   );
+
+  // 无字段前缀时，第一行提供「全部字段」逗号拼接项（仅字段名）
+  if (!prefix) {
+    const allFields = allColumnsDotSuggestion(ctx.table.name, ctx.table.columns);
+    if (allFields) {
+      options.unshift(
+        attachCompletionUsageTracking(
+          {
+            ...allFields,
+            boost:
+              tierBoostForKind(COLUMN_KIND) +
+              100 +
+              getSqlCompletionUsageBoost(COLUMN_KIND, allFields.label),
+          },
+          COLUMN_KIND,
+          allFields.label,
+        ),
+      );
+    }
+  }
+
   if (options.length === 0) return null;
 
   return {

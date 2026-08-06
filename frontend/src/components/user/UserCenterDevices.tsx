@@ -14,6 +14,7 @@ import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
 import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
+import { DeviceSecretsVaultPanel } from "./DeviceSecretsVaultPanel";
 import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 
@@ -63,7 +64,7 @@ function DeviceList({
   }
 
   return (
-    <ul className="user-center-device-list">
+    <ul className="user-center-device-grid">
       {devices.map((device) => {
         const isCurrent = Boolean(localDeviceId && device.deviceId === localDeviceId);
         const name = device.deviceName.trim() || device.deviceId || t("userCenter.devices.unnamed");
@@ -71,52 +72,74 @@ function DeviceList({
         return (
           <li
             key={device.id || device.deviceId || `${device.ip}-${device.lastLoginAt}`}
-            className={`user-center-device-item${isCurrent ? " is-current" : ""}`}
+            className={`user-center-device-card${isCurrent ? " is-current" : ""}`}
           >
-            <div className="user-center-device-item__icon" aria-hidden>
-              <IconMonitor size={16} />
-            </div>
-            <div className="user-center-device-item__body">
-              <div className="user-center-device-item__title-row">
-                <span className="user-center-device-item__name">{name}</span>
-                <span
-                  className={`user-center-device-item__badge user-center-device-item__badge--presence${
-                    device.online ? " is-online" : " is-offline"
-                  }`}
-                >
-                  {device.online
-                    ? t("userCenter.devices.online")
-                    : t("userCenter.devices.offline")}
+            <div className="user-center-device-card__header">
+              <div className="user-center-device-card__icon" aria-hidden>
+                <IconMonitor size={18} />
+              </div>
+              <div className="user-center-device-card__heading">
+                <span className="user-center-device-card__name" title={name}>
+                  {name}
                 </span>
-                {isCurrent ? (
-                  <span className="user-center-device-item__badge">
-                    {t("userCenter.devices.current")}
+                <div className="user-center-device-card__badges">
+                  <span
+                    className={`user-center-device-card__badge user-center-device-card__badge--presence${
+                      device.online ? " is-online" : " is-offline"
+                    }`}
+                  >
+                    {device.online
+                      ? t("userCenter.devices.online")
+                      : t("userCenter.devices.offline")}
                   </span>
-                ) : null}
-              </div>
-              <div className="user-center-device-item__meta">
-                <span>{formatOsLabel(device.osType, t)}</span>
-                <span>{device.ip.trim() || t("userCenter.devices.unknownIp")}</span>
-                {device.appId.trim() ? <span>{device.appId}</span> : null}
-                <span>
-                  {t("userCenter.devices.lastLogin")}:{" "}
-                  {formatDeviceTime(device.lastLoginAt, locale)}
-                </span>
-                {!device.online && device.loginStatus === "logged_in" ? (
-                  <span>{t("userCenter.devices.loggedInOffline")}</span>
-                ) : null}
+                  {isCurrent ? (
+                    <span className="user-center-device-card__badge">
+                      {t("userCenter.devices.current")}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="user-center-device-item__delete"
-              disabled={Boolean(deletingId)}
-              onClick={() => onDelete(device)}
-            >
-              {busy ? t("userCenter.devices.deleting") : t("userCenter.devices.delete")}
-            </Button>
+
+            <dl className="user-center-device-card__meta">
+              <div className="user-center-device-card__meta-row">
+                <dt>{t("userCenter.devices.meta.os")}</dt>
+                <dd>{formatOsLabel(device.osType, t)}</dd>
+              </div>
+              <div className="user-center-device-card__meta-row">
+                <dt>{t("userCenter.devices.meta.ip")}</dt>
+                <dd>{device.ip.trim() || t("userCenter.devices.unknownIp")}</dd>
+              </div>
+              {device.appId.trim() ? (
+                <div className="user-center-device-card__meta-row">
+                  <dt>{t("userCenter.devices.meta.app")}</dt>
+                  <dd title={device.appId}>{device.appId}</dd>
+                </div>
+              ) : null}
+              <div className="user-center-device-card__meta-row">
+                <dt>{t("userCenter.devices.lastLogin")}</dt>
+                <dd>{formatDeviceTime(device.lastLoginAt, locale)}</dd>
+              </div>
+              {!device.online && device.loginStatus === "logged_in" ? (
+                <div className="user-center-device-card__meta-row">
+                  <dt>{t("userCenter.devices.meta.status")}</dt>
+                  <dd>{t("userCenter.devices.loggedInOffline")}</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            <div className="user-center-device-card__footer">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="user-center-device-card__delete"
+                disabled={Boolean(deletingId)}
+                onClick={() => onDelete(device)}
+              >
+                {busy ? t("userCenter.devices.deleting") : t("userCenter.devices.delete")}
+              </Button>
+            </div>
           </li>
         );
       })}
@@ -292,6 +315,8 @@ export function UserCenterDevices() {
 
   return (
     <div className="user-center-content">
+      <DeviceSecretsVaultPanel />
+
       <section className="user-center-section">
         <div className="user-center-devices__header">
           <div>

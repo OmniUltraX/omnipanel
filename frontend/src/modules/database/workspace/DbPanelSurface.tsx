@@ -17,7 +17,6 @@ import { useDbDockTabActive } from "../useDbDockTabActive";
 import type { SqlWorkspaceTab } from "./workspaceTabs";
 import { DockLayout, DockHandle, DockPanel } from "../../../components/dock";
 import { ToolbarMenuButton } from "../../../components/ui/menu/ToolbarMenuButton";
-import { Button } from "../../../components/ui/primitives/Button";
 import { Select } from "../../../components/ui/form/Select";
 import { SqlEditor, type SqlEditorHandle, type SqlEditorOpenMode } from "../sql/SqlEditor";
 import { SqlResultSessionsDock } from "../sql/SqlResultSessionsDock";
@@ -32,6 +31,8 @@ import { useI18n } from "../../../i18n";
 import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
 import { sqlAtOffset } from "../sqlIntel/sqlStatement";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
+import { SqlToolbarLeftControls } from "../sql/SqlToolbarLeftControls";
+import { resolveSqlHistoryScopeId } from "../sql/sqlQueryHistoryStore";
 import { isConnectionEnabled } from "../api";
 import type { DatabaseSchema } from "../types";
 import {
@@ -482,11 +483,30 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     clearResultSelection,
   ]);
   /** 工具栏通栏在上；预览分栏只占工具栏以下区域 */
+  const historyScopeId = resolveSqlHistoryScopeId(tab.sqlFileId, tab.id);
+  const supportsManualTxn = useMemo(() => {
+    const t = (tabConn?.db_type ?? "").toLowerCase();
+    return t === "mysql" || t === "mariadb" || t === "postgres" || t === "postgresql" || t === "pg";
+  }, [tabConn?.db_type]);
+
   const toolbarContent = (
     <>
       <div className="sql-toolbar">
+        <SqlToolbarLeftControls
+          historyScopeId={historyScopeId}
+          running={tabState.running}
+          autoCommit={tabState.autoCommit !== false}
+          inTransaction={Boolean(tabState.inTransaction)}
+          supportsManualTxn={supportsManualTxn}
+          onFormat={() => sqlEditorRef.current?.formatAll()}
+          onCancel={() => void ws.cancelQuery(tab.id)}
+          onAutoCommitChange={(next) => void ws.setSqlAutoCommit(tab.id, next)}
+          onCommit={() => void ws.commitSqlTransaction(tab.id)}
+          onRollback={() => void ws.rollbackSqlTransaction(tab.id)}
+        />
+        <div className="sql-toolbar-divider" aria-hidden />
         <Select
-          className="db-select"
+          className="db-select sql-toolbar-conn-select"
           value={tabConn?.id ?? tabState.connId ?? ""}
           onChange={(v) => ws.setSqlTabConnection(tab.id, v || null)}
           disabled={!tabState.connId && sqlConnections.length === 0}
@@ -506,7 +526,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           }
         />
         <Select
-          className="db-select"
+          className="db-select sql-toolbar-db-select"
           value={tabState.database}
           onChange={(v) => ws.updateSqlTabState(tab.id, { database: v })}
           disabled={!tabState.connId}
@@ -522,47 +542,14 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         {schemaLoading && (
           <span className="sql-toolbar-meta">{t("common.loading")}</span>
         )}
-        <Button
-          variant="icon"
-          title={t("database.formatSqlFile")}
-          aria-label={t("database.formatSqlFile")}
-          disabled={tabState.running}
-          onClick={() => sqlEditorRef.current?.formatAll()}
-        >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            width="14"
-            height="14"
-            aria-hidden
-          >
-            <path d="M2 3.5h12" strokeLinecap="round" />
-            <path d="M2 7h8" strokeLinecap="round" />
-            <path d="M2 10.5h10" strokeLinecap="round" />
-            <path d="M2 14h6" strokeLinecap="round" />
-          </svg>
-        </Button>
-        {tabState.running ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            style={{ marginLeft: "auto" }}
-            onClick={() => void ws.cancelQuery(tab.id)}
-          >
-            {t("database.cancelSql")}
-          </Button>
-        ) : (
-          <ToolbarMenuButton
-            label={t("database.runSql")}
-            title={t("database.runSql")}
-            variant="primary"
-            disabled={!canRunSql}
-            className="sql-toolbar-run"
-            items={runSqlMenuItems}
-          />
-        )}
+        <ToolbarMenuButton
+          label={t("database.runSql")}
+          title={t("database.runSql")}
+          variant="primary"
+          disabled={!canRunSql || tabState.running}
+          className="sql-toolbar-run"
+          items={runSqlMenuItems}
+        />
       </div>
       {tabState.error && !tabState.running ? (
         <div className="sql-toolbar-error text-danger">{tabState.error}</div>
