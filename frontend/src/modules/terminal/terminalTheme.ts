@@ -24,6 +24,9 @@ export const DARK_TERMINAL_THEME: ITheme = {
   brightMagenta: "#e599f7",
   brightCyan: "#99e9f2",
   brightWhite: "#fff9f0",
+  scrollbarSliderBackground: "#f4f1ed33",
+  scrollbarSliderHoverBackground: "#f4f1ed66",
+  scrollbarSliderActiveBackground: "#f4f1ed80",
 };
 
 /**
@@ -63,6 +66,9 @@ export const LIGHT_TERMINAL_THEME: ITheme = {
   brightMagenta: "#c400cc",
   brightCyan: "#0099b0",
   brightWhite: "#000000",
+  scrollbarSliderBackground: "rgba(0, 0, 0, 0.18)",
+  scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.32)",
+  scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.45)",
 };
 
 /**

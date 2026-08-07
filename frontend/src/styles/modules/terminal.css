@@ -21,23 +21,60 @@
         flex-direction: column;
         position: relative;
         box-sizing: border-box;
+        /* 水平内边距放到 .xterm 上：FitAddon 只认 .xterm 的 padding，
+           父级 padding 会导致 screen 比 scrollable 宽一截，滚动条也不贴边 */
+        padding: 0;
     }
 
-    /* 原生 / 直通全屏终端：仅水平内边距，与 Warp feed 左右对齐 */
-    .term-terminal-shell .term-xterm-wrap:not(.term-xterm-wrap--live),
-    .term-terminal-shell--warp .term-xterm-wrap--live.term-xterm-wrap--live-native {
-        padding: 0 var(--sp-4);
+    /* 原生 / 直通全屏终端：仅左侧内边距对齐 Warp feed；右侧 0 让滚动条贴边 */
+    .term-terminal-shell .term-xterm-wrap:not(.term-xterm-wrap--live) > .xterm,
+    .term-terminal-shell--warp .term-xterm-wrap--live.term-xterm-wrap--live-native > .xterm {
+        padding: 0 0 0 var(--sp-4);
+        box-sizing: border-box;
     }
 
     .term-xterm-wrap .xterm {
         flex: 1;
         height: 100%;
         width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        /* 底色见文件末尾 @layer 外覆盖（须压过 xterm.css 的 #000） */
     }
 
-    .term-xterm-wrap .xterm-viewport,
-    .term-xterm-wrap .xterm-scrollable-element {
-        height: 100% !important;
+    /* xterm 6：viewport 仍带 overflow-y:scroll，关掉避免多一条原生条 */
+    .term-xterm-wrap .xterm .xterm-viewport {
+        overflow: hidden !important;
+    }
+
+    /*
+     * 双滚动条根因：xterm 为 decoration 溢出注释掉了 scrollable 的 overflow:hidden，
+     * .xterm-screen 撑开后浏览器再画原生条，与模拟 .slider 并存。
+     * 不可再强制 overflow:hidden（会打乱 WebGL/scroll 同步，关 tab 重开花屏）。
+     * 只隐藏原生滚动条视觉与占位，滚动仍由模拟 slider 处理。
+     */
+    .term-xterm-wrap .xterm .xterm-scrollable-element {
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /*旧 Edge */
+    }
+    .term-xterm-wrap .xterm .xterm-scrollable-element::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        display: none !important;
+        background: transparent;
+    }
+
+    .term-xterm-wrap .xterm .composition-view {
+        color: var(--fg);
+    }
+
+    /* xterm 6 SmoothScrollable 竖条：贴右、变细、跟主题色 */
+    .term-xterm-wrap .xterm-scrollable-element > .scrollbar.vertical {
+        right: 0 !important;
+        width: 10px !important;
+    }
+    .term-xterm-wrap .xterm-scrollable-element > .scrollbar > .slider {
+        border-radius: 5px;
     }
 
     .term-xterm-wrap--external-input .xterm-cursor-layer,
@@ -1739,103 +1776,228 @@
     }
 
     /* 直通 Shell Agent：流内 decoration 卡片（portal 进 xterm decoration element）。
-       高度由内容决定，占位行数由 fitShellAgentCardToContent 同步。 */
-    .term-shell-agent-deco-card {
+       视觉对齐设计稿 terminal-ai.css（flat、无阴影、头栏态）。 */
+    .term-shell-agent-portal-host {
         width: 100%;
-        height: auto;
-        max-height: none;
-        overflow: visible;
-        pointer-events: auto;
+        height: 100%;
+        min-height: 0;
+        max-height: 100%;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
         align-items: flex-start;
         box-sizing: border-box;
-        padding: 0;
-        background: transparent;
+        pointer-events: auto;
     }
 
-    /* 已归档冻结的历史卡：留在 scrollback，保留完整样式 */
-    .term-shell-agent-deco-card--frozen {
-        pointer-events: none;
+    /* 结果卡：允许内容超出 decoration，再由 fit 撑高占位，避免解读被裁切 */
+    .term-shell-agent-portal-host:has([data-card-kind="final"]) {
+        height: auto;
+        max-height: none;
         overflow: visible;
     }
 
+    .term-shell-agent-deco-card {
+        width: 100%;
+        height: auto;
+        max-height: 100%;
+        overflow: hidden;
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        /* 卡片左对齐并受 max-width 约束，勿横向拉满超宽终端 */
+        align-items: flex-start;
+        box-sizing: border-box;
+        padding: 0;
+        margin: 0;
+        background: transparent;
+        align-self: flex-start;
+    }
+
+    .term-shell-agent-deco-card--frozen {
+        pointer-events: auto;
+        overflow: visible;
+        max-height: none;
+    }
+
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done *,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-agreed,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-agreed *,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-tool,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-tool * {
+        pointer-events: auto;
+        cursor: pointer;
+    }
+
     .term-shell-agent-deco-card--frozen .term-shell-agent-card__note,
-    .term-shell-agent-deco-card--frozen .term-shell-agent-card__lead {
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card__desc {
         white-space: pre-wrap;
         display: block;
         -webkit-line-clamp: unset;
         overflow: visible;
+    }
+
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done .term-shell-agent-card__note {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .term-shell-agent-deco-card .term-shell-agent-card {
         pointer-events: auto;
         width: 100%;
-        max-width: 100%;
+        max-width: min(720px, 100%);
         height: auto;
         max-height: none;
         overflow: visible;
         box-sizing: border-box;
-        padding: 4px 8px;
-        box-shadow: none;
-        margin-left: 0;
-    }
-
-    .term-shell-agent-deco-card .term-shell-agent-card__lead {
-        white-space: nowrap;
-        -webkit-line-clamp: 1;
-        margin-bottom: 4px;
-    }
-
-    .term-shell-agent-deco-card .term-shell-agent-card__code {
-        max-height: none;
-        padding: 4px 8px;
-    }
-
-    .term-shell-agent-deco-card .term-shell-agent-card__code code {
-        -webkit-line-clamp: unset;
-        white-space: pre-wrap;
+        margin: 2px 0;
     }
 
     .term-shell-agent-deco-card[data-card-kind="final"] {
-        overflow: auto;
-    }
-
-    .term-shell-agent-deco-card[data-card-kind="final"] .term-shell-agent-card {
         max-height: none;
         overflow: visible;
     }
 
-    .term-shell-agent-deco-card .term-shell-agent-card--final .term-shell-agent-card__note {
-        white-space: pre-wrap;
-        display: block;
-        -webkit-line-clamp: unset;
-        overflow: visible;
-    }
-
-    .term-shell-agent-deco-card .term-shell-agent-card__status {
-        margin-bottom: 4px;
-    }
-
     .term-shell-agent-card {
-        border-radius: 6px;
-        border: 1px solid var(--border, #d0d0d0);
-        background: var(--surface, #f7f7f7);
-        padding: 8px 12px;
-        box-shadow: 0 4px 16px color-mix(in srgb, #000 8%, transparent);
-        color: var(--text, #1a1a1a);
-        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        /* 相对终端画布抬升一层：浅色主题避免白底白卡，深色主题仍贴合 surface */
+        background: color-mix(in oklch, var(--surface) 78%, var(--bg-deeper));
+        color: var(--fg);
+        font-family: var(--font-mono);
         font-size: 12.5px;
-        line-height: 1.4;
+        line-height: 1.45;
+        overflow: hidden;
+        box-shadow: none;
+    }
+
+    .term-shell-agent-card.is-pending {
+        border-color: color-mix(in oklch, var(--accent) 45%, var(--border));
+    }
+    .term-shell-agent-card.is-agreed {
+        border-color: color-mix(in oklch, var(--success) 35%, var(--border));
+    }
+    .term-shell-agent-card.is-agreed .term-shell-agent-card__actions .term-shell-agent-btn:disabled {
+        opacity: 0.85;
+        cursor: default;
+    }
+    .term-shell-agent-card.is-agreed .term-shell-agent-card__actions .term-shell-agent-btn--primary:disabled {
+        opacity: 1;
+    }
+    .term-shell-agent-card.is-rejected {
+        border-color: color-mix(in oklch, var(--muted) 45%, var(--border));
+    }
+    .term-shell-agent-card.is-rejected .term-shell-agent-card__status-label.muted {
+        color: var(--muted);
+    }
+    .term-shell-agent-card.is-rejected .term-shell-agent-card__actions .term-shell-agent-btn:disabled {
+        opacity: 0.9;
+        cursor: default;
+    }
+    .term-shell-agent-btn--muted {
+        background: color-mix(in oklch, var(--muted) 16%, var(--surface));
+        color: var(--fg-2);
+        border: 1px solid color-mix(in oklch, var(--muted) 28%, var(--border));
+    }
+    .term-shell-agent-btn--muted:hover:not(:disabled) {
+        background: color-mix(in oklch, var(--muted) 22%, var(--surface));
+    }
+    .term-shell-agent-btn--muted:disabled {
+        opacity: 0.9;
+    }
+    .term-shell-agent-card.is-danger {
+        border-color: color-mix(in oklch, var(--danger) 45%, var(--border));
+    }
+    .term-shell-agent-card.is-error {
+        border-color: color-mix(in oklch, var(--danger) 40%, var(--border));
     }
 
     .term-shell-agent-card--note {
         display: grid;
-        grid-template-columns: 8px 1fr auto;
+        grid-template-columns: auto 1fr auto;
         column-gap: 8px;
-        align-items: start;
+        align-items: center;
         padding: 6px 10px;
+    }
+    .term-shell-agent-card--note.is-expandable {
+        cursor: pointer;
+    }
+    .term-shell-agent-card--note.is-expandable:hover {
+        border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+    }
+    .term-shell-agent-card__note-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
+    /* 工具调用条带（对齐设计 nl-tool） */
+    .term-shell-agent-tool {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        max-width: min(720px, 100%);
+        margin: 2px 0;
+        padding: 6px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: color-mix(in oklch, var(--accent) 8%, var(--surface));
+        color: var(--fg);
+        font-size: 12px;
+        box-sizing: border-box;
+    }
+    .term-shell-agent-tool.is-running {
+        border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+    }
+    .term-shell-agent-tool.is-done {
+        border-color: color-mix(in oklch, var(--success) 30%, var(--border));
+    }
+    .term-shell-agent-tool.is-fail {
+        border-color: color-mix(in oklch, var(--danger) 35%, var(--border));
+        background: color-mix(in oklch, var(--danger) 6%, var(--surface));
+    }
+    .term-shell-agent-tool__ico {
+        flex-shrink: 0;
+        color: var(--accent);
+        font-weight: 700;
+    }
+    .term-shell-agent-tool.is-done .term-shell-agent-tool__ico {
+        color: var(--success);
+    }
+    .term-shell-agent-tool.is-fail .term-shell-agent-tool__ico {
+        color: var(--danger);
+    }
+    .term-shell-agent-tool__name {
+        color: var(--fg-2);
+        font-weight: 500;
+    }
+    .term-shell-agent-tool__state {
+        color: var(--muted);
+    }
+    .term-shell-agent-tool__state.ok {
+        color: var(--success);
+    }
+    .term-shell-agent-tool__state.fail {
+        color: var(--danger);
+    }
+    .term-shell-agent-tool__spacer {
+        flex: 1;
+    }
+
+    .term-shell-agent-card--cmd {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        max-width: min(720px, 100%);
+        text-align: left;
+        padding: 0;
     }
 
     .term-shell-agent-card--final {
@@ -1844,147 +2006,401 @@
         align-items: flex-start;
         gap: 8px;
         width: 100%;
-        padding: 8px 12px;
+        max-width: min(720px, 100%);
+        padding: 10px 12px;
         text-align: left;
-        background: var(--surface, #f7f7f7);
-        border: 1px solid var(--border, #d0d0d0);
-        box-shadow: 0 4px 16px color-mix(in srgb, #000 8%, transparent);
-    }
-
-    .term-shell-agent-card--cmd {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        width: 100%;
-        text-align: left;
-    }
-
-    .term-shell-agent-card__dot {
-        width: 6px;
-        height: 6px;
-        margin-top: 5px;
-        border-radius: 50%;
-        background: var(--accent, #007aff);
-    }
-
-    .term-shell-agent-card__lead {
-        color: var(--text-muted, #666);
-        font-size: 12px;
-        margin-bottom: 6px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .term-shell-agent-card__note {
-        color: var(--text, #1a1a1a);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .term-shell-agent-card--final .term-shell-agent-card__note {
-        white-space: normal;
-        display: block;
+        background: color-mix(in oklch, var(--surface) 78%, var(--bg-deeper));
+        border: 1px solid var(--border);
+        box-shadow: none;
         overflow: visible;
-        width: 100%;
-        -webkit-line-clamp: unset;
+        max-height: none;
     }
 
-    .term-shell-agent-card__footer {
-        display: flex;
-        justify-content: flex-start;
-        align-items: center;
-        width: 100%;
-        margin-top: 4px;
-    }
-
-    .term-shell-agent-card__status {
+    .term-shell-agent-card__head {
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 6px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border-soft);
+        background: color-mix(in oklch, var(--bg-deeper) 55%, var(--surface));
         font-size: 12px;
+        min-height: 32px;
     }
 
-    .term-shell-agent-card__agreed {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        color: #2f9e44;
+    .term-shell-agent-card__status-label {
         font-weight: 600;
+        color: var(--fg-2);
+    }
+    .term-shell-agent-card__status-label.ok {
+        color: var(--success);
+    }
+    .term-shell-agent-card__status-label.warn {
+        color: var(--warn);
+    }
+    .term-shell-agent-card__status-label.danger {
+        color: var(--danger);
+    }
+    .term-shell-agent-card__status-label.accent {
+        color: var(--accent);
+    }
+    .term-shell-agent-card__status-label.muted {
+        color: var(--muted);
     }
 
-    .term-shell-agent-card__pending-label {
-        color: #f08c00;
+    .term-shell-agent-card__head-spacer {
+        flex: 1;
+    }
+    .term-shell-agent-card__head-meta {
+        color: var(--meta);
+        font-size: 11px;
+    }
+
+    .term-shell-agent-card__body {
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .term-shell-agent-card__desc {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+    }
+    .term-shell-agent-card__desc--err {
+        color: var(--danger);
+    }
+
+    .term-shell-agent-card__note {
+        color: var(--fg);
+        white-space: pre-wrap;
+        overflow: hidden;
+        word-break: break-word;
+    }
+    .term-shell-agent-card__note.is-clamp {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        overflow: hidden;
+        max-height: 3.3em;
+    }
+    .term-shell-agent-card__note.is-oneline {
+        -webkit-line-clamp: 1;
+        line-clamp: 1;
+        max-height: 1.6em;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        display: block;
+    }
+    .term-shell-agent-card--note.is-fixed {
+        min-height: 36px;
+        max-height: 52px;
+    }
+    .term-shell-agent-card--note.is-done {
+        border-color: color-mix(in oklch, var(--accent) 30%, var(--border));
+    }
+
+    .term-shell-agent-card__interpret {
+        color: var(--accent);
+        font-size: 12.5px;
+        line-height: 1.65;
+        width: 100%;
+        overflow: visible;
+        max-height: none;
+    }
+
+    .term-shell-agent-card__interpret .term-shell-agent-md {
+        color: inherit;
     }
 
     .term-shell-agent-card__code {
         margin: 0;
         padding: 8px 10px;
-        border-radius: 4px;
-        background: color-mix(in srgb, var(--bg, #fff) 70%, #000 8%);
-        border: 1px solid var(--border, #d0d0d0);
-        overflow: hidden;
-        color: var(--text, #1a1a1a);
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        overflow-x: auto;
+        color: var(--fg);
         font-size: 12px;
-        max-height: 4.2em;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: none;
     }
 
     .term-shell-agent-card__code code {
         font-family: inherit;
         white-space: pre-wrap;
         word-break: break-all;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-    }
-
-    .term-shell-agent-card__actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 8px;
-        width: 100%;
-    }
-
-    .term-shell-agent-card__approve,
-    .term-shell-agent-card__reject {
-        appearance: none;
-        border-radius: 4px;
-        border: 1px solid transparent;
-        font-size: 12px;
-        padding: 2px 8px;
-        cursor: pointer;
-    }
-
-    .term-shell-agent-card--cmd .term-shell-agent-card__lead {
-        white-space: normal;
         display: block;
-        margin-bottom: 8px;
-        color: var(--text, #1a1a1a);
+        -webkit-line-clamp: unset;
         overflow: visible;
     }
 
-    .term-shell-agent-card__approve {
-        background: color-mix(in srgb, #2f9e44 18%, transparent);
-        border-color: color-mix(in srgb, #2f9e44 45%, transparent);
-        color: #2b8a3e;
+    .term-shell-agent-card__edit {
+        width: 100%;
+        min-height: 48px;
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        border: 1px solid var(--accent);
+        color: var(--fg);
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 1.5;
+        resize: vertical;
+        box-sizing: border-box;
     }
 
-    .term-shell-agent-card__reject {
-        background: transparent;
+    .term-shell-agent-card__actions,
+    .term-shell-agent-card__footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .term-shell-agent-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        min-height: 28px;
+        padding: 2px 12px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--border);
+        background: var(--bg-deeper);
+        color: var(--fg);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        cursor: pointer;
+        appearance: none;
+        transition: background var(--motion-fast, 100ms), border-color var(--motion-fast, 100ms), color var(--motion-fast, 100ms);
+    }
+    .term-shell-agent-btn:hover {
+        background: var(--surface-hover);
         border-color: var(--border);
-        color: var(--text-muted);
+        color: var(--fg);
+    }
+    .term-shell-agent-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+    .term-shell-agent-btn--primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-fg);
+    }
+    .term-shell-agent-btn--primary:hover {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+        color: var(--accent-fg);
+    }
+    .term-shell-agent-btn--danger {
+        background: var(--danger-soft);
+        border-color: color-mix(in oklch, var(--danger) 40%, var(--border));
+        color: var(--danger);
+    }
+    .term-shell-agent-btn--danger:hover {
+        background: var(--danger);
+        border-color: var(--danger);
+        color: var(--accent-fg);
+    }
+    .term-shell-agent-btn--ghost {
+        background: transparent;
+        border-color: transparent;
+        color: var(--muted);
+    }
+    .term-shell-agent-btn--ghost:hover {
+        background: var(--surface-hover);
+        color: var(--fg);
+        border-color: transparent;
+    }
+
+    .term-shell-agent-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        flex-shrink: 0;
+    }
+    .term-shell-agent-dots span {
+        display: inline-block;
+        width: 4px;
+        height: 4px;
+        margin-right: 3px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: term-shell-agent-dot 1s ease-in-out infinite;
+    }
+    .term-shell-agent-dots span:nth-child(2) {
+        animation-delay: 0.15s;
+    }
+    .term-shell-agent-dots span:nth-child(3) {
+        animation-delay: 0.3s;
+        margin-right: 0;
+    }
+    @keyframes term-shell-agent-dot {
+        0%,
+        80%,
+        100% {
+            opacity: 0.25;
+            transform: translateY(0);
+        }
+        40% {
+            opacity: 1;
+            transform: translateY(-2px);
+        }
+    }
+
+    .term-shell-agent-ico {
+        display: inline-grid;
+        place-items: center;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1;
+        flex-shrink: 0;
+    }
+    .term-shell-agent-ico--check {
+        background: var(--accent-soft);
+        color: var(--accent);
+    }
+    .term-shell-agent-ico--x {
+        background: color-mix(in oklch, var(--muted) 18%, transparent);
+        color: var(--muted);
+    }
+    .term-shell-agent-ico--danger {
+        background: var(--danger-soft);
+        color: var(--danger);
+    }
+    .term-shell-agent-ico--ai {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 8px;
+    }
+
+    .term-shell-agent-detached {
+        position: fixed;
+        right: 24px;
+        bottom: 56px;
+        z-index: 40;
+        width: min(420px, calc(100vw - 32px));
+        max-height: min(50vh, 420px);
+        overflow: auto;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: color-mix(in oklch, var(--surface) 78%, var(--bg-deeper));
+        box-shadow: none;
+        color: var(--fg);
+    }
+    .term-shell-agent-detached__banner {
+        font-size: 11px;
+        color: var(--warn);
+        margin-bottom: 8px;
+        padding: 0 4px;
+    }
+
+    /* 思考 / 工具：锚定在展开位置旁的浮层（非右下角、无遮罩） */
+    .term-shell-agent-float {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        background: color-mix(in oklch, var(--surface) 86%, var(--bg-deeper));
+        box-shadow: 0 8px 24px color-mix(in oklch, var(--bg) 55%, transparent);
+        overflow: hidden;
+        pointer-events: auto;
+        color: var(--fg);
+    }
+    .term-shell-agent-float__head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border-soft);
+        background: color-mix(in oklch, var(--bg-deeper) 55%, var(--surface));
+        flex-shrink: 0;
+    }
+    .term-shell-agent-float__title {
+        flex: 1;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg-2);
+    }
+    .term-shell-agent-float__body {
+        overflow: auto;
+        min-height: 0;
+        flex: 1;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .term-shell-agent-float__section {
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--fg);
+    }
+    .term-shell-agent-float__label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+    .term-shell-agent-float__empty {
+        color: var(--muted);
+        margin: 0;
+    }
+    .term-shell-agent-float__tools {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .term-shell-agent-float__tools li {
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 8px 10px;
+        background: var(--bg-deeper);
+    }
+    .term-shell-agent-float__tool-status {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent);
+        margin-bottom: 4px;
+    }
+    .term-shell-agent-float__section pre,
+    .term-shell-agent-float__tools pre {
+        margin: 4px 0 0;
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 12px;
+        overflow: auto;
+        max-height: 240px;
+        color: var(--fg);
+    }
+    .term-shell-agent-float__result {
+        color: var(--muted);
+        max-height: 200px;
     }
 
     /* 流内 Shell Agent Markdown（紧凑） */
     .term-shell-agent-md {
         width: 100%;
-        color: var(--text, #1a1a1a);
+        color: var(--fg);
         font-size: 12.5px;
         line-height: 1.45;
         text-align: left;
@@ -2007,19 +2423,29 @@
         font-size: 12px;
         padding: 1px 4px;
         border-radius: 3px;
-        background: color-mix(in srgb, var(--bg, #fff) 70%, #000 8%);
-        border: 1px solid var(--border, #d0d0d0);
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        color: var(--fg);
+    }
+
+    .term-shell-agent-md__code-block {
+        display: block;
+        font-family: inherit;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
 
     .term-shell-agent-md__pre {
         margin: 6px 0;
         padding: 6px 8px;
-        border-radius: 4px;
-        background: color-mix(in srgb, var(--bg, #fff) 70%, #000 8%);
-        border: 1px solid var(--border, #d0d0d0);
+        border-radius: var(--r-sm);
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
         overflow-x: auto;
         white-space: pre-wrap;
         word-break: break-all;
+        color: var(--fg);
     }
 
     .term-shell-agent-md__ul,
@@ -2033,37 +2459,22 @@
     }
 
     .term-shell-agent-md__a {
-        color: var(--accent, #007aff);
+        color: var(--accent);
         text-decoration: underline;
-    }
-
-    .term-shell-agent-card--final .term-shell-agent-card__footer {
-        display: flex;
-    }
-
-    .term-shell-agent-card__link {
-        appearance: none;
-        border: none;
-        background: none;
-        padding: 0;
-        font-size: 12px;
-        color: var(--text-muted, #8a8a8a);
-        cursor: pointer;
-        text-align: left;
-        align-self: flex-start;
-    }
-
-    .term-shell-agent-card__link--inline {
-        margin-top: 4px;
-    }
-
-    .term-shell-agent-card__link:hover {
-        color: var(--accent, #74c0fc);
+        text-underline-offset: 2px;
     }
 
     /* legacy */
     .term-shell-agent-stream,
-    .term-shell-agent-overlay {
+    .term-shell-agent-overlay,
+    .term-shell-agent-card__dot,
+    .term-shell-agent-card__lead,
+    .term-shell-agent-card__status,
+    .term-shell-agent-card__agreed,
+    .term-shell-agent-card__pending-label,
+    .term-shell-agent-card__approve,
+    .term-shell-agent-card__reject,
+    .term-shell-agent-card__link {
         display: none;
     }
 
@@ -4100,4 +4511,32 @@ html[data-theme="light"] .term-warp-block--ai {
 html[data-theme="light"] .term-warp-block--ai.term-warp-block--collapsed:hover {
     background: color-mix(in srgb, var(--accent) 4%, var(--surface));
     border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+/*
+ * xterm.css 未入 @layer，且写死 .xterm-viewport { background:#000 }。
+ * 组件层内覆盖会被未分层样式压过 → 画布缝隙露出左/下黑边。
+ * 必须放在 @layer 外，并跟终端主题底色对齐。
+ */
+.term-xterm-wrap,
+.term-xterm-wrap .xterm,
+.term-xterm-wrap .xterm .xterm-viewport,
+.term-xterm-wrap .xterm .composition-view {
+    background-color: var(--bg-deeper);
+}
+
+html[data-theme="light"] .term-xterm-wrap,
+html[data-theme="light"] .term-xterm-wrap .xterm,
+html[data-theme="light"] .term-xterm-wrap .xterm .xterm-viewport,
+html[data-theme="light"] .term-xterm-wrap .xterm .composition-view {
+    /* 与 LIGHT_TERMINAL_THEME.background 一致 */
+    background-color: #ffffff;
+}
+
+html[data-theme="dark"] .term-xterm-wrap,
+html[data-theme="dark"] .term-xterm-wrap .xterm,
+html[data-theme="dark"] .term-xterm-wrap .xterm .xterm-viewport,
+html[data-theme="dark"] .term-xterm-wrap .xterm .composition-view {
+    /* 与 DARK_TERMINAL_THEME.background 一致 */
+    background-color: #1a1717;
 }

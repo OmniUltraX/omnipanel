@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../../i18n";
 import {
@@ -15,20 +15,177 @@ import {
 } from "../inlineToolBridge";
 import { isInlineTerminalToolName } from "../inlineTerminalTool";
 import { getXterm } from "../xtermRegistry";
-import { cancelShellAgent, newShellAgentSession, onShellAgentCardFitStable } from "./loop";
+import {
+  cancelShellAgent,
+  newShellAgentSession,
+  onShellAgentCardFitStable,
+} from "./loop";
 import {
   fitShellAgentCardToContent,
   getShellAgentGeometry,
   relayoutShellAgentCard,
   subscribeShellAgentGeometry,
+  SHELL_AGENT_PORTAL_HOST_CLASS,
 } from "./shellAgentGeometry";
 import { useShellAgentStore } from "./shellAgentStore";
 import { ShellAgentMarkdown } from "./ShellAgentMarkdown";
+import {
+  getShellAgentThinkingFull,
+  lastThinkingLine,
+  setShellAgentLastCmd,
+  setShellAgentThinkingFull,
+} from "./thinkingCache";
 
 type ShellAgentOverlayProps = {
   sessionId: string;
   promptSymbol?: string;
 };
+
+/** 仅思考 / 工具长内容用浮窗；锚定在展开按钮旁，非右下角 */
+type FloatAnchor = {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+  width: number;
+};
+
+type DetailFloat =
+  | { kind: "thinking"; anchor: FloatAnchor; fullText?: string }
+  | {
+      kind: "tool";
+      toolId: string;
+      anchor: FloatAnchor;
+      /** 冻结确认卡等无 thread 项时的命令兜底 */
+      commandFallback?: string;
+    }
+  | null;
+
+function readAnchorRect(el: Element | null): FloatAnchor {
+  const r = el?.getBoundingClientRect();
+  if (!r) {
+    return {
+      top: 80,
+      left: 24,
+      bottom: 120,
+      right: 320,
+      width: 296,
+    };
+  }
+  return {
+    top: r.top,
+    left: r.left,
+    bottom: r.bottom,
+    right: r.right,
+    width: r.width,
+  };
+}
+
+/** 浮窗贴在锚点下方，必要时翻到上方，并夹在视口内 */
+function floatStyleFromAnchor(anchor: FloatAnchor): CSSProperties {
+  const gap = 6;
+  const maxW = Math.min(440, window.innerWidth - 16);
+  const maxH = Math.min(window.innerHeight * 0.5, 420);
+  let left = anchor.left;
+  if (left + maxW > window.innerWidth - 8) {
+    left = Math.max(8, window.innerWidth - 8 - maxW);
+  }
+  left = Math.max(8, left);
+
+  const spaceBelow = window.innerHeight - anchor.bottom - gap - 8;
+  const placeAbove = spaceBelow < 160 && anchor.top > spaceBelow;
+  if (placeAbove) {
+    return {
+      position: "fixed",
+      left,
+      bottom: window.innerHeight - anchor.top + gap,
+      width: Math.max(anchor.width, Math.min(maxW, 360)),
+      maxWidth: maxW,
+      maxHeight: Math.min(maxH, anchor.top - gap - 8),
+      zIndex: 45,
+    };
+  }
+  return {
+    position: "fixed",
+    left,
+    top: anchor.bottom + gap,
+    width: Math.max(anchor.width, Math.min(maxW, 360)),
+    maxWidth: maxW,
+    maxHeight: Math.min(maxH, spaceBelow),
+    zIndex: 45,
+  };
+}
+
+function syncShellAgentThemeVars(el: HTMLElement): void {
+  const cs = getComputedStyle(document.documentElement);
+  const keys = [
+    "--bg",
+    "--bg-deeper",
+    "--surface",
+    "--surface-hover",
+    "--fg",
+    "--fg-2",
+    "--muted",
+    "--meta",
+    "--border",
+    "--border-soft",
+    "--accent",
+    "--accent-hover",
+    "--accent-soft",
+    "--accent-fg",
+    "--success",
+    "--warn",
+    "--danger",
+    "--danger-soft",
+    "--font-mono",
+    "--r-sm",
+    "--motion-fast",
+  ];
+  for (const key of keys) {
+    const value = cs.getPropertyValue(key).trim();
+    if (value) el.style.setProperty(key, value);
+  }
+}
+
+function ensurePortalHost(
+  decoEl: HTMLElement,
+  opts?: { grow?: boolean },
+): HTMLElement {
+  let host = decoEl.querySelector(
+    `:scope > .${SHELL_AGENT_PORTAL_HOST_CLASS}`,
+  ) as HTMLElement | null;
+  if (!host) {
+    host = document.createElement("div");
+    host.className = SHELL_AGENT_PORTAL_HOST_CLASS;
+    decoEl.replaceChildren(host);
+  }
+  const grow = Boolean(opts?.grow);
+  // xterm decoration 有时不继承 html 主题变量，显式同步避免深色主题下白底
+  syncShellAgentThemeVars(decoEl);
+  syncShellAgentThemeVars(host);
+  host.style.pointerEvents = "auto";
+  host.style.boxSizing = "border-box";
+  host.style.width = "100%";
+  host.style.minHeight = "0";
+  host.style.textAlign = "left";
+  host.style.display = "flex";
+  host.style.flexDirection = "column";
+  host.style.justifyContent = "flex-start";
+  host.style.alignItems = "flex-start";
+  host.style.padding = "0";
+  host.style.margin = "0";
+  // final 结果卡需随内容增高；矮卡仍锁在 decoration 高度内
+  if (grow) {
+    host.style.height = "auto";
+    host.style.maxHeight = "none";
+    host.style.overflow = "visible";
+  } else {
+    host.style.height = "100%";
+    host.style.maxHeight = "100%";
+    host.style.overflow = "hidden";
+  }
+  return host;
+}
 
 function resolveToolCommand(item: AiThreadToolCall): string {
   const direct = item.command?.trim();
@@ -42,25 +199,59 @@ function resolveToolCommand(item: AiThreadToolCall): string {
   return "";
 }
 
-function shortAssistantNote(text: string, max = 220): string {
+function shortAssistantNote(text: string, max = 480): string {
   return text
     .split(/\n+/)
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("```") && !l.startsWith("#"))
-    .slice(0, 4)
+    .slice(0, 8)
     .join(" ")
     .slice(0, max);
 }
 
+function isDangerRisk(level: AiThreadToolCall["riskLevel"] | undefined): boolean {
+  return level === "high" || level === "critical";
+}
+
 function measureShellAgentCardHeight(container: HTMLElement): number {
-  const card = container.querySelector<HTMLElement>(".term-shell-agent-card");
-  if (!card) return 0;
-  const rect = card.getBoundingClientRect();
-  return Math.ceil(Math.max(rect.height, card.scrollHeight));
+  const parts = container.querySelectorAll<HTMLElement>(
+    ".term-shell-agent-card, .term-shell-agent-tool",
+  );
+  if (parts.length === 0) {
+    return Math.ceil(Math.max(container.getBoundingClientRect().height, container.scrollHeight));
+  }
+  let total = 0;
+  for (const el of parts) {
+    total += Math.ceil(Math.max(el.getBoundingClientRect().height, el.scrollHeight));
+  }
+  // 卡片间距
+  if (parts.length > 1) total += (parts.length - 1) * 4;
+  return total;
+}
+
+function toolStatusLabel(
+  status: AiThreadToolCall["status"],
+  t: (key: string) => string,
+): string {
+  switch (status) {
+    case "pending":
+      return t("terminal.shellAgent.awaitingApproval");
+    case "running":
+      return t("terminal.shellAgent.executing");
+    case "completed":
+      return t("terminal.shellAgent.agreed");
+    case "rejected":
+      return t("terminal.shellAgent.rejected");
+    case "failed":
+      return t("terminal.shellAgent.failed");
+    default:
+      return status;
+  }
 }
 
 /**
- * 直通 Shell Agent：仅流内 xterm decoration + portal，无底部浮层。
+ * 直通 Shell Agent：流内 xterm decoration + portal；
+ * 正文紧凑预览，完整思考/工具/解读点开弹窗查看。
  */
 export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const { t } = useI18n();
@@ -68,7 +259,11 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const blocks = useBlocksStore((s) => s.blocks[sessionId] ?? EMPTY_TERMINAL_BLOCKS);
   const [geoVersion, setGeoVersion] = useState(0);
   const [decoEl, setDecoEl] = useState<HTMLElement | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [detail, setDetail] = useState<DetailFloat>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
+  const floatRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     return subscribeShellAgentGeometry((sid) => {
@@ -82,10 +277,16 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     [sessionId, geoVersion],
   );
 
-  // decoration 挂载：grow/relayout 中间态 decoration 可能短暂 null，勿立刻拆 portal
-  useEffect(() => {
+  useLayoutEffect(() => {
     const deco = geometry?.decoration ?? null;
-    if (!deco) return;
+    const inline =
+      Boolean(deco) && geometry?.mode === "inline" && Boolean(geometry?.cardKind);
+    const grow = geometry?.cardKind === "final";
+
+    if (!inline || !deco) {
+      setDecoEl(null);
+      return;
+    }
 
     let cancelled = false;
     let renderDisposable: { dispose: () => void } | null = null;
@@ -93,13 +294,25 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     const attach = (el: HTMLElement) => {
       if (cancelled) return;
       el.style.pointerEvents = "auto";
-      el.style.height = "auto";
-      el.style.minHeight = "0";
-      el.style.overflow = "visible";
-      el.style.textAlign = "left";
-      el.style.display = "block";
+      el.style.boxSizing = "border-box";
+      el.style.display = "flex";
+      el.style.flexDirection = "column";
+      el.style.justifyContent = "flex-start";
       el.style.alignItems = "flex-start";
-      setDecoEl(el);
+      el.style.padding = "0";
+      el.style.margin = "0";
+      if (grow) {
+        el.style.height = "auto";
+        el.style.minHeight = "0";
+        el.style.maxHeight = "none";
+        el.style.overflow = "visible";
+      } else {
+        el.style.height = "100%";
+        el.style.minHeight = "0";
+        el.style.maxHeight = "100%";
+        el.style.overflow = "hidden";
+      }
+      setDecoEl(ensurePortalHost(el, { grow }));
     };
 
     const frame = requestAnimationFrame(() => {
@@ -116,15 +329,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       cancelAnimationFrame(frame);
       renderDisposable?.dispose();
     };
-  }, [geometry?.decoration, geometry?.version]);
+  }, [geometry?.decoration, geometry?.version, geometry?.mode, geometry?.cardKind]);
 
-  useEffect(() => {
-    if (!geometry?.cardKind && !geometry?.decoration) {
-      setDecoEl(null);
-    }
-  }, [geometry?.cardKind, geometry?.decoration]);
-
-  // resize：按新 cols 重注册 decoration 宽度
   useEffect(() => {
     const term = getXterm(sessionId);
     if (!term) return;
@@ -166,52 +372,193 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     return texts[texts.length - 1] ?? "";
   }, [thread]);
 
-  const note = shortAssistantNote(latestAssistant, 180);
+  const latestReasoning = useMemo(() => {
+    const texts = thread
+      .filter(isAiThreadMessage)
+      .filter((m) => m.role === "assistant")
+      .map((m) => (m.reasoning ?? "").trim())
+      .filter(Boolean);
+    return texts[texts.length - 1] ?? "";
+  }, [thread]);
+
+  /** 思考预览：流式只刷最后一行；结束后显示「思考完成」 */
+  const thinkingPreviewLine = useMemo(() => {
+    const src = latestReasoning || latestAssistant;
+    return lastThinkingLine(src);
+  }, [latestReasoning, latestAssistant]);
+
+  const thinkingFull = useMemo(() => {
+    const parts: string[] = [];
+    if (latestReasoning) parts.push(latestReasoning);
+    if (latestAssistant) parts.push(latestAssistant);
+    return parts.join("\n\n").trim();
+  }, [latestReasoning, latestAssistant]);
 
   const pendingTool = toolCalls.find((tc) => tc.status === "pending") ?? null;
-  const activeTool =
-    pendingTool ??
-    toolCalls.find((tc) => tc.status === "running") ??
-    (phase === "observing" || phase === "executing" || phase === "awaiting_approval"
-      ? [...toolCalls]
-          .reverse()
-          .find((tc) => tc.status === "completed" || tc.status === "failed") ?? null
-      : null);
-
-  const busy =
-    phase === "streaming" ||
-    phase === "awaiting_approval" ||
-    phase === "executing" ||
-    phase === "observing";
-
   const showFinal = geometry?.cardKind === "final";
-  const showOverlay = Boolean(blockId && agent) && (busy || showFinal);
-  const inlineActive = Boolean(geometry?.cardKind && decoEl && showOverlay);
+
+  useEffect(() => {
+    if (thinkingFull) setShellAgentThinkingFull(sessionId, thinkingFull);
+  }, [sessionId, thinkingFull]);
+
+  useEffect(() => {
+    if (!pendingTool) return;
+    setShellAgentLastCmd(sessionId, {
+      command: resolveToolCommand(pendingTool),
+      toolName: pendingTool.toolName,
+      toolId: pendingTool.id,
+      description: shortAssistantNote(latestAssistant, 280),
+    });
+  }, [
+    sessionId,
+    pendingTool?.id,
+    pendingTool?.args,
+    pendingTool?.command,
+    latestAssistant,
+  ]);
+
+  // 冻结在 scrollback 的思考完成 / 已同意确认卡 / 工具条：委托点击展开
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+
+      const thinkingCard = target.closest(
+        `.term-shell-agent-card[data-shell-agent-frozen-thinking="1"][data-session-id="${sessionId}"]`,
+      );
+      if (thinkingCard) {
+        e.preventDefault();
+        e.stopPropagation();
+        const full =
+          thinkingCard.getAttribute("data-thinking-full") ||
+          getShellAgentThinkingFull(sessionId);
+        setDetail({
+          kind: "thinking",
+          anchor: readAnchorRect(thinkingCard),
+          fullText: full,
+        });
+        return;
+      }
+
+      const cmdCard = target.closest(
+        `.term-shell-agent-card[data-shell-agent-frozen-cmd="1"][data-session-id="${sessionId}"]`,
+      );
+      if (cmdCard) {
+        e.preventDefault();
+        e.stopPropagation();
+        const toolId = cmdCard.getAttribute("data-tool-id") || "";
+        const command = cmdCard.getAttribute("data-tool-command") || "";
+        setDetail({
+          kind: "tool",
+          toolId: toolId || "__frozen_cmd__",
+          anchor: readAnchorRect(cmdCard),
+          commandFallback: command,
+        });
+        return;
+      }
+
+      const frozenTool = target.closest(
+        `[data-shell-agent-frozen-tool="1"][data-session-id="${sessionId}"]`,
+      );
+      if (frozenTool) {
+        e.preventDefault();
+        e.stopPropagation();
+        const toolId = frozenTool.getAttribute("data-tool-id") || "";
+        if (!toolId) return;
+        setDetail({
+          kind: "tool",
+          toolId,
+          anchor: readAnchorRect(frozenTool),
+        });
+      }
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [sessionId]);
+
+  const note = shortAssistantNote(latestAssistant, 280);
+  /** 确认卡旁注跟流式正文，不做过短截断 */
+  const pendingDesc = note;
+
+  useEffect(() => {
+    setEditing(false);
+    setDraft(pendingTool ? resolveToolCommand(pendingTool) : "");
+  }, [pendingTool?.id, pendingTool?.status]);
+
+  // 方案 C：只渲染流内 decoration / 审批 detached；禁止 sticky 兜底与「仅 busy」复活
+  const hasThinkingGeo = geometry?.cardKind === "thinking";
+  const detached = geometry?.mode === "detached";
+  const hasLivePresentation =
+    Boolean(geometry?.cardKind) ||
+    Boolean(geometry?.decoration) ||
+    (detached && (phase === "awaiting_approval" || Boolean(pendingTool)));
+  const showOverlay =
+    Boolean(agent) && agent?.phase !== "cancelled" && hasLivePresentation;
+  const portalHost = decoEl?.isConnected ? decoEl : null;
+  const inlineActive = Boolean(
+    geometry?.cardKind && portalHost && showOverlay && !detached,
+  );
+  const showDetachedFallback =
+    detached &&
+    showOverlay &&
+    Boolean(pendingTool || phase === "awaiting_approval");
+
+  // 浮窗：点外部关闭（无模态遮罩，不挡终端操作）
+  useEffect(() => {
+    if (!detail) return;
+    const onPointer = (e: PointerEvent) => {
+      const el = floatRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && el.contains(e.target)) return;
+      // 点在「展开」按钮上由按钮自己打开，此处忽略同一次点击冒泡后的关闭
+      if (e.target instanceof Element && e.target.closest("[data-shell-agent-expand]")) {
+        return;
+      }
+      setDetail(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDetail(null);
+    };
+    // 延后绑定，避免打开浮窗的同一次点击立刻关掉
+    const timer = window.setTimeout(() => {
+      document.addEventListener("pointerdown", onPointer, true);
+    }, 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [detail]);
 
   useLayoutEffect(() => {
     if (!inlineActive) return;
-
-    // 执行中不要扩高：原地扩会盖住命令输出。final 需要测高扩行（必要时重锚）。
-    if (phase === "executing" || phase === "observing") return;
 
     const container = measureRef.current;
     if (!container) return;
 
     const isFinal = geometry?.cardKind === "final";
+    const isThinking = geometry?.cardKind === "thinking";
     const measure = () => {
       const h = measureShellAgentCardHeight(container);
       if (h <= 0) return;
+      // 思考卡固定矮高度；确认 / 工具 / 结果按内容撑开
+      const capped = isThinking ? Math.min(h, 56) : h;
       fitShellAgentCardToContent(
         sessionId,
-        h,
+        capped,
         isFinal ? () => onShellAgentCardFitStable(sessionId) : undefined,
       );
     };
 
     measure();
-    const card = container.querySelector<HTMLElement>(".term-shell-agent-card");
     const ro = new ResizeObserver(measure);
-    ro.observe(card ?? container);
+    ro.observe(container);
+    for (const el of container.querySelectorAll<HTMLElement>(
+      ".term-shell-agent-card, .term-shell-agent-tool",
+    )) {
+      ro.observe(el);
+    }
     return () => ro.disconnect();
   }, [
     inlineActive,
@@ -219,124 +566,111 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     geometry?.cardKind,
     geometry?.version,
     phase,
-    note,
+    thinkingPreviewLine,
     latestAssistant,
-    activeTool?.id,
-    activeTool?.status,
+    pendingDesc,
+    pendingTool?.id,
+    pendingTool?.status,
+    toolCalls.length,
+    editing,
+    draft,
   ]);
 
-  // TEMP-DEBUG: 每秒转储 overlay 状态 + buffer 尾部到 DOM dataset（隔离世界可读）
-  useEffect(() => {
-    const dump = () => {
-      try {
-        const term = getXterm(sessionId);
-        const bufferTail: string[] = [];
-        if (term) {
-          const buf = term.buffer.active;
-          const total = buf.length;
-          for (let y = Math.max(0, total - 30); y < total; y += 1) {
-            bufferTail.push(buf.getLine(y)?.translateToString(true) ?? "");
-          }
-        }
-        const agentNow = useShellAgentStore.getState().bySession[sessionId] ?? null;
-        const geoNow = getShellAgentGeometry(sessionId);
-        document.body.dataset.shellAgentOverlay = JSON.stringify({
-          t: Date.now(),
-          phase: agentNow?.phase ?? null,
-          blockId: agentNow?.blockId?.slice(0, 8) ?? null,
-          geoMode: geoNow?.mode ?? null,
-          cardKind: geoNow?.cardKind ?? null,
-          cursorY: term ? term.buffer.active.cursorY + term.buffer.active.baseY : null,
-          bufferTail,
-        });
-      } catch {
-        // ignore
-      }
-    };
-    const timer = window.setInterval(dump, 1000);
-    dump();
-    return () => window.clearInterval(timer);
-  }, [sessionId]);
-
-  if (!blockId || !agent) return null;
+  if (!agent || agent.phase === "cancelled") return null;
   if (!showOverlay) return null;
 
+  const cardKind = geometry?.cardKind ?? null;
+  /** 待确认：独立确认卡（设计 nl-card pending） */
+  const showConfirmCard =
+    Boolean(pendingTool) && cardKind !== "final" && Boolean(blockId);
+  /** 非 pending 的工具：只在执行槽（cmd）显示一次；拒绝已冻成确认卡，勿再出工具条 */
+  const stripTools = toolCalls.filter(
+    (tc) => tc.status !== "pending" && tc.status !== "rejected",
+  );
+  const showToolStrips =
+    stripTools.length > 0 &&
+    !showConfirmCard &&
+    cardKind === "cmd";
+
+  // 思考卡：仅流内 thinking 槽，不再 sticky 兜底
   const showThinking =
-    phase === "streaming" && !activeTool && geometry?.cardKind !== "final";
-  const showTool = Boolean(activeTool) && geometry?.cardKind !== "final";
+    !showFinal &&
+    !showConfirmCard &&
+    (cardKind === "thinking" || hasThinkingGeo);
+  const thinkingVisible = showThinking;
 
-  const thinkingCard = showThinking ? (
-    <div className="term-shell-agent-card term-shell-agent-card--note">
-      <span className="term-shell-agent-card__dot" />
-      <div className="term-shell-agent-card__note">
-        {note || t("terminal.shellAgent.thinking")}
-      </div>
-      <button
-        type="button"
-        className="term-shell-agent-card__link term-shell-agent-card__link--inline"
-        onClick={() => cancelShellAgent(sessionId)}
-      >
-        {t("terminal.shellAgent.cancel")}
-      </button>
-    </div>
-  ) : null;
+  const danger = pendingTool ? isDangerRisk(pendingTool.riskLevel) : false;
+  const confirmTool = pendingTool;
 
-  const toolCard = showTool && activeTool ? (
-    <div className="term-shell-agent-card term-shell-agent-card--cmd">
-      <div className="term-shell-agent-card__lead">
-        {latestAssistant ? (
-          <ShellAgentMarkdown text={latestAssistant} />
-        ) : (
-          t("terminal.shellAgent.proposeCommand")
-        )}
+  const thinkingStreaming =
+    thinkingVisible &&
+    cardKind === "thinking" &&
+    phase === "streaming" &&
+    !showConfirmCard;
+  const thinkingDone = thinkingVisible && !thinkingStreaming;
+
+  const openThinkingDetail = (
+    e?: { currentTarget: EventTarget | null },
+  ) => {
+    const raw =
+      e?.currentTarget instanceof Element ? e.currentTarget : null;
+    const el =
+      raw?.closest?.(".term-shell-agent-card") ??
+      raw ??
+      document.querySelector(
+        `.term-shell-agent-card--note[data-session-id="${sessionId}"]`,
+      );
+    setDetail({
+      kind: "thinking",
+      anchor: readAnchorRect(el),
+      fullText: thinkingFull || getShellAgentThinkingFull(sessionId),
+    });
+  };
+
+  const thinkingCard = thinkingVisible ? (
+    <div
+      className={`term-shell-agent-card term-shell-agent-card--note is-fixed is-expandable${thinkingDone ? " is-done" : " is-thinking"}`}
+      data-session-id={sessionId}
+      role="button"
+      tabIndex={0}
+      data-shell-agent-expand
+      onClick={(e) => openThinkingDetail(e)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openThinkingDetail(e);
+        }
+      }}
+    >
+      {thinkingStreaming ? (
+        <span className="term-shell-agent-dots" aria-hidden>
+          <span />
+          <span />
+          <span />
+        </span>
+      ) : (
+        <span className="term-shell-agent-ico term-shell-agent-ico--check" aria-hidden>
+          ✓
+        </span>
+      )}
+      <div className="term-shell-agent-card__note is-clamp is-oneline">
+        {thinkingDone
+          ? t("terminal.shellAgent.thinkingDone")
+          : thinkingPreviewLine || t("terminal.shellAgent.thinking")}
       </div>
-      <div className="term-shell-agent-card__status">
-        {activeTool.status === "pending" ? (
-          <span className="term-shell-agent-card__pending-label">
-            {t("terminal.shellAgent.awaitingApproval")}
-          </span>
-        ) : (
-          <span className="term-shell-agent-card__agreed">
-            <span aria-hidden>✓</span>
-            {t("terminal.shellAgent.agreed")}
-          </span>
-        )}
-      </div>
-      {resolveToolCommand(activeTool) ? (
-        <pre className="term-shell-agent-card__code">
-          <code>{resolveToolCommand(activeTool)}</code>
-        </pre>
-      ) : null}
-      <div className="term-shell-agent-card__actions">
-        {activeTool.status === "pending" ? (
-          <>
-            <button
-              type="button"
-              className="term-shell-agent-card__approve"
-              onClick={() => void approveInlineTerminalTool(blockId, activeTool.id)}
-            >
-              {t("terminal.shellAgent.agree")}
-            </button>
-            <button
-              type="button"
-              className="term-shell-agent-card__reject"
-              onClick={() => rejectInlineTerminalTool(blockId, activeTool.id)}
-            >
-              {t("ai.approval.reject")}
-            </button>
-          </>
-        ) : null}
+      <div className="term-shell-agent-card__note-actions" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          className="term-shell-agent-card__link"
-          onClick={() => newShellAgentSession(sessionId)}
+          className="term-shell-agent-btn term-shell-agent-btn--ghost"
+          data-shell-agent-expand
+          onClick={(e) => openThinkingDetail(e)}
         >
-          {t("terminal.shellAgent.newSession")}
+          {t("terminal.shellAgent.expand")}
         </button>
-        {phase === "streaming" || phase === "awaiting_approval" ? (
+        {thinkingStreaming ? (
           <button
             type="button"
-            className="term-shell-agent-card__link"
+            className="term-shell-agent-btn term-shell-agent-btn--ghost"
             onClick={() => cancelShellAgent(sessionId)}
           >
             {t("terminal.shellAgent.cancel")}
@@ -346,17 +680,178 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     </div>
   ) : null;
 
+  const confirmCard =
+    showConfirmCard && confirmTool && blockId ? (
+      <div
+        className={`term-shell-agent-card term-shell-agent-card--cmd ${danger ? "is-danger" : "is-pending"}`}
+      >
+        <div className="term-shell-agent-card__head">
+          {danger ? (
+            <span className="term-shell-agent-ico term-shell-agent-ico--danger" aria-hidden>
+              !
+            </span>
+          ) : (
+            <span className="term-shell-agent-ico term-shell-agent-ico--ai" aria-hidden>
+              AI
+            </span>
+          )}
+          <span className={`term-shell-agent-card__status-label ${danger ? "danger" : "accent"}`}>
+            {danger
+              ? t("terminal.shellAgent.danger")
+              : t("terminal.shellAgent.awaitingApproval")}
+          </span>
+          <span className="term-shell-agent-card__head-spacer" />
+          <span className="term-shell-agent-card__head-meta">
+            {danger
+              ? t("terminal.shellAgent.dangerMeta")
+              : t("terminal.shellAgent.willExecute")}
+          </span>
+        </div>
+        <div className="term-shell-agent-card__body">
+          {pendingDesc ? (
+            <p className="term-shell-agent-card__desc">{pendingDesc}</p>
+          ) : null}
+          {editing ? (
+            <textarea
+              className="term-shell-agent-card__edit"
+              value={draft}
+              rows={Math.min(6, Math.max(2, draft.split("\n").length))}
+              onChange={(e) => setDraft(e.target.value)}
+              aria-label={t("terminal.shellAgent.editCommand")}
+            />
+          ) : resolveToolCommand(confirmTool) ? (
+            <pre className="term-shell-agent-card__code">
+              <code>{resolveToolCommand(confirmTool)}</code>
+            </pre>
+          ) : null}
+          <div className="term-shell-agent-card__actions">
+            <button
+              type="button"
+              className={
+                danger
+                  ? "term-shell-agent-btn term-shell-agent-btn--danger"
+                  : "term-shell-agent-btn term-shell-agent-btn--primary"
+              }
+              onClick={() =>
+                void approveInlineTerminalTool(
+                  blockId,
+                  confirmTool.id,
+                  editing ? draft : undefined,
+                )
+              }
+            >
+              {danger
+                ? t("terminal.shellAgent.confirmDanger")
+                : t("terminal.shellAgent.agree")}
+            </button>
+            <button
+              type="button"
+              className="term-shell-agent-btn"
+              onClick={() => rejectInlineTerminalTool(blockId, confirmTool.id)}
+            >
+              {t("ai.approval.reject")}
+            </button>
+            <button
+              type="button"
+              className="term-shell-agent-btn term-shell-agent-btn--ghost"
+              onClick={() => {
+                if (!editing) {
+                  setDraft(resolveToolCommand(confirmTool));
+                  setEditing(true);
+                } else {
+                  setEditing(false);
+                }
+              }}
+            >
+              {editing
+                ? t("terminal.shellAgent.cancelEdit")
+                : t("terminal.shellAgent.editCommand")}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  const toolStripCards = showToolStrips
+    ? stripTools.map((tc) => {
+        const stateClass =
+          tc.status === "running"
+            ? "is-running"
+            : tc.status === "failed" || tc.status === "rejected"
+              ? "is-fail"
+              : "is-done";
+        const stateText =
+          tc.status === "running"
+            ? t("terminal.shellAgent.executing")
+            : tc.status === "failed"
+              ? t("terminal.shellAgent.failed")
+              : tc.status === "rejected"
+                ? t("terminal.shellAgent.rejected")
+                : t("terminal.shellAgent.toolDone");
+        return (
+          <div
+            key={tc.id}
+            className={`term-shell-agent-tool ${stateClass}`}
+            data-session-id={sessionId}
+            data-tool-id={tc.id}
+          >
+            <span className="term-shell-agent-tool__ico" aria-hidden>
+              {tc.status === "running" ? "…" : tc.status === "completed" ? "✓" : "×"}
+            </span>
+            <span className="term-shell-agent-tool__name">
+              {t("terminal.shellAgent.toolCallName", {
+                name: tc.toolName || "shell",
+              })}
+            </span>
+            <span
+              className={`term-shell-agent-tool__state${
+                tc.status === "completed"
+                  ? " ok"
+                  : tc.status === "failed" || tc.status === "rejected"
+                    ? " fail"
+                    : ""
+              }`}
+            >
+              · {stateText}
+            </span>
+            <span className="term-shell-agent-tool__spacer" />
+            <button
+              type="button"
+              className="term-shell-agent-btn term-shell-agent-btn--ghost"
+              data-shell-agent-expand
+              onClick={(e) =>
+                setDetail({
+                  kind: "tool",
+                  toolId: tc.id,
+                  anchor: readAnchorRect(
+                    e.currentTarget.closest(".term-shell-agent-tool") ?? e.currentTarget,
+                  ),
+                })
+              }
+            >
+              {t("terminal.shellAgent.viewTool")}
+            </button>
+          </div>
+        );
+      })
+    : null;
+
+  /** 结果卡：完整流式解读，不走浮窗 */
   const finalCard = showFinal ? (
-    <div className="term-shell-agent-card term-shell-agent-card--final">
+    <div className="term-shell-agent-card term-shell-agent-card--final is-interpret">
       {latestAssistant ? (
-        <div className="term-shell-agent-card__note">
+        <div className="term-shell-agent-card__interpret">
           <ShellAgentMarkdown text={latestAssistant} />
         </div>
-      ) : null}
+      ) : (
+        <div className="term-shell-agent-card__interpret">
+          {t("terminal.shellAgent.thinking")}
+        </div>
+      )}
       <div className="term-shell-agent-card__footer">
         <button
           type="button"
-          className="term-shell-agent-card__link"
+          className="term-shell-agent-btn term-shell-agent-btn--ghost"
           onClick={() => newShellAgentSession(sessionId)}
         >
           {t("terminal.shellAgent.newSession")}
@@ -365,22 +860,140 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     </div>
   ) : null;
 
-  if (!inlineActive || !decoEl) return null;
+  const detailTool =
+    detail?.kind === "tool"
+      ? toolCalls.find((tc) => tc.id === detail.toolId) ?? null
+      : null;
 
-  const cardKind = geometry!.cardKind ?? "";
+  const detailFloat =
+    detail === null
+      ? null
+      : createPortal(
+          <div
+            ref={floatRef}
+            className="term-shell-agent-float"
+            data-session-id={sessionId}
+            style={floatStyleFromAnchor(detail.anchor)}
+            role="complementary"
+            aria-label={
+              detail.kind === "thinking"
+                ? t("terminal.shellAgent.thinkingDetail")
+                : t("terminal.shellAgent.toolDetail")
+            }
+          >
+            <div className="term-shell-agent-float__head">
+              <span className="term-shell-agent-float__title">
+                {detail.kind === "thinking"
+                  ? t("terminal.shellAgent.thinkingDetail")
+                  : t("terminal.shellAgent.toolDetail")}
+              </span>
+              <button
+                type="button"
+                className="term-shell-agent-btn term-shell-agent-btn--ghost"
+                onClick={() => setDetail(null)}
+              >
+                {t("terminal.shellAgent.closeFloat")}
+              </button>
+            </div>
+            <div className="term-shell-agent-float__body">
+              {detail.kind === "thinking" ? (
+                <>
+                  {(detail.fullText || thinkingFull) ? (
+                    <div className="term-shell-agent-float__section">
+                      <ShellAgentMarkdown text={detail.fullText || thinkingFull} />
+                    </div>
+                  ) : (
+                    <p className="term-shell-agent-float__empty">
+                      {t("terminal.shellAgent.thinking")}
+                    </p>
+                  )}
+                </>
+              ) : null}
+              {detail.kind === "tool" && detailTool ? (
+                <div className="term-shell-agent-float__section">
+                  <div className="term-shell-agent-float__label">
+                    {toolStatusLabel(detailTool.status, t)}
+                  </div>
+                  <pre>
+                    <code>{resolveToolCommand(detailTool) || detailTool.toolName}</code>
+                  </pre>
+                  {detailTool.args ? (
+                    <pre className="term-shell-agent-float__result">
+                      <code>{detailTool.args}</code>
+                    </pre>
+                  ) : null}
+                  {detailTool.result ? (
+                    <pre className="term-shell-agent-float__result">
+                      <code>{detailTool.result}</code>
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
+              {detail.kind === "tool" && !detailTool && detail.commandFallback ? (
+                <div className="term-shell-agent-float__section">
+                  <div className="term-shell-agent-float__label">
+                    {t("terminal.shellAgent.agreed")}
+                  </div>
+                  <pre>
+                    <code>{detail.commandFallback}</code>
+                  </pre>
+                </div>
+              ) : null}
+            </div>
+          </div>,
+          document.body,
+        );
 
-  return createPortal(
-    <div
-      ref={measureRef}
-      className="term-shell-agent-deco-card"
-      data-session-id={sessionId}
-      data-phase={phase}
-      data-card-kind={cardKind}
-    >
+  const cardBody = (
+    <>
       {thinkingCard}
-      {toolCard}
+      {confirmCard}
+      {toolStripCards}
       {finalCard}
-    </div>,
-    decoEl,
+    </>
+  );
+
+  const withFloat = (node: ReactNode) => (
+    <>
+      {node}
+      {detailFloat}
+    </>
+  );
+
+  if (showDetachedFallback) {
+    return withFloat(
+      createPortal(
+        <div
+          className="term-shell-agent-detached"
+          data-session-id={sessionId}
+          data-phase={phase}
+          role="dialog"
+          aria-label={t("terminal.shellAgent.title")}
+        >
+          <div className="term-shell-agent-detached__banner">
+            {t("terminal.shellAgent.detachedFallback")}
+          </div>
+          {cardBody}
+        </div>,
+        document.body,
+      ),
+    );
+  }
+
+  if (!inlineActive || !portalHost) return withFloat(null);
+
+  return withFloat(
+    createPortal(
+      <div
+        ref={measureRef}
+        className="term-shell-agent-deco-card"
+        data-session-id={sessionId}
+        data-phase={phase}
+        data-card-kind={cardKind ?? ""}
+      >
+        {cardBody}
+      </div>,
+      portalHost,
+    ),
   );
 }

@@ -13,12 +13,17 @@ export {
   notifyShellAgentTurnFinished,
   notifyShellAgentIdle,
   onShellAgentCardFitStable,
+  flushPendingShellAgentReanchor,
+  teardownShellAgentUi,
+  notifyShellAgentRejected,
 } from "./loop";
 export { useShellAgentStore } from "./shellAgentStore";
 export {
   getShellAgentGeometry,
   subscribeShellAgentGeometry,
   clearShellAgentGeometry,
+  setShellAgentGeometryWriteSuspended,
+  markShellAgentNeedsPromptSync,
   cardRowsFor,
   minCardRowsFor,
   fitShellAgentCardToContent,

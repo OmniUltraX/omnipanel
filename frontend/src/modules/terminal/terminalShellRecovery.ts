@@ -14,9 +14,16 @@ export function markShellPromptReady(sessionId: string): void {
   lastShellPromptAt.set(sessionId, Date.now());
 }
 
-function isShellPromptRecent(sessionId: string, withinMs = PROMPT_RECENCY_MS): boolean {
+export function hasRecentShellPrompt(
+  sessionId: string,
+  withinMs = PROMPT_RECENCY_MS,
+): boolean {
   const at = lastShellPromptAt.get(sessionId) ?? 0;
   return Date.now() - at < withinMs;
+}
+
+function isShellPromptRecent(sessionId: string, withinMs = PROMPT_RECENCY_MS): boolean {
+  return hasRecentShellPrompt(sessionId, withinMs);
 }
 
 export function waitForShellPrompt(

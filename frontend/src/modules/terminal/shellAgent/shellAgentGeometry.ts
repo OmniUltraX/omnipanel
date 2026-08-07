@@ -9,6 +9,16 @@
  */
 import type { IDecoration, IMarker, Terminal } from "@xterm/xterm";
 import { getXterm } from "../xtermRegistry";
+import {
+  buildAgreedCmdFrozenHtml,
+  buildRejectedCmdFrozenHtml,
+  buildThinkingDoneFrozenHtml,
+  consumeShellAgentConfirmFreeze,
+  getShellAgentLastCmd,
+  getShellAgentThinkingFull,
+  transformPendingConfirmToAgreedHtml,
+  transformPendingConfirmToRejectedHtml,
+} from "./thinkingCache";
 
 export type ShellAgentCardKind = "thinking" | "cmd" | "final";
 export type ShellAgentGeometryMode = "inline" | "detached";
@@ -33,7 +43,9 @@ const MIN_CARD_ROWS = 1;
 const MAX_CARD_ROWS = 24;
 
 /** 建卡时的最小占位行数（实际高度由 fitShellAgentCardToContent 测量） */
-export function minCardRowsFor(_kind?: ShellAgentCardKind): number {
+export function minCardRowsFor(kind?: ShellAgentCardKind): number {
+  // 思考卡固定矮卡约 2 行内容，占位至少 3 行以免被 decoration 裁切看不见
+  if (kind === "thinking") return 3;
   return MIN_CARD_ROWS;
 }
 
@@ -64,6 +76,21 @@ export function contentHeightToCardRows(
 const geometries = new Map<string, ShellAgentGeometry>();
 const listeners = new Set<(sessionId: string) => void>();
 
+/** restoreSnapshot / dispose 窗口内禁止再写 \r\n 占位 */
+const geometryWriteSuspended = new Set<string>();
+
+export function setShellAgentGeometryWriteSuspended(
+  sessionId: string,
+  suspended: boolean,
+): void {
+  if (suspended) geometryWriteSuspended.add(sessionId);
+  else geometryWriteSuspended.delete(sessionId);
+}
+
+function isGeometryWriteSuspended(sessionId: string): boolean {
+  return geometryWriteSuspended.has(sessionId);
+}
+
 type ArchivedShellAgentCard = {
   decoration: IDecoration;
   marker: IMarker;
@@ -87,24 +114,183 @@ function afterReactPortalUnmount(fn: () => void): void {
   });
 }
 
-function injectFrozenCardSnapshot(deco: IDecoration, frozenHtml: string): void {
-  try {
-    const el = deco.element;
-    if (!el) return;
-    const snapshot = document.createElement("div");
-    snapshot.className =
-      "term-shell-agent-deco-card term-shell-agent-deco-card--frozen";
-    snapshot.innerHTML = frozenHtml;
-    snapshot.style.pointerEvents = "none";
-    el.replaceChildren(snapshot);
-  } catch {
-    // ignore
-  }
+export const SHELL_AGENT_PORTAL_HOST_CLASS = "term-shell-agent-portal-host";
+
+function getPortalHost(el: HTMLElement): HTMLElement | null {
+  return el.querySelector(`:scope > .${SHELL_AGENT_PORTAL_HOST_CLASS}`);
 }
 
 /**
- * 将当前流内卡冻结进 scrollback（React portal 卸载后 microtask 回填快照，避免空白）。
- * 仅 detach 活跃几何，不 dispose decoration/marker。
+ * 等 portal host 空闲（React 已卸子树）再改 decoration DOM。
+ * 仅靠 2×rAF 不够：archive 常在 React commit 之前就触发 inject。
+ */
+function whenDecorationPortalIdle(
+  deco: IDecoration,
+  fn: () => void,
+  attempts = 24,
+): void {
+  afterReactPortalUnmount(() => {
+    try {
+      const el = deco.element;
+      if (!el) {
+        fn();
+        return;
+      }
+      const host = getPortalHost(el);
+      if (host && host.childNodes.length > 0 && attempts > 0) {
+        whenDecorationPortalIdle(deco, fn, attempts - 1);
+        return;
+      }
+      if (host && host.childNodes.length === 0) {
+        try {
+          host.remove();
+        } catch {
+          // ignore
+        }
+      }
+      fn();
+    } catch {
+      if (attempts > 0) {
+        whenDecorationPortalIdle(deco, fn, attempts - 1);
+      } else {
+        fn();
+      }
+    }
+  });
+}
+
+function injectFrozenCardSnapshot(deco: IDecoration, frozenHtml: string): void {
+  whenDecorationPortalIdle(deco, () => {
+    try {
+      const el = deco.element;
+      if (!el) return;
+      const snapshot = document.createElement("div");
+      snapshot.className =
+        "term-shell-agent-deco-card term-shell-agent-deco-card--frozen";
+      snapshot.innerHTML = frozenHtml;
+      // 冻结卡需可点「展开 / 查看」；子节点再用 CSS 精确接管
+      snapshot.style.pointerEvents = "auto";
+      // 同步主题变量，避免 scrollback 冻结卡在深色主题下掉回浅色默认
+      const cs = getComputedStyle(document.documentElement);
+      for (const key of [
+        "--bg",
+        "--bg-deeper",
+        "--surface",
+        "--surface-hover",
+        "--fg",
+        "--fg-2",
+        "--muted",
+        "--meta",
+        "--border",
+        "--border-soft",
+        "--accent",
+        "--accent-soft",
+        "--success",
+        "--warn",
+        "--danger",
+        "--danger-soft",
+        "--font-mono",
+        "--r-sm",
+      ]) {
+        const value = cs.getPropertyValue(key).trim();
+        if (value) {
+          el.style.setProperty(key, value);
+          snapshot.style.setProperty(key, value);
+        }
+      }
+      el.replaceChildren(snapshot);
+    } catch {
+      // ignore
+    }
+  });
+}
+
+/** 工具条冻结时补标记，便于 scrollback 委托展开 */
+function annotateFrozenToolHtml(sessionId: string, liveHtml: string): string {
+  return liveHtml.replace(
+    /<div(\s+)([^>]*class="[^"]*term-shell-agent-tool[^"]*"[^>]*)>/g,
+    (full, sp, attrs) => {
+      if (/\bdata-shell-agent-frozen-tool=/.test(attrs)) return full;
+      const sid = /\bdata-session-id=/.test(attrs)
+        ? ""
+        : ` data-session-id="${sessionId.replace(/"/g, "&quot;")}"`;
+      return `<div${sp}${attrs} data-shell-agent-frozen-tool="1"${sid}>`;
+    },
+  );
+}
+
+function resolveFrozenHtml(
+  sessionId: string,
+  cardKind: ShellAgentCardKind | null,
+  liveHtml: string,
+): string {
+  if (cardKind === "thinking") {
+    return buildThinkingDoneFrozenHtml({
+      sessionId,
+      fullText: getShellAgentThinkingFull(sessionId),
+    });
+  }
+  if (cardKind === "cmd") {
+    const last = getShellAgentLastCmd(sessionId);
+    const freezeKind = consumeShellAgentConfirmFreeze(sessionId);
+    // 同意/拒绝瞬间：无论 live 是否已切到工具条，都冻成与待确认同布局的态
+    if (freezeKind === "agreed") {
+      const transformed = transformPendingConfirmToAgreedHtml(liveHtml, {
+        sessionId,
+        command: last?.command,
+        toolId: last?.toolId,
+      });
+      if (transformed) return transformed;
+      if (last?.command) {
+        return buildAgreedCmdFrozenHtml({
+          sessionId,
+          command: last.command,
+          toolId: last.toolId,
+          description: last.description,
+        });
+      }
+    }
+    if (freezeKind === "rejected") {
+      const transformed = transformPendingConfirmToRejectedHtml(liveHtml, {
+        sessionId,
+        command: last?.command,
+        toolId: last?.toolId,
+      });
+      if (transformed) return transformed;
+      if (last?.command) {
+        return buildRejectedCmdFrozenHtml({
+          sessionId,
+          command: last.command,
+          toolId: last.toolId,
+          description: last.description,
+        });
+      }
+    }
+    // 后续归档：现场是工具条 → 原样冻结
+    if (liveHtml.includes("term-shell-agent-tool")) {
+      return annotateFrozenToolHtml(sessionId, liveHtml);
+    }
+    const transformed = transformPendingConfirmToAgreedHtml(liveHtml, {
+      sessionId,
+      command: last?.command,
+      toolId: last?.toolId,
+    });
+    if (transformed) return transformed;
+    if (last?.command) {
+      return buildAgreedCmdFrozenHtml({
+        sessionId,
+        command: last.command,
+        toolId: last.toolId,
+        description: last.description,
+      });
+    }
+  }
+  return liveHtml;
+}
+
+/**
+ * 将当前流内卡冻结进 scrollback（React portal 卸载后回填快照，避免空白）。
+ * 思考卡 →「思考完成」；确认卡 →「已同意」命令卡（避免被工具条顶替后留空白高槽）。
  */
 export function archiveActiveInlineCard(sessionId: string): void {
   const prev = geometries.get(sessionId);
@@ -112,11 +298,12 @@ export function archiveActiveInlineCard(sessionId: string): void {
 
   const deco = prev.decoration;
   const marker = prev.marker;
-  const frozenHtml = deco.element?.innerHTML?.trim() ?? "";
+  const host = deco.element ? getPortalHost(deco.element) : null;
+  const liveHtml = (host?.innerHTML ?? deco.element?.innerHTML ?? "").trim();
+  const frozenHtml = resolveFrozenHtml(sessionId, prev.cardKind, liveHtml);
 
   pushArchived(sessionId, { decoration: deco, marker });
 
-  // 先 detach 活跃几何 → React 卸载 portal，再回填冻结快照
   setGeometry(sessionId, {
     ...prev,
     mode: "detached",
@@ -128,7 +315,7 @@ export function archiveActiveInlineCard(sessionId: string): void {
   });
 
   if (frozenHtml) {
-    afterReactPortalUnmount(() => injectFrozenCardSnapshot(deco, frozenHtml));
+    injectFrozenCardSnapshot(deco, frozenHtml);
   }
 }
 
@@ -153,23 +340,24 @@ export function getShellAgentGeometry(sessionId: string): ShellAgentGeometry | n
 
 function setGeometry(sessionId: string, geo: ShellAgentGeometry): void {
   geometries.set(sessionId, geo);
-  // TEMP-DEBUG: 几何变化写 DOM dataset（隔离世界可读）
-  try {
-    const term = getXterm(sessionId);
-    document.body.dataset.shellAgentGeo = JSON.stringify({
-      t: Date.now(),
-      mode: geo.mode,
-      cardKind: geo.cardKind,
-      rows: geo.rows,
-      hasDeco: Boolean(geo.decoration),
-      version: geo.version,
-      anchorLine: geo.anchorLine,
-      markerLine: geo.marker && !geo.marker.isDisposed ? geo.marker.line : null,
-      baseY: term ? term.buffer.active.baseY : null,
-      cursorY: term ? term.buffer.active.cursorY + term.buffer.active.baseY : null,
-    });
-  } catch {
-    // ignore
+  if (import.meta.env.DEV) {
+    try {
+      const term = getXterm(sessionId);
+      document.body.dataset.shellAgentGeo = JSON.stringify({
+        t: Date.now(),
+        mode: geo.mode,
+        cardKind: geo.cardKind,
+        rows: geo.rows,
+        hasDeco: Boolean(geo.decoration),
+        version: geo.version,
+        anchorLine: geo.anchorLine,
+        markerLine: geo.marker && !geo.marker.isDisposed ? geo.marker.line : null,
+        baseY: term ? term.buffer.active.baseY : null,
+        cursorY: term ? term.buffer.active.cursorY + term.buffer.active.baseY : null,
+      });
+    } catch {
+      // ignore
+    }
   }
   emit(sessionId);
 }
@@ -177,11 +365,14 @@ function setGeometry(sessionId: string, geo: ShellAgentGeometry): void {
 function disposeDecoration(geo: ShellAgentGeometry | null): void {
   const deco = geo?.decoration;
   if (!deco) return;
-  try {
-    deco.dispose();
-  } catch {
-    // ignore
-  }
+  // 延后 dispose：避免 xterm 拆掉 DOM 时 React portal 仍在卸子节点
+  whenDecorationPortalIdle(deco, () => {
+    try {
+      deco.dispose();
+    } catch {
+      // ignore
+    }
+  });
   // 禁止 element.remove()：会与 createPortal 卸载竞态，触发 removeChild NotFoundError
 }
 
@@ -267,6 +458,20 @@ export function beginShellAgentCard(
     query: string;
   },
 ): ShellAgentGeometry {
+  // 方案 C：无活 xterm 绑定或 restore 中 → 不写占位，避免弄乱快照 buffer
+  if (isGeometryWriteSuspended(sessionId)) {
+    const prev = geometries.get(sessionId);
+    if (prev) return prev;
+    return {
+      ...freshGeometry({
+        cardKind: opts.kind,
+        promptIndentCols: Math.max(2, opts.promptIndentCols),
+        promptPrefix: opts.promptPrefix,
+        query: opts.query,
+      }),
+      mode: "detached" as const,
+    };
+  }
   const term = getXterm(sessionId);
   const rows = minCardRowsFor(opts.kind);
   const prev = geometries.get(sessionId);
@@ -352,12 +557,17 @@ function cursorPastPlaceholderEnd(term: Terminal, geo: ShellAgentGeometry): bool
 /**
  * 按目标行数调整占位区（可扩可缩 decoration 高度）。
  * 命令已回显、光标离开占位区后禁止再 write \\r\\n，避免把 prompt 顶乱。
+ * 关键：先挂新 decoration 再卸旧的，中间不出现 decoration=null（防卡片闪没）。
  */
 export function resizeShellAgentCard(
   sessionId: string,
   targetRows: number,
   onReady?: () => void,
 ): void {
+  if (isGeometryWriteSuspended(sessionId)) {
+    onReady?.();
+    return;
+  }
   const prev = geometries.get(sessionId);
   if (!prev || prev.mode !== "inline") {
     onReady?.();
@@ -387,44 +597,40 @@ export function resizeShellAgentCard(
   }
 
   const oldDecoration = prev.decoration;
+  const decoration = registerCardDecoration(
+    term,
+    marker,
+    effectiveTarget,
+    prev.promptIndentCols,
+  );
+  if (!decoration) {
+    onReady?.();
+    return;
+  }
+
   setGeometry(sessionId, {
     ...prev,
-    decoration: null,
+    decoration,
+    rows: effectiveTarget,
     version: prev.version + 1,
   });
 
-  afterReactPortalUnmount(() => {
-    if (oldDecoration) {
+  if (oldDecoration && oldDecoration !== decoration) {
+    whenDecorationPortalIdle(oldDecoration, () => {
       try {
         oldDecoration.dispose();
       } catch {
         // ignore
       }
-    }
-    const decoration = registerCardDecoration(
-      term,
-      marker,
-      effectiveTarget,
-      prev.promptIndentCols,
-    );
-    if (!decoration) {
-      detachActiveShellAgentGeometry(sessionId);
-      onReady?.();
-      return;
-    }
-    setGeometry(sessionId, {
-      ...prev,
-      decoration,
-      rows: effectiveTarget,
-      version: prev.version + 2,
     });
-    onReady?.();
-  });
+  }
+  onReady?.();
 }
 
 const fitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** 根据 portal 实测高度同步 decoration 占位行数 */
+/** 将内容高度换算行数后扩缩占位。final 卡即使光标已越过也允许扩高，避免解读被裁切。 */
 export function fitShellAgentCardToContent(
   sessionId: string,
   contentHeightPx: number,
@@ -439,8 +645,14 @@ export function fitShellAgentCardToContent(
       fitTimers.delete(sessionId);
       const prev = geometries.get(sessionId);
       const term = getXterm(sessionId);
-      // 光标已在卡下方（通常已是 shell prompt）：禁止再本地写 \r\n / 重锚，否则双 prompt + 两次回车
-      if (prev && term && cursorPastPlaceholderEnd(term, prev) && rows > prev.rows) {
+      // 光标已在卡下方：非 final 禁止再写 \r\n（双 prompt）；final 解读必须能撑开
+      if (
+        prev &&
+        term &&
+        cursorPastPlaceholderEnd(term, prev) &&
+        rows > prev.rows &&
+        prev.cardKind !== "final"
+      ) {
         onStable?.();
         return;
       }
@@ -470,11 +682,8 @@ export function setShellAgentCardKind(sessionId: string, kind: ShellAgentCardKin
 }
 
 /**
- * 续轮重锚：归档旧卡 → 在当前行钉 marker + 占位 + decoration。
- *
- * 重要：不要先写一行 \r\n 再钉 marker。若当前已是 `root@host:~#`，先换行会把
- * 旧 prompt 留在卡片上方，收尾再 PTY 回车就会出现两个 prompt，并导致两次回车。
- * 正确做法是 marker 钉在当前行（旧 prompt 被卡片盖住），占位向下展开。
+ * 续轮重锚：在当前行钉新卡，再归档旧卡。
+ * 关键：先 setGeometry(新卡) 再异步冻结旧卡，中间不出现 decoration=null。
  */
 export function reanchorShellAgentCard(
   sessionId: string,
@@ -482,6 +691,10 @@ export function reanchorShellAgentCard(
   onReady?: () => void,
   rowsOverride?: number,
 ): void {
+  if (isGeometryWriteSuspended(sessionId)) {
+    onReady?.();
+    return;
+  }
   const term = getXterm(sessionId);
   const prev = geometries.get(sessionId);
   if (!term) {
@@ -496,7 +709,14 @@ export function reanchorShellAgentCard(
   const query = prev?.query ?? "";
   const version = prev?.version ?? 0;
 
-  archiveActiveInlineCard(sessionId);
+  const oldDecoration = prev?.mode === "inline" ? prev.decoration : null;
+  const oldMarker = prev?.mode === "inline" ? prev.marker : null;
+  const oldKind = prev?.cardKind ?? null;
+  const oldHost = oldDecoration?.element
+    ? getPortalHost(oldDecoration.element)
+    : null;
+  const liveHtml = (oldHost?.innerHTML ?? oldDecoration?.element?.innerHTML ?? "").trim();
+  const frozenHtml = resolveFrozenHtml(sessionId, oldKind, liveHtml);
 
   const rows = Math.min(
     MAX_CARD_ROWS,
@@ -510,7 +730,6 @@ export function reanchorShellAgentCard(
     marker = null;
   }
   if (!marker || marker.isDisposed) {
-    detachActiveShellAgentGeometry(sessionId);
     onReady?.();
     return;
   }
@@ -518,11 +737,16 @@ export function reanchorShellAgentCard(
   term.write("\r\n".repeat(rows), () => {
     const decoration = registerCardDecoration(term, marker!, rows, indentCols);
     if (!decoration) {
-      disposeMarker({ ...freshGeometry(), marker });
-      detachActiveShellAgentGeometry(sessionId);
+      try {
+        marker!.dispose();
+      } catch {
+        // ignore
+      }
       onReady?.();
       return;
     }
+
+    // 原子切换到新卡（保持 inline，卡片不中断）
     setGeometry(sessionId, {
       ...freshGeometry({
         cardKind: kind,
@@ -531,13 +755,23 @@ export function reanchorShellAgentCard(
         query,
         version: version + 1,
       }),
+      mode: "inline",
       marker,
       decoration,
       rows,
       anchorLine: marker!.line,
     });
-    // 本地占位后画面停在空行，PTY 仍在被盖住的旧 prompt：收尾需同步一次
     markReanchorNeedsPtySync(sessionId);
+
+    // 旧卡冻结进 scrollback（不阻断新卡）
+    if (oldDecoration) {
+      if (oldMarker) {
+        pushArchived(sessionId, { decoration: oldDecoration, marker: oldMarker });
+      }
+      if (frozenHtml) {
+        injectFrozenCardSnapshot(oldDecoration, frozenHtml);
+      }
+    }
     onReady?.();
   });
 }
@@ -547,6 +781,11 @@ const reanchorPtySyncNeeded = new Set<string>();
 
 function markReanchorNeedsPtySync(sessionId: string): void {
   reanchorPtySyncNeeded.add(sessionId);
+}
+
+/** 归档确认卡后需在 release 时拉一次新 prompt（拒绝等不走 reanchor 的路径） */
+export function markShellAgentNeedsPromptSync(sessionId: string): void {
+  markReanchorNeedsPtySync(sessionId);
 }
 
 export function consumeReanchorPtySync(sessionId: string): boolean {
@@ -592,7 +831,7 @@ export function clearShellAgentGeometry(sessionId: string): void {
   emit(sessionId);
 }
 
-/** resize 后按新 cols 重注册 decoration 宽度（marker 不动） */
+/** resize 后按新 cols 重注册 decoration 宽度（marker 不动）；先挂新再卸旧 */
 export function relayoutShellAgentCard(sessionId: string): void {
   const prev = geometries.get(sessionId);
   if (!prev || prev.mode !== "inline" || !prev.cardKind) return;
@@ -604,27 +843,20 @@ export function relayoutShellAgentCard(sessionId: string): void {
   }
 
   const oldDecoration = prev.decoration;
-  setGeometry(sessionId, {
-    ...prev,
-    decoration: null,
-    version: prev.version + 1,
-  });
+  const decoration = registerCardDecoration(term, marker, prev.rows, prev.promptIndentCols);
+  if (!decoration) return;
 
-  afterReactPortalUnmount(() => {
-    if (oldDecoration) {
+  setGeometry(sessionId, { ...prev, decoration, version: prev.version + 1 });
+
+  if (oldDecoration && oldDecoration !== decoration) {
+    whenDecorationPortalIdle(oldDecoration, () => {
       try {
         oldDecoration.dispose();
       } catch {
         // ignore
       }
-    }
-    const decoration = registerCardDecoration(term, marker, prev.rows, prev.promptIndentCols);
-    if (!decoration) {
-      detachActiveShellAgentGeometry(sessionId);
-      return;
-    }
-    setGeometry(sessionId, { ...prev, decoration, version: prev.version + 2 });
-  });
+    });
+  }
 }
 
 /** 在光标行画出 prompt 前缀（绿色），供注入命令的真实 echo 紧随其后 */

@@ -22,8 +22,10 @@ import { patchEnterGateFlags } from "./passthroughAi/enterGates";
 import {
   notifyShellAgentApprovalPending,
   notifyShellAgentExecuting,
+  notifyShellAgentRejected,
 } from "./shellAgent/loop";
 import { useShellAgentStore } from "./shellAgent/shellAgentStore";
+import { getShellAgentLastCmd, setShellAgentLastCmd } from "./shellAgent/thinkingCache";
 
 export interface InlineToolDecision {
   approved: boolean;
@@ -370,6 +372,14 @@ export async function approveInlineTerminalTool(
       status: "running",
     } as Partial<AiThreadToolCall>);
 
+    // 同意瞬间缓存命令，保证随后 reanchor 冻结成「已同意」卡（不依赖 React effect 时序）
+    const prevCmd = getShellAgentLastCmd(pending.sessionId);
+    setShellAgentLastCmd(pending.sessionId, {
+      command,
+      toolId: toolCallId,
+      description: prevCmd?.description,
+    });
+
     notifyShellAgentExecuting(pending.sessionId, true);
     patchEnterGateFlags(pending.sessionId, { agentExecuting: true });
 
@@ -454,6 +464,9 @@ export function rejectInlineTerminalTool(blockId: string, toolCallId: string): v
     status: "rejected",
     result,
   } as Partial<AiThreadToolCall>);
+
+  // 先冻成「已拒绝」确认卡，避免 React 切到工具条矮卡
+  notifyShellAgentRejected(pending.sessionId);
 
   pendingByToolCallId.delete(toolCallId);
   void deliverToolResultToBackend(pending.conversationId, toolCallId, result, false, blockId);
