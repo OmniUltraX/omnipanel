@@ -13,7 +13,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
-import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
+import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
@@ -568,7 +568,7 @@ export function DockerPanel() {
           leftColumnTitle={t("routes.docker")}
           leftPreset="server"
           tagModuleKey="docker"
-          leftHeaderActions={<ModuleAskAiButton moduleKey="docker" />}
+          leftHeaderActions={<ModuleLeftHeaderActions moduleKey="docker" />}
           leftSidebar={
             <DockerConnectionSidebar
               connections={visibleConnections}

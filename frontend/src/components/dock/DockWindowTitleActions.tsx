@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAiDockOpen } from "../../lib/ai/useAiDockOpen";
 import { WinControls } from "../shell/WinControls";
 import { AiChromeButton } from "../shell/AiChromeButton";
+import { ModuleChromeSettingsButton } from "../shell/ModuleChromeSettingsButton";
 import type { DockWindowChromeActionsProps } from "./dockWindowChromeActions";
 
 export type { DockWindowChromeActionsProps, DockWindowChromeMode } from "./dockWindowChromeActions";
@@ -51,7 +52,7 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
   const handleDoubleClick = async (event: React.MouseEvent) => {
     if (mode === "controls") return;
     const target = event.target as HTMLElement;
-    if (target.closest(".win-controls")) return;
+    if (target.closest(".win-controls, .dock-chrome-ai-btn, .dock-chrome-settings-btn")) return;
     if (target.closest(".dv-tab, .dv-default-tab, .dock-tab-header-root")) return;
     const win = getCurrentWindow();
     if (await win.isFullscreen()) {
@@ -78,7 +79,12 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
       {leftActions || showControls ? (
         <div className="dock-window-chrome-left-actions">
           {leftActions}
-          {showControls ? <AiChromeButton /> : null}
+          {showControls ? (
+            <>
+              <AiChromeButton />
+              <ModuleChromeSettingsButton />
+            </>
+          ) : null}
         </div>
       ) : null}
       {/* 主窗 / 模块独立窗可见的窗口三键；挂 Snap Layout overlay */}

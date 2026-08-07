@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMous
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import type { DockHeaderIconKind } from "../../components/dock/DockHeaderIcon";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
-import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
+import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
@@ -478,7 +478,7 @@ export function ServerPanel() {
           leftColumnTitle={t("routes.server")}
           leftPreset="server"
           tagModuleKey="server"
-          leftHeaderActions={<ModuleAskAiButton moduleKey="server" />}
+          leftHeaderActions={<ModuleLeftHeaderActions moduleKey="server" />}
           leftSidebar={
             <ServerPanelSidebar
               servers={visiblePanelServers}

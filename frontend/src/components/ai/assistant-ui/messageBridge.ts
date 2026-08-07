@@ -6,6 +6,7 @@ import type {
 
 import {
   coalescePartsByToolSegments,
+  coalescePartsForCoherentDisplay,
   coalesceToolsInThinkingPhases,
   deriveCompatFields,
   normalizeAiMessage,
@@ -129,9 +130,11 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
     } satisfies ThreadUserMessage;
   }
 
-  const ordered = coalesceToolsInThinkingPhases(
-    coalescePartsByToolSegments(partsFromFlatFields(msg)).filter(
-      (part) => part.type !== "tool-call" || !isHiddenChatToolName(part.name),
+  const ordered = coalescePartsForCoherentDisplay(
+    coalesceToolsInThinkingPhases(
+      coalescePartsByToolSegments(partsFromFlatFields(msg)).filter(
+        (part) => part.type !== "tool-call" || !isHiddenChatToolName(part.name),
+      ),
     ),
   );
   const parts: ThreadAssistantMessage["content"][number][] = [];

@@ -2,8 +2,10 @@
 import {
   appendTextLikePart,
   coalescePartsByToolSegments,
+  coalescePartsForCoherentDisplay,
   coalesceToolsInThinkingPhases,
   deriveCompatFields,
+  joinTextFragments,
   partsFromFlatFields,
   stripLeakedToolCallsJson,
   upsertToolCallInParts,
@@ -154,5 +156,50 @@ describe("AiMessage ordered parts", () => {
         .filter((p) => p.type === "tool-call")
         .map((p) => (p as Extract<AiMessagePart, { type: "tool-call" }>).id),
     ).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("joinTextFragments 中文直接拼接、英文相邻补空格", () => {
+    expect(joinTextFragments("常见", "环境管理器")).toBe("常见环境管理器");
+    expect(joinTextFragments("hello", "world")).toBe("hello world");
+    expect(joinTextFragments("hello ", "world")).toBe("hello world");
+  });
+
+  it("coherent display：reasoning/tool 置顶折叠区，正文合并为一段", () => {
+    const parts: AiMessagePart[] = [
+      { type: "text", text: "列出系统里各 Python 解释器与常见" },
+      { type: "reasoning", text: "先查 which/pyenv" },
+      {
+        type: "tool-call",
+        id: "c1",
+        name: "omni_ssh_create_run_script",
+        arguments: "{}",
+        status: "completed",
+      },
+      { type: "text", text: "环境管理器状态" },
+      { type: "reasoning", text: "再确认 conda" },
+      {
+        type: "tool-call",
+        id: "c2",
+        name: "omni_ssh_create_run_script",
+        arguments: "{}",
+        status: "running",
+      },
+      { type: "text", text: "。Ubuntu 24.04.2。" },
+    ];
+    const display = coalescePartsForCoherentDisplay(parts);
+    expect(display.map((p) => p.type)).toEqual([
+      "reasoning",
+      "tool-call",
+      "tool-call",
+      "text",
+    ]);
+    expect(display[0]).toMatchObject({
+      type: "reasoning",
+      text: "先查 which/pyenv再确认 conda",
+    });
+    expect(display[3]).toMatchObject({
+      type: "text",
+      text: "列出系统里各 Python 解释器与常见环境管理器状态。Ubuntu 24.04.2。",
+    });
   });
 });

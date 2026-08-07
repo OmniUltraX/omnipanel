@@ -15,7 +15,7 @@ import {
   ModuleWorkspaceLayout,
 } from "../../components/workspace";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
-import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
+import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { migrateLayoutStorage } from "../../lib/layoutMigration";
@@ -982,7 +982,7 @@ function FilesBrowserView() {
         leftColumnTitle={t("routes.files")}
         leftPreset="schema"
         tagModuleKey="files"
-        leftHeaderActions={<ModuleAskAiButton moduleKey="files" />}
+        leftHeaderActions={<ModuleLeftHeaderActions moduleKey="files" />}
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}

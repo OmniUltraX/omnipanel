@@ -19,6 +19,7 @@ import { AiDockView } from "./components/ai/AiDockView";
 import { AiDockviewResizeHandle } from "./components/ai/AiDockviewResizeHandle";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
+import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
 import { MODULE_PATHS, moduleKeyFromPath, type ModuleKey } from "./lib/paths";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
@@ -33,6 +34,7 @@ import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
+import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import {
   LazyDatabasePanel,
   LazyDockerPanel,
@@ -167,6 +169,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
   const dockWidth = dockOpen ? `${aiDockWidth}px` : "0px";
 
   useAiDrawerShortcut();
+  useSettingsShortcut();
 
   // 与主窗 WorkspaceShell 一致：AI 侧栏开合/调宽后强制 dockview relayout
   useLayoutEffect(() => {
@@ -322,6 +325,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
           </div>
           {!aiDockview ? <AiDrawer /> : null}
           <ApprovalDialog />
+          <SettingsWindow />
           <SubWindowMinimizedStack />
           <WindowResize />
           <QuickInputHost />

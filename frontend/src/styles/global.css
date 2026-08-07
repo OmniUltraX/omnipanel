@@ -1265,6 +1265,16 @@ select,
     line-height: 1;
 }
 
+.module-left-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.module-open-settings-btn {
+    padding-inline: 6px;
+}
+
 .home-board-qa-end {
     margin-left: auto;
 }
@@ -4380,7 +4390,8 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 
 .dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-mode-btn,
 .dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-fullscreen-btn,
-.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .dock-chrome-ai-btn {
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .dock-chrome-ai-btn,
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .dock-chrome-settings-btn {
     width: var(--shell-dv-tab-bar-h);
     height: 100%;
     min-width: var(--shell-dv-tab-bar-h);
@@ -4398,7 +4409,8 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 
 .dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-mode-btn:hover:not(:disabled),
 .dockable-workspace.dock-window-control .dock-window-chrome-left-actions .workspace-panel-fullscreen-btn:hover,
-.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .dock-chrome-ai-btn:hover {
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .dock-chrome-ai-btn:hover,
+.dockable-workspace.dock-window-control .dock-window-chrome-left-actions .dock-chrome-settings-btn:hover {
     color: var(--fg);
     background: var(--surface-hover);
 }
@@ -6859,7 +6871,8 @@ button.omni-btn-tool[aria-pressed="true"] {
         -webkit-app-region: no-drag;
     }
 
-    .ai-dock-chrome-actions .dock-chrome-ai-btn {
+    .ai-dock-chrome-actions .dock-chrome-ai-btn,
+    .ai-dock-chrome-actions .dock-chrome-settings-btn {
         width: var(--shell-dv-tab-bar-h, var(--topbar-h));
         height: 100%;
         min-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
@@ -6875,7 +6888,8 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex-shrink: 0;
     }
 
-    .ai-dock-chrome-actions .dock-chrome-ai-btn:hover {
+    .ai-dock-chrome-actions .dock-chrome-ai-btn:hover,
+    .ai-dock-chrome-actions .dock-chrome-settings-btn:hover {
         background: var(--surface-hover);
         color: var(--fg);
     }

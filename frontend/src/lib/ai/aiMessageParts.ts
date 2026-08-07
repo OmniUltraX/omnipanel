@@ -320,6 +320,100 @@ export function coalesceToolsInThinkingPhases(parts: AiMessagePart[]): AiMessage
   return out;
 }
 
+/** 英文数字相邻碎片补空格；中文等直接拼接。 */
+export function joinTextFragments(left: string, right: string): string {
+  if (!left) return right;
+  if (!right) return left;
+  if (/\s$/.test(left) || /^\s/.test(right)) {
+    return left + right;
+  }
+  if (/[A-Za-z0-9]$/.test(left) && /^[A-Za-z0-9]/.test(right)) {
+    return `${left} ${right}`;
+  }
+  return left + right;
+}
+
+/**
+ * 展示层收敛：reasoning / tool（及 plan、cluster）收到前部折叠区，
+ * 全部 text 合并为一段连贯正文，避免「半句话 + Reasoning/tool + 半句话」。
+ *
+ * 顺序：`[reasoning?][tool…][plan…][cluster…][text?][user-question…]`
+ * 流式与完成后共用，正文始终在底部连续增长。
+ */
+export function coalescePartsForCoherentDisplay(parts: AiMessagePart[]): AiMessagePart[] {
+  if (parts.length <= 1) return parts;
+
+  let reasoning = "";
+  let text = "";
+  const tools: Extract<AiMessagePart, { type: "tool-call" }>[] = [];
+  const plans: Extract<AiMessagePart, { type: "plan" }>[] = [];
+  const clusters: Extract<AiMessagePart, { type: "sub-conversation-cluster" }>[] = [];
+  const userQuestions: Extract<AiMessagePart, { type: "user-question" }>[] = [];
+
+  for (const part of parts) {
+    if (part.type === "reasoning") {
+      reasoning += part.text;
+      continue;
+    }
+    if (part.type === "text") {
+      const cleaned = stripLeakedToolCallsJson(part.text);
+      if (cleaned) {
+        text = joinTextFragments(text, cleaned);
+      }
+      continue;
+    }
+    if (part.type === "tool-call") {
+      // 同 id 保留最后一次（状态/结果更新）
+      const existing = tools.findIndex((t) => t.id === part.id);
+      if (existing >= 0) {
+        tools[existing] = part;
+      } else {
+        tools.push(part);
+      }
+      continue;
+    }
+    if (part.type === "plan") {
+      const existing = plans.findIndex((p) => p.plan.id === part.plan.id);
+      if (existing >= 0) {
+        plans[existing] = part;
+      } else {
+        plans.push(part);
+      }
+      continue;
+    }
+    if (part.type === "sub-conversation-cluster") {
+      const existing = clusters.findIndex((c) => c.clusterId === part.clusterId);
+      if (existing >= 0) {
+        clusters[existing] = part;
+      } else {
+        clusters.push(part);
+      }
+      continue;
+    }
+    if (part.type === "user-question") {
+      const existing = userQuestions.findIndex((q) => q.form.formId === part.form.formId);
+      if (existing >= 0) {
+        userQuestions[existing] = part;
+      } else {
+        userQuestions.push(part);
+      }
+    }
+  }
+
+  const out: AiMessagePart[] = [];
+  if (reasoning) {
+    out.push({ type: "reasoning", text: reasoning });
+  }
+  out.push(...tools);
+  out.push(...plans);
+  out.push(...clusters);
+  if (text) {
+    out.push({ type: "text", text });
+  }
+  out.push(...userQuestions);
+  return out;
+}
+
 /** 去掉误流入正文的完整/半截 tool_calls JSON（CLI client-tools 泄露兜底）。 */
 export function stripLeakedToolCallsJson(text: string): string {
   const trimmed = text.trim();

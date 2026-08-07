@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AiChromeButton } from "../../shell/AiChromeButton";
+import { ModuleChromeSettingsButton } from "../../shell/ModuleChromeSettingsButton";
 import { WinControls } from "../../shell/WinControls";
 
 /**
@@ -36,7 +37,7 @@ export function AiDockChrome() {
 
   const handleDoubleClick = async (event: React.MouseEvent) => {
     const target = event.target as HTMLElement;
-    if (target.closest(".win-controls, .dock-chrome-ai-btn")) return;
+    if (target.closest(".win-controls, .dock-chrome-ai-btn, .dock-chrome-settings-btn")) return;
     const win = getCurrentWindow();
     if (await win.isFullscreen()) {
       await win.setFullscreen(false);
@@ -54,6 +55,7 @@ export function AiDockChrome() {
       />
       <div className="ai-dock-chrome-actions">
         <AiChromeButton />
+        <ModuleChromeSettingsButton />
         <WinControls className="ai-dock-win-controls" />
       </div>
     </div>

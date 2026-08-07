@@ -1,6 +1,7 @@
 import type { ThreadMessage } from "@assistant-ui/react";
 import {
   coalescePartsByToolSegments,
+  coalescePartsForCoherentDisplay,
   normalizeAiMessage,
   type AiMessage,
   type AiMessagePart,
@@ -104,7 +105,7 @@ function assistantMessageParts(
   // parts 存在且非空时：按 tool 段合并交错的 reasoning/text，避免双通道碎片
   // tool-call 边界已在流式写入时以 tool-call part 形式插入 parts，无需再追加 followingTools
   if (item.parts && item.parts.length > 0) {
-    return coalescePartsByToolSegments(item.parts);
+    return coalescePartsForCoherentDisplay(coalescePartsByToolSegments(item.parts));
   }
   // 回退：旧数据无 parts，按固定顺序拼 reasoning + content + tools
   const parts: AiMessagePart[] = [];
@@ -118,7 +119,7 @@ function assistantMessageParts(
     if (isPlanToolName(tool.toolName)) continue;
     parts.push(toolCallToPart(tool));
   }
-  return parts;
+  return coalescePartsForCoherentDisplay(parts);
 }
 
 /** 将终端 AI 线程转为侧栏 AI 助手同款 AiMessage 列表（保序 parts） */
