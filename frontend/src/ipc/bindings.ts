@@ -1431,12 +1431,27 @@ export type AssistantConversationSnapshotItem = {
 	linkedTerminalSessionId?: string | null,
 };
 
+export type AssistantTerminalSessionSnapshotItem = {
+	id: string,
+	title: string,
+	sessionType: string,
+	resourceId: string,
+	shellLabel?: string,
+	cwd?: string,
+	lifecycle?: string,
+	status?: string,
+	createdAt: number | null,
+	updatedAt: number | null,
+};
+
 export type AssistantPushRequest = {
 	token: string,
 	dryRun?: boolean,
 	bindId?: string | null,
 	/**  前端注入的 AI 会话列表元数据（不含消息正文）。 */
 	conversations?: AssistantConversationSnapshotItem[],
+	/**  前端注入的终端会话列表（与 AI 会话分离）。 */
+	terminalSessions?: AssistantTerminalSessionSnapshotItem[],
 };
 
 export type AssistantUploadTextRequest = {

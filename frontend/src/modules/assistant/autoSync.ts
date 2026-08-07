@@ -1,12 +1,17 @@
 import { commands } from "../../ipc/bindings";
-import type { AssistantConversationSnapshotItem } from "../../ipc/bindings";
+import type {
+  AssistantConversationSnapshotItem,
+  AssistantTerminalSessionSnapshotItem,
+} from "../../ipc/bindings";
 import { unwrapCommand, formatIpcError } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
+import { useTerminalStore } from "../../stores/terminalStore";
 
 const DEBOUNCE_MS = 5000;
 /** 与后端 ASSISTANT_CONVERSATION_SNAPSHOT_LIMIT 对齐 */
 const CONVERSATION_SNAPSHOT_LIMIT = 50;
+const TERMINAL_SESSION_SNAPSHOT_LIMIT = 50;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let inFlight: Promise<void> | null = null;
@@ -84,6 +89,30 @@ export function collectAssistantConversationSnapshots(): AssistantConversationSn
   return list.slice(0, CONVERSATION_SNAPSHOT_LIMIT).map(toAssistantConversationSnapshotItem);
 }
 
+/** 终端会话快照（不含 PTY 输出；与 AI 会话分离）。 */
+export function collectTerminalSessionSnapshots(): AssistantTerminalSessionSnapshotItem[] {
+  const state = useTerminalStore.getState();
+  const list = state.sessions.filter((s) => s.lifecycle !== "ended");
+  list.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+  return list.slice(0, TERMINAL_SESSION_SNAPSHOT_LIMIT).map((s) => {
+    const tab = state.tabs.find((t) => t.sessionId === s.id);
+    const detached = state.detachedRuntime[s.id];
+    const status = tab?.status || detached?.status || "disconnected";
+    return {
+      id: s.id,
+      title: s.title,
+      sessionType: s.session.type === "remote" ? "remote" : "local",
+      resourceId: s.session.resourceId || "",
+      shellLabel: s.session.shellLabel || "",
+      cwd: s.session.cwd || "",
+      lifecycle: s.lifecycle,
+      status: String(status || "disconnected"),
+      createdAt: s.createdAt,
+      updatedAt: s.lastActiveAt,
+    };
+  });
+}
+
 async function runPush(): Promise<void> {
   const token = useAuthStore.getState().token;
   if (!token?.trim()) {
@@ -103,6 +132,7 @@ async function runPush(): Promise<void> {
           dryRun: false,
           bindId: lastBindId,
           conversations: collectAssistantConversationSnapshots(),
+          terminalSessions: collectTerminalSessionSnapshots(),
         }),
         { quiet: true },
       );

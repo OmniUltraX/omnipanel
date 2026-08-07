@@ -9,9 +9,45 @@ import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { safeTauriUnlisten } from "../../lib/safeTauriUnlisten";
 import { useAiStore } from "../../stores/aiStore";
 import { useAuthStore } from "../../stores/authStore";
+import {
+  useAiComposerContextStore,
+  type ComposerContextItem,
+} from "../../stores/aiComposerContextStore";
 
 const SEEN_STORAGE_KEY = "omnipanel-assistant-chat-seen.v1";
 const SEEN_MAX = 200;
+
+const COMPOSER_KINDS = new Set(["terminal", "ssh", "database", "docker"]);
+
+function normalizeComposerContexts(
+  raw: Array<{ kind: string; id: string; label: string }> | undefined,
+): ComposerContextItem[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const out: ComposerContextItem[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    let kind = String(item?.kind || "").trim();
+    // 兼容旧助手端把终端模块标成 ssh 的情况
+    if (kind === "ssh" && String(item?.id || "").startsWith("tsess-")) {
+      kind = "terminal";
+    }
+    const id = String(item?.id || "").trim();
+    if (!COMPOSER_KINDS.has(kind) || !id) continue;
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const label = String(item?.label || id).trim() || id;
+    out.push({ kind: kind as ComposerContextItem["kind"], id, label });
+  }
+  return out;
+}
+
+function applyComposerContexts(contexts: ComposerContextItem[]): void {
+  const store = useAiComposerContextStore.getState();
+  for (const item of contexts) {
+    store.addItem(item);
+  }
+}
 
 export type AssistantChatInboundPayload = {
   messageId: string;
@@ -22,12 +58,15 @@ export type AssistantChatInboundPayload = {
   sessionId?: string;
   /** 兼容后端 / 旧事件蛇形字段 */
   session_id?: string;
+  /** 助手端选中的询问对象 */
+  contexts?: Array<{ kind: string; id: string; label: string }>;
 };
 
 type QueuedInbound = {
   text: string;
   conversationId?: string;
   messageId?: string;
+  contexts?: Array<{ kind: string; id: string; label: string }>;
 };
 
 let startedToken: string | null = null;
@@ -134,11 +173,18 @@ async function drainInboundQueue(): Promise<void> {
       // 等一帧，让会话切换与抽屉打开提交到 React
       await new Promise((resolve) => window.setTimeout(resolve, 0));
 
+      const contexts = normalizeComposerContexts(item.contexts);
+      applyComposerContexts(contexts);
+      const contextChips = [
+        { type: "assistant-remote", label: "助手端" },
+        ...contexts.map((c) => ({ type: c.kind, label: c.label })),
+      ];
+
       try {
         await sendToAiDock(item.text, {
           openDrawer: true,
           conversationId: item.conversationId,
-          contextChips: [{ type: "assistant-remote", label: "助手端" }],
+          contextChips,
         });
         if (item.messageId) markSeen(item.messageId);
       } catch (err) {
@@ -180,12 +226,18 @@ function applyInbound(payload: AssistantChatInboundPayload): void {
   }
 
   const conversationId = resolveSessionId(payload);
+  const contexts = Array.isArray(payload.contexts) ? payload.contexts : [];
 
   // 先切 UI，再入队触发生成（成功后才 markSeen）
   prepareInboundUi(conversationId);
   void focusMainWindow();
 
-  inboundQueue.push({ text, conversationId, messageId: messageId || undefined });
+  inboundQueue.push({
+    text,
+    conversationId,
+    messageId: messageId || undefined,
+    contexts,
+  });
   void drainInboundQueue();
 }
 

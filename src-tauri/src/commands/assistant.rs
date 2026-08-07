@@ -3,8 +3,8 @@
 use omnipanel_assistant::{
     fetch_oss_sts, push_snapshot, sanitize_assistant_conversation_meta, sanitize_connection_meta,
     sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
-    sanitize_task_meta, upload_object_bytes, AuthContext, CollectContext, OssUploadResult,
-    PushOptions, PushSnapshotResult,
+    sanitize_task_meta, sanitize_terminal_session_meta, upload_object_bytes, AuthContext,
+    CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{load_database_connections, ConnectionKind};
@@ -49,6 +49,28 @@ pub struct AssistantConversationSnapshotItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct AssistantTerminalSessionSnapshotItem {
+    pub id: String,
+    pub title: String,
+    /// local | remote
+    pub session_type: String,
+    pub resource_id: String,
+    #[serde(default)]
+    pub shell_label: String,
+    #[serde(default)]
+    pub cwd: String,
+    /// active | suspended | ended
+    #[serde(default)]
+    pub lifecycle: String,
+    /// connected | connecting | disconnected | error 等
+    #[serde(default)]
+    pub status: String,
+    pub created_at: f64,
+    pub updated_at: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AssistantPushRequest {
     pub token: String,
     #[serde(default)]
@@ -58,6 +80,9 @@ pub struct AssistantPushRequest {
     /// 前端注入的 AI 会话列表元数据（不含消息正文）。
     #[serde(default)]
     pub conversations: Vec<AssistantConversationSnapshotItem>,
+    /// 前端注入的终端会话列表（与 AI 会话分离）。
+    #[serde(default)]
+    pub terminal_sessions: Vec<AssistantTerminalSessionSnapshotItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -107,6 +132,7 @@ pub async fn assistant_push_snapshot(
         user_id,
         request.bind_id,
         &request.conversations,
+        &request.terminal_sessions,
     )
     .await?;
 
@@ -206,6 +232,7 @@ async fn build_collect_context(
     user_id: Option<String>,
     bind_id: Option<String>,
     conversations: &[AssistantConversationSnapshotItem],
+    terminal_sessions: &[AssistantTerminalSessionSnapshotItem],
 ) -> Result<CollectContext, OmniError> {
     let storage = state.storage.lock().await;
 
@@ -237,12 +264,12 @@ async fn build_collect_context(
         .collect();
     if !docker_instances
         .iter()
-        .any(|v| v.get("id").and_then(|x| x.as_str()) == Some("__local__"))
+        .any(|v| v.get("id").and_then(|x| x.as_str()) == Some("docker-local"))
     {
         docker_instances.insert(
             0,
             serde_json::json!({
-                "id": "__local__",
+                "id": "docker-local",
                 "kind": "docker",
                 "name": "Local Docker",
                 "group": "",
@@ -303,6 +330,32 @@ async fn build_collect_context(
                 )
             })
             .collect(),
+        terminal_sessions: {
+            let mut ranked: Vec<_> = terminal_sessions.iter().collect();
+            ranked.sort_by(|a, b| {
+                b.updated_at
+                    .partial_cmp(&a.updated_at)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            ranked
+                .into_iter()
+                .take(ASSISTANT_CONVERSATION_SNAPSHOT_LIMIT)
+                .map(|s| {
+                    sanitize_terminal_session_meta(
+                        &s.id,
+                        &s.title,
+                        &s.session_type,
+                        &s.resource_id,
+                        &s.shell_label,
+                        &s.cwd,
+                        &s.lifecycle,
+                        &s.status,
+                        s.created_at as i64,
+                        s.updated_at as i64,
+                    )
+                })
+                .collect()
+        },
         database_connections: db_connections
             .iter()
             .map(|c| {

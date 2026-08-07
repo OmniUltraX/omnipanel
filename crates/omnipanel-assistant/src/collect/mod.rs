@@ -30,8 +30,10 @@ pub struct CollectContext {
     pub bind_id: Option<String>,
     /// 账号 user id（用于 object key）；未知时可空
     pub user_id: Option<String>,
-    /// 终端主机（SSH 等）脱敏条目
+    /// 终端主机（SSH 等）脱敏条目（兼容旧快照；优先使用 terminal_sessions）
     pub terminal_hosts: Vec<Value>,
+    /// 终端会话列表（由前端注入；与 AI 会话分离）
+    pub terminal_sessions: Vec<Value>,
     pub database_connections: Vec<Value>,
     pub docker_instances: Vec<Value>,
     pub file_connections: Vec<Value>,

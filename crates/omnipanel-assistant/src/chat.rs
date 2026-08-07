@@ -4,7 +4,6 @@ use omnipanel_error::OmniResult;
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 
-use crate::error::{map_assistant_error, map_assistant_error_with_cause, AssistantErrorKind};
 use crate::sts::AuthContext;
 
 /// `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
@@ -111,85 +110,76 @@ struct LatestApiEnvelope {
     message: Option<String>,
 }
 
-/// `GET {api_base}/api/assistant/chat/latest`；无消息时返回 `None`。
-pub async fn fetch_chat_latest(auth: &AuthContext) -> OmniResult<Option<ChatLatestIndex>> {
-    let url = format!(
-        "{}/api/assistant/chat/latest",
-        auth.api_base.trim_end_matches('/')
-    );
-    let resp = auth
-        .http
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", auth.access_token))
-        .header("X-App-Id", &auth.app_id)
-        .header("X-Device-Id", &auth.device_id)
-        .header("X-Device-Public-Key", &auth.device_public_key)
-        .send()
-        .await
-        .map_err(|e| {
-            map_assistant_error_with_cause(
-                AssistantErrorKind::Inbox,
-                "读取聊天 latest 失败",
-                e.to_string(),
-            )
-        })?;
+/// `GET /api/assistant/chat/latest` 已废弃；改由 `/api/notify/wait` 连接时推送最近一条。
+/// 保留函数签名以免破坏 bindings；始终返回 `None`。
+pub async fn fetch_chat_latest(_auth: &AuthContext) -> OmniResult<Option<ChatLatestIndex>> {
+    Ok(None)
+}
 
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| {
-        map_assistant_error_with_cause(
-            AssistantErrorKind::Inbox,
-            "读取聊天 latest 响应失败",
-            e.to_string(),
-        )
-    })?;
-
-    if status.as_u16() == 204 || text.trim().is_empty() {
-        return Ok(None);
+/// 从通用 notify SSE `notify` 事件解析聊天索引。
+pub fn chat_index_from_notify_json(raw: &str) -> Result<ChatLatestIndex, serde_json::Error> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Envelope {
+        #[serde(default)]
+        event: String,
+        #[serde(default)]
+        user_id: serde_json::Value,
+        #[serde(default)]
+        published_at: String,
+        #[serde(default)]
+        payload: serde_json::Value,
     }
-    if status.as_u16() == 404 {
-        return Ok(None);
+    let env: Envelope = serde_json::from_str(raw)?;
+    // 也兼容旧版直接推 ChatLatestIndex
+    if env.event.is_empty() && env.payload.is_null() {
+        return ChatLatestIndex::parse_json(raw);
     }
-    if !status.is_success() {
-        return Err(map_assistant_error(
-            AssistantErrorKind::Inbox,
-            format!("读取聊天 latest 失败 (HTTP {}): {text}", status.as_u16()),
-        ));
-    }
-
-    if let Ok(env) = serde_json::from_str::<LatestApiEnvelope>(&text) {
-        // 服务端固定 `{ status, data }`；data 可为 null
-        if env.status.is_some() || env.data.is_some() || text.contains("\"data\"") {
-            if env.data.is_none() {
-                if let Some(err) = env.error.or(env.message) {
-                    if env.status.as_deref() != Some("ok") {
-                        return Err(map_assistant_error(AssistantErrorKind::Inbox, err));
-                    }
-                }
-                return Ok(None);
-            }
-            return Ok(env
-                .data
-                .map(ChatLatestIndex::from)
-                .filter(|d| !d.object_key.trim().is_empty()));
-        }
-        if let Some(err) = env.error.or(env.message) {
-            return Err(map_assistant_error(AssistantErrorKind::Inbox, err));
-        }
-    }
-
-    let index = serde_json::from_str::<ChatLatestIndexRaw>(&text)
-        .map(ChatLatestIndex::from)
-        .map_err(|e| {
-            map_assistant_error_with_cause(
-                AssistantErrorKind::Inbox,
-                "解析聊天 latest 失败",
-                format!("{e}; body={text}"),
-            )
-        })?;
-    if index.object_key.trim().is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(index))
+    let p = &env.payload;
+    let object_key = p
+        .get("objectKey")
+        .or_else(|| p.get("object_key"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let message_id = p
+        .get("messageId")
+        .or_else(|| p.get("message_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let session_id = p
+        .get("sessionId")
+        .or_else(|| p.get("session_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let created_at = p
+        .get("createdAt")
+        .or_else(|| p.get("created_at"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let oss_path = p
+        .get("ossPath")
+        .or_else(|| p.get("oss_path"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let user_id = match &env.user_id {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    };
+    Ok(ChatLatestIndex {
+        user_id,
+        object_key,
+        oss_path,
+        message_id,
+        session_id,
+        created_at,
+        published_at: env.published_at,
+    })
 }
 
 /// 从 OSS 正文解析出可展示的助手消息文本。
@@ -199,12 +189,21 @@ pub fn extract_inbound_message_text(raw: &str) -> String {
 
 /// 助手端上行消息解析结果。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InboundChatContextItem {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+}
+
+/// 助手端上行消息解析结果。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InboundChatMessage {
     pub text: String,
     pub session_id: String,
+    pub contexts: Vec<InboundChatContextItem>,
 }
 
-/// 解析助手端写入的消息 JSON（text + session_id）；兼容纯文本与 sections。
+/// 解析助手端写入的消息 JSON（text + session_id + contexts）；兼容纯文本与 sections。
 pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -218,12 +217,14 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
             .unwrap_or("")
             .trim()
             .to_string();
+        let contexts = parse_contexts_value(v.get("contexts"));
         for key in ["text", "content", "message", "body"] {
             if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
                 if !s.is_empty() {
                     return InboundChatMessage {
                         text: s.to_string(),
                         session_id,
+                        contexts,
                     };
                 }
             }
@@ -244,6 +245,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
                 return InboundChatMessage {
                     text: out,
                     session_id,
+                    contexts,
                 };
             }
         }
@@ -257,6 +259,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
             return InboundChatMessage {
                 text,
                 session_id: String::new(),
+                contexts: Vec::new(),
             };
         }
     }
@@ -282,13 +285,59 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
             return InboundChatMessage {
                 text: out,
                 session_id: String::new(),
+                contexts: Vec::new(),
             };
         }
     }
     InboundChatMessage {
         text: trimmed.to_string(),
         session_id: String::new(),
+        contexts: Vec::new(),
     }
+}
+
+fn parse_contexts_value(raw: Option<&serde_json::Value>) -> Vec<InboundChatContextItem> {
+    let Some(arr) = raw.and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in arr {
+        let kind = item
+            .get("kind")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let id = item
+            .get("id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if kind.is_empty() || id.is_empty() {
+            continue;
+        }
+        let key = format!("{kind}:{id}");
+        if !seen.insert(key) {
+            continue;
+        }
+        let label = item
+            .get("label")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim();
+        out.push(InboundChatContextItem {
+            kind,
+            id: id.clone(),
+            label: if label.is_empty() {
+                id
+            } else {
+                label.to_string()
+            },
+        });
+    }
+    out
 }
 
 /// 解析 `----------------\n|[tag]|\n----------------\nbody` 段落。
@@ -394,6 +443,7 @@ mod tests {
             InboundChatMessage {
                 text: "hello".into(),
                 session_id: "conv_1".into(),
+                contexts: Vec::new(),
             }
         );
         assert_eq!(

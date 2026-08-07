@@ -1,10 +1,11 @@
 use omnipanel_error::OmniResult;
 use serde::Serialize;
+use serde_json::{json, Value};
 
 use crate::error::{map_assistant_error, map_assistant_error_with_cause, AssistantErrorKind};
 use crate::sts::AuthContext;
 
-/// 上传完成后通知账号服务（服务端约定 snake_case 字段）。
+/// 上传完成后的业务字段（放入通用 notify 的 payload）。
 #[derive(Debug, Clone, Serialize)]
 pub struct SnapshotNotifyRequest {
     pub snapshot_dir: String,
@@ -13,15 +14,30 @@ pub struct SnapshotNotifyRequest {
     pub generated_at: String,
 }
 
-/// `POST {api_base}/api/assistant/snapshots/notify`
+/// `POST {api_base}/api/notify` — event=`client.snapshot.updated`
 pub async fn notify_snapshot_uploaded(
     auth: &AuthContext,
     request: &SnapshotNotifyRequest,
 ) -> OmniResult<()> {
-    let url = format!(
-        "{}/api/assistant/snapshots/notify",
-        auth.api_base.trim_end_matches('/')
-    );
+    let url = format!("{}/api/notify", auth.api_base.trim_end_matches('/'));
+    let body = json!({
+        "event": "client.snapshot.updated",
+        "target": {
+            "role": "assistant",
+            "app_id": "omni-assistant",
+        },
+        "payload": {
+            "snapshotDir": request.snapshot_dir,
+            "overviewKey": request.overview_key,
+            "objectKeys": request.object_keys,
+            "generatedAt": request.generated_at,
+            // 兼容旧字段名
+            "snapshot_dir": request.snapshot_dir,
+            "overview_key": request.overview_key,
+            "object_keys": request.object_keys,
+            "generated_at": request.generated_at,
+        }
+    });
     let resp = auth
         .http
         .post(&url)
@@ -29,7 +45,7 @@ pub async fn notify_snapshot_uploaded(
         .header("X-App-Id", &auth.app_id)
         .header("X-Device-Id", &auth.device_id)
         .header("X-Device-Public-Key", &auth.device_public_key)
-        .json(request)
+        .json(&body)
         .send()
         .await
         .map_err(|e| {
@@ -67,6 +83,17 @@ pub fn normalize_snapshot_dir(dir: &str) -> String {
     } else {
         format!("{trimmed}/")
     }
+}
+
+/// 从通用 notify envelope 的 payload 取 overviewKey（兼容 snake/camel）。
+pub fn overview_key_from_notify_payload(payload: &Value) -> String {
+    payload
+        .get("overviewKey")
+        .or_else(|| payload.get("overview_key"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 #[cfg(test)]

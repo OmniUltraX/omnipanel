@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
+import { scheduleAssistantSnapshotSync } from "../modules/assistant";
 import type {
   LocalShellSpec,
   TerminalConnectionStatus,
@@ -304,6 +305,7 @@ export const useTerminalStore = create<TerminalState>()(
         set((state) => ({
           sessions: [...state.sessions, entity],
         }));
+        scheduleAssistantSnapshotSync();
         return entity.id;
       },
 
@@ -404,6 +406,7 @@ export const useTerminalStore = create<TerminalState>()(
                 : state.activeSessionId,
           };
         });
+        scheduleAssistantSnapshotSync();
       },
 
       renameSession: (sessionId, title) => {
@@ -413,6 +416,7 @@ export const useTerminalStore = create<TerminalState>()(
             tab.sessionId === sessionId ? { ...tab, title } : tab,
           ),
         }));
+        scheduleAssistantSnapshotSync();
       },
 
       touchSession: (sessionId, at = Date.now()) => {
@@ -483,14 +487,15 @@ export const useTerminalStore = create<TerminalState>()(
       setTerminal: (tabId, terminal) =>
         set((state) => ({ tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, terminal })) })),
 
-      setStatus: (sessionId, status) =>
+      setStatus: (sessionId, status) => {
         set((state) => {
-          const tabs = updateTabById(state.tabs, sessionId, (tab) =>
+          const tabs = state.tabs.map((tab) =>
             tab.sessionId === sessionId || tab.id === sessionId ? { ...tab, status } : tab,
           );
           const pane = state.embeddedPanes[sessionId];
           const detached = state.detachedRuntime[sessionId];
-          if (!pane && !detached && tabs === state.tabs) return { tabs };
+          const tabsChanged = tabs.some((tab, i) => tab !== state.tabs[i]);
+          if (!pane && !detached && !tabsChanged) return state;
           const nextDetached = detached
             ? { ...state.detachedRuntime, [sessionId]: { ...detached, status } }
             : state.detachedRuntime;
@@ -503,7 +508,10 @@ export const useTerminalStore = create<TerminalState>()(
               [sessionId]: { ...pane, status },
             },
           };
-        }),
+        });
+        // 连接态变化需同步到助手端（创建时多为 connecting，连上后否则会一直卡住）
+        scheduleAssistantSnapshotSync();
+      },
 
       setBackendSessionId: (sessionId, backendSessionId) =>
         set((state) => {

@@ -12,11 +12,13 @@ impl MetadataCollector for TerminalCollector {
     }
 
     fn collect(&self, ctx: &CollectContext) -> OmniResult<ModuleSection> {
-        let items = ctx
-            .terminal_hosts
-            .iter()
-            .map(strip_secret_keys)
-            .collect();
+        // 优先终端会话；无会话时再回退 SSH 主机列表（旧客户端兼容）
+        let source = if !ctx.terminal_sessions.is_empty() {
+            &ctx.terminal_sessions
+        } else {
+            &ctx.terminal_hosts
+        };
+        let items = source.iter().map(strip_secret_keys).collect();
         Ok(ModuleSection::from_items(items))
     }
 }

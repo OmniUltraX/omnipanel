@@ -235,6 +235,35 @@ pub fn sanitize_assistant_conversation_meta(
     })
 }
 
+/// 终端会话元数据（与 AI 会话分离；不含 PTY 输出正文）。
+pub fn sanitize_terminal_session_meta(
+    id: &str,
+    title: &str,
+    session_type: &str,
+    resource_id: &str,
+    shell_label: &str,
+    cwd: &str,
+    lifecycle: &str,
+    status: &str,
+    created_at: i64,
+    updated_at: i64,
+) -> Value {
+    serde_json::json!({
+        "id": id,
+        "kind": "terminalSession",
+        "name": title,
+        "title": title,
+        "sessionType": session_type,
+        "resourceId": resource_id,
+        "shellLabel": shell_label,
+        "cwd": cwd,
+        "lifecycle": lifecycle,
+        "status": status,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

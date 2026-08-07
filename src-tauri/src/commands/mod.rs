@@ -4,6 +4,7 @@ pub mod ai_chat;
 pub mod auth;
 pub mod assistant;
 pub mod assistant_chat;
+pub mod assistant_remote_cmd;
 pub mod client_sync;
 pub mod client_sync_modules;
 pub mod bg_task;

@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use omnipanel_assistant::{
-    fetch_chat_latest, fetch_oss_sts, get_object_bytes, parse_inbound_chat_message, AuthContext,
-    ChatLatestIndex,
+    chat_index_from_notify_json, fetch_chat_latest, fetch_oss_sts, get_object_bytes,
+    parse_inbound_chat_message, AuthContext, ChatLatestIndex,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::Serialize;
@@ -27,6 +27,15 @@ const SSE_HTTP_TIMEOUT: Duration = Duration::from_secs(6 * 3600);
 /// 前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct AssistantChatContextItem {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+}
+
+/// 前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AssistantChatInboundEvent {
     pub message_id: String,
     pub object_key: String,
@@ -35,6 +44,9 @@ pub struct AssistantChatInboundEvent {
     /// 助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。
     #[serde(default)]
     pub session_id: String,
+    /// 助手端选中的询问对象（注入 Composer 上下文）。
+    #[serde(default)]
+    pub contexts: Vec<AssistantChatContextItem>,
 }
 
 struct ChatInboxRuntime {
@@ -116,8 +128,24 @@ pub async fn assistant_chat_inbox_start(
     let device_id = identity.device_id.clone();
     let proxy_config = state.proxy_config.lock().await.clone();
 
+    let app_cmd = app.clone();
+    let proxy_cmd = proxy_config.clone();
+    let token_cmd = token.clone();
+    let device_cmd = device_id.clone();
+    let stop_cmd = Arc::clone(&stop);
+
     tauri::async_runtime::spawn(async move {
         run_chat_inbox_loop(app, proxy_config, token, device_id, stop).await;
+    });
+    tauri::async_runtime::spawn(async move {
+        crate::commands::assistant_remote_cmd::run_remote_cmd_loop(
+            app_cmd,
+            proxy_cmd,
+            token_cmd,
+            device_cmd,
+            stop_cmd,
+        )
+        .await;
     });
 
     Ok(())
@@ -135,7 +163,7 @@ pub async fn assistant_chat_inbox_stop() -> Result<(), OmniError> {
     Ok(())
 }
 
-async fn build_auth_long(
+pub(crate) async fn build_auth_long(
     proxy: &crate::state::ProxyConfig,
     token: &str,
     device_id: &str,
@@ -179,6 +207,15 @@ async fn load_inbound_from_key(
         created_at: created_at.to_string(),
         text: parsed.text,
         session_id,
+        contexts: parsed
+            .contexts
+            .into_iter()
+            .map(|c| AssistantChatContextItem {
+                kind: c.kind,
+                id: c.id,
+                label: c.label,
+            })
+            .collect(),
     })
 }
 
@@ -272,8 +309,8 @@ async fn listen_chat_sse(
     last_dedupe: &mut String,
 ) -> Result<(), OmniError> {
     let url = format!(
-        "{}/api/assistant/chat/wait",
-        auth.api_base.trim_end_matches('/')
+        "{}/api/notify/wait?events=assistant.chat.message",
+        auth.api_base.trim_end_matches('/'),
     );
     tracing::info!(%url, "聊天收件箱 SSE 连接中");
     let resp = auth
@@ -352,22 +389,27 @@ async fn listen_chat_sse(
                             },
                         ));
                     }
-                    "message" => {
+                    // 通用总线事件名 notify；兼容旧 message
+                    "notify" | "message" => {
                         if data.trim().is_empty() {
                             continue;
                         }
-                        let index: ChatLatestIndex = match ChatLatestIndex::parse_json(&data) {
+                        let index: ChatLatestIndex = match chat_index_from_notify_json(&data)
+                            .or_else(|_| ChatLatestIndex::parse_json(&data))
+                        {
                             Ok(v) => v,
                             Err(e) => {
-                                // 单条坏事件不拆掉整条 SSE（此前 numeric userId 会整链失败）
                                 tracing::warn!(
                                     error = %e,
                                     data = %data,
-                                    "跳过无法解析的聊天 message 事件"
+                                    "跳过无法解析的聊天 notify 事件"
                                 );
                                 continue;
                             }
                         };
+                        if index.object_key.trim().is_empty() {
+                            continue;
+                        }
                         let key = index.dedupe_key();
                         if !key.is_empty() && key == *last_dedupe {
                             continue;
