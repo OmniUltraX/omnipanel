@@ -10,8 +10,9 @@ const CJK_FIRST_CHAR_RE =
 const SHELL_ERROR_SIGNAL_RE =
   /(?:command not found|not recognized as an internal or external command|no such file or directory|permission denied|syntax error|operation not permitted|cannot access|can't access|cannot find path|fatal:|segmentation fault|未找到命令|找不到命令|不是内部或外部命令|没有那个文件|权限不够|语法错误|您的意思是|找不到路径|因为该路径不存在|CategoryInfo|FullyQualifiedErrorId|ObjectNotFound|ItemNotFoundException|PathNotFound|SetLocationCommand|NativeCommandError|ParserError|所在位置\s*行:|终止错误)/i;
 
+/** 英文自然语言（含常见祈使）；与 KNOWN_SHELL_VERBS 冲突时以 shell 为准 */
 const ENGLISH_NL_COMMAND_RE =
-  /^(?:how|what|why|when|where|who|help|please|can you|could you|i need|tell me|show me|explain|analyze|analyse|list|check|find)\b/i;
+  /^(?:how|what|why|when|where|who|help|please|can you|could you|would you|do you|i need|tell me|show me|explain|analyze|analyse|list|check|find|install|setup|configure|fix|debug|troubleshoot|is there|are there)\b/i;
 
 /** 常见 shell 动词：这些开头即使带空格也视为命令而非自然语言 */
 const KNOWN_SHELL_VERBS = new Set([
@@ -64,6 +65,16 @@ function firstToken(command: string): string {
   return command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 }
 
+/** 以 CJK 开头但更像路径/脚本，不应进 AI */
+function looksLikeCjkShellPath(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+  if (/\s/.test(trimmed)) return false;
+  if (/^[.\/~]/.test(trimmed)) return true;
+  if (/\.(sh|bash|zsh|py|js|ts|mjs|cjs|exe|bat|cmd|ps1)$/i.test(trimmed)) return true;
+  return false;
+}
+
 /** 英文自然语言问句（提交前预处理，偏保守） */
 export function looksLikeEnglishQuestionInput(input: string): boolean {
   const cmd = input.trim();
@@ -84,7 +95,15 @@ export function shouldRouteInputToAi(input: string): boolean {
 
   const first = [...trimmed][0];
   if (!first) return false;
-  if (CJK_FIRST_CHAR_RE.test(first)) return true;
+
+  if (CJK_FIRST_CHAR_RE.test(first)) {
+    if (looksLikeCjkShellPath(trimmed)) return false;
+    return true;
+  }
+
+  const verb = firstToken(trimmed);
+  if (KNOWN_SHELL_VERBS.has(verb)) return false;
+
   return looksLikeEnglishQuestionInput(trimmed);
 }
 
@@ -92,8 +111,7 @@ export function shouldRouteInputToAi(input: string): boolean {
 export function looksLikeNaturalLanguageCommand(command: string): boolean {
   const cmd = normalizeBlockCommand(command);
   if (!cmd) return false;
-  if (CJK_FIRST_CHAR_RE.test(cmd)) return true;
-  return looksLikeEnglishQuestionInput(cmd);
+  return shouldRouteInputToAi(cmd);
 }
 
 export function hasShellErrorSignals(output: string): boolean {
