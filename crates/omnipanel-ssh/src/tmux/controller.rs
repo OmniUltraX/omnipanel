@@ -242,10 +242,15 @@ impl TmuxController {
         match tokio::time::timeout(COMMAND_TIMEOUT, rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(OmniError::new(ErrorCode::Ssh, "tmux 命令响应通道已关闭")),
-            Err(_) => Err(OmniError::new(
-                ErrorCode::Timeout,
-                format!("tmux 命令超时: {cmd}"),
-            )),
+            Err(_) => {
+                // 主机宕机/重启后常见半开 TCP：命令写出无响应。必须标记断开并清空队列，
+                // 否则僵死 host 仍被 live_host 复用，后续每次重连都卡满超时。
+                self.mark_disconnected(format!("tmux 命令超时: {cmd}"));
+                Err(OmniError::new(
+                    ErrorCode::Timeout,
+                    format!("tmux 命令超时: {cmd}"),
+                ))
+            }
         }
     }
 

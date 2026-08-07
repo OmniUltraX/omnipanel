@@ -847,11 +847,15 @@ impl SshPool {
 
         let mut pool = self.pool_sessions.lock().await;
         if let Some(existing) = pool.get(resource_id) {
-            let existing = Arc::clone(existing);
-            drop(pool);
-            // 竞态下后完成的连接主动断开，避免泄漏空闲 TCP
-            session.disconnect().await;
-            return Ok(existing);
+            if !existing.is_closed() {
+                let existing = Arc::clone(existing);
+                drop(pool);
+                // 竞态下后完成的连接主动断开，避免泄漏空闲 TCP
+                session.disconnect().await;
+                return Ok(existing);
+            }
+            // 池中残留死会话：换上刚建好的新连接
+            pool.remove(resource_id);
         }
         pool.insert(resource_id.to_string(), Arc::clone(&session));
         self.log

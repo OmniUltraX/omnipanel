@@ -176,16 +176,76 @@ impl TmuxManager {
         let lock = self.connect_lock(&cache_key).await;
         let _guard = lock.lock().await;
 
-        let host = match self.live_host(&cache_key).await {
+        let used_cached = self.live_host(&cache_key).await.is_some();
+        match self
+            .attach_with_resolved_host(
+                app,
+                buffers,
+                config,
+                session_id,
+                cols,
+                rows,
+                &cache_key,
+                &session_name,
+                pane_id_override,
+            )
+            .await
+        {
+            Ok(outcome) => Ok(outcome),
+            Err(err) if used_cached => {
+                // 主机宕机/重启后半开 TCP 仍可能通过 is_alive；丢弃僵死 control 后重建一次。
+                tracing::warn!(
+                    target: "tmux",
+                    "复用 tmux control 失败，丢弃缓存并重建: {cache_key}: {}",
+                    err.user_message()
+                );
+                self.drop_host(&cache_key).await;
+                self.attach_with_resolved_host(
+                    app,
+                    buffers,
+                    config,
+                    session_id,
+                    cols,
+                    rows,
+                    &cache_key,
+                    &session_name,
+                    pane_id_override,
+                )
+                .await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn drop_host(&self, cache_key: &str) {
+        if let Some(host) = self.hosts.lock().await.remove(cache_key) {
+            host.controller.mark_disconnected("丢弃僵死 tmux control 连接");
+            host.session.disconnect().await;
+        }
+    }
+
+    async fn attach_with_resolved_host(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        buffers: &OutputBuffers,
+        config: &SshConfig,
+        session_id: &str,
+        cols: u16,
+        rows: u16,
+        cache_key: &str,
+        session_name: &str,
+        pane_id_override: Option<u32>,
+    ) -> OmniResult<AttachOutcome> {
+        let host = match self.live_host(cache_key).await {
             Some(host) => host,
             None => match self
-                .spawn_host(app, buffers, config, &cache_key, cols, rows, &session_name)
+                .spawn_host(app, buffers, config, cache_key, cols, rows, session_name)
                 .await?
             {
                 Some(host) => host,
                 None => {
                     let reason = self
-                        .unsupported_reason(&cache_key)
+                        .unsupported_reason(cache_key)
                         .await
                         .unwrap_or_else(|| "远端 tmux 不可用".to_string());
                     return Ok(AttachOutcome::Unsupported(reason));
@@ -223,7 +283,7 @@ impl TmuxManager {
         self.sessions.lock().await.insert(
             session_id.to_string(),
             SessionBinding {
-                host_key: cache_key,
+                host_key: cache_key.to_string(),
                 controller: host.controller.clone(),
                 version: host.version.clone(),
                 session_name: host.session_name.clone(),

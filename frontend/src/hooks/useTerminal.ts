@@ -450,7 +450,14 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
         pane.tmuxPaneId ?? null,
       );
       if (res.status === "ok") return res.data;
-      throw normalizeBackendError(res.error, "接入 tmux 会话失败");
+      // 主机宕机重启后远端 tmux/会话可能已不存在，或 control 连接僵死。
+      // 清掉本地绑定后走默认 connect，避免永远卡在失败的 attach。
+      const store = useTerminalStore.getState();
+      store.setSessionTmuxSession(sessionId, null);
+      store.setSessionTmuxPaneId(sessionId, null);
+      const fallback = await commands.sshConnectConnection(conn.id, cols, rows, null);
+      if (fallback.status === "ok") return fallback.data;
+      throw normalizeBackendError(fallback.error ?? res.error, "接入 tmux 会话失败");
     }
     const res = await commands.sshConnectConnection(conn.id, cols, rows, pane.tmuxPaneId ?? null);
     if (res.status === "ok") return res.data;
