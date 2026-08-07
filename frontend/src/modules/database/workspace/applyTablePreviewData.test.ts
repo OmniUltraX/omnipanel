@@ -59,7 +59,7 @@ describe("applyTablePreviewDataProgressive", () => {
 
   it("beginTablePreviewFetch resets display data", () => {
     const tabId = "tab-begin";
-    let previews = {
+    let previews: Record<string, ReturnType<typeof createDefaultTablePreviewState>> = {
       [tabId]: {
         ...createDefaultTablePreviewState(),
         pageSize: 100,

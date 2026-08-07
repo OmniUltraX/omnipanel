@@ -36,7 +36,7 @@ export function resolveSqlQueryBindingContext(options: {
       tab.kind === "database" ||
       tab.kind === "redis-query"
     ) {
-      return { connId: tab.connId, database: tab.dbName };
+      return { connId: tab.connId, database: tab.dbName ?? "" };
     }
   }
 

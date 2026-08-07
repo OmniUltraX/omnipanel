@@ -2,6 +2,17 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.10] - 2026-08-07
+
+### 修复
+
+- **CI 构建**：修复 3 个 TypeScript 编译错误（TS6133 未使用 import、TS2322 `dbName` 类型不兼容、TS2345 测试文件 `setTablePreviews` 类型推断错误），恢复 `tsc -b && vite build` 门禁通过
+
+### 变更
+
+- **工程规范**：CLAUDE.md 新增「Mandatory Type Check」强校验章节，要求所有前端代码变更后必须运行 `tsc -b` 通过
+- **规则文件**：新增 `.cursorrules`、`.windsurfrules`、`AGENTS.md`、`GEMINI.md`、`.github/copilot-instructions.md` 等 IDE/CLI 规则文件，统一强校验要求
+
 ## [0.7.9] - 2026-08-07
 
 ### 新增

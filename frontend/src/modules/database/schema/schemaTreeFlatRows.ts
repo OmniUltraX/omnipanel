@@ -50,7 +50,6 @@ import {
   schemaRoutineMatchesSearch,
   schemaSearchMatches,
   schemaTableObjectMatchesSearch,
-  schemaTableObjectSearchMatchesUnderExpanded,
   schemaUserMatchesSearch,
 } from "./schemaTreeSearch";
 
