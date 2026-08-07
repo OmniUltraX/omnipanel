@@ -641,23 +641,13 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   useLayoutEffect(() => {
     if (!restoreScrollAfterPageChangeRef.current) return;
+    restoreScrollAfterPageChangeRef.current = false;
     const el = wrapRef.current;
     if (!el) return;
     const { left, top } = savedScrollRef.current;
     el.scrollLeft = left;
     el.scrollTop = top;
-    // loading 期间 rows 引用会抖动；勿提前消费 flag，否则新页落地后滚回顶部
-    if (loading) return;
-    restoreScrollAfterPageChangeRef.current = false;
-    // 再补一帧，覆盖 canvas / 虚拟列表布局后的滚动重置
-    const { left: savedLeft, top: savedTop } = savedScrollRef.current;
-    requestAnimationFrame(() => {
-      const wrap = wrapRef.current;
-      if (!wrap) return;
-      wrap.scrollLeft = savedLeft;
-      wrap.scrollTop = savedTop;
-    });
-  }, [page, rows, loading]);
+  }, [page, rows]);
 
   useEffect(() => {
     setRowHeights({});
