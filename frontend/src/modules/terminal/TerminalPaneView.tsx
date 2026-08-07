@@ -52,6 +52,7 @@ import { interruptShell } from "./terminalShellRecovery";
 import { writeTerminalRaw } from "./terminalPaneSenders";
 import { shortcutTitle } from "../../lib/shortcutTitle";
 import { useShortcutsStore } from "../../stores/shortcutsStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -514,8 +515,9 @@ function PaneViewBody(
   } | null>(null);
   const [reconnectKey, setReconnectKey] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const defaultInputMode = useSettingsStore((s) => s.terminalDefaultInputMode);
   const inputMode = useTerminalUiStore(
-    (state) => state.inputModes[paneId] ?? "external",
+    (state) => state.inputModes[paneId] ?? defaultInputMode,
   );
   const setInputMode = useTerminalUiStore((state) => state.setInputMode);
   const fullTerminal = useTerminalRunStateStore(

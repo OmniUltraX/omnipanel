@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { TerminalInputMode } from "../../hooks/useTerminal";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 import { clearAutoReturnTracking, armAutoReturn } from "./terminalAutoReturn";
 import { clampAiDockHeight, DEFAULT_AI_DOCK_HEIGHT } from "./terminalAiDock";
@@ -84,7 +85,9 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
     });
   },
 
-  getInputMode: (sessionId) => get().inputModes[sessionId] ?? "external",
+  getInputMode: (sessionId) =>
+    get().inputModes[sessionId] ??
+    useSettingsStore.getState().terminalDefaultInputMode,
 
   shouldAutoReturnToCommandBar: (sessionId) =>
     get().autoReturnToCommandBar[sessionId] === true,

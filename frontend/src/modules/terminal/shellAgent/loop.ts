@@ -12,10 +12,12 @@ import {
 import { cancelPendingInlineTools } from "../inlineToolBridge";
 import { isInlineTerminalToolName } from "../inlineTerminalTool";
 import { getEnterGateFlags, patchEnterGateFlags } from "../passthroughAi/enterGates";
+import { schedulePassthroughPromptHintSync } from "../passthroughAi/passthroughPromptHint";
 import { writeTerminalRaw } from "../terminalPaneSenders";
 import { markShellPromptReady } from "../terminalShellRecovery";
 import { waitForTerminalOutputIdle } from "../terminalOutputTap";
 import { getXterm } from "../xtermRegistry";
+import { useTerminalUiStore } from "../terminalUiStore";
 import {
   archiveActiveInlineCard,
   beginShellAgentCard,
@@ -443,6 +445,10 @@ function releaseShellAgentToPrompt(sessionId: string): void {
     } catch {
       // ignore
     }
+    schedulePassthroughPromptHintSync(sessionId, {
+      enabled: useTerminalUiStore.getState().getInputMode(sessionId) === "interactive",
+      lineEmpty: true,
+    });
   };
 
   // 等 PTY 可能迟到的 prompt 落盘，再决定要不要发 \r\n，避免双 prompt

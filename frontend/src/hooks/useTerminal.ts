@@ -102,6 +102,10 @@ import {
 } from "../modules/terminal/passthroughAi/enterGates";
 import { decidePassthroughEnter, type PassthroughEnterDecision } from "../modules/terminal/passthroughAi/decidePassthroughEnter";
 import {
+  clearPassthroughPromptHint,
+  schedulePassthroughPromptHintSync,
+} from "../modules/terminal/passthroughAi/passthroughPromptHint";
+import {
   anchorShellAgentThinkingCard,
   clearRemoteInputLine,
   flushPendingShellAgentReanchor,
@@ -159,6 +163,7 @@ function bindTerminalInputMode(
 
   const beginRouteAi = (query: string): void => {
     swallowEnter = true;
+    clearPassthroughPromptHint(sessionId);
     const screenLine = readActiveTerminalLine(term);
     const { prefix } = splitPromptAndBody(screenLine);
     const promptIndentCols = measurePromptPrefixCols(term);
@@ -188,6 +193,13 @@ function bindTerminalInputMode(
       } catch {
         void startOrContinueShellAgent(sessionId, query);
       }
+    });
+  };
+
+  const refreshPromptHint = (): void => {
+    schedulePassthroughPromptHintSync(sessionId, {
+      enabled: mode === "interactive",
+      lineEmpty: bufferRef.current.text.trim().length === 0,
     });
   };
 
@@ -268,6 +280,7 @@ function bindTerminalInputMode(
         }
         bufferRef.current = resetLineBuffer(bufferRef.current);
         patchEnterGateFlags(sessionId, { reverseSearch: false, userTyping: false });
+        refreshPromptHint();
       } else {
         bufferRef.current = applyUserDataToLineBuffer(bufferRef.current, data);
         const typing = bufferRef.current.text.trim().length > 0;
@@ -285,14 +298,22 @@ function bindTerminalInputMode(
         if (data === "\x1b" || data === "\x07") {
           patchEnterGateFlags(sessionId, { reverseSearch: false });
         }
+        refreshPromptHint();
       }
       writeToBackend(data);
     });
     requestAnimationFrame(() => term.focus());
+    refreshPromptHint();
   }
 
   return {
-    dispose: () => inputDisposable?.dispose(),
+    dispose: () => {
+      inputDisposable?.dispose();
+      if (mode === "interactive") {
+        // 切到命令栏时清掉提示；会话 dispose 另有 clearPassthroughPromptHint
+        clearPassthroughPromptHint(sessionId);
+      }
+    },
   };
 }
 
@@ -942,6 +963,10 @@ export function useTerminal(
                 commandRunning: false,
                 reverseSearch: false,
               });
+              schedulePassthroughPromptHintSync(sessionId, {
+                enabled: inputModeRef.current === "interactive",
+                lineEmpty: true,
+              });
               break;
             }
             case "B":
@@ -1216,6 +1241,10 @@ export function useTerminal(
             runState === "inline-running" ||
             runState === "ai-tool-running" ||
             runState === "full-terminal",
+        });
+        schedulePassthroughPromptHintSync(sessionId, {
+          enabled: inputModeRef.current === "interactive",
+          lineEmpty: lineBufferRef.current.text.trim().length === 0,
         });
 
         if (
@@ -1900,6 +1929,7 @@ export function useTerminal(
       // 直通 AI 块（decoration / 占位行几何）绑在本 xterm 实例上，不进 PTY 快照。
       // 必须在 term.dispose() 前同步 teardown，避免 remount 竞态写乱 buffer。
       teardownShellAgentUi(sessionId);
+      clearPassthroughPromptHint(sessionId);
       setShellAgentGeometryWriteSuspended(sessionId, false);
       if (term) {
         unregisterXterm(sessionId, term);

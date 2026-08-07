@@ -3153,6 +3153,7 @@ export const zhCN = {
       switchToNative: "切换到原生直通模式（vim/top/ssh）",
       switchToCommandBar: "切换回 Command Bar",
     },
+    passthroughPromptHint: "输入自然语言或命令，AI将智能响应，试试打个招呼吧",
     shellAgent: {
       title: "终端 Agent",
       cancel: "取消",
@@ -5305,6 +5306,8 @@ export const zhCN = {
       tmuxModeAuto: "自动（推荐）",
       tmuxModeAlways: "强制 tmux",
       tmuxModeNever: "始终直连",
+      defaultInputMode: "新终端默认模式",
+      defaultInputModeDesc: "新建终端 Tab 时默认进入直通或命令栏；之后可在会话内随时切换。",
       passthroughAiEnter: "直通智能 Enter（Shell Agent）",
       passthroughAiEnterDesc:
         "在直通模式主提示符下，自然语言 Enter 进入「AI 输出 → 命令审核 → 真执行 → 续轮」循环；普通命令、vim、Ctrl+R 仍原生。",

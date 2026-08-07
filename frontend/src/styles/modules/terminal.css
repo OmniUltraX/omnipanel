@@ -4540,3 +4540,20 @@ html[data-theme="dark"] .term-xterm-wrap .xterm .composition-view {
     /* 与 DARK_TERMINAL_THEME.background 一致 */
     background-color: #1a1717;
 }
+
+/* 直通空提示符灰色占位（decoration，不进 PTY） */
+.term-passthrough-prompt-hint {
+    color: color-mix(in srgb, var(--meta, #8b8680) 88%, transparent);
+    opacity: 0.85;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    user-select: none;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+}

@@ -38,6 +38,7 @@ import {
   type ProxyProtocol,
   type AiDisplayMode,
   type DetailPanelMode,
+  type TerminalDefaultInputMode,
   type TerminalTmuxMode,
 } from "../../stores/settingsStore";
 import { ProtocolLabSettingsSection } from "../../components/settings/ProtocolLabSettingsSection";
@@ -954,6 +955,7 @@ export function SettingsPanel() {
   const terminalAutoLsCommand = useSettingsStore((s) => s.terminalAutoLsCommand);
   const terminalAutoReconnectSsh = useSettingsStore((s) => s.terminalAutoReconnectSsh);
   const terminalTmuxMode = useSettingsStore((s) => s.terminalTmuxMode);
+  const terminalDefaultInputMode = useSettingsStore((s) => s.terminalDefaultInputMode);
   const terminalPassthroughAiEnter = useSettingsStore((s) => s.terminalPassthroughAiEnter);
   const terminalShellAgentAutocontinue = useSettingsStore((s) => s.terminalShellAgentAutocontinue);
   const setTerminalSettings = useSettingsStore((s) => s.setTerminalSettings);
@@ -1848,6 +1850,25 @@ export function SettingsPanel() {
                     t("settings.terminal.tmuxModeAuto"),
                     t("settings.terminal.tmuxModeAlways"),
                     t("settings.terminal.tmuxModeNever"),
+                  ]}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.terminal.defaultInputMode")}</h4>
+                  <p>{t("settings.terminal.defaultInputModeDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={terminalDefaultInputMode}
+                  onChange={(v) =>
+                    setTerminalSettings({
+                      terminalDefaultInputMode: v as TerminalDefaultInputMode,
+                    })
+                  }
+                  options={["interactive", "external"]}
+                  optionLabels={[
+                    t("terminal.inputMode.native"),
+                    t("terminal.inputMode.commandBar"),
                   ]}
                 />
               </div>

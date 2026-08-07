@@ -112,6 +112,21 @@ export type DetailPanelMode = "drawer" | "floating";
 
 export type TerminalCursorStyle = "block" | "bar" | "underline";
 
+/** 新终端 Tab 默认输入模式：直通 / 命令栏 */
+export type TerminalDefaultInputMode = "interactive" | "external";
+
+export const TERMINAL_DEFAULT_INPUT_MODE_OPTIONS: readonly TerminalDefaultInputMode[] = [
+  "interactive",
+  "external",
+];
+
+export function normalizeTerminalDefaultInputMode(
+  value: unknown,
+): TerminalDefaultInputMode {
+  if (value === "interactive" || value === "external") return value;
+  return "interactive";
+}
+
 /** 远程终端 tmux 复用模式：auto（探测可用就用）/ always（强制，不可用报错）/ never（直连） */
 export type TerminalTmuxMode = "auto" | "always" | "never";
 
@@ -283,6 +298,8 @@ interface SettingsState {
   terminalAutoReconnectSsh: boolean;
   /** 远程终端 tmux 复用模式：auto / always / never */
   terminalTmuxMode: TerminalTmuxMode;
+  /** 新终端 Tab 默认输入模式（直通 / 命令栏） */
+  terminalDefaultInputMode: TerminalDefaultInputMode;
   /** 直通模式：自然语言 Enter 进入 Shell Agent 环 */
   terminalPassthroughAiEnter: boolean;
   /** Shell Agent：命令执行后自动把 observation 续轮（依赖既有 tool result 管线） */
@@ -352,7 +369,8 @@ interface SettingsState {
     "terminalGpuAccel" | "terminalCopyOnSelect" | "terminalHistoryPersist" |
     "terminalHistoryMaxBlocks" | "terminalAutoLsAfterCd" | "terminalAutoLsCommand" |
     "terminalAutoReconnectSsh" | "terminalTmuxMode" |
-    "terminalPassthroughAiEnter" | "terminalShellAgentAutocontinue"
+    "terminalDefaultInputMode" | "terminalPassthroughAiEnter" |
+    "terminalShellAgentAutocontinue"
   >>) => void;
   setKnowledgeSettings: (patch: Partial<Pick<SettingsState,
     "knowledgeChunkSize" | "knowledgeChunkOverlap" | "knowledgeTopN" |
@@ -461,6 +479,7 @@ export const useSettingsStore = create<SettingsState>()(
       terminalAutoLsCommand: "ls",
       terminalAutoReconnectSsh: true,
       terminalTmuxMode: "auto",
+      terminalDefaultInputMode: "interactive",
       terminalPassthroughAiEnter: true,
       terminalShellAgentAutocontinue: true,
       knowledgeChunkSize: KNOWLEDGE_CHUNK_SIZE.default,
@@ -664,6 +683,7 @@ export const useSettingsStore = create<SettingsState>()(
         terminalAutoLsAfterCd: state.terminalAutoLsAfterCd,
         terminalAutoLsCommand: state.terminalAutoLsCommand,
         terminalTmuxMode: state.terminalTmuxMode,
+        terminalDefaultInputMode: state.terminalDefaultInputMode,
         terminalPassthroughAiEnter: state.terminalPassthroughAiEnter,
         terminalShellAgentAutocontinue: state.terminalShellAgentAutocontinue,
         knowledgeChunkSize: state.knowledgeChunkSize,
@@ -731,6 +751,9 @@ export const useSettingsStore = create<SettingsState>()(
           closeBehavior: normalizeCloseBehavior(state?.closeBehavior),
           aiDataSharing: normalizeAiDataSharing(state?.aiDataSharing),
           terminalTmuxMode: normalizeTerminalTmuxMode(state?.terminalTmuxMode),
+          terminalDefaultInputMode: normalizeTerminalDefaultInputMode(
+            state?.terminalDefaultInputMode,
+          ),
         });
       },
     }

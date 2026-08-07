@@ -41,7 +41,7 @@ export function TerminalView({
   resource,
   startup,
   active,
-  inputMode = "external",
+  inputMode = "interactive",
   liveNative = false,
   onSenderChange,
   onBlockRightClick,

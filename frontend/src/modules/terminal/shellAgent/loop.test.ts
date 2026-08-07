@@ -37,6 +37,18 @@ vi.mock("../passthroughAi/enterGates", () => ({
   getEnterGateFlags: () => ({ userTyping: false }),
   patchEnterGateFlags: vi.fn(),
 }));
+vi.mock("../passthroughAi/passthroughPromptHint", () => ({
+  schedulePassthroughPromptHintSync: vi.fn(),
+  clearPassthroughPromptHint: vi.fn(),
+  syncPassthroughPromptHint: vi.fn(),
+}));
+vi.mock("../terminalUiStore", () => ({
+  useTerminalUiStore: {
+    getState: () => ({
+      getInputMode: () => "interactive",
+    }),
+  },
+}));
 vi.mock("../terminalPaneSenders", () => ({
   writeTerminalRaw: vi.fn(),
 }));

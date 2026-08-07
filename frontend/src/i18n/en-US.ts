@@ -3166,6 +3166,8 @@ export const enUS: TranslationDict = {
       switchToNative: "Switch to native passthrough (vim/top/ssh)",
       switchToCommandBar: "Switch back to Command Bar",
     },
+    passthroughPromptHint:
+      "Type natural language or a command — AI responds intelligently. Try saying hello.",
     shellAgent: {
       title: "Terminal Agent",
       cancel: "Cancel",
@@ -5373,6 +5375,9 @@ export const enUS: TranslationDict = {
       tmuxModeAuto: "Auto (recommended)",
       tmuxModeAlways: "Force tmux",
       tmuxModeNever: "Always direct",
+      defaultInputMode: "Default mode for new terminals",
+      defaultInputModeDesc:
+        "New terminal tabs open in passthrough or command bar; you can switch anytime in the session.",
       passthroughAiEnter: "Passthrough smart Enter (Shell Agent)",
       passthroughAiEnterDesc:
         "In native passthrough, natural-language Enter starts the AI → approve → run → continue loop. Normal commands, vim, and Ctrl+R stay native.",
