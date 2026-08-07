@@ -2660,7 +2660,7 @@ pub async fn db_execute_query_in_session(
 
     let handle_for_task = session_handle.clone();
     let handle = tokio::spawn(async move {
-        let mut session = handle_for_task.lock().await;
+        let session = handle_for_task.lock().await;
         session.driver.execute(&wrapped).await.map_err(err_msg)
     });
     let abort_handle = handle.abort_handle();
