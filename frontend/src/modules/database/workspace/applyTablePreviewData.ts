@@ -1,8 +1,10 @@
 import { startTransition } from "react";
 import { afterPaintIdle, yieldToMain } from "../../../lib/yieldToMain";
 import type { TablePreviewResult } from "../api";
+import type { RuleGroupType } from "react-querybuilder";
 import {
   createDefaultTablePreviewState,
+  type SortState,
   type TablePreviewState,
 } from "./dbWorkspaceState";
 import {
@@ -29,6 +31,49 @@ export function bumpTablePreviewApplyGeneration(tabId: string): number {
 
 export function getTablePreviewApplyGeneration(tabId: string): number {
   return applyGenerationByTab.get(tabId) ?? 0;
+}
+
+export type BeginTablePreviewFetchPatch = {
+  connId?: string;
+  dbName?: string;
+  tableName?: string;
+  pageSize?: number;
+  page?: number;
+  sort?: SortState | null;
+  filter?: RuleGroupType | null;
+  loading?: boolean;
+};
+
+/**
+ * 发起新的表预览请求前：bump 代数、清 cache、重置展示（避免 Canvas / React 残留旧表数据）。
+ */
+export function beginTablePreviewFetch(
+  tabId: string,
+  setTablePreviews: SetTablePreviews,
+  patch: BeginTablePreviewFetchPatch = {},
+): number {
+  const generation = bumpTablePreviewApplyGeneration(tabId);
+  setTablePreviews((prev) => {
+    const existing = prev[tabId] ?? createDefaultTablePreviewState();
+    return {
+      ...prev,
+      [tabId]: {
+        ...createDefaultTablePreviewState(),
+        pageSize: patch.pageSize ?? existing.pageSize,
+        page: patch.page ?? existing.page,
+        sort: patch.sort !== undefined ? patch.sort : existing.sort,
+        filter: patch.filter !== undefined ? patch.filter : existing.filter,
+        connId: patch.connId ?? existing.connId,
+        dbName: patch.dbName ?? existing.dbName,
+        tableName: patch.tableName ?? existing.tableName,
+        loading: patch.loading ?? true,
+        error: null,
+        data: null,
+        totalRows: 0,
+      },
+    };
+  });
+  return generation;
 }
 
 export type ApplyTablePreviewDataParams = {
@@ -80,13 +125,19 @@ export async function applyTablePreviewDataProgressive(
 
   if (isStale()) return;
 
+  const isEmpty = data.rows.length === 0;
+
   // Phase 1：元数据进 React（必须轻）
-  // Canvas 模式下不写 data.rows（保持原引用），避免 previewDisplayRows 重算触发
-  // TableDataGrid 重渲——此时 Canvas 尚未收到 cache notify，重渲纯冗余。
-  // columns 更新是必要的（表头需要列名）；rows 由 Phase 2 cache + Phase 3 延迟写入负责。
+  // 有数据且 Canvas 模式：暂留旧 rows 引用，避免 cache notify 前整表重渲。
+  // 空结果：必须 rows=[]，否则过滤无匹配时仍显示上次数据（#47）。
   setTablePreviews((prevMap) => {
     const cur = prevMap[tabId];
     const prevData = cur?.data;
+    const phase1Rows = isEmpty
+      ? []
+      : canvasMode
+        ? (prevData?.rows ?? [])
+        : [];
     return {
       ...prevMap,
       [tabId]: {
@@ -96,7 +147,7 @@ export async function applyTablePreviewDataProgressive(
         data: {
           name: data.name,
           columns: data.columns,
-          rows: canvasMode ? (prevData?.rows ?? []) : [],
+          rows: phase1Rows,
         },
         totalRows,
         page,
@@ -108,7 +159,7 @@ export async function applyTablePreviewDataProgressive(
   await yieldToMain();
   if (isStale()) return;
 
-  if (data.rows.length === 0) {
+  if (isEmpty) {
     setTablePreviewRowCache(tabId, null);
     return;
   }

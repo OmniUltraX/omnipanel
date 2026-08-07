@@ -10,7 +10,7 @@ import {
 import { showToast } from "../../stores/toastStore";
 import { t } from "../../i18n";
 
-/** text/json 类文件可走 LargeLogViewer 流式预览（sed/grep/tail），不受 10MB 阈值限制 */
+/** text/json 类文件可走 LargeLogViewer 流式预览（sed/grep/tail 或本地切片），不受 10MB 阈值限制 */
 function isLargeTextStreamableKind(name: string): boolean {
   const kind = resolveFilePreviewKind(name);
   return kind === "text" || kind === "json";
@@ -60,9 +60,10 @@ export function evaluateTerminalFilePreviewGate(
   // 压缩包：远端执行 unzip/tar/7z/unrar 列条目，不下载文件，不受大小限制
   if (isArchivePreviewFile(name)) return null;
   if (sizeBytes != null && sizeBytes > FORCE_PREVIEW_MAX_BYTES) {
-    // 例外：text/json + SSH 远程资源走 LargeLogViewer 流式预览
+    // 例外：text/json 走 LargeLogViewer（SSH 远端或本地）
     const isRemote = options?.sessionType === "remote" && Boolean(options?.resourceId);
-    if (isLargeTextStreamableKind(name) && isRemote) return null;
+    const isLocal = options?.sessionType === "local" || !options?.resourceId;
+    if (isLargeTextStreamableKind(name) && (isRemote || isLocal)) return null;
     return "tooLarge";
   }
   return null;
@@ -101,8 +102,7 @@ export function tryOpenTerminalFilePreview(
 }
 
 /** 把 TerminalFilePreviewTarget 转成 FilePreviewSubWindow 需要的 FileEntry。
- *  FilePreviewContent 内部会调 fileStat 拿真实 size/modified/permissions，
- *  这里只填必填字段。
+ *  size 未知时由 FilePreviewContent 先探测再分流（避免误进大日志模式）。
  */
 export function targetToFileEntry(
   target: TerminalFilePreviewTarget,

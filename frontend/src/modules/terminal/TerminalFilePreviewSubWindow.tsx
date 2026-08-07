@@ -1,65 +1,12 @@
 import { useCallback, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { FilePreviewSubWindow } from "../files/FilePreviewSubWindow";
-import type { FilePreviewIO } from "../files/FilePreviewContent";
-import { readRemotePreview, uploadRemote } from "../files/fileApi";
-import { commands } from "../../ipc/bindings";
-import { unwrapCommand } from "../../ipc/result";
+import { buildFilePreviewIO, previewIoSessionFromTarget } from "../files/previewIo";
 import type { FileEntry } from "../../ipc/bindings";
 import {
   useTerminalFilePreviewStore,
   targetToFileEntry,
   tryOpenTerminalFilePreview,
-  type TerminalFilePreviewTarget,
 } from "./terminalFilePreviewStore";
-
-async function readRemoteBytesSftp(id: string, path: string, maxBytes: number): Promise<number[]> {
-  // 注意：大文本/未知大小应由 FilePreviewContent 分流到 LargeLogViewer，避免走到这里整文件下载
-  const all = await invoke<number[]>("sftp_download", { id, path });
-  if (all.length <= maxBytes) return all;
-  return all.slice(0, maxBytes);
-}
-
-async function writeRemoteBytesSftp(id: string, path: string, bytes: number[]): Promise<void> {
-  await invoke("sftp_upload", { id, path, data: bytes });
-}
-
-function buildCustomIO(target: TerminalFilePreviewTarget): FilePreviewIO {
-  const sessionType = target.sessionType ?? "remote";
-  const resourceId = target.resourceId ?? null;
-
-  if (sessionType === "remote" && resourceId) {
-    return {
-      sshResourceId: resourceId,
-      readBytes: (path, maxBytes) => readRemoteBytesSftp(resourceId, path, maxBytes),
-      writeBytes: (path, bytes) => writeRemoteBytesSftp(resourceId, path, bytes),
-      probeMediaMeta: async (path) => {
-        const probe = await unwrapCommand(commands.sftpProbeMedia(resourceId, path));
-        return {
-          durationSecs: probe.durationSecs,
-          size: probe.size,
-          posterUrl: probe.posterDataUrl,
-        };
-      },
-      resolveMediaSrc: async (path) => {
-        const stream = await unwrapCommand(commands.sftpOpenMediaStream(resourceId, path));
-        return { url: stream.url, token: stream.token };
-      },
-      closeMediaStream: async (token) => {
-        await unwrapCommand(commands.sftpCloseMediaStream(token));
-      },
-      listArchiveEntries: (path) =>
-        unwrapCommand(commands.sshPoolListArchiveEntries(resourceId, path)),
-      installArchiveTool: (tool) =>
-        unwrapCommand(commands.sshPoolInstallArchiveTool(resourceId, tool)),
-    };
-  }
-  // 本地：走 file_manager 通道（已经支持 LOCAL_CONNECTION_ID）
-  return {
-    readBytes: (path, maxBytes) => readRemotePreview(target.connectionId, path, maxBytes),
-    writeBytes: (path, bytes) => uploadRemote(target.connectionId, path, bytes),
-  };
-}
 
 export function TerminalFilePreviewSubWindow() {
   const target = useTerminalFilePreviewStore((s) => s.target);
@@ -78,10 +25,10 @@ export function TerminalFilePreviewSubWindow() {
     [target?.sessionType, target?.connectionId, target?.resourceId],
   );
 
-  const customIO = useMemo(
-    () => (target ? buildCustomIO(target) : undefined),
-    [target?.sessionType, target?.connectionId, target?.resourceId],
-  );
+  const customIO = useMemo(() => {
+    if (!target) return undefined;
+    return buildFilePreviewIO(previewIoSessionFromTarget(target));
+  }, [target?.sessionType, target?.connectionId, target?.resourceId]);
 
   const handleSelectEntry = useCallback(
     (entry: FileEntry) => {
@@ -108,7 +55,6 @@ export function TerminalFilePreviewSubWindow() {
       sshResourceId={target.resourceId ?? undefined}
       onClose={close}
       customIO={customIO}
-      showFileTree
       treeSession={treeSession}
       onSelectEntry={handleSelectEntry}
     />

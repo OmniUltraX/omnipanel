@@ -88,6 +88,18 @@ export function ScopedSearchText({ text, className }: ScopedSearchTextProps) {
   );
 }
 
+/** 区域搜索宿主内实际纵向滚动的容器（侧栏 schema 树等） */
+function findScopedSearchScrollHost(root: HTMLElement): HTMLElement {
+  const tree = root.querySelector(".schema-tree");
+  if (tree instanceof HTMLElement) {
+    return tree;
+  }
+  if (root.scrollHeight > root.clientHeight + 1) {
+    return root;
+  }
+  return root;
+}
+
 /**
  * 区域搜索：默认隐藏，在宿主区域内 hover / 聚焦时按 Ctrl+F（Mac: ⌘F）在右上方显示搜索框　
  * 搜索词非空时，自动在宿主内容区高亮匹配文本（Monaco 等编辑器区域除外）　
@@ -185,7 +197,7 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
 
     let scrollRafId = 0;
     /** 已对该 query 成功滚到过首个匹配（含 JSON 树展开后补滚） */
-    let lastScrolledQuery = "";
+    const lastScrolledQueryRef = { current: "" };
 
     const apply = () => {
       observer?.disconnect();
@@ -194,12 +206,17 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
       applyingHighlightRef.current = false;
       const needle = value.trim();
       if (!needle) {
-        lastScrolledQuery = "";
-      } else if (matched && lastScrolledQuery !== needle) {
+        lastScrolledQueryRef.current = "";
+      } else if (matched && lastScrolledQueryRef.current !== needle) {
         // 首次为该词找到 DOM 匹配时再滚动（树展开后也会走到这里）
-        lastScrolledQuery = needle;
+        lastScrolledQueryRef.current = needle;
         cancelAnimationFrame(scrollRafId);
         scrollRafId = requestAnimationFrame(() => {
+          const scrollHost = findScopedSearchScrollHost(root);
+          if (scrollHost.scrollTop > 4) {
+            lastScrolledQueryRef.current = needle;
+            return;
+          }
           scrollScopedSearchMatchIntoView(root);
         });
       }
@@ -212,6 +229,9 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
       }
     };
 
+    // 搜索词变化时允许重新滚到首个匹配；勿依赖 children，否则虚拟列表
+    // 滚动导致 DOM 变更时会反复重置并 scrollIntoView 把列表拽回顶部。
+    lastScrolledQueryRef.current = "";
     apply();
 
     if (!value.trim()) {
@@ -242,7 +262,7 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
       observer?.disconnect();
       clearScopedSearchHighlights(root);
     };
-  }, [value, children]);
+  }, [value]);
 
   return (
     <ScopedSearchContext.Provider value={contextValue}>

@@ -4,7 +4,7 @@
  * 取代分散的 useXxxShortcut hooks，在一个 keydown 监听里统一分发：
  * - close-tab / switch-tab / switch-nth-tab：按当前焦点 dock 智能分发
  * - new-terminal / new-ssh：全局动作
- * - search-terminal：委托给 scopedSearchRegistry（若焦点在已注册 scope）
+ * - search-terminal：CodeMirror 内打开编辑器查找；否则委托 scopedSearchRegistry；终端再回退到 feed 搜索
  * - split-vertical / split-horizontal：终端分屏（预留，暂未实现 dockview split）
  *
  * 已有的 toggle-ai / open-settings / toggle-bottom-workspace / format-sql 等
@@ -21,9 +21,14 @@ import {
   findDockviewInstanceContainingElement,
 } from "../lib/dockviewRegistry";
 import { openLocalTerminalSession } from "../lib/terminalSession";
+import { requestOpenTopbarAddMenu } from "../lib/topbarAddMenu";
 import { useCommandRegistry } from "../stores/commandRegistry";
 import { useTerminalStore } from "../stores/terminalStore";
 import { clearAllSessionBlocks } from "../modules/terminal/terminalBlockActions";
+import {
+  isCodeMirrorEditorFocused,
+  tryOpenFocusedEditorSearch,
+} from "../components/ui/content/editorSearch";
 
 /** dockScope 前缀 → 模块标识，用于 tab 操作智能分发 */
 const SCOPE_PREFIX_TO_MODULE: Record<string, string> = {
@@ -233,17 +238,14 @@ export function useGlobalShortcuts() {
         }
       }
 
-      // new-terminal：Mod+T（优先走命令注册表，回退到直接调用）
+      // new-terminal：Mod+T（优先打开「+」新建菜单，否则命令注册表 / 直建本地）
       if (matchesShortcut(e, getShortcutKeys("new-terminal"))) {
         if (inXterm) return;
-        if (tryRunCommandByShortcutId("new-terminal")) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-        openLocalTerminalSession();
         e.preventDefault();
         e.stopPropagation();
+        if (requestOpenTopbarAddMenu()) return;
+        if (tryRunCommandByShortcutId("new-terminal")) return;
+        openLocalTerminalSession();
         return;
       }
 
@@ -264,8 +266,19 @@ export function useGlobalShortcuts() {
         return;
       }
 
-      // search-terminal：优先交给 scopedSearchRegistry；未命中时再由终端焦点分支处理。
-      // 此处不直接 return，让后续 terminal 分支可打开 feed 搜索。
+      // search-terminal（Mod+F）：
+      // 1) 焦点在 CodeMirror → 打开编辑器查找（并阻止 WebView 原生查找 / 终端 feed 搜索）
+      // 2) 否则优先交给 scopedSearchRegistry（bubble/capture 内自行处理）
+      // 3) 终端焦点分支：无上述命中时再打开 feed 搜索
+      if (matchesShortcut(e, getShortcutKeys("search-terminal"))) {
+        if (isCodeMirrorEditorFocused(e.target) || isCodeMirrorEditorFocused(document.activeElement)) {
+          if (tryOpenFocusedEditorSearch()) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+      }
 
       // ─── 终端专属快捷键（仅在焦点 dock 为终端时生效） ───────────────
       const focusedModule = resolveModuleFromScope(
@@ -331,8 +344,11 @@ export function useGlobalShortcuts() {
           }
         }
 
-        // search-terminal：无 scoped search 命中时，对当前终端 feed 打开搜索
+        // search-terminal：无 CM / scoped search 命中时，对当前终端 feed 打开搜索
         if (matchesShortcut(e, getShortcutKeys("search-terminal"))) {
+          if (isCodeMirrorEditorFocused(e.target) || isCodeMirrorEditorFocused(document.activeElement)) {
+            return;
+          }
           if (sessionId) {
             window.dispatchEvent(
               new CustomEvent("omnipanel-terminal-search", {

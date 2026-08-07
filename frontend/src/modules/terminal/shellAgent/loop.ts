@@ -23,11 +23,42 @@ import {
   consumeReanchorPtySync,
   getShellAgentGeometry,
   isShellAgentCursorPastPlaceholder,
+  markShellAgentNeedsPromptSync,
   prepareShellAgentEcho,
   reanchorShellAgentCard,
   setShellAgentCardKind,
+  type ShellAgentCardKind,
 } from "./shellAgentGeometry";
 import { useShellAgentStore } from "./shellAgentStore";
+import {
+  clearShellAgentLastCmd,
+  clearShellAgentThinkingFull,
+  markShellAgentConfirmFreeze,
+} from "./thinkingCache";
+
+/**
+ * 方案 C：直通 AI 表现层（decoration / 占位 / 内存态）随 xterm 易失；
+ * 可持久时间线只走命令栏 Block（blocksStore + terminalHistorySync）。
+ * remount / restore 时必须同步拆掉 UI 态，禁止用持久化 aiThread 重建流内卡。
+ */
+export function teardownShellAgentUi(sessionId: string): void {
+  clearShellAgentGeometry(sessionId);
+  useShellAgentStore.getState().clear(sessionId);
+  clearShellAgentThinkingFull(sessionId);
+  clearShellAgentLastCmd(sessionId);
+  clearPromptReleaseGuard(sessionId);
+  pendingReanchorKind.delete(sessionId);
+  pendingTurnFinish.delete(sessionId);
+  const timer = turnFinishFallbackTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    turnFinishFallbackTimers.delete(sessionId);
+  }
+  patchEnterGateFlags(sessionId, { agentExecuting: false });
+}
+
+/** userTyping 时跳过的续轮重锚，打字结束后补一次 */
+const pendingReanchorKind = new Map<string, ShellAgentCardKind>();
 
 /** 等待 final 卡自适应高度完成后再归还 prompt */
 const pendingTurnFinish = new Set<string>();
@@ -49,10 +80,32 @@ function scheduleTurnFinishFallback(sessionId: string): void {
   );
 }
 
+/** 收紧：避免任意以 `>` 结尾的输出被当成 prompt */
 function lineLooksLikeShellPrompt(line: string): boolean {
   const trimmed = line.replace(/\s+$/u, "");
   if (!trimmed) return false;
-  return /[@\w.-]+.*[$#%]\s*$/u.test(trimmed) || /[$#%>]\s*$/u.test(trimmed);
+  if (/\S+@\S+.*[$#%]\s*$/u.test(trimmed)) return true;
+  if (/^[$#%]\s*$/u.test(trimmed)) return true;
+  if (/PS\s+\S+>\s*$/u.test(trimmed)) return true;
+  if (/[$#%]\s*$/u.test(trimmed) && trimmed.length <= 120) return true;
+  return false;
+}
+
+/** 光标行及以下是否已有可输入 prompt（仅看可见区，不扫被卡片盖住的上方） */
+function bufferHasPromptAtOrBelowCursor(sessionId: string): boolean {
+  try {
+    const term = getXterm(sessionId);
+    if (!term) return false;
+    const buf = term.buffer.active;
+    const cursorAbs = buf.baseY + buf.cursorY;
+    for (let y = cursorAbs; y <= cursorAbs + 3 && y < buf.length; y += 1) {
+      const line = buf.getLine(y)?.translateToString(true) ?? "";
+      if (lineLooksLikeShellPrompt(line)) return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 /** 清掉远端当前输入行（bash/zsh: Ctrl+A Ctrl+K；PowerShell: Escape） */
@@ -107,8 +160,8 @@ function resolveCwd(sessionId: string): string {
   return findTerminalPane(sessionId)?.cwd ?? "";
 }
 
-/** TEMP-DEBUG: 环事件序列写到 DOM dataset（隔离世界可读），供 E2E 排查 */
 function pushShellAgentDebugEvent(fn: string, detail?: string): void {
+  if (!import.meta.env.DEV) return;
   try {
     const el = document.body;
     if (!el) return;
@@ -139,17 +192,21 @@ export async function startOrContinueShellAgent(
   const store = useShellAgentStore.getState();
   if (store.isBusy(sessionId)) {
     const cur = store.get(sessionId);
-    if (cur?.blockId && settings.terminalShellAgentAutocontinue) {
+    // 忙时追问：已清行+画蓝字，禁止静默丢输入；始终 follow-up
+    if (cur?.blockId) {
       store.setPhase(sessionId, "streaming");
       store.bumpTurn(sessionId);
       await submitInlineFollowUp(sessionId, cur.blockId, trimmed, resolveCwd(sessionId));
       return cur.blockId;
     }
-    return cur?.blockId ?? null;
+    // busy 但无 blockId：多半刚锚了 thinking 卡、请求还没发出，继续走新建，勿 return null 卡死
   }
 
   let session = store.get(sessionId);
-  if (!session || session.phase === "cancelled" || !session.blockId) {
+  // cancelled 后勿 ensure() 拿回僵尸对象（旧 turn/blockId）；开干净 thread
+  if (session?.phase === "cancelled") {
+    session = store.newAgentThread(sessionId);
+  } else if (!session || !session.blockId) {
     session = store.ensure(sessionId);
   }
 
@@ -198,6 +255,7 @@ export function cancelShellAgent(sessionId: string): void {
   useShellAgentStore.getState().cancel(sessionId);
   clearShellAgentGeometry(sessionId);
   clearPromptReleaseGuard(sessionId);
+  pendingReanchorKind.delete(sessionId);
   pendingTurnFinish.delete(sessionId);
   const timer = turnFinishFallbackTimers.get(sessionId);
   if (timer) {
@@ -213,11 +271,11 @@ export function newShellAgentSession(sessionId: string): void {
     cancelInlineAiBlock(sessionId, cur.blockId);
     cancelPendingInlineTools(cur.blockId);
   }
-  // 归档当前流内 final 卡再开新会话
+  // 冻结当前流内卡进 scrollback；开新 thread，但保留已归档 decoration（勿 clearShellAgentGeometry）
   archiveActiveInlineCard(sessionId);
   useShellAgentStore.getState().newAgentThread(sessionId);
-  clearShellAgentGeometry(sessionId);
   clearPromptReleaseGuard(sessionId);
+  pendingReanchorKind.delete(sessionId);
   pendingTurnFinish.delete(sessionId);
   const timer = turnFinishFallbackTimers.get(sessionId);
   if (timer) {
@@ -230,7 +288,7 @@ export function newShellAgentSession(sessionId: string): void {
 /**
  * 模型开始（续）输出。
  * 首轮：入口已建好流内 thinking 卡。
- * 续轮：命令输出后重锚流内 thinking 卡；用户正在 prompt 打字则跳过本次重锚。
+ * 续轮（命令执行后）：尽早切到 final 卡，让解读正文流式出现，而不是等 turnFinished 一次性甩出。
  */
 export function notifyShellAgentStreaming(sessionId: string): void {
   const store = useShellAgentStore.getState();
@@ -244,24 +302,51 @@ export function notifyShellAgentStreaming(sessionId: string): void {
 
   if (!wasAfterExec) return;
 
+  // 打字中：记下待重锚 final，结束后由 flush 处理
   if (getEnterGateFlags(sessionId).userTyping) {
+    pendingReanchorKind.set(sessionId, "final");
     return;
   }
 
-  reanchorShellAgentCard(sessionId, "thinking");
+  const geo = getShellAgentGeometry(sessionId);
+  if (!geo?.decoration) {
+    reanchorShellAgentCard(sessionId, "final");
+    return;
+  }
+  if (geo.cardKind === "final") return;
+
+  // 续轮解读：统一重锚 final（便于占位扩高 + 流式），勿原地 setKind 导致高度锁死裁切
+  reanchorShellAgentCard(sessionId, "final");
+}
+
+/** userTyping 清除后调用：补做跳过的续轮重锚 */
+export function flushPendingShellAgentReanchor(sessionId: string): void {
+  const kind = pendingReanchorKind.get(sessionId);
+  if (!kind) return;
+  if (getEnterGateFlags(sessionId).userTyping) return;
+  const agent = useShellAgentStore.getState().get(sessionId);
+  if (!agent || agent.phase === "cancelled" || agent.phase === "idle") {
+    pendingReanchorKind.delete(sessionId);
+    return;
+  }
+  pendingReanchorKind.delete(sessionId);
+  reanchorShellAgentCard(sessionId, kind);
 }
 
 /**
- * 工具提案到达：thinking 卡扩为命令卡；无活跃卡则重锚 cmd 卡。
+ * 工具提案到达：thinking 卡封成「思考完成」并重锚为命令卡。
+ * 思考→确认统一 reanchor，避免同槽替换后 scrollback 仍留着转圈思考卡。
  */
 export function notifyShellAgentApprovalPending(sessionId: string): void {
   pushShellAgentDebugEvent("approvalPending");
   useShellAgentStore.getState().setPhase(sessionId, "awaiting_approval");
+  pendingReanchorKind.delete(sessionId);
   const geo = getShellAgentGeometry(sessionId);
-  if (geo?.decoration && geo.cardKind === "thinking") {
-    setShellAgentCardKind(sessionId, "cmd");
-  } else if (!geo?.decoration) {
+  const past = isShellAgentCursorPastPlaceholder(sessionId);
+  if (!geo?.decoration || geo.cardKind === "thinking" || past) {
     reanchorShellAgentCard(sessionId, "cmd");
+  } else {
+    setShellAgentCardKind(sessionId, "cmd");
   }
   try {
     getXterm(sessionId)?.scrollToBottom();
@@ -277,6 +362,36 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
     sessionId,
     executing ? "executing" : "observing",
   );
+  // 同意后：把确认卡封成「已同意」留在 scrollback，再钉矮槽给工具条，避免同槽顶替留空白
+  if (executing) {
+    const geo = getShellAgentGeometry(sessionId);
+    if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
+      markShellAgentConfirmFreeze(sessionId, "agreed");
+      reanchorShellAgentCard(sessionId, "cmd", undefined, 2);
+    }
+  }
+}
+
+/** 用户拒绝：冻成「已拒绝」确认卡，立刻归还 prompt，勿再进 streaming/sticky 思考卡 */
+export function notifyShellAgentRejected(sessionId: string): void {
+  pushShellAgentDebugEvent("rejected", "confirm freeze + release prompt");
+  patchEnterGateFlags(sessionId, { agentExecuting: false });
+  pendingReanchorKind.delete(sessionId);
+  pendingTurnFinish.delete(sessionId);
+  const timer = turnFinishFallbackTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    turnFinishFallbackTimers.delete(sessionId);
+  }
+
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
+    markShellAgentConfirmFreeze(sessionId, "rejected");
+    archiveActiveInlineCard(sessionId);
+  }
+  // 拒绝不走 reanchor，需显式标记，否则 release 不会发 \r\n 拉新 prompt
+  markShellAgentNeedsPromptSync(sessionId);
+  releaseShellAgentToPrompt(sessionId);
 }
 
 /** 工具已执行完、正在等模型根据 observation 续写 */
@@ -331,22 +446,13 @@ function releaseShellAgentToPrompt(sessionId: string): void {
   };
 
   // 等 PTY 可能迟到的 prompt 落盘，再决定要不要发 \r\n，避免双 prompt
-  void waitForTerminalOutputIdle(sessionId, 60, 450).then(() => {
+  void waitForTerminalOutputIdle(sessionId, 80, 500).then(() => {
     if (promptReleasedForTurn.get(sessionId) !== turn) return;
 
     let needPtyEnter = consumeReanchorPtySync(sessionId);
-    try {
-      const term = getXterm(sessionId);
-      if (term) {
-        const buf = term.buffer.active;
-        const line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
-        // 当前行已是可输入 prompt → 禁止再发（否则双 prompt + 两次回车）
-        if (lineLooksLikeShellPrompt(line)) {
-          needPtyEnter = false;
-        }
-      }
-    } catch {
-      // ignore
+    // 重锚盖住了旧 prompt：需要一次回车拉新行；若光标行及以下已有 prompt 则不再发
+    if (needPtyEnter && bufferHasPromptAtOrBelowCursor(sessionId)) {
+      needPtyEnter = false;
     }
 
     if (needPtyEnter) {
@@ -377,7 +483,8 @@ export function onShellAgentCardFitStable(sessionId: string): void {
 export function notifyShellAgentTurnFinished(sessionId: string): void {
   const cur = useShellAgentStore.getState().get(sessionId);
   pushShellAgentDebugEvent("turnFinished", cur?.phase ?? "none");
-  if (!cur || cur.phase === "cancelled") return;
+  // idle：拒绝后已归还 prompt；cancelled：已取消 — 都勿再重锚出思考/结果卡
+  if (!cur || cur.phase === "cancelled" || cur.phase === "idle") return;
   if (hasPendingShellTool(sessionId)) {
     pushShellAgentDebugEvent("turnFinished deferred", "pending tool");
     useShellAgentStore.getState().setPhase(sessionId, "awaiting_approval");
@@ -387,13 +494,19 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
   const geo = getShellAgentGeometry(sessionId);
   const past = isShellAgentCursorPastPlaceholder(sessionId);
 
-  // 命令输出已在卡下方：原地改 final 会盖住输出 → 重锚到当前行（盖住已有 prompt，避免上方残留）
+  // 仍停在思考卡：封成「思考完成」并重锚 final，避免转圈残留
+  if (geo?.decoration && geo.cardKind === "thinking") {
+    reanchorShellAgentCard(sessionId, "final", () => scheduleTurnFinishFallback(sessionId));
+    return;
+  }
+
+  // 命令输出已在卡下方：原地改 final 会盖住输出 → 重锚到当前行
   if (geo?.decoration && past && geo.cardKind === "cmd") {
     reanchorShellAgentCard(sessionId, "final", () => scheduleTurnFinishFallback(sessionId));
     return;
   }
 
-  // 续轮已重锚过 thinking：只切 final，禁止再重锚（否则双 prompt）
+  // 已在 cmd 槽且未越过：只切 final
   if (geo?.decoration && geo.cardKind !== "final") {
     setShellAgentCardKind(sessionId, "final");
     scheduleTurnFinishFallback(sessionId);
@@ -420,5 +533,9 @@ export function anchorShellAgentThinkingCard(
   sessionId: string,
   opts: { promptIndentCols: number; promptPrefix: string; query: string },
 ): void {
+  const store = useShellAgentStore.getState();
+  store.ensure(sessionId);
+  // 不在此处 setPhase(streaming)：会让紧随其后的 startOrContinue 误判 busy
+  // 且无 blockId 时直接 return null，界面永久停在「正在理解意图」
   beginShellAgentCard(sessionId, { kind: "thinking", ...opts });
 }

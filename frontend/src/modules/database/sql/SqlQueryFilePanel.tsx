@@ -23,6 +23,11 @@ import {
   sqlFileDndLog,
 } from "./sqlQueryFileDnDDebug";
 import { SidebarTreeNode, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
+import type { DbConnectionConfig } from "../api";
+import {
+  formatSqlFileBindingMeta,
+  type SqlQueryBindingContext,
+} from "./resolveSqlQueryBindingContext";
 import {
   SQL_QUERY_FILE_POINTER_DRAG_THRESHOLD_PX,
   isSqlQueryFilePointerDragExcluded,
@@ -36,6 +41,8 @@ interface SqlQueryFilePanelProps {
   onOpenTreeChartFile?: (file: DbTreeChartFileNode) => void;
   activeTreeChartFileId?: string | null;
   section?: SchemaSidebarSectionConfig;
+  connections?: readonly DbConnectionConfig[];
+  sqlQueryBindingContext?: SqlQueryBindingContext | null;
 }
 
 function dropTargetIdFromPointerHit(
@@ -70,6 +77,7 @@ function FolderTree({
   dropTargetId,
   canDropOnFolder,
   onNodePointerDown,
+  connections,
 }: {
   sqlNodes: DbSqlFileNode[];
   treeChartNodes: DbTreeChartFileNode[];
@@ -88,6 +96,7 @@ function FolderTree({
   dropTargetId: string | null;
   canDropOnFolder: (folderId: string) => boolean;
   onNodePointerDown: (nodeId: string, event: ReactPointerEvent) => void;
+  connections: readonly DbConnectionConfig[];
 }) {
   const items = useMemo(
     () => getQueryTreeChildren(sqlNodes, treeChartNodes, parentId),
@@ -165,6 +174,7 @@ function FolderTree({
                   dropTargetId={dropTargetId}
                   canDropOnFolder={canDropOnFolder}
                   onNodePointerDown={onNodePointerDown}
+                  connections={connections}
                 />
               )}
             </div>
@@ -209,6 +219,7 @@ function FolderTree({
 
         const node = item.node;
         const isActive = activeFileId === node.id;
+        const bindingMeta = formatSqlFileBindingMeta(node, connections);
 
         return (
           <SidebarTreeNode
@@ -235,6 +246,13 @@ function FolderTree({
               </svg>
             }
             label={node.name}
+            trailing={
+              bindingMeta ? (
+                <span className="tree-meta sql-file-tree-node__meta" title={bindingMeta}>
+                  {bindingMeta}
+                </span>
+              ) : undefined
+            }
             onToggle={() => {}}
             onActivate={() => onOpenFile(node)}
             onPointerDown={(event) => onNodePointerDown(node.id, event)}
@@ -252,12 +270,15 @@ export function SqlQueryFilePanel({
   onOpenTreeChartFile,
   activeTreeChartFileId,
   section,
+  connections = [],
+  sqlQueryBindingContext,
 }: SqlQueryFilePanelProps) {
   const { t } = useI18n();
   const nodes = useDbSqlFileStore((s) => s.nodes);
   const treeChartNodes = useDbTreeChartFileStore((s) => s.nodes);
   const addFolder = useDbSqlFileStore((s) => s.addFolder);
   const addFile = useDbSqlFileStore((s) => s.addFile);
+  const updateFileBinding = useDbSqlFileStore((s) => s.updateFileBinding);
   const renameNode = useDbSqlFileStore((s) => s.renameNode);
   const moveNode = useDbSqlFileStore((s) => s.moveNode);
   const canMoveNodeToParent = useDbSqlFileStore((s) => s.canMoveNodeToParent);
@@ -571,8 +592,21 @@ export function SqlQueryFilePanel({
       return;
     }
     const file = addFile(parentId, name.trim());
-    handleOpenFile(file);
-  }, [addFile, handleOpenFile, t]);
+    let openFile = file;
+    if (sqlQueryBindingContext?.connId && sqlQueryBindingContext.database.trim()) {
+      updateFileBinding(
+        file.id,
+        sqlQueryBindingContext.connId,
+        sqlQueryBindingContext.database,
+      );
+      openFile = {
+        ...file,
+        connId: sqlQueryBindingContext.connId,
+        database: sqlQueryBindingContext.database,
+      };
+    }
+    handleOpenFile(openFile);
+  }, [addFile, handleOpenFile, sqlQueryBindingContext, t, updateFileBinding]);
 
   const handleRename = useCallback(
     async (node: DbSqlFileNode) => {
@@ -670,6 +704,7 @@ export function SqlQueryFilePanel({
               dropTargetId={dropTargetId}
               canDropOnFolder={canDropOnFolder}
               onNodePointerDown={onNodePointerDown}
+              connections={connections}
             />
           )}
         </div>

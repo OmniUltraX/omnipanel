@@ -82,9 +82,12 @@ function useSettingsUiOpen() {
   );
 }
 function useNewTerminal() {
-  import("../../lib/terminalSession").then(({ openLocalTerminalSession }) =>
-    openLocalTerminalSession(),
-  );
+  void Promise.all([
+    import("../../lib/topbarAddMenu"),
+    import("../../lib/terminalSession"),
+  ]).then(([{ requestOpenTopbarAddMenu }, { openLocalTerminalSession }]) => {
+    if (!requestOpenTopbarAddMenu()) openLocalTerminalSession();
+  });
 }
 function useAiOpen() {
   import("../../stores/aiStore").then(({ useAiStore }) =>

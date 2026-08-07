@@ -19,6 +19,8 @@ import {
   sftpEntryRowClass,
 } from "./sftpEntryDisplay";
 import { FilePreviewSubWindow } from "../../modules/files/FilePreviewSubWindow";
+import { buildSftpPreviewIO } from "../../modules/files/previewIo";
+import type { FilePreviewIO } from "../../modules/files/FilePreviewContent";
 import { uploadRemote, listDirectory, readRemotePreview } from "../../modules/files/fileApi";
 import {
   collectDroppedLocalEntries,
@@ -191,16 +193,54 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
 
   const canUpload = Boolean(adapter?.writeBytes) || Boolean(resourceId);
 
-  const [previewEntry, setPreviewEntry] = useState<SftpEntry | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<{
+    name: string;
+    path: string;
+    size: number | null;
+  } | null>(null);
   const fullPathOf = useCallback(
     (entry: SftpEntry) => (path === "/" ? `/${entry.name}` : `${path}/${entry.name}`),
     [path],
   );
   const openPreview = useCallback((entry: SftpEntry) => {
     if (entry.isDir || !capabilities.preview) return;
-    setPreviewEntry(entry);
-  }, [capabilities.preview]);
-  const closePreview = useCallback(() => setPreviewEntry(null), []);
+    setPreviewTarget({
+      name: entry.name,
+      path: path === "/" ? `/${entry.name}` : `${path}/${entry.name}`,
+      size: entry.size ?? null,
+    });
+  }, [capabilities.preview, path]);
+  const closePreview = useCallback(() => setPreviewTarget(null), []);
+
+  const previewCustomIO = useMemo((): FilePreviewIO | undefined => {
+    if (!previewTarget) return undefined;
+    if (resourceId) return buildSftpPreviewIO(resourceId);
+    if (adapter?.readBytes) {
+      return {
+        readBytes: (filePath, maxBytes) =>
+          adapter.readBytes!(filePath, maxBytes).then((bytes) =>
+            maxBytes > 0 && bytes.length > maxBytes ? bytes.slice(0, maxBytes) : bytes,
+          ),
+        writeBytes: adapter.writeBytes
+          ? (filePath, bytes) => adapter.writeBytes!(filePath, Array.from(bytes))
+          : async () => {
+              throw new Error("write not supported");
+            },
+      };
+    }
+    return undefined;
+  }, [adapter, previewTarget, resourceId]);
+
+  const previewTreeSession = useMemo(() => {
+    if (resourceId) {
+      return {
+        sessionType: "remote" as const,
+        connectionId: resourceId,
+        resourceId,
+      };
+    }
+    return null;
+  }, [resourceId]);
 
   const closeComposer = useCallback(() => {
     setComposer(null);
@@ -1097,72 +1137,33 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
         />
       ) : null}
       <FilePreviewSubWindow
-        open={previewEntry != null}
+        open={previewTarget != null}
         entry={
-          previewEntry
+          previewTarget
             ? {
-                name: previewEntry.name,
-                path: fullPathOf(previewEntry),
-                kind: previewEntry.isDir ? "dir" : "file",
-                size: previewEntry.size ?? null,
+                name: previewTarget.name,
+                path: previewTarget.path,
+                kind: "file",
+                size: previewTarget.size,
                 modified: null,
                 permissions: null,
               }
             : null
         }
         connectionId={resourceId ?? sessionKey ?? ""}
+        sshResourceId={resourceId ?? undefined}
         onClose={closePreview}
-        customIO={
-          previewEntry && (adapter?.readBytes || resourceId)
-            ? {
-                readBytes: (filePath, maxBytes) => {
-                  if (adapter?.readBytes) {
-                    return adapter.readBytes(filePath, maxBytes).then((bytes) => {
-                      return maxBytes > 0 && bytes.length > maxBytes ? bytes.slice(0, maxBytes) : bytes;
-                    });
-                  }
-                  return commands.sftpDownload(resourceId!, filePath).then((result) => {
-                    if (result.status !== "ok") {
-                      throw new Error(result.error.message || "download failed");
-                    }
-                    const bytes = result.data;
-                    return maxBytes > 0 && bytes.length > maxBytes ? bytes.slice(0, maxBytes) : bytes;
-                  });
-                },
-                writeBytes: (filePath, bytes) => {
-                  if (adapter?.writeBytes) {
-                    return adapter.writeBytes(filePath, Array.from(bytes));
-                  }
-                  return commands.sftpUpload(resourceId!, filePath, Array.from(bytes)).then((result) => {
-                    if (result.status !== "ok") {
-                      throw new Error(result.error.message || "upload failed");
-                    }
-                  });
-                },
-                ...(resourceId
-                  ? {
-                      sshResourceId: resourceId,
-                      probeMediaMeta: async (filePath: string) => {
-                        const probe = await unwrapCommand(
-                          commands.sftpProbeMedia(resourceId, filePath),
-                        );
-                        return {
-                          durationSecs: probe.durationSecs,
-                          size: probe.size,
-                          posterUrl: probe.posterDataUrl,
-                        };
-                      },
-                      resolveMediaSrc: async (filePath: string) => {
-                        const stream = await unwrapCommand(
-                          commands.sftpOpenMediaStream(resourceId, filePath),
-                        );
-                        return { url: stream.url, token: stream.token };
-                      },
-                      closeMediaStream: async (token: string) => {
-                        await unwrapCommand(commands.sftpCloseMediaStream(token));
-                      },
-                    }
-                  : {}),
+        customIO={previewCustomIO}
+        treeSession={previewTreeSession ?? undefined}
+        onSelectEntry={
+          previewTreeSession
+            ? (entry) => {
+                if (entry.kind !== "file") return;
+                setPreviewTarget({
+                  name: entry.name,
+                  path: entry.path,
+                  size: entry.size ?? null,
+                });
               }
             : undefined
         }

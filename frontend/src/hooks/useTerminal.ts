@@ -97,15 +97,24 @@ import {
 import {
   clearEnterGateFlags,
   detectReverseSearchInOutput,
+  getEnterGateFlags,
   patchEnterGateFlags,
 } from "../modules/terminal/passthroughAi/enterGates";
 import { decidePassthroughEnter, type PassthroughEnterDecision } from "../modules/terminal/passthroughAi/decidePassthroughEnter";
 import {
   anchorShellAgentThinkingCard,
   clearRemoteInputLine,
+  flushPendingShellAgentReanchor,
   startOrContinueShellAgent,
+  teardownShellAgentUi,
 } from "../modules/terminal/shellAgent/loop";
 import { useShellAgentStore } from "../modules/terminal/shellAgent/shellAgentStore";
+import {
+  getShellAgentGeometry,
+  setShellAgentGeometryWriteSuspended,
+} from "../modules/terminal/shellAgent/shellAgentGeometry";
+import { showToast } from "../stores/toastStore";
+import { createTranslator } from "../i18n";
 import {
   tapTerminalOutput,
   waitForTerminalOutputIdle,
@@ -170,6 +179,10 @@ function bindTerminalInputMode(
             promptPrefix: prompt,
             query,
           });
+          if (getShellAgentGeometry(sessionId)?.mode === "detached") {
+            const t = createTranslator(useSettingsStore.getState().locale);
+            showToast(t("terminal.shellAgent.detachedFallback"));
+          }
           void startOrContinueShellAgent(sessionId, query);
         });
       } catch {
@@ -205,6 +218,8 @@ function bindTerminalInputMode(
       }
 
       if (e.type === "keydown" && e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // Esc 退出 reverse-i-search 时清门闩，避免长期禁 NL
+        patchEnterGateFlags(sessionId, { reverseSearch: false });
         if (useShellAgentStore.getState().isBusy(sessionId)) {
           void import("../modules/terminal/shellAgent/loop").then(({ cancelShellAgent }) => {
             cancelShellAgent(sessionId);
@@ -255,11 +270,20 @@ function bindTerminalInputMode(
         patchEnterGateFlags(sessionId, { reverseSearch: false, userTyping: false });
       } else {
         bufferRef.current = applyUserDataToLineBuffer(bufferRef.current, data);
+        const typing = bufferRef.current.text.trim().length > 0;
+        const wasTyping = getEnterGateFlags(sessionId).userTyping;
         patchEnterGateFlags(sessionId, {
-          userTyping: bufferRef.current.text.trim().length > 0,
+          userTyping: typing,
         });
+        if (wasTyping && !typing) {
+          flushPendingShellAgentReanchor(sessionId);
+        }
         if (data === "\x12") {
           patchEnterGateFlags(sessionId, { reverseSearch: true });
+        }
+        // Esc / Ctrl+G 常见退出 i-search
+        if (data === "\x1b" || data === "\x07") {
+          patchEnterGateFlags(sessionId, { reverseSearch: false });
         }
       }
       writeToBackend(data);
@@ -1177,6 +1201,13 @@ export function useTerminal(
         }
         if (detectReverseSearchInOutput(rawText)) {
           patchEnterGateFlags(sessionId, { reverseSearch: true });
+        } else if (
+          getEnterGateFlags(sessionId).reverseSearch &&
+          !/\((?:reverse-)?i-search\)/i.test(rawText) &&
+          /[$#%>]\s*$/m.test(rawText)
+        ) {
+          // 输出不再含 i-search 且出现提示符特征 → 清粘滞门闩
+          patchEnterGateFlags(sessionId, { reverseSearch: false });
         }
         const runState = runStore.getRunState(sessionId);
         patchEnterGateFlags(sessionId, {
@@ -1403,6 +1434,9 @@ export function useTerminal(
     async function restoreSnapshot() {
       if (!backendSid || !term) return;
       useTerminalRunStateStore.getState().enterRecovering(sessionId);
+      // 方案 C：同步拆掉易失 AI UI；restore 期间禁止再写占位 \r\n
+      teardownShellAgentUi(sessionId);
+      setShellAgentGeometryWriteSuspended(sessionId, true);
       try {
         const b64 = await fetchRestoreSnapshot(backendSid);
         if (destroyed || !term) return;
@@ -1429,6 +1463,8 @@ export function useTerminal(
           return;
         }
         console.error(`[Terminal ${sessionId}] 恢复屏幕快照失败:`, err);
+      } finally {
+        setShellAgentGeometryWriteSuspended(sessionId, false);
       }
     }
 
@@ -1578,6 +1614,8 @@ export function useTerminal(
           theme: getTerminalTheme(settings.resolved),
           allowProposedApi: true,
           scrollback: settings.terminalScrollback,
+          // 与 FitAddon / Viewport 预留宽度一致，避免 screen 与 scrollable 差一截
+          overviewRuler: { width: 10 },
         });
         (term.options as typeof term.options & { copyOnSelect?: boolean }).copyOnSelect =
           settings.terminalCopyOnSelect;
@@ -1859,6 +1897,10 @@ export function useTerminal(
       safeTauriUnlisten(unlistenEvent ?? undefined);
       outputBatcher?.dispose();
       webglAddon?.dispose();
+      // 直通 AI 块（decoration / 占位行几何）绑在本 xterm 实例上，不进 PTY 快照。
+      // 必须在 term.dispose() 前同步 teardown，避免 remount 竞态写乱 buffer。
+      teardownShellAgentUi(sessionId);
+      setShellAgentGeometryWriteSuspended(sessionId, false);
       if (term) {
         unregisterXterm(sessionId, term);
         term.dispose();

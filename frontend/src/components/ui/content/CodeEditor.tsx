@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment, type Extension } from "@codemirror/state";
+import { Annotation, EditorState, Compartment, type Extension } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -19,6 +19,15 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { createEditorSearchExtensions } from "./editorSearch";
+
+/** 程序化同步文档（受控 value），不应触发 onChange / dirty */
+const ExternalSync = Annotation.define<boolean>();
+
+/** CodeMirror 文档一律 \n；与磁盘 CRLF 对齐，避免误标 dirty */
+export function normalizeEditorNewlines(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
 
 /** MySQL .cnf / .ini 语法高亮（legacy properties 模式，支持 [section]、# 注释与 key= value） */
 const iniLanguage = StreamLanguage.define(properties);
@@ -109,14 +118,15 @@ export function CodeEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
-  const valueRef = useRef(value);
+  const normalizedValue = normalizeEditorNewlines(value);
+  const valueRef = useRef(normalizedValue);
   const languageRef = useRef(language);
   const themeCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
 
   onChangeRef.current = onChange;
-  valueRef.current = value;
+  valueRef.current = normalizedValue;
   languageRef.current = language;
 
   useEffect(() => {
@@ -131,6 +141,7 @@ export function CodeEditor({
       languageCompartment.current.of(languageExtension(languageRef.current)),
       EditorView.lineWrapping,
       keymap.of([...defaultKeymap, ...historyKeymap]),
+      ...createEditorSearchExtensions(),
       themeCompartment.current.of(
         getSqlEditorThemeExtensions(isLightTheme(), {
           fontFamily: sqlEditorFontFamily,
@@ -140,19 +151,20 @@ export function CodeEditor({
       ),
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
       EditorView.updateListener.of((update) => {
-        if (update.docChanged) {
-          const next = update.state.doc.toString();
-          if (next !== valueRef.current) {
-            valueRef.current = next;
-            onChangeRef.current(next);
-          }
+        if (!update.docChanged) return;
+        // 忽略受控同步 / 非用户输入导致的文档变更，避免误报 dirty
+        if (update.transactions.every((tr) => tr.annotation(ExternalSync))) return;
+        const next = update.state.doc.toString();
+        if (next !== valueRef.current) {
+          valueRef.current = next;
+          onChangeRef.current(next);
         }
       }),
       getSearchHighlightExtension(),
     ];
 
     const view = new EditorView({
-      state: EditorState.create({ doc: value, extensions }),
+      state: EditorState.create({ doc: normalizedValue, extensions }),
       parent: containerRef.current,
     });
     viewRef.current = view;
@@ -176,13 +188,14 @@ export function CodeEditor({
     const view = viewRef.current;
     if (!view) return;
     const current = view.state.doc.toString();
-    if (current !== value) {
-      valueRef.current = value;
+    if (current !== normalizedValue) {
+      valueRef.current = normalizedValue;
       view.dispatch({
-        changes: { from: 0, to: current.length, insert: value },
+        changes: { from: 0, to: current.length, insert: normalizedValue },
+        annotations: ExternalSync.of(true),
       });
     }
-  }, [value]);
+  }, [normalizedValue]);
 
   useEffect(() => {
     const view = viewRef.current;

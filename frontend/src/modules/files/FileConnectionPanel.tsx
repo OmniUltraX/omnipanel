@@ -1751,6 +1751,15 @@ export function FileConnectionPanel({
         sshResourceId={sshResourceId}
         onClose={() => setPreviewEntry(null)}
         onSaved={() => void loadDir(currentPath)}
+        treeSession={{
+          sessionType: connId === LOCAL_CONNECTION_ID ? "local" : "remote",
+          connectionId: connId,
+          resourceId: sshResourceId ?? null,
+          viaFileManager: true,
+        }}
+        onSelectEntry={(entry) => {
+          if (entry.kind === "file") setPreviewEntry(entry);
+        }}
         onDownload={
           connId === LOCAL_CONNECTION_ID
             ? undefined

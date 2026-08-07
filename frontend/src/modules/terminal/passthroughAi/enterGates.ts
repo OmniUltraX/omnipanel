@@ -7,7 +7,7 @@ export type EnterGateFlags = {
   commandRunning: boolean;
   /** Shell Agent 正在写 PTY / 采集 */
   agentExecuting: boolean;
-  /** 用户当前行缓冲非空（正在打字）；续轮占位会致 echo 错位，此时卡片降级 dock */
+  /** 用户当前行缓冲非空（正在打字）；续轮重锚会排队，打字结束后补锚 */
   userTyping: boolean;
 };
 

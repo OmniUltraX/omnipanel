@@ -87,14 +87,14 @@ describe("shellAgentGeometry", () => {
     unregisterXterm(SID);
   });
 
-  it("minCardRowsFor：各类型统一最小 1 行起步", () => {
-    expect(minCardRowsFor("thinking")).toBe(1);
+  it("minCardRowsFor：thinking 至少 3 行，其余 1 行起步", () => {
+    expect(minCardRowsFor("thinking")).toBe(3);
     expect(minCardRowsFor("cmd")).toBe(1);
     expect(minCardRowsFor("final")).toBe(1);
     expect(cardRowsFor("cmd")).toBe(1);
   });
 
-  it("beginShellAgentCard：最小占位行 + marker+decoration 就位", () => {
+  it("beginShellAgentCard：thinking 最小 3 行占位 + marker+decoration 就位", () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
 
@@ -106,11 +106,11 @@ describe("shellAgentGeometry", () => {
     });
 
     expect(geo.mode).toBe("inline");
-    expect(geo.rows).toBe(1);
-    expect(term.writes.join("")).toBe("\r\n");
+    expect(geo.rows).toBe(3);
+    expect(term.writes.join("")).toBe("\r\n".repeat(3));
     expect(term.markers).toHaveLength(1);
     expect(term.decorations).toHaveLength(1);
-    expect(term.decorations[0].height).toBe(1);
+    expect(term.decorations[0].height).toBe(3);
   });
 
   it("beginShellAgentCard：无 term / decoration 注册失败 → detached", () => {
@@ -146,15 +146,13 @@ describe("shellAgentGeometry", () => {
     });
 
     resizeShellAgentCard(SID, 6);
-    await new Promise<void>((resolve) => {
-      queueMicrotask(() => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-    });
 
     const geo = getShellAgentGeometry(SID);
     expect(geo?.rows).toBe(6);
-    // 1（初次） + 5（扩）
+    // 原子切换：resize 后 decoration 立刻非空，不出现 null 空窗
+    expect(geo?.decoration).not.toBeNull();
+    expect(geo?.mode).toBe("inline");
+    // 3（thinking 初占位）+ 3（扩到 6）
     expect(term.writes.join("")).toBe("\r\n".repeat(6));
     expect(term.decorations).toHaveLength(2);
     expect(term.decorations[1].height).toBe(6);
@@ -162,7 +160,7 @@ describe("shellAgentGeometry", () => {
     expect(term.markers).toHaveLength(1);
   });
 
-  it("disposeShellAgentCard：撤卡留占位，几何归零", () => {
+  it("disposeShellAgentCard：撤卡留占位，几何归零", async () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
     beginShellAgentCard(SID, {
@@ -179,6 +177,15 @@ describe("shellAgentGeometry", () => {
     expect(geo?.cardKind).toBeNull();
     expect(geo?.decoration).toBeNull();
     expect(geo?.rows).toBe(0);
+
+    // dispose 延后到 portal idle，避免与 React removeChild 竞态
+    await new Promise<void>((resolve) => {
+      queueMicrotask(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+    });
     expect(term.decorations[0].disposed).toBe(true);
   });
 

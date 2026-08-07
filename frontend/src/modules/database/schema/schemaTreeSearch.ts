@@ -298,10 +298,11 @@ export function schemaDatabaseSubtreeMatchesSearch(
     return true;
   }
   const tables = getVisibleItems(db.tables ?? [], tableFilter);
-  if (tables.some((tbl) => schemaTableObjectSubtreeMatchesSearch(query, tbl, "table"))) {
+  // 侧栏「搜表名」只匹配表名/注释，不把列名/索引名算入（否则 profile 等列会让表误命中 file）
+  if (tables.some((tbl) => schemaTableObjectMatchesSearch(query, tbl))) {
     return true;
   }
-  if ((db.views ?? []).some((view) => schemaTableObjectSubtreeMatchesSearch(query, view, "view"))) {
+  if ((db.views ?? []).some((view) => schemaTableObjectMatchesSearch(query, view))) {
     return true;
   }
   if (
