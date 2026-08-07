@@ -3,12 +3,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useI18n } from "../../i18n";
 import { fmtError, formatFileSize } from "./utils";
 import {
+  localLogBackend,
   openLogSession,
   readLogLines,
   readLogTailInitial,
   searchLog,
+  sshLogBackend,
   startLogTail,
   stopLogTail,
+  type LogBackend,
 } from "./logApi";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { LogSearchHit, LogSessionInfo } from "../../ipc/bindings";
@@ -26,9 +29,11 @@ const WINDOW_MAX = 20_000;
 const WINDOW_LOAD_MORE = 2_000;
 
 interface LargeLogViewerProps {
-  /** SSH 资源 id（交互式会话或连接池资源 id） */
-  sshId: string;
-  /** 远端文件绝对路径 */
+  /** SSH 资源 id；与 local 二选一 */
+  sshId?: string;
+  /** 本地大日志模式 */
+  local?: boolean;
+  /** 文件绝对路径 */
   path: string;
   className?: string;
 }
@@ -48,8 +53,12 @@ function shouldUseWindowMode(info: LogSessionInfo): boolean {
  * - 小/中文件：虚拟滚动按需 sed 切片 + chunk LRU
  * - 超大文件 / 行数估算：末尾窗口模式（tail），支持加载更多历史、跟踪、搜索
  */
-export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) {
+export function LargeLogViewer({ sshId, local = false, path, className }: LargeLogViewerProps) {
   const { t } = useI18n();
+  const backend: LogBackend = useMemo(() => {
+    if (local || !sshId) return localLogBackend();
+    return sshLogBackend(sshId);
+  }, [local, sshId]);
 
   // ---- 行数据：用 Map<lineNo, text> 支持稀疏加载 ----
   const linesRef = useRef<Map<number, string>>(new Map());
@@ -124,7 +133,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       inflightChunksRef.current.add(chunkKey);
       const chunkEnd = chunkStart + CHUNK_SIZE - 1;
       try {
-        const lines = await readLogLines(sshId, path, chunkStart, chunkEnd);
+        const lines = await readLogLines(backend, path, chunkStart, chunkEnd);
         if (lines.length === 0) {
           loadedChunksRef.current.add(chunkKey);
           chunkLruRef.current.push(chunkKey);
@@ -149,12 +158,12 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
         inflightChunksRef.current.delete(chunkKey);
       }
     },
-    [sshId, path, bump, applyLines],
+    [backend, path, bump, applyLines],
   );
 
   const loadTailWindow = useCallback(
     async (n: number, totalHint: number | null) => {
-      const lines = await readLogTailInitial(sshId, path, n, totalHint);
+      const lines = await readLogTailInitial(backend, path, n, totalHint);
       linesRef.current.clear();
       loadedChunksRef.current.clear();
       chunkLruRef.current = [];
@@ -175,7 +184,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       }
       return lines.length;
     },
-    [sshId, path, applyLines],
+    [backend, path, applyLines],
   );
 
   // ---------- 打开会话 ----------
@@ -196,7 +205,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
 
     void (async () => {
       try {
-        const info = await openLogSession(sshId, path);
+        const info = await openLogSession(backend, path);
         if (cancelled) return;
         setSessionInfo(info);
         const useWindow = shouldUseWindowMode(info);
@@ -227,7 +236,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
         } else {
           const tailN = Math.min(CHUNK_SIZE, est || CHUNK_SIZE);
           try {
-            const lines = await readLogTailInitial(sshId, path, tailN, info.totalLines ?? null);
+            const lines = await readLogTailInitial(backend, path, tailN, info.totalLines ?? null);
             if (cancelled) return;
             if (lines.length > 0) {
               applyLines(lines);
@@ -261,7 +270,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
     return () => {
       cancelled = true;
     };
-  }, [sshId, path, bump, loadTailWindow, applyLines]);
+  }, [backend, path, bump, loadTailWindow, applyLines]);
 
   // ---------- 跟踪停止 cleanup ----------
   useEffect(() => {
@@ -272,11 +281,11 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       }
       const token = tailTokenRef.current;
       if (token) {
-        void stopLogTail(token);
+        void stopLogTail(backend, token);
         tailTokenRef.current = null;
       }
     };
-  }, []);
+  }, [backend]);
 
   // ---------- 虚拟滚动 ----------
   // 窗口模式：只渲染已加载的 [minLineNo, maxLineNo]，绝不用估算总行数撑开虚拟列表
@@ -377,7 +386,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       const token = tailTokenRef.current;
       if (token) {
         try {
-          await stopLogTail(token);
+          await stopLogTail(backend, token);
         } catch {
           // 忽略停止失败
         }
@@ -393,7 +402,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
     }
     try {
       const { handle, unsubscribe } = await startLogTail(
-        sshId,
+        backend,
         path,
         TAIL_INITIAL_LINES,
         (chunk) => {
@@ -444,7 +453,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       setError(fmtError(e));
       setTailRunning(false);
     }
-  }, [sshId, path, tailRunning, bump, windowMode]);
+  }, [backend, path, tailRunning, bump, windowMode]);
 
   // ---------- 搜索 ----------
   /** 结果面板按行号正序（文件从头到尾） */
@@ -500,7 +509,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
         // 持续翻页：skip = 已从该方向消费的命中数（tac/grep -m skip+max，不再 head 大行号）
         const skipMatches = mode === "fresh" ? 0 : searchSkip;
 
-        const hits = await searchLog(sshId, path, pattern, {
+        const hits = await searchLog(backend, path, pattern, {
           isRegex,
           maxResults: SEARCH_BATCH,
           reverse,
@@ -555,7 +564,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       searchPattern,
       searchReverse,
       isRegex,
-      sshId,
+      backend,
       path,
       totalLines,
       sessionInfo,
@@ -666,7 +675,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
             // 无总行数：小范围 sed，失败则提示
             const start = Math.max(1, lineNo - half);
             const end = start + WINDOW_INITIAL - 1;
-            const lines = await readLogLines(sshId, path, start, end);
+            const lines = await readLogLines(backend, path, start, end);
             linesRef.current.clear();
             loadedChunksRef.current.clear();
             chunkLruRef.current = [];
@@ -703,7 +712,7 @@ export function LargeLogViewer({ sshId, path, className }: LargeLogViewerProps) 
       viewStartLine,
       rowCount,
       rowVirtualizer,
-      sshId,
+      backend,
       path,
       applyLines,
       bump,

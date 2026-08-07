@@ -8,7 +8,10 @@ import {
   useState,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { codeEditorLanguageFromPath } from "../../components/ui/content/CodeEditor";
+import {
+  codeEditorLanguageFromPath,
+  normalizeEditorNewlines,
+} from "../../components/ui/content/CodeEditor";
 import { TextEditorView } from "../../components/textEditor/TextEditorView";
 import { createFilePathTextIO } from "../../components/textEditor/io/filePathIO";
 import type { TextEditorBytesIO } from "../../components/textEditor/types";
@@ -24,6 +27,11 @@ import type {
 } from "../../ipc/bindings";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { readRemotePreview } from "./fileApi";
+import {
+  localLogBackend,
+  openLogSession,
+  sshLogBackend,
+} from "./logApi";
 import {
   decodePreviewBytes,
   detectPreviewKindFromBytes,
@@ -157,13 +165,74 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
     // 内容检测覆盖：实际加载后用魔术字节 + NUL 字节检测再校正 kind
     const [detectedKind, setDetectedKind] = useState<FilePreviewKind | null>(null);
     const previewKind = detectedKind ?? initialKind;
-    // 大文件策略：normal / truncated (1-10MB) / blocked (>10MB) / unknown
-    const largeStrategy = useMemo(
-      () => classifyLargeFile(entry.size, thresholdBytes),
-      [entry.size, thresholdBytes],
-    );
     // SSH 资源 id：customIO 优先，props 次之。用于大日志流式预览分流。
     const sshResourceId = customIO?.sshResourceId ?? propsSshResourceId;
+    const isLocal = connectionId === LOCAL_CONNECTION_ID;
+    const downloadHint = isLocal ? undefined : t("files.preview.downloadHint");
+
+    /**
+     * 终端 block 等入口常不带 size（unknown）。
+     * 未知大小时先探测，再决定普通预览 vs LargeLogViewer；
+     * 避免小文件误进大日志模式（切树后再回来才“正常”的体验）。
+     */
+    const needsSizeProbe =
+      entry.size == null &&
+      (initialKind === "text" || initialKind === "json") &&
+      (Boolean(sshResourceId) || isLocal);
+    const [probedSize, setProbedSize] = useState<number | null>(null);
+    const [sizeProbeState, setSizeProbeState] = useState<"idle" | "probing" | "done">(
+      () => (entry.size != null || !needsSizeProbe ? "done" : "idle"),
+    );
+
+    useEffect(() => {
+      setProbedSize(null);
+      setSizeProbeState(entry.size != null || !needsSizeProbe ? "done" : "idle");
+    }, [entry.path, entry.size, needsSizeProbe]);
+
+    useEffect(() => {
+      if (!needsSizeProbe || entry.size != null) return;
+      let cancelled = false;
+      setSizeProbeState("probing");
+      void (async () => {
+        try {
+          const backend = sshResourceId
+            ? sshLogBackend(sshResourceId)
+            : localLogBackend();
+          const info = await openLogSession(backend, entry.path);
+          if (cancelled) return;
+          const bytes =
+            typeof info.sizeBytes === "number" && Number.isFinite(info.sizeBytes)
+              ? info.sizeBytes
+              : 0;
+          setProbedSize(bytes);
+          setSizeProbeState("done");
+        } catch {
+          if (cancelled) return;
+          // SSH 探测失败：保持 null，后续按大日志安全兜底；本地按 0 尝试普通预览
+          setProbedSize(sshResourceId ? null : 0);
+          setSizeProbeState("done");
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [needsSizeProbe, entry.path, entry.size, sshResourceId]);
+
+    const sizeProbePending = needsSizeProbe && sizeProbeState !== "done";
+    const effectiveSize = entry.size ?? probedSize;
+    // 大文件策略：探测完成前不按 unknown 分流
+    const largeStrategy = useMemo(() => {
+      if (sizeProbePending) return "normal";
+      // SSH 探测失败（probedSize 仍 null）→ 走 blocked，进入 LargeLogViewer
+      if (needsSizeProbe && effectiveSize == null && sshResourceId) return "blocked";
+      return classifyLargeFile(effectiveSize, thresholdBytes);
+    }, [
+      sizeProbePending,
+      needsSizeProbe,
+      effectiveSize,
+      sshResourceId,
+      thresholdBytes,
+    ]);
     // 用户点击"强制预览完整文件"时跳过 truncated 截断
     const [forceFull, setForceFull] = useState(false);
     // 当前加载的字节数（用于 banner）
@@ -173,8 +242,6 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       previewKind === "text" || previewKind === "json"
         ? codeEditorLanguageFromPath(entry.name)
         : undefined;
-    const isLocal = connectionId === LOCAL_CONNECTION_ID;
-    const downloadHint = isLocal ? undefined : t("files.preview.downloadHint");
 
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -214,10 +281,11 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
 
     const handleTextChange = useCallback(
       (next: string) => {
-        setDraftText(next);
-        const dirty = next !== savedTextRef.current;
+        const normalized = normalizeEditorNewlines(next);
+        setDraftText(normalized);
+        const dirty = normalized !== savedTextRef.current;
         onDirtyChange?.(dirty);
-        notifyMeta(next, {
+        notifyMeta(normalized, {
           jsonStructured: previewKind === "json" && jsonContent != null,
           dirty,
         });
@@ -234,7 +302,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
 
       const readMaxBytes = isTruncatedRead
         ? thresholdBytes
-        : resolvePreviewReadMaxBytes(entry.size, thresholdBytes);
+        : resolvePreviewReadMaxBytes(effectiveSize, thresholdBytes);
       const textIO = createFilePathTextIO({
         connectionId,
         path: entry.path,
@@ -258,7 +326,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       draftText,
       editable,
       entry.path,
-      entry.size,
+      effectiveSize,
       isTruncatedRead,
       notifyMeta,
       onDirtyChange,
@@ -333,6 +401,14 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
         };
       }
 
+      // size 探测中：先不要读字节（SSH 整文件下载很危险）
+      if (sizeProbePending) {
+        setLoading(true);
+        return () => {
+          cancelled = true;
+        };
+      }
+
       // 压缩包：由 ArchivePreviewView 自管数据拉取（远端 exec 列条目，不下载字节）
       if (initialKind === "archive") {
         setLoading(false);
@@ -400,19 +476,21 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
 
       // 大于 10MB 直接禁止预览（即使强制也不行 —— 一次性加载 10MB 字符串会卡）
       // 流式媒体走 asset/缓存路径，不受该阈值限制
-      // 例外：text/json + SSH 远程资源走 LargeLogViewer（含 size 未知：避免整文件 sftp_download）
+      // text/json 超大文件由下方 LargeLogViewer 分流（须先完成 size 探测）
       const canStreamLargeText =
-        (initialKind === "text" || initialKind === "json") && Boolean(sshResourceId);
-      if (
-        canStreamLargeText &&
-        (largeStrategy === "blocked" || largeStrategy === "unknown")
-      ) {
+        (initialKind === "text" || initialKind === "json") &&
+        (Boolean(sshResourceId) || isLocal);
+      if (canStreamLargeText && largeStrategy === "blocked") {
         setLoading(false);
         return () => {
           cancelled = true;
         };
       }
-      if (largeStrategy === "blocked" && !isStreamableMediaKind(initialKind)) {
+      if (
+        largeStrategy === "blocked" &&
+        !isStreamableMediaKind(initialKind) &&
+        !canStreamLargeText
+      ) {
         setLoading(false);
         setError(
           t("files.preview.tooLarge", {
@@ -425,10 +503,10 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       }
 
       // truncated 模式：读阈值大小，banner 提示用户可强制预览完整文件
-      // normal/unknown 模式：按 entry.size 算 max
+      // normal 模式：按有效 size 算 max
       const readMaxBytes = isTruncatedRead
         ? thresholdBytes
-        : resolvePreviewReadMaxBytes(entry.size, thresholdBytes);
+        : resolvePreviewReadMaxBytes(effectiveSize, thresholdBytes);
 
       void (async () => {
         try {
@@ -463,7 +541,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
           }
 
           if (effectiveKind === "json" || effectiveKind === "text") {
-            const text = decodePreviewBytes(bytes);
+            const text = normalizeEditorNewlines(decodePreviewBytes(bytes));
             savedTextRef.current = text;
             setDraftText(text);
             onDirtyChange?.(false);
@@ -518,11 +596,14 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
       entry.path,
       entry.size,
       entry.name,
+      effectiveSize,
       initialKind,
+      isLocal,
       isTruncatedRead,
       largeStrategy,
       onDirtyChange,
       onTextPreviewMetaChange,
+      sizeProbePending,
       sshResourceId,
       t,
       thresholdBytes,
@@ -531,23 +612,36 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
     // truncated banner：仅 truncated + 不强制时显示
     const truncatedBanner = useMemo(() => {
       if (largeStrategy !== "truncated" || forceFull) return null;
-      const totalSize = formatFileSize(entry.size);
+      const totalSize = formatFileSize(effectiveSize);
       const loadedSize = formatFileSize(loadedBytes);
       return {
         totalSize,
         loadedSize,
         lines: countPreviewLines(draftText ?? ""),
       };
-    }, [largeStrategy, forceFull, entry.size, loadedBytes, draftText]);
+    }, [largeStrategy, forceFull, effectiveSize, loadedBytes, draftText]);
 
-    // 大日志文件分流：>10MB 或 size 未知的 text/json + SSH → LargeLogViewer
-    // （sed/grep/tail 流式预览；size 未知时也必须走这里，避免整文件下载）
+    // 大日志分流：仅确认超大（blocked）后进入；size 探测中先 loading
+    if (sizeProbePending && (previewKind === "text" || previewKind === "json")) {
+      return (
+        <ContentPreviewView
+          status="loading"
+          loadingMessage={t("files.preview.loading")}
+          showTextModeToolbar={false}
+        />
+      );
+    }
+
     if (
-      (largeStrategy === "blocked" || largeStrategy === "unknown") &&
-      (previewKind === "text" || previewKind === "json") &&
-      sshResourceId
+      largeStrategy === "blocked" &&
+      (previewKind === "text" || previewKind === "json")
     ) {
-      return <LargeLogViewer sshId={sshResourceId} path={entry.path} />;
+      if (sshResourceId) {
+        return <LargeLogViewer sshId={sshResourceId} path={entry.path} />;
+      }
+      if (isLocal) {
+        return <LargeLogViewer local path={entry.path} />;
+      }
     }
 
     if (previewKind === "archive") {

@@ -13,6 +13,11 @@ export type FilePreviewTreeSession = {
   /** 本地为 LOCAL_CONNECTION_ID；远端预览多为 SSH resourceId */
   connectionId: string;
   resourceId?: string | null;
+  /**
+   * true：用 file_manager listDirectory(connectionId) 列目录
+   * （文件管理面板的 SFTP/S3/本地连接）；默认远端走 sftpList
+   */
+  viaFileManager?: boolean;
 };
 
 function pathProtocol(session: FilePreviewTreeSession): "local" | "remote" {
@@ -84,8 +89,10 @@ export async function listPreviewTreeDir(
   session: FilePreviewTreeSession,
   path: string,
 ): Promise<FileEntry[]> {
-  if (session.sessionType === "local") {
-    const result = await listDirectory(LOCAL_CONNECTION_ID, path || "/", null, null, {
+  if (session.sessionType === "local" || session.viaFileManager) {
+    const connectionId =
+      session.sessionType === "local" ? LOCAL_CONNECTION_ID : session.connectionId;
+    const result = await listDirectory(connectionId, path || "/", null, null, {
       quiet: true,
     });
     return sortFileEntries(result.entries);
@@ -106,8 +113,10 @@ export async function mkdirPreviewTree(
   session: FilePreviewTreeSession,
   path: string,
 ): Promise<void> {
-  if (session.sessionType === "local") {
-    await mkdirRemote(LOCAL_CONNECTION_ID, path);
+  if (session.sessionType === "local" || session.viaFileManager) {
+    const connectionId =
+      session.sessionType === "local" ? LOCAL_CONNECTION_ID : session.connectionId;
+    await mkdirRemote(connectionId, path);
     return;
   }
   const resourceId = session.resourceId ?? session.connectionId;
@@ -123,8 +132,10 @@ export async function createEmptyPreviewTreeFile(
   session: FilePreviewTreeSession,
   path: string,
 ): Promise<void> {
-  if (session.sessionType === "local") {
-    await uploadRemote(LOCAL_CONNECTION_ID, path, []);
+  if (session.sessionType === "local" || session.viaFileManager) {
+    const connectionId =
+      session.sessionType === "local" ? LOCAL_CONNECTION_ID : session.connectionId;
+    await uploadRemote(connectionId, path, []);
     return;
   }
   const resourceId = session.resourceId ?? session.connectionId;

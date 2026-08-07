@@ -40,6 +40,7 @@ import { createFunctionSignaturePlugin } from "../language/signature";
 import { createInsertColumnInlayExtension } from "../language/insertColumnInlays";
 import { createSqlSemanticHighlight } from "../language/semantic";
 import { resolveSqlToRun } from "../language/selection";
+import { createEditorSearchExtensions } from "../../../../components/ui/content/editorSearch";
 
 export interface SqlEditorExtensionOptions {
   getSchemas: () => DatabaseSchema[];
@@ -90,6 +91,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     ),
     EditorView.lineWrapping,
     getSearchHighlightExtension(),
+    ...createEditorSearchExtensions(),
     createFunctionSignaturePlugin(getDbType),
     ...createInsertColumnInlayExtension(),
     createSqlLinter(getDbType, getSchemas),

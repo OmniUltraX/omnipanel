@@ -39,6 +39,7 @@ pub mod local_runtime;
 pub mod ollama_catalog;
 pub mod ollama_recommend;
 pub mod log;
+pub mod local_file_log;
 pub mod opencode;
 pub mod panel;
 pub mod pool;

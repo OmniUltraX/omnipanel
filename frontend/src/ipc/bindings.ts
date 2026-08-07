@@ -521,6 +521,28 @@ export const commands = {
 	sftpLogTailStart: (id: string, path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_start", { id, path, linesAfter })),
 	/**  停止实时跟踪。 */
 	sftpLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_stop", { token })),
+	/**  打开本地日志会话：探测文件大小与总行数。 */
+	localLogOpen: (path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("local_log_open", { path })),
+	/**  按行号范围读取本地日志（1-based）。 */
+	localLogReadLines: (path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("local_log_read_lines", { path, startLine, endLine })),
+	/**  读取本地日志末尾 N 行。 */
+	localLogTailInitial: (path: string, nLines: number, totalLinesHint: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_initial", { path, nLines, totalLinesHint })),
+	/**  搜索本地日志。 */
+	localLogSearch: (path: string, pattern: string, options: {
+	isRegex: boolean | null,
+	maxResults: number | null,
+	contextBefore: number | null,
+	contextAfter: number | null,
+	reverse: boolean | null,
+	beforeLine: number | null,
+	afterLine: number | null,
+	totalLinesHint: number | null,
+	skipMatches: number | null,
+} | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("local_log_search", { path, pattern, options })),
+	/**  开始本地日志跟踪（轮询追加）；事件 `local-log-tail-{token}`。 */
+	localLogTailStart: (path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_start", { path, linesAfter })),
+	/**  停止本地日志跟踪。 */
+	localLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_stop", { token })),
 	/**  本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。 */
 	sshPoolDownloadInstallBinary: (resourceId: string, url: string, remotePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_download_install_binary", { resourceId, url, remotePath })),
 	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */

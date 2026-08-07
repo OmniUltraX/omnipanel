@@ -18,8 +18,36 @@ import {
 import { FilePreviewTreeSidebar } from "./FilePreviewTreeSidebar";
 import type { FilePreviewTreeSession } from "./filePreviewTreeIo";
 import { IconDownload } from "./FilesPanelIcons";
-import { formatFileSize } from "./utils";
+import { formatFileSize, LOCAL_CONNECTION_ID } from "./utils";
 import { cn } from "../../lib/utils";
+
+const TREE_PREFS_KEY = "omnipanel.filePreview.treePrefs";
+const DEFAULT_TREE_WIDTH = 240;
+
+type TreePrefs = { collapsed: boolean; width: number };
+
+function loadTreePrefs(): TreePrefs {
+  try {
+    const raw = localStorage.getItem(TREE_PREFS_KEY);
+    if (!raw) return { collapsed: false, width: DEFAULT_TREE_WIDTH };
+    const parsed = JSON.parse(raw) as Partial<TreePrefs>;
+    const width =
+      typeof parsed.width === "number" && Number.isFinite(parsed.width)
+        ? Math.min(420, Math.max(180, parsed.width))
+        : DEFAULT_TREE_WIDTH;
+    return { collapsed: Boolean(parsed.collapsed), width };
+  } catch {
+    return { collapsed: false, width: DEFAULT_TREE_WIDTH };
+  }
+}
+
+function saveTreePrefs(prefs: TreePrefs): void {
+  try {
+    localStorage.setItem(TREE_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* ignore quota */
+  }
+}
 
 export interface FilePreviewSubWindowProps {
   open: boolean;
@@ -35,9 +63,9 @@ export interface FilePreviewSubWindowProps {
    * 用于 >10MB 文本/JSON 分流到 LargeLogViewer。
    */
   sshResourceId?: string;
-  /** 显示左侧目录树（终端预览等） */
+  /** 显示左侧目录树；默认 true（所有入口统一） */
   showFileTree?: boolean;
-  /** 目录树会话（本地 / SSH）；缺省按 connectionId 视为本地 */
+  /** 目录树会话（本地 / SSH）；缺省按 connectionId 推断 */
   treeSession?: FilePreviewTreeSession;
   /** 在目录树中点选文件时回调（由调用方切换 entry） */
   onSelectEntry?: (entry: FileEntry) => void;
@@ -52,7 +80,7 @@ export function FilePreviewSubWindow({
   onSaved,
   customIO,
   sshResourceId,
-  showFileTree = false,
+  showFileTree = true,
   treeSession,
   onSelectEntry,
 }: FilePreviewSubWindowProps) {
@@ -61,8 +89,9 @@ export function FilePreviewSubWindow({
   const [textMode, setTextMode] = useState<ContentPreviewTextMode>("code");
   const [jsonViewMode, setJsonViewMode] = useState<FileJsonViewMode>("structured");
   const [textPreviewMeta, setTextPreviewMeta] = useState<FileTextPreviewMeta | null>(null);
-  const [treeCollapsed, setTreeCollapsed] = useState(false);
-  const [treeWidth, setTreeWidth] = useState(240);
+  const initialPrefs = useMemo(() => loadTreePrefs(), []);
+  const [treeCollapsed, setTreeCollapsed] = useState(initialPrefs.collapsed);
+  const [treeWidth, setTreeWidth] = useState(initialPrefs.width);
 
   const { dirty, setDirty, saving, saveNotice, handleSave } = useTextEditorSubWindowActions(
     contentRef,
@@ -79,29 +108,48 @@ export function FilePreviewSubWindow({
     setDirty(false);
   }, [entry?.path, setDirty]);
 
+  useEffect(() => {
+    saveTreePrefs({ collapsed: treeCollapsed, width: treeWidth });
+  }, [treeCollapsed, treeWidth]);
+
   const resolvedTreeSession = useMemo((): FilePreviewTreeSession => {
+    if (treeSession) {
+      return {
+        sessionType: treeSession.sessionType,
+        connectionId: treeSession.connectionId,
+        resourceId: treeSession.resourceId ?? sshResourceId ?? null,
+        viaFileManager: treeSession.viaFileManager,
+      };
+    }
+    const isLocal = connectionId === LOCAL_CONNECTION_ID;
     return {
-      sessionType: treeSession?.sessionType ?? "local",
-      connectionId: treeSession?.connectionId ?? connectionId,
-      resourceId: treeSession?.resourceId ?? null,
+      sessionType: isLocal ? "local" : "remote",
+      connectionId,
+      resourceId: sshResourceId ?? null,
+      viaFileManager: !isLocal && !sshResourceId,
     };
   }, [
     connectionId,
+    sshResourceId,
     treeSession?.sessionType,
     treeSession?.connectionId,
     treeSession?.resourceId,
+    treeSession?.viaFileManager,
   ]);
 
   const handleTreeSelect = useCallback(
     async (next: FileEntry) => {
       if (!entry || next.path === entry.path) return;
-      if (dirty) {
+      // 以编辑器真实 dirty 为准，避免 CRLF 规范化等误报导致切换弹窗
+      const reallyDirty = contentRef.current?.canSave() ?? dirty;
+      if (reallyDirty) {
         const ok = await appConfirm(t("files.preview.unsavedConfirm"));
         if (!ok) return;
       }
+      setDirty(false);
       onSelectEntry?.(next);
     },
-    [dirty, entry, onSelectEntry, t],
+    [dirty, entry, onSelectEntry, setDirty, t],
   );
 
   const webPreviewUrl =
@@ -192,19 +240,21 @@ export function FilePreviewSubWindow({
       </div>
     ) : null;
 
+  const treeEnabled = showFileTree && Boolean(onSelectEntry);
+
   return (
     <SubWindow
       open={open}
       title={title}
       onClose={onClose}
-      className={cn("file-preview-subwindow", showFileTree && "has-file-tree")}
-      widthRatio={showFileTree ? 0.88 : 0.82}
+      className={cn("file-preview-subwindow", treeEnabled && "has-file-tree")}
+      widthRatio={treeEnabled ? 0.88 : 0.82}
       heightRatio={0.78}
       headerExtra={headerExtra}
     >
       {entry ? (
         <div className="file-preview-subwindow-layout">
-          {showFileTree ? (
+          {treeEnabled ? (
             <FilePreviewTreeSidebar
               session={resolvedTreeSession}
               selectedPath={entry.path}
