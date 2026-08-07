@@ -1,4 +1,5 @@
 import { getShortcutKeys, matchesShortcut } from "../../../stores/shortcutsStore";
+import { isCodeMirrorEditorFocused } from "../content/editorSearch";
 
 export type ScopedSearchEntry = {
   getRoot: () => HTMLElement | null;
@@ -66,6 +67,11 @@ function handleGlobalKeyDown(e: KeyboardEvent) {
   const isEscape = e.key === "Escape";
 
   if (!isFind && !isEscape) {
+    return;
+  }
+
+  // 焦点在 CM 内：查找交给编辑器（由 useGlobalShortcuts 打开面板）；Escape 也由 CM 处理
+  if (isCodeMirrorEditorFocused(document.activeElement) || isCodeMirrorEditorFocused(e.target)) {
     return;
   }
 
