@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleModeIconRail, ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
@@ -10,6 +9,7 @@ import {
   IconLightning,
 } from "../../components/ui/icons/Icons";
 import { useI18n } from "../../i18n";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { commands, type AuditEntry, type BuiltinToolAuditRecord } from "../../ipc/bindings";
 import { useAiOrchestrationStore, type AiTaskParent } from "../../stores/aiOrchestrationStore";
@@ -685,8 +685,7 @@ function ToolAuditList({ records }: { records: BuiltinToolAuditRecord[] }) {
 
 export function TaskCenterPanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/tasks";
+  const { isActiveRoute } = useModuleRouteActive("tasks");
   const [tab, setTab] = usePersistedModuleTab(
     "tasks",
     "inbox",

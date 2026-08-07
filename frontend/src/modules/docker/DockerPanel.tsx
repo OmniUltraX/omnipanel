@@ -16,7 +16,7 @@ import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
-import { useModuleSuspended } from "../../lib/moduleVisibility";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
@@ -76,9 +76,7 @@ function DockerPanelLoadingFallback() {
 export function DockerPanel() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/docker";
-  const moduleSuspended = useModuleSuspended();
-  const moduleLive = isActiveRoute && !moduleSuspended;
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("docker");
 
   const storedConnections = useConnectionStore((s) => s.connections);
   const removeStoredConnection = useConnectionStore((s) => s.remove);

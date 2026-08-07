@@ -20,7 +20,7 @@ import { AiDockviewResizeHandle } from "./components/ai/AiDockviewResizeHandle";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
 import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
-import { MODULE_PATHS, type ModuleKey } from "./lib/paths";
+import { MODULE_PATHS, moduleKeyFromPath, type ModuleKey } from "./lib/paths";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import {
@@ -61,9 +61,12 @@ function ModuleWindowIpcBridge({ moduleKey }: { moduleKey: ModuleKey }) {
 
   useEffect(() => {
     return registerUiFollowNavigate((path) => {
+      // 独立窗只允许本模块路径；跨模块 navigate 会让 isActiveRoute 变 false 并藏掉顶栏
+      const target = moduleKeyFromPath(path);
+      if (target !== moduleKey) return;
       navigate(path);
     });
-  }, [navigate]);
+  }, [navigate, moduleKey]);
 
   useEffect(() => {
     return initModuleQuickLauncherActionListener(moduleKey);

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleModeIconRail, ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useUiFollowConsumer } from "../../lib/ai/uiFollow";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useI18n } from "../../i18n";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore";
@@ -77,8 +77,7 @@ function resolveRemovedEntryId(payload: AiKnowledgeToolPayload): string | null {
 
 export function KnowledgePanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/knowledge";
+  const { isActiveRoute } = useModuleRouteActive("knowledge");
   const [mode, setMode] = usePersistedModuleTab("knowledge", "library", KNOWLEDGE_TABS, {
     aliases: LEGACY_KNOWLEDGE_TAB_ALIASES,
   });

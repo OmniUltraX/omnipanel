@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import type { DockHeaderIconKind } from "../../components/dock/DockHeaderIcon";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
-import { useModuleSuspended } from "../../lib/moduleVisibility";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useServerPanelCacheStore } from "../../stores/serverPanelCacheStore";
 import { useI18n } from "../../i18n";
@@ -47,10 +46,7 @@ import type { ServerPanelResourceKind } from "./panel/serverPanelWorkspaceTabs";
 
 export function ServerPanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/server";
-  const moduleSuspended = useModuleSuspended();
-  const moduleLive = isActiveRoute && !moduleSuspended;
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("server");
   const connections = useConnectionStore((s) => s.connections);
   const connectionsLoaded = useConnectionStore((s) => s.loaded);
   const removeConn = useConnectionStore((s) => s.remove);

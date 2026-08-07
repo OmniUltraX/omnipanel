@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { useWorkflowStore } from "../../stores/workflowStore";
 import { useWorkflowLiveStore } from "../../stores/workflowLiveStore";
 import { useI18n } from "../../i18n";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
@@ -102,8 +102,7 @@ function emptyStep(order: number): SaveStepRequest {
 // ═══════════════════════════════════════════════════════════
 export function WorkflowPanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/workflow";
+  const { isActiveRoute } = useModuleRouteActive("workflow");
   const [tab, setTab] = usePersistedModuleTab("workflow", "workflows", WF_TABS);
 
   const {

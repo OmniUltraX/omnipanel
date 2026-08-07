@@ -20748,6 +20748,12 @@ button.omni-btn-tool[aria-pressed="true"] {
     -webkit-app-region: no-drag;
 }
 
+/* Tauri data-tauri-drag-region 会穿透子节点；交互区必须显式 false */
+.vsplit-sidebar-section__header-row [data-tauri-drag-region="false"],
+.schema-sidebar-section__header-row [data-tauri-drag-region="false"] {
+    -webkit-app-region: no-drag;
+}
+
 .vsplit-sidebar-section__header,
 .schema-sidebar-section__header {
     display: flex;

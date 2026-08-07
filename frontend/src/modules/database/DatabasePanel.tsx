@@ -8,7 +8,6 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
@@ -58,7 +57,7 @@ import { getVisibleNames, makeTableFilterKey, mergeFilter } from "./schema/Datab
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../lib/quickInput";
-import { useModuleSuspended } from "../../lib/moduleVisibility";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { isSqlEditorFocused, sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import { escapeSqlLiteral } from "./sql/escapeSqlLiteral";
@@ -357,10 +356,7 @@ function parseQdrantPointId(raw: string): string | number | null {
 export function DatabasePanel() {
   const { t } = useI18n();
   const schemaCacheReporter = useMemo(() => createSchemaCacheRefreshReporter(t), [t]);
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/database";
-  const moduleSuspended = useModuleSuspended();
-  const moduleLive = isActiveRoute && !moduleSuspended;
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("database");
   const [moduleTab, setModuleTab] = usePersistedModuleTab(
     "database-workspace",
     "query",

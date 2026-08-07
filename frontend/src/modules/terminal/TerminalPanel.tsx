@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
-import { useLocation } from "react-router-dom";
 import {
   useTerminalStore,
   type TerminalTab,
@@ -20,6 +19,7 @@ import {
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { showToast } from "../../stores/toastStore";
 import type { TopbarAddMenuItem, TopbarTabDef } from "../../stores/topbarStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
@@ -125,8 +125,7 @@ function TerminalModuleDock({
 
 export function TerminalPanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/terminal";
+  const { isActiveRoute } = useModuleRouteActive("terminal");
   const leftPanelMode = useTerminalLeftPanelStore((s) => s.mode);
   const focusSshPanel = useTerminalLeftPanelStore((s) => s.focusSsh);
   const focusSessionsPanel = useTerminalLeftPanelStore((s) => s.focusSessions);

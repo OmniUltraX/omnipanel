@@ -200,6 +200,7 @@ export function VerticalSplitSidebarSection({
         <button
           type="button"
           className="vsplit-sidebar-section__header window-drag-surface--interactive"
+          data-tauri-drag-region="false"
           onClick={onToggle}
           aria-expanded={expanded}
         >
@@ -213,6 +214,7 @@ export function VerticalSplitSidebarSection({
         {actions ? (
           <div
             className="vsplit-sidebar-section__actions window-drag-surface--interactive"
+            data-tauri-drag-region="false"
             onClick={(event) => event.stopPropagation()}
           >
             {actions}

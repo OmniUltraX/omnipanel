@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { getVisibleProtocolTabs } from "../../lib/protocolLabConfig";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
@@ -18,8 +18,7 @@ import { ProtocolHttpProvider, useProtocolHttpOptional } from "./ProtocolHttpCon
 
 function ProtocolPanelInner() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/protocol";
+  const { isActiveRoute } = useModuleRouteActive("protocol");
   const protocolLabTabs = useSettingsStore((s) => s.protocolLabTabs);
   const http = useProtocolHttpOptional();
   const savedRequests = http?.savedRequests ?? [];

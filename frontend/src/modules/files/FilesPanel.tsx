@@ -14,6 +14,7 @@ import {
   ModuleModeIconRail,
   ModuleWorkspaceLayout,
 } from "../../components/workspace";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { ModuleAskAiButton } from "../../components/ai/ModuleAskAiButton";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
@@ -77,7 +78,7 @@ type FavCtxState = { x: number; y: number; favorite: FileFavorite } | null;
 function FilesBrowserView() {
   const { t } = useI18n();
   const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/files";
+  const { isActiveRoute } = useModuleRouteActive("files");
   const refreshConnections = useConnectionStore((s) => s.refresh);
   const removeConnection = useConnectionStore((s) => s.remove);
   const storedConnections = useConnectionStore((s) => s.connections);

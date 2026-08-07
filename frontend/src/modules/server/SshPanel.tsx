@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { useLocation } from "react-router-dom";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { useI18n } from "../../i18n";
+import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { SshHostSidebar } from "./ssh/SshHostSidebar";
 import { SshSidebarLinkageProvider } from "./ssh/SshSidebarLinkageContext";
 import { SshWorkspacePanel } from "./ssh/SshWorkspacePanel";
@@ -11,8 +11,7 @@ import { useSshSelectionStore } from "./ssh/stores/sshSelectionStore";
 
 export function SshPanel() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === "/module/ssh";
+  const { isActiveRoute } = useModuleRouteActive("ssh");
   const sshResources = useSshHostResources();
   const { activeHostId, handleSelectHost } = useSshHostWorkspace(sshResources);
   const selectionMode = useSshSelectionStore((s) => s.selectionMode);
