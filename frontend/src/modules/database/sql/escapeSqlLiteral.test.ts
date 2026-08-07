@@ -18,7 +18,7 @@ describe("escapeSqlLiteral", () => {
   });
 
   it("strings escape quotes and backslashes", () => {
-    expect(escapeSqlLiteral("a'b")).toBe("'a\\'b'");
+    expect(escapeSqlLiteral("a'b")).toBe("'a''b'");
     expect(escapeSqlLiteral("a\\b")).toBe("'a\\\\b'");
   });
 
@@ -33,7 +33,7 @@ describe("escapeSqlLiteral", () => {
     expect(lit.startsWith("'")).toBe(true);
     expect(lit.endsWith("'")).toBe(true);
     expect(lit).not.toContain("[object Object]");
-    const inner = lit.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, "\\");
+    const inner = lit.slice(1, -1).replace(/''/g, "'").replace(/\\\\/g, "\\");
     expect(JSON.parse(inner)).toEqual(value);
   });
 

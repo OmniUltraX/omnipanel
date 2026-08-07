@@ -10145,26 +10145,6 @@
         padding: 12px 4px;
     }
 
-    .sql-toolbar-history__group {
-        margin-bottom: 10px;
-    }
-
-    .sql-toolbar-history__group-title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--fg-2);
-        margin-bottom: 4px;
-    }
-
-    .sql-toolbar-history__count {
-        font-variant-numeric: tabular-nums;
-        color: var(--meta);
-        font-weight: 500;
-    }
-
     .sql-toolbar-history__list {
         list-style: none;
         margin: 0;
@@ -10183,10 +10163,49 @@
 
     .sql-toolbar-history__meta {
         display: flex;
-        gap: 10px;
+        align-items: center;
+        gap: 8px;
         font-size: 10px;
         color: var(--meta);
         margin-bottom: 4px;
+    }
+
+    .sql-toolbar-history__tag {
+        display: inline-flex;
+        align-items: center;
+        height: 16px;
+        padding: 0 5px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: 650;
+        letter-spacing: 0.02em;
+        line-height: 1;
+        flex-shrink: 0;
+        border: 1px solid transparent;
+    }
+
+    .sql-toolbar-history__tag--select {
+        color: #1d6fd8;
+        background: color-mix(in srgb, #1d6fd8 12%, transparent);
+        border-color: color-mix(in srgb, #1d6fd8 22%, transparent);
+    }
+
+    .sql-toolbar-history__tag--write {
+        color: #c45a12;
+        background: color-mix(in srgb, #c45a12 12%, transparent);
+        border-color: color-mix(in srgb, #c45a12 22%, transparent);
+    }
+
+    .sql-toolbar-history__tag--schema {
+        color: #6b4fd8;
+        background: color-mix(in srgb, #6b4fd8 12%, transparent);
+        border-color: color-mix(in srgb, #6b4fd8 22%, transparent);
+    }
+
+    .sql-toolbar-history__tag--other {
+        color: var(--fg-2);
+        background: color-mix(in srgb, var(--fg) 6%, transparent);
+        border-color: var(--border-soft);
     }
 
     .sql-toolbar-history__sql {

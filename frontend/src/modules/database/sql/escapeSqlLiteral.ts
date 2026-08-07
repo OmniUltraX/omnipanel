@@ -19,6 +19,6 @@ export function escapeSqlLiteral(value: unknown): string {
 }
 
 function quoteSqlString(raw: string): string {
-  // MySQL 默认启用反斜杠转义：先加倍 \\，再转义 '
-  return `'${raw.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  // MySQL：加倍反斜杠；单引号用 SQL 标准 ''（兼容 NO_BACKSLASH_ESCAPES，且与后端语句拆分一致）
+  return `'${raw.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
 }

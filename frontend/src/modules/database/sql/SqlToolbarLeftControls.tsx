@@ -30,10 +30,10 @@ import {
 } from "../../../stores/settingsStore";
 import {
   clearSqlQueryHistory,
-  listSqlQueryHistoryGrouped,
+  listSqlQueryHistory,
   type SqlQueryHistoryEntry,
 } from "./sqlQueryHistoryStore";
-import type { SqlHistoryKind } from "./classifySqlHistoryKind";
+import { sqlHistoryKindLabel, sqlHistoryKindTone } from "./classifySqlHistoryKind";
 
 /** 设置/历史浮层；Select 下拉需高于此值，否则会被面板挡住 */
 const SQL_TOOLBAR_POPOVER_Z_INDEX = 200000;
@@ -130,45 +130,30 @@ function HistoryList({
   refreshKey: number;
 }) {
   const { t } = useI18n();
-  const grouped = useMemo(() => listSqlQueryHistoryGrouped(scopeId), [scopeId, refreshKey]);
-  const order: SqlHistoryKind[] = ["select", "dml", "ddl", "other"];
-  const labels: Record<SqlHistoryKind, string> = {
-    select: t("database.sqlToolbar.historyKindSelect"),
-    dml: t("database.sqlToolbar.historyKindDml"),
-    ddl: t("database.sqlToolbar.historyKindDdl"),
-    other: t("database.sqlToolbar.historyKindOther"),
-  };
+  const items = useMemo(() => listSqlQueryHistory(scopeId), [scopeId, refreshKey]);
 
-  const total = order.reduce((n, k) => n + grouped[k].length, 0);
-  if (total === 0) {
+  if (items.length === 0) {
     return <div className="sql-toolbar-popover__empty">{t("database.sqlToolbar.historyEmpty")}</div>;
   }
 
   return (
     <div className="sql-toolbar-history">
-      {order.map((kind) => {
-        const items = grouped[kind];
-        if (items.length === 0) return null;
-        return (
-          <div key={kind} className="sql-toolbar-history__group">
-            <div className="sql-toolbar-history__group-title">
-              {labels[kind]}
-              <span className="sql-toolbar-history__count">{items.length}</span>
+      <ul className="sql-toolbar-history__list">
+        {items.map((item: SqlQueryHistoryEntry) => (
+          <li key={item.id} className="sql-toolbar-history__item">
+            <div className="sql-toolbar-history__meta">
+              <span
+                className={`sql-toolbar-history__tag sql-toolbar-history__tag--${sqlHistoryKindTone(item.kind)}`}
+              >
+                {sqlHistoryKindLabel(item.kind)}
+              </span>
+              <span>{formatTime(item.executedAt)}</span>
+              {item.elapsedMs != null ? <span>{item.elapsedMs}ms</span> : null}
             </div>
-            <ul className="sql-toolbar-history__list">
-              {items.map((item: SqlQueryHistoryEntry) => (
-                <li key={item.id} className="sql-toolbar-history__item">
-                  <div className="sql-toolbar-history__meta">
-                    <span>{formatTime(item.executedAt)}</span>
-                    {item.elapsedMs != null ? <span>{item.elapsedMs}ms</span> : null}
-                  </div>
-                  <pre className="sql-toolbar-history__sql">{item.sql}</pre>
-                </li>
-              ))}
-            </ul>
-          </div>
-        );
-      })}
+            <pre className="sql-toolbar-history__sql">{item.sql}</pre>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

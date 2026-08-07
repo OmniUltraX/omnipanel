@@ -37,11 +37,16 @@ export function formatSqlLiteral(value: unknown, dbType?: string): string {
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (record.__omni === "blob") return "NULL";
-    return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
+    const json = JSON.stringify(value);
+    // MySQL：反斜杠加倍 + 单引号用 ''（勿用 \'，否则 NO_BACKSLASH_ESCAPES / 语句拆分会提前截断）
+    if (isMysqlEngine(dbType)) {
+      return `'${json.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
+    }
+    return `'${json.replace(/'/g, "''")}'`;
   }
   const text = String(value);
   if (isMysqlEngine(dbType)) {
-    return `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+    return `'${text.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
   }
   return `'${text.replace(/'/g, "''")}'`;
 }

@@ -384,6 +384,15 @@ pub(crate) fn split_statements(sql: &str) -> Vec<String> {
             continue;
         }
 
+        // 字符串内反斜杠转义（MySQL 默认模式）：`\'` / `\"` / `\\` 等不终止字面量。
+        if (in_single || in_double) && ch == '\\' {
+            buf.push(ch);
+            if let Some(escaped) = chars.next() {
+                buf.push(escaped);
+            }
+            continue;
+        }
+
         if ch == ';' && !in_single && !in_double && !in_backtick {
             flush(&mut buf, &mut out);
             continue;
@@ -526,6 +535,32 @@ mod tests {
             out,
             vec![
                 "INSERT INTO t VALUES ('a;b', \"c;d\")".to_string(),
+                "SELECT 1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_respects_mysql_backslash_escaped_quotes() {
+        let sql = "INSERT INTO t VALUES ('a\\';b'); SELECT 1;";
+        let out = split_statements(sql);
+        assert_eq!(
+            out,
+            vec![
+                "INSERT INTO t VALUES ('a\\';b')".to_string(),
+                "SELECT 1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_respects_sql_standard_doubled_quotes_with_semicolon() {
+        let sql = "INSERT INTO t VALUES ('err ''name''; more; text'); SELECT 1;";
+        let out = split_statements(sql);
+        assert_eq!(
+            out,
+            vec![
+                "INSERT INTO t VALUES ('err ''name''; more; text')".to_string(),
                 "SELECT 1".to_string(),
             ]
         );

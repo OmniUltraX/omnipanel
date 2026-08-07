@@ -148,6 +148,17 @@ async fn select_columns(pool: &MySqlPool, sql: &str, rows: &[MySqlRow]) -> OmniR
         .collect())
 }
 
+/// MySQL 预处理协议不支持的语句（Error 1295），须走 COM_QUERY / raw_sql。
+/// 手动事务会话的 BEGIN/COMMIT/ROLLBACK 会触发此路径。
+pub(crate) fn is_mysql_text_protocol_only(sql: &str) -> bool {
+    let s = sql.trim_start().to_ascii_lowercase();
+    s.starts_with("begin")
+        || s.starts_with("commit")
+        || s.starts_with("rollback")
+        || s.starts_with("start transaction")
+        || s.starts_with("xa ")
+}
+
 async fn run(pool: &MySqlPool, sql: &str) -> OmniResult<QueryResult> {
     let statements = split_statements(sql);
     if statements.is_empty() {
@@ -180,6 +191,13 @@ async fn run(pool: &MySqlPool, sql: &str) -> OmniResult<QueryResult> {
                 rows: data,
                 rows_affected: 0,
             };
+        } else if is_mysql_text_protocol_only(&stmt) {
+            // sqlx::query 默认走预处理；BEGIN/COMMIT 等会报 1295
+            let res = sqlx::raw_sql(&stmt)
+                .execute(pool)
+                .await
+                .map_err(map_sqlx_err)?;
+            result.rows_affected = result.rows_affected.saturating_add(res.rows_affected());
         } else {
             let res = sqlx::query(&stmt)
                 .execute(pool)
@@ -375,7 +393,7 @@ fn safe_int_to_value(v: i128) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::mysql_bit_bytes_to_value;
+    use super::{is_mysql_text_protocol_only, mysql_bit_bytes_to_value};
     use serde_json::json;
 
     #[test]
@@ -395,5 +413,16 @@ mod tests {
     #[test]
     fn empty_bit_bytes_are_null() {
         assert_eq!(mysql_bit_bytes_to_value(&[]), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn transaction_control_uses_text_protocol() {
+        assert!(is_mysql_text_protocol_only("BEGIN"));
+        assert!(is_mysql_text_protocol_only("  begin work"));
+        assert!(is_mysql_text_protocol_only("COMMIT"));
+        assert!(is_mysql_text_protocol_only("ROLLBACK"));
+        assert!(is_mysql_text_protocol_only("START TRANSACTION"));
+        assert!(!is_mysql_text_protocol_only("INSERT INTO t VALUES (1)"));
+        assert!(!is_mysql_text_protocol_only("DELETE FROM t"));
     }
 }
