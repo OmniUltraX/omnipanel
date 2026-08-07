@@ -2,6 +2,27 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.9] - 2026-08-07
+
+### 新增
+
+- **终端 · 直通 AI 双轨**：直通表现层（decoration / 蓝字 / 占位）易失；命令栏 Block 持久 AI 时间线；关 tab 重开不重建流内卡、不 sticky 复活
+- **终端 · 确认卡态**：同意 / 拒绝冻结卡对齐待确认布局（说明 + 命令 + 主按钮）；拒绝后立即归还 shell prompt；移除 sticky 思考兜底
+- **文件 · 统一预览**：统一预览壳与 Preview IO（本地 / 文件管理 / SFTP）；CodeMirror 查找替换；本地大日志会话 API
+- **数据库 · Schema / SQL**：Schema 树检索与扁平化增强；SQL 文件绑定上下文；表预览数据应用与历史/语句处理增强
+- **UI · Topbar / 搜索**：Topbar 添加菜单配置化；ScopedSearch 注册与全局搜索快捷键优化
+- **设置**：模块窗口集成设置能力
+- **路由**：`useModuleRouteActive` 统一各模块路由激活判定
+
+### 修复
+
+- **终端**：命令输入分流边界与单测；tmux 断连与会话管理
+- **数据库**：TableDataGrid 滚动恢复逻辑简化
+
+### 变更
+
+- 移除 workspace mock panel 功能
+
 ## [0.7.8] - 2026-08-07
 
 ### 新增
