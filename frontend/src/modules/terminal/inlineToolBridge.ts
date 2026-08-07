@@ -22,7 +22,6 @@ import { patchEnterGateFlags } from "./passthroughAi/enterGates";
 import {
   notifyShellAgentApprovalPending,
   notifyShellAgentExecuting,
-  notifyShellAgentIdle,
 } from "./shellAgent/loop";
 import { useShellAgentStore } from "./shellAgent/shellAgentStore";
 

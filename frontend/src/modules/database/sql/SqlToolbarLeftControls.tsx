@@ -35,6 +35,10 @@ import {
 } from "./sqlQueryHistoryStore";
 import type { SqlHistoryKind } from "./classifySqlHistoryKind";
 
+/** 设置/历史浮层；Select 下拉需高于此值，否则会被面板挡住 */
+const SQL_TOOLBAR_POPOVER_Z_INDEX = 200000;
+const SQL_TOOLBAR_SELECT_Z_INDEX = SQL_TOOLBAR_POPOVER_Z_INDEX + 10;
+
 function AnchorPopover({
   anchorRef,
   open,
@@ -77,6 +81,8 @@ function AnchorPopover({
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (panelRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+      // Select 下拉挂到 body，点击选项时不应关掉设置面板
+      if (t instanceof Element && t.closest(".omni-select-panel")) return;
       onClose();
     };
     window.addEventListener("keydown", onKey);
@@ -98,7 +104,7 @@ function AnchorPopover({
         position: "fixed",
         left: coords?.left ?? -9999,
         top: coords?.top ?? -9999,
-        zIndex: 200000,
+        zIndex: SQL_TOOLBAR_POPOVER_Z_INDEX,
         visibility: coords ? "visible" : "hidden",
       }}
     >
@@ -322,6 +328,7 @@ export function SqlToolbarLeftControls({
               { value: "upper", label: t("database.sqlToolbar.keywordUpper") },
               { value: "lower", label: t("database.sqlToolbar.keywordLower") },
             ]}
+            panelZIndex={SQL_TOOLBAR_SELECT_Z_INDEX}
           />
         </label>
         <label className="sql-toolbar-popover__field">
@@ -343,6 +350,7 @@ export function SqlToolbarLeftControls({
               value: String(n),
               label: String(n),
             }))}
+            panelZIndex={SQL_TOOLBAR_SELECT_Z_INDEX}
           />
         </label>
         <label className="sql-toolbar-popover__field">
@@ -356,6 +364,7 @@ export function SqlToolbarLeftControls({
               value: String(n),
               label: String(n),
             }))}
+            panelZIndex={SQL_TOOLBAR_SELECT_Z_INDEX}
           />
         </label>
         <label className="sql-toolbar-popover__check">
@@ -380,6 +389,7 @@ export function SqlToolbarLeftControls({
               value: String(n),
               label: String(n),
             }))}
+            panelZIndex={SQL_TOOLBAR_SELECT_Z_INDEX}
           />
         </label>
       </AnchorPopover>

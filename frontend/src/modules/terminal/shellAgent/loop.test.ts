@@ -65,7 +65,7 @@ function createFakeTerm() {
         dispose: () => {},
       } as unknown as IDecoration;
     },
-    write(_data, cb) {
+    write(_data: string, cb?: () => void) {
       cb?.();
     },
   };

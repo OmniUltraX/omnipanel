@@ -586,8 +586,8 @@ export function clearShellAgentGeometry(sessionId: string): void {
   clearReanchorPtySync(sessionId);
 
   const prev = geometries.get(sessionId);
-  disposeDecoration(prev);
-  disposeMarker(prev);
+  disposeDecoration(prev ?? null);
+  disposeMarker(prev ?? null);
   geometries.delete(sessionId);
   emit(sessionId);
 }

@@ -365,7 +365,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     </div>
   ) : null;
 
-  if (!inlineActive) return null;
+  if (!inlineActive || !decoEl) return null;
 
   const cardKind = geometry!.cardKind ?? "";
 

@@ -23,7 +23,11 @@ type FakeTerm = {
   failDecoration: boolean;
 };
 
-type FakeMarker = IMarker & { disposedCount: number };
+type FakeMarker = {
+  isDisposed: boolean;
+  disposedCount: number;
+  dispose: () => void;
+};
 
 type FakeDecoration = {
   marker: IMarker;
@@ -46,9 +50,9 @@ function createFakeTerm(): FakeTerm {
           marker.isDisposed = true;
           marker.disposedCount += 1;
         },
-      } as unknown as FakeMarker;
+      };
       term.markers.push(marker);
-      return marker;
+      return marker as unknown as IMarker;
     },
     registerDecoration(opts) {
       if (term.failDecoration) return undefined;
@@ -144,7 +148,7 @@ describe("shellAgentGeometry", () => {
     resizeShellAgentCard(SID, 6);
     await new Promise<void>((resolve) => {
       queueMicrotask(() => {
-        requestAnimationFrame(() => requestAnimationFrame(resolve));
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
     });
 
