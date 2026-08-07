@@ -63,9 +63,3 @@ export function dispatchFollow(
   }
   return false;
 }
-
-/** 检查指定模块是否有已注册的 handler（调试用）。 */
-export function hasFollowHandler(module: FollowModuleKey): boolean {
-  const set = handlers.get(module);
-  return !!set && set.size > 0;
-}

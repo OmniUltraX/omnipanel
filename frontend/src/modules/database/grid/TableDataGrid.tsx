@@ -3393,7 +3393,7 @@ export const TableDataGrid = memo(function TableDataGrid({
           columnItemClassName={sidebarColumnItemClassName}
         />
       ) : null}
-      <div className="db-data-table-main">
+      <div className={`db-data-table-main${isPaging ? " db-data-table-main--paging" : ""}`}>
     {allColumnsHidden ? (
       <div className="db-data-table-all-hidden">
         {t("database.results.columnVisibilityAllHidden")}
@@ -3725,20 +3725,20 @@ export const TableDataGrid = memo(function TableDataGrid({
         onEditCommit={commitCellOverlayEdit}
         onEditCancel={cancelCellOverlayEdit}
       />
-      {isPaging ? (
-        <div
-          className="db-data-table-paging-overlay"
-          aria-busy="true"
-          aria-live="polite"
-        >
-          <div className="db-data-table-paging-overlay__inner">
-            <span className="db-data-table-paging-overlay__spinner" aria-hidden />
-            <span className="db-data-table-paging-overlay__text">{t("common.loading")}</span>
-          </div>
-        </div>
-      ) : null}
     </div>
     )}
+    {isPaging && !allColumnsHidden ? (
+      <div
+        className="db-data-table-paging-overlay"
+        aria-busy="true"
+        aria-live="polite"
+      >
+        <div className="db-data-table-paging-overlay__inner">
+          <span className="db-data-table-paging-overlay__spinner" aria-hidden />
+          <span className="db-data-table-paging-overlay__text">{t("common.loading")}</span>
+        </div>
+      </div>
+    ) : null}
     {!allColumnsHidden && (
       <TableDataGridCellContextMenu
         menuOpenRef={cellMenuOpenRef}

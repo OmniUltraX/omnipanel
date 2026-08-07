@@ -7878,16 +7878,16 @@
         pointer-events: none;
     }
 
-    /* 翻页：保留旧行可见，半透明遮罩 + loading，避免整页替换闪烁 */
+    /* 翻页：盖在表格可视区上的半透明遮罩（挂在 main 上，不随表格滚动） */
     .db-data-table-paging-overlay {
         position: absolute;
         inset: 0;
-        z-index: 6;
+        z-index: 20;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: color-mix(in srgb, var(--surface) 58%, transparent);
-        backdrop-filter: blur(1px);
+        background: color-mix(in srgb, var(--bg, var(--surface)) 42%, transparent);
+        backdrop-filter: blur(1.5px);
         pointer-events: auto;
     }
 
@@ -7895,16 +7895,17 @@
         display: inline-flex;
         align-items: center;
         gap: 10px;
-        padding: 8px 14px;
+        padding: 10px 16px;
         border-radius: 8px;
-        background: color-mix(in srgb, var(--surface) 92%, transparent);
-        border: 1px solid var(--border-soft);
-        box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 12%, transparent);
+        background: color-mix(in srgb, var(--surface) 94%, transparent);
+        border: 1px solid var(--border-soft, var(--border));
+        box-shadow: 0 6px 20px color-mix(in srgb, var(--text) 14%, transparent);
     }
 
     .db-data-table-paging-overlay__spinner {
-        width: 16px;
-        height: 16px;
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
         border-radius: 50%;
         border: 2px solid color-mix(in srgb, var(--border) 80%, transparent);
         border-top-color: var(--accent);
@@ -7914,7 +7915,7 @@
     .db-data-table-paging-overlay__text {
         font-size: 12px;
         font-weight: 500;
-        color: var(--text-muted);
+        color: var(--text-muted, var(--fg-2));
     }
 
     @keyframes db-data-table-paging-spin {
@@ -8296,6 +8297,7 @@
     }
 
     .db-data-table-main {
+        position: relative;
         display: flex;
         flex-direction: column;
         flex: 1;

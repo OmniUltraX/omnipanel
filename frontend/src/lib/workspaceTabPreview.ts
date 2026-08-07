@@ -3,7 +3,6 @@ import { getMirroredDbTabSnapshot } from "../stores/dbWorkspaceMirrorStore";
 import { useTerminalStore } from "../stores/terminalStore";
 import { getDockerLogPreview, dockerPreviewKey } from "../stores/workspacePreviewStore";
 import type { WorkspaceTabSnapshot } from "../stores/workspaceTabStore";
-import { resolveMockWorkspaceTabPreview } from "./workspacePreviewMockPanels";
 import { resolveWorkspaceComponentPreviewKind } from "./workspaceComponentRegistry";
 import { isComponentSnapshot } from "./workspaceComponentTypes";
 
@@ -163,10 +162,6 @@ function fallbackPreview(title: string, source: string): WorkspaceTabPreviewData
 
 /** 根据工作区 Tab 元数据解析缩略图预览（带降级） */
 export function resolveWorkspaceTabPreview(tab: WorkspaceDockTab): WorkspaceTabPreviewData {
-  if (tab.id.startsWith("ws-preview-mock:")) {
-    const mock = resolveMockWorkspaceTabPreview(tab.id);
-    if (mock) return mock;
-  }
   if (tab.kind === "payload" && tab.payload) {
     return payloadPreview(tab.payload);
   }
