@@ -34,6 +34,7 @@ export interface DatabaseSchemaSidebarProps
   activeTreeChartFileId?: string | null;
   onOpenSyncTask: (task: SyncTask) => void;
   onRunSyncTask: (task: SyncTask) => void;
+  sqlQueryBindingContext?: { connId: string; database: string } | null;
 }
 
 /** memo：Dock tabs/layout 变化时父组件重渲，侧栏 props 不变则跳过树 reconcile */
@@ -44,6 +45,7 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
   activeTreeChartFileId,
   onOpenSyncTask,
   onRunSyncTask,
+  sqlQueryBindingContext,
   ...schemaProps
 }: DatabaseSchemaSidebarProps) {
   const { t } = useI18n();
@@ -66,6 +68,7 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
     <VerticalSplitSidebar className="schema-sidebar">
       <SchemaBrowser
         {...schemaProps}
+        onOpenSqlFile={onOpenSqlFile}
         activeConnId={activeConnId}
         activeTableKey={activeTableKey}
         activeDatabaseKey={activeDatabaseKey}
@@ -81,6 +84,8 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
         onNewTreeChart={onNewTreeChart}
         onOpenTreeChartFile={onOpenTreeChartFile}
         activeTreeChartFileId={activeTreeChartFileId}
+        connections={schemaProps.connectionConfigs ?? []}
+        sqlQueryBindingContext={sqlQueryBindingContext}
         section={{
           title: t("database.sidebar.queries"),
           expanded: sections.queries,

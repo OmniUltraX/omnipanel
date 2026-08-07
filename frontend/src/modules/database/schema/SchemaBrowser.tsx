@@ -28,6 +28,7 @@ import {
 } from "../api";
 import { makeQueryRunId } from "../sql/queryRun";
 import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
+import { useDbSqlFileStore, type DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import { useDbSchemaTreeExpandedStore } from "../../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import {
@@ -365,6 +366,13 @@ const TreeNode = memo(
           <path d="M8 18h8" />
         </svg>
       )}
+      {type === "sql-query" && (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M8 13h8M8 17h5" />
+        </svg>
+      )}
       {(type === "folder" || type === "connection-folder") && (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -662,6 +670,7 @@ export type SchemaContextMenuContext = {
 export interface SchemaBrowserProps {
   activeConnId?: string | null;
   onCreateConnection?: () => void;
+  onNewSqlQuery?: () => void;
   onImportNavicat?: () => void;
   onSelectConnection?: (
     connId: string,
@@ -670,6 +679,7 @@ export interface SchemaBrowserProps {
   ) => void;
   onSelectTable?: (selection: SchemaTableSelection, mode?: SchemaDockOpenMode) => void;
   onSelectDatabase?: (selection: SchemaDatabaseSelection, mode?: SchemaDockOpenMode) => void;
+  onOpenSqlFile?: (file: DbSqlFileNode) => void;
   buildSchemaContextMenuItems?: (
     item: SchemaTreeItem,
     context: SchemaContextMenuContext,
@@ -689,10 +699,12 @@ export interface SchemaBrowserProps {
 export function SchemaBrowser({
   activeConnId = null,
   onCreateConnection,
+  onNewSqlQuery,
   onImportNavicat,
   onSelectConnection,
   onSelectTable,
   onSelectDatabase,
+  onOpenSqlFile,
   buildSchemaContextMenuItems,
   onSchemaCacheConnectionPatched,
   activeTableKey = null,
@@ -704,6 +716,7 @@ export function SchemaBrowser({
   connectionsReady,
 }: SchemaBrowserProps) {
   const { t } = useI18n();
+  const sqlFileNodes = useDbSqlFileStore((s) => s.nodes);
   const resolvedTheme = useSettingsStore((s) => s.resolved);
   const showTableSchemaChildren = useSettingsStore((s) => s.databaseSchemaTreeShowTableChildren);
   const useExternalConnections =
@@ -769,6 +782,7 @@ export function SchemaBrowser({
   const anyConnectionRefreshing = Object.keys(refreshingConnectionIds).length > 0;
   const syncSeqRef = useRef(0);
   const connectionsRef = useRef<LoadedConnection[]>([]);
+  const sqlFilesRef = useRef<DbSqlFileNode[]>([]);
 
   const externalConnections = useMemo(() => {
     if (!useExternalConnections) {
@@ -1570,6 +1584,10 @@ export function SchemaBrowser({
   }, [connections]);
 
   useEffect(() => {
+    sqlFilesRef.current = sqlFileNodes;
+  }, [sqlFileNodes]);
+
+  useEffect(() => {
     if (useExternalConnections) {
       return;
     }
@@ -1811,7 +1829,7 @@ export function SchemaBrowser({
     () =>
       buildSchemaFlatRows({
         t,
-        connections: deferredConnections,
+        connections: search.trim() ? connections : deferredConnections,
         expandedNodeIds,
         childVisibleLimits,
         databaseFilters,
@@ -1824,9 +1842,11 @@ export function SchemaBrowser({
         connectionParents,
         deploymentServerByConnId,
         showTableSchemaChildren,
+        sqlFiles: sqlFileNodes,
       }),
     [
       t,
+      connections,
       deferredConnections,
       expandedNodeIds,
       childVisibleLimits,
@@ -1840,6 +1860,7 @@ export function SchemaBrowser({
       connectionParents,
       deploymentServerByConnId,
       showTableSchemaChildren,
+      sqlFileNodes,
     ],
   );
 
@@ -1879,8 +1900,8 @@ export function SchemaBrowser({
 
   const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
 
-  // 滚动元素挂载 / 行数变化后测量：延后到 paint 后，避免 measure() 的 getBoundingClientRect
-  // 强制 reflow 阻塞首帧 paint。虚拟列表内部有 ResizeObserver 兜底，一帧延迟不会错位。
+  // 固定行高虚拟列表无需在每次 flatRows.length 变化时 measure()（会重置 scrollTop）。
+  // 仅在进入虚拟滚动模式时测一次滚动容器。
   useEffect(() => {
     if (!useTreeVirtualization) {
       return;
@@ -1889,7 +1910,7 @@ export function SchemaBrowser({
       rowVirtualizerRef.current.measure();
     });
     return () => cancelAnimationFrame(raf);
-  }, [useTreeVirtualization, flatRows.length]);
+  }, [useTreeVirtualization]);
 
   // 滚动中给容器加 is-scrolling class，动态启用 will-change: transform。
   // 静态 will-change 会为所有虚拟行创建合成层，浪费 GPU 内存；仅在滚动中启用。
@@ -2101,6 +2122,11 @@ export function SchemaBrowser({
           },
           "permanent",
         );
+      } else if (row.labelClickKind === "sql-query" && row.labelClickSqlFileId) {
+        const file = sqlFilesRef.current.find((entry) => entry.id === row.labelClickSqlFileId);
+        if (file) {
+          onOpenSqlFile?.(file);
+        }
       }
 
       if (!container) {
@@ -2118,7 +2144,7 @@ export function SchemaBrowser({
           : undefined,
       );
     },
-    [onSelectConnection, onSelectDatabase, onSelectTable, updatePathForNodeId, useTreeVirtualization],
+    [onSelectConnection, onSelectDatabase, onSelectTable, onOpenSqlFile, updatePathForNodeId, useTreeVirtualization],
   );
 
   const filterDialogConn = filterDialogConnId
@@ -2256,6 +2282,15 @@ export function SchemaBrowser({
         };
         onPreviewOpen = () => onSelectTable?.(tableSelection, "preview");
         onActivate = () => onSelectTable?.(tableSelection, "permanent");
+      } else if (row.labelClickKind === "sql-query" && row.labelClickSqlFileId) {
+        const openBoundSqlFile = () => {
+          const file = sqlFilesRef.current.find((entry) => entry.id === row.labelClickSqlFileId);
+          if (file) {
+            onOpenSqlFile?.(file);
+          }
+        };
+        onPreviewOpen = openBoundSqlFile;
+        onActivate = openBoundSqlFile;
       } else if (row.labelClickKind === "object-folder") {
         onActivate = () => expandObjectFolderOnActivate(row.item.id);
       }
@@ -2373,6 +2408,7 @@ export function SchemaBrowser({
       onSelectConnection,
       onSelectDatabase,
       onSelectTable,
+      onOpenSqlFile,
       resolveSchemaNodeActions,
       handleContextSchemaNode,
       setTableFilters,
@@ -2405,6 +2441,19 @@ export function SchemaBrowser({
           <path d="M12 5v14M5 12h14" />
         </svg>
       </Button>
+      {onNewSqlQuery ? (
+        <Button
+          variant="icon"
+          title={t("database.workspace.newQuery")}
+          aria-label={t("database.workspace.newQuery")}
+          onClick={onNewSqlQuery}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+            <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
+            <path d="M11.5 8.5 13 10l-2 2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </Button>
+      ) : null}
       {onImportNavicat ? (
         <IconDropdownButton
           title={t("database.sidebar.importConnections")}

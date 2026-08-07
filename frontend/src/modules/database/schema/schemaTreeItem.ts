@@ -9,7 +9,8 @@ export type SchemaTreeItemType =
   | "user"
   | "folder"
   | "column"
-  | "index";
+  | "index"
+  | "sql-query";
 
 /** 左侧 Schema 树节点的统一数据模型。 */
 export interface SchemaTreeItem {
@@ -65,6 +66,21 @@ export function buildViewTreeItem(connId: string, dbName: string, viewName: stri
 
 export function buildFolderTreeItem(id: string, label: string, connId?: string, dbName?: string, tableName?: string): SchemaTreeItem {
   return { type: "folder", id, label, connId, dbName, tableName };
+}
+
+export function buildSqlQueryFileTreeItem(
+  fileId: string,
+  connId: string,
+  dbName: string,
+  label: string,
+): SchemaTreeItem {
+  return {
+    type: "sql-query",
+    id: `sql-file:${fileId}`,
+    label,
+    connId,
+    dbName,
+  };
 }
 
 export function buildColumnTreeItem(

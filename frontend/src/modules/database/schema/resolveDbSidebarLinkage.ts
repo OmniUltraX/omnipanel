@@ -3,6 +3,7 @@ import {
   makeTableTabKey,
   type DbWorkspaceTab,
 } from "../workspace/workspaceTabs";
+import { sqlQueryFileNodeId } from "./schemaTreeIds";
 import {
   resolveConnIdForWorkspaceTab,
   resolveSqlTabConnectionId,
@@ -124,6 +125,9 @@ export function collectOpenTabNodeIds(
       const sqlDb = sqlState?.database?.trim() ?? "";
       if (sqlConn && sqlDb) {
         ids.add(makeDatabaseTabKey(sqlConn, sqlDb));
+      }
+      if (tab.sqlFileId) {
+        ids.add(sqlQueryFileNodeId(tab.sqlFileId));
       }
       continue;
     }

@@ -38,6 +38,7 @@ import { appAlert } from "../../lib/appAlert";
 import { yieldToMain } from "../../lib/yieldToMain";
 import {
   applyTablePreviewDataProgressive,
+  beginTablePreviewFetch,
   bumpTablePreviewApplyGeneration,
 } from "./workspace/applyTablePreviewData";
 import { IconDropdownButton } from "../../components/ui/IconDropdownButton";
@@ -222,6 +223,7 @@ import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
 import { collectOpenTabNodeIds, resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
 import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
 import { buildSelectAllFromTableSql } from "./grid/tablePreviewFilter";
+import { resolveSqlQueryBindingContext } from "./sql/resolveSqlQueryBindingContext";
 import { fetchTablePreviewPage } from "./grid/tablePreviewQuery";
 import { readStoredGridRenderMode } from "./grid/canvas/gridRenderMode";
 import {
@@ -1735,20 +1737,22 @@ export function DatabasePanel() {
       const pageSize =
         useDbWorkspaceTabStore.getState().tablePreviews[tabId]?.pageSize ?? defaultState.pageSize;
 
-      setTablePreviews((prevMap) => ({
-        ...prevMap,
-        [tabId]: {
-          ...(prevMap[tabId] ?? defaultState),
-          connId: connection.id,
-          dbName,
-          tableName,
-          loading: true,
-          error: null,
-        },
-      }));
-      const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
+      const applyGeneration = beginTablePreviewFetch(tabId, setTablePreviews, {
+        connId: connection.id,
+        dbName,
+        tableName,
+        pageSize,
+        page: 0,
+        sort: null,
+        filter: null,
+      });
 
       if (connection.db_type !== "redis") {
+        setTableColumnMeta((prevMeta) => {
+          const next = { ...prevMeta };
+          delete next[tabId];
+          return next;
+        });
         const cachedColumns = getCachedTableColumns(
           useDbSchemaCacheStore.getState().snapshot,
           connection.id,
@@ -1756,16 +1760,9 @@ export function DatabasePanel() {
           tableName,
         );
         if (cachedColumns?.length) {
-          // 同步写列名：骨架立刻有列标签；重网格由预览面 idle 后再挂
-          setTableColumnMeta((prevMeta) => {
-            if (prevMeta[tabId]?.length) {
-              return prevMeta;
-            }
-            return { ...prevMeta, [tabId]: cachedColumns };
-          });
+          setTableColumnMeta((prevMeta) => ({ ...prevMeta, [tabId]: cachedColumns }));
         }
         fetchAndApplyTableColumnMeta(tabId, connection, dbName, tableName, (columns) => {
-          // 列 meta 变更会重建 columnDefs，勿与灌数抢主线程
           startTransition(() => {
             setTableColumnMeta((prevMeta) => ({ ...prevMeta, [tabId]: columns }));
           });
@@ -2018,62 +2015,61 @@ export function DatabasePanel() {
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
 
-      setTablePreviews((prev) => {
-        const existing = prev[tabId] ?? createDefaultTablePreviewState();
-        const pageSize = existing.pageSize;
-        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
-        const columnRelations = existing.columnRelations ?? {};
-        const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
-
-        void fetchTablePreviewPage({
-          connection,
-          connId,
-          tableName: preview.tableName!,
-          dbName: preview.dbName!,
-          page: 0,
-          pageSize,
-          sort: existing.sort,
-          filter,
-          columnMeta: colMeta,
-          columnRelations,
-        })
-          .then(async ({ data, totalRows = 0 }) => {
-            await yieldToMain();
-            await applyTablePreviewDataProgressive({
-              tabId,
-              data,
-              totalRows,
-              page: 0,
-              pageSize,
-              setTablePreviews,
-              generation: applyGeneration,
-              canvasMode: readStoredGridRenderMode() === "canvas",
-            });
-            setTablePreviews((p) => {
-              const cur = p[tabId];
-              if (!cur) return p;
-              return { ...p, [tabId]: { ...cur, filter } };
-            });
-          })
-          .catch((e) => {
-            bumpTablePreviewApplyGeneration(tabId);
-            setTablePreviews((p) => {
-              const cur = p[tabId];
-              if (!cur) return p;
-              return {
-                ...p,
-                [tabId]: {
-                  ...cur,
-                  loading: false,
-                  error: typeof e === "string" ? e : String(e),
-                  filter,
-                },
-              };
-            });
-          });
-
-        return { ...prev, [tabId]: { ...existing, loading: true, filter } };
+      const existing = preview;
+      const pageSize = existing.pageSize;
+      const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+      const columnRelations = existing.columnRelations ?? {};
+      const applyGeneration = beginTablePreviewFetch(tabId, setTablePreviews, {
+        filter,
+        page: 0,
       });
+
+      void fetchTablePreviewPage({
+        connection,
+        connId,
+        tableName: preview.tableName!,
+        dbName: preview.dbName!,
+        page: 0,
+        pageSize,
+        sort: existing.sort,
+        filter,
+        columnMeta: colMeta,
+        columnRelations,
+      })
+        .then(async ({ data, totalRows = 0 }) => {
+          await yieldToMain();
+          await applyTablePreviewDataProgressive({
+            tabId,
+            data,
+            totalRows,
+            page: 0,
+            pageSize,
+            setTablePreviews,
+            generation: applyGeneration,
+            canvasMode: readStoredGridRenderMode() === "canvas",
+          });
+          setTablePreviews((p) => {
+            const cur = p[tabId];
+            if (!cur) return p;
+            return { ...p, [tabId]: { ...cur, filter } };
+          });
+        })
+        .catch((e) => {
+          bumpTablePreviewApplyGeneration(tabId);
+          setTablePreviews((p) => {
+            const cur = p[tabId];
+            if (!cur) return p;
+            return {
+              ...p,
+              [tabId]: {
+                ...cur,
+                loading: false,
+                error: typeof e === "string" ? e : String(e),
+                filter,
+              },
+            };
+          });
+        });
     },
     [connections, setTablePreviews],
   );
@@ -4043,8 +4039,6 @@ export function DatabasePanel() {
       };
 
       const ensureTablePreview = (tabId: string) => {
-        // 合并为单次 store update：原 warmColumnMetaFromCache + setTablePreviews 两次
-        // Zustand set 各自同步 notify listeners；合并后只 notify 一次，减少点击瞬间开销
         const cachedColumns =
           connection.db_type === "redis"
             ? null
@@ -4055,12 +4049,14 @@ export function DatabasePanel() {
                 tableName,
               );
         useDbWorkspaceTabStore.setState((state) => {
-          const hasColMeta = Boolean(state.tableColumnMeta[tabId]?.length);
+          const nextColumnMeta = { ...state.tableColumnMeta };
+          if (cachedColumns?.length) {
+            nextColumnMeta[tabId] = cachedColumns;
+          } else {
+            delete nextColumnMeta[tabId];
+          }
           return {
-            tableColumnMeta:
-              cachedColumns?.length && !hasColMeta
-                ? { ...state.tableColumnMeta, [tabId]: cachedColumns }
-                : state.tableColumnMeta,
+            tableColumnMeta: nextColumnMeta,
             tablePreviews: {
               ...state.tablePreviews,
               [tabId]: {
@@ -4229,6 +4225,49 @@ export function DatabasePanel() {
     }
     return null;
   }, [activeWorkspaceTab, activeSqlSidebarSeed]);
+
+  const handleNewSqlQuery = useCallback(() => {
+    const binding = resolveSqlQueryBindingContext({
+      connections,
+      activeWorkspaceTab,
+      activeConnId,
+      activeDatabaseKey,
+      activeTableKey,
+      sqlTabConnDb: activeSqlTabConnDb,
+    });
+    if (!binding) {
+      return;
+    }
+    openSqlDraftTab(binding.connId, binding.database);
+  }, [
+    activeConnId,
+    activeDatabaseKey,
+    activeTableKey,
+    activeWorkspaceTab,
+    activeSqlTabConnDb,
+    connections,
+    openSqlDraftTab,
+  ]);
+
+  const sqlQueryBindingContext = useMemo(
+    () =>
+      resolveSqlQueryBindingContext({
+        connections,
+        activeWorkspaceTab,
+        activeConnId,
+        activeDatabaseKey,
+        activeTableKey,
+        sqlTabConnDb: activeSqlTabConnDb,
+      }),
+    [
+      connections,
+      activeWorkspaceTab,
+      activeConnId,
+      activeDatabaseKey,
+      activeTableKey,
+      activeSqlTabConnDb,
+    ],
+  );
 
   const handleSelectDatabase = useCallback(
     (selection: SchemaDatabaseSelection, mode: SchemaDockOpenMode = "permanent") => {
@@ -5976,6 +6015,7 @@ export function DatabasePanel() {
       leftSidebar={
         <DatabaseSchemaSidebar
           onCreateConnection={handleCreateConnection}
+          onNewSqlQuery={handleNewSqlQuery}
           onImportNavicat={handleImportNavicat}
           onSelectConnection={handleSelectConnection}
           onOpenSqlFile={openSqlFile}
@@ -5991,6 +6031,7 @@ export function DatabasePanel() {
           refreshToken={schemaRefreshToken}
           connectionConfigs={sidebarConnections}
           connectionsReady={!connectionsLoading || connections.length > 0}
+          sqlQueryBindingContext={sqlQueryBindingContext}
         />
       }
     >

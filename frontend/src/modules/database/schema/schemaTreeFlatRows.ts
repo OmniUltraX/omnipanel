@@ -14,9 +14,13 @@ import {
   buildDatabaseTreeItem,
   buildFolderTreeItem,
   buildIndexTreeItem,
+  buildSqlQueryFileTreeItem,
   buildTableTreeItem,
   type SchemaTreeItem,
 } from "./schemaTreeItem";
+import { listBoundSqlFiles } from "../sql/listBoundSqlFiles";
+import { textSearchMatches } from "../../../lib/textSearchMatch";
+import type { DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import { listSchemaConnectionLayoutChildren } from "./schemaConnectionLayoutTree";
 import {
   schemaConnectionFolderNodeId,
@@ -26,6 +30,7 @@ import {
   connectionDatabasesFolderId,
   connectionUsersFolderId,
   databaseOtherFolderId,
+  databaseQueriesFolderId,
   databaseTablesFolderId,
   databaseViewsFolderId,
   formatUserLabel,
@@ -39,8 +44,8 @@ import {
 import { paginateSchemaChildren } from "./schemaTreePagination";
 import {
   schemaColumnMatchesSearch,
-  schemaConnectionSearchMatchesUnderExpanded,
-  schemaDatabaseSearchMatchesUnderExpanded,
+  schemaConnectionSubtreeMatchesSearch,
+  schemaDatabaseSubtreeMatchesSearch,
   schemaIndexMatchesSearch,
   schemaRoutineMatchesSearch,
   schemaSearchMatches,
@@ -83,10 +88,11 @@ export interface SchemaNodeFlatRow {
   connectionEnabled?: boolean;
   iconUrl?: string | null;
   pinActive?: boolean;
-  labelClickKind?: "connection" | "database" | "table" | "object-folder";
+  labelClickKind?: "connection" | "database" | "table" | "object-folder" | "sql-query";
   labelClickConnId?: string;
   labelClickDbName?: string;
   labelClickTableName?: string;
+  labelClickSqlFileId?: string;
 }
 
 export interface SchemaLoadMoreFlatRow {
@@ -123,6 +129,8 @@ export interface SchemaFlatRowsParams {
   deploymentServerByConnId?: Record<string, string>;
   /** 是否允许表/视图节点展开显示字段、索引 */
   showTableSchemaChildren?: boolean;
+  /** 侧栏 SQL 查询文件（库级虚拟「查询」节点数据源） */
+  sqlFiles?: readonly DbSqlFileNode[];
 }
 
 function routineTypeLabel(t: SchemaFlatRowsParams["t"], routineType: string): string {
@@ -383,6 +391,87 @@ function appendTableObjectRows(
   }
 }
 
+function appendSqlQueryFileRow(
+  rows: SchemaFlatRow[],
+  connId: string,
+  dbName: string,
+  file: DbSqlFileNode,
+  depth: number,
+) {
+  const label = file.name.replace(/\.sql$/i, "") || file.name;
+  const item = buildSqlQueryFileTreeItem(file.id, connId, dbName, label);
+  pushNode(rows, {
+    kind: "node",
+    key: item.id,
+    item,
+    depth,
+    expanded: false,
+    hasChildren: false,
+    labelClickKind: "sql-query",
+    labelClickConnId: connId,
+    labelClickDbName: dbName,
+    labelClickSqlFileId: file.id,
+  });
+}
+
+function appendDatabaseQueryRows(
+  rows: SchemaFlatRow[],
+  params: SchemaFlatRowsParams,
+  connId: string,
+  dbName: string,
+  baseDepth: number,
+  isSearchMode: boolean,
+) {
+  const { t, sqlFiles, expandedNodeIds, childVisibleLimits, searchQuery } = params;
+  const q = searchQuery?.trim() ?? "";
+  const boundQueries = listBoundSqlFiles(sqlFiles ?? [], connId, dbName);
+  const queriesToShow = isSearchMode
+    ? boundQueries.filter((file) => textSearchMatches(q, file.name.replace(/\.sql$/i, "")))
+    : boundQueries;
+  if (queriesToShow.length === 0) {
+    return;
+  }
+
+  if (isSearchMode) {
+    for (const file of queriesToShow) {
+      appendSqlQueryFileRow(rows, connId, dbName, file, baseDepth);
+    }
+    return;
+  }
+
+  const queriesFolderId = databaseQueriesFolderId(connId, dbName);
+  const queriesExpanded = expandedNodeIds.has(queriesFolderId);
+  const queriesFolderItem = buildFolderTreeItem(
+    queriesFolderId,
+    t("database.sidebar.queries"),
+    connId,
+    dbName,
+  );
+  pushNode(rows, {
+    kind: "node",
+    key: queriesFolderId,
+    item: queriesFolderItem,
+    depth: baseDepth,
+    expanded: queriesExpanded,
+    hasChildren: true,
+    labelClickKind: "object-folder",
+    meta: String(boundQueries.length),
+  });
+
+  if (queriesExpanded) {
+    const pagedQueries = paginateSchemaChildren(
+      queriesToShow,
+      queriesFolderId,
+      childVisibleLimits,
+    );
+    for (const file of pagedQueries.visible) {
+      appendSqlQueryFileRow(rows, connId, dbName, file, baseDepth + 1);
+    }
+    if (pagedQueries.hasMore) {
+      pushLoadMore(rows, queriesFolderId, baseDepth + 1, pagedQueries.remaining);
+    }
+  }
+}
 
 interface SchemaFlatRowsBuildContext {
   q: string;
@@ -420,22 +509,20 @@ function appendConnectionSchemaRows(
     const connId = `conn:${conn.config.id}`;
     if (
       isSearchMode &&
-      !schemaConnectionSearchMatchesUnderExpanded(
+      !schemaConnectionSubtreeMatchesSearch(
         q,
         conn,
-        expandedNodeIds,
-        databaseFilters,
         tableFilters,
         makeTableFilterKey,
         searchLabels,
         routineLabel,
-        Boolean(params.showTableSchemaChildren),
       )
     ) {
       return;
     }
 
     const connExpanded = expandedNodeIds.has(connId);
+    const connSearchExpanded = isSearchMode;
     const databasesFolderId = connectionDatabasesFolderId(conn.config.id);
     const allDatabases = conn.databases ?? [];
     const filter = databaseFilters[conn.config.id];
@@ -456,7 +543,7 @@ function appendConnectionSchemaRows(
       key: connId,
       item: connItem,
       depth: baseDepth,
-      expanded: connExpanded,
+      expanded: connExpanded || connSearchExpanded,
       hasChildren: connEnabled,
       connectionEnabled: connEnabled,
       iconUrl: engineIconUrl,
@@ -491,7 +578,7 @@ function appendConnectionSchemaRows(
       metaClickConnId: conn.config.id,
     });
 
-    if (!connEnabled || !connExpanded) {
+    if (!connEnabled || (!connExpanded && !isSearchMode)) {
       return;
     }
 
@@ -508,24 +595,26 @@ function appendConnectionSchemaRows(
         const isRedis = isRedisConnection(conn.config);
         const dbId = makeDatabaseNodeId(conn.config.id, db.name);
         const tableFilter = tableFilters[makeTableFilterKey(conn.config.id, db.name)];
+        const boundQueries = listBoundSqlFiles(params.sqlFiles ?? [], conn.config.id, db.name);
+        const queriesToShowInSearch = isSearchMode
+          ? boundQueries.filter((file) => textSearchMatches(q, file.name.replace(/\.sql$/i, "")))
+          : boundQueries;
         if (
           isSearchMode &&
-          !schemaDatabaseSearchMatchesUnderExpanded(
+          !schemaDatabaseSubtreeMatchesSearch(
             q,
             db,
-            dbId,
-            conn,
-            expandedNodeIds,
             tableFilter,
             searchLabels,
             routineLabel,
-            Boolean(params.showTableSchemaChildren),
-          )
+          ) &&
+          queriesToShowInSearch.length === 0
         ) {
           continue;
         }
 
         const dbExpanded = expandedNodeIds.has(dbId);
+        const dbSearchExpanded = isSearchMode;
         const allTables = db.tables ?? [];
         const allViews = db.views ?? [];
         const allRoutines = db.routines ?? [];
@@ -541,57 +630,35 @@ function appendConnectionSchemaRows(
         const tblsExpanded = expandedNodeIds.has(tblsFolderId);
         const viewsExpanded = expandedNodeIds.has(viewsFolderId);
         const otherExpanded = expandedNodeIds.has(otherFolderId);
-        const tablesFolderMatches = isSearchMode && schemaSearchMatches(q, searchLabels.tables);
-        const viewsFolderMatches = isSearchMode && schemaSearchMatches(q, searchLabels.views);
-        const otherFolderMatches = isSearchMode && schemaSearchMatches(q, searchLabels.other);
         const tablesToShow = isSearchMode
-          ? tblsExpanded
-            ? tablesFolderMatches
-              ? visibleTables
-              : visibleTables.filter((tbl) =>
-                  schemaTableObjectSearchMatchesUnderExpanded(
-                    q,
-                    tbl,
-                    "table",
-                    makeTableNodeId(conn.config.id, db.name, tbl.name),
-                    expandedNodeIds,
-                    conn.config,
-                    searchLabels,
-                    Boolean(params.showTableSchemaChildren),
-                  ),
-                )
-            : []
+          ? visibleTables.filter((tbl) => schemaTableObjectMatchesSearch(q, tbl))
           : visibleTables;
         const viewsToShow = isSearchMode
-          ? viewsExpanded
-            ? viewsFolderMatches
-              ? allViews
-              : allViews.filter((view) =>
-                  schemaTableObjectSearchMatchesUnderExpanded(
-                    q,
-                    view,
-                    "view",
-                    makeViewNodeId(conn.config.id, db.name, view.name),
-                    expandedNodeIds,
-                    conn.config,
-                    searchLabels,
-                    Boolean(params.showTableSchemaChildren),
-                  ),
-                )
-            : []
+          ? (db.views ?? []).filter((view) => schemaTableObjectMatchesSearch(q, view))
           : allViews;
         const routinesToShow = isSearchMode
-          ? otherExpanded
-            ? otherFolderMatches
-              ? allRoutines
-              : allRoutines.filter((routine) =>
-                  schemaRoutineMatchesSearch(q, routine, routineLabel(routine.routineType)),
-                )
-            : []
+          ? allRoutines.filter((routine) =>
+              schemaRoutineMatchesSearch(q, routine, routineLabel(routine.routineType)),
+            )
           : allRoutines;
-        const pagedTables = paginateSchemaChildren(tablesToShow, tblsFolderId, childVisibleLimits);
-        const pagedViews = paginateSchemaChildren(viewsToShow, viewsFolderId, childVisibleLimits);
-        const pagedRoutines = paginateSchemaChildren(routinesToShow, otherFolderId, childVisibleLimits);
+        const pagedTables = paginateSchemaChildren(
+          tablesToShow,
+          tblsFolderId,
+          childVisibleLimits,
+          isSearchMode ? { unpaginated: true } : undefined,
+        );
+        const pagedViews = paginateSchemaChildren(
+          viewsToShow,
+          viewsFolderId,
+          childVisibleLimits,
+          isSearchMode ? { unpaginated: true } : undefined,
+        );
+        const pagedRoutines = paginateSchemaChildren(
+          routinesToShow,
+          otherFolderId,
+          childVisibleLimits,
+          isSearchMode ? { unpaginated: true } : undefined,
+        );
         const redisDbLabel = isRedis
           ? /^\d+$/.test(db.name)
             ? `db${db.name}`
@@ -614,17 +681,21 @@ function appendConnectionSchemaRows(
         const otherFolderRefreshing = Boolean(refreshingNodeIds[otherFolderId]);
         const showTablesFolder =
           (isSearchMode
-            ? tablesFolderMatches || (tblsExpanded && tablesToShow.length > 0)
+            ? tablesToShow.length > 0
             : tableTotalCount > 0) || tblsFolderRefreshing;
         const showViewsFolder =
           (isSearchMode
-            ? viewsFolderMatches || (viewsExpanded && viewsToShow.length > 0)
+            ? viewsToShow.length > 0
             : viewTotalCount > 0) || viewsFolderRefreshing;
         const showOtherFolder =
           (isSearchMode
-            ? otherFolderMatches || (otherExpanded && routinesToShow.length > 0)
+            ? routinesToShow.length > 0
             : routineTotalCount > 0) || otherFolderRefreshing;
-        const hasDbObjectFolders = showTablesFolder || showViewsFolder || showOtherFolder;
+        const boundQueryCount = boundQueries.length;
+        const showQueriesFolder =
+          (isSearchMode ? queriesToShowInSearch.length > 0 : boundQueryCount > 0);
+        const hasDbObjectFolders =
+          showTablesFolder || showViewsFolder || showOtherFolder || showQueriesFolder;
         const needsObjectsLoad =
           !isRedis &&
           !db.loadError &&
@@ -635,6 +706,7 @@ function appendConnectionSchemaRows(
           : [
               tableTotalCount > 0 ? `${tableTotalCount} ${t("database.sidebar.tables")}` : null,
               viewTotalCount > 0 ? `${viewTotalCount} ${t("database.sidebar.views")}` : null,
+              boundQueryCount > 0 ? `${boundQueryCount} ${t("database.sidebar.queries")}` : null,
               routineTotalCount > 0 ? `${routineTotalCount} ${t("database.sidebar.other")}` : null,
             ]
               .filter(Boolean)
@@ -645,7 +717,7 @@ function appendConnectionSchemaRows(
           key: dbId,
           item: dbItem,
           depth: baseDepth + 1,
-          expanded: dbExpanded,
+          expanded: dbExpanded || dbSearchExpanded,
           hasChildren:
             !isRedis &&
             (hasDbObjectFolders || Boolean(db.loadError) || needsObjectsLoad || dbNodeRefreshing),
@@ -659,8 +731,23 @@ function appendConnectionSchemaRows(
               : objectSummary || undefined,
         });
 
-        if (!dbExpanded) {
+        if (!dbExpanded && !isSearchMode) {
           continue;
+        }
+
+        const shouldShowQueriesEarly =
+          !isRedis &&
+          (isSearchMode || (needsObjectsLoad && !dbNodeRefreshing && showQueriesFolder));
+
+        if (shouldShowQueriesEarly) {
+          appendDatabaseQueryRows(
+            rows,
+            params,
+            conn.config.id,
+            db.name,
+            baseDepth + 2,
+            isSearchMode,
+          );
         }
 
         if (needsObjectsLoad && !dbNodeRefreshing) {
@@ -677,7 +764,20 @@ function appendConnectionSchemaRows(
           continue;
         }
 
-        if (showTablesFolder) {
+        if (isSearchMode && tablesToShow.length > 0) {
+          for (const tbl of tablesToShow) {
+            appendTableObjectRows(
+              rows,
+              params,
+              conn,
+              db.name,
+              tbl,
+              "table",
+              baseDepth + 2,
+              isTablePinned(tableFilter, tbl.name),
+            );
+          }
+        } else if (showTablesFolder) {
           const tblsFolderItem = buildFolderTreeItem(
             tblsFolderId,
             t("database.sidebar.tables"),
@@ -730,7 +830,11 @@ function appendConnectionSchemaRows(
           }
         }
 
-        if (showViewsFolder) {
+        if (isSearchMode && viewsToShow.length > 0) {
+          for (const view of viewsToShow) {
+            appendTableObjectRows(rows, params, conn, db.name, view, "view", baseDepth + 2, undefined);
+          }
+        } else if (showViewsFolder) {
           const viewsFolderItem = buildFolderTreeItem(
             viewsFolderId,
             t("database.sidebar.views"),
@@ -762,7 +866,41 @@ function appendConnectionSchemaRows(
           }
         }
 
-        if (showOtherFolder) {
+        if (!isRedis && !isSearchMode && showQueriesFolder) {
+          appendDatabaseQueryRows(
+            rows,
+            params,
+            conn.config.id,
+            db.name,
+            baseDepth + 2,
+            false,
+          );
+        }
+
+        if (isSearchMode && routinesToShow.length > 0) {
+          for (const routine of routinesToShow) {
+            const routineId = routineNodeId(conn.config.id, db.name, routine.name);
+            const routineItem: SchemaTreeItem = {
+              type: "routine",
+              id: routineId,
+              label: routine.name,
+              connId: conn.config.id,
+              dbName: db.name,
+            };
+            pushNode(rows, {
+              kind: "node",
+              key: routineId,
+              item: routineItem,
+              depth: baseDepth + 2,
+              expanded: false,
+              hasChildren: false,
+              labelClickKind: "table",
+              labelClickConnId: conn.config.id,
+              labelClickDbName: db.name,
+              labelClickTableName: routine.name,
+            });
+          }
+        } else if (showOtherFolder) {
           const otherFolderItem = buildFolderTreeItem(
             otherFolderId,
             t("database.sidebar.other"),

@@ -63,6 +63,14 @@ function resolveAlignedScrollLeft(
   return scrollLeft;
 }
 
+/** 消除 scrollWidth 亚像素偏大导致的「滚到尽头仍可继续横滚」空白（#46 Mac WebView） */
+function clampHorizontalScroll(wrap: HTMLElement): void {
+  const maxLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+  if (wrap.scrollLeft > maxLeft + 0.5) {
+    wrap.scrollLeft = maxLeft;
+  }
+}
+
 export type TableDataGridCanvasBodyHandle = {
   scrollToIndex: (
     index: number,
@@ -195,6 +203,9 @@ export const TableDataGridCanvasBody = forwardRef<
       // 与表头 table 同宽，保证 scrollWidth / maxScrollLeft 一致
       sizerRef.current.style.width = `${Math.max(bundle.snapshot.totalWidth, 1)}px`;
     }
+    if (wrap) {
+      clampHorizontalScroll(wrap);
+    }
     if (wrap && measured && measured.totalWidth > 0) {
       const table = wrap.querySelector<HTMLElement>("table.db-data-table");
       // 拖拽中由表头增量维护 width，避免覆盖
@@ -325,6 +336,7 @@ export const TableDataGridCanvasBody = forwardRef<
     if (!wrap) return;
 
     const onScroll = () => {
+      clampHorizontalScroll(wrap);
       scrollTopRef.current = wrap.scrollTop;
       scrollLeftRef.current = wrap.scrollLeft;
       // 表头行号 transform 同步到滚动帧，避免等 rAF paint 才跟上
@@ -353,6 +365,7 @@ export const TableDataGridCanvasBody = forwardRef<
       if (event.shiftKey && event.deltaY !== 0 && event.deltaX === 0) {
         event.preventDefault();
         wrap.scrollLeft += event.deltaY;
+        clampHorizontalScroll(wrap);
       }
     };
     wrap.addEventListener("wheel", onWheel, { passive: false });

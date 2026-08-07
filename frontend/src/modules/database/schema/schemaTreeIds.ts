@@ -90,6 +90,22 @@ export function databaseOtherFolderId(connId: string, dbName: string) {
   return `other:${connId}:${dbName}`;
 }
 
+export function databaseQueriesFolderId(connId: string, dbName: string) {
+  return `queries:${connId}:${dbName}`;
+}
+
+export function sqlQueryFileNodeId(fileId: string) {
+  return `sql-file:${fileId}`;
+}
+
+export function parseSqlQueryFileNodeId(id: string): { fileId: string } | null {
+  if (!id.startsWith("sql-file:")) {
+    return null;
+  }
+  const fileId = id.slice("sql-file:".length);
+  return fileId ? { fileId } : null;
+}
+
 /** 从刷新节点 id 解析受影响的库（db / tbls / views / other / tbl / view 等）。 */
 export function parseSchemaRefreshDbTarget(
   nodeId: string,

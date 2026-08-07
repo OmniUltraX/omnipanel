@@ -515,6 +515,13 @@
         outline-offset: -1px;
     }
 
+    .sql-file-tree-node__meta {
+        max-width: 42%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     .sql-query-file-tree--root-drop {
         outline: 1px dashed var(--accent, #007aff);
         outline-offset: -2px;
@@ -2889,6 +2896,21 @@
     .log-viewer-panel__xterm-host .xterm-viewport,
     .log-viewer-panel__xterm-host .xterm-scrollable-element {
         height: 100% !important;
+    }
+
+    .log-viewer-panel__xterm-host .xterm .xterm-viewport {
+        overflow: hidden !important;
+        background-color: var(--bg-deeper);
+    }
+
+    .log-viewer-panel__xterm-host .xterm .xterm-scrollable-element {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .log-viewer-panel__xterm-host .xterm .xterm-scrollable-element::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        display: none !important;
     }
 
     .log-viewer-panel__xterm .xterm-cursor {
