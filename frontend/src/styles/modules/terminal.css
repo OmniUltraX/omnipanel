@@ -65,6 +65,7 @@
     }
 
     .term-xterm-wrap .xterm .composition-view {
+        /* 前景色见文件末尾 @layer 外覆盖（须压过 xterm.css 的 #FFF） */
         color: var(--fg);
     }
 
@@ -1791,11 +1792,20 @@
         pointer-events: auto;
     }
 
-    /* 结果卡：允许内容超出 decoration，再由 fit 撑高占位，避免解读被裁切 */
+    /* 结果卡：随内容增高，勿用 100% 撑满占位（会在卡下留白） */
     .term-shell-agent-portal-host:has([data-card-kind="final"]) {
         height: auto;
         max-height: none;
         overflow: visible;
+    }
+
+    /* 询问卡：占位触顶后在卡内滚动 */
+    .term-shell-agent-portal-host:has([data-card-kind="ask"]) {
+        height: 100%;
+        max-height: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .term-shell-agent-deco-card {
@@ -1816,10 +1826,26 @@
         align-self: flex-start;
     }
 
+    .term-shell-agent-deco-card[data-card-kind="ask"] {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        align-self: stretch;
+    }
+
+    .term-shell-agent-deco-card[data-card-kind="final"] {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        align-self: flex-start;
+    }
+
     .term-shell-agent-deco-card--frozen {
         pointer-events: auto;
-        overflow: visible;
-        max-height: none;
+        /* 裁在 decoration 高度内，避免解冻后变高盖住下方新卡 */
+        overflow: hidden;
+        max-height: 100%;
+        box-sizing: border-box;
     }
 
     .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done,
@@ -1830,14 +1856,6 @@
     .term-shell-agent-deco-card--frozen .term-shell-agent-tool * {
         pointer-events: auto;
         cursor: pointer;
-    }
-
-    .term-shell-agent-deco-card--frozen .term-shell-agent-card__note,
-    .term-shell-agent-deco-card--frozen .term-shell-agent-card__desc {
-        white-space: pre-wrap;
-        display: block;
-        -webkit-line-clamp: unset;
-        overflow: visible;
     }
 
     .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done .term-shell-agent-card__note {
@@ -1855,11 +1873,6 @@
         overflow: visible;
         box-sizing: border-box;
         margin: 2px 0;
-    }
-
-    .term-shell-agent-deco-card[data-card-kind="final"] {
-        max-height: none;
-        overflow: visible;
     }
 
     .term-shell-agent-card {
@@ -2014,6 +2027,10 @@
         box-shadow: none;
         overflow: visible;
         max-height: none;
+        /* 勿被父级撑高，否则测高反馈会把占位越撑越大 */
+        flex: 0 0 auto;
+        height: auto;
+        align-self: flex-start;
     }
 
     .term-shell-agent-card__head {
@@ -4514,15 +4531,21 @@ html[data-theme="light"] .term-warp-block--ai.term-warp-block--collapsed:hover {
 }
 
 /*
- * xterm.css 未入 @layer，且写死 .xterm-viewport { background:#000 }。
- * 组件层内覆盖会被未分层样式压过 → 画布缝隙露出左/下黑边。
- * 必须放在 @layer 外，并跟终端主题底色对齐。
+ * xterm.css 未入 @layer，且写死 .xterm-viewport { background:#000 }、
+ * .composition-view { background:#000; color:#FFF }。
+ * 组件层内覆盖会被未分层样式压过 → 画布缝隙露黑边 / 浅色主题下拼音看不见。
+ * 必须放在 @layer 外，并跟终端主题底色与前景对齐。
  */
 .term-xterm-wrap,
 .term-xterm-wrap .xterm,
 .term-xterm-wrap .xterm .xterm-viewport,
 .term-xterm-wrap .xterm .composition-view {
     background-color: var(--bg-deeper);
+}
+
+.term-xterm-wrap .xterm .composition-view {
+    /* 压过 xterm.css 的 color:#FFF；与终端前景一致 */
+    color: #f4f1ed;
 }
 
 html[data-theme="light"] .term-xterm-wrap,
@@ -4533,6 +4556,11 @@ html[data-theme="light"] .term-xterm-wrap .xterm .composition-view {
     background-color: #ffffff;
 }
 
+html[data-theme="light"] .term-xterm-wrap .xterm .composition-view {
+    /* 与 LIGHT_TERMINAL_THEME.foreground 一致 */
+    color: #1d1d1f;
+}
+
 html[data-theme="dark"] .term-xterm-wrap,
 html[data-theme="dark"] .term-xterm-wrap .xterm,
 html[data-theme="dark"] .term-xterm-wrap .xterm .xterm-viewport,
@@ -4541,10 +4569,15 @@ html[data-theme="dark"] .term-xterm-wrap .xterm .composition-view {
     background-color: #1a1717;
 }
 
-/* 直通空提示符灰色占位（decoration，不进 PTY） */
+html[data-theme="dark"] .term-xterm-wrap .xterm .composition-view {
+    /* 与 DARK_TERMINAL_THEME.foreground 一致 */
+    color: #f4f1ed;
+}
+
+/* 直通空提示符灰色占位（decoration，不进 PTY；随主题变灰阶） */
 .term-passthrough-prompt-hint {
-    color: color-mix(in srgb, var(--meta, #8b8680) 88%, transparent);
-    opacity: 0.85;
+    color: #8b8680;
+    opacity: 0.72;
     font-family: inherit;
     font-size: inherit;
     line-height: inherit;
@@ -4557,3 +4590,174 @@ html[data-theme="dark"] .term-xterm-wrap .xterm .composition-view {
     margin: 0;
     background: transparent;
 }
+
+html[data-theme="dark"] .term-passthrough-prompt-hint {
+    color: #9a928a;
+    opacity: 0.55;
+}
+
+/* 直通询问卡：包一层，去掉 UserQuestionForm 默认外边距；内容由外层 deco 滚动 */
+.term-shell-agent-card--ask {
+    padding: 0 0 2px;
+    overflow: visible;
+    max-height: none;
+    height: auto;
+    flex: 0 0 auto;
+    width: 100%;
+    /* 保证底边框完整落在 decoration 内 */
+    box-sizing: border-box;
+    margin-bottom: 2px;
+}
+.term-shell-agent-card--ask [data-slot="user-question-form"] {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    /* 盖过组件自带的 overflow-hidden，滚动交给 portal-host */
+    overflow: visible !important;
+}
+
+/* 直通 Plan：右下角一体折叠面板（贴合 shell-agent 色板） */
+.term-passthrough-plan {
+    position: absolute;
+    right: 10px;
+    bottom: 8px;
+    left: auto;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: min(300px, calc(100% - 20px));
+    max-width: 300px;
+    max-height: min(52vh, 420px);
+    border: 1px solid color-mix(in oklch, var(--border) 85%, var(--accent));
+    border-radius: var(--r-sm);
+    background: color-mix(in oklch, var(--surface) 82%, var(--bg-deeper));
+    box-shadow: 0 6px 18px color-mix(in oklch, var(--bg) 40%, transparent);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow: hidden;
+    pointer-events: auto;
+}
+.term-passthrough-plan.is-done {
+    border-color: color-mix(in oklch, var(--success) 42%, var(--border));
+}
+.term-passthrough-plan.is-fail {
+    border-color: color-mix(in oklch, var(--danger) 42%, var(--border));
+}
+.term-passthrough-plan.is-running {
+    border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+}
+.term-passthrough-plan__bar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 32px;
+    max-height: 36px;
+    padding: 6px 10px;
+    border: none;
+    border-top: 1px solid transparent;
+    background: color-mix(in oklch, var(--bg-deeper) 45%, var(--surface));
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+.term-passthrough-plan.is-expanded .term-passthrough-plan__bar {
+    border-top-color: var(--border-soft);
+}
+.term-passthrough-plan__bar:hover {
+    background: color-mix(in oklch, var(--accent) 8%, var(--surface));
+}
+.term-passthrough-plan__ico {
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.9;
+}
+.term-passthrough-plan.is-done .term-passthrough-plan__ico {
+    color: var(--success);
+}
+.term-passthrough-plan.is-fail .term-passthrough-plan__ico {
+    color: var(--danger);
+}
+.term-passthrough-plan__progress {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--accent);
+}
+.term-passthrough-plan.is-done .term-passthrough-plan__progress {
+    color: var(--success);
+}
+.term-passthrough-plan.is-fail .term-passthrough-plan__progress {
+    color: var(--danger);
+}
+.term-passthrough-plan__detail {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg-2);
+}
+.term-passthrough-plan__toggle {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--fg-2);
+}
+.term-passthrough-plan__panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+    max-height: min(44vh, 360px);
+    background: color-mix(in oklch, var(--surface) 88%, var(--bg-deeper));
+}
+.term-passthrough-plan__panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    background: color-mix(in oklch, var(--bg-deeper) 50%, var(--surface));
+}
+.term-passthrough-plan__panel-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+}
+.term-passthrough-plan__panel-body {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 0;
+}
+/* PlanView 嵌在终端主题里：去掉额外白卡片感 */
+.term-passthrough-plan__panel-body [data-slot="ai-plan-view"] {
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.term-passthrough-plan__panel-body [data-slot="ai-plan-view"] > button {
+    background: transparent !important;
+    border-bottom-color: var(--border-soft) !important;
+}
+.term-passthrough-plan__panel-body [data-slot="ai-plan-view"] > button:hover {
+    background: color-mix(in oklch, var(--accent) 6%, transparent) !important;
+}
+

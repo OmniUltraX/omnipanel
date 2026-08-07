@@ -14,7 +14,7 @@ import {
   getPromptPrefix,
   seedMockTerminal,
 } from "./mockTerminal";
-import { getTerminalTheme } from "./terminalTheme";
+import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme } from "./terminalTheme";
 import { triggerAiDrawerToggle } from "../../hooks/useAiDrawerShortcut";
 
 const isTauriRuntime =
@@ -133,7 +133,7 @@ export function TerminalView({
       fontSize: settings.terminalFontSize,
       fontFamily: `"${settings.terminalFontFamily}", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
       lineHeight: settings.terminalLineHeight,
-      theme: getTerminalTheme(settings.resolved),
+      theme: getTerminalTheme(resolveActiveAppTheme()),
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
@@ -141,6 +141,7 @@ export function TerminalView({
       settings.terminalCopyOnSelect;
 
     term.open(container);
+    applyTerminalTheme(term);
     term.attachCustomKeyEventHandler((e) => triggerAiDrawerToggle(e));
     termRef.current = term;
     seedMockTerminal(term, resource, startup);
@@ -168,9 +169,7 @@ export function TerminalView({
     const unsub = useSettingsStore.subscribe((state, prev) => {
       if (state.resolved !== prev.resolved) {
         const term = termRef.current;
-        if (term) {
-          term.options.theme = getTerminalTheme(state.resolved);
-        }
+        if (term) applyTerminalTheme(term, state.resolved);
       }
     });
     return unsub;

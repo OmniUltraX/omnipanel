@@ -13,6 +13,7 @@ import { cancelPendingInlineTools } from "../inlineToolBridge";
 import { isInlineTerminalToolName } from "../inlineTerminalTool";
 import { getEnterGateFlags, patchEnterGateFlags } from "../passthroughAi/enterGates";
 import { schedulePassthroughPromptHintSync } from "../passthroughAi/passthroughPromptHint";
+import { lineLooksLikeShellPrompt } from "../passthroughAi/screenLine";
 import { writeTerminalRaw } from "../terminalPaneSenders";
 import { markShellPromptReady } from "../terminalShellRecovery";
 import { waitForTerminalOutputIdle } from "../terminalOutputTap";
@@ -22,6 +23,7 @@ import {
   archiveActiveInlineCard,
   beginShellAgentCard,
   clearShellAgentGeometry,
+  clearReanchorPtySync,
   consumeReanchorPtySync,
   getShellAgentGeometry,
   isShellAgentCursorPastPlaceholder,
@@ -35,6 +37,7 @@ import { useShellAgentStore } from "./shellAgentStore";
 import {
   clearShellAgentLastCmd,
   clearShellAgentThinkingFull,
+  clearShellAgentConfirmFreeze,
   markShellAgentConfirmFreeze,
 } from "./thinkingCache";
 
@@ -82,25 +85,22 @@ function scheduleTurnFinishFallback(sessionId: string): void {
   );
 }
 
-/** 收紧：避免任意以 `>` 结尾的输出被当成 prompt */
-function lineLooksLikeShellPrompt(line: string): boolean {
-  const trimmed = line.replace(/\s+$/u, "");
-  if (!trimmed) return false;
-  if (/\S+@\S+.*[$#%]\s*$/u.test(trimmed)) return true;
-  if (/^[$#%]\s*$/u.test(trimmed)) return true;
-  if (/PS\s+\S+>\s*$/u.test(trimmed)) return true;
-  if (/[$#%]\s*$/u.test(trimmed) && trimmed.length <= 120) return true;
-  return false;
-}
-
-/** 光标行及以下是否已有可输入 prompt（仅看可见区，不扫被卡片盖住的上方） */
-function bufferHasPromptAtOrBelowCursor(sessionId: string): boolean {
+/** 活跃卡占位区下方是否已有可输入的空 prompt */
+function bufferHasUsablePromptBelowCard(sessionId: string): boolean {
   try {
     const term = getXterm(sessionId);
     if (!term) return false;
     const buf = term.buffer.active;
     const cursorAbs = buf.baseY + buf.cursorY;
-    for (let y = cursorAbs; y <= cursorAbs + 3 && y < buf.length; y += 1) {
+    const geo = getShellAgentGeometry(sessionId);
+    const cardEnd =
+      geo?.mode === "inline" && geo.anchorLine >= 0
+        ? geo.anchorLine + Math.max(1, geo.rows)
+        : cursorAbs;
+    // 只扫卡底以下，避免把卡内占位/盖住的行误判；也不回退，以免漏判后重复发回车
+    const from = Math.max(0, cardEnd);
+    const to = buf.length - 1;
+    for (let y = from; y <= to; y += 1) {
       const line = buf.getLine(y)?.translateToString(true) ?? "";
       if (lineLooksLikeShellPrompt(line)) return true;
     }
@@ -134,11 +134,66 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+/** 续轮 final 重锚代数：避免并发 settle 落在过期位置 */
+const finalSettleGen = new Map<string, number>();
+
+function cursorOnEmptyShellPrompt(sessionId: string): boolean {
+  const term = getXterm(sessionId);
+  if (!term?.buffer?.active) return false;
+  try {
+    const buf = term.buffer.active;
+    const line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
+    return lineLooksLikeShellPrompt(line);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 命令执行后的 final 卡必须落在「shell 回显 prompt」之后。
+ * 过早重锚会把结果卡插在 date 输出与 prompt 中间。
+ */
+async function settleAfterExecBeforeFinalCard(sessionId: string): Promise<void> {
+  await waitForTerminalOutputIdle(sessionId, 120, 2500);
+  const term = getXterm(sessionId);
+  // 测试用假终端无 buffer：跳过等待，直接放行
+  if (!term?.buffer?.active) return;
+
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline) {
+    if (cursorOnEmptyShellPrompt(sessionId)) return;
+    await sleep(40);
+  }
+}
+
+function scheduleFinalCardAfterExec(
+  sessionId: string,
+  onReady?: () => void,
+): void {
+  const gen = (finalSettleGen.get(sessionId) ?? 0) + 1;
+  finalSettleGen.set(sessionId, gen);
+  void (async () => {
+    await settleAfterExecBeforeFinalCard(sessionId);
+    if (finalSettleGen.get(sessionId) !== gen) return;
+    const agent = useShellAgentStore.getState().get(sessionId);
+    if (!agent || agent.phase === "cancelled" || agent.phase === "idle") {
+      onReady?.();
+      return;
+    }
+    const geo = getShellAgentGeometry(sessionId);
+    if (geo?.decoration && geo.cardKind === "final") {
+      onReady?.();
+      return;
+    }
+    reanchorShellAgentCard(sessionId, "final", onReady);
+  })();
+}
+
 /**
  * 审批通过后的执行前序列（方案 C 纪律）：
  * 1. **不撤流内卡**（approve 不改几何；卡片切「已同意」态，继续盖住占位行）
  * 2. 仅当用户有残留输入才清行，并等回显静默
- * 3. 占位区下方写灰字「已同意」+ prompt 前缀 → 注入命令 echo
+ * 3. 占位区下方画 prompt 前缀 → 注入命令 echo
  */
 export async function prepareShellAgentExecution(
   sessionId: string,
@@ -302,6 +357,11 @@ export function notifyShellAgentStreaming(sessionId: string): void {
   pushShellAgentDebugEvent("streaming", `prev=${prev?.phase ?? "none"}`);
   store.setPhase(sessionId, "streaming");
 
+  // 询问刚提交、正在/即将钉思考卡：禁止误切 final
+  if (pendingReanchorKind.get(sessionId) === "thinking") {
+    return;
+  }
+
   if (!wasAfterExec) return;
 
   // 打字中：记下待重锚 final，结束后由 flush 处理
@@ -311,14 +371,10 @@ export function notifyShellAgentStreaming(sessionId: string): void {
   }
 
   const geo = getShellAgentGeometry(sessionId);
-  if (!geo?.decoration) {
-    reanchorShellAgentCard(sessionId, "final");
-    return;
-  }
-  if (geo.cardKind === "final") return;
+  if (geo?.decoration && geo.cardKind === "final") return;
 
-  // 续轮解读：统一重锚 final（便于占位扩高 + 流式），勿原地 setKind 导致高度锁死裁切
-  reanchorShellAgentCard(sessionId, "final");
+  // 等命令输出 + shell prompt 落定后再钉 final，避免卡插在输出与 prompt 之间
+  scheduleFinalCardAfterExec(sessionId);
 }
 
 /** userTyping 清除后调用：补做跳过的续轮重锚 */
@@ -332,20 +388,32 @@ export function flushPendingShellAgentReanchor(sessionId: string): void {
     return;
   }
   pendingReanchorKind.delete(sessionId);
+  if (kind === "final") {
+    scheduleFinalCardAfterExec(sessionId);
+    return;
+  }
   reanchorShellAgentCard(sessionId, kind);
 }
 
 /**
- * 工具提案到达：thinking 卡封成「思考完成」并重锚为命令卡。
+ * 工具提案到达：thinking/ask 卡封存并重锚为命令卡。
  * 思考→确认统一 reanchor，避免同槽替换后 scrollback 仍留着转圈思考卡。
  */
 export function notifyShellAgentApprovalPending(sessionId: string): void {
   pushShellAgentDebugEvent("approvalPending");
+  // 丢弃过期「已同意」意图，避免把工具条误冻成新命令的已同意卡
+  clearShellAgentConfirmFreeze(sessionId);
   useShellAgentStore.getState().setPhase(sessionId, "awaiting_approval");
   pendingReanchorKind.delete(sessionId);
   const geo = getShellAgentGeometry(sessionId);
   const past = isShellAgentCursorPastPlaceholder(sessionId);
-  if (!geo?.decoration || geo.cardKind === "thinking" || past) {
+  // ask 卡占位很高：必须 reanchor，勿同槽换肤，否则确认卡会留下大片空白
+  if (
+    !geo?.decoration ||
+    geo.cardKind === "thinking" ||
+    geo.cardKind === "ask" ||
+    past
+  ) {
     reanchorShellAgentCard(sessionId, "cmd");
   } else {
     setShellAgentCardKind(sessionId, "cmd");
@@ -357,6 +425,52 @@ export function notifyShellAgentApprovalPending(sessionId: string): void {
   }
 }
 
+/** omni_ask_user：挂起表单，流内展示询问卡 */
+export function notifyShellAgentAskPending(sessionId: string, formId: string): void {
+  pushShellAgentDebugEvent("askPending", formId);
+  const store = useShellAgentStore.getState();
+  store.setPendingAskFormId(sessionId, formId);
+  store.setPhase(sessionId, "awaiting_user_input");
+  pendingReanchorKind.delete(sessionId);
+  const geo = getShellAgentGeometry(sessionId);
+  const past = isShellAgentCursorPastPlaceholder(sessionId);
+  if (!geo?.decoration || geo.cardKind === "thinking" || geo.cardKind === "cmd" || past) {
+    reanchorShellAgentCard(sessionId, "ask");
+  } else {
+    setShellAgentCardKind(sessionId, "ask");
+  }
+  try {
+    getXterm(sessionId)?.scrollToBottom();
+  } catch {
+    // ignore
+  }
+}
+
+/** 询问已提交/跳过：先冻结表单，再钉思考卡（否则续轮会直接出确认卡） */
+export function notifyShellAgentAskResolved(sessionId: string): void {
+  pushShellAgentDebugEvent("askResolved");
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.mode === "inline" && geo.cardKind === "ask" && geo.decoration) {
+    archiveActiveInlineCard(sessionId);
+  }
+  const store = useShellAgentStore.getState();
+  store.setPendingAskFormId(sessionId, null);
+  const cur = store.get(sessionId);
+  if (cur?.phase === "awaiting_user_input") {
+    store.setPhase(sessionId, "streaming");
+  }
+  // 标记「即将/正在钉思考卡」，防止紧随其后的 streaming 误切 final
+  pendingReanchorKind.set(sessionId, "thinking");
+  if (getEnterGateFlags(sessionId).userTyping) {
+    return;
+  }
+  reanchorShellAgentCard(sessionId, "thinking", () => {
+    if (pendingReanchorKind.get(sessionId) === "thinking") {
+      pendingReanchorKind.delete(sessionId);
+    }
+  });
+}
+
 export function notifyShellAgentExecuting(sessionId: string, executing: boolean): void {
   pushShellAgentDebugEvent("executing", String(executing));
   patchEnterGateFlags(sessionId, { agentExecuting: executing });
@@ -364,10 +478,17 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
     sessionId,
     executing ? "executing" : "observing",
   );
-  // 同意后：把确认卡封成「已同意」留在 scrollback，再钉矮槽给工具条，避免同槽顶替留空白
+  // 同意后：把确认卡封成「已同意」留在 scrollback，再钉矮槽给工具条
   if (executing) {
     const geo = getShellAgentGeometry(sessionId);
     if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
+      const live =
+        geo.decoration.element?.innerHTML ??
+        "";
+      // 已在工具条上：禁止再次 mark+reanchor，否则会多冻一张「已同意」
+      if (live.includes("term-shell-agent-tool")) {
+        return;
+      }
       markShellAgentConfirmFreeze(sessionId, "agreed");
       reanchorShellAgentCard(sessionId, "cmd", undefined, 2);
     }
@@ -419,19 +540,28 @@ function hasPendingShellTool(sessionId: string): boolean {
   );
 }
 
+function hasPendingAskForm(sessionId: string): boolean {
+  const cur = useShellAgentStore.getState().get(sessionId);
+  if (!cur?.pendingAskFormId) return false;
+  return cur.phase === "awaiting_user_input";
+}
+
 /** 每轮只归还 prompt 一次，避免多个 `root@host:~#` 堆叠 */
 const promptReleasedForTurn = new Map<string, number>();
+/** release 飞行中互斥，防止 fitStable / fallback 竞态双发 */
+const releaseInFlight = new Set<string>();
 
 /** 环结束：final 卡保留在流内 → 仅在重锚导致本地/PTY 脱节时同步一次 prompt */
 function releaseShellAgentToPrompt(sessionId: string): void {
   const agent = useShellAgentStore.getState().get(sessionId);
   const turn = agent?.turn ?? 0;
-  if (promptReleasedForTurn.get(sessionId) === turn) {
+  if (promptReleasedForTurn.get(sessionId) === turn || releaseInFlight.has(sessionId)) {
     useShellAgentStore.getState().setPhase(sessionId, "idle");
     patchEnterGateFlags(sessionId, { agentExecuting: false });
     return;
   }
   promptReleasedForTurn.set(sessionId, turn);
+  releaseInFlight.add(sessionId);
 
   useShellAgentStore.getState().setPhase(sessionId, "idle");
   patchEnterGateFlags(sessionId, { agentExecuting: false });
@@ -451,25 +581,34 @@ function releaseShellAgentToPrompt(sessionId: string): void {
     });
   };
 
-  // 等 PTY 可能迟到的 prompt 落盘，再决定要不要发 \r\n，避免双 prompt
-  void waitForTerminalOutputIdle(sessionId, 80, 500).then(() => {
-    if (promptReleasedForTurn.get(sessionId) !== turn) return;
+  // 等 PTY 可能迟到的 prompt 落盘，再决定要不要发换行，避免双 prompt
+  void waitForTerminalOutputIdle(sessionId, 150, 1000)
+    .then(async () => {
+      if (promptReleasedForTurn.get(sessionId) !== turn) return;
 
-    let needPtyEnter = consumeReanchorPtySync(sessionId);
-    // 重锚盖住了旧 prompt：需要一次回车拉新行；若光标行及以下已有 prompt 则不再发
-    if (needPtyEnter && bufferHasPromptAtOrBelowCursor(sessionId)) {
-      needPtyEnter = false;
-    }
+      // 命令跑完后常见：卡下已有 prompt。再扫一次；没有才发回车
+      let needPtyEnter = consumeReanchorPtySync(sessionId);
+      if (bufferHasUsablePromptBelowCard(sessionId)) {
+        needPtyEnter = false;
+        clearReanchorPtySync(sessionId);
+      }
 
-    if (needPtyEnter) {
-      writeTerminalRaw(sessionId, "\r\n");
-    }
-    finishFocus();
-  });
+      if (needPtyEnter) {
+        // 只发 \n：PTY 常见 ICRNL 会把 \r 也变成 \n，\r\n 等于提交两次 → 双 prompt
+        writeTerminalRaw(sessionId, "\n");
+        await waitForTerminalOutputIdle(sessionId, 100, 800);
+      }
+      finishFocus();
+    })
+    .finally(() => {
+      releaseInFlight.delete(sessionId);
+    });
 }
 
 function clearPromptReleaseGuard(sessionId: string): void {
   promptReleasedForTurn.delete(sessionId);
+  finalSettleGen.delete(sessionId);
+  releaseInFlight.delete(sessionId);
 }
 
 /** final 卡高度稳定后由 ShellAgentOverlay 回调 */
@@ -496,19 +635,24 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
     useShellAgentStore.getState().setPhase(sessionId, "awaiting_approval");
     return;
   }
+  if (hasPendingAskForm(sessionId)) {
+    pushShellAgentDebugEvent("turnFinished deferred", "pending ask");
+    useShellAgentStore.getState().setPhase(sessionId, "awaiting_user_input");
+    return;
+  }
 
   const geo = getShellAgentGeometry(sessionId);
   const past = isShellAgentCursorPastPlaceholder(sessionId);
 
   // 仍停在思考卡：封成「思考完成」并重锚 final，避免转圈残留
   if (geo?.decoration && geo.cardKind === "thinking") {
-    reanchorShellAgentCard(sessionId, "final", () => scheduleTurnFinishFallback(sessionId));
+    scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
     return;
   }
 
-  // 命令输出已在卡下方：原地改 final 会盖住输出 → 重锚到当前行
+  // 命令输出已在卡下方：原地改 final 会盖住输出 → 等 prompt 后再重锚
   if (geo?.decoration && past && geo.cardKind === "cmd") {
-    reanchorShellAgentCard(sessionId, "final", () => scheduleTurnFinishFallback(sessionId));
+    scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
     return;
   }
 

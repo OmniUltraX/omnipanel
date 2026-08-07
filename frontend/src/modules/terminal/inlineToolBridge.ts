@@ -383,7 +383,7 @@ export async function approveInlineTerminalTool(
     notifyShellAgentExecuting(pending.sessionId, true);
     patchEnterGateFlags(pending.sessionId, { agentExecuting: true });
 
-    // 方案 C 执行序列：撤流内卡片 → (有残留输入才清行并等静默) → 灰字已同意 → 画 prompt → 注入
+    // 方案 C 执行序列：不撤流内卡 → (有残留输入才清行并等静默) → 画 prompt → 注入
     const { prepareShellAgentExecution } = await import("./shellAgent/loop");
     await prepareShellAgentExecution(pending.sessionId, command);
 

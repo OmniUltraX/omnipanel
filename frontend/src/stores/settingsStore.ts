@@ -770,7 +770,8 @@ export function initSettings() {
   applyDocumentLocale(state.locale);
   applyDocumentUiScale(state.uiScale);
   applyDocumentAccentColor(state.accentColor);
-  applyDocumentTheme(state.theme);
+  const resolved = applyDocumentTheme(state.theme);
+  useSettingsStore.setState({ resolved });
 
   // 同步持久化的 tmux 模式偏好到后端（后端为内存态，需每次启动同步）
   void import("../ipc/bindings").then(({ commands }) =>

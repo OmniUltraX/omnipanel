@@ -8,6 +8,7 @@
  * 4. decoration 不可用 → 无活跃卡（detached），仅流内 xterm decoration，**无底部浮层**。
  */
 import type { IDecoration, IMarker, Terminal } from "@xterm/xterm";
+import { lineLooksLikeShellPrompt } from "../passthroughAi/screenLine";
 import { getXterm } from "../xtermRegistry";
 import {
   buildAgreedCmdFrozenHtml,
@@ -20,7 +21,7 @@ import {
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
 
-export type ShellAgentCardKind = "thinking" | "cmd" | "final";
+export type ShellAgentCardKind = "thinking" | "cmd" | "ask" | "final";
 export type ShellAgentGeometryMode = "inline" | "detached";
 
 export type ShellAgentGeometry = {
@@ -41,11 +42,19 @@ export type ShellAgentGeometry = {
 
 const MIN_CARD_ROWS = 1;
 const MAX_CARD_ROWS = 24;
+/** 询问表单可更高，但仍不超过终端可视行数，超出部分靠卡内滚动 */
+const MAX_ASK_CARD_ROWS = 48;
+/** 最终解读可写入更多 scrollback 行，避免长报告被裁切 */
+const MAX_FINAL_CARD_ROWS = 96;
 
 /** 建卡时的最小占位行数（实际高度由 fitShellAgentCardToContent 测量） */
 export function minCardRowsFor(kind?: ShellAgentCardKind): number {
   // 思考卡固定矮卡约 2 行内容，占位至少 3 行以免被 decoration 裁切看不见
   if (kind === "thinking") return 3;
+  // 询问表单通常多行，预留更高占位
+  if (kind === "ask") return 6;
+  // 结果卡按内容 fit；从 1 行起跳，避免起步过高留下空白带
+  if (kind === "final") return 1;
   return MIN_CARD_ROWS;
 }
 
@@ -63,14 +72,44 @@ function terminalRowHeightPx(sessionId: string): number {
   return Math.max(1, viewHeight / term.rows);
 }
 
+function maxCardRowsFor(
+  sessionId: string,
+  kind: ShellAgentCardKind | null | undefined,
+): number {
+  const term = getXterm(sessionId);
+  const viewportCap = term
+    ? Math.max(MIN_CARD_ROWS, (term.rows || MAX_CARD_ROWS) - 1)
+    : MAX_CARD_ROWS;
+  if (kind === "ask") {
+    return Math.min(MAX_ASK_CARD_ROWS, viewportCap);
+  }
+  // final：允许超过一屏，写入 scrollback，避免长解读被 24 行天花板裁死
+  if (kind === "final") {
+    return Math.min(
+      MAX_FINAL_CARD_ROWS,
+      Math.max(viewportCap, term?.rows ? term.rows * 2 : MAX_FINAL_CARD_ROWS),
+    );
+  }
+  return Math.min(MAX_CARD_ROWS, viewportCap);
+}
+
 /** 将 portal 内容像素高度换算为 decoration 占位行数 */
 export function contentHeightToCardRows(
   sessionId: string,
   contentHeightPx: number,
+  kind?: ShellAgentCardKind | null,
 ): number {
   const rowH = terminalRowHeightPx(sessionId);
-  const rows = Math.ceil(contentHeightPx / rowH);
-  return Math.min(MAX_CARD_ROWS, Math.max(MIN_CARD_ROWS, rows));
+  const raw = contentHeightPx / rowH;
+  // final：略减再 ceil，抵消测高偏大/亚像素，少占空行（多占的行缩 decoration 也清不掉 buffer）
+  const rows =
+    kind === "final"
+      ? Math.ceil(Math.max(0, raw - 0.35))
+      : Math.ceil(raw);
+  // ask：多留 1 行防底边裁切；final 不再额外 +1
+  const pad = kind === "ask" ? 1 : 0;
+  const hardMax = maxCardRowsFor(sessionId, kind);
+  return Math.min(hardMax, Math.max(MIN_CARD_ROWS, rows + pad));
 }
 
 const geometries = new Map<string, ShellAgentGeometry>();
@@ -219,6 +258,35 @@ function annotateFrozenToolHtml(sessionId: string, liveHtml: string): string {
   );
 }
 
+/** 询问卡冻结：保留提交前完整表单高度/选项，并标成已回答 */
+function annotateFrozenAskHtml(sessionId: string, liveHtml: string): string {
+  let html = liveHtml.trim();
+  if (!html) return html;
+  html = html.replace(
+    /\bdata-status="pending"/g,
+    'data-status="answered"',
+  );
+  // 头部状态文案（中/英）
+  html = html
+    .replace(/>\s*待回答\s*</g, ">已回答<")
+    .replace(/>\s*Pending\s*</gi, ">Answered<");
+  // 冻结后不可再点提交/跳过
+  html = html.replace(/<button\b(?![^>]*\bdisabled\b)/gi, "<button disabled");
+  if (/\bdata-shell-agent-frozen-ask=/.test(html)) {
+    return html;
+  }
+  return html.replace(
+    /<div(\s+)([^>]*class="[^"]*term-shell-agent-card--ask[^"]*"[^>]*)>/,
+    (full, sp, attrs) => {
+      if (/\bdata-shell-agent-frozen-ask=/.test(attrs)) return full;
+      const sid = /\bdata-session-id=/.test(attrs)
+        ? ""
+        : ` data-session-id="${sessionId.replace(/"/g, "&quot;")}"`;
+      return `<div${sp}${attrs} data-shell-agent-frozen-ask="1"${sid}>`;
+    },
+  );
+}
+
 function resolveFrozenHtml(
   sessionId: string,
   cardKind: ShellAgentCardKind | null,
@@ -230,10 +298,13 @@ function resolveFrozenHtml(
       fullText: getShellAgentThinkingFull(sessionId),
     });
   }
+  if (cardKind === "ask") {
+    return annotateFrozenAskHtml(sessionId, liveHtml);
+  }
   if (cardKind === "cmd") {
     const last = getShellAgentLastCmd(sessionId);
     const freezeKind = consumeShellAgentConfirmFreeze(sessionId);
-    // 同意/拒绝瞬间：无论 live 是否已切到工具条，都冻成与待确认同布局的态
+    // 仅在明确同意/拒绝意图下冻成终态；禁止把待确认/工具条误冻成「已同意」
     if (freezeKind === "agreed") {
       const transformed = transformPendingConfirmToAgreedHtml(liveHtml, {
         sessionId,
@@ -266,24 +337,12 @@ function resolveFrozenHtml(
         });
       }
     }
-    // 后续归档：现场是工具条 → 原样冻结
+    // 工具条原样冻结
     if (liveHtml.includes("term-shell-agent-tool")) {
       return annotateFrozenToolHtml(sessionId, liveHtml);
     }
-    const transformed = transformPendingConfirmToAgreedHtml(liveHtml, {
-      sessionId,
-      command: last?.command,
-      toolId: last?.toolId,
-    });
-    if (transformed) return transformed;
-    if (last?.command) {
-      return buildAgreedCmdFrozenHtml({
-        sessionId,
-        command: last.command,
-        toolId: last.toolId,
-        description: last.description,
-      });
-    }
+    // 待确认等其它 cmd：原样保留，绝不默认升成「已同意」
+    return liveHtml;
   }
   return liveHtml;
 }
@@ -554,6 +613,37 @@ function cursorPastPlaceholderEnd(term: Terminal, geo: ShellAgentGeometry): bool
   }
 }
 
+/** 占位区正下方是否已是空 shell prompt（再写 \r\n 会顶开造成空白） */
+function promptSittingJustBelowCard(term: Terminal, geo: ShellAgentGeometry): boolean {
+  if (geo.anchorLine < 0) return false;
+  try {
+    const buf = term.buffer?.active;
+    if (!buf) return false;
+    const cursorAbs = buf.baseY + buf.cursorY;
+    const from = geo.anchorLine + Math.max(1, geo.rows);
+    const to = Math.min(buf.length - 1, Math.max(from, cursorAbs) + 2);
+    for (let y = from; y <= to; y += 1) {
+      const line = buf.getLine(y)?.translateToString(true) ?? "";
+      if (lineLooksLikeShellPrompt(line)) return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function cursorLineLooksLikeEmptyPrompt(term: Terminal): boolean {
+  try {
+    const buf = term.buffer?.active;
+    if (!buf) return false;
+    const line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
+    return lineLooksLikeShellPrompt(line);
+  } catch {
+    return false;
+  }
+}
+
+
 /**
  * 按目标行数调整占位区（可扩可缩 decoration 高度）。
  * 命令已回显、光标离开占位区后禁止再 write \\r\\n，避免把 prompt 顶乱。
@@ -581,10 +671,20 @@ export function resizeShellAgentCard(
     return;
   }
 
-  const target = Math.min(MAX_CARD_ROWS, Math.max(MIN_CARD_ROWS, targetRows));
+  const target = Math.min(
+    maxCardRowsFor(sessionId, prev.cardKind),
+    Math.max(MIN_CARD_ROWS, targetRows),
+  );
   const pastPlaceholder = cursorPastPlaceholderEnd(term, prev);
+  // ask / final：允许越过光标限制继续扩高（表单/解读不能卡死在矮占位）
+  const allowGrowPastCursor =
+    prev.cardKind === "ask" || prev.cardKind === "final";
+  // 卡下已是空 prompt：再写 \r\n 会把 prompt 顶开，留下卡下空白带
+  const promptBelow = promptSittingJustBelowCard(term, prev);
   const effectiveTarget =
-    pastPlaceholder && target > prev.rows ? prev.rows : target;
+    pastPlaceholder && target > prev.rows && !allowGrowPastCursor
+      ? prev.rows
+      : target;
 
   if (effectiveTarget === prev.rows) {
     onReady?.();
@@ -592,7 +692,12 @@ export function resizeShellAgentCard(
   }
 
   const diff = effectiveTarget - prev.rows;
-  if (diff > 0 && !pastPlaceholder) {
+  if (diff > 0 && promptBelow) {
+    // 不扩占位，避免顶开下方 prompt；内容略高时由 portal overflow 可见
+    onReady?.();
+    return;
+  }
+  if (diff > 0 && (!pastPlaceholder || allowGrowPastCursor)) {
     term.write("\r\n".repeat(diff));
   }
 
@@ -636,7 +741,8 @@ export function fitShellAgentCardToContent(
   contentHeightPx: number,
   onStable?: () => void,
 ): void {
-  const rows = contentHeightToCardRows(sessionId, contentHeightPx);
+  const prevKind = geometries.get(sessionId)?.cardKind ?? null;
+  const rows = contentHeightToCardRows(sessionId, contentHeightPx, prevKind);
   const prevTimer = fitTimers.get(sessionId);
   if (prevTimer) clearTimeout(prevTimer);
   fitTimers.set(
@@ -645,13 +751,14 @@ export function fitShellAgentCardToContent(
       fitTimers.delete(sessionId);
       const prev = geometries.get(sessionId);
       const term = getXterm(sessionId);
-      // 光标已在卡下方：非 final 禁止再写 \r\n（双 prompt）；final 解读必须能撑开
+      // 光标已在卡下方：非 final/ask 禁止再写 \r\n（双 prompt）；ask/final 必须能撑开
       if (
         prev &&
         term &&
         cursorPastPlaceholderEnd(term, prev) &&
         rows > prev.rows &&
-        prev.cardKind !== "final"
+        prev.cardKind !== "final" &&
+        prev.cardKind !== "ask"
       ) {
         onStable?.();
         return;
@@ -719,61 +826,71 @@ export function reanchorShellAgentCard(
   const frozenHtml = resolveFrozenHtml(sessionId, oldKind, liveHtml);
 
   const rows = Math.min(
-    MAX_CARD_ROWS,
+    maxCardRowsFor(sessionId, kind),
     Math.max(MIN_CARD_ROWS, rowsOverride ?? minCardRowsFor(kind)),
   );
 
-  let marker: IMarker | null = null;
-  try {
-    marker = term.registerMarker(0);
-  } catch {
-    marker = null;
-  }
-  if (!marker || marker.isDisposed) {
-    onReady?.();
-    return;
-  }
-
-  term.write("\r\n".repeat(rows), () => {
-    const decoration = registerCardDecoration(term, marker!, rows, indentCols);
-    if (!decoration) {
-      try {
-        marker!.dispose();
-      } catch {
-        // ignore
-      }
+  const placeCard = () => {
+    let marker: IMarker | null = null;
+    try {
+      marker = term.registerMarker(0);
+    } catch {
+      marker = null;
+    }
+    if (!marker || marker.isDisposed) {
       onReady?.();
       return;
     }
 
-    // 原子切换到新卡（保持 inline，卡片不中断）
-    setGeometry(sessionId, {
-      ...freshGeometry({
-        cardKind: kind,
-        promptIndentCols: indentCols,
-        promptPrefix,
-        query,
-        version: version + 1,
-      }),
-      mode: "inline",
-      marker,
-      decoration,
-      rows,
-      anchorLine: marker!.line,
-    });
-    markReanchorNeedsPtySync(sessionId);
+    term.write("\r\n".repeat(rows), () => {
+      const decoration = registerCardDecoration(term, marker!, rows, indentCols);
+      if (!decoration) {
+        try {
+          marker!.dispose();
+        } catch {
+          // ignore
+        }
+        onReady?.();
+        return;
+      }
 
-    // 旧卡冻结进 scrollback（不阻断新卡）
-    if (oldDecoration) {
-      if (oldMarker) {
-        pushArchived(sessionId, { decoration: oldDecoration, marker: oldMarker });
+      // 原子切换到新卡（保持 inline，卡片不中断）
+      setGeometry(sessionId, {
+        ...freshGeometry({
+          cardKind: kind,
+          promptIndentCols: indentCols,
+          promptPrefix,
+          query,
+          version: version + 1,
+        }),
+        mode: "inline",
+        marker,
+        decoration,
+        rows,
+        anchorLine: marker!.line,
+      });
+      markReanchorNeedsPtySync(sessionId);
+
+      // 旧卡冻结进 scrollback（不阻断新卡）
+      if (oldDecoration) {
+        if (oldMarker) {
+          pushArchived(sessionId, { decoration: oldDecoration, marker: oldMarker });
+        }
+        if (frozenHtml) {
+          injectFrozenCardSnapshot(oldDecoration, frozenHtml);
+        }
       }
-      if (frozenHtml) {
-        injectFrozenCardSnapshot(oldDecoration, frozenHtml);
-      }
-    }
-    onReady?.();
-  });
+      onReady?.();
+    });
+  };
+
+  // final：若光标停在命令结束后的空 prompt 上，先本地换行再钉卡，
+  // 否则 decoration 会盖住该 prompt，或卡插在输出与迟到 prompt 之间。
+  if (kind === "final" && cursorLineLooksLikeEmptyPrompt(term)) {
+    term.write("\r\n", () => placeCard());
+    return;
+  }
+  placeCard();
 }
 
 /** 重锚后是否需要在 release 时向 PTY 发一次 \r\n 拉出新 prompt */
@@ -867,19 +984,12 @@ export function paintShellAgentPromptPrefix(sessionId: string): void {
   term.write(`\x1b[32m${prefix}\x1b[0m`);
 }
 
-/** approve 后在光标行写灰字「已同意」行（1 行伪造，随流留存） */
-export function writeShellAgentAgreedLine(sessionId: string, command: string): void {
-  const term = getXterm(sessionId);
-  if (!term) return;
-  const oneLine = command.replace(/\s+/g, " ").trim();
-  term.write(`\x1b[90m✓ 已同意 · ${oneLine}\x1b[0m\r\n`);
-}
-
 /**
  * approve 执行前的回显序列（只顺序写，不绝对定位）。
- * 流内卡仍盖住占位行；光标在占位区正下方，直接写灰字行 + prompt 前缀。
+ * 流内卡仍盖住占位行；光标在占位区正下方，画 prompt 前缀后由真正命令 echo 接上。
+ * 不再写「✓ 已同意 · …」灰字行：确认卡已表达同意，重复输出无意义。
  */
-export function prepareShellAgentEcho(sessionId: string, command: string): void {
+export function prepareShellAgentEcho(sessionId: string, _command: string): void {
   const term = getXterm(sessionId);
   if (!term) return;
 
@@ -898,6 +1008,5 @@ export function prepareShellAgentEcho(sessionId: string, command: string): void 
       term.write("\r\n");
     }
   }
-  writeShellAgentAgreedLine(sessionId, command);
   paintShellAgentPromptPrefix(sessionId);
 }

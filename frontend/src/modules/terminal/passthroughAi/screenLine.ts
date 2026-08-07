@@ -37,12 +37,29 @@ export function readActiveTerminalLine(term: XtermLike): string {
 }
 
 /**
+ * 当前行是否像「等待输入」的 shell 主提示符（空正文）。
+ * 收紧：避免任意以 `>` 结尾的输出被当成 prompt；空行不算。
+ */
+export function lineLooksLikeShellPrompt(line: string): boolean {
+  const trimmed = line.replace(/\s+$/u, "");
+  if (!trimmed) return false;
+  if (/\S+@\S+.*[$#%]\s*$/u.test(trimmed)) return true;
+  if (/^[$#%]\s*$/u.test(trimmed)) return true;
+  if (/PS\s+\S+>\s*$/u.test(trimmed)) return true;
+  if (/[$#%]\s*$/u.test(trimmed) && trimmed.length <= 120) return true;
+  return false;
+}
+
+/**
  * 粗剥提示符：取最后一个 $/#/>/% 之后的内容；若无分隔符则整行。
- * 对 `user@host:~# 当前的时间` 这类行有效。
+ * 对 `user@host:~# 当前的时间` / `user@host:~#`（# 后无空格）均有效。
  */
 export function stripShellPromptPrefix(line: string): string {
   const trimmed = line.trim();
   if (!trimmed) return "";
+  // 光标停在空提示符上时，行尾就是 #/$，缓冲区常无尾随空格
+  if (lineLooksLikeShellPrompt(trimmed)) return "";
+
   const markers = ["# ", "$ ", "% ", "> "];
   let cut = -1;
   for (const m of markers) {
@@ -52,9 +69,11 @@ export function stripShellPromptPrefix(line: string): string {
   if (cut > 0) {
     return trimmed.slice(cut).trim();
   }
-  // 无空格标记时：形如 user@host:~#cmd
-  const m = /^(?:.*?)[$#%>]\s+/.exec(trimmed);
-  if (m) return trimmed.slice(m[0].length).trim();
+  // 无空格标记：user@host:~#cmd / user@host:~#你好
+  const m = /^(?:.*?)[$#%>]\s*/.exec(trimmed);
+  if (m && m[0].length < trimmed.length) {
+    return trimmed.slice(m[0].length).trim();
+  }
   return trimmed;
 }
 

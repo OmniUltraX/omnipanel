@@ -141,7 +141,11 @@ import {
 } from "../modules/terminal/terminalRunStateStore";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
 import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
-import { getTerminalTheme } from "../modules/terminal/terminalTheme";
+import {
+  applyTerminalTheme,
+  getTerminalTheme,
+  resolveActiveAppTheme,
+} from "../modules/terminal/terminalTheme";
 import { useModuleVisibility } from "../lib/moduleVisibility";
 
 type TerminalInputBinding = { dispose: () => void };
@@ -215,6 +219,19 @@ function bindTerminalInputMode(
       return false;
     });
   } else {
+    // IME 组词：拼音未上屏时立刻藏灰字提示（onData 要等 compositionend 才有）
+    const textarea = term.textarea;
+    const onImeCompositionStart = (): void => {
+      patchEnterGateFlags(sessionId, { imeComposing: true });
+      clearPassthroughPromptHint(sessionId);
+    };
+    const onImeCompositionEnd = (): void => {
+      patchEnterGateFlags(sessionId, { imeComposing: false });
+      refreshPromptHint();
+    };
+    textarea?.addEventListener("compositionstart", onImeCompositionStart);
+    textarea?.addEventListener("compositionend", onImeCompositionEnd);
+
     // 直通模式：Esc 取消 Agent；Enter 可能入环；其余键进 PTY
     term.attachCustomKeyEventHandler((e) => {
       if (triggerAiDrawerToggle(e)) return false;
@@ -304,15 +321,22 @@ function bindTerminalInputMode(
     });
     requestAnimationFrame(() => term.focus());
     refreshPromptHint();
+
+    return {
+      dispose: () => {
+        inputDisposable?.dispose();
+        textarea?.removeEventListener("compositionstart", onImeCompositionStart);
+        textarea?.removeEventListener("compositionend", onImeCompositionEnd);
+        patchEnterGateFlags(sessionId, { imeComposing: false });
+        // 切到命令栏时清掉提示；会话 dispose 另有 clearPassthroughPromptHint
+        clearPassthroughPromptHint(sessionId);
+      },
+    };
   }
 
   return {
     dispose: () => {
       inputDisposable?.dispose();
-      if (mode === "interactive") {
-        // 切到命令栏时清掉提示；会话 dispose 另有 clearPassthroughPromptHint
-        clearPassthroughPromptHint(sessionId);
-      }
     },
   };
 }
@@ -1242,10 +1266,7 @@ export function useTerminal(
             runState === "ai-tool-running" ||
             runState === "full-terminal",
         });
-        schedulePassthroughPromptHintSync(sessionId, {
-          enabled: inputModeRef.current === "interactive",
-          lineEmpty: lineBufferRef.current.text.trim().length === 0,
-        });
+        // 灰色提示同步改由 onWriteParsed（write 落盘后）触发，避免在 term.write 完成前误清
 
         if (
           isWarpDisplay(sessionId) &&
@@ -1640,7 +1661,7 @@ export function useTerminal(
           fontSize: settings.terminalFontSize,
           fontFamily: `"${settings.terminalFontFamily}", "IBM Plex Mono", ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
           lineHeight: settings.terminalLineHeight,
-          theme: getTerminalTheme(settings.resolved),
+          theme: getTerminalTheme(resolveActiveAppTheme()),
           allowProposedApi: true,
           scrollback: settings.terminalScrollback,
           // 与 FitAddon / Viewport 预留宽度一致，避免 screen 与 scrollable 差一截
@@ -1704,6 +1725,8 @@ export function useTerminal(
 
         term.open(container!);
         fitAddon.fit();
+        // open/WebGL 后再刷一次，对齐当前 data-theme（防水合竞态卡浅色底）
+        applyTerminalTheme(term);
 
         setupShellIntegration(term);
 
@@ -1748,6 +1771,16 @@ export function useTerminal(
         termRef.current = term;
         registerXterm(sessionId, term);
         useTerminalStore.getState().setTerminal(sessionId, term);
+
+        // PTY 输出 parse 完成后再刷灰色提示（必须在 write 之后，否则读不到 prompt）
+        disposables.push(
+          term.onWriteParsed(() => {
+            schedulePassthroughPromptHintSync(sessionId, {
+              enabled: inputModeRef.current === "interactive",
+              lineEmpty: lineBufferRef.current.text.trim().length === 0,
+            });
+          }),
+        );
 
         // onCommand 仅旁路通知，不可覆盖 bindTerminalInputMode 的 customKeyEventHandler
         //（否则直通 NL Enter 拦截会失效）。在 onData 路径外用独立订阅：
@@ -2058,14 +2091,12 @@ export function useTerminal(
     return () => window.removeEventListener("omnipanel-terminal-scroll", handler);
   }, [sessionId]);
 
-  // 主题变化时动态更新终端主题，避免浅色主题下终端仍为深色
+  // 主题变化时动态更新终端主题，避免浅色主题下终端仍为深色（或反向卡白底）
   useEffect(() => {
     const unsub = useSettingsStore.subscribe((state, prev) => {
       if (state.resolved !== prev.resolved) {
         const term = termRef.current;
-        if (term) {
-          term.options.theme = getTerminalTheme(state.resolved);
-        }
+        if (term) applyTerminalTheme(term, state.resolved);
       }
     });
     return unsub;

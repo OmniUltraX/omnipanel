@@ -1,9 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
+  lineLooksLikeShellPrompt,
   promptPrefixEndIndex,
   splitPromptAndBody,
   stripShellPromptPrefix,
 } from "./screenLine";
+
+describe("lineLooksLikeShellPrompt", () => {
+  it("识别 bash root 主提示符", () => {
+    expect(lineLooksLikeShellPrompt("root@iZ2ze6kzua54dfh8v7jxo6Z:~#")).toBe(true);
+    expect(lineLooksLikeShellPrompt("root@host:~# ")).toBe(true);
+  });
+
+  it("空行 / 无提示符不算", () => {
+    expect(lineLooksLikeShellPrompt("")).toBe(false);
+    expect(lineLooksLikeShellPrompt("   ")).toBe(false);
+    expect(lineLooksLikeShellPrompt("Connecting...")).toBe(false);
+  });
+
+  it("已有正文的提示行不算等待输入", () => {
+    // 带正文时末尾不是提示符符，启发式应返回 false
+    expect(lineLooksLikeShellPrompt("root@host:~# ls")).toBe(false);
+  });
+});
 
 describe("stripShellPromptPrefix", () => {
   it("剥掉 bash root 提示符", () => {
@@ -16,6 +35,16 @@ describe("stripShellPromptPrefix", () => {
 
   it("无提示符时原样", () => {
     expect(stripShellPromptPrefix("当前的时间")).toBe("当前的时间");
+  });
+
+  it("空提示符且 # 后无空格 → 正文为空", () => {
+    expect(stripShellPromptPrefix("root@iZm5edx67vmzvg5n6u5klpZ:~#")).toBe("");
+    expect(stripShellPromptPrefix("root@host:~#")).toBe("");
+    expect(stripShellPromptPrefix("admin@host:~$")).toBe("");
+  });
+
+  it("无空格分隔的正文也能剥", () => {
+    expect(stripShellPromptPrefix("root@host:~#你好")).toBe("你好");
   });
 });
 

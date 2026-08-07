@@ -131,7 +131,7 @@ describe("notifyShellAgentStreaming", () => {
     expect(getShellAgentGeometry(SID)?.mode).toBe("inline");
   });
 
-  it("续轮 streaming：切到 final 卡以便解读流式出现", () => {
+  it("续轮 streaming：等 settle 后切到 final 卡以便解读流式出现", async () => {
     useShellAgentStore.getState().ensure(SID);
     useShellAgentStore.getState().setPhase(SID, "observing");
     beginShellAgentCard(SID, {
@@ -144,7 +144,9 @@ describe("notifyShellAgentStreaming", () => {
     notifyShellAgentStreaming(SID);
 
     expect(useShellAgentStore.getState().get(SID)?.phase).toBe("streaming");
-    expect(getShellAgentGeometry(SID)?.cardKind).toBe("final");
+    await vi.waitFor(() => {
+      expect(getShellAgentGeometry(SID)?.cardKind).toBe("final");
+    });
   });
 });
 
@@ -276,9 +278,9 @@ describe("notifyShellAgentRejected", () => {
     expect(useShellAgentStore.getState().get(SID)?.phase).toBe("idle");
     expect(getShellAgentGeometry(SID)?.decoration).toBeNull();
 
-    // release 异步等 idle 后发 \r\n
+    // release 异步等 idle 后发 \n
     await vi.waitFor(() => {
-      expect(writeTerminalRaw).toHaveBeenCalledWith(SID, "\r\n");
+      expect(writeTerminalRaw).toHaveBeenCalledWith(SID, "\n");
     });
   });
 });

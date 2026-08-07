@@ -7,7 +7,7 @@ import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../../../ipc/events";
 import { unwrapCommand } from "../../../ipc/result";
 import { safeTauriUnlisten } from "../../../lib/safeTauriUnlisten";
 import { useSettingsStore } from "../../../stores/settingsStore";
-import { getTerminalTheme } from "../../../modules/terminal/terminalTheme";
+import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme } from "../../../modules/terminal/terminalTheme";
 
 function toBytes(data: string): number[] {
   return Array.from(new TextEncoder().encode(data));
@@ -43,7 +43,7 @@ export function useDockerHostShellTerminal(
       fontSize: settings.terminalFontSize,
       fontFamily: `"${settings.terminalFontFamily}", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
       lineHeight: settings.terminalLineHeight,
-      theme: getTerminalTheme(settings.resolved),
+      theme: getTerminalTheme(resolveActiveAppTheme()),
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
@@ -51,11 +51,12 @@ export function useDockerHostShellTerminal(
     term.loadAddon(fitAddon);
     term.open(mount);
     fitAddon.fit();
+    applyTerminalTheme(term);
 
     // 主题变化时动态更新终端主题
     const unsubTheme = useSettingsStore.subscribe((state, prev) => {
       if (state.resolved !== prev.resolved) {
-        term.options.theme = getTerminalTheme(state.resolved);
+        applyTerminalTheme(term, state.resolved);
       }
     });
 
@@ -148,7 +149,7 @@ export function useLocalDockerShellTerminal(
       fontSize: settings.terminalFontSize,
       fontFamily: `"${settings.terminalFontFamily}", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace`,
       lineHeight: settings.terminalLineHeight,
-      theme: getTerminalTheme(settings.resolved),
+      theme: getTerminalTheme(resolveActiveAppTheme()),
       scrollback: settings.terminalScrollback,
       allowTransparency: false,
     });
@@ -156,11 +157,12 @@ export function useLocalDockerShellTerminal(
     term.loadAddon(fitAddon);
     term.open(mount);
     fitAddon.fit();
+    applyTerminalTheme(term);
 
     // 主题变化时动态更新终端主题
     const unsubTheme = useSettingsStore.subscribe((state, prev) => {
       if (state.resolved !== prev.resolved) {
-        term.options.theme = getTerminalTheme(state.resolved);
+        applyTerminalTheme(term, state.resolved);
       }
     });
 

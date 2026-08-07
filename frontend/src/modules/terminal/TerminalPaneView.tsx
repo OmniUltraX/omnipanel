@@ -28,6 +28,7 @@ import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
 import { TerminalBlockFeed } from "./TerminalBlockFeed";
 import { ShellAgentOverlay } from "./shellAgent/ShellAgentOverlay";
+import { PassthroughPlanStrip } from "./PassthroughPlanStrip";
 import { type BlueprintSource } from "./sessionBlueprints";
 import {
   buildSessionMetaLine,
@@ -768,6 +769,9 @@ function PaneViewBody(
         />
         {inputMode === "interactive" || liveNative ? (
           <ShellAgentOverlay sessionId={paneId} promptSymbol={promptSymbol} />
+        ) : null}
+        {inputMode === "interactive" || liveNative ? (
+          <PassthroughPlanStrip sessionId={paneId} />
         ) : null}
       </div>
       {inputMode === "external" && !liveNative ? (

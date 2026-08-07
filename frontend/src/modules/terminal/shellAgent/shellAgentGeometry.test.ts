@@ -14,6 +14,7 @@ import {
 
 type FakeTerm = {
   cols: number;
+  rows: number;
   writes: string[];
   markers: FakeMarker[];
   decorations: FakeDecoration[];
@@ -38,6 +39,7 @@ type FakeDecoration = {
 function createFakeTerm(): FakeTerm {
   const term: FakeTerm = {
     cols: 80,
+    rows: 24,
     writes: [],
     markers: [],
     decorations: [],
@@ -87,7 +89,7 @@ describe("shellAgentGeometry", () => {
     unregisterXterm(SID);
   });
 
-  it("minCardRowsFor：thinking 至少 3 行，其余 1 行起步", () => {
+  it("minCardRowsFor：thinking 至少 3 行，final 1 行起步", () => {
     expect(minCardRowsFor("thinking")).toBe(3);
     expect(minCardRowsFor("cmd")).toBe(1);
     expect(minCardRowsFor("final")).toBe(1);

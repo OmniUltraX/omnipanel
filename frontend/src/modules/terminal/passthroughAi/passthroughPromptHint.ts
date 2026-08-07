@@ -7,7 +7,10 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 import { getXterm } from "../xtermRegistry";
 import { useShellAgentStore } from "../shellAgent/shellAgentStore";
 import { canInterceptEnterForAi, getEnterGateFlags } from "./enterGates";
-import { readActiveTerminalLine, stripShellPromptPrefix } from "./screenLine";
+import {
+  lineLooksLikeShellPrompt,
+  readActiveTerminalLine,
+} from "./screenLine";
 
 type HintState = {
   marker: IMarker;
@@ -73,8 +76,14 @@ function paintHint(sessionId: string, term: Terminal, text: string): void {
   }
   if (!marker || marker.isDisposed) return;
 
+  // 装饰宽度按终端列（CJK 约占 2 列），避免被裁成看不见
+  let textCols = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    textCols += cp > 0xff ? 2 : 1;
+  }
   const remaining = Math.max(1, term.cols - cursorX);
-  const width = Math.min(Math.max(text.length, 1), remaining);
+  const width = Math.min(Math.max(textCols, 1), remaining);
   let decoration: IDecoration | undefined;
   try {
     decoration =
@@ -102,7 +111,8 @@ function paintHint(sessionId: string, term: Terminal, text: string): void {
   }
 
   const renderDisposable = decoration.onRender((element) => {
-    element.className = "term-passthrough-prompt-hint";
+    // 勿覆盖 className：xterm 用自带 class 定位，冲掉会漂到左上角
+    element.classList.add("term-passthrough-prompt-hint");
     element.textContent = text;
   });
 
@@ -116,7 +126,9 @@ function paintHint(sessionId: string, term: Terminal, text: string): void {
 }
 
 /**
- * 按当前会话状态刷新灰色提醒：直通 + 空行 + 可拦截 Enter（主提示符）时显示。
+ * 按当前会话状态刷新灰色提醒：
+ * 直通 + 空行缓冲 + 可拦截 Enter + **当前行已有 shell 主提示符**时显示。
+ * 空终端 / 尚未出 prompt（光标在左上角）不显示，避免漂在空白区。
  * @param enabled 当前是否直通模式
  * @param lineEmpty 行缓冲是否为空（可靠时）
  */
@@ -132,6 +144,7 @@ export function syncPassthroughPromptHint(
     opts.lineEmpty &&
     text.length > 0 &&
     !busy &&
+    !gates.imeComposing &&
     canInterceptEnterForAi(gates);
 
   if (!show) {
@@ -145,8 +158,9 @@ export function syncPassthroughPromptHint(
     return;
   }
 
-  const body = stripShellPromptPrefix(readActiveTerminalLine(term)).trim();
-  if (body.length > 0) {
+  const screenLine = readActiveTerminalLine(term);
+  // 必须已有真实空提示符（如 root@host:~#）；# 后无空格也算
+  if (!lineLooksLikeShellPrompt(screenLine)) {
     clearPassthroughPromptHint(sessionId);
     return;
   }

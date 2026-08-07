@@ -1,4 +1,6 @@
-import type { ITheme } from "@xterm/xterm";
+import type { ITheme, Terminal } from "@xterm/xterm";
+
+import { useSettingsStore } from "../../stores/settingsStore";
 
 /**
  * 终端主题（暗色）：保留原有的深色终端配色，作为暗色主题默认外观。
@@ -77,4 +79,33 @@ export const LIGHT_TERMINAL_THEME: ITheme = {
  */
 export function getTerminalTheme(resolved: "light" | "dark"): ITheme {
   return resolved === "light" ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
+}
+
+/** 以 document data-theme 为准（避免 persist 水合前 store.resolved 过期） */
+export function resolveActiveAppTheme(): "light" | "dark" {
+  const attr = document.documentElement.getAttribute("data-theme");
+  if (attr === "light" || attr === "dark") return attr;
+  const resolved = useSettingsStore.getState().resolved;
+  return resolved === "light" ? "light" : "dark";
+}
+
+/**
+ * 写入 xterm 主题并强制重绘。
+ * WebGL 下只改 options.theme 不够，需 clearTextureAtlas + refresh，否则会卡在旧底色（常见：暗色 UI + 白终端）。
+ */
+export function applyTerminalTheme(
+  term: Terminal,
+  resolved: "light" | "dark" = resolveActiveAppTheme(),
+): void {
+  term.options.theme = getTerminalTheme(resolved);
+  try {
+    term.clearTextureAtlas();
+  } catch {
+    // DOM renderer 无 atlas
+  }
+  try {
+    term.refresh(0, Math.max(term.rows - 1, 0));
+  } catch {
+    // ignore
+  }
 }

@@ -132,6 +132,11 @@ export function consumeShellAgentConfirmFreeze(
   return kind;
 }
 
+/** 丢弃过期同意/拒绝冻结意图（新待确认到达时调用，防误冻） */
+export function clearShellAgentConfirmFreeze(sessionId: string): void {
+  confirmFreezeIntent.delete(sessionId);
+}
+
 /** @deprecated 用 markShellAgentConfirmFreeze(sessionId, "agreed") */
 export function markShellAgentAgreedFreeze(sessionId: string): void {
   markShellAgentConfirmFreeze(sessionId, "agreed");

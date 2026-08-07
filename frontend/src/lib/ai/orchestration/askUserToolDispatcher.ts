@@ -13,6 +13,7 @@
  */
 import { useAiStore } from "../../../stores/aiStore";
 import { useBlocksStore } from "../../../stores/blocksStore";
+import { notifyShellAgentAskResolved } from "../../../modules/terminal/shellAgent/loop";
 import { reportToolResultWithRetry } from "../reportToolResult";
 import type { AskUserAnswerValue, UserQuestionFormData } from "../aiMessageParts";
 import {
@@ -248,6 +249,16 @@ export async function dispatchAskUserTool(options: AskUserDispatchOptions): Prom
   };
 
   persistForm(form, parent);
+
+  // 直通 Shell Agent：挂起询问卡
+  if (conversationId.startsWith("term-inline:")) {
+    const sessionId = conversationId.slice("term-inline:".length);
+    if (sessionId) {
+      void import("../../../modules/terminal/shellAgent/loop").then(({ notifyShellAgentAskPending }) => {
+        notifyShellAgentAskPending(sessionId, form.formId);
+      });
+    }
+  }
 }
 
 async function resolveForm(
@@ -322,6 +333,15 @@ async function resolveForm(
     answers: status === "answered" ? answers : found.form.answers,
     updatedAt: Date.now(),
   };
+
+  // 直通：必须在 persistForm 之前同步冻结。
+  // 否则 React 先切到紧凑 AnswerSummary，冻结快照被压矮，占位却仍是高表单高度。
+  if (found.conversationId.startsWith("term-inline:")) {
+    const sessionId = found.conversationId.slice("term-inline:".length);
+    if (sessionId) {
+      notifyShellAgentAskResolved(sessionId);
+    }
+  }
 
   persistForm(next, found.parent);
   resolvedToolCallIds.add(found.form.toolCallId);

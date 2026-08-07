@@ -2,6 +2,23 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.11] - 2026-08-08
+
+### 新增
+
+- **终端 · 直通 Ask / Plan**：流内询问卡（`omni_ask_user`）与右下角 Plan 条（`omni_plan_*`），OpenSpec `passthrough-ask-plan-cards`
+
+### 修复
+
+- **终端 · Shell Agent 结果卡锚点**：命令执行后等 shell prompt 落定再钉结果卡，避免插在输出与 prompt 中间
+- **终端 · 双 prompt**：PTY 同步只发 `\n`（避免 ICRNL 下 `\r\n` 提交两次）；release 飞行锁防竞态
+- **终端 · 卡下空白带**：结果卡测高收紧、起步行数降低，减少占位偏高留下的空白
+- **终端 · 冗余回显**：去掉同意后的灰字「✓ 已同意 · …」行（确认卡已表达同意）
+
+### 变更
+
+- **终端 · Plan 条**：右下角窄条一体折叠，会话级展开态持久化
+
 ## [0.7.10] - 2026-08-07
 
 ### 修复

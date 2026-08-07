@@ -9,6 +9,8 @@ export type EnterGateFlags = {
   agentExecuting: boolean;
   /** 用户当前行缓冲非空（正在打字）；续轮重锚会排队，打字结束后补锚 */
   userTyping: boolean;
+  /** 中文等 IME 组词中（拼音未上屏） */
+  imeComposing: boolean;
 };
 
 export function createEnterGateFlags(): EnterGateFlags {
@@ -18,6 +20,7 @@ export function createEnterGateFlags(): EnterGateFlags {
     commandRunning: false,
     agentExecuting: false,
     userTyping: false,
+    imeComposing: false,
   };
 }
 
