@@ -224,6 +224,7 @@ export function SqlToolbarLeftControls({
       <span ref={settingsAnchorRef} className="sql-toolbar-left__anchor">
         <Button
           variant="icon"
+          size="icon-xs"
           title={t("database.sqlToolbar.settings")}
           aria-label={t("database.sqlToolbar.settings")}
           aria-expanded={settingsOpen}
@@ -232,22 +233,24 @@ export function SqlToolbarLeftControls({
             setSettingsOpen((v) => !v);
           }}
         >
-          <IconSettings size={14} />
+          <IconSettings size={12} />
         </Button>
       </span>
       <span ref={historyAnchorRef} className="sql-toolbar-left__anchor">
         <Button
           variant="icon"
+          size="icon-xs"
           title={t("database.sqlToolbar.history")}
           aria-label={t("database.sqlToolbar.history")}
           aria-expanded={historyOpen}
           onClick={openHistory}
         >
-          <IconClock size={14} />
+          <IconClock size={12} />
         </Button>
       </span>
       <Button
         variant="icon"
+        size="icon-xs"
         className={autoCommit ? "sql-toolbar-txn is-on" : "sql-toolbar-txn is-off"}
         title={
           supportsManualTxn
@@ -268,32 +271,35 @@ export function SqlToolbarLeftControls({
         <>
           <Button
             variant="icon"
+            size="icon-xs"
             title={t("database.sqlToolbar.commit")}
             aria-label={t("database.sqlToolbar.commit")}
             disabled={running || !inTransaction}
             onClick={onCommit}
           >
-            <IconCheckCircle size={14} />
+            <IconCheckCircle size={12} />
           </Button>
           <Button
             variant="icon"
+            size="icon-xs"
             title={t("database.sqlToolbar.rollback")}
             aria-label={t("database.sqlToolbar.rollback")}
             disabled={running || !inTransaction}
             onClick={onRollback}
           >
-            <IconXCircle size={14} />
+            <IconXCircle size={12} />
           </Button>
         </>
       ) : null}
       <Button
         variant="icon"
+        size="icon-xs"
         title={t("database.formatSqlFile")}
         aria-label={t("database.formatSqlFile")}
         disabled={running}
         onClick={onFormat}
       >
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="12" height="12" aria-hidden>
           <path d="M2 3.5h12" strokeLinecap="round" />
           <path d="M2 7h8" strokeLinecap="round" />
           <path d="M2 10.5h10" strokeLinecap="round" />
@@ -302,13 +308,14 @@ export function SqlToolbarLeftControls({
       </Button>
       <Button
         variant="icon"
+        size="icon-xs"
         className="sql-toolbar-stop"
         title={t("database.cancelSql")}
         aria-label={t("database.cancelSql")}
         disabled={!running}
         onClick={onCancel}
       >
-        <IconStop size={14} />
+        <IconStop size={12} />
       </Button>
 
       <AnchorPopover

@@ -6275,6 +6275,95 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
+    .scoped-search-bar--editor {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        min-width: 260px;
+        max-width: min(420px, calc(100% - var(--sp-4)));
+        padding: 4px 4px 4px var(--sp-2);
+    }
+
+    .scoped-search-bar__row {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+        min-width: 0;
+    }
+
+    .scoped-search-bar__row--replace {
+        padding-top: 2px;
+        border-top: 1px solid var(--border-soft, var(--border));
+    }
+
+    .scoped-search-bar__count {
+        flex-shrink: 0;
+        min-width: 2.5em;
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+        color: var(--meta);
+        text-align: right;
+        padding: 0 2px;
+    }
+
+    .scoped-search-bar__icon-btn,
+    .scoped-search-bar__text-btn {
+        flex-shrink: 0;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 6px;
+    }
+
+    .scoped-search-bar__icon-btn {
+        width: 22px;
+        padding: 0;
+    }
+
+    .scoped-search-bar__icon-btn:hover:not(:disabled),
+    .scoped-search-bar__text-btn:hover:not(:disabled) {
+        background: var(--surface-hover);
+        color: var(--fg);
+    }
+
+    .scoped-search-bar__icon-btn.is-active {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: var(--fg);
+    }
+
+    .scoped-search-bar__icon-btn:disabled,
+    .scoped-search-bar__text-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
+    }
+
+    .scoped-search-bar__replace-glyph {
+        font-size: 11px;
+        line-height: 1;
+    }
+
+    .sql-editor-scoped-search {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+        height: 100%;
+    }
+
+    .sql-editor-scoped-search > .scoped-search-content {
+        flex: 1;
+        min-height: 0;
+    }
+
     /* Select (native-like, theme-aware) */
     .omni-select {
         position: relative;

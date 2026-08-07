@@ -19,6 +19,7 @@ import { DockLayout, DockHandle, DockPanel } from "../../../components/dock";
 import { ToolbarMenuButton } from "../../../components/ui/menu/ToolbarMenuButton";
 import { Select } from "../../../components/ui/form/Select";
 import { SqlEditor, type SqlEditorHandle, type SqlEditorOpenMode } from "../sql/SqlEditor";
+import { SqlEditorScopedSearch } from "../sql/SqlEditorScopedSearch";
 import { SqlResultSessionsDock } from "../sql/SqlResultSessionsDock";
 import { inferSqlResultColumnType } from "../sql/SqlResultSessionPanel";
 import { type CellEditorPanelHandle } from "../cell_editor";
@@ -507,6 +508,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         <div className="sql-toolbar-divider" aria-hidden />
         <Select
           className="db-select sql-toolbar-conn-select"
+          size="sm"
           value={tabConn?.id ?? tabState.connId ?? ""}
           onChange={(v) => ws.setSqlTabConnection(tab.id, v || null)}
           disabled={!tabState.connId && sqlConnections.length === 0}
@@ -527,6 +529,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         />
         <Select
           className="db-select sql-toolbar-db-select"
+          size="sm"
           value={tabState.database}
           onChange={(v) => ws.updateSqlTabState(tab.id, { database: v })}
           disabled={!tabState.connId}
@@ -546,6 +549,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           label={t("database.runSql")}
           title={t("database.runSql")}
           variant="primary"
+          size="xs"
           disabled={!canRunSql || tabState.running}
           className="sql-toolbar-run"
           items={runSqlMenuItems}
@@ -559,21 +563,27 @@ export const DbPanelSurface = memo(function DbPanelSurface({
 
   const editorBody = (
     <div className="db-editor-area">
-      <DbPanelSqlEditor
-        tabId={tab.id}
-        tabState={tabState}
-        openMode={sqlEditorOpenMode}
-        dbType={tabConn?.db_type}
-        scopedSchemas={completionSchemas}
+      <SqlEditorScopedSearch
         editorRef={sqlEditorRef}
-        editorActive={editorActive}
-        onChange={handleSqlChange}
-        onCursorOffsetChange={handleSqlCursorChange}
-        onRun={handleSqlRun}
-        onRunSelected={runSelectedSql}
-        onRunAll={runAllSql}
-        onSave={handleSqlSave}
-      />
+        enabled={editorActive}
+        docRevision={tabState.sql}
+      >
+        <DbPanelSqlEditor
+          tabId={tab.id}
+          tabState={tabState}
+          openMode={sqlEditorOpenMode}
+          dbType={tabConn?.db_type}
+          scopedSchemas={completionSchemas}
+          editorRef={sqlEditorRef}
+          editorActive={editorActive}
+          onChange={handleSqlChange}
+          onCursorOffsetChange={handleSqlCursorChange}
+          onRun={handleSqlRun}
+          onRunSelected={runSelectedSql}
+          onRunAll={runAllSql}
+          onSave={handleSqlSave}
+        />
+      </SqlEditorScopedSearch>
     </div>
   );
 

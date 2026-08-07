@@ -194,6 +194,8 @@ export type TableDataGridProps = {
   page: number;
   pageSize: number;
   loading: boolean;
+  /** 隐藏底栏「of N rows」总行数（SQL 结果估算不准时用） */
+  hideTotalRowCount?: boolean;
   onPageChange: (page: number) => void;
   columnMeta?: DbColumnMeta[];
   onCellEdit?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
@@ -319,6 +321,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   page,
   pageSize,
   loading,
+  hideTotalRowCount = false,
   onPageChange,
   columnMeta,
   onCellEdit,
@@ -638,13 +641,23 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   useLayoutEffect(() => {
     if (!restoreScrollAfterPageChangeRef.current) return;
-    restoreScrollAfterPageChangeRef.current = false;
     const el = wrapRef.current;
     if (!el) return;
     const { left, top } = savedScrollRef.current;
     el.scrollLeft = left;
     el.scrollTop = top;
-  }, [page, rows]);
+    // loading 期间 rows 引用会抖动；勿提前消费 flag，否则新页落地后滚回顶部
+    if (loading) return;
+    restoreScrollAfterPageChangeRef.current = false;
+    // 再补一帧，覆盖 canvas / 虚拟列表布局后的滚动重置
+    const { left: savedLeft, top: savedTop } = savedScrollRef.current;
+    requestAnimationFrame(() => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      wrap.scrollLeft = savedLeft;
+      wrap.scrollTop = savedTop;
+    });
+  }, [page, rows, loading]);
 
   useEffect(() => {
     setRowHeights({});
@@ -3722,6 +3735,18 @@ export const TableDataGrid = memo(function TableDataGrid({
         onEditCommit={commitCellOverlayEdit}
         onEditCancel={cancelCellOverlayEdit}
       />
+      {isPaging ? (
+        <div
+          className="db-data-table-paging-overlay"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          <div className="db-data-table-paging-overlay__inner">
+            <span className="db-data-table-paging-overlay__spinner" aria-hidden />
+            <span className="db-data-table-paging-overlay__text">{t("common.loading")}</span>
+          </div>
+        </div>
+      ) : null}
     </div>
     )}
     {!allColumnsHidden && (
@@ -3858,8 +3883,9 @@ export const TableDataGrid = memo(function TableDataGrid({
           <span>{t("common.loading")}</span>
         ) : totalRows > 0 ? (
           <span className={isPaging ? "db-pagination-info--paging" : undefined}>
-            {showingFrom.toLocaleString()}–{showingTo.toLocaleString()} of{" "}
-            {totalRows.toLocaleString()} rows
+            {hideTotalRowCount
+              ? `${showingFrom.toLocaleString()}–${showingTo.toLocaleString()}`
+              : `${showingFrom.toLocaleString()}–${showingTo.toLocaleString()} of ${totalRows.toLocaleString()} rows`}
             {isPaging ? ` · ${t("common.loading")}` : ""}
           </span>
         ) : (

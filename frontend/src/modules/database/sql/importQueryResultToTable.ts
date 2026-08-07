@@ -102,13 +102,14 @@ function isSqliteEngine(dbType: string | undefined): boolean {
   return t.includes("sqlite");
 }
 
-/** 生成清空表 SQL（SQLite 用不支持 TRUNCATE 的 DELETE）。 */
+/** 生成清空表 SQL。事务内导入用 DELETE（TRUNCATE 在多数引擎会隐式提交）。 */
 export function buildClearTableSql(
   dbType: string | undefined,
   tableName: string,
+  opts?: { transactional?: boolean },
 ): string {
   const table = quoteSqlIdent(dbType, tableName);
-  if (isSqliteEngine(dbType)) {
+  if (isSqliteEngine(dbType) || opts?.transactional) {
     return `DELETE FROM ${table}`;
   }
   return `TRUNCATE TABLE ${table}`;
@@ -167,7 +168,58 @@ async function executeSql(
   });
 }
 
-/** 按 limit/offset 分页拉取查询全部结果行。 */
+/** 在独占事务会话中执行 SQL（首次自动 BEGIN）。 */
+async function executeSqlInSession(
+  sessionId: string,
+  connection: DbConnectionConfig,
+  sql: string,
+): Promise<QueryResult> {
+  return invoke<QueryResult>("db_execute_query_in_session", {
+    sessionId,
+    connection,
+    sql,
+    runId: makeQueryRunId(),
+    limit: null,
+    offset: null,
+  });
+}
+
+async function commitImportSession(sessionId: string): Promise<void> {
+  await invoke("db_query_session_commit", { sessionId });
+}
+
+async function rollbackImportSession(sessionId: string): Promise<void> {
+  try {
+    await invoke("db_query_session_rollback", { sessionId });
+  } catch {
+    // 回滚失败时仍继续关闭会话
+  }
+}
+
+async function closeImportSession(sessionId: string): Promise<void> {
+  try {
+    await invoke("db_query_session_close", { sessionId });
+  } catch {
+    // 关闭失败忽略
+  }
+}
+
+function mapSourceRow(
+  row: Record<string, unknown>,
+  matched: Array<{ source: string; target: string }>,
+  constantFillEntries: Array<{ target: string; value: unknown }>,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const { source, target } of matched) {
+    next[target] = row[source];
+  }
+  for (const { target, value } of constantFillEntries) {
+    next[target] = value;
+  }
+  return next;
+}
+
+/** 按 limit/offset 分页拉取查询全部结果行（一次性入内存；导入请用 streaming 路径）。 */
 export async function fetchAllQueryResultRows(opts: {
   connection: DbConnectionConfig;
   sql: string;
@@ -212,36 +264,22 @@ export async function fetchAllQueryResultRows(opts: {
   return { columns, rows: allRows };
 }
 
-/** 将查询结果按同名列导入目标表。 */
+/** 将查询结果按同名列导入目标表：目标侧开事务，分页拉取并分批写入。 */
 export async function importQueryResultToTable(
   params: ImportToTableParams,
 ): Promise<ImportToTableResult> {
   const hardLimit = params.hardLimit ?? IMPORT_TO_TABLE_ROW_HARD_LIMIT;
   const batchSize = params.batchSize ?? IMPORT_TO_TABLE_BATCH_SIZE;
-
-  params.onProgress?.({
-    phase: "fetching",
-    fetchedRows: 0,
-    insertedRows: 0,
-  });
-
-  const fetched = await fetchAllQueryResultRows({
-    connection: params.sourceConnection,
-    sql: params.sourceSql,
-    pageSize: params.pageSize,
-    hardLimit,
-    signal: params.signal,
-    onProgress: (fetchedRows) => {
-      params.onProgress?.({
-        phase: "fetching",
-        fetchedRows,
-        insertedRows: 0,
-      });
-    },
-  });
+  const pageSize = Math.max(1, params.pageSize);
 
   const sourceColumns =
-    params.sourceColumns?.length ? params.sourceColumns : fetched.columns;
+    params.sourceColumns && params.sourceColumns.length > 0
+      ? params.sourceColumns
+      : null;
+  if (!sourceColumns) {
+    throw new Error("NO_MATCHED_COLUMNS");
+  }
+
   const resolvedMatch = matchColumnsByName(sourceColumns, params.targetColumns);
   if (resolvedMatch.matched.length === 0) {
     throw new Error("NO_MATCHED_COLUMNS");
@@ -279,60 +317,108 @@ export async function importQueryResultToTable(
     ...resolvedMatch.matched.map((m) => m.target),
     ...constantFillEntries.map((entry) => entry.target),
   ];
-  const mappedRows = fetched.rows.map((row) => {
-    const next: Record<string, unknown> = {};
-    for (const { source, target } of resolvedMatch.matched) {
-      next[target] = row[source];
-    }
-    for (const { target, value } of constantFillEntries) {
-      next[target] = value;
-    }
-    return next;
-  });
 
-  if (params.clearBeforeImport) {
-    assertNotAborted(params.signal);
-    params.onProgress?.({
-      phase: "clearing",
-      fetchedRows: mappedRows.length,
-      insertedRows: 0,
-    });
-    await executeSql(
-      params.targetConnection,
-      buildClearTableSql(params.targetConnection.db_type, params.targetTable),
-    );
-  }
-
+  const importSessionId = `import-to-table-${makeQueryRunId()}`;
+  let fetchedRows = 0;
   let insertedRows = 0;
-  for (let i = 0; i < mappedRows.length; i += batchSize) {
-    assertNotAborted(params.signal);
-    const batch = mappedRows.slice(i, i + batchSize);
-    const sql = buildInsertSql({
-      dbType: params.targetConnection.db_type,
-      tableName: params.targetTable,
-      columns: insertColumns,
-      rows: batch,
-      mode: "merged",
-    });
-    if (!sql) continue;
-    await executeSql(params.targetConnection, sql);
-    insertedRows += batch.length;
+  let committed = false;
+
+  try {
+    if (params.clearBeforeImport) {
+      assertNotAborted(params.signal);
+      params.onProgress?.({
+        phase: "clearing",
+        fetchedRows: 0,
+        insertedRows: 0,
+      });
+      await executeSqlInSession(
+        importSessionId,
+        params.targetConnection,
+        buildClearTableSql(params.targetConnection.db_type, params.targetTable, {
+          transactional: true,
+        }),
+      );
+    }
+
+    let page = 0;
+    for (;;) {
+      assertNotAborted(params.signal);
+      params.onProgress?.({
+        phase: "fetching",
+        fetchedRows,
+        insertedRows,
+      });
+
+      const result = await executeSql(
+        params.sourceConnection,
+        params.sourceSql,
+        pageSize,
+        page * pageSize,
+      );
+      if (result.columns.length === 0) {
+        break;
+      }
+
+      const records = rowsToRecord(result.columns, result.rows);
+      fetchedRows += records.length;
+      if (fetchedRows > hardLimit) {
+        throw new Error(`ROW_LIMIT:${hardLimit}`);
+      }
+
+      const mappedRows = records.map((row) =>
+        mapSourceRow(row, resolvedMatch.matched, constantFillEntries),
+      );
+
+      for (let i = 0; i < mappedRows.length; i += batchSize) {
+        assertNotAborted(params.signal);
+        const batch = mappedRows.slice(i, i + batchSize);
+        const sql = buildInsertSql({
+          dbType: params.targetConnection.db_type,
+          tableName: params.targetTable,
+          columns: insertColumns,
+          rows: batch,
+          mode: "merged",
+        });
+        if (!sql) continue;
+        await executeSqlInSession(importSessionId, params.targetConnection, sql);
+        insertedRows += batch.length;
+        params.onProgress?.({
+          phase: "inserting",
+          fetchedRows,
+          insertedRows,
+        });
+      }
+
+      if (result.rows.length < pageSize) {
+        break;
+      }
+      page += 1;
+    }
+
+    // 无清空且无写入时也需保证会话被关闭；有写入则提交
+    if (insertedRows > 0 || params.clearBeforeImport) {
+      assertNotAborted(params.signal);
+      await commitImportSession(importSessionId);
+      committed = true;
+    }
+
     params.onProgress?.({
-      phase: "inserting",
-      fetchedRows: mappedRows.length,
+      phase: "done",
+      fetchedRows,
       insertedRows,
     });
+
+    return {
+      fetchedRows,
+      insertedRows,
+      matchedColumns: insertColumns,
+    };
+  } catch (err) {
+    if (!committed) {
+      await rollbackImportSession(importSessionId);
+    }
+    throw err;
+  } finally {
+    await closeImportSession(importSessionId);
   }
-
-  params.onProgress?.({
-    phase: "done",
-    fetchedRows: mappedRows.length,
-    insertedRows,
-  });
-
-  return {
-    fetchedRows: mappedRows.length,
-    insertedRows,
-    matchedColumns: insertColumns,
-  };
 }

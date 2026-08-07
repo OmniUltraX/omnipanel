@@ -45,21 +45,15 @@ function SqlResultSessionFooterExtra({
   session,
   sqlTabId,
   canExport,
-  resultHasMore,
-  estimatedTotalRows,
   onImportToTable,
 }: {
   session: SqlResultSession;
   sqlTabId: string;
   canExport: boolean;
-  resultHasMore: boolean;
-  estimatedTotalRows: number;
   onImportToTable?: () => void;
 }) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
-
-  if (session.running) return null;
 
   return (
     <>
@@ -112,21 +106,6 @@ function SqlResultSessionFooterExtra({
           </svg>
         </Button>
       ) : null}
-      {session.result || session.error ? (
-        <span className="results-meta">
-          {t("database.results.meta", {
-            rows: resultHasMore ? `${estimatedTotalRows}+` : estimatedTotalRows,
-            ms: session.elapsed ?? 0,
-            mode: t("common.readonly"),
-          })}
-          {resultHasMore ? (
-            <span className="db-exec-stats-truncated">
-              {" · "}
-              {t("database.results.hasMore")}
-            </span>
-          ) : null}
-        </span>
-      ) : null}
     </>
   );
 }
@@ -170,8 +149,11 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
   const canExport = hasSqlResult;
 
   const handleQueryPageChange = useCallback(
-    (page: number) => void ws.goToQueryResultPage(sqlTabId, page, session.id),
-    [ws.goToQueryResultPage, sqlTabId, session.id],
+    (page: number) => {
+      if (session.running) return;
+      void ws.goToQueryResultPage(sqlTabId, page, session.id);
+    },
+    [session.running, ws.goToQueryResultPage, sqlTabId, session.id],
   );
 
   const openImportToTable = useCallback(() => {
@@ -193,23 +175,16 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     setImportDialogOpen(true);
   }, [resultHasMore, session.result, session.sql, sqlTabId, ws]);
 
-  const sqlPreview = useMemo(() => {
-    const compact = session.sql.replace(/\s+/g, " ").trim();
-    return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact;
-  }, [session.sql]);
-
   const footerExtra = useMemo(
     () => (
       <SqlResultSessionFooterExtra
         session={session}
         sqlTabId={sqlTabId}
         canExport={canExport}
-        resultHasMore={resultHasMore}
-        estimatedTotalRows={estimatedTotalRows}
         onImportToTable={canExport ? openImportToTable : undefined}
       />
     ),
-    [session, sqlTabId, canExport, resultHasMore, estimatedTotalRows, openImportToTable],
+    [session, sqlTabId, canExport, openImportToTable],
   );
 
   const showStandaloneFooter =
@@ -239,14 +214,10 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     [selectionReporting, onSelectedCellsChange],
   );
 
-  if (session.running) {
+  // 首次执行才显示「执行中」；翻页时保留上一页表格，避免闪烁
+  if (session.running && !session.result && !session.error) {
     return (
       <div className="db-sql-result-session">
-        {sqlPreview ? (
-          <div className="db-sql-result-query" title={session.sql}>
-            {sqlPreview}
-          </div>
-        ) : null}
         <div className="empty-state compact" style={{ padding: "var(--sp-4)" }}>
           {t("database.running")}
         </div>
@@ -254,14 +225,9 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     );
   }
 
-  if (session.error) {
+  if (session.error && !session.result) {
     return (
       <div className="db-sql-result-session">
-        {sqlPreview ? (
-          <div className="db-sql-result-query" title={session.sql}>
-            {sqlPreview}
-          </div>
-        ) : null}
         <div
           className="empty-state compact text-danger"
           style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}
@@ -280,11 +246,6 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
   if (!session.result) {
     return (
       <div className="db-sql-result-session">
-        {sqlPreview ? (
-          <div className="db-sql-result-query" title={session.sql}>
-            {sqlPreview}
-          </div>
-        ) : null}
         <div className="empty-state compact" style={{ padding: "var(--sp-4)" }}>
           {t("database.results.runHint")}
         </div>
@@ -295,11 +256,6 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
   if (session.result.columns.length === 0) {
     return (
       <div className="db-sql-result-session">
-        {sqlPreview ? (
-          <div className="db-sql-result-query" title={session.sql}>
-            {sqlPreview}
-          </div>
-        ) : null}
         <div className="empty-state compact" style={{ padding: "var(--sp-4)" }}>
           {t("database.results.affected", { rows: session.result.rowsAffected })}
         </div>
@@ -314,11 +270,6 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
 
   return (
     <div className="db-sql-result-session">
-      {sqlPreview ? (
-        <div className="db-sql-result-query" title={session.sql}>
-          {sqlPreview}
-        </div>
-      ) : null}
       <div className="results-area db-sql-results">
         <TableDataGrid
           columns={columns}
@@ -327,6 +278,7 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           page={resultPage}
           pageSize={databaseQueryPageSize}
           loading={session.running}
+          hideTotalRowCount
           onPageChange={handleQueryPageChange}
           footerExtra={footerExtra}
           gridActionsRef={selectionReporting ? gridActionsRef : undefined}

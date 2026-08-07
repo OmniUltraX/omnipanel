@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button, type buttonVariants } from "../primitives/Button";
 import type { VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
@@ -43,18 +43,59 @@ export function ToolbarMenuButton({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const syncMenuPosition = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const margin = 8;
+    const minWidth = Math.max(rect.width, 180);
+    const measured = menuRef.current?.getBoundingClientRect().width ?? 0;
+    const width = Math.max(minWidth, measured);
+
+    // 靠右的工具栏按钮：优先与 trigger 右对齐，避免菜单伸出窗口右侧被裁切
+    let left = rect.right - width;
+    if (left < margin) {
+      left = rect.left;
+    }
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+
+    let top = rect.bottom + 4;
+    const menuHeight = menuRef.current?.getBoundingClientRect().height ?? 0;
+    if (menuHeight > 0 && top + menuHeight > window.innerHeight - margin) {
+      const above = rect.top - menuHeight - 4;
+      if (above >= margin) top = above;
+    }
+
+    setMenuPosition((prev) => {
+      if (
+        prev &&
+        prev.top === top &&
+        prev.left === left &&
+        prev.minWidth === minWidth
+      ) {
+        return prev;
+      }
+      return { top, left, minWidth };
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+    syncMenuPosition();
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !menuPosition) return;
+    // 菜单挂载后再量一次真实宽度，纠正初次估算
+    syncMenuPosition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在打开后首帧与宽度估算变化时复测
+  }, [open, menuPosition?.minWidth, items.length]);
+
   useEffect(() => {
     if (!open) return;
-
-    const syncMenuPosition = () => {
-      const rect = buttonRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setMenuPosition({
-        top: rect.bottom + 4,
-        left: rect.left,
-        minWidth: Math.max(rect.width, 168),
-      });
-    };
 
     const onPointerDown = (event: Event) => {
       const target = event.target as Node;
@@ -63,7 +104,6 @@ export function ToolbarMenuButton({
       }
     };
 
-    syncMenuPosition();
     window.addEventListener("resize", syncMenuPosition);
     window.addEventListener("scroll", syncMenuPosition, true);
     document.addEventListener("mousedown", onPointerDown);
@@ -117,6 +157,7 @@ export function ToolbarMenuButton({
               top: menuPosition.top,
               left: menuPosition.left,
               minWidth: menuPosition.minWidth,
+              zIndex: 200010,
             }}
           >
             {items.map((item) => (

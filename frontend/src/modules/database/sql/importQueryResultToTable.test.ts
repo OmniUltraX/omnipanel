@@ -37,6 +37,10 @@ describe("buildClearTableSql", () => {
   it("uses TRUNCATE for mysql", () => {
     expect(buildClearTableSql("mysql", "t")).toBe("TRUNCATE TABLE `t`");
   });
+
+  it("uses DELETE for transactional clear on mysql", () => {
+    expect(buildClearTableSql("mysql", "t", { transactional: true })).toBe("DELETE FROM `t`");
+  });
 });
 
 describe("listConstantFillTargetColumns", () => {

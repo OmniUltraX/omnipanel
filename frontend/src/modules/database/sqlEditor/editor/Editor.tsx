@@ -17,7 +17,16 @@ import {
   findStatementRangeAtOffset,
 } from "../language/selection";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../sql/sqlEditorTheme";
-import { updateSearchHighlight } from "../../sql/sqlSearchHighlight";
+import {
+  clearSearchHighlight,
+  findNextSearchMatch,
+  findPrevSearchMatch,
+  getSearchMatchInfo,
+  replaceAllSearchMatches,
+  replaceCurrentSearchMatch,
+  updateSearchHighlight,
+  type SqlSearchMatchInfo,
+} from "../../sql/sqlSearchHighlight";
 import { formatSql, formatSqlRange } from "../language/formatter";
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
 import { createSqlEditorExtensions } from "./extensions";
@@ -26,11 +35,24 @@ import { useSettingsStore } from "../../../../stores/settingsStore";
 /** 打开方式：独立查询页（sql）或侧栏点表后的表数据预览（data）。 */
 export type SqlEditorOpenMode = "query" | "table";
 
+export type { SqlSearchMatchInfo };
+
+export interface SqlEditorSearchApi {
+  setQuery: (query: string, options?: { scroll?: boolean }) => SqlSearchMatchInfo;
+  findNext: () => SqlSearchMatchInfo;
+  findPrev: () => SqlSearchMatchInfo;
+  replaceCurrent: (replacement: string) => SqlSearchMatchInfo;
+  replaceAll: (replacement: string) => number;
+  getMatchInfo: () => SqlSearchMatchInfo;
+  clear: () => void;
+}
+
 export interface SqlEditorHandle {
   formatAll: () => void;
   formatCurrentStatement: () => void;
   getSqlAtCursor: () => string;
   getSelectedSql: () => string;
+  search: SqlEditorSearchApi;
 }
 
 interface SqlEditorProps {
@@ -195,6 +217,43 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       formatCurrentStatement: formatCurrentStatementInView,
       getSqlAtCursor: getSqlAtCursorFromView,
       getSelectedSql: getSelectedSqlFromView,
+      search: {
+        setQuery: (query, options) => {
+          const view = viewRef.current;
+          if (!view) return { current: 0, total: 0 };
+          return updateSearchHighlight(view, query, { scroll: options?.scroll });
+        },
+        findNext: () => {
+          const view = viewRef.current;
+          if (!view) return { current: 0, total: 0 };
+          return findNextSearchMatch(view);
+        },
+        findPrev: () => {
+          const view = viewRef.current;
+          if (!view) return { current: 0, total: 0 };
+          return findPrevSearchMatch(view);
+        },
+        replaceCurrent: (replacement) => {
+          const view = viewRef.current;
+          if (!view) return { current: 0, total: 0 };
+          return replaceCurrentSearchMatch(view, replacement);
+        },
+        replaceAll: (replacement) => {
+          const view = viewRef.current;
+          if (!view) return 0;
+          return replaceAllSearchMatches(view, replacement);
+        },
+        getMatchInfo: () => {
+          const view = viewRef.current;
+          if (!view) return { current: 0, total: 0 };
+          return getSearchMatchInfo(view);
+        },
+        clear: () => {
+          const view = viewRef.current;
+          if (!view) return;
+          clearSearchHighlight(view);
+        },
+      },
     }),
     [formatAllInView, formatCurrentStatementInView, getSqlAtCursorFromView, getSelectedSqlFromView],
   );
@@ -265,7 +324,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    updateSearchHighlight(view, highlightQuery);
+    updateSearchHighlight(view, highlightQuery, { scroll: Boolean(highlightQuery.trim()) });
   }, [value, highlightQuery]);
 
   useEffect(() => {
