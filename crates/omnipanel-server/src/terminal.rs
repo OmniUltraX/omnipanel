@@ -37,6 +37,16 @@ pub struct ServerState {
     pub ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
     /// Docker SSH-Engine 连接复用会话池（按 docker 连接 id）。
     pub docker_ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
+    /// 活跃 Docker 日志流的停止句柄（按 streamId 索引）。
+    pub docker_log_streams: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// 活跃 Docker stats 流的停止句柄（按 streamId 索引）。
+    pub docker_stats_streams: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// 活跃 Docker 容器交互终端会话（按 sessionId 索引）。
+    pub docker_exec_sessions: Arc<Mutex<HashMap<String, crate::docker_ops::DockerExecSessionEntry>>>,
+    /// 活跃 AI 对话流的取消标志（按 conversation_id）。
+    pub ai_chat_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// 文件管理器 SFTP 会话（按 file 连接 id，进程内缓存）。
+    pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
 }
 
 impl Default for ServerState {
@@ -60,6 +70,11 @@ impl ServerState {
             running_db_queries: Arc::new(Mutex::new(HashMap::new())),
             ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
             docker_ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
+            docker_log_streams: Arc::new(Mutex::new(HashMap::new())),
+            docker_stats_streams: Arc::new(Mutex::new(HashMap::new())),
+            docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),
+            ai_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
+            file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

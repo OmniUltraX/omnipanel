@@ -435,8 +435,82 @@ pub async fn docker_reset_ssh_session(
     state: &ServerState,
     connection_id: String,
 ) -> Result<(), String> {
-    if let Some(session) = state.docker_ssh_sessions.lock().await.remove(&connection_id) {
+    invalidate_docker_ssh(state, &connection_id).await;
+    Ok(())
+}
+
+/// 使 Docker SSH 会话失效（清缓存并断开独立会话）。
+pub async fn invalidate_docker_ssh(state: &ServerState, connection_id: &str) {
+    if let Some(session) = state.docker_ssh_sessions.lock().await.remove(connection_id) {
+        tracing::warn!("移除 Docker 独立 SSH 会话: {connection_id}");
         session.disconnect().await;
+    }
+}
+
+/// SSH 会话是否可恢复（与桌面端 `is_ssh_session_recoverable` 同构）。
+pub fn is_ssh_recoverable(err: &OmniError) -> bool {
+    match err.code {
+        ErrorCode::Ssh | ErrorCode::Connection | ErrorCode::Terminal => true,
+        ErrorCode::Auth => false,
+        _ => {
+            let msg = err.message.to_lowercase();
+            let cause = err.cause.as_deref().unwrap_or("").to_lowercase();
+            let recoverable_patterns = [
+                "too many open sessions",
+                "channel open failure",
+                "channel send",
+                "connection reset",
+                "connection closed",
+                "connection is closed",
+                "broken pipe",
+                "input device is not a tty",
+                "not a tty",
+                "10054",
+                "强迫关闭",
+                "forcibly closed",
+                "forcible",
+            ];
+            recoverable_patterns
+                .iter()
+                .any(|pattern| msg.contains(pattern) || cause.contains(pattern))
+        }
+    }
+}
+
+/// 1Panel 无原生 `docker logs -f`，以轮询 `container_logs` 模拟跟踪。
+pub async fn onepanel_poll_container_logs<F>(
+    adapter: OnePanelAdapter,
+    container_id: &str,
+    query: &omnipanel_docker::DockerLogQuery,
+    follow: bool,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    mut emit: F,
+) -> Result<(), OmniError>
+where
+    F: FnMut(omnipanel_docker::DockerLogLine),
+{
+    use std::sync::atomic::Ordering;
+    let mut seen_count = 0usize;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let lines = adapter.container_logs(container_id, query).await?;
+        if lines.len() > seen_count {
+            for line in &lines[seen_count..] {
+                emit(line.clone());
+            }
+            seen_count = lines.len();
+        } else if lines.len() < seen_count {
+            for line in &lines {
+                emit(line.clone());
+            }
+            seen_count = lines.len();
+        }
+        if !follow {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
     Ok(())
 }

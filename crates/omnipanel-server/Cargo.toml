@@ -12,6 +12,7 @@ tracing.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 futures-util.workspace = true
+futures.workspace = true
 async-trait.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -26,4 +27,6 @@ omnipanel-docker = { path = "../omnipanel-docker" }
 omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
+omnipanel-ai = { path = "../omnipanel-ai" }
 bollard = { workspace = true }
+reqwest = { workspace = true }

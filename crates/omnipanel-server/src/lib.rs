@@ -10,9 +10,12 @@
 //! P0 范围：本地终端链路；P1 范围：DB / SSH / Docker 核心只读 + 会话链路 + API Key 鉴权。
 //! 详见 `docs/web-p1.md`。
 
+pub mod ai;
 pub mod bus;
 pub mod db;
 pub mod docker;
+pub mod docker_ops;
+pub mod files;
 pub mod ipc;
 pub mod server;
 pub mod ssh;
@@ -20,5 +23,5 @@ pub mod state;
 pub mod terminal;
 pub mod ws;
 
-pub use bus::{EventBus, EventKind, EventPayload, SessionEvent};
+pub use bus::{EventBus, EventPayload, SessionEvent};
 pub use server::{run_server, ServerConfig, ServerHandle};

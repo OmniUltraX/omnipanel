@@ -19,6 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args: Vec<String> = std::env::args().collect();
     let mut port: u16 = 8899;
+    let mut bind: String = "0.0.0.0".to_string();
     let mut static_dir: Option<PathBuf> = None;
     let mut api_key: Option<String> = None;
 
@@ -29,6 +30,12 @@ async fn main() -> anyhow::Result<()> {
                 i += 1;
                 if i < args.len() {
                     port = args[i].parse().unwrap_or(8899);
+                }
+            }
+            "--bind" => {
+                i += 1;
+                if i < args.len() {
+                    bind = args[i].clone();
                 }
             }
             "--static-dir" => {
@@ -45,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
             }
             "--help" | "-h" => {
                 println!(
-                    "OmniPanel Web Server\n\n  --port <port>        监听端口 (默认 8899)\n  --static-dir <dir>   前端静态目录 (frontend/dist)\n  --api-key <key>      API Key（可选；配置后 IPC 需 Authorization: Bearer <key>）"
+                    "OmniPanel Web Server\n\n  --port <port>        监听端口 (默认 8899)\n  --bind <addr>        监听地址 (默认 0.0.0.0；生产建议 127.0.0.1 + 反代)\n  --static-dir <dir>   前端静态目录 (frontend/dist)\n  --api-key <key>      API Key（可选；配置后 IPC 需 Authorization: Bearer <key>）"
                 );
                 return Ok(());
             }
@@ -55,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let config = ServerConfig {
-        bind_addr: format!("0.0.0.0:{port}"),
+        bind_addr: format!("{bind}:{port}"),
         static_dir,
         api_key,
     };

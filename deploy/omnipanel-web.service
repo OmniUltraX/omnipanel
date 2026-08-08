@@ -1,0 +1,49 @@
+# OmniPanel Web 版 systemd 服务单元
+#
+# 安装：
+#   1. 构建 Web 版（见 docs/web-p2.md）
+#   2. 把二进制与前端产物放到 /opt/omnipanel/
+#   3. 复制本文件到 /etc/systemd/system/omnipanel-web.service
+#   4. systemctl daemon-reload && systemctl enable --now omnipanel-web
+#
+# 安全建议：
+#   - 生产环境务必设置 --api-key（浏览器与 WebSocket 均需 Bearer/token 鉴权）。
+#   - 建议在前置反代（Caddy/nginx）终止 TLS，并把 8899 只绑到 127.0.0.1。
+#   - 凭据默认经系统钥匙串；无桌面会话的服务器会自动降级到 ~/.omnipd/secrets/（0600）。
+#     如需迁移到另一台机器，请同时拷贝该 secrets 目录（或重设连接凭据）。
+
+[Unit]
+Description=OmniPanel Web Server (HTTP/WS IPC bridge + static hosting)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 以普通用户运行，避免 root 权限扩散
+User=omnipanel
+Group=omnipanel
+WorkingDirectory=/opt/omnipanel
+
+# 前端静态目录 + API Key 鉴权
+ExecStart=/opt/omnipanel/omnipanel-server \
+    --static-dir /opt/omnipanel/frontend/dist \
+    --bind 127.0.0.1 \
+    --port 8899 \
+    --api-key ${OMNIPANEL_API_KEY}
+
+# 从环境文件读取 API Key（权限 600，仅 root 可读）
+EnvironmentFile=/etc/omnipanel/omnipanel-web.env
+
+# 资源限制
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=3
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/omnipanel/.omnipd
+
+[Install]
+WantedBy=multi-user.target
