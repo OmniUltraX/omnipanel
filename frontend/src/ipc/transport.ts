@@ -29,11 +29,16 @@ const WEB_WS_BASE = (() => {
  * - 命令失败（HTTP 200 且 `ok:false`，或网络错误）→ reject error
  */
 export async function webInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const apiKey = import.meta.env.VITE_OMNIPANEL_API_KEY as string | undefined;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+  }
   let resp: Response;
   try {
     resp = await fetch(`${WEB_API_BASE}/ipc/invoke`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({ cmd, args: args ?? {} }),
     });
   } catch (e) {
@@ -83,7 +88,9 @@ class WebEventBus {
     }
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(WEB_WS_BASE.replace(/\/$/, "") + "/ipc/events");
+      const apiKey = import.meta.env.VITE_OMNIPANEL_API_KEY as string | undefined;
+      const url = WEB_WS_BASE.replace(/\/$/, "") + "/ipc/events";
+      const ws = new WebSocket(apiKey ? `${url}?token=${encodeURIComponent(apiKey)}` : url);
       this.ws = ws;
 
       ws.onopen = () => {

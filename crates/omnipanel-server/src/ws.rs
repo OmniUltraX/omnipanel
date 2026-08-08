@@ -6,26 +6,41 @@
 
 use axum::extract::{
     ws::{Message, WebSocket},
-    State, WebSocketUpgrade,
+    Query, State, WebSocketUpgrade,
 };
+use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
-use std::sync::Arc;
+use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::bus::{forward_events_to_ws, Event};
-use crate::terminal::ServerState;
+use crate::server::AppCtx;
+
+/// `GET /ipc/events?token=...` 的 query 参数（API Key 经 query 传递，
+/// 因为浏览器 WebSocket API 无法自定义 header）。
+#[derive(Debug, Deserialize)]
+pub struct EventsQuery {
+    pub token: Option<String>,
+}
 
 /// 升级 `GET /ipc/events` 为 WebSocket，并开始转发事件流。
 pub async fn ws_events(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<ServerState>>,
-) -> axum::response::Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    State(ctx): State<AppCtx>,
+    Query(query): Query<EventsQuery>,
+) -> Response {
+    if let Some(ref expected) = ctx.api_key {
+        let token = query.token.as_deref().unwrap_or("");
+        if token != expected {
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+        }
+    }
+    ws.on_upgrade(move |socket| handle_socket(socket, ctx))
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
+async fn handle_socket(socket: WebSocket, ctx: AppCtx) {
     let (tx, mut rx) = socket.split();
-    let bus = state.bus.clone();
+    let bus = ctx.state.bus.clone();
     let events_rx: broadcast::Receiver<Event> = bus.subscribe();
 
     // 事件转发任务：从广播订阅写往 WS。

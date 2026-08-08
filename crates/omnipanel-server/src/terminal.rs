@@ -5,6 +5,7 @@
 //! `list_shells`。输出经 [`EventBus`](crate::bus::EventBus) 广播，替代 Tauri `app.emit`。
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
@@ -18,7 +19,7 @@ use crate::bus::{EventBus, SessionEvent};
 
 static TERMINAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// Web 服务端持有的会话状态（P0 仅终端；后续按模块扩展）。
+/// Web 服务端持有的会话状态（P0 终端 + P1 DB/SSH/Docker）。
 pub struct ServerState {
     /// 终端会话表。
     pub terminal_sessions: Mutex<HashMap<String, Terminal>>,
@@ -26,6 +27,16 @@ pub struct ServerState {
     pub output_buffers: omnipanel_core::output_buffer::OutputBuffers,
     /// 事件总线（WS 广播）。
     pub bus: EventBus,
+    /// 元数据存储（连接、审计等，与桌面端共用 `~/.omnipd/store/omnipanel.db`）。
+    pub storage: Arc<Mutex<omnipanel_store::Storage>>,
+    /// DB 连接仓库（`~/.omnipd/database/connections.json`）。
+    pub db_connections: Arc<omnipanel_store::DatabaseConnectionStore>,
+    /// 运行中 SQL 查询 abort 句柄（按 run_id）。
+    pub running_db_queries: Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>>,
+    /// 活跃 SSH 会话（交互式 shell，按会话 id）。
+    pub ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
+    /// Docker SSH-Engine 连接复用会话池（按 docker 连接 id）。
+    pub docker_ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
 }
 
 impl Default for ServerState {
@@ -36,10 +47,19 @@ impl Default for ServerState {
 
 impl ServerState {
     pub fn new() -> Self {
+        let storage = crate::state::open_meta_storage()
+            .expect("打开 ~/.omnipd/store/omnipanel.db 失败");
+        let db_connections = crate::state::open_db_connections()
+            .expect("加载数据库连接配置失败");
         Self {
             terminal_sessions: Mutex::new(HashMap::new()),
             output_buffers: output_buffer::new_buffers(),
             bus: EventBus::new(),
+            storage,
+            db_connections,
+            running_db_queries: Arc::new(Mutex::new(HashMap::new())),
+            ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
+            docker_ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

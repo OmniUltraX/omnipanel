@@ -21,3 +21,9 @@ tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 tokio-tungstenite.workspace = true
 
 omnipanel-core = { path = "../omnipanel-core" }
+omnipanel-db = { path = "../omnipanel-db" }
+omnipanel-docker = { path = "../omnipanel-docker" }
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-ssh = { path = "../omnipanel-ssh" }
+omnipanel-store = { path = "../omnipanel-store" }
+bollard = { workspace = true }
