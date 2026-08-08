@@ -1,0 +1,23 @@
+[package]
+name = "omnipanel-server"
+version.workspace = true
+edition.workspace = true
+description = "OmniPanel Web 端服务：HTTP/WS IPC 桥 + 静态托管，与 Tauri 桌面端共用同一套 Rust 业务能力"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+futures-util.workspace = true
+async-trait.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tokio-tungstenite.workspace = true
+
+omnipanel-core = { path = "../omnipanel-core" }
