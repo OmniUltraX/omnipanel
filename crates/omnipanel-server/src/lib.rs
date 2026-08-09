@@ -22,6 +22,7 @@ pub mod server;
 pub mod ssh;
 pub mod state;
 pub mod terminal;
+pub mod transfer;
 pub mod ws;
 
 pub use bus::{EventBus, EventPayload, SessionEvent};

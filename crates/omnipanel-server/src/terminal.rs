@@ -47,6 +47,8 @@ pub struct ServerState {
     pub ai_chat_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 文件管理器 SFTP 会话（按 file 连接 id，进程内缓存）。
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
+    /// 跨连接 relay 传输的取消标志（按 job id）。
+    pub transfer_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
 }
 
 impl Default for ServerState {
@@ -75,6 +77,7 @@ impl ServerState {
             docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),
             ai_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
+            transfer_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

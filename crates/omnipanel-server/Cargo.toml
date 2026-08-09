@@ -31,3 +31,4 @@ omnipanel-ai = { path = "../omnipanel-ai" }
 omnipanel-mcp = { path = "../omnipanel-mcp" }
 bollard = { workspace = true }
 reqwest = { workspace = true }
+suppaftp = { version = "6", default-features = false, features = ["rustls"] }

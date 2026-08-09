@@ -38,7 +38,7 @@ pub fn local_home() -> Result<PathBuf, OmniError> {
     Err(OmniError::new(ErrorCode::Internal, "无法获取用户主目录"))
 }
 
-fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
+pub(crate) fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
     if path.is_empty() || path == "/" || path == "~" {
         local_home()
     } else if let Some(rest) = path.strip_prefix("~/") {
@@ -59,6 +59,182 @@ pub struct FileEntry {
     pub size: f64,
     pub modified: i64,
     pub permissions: Option<String>,
+}
+
+/// FTP 连接建立（同步客户端，spawn_blocking 内使用）。
+fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<suppaftp::FtpStream, String> {
+    use suppaftp::FtpStream;
+    let port = cfg.port.unwrap_or(21);
+    let addr = format!("{}:{}", cfg.host, port);
+    let mut ftp = FtpStream::connect(&addr)
+        .map_err(|e| format!("FTP 连接失败: {e}"))?;
+    if !cfg.user.is_empty() {
+        ftp.login(&cfg.user, &secret.to_string())
+            .map_err(|e| format!("FTP 登录失败: {e}"))?;
+    }
+    Ok(ftp)
+}
+
+/// FTP 远端路径（空路径回退 rootPath / 根）。
+fn ftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
+    if path.is_empty() {
+        if cfg.root_path.is_empty() {
+            "/".to_string()
+        } else {
+            cfg.root_path.clone()
+        }
+    } else {
+        path.to_string()
+    }
+}
+
+/// 列出 FTP 目录（同步 + spawn_blocking）。
+fn list_ftp_dir(
+    cfg: &FileConnConfig,
+    secret: &str,
+    path: &str,
+    search: Option<&str>,
+) -> Result<Vec<FileEntry>, String> {
+    let cfg = cfg.clone();
+    let secret = secret.to_string();
+    let path = path.to_string();
+    let search = search.map(|s| s.to_lowercase());
+    std::thread::spawn(move || -> Result<Vec<FileEntry>, String> {
+        let mut ftp = ftp_connect_sync(&cfg, &secret)?;
+        let remote = ftp_remote_path(&path, &cfg);
+        ftp.cwd(&remote)
+            .map_err(|e| format!("切换 FTP 目录失败: {e}"))?;
+        let list = ftp.list(None).map_err(|e| format!("列出 FTP 目录失败: {e}"))?;
+        let _ = ftp.quit();
+        let mut entries = Vec::new();
+        for line in list {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let is_dir = trimmed.starts_with('d');
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            let name = parts.last().copied().unwrap_or(trimmed).to_string();
+            if name == "." || name == ".." {
+                continue;
+            }
+            if let Some(q) = &search {
+                if !name.to_lowercase().contains(q) {
+                    continue;
+                }
+            }
+            entries.push(FileEntry {
+                name: name.clone(),
+                path: join_posix(&remote, &name),
+                kind: if is_dir { "dir".into() } else { "file".into() },
+                size: 0.0,
+                modified: 0,
+                permissions: parts.first().map(|s| s.to_string()),
+            });
+        }
+        sort_file_entries(&mut entries);
+        Ok(entries)
+    })
+    .join()
+    .map_err(|_| "FTP 任务线程异常".to_string())?
+}
+
+/// FTP 读取文件（同步 + spawn_blocking）。
+fn read_ftp_file(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let cfg = cfg.clone();
+    let secret = secret.to_string();
+    let path = path.to_string();
+    std::thread::spawn(move || -> Result<Vec<u8>, String> {
+        let mut ftp = ftp_connect_sync(&cfg, &secret)?;
+        let mut reader = ftp
+            .retr_as_stream(&path)
+            .map_err(|e| format!("FTP 下载失败: {e}"))?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).map_err(|e| format!("读取 FTP 数据失败: {e}"))?;
+        let _ = ftp.quit();
+        Ok(buf)
+    })
+    .join()
+    .map_err(|_| "FTP 任务线程异常".to_string())?
+}
+
+/// FTP 写入文件（同步 + spawn_blocking）。
+fn write_ftp_file(cfg: &FileConnConfig, secret: &str, path: &str, data: &[u8]) -> Result<(), String> {
+    use std::io::Cursor;
+    let cfg = cfg.clone();
+    let secret = secret.to_string();
+    let path = path.to_string();
+    let data = data.to_vec();
+    std::thread::spawn(move || -> Result<(), String> {
+        let mut ftp = ftp_connect_sync(&cfg, &secret)?;
+        let parent = path
+            .rfind('/')
+            .map(|i| &path[..i])
+            .filter(|p| !p.is_empty() && *p != "/")
+            .map(|p| p.to_string());
+        if let Some(dir) = &parent {
+            let _ = ftp.cwd(dir);
+        }
+        let fname = path.rsplit('/').next().unwrap_or(&path).to_string();
+        ftp.put_file(&fname, &mut Cursor::new(data))
+            .map_err(|e| format!("FTP 上传失败: {e}"))?;
+        let _ = ftp.quit();
+        Ok(())
+    })
+    .join()
+    .map_err(|_| "FTP 任务线程异常".to_string())?
+}
+
+/// FTP 创建目录（同步 + spawn_blocking）。
+fn mkdir_ftp(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<(), String> {
+    let cfg = cfg.clone();
+    let secret = secret.to_string();
+    let path = path.to_string();
+    std::thread::spawn(move || -> Result<(), String> {
+        let mut ftp = ftp_connect_sync(&cfg, &secret)?;
+        ftp.mkdir(&path).map_err(|e| format!("FTP 创建目录失败: {e}"))?;
+        let _ = ftp.quit();
+        Ok(())
+    })
+    .join()
+    .map_err(|_| "FTP 任务线程异常".to_string())?
+}
+
+/// FTP 重命名（同步 + spawn_blocking）。
+fn rename_ftp(cfg: &FileConnConfig, secret: &str, old_path: &str, new_path: &str) -> Result<(), String> {
+    let cfg = cfg.clone();
+    let secret = secret.to_string();
+    let old_path = old_path.to_string();
+    let new_path = new_path.to_string();
+    std::thread::spawn(move || -> Result<(), String> {
+        let mut ftp = ftp_connect_sync(&cfg, &secret)?;
+        ftp.rename(&old_path, &new_path)
+            .map_err(|e| format!("FTP 重命名失败: {e}"))?;
+        let _ = ftp.quit();
+        Ok(())
+    })
+    .join()
+    .map_err(|_| "FTP 任务线程异常".to_string())?
+}
+
+/// FTP 删除（同步 + spawn_blocking；目录需以 / 结尾，由调用方处理）。
+fn delete_ftp(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<(), String> {
+    let cfg = cfg.clone();
+    let secret = secret.to_string();
+    let path = path.to_string();
+    std::thread::spawn(move || -> Result<(), String> {
+        let mut ftp = ftp_connect_sync(&cfg, &secret)?;
+        if path.ends_with('/') {
+            ftp.rmdir(&path).map_err(|e| format!("FTP 删除目录失败: {e}"))?;
+        } else {
+            ftp.rm(&path).map_err(|e| format!("FTP 删除文件失败: {e}"))?;
+        }
+        let _ = ftp.quit();
+        Ok(())
+    })
+    .join()
+    .map_err(|_| "FTP 任务线程异常".to_string())?
 }
 
 /// 目录列表结果（与桌面端 `FileListDirResult` 同形）。
@@ -82,7 +258,7 @@ pub struct FileManagerConnectionInfo {
 }
 
 /// 解析自 `Connection.config`（kind=file）的配置。
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileConnConfig {
     #[serde(default)]
@@ -101,13 +277,13 @@ pub struct FileConnConfig {
     pub bucket: String,
 }
 
-fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, OmniError> {
+pub(crate) fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, OmniError> {
     serde_json::from_str(&conn.config).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "文件连接配置解析失败").with_cause(e.to_string())
     })
 }
 
-fn protocol_of(cfg: &FileConnConfig) -> &str {
+pub(crate) fn protocol_of(cfg: &FileConnConfig) -> &str {
     let p = cfg.protocol.to_lowercase();
     if p.is_empty() {
         "sftp"
@@ -117,7 +293,7 @@ fn protocol_of(cfg: &FileConnConfig) -> &str {
 }
 
 /// 连接 id → 连接模型（本机返回 None）。
-async fn load_file_connection(
+pub(crate) async fn load_file_connection(
     state: &ServerState,
     connection_id: &str,
 ) -> Result<Option<Connection>, OmniError> {
@@ -176,7 +352,7 @@ async fn ssh_config_from_file_conn(
 }
 
 /// SFTP 会话：优先复用缓存；关联 SSH 连接时每次走连接（无池，串行复用同连接）。
-async fn sftp_session_for(
+pub(crate) async fn sftp_session_for(
     state: &ServerState,
     connection_id: &str,
     conn: &Connection,
@@ -479,7 +655,17 @@ pub async fn file_list_dir(
                 next_continuation_token: None,
             })
         }
-        proto => Err(format!("Web 端暂不支持文件协议: {proto}（当前支持 local / sftp）")),
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let entries = list_ftp_dir(&cfg, &secret, &path, search.as_deref())
+                .map_err(|e| e.to_string())?;
+            Ok(FileListDirResult {
+                entries,
+                truncated: false,
+                next_continuation_token: None,
+            })
+        }
+        proto => Err(format!("Web 端暂不支持文件协议: {proto}（当前支持 local / sftp / ftp）")),
     }
 }
 
@@ -505,6 +691,14 @@ pub async fn file_read_file(
                 .await
                 .map_err(|e| e.to_string())?;
             let data = session.sftp_download(&path).await.map_err(|e| e.to_string())?;
+            if data.len() as u64 > max_bytes {
+                return Err("文件过大".to_string());
+            }
+            Ok(data)
+        }
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let data = read_ftp_file(&cfg, &secret, &path).map_err(|e| e.to_string())?;
             if data.len() as u64 > max_bytes {
                 return Err("文件过大".to_string());
             }
@@ -536,6 +730,10 @@ pub async fn file_upload_file(
                 .map_err(|e| e.to_string())?;
             session.sftp_upload(&path, &data).await.map_err(|e| e.to_string())
         }
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            write_ftp_file(&cfg, &secret, &path, &data).map_err(|e| e.to_string())
+        }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
 }
@@ -560,6 +758,10 @@ pub async fn file_mkdir(
                 .await
                 .map_err(|e| e.to_string())?;
             session.sftp_mkdir(&path).await.map_err(|e| e.to_string())
+        }
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            mkdir_ftp(&cfg, &secret, &path).map_err(|e| e.to_string())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -586,6 +788,10 @@ pub async fn file_rename(
                 .await
                 .map_err(|e| e.to_string())?;
             session.sftp_rename(&old_path, &new_path).await.map_err(|e| e.to_string())
+        }
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            rename_ftp(&cfg, &secret, &old_path, &new_path).map_err(|e| e.to_string())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -619,6 +825,15 @@ pub async fn file_delete(
             } else {
                 session.sftp_remove(&path).await.map_err(|e| e.to_string())
             }
+        }
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let p = if entry_kind.as_deref() == Some("dir") && !path.ends_with('/') {
+                format!("{path}/")
+            } else {
+                path.clone()
+            };
+            delete_ftp(&cfg, &secret, &p).map_err(|e| e.to_string())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -719,6 +934,11 @@ pub async fn file_upload_local_bytes(
                 .await
                 .map_err(|e| e.to_string())?;
             session.sftp_upload(&dest_path, &data).await.map_err(|e| e.to_string())?;
+            Ok(dest_connection_id)
+        }
+        "ftp" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            write_ftp_file(&cfg, &secret, &dest_path, &data).map_err(|e| e.to_string())?;
             Ok(dest_connection_id)
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),

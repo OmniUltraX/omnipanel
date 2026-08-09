@@ -55,7 +55,7 @@ fn respond<T: Serialize>(result: Result<T, String>) -> InvokeResponse<serde_json
 }
 
 /// 分发单条命令。未知命令返回错误（与 Tauri `invoke` 未知命令报错一致）。
-pub async fn dispatch(state: &ServerState, req: InvokeRequest) -> InvokeResponse<serde_json::Value> {
+pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -> InvokeResponse<serde_json::Value> {
     let args = req.args;
     match req.cmd.as_str() {
         /* ---------------- 本地终端（P0） ---------------- */
@@ -656,6 +656,19 @@ pub async fn dispatch(state: &ServerState, req: InvokeRequest) -> InvokeResponse
             let remote_path = get_str(&args, "remotePath").unwrap_or_default();
             let local_path = get_str(&args, "localPath").unwrap_or_default();
             respond(crate::files::file_download_file(state, connection_id, remote_path, local_path).await)
+        }
+
+        /* ---------------- 跨连接文件 relay（P3） ---------------- */
+        "transfer_start" => {
+            let req: crate::transfer::TransferStartRequest = match serde_json::from_value(args) {
+                Ok(r) => r,
+                Err(e) => return InvokeResponse::err(format!("解析 transfer_start 请求失败: {e}")),
+            };
+            respond(crate::transfer::transfer_start(state.clone(), req).await)
+        }
+        "transfer_cancel" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond(crate::transfer::transfer_cancel(state, id).await)
         }
 
         /* ---------------- AI（P2：HTTP 流式对话 + 流式 HTTP 代理） ---------------- */
