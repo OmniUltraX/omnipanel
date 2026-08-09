@@ -670,6 +670,13 @@ pub async fn dispatch(state: &ServerState, req: InvokeRequest) -> InvokeResponse
             let conversation_id = get_str(&args, "conversationId").unwrap_or_default();
             respond(crate::ai::ai_chat_cancel(state, conversation_id).await)
         }
+        "ai_chat_tool_result" => {
+            let conversation_id = get_str(&args, "conversationId").unwrap_or_default();
+            let tool_call_id = get_str(&args, "toolCallId").unwrap_or_default();
+            let result = get_str(&args, "result").unwrap_or_default();
+            let approved = args.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond(crate::ai::ai_chat_tool_result(state, conversation_id, tool_call_id, result, approved).await)
+        }
         "ai_http_stream_post" => {
             let req: crate::ai::AiHttpStreamRequest = match serde_json::from_value(args) {
                 Ok(r) => r,

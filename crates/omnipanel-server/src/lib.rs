@@ -11,6 +11,7 @@
 //! 详见 `docs/web-p1.md`。
 
 pub mod ai;
+pub mod ai_tools;
 pub mod bus;
 pub mod db;
 pub mod docker;

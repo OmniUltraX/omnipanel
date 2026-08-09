@@ -28,5 +28,6 @@ omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }
+omnipanel-mcp = { path = "../omnipanel-mcp" }
 bollard = { workspace = true }
 reqwest = { workspace = true }

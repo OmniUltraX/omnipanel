@@ -4789,6 +4789,7 @@ dependencies = [
  "omnipanel-db",
  "omnipanel-docker",
  "omnipanel-error",
+ "omnipanel-mcp",
  "omnipanel-ssh",
  "omnipanel-store",
  "reqwest 0.12.28",

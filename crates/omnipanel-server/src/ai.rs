@@ -18,11 +18,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use omnipanel_ai::{
-    AiContextBundle, HttpProviderSnapshot, InternalChatRequest,
-    InternalOrchestrator, InternalToolsMode, RenamedProvider, StreamEvent,
+    AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalOrchestrator,
+    InternalToolsMode, RenamedProvider, StreamEvent, ToolExecutor,
 };
 use serde::Deserialize;
 
+use crate::ai_tools::{ServerToolExecutor, filter_web_tools};
 use crate::state::ServerState;
 
 /// `ai_chat_stream` 外层请求体（对齐桌面端 Tauri 参数：`request` + `onEvent`）。
@@ -287,13 +288,49 @@ pub async fn ai_chat_stream(
         flag
     };
 
+    // P3：Web 端工具面下沉。DirectInject 时从存储的 ToolRegistry 拉取工具定义，
+    // 过滤纯 UI 依赖工具后注入；执行器为服务端自执 `ServerToolExecutor`。
+    let (tools, executor) = match &internal.tools_mode {
+        InternalToolsMode::DirectInject {
+            module_filter,
+            tool_allowlist,
+        } => {
+            let filter = module_filter.as_deref();
+            let mut defs = omnipanel_mcp::ToolRegistry::new(state.storage.clone())
+                .to_tool_defs(filter)
+                .await
+                .map_err(|e| e.to_string())?;
+            // 模块隔离下不混入外部 MCP（与桌面端 McpManager::to_internal_tool_defs 一致）；
+            // 无过滤（master）时 Web 端不注入外部 MCP（其调用依赖 McpManager 桥，Web 端未集成）。
+            if let Some(tool_allowlist) = tool_allowlist {
+                if !tool_allowlist.is_empty() {
+                    let allowed: std::collections::HashSet<&str> =
+                        tool_allowlist.iter().map(String::as_str).collect();
+                    defs.retain(|d| allowed.contains(d.function.name.as_str()));
+                }
+            }
+            let (tools, dropped) = filter_web_tools(defs);
+            if !dropped.is_empty() {
+                tracing::info!(
+                    conversation_id = %conversation_id,
+                    dropped = ?dropped,
+                    "Web 端过滤纯 UI 工具"
+                );
+            }
+            let executor = ServerToolExecutor::new(state, module_filter.clone());
+            (Some(tools), Some(executor))
+        }
+        InternalToolsMode::None => (None, None),
+    };
+    let exec_ref: Option<&dyn ToolExecutor> = executor.as_ref().map(|e| e as &dyn ToolExecutor);
+
     let bus = state.bus.clone();
     let result = InternalOrchestrator::run_turn(
         provider.as_ref(),
         &model_id,
         &internal,
-        None, // Web 端暂不注入工具（MCP 执行器依赖桌面端）
-        None, // 无 ToolExecutor
+        tools,
+        exec_ref,
         move |evt: StreamEvent| {
             let payload = match serde_json::to_value(&evt) {
                 Ok(v) => v,
@@ -323,6 +360,23 @@ pub async fn ai_chat_cancel(
     if let Some(flag) = flags.get(&conversation_id) {
         flag.store(true, Ordering::Relaxed);
     }
+    Ok(())
+}
+
+/// `ai_chat_tool_result`：回传工具执行结果（等价桌面端 Tauri 命令）。
+///
+/// Web 端 P3 之前 `ServerToolExecutor` 全部自执、不挂起；本命令保留桌面语义，
+/// 供后续把 `omni_ask_user` / `omni_plan_*` 等 UI 依赖工具接入审批/表单时使用，
+/// 同时兼容前端 `reportToolResultWithRetry` 在 Web 模式下对未知命令的回退。
+pub async fn ai_chat_tool_result(
+    state: &ServerState,
+    conversation_id: String,
+    tool_call_id: String,
+    result: String,
+    approved: bool,
+) -> Result<(), String> {
+    let _ = (&state, &conversation_id, &tool_call_id, &result, &approved);
+    // Web 端自执模式没有挂起的 UiDelegated 工具，直接返回成功（无操作）。
     Ok(())
 }
 
