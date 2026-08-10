@@ -664,6 +664,20 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let local_path = get_str(&args, "localPath").unwrap_or_default();
             respond(crate::files::file_download_file(state, connection_id, remote_path, local_path).await)
         }
+        "file_upload_local_path_multipart" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let dest_path = get_str(&args, "destPath").unwrap_or_default();
+            let local_path = get_str(&args, "localPath").unwrap_or_default();
+            let chunk_size = args.get("chunkSize").and_then(|v| v.as_u64()).map(|n| n as usize);
+            respond(crate::files::file_upload_local_path_multipart(state, connection_id, dest_path, local_path, chunk_size).await)
+        }
+        "file_download_s3_range_to_file" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let remote_path = get_str(&args, "remotePath").unwrap_or_default();
+            let local_path = get_str(&args, "localPath").unwrap_or_default();
+            let chunk_size = args.get("chunkSize").and_then(|v| v.as_u64());
+            respond(crate::files::file_download_s3_range_to_file(state, connection_id, remote_path, local_path, chunk_size).await)
+        }
 
         /* ---------------- 跨连接文件 relay（P3） ---------------- */
         "transfer_start" => {
@@ -703,6 +717,42 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
                 Err(e) => return InvokeResponse::err(format!("解析 ai_http_stream_post 请求失败: {e}")),
             };
             respond(crate::ai::ai_http_stream_post(state, req).await)
+        }
+
+        /* ---------------- MCP 外部服务桥接（P4） ---------------- */
+        "mcp_list_services" => {
+            respond(crate::mcp::mcp_list_services(state).await)
+        }
+        "mcp_upsert_service" => {
+            let input: crate::mcp::UpsertMcpServiceInput = match serde_json::from_value(args.get("input").cloned().unwrap_or_default()) {
+                Ok(i) => i,
+                Err(e) => return InvokeResponse::err(format!("解析 input 失败: {e}")),
+            };
+            respond(crate::mcp::mcp_upsert_service(state, input).await)
+        }
+        "mcp_delete_service" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond(crate::mcp::mcp_delete_service(state, id).await)
+        }
+        "mcp_set_service_enabled" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond(crate::mcp::mcp_set_service_enabled(state, id, enabled).await)
+        }
+        "mcp_set_service_running" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let running = args.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond(crate::mcp::mcp_set_service_running(state, id, running).await)
+        }
+        "mcp_list_service_tools" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond(crate::mcp::mcp_list_service_tools(state, id).await)
+        }
+        "mcp_call_tool" => {
+            let service_id = get_str(&args, "serviceId").unwrap_or_default();
+            let tool_name = get_str(&args, "toolName").unwrap_or_default();
+            let tool_arguments = get_str(&args, "toolArguments").unwrap_or_default();
+            respond(crate::mcp::mcp_call_tool(state, service_id, tool_name, tool_arguments).await)
         }
 
         other => InvokeResponse::err(format!("unknown command: {other}")),

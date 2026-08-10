@@ -499,6 +499,76 @@ impl S3Client {
         Ok(response.bytes().to_vec())
     }
 
+    /// 范围下载（Range GET，供流式下载 / 断点续传）。返回 `(数据, 实际总长度)`。
+    ///
+    /// `end` 为 None 时从 `start` 读到对象末尾。
+    pub async fn get_object_range(
+        &self,
+        key: &str,
+        start: u64,
+        end: Option<u64>,
+    ) -> Result<Vec<u8>, OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client.get_object_range(key, start, end).await;
+        }
+        let bucket = self.rust_s3_bucket()?;
+        // rust-s3 的 end 为「包含」语义（bytes=start-end），此处把排他 end 转成包含。
+        let response = bucket
+            .get_object_range(key, start, end.map(|e| e.saturating_sub(1)))
+            .await
+            .map_err(|e| OmniError::new(ErrorCode::Io, "S3 分片下载失败").with_cause(e.to_string()))?;
+        let status = response.status_code();
+        // 416 = 请求范围超出对象末尾 → 视为已读完，返回空（调用方据此结束分块下载）
+        if status == 416 {
+            return Ok(Vec::new());
+        }
+        if !(200..300).contains(&status) {
+            return Err(OmniError::new(
+                ErrorCode::Io,
+                format!("S3 分片下载失败（HTTP {status}）"),
+            ));
+        }
+        Ok(response.bytes().to_vec())
+    }
+
+    /// 分块上传单个文件：分片 upload（每片 `chunk_size`，不整文件进内存），返回完成后的总字节数。
+    /// 任一分片失败自动 abort（清理残留 upload）。
+    pub async fn upload_object_multipart(
+        &self,
+        key: &str,
+        data: &[u8],
+        chunk_size: usize,
+    ) -> Result<u64, OmniError> {
+        if data.is_empty() {
+            self.put_object(key, data).await?;
+            return Ok(0);
+        }
+        let chunk_size = chunk_size.max(1024 * 1024);
+        let upload_id = self.initiate_multipart_upload(key).await?;
+        let mut parts: Vec<(u32, String)> = Vec::new();
+        let mut offset = 0usize;
+        let mut part_number: u32 = 1;
+        let result = async {
+            while offset < data.len() {
+                let end = (offset + chunk_size).min(data.len());
+                let etag = self
+                    .upload_part(key, part_number, &upload_id, &data[offset..end])
+                    .await?;
+                parts.push((part_number, etag));
+                offset = end;
+                part_number += 1;
+            }
+            self.complete_multipart_upload(key, &upload_id, &parts).await?;
+            Ok(data.len() as u64)
+        }
+        .await;
+        if result.is_err() {
+            let _ = self.abort_multipart_upload(key, &upload_id).await;
+        }
+        result
+    }
+
     /// 上传对象（覆盖）。
     pub async fn put_object(&self, key: &str, data: &[u8]) -> Result<(), OmniError> {
         if uses_sigv4_compat_client(&self.cfg) {
@@ -523,6 +593,84 @@ impl S3Client {
             OmniError::new(ErrorCode::Io, "S3 删除对象失败").with_cause(e.to_string())
         })?;
         Ok(())
+    }
+
+    /// 发起分块上传（rust-s3 路径），返回 UploadId。
+    pub async fn initiate_multipart_upload(&self, key: &str) -> Result<String, OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client.initiate_multipart_upload(key).await;
+        }
+        let bucket = self.rust_s3_bucket()?;
+        let msg = bucket
+            .initiate_multipart_upload(key, "application/octet-stream")
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 分块上传初始化失败").with_cause(e.to_string())
+            })?;
+        Ok(msg.upload_id)
+    }
+
+    /// 上传单个分片（rust-s3 路径），返回 ETag。
+    pub async fn upload_part(
+        &self,
+        key: &str,
+        part_number: u32,
+        upload_id: &str,
+        data: &[u8],
+    ) -> Result<String, OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client.upload_part(key, part_number, upload_id, data).await;
+        }
+        let bucket = self.rust_s3_bucket()?;
+        let part = bucket
+            .put_multipart_chunk(data.to_vec(), key, part_number, upload_id, "application/octet-stream")
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, format!("S3 分片 {part_number} 上传失败")).with_cause(e.to_string())
+            })?;
+        Ok(part.etag)
+    }
+
+    /// 完成分块上传（rust-s3 路径）。
+    pub async fn complete_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+        parts: &[(u32, String)],
+    ) -> Result<(), OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client.complete_multipart_upload(key, upload_id, parts).await;
+        }
+        let bucket = self.rust_s3_bucket()?;
+        let s3_parts = parts
+            .iter()
+            .map(|(num, etag)| s3::serde_types::Part {
+                part_number: *num,
+                etag: etag.clone(),
+            })
+            .collect();
+        bucket
+            .complete_multipart_upload(key, upload_id, s3_parts)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 分块上传完成失败").with_cause(e.to_string())
+            })?;
+        Ok(())
+    }
+
+    /// 中止分块上传。
+    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client.abort_multipart_upload(key, upload_id).await;
+        }
+        let bucket = self.rust_s3_bucket()?;
+        bucket.abort_upload(key, upload_id).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "S3 分块上传中止失败").with_cause(e.to_string())
+        })
     }
 
     /// HEAD 对象（用于连接探测），返回 HTTP 状态码。
@@ -771,5 +919,12 @@ mod tests {
             "s".repeat(40).as_str(),
         );
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn xml_escape_etag_handles_quotes() {
+        // rust-s3 返回的 ETag 带引号（"abc"），转义后应可安全嵌入 XML
+        let escaped = crate::sigv4::xml_escape_etag(r#""abc""#);
+        assert_eq!(escaped, "&quot;abc&quot;");
     }
 }

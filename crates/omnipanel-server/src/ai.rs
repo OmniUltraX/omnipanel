@@ -300,8 +300,13 @@ pub async fn ai_chat_stream(
                 .to_tool_defs(filter)
                 .await
                 .map_err(|e| e.to_string())?;
-            // 模块隔离下不混入外部 MCP（与桌面端 McpManager::to_internal_tool_defs 一致）；
-            // 无过滤（master）时 Web 端不注入外部 MCP（其调用依赖 McpManager 桥，Web 端未集成）。
+            // P4：并入启用中的外部 MCP 工具（与桌面端 `McpManager::to_internal_tool_defs` 一致）。
+            // 模块隔离下（非 master/web）不混入外部 MCP。
+            if matches!(filter, None | Some("master") | Some("web")) {
+                let external = crate::mcp::merge_external_tool_defs(state, filter).await?;
+                defs.extend(external);
+            }
+            // 若工具清单含纯 UI 工具则过滤（Web 端无浏览器回传）
             if let Some(tool_allowlist) = tool_allowlist {
                 if !tool_allowlist.is_empty() {
                     let allowed: std::collections::HashSet<&str> =

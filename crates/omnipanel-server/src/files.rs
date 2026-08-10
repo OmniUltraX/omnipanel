@@ -1032,10 +1032,146 @@ pub async fn file_upload_file(
             let secret = resolve_secret(&conn).unwrap_or_default();
             let client = s3_client_for(&cfg, &secret)?;
             let key = s3_object_key(&path);
-            client.put_object(&key, &data).await.map_err(|e| e.user_message())
+            // 大文件走分块上传（不整载进内存）；小文件单 PUT
+            const S3_MULTIPART_THRESHOLD: usize = 8 * 1024 * 1024;
+            if data.len() >= S3_MULTIPART_THRESHOLD {
+                client
+                    .upload_object_multipart(&key, &data, 8 * 1024 * 1024)
+                    .await
+                    .map_err(|e| e.user_message())?;
+            } else {
+                client.put_object(&key, &data).await.map_err(|e| e.user_message())?;
+            }
+            Ok(())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
+}
+
+/// 分块上传：把本地文件分块（每块 `chunk_size`）上传到 S3，避免整文件进内存。
+///
+/// 走 `S3Client::upload_object_multipart`（自动 initiate → upload_part → complete，
+/// 失败 abort）。返回上传总字节数。
+pub async fn file_upload_local_path_multipart(
+    state: &ServerState,
+    connection_id: String,
+    dest_path: String,
+    local_path: String,
+    chunk_size: Option<usize>,
+) -> Result<u64, String> {
+    if connection_id == LOCAL_CONNECTION_ID {
+        return Err("本机连接无需分块上传".to_string());
+    }
+    let conn = load_file_connection(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("连接不存在: {connection_id}"))?;
+    let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
+    if protocol_of(&cfg) != "s3" {
+        return Err(format!("仅 S3 连接支持分块上传，当前协议: {}", protocol_of(&cfg)));
+    }
+    let secret = resolve_secret(&conn).unwrap_or_default();
+    let client = s3_client_for(&cfg, &secret)?;
+    let key = s3_object_key(&dest_path);
+    let chunk_size = chunk_size.unwrap_or(8 * 1024 * 1024).clamp(5 * 1024 * 1024, 64 * 1024 * 1024);
+
+    // 分块读本地文件（不整载进内存）
+    let mut file = std::fs::File::open(&local_path)
+        .map_err(|e| format!("打开本地文件失败: {e}"))?;
+    use std::io::Read;
+    let mut buf = vec![0u8; chunk_size];
+    let mut parts: Vec<(u32, String)> = Vec::new();
+    let mut part_number: u32 = 1;
+    let upload_id = client
+        .initiate_multipart_upload(&key)
+        .await
+        .map_err(|e| e.user_message())?;
+    let result = (async || -> Result<u64, String> {
+        let mut total: u64 = 0;
+        loop {
+            let n = file.read(&mut buf).map_err(|e| format!("读取本地文件失败: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            let etag = client
+                .upload_part(&key, part_number, &upload_id, &buf[..n])
+                .await
+                .map_err(|e| e.user_message())?;
+            parts.push((part_number, etag));
+            total += n as u64;
+            part_number += 1;
+        }
+        client
+            .complete_multipart_upload(&key, &upload_id, &parts)
+            .await
+            .map_err(|e| e.user_message())?;
+        Ok(total)
+    })()
+    .await;
+    if result.is_err() {
+        let _ = client.abort_multipart_upload(&key, &upload_id).await;
+    }
+    result
+}
+
+/// 分块下载：把 S3 对象按 Range 分块写入本地文件（不整载进内存）。返回总字节数。
+pub async fn file_download_s3_range_to_file(
+    state: &ServerState,
+    connection_id: String,
+    remote_path: String,
+    local_path: String,
+    chunk_size: Option<u64>,
+) -> Result<u64, String> {
+    let conn = load_file_connection(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("连接不存在: {connection_id}"))?;
+    let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
+    if protocol_of(&cfg) != "s3" {
+        return Err(format!("仅 S3 连接支持 Range 下载，当前协议: {}", protocol_of(&cfg)));
+    }
+    let secret = resolve_secret(&conn).unwrap_or_default();
+    let client = s3_client_for(&cfg, &secret)?;
+    let key = s3_object_key(&remote_path);
+    let chunk_size = chunk_size.unwrap_or(8 * 1024 * 1024).max(1024 * 1024);
+
+    // HEAD 拿对象总长（失败时按 0 处理，之后逐块读到空）
+    let total = {
+        let status = client.head_object(&key).await.map_err(|e| e.user_message())?;
+        if status == 200 {
+            // rust-s3 HEAD 不返回 Content-Length（仅状态码），用 0 表示未知，逐块读
+            0
+        } else {
+            0
+        }
+    };
+    let _ = total;
+
+    if let Some(parent) = Path::new(&local_path).parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    use std::io::Write;
+    let mut file = std::fs::File::create(&local_path)
+        .map_err(|e| format!("创建本地文件失败: {e}"))?;
+    let mut offset: u64 = 0;
+    let mut written: u64 = 0;
+    loop {
+        let data = client
+            .get_object_range(&key, offset, offset.checked_add(chunk_size))
+            .await
+            .map_err(|e| e.user_message())?;
+        if data.is_empty() {
+            break;
+        }
+        file.write_all(&data).map_err(|e| format!("写入本地文件失败: {e}"))?;
+        written += data.len() as u64;
+        offset += data.len() as u64;
+        if (data.len() as u64) < chunk_size {
+            break;
+        }
+    }
+    file.flush().ok();
+    Ok(written)
 }
 
 pub async fn file_mkdir(

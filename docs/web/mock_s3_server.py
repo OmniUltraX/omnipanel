@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """本地 mock S3 服务器（MinIO 兼容子集）：
-支持 ListObjectsV2 / PUT / GET / DELETE / HEAD，path-style 寻址。
+支持 ListObjectsV2 / PUT / GET / DELETE / HEAD / GET(Range) / multipart
+（InitiateMultipartUpload / UploadPart / CompleteMultipartUpload / AbortMultipartUpload），
+path-style 寻址。
 用于验证 omnipanel-s3 rust-s3 路径（localhost + path-style）。
 """
 import json
@@ -8,22 +10,30 @@ import os
 import re
 import sys
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
 BUCKET = "test-bucket"
 DATA_DIR = "/tmp/mock-s3-data"
+# multipart 上传中的分片存储目录：{DATA_DIR}/.multipart/{upload_id}/part-{n}
+MULTIPART_DIR = os.path.join(DATA_DIR, ".multipart")
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(MULTIPART_DIR, exist_ok=True)
 
 XML_HEADER = '<?xml version="1.0" encoding="UTF-8"?>'
 
+
 def xml_escape(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
 
 def list_objects_xml(prefix, delimiter, continuation_token, max_keys):
     # 收集所有对象
     objects = []
     for root, _, files in os.walk(DATA_DIR):
+        if os.path.join(DATA_DIR, ".multipart") in root or root == MULTIPART_DIR:
+            continue
         for f in files:
             full = os.path.join(root, f)
             rel = os.path.relpath(full, DATA_DIR).replace(os.sep, "/")
@@ -78,6 +88,7 @@ def list_objects_xml(prefix, delimiter, continuation_token, max_keys):
   {common_xml}
 </ListBucketResult>"""
 
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
@@ -102,12 +113,119 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_bytes(self, data, status=200, content_type="application/octet-stream"):
+    def _send_bytes(self, data, status=200, content_type="application/octet-stream", headers=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_empty(self, status=200, headers=None):
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+
+    # ── multipart 辅助 ──────────────────────────────────────────────
+
+    def _multipart_dir(self, upload_id):
+        return os.path.join(MULTIPART_DIR, upload_id)
+
+    def _read_part(self, upload_id, part_number):
+        full = os.path.join(self._multipart_dir(upload_id), f"part-{part_number}")
+        if os.path.isfile(full):
+            with open(full, "rb") as f:
+                return f.read()
+        return None
+
+    def _assemble_multipart(self, upload_id):
+        """按 partNumber 升序拼接全部已上传分片，返回 (bytes, parts)。"""
+        d = self._multipart_dir(upload_id)
+        if not os.path.isdir(d):
+            return None, []
+        parts = []
+        for name in os.listdir(d):
+            m = re.match(r"part-(\d+)$", name)
+            if m:
+                parts.append((int(m.group(1)), os.path.join(d, name)))
+        parts.sort(key=lambda x: x[0])
+        chunks = []
+        for _, full in parts:
+            with open(full, "rb") as f:
+                chunks.append(f.read())
+        return b"".join(chunks), [(n, full) for n, full in parts]
+
+    def _handle_multipart(self, key, q, method):
+        """返回 True 表示已处理 multipart 请求（uploads / uploadId）。"""
+        # `?uploads` 是无值 flag，parse_qs 会丢弃，须从原始 query 判断
+        raw_query = urlparse(self.path).query
+        uploads = "uploads" in raw_query
+        upload_id = (q.get("uploadId") or [None])[0]
+        part_number = (q.get("partNumber") or [None])[0]
+
+        # POST ?uploads → InitiateMultipartUpload
+        if uploads and method == "POST":
+            uid = uuid.uuid4().hex
+            os.makedirs(self._multipart_dir(uid), exist_ok=True)
+            self._send_xml(XML_HEADER + f"""<InitiateMultipartUploadResult>
+  <Bucket>{BUCKET}</Bucket>
+  <Key>{xml_escape(key)}</Key>
+  <UploadId>{uid}</UploadId>
+</InitiateMultipartUploadResult>""")
+            return True
+
+        if not upload_id:
+            return False
+
+        # DELETE ?uploadId → AbortMultipartUpload
+        if method == "DELETE":
+            import shutil
+            shutil.rmtree(self._multipart_dir(upload_id), ignore_errors=True)
+            self._send_empty(204)
+            return True
+
+        # PUT ?uploadId&partNumber → UploadPart
+        if method == "PUT" and part_number:
+            length = int(self.headers.get("Content-Length", "0"))
+            data = self.rfile.read(length) if length > 0 else b""
+            d = self._multipart_dir(upload_id)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, f"part-{part_number}"), "wb") as f:
+                f.write(data)
+            self._send_empty(200, headers={"ETag": f'"part-{part_number}"'})
+            return True
+
+        # POST ?uploadId → CompleteMultipartUpload
+        if method == "POST":
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length > 0 else b""
+            # 解析 <Part><PartNumber>n</PartNumber><ETag>..</ETag></Part>
+            nums = [int(m) for m in re.findall(r"<PartNumber>(\d+)</PartNumber>", body.decode())]
+            data, _ = self._assemble_multipart(upload_id)
+            if data is None:
+                self._send_xml(XML_HEADER + "<Error><Code>NoSuchUpload</Code></Error>", 404)
+                return True
+            full = os.path.join(DATA_DIR, key)
+            os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+            with open(full, "wb") as f:
+                f.write(data)
+            import shutil
+            shutil.rmtree(self._multipart_dir(upload_id), ignore_errors=True)
+            etag = f'"{"-".join(str(n) for n in nums)}"'
+            self._send_xml(XML_HEADER + f"""<CompleteMultipartUploadResult>
+  <Location>http://127.0.0.1:{self.server.server_port}/{BUCKET}/{xml_escape(key)}</Location>
+  <Bucket>{BUCKET}</Bucket>
+  <Key>{xml_escape(key)}</Key>
+  <ETag>{etag}</ETag>
+</CompleteMultipartUploadResult>""")
+            return True
+
+        return False
+
+    # ── HTTP verbs ──────────────────────────────────────────────────
 
     def do_GET(self):
         key, q = self._parse_path()
@@ -118,16 +236,33 @@ class Handler(BaseHTTPRequestHandler):
             max_keys = int(q.get("max-keys", ["1000"])[0])
             self._send_xml(XML_HEADER + list_objects_xml(prefix, delimiter, token, max_keys))
             return
-        # GET object
+        # GET object（支持 Range）
         full = os.path.join(DATA_DIR, key)
-        if os.path.isfile(full):
-            with open(full, "rb") as f:
-                self._send_bytes(f.read())
-        else:
+        if not os.path.isfile(full):
             self._send_xml(XML_HEADER + "<Error><Code>NoSuchKey</Code><Message>Not Found</Message></Error>", 404)
+            return
+        with open(full, "rb") as f:
+            content = f.read()
+        range_hdr = self.headers.get("Range")
+        if range_hdr:
+            m = re.match(r"bytes=(\d+)-(\d*)", range_hdr)
+            if m:
+                start = int(m.group(1))
+                end_str = m.group(2)
+                end = int(end_str) if end_str else len(content) - 1
+                end = min(end, len(content) - 1)
+                if start > end:
+                    self._send_xml(XML_HEADER + "<Error><Code>InvalidRange</Code></Error>", 416)
+                    return
+                chunk = content[start:end + 1]
+                self._send_bytes(chunk, 206, headers={"Content-Range": f"bytes {start}-{end}/{len(content)}"})
+                return
+        self._send_bytes(content)
 
     def do_PUT(self):
-        key, _ = self._parse_path()
+        key, q = self._parse_path()
+        if self._handle_multipart(key, q, "PUT"):
+            return
         if not key:
             self._send_xml(XML_HEADER + "<Error><Code>InvalidKey</Code></Error>", 400)
             return
@@ -145,9 +280,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.makedirs(os.path.dirname(full), exist_ok=True)
                 with open(full, "wb") as f:
                     f.write(content)
-                self.send_response(200)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                self._send_empty(200)
                 return
             else:
                 self._send_xml(XML_HEADER + "<Error><Code>NoSuchKey</Code><Message>copy source missing</Message></Error>", 404)
@@ -170,21 +303,25 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, "wb") as f:
                 f.write(data)
-        self.send_response(200)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        self._send_empty(200)
+
+    def do_POST(self):
+        key, q = self._parse_path()
+        if self._handle_multipart(key, q, "POST"):
+            return
+        self._send_xml(XML_HEADER + "<Error><Code>MethodNotAllowed</Code></Error>", 405)
 
     def do_DELETE(self):
-        key, _ = self._parse_path()
+        key, q = self._parse_path()
+        if self._handle_multipart(key, q, "DELETE"):
+            return
         full = os.path.join(DATA_DIR, key)
         if os.path.isfile(full):
             os.remove(full)
-        self.send_response(204)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        self._send_empty(204)
 
     def do_HEAD(self):
-        key, _ = self._parse_path()
+        key, q = self._parse_path()
         full = os.path.join(DATA_DIR, key)
         if os.path.isfile(full):
             self.send_response(200)
@@ -193,6 +330,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 19000

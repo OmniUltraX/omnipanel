@@ -371,15 +371,23 @@ async fn source_to_local_temp(
         }
         "s3" => {
             let client = s3_client_for_connection(state, source_connection_id).await?;
-            let data = client.get_object(&s3_key(source_path)).await?;
+            // 分块下载到本地临时文件（Range GET，不整载进内存）
+            let temp = std::env::temp_dir().join(format!("{job_id}.src"));
+            let written = crate::files::file_download_s3_range_to_file(
+                state,
+                source_connection_id.to_string(),
+                source_path.to_string(),
+                temp.to_string_lossy().into_owned(),
+                None,
+            )
+            .await
+            .map_err(|e| OmniError::new(ErrorCode::Io, format!("S3 分块下载失败: {e}")))?;
             if cancel.load(Ordering::Relaxed) {
+                let _ = tokio::fs::remove_file(&temp).await;
                 return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
             }
-            let temp = std::env::temp_dir().join(format!("{job_id}.src"));
-            tokio::fs::write(&temp, &data).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "写入本地临时文件失败").with_cause(e.to_string())
-            })?;
-            let len = data.len() as u64;
+            let _ = client;
+            let len = tokio::fs::metadata(&temp).await.map(|m| m.len()).unwrap_or(written);
             Ok((temp, len))
         }
         other => Err(OmniError::invalid_input(format!(
@@ -413,12 +421,19 @@ async fn local_temp_to_dest(
         }
         "sftp" => relay_sftp_dest(state, dest_connection_id, dest_path, temp, resume, cancel).await,
         "s3" => {
-            let client = s3_client_for_connection(state, dest_connection_id).await?;
-            let data = tokio::fs::read(temp).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "读取本地临时文件失败").with_cause(e.to_string())
-            })?;
-            client.put_object(&s3_key(dest_path), &data).await?;
-            Ok(data.len() as u64)
+            // 分块上传（不整载进内存）
+            let key = s3_key(dest_path);
+            let written = crate::files::file_upload_local_path_multipart(
+                state,
+                dest_connection_id.to_string(),
+                dest_path.to_string(),
+                temp.to_string_lossy().into_owned(),
+                None,
+            )
+            .await
+            .map_err(|e| OmniError::new(ErrorCode::Io, format!("S3 分块上传失败: {e}")))?;
+            let _ = key;
+            Ok(written)
         }
         other => Err(OmniError::invalid_input(format!(
             "不支持的目标协议: {other}"
@@ -456,13 +471,34 @@ async fn relay_s3_s3(
         }
     }
 
-    // 跨桶/服务端拷贝不可用：内存 relay（S3 对象通常可整载；大文件由上层限制）
-    let data = src_client.get_object(&src_key).await?;
+    // 跨桶/服务端拷贝不可用：经本地临时文件流式中转（分块下载 + 分块上传，不整载内存）
+    let temp = std::env::temp_dir().join(format!("s3s3-{}.tmp", std::process::id()));
+    let written = crate::files::file_download_s3_range_to_file(
+        state,
+        source_connection_id.to_string(),
+        source_path.to_string(),
+        temp.to_string_lossy().into_owned(),
+        None,
+    )
+    .await
+    .map_err(|e| OmniError::new(ErrorCode::Io, format!("S3→S3 分块下载失败: {e}")))?;
     if cancel.load(Ordering::Relaxed) {
+        let _ = tokio::fs::remove_file(&temp).await;
         return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
     }
-    dst_client.put_object(&dst_key, &data).await?;
-    Ok(data.len() as u64)
+    let n = crate::files::file_upload_local_path_multipart(
+        state,
+        dest_connection_id.to_string(),
+        dest_path.to_string(),
+        temp.to_string_lossy().into_owned(),
+        None,
+    )
+    .await
+    .map_err(|e| OmniError::new(ErrorCode::Io, format!("S3→S3 分块上传失败: {e}")))?;
+    let _ = tokio::fs::remove_file(&temp).await;
+    let _ = src_client;
+    let _ = dst_client;
+    Ok(n.max(written))
 }
 
 /// 判断两个 S3 连接是否同 bucket + 同 endpoint（用于服务端拷贝判定）。

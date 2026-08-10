@@ -264,6 +264,27 @@ impl<'a> ToolExecutor for ServerToolExecutor<'a> {
             };
         }
 
+        // P4：外部 MCP 工具（`extmcp::{service_id}::{tool_name}`）→ McpManager 桥接执行
+        if let Some((service_id, tool_name)) =
+            omnipanel_mcp::external::parse_registry_tool_name(name)
+        {
+            let manager = match self.state.ensure_mcp_manager().await {
+                Some(m) => m,
+                None => {
+                    return (
+                        format!("Error: 外部 MCP 管理器不可用（无法调用 {name}）"),
+                        false,
+                    )
+                }
+            };
+            let manager = manager.lock().await;
+            let outcome = manager.call_service_tool(&service_id, &tool_name, args).await;
+            return match outcome {
+                Ok(result) => (result.content.clone(), !result.is_error),
+                Err(err) => (format!("Error: {err}"), false),
+            };
+        }
+
         // 纯 UI 工具：明确报错，让模型降级为文本/其它工具。
         if UI_ONLY_TOOLS.contains(&name) {
             return (

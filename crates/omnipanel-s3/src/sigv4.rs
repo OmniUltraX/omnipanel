@@ -98,6 +98,14 @@ fn canonical_object_uri(key: &str) -> String {
     format!("/{}", uri_encode(key, false))
 }
 
+/// XML 转义 ETag（ETag 通常带引号，需转义为 &quot;）。
+pub(crate) fn xml_escape_etag(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn mask_access_key(ak: &str) -> String {
     let t = ak.trim();
     if t.len() <= 8 {
@@ -526,6 +534,161 @@ impl SigV4Client {
             ));
         }
         Ok(body.to_vec())
+    }
+
+    /// 范围下载（Range GET，供流式下载 / 断点续传）。
+    pub async fn get_object_range(
+        &self,
+        key: &str,
+        start: u64,
+        end: Option<u64>,
+    ) -> Result<Vec<u8>, OmniError> {
+        let uri = canonical_object_uri(key);
+        let range = match end {
+            Some(e) if e > start => format!("bytes={}-{}", start, e.saturating_sub(1)),
+            _ => format!("bytes={}-", start),
+        };
+        let (resp, sig_debug) = self
+            .signed_request("GET", &uri, &[], &[], &[("range", &range)])
+            .await?;
+        let status = resp.status().as_u16();
+        let body = resp.bytes().await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取 OSS 对象分片失败").with_cause(e.to_string())
+        })?;
+        // 200（整对象）与 206（部分内容）都接受
+        if status != 200 && status != 206 {
+            let text = String::from_utf8_lossy(&body);
+            return Err(http_error_with_sig_debug(
+                "getObjectRange",
+                status,
+                &text,
+                &sig_debug,
+            ));
+        }
+        Ok(body.to_vec())
+    }
+
+    /// 发起分块上传，返回 UploadId（`POST /?uploads`）。
+    pub async fn initiate_multipart_upload(&self, key: &str) -> Result<String, OmniError> {
+        let uri = canonical_object_uri(key);
+        let (resp, sig_debug) = self
+            .signed_request("POST", &uri, &[("uploads".to_string(), String::new())], &[], &[])
+            .await?;
+        let status = resp.status().as_u16();
+        let body = resp.bytes().await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取 OSS 分块上传初始化响应失败").with_cause(e.to_string())
+        })?;
+        if !(200..300).contains(&status) {
+            let text = String::from_utf8_lossy(&body);
+            return Err(http_error_with_sig_debug(
+                "initiateMultipartUpload",
+                status,
+                &text,
+                &sig_debug,
+            ));
+        }
+        let text = String::from_utf8_lossy(&body);
+        xml_tag(&text, "UploadId")
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                OmniError::new(ErrorCode::Io, "OSS 分块上传初始化响应缺少 UploadId").with_cause(text.into_owned())
+            })
+    }
+
+    /// 上传单个分片（`PUT ?partNumber=&uploadId=`），返回 ETag。
+    pub async fn upload_part(
+        &self,
+        key: &str,
+        part_number: u32,
+        upload_id: &str,
+        data: &[u8],
+    ) -> Result<String, OmniError> {
+        let uri = canonical_object_uri(key);
+        let pairs = vec![
+            ("partNumber".to_string(), part_number.to_string()),
+            ("uploadId".to_string(), upload_id.to_string()),
+        ];
+        let (resp, sig_debug) = self
+            .signed_request(
+                "PUT",
+                &uri,
+                &pairs,
+                data,
+                &[("content-type", "application/octet-stream")],
+            )
+            .await?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(http_error_with_sig_debug(
+                &format!("uploadPart#{part_number}"),
+                status,
+                &text,
+                &sig_debug,
+            ));
+        }
+        resp.headers()
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .ok_or_else(|| OmniError::new(ErrorCode::Io, "OSS 分片上传响应缺少 ETag"))
+    }
+
+    /// 完成分块上传（`POST ?uploadId=` + CompleteMultipartUpload XML）。
+    pub async fn complete_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+        parts: &[(u32, String)],
+    ) -> Result<(), OmniError> {
+        let uri = canonical_object_uri(key);
+        let mut xml = String::from("<CompleteMultipartUpload>");
+        for (num, etag) in parts {
+            xml.push_str(&format!(
+                "<Part><PartNumber>{num}</PartNumber><ETag>{}</ETag></Part>",
+                xml_escape_etag(etag)
+            ));
+        }
+        xml.push_str("</CompleteMultipartUpload>");
+        let pairs = vec![("uploadId".to_string(), upload_id.to_string())];
+        let (resp, sig_debug) = self
+            .signed_request(
+                "POST",
+                &uri,
+                &pairs,
+                xml.as_bytes(),
+                &[("content-type", "application/xml")],
+            )
+            .await?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(http_error_with_sig_debug(
+                "completeMultipartUpload",
+                status,
+                &text,
+                &sig_debug,
+            ));
+        }
+        Ok(())
+    }
+
+    /// 中止分块上传（`DELETE ?uploadId=`）。
+    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), OmniError> {
+        let uri = canonical_object_uri(key);
+        let pairs = vec![("uploadId".to_string(), upload_id.to_string())];
+        let (resp, sig_debug) = self.signed_request("DELETE", &uri, &pairs, &[], &[]).await?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) && status != 404 {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(http_error_with_sig_debug(
+                "abortMultipartUpload",
+                status,
+                &text,
+                &sig_debug,
+            ));
+        }
+        Ok(())
     }
 
     /// 上传对象（覆盖）。
