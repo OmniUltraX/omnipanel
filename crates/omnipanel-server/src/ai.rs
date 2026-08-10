@@ -322,7 +322,8 @@ pub async fn ai_chat_stream(
                     "Web 端过滤纯 UI 工具"
                 );
             }
-            let executor = ServerToolExecutor::new(state, module_filter.clone());
+            let executor = ServerToolExecutor::new(state, module_filter.clone())
+                .with_conversation(conversation_id.clone());
             (Some(tools), Some(executor))
         }
         InternalToolsMode::None => (None, None),
@@ -370,9 +371,13 @@ pub async fn ai_chat_cancel(
 
 /// `ai_chat_tool_result`：回传工具执行结果（等价桌面端 Tauri 命令）。
 ///
-/// Web 端 P3 之前 `ServerToolExecutor` 全部自执、不挂起；本命令保留桌面语义，
-/// 供后续把 `omni_ask_user` / `omni_plan_*` 等 UI 依赖工具接入审批/表单时使用，
-/// 同时兼容前端 `reportToolResultWithRetry` 在 Web 模式下对未知命令的回退。
+/// P5 起 Web 端外部 MCP 工具开启审批时，`ServerToolExecutor` 会把 pending 通道注册进
+/// `state.pending_internal_tool_results`，本命令从该表取出 oneshot 并把
+/// `(result, approved)` 回传给等待中的执行器。
+///
+/// 注意：Web 端外部 MCP 审批通过后由**服务端自执**（浏览器只负责确认，不传回执行结果），
+/// 因此 `result` 仅用于记录，实际以 `approved` 为准。若没有挂起的通道（自执模式/未知工具），
+/// 返回错误但不影响调用方（兼容前端 `reportToolResultWithRetry` 的重试回退）。
 pub async fn ai_chat_tool_result(
     state: &ServerState,
     conversation_id: String,
@@ -380,9 +385,19 @@ pub async fn ai_chat_tool_result(
     result: String,
     approved: bool,
 ) -> Result<(), String> {
-    let _ = (&state, &conversation_id, &tool_call_id, &result, &approved);
-    // Web 端自执模式没有挂起的 UiDelegated 工具，直接返回成功（无操作）。
-    Ok(())
+    let key = format!("{conversation_id}:{tool_call_id}");
+    let sender = state
+        .pending_internal_tool_results
+        .lock()
+        .await
+        .remove(&key);
+    match sender {
+        Some(tx) => {
+            let _ = tx.send((result, approved));
+            Ok(())
+        }
+        None => Err(format!("未找到待处理的工具调用: {key}")),
+    }
 }
 
 /// `ai_http_stream_post`：Web 端流式 HTTP 代理（等价桌面端，绕过浏览器 CORS）。

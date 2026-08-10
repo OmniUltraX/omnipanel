@@ -51,6 +51,11 @@ pub struct ServerState {
     pub transfer_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// MCP 管理器（懒初始化：bootstrap 内置 OmniMCP HTTP 服务 + stdio 子进程）。
     pub mcp_manager: Arc<Mutex<Option<omnipanel_mcp::SharedMcpManager>>>,
+    /// 外部 MCP 工具是否需审批（默认 true，与桌面端一致）。false 时服务端直接自执。
+    pub mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
+    /// 挂起等待审批/回传的外部工具结果通道（`conversation_id:tool_call_id` → oneshot）。
+    pub pending_internal_tool_results:
+        Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<(String, bool)>>>>,
 }
 
 impl Default for ServerState {
@@ -81,6 +86,8 @@ impl ServerState {
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
             transfer_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Arc::new(Mutex::new(None)),
+            mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use omnipanel_server::mcp::{
-    mcp_call_tool, mcp_delete_service, mcp_list_service_tools, mcp_upsert_service,
-    merge_external_tool_defs, UpsertMcpServiceInput,
+    mcp_call_tool, mcp_delete_service, mcp_list_service_tools, mcp_set_external_require_approval,
+    mcp_upsert_service, merge_external_tool_defs, UpsertMcpServiceInput,
 };
 use omnipanel_server::state::ServerState;
 use omnipanel_mcp::McpTransportKind;
@@ -24,6 +24,11 @@ use omnipanel_mcp::McpTransportKind;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(ServerState::new());
+
+    // 0. 本示例走"关闭审批、服务端自执"路径（审批路径见 verify_mcp_approval）
+    mcp_set_external_require_approval(&state, false)
+        .await
+        .map_err(|e| format!("disable approval: {e}"))?;
 
     // 0. 清理历史测试残留（同 name 的 mock 服务），保证外部工具面断言唯一
     {

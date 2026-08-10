@@ -639,6 +639,12 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let new_path = get_str(&args, "newPath").unwrap_or_default();
             respond(crate::files::file_rename(state, connection_id, old_path, new_path).await)
         }
+        "file_s3_copy_object" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let from_path = get_str(&args, "fromPath").unwrap_or_default();
+            let to_path = get_str(&args, "toPath").unwrap_or_default();
+            respond(crate::files::file_s3_copy_object(state, connection_id, from_path, to_path).await)
+        }
         "file_delete" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             let path = get_str(&args, "path").unwrap_or_default();
@@ -753,6 +759,10 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let tool_name = get_str(&args, "toolName").unwrap_or_default();
             let tool_arguments = get_str(&args, "toolArguments").unwrap_or_default();
             respond(crate::mcp::mcp_call_tool(state, service_id, tool_name, tool_arguments).await)
+        }
+        "mcp_set_external_require_approval" => {
+            let require = args.get("require").and_then(|v| v.as_bool()).unwrap_or(true);
+            respond(crate::mcp::mcp_set_external_require_approval(state, require).await)
         }
 
         other => InvokeResponse::err(format!("unknown command: {other}")),

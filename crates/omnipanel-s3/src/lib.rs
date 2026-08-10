@@ -661,6 +661,101 @@ impl S3Client {
         Ok(())
     }
 
+    /// 服务端分片复制（UploadPartCopy）：复用已发起的 multipart 上传，把源对象的某个
+    /// 字节范围复制为一个分片，不经本机（服务端直传）。返回 ETag。
+    ///
+    /// `copy_source`：`/bucket/key`（同桶可省略 bucket）。`copy_range` 可选，`bytes=start-end`。
+    pub async fn upload_part_copy(
+        &self,
+        key: &str,
+        part_number: u32,
+        upload_id: &str,
+        copy_source: &str,
+        copy_range: Option<&str>,
+    ) -> Result<String, OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client
+                .upload_part_copy(key, part_number, upload_id, copy_source, copy_range)
+                .await;
+        }
+        // rust-s3 路径：UploadPartCopy 无原生 Command，用额外 header 复用 UploadPart。
+        let bucket = self.rust_s3_bucket()?;
+        let mut headers = http::HeaderMap::new();
+        let copy_source = http::HeaderValue::from_str(copy_source).map_err(|e| {
+            OmniError::new(ErrorCode::InvalidInput, "无效 copy-source").with_cause(e.to_string())
+        })?;
+        headers.insert("x-amz-copy-source", copy_source);
+        if let Some(range) = copy_range {
+            let range_val = http::HeaderValue::from_str(range).map_err(|e| {
+                OmniError::new(ErrorCode::InvalidInput, "无效 copy-range").with_cause(e.to_string())
+            })?;
+            headers.insert("x-amz-copy-source-range", range_val);
+        }
+        let bucket = bucket.with_extra_headers(headers).map_err(|e| {
+            OmniError::new(ErrorCode::Io, "S3 分片复制请求构造失败").with_cause(e.to_string())
+        })?;
+        let part = bucket
+            .put_multipart_chunk(
+                Vec::new(),
+                key,
+                part_number,
+                upload_id,
+                "application/octet-stream",
+            )
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, format!("S3 分片 {part_number} 复制失败")).with_cause(e.to_string())
+            })?;
+        Ok(part.etag)
+    }
+
+    /// 大对象服务端分片复制（完全不经本机）：针对同桶对象 >5GB（单次 CopyObject 上限）
+    /// 或需要分片复制的情况，用 UploadPartCopy 分片直传。
+    ///
+    /// `from_key`→`to_key`（同 bucket），`object_size` 为源对象字节数（HEAD 得到）。
+    /// `part_size` 默认 8MB，向上取整分片数。
+    pub async fn copy_object_multipart(
+        &self,
+        from_key: &str,
+        to_key: &str,
+        object_size: u64,
+        part_size: usize,
+    ) -> Result<u64, OmniError> {
+        if object_size == 0 {
+            self.copy_object_internal(from_key, to_key).await?;
+            return Ok(0);
+        }
+        let part_size = part_size.max(5 * 1024 * 1024) as u64; // S3 单分片最小 5MB
+        let part_count = ((object_size + part_size - 1) / part_size).max(1) as u32;
+        let upload_id = self.initiate_multipart_upload(to_key).await?;
+        let copy_source = format!("/{}/{}", self.cfg.bucket.trim_matches('/'), from_key.trim_start_matches('/'));
+        let mut parts: Vec<(u32, String)> = Vec::new();
+        let result = async {
+            for part_number in 1..=part_count {
+                let start = (part_number - 1) as u64 * part_size;
+                let end = (start + part_size - 1).min(object_size - 1);
+                let etag = self
+                    .upload_part_copy(
+                        to_key,
+                        part_number,
+                        &upload_id,
+                        &copy_source,
+                        Some(&format!("bytes={start}-{end}")),
+                    )
+                    .await?;
+                parts.push((part_number, etag));
+            }
+            self.complete_multipart_upload(to_key, &upload_id, &parts).await?;
+            Ok(object_size)
+        }
+        .await;
+        if result.is_err() {
+            let _ = self.abort_multipart_upload(to_key, &upload_id).await;
+        }
+        result
+    }
+
     /// 中止分块上传。
     pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), OmniError> {
         if uses_sigv4_compat_client(&self.cfg) {
@@ -684,6 +779,25 @@ impl S3Client {
             OmniError::new(ErrorCode::Connection, "S3 连接测试失败").with_cause(e.to_string())
         })?;
         Ok(status)
+    }
+
+    /// HEAD 对象返回 `Content-Length`（字节）。对象不存在时报错。
+    pub async fn head_object_size(&self, key: &str) -> Result<u64, OmniError> {
+        if uses_sigv4_compat_client(&self.cfg) {
+            let client = self.sigv4_client()?;
+            return client.head_object_size(key).await;
+        }
+        let bucket = self.rust_s3_bucket()?;
+        let (result, status) = bucket.head_object(key).await.map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "S3 HEAD 失败").with_cause(e.to_string())
+        })?;
+        if !(200..300).contains(&status) {
+            return Err(OmniError::new(
+                ErrorCode::NotFound,
+                format!("S3 对象不存在（HEAD {status}）"),
+            ));
+        }
+        Ok(result.content_length.unwrap_or(0) as u64)
     }
 
     /// 同桶服务端拷贝（不经本机；阿里云/七牛自签路径不支持则报错）。

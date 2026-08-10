@@ -4780,6 +4780,7 @@ dependencies = [
  "chrono",
  "hex",
  "hmac 0.12.1",
+ "http 0.2.12",
  "omnipanel-error",
  "percent-encoding",
  "quick-xml 0.32.0",

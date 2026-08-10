@@ -51,6 +51,7 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
 
 # Protocol Lab
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "cookies", "gzip"], default-features = false }
+http = "0.2"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serialport = "4"
 rumqttc = "0.24"

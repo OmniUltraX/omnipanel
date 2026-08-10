@@ -204,6 +204,18 @@ pub async fn mcp_call_tool(
         .map_err(|e| e.to_string())
 }
 
+/// 设置外部 MCP 工具是否需审批（等价桌面端 `ai_gateway_configure` 的
+/// `mcp_external_require_approval` 参数；Web 端独立开关）。
+pub async fn mcp_set_external_require_approval(
+    state: &ServerState,
+    require: bool,
+) -> Result<(), String> {
+    state
+        .mcp_external_require_approval
+        .store(require, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
 /// 供 `ai_chat_stream` 注入外部 MCP 工具面：把启用且运行中的外部服务工具
 /// 并入 ToolDef 列表（复用桌面端 `McpManager::to_internal_tool_defs` 语义）。
 pub async fn merge_external_tool_defs(
