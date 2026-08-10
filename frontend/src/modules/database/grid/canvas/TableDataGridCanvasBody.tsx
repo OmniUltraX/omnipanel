@@ -656,7 +656,7 @@ export const TableDataGridCanvasBody = forwardRef<
         ) {
           canvas.style.cursor = "pointer";
         } else {
-          canvas.style.cursor = "cell";
+          canvas.style.cursor = "default";
         }
       }
     },

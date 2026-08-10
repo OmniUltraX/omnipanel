@@ -58,14 +58,16 @@ export interface BindingsQrcodeResponse {
 export interface PublicQrcodesResponse {
   miniapp_url: string;
   h5_url: string;
+  feedback_group_url: string;
 }
 
-/** 经 Tauri 后端代理获取侧栏小程序 / H5 公开二维码地址。 */
+/** 经 Tauri 后端代理获取侧栏小程序 / H5 / 反馈群公开二维码地址。 */
 export async function fetchPublicQrcodes(): Promise<PublicQrcodesResponse> {
   const data = await unwrapCommand(commands.authPublicQrcodes());
   return {
     miniapp_url: data.miniappUrl,
     h5_url: data.h5Url,
+    feedback_group_url: data.feedbackGroupUrl,
   };
 }
 

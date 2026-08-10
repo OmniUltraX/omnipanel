@@ -4,5 +4,7 @@ export { ModuleWorkspaceLayout, type ModuleWorkspaceLayoutProps } from "./Module
 export {
   MODULE_LEFT_SIDEBAR_DEFAULT_PX,
   MODULE_LEFT_SIDEBAR_MAX_PX,
+  MODULE_LEFT_SIDEBAR_MAX_RATIO,
+  MODULE_LEFT_SIDEBAR_MAX_SIZE,
   MODULE_LEFT_SIDEBAR_MIN_PX,
 } from "../../stores/panelLayoutStore";

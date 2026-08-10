@@ -14,7 +14,25 @@ import { Modal } from "../ui/overlay/Modal";
 
 const POPOVER_CLOSE_DELAY_MS = 160;
 
-type QrKind = "miniapp" | "h5";
+type QrKind = "miniapp" | "h5" | "feedback";
+
+const QR_META: Record<
+  QrKind,
+  { titleKey: string; altKey: string }
+> = {
+  miniapp: {
+    titleKey: "shell.miniapp.title",
+    altKey: "shell.miniapp.qrAlt",
+  },
+  h5: {
+    titleKey: "shell.miniapp.h5Title",
+    altKey: "shell.miniapp.h5QrAlt",
+  },
+  feedback: {
+    titleKey: "shell.miniapp.feedbackTitle",
+    altKey: "shell.miniapp.feedbackQrAlt",
+  },
+};
 
 /** 侧栏底部小程序入口：悬停 popover 预览，点击后居中弹窗展示二维码。 */
 export function SidebarMiniappButton() {
@@ -25,6 +43,7 @@ export function SidebarMiniappButton() {
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({});
   const [miniappUrl, setMiniappUrl] = useState("");
   const [h5Url, setH5Url] = useState("");
+  const [feedbackUrl, setFeedbackUrl] = useState("");
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -35,6 +54,7 @@ export function SidebarMiniappButton() {
       const data = await fetchPublicQrcodes();
       setMiniappUrl(data.miniapp_url);
       setH5Url(data.h5_url);
+      setFeedbackUrl(data.feedback_group_url);
       setLoadState("ready");
     } catch (e) {
       console.warn("[sidebarMiniapp] load qrcodes failed", e);
@@ -82,7 +102,7 @@ export function SidebarMiniappButton() {
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const gap = 8;
-    const popoverWidth = 220;
+    const popoverWidth = 300;
     let left = rect.right + gap;
     if (left + popoverWidth > window.innerWidth - 8) {
       left = Math.max(8, rect.left - popoverWidth - gap);
@@ -126,11 +146,9 @@ export function SidebarMiniappButton() {
   };
 
   const active = popoverOpen || modalOpen;
-  const qrSrc = qrKind === "miniapp" ? miniappUrl : h5Url;
-  const titleKey =
-    qrKind === "miniapp" ? "shell.miniapp.title" : "shell.miniapp.h5Title";
-  const altKey =
-    qrKind === "miniapp" ? "shell.miniapp.qrAlt" : "shell.miniapp.h5QrAlt";
+  const qrSrc =
+    qrKind === "miniapp" ? miniappUrl : qrKind === "h5" ? h5Url : feedbackUrl;
+  const { titleKey, altKey } = QR_META[qrKind];
 
   const qrBody = (() => {
     if (loadState === "loading" || loadState === "idle") {
@@ -183,6 +201,15 @@ export function SidebarMiniappButton() {
         onClick={() => setQrKind("h5")}
       >
         {t("shell.miniapp.tabH5")}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={qrKind === "feedback"}
+        className={`sidebar-miniapp-qr-switch__btn${qrKind === "feedback" ? " is-active" : ""}`}
+        onClick={() => setQrKind("feedback")}
+      >
+        {t("shell.miniapp.tabFeedback")}
       </button>
     </div>
   );

@@ -516,10 +516,13 @@
     }
 
     .sql-file-tree-node__meta {
-        max-width: 42%;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        /* 绑定连接名完整显示；空间不足时由左侧文件名 ellipsis */
+        flex-shrink: 0;
+        max-width: none;
+        overflow: visible;
+        text-overflow: clip;
         white-space: nowrap;
+        color: var(--meta);
     }
 
     .sql-query-file-tree--root-drop {
@@ -933,6 +936,11 @@
 
     .schema-tree--virtual {
         position: relative;
+        padding: 0;
+        padding-inline: 0;
+        scrollbar-gutter: auto;
+        overflow-y: auto;
+        overflow-y: overlay;
     }
 
     /*
@@ -944,6 +952,18 @@
         content-visibility: visible !important;
         contain-intrinsic-size: none !important;
         contain: none !important;
+    }
+
+    /* 右对齐次要文案贴齐容器右缘，不保留行级右边距 */
+    .schema-tree--virtual .tree-node,
+    .schema-tree--virtual .sidebar-tree-node {
+        margin-right: 0;
+    }
+
+    .schema-tree--virtual .tree-node-trailing,
+    .schema-tree--virtual .sidebar-tree-trailing {
+        padding-right: 0;
+        margin-right: 0;
     }
 
     .schema-tree-virtual-inner {
@@ -6862,6 +6882,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         position: relative;
+        cursor: default;
     }
 
     .db-data-table-cell--has-value-btn:hover {
@@ -8028,7 +8049,7 @@
     }
 
     .db-data-table-wrap--cell-dragging {
-        cursor: cell;
+        cursor: default;
         user-select: none;
     }
 

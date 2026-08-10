@@ -11,14 +11,19 @@ import { createPortal } from "react-dom";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../i18n";
 import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
+import {
+  selectUpdateBadgeVisible,
+  useAppUpdateStore,
+} from "../../stores/appUpdateStore";
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
-import { IconGlobe, IconSettings, IconUser } from "../ui/icons/Icons";
+import { IconDownload, IconGlobe, IconSettings, IconUser } from "../ui/icons/Icons";
+import { AppUpdateDialog } from "./AppUpdateDialog";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = "account" | "settings" | "website";
+type MenuAction = "account" | "settings" | "website" | "update";
 
 function isMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -34,6 +39,8 @@ export function SidebarUserButton() {
   const userCenterOpen = useUserCenterUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const settingsOpen = useSettingsUiStore((s) => s.open);
+  const updateBadge = useAppUpdateStore(selectUpdateBadgeVisible);
+  const openUpdateDialog = useAppUpdateStore((s) => s.openDialog);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
@@ -46,7 +53,7 @@ export function SidebarUserButton() {
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const gap = 8;
-    const menuWidth = 200;
+    const menuWidth = 220;
     let left = rect.right + gap;
     if (left + menuWidth > window.innerWidth - 8) {
       left = Math.max(8, rect.left - menuWidth - gap);
@@ -96,10 +103,15 @@ export function SidebarUserButton() {
       void openExternal(WEBSITE_URL);
       return;
     }
+    if (action === "update") {
+      openUpdateDialog();
+      return;
+    }
     openUserCenter("account");
   };
 
-  const items: { id: MenuAction; label: string; icon: ReactNode }[] = [
+  // 版本更新放在倒数第二（设置之前）
+  const items: { id: MenuAction; label: string; icon: ReactNode; badge?: boolean }[] = [
     {
       id: "account",
       label: t("userCenter.title"),
@@ -109,6 +121,12 @@ export function SidebarUserButton() {
       id: "website",
       label: t("userCenter.nav.website"),
       icon: <IconGlobe size={14} />,
+    },
+    {
+      id: "update",
+      label: t("userCenter.update.menu"),
+      icon: <IconDownload size={14} />,
+      badge: updateBadge,
     },
     {
       id: "settings",
@@ -141,6 +159,9 @@ export function SidebarUserButton() {
             <circle cx="12" cy="7" r="4" />
           </svg>
         )}
+        {updateBadge ? (
+          <span className="sidebar-user-btn__badge" aria-hidden />
+        ) : null}
       </button>
 
       {menuOpen
@@ -162,13 +183,18 @@ export function SidebarUserButton() {
                   <span className="sidebar-user-menu__icon" aria-hidden>
                     {item.icon}
                   </span>
-                  <span>{item.label}</span>
+                  <span className="sidebar-user-menu__label">{item.label}</span>
+                  {item.badge ? (
+                    <span className="sidebar-user-menu__dot" aria-label={t("userCenter.update.badgeAria")} />
+                  ) : null}
                 </button>
               ))}
             </div>,
             document.body,
           )
         : null}
+
+      <AppUpdateDialog />
     </>
   );
 }

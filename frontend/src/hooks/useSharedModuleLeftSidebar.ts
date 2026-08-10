@@ -1,6 +1,8 @@
-import { useCallback, useLayoutEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import {
+  clampModuleLeftSidebarSize,
+  getModuleLeftSidebarMaxPx,
   getModuleLeftSidebarSize,
   MODULE_LEFT_SIDEBAR_DEFAULT_PX,
   MODULE_LEFT_SIDEBAR_MIN_PX,
@@ -15,7 +17,8 @@ export function applySharedModuleLeftSidebarState(
   if (!handle) return false;
 
   const { moduleLeftSidebarCollapsed: collapsed, leftSizes } = usePanelLayoutStore.getState();
-  const width = getModuleLeftSidebarSize(leftSizes) ?? MODULE_LEFT_SIDEBAR_DEFAULT_PX;
+  const rawWidth = getModuleLeftSidebarSize(leftSizes) ?? MODULE_LEFT_SIDEBAR_DEFAULT_PX;
+  const width = clampModuleLeftSidebarSize(rawWidth);
 
   if (collapsed) {
     if (!handle.isCollapsed()) {
@@ -53,7 +56,9 @@ export function useSharedModuleLeftSidebar({
   const moduleLeftSidebarCollapsed = usePanelLayoutStore((s) => s.moduleLeftSidebarCollapsed);
   const setModuleLeftSidebarSize = usePanelLayoutStore((s) => s.setModuleLeftSidebarSize);
   const setModuleLeftSidebarCollapsed = usePanelLayoutStore((s) => s.setModuleLeftSidebarCollapsed);
-  const leftSizePx = propSizePx ?? savedSize ?? MODULE_LEFT_SIDEBAR_DEFAULT_PX;
+  const leftSizePx = clampModuleLeftSidebarSize(
+    propSizePx ?? savedSize ?? MODULE_LEFT_SIDEBAR_DEFAULT_PX,
+  );
   const pendingLeftSizeRef = useRef<number | null>(null);
   const prevModuleActiveRef = useRef(false);
 
@@ -80,7 +85,7 @@ export function useSharedModuleLeftSidebar({
       updateSidebarCollapsed(size != null && size < MODULE_LEFT_SIDEBAR_COLLAPSED_PX);
       return;
     }
-    setModuleLeftSidebarSize(size);
+    setModuleLeftSidebarSize(clampModuleLeftSidebarSize(size));
     updateSidebarCollapsed(false);
   }, [leftPanelRef, setModuleLeftSidebarSize, updateSidebarCollapsed]);
 
@@ -112,6 +117,31 @@ export function useSharedModuleLeftSidebar({
       });
     }
   }, [hasLeft, syncWhenActive, moduleActive, syncFromStore]);
+
+  // 窗口变窄时，将超出 40% 上限的侧栏宽度钳回并写回 store
+  useEffect(() => {
+    if (!hasLeft) return;
+    if (syncWhenActive && !moduleActive) return;
+
+    const clampToViewport = () => {
+      const handle = leftPanelRef.current;
+      if (!handle || handle.isCollapsed()) return;
+
+      const maxPx = getModuleLeftSidebarMaxPx();
+      const current =
+        pendingLeftSizeRef.current ??
+        handle.getSize().inPixels ??
+        getModuleLeftSidebarSize(usePanelLayoutStore.getState().leftSizes);
+      if (current == null || current <= maxPx) return;
+
+      const next = clampModuleLeftSidebarSize(current);
+      handle.resize(`${next}px`);
+      setModuleLeftSidebarSize(next);
+    };
+
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, [hasLeft, syncWhenActive, moduleActive, leftPanelRef, setModuleLeftSidebarSize]);
 
   return {
     leftSizePx,

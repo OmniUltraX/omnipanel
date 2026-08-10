@@ -1609,11 +1609,12 @@ export type AuthPresenceResult = {
 	ttlSec: number | null,
 };
 
-/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
-export type AuthPublicQrcodes = {
-	miniappUrl: string,
-	h5Url: string,
-};
+	/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
+	export type AuthPublicQrcodes = {
+		miniappUrl: string,
+		h5Url: string,
+		feedbackGroupUrl: string,
+	};
 
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {

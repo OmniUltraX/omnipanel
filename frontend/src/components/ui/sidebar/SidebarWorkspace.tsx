@@ -2,7 +2,7 @@ import { useRef, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { DockWorkspace } from "../../dock";
 import {
-  MODULE_LEFT_SIDEBAR_MAX_PX,
+  MODULE_LEFT_SIDEBAR_MAX_SIZE,
   MODULE_LEFT_SIDEBAR_MIN_PX,
 } from "../../../stores/panelLayoutStore";
 import { useSharedModuleLeftSidebar } from "../../../hooks/useSharedModuleLeftSidebar";
@@ -32,7 +32,7 @@ export function SidebarWorkspace({
   children,
   sidebarSizePx: propSidebarSizePx,
   sidebarMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
-  sidebarMaxPx = MODULE_LEFT_SIDEBAR_MAX_PX,
+  sidebarMaxPx = MODULE_LEFT_SIDEBAR_MAX_SIZE,
   className,
 }: SidebarWorkspaceProps) {
   const leftPanelRef = useRef<PanelImperativeHandle | null>(null);
@@ -60,7 +60,7 @@ export function SidebarWorkspace({
       main={children}
       leftSizePx={leftSizePx}
       leftMinPx={sidebarMinPx}
-      leftMaxPx={sidebarMaxPx as number | undefined}
+      leftMaxPx={sidebarMaxPx}
       leftPanelRef={leftPanelRef}
       onLeftResize={handleLeftResize}
       onLeftLayoutChanged={handleLeftLayoutChanged}

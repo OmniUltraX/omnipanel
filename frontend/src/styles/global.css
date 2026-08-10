@@ -5796,7 +5796,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .sidebar-miniapp-dialog {
-    width: min(320px, 90vw);
+    width: min(360px, 92vw);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -5867,18 +5867,23 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-radius: 999px;
     background: var(--surface-2, var(--surface));
     border: 1px solid var(--border);
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .sidebar-miniapp-qr-switch__btn {
-    min-width: 72px;
+    flex: 1 1 auto;
+    min-width: max-content;
     height: 28px;
-    padding: 0 12px;
+    padding: 0 10px;
     border: none;
     border-radius: 999px;
     background: transparent;
     color: var(--muted);
     font-size: 12px;
     font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
 }
@@ -5894,7 +5899,8 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .sidebar-user-btn {
-    overflow: hidden;
+    position: relative;
+    overflow: visible;
 }
 
 .sidebar-user-btn__avatar {
@@ -5903,6 +5909,18 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-radius: 999px;
     object-fit: cover;
     display: block;
+}
+
+.sidebar-user-btn__badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--danger, #e5484d);
+    box-shadow: 0 0 0 2px var(--sidebar-bg, var(--surface));
+    pointer-events: none;
 }
 
 .sidebar-user-menu {
@@ -5930,6 +5948,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     font-size: 13px;
     text-align: left;
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .sidebar-user-menu__item:hover {
@@ -5944,6 +5963,148 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     justify-content: center;
     color: var(--muted);
     flex-shrink: 0;
+}
+
+.sidebar-user-menu__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-user-menu__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--danger, #e5484d);
+    flex-shrink: 0;
+}
+
+.app-update-dialog {
+    width: min(440px, calc(100vw - 32px));
+    max-height: min(72vh, 640px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 18px 16px;
+    border-radius: var(--r-lg, 12px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    color: var(--fg);
+}
+
+.app-update-dialog__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.app-update-dialog__header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.app-update-dialog__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.app-update-dialog__close:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+
+.app-update-dialog__close:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.app-update-dialog__meta {
+    display: grid;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.app-update-dialog__meta p {
+    margin: 0;
+}
+
+.app-update-dialog__new {
+    color: var(--danger, #e5484d) !important;
+    font-weight: 600;
+}
+
+.app-update-dialog__ok {
+    color: var(--success, #30a46c) !important;
+    font-weight: 500;
+}
+
+.app-update-dialog__changelog {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1 1 auto;
+}
+
+.app-update-dialog__changelog h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.app-update-dialog__changelog-body {
+    margin: 0;
+    max-height: 280px;
+    overflow: auto;
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: var(--surface-2, var(--bg));
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.app-update-dialog__error {
+    margin: 0;
+    color: var(--danger, #e5484d);
+    font-size: 13px;
+}
+
+.app-update-dialog__progress {
+    display: grid;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.app-update-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.app-update-dialog__actions > * {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .sidebar-divider {
@@ -20816,7 +20977,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     --vsplit-sidebar-content-padding: var(--sp-2);
 }
 
-/* 鍚勬ā鍧椾晶鏍忓垎鍖哄唴瀹规粴鍔ㄥ尯缁熶竴鍐呰竟璺?*/
+/* 各模块侧栏分区内容滚动区统一 box-sizing */
 .vsplit-sidebar :is(
     .schema-tree,
     .sql-query-file-tree,
@@ -20831,6 +20992,36 @@ button.omni-btn-tool[aria-pressed="true"] {
     .ssh-sidebar-list-panel
 ) {
     box-sizing: border-box;
+}
+
+/*
+ * Schema 虚拟树：右侧贴齐。
+ * - 无层 !important 压过 @layer components
+ * - overlay 滚动条不挤占内容宽度（经典滚动条会在右侧留出约 8px「假 padding」）
+ */
+.vsplit-sidebar .schema-tree.schema-tree--virtual {
+    padding: 0 !important;
+    padding-inline: 0 !important;
+    scrollbar-gutter: auto;
+    scrollbar-width: thin;
+    overflow-y: auto;
+    overflow-y: overlay;
+}
+
+.vsplit-sidebar .schema-tree.schema-tree--virtual::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.vsplit-sidebar .schema-tree.schema-tree--virtual .tree-node,
+.vsplit-sidebar .schema-tree.schema-tree--virtual .sidebar-tree-node {
+    margin-right: 0;
+}
+
+.vsplit-sidebar .schema-tree.schema-tree--virtual .tree-node-trailing,
+.vsplit-sidebar .schema-tree.schema-tree--virtual .sidebar-tree-trailing {
+    padding-right: 0;
+    margin-right: 0;
 }
 
 /* SQL 查询文件树 sticky 祖先行：只保留底部内边距 */

@@ -3,8 +3,9 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
 import { DockWorkspace, type DockRailPreset } from "../dock";
 import {
   getModuleLeftSidebarSize,
+  clampModuleLeftSidebarSize,
   MODULE_LEFT_SIDEBAR_DEFAULT_PX,
-  MODULE_LEFT_SIDEBAR_MAX_PX,
+  MODULE_LEFT_SIDEBAR_MAX_SIZE,
   MODULE_LEFT_SIDEBAR_MIN_PX,
   usePanelLayoutStore,
 } from "../../stores/panelLayoutStore";
@@ -50,7 +51,7 @@ export function ModuleWorkspaceLayout({
   tagModuleKey,
   leftSizePx: propLeftSizePx,
   leftMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
-  leftMaxPx = MODULE_LEFT_SIDEBAR_MAX_PX,
+  leftMaxPx = MODULE_LEFT_SIDEBAR_MAX_SIZE,
   leftPanelRef: externalLeftPanelRef,
   leftHandleClassName,
   onSidebarCollapsedChange,
@@ -87,10 +88,11 @@ export function ModuleWorkspaceLayout({
     const handle = leftPanelRef.current;
     if (!handle) return;
     if (handle.isCollapsed()) {
-      const restorePx =
+      const restorePx = clampModuleLeftSidebarSize(
         getModuleLeftSidebarSize(usePanelLayoutStore.getState().leftSizes) ??
-        leftSizePx ??
-        MODULE_LEFT_SIDEBAR_DEFAULT_PX;
+          leftSizePx ??
+          MODULE_LEFT_SIDEBAR_DEFAULT_PX,
+      );
       handle.expand();
       requestAnimationFrame(() => {
         handle.resize(`${restorePx}px`);
@@ -145,7 +147,7 @@ export function ModuleWorkspaceLayout({
       className={rootClass}
       leftSizePx={leftSizePx}
       leftMinPx={leftMinPx}
-      leftMaxPx={leftMaxPx as number | undefined}
+      leftMaxPx={leftMaxPx}
       leftPanelRef={leftPanelRef}
       leftHandleClassName={resolvedHandleClassName}
       onLeftResize={handleLeftResize}

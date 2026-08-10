@@ -114,6 +114,8 @@
     align-items: center;
     gap: var(--sp-2);
     cursor: pointer;
+    /* 左侧主文案 */
+    color: var(--fg);
 }
 
 .sidebar-tree-label .tree-label-name,
@@ -123,6 +125,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1 1 auto;
+    color: inherit;
 }
 
 .sidebar-tree-label .server-tree-server-label {
@@ -138,6 +141,16 @@
     flex-shrink: 0;
     margin-left: auto;
     padding-right: var(--sp-1);
+    /* 右侧次要文案（连接绑定、计数等） */
+    color: var(--meta);
+    font-size: var(--font-size-xs, 11px);
+}
+
+.sidebar-tree-trailing .tree-meta,
+.tree-node-trailing .tree-meta,
+.tree-meta {
+    color: var(--meta);
+    font-size: inherit;
 }
 
 .tree-node-actions {

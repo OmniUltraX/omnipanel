@@ -13,13 +13,16 @@ function toPanelPx(value: number | string): RailSize {
   return typeof value === "number" ? `${value}px` : value;
 }
 
-const RAIL_PRESETS: Record<DockRailPreset, { defaultSize: number; minSize: number; maxSize: number }> = {
-  default: { defaultSize: 260, minSize: 220, maxSize: 420 },
-  schema: { defaultSize: 280, minSize: 280, maxSize: 420 },
-  host: { defaultSize: 280, minSize: 240, maxSize: 420 },
-  server: { defaultSize: 220, minSize: 200, maxSize: 360 },
-  settings: { defaultSize: 200, minSize: 180, maxSize: 280 },
-  ai: { defaultSize: 240, minSize: 200, maxSize: 360 },
+const RAIL_PRESETS: Record<
+  DockRailPreset,
+  { defaultSize: number; minSize: number; maxSize: number | string }
+> = {
+  default: { defaultSize: 260, minSize: 220, maxSize: "40%" },
+  schema: { defaultSize: 280, minSize: 280, maxSize: "40%" },
+  host: { defaultSize: 280, minSize: 240, maxSize: "40%" },
+  server: { defaultSize: 220, minSize: 200, maxSize: "40%" },
+  settings: { defaultSize: 200, minSize: 180, maxSize: "40%" },
+  ai: { defaultSize: 240, minSize: 200, maxSize: "40%" },
 };
 
 interface DockWorkspaceProps {
@@ -29,8 +32,8 @@ interface DockWorkspaceProps {
   bottom?: ReactNode;
   leftSizePx?: number;
   leftMinPx?: number;
-  /** 侧栏最大宽度（px） */
-  leftMaxPx?: number;
+  /** 侧栏最大宽度（px 或百分比，如 "40%"） */
+  leftMaxPx?: number | string;
   leftPreset?: DockRailPreset;
   /** 左侧面板尺寸变化回调 */
   onLeftResize?: (sizePx: number) => void;

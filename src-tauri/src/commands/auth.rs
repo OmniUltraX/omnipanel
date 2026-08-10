@@ -57,6 +57,7 @@ pub struct AuthLoginQrcode {
 pub struct AuthPublicQrcodes {
     pub miniapp_url: String,
     pub h5_url: String,
+    pub feedback_group_url: String,
 }
 
 /// 设备在线心跳结果（POST /api/presence）。
@@ -285,6 +286,7 @@ struct ApiBindingsQrcodeResponse {
 struct ApiPublicQrcodesResponse {
     miniapp_url: Option<String>,
     h5_url: Option<String>,
+    feedback_group_url: Option<String>,
     error: Option<String>,
 }
 
@@ -1022,10 +1024,17 @@ pub async fn auth_public_qrcodes(
         .h5_url
         .filter(|s| !s.is_empty())
         .ok_or_else(|| OmniError::new(ErrorCode::Internal, "公开二维码响应缺少 h5_url"))?;
+    let feedback_group_url = parsed
+        .feedback_group_url
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            OmniError::new(ErrorCode::Internal, "公开二维码响应缺少 feedback_group_url")
+        })?;
 
     Ok(AuthPublicQrcodes {
         miniapp_url,
         h5_url,
+        feedback_group_url,
     })
 }
 

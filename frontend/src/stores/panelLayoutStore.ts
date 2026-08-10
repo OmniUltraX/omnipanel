@@ -5,8 +5,35 @@ import { persist } from "zustand/middleware";
 export const MODULE_LEFT_SIDEBAR_LAYOUT_KEY = "module-left-sidebar";
 
 export const MODULE_LEFT_SIDEBAR_MIN_PX = 180;
+/** 模块左侧资源侧栏最大宽度占应用窗口宽度的比例 */
+export const MODULE_LEFT_SIDEBAR_MAX_RATIO = 0.4;
+/** 传给 react-resizable-panels 的左侧栏 maxSize（相对组宽） */
+export const MODULE_LEFT_SIDEBAR_MAX_SIZE = "40%";
+/**
+ * 固定像素上限（仅用于右侧栏等仍按绝对像素约束的场景）。
+ * 左侧模块侧栏请使用 {@link MODULE_LEFT_SIDEBAR_MAX_SIZE} / {@link getModuleLeftSidebarMaxPx}。
+ */
 export const MODULE_LEFT_SIDEBAR_MAX_PX = 420;
 export const MODULE_LEFT_SIDEBAR_DEFAULT_PX = 260;
+
+/** 按当前应用窗口宽度计算左侧栏最大像素宽（默认 40%） */
+export function getModuleLeftSidebarMaxPx(
+  containerWidth = typeof window !== "undefined" ? window.innerWidth : 1920,
+): number {
+  return Math.max(
+    MODULE_LEFT_SIDEBAR_MIN_PX,
+    Math.floor(containerWidth * MODULE_LEFT_SIDEBAR_MAX_RATIO),
+  );
+}
+
+/** 将左侧栏宽度钳制到 [min, 视口 40%] */
+export function clampModuleLeftSidebarSize(
+  size: number,
+  containerWidth?: number,
+): number {
+  const max = getModuleLeftSidebarMaxPx(containerWidth);
+  return Math.min(max, Math.max(MODULE_LEFT_SIDEBAR_MIN_PX, size));
+}
 
 const LEGACY_LEFT_SIDEBAR_KEYS = [
   "database",
@@ -97,7 +124,10 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
 
       setModuleLeftSidebarSize: (size) =>
         set((state) => ({
-          leftSizes: { ...state.leftSizes, [MODULE_LEFT_SIDEBAR_LAYOUT_KEY]: size },
+          leftSizes: {
+            ...state.leftSizes,
+            [MODULE_LEFT_SIDEBAR_LAYOUT_KEY]: clampModuleLeftSidebarSize(size),
+          },
         })),
 
       setModuleLeftSidebarCollapsed: (collapsed) =>

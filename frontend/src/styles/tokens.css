@@ -6,14 +6,13 @@
   --surface-hover: #3a3636;
   --surface-active: #444040;
 
-  /* Foreground — 暗色主题统一近白，保证可读性 */
+  /* Foreground — 主文案近白；次要 / 元信息用灰，便于左右层级区分 */
   --fg: #ffffff;
-  --fg-2: #ffffff;
-  --muted: #f0f0f0;
-  --meta: #ebebeb;
-  /* 兼容旧别名：次要文案也不再发灰 */
-  --fg-subtle: #f0f0f0;
-  --text-secondary: #f0f0f0;
+  --fg-2: #e8e8ed;
+  --muted: #a1a1a6;
+  --meta: #8e8e93;
+  --fg-subtle: var(--muted);
+  --text-secondary: var(--muted);
 
   /* Border */
   --border: #464343;

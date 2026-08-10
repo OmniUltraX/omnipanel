@@ -544,7 +544,7 @@
             <p class="eyebrow" data-i18n="contact.eyebrow">Contact</p>
             <h2 class="h2 text-fx" data-i18n="contact.title" data-split="words">联系我们</h2>
             <p class="lead" data-i18n="contact.lead">
-              商务合作、技术支持与企业采购，可通过企业邮箱或微信公众号联系我们。
+              商务合作、技术支持与企业采购，可通过企业邮箱、微信公众号或反馈群联系我们。
             </p>
           </div>
           <div class="contact-grid">
@@ -554,17 +554,44 @@
             </a>
             <div class="contact-qr-stage" data-contact-qr>
               <div class="contact-qr-glow" aria-hidden="true"></div>
-              <figure class="contact-qr-card">
-                <img
-                  src="./examples/gh_qrcode.jpg"
-                  width="280"
-                  height="280"
-                  alt=""
-                  data-i18n-alt="contact.oaAlt"
-                  loading="lazy"
-                />
-                <figcaption data-i18n="contact.oaScan">微信扫一扫 · 关注公众号</figcaption>
-              </figure>
+              <div class="contact-qr-panel">
+                <div class="contact-qr-tabs" role="tablist" aria-label="" data-i18n-aria="contact.qrSwitchAria">
+                  <button
+                    type="button"
+                    class="contact-qr-tab is-active"
+                    role="tab"
+                    aria-selected="true"
+                    data-contact-qr-tab="oa"
+                    data-i18n="contact.tabOa"
+                  >
+                    公众号
+                  </button>
+                  <button
+                    type="button"
+                    class="contact-qr-tab"
+                    role="tab"
+                    aria-selected="false"
+                    data-contact-qr-tab="feedback"
+                    data-i18n="contact.tabFeedback"
+                  >
+                    反馈群
+                  </button>
+                </div>
+                <figure class="contact-qr-card">
+                  <img
+                    data-contact-qr-img
+                    src="./examples/gh_qrcode.jpg"
+                    width="280"
+                    height="280"
+                    alt=""
+                    data-i18n-alt="contact.oaAlt"
+                    loading="lazy"
+                  />
+                  <figcaption data-contact-qr-caption data-i18n="contact.oaScan">
+                    微信扫一扫 · 关注公众号
+                  </figcaption>
+                </figure>
+              </div>
             </div>
           </div>
         </div>

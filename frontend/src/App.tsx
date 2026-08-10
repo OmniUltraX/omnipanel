@@ -72,6 +72,7 @@ import "./lib/workspaceComponentRegistry";
 import { useTopbarStore } from "./stores/topbarStore";
 import { getRouteTitle, useI18n } from "./i18n";
 import { useSettingsStore } from "./stores/settingsStore";
+import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
@@ -245,6 +246,12 @@ function AppShell() {
     void import("./lib/syncEmbeddingProvider").then(({ syncEmbeddingProviderToBackend }) => {
       void syncEmbeddingProviderToBackend();
     });
+  }, []);
+
+  // 启动后自动检测一次软件版本更新（角标 / 用户菜单「版本更新」）
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    void useAppUpdateStore.getState().checkOnce();
   }, []);
 
   // 主窗口：与工作区独立窗口保持同步（打开/关闭时更新 poppedOut 集合）。
