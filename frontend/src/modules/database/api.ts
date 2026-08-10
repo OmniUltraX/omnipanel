@@ -7,6 +7,7 @@ import type {
   SchemaCacheSnapshot_Deserialize,
   TableInfo,
 } from "../../ipc/bindings";
+import { asArray } from "../../ipc/asArray";
 import { unwrapCommand } from "../../ipc/result";
 import { scheduleAssistantSnapshotSync } from "../assistant";
 import { scheduleClientModuleSync, recordModuleTombstones } from "../clientSync";
@@ -275,16 +276,21 @@ export async function redisSearchKeys(args: RedisSearchKeysArgs): Promise<RedisS
   return mapRedisSearchKeysResult(result);
 }
 
-function mapRedisSearchKeysResult(result: RedisSearchKeysResult_Serialize): RedisSearchKeysResult {
+function mapRedisSearchKeysResult(result: unknown): RedisSearchKeysResult {
+  const payload =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? (result as RedisSearchKeysResult_Serialize)
+      : null;
+  const entries = Array.isArray(payload?.entries) ? payload.entries : [];
   return {
-    entries: result.entries.map((e) => ({
+    entries: entries.map((e) => ({
       key: e.key,
       keyType: e.keyType,
       value: e.value,
     })),
-    nextCursor: result.nextCursor ?? 0,
-    hasMore: result.hasMore,
-    scanLimitHit: result.scanLimitHit,
+    nextCursor: payload?.nextCursor ?? 0,
+    hasMore: Boolean(payload?.hasMore),
+    scanLimitHit: Boolean(payload?.scanLimitHit),
   };
 }
 
@@ -292,13 +298,13 @@ export async function redisConfigGet(
   connection: DbConnectionConfig,
   pattern: string,
 ): Promise<Array<[string, string]>> {
-  return unwrapCommand(commands.dbRedisConfigGetEntries(ipcConn(connection), pattern));
+  return asArray(await unwrapCommand(commands.dbRedisConfigGetEntries(ipcConn(connection), pattern)));
 }
 
 function mapQueryResult(result: DbQueryResult): { columns: string[]; rows: unknown[][] } {
   return {
-    columns: result.columns,
-    rows: result.rows as unknown[][],
+    columns: Array.isArray(result?.columns) ? result.columns : [],
+    rows: Array.isArray(result?.rows) ? (result.rows as unknown[][]) : [],
   };
 }
 
@@ -374,7 +380,7 @@ export async function redisSlowlog(
   connection: DbConnectionConfig,
   count = 64,
 ): Promise<RedisSlowLogEntry[]> {
-  const rows = await unwrapCommand(commands.dbRedisSlowlog(ipcConn(connection), count));
+  const rows = asArray(await unwrapCommand(commands.dbRedisSlowlog(ipcConn(connection), count)));
   return rows.map((row) => ({
     id: row.id ?? 0,
     timestamp: row.timestamp ?? 0,
@@ -473,18 +479,22 @@ export async function testConnection(
 }
 
 export async function listDatabases(connection: DbConnectionConfig, options?: { quiet?: boolean }): Promise<string[]> {
-  return unwrapCommand(commands.dbListDatabases(ipcConn(connection)), {
-    quiet: options?.quiet,
-  });
+  return asArray(
+    await unwrapCommand(commands.dbListDatabases(ipcConn(connection)), {
+      quiet: options?.quiet,
+    }),
+  );
 }
 
 export async function listDatabasesWithStats(
   connection: DbConnectionConfig,
   options?: { quiet?: boolean },
 ): Promise<DbDatabaseMeta[]> {
-  return unwrapCommand(commands.dbListDatabasesWithStats(ipcConn(connection)), {
-    quiet: options?.quiet,
-  });
+  return asArray(
+    await unwrapCommand(commands.dbListDatabasesWithStats(ipcConn(connection)), {
+      quiet: options?.quiet,
+    }),
+  );
 }
 
 export interface CreateDatabaseArgs {
@@ -523,7 +533,7 @@ export interface DbDatabaseMeta {
 export async function listCharacterSets(
   connection: DbConnectionConfig,
 ): Promise<DbCharsetMeta[]> {
-  return unwrapCommand(commands.dbListCharacterSets(ipcConn(connection)));
+  return asArray(await unwrapCommand(commands.dbListCharacterSets(ipcConn(connection))));
 }
 
 export interface DbColumnMeta {
@@ -579,15 +589,30 @@ export interface DbIntrospectResult {
 export async function listConnectionUsers(
   connection: DbConnectionConfig,
 ): Promise<DbUserMeta[]> {
-  return unwrapCommand(commands.dbListConnectionUsers(ipcConn(connection)));
+  return asArray(await unwrapCommand(commands.dbListConnectionUsers(ipcConn(connection))));
+}
+
+function normalizeIntrospectResult(raw: unknown, fallbackDatabase = ""): DbIntrospectResult {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { database: fallbackDatabase, tables: [], views: [], routines: [] };
+  }
+  const result = raw as Partial<DbIntrospectResult>;
+  return {
+    database: result.database ?? fallbackDatabase,
+    tables: asArray(result.tables),
+    views: result.views == null ? undefined : asArray(result.views),
+    routines: result.routines == null ? undefined : asArray(result.routines),
+  };
 }
 
 export async function introspectSchema(
   connection: DbConnectionConfig,
   database?: string,
 ): Promise<DbIntrospectResult> {
-  return unwrapCommand(
-    commands.dbIntrospectSchema(ipcConn(connection), database?.trim() ? database.trim() : null),
+  const trimmed = database?.trim() ? database.trim() : null;
+  return normalizeIntrospectResult(
+    await unwrapCommand(commands.dbIntrospectSchema(ipcConn(connection), trimmed)),
+    trimmed ?? "",
   );
 }
 
@@ -596,13 +621,23 @@ export async function introspectTable(
   database: string,
   table: string,
 ): Promise<DbTableSchema> {
-  return unwrapCommand(
+  const raw = await unwrapCommand(
     commands.dbIntrospectTable(
       ipcConn(connection),
       database.trim() ? database.trim() : null,
       table,
     ),
   );
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { name: table, columns: [] };
+  }
+  const result = raw as Partial<DbTableSchema>;
+  return {
+    name: result.name ?? table,
+    columns: asArray(result.columns),
+    indexes: result.indexes == null ? undefined : asArray(result.indexes),
+    comment: result.comment ?? null,
+  };
 }
 
 export async function fetchTableDdl(
@@ -650,10 +685,12 @@ export async function fetchDatabaseTableDetails(
   connection: DbConnectionConfig,
   database: string,
 ): Promise<DbNamedTableDetails[]> {
-  return unwrapCommand(
-    commands.dbListTableDetails(
-      ipcConn(connection),
-      database.trim() ? database.trim() : null,
+  return asArray(
+    await unwrapCommand(
+      commands.dbListTableDetails(
+        ipcConn(connection),
+        database.trim() ? database.trim() : null,
+      ),
     ),
   );
 }
@@ -662,8 +699,10 @@ export async function listTables(
   connection: DbConnectionConfig,
   schema?: string,
 ): Promise<string[]> {
-  return unwrapCommand(
-    commands.dbListTables(ipcConn(connection), schema?.trim() ? schema.trim() : null),
+  return asArray(
+    await unwrapCommand(
+      commands.dbListTables(ipcConn(connection), schema?.trim() ? schema.trim() : null),
+    ),
   );
 }
 

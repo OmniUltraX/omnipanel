@@ -26,6 +26,8 @@ import {
 } from "../files/localOsFileDrop";
 import { CommandInput, type CommandInputHandle } from "./CommandInput";
 import { TerminalView } from "./TerminalView";
+
+const EMPTY_STARTUP: string[] = [];
 import { TerminalBlockFeed } from "./TerminalBlockFeed";
 import { ShellAgentOverlay } from "./shellAgent/ShellAgentOverlay";
 import { PassthroughPlanStrip } from "./PassthroughPlanStrip";
@@ -497,7 +499,7 @@ function PaneViewBody(
     blueprintSource,
     isActive,
     connected,
-    startup = [],
+    startup = EMPTY_STARTUP,
     onActivate,
     onSendCommand,
     onSenderChange,

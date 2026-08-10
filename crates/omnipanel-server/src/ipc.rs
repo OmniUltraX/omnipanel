@@ -54,6 +54,18 @@ fn respond<T: Serialize>(result: Result<T, String>) -> InvokeResponse<serde_json
     }
 }
 
+fn respond_omni<T: Serialize>(
+    result: omnipanel_error::OmniResult<T>,
+) -> InvokeResponse<serde_json::Value> {
+    match result {
+        Ok(v) => match serde_json::to_value(v) {
+            Ok(json) => InvokeResponse::ok(json),
+            Err(e) => InvokeResponse::err(format!("序列化命令结果失败: {e}")),
+        },
+        Err(e) => InvokeResponse::err(e.user_message()),
+    }
+}
+
 /// 分发单条命令。未知命令返回错误（与 Tauri `invoke` 未知命令报错一致）。
 pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -> InvokeResponse<serde_json::Value> {
     let args = req.args;
@@ -696,6 +708,112 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
         "transfer_cancel" => {
             let id = get_str(&args, "id").unwrap_or_default();
             respond(crate::transfer::transfer_cancel(state, id).await)
+        }
+        "file_transfer_list" => respond(crate::file_transfer::file_transfer_list(state).await),
+        "file_transfer_plan" => {
+            let request: crate::file_transfer::FileTransferPlanRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or(args)) {
+                Ok(r) => r,
+                Err(e) => return InvokeResponse::err(format!("解析 file_transfer_plan 请求失败: {e}")),
+            };
+            respond(crate::file_transfer::file_transfer_plan(state, request).await)
+        }
+        "file_transfer_enqueue" => {
+            let request: crate::file_transfer::FileTransferEnqueueRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or(args)) {
+                Ok(r) => r,
+                Err(e) => return InvokeResponse::err(format!("解析 file_transfer_enqueue 请求失败: {e}")),
+            };
+            respond(crate::file_transfer::file_transfer_enqueue(state.clone(), request).await)
+        }
+        "file_transfer_upload_local_bytes" => {
+            let file_name = get_str(&args, "fileName").unwrap_or_default();
+            let data: Vec<u8> = args.get("data").and_then(|v| v.as_array()).map(|arr| arr.iter().filter_map(|n| n.as_u64()).map(|n| n as u8).collect()).unwrap_or_default();
+            let dest_connection_id = get_str(&args, "destConnectionId").unwrap_or_default();
+            let dest_dir = get_str(&args, "destDir").unwrap_or_default();
+            let conflict_policy: crate::file_transfer::FileTransferConflictPolicy = args.get("conflictPolicy").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or(crate::file_transfer::FileTransferConflictPolicy::Overwrite);
+            respond(crate::file_transfer::file_transfer_upload_local_bytes(state.clone(), file_name, data, dest_connection_id, dest_dir, conflict_policy).await)
+        }
+        "file_transfer_cancel" => {
+            let job_id = get_str(&args, "jobId").unwrap_or_default();
+            respond(crate::file_transfer::file_transfer_cancel(state, job_id).await)
+        }
+        "file_transfer_retry" => {
+            let job_id = get_str(&args, "jobId").unwrap_or_default();
+            respond(crate::file_transfer::file_transfer_retry(state.clone(), job_id).await)
+        }
+        "file_transfer_clear_finished" => respond(crate::file_transfer::file_transfer_clear_finished(state).await),
+        "file_transfer_set_concurrency" => {
+            let concurrency = args.get("concurrency").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
+            respond(crate::file_transfer::file_transfer_set_concurrency(state, concurrency).await)
+        }
+        "file_transfer_set_rate_limit" => {
+            let rate_limit_bps = args.get("rateLimitBps").and_then(|v| v.as_f64());
+            respond(crate::file_transfer::file_transfer_set_rate_limit(rate_limit_bps).await)
+        }
+        "sftp_probe_media" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            respond_omni(crate::log_tail::sftp_probe_media(state, id, path).await)
+        }
+        "sftp_open_media_stream" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            respond_omni(crate::log_tail::sftp_open_media_stream(state, id, path).await)
+        }
+        "sftp_close_media_stream" => {
+            let token = get_str(&args, "token").unwrap_or_default();
+            respond_omni(crate::log_tail::sftp_close_media_stream(state, token).await)
+        }
+        "sftp_log_open" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            respond_omni(crate::log_tail::sftp_log_open(state, id, path).await)
+        }
+        "sftp_log_read_lines" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            let start_line = args.get("startLine").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let end_line = args.get("endLine").and_then(|v| v.as_f64()).unwrap_or(start_line);
+            respond_omni(crate::log_tail::sftp_log_read_lines(state, id, path, start_line, end_line).await)
+        }
+        "sftp_log_tail_initial" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            let lines = args.get("lines").and_then(|v| v.as_u64()).unwrap_or(200) as u32;
+            respond_omni(crate::log_tail::sftp_log_tail_initial(state, id, path, lines).await)
+        }
+        "sftp_log_tail_start" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            let lines_after = args.get("linesAfter").and_then(|v| v.as_u64()).map(|n| n as u32);
+            respond_omni(crate::log_tail::sftp_log_tail_start(state, id, path, lines_after).await)
+        }
+        "sftp_log_tail_stop" => {
+            let token = get_str(&args, "token").unwrap_or_default();
+            respond_omni(crate::log_tail::sftp_log_tail_stop(state, token).await)
+        }
+        "local_log_open" => {
+            let path = get_str(&args, "path").unwrap_or_default();
+            respond_omni(crate::log_tail::local_log_open(path).await)
+        }
+        "local_log_read_lines" => {
+            let path = get_str(&args, "path").unwrap_or_default();
+            let start_line = args.get("startLine").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let end_line = args.get("endLine").and_then(|v| v.as_f64()).unwrap_or(start_line);
+            respond_omni(crate::log_tail::local_log_read_lines(path, start_line, end_line).await)
+        }
+        "local_log_tail_initial" => {
+            let path = get_str(&args, "path").unwrap_or_default();
+            let lines = args.get("lines").and_then(|v| v.as_u64()).unwrap_or(200) as u32;
+            respond_omni(crate::log_tail::local_log_tail_initial(path, lines).await)
+        }
+        "local_log_tail_start" => {
+            let path = get_str(&args, "path").unwrap_or_default();
+            let lines_after = args.get("linesAfter").and_then(|v| v.as_u64()).map(|n| n as u32);
+            respond_omni(crate::log_tail::local_log_tail_start(state, path, lines_after).await)
+        }
+        "local_log_tail_stop" => {
+            let token = get_str(&args, "token").unwrap_or_default();
+            respond_omni(crate::log_tail::local_log_tail_stop(token).await)
         }
 
         /* ---------------- AI（P2：HTTP 流式对话 + 流式 HTTP 代理） ---------------- */

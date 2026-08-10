@@ -16,14 +16,17 @@ pub mod bus;
 pub mod db;
 pub mod docker;
 pub mod docker_ops;
+pub mod file_transfer;
 pub mod files;
 pub mod ipc;
+pub mod log_tail;
 pub mod mcp;
 pub mod server;
 pub mod ssh;
 pub mod state;
 pub mod terminal;
 pub mod transfer;
+pub mod transfer_host;
 pub mod ws;
 
 pub use bus::{EventBus, EventPayload, SessionEvent};

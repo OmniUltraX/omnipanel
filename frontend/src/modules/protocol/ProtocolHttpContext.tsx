@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { asArray } from "../../ipc/asArray";
 import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
 import { scheduleAssistantSnapshotSync } from "../assistant";
 import {
@@ -442,28 +443,28 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
   const loadHistory = useCallback(async () => {
     const res = await commands.httpListHistory(200);
     if (res.status === "ok") {
-      setHistory(res.data);
+      setHistory(asArray(res.data));
     }
   }, []);
 
   const loadCollections = useCallback(async () => {
     const res = await commands.httpListCollections();
     if (res.status === "ok") {
-      setCollections(res.data);
+      setCollections(asArray(res.data));
     }
   }, []);
 
   const loadEnvironments = useCallback(async () => {
     const res = await commands.httpListEnvironments();
     if (res.status === "ok") {
-      setEnvironments(res.data);
+      setEnvironments(asArray(res.data));
     }
   }, []);
 
   const loadSavedRequests = useCallback(async () => {
     const res = await commands.httpListRequests(null);
     if (res.status === "ok") {
-      setSavedRequests(res.data);
+      setSavedRequests(asArray(res.data));
     }
   }, []);
 

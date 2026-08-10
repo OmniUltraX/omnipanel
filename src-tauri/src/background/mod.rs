@@ -1,3 +1,4 @@
+pub mod db_sync_bridge;
 pub mod db_sync_jobs;
 pub mod gpu_local;
 pub mod knowledge_vector_jobs;

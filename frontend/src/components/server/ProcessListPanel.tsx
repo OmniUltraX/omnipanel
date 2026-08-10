@@ -323,7 +323,7 @@ export function ProcessListPanel({
     openTunnelDialog,
   };
 
-  const filtered = processes.filter((p) => {
+  const filtered = (Array.isArray(processes) ? processes : []).filter((p) => {
     if (userFilter === "root" && p.user !== "root") return false;
     if (userFilter === "user" && p.user === "root") return false;
     if (!query.trim()) return true;

@@ -66,8 +66,9 @@ export function WinControls({ className, enableSnapLayout = false }: WinControls
   const { t } = useI18n();
   const isMaximized = useTauriWindowMaximized();
   const maximizeRef = useRef<HTMLButtonElement>(null);
+  const tauri = isTauriRuntime();
   const mac = usesMacTrafficLights();
-  const snapEnabled = Boolean(enableSnapLayout && isSnapLayoutEligibleWindow());
+  const snapEnabled = Boolean(tauri && enableSnapLayout && isSnapLayoutEligibleWindow());
 
   useEffect(() => {
     if (!snapEnabled) return;
@@ -78,15 +79,16 @@ export function WinControls({ className, enableSnapLayout = false }: WinControls
     };
   }, [snapEnabled]);
 
+  // Web 版用浏览器原生窗口控件，不渲染自定义最小化/最大化/关闭
+  if (!tauri) return null;
+
   const handleMinimize = () => {
-    if (!isTauriRuntime()) return;
     void getCurrentWindow()
       .minimize()
       .catch((e) => console.error("[WinControls] minimize failed", e));
   };
 
   const handleMaximize = () => {
-    if (!isTauriRuntime()) return;
     // Snap overlay 会拦截点击并自行 maximize；此处保留为无 overlay 时的回退
     void getCurrentWindow()
       .toggleMaximize()
@@ -94,7 +96,6 @@ export function WinControls({ className, enableSnapLayout = false }: WinControls
   };
 
   const handleClose = () => {
-    if (!isTauriRuntime()) return;
     void getCurrentWindow()
       .close()
       .catch((e) => console.error("[WinControls] close failed", e));

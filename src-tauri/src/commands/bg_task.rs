@@ -304,12 +304,12 @@ pub async fn bg_task_submit_db_data_sync_execute(
 #[tauri::command]
 #[specta::specta]
 pub async fn db_data_sync_generate_sql(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     source: DbConnectionConfig,
     target: DbConnectionConfig,
     tables: Vec<DbSyncExecTableSpec>,
 ) -> Result<DbDataSyncSqlGenerateResult, OmniError> {
-    Ok(generate_data_sync_sql_script(&app, source, target, tables).await?)
+    Ok(generate_data_sync_sql_script(source, target, tables).await?)
 }
 
 /// 结构同步：一次返回「表 → SQL 预览」（不执行）。
@@ -349,20 +349,20 @@ pub async fn db_batch_table_ddl(
 #[tauri::command]
 #[specta::specta]
 pub async fn db_data_sync_read_sql_file(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     file_path: String,
 ) -> Result<String, OmniError> {
-    Ok(read_sync_sql_file(&app, &file_path)?)
+    Ok(read_sync_sql_file(&file_path)?)
 }
 
 /// 保存（可编辑后的）同步 SQL 到缓存目录，供确认执行使用。
 #[tauri::command]
 #[specta::specta]
 pub async fn db_data_sync_write_sql_file(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     sql: String,
 ) -> Result<String, OmniError> {
-    Ok(save_sync_sql_file(&app, &sql)?)
+    Ok(save_sync_sql_file(&sql)?)
 }
 
 /// 提交数据同步 SQL 文件执行后台任务。

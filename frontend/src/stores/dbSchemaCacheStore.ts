@@ -83,7 +83,10 @@ export const useDbSchemaCacheStore = create<DbSchemaCacheState>((set, get) => ({
       return;
     }
     try {
-      const snapshot = (await loadSchemaCache()) as SchemaCacheSnapshot;
+      const loaded = (await loadSchemaCache()) as SchemaCacheSnapshot;
+      const snapshot: SchemaCacheSnapshot = {
+        connections: loaded?.connections ?? {},
+      };
       set((state) => ({ snapshot, hydrated: true, revision: state.revision + 1 }));
     } catch {
       set({ hydrated: true });

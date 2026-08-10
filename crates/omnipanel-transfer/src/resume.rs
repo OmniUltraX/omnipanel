@@ -1,17 +1,14 @@
 //! 传输任务持久化与断点续传元数据。
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::file_manager::{
-    resolve_local_path, LOCAL_CONNECTION_ID,
-};
-
-use super::types::{FileTransferJob, FileTransferState};
-use super::util::open_sftp;
-use crate::state::AppState;
+use crate::provider::TransferHost;
+use crate::types::{FileTransferJob, FileTransferState};
+use crate::util::open_sftp;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -57,12 +54,12 @@ pub fn normalize_after_load(mut jobs: Vec<FileTransferJob>) -> Vec<FileTransferJ
 }
 
 pub async fn source_fingerprint(
-    state: &AppState,
+    host: &dyn TransferHost,
     connection_id: &str,
     path: &str,
 ) -> Option<String> {
-    if connection_id == LOCAL_CONNECTION_ID {
-        let p = resolve_local_path(path).ok()?;
+    if connection_id == host.local_connection_id() {
+        let p = host.resolve_local_path(path).ok()?;
         let meta = std::fs::metadata(&p).ok()?;
         let mtime = meta
             .modified()
@@ -72,9 +69,8 @@ pub async fn source_fingerprint(
             .unwrap_or(0);
         return Some(format!("local:{}:{}", meta.len(), mtime));
     }
-    let session = open_sftp(state, connection_id).await.ok()?;
+    let session = open_sftp(host, connection_id).await.ok()?;
     let size = session.sftp_file_size(path).await.unwrap_or(0);
-    // SFTP 指纹：size + mtime（Unix 秒）。russh-sftp metadata 暴露 mtime（SSH_FXP_ATTRS 协议字段）
     let mtime = session.sftp_file_mtime(path).await.unwrap_or(0);
     Some(format!("sftp:{connection_id}:{path}:{size}:{mtime}"))
 }
@@ -86,27 +82,30 @@ pub fn fingerprint_matches(job: &FileTransferJob, current: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn local_partial_len(path: &str) -> u64 {
-    resolve_local_path(path)
+pub fn local_partial_len(host: &dyn TransferHost, path: &str) -> u64 {
+    host.resolve_local_path(path)
         .ok()
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| m.len())
         .unwrap_or(0)
 }
 
-/// 远端 partial 文件大小（字节）；不存在返回 0。
 pub async fn sftp_partial_len(
-    state: &AppState,
+    host: &dyn TransferHost,
     connection_id: &str,
     remote_partial_path: &str,
 ) -> u64 {
-    let Ok(session) = open_sftp(state, connection_id).await else {
+    let Ok(session) = open_sftp(host, connection_id).await else {
         return 0;
     };
-    session.sftp_file_size(remote_partial_path).await.unwrap_or(0)
+    session
+        .sftp_file_size(remote_partial_path)
+        .await
+        .unwrap_or(0)
 }
 
 pub async fn copy_local_resume(
+    host: &dyn TransferHost,
     src: &Path,
     dest_final: &Path,
     partial: &Path,
@@ -133,9 +132,7 @@ pub async fn copy_local_resume(
         .write(true)
         .truncate(start_offset == 0)
         .open(partial)
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Io, "打开 partial 失败").with_cause(e.to_string())
-        })?;
+        .map_err(|e| OmniError::new(ErrorCode::Io, "打开 partial 失败").with_cause(e.to_string()))?;
 
     let mut buf = vec![0u8; 256 * 1024];
     let mut done = start_offset;
@@ -153,12 +150,13 @@ pub async fn copy_local_resume(
             OmniError::new(ErrorCode::Io, "写入 partial 失败").with_cause(e.to_string())
         })?;
         done += n as u64;
-        super::rate_limit::throttle_bytes(n as u64).await;
+        crate::rate_limit::throttle_bytes(n as u64).await;
     }
     writer.flush().ok();
     drop(writer);
     std::fs::rename(partial, dest_final).map_err(|e| {
         OmniError::new(ErrorCode::Io, "提交目标文件失败").with_cause(e.to_string())
     })?;
+    let _ = host;
     Ok(done)
 }

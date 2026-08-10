@@ -304,6 +304,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
+ "axum-macros",
  "base64 0.22.1",
  "bytes",
  "form_urlencoded",
@@ -350,6 +351,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aa268c23bfbbd2c4363b9cd302a4f504fb2a9dfe7e3451d66f35dd392e20aca"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4562,8 +4574,10 @@ dependencies = [
  "md5",
  "omnipanel-ai",
  "omnipanel-assistant",
+ "omnipanel-bg",
  "omnipanel-core",
  "omnipanel-db",
+ "omnipanel-db-sync",
  "omnipanel-docker",
  "omnipanel-error",
  "omnipanel-exec",
@@ -4571,6 +4585,7 @@ dependencies = [
  "omnipanel-mcp",
  "omnipanel-ssh",
  "omnipanel-store",
+ "omnipanel-transfer",
  "pdf-extract",
  "percent-encoding",
  "quick-xml 0.32.0",
@@ -4640,6 +4655,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-bg"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-error",
+ "omnipanel-store",
+ "serde",
+ "serde_json",
+ "specta",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "omnipanel-core"
 version = "0.0.5"
 dependencies = [
@@ -4661,6 +4689,7 @@ dependencies = [
  "base64 0.22.1",
  "mongodb",
  "omnipanel-error",
+ "omnipanel-store",
  "redis",
  "reqwest 0.12.28",
  "rusqlite",
@@ -4670,6 +4699,22 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "omnipanel-db-sync"
+version = "0.0.5"
+dependencies = [
+ "async-trait",
+ "futures",
+ "omnipanel-db",
+ "omnipanel-error",
+ "omnipanel-ssh",
+ "omnipanel-store",
+ "serde",
+ "serde_json",
+ "specta",
+ "tokio",
 ]
 
 [[package]]
@@ -4813,6 +4858,7 @@ dependencies = [
  "omnipanel-s3",
  "omnipanel-ssh",
  "omnipanel-store",
+ "omnipanel-transfer",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -4829,7 +4875,10 @@ dependencies = [
 name = "omnipanel-ssh"
 version = "0.0.5"
 dependencies = [
+ "async-trait",
+ "base64 0.22.1",
  "omnipanel-error",
+ "reqwest 0.12.28",
  "russh",
  "russh-sftp",
  "serde",
@@ -4859,6 +4908,21 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "omnipanel-transfer"
+version = "0.0.5"
+dependencies = [
+ "async-trait",
+ "omnipanel-error",
+ "omnipanel-ssh",
+ "omnipanel-store",
+ "serde",
+ "serde_json",
+ "specta",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

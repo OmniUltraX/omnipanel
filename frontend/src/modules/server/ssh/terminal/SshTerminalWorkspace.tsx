@@ -1,12 +1,10 @@
 import { useEffect } from "react";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
+import { canUseTerminalBackend } from "../../../../lib/isTauriRuntime";
 import { getBlueprint } from "../../../terminal/sessionBlueprints";
 import { useSshTerminalWorkspace } from "../hooks/useSshTerminalWorkspace";
 import { useSshDetailNavigationStore } from "../../../../stores/sshDetailNavigationStore";
 import { TerminalPaneView } from "../../../terminal/TerminalPaneView";
-
-const isTauriRuntime =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type Props = {
   resource: WorkspaceResource | null;
@@ -77,12 +75,13 @@ export function SshTerminalWorkspace({ resource, active = true }: Props) {
     );
   }
 
-  if (!isTauriRuntime) {
+  if (!canUseTerminalBackend()) {
     return (
       <div className="ssh-terminal-panel">
         <div className="ssh-terminal-empty">
-          请在 Tauri 桌面应用中运行以连接真实 SSH 终端（
-          <code>npm run tauri dev</code>）
+          当前构建未启用终端后端。请使用桌面应用（
+          <code>npm run tauri dev</code>）或 Web 构建（
+          <code>OMNIPANEL_WEB=1</code>）对接 <code>omnipanel-server</code>。
         </div>
       </div>
     );

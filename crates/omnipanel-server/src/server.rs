@@ -3,9 +3,10 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
+    body::Body,
+    extract::{Path, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -82,6 +83,7 @@ pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
         .route("/ipc/events", get(ws::ws_events))
         .route("/ipc/status", get(status_handler))
         .route("/healthz", get(healthz))
+        .route("/media/{token}", get(media_handler).head(media_head_handler))
         .layer(cors)
         .with_state(app_ctx);
 
@@ -175,5 +177,134 @@ async fn invoke_handler(
             Json(resp),
         )
             .into_response()
+    }
+}
+
+fn apply_media_cors(headers: &mut HeaderMap) {
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("Range, Content-Type"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("Accept-Ranges, Content-Range, Content-Length, Content-Type"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, HEAD, OPTIONS"),
+    );
+}
+
+async fn media_head_handler(
+    State(ctx): State<AppCtx>,
+    Path(token): Path<String>,
+) -> Response {
+    let entry = {
+        let map = ctx.state.media_streams.lock().await;
+        map.get(&token).cloned()
+    };
+    let Some(entry) = entry else {
+        let mut res = Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .unwrap_or_else(|_| StatusCode::NOT_FOUND.into_response());
+        apply_media_cors(res.headers_mut());
+        return res;
+    };
+
+    let mut builder = Response::builder().status(StatusCode::OK);
+    if let Some(h) = builder.headers_mut() {
+        apply_media_cors(h);
+        h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        h.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(&entry.mime)
+                .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        );
+        h.insert(
+            header::CONTENT_LENGTH,
+            HeaderValue::from_str(&entry.size.to_string())
+                .unwrap_or_else(|_| HeaderValue::from_static("0")),
+        );
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    builder
+        .body(Body::empty())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+async fn media_handler(
+    State(ctx): State<AppCtx>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    use omnipanel_ssh::media::read_media_range;
+
+    let entry = {
+        let map = ctx.state.media_streams.lock().await;
+        map.get(&token).cloned()
+    };
+    let Some(entry) = entry else {
+        let mut res = Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("not found"))
+            .unwrap_or_else(|_| StatusCode::NOT_FOUND.into_response());
+        apply_media_cors(res.headers_mut());
+        return res;
+    };
+
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
+    let session_result =
+        crate::log_tail::resolve_log_session_for_media(&ctx.state, &entry.ssh_id).await;
+    let result = match session_result {
+        Ok(session) => read_media_range(session.as_ref(), &entry, range).await,
+        Err(e) => Err(e),
+    };
+
+    match result {
+        Ok(resp) => {
+            let status = if resp.partial {
+                StatusCode::PARTIAL_CONTENT
+            } else {
+                StatusCode::OK
+            };
+            let mut builder = Response::builder().status(status);
+            if let Some(h) = builder.headers_mut() {
+                apply_media_cors(h);
+                h.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+                h.insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_str(&resp.mime)
+                        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+                );
+                h.insert(
+                    header::CONTENT_LENGTH,
+                    HeaderValue::from_str(&resp.content_length().to_string())
+                        .unwrap_or_else(|_| HeaderValue::from_static("0")),
+                );
+                if let Some(cr) = resp.content_range_value() {
+                    if let Ok(v) = HeaderValue::from_str(&cr) {
+                        h.insert(header::CONTENT_RANGE, v);
+                    }
+                }
+                h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            }
+            builder
+                .body(Body::from(resp.data))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "媒体流读取失败");
+            let mut res = Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(Body::from(e.to_string()))
+                .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response());
+            apply_media_cors(res.headers_mut());
+            res
+        }
     }
 }

@@ -1,4 +1,5 @@
 import { commands, type OmniError_Serialize } from "../../ipc/bindings";
+import { canUseIpcBackend } from "../isTauriRuntime";
 import { btDockerAppIconUrl } from "./appsMap";
 import { buildBtAuthFields, normalizeBtPanelBaseUrl } from "./auth";
 import {
@@ -39,12 +40,8 @@ export interface BtPanelClientOptions {
   apiSk: string;
   /** 连接 ID：apiSk 为空时从 Vault 解析密钥 */
   connectionId?: string;
-  /** 默认 true：在 Tauri 环境走 Rust 后端，避免 WebView CORS 并复用 Cookie。 */
+  /** 默认 true：在有 IPC 后端时走 Rust 代理，避免浏览器 CORS 并复用 Cookie。 */
   useTauri?: boolean;
-}
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 function formatIpcError(error: OmniError_Serialize): string {
@@ -170,7 +167,7 @@ export class BtPanelClient {
     const tolerate = Boolean(options.tolerateFalseStatus);
     const apiSk = await this.resolveApiSk();
 
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panelBtRequest(
         this.baseUrl,
         apiSk,
@@ -507,7 +504,7 @@ export class BtPanelClient {
       throw new BtPanelApiError("应用名称不能为空", 0);
     }
     const file = (iconFile ?? "").trim() || null;
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const apiSk = await this.resolveApiSk();
       const result = await commands.panelBtAppIcon(this.baseUrl, apiSk, name, file);
       if (result.status === "error") {

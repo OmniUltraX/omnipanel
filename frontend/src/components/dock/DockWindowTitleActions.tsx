@@ -4,6 +4,7 @@ import { useAiDockOpen } from "../../lib/ai/useAiDockOpen";
 import { WinControls } from "../shell/WinControls";
 import { AiChromeButton } from "../shell/AiChromeButton";
 import { ModuleChromeSettingsButton } from "../shell/ModuleChromeSettingsButton";
+import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { usesMacTrafficLights } from "../../lib/platform";
 import type { DockWindowChromeActionsProps } from "./dockWindowChromeActions";
 
@@ -65,11 +66,12 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
 
   const showDrag = mode === "drag" || mode === "both";
   const showControls = mode === "controls" || mode === "both";
-  // macOS 红绿灯改由 Sidebar（主壳）或 dock 前缀区（独立窗）托管，右侧不再重复
+  // macOS 红绿灯改由 Sidebar / dock 前缀托管；Web 用浏览器原生窗控，右侧都不挂三键
   const mac = usesMacTrafficLights();
-  const showWinControls = showControls && !mac;
+  const showWinControls = showControls && !mac && isTauriRuntime();
+  const noWinControls = showControls && !showWinControls;
 
-  if (!showDrag && !showWinControls && !leftActions && !(showControls && mac)) {
+  if (!showDrag && !showWinControls && !leftActions && !showControls) {
     return null;
   }
 
@@ -81,6 +83,7 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
         showWinControls && !showDrag ? "dock-window-title-actions--controls-only" : "",
         aiDockOpen ? "dock-window-title-actions--ai-dock-open" : "",
         mac ? "dock-window-title-actions--mac" : "",
+        noWinControls ? "dock-window-title-actions--no-win-controls" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -99,7 +102,7 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
           ) : null}
         </div>
       ) : null}
-      {/* 主窗 / 模块独立窗可见的窗口三键；挂 Snap Layout overlay（仅 Windows） */}
+      {/* 主窗 / 模块独立窗可见的窗口三键；挂 Snap Layout overlay（仅 Windows 桌面） */}
       {showWinControls ? <WinControls enableSnapLayout /> : null}
     </div>
   );

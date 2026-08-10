@@ -49,6 +49,10 @@ pub struct ServerState {
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
     /// 跨连接 relay 传输的取消标志（按 job id）。
     pub transfer_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// 跨连接文件传输引擎（桌面端 `file_transfer_*` 适配）。
+    pub file_transfers: Arc<crate::file_transfer::FileTransferEngine>,
+    /// 媒体 Range 流：token → SFTP 远端条目（边下边播，不整文件缓存）。
+    pub media_streams: Arc<Mutex<HashMap<String, omnipanel_ssh::MediaStreamEntry>>>,
     /// MCP 管理器（懒初始化：bootstrap 内置 OmniMCP HTTP 服务 + stdio 子进程）。
     pub mcp_manager: Arc<Mutex<Option<omnipanel_mcp::SharedMcpManager>>>,
     /// 外部 MCP 工具是否需审批（默认 true，与桌面端一致）。false 时服务端直接自执。
@@ -70,6 +74,8 @@ impl ServerState {
             .expect("打开 ~/.omnipd/store/omnipanel.db 失败");
         let db_connections = crate::state::open_db_connections()
             .expect("加载数据库连接配置失败");
+        let file_transfers = Arc::new(crate::file_transfer::FileTransferEngine::new());
+        let transfer_cancel_flags = file_transfers.relay_cancel_flags.clone();
         Self {
             terminal_sessions: Mutex::new(HashMap::new()),
             output_buffers: output_buffer::new_buffers(),
@@ -84,7 +90,9 @@ impl ServerState {
             docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),
             ai_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
-            transfer_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
+            transfer_cancel_flags,
+            file_transfers,
+            media_streams: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),

@@ -16,7 +16,7 @@ futures.workspace = true
 async-trait.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 tokio-tungstenite.workspace = true
@@ -30,6 +30,7 @@ omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }
 omnipanel-mcp = { path = "../omnipanel-mcp" }
 omnipanel-s3 = { path = "../omnipanel-s3" }
+omnipanel-transfer = { path = "../omnipanel-transfer" }
 bollard = { workspace = true }
 reqwest = { workspace = true }
 suppaftp = { version = "6", default-features = false, features = ["rustls"] }

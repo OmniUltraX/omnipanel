@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerConnectionInfo, DockerScanResult } from "../../../ipc/bindings";
+import { asArray } from "../../../ipc/asArray";
 import { unwrapCommand } from "../../../ipc/result";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { registerDockerOfflineHandler } from "../dockerConnectionOffline";
@@ -42,7 +43,7 @@ export function useDockerConnections() {
     }
     try {
       // 后端 list 会并行 probe，回填真实 online/degraded/offline
-      const list = await unwrap(commands.dockerListConnections());
+      const list = asArray(await unwrap(commands.dockerListConnections()));
       setConnections(list);
       hasLoadedOnceRef.current = true;
     } catch (e) {

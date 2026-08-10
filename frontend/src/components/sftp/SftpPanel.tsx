@@ -296,7 +296,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
             path: dir,
           });
       if (seq !== loadSeqRef.current) return;
-      const normalized = list.map((entry) => ({
+      const normalized = (Array.isArray(list) ? list : []).map((entry) => ({
         name: entry.name,
         isDir: entry.isDir ?? false,
         isSymlink: entry.isSymlink ?? false,
