@@ -2,7 +2,6 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 
 import type { AcpStreamEvent, EmbeddingProviderConfig } from "../../ipc/bindings";
 import { commands } from "../../ipc/bindings";
-import { isTauriRuntime } from "../isTauriRuntime";
 
 import type { HttpProviderSnapshot } from "./inferenceBackend";
 
@@ -62,10 +61,8 @@ export interface RunInternalAiChatOptions {
 }
 
 export async function runInternalAiChat(options: RunInternalAiChatOptions): Promise<void> {
-  if (!isTauriRuntime()) {
-    throw new Error("Internal AI 需要在 Tauri 桌面环境中运行");
-  }
-
+  // Web 模式（浏览器）：`@tauri-apps/api/core` 已被 vite alias 指向 shim，
+  // invoke → HTTP /ipc/invoke，Channel → WS @channel 帧（与 Tauri 桌面端同一套前端代码）。
   const onEvent = new Channel<InternalStreamEvent>();
   onEvent.onmessage = (event) => {
     options.onEvent(event);

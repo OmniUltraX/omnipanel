@@ -11,6 +11,46 @@ const requireFromFrontend = createRequire(import.meta.url);
 
 const shimsDir = path.resolve(frontendRoot, "src/shims");
 
+/** Web 模式（非 Tauri）下把 @tauri-apps/api 重定向到浏览器 shim；Tauri 构建走真实现。 */
+const isWebBuild = process.env.OMNIPANEL_WEB === "1";
+const webAliases = isWebBuild
+  ? [
+      {
+        find: "@tauri-apps/api/core",
+        replacement: path.join(shimsDir, "tauri/core-web.ts"),
+      },
+      {
+        find: "@tauri-apps/api/event",
+        replacement: path.join(shimsDir, "tauri/event.ts"),
+      },
+      {
+        find: "@tauri-apps/api/window",
+        replacement: path.join(shimsDir, "tauri/window.ts"),
+      },
+      {
+        find: "@tauri-apps/api/webviewWindow",
+        replacement: path.join(shimsDir, "tauri/webviewWindow.ts"),
+      },
+      {
+        find: "@tauri-apps/api/dpi",
+        replacement: path.join(shimsDir, "tauri/dpi.ts"),
+      },
+      // menu / tray / app 桌面专属 → 统一 no-op shim
+      {
+        find: "@tauri-apps/api/menu",
+        replacement: path.join(shimsDir, "tauri/desktop.ts"),
+      },
+      {
+        find: "@tauri-apps/api/tray",
+        replacement: path.join(shimsDir, "tauri/desktop.ts"),
+      },
+      {
+        find: "@tauri-apps/api/app",
+        replacement: path.join(shimsDir, "tauri/desktop.ts"),
+      },
+    ]
+  : [];
+
 export default defineConfig(({ command }) => ({
   plugins: [
     react(),
@@ -45,6 +85,8 @@ export default defineConfig(({ command }) => ({
     alias: [
       { find: "@repo-logo", replacement: path.resolve(frontendRoot, "../logo") },
       { find: "@/", replacement: `${path.resolve(frontendRoot, "src")}/` },
+      // Web 模式：把 @tauri-apps/api 重定向到浏览器 shim（仅 OMNIPANEL_WEB=1 时生效）
+      ...webAliases,
       {
         find: "standardwebhooks-cjs",
         replacement: requireFromFrontend.resolve("standardwebhooks/dist/index.js"),
