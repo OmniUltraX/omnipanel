@@ -32,20 +32,30 @@ if command -v fuser >/dev/null 2>&1 && fuser -k "$PORT/tcp" >/dev/null 2>&1; the
 fi
 
 # ---------- 1. 前端：Web 模式构建（生成 frontend/dist） ----------
-log "构建前端（Web 模式，OMNIPANEL_WEB=1）..."
-if [ ! -d frontend/node_modules ]; then
-  log "安装前端依赖..."
-  npm ci --prefix frontend || npm install --prefix frontend
+# 镜像构建阶段已预编译（见 .ide/Dockerfile），产物已存在时跳过重复构建，秒级启动。
+if [ -d frontend/dist ] && [ -f frontend/dist/index.html ]; then
+  log "前端产物已存在（镜像预编译），跳过前端构建。"
+else
+  log "构建前端（Web 模式，OMNIPANEL_WEB=1）..."
+  if [ ! -d frontend/node_modules ]; then
+    log "安装前端依赖..."
+    npm ci --prefix frontend || npm install --prefix frontend
+  fi
+  # CI 跳过 IPC bindings 重新生成，直接用仓库已提交的 bindings.ts
+  SKIP_GEN_BINDINGS=1 OMNIPANEL_WEB=1 npm run build --prefix frontend \
+    || fail "前端构建失败，请查看上方日志"
 fi
-# CI 跳过 IPC bindings 重新生成，直接用仓库已提交的 bindings.ts
-SKIP_GEN_BINDINGS=1 OMNIPANEL_WEB=1 npm run build --prefix frontend \
-  || fail "前端构建失败，请查看上方日志"
 
 # ---------- 2. 后端：构建 omnipanel-server ----------
-log "构建后端 omnipanel-server（release）..."
-cargo build --release -p omnipanel-server || fail "后端构建失败，请查看上方日志"
-
 BIN="$ROOT_DIR/target/release/omnipanel-server"
+# 镜像构建阶段已预编译（见 .ide/Dockerfile），产物已存在时跳过重复构建，秒级启动。
+if [ -x "$BIN" ]; then
+  log "后端产物已存在（镜像预编译），跳过后端构建。"
+else
+  log "构建后端 omnipanel-server（release）..."
+  cargo build --release -p omnipanel-server || fail "后端构建失败，请查看上方日志"
+fi
+
 [ -x "$BIN" ] || fail "后端二进制未生成: $BIN"
 
 # ---------- 3. 启动 Web 服务 ----------

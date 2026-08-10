@@ -38,3 +38,24 @@ ENV LANGUAGE C.UTF-8
 
 # 工作目录
 WORKDIR /workspace
+
+# =============================================================
+# 预编译（核心）
+#
+# 仅预览模式下，平台在 Prepare 阶段对业务端口 8686 做启动检测（窗口约 226s）。
+# 前端 build + cargo build --release 全量构建远超该窗口，无法在 launch 阶段内完成。
+# 故把耗时的前后端构建前置到镜像构建阶段（docker.build 在 git-clone 之后执行，
+# 仓库源码已在构建上下文），让 launch 只做秒级启动，从而在端口检测窗口内就绪。
+# =============================================================
+COPY . /workspace
+
+# ---- 前端：Web 模式构建（生成 frontend/dist）----
+RUN set -eux; \
+    cd /workspace/frontend \
+    && npm ci \
+    && SKIP_GEN_BINDINGS=1 OMNIPANEL_WEB=1 npm run build
+
+# ---- 后端：构建 omnipanel-server（release）----
+RUN set -eux; \
+    cd /workspace \
+    && cargo build --release -p omnipanel-server

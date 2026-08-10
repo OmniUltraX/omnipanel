@@ -4,11 +4,14 @@
 # 并在「仅预览」模式下直接打开业务端口预览（等价于本地 `cargo run` + `vite build`）。
 #
 # 链路：
+#   .ide/Dockerfile（镜像构建阶段预编译前后端，产物落入镜像层）
 #   .cnb.yml (vscode 事件, onlyPreview)
-#     └─ launch: ./scripts/start-web.sh
-#         ├─ npm ci + OMNIPANEL_WEB=1 构建前端 (frontend/dist)
-#         └─ cargo build --release -p omnipanel-server
-#             └─ 运行 omnipanel-server --bind 0.0.0.0:8686 --static-dir frontend/dist
+#     └─ launch: ./scripts/start-web.sh（检测到预编译产物则跳过构建，秒级启动）
+#         └─ 运行 omnipanel-server --bind 0.0.0.0:8686 --static-dir frontend/dist
+#
+# 说明：仅预览模式在 Prepare 阶段对业务端口 8686 做启动检测（窗口约 226s），
+# 而前端 build + cargo build --release 全量构建远超该窗口，故将构建前置到镜像阶段预编译，
+# launch 只做秒级启动，确保在端口检测窗口内就绪。
 #
 # 业务端口 8686 需绑定 0.0.0.0 才能被端口预览访问（见 docs/web-p2.md）。
 # 若需标准 WebIDE（可编辑代码）而非仅预览，可去掉 vscode.options.onlyPreview。
@@ -37,12 +40,19 @@ $:
       env:
         OMNIPANEL_WEB: "1"
         OMNIPANEL_WEB_PORT: "8686"
-      # 进入前预装前端依赖（缩短 launch 等待；进入后再执行 start-web.sh 完成构建与启动）
+      # 预装前端依赖并补建缺失产物（首次进入/镜像未预编译时兜底；
+      # 正常情况下镜像阶段已预编译，此 stage 仅做增量补偿）
       stages:
-        - name: 预装前端依赖
+        - name: 预构建前后端
           script: |
             set -euo pipefail
             cd "$CNB_BUILD_WORKSPACE" 2>/dev/null || true
             if [ -d frontend ] && [ ! -d frontend/node_modules ]; then
               npm ci --prefix frontend || npm install --prefix frontend
+            fi
+            if [ -d frontend ] && [ ! -f frontend/dist/index.html ]; then
+              OMNIPANEL_WEB=1 SKIP_GEN_BINDINGS=1 npm run build --prefix frontend || true
+            fi
+            if [ ! -x target/release/omnipanel-server ]; then
+              cargo build --release -p omnipanel-server || true
             fi
