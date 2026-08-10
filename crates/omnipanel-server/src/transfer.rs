@@ -231,7 +231,7 @@ async fn relay_sftp_dest(
     }
 }
 
-/// 源 SFTP → 目标 SFTP 的中继（服务端内存分块）。
+/// 源 SFTP → 目标 SFTP 的中继（服务端分块 + 偏移续写，不再整文件下载重写）。
 async fn relay_sftp_sftp(
     state: &ServerState,
     source_connection_id: &str,
@@ -256,9 +256,16 @@ async fn relay_sftp_sftp(
         return Ok(start_offset);
     }
 
+    // 目标目录不存在时先创建（对齐 local/SFTP 传输语义）
+    if let Some(parent) = dest_path.rfind('/').map(|i| &dest_path[..i]) {
+        if !parent.is_empty() && !dst.sftp_exists(parent).await {
+            dst.sftp_mkdir(parent).await?;
+        }
+    }
+
     const CHUNK: u64 = 256 * 1024;
     let mut offset = start_offset;
-    let mut total = 0u64;
+    let mut total = start_offset;
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
@@ -267,21 +274,24 @@ async fn relay_sftp_sftp(
         if data.is_empty() {
             break;
         }
-        // 目标写入：追加（先取已写入长度，再在末尾续写）。为简化并发正确性，
-        // 每次整块读 → 整块写（覆盖该偏移）。
-        let mut existing = dst
-            .sftp_read_range(dest_path, 0, offset as u32)
+        // 目标偏移续写：每块仅覆盖该偏移（不整文件重写）
+        let written = dst
+            .sftp_write_at(dest_path, offset, &data)
             .await
-            .unwrap_or_default();
-        existing.extend_from_slice(&data);
-        dst.sftp_upload(dest_path, &existing).await?;
+            .map_err(|e| {
+                e.with_cause("SFTP 偏移写入目标文件失败")
+            })?;
         offset += data.len() as u64;
-        total += data.len() as u64;
+        total = written;
         if data.len() < CHUNK as usize {
             break;
         }
     }
-    Ok(total + start_offset)
+    // 若目标文件本比源更长（如残留 partial 超长），裁剪到最终长度
+    if size.map_or(false, |s| s < total) {
+        let _ = dst.sftp_set_length(dest_path, size.unwrap_or(total)).await;
+    }
+    Ok(total)
 }
 
 /// 启动一个 relay 传输（后台任务，返回 job id）。

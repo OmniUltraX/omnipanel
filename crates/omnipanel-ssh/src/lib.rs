@@ -1333,6 +1333,51 @@ impl SshSession {
         Ok(done)
     }
 
+    /// 按偏移追加写入远端文件（不截断已存在内容）。
+    ///
+    /// 以 `CREATE | WRITE`（不带 TRUNCATE）打开远端文件，seek 到 `offset` 后写入
+    /// `data`。用于 SFTP↔SFTP 中继的偏移续写（不再整文件下载重写），也用于断点续传
+    /// 的增量回填。返回写入后的文件长度（`offset + data.len()`，若文件本就更长则
+    /// 返回原长度）。
+    pub async fn sftp_write_at(
+        &self,
+        remote_path: &str,
+        offset: u64,
+        data: &[u8],
+    ) -> OmniResult<u64> {
+        use russh_sftp::protocol::OpenFlags;
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let mut remote = sftp
+            .open_with_flags(remote_path, OpenFlags::CREATE | OpenFlags::WRITE)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "打开远端文件失败").with_cause(e.to_string())
+            })?;
+        if offset > 0 {
+            remote
+                .seek(std::io::SeekFrom::Start(offset))
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Ssh, "定位远端文件失败").with_cause(e.to_string())
+                })?;
+        }
+        remote.write_all(data).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "写入远端文件失败").with_cause(e.to_string())
+        })?;
+        remote.flush().await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "刷新远端文件失败").with_cause(e.to_string())
+        })?;
+        Ok(offset + data.len() as u64)
+    }
+
     /// 设置远端文件大小（截断或扩展）。用于断点续传完成后裁剪 partial 残留大于 final 的情况。
     pub async fn sftp_set_length(&self, remote_path: &str, len: u64) -> OmniResult<()> {
         use russh_sftp::protocol::{FileAttributes, OpenFlags};
