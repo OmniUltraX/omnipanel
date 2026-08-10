@@ -49,6 +49,8 @@ pub struct ServerState {
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
     /// 跨连接 relay 传输的取消标志（按 job id）。
     pub transfer_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// MCP 管理器（懒初始化：bootstrap 内置 OmniMCP HTTP 服务 + stdio 子进程）。
+    pub mcp_manager: Arc<Mutex<Option<omnipanel_mcp::SharedMcpManager>>>,
 }
 
 impl Default for ServerState {
@@ -78,6 +80,26 @@ impl ServerState {
             ai_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
             transfer_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
+            mcp_manager: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// 懒初始化 MCP 管理器（幂等；失败返回 None 时相关 IPC/AI 外部工具会报明确错误）。
+    pub async fn ensure_mcp_manager(&self) -> Option<omnipanel_mcp::SharedMcpManager> {
+        let mut slot = self.mcp_manager.lock().await;
+        if let Some(m) = slot.as_ref() {
+            return Some(m.clone());
+        }
+        match omnipanel_mcp::McpManager::bootstrap(self.storage.clone()).await {
+            Ok(manager) => {
+                let shared: omnipanel_mcp::SharedMcpManager = Arc::new(Mutex::new(manager));
+                *slot = Some(shared.clone());
+                Some(shared)
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "MCP 管理器初始化失败，Web 端外部 MCP 不可用");
+                None
+            }
         }
     }
 

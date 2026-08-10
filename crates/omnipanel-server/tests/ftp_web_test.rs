@@ -50,6 +50,7 @@ async fn ftp_list_read_via_server_state() {
         "ftp-test-1".to_string(),
         "/".to_string(),
         None,
+        None,
     )
     .await;
     println!("ftp list result: {result:?}");

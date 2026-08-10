@@ -51,3 +51,70 @@ async fn live_s3_crud() {
         .expect("list after delete");
     assert!(page.contents.is_empty() && page.common_prefixes.is_empty(), "not empty: {page:?}");
 }
+
+#[tokio::test]
+#[ignore = "需要本地 mock S3 服务器"]
+async fn live_multipart_upload() {
+    let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
+
+    // 6MB 随机内容，分 1MB 片 → 6 片
+    let payload: Vec<u8> = (0..6 * 1024 * 1024)
+        .map(|i| (i % 251) as u8)
+        .collect();
+    let chunk = 1024 * 1024;
+
+    // 分块上传
+    let bytes = client
+        .upload_object_multipart("live-mp/big.bin", &payload, chunk)
+        .await
+        .expect("multipart upload");
+    assert_eq!(bytes as usize, payload.len());
+
+    // 读回完整内容
+    let data = client.get_object("live-mp/big.bin").await.expect("get full");
+    assert_eq!(data.len(), payload.len());
+    assert_eq!(data, payload);
+
+    // Range 下载
+    let range = client
+        .get_object_range("live-mp/big.bin", 1024, Some(2048))
+        .await
+        .expect("range");
+    assert_eq!(range, &payload[1024..2048]);
+    let tail = client
+        .get_object_range("live-mp/big.bin", payload.len() as u64 - 100, None)
+        .await
+        .expect("range tail");
+    assert_eq!(tail, &payload[payload.len() - 100..]);
+
+    // 清理
+    client.delete_object("live-mp/big.bin").await.expect("cleanup");
+}
+
+#[tokio::test]
+#[ignore = "需要本地 mock S3 服务器"]
+async fn live_multipart_abort() {
+    let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
+
+    // 发起分块上传，传 2 片后 abort
+    let upload_id = client
+        .initiate_multipart_upload("live-mp/abort.bin")
+        .await
+        .expect("initiate");
+    client
+        .upload_part("live-mp/abort.bin", 1, &upload_id, &[b'a'; 1024])
+        .await
+        .expect("part1");
+    client
+        .upload_part("live-mp/abort.bin", 2, &upload_id, &[b'b'; 1024])
+        .await
+        .expect("part2");
+    client
+        .abort_multipart_upload("live-mp/abort.bin", &upload_id)
+        .await
+        .expect("abort");
+
+    // abort 后对象不应存在
+    let status = client.head_object("live-mp/abort.bin").await.expect("head");
+    assert_eq!(status, 404);
+}

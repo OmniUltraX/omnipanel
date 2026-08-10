@@ -18,6 +18,7 @@ pub mod docker;
 pub mod docker_ops;
 pub mod files;
 pub mod ipc;
+pub mod mcp;
 pub mod server;
 pub mod ssh;
 pub mod state;
