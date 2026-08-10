@@ -1,17 +1,19 @@
 # OmniPanel 云原生开发流水线
 #
-# 点击分支页「云原生开发」按钮 → 创建开发环境 → 自动运行 Web 版前后端，
+# 点击分支页「云原生开发」按钮 → 创建开发环境 → 自动构建并运行 Web 版前后端，
 # 并在「仅预览」模式下直接打开业务端口预览（等价于本地 `cargo run` + `vite build`）。
 #
 # 链路：
-#   .ide/Dockerfile（镜像构建阶段预编译前后端，产物落入镜像层）
 #   .cnb.yml (vscode 事件, onlyPreview)
-#     └─ launch: ./scripts/start-web.sh（检测到预编译产物则跳过构建，秒级启动）
+#     ├─ stages: 在完整源码工作区中构建前端(frontend/dist) + 后端(target/release/omnipanel-server)
+#     │          通过 vscode:go 内置任务，等构建完成后才开放环境/进行端口检测
+#     └─ launch: ./scripts/start-web.sh（产物已存在则跳过构建、秒级启动）
 #         └─ 运行 omnipanel-server --bind 0.0.0.0:8686 --static-dir frontend/dist
 #
-# 说明：仅预览模式在 Prepare 阶段对业务端口 8686 做启动检测（窗口约 226s），
-# 而前端 build + cargo build --release 全量构建远超该窗口，故将构建前置到镜像阶段预编译，
-# launch 只做秒级启动，确保在端口检测窗口内就绪。
+# 说明：仅预览模式在 Prepare 阶段对业务端口 8686 做启动检测（窗口约 226s）。
+# docker.build 的镜像构建上下文不含仓库源码，无法在镜像阶段预编译；
+# 因此将耗时的前后端构建放在 stages（此处工作区含完整源码），并用 vscode:go
+# 等构建完成后再开放环境，确保 launch 启动的服务在端口检测窗口内就绪。
 #
 # 业务端口 8686 需绑定 0.0.0.0 才能被端口预览访问（见 docs/web-p2.md）。
 # 若需标准 WebIDE（可编辑代码）而非仅预览，可去掉 vscode.options.onlyPreview。
@@ -20,7 +22,8 @@ $:
     - runner:
         cpus: 8
       docker:
-        # 优先用仓库 .ide/Dockerfile 构建开发镜像（预装 Rust + Node）；
+        # 用仓库 .ide/Dockerfile 构建开发镜像（仅预装 Rust + Node 等工具链，
+        # 不含源码构建，见 .ide/Dockerfile 注释）；
         # 构建失败时回退默认镜像 cnbcool/default-dev-env。
         build: .ide/Dockerfile
         image: cnbcool/default-dev-env:latest
@@ -40,19 +43,23 @@ $:
       env:
         OMNIPANEL_WEB: "1"
         OMNIPANEL_WEB_PORT: "8686"
-      # 预装前端依赖并补建缺失产物（首次进入/镜像未预编译时兜底；
-      # 正常情况下镜像阶段已预编译，此 stage 仅做增量补偿）
+      # 进入前在完整源码工作区完成前后端构建（docker.build 上下文不含源码，无法在镜像阶段预编译）；
+      # 用 vscode:go 等全部构建完成后再开放环境/端口检测，避免 8686 启动检测超时。
       stages:
-        - name: 预构建前后端
+        - name: 安装前端依赖
           script: |
             set -euo pipefail
-            cd "$CNB_BUILD_WORKSPACE" 2>/dev/null || true
-            if [ -d frontend ] && [ ! -d frontend/node_modules ]; then
-              npm ci --prefix frontend || npm install --prefix frontend
-            fi
-            if [ -d frontend ] && [ ! -f frontend/dist/index.html ]; then
-              OMNIPANEL_WEB=1 SKIP_GEN_BINDINGS=1 npm run build --prefix frontend || true
-            fi
-            if [ ! -x target/release/omnipanel-server ]; then
-              cargo build --release -p omnipanel-server || true
-            fi
+            cd "$CNB_BUILD_WORKSPACE"
+            npm ci --prefix frontend || npm install --prefix frontend
+        - name: 构建前端
+          script: |
+            set -euo pipefail
+            cd "$CNB_BUILD_WORKSPACE"
+            OMNIPANEL_WEB=1 SKIP_GEN_BINDINGS=1 npm run build --prefix frontend
+        - name: 构建后端
+          script: |
+            set -euo pipefail
+            cd "$CNB_BUILD_WORKSPACE"
+            cargo build --release -p omnipanel-server
+        - name: 就绪
+          type: vscode:go
