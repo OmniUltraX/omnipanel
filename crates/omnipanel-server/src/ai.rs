@@ -473,3 +473,92 @@ pub async fn ai_http_stream_post(
     bus.emit_channel(&channel_id, serde_json::json!({ "kind": "done", "status": status }));
     Ok(())
 }
+
+/// 与桌面端 `BackendInfo` 同形（前端 `aiListBackends`）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendInfo {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub installed: bool,
+}
+
+/// 列出可用后端：HTTP 模型来自 `ai-models.json`；CLI/ACP 后续可接 skills。
+pub async fn ai_list_backends() -> Result<Vec<BackendInfo>, String> {
+    let file = crate::store_bridge::ai_models_load().await?;
+    let mut backends = Vec::new();
+    for provider in file.providers {
+        let Some(obj) = provider.as_object() else {
+            continue;
+        };
+        let provider_id = obj
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if provider_id.is_empty() {
+            continue;
+        }
+        let provider_name = obj
+            .get("providerName")
+            .or_else(|| obj.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(provider_id.as_str())
+            .to_string();
+        let models = obj
+            .get("models")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if models.is_empty() {
+            backends.push(BackendInfo {
+                id: format!("http:{provider_id}::default"),
+                label: format!("{provider_name} / default"),
+                kind: "http".to_string(),
+                installed: true,
+            });
+            continue;
+        }
+        for model in models {
+            let (model_id, model_name) = if let Some(m) = model.as_object() {
+                let id = m
+                    .get("id")
+                    .or_else(|| m.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("default")
+                    .to_string();
+                let name = m
+                    .get("name")
+                    .or_else(|| m.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(id.as_str())
+                    .to_string();
+                (id, name)
+            } else if let Some(s) = model.as_str() {
+                (s.to_string(), s.to_string())
+            } else {
+                continue;
+            };
+            backends.push(BackendInfo {
+                id: format!("http:{provider_id}::{model_id}"),
+                label: format!("{provider_name} / {model_name}"),
+                kind: "http".to_string(),
+                installed: true,
+            });
+        }
+    }
+    Ok(backends)
+}
+
+/// Web 端无嵌入式 Agent Router 进程：只同步 MCP 外部审批开关，其余参数忽略。
+pub async fn ai_gateway_configure(
+    state: &ServerState,
+    _enabled: bool,
+    _port: u16,
+    _api_key: Option<String>,
+    _bind_lan: bool,
+    mcp_external_require_approval: bool,
+) -> Result<(), String> {
+    crate::mcp::mcp_set_external_require_approval(state, mcp_external_require_approval).await
+}

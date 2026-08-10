@@ -889,5 +889,6 @@ async fn build_collect_context(
                 })
                 .collect()
         },
+        ai_models: Vec::new(),
     })
 }

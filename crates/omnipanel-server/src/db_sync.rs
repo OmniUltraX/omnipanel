@@ -169,16 +169,136 @@ pub async fn run_db_schema_sync_execute(
     .await
 }
 
-/// Schema 缓存刷新：对每个连接拉库表列表并写入 schema cache（Web 端本地实现）。
+/// Schema 缓存刷新：对齐桌面 `schema_cache_jobs.rs`，经 EventBus 发
+/// `bg-task-schema-cache-event`（connection_done / complete）。
 pub async fn run_db_schema_cache_refresh(
-    _task_id: String,
+    bus: EventBus,
+    task_id: String,
     connections: Vec<DbConnectionConfig>,
     cancel: Arc<AtomicBool>,
     progress: ProgressCb,
 ) -> Result<(), String> {
     use std::sync::atomic::Ordering;
 
+    use omnipanel_db::{
+        refresh_connection_payload, SchemaCacheDatabasePayload, SchemaConnectionRefreshPayload,
+    };
+    use omnipanel_store::{
+        load_schema_cache, merge_schema_cache_connection, save_schema_cache, SchemaCacheColumn,
+        SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex, SchemaCacheRoutine,
+        SchemaCacheTable, SchemaCacheUser, SchemaCacheSnapshot,
+    };
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BgTaskSchemaCacheEvent {
+        task_id: String,
+        event_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        connection_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        connection_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        entry: Option<SchemaCacheConnection>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        snapshot: Option<SchemaCacheSnapshot>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    }
+
+    fn now_ms() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+
+    fn table_to_cache(table: omnipanel_db::DbTableSchema) -> SchemaCacheTable {
+        SchemaCacheTable {
+            name: table.name,
+            columns: table
+                .columns
+                .into_iter()
+                .map(|c| SchemaCacheColumn {
+                    name: c.name,
+                    column_type: c.column_type,
+                    is_pk: c.is_pk,
+                    is_fk: c.is_fk,
+                })
+                .collect(),
+            indexes: table
+                .indexes
+                .into_iter()
+                .map(|i| SchemaCacheIndex {
+                    name: i.name,
+                    columns: i.columns,
+                    unique: i.unique,
+                })
+                .collect(),
+            comment: table.comment,
+        }
+    }
+
+    fn db_payload_to_cache(db: SchemaCacheDatabasePayload) -> SchemaCacheDatabase {
+        SchemaCacheDatabase {
+            name: db.name,
+            tables: db.tables.into_iter().map(table_to_cache).collect(),
+            views: db.views.into_iter().map(table_to_cache).collect(),
+            routines: db
+                .routines
+                .into_iter()
+                .map(|r| SchemaCacheRoutine {
+                    name: r.name,
+                    routine_type: r.routine_type,
+                })
+                .collect(),
+            load_error: db.load_error,
+            objects_loaded: db.objects_loaded,
+            key_count: db.key_count,
+        }
+    }
+
+    fn payload_to_cache(
+        payload: SchemaConnectionRefreshPayload,
+        error: Option<String>,
+    ) -> SchemaCacheConnection {
+        SchemaCacheConnection {
+            databases: payload.databases.into_iter().map(db_payload_to_cache).collect(),
+            users: payload
+                .users
+                .into_iter()
+                .map(|u| SchemaCacheUser {
+                    name: u.name,
+                    host: u.host,
+                })
+                .collect(),
+            refreshed_at: Some(now_ms()),
+            error,
+        }
+    }
+
+    let emit = |event: BgTaskSchemaCacheEvent| {
+        if let Ok(payload) = serde_json::to_value(&event) {
+            bus.emit("bg-task-schema-cache-event", payload);
+        }
+    };
+
     let total = connections.len().max(1) as u32;
+    if connections.is_empty() {
+        progress("无可用连接".into(), 0, 1, None, None);
+        emit(BgTaskSchemaCacheEvent {
+            task_id,
+            event_type: "complete".into(),
+            connection_id: None,
+            connection_name: None,
+            entry: None,
+            snapshot: Some(load_schema_cache().map_err(|e| e.user_message())?),
+            error: None,
+        });
+        return Ok(());
+    }
+
     progress(
         format!("开始刷新 Schema 缓存（{} 个连接）", connections.len()),
         0,
@@ -187,85 +307,60 @@ pub async fn run_db_schema_cache_refresh(
         None,
     );
 
-    let mut snapshot = omnipanel_store::load_schema_cache().map_err(|e| e.user_message())?;
+    let mut snapshot = load_schema_cache().unwrap_or_default();
     let mut index = 0u32;
     for conn in connections {
         if cancel.load(Ordering::Relaxed) {
-            return Err("任务已取消".to_string());
+            return Ok(());
         }
-        progress(
-            format!("刷新：{}", conn.name),
-            index,
-            total,
-            None,
-            None,
-        );
-        let databases = match omnipanel_db::db_list_databases_with_stats(conn.clone()).await {
-            Ok(rows) => rows.into_iter().map(|r| r.name).collect::<Vec<_>>(),
-            Err(err) => {
-                tracing::warn!(connection = %conn.name, error = %err, "Schema 缓存刷新失败");
-                index += 1;
-                progress(
-                    format!("跳过：{}", conn.name),
-                    index,
-                    total,
-                    None,
-                    None,
-                );
-                continue;
-            }
-        };
-        let mut cache_dbs = Vec::new();
-        for db_name in databases.into_iter().take(50) {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("任务已取消".to_string());
-            }
-            let tables = match crate::db::open_driver_for_connection(&conn, Some(db_name.clone())).await
-            {
-                Ok(driver) => driver.list_tables().await.unwrap_or_default(),
-                Err(_) => Vec::new(),
-            };
-            cache_dbs.push(omnipanel_store::SchemaCacheDatabase {
-                name: db_name,
-                tables: tables
-                    .into_iter()
-                    .take(200)
-                    .map(|name| omnipanel_store::SchemaCacheTable {
-                        name,
-                        columns: Vec::new(),
-                        indexes: Vec::new(),
-                        comment: None,
-                    })
-                    .collect(),
-                views: Vec::new(),
-                routines: Vec::new(),
-                load_error: None,
-                objects_loaded: true,
-                key_count: None,
-            });
-        }
-        let entry = omnipanel_store::SchemaCacheConnection {
-            databases: cache_dbs,
-            users: Vec::new(),
-            refreshed_at: Some(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0),
-            ),
-            error: None,
-        };
-        snapshot.connections.insert(conn.id.clone(), entry);
         index += 1;
         progress(
-            format!("已完成：{}", conn.name),
+            format!("正在刷新连接：{}", conn.name),
             index,
             total,
             None,
             None,
         );
+
+        let entry = match refresh_connection_payload(&conn).await {
+            Ok(payload) => payload_to_cache(payload, None),
+            Err(err) => SchemaCacheConnection {
+                databases: Vec::new(),
+                users: Vec::new(),
+                refreshed_at: Some(now_ms()),
+                error: Some(err),
+            },
+        };
+        let merged = merge_schema_cache_connection(snapshot.connections.get(&conn.id), entry);
+        snapshot
+            .connections
+            .insert(conn.id.clone(), merged.clone());
+
+        emit(BgTaskSchemaCacheEvent {
+            task_id: task_id.clone(),
+            event_type: "connection_done".into(),
+            connection_id: Some(conn.id.clone()),
+            connection_name: Some(conn.name.clone()),
+            entry: Some(merged),
+            snapshot: None,
+            error: None,
+        });
     }
-    omnipanel_store::save_schema_cache(&snapshot).map_err(|e| e.user_message())?;
+
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+
+    save_schema_cache(&snapshot).map_err(|e| e.user_message())?;
     progress("Schema 缓存刷新完成".into(), total, total, None, None);
+    emit(BgTaskSchemaCacheEvent {
+        task_id,
+        event_type: "complete".into(),
+        connection_id: None,
+        connection_name: None,
+        entry: None,
+        snapshot: None,
+        error: None,
+    });
     Ok(())
 }

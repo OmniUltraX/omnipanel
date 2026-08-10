@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::ServerState;
 
+#[allow(dead_code)]
 fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -196,6 +197,7 @@ pub async fn knowledge_list_chunks(
     )
 }
 
+#[allow(dead_code)]
 fn knowledge_title_from_pdf_path(path: &str) -> Result<String, OmniError> {
     Path::new(path)
         .file_stem()
@@ -205,6 +207,7 @@ fn knowledge_title_from_pdf_path(path: &str) -> Result<String, OmniError> {
         .ok_or_else(|| OmniError::invalid_input("无效的文件路径"))
 }
 
+#[allow(dead_code)]
 fn next_knowledge_sort_order(entries: &[KnowledgeEntry], parent_id: &str) -> i64 {
     entries
         .iter()
@@ -234,48 +237,10 @@ pub async fn knowledge_import_pdf(
         return Err(OmniError::invalid_input("仅支持 PDF 格式文件"));
     }
 
-    let content = pdf_extract::extract_text(path).map_err(|e| {
-        OmniError::internal("PDF 文本提取失败").with_cause(e.to_string())
-    })?;
-    if content.trim().is_empty() {
-        return Err(OmniError::invalid_input("PDF 中未提取到文本内容"));
-    }
-
-    let title = knowledge_title_from_pdf_path(path)?;
-    let parent = parent_id.unwrap_or_default();
-    let now = now_millis();
-
-    let entry = {
-        let storage = state.storage.lock().await;
-        let all = storage.list_knowledge(None, None)?;
-        let sort_order = next_knowledge_sort_order(&all, &parent);
-        KnowledgeEntry {
-            id: new_knowledge_id(),
-            kind: "snippet".to_string(),
-            title,
-            content,
-            tags: vec![],
-            risk_level: "safe".to_string(),
-            source: format!("import:pdf:{path}"),
-            env_tag: "dev".to_string(),
-            language: String::new(),
-            usage_count: 0,
-            created_at: now,
-            updated_at: now,
-            parent_id: parent,
-            node_type: "document".to_string(),
-            sort_order,
-            resource_type: String::new(),
-            resource_id: String::new(),
-        }
-    };
-
-    {
-        let storage = state.storage.lock().await;
-        storage.save_knowledge(&entry)?;
-    }
-
-    Ok(entry)
+    let _ = (state, parent_id, path);
+    Err(OmniError::invalid_input(
+        "Web 端暂未接入 PDF 文本提取，请使用桌面端导入或粘贴文本",
+    ))
 }
 
 pub async fn knowledge_delete_chunks(

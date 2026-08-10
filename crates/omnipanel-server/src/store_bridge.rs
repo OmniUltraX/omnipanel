@@ -467,8 +467,11 @@ pub async fn resource_set_system_tag(
     key: String,
     value: String,
 ) -> Result<(), String> {
-    crate::knowledge_cmds::resource_set_system_tag(state, kind, resource_id, key, value)
-        .await
+    use omnipanel_store::TaggableKind;
+    let kind = TaggableKind::parse(&kind).map_err(|e| e.user_message())?;
+    let storage = state.storage.lock().await;
+    storage
+        .resource_set_system_key(kind, &resource_id, &key, &value)
         .map_err(|e| e.user_message())
 }
 

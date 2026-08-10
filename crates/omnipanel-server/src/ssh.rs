@@ -9,22 +9,133 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use omnipanel_core::output_buffer;
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_ssh::{SshEvent, SshSession, SshSink};
+use omnipanel_ssh::{
+    find_ssh_config_entry, load_ssh_config_hosts, ssh_config_to_connect_config, SshConfig,
+    SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink,
+};
 use omnipanel_store::ConnectionKind;
+use serde::Serialize;
 
 use crate::bus::SessionEvent;
-use crate::state::{ServerState, resolve_ssh_config};
+use crate::monitoring::ensure_ssh_session;
+use crate::ssh_tmux::{host_identity, AttachOutcome};
+use crate::state::{resolve_ssh_config, ServerState};
 
 static SSH_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+fn next_ssh_id() -> String {
+    format!("ssh-{}", SSH_COUNTER.fetch_add(1, Ordering::Relaxed))
+}
+
+/// 建立 SSH 连接并请求交互式 shell（支持 tmux auto/always/never）。
+pub async fn ssh_connect(
+    state: &ServerState,
+    config: SshConfig,
+    cols: u16,
+    rows: u16,
+    pane_id: Option<u32>,
+) -> Result<String, OmniError> {
+    let id = next_ssh_id();
+
+    let tmux_mode = state
+        .terminal_tmux_mode
+        .lock()
+        .map(|m| m.clone())
+        .unwrap_or_else(|_| "auto".to_string());
+
+    if tmux_mode == "never" {
+        return connect_direct(
+            state,
+            config,
+            cols,
+            rows,
+            id,
+            Some("disabled_by_user".to_string()),
+        )
+        .await;
+    }
+
+    let fallback_reason = match state
+        .tmux
+        .attach(
+            &state.bus,
+            &state.output_buffers,
+            &config,
+            &id,
+            cols,
+            rows,
+            None,
+            pane_id,
+        )
+        .await
+    {
+        Ok(AttachOutcome::Attached) => return Ok(id),
+        Ok(AttachOutcome::Unsupported(reason)) => {
+            if tmux_mode == "always" {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    format!("已设置为强制 tmux 模式，但远端不支持：{reason}"),
+                ));
+            }
+            Some(reason)
+        }
+        Err(err) => {
+            tracing::warn!(target: "tmux", "tmux 接入失败，降级直连: {err}");
+            if tmux_mode == "always" {
+                return Err(OmniError::new(
+                    ErrorCode::Internal,
+                    format!("已设置为强制 tmux 模式，但接入失败：{}", err.user_message()),
+                ));
+            }
+            Some(err.user_message())
+        }
+    };
+
+    connect_direct(state, config, cols, rows, id, fallback_reason).await
+}
+
+/// 建立一 Tab 一连接的直连 shell（tmux 不可用时的回退路径）。
+pub async fn connect_direct(
+    state: &ServerState,
+    config: SshConfig,
+    cols: u16,
+    rows: u16,
+    id: String,
+    fallback_reason: Option<String>,
+) -> Result<String, OmniError> {
+    let bus = state.bus.clone();
+    let buffers = state.output_buffers.clone();
+    let session_id = id.clone();
+    let sink: SshSink = Arc::new(move |event: SshEvent| match event {
+        SshEvent::Data(data) => {
+            output_buffer::append(&buffers, &session_id, &data);
+            bus.emit_terminal_output(&session_id, STANDARD.encode(&data));
+        }
+        SshEvent::Exit(_) | SshEvent::Disconnected => {
+            bus.emit_terminal_event(&session_id, SessionEvent::Exited);
+        }
+    });
+
+    let host = host_identity(&config);
+    let session = SshSession::connect(config, cols, rows, sink).await?;
+    state
+        .ssh_sessions
+        .lock()
+        .await
+        .insert(id.clone(), Arc::new(session));
+    state.tmux.record_direct(&id, host, fallback_reason).await;
+    Ok(id)
+}
+
 /// 按连接 id 建立 SSH 会话（交互式 shell），返回会话 id。
-/// 输出经事件总线广播，与本地终端一致（`terminal-output` 事件）。
 pub async fn ssh_connect_connection(
     state: &ServerState,
     connection_id: String,
     cols: u16,
     rows: u16,
+    pane_id: Option<u32>,
 ) -> Result<String, OmniError> {
     let conn = {
         let storage = state.storage.lock().await;
@@ -39,25 +150,7 @@ pub async fn ssh_connect_connection(
         ));
     }
     let config = resolve_ssh_config(&conn)?;
-
-    let id = format!("ssh-{}", SSH_COUNTER.fetch_add(1, Ordering::Relaxed));
-
-    let bus = state.bus.clone();
-    let session_id = id.clone();
-    let sink: SshSink = Arc::new(move |event: SshEvent| match event {
-        SshEvent::Data(data) => bus.emit_terminal_output(&session_id, STANDARD.encode(&data)),
-        SshEvent::Exit(_) | SshEvent::Disconnected => {
-            bus.emit_terminal_event(&session_id, SessionEvent::Exited);
-        }
-    });
-
-    let session = SshSession::connect(config, cols, rows, sink).await?;
-    state
-        .ssh_sessions
-        .lock()
-        .await
-        .insert(id.clone(), Arc::new(session));
-    Ok(id)
+    ssh_connect(state, config, cols, rows, pane_id).await
 }
 
 /// 写入远端 shell。
@@ -66,6 +159,9 @@ pub async fn ssh_write(
     id: String,
     data: Vec<u8>,
 ) -> Result<(), OmniError> {
+    if let Some(result) = state.tmux.write(&id, &data).await {
+        return result;
+    }
     let sessions = state.ssh_sessions.lock().await;
     let session = sessions
         .get(&id)
@@ -80,6 +176,9 @@ pub async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), OmniError> {
+    if let Some(result) = state.tmux.resize(&id, cols, rows).await {
+        return result;
+    }
     let sessions = state.ssh_sessions.lock().await;
     let session = sessions
         .get(&id)
@@ -89,14 +188,52 @@ pub async fn ssh_resize(
 
 /// 断开并移除 SSH 会话。
 pub async fn ssh_disconnect(state: &ServerState, id: String) -> Result<(), OmniError> {
+    if state.tmux.detach(&id).await {
+        return Ok(());
+    }
     if let Some(session) = state.ssh_sessions.lock().await.remove(&id) {
         session.disconnect().await;
     }
     Ok(())
 }
 
-/// 列出已保存的 SSH 连接（与桌面端 `ssh_list_connections` 语义一致：
-/// 返回连接模型 + 解析后的 host 标签）。
+/// 读取 `~/.ssh/config` 中的 Host 条目。
+pub async fn ssh_list_config_hosts() -> Result<Vec<SshConfigEntry>, OmniError> {
+    load_ssh_config_hosts()
+}
+
+/// 按 `~/.ssh/config` 中的 Host 别名建立连接。
+pub async fn ssh_connect_config_host(
+    state: &ServerState,
+    alias: String,
+    cols: u16,
+    rows: u16,
+) -> Result<String, OmniError> {
+    let entry = find_ssh_config_entry(&alias)?.ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::NotFound,
+            format!("SSH 配置中未找到 Host `{alias}`"),
+        )
+    })?;
+    let config = ssh_config_to_connect_config(&entry)?;
+    ssh_connect(state, config, cols, rows, None).await
+}
+
+/// 列出远程进程列表。
+pub async fn ssh_process_list(
+    state: &ServerState,
+    id: String,
+) -> Result<Vec<SshProcessInfo>, OmniError> {
+    let sessions = state.ssh_sessions.lock().await;
+    if let Some(session) = sessions.get(&id) {
+        return session.process_list().await;
+    }
+    drop(sessions);
+    let (session, _) = ensure_ssh_session(state, &id).await?;
+    session.process_list().await
+}
+
+/// 列出已保存的 SSH 连接。
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshConnectionInfo {
@@ -131,9 +268,58 @@ pub async fn ssh_list_connections(state: &ServerState) -> Result<Vec<SshConnecti
     Ok(out)
 }
 
-/// 会话快照占位：Web 端 SSH 会话无 output_buffer 缓冲（与本地终端共用
-/// `terminal_snapshot` 接口时返回空）。桌面端 SSH 会话同样走 `output_buffer`，
-/// 这里保持接口一致，后续如需恢复远端屏幕可接入。
+/// SSH 主机连接状态快照（Web 端基于活跃会话简化实现）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolStatusEvent {
+    pub resource_id: String,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+pub async fn ssh_pool_get_statuses(state: &ServerState) -> Result<Vec<PoolStatusEvent>, OmniError> {
+    let storage = state.storage.lock().await;
+    let connections = storage.list_connections_by_kind(ConnectionKind::Ssh)?;
+    drop(storage);
+
+    let active: std::collections::HashSet<String> = {
+        let mut ids = std::collections::HashSet::new();
+        {
+            let sessions = state.ssh_sessions.lock().await;
+            for (id, session) in sessions.iter() {
+                if !session.is_closed() {
+                    ids.insert(id.clone());
+                }
+            }
+        }
+        {
+            let sessions = state.docker_ssh_sessions.lock().await;
+            for (id, session) in sessions.iter() {
+                if !session.is_closed() {
+                    ids.insert(id.clone());
+                }
+            }
+        }
+        ids
+    };
+
+    Ok(connections
+        .into_iter()
+        .map(|conn| {
+            let connected = active.contains(&conn.id);
+            PoolStatusEvent {
+                resource_id: conn.id,
+                status: if connected {
+                    "connected".to_string()
+                } else {
+                    "idle".to_string()
+                },
+                error: None,
+            }
+        })
+        .collect())
+}
+
 #[allow(dead_code)]
 pub fn ssh_snapshot(_state: &ServerState, _id: &str) -> String {
     String::new()

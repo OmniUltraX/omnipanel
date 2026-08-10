@@ -22,15 +22,36 @@ tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 tokio-tungstenite.workspace = true
 
 omnipanel-core = { path = "../omnipanel-core" }
+omnipanel-bg = { path = "../omnipanel-bg" }
 omnipanel-db = { path = "../omnipanel-db" }
+omnipanel-db-sync = { path = "../omnipanel-db-sync" }
 omnipanel-docker = { path = "../omnipanel-docker" }
 omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }
+omnipanel-assistant = { path = "../omnipanel-assistant" }
+omnipanel-exec = { path = "../omnipanel-exec" }
+omnipanel-gateway = { path = "../omnipanel-gateway" }
 omnipanel-mcp = { path = "../omnipanel-mcp" }
 omnipanel-s3 = { path = "../omnipanel-s3" }
 omnipanel-transfer = { path = "../omnipanel-transfer" }
 bollard = { workspace = true }
 reqwest = { workspace = true }
+sysinfo = { workspace = true }
+specta.workspace = true
 suppaftp = { version = "6", default-features = false, features = ["rustls"] }
+url.workspace = true
+regex = "1"
+shell-words = "1.1"
+fontdb = "0.23"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+blowfish = "0.9"
+sha1 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+hmac = "0.12"
+md5 = "0.7"
+hex = "0.4"
+open = "5"
+urlencoding = "2"

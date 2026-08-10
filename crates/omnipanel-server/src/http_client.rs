@@ -55,7 +55,7 @@ fn loopback_no_proxy() -> Option<reqwest::NoProxy> {
 }
 
 pub fn is_loopback_http_url(url: &str) -> bool {
-    url::Url::parse(url)
+    reqwest::Url::parse(url)
         .ok()
         .and_then(|parsed| parsed.host_str().map(is_loopback_http_host))
         .unwrap_or(false)

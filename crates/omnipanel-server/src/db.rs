@@ -393,3 +393,196 @@ pub async fn open_db_driver(
     let params = to_params(&conn);
     connect(&params).await
 }
+
+fn ensure_redis(connection: &DbConnectionConfig) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持该操作".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSearchKeysArgs {
+    pub connection: DbConnectionConfig,
+    pub pattern: String,
+    #[serde(default)]
+    pub types: Vec<String>,
+    #[serde(default = "default_redis_search_limit")]
+    pub limit: u32,
+    #[serde(default)]
+    pub cursor: u64,
+    #[serde(default)]
+    pub include_value_preview: bool,
+}
+
+fn default_redis_search_limit() -> u32 {
+    500
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QdrantDeletePointsArgs {
+    pub connection: DbConnectionConfig,
+    pub collection: String,
+    #[serde(default)]
+    pub point_ids: Vec<serde_json::Value>,
+}
+
+pub async fn db_redis_config_get_entries(
+    connection: DbConnectionConfig,
+    pattern: String,
+) -> Result<Vec<(String, String)>, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_config_get(&to_params(&connection), &pattern)
+        .await
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_config_get(connection: DbConnectionConfig) -> Result<DbQueryResult, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_config_get_all(&to_params(&connection))
+        .await
+        .map(DbQueryResult::from)
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_client_list(connection: DbConnectionConfig) -> Result<DbQueryResult, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_client_list(&to_params(&connection))
+        .await
+        .map(DbQueryResult::from)
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_client_kill(
+    connection: DbConnectionConfig,
+    addr: String,
+) -> Result<f64, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_client_kill_addr(&to_params(&connection), &addr)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_search_keys(
+    args: RedisSearchKeysArgs,
+) -> Result<omnipanel_db::RedisSearchKeysResult, String> {
+    ensure_redis(&args.connection)?;
+    omnipanel_db::redis_search_keys(
+        &to_params(&args.connection),
+        &args.pattern,
+        &args.types,
+        args.limit as usize,
+        args.cursor,
+        args.include_value_preview,
+    )
+    .await
+    .map_err(err_msg)
+}
+
+pub async fn db_redis_dbsize(connection: DbConnectionConfig) -> Result<f64, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_dbsize(&to_params(&connection))
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_key_detail(
+    connection: DbConnectionConfig,
+    key: String,
+) -> Result<omnipanel_db::RedisKeyDetail, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_key_detail(&to_params(&connection), &key)
+        .await
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_set_key(
+    connection: DbConnectionConfig,
+    key: String,
+    value: String,
+    key_type: Option<String>,
+) -> Result<(), String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_set_key(
+        &to_params(&connection),
+        &key,
+        &value,
+        key_type.as_deref().unwrap_or("string"),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+pub async fn db_redis_delete_key(connection: DbConnectionConfig, key: String) -> Result<f64, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_delete_key(&to_params(&connection), &key)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+pub async fn db_redis_slowlog(
+    connection: DbConnectionConfig,
+    count: Option<u32>,
+) -> Result<Vec<omnipanel_db::RedisSlowLogEntry>, String> {
+    ensure_redis(&connection)?;
+    omnipanel_db::redis_slowlog(&to_params(&connection), count.unwrap_or(64) as usize)
+        .await
+        .map_err(err_msg)
+}
+
+pub async fn db_qdrant_delete_points(args: QdrantDeletePointsArgs) -> Result<f64, String> {
+    if args.connection.db_type.to_lowercase() != "qdrant" {
+        return Err("仅 Qdrant 连接支持删除 Points".to_string());
+    }
+    if args.collection.trim().is_empty() {
+        return Err("未指定 collection".to_string());
+    }
+    omnipanel_db::qdrant_delete_points(
+        &to_params(&args.connection),
+        args.collection.trim(),
+        &args.point_ids,
+    )
+    .await
+    .map(|n| n as f64)
+    .map_err(err_msg)
+}
+
+pub fn db_save_schema_cache(
+    snapshot: omnipanel_store::SchemaCacheSnapshot,
+) -> Result<(), String> {
+    omnipanel_store::save_schema_cache(&snapshot).map_err(|e| e.user_message())
+}
+
+pub fn db_patch_schema_cache(
+    connection_id: String,
+    entry: omnipanel_store::SchemaCacheConnection,
+) -> Result<omnipanel_store::SchemaCacheConnection, String> {
+    omnipanel_store::patch_schema_cache_connection(&connection_id, entry)
+        .map_err(|e| e.user_message())
+}
+
+pub fn db_load_schema_filters() -> Result<omnipanel_store::SchemaFiltersSnapshot, String> {
+    omnipanel_store::load_schema_filters().map_err(|e| e.user_message())
+}
+
+pub fn db_save_schema_filters(
+    snapshot: omnipanel_store::SchemaFiltersSnapshot,
+) -> Result<(), String> {
+    omnipanel_store::save_schema_filters(&snapshot).map_err(|e| e.user_message())
+}
+
+pub fn db_load_schema_tree_expanded(
+) -> Result<omnipanel_store::SchemaTreeExpandedSnapshot, String> {
+    omnipanel_store::load_schema_tree_expanded().map_err(|e| e.user_message())
+}
+
+pub fn db_save_schema_tree_expanded(
+    snapshot: omnipanel_store::SchemaTreeExpandedSnapshot,
+) -> Result<(), String> {
+    omnipanel_store::save_schema_tree_expanded(&snapshot).map_err(|e| e.user_message())
+}

@@ -162,15 +162,20 @@ pub async fn ssh_pool_probe_all(_state: &ServerState) -> OmniResult<()> {
     Ok(())
 }
 
-/// 暴露 capabilities 内的二进制下载安装。
+/// Web 端暂未接入完整 capability 安装链路；保留命令避免前端 unknown。
 pub async fn ssh_pool_download_install_binary(
     state: &ServerState,
     resource_id: String,
     url: String,
     remote_path: String,
 ) -> OmniResult<String> {
-    crate::ssh_capabilities::download_install_binary_public(state, &resource_id, &url, &remote_path)
-        .await
+    crate::ssh_capabilities::download_install_binary_public(
+        state,
+        &resource_id,
+        &url,
+        &remote_path,
+    )
+    .await
 }
 
 pub async fn sftp_list(state: &ServerState, id: String, path: String) -> OmniResult<Vec<SftpEntry>> {

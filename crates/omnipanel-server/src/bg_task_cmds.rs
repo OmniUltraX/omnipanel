@@ -316,6 +316,7 @@ pub async fn bg_task_submit_db_schema_cache_refresh(
         _ => "刷新全部 Schema 缓存".to_string(),
     };
     let pool = state.worker_pool.clone();
+    let bus = state.bus.clone();
 
     pool.spawn(
         "database",
@@ -324,51 +325,62 @@ pub async fn bg_task_submit_db_schema_cache_refresh(
         total,
         move |task_id, cancel, progress| {
             crate::db_sync::run_db_schema_cache_refresh(
-                task_id, filtered, cancel, progress,
+                bus, task_id, filtered, cancel, progress,
             )
         },
     )
     .await
 }
 
-/// 提交知识库文档向量化后台任务。
-pub async fn bg_task_submit_knowledge_vectorize(
-    state: &ServerState,
-    args: crate::knowledge_vector_cmds::KnowledgeVectorizeArgs,
-) -> Result<String, OmniError> {
-    if args.provider.api_standard.to_lowercase() == "anthropic" {
-        return Err(OmniError::invalid_input(
-            "Anthropic 提供商暂不支持 embedding，请在设置中选用 OpenAI 兼容模型",
-        ));
-    }
-    let title = {
-        let storage = state.storage.lock().await;
-        let entry = storage
-            .get_knowledge(&args.entry_id)?
-            .ok_or_else(|| OmniError::invalid_input("知识条目不存在"))?;
-        if entry.node_type == "folder" {
-            return Err(OmniError::invalid_input("文件夹不支持向量化，请选择文档"));
-        }
-        format!("文档向量化：{}", entry.title)
-    };
+/// 提交 Ollama 安装后台任务。
+pub async fn bg_task_submit_ollama_install(state: &ServerState) -> Result<String, OmniError> {
     let pool = state.worker_pool.clone();
-    let storage = state.storage.clone();
-
     pool.spawn(
-        "knowledge",
-        "knowledgeVectorize",
-        title,
-        1,
+        "localModels",
+        "ollamaInstall",
+        "安装 Ollama",
+        100,
         move |_task_id, cancel, progress| async move {
-            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return Err("任务已取消".to_string());
-            }
-            progress("开始向量化".into(), 0, 1, None, None);
-            crate::knowledge_vector_cmds::execute_knowledge_vectorize(storage, args, cancel, progress)
+            crate::local_runtime_cmds::install_ollama_with_progress(cancel, progress)
                 .await
                 .map(|_| ())
-                .map_err(|e| e.user_message())
         },
     )
     .await
+}
+
+/// 提交 Ollama 模型拉取后台任务。
+pub async fn bg_task_submit_ollama_pull(
+    state: &ServerState,
+    model: String,
+) -> Result<String, OmniError> {
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err(OmniError::invalid_input("模型名不能为空"));
+    }
+    let title = format!("拉取模型：{model}");
+    let pool = state.worker_pool.clone();
+    let model_for_job = model.clone();
+    pool.spawn(
+        "localModels",
+        "ollamaPull",
+        title,
+        100,
+        move |_task_id, cancel, progress| async move {
+            crate::local_runtime_cmds::pull_ollama_with_progress(model_for_job, cancel, progress)
+                .await
+                .map(|_| ())
+        },
+    )
+    .await
+}
+
+/// Web 端知识库向量化占位（桌面端完整实现）。
+pub async fn bg_task_submit_knowledge_vectorize(
+    _state: &ServerState,
+    _args: serde_json::Value,
+) -> Result<String, OmniError> {
+    Err(OmniError::invalid_input(
+        "Web 端暂未接入知识库向量化，请使用桌面端",
+    ))
 }

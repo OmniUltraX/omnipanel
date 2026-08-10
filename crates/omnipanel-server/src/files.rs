@@ -39,6 +39,20 @@ pub fn local_home() -> Result<PathBuf, OmniError> {
     Err(OmniError::new(ErrorCode::Internal, "无法获取用户主目录"))
 }
 
+/// 读取本地文件内容（供文件索引等模块使用，限制最大字节数）。
+pub fn file_read_file_sync_local(path: &str, max_bytes: u64) -> Result<Vec<u8>, OmniError> {
+    let pb = resolve_local_path(path)?;
+    let meta = std::fs::metadata(&pb).map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取文件元数据失败").with_cause(e.to_string())
+    })?;
+    if meta.len() > max_bytes {
+        return Err(OmniError::invalid_input("文件过大，跳过索引"));
+    }
+    std::fs::read(&pb).map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string())
+    })
+}
+
 pub(crate) fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
     if path.is_empty() || path == "/" || path == "~" {
         local_home()

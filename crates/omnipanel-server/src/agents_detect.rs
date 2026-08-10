@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum AgentKind {
     Omniagent,
     Cursor,
@@ -14,7 +14,7 @@ pub enum AgentKind {
     Qwen,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AgentInstallStatus {
     pub kind: AgentKind,
     pub installed: bool,
