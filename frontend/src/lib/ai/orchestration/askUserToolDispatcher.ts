@@ -15,6 +15,7 @@ import { useAiStore } from "../../../stores/aiStore";
 import { useBlocksStore } from "../../../stores/blocksStore";
 import { notifyShellAgentAskResolved } from "../../../modules/terminal/shellAgent/loop";
 import { reportToolResultWithRetry } from "../reportToolResult";
+import { appendChatOssEvent } from "../chatOssRecorder";
 import type { AskUserAnswerValue, UserQuestionFormData } from "../aiMessageParts";
 import {
   parseAskUserArgs,
@@ -131,13 +132,13 @@ function persistForm(form: UserQuestionFormData, parent: ParentRef): void {
     useBlocksStore
       .getState()
       .upsertAiThreadUserQuestionPart(parent.blockId, parent.messageId, form);
-    return;
-  }
-  if (parent?.kind === "aiStore") {
+  } else if (parent?.kind === "aiStore") {
     useAiStore
       .getState()
       .upsertStreamUserQuestion(form.conversationId, parent.messageId, form);
   }
+  // 同步到 OSS 聊天分片，供小程序端渲染澄清表单（无活跃录制时 no-op）
+  appendChatOssEvent({ t: "ask_user", form });
 }
 
 /** 从 ParentRef 拉取当前所有 user-question parts（用于 supersede 逻辑） */

@@ -36,6 +36,18 @@ pub struct AssistantChatContextItem {
 /// 前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct AssistantChatAskUserAnswer {
+    pub form_id: String,
+    pub tool_call_id: String,
+    /// `answered` | `skipped`
+    pub status: String,
+    /// answers 对象的 JSON 字符串
+    pub answers_json: String,
+}
+
+/// 前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AssistantChatInboundEvent {
     pub message_id: String,
     pub object_key: String,
@@ -47,6 +59,9 @@ pub struct AssistantChatInboundEvent {
     /// 助手端选中的询问对象（注入 Composer 上下文）。
     #[serde(default)]
     pub contexts: Vec<AssistantChatContextItem>,
+    /// 澄清表单答案（快通道）；有值时即使 text 为空也推送。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_user: Option<AssistantChatAskUserAnswer>,
 }
 
 struct ChatInboxRuntime {
@@ -216,11 +231,18 @@ async fn load_inbound_from_key(
                 label: c.label,
             })
             .collect(),
+        ask_user: parsed.ask_user.map(|a| AssistantChatAskUserAnswer {
+            form_id: a.form_id,
+            tool_call_id: a.tool_call_id,
+            status: a.status,
+            answers_json: a.answers_json,
+        }),
     })
 }
 
 async fn emit_inbound(app: &AppHandle, event: AssistantChatInboundEvent) {
-    if event.text.trim().is_empty() {
+    let has_ask = event.ask_user.is_some();
+    if event.text.trim().is_empty() && !has_ask {
         tracing::warn!(
             object_key = %event.object_key,
             "助手聊天 OSS 对象无可展示文本，跳过"

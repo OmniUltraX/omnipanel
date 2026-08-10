@@ -1427,6 +1427,21 @@ export type ArchiveToolInstallResult = {
 	message: string,
 };
 
+export type AssistantChatAskUserAnswer = {
+	formId: string,
+	toolCallId: string,
+	/**  `answered` | `skipped` */
+	status: string,
+	/**  answers 对象的 JSON 字符串 */
+	answersJson: string,
+};
+
+export type AssistantChatContextItem = {
+	kind: string,
+	id: string,
+	label: string,
+};
+
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
 export type AssistantChatInboundEvent = {
 	messageId: string,
@@ -1435,6 +1450,10 @@ export type AssistantChatInboundEvent = {
 	text: string,
 	/**  助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。 */
 	sessionId?: string,
+	/**  助手端选中的询问对象（注入 Composer 上下文）。 */
+	contexts?: AssistantChatContextItem[],
+	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送。 */
+	askUser?: AssistantChatAskUserAnswer | null,
 };
 
 export type AssistantConversationSnapshotItem = {

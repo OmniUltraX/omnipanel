@@ -86,6 +86,8 @@ pub fn normalize_snapshot_dir(dir: &str) -> String {
 }
 
 /// 从通用 notify envelope 的 payload 取 overviewKey（兼容 snake/camel）。
+/// 供调用方解析通用 notify；库内暂无直接引用，保留公开 API。
+#[allow(dead_code)]
 pub fn overview_key_from_notify_payload(payload: &Value) -> String {
     payload
         .get("overviewKey")
@@ -109,6 +111,18 @@ mod tests {
         assert_eq!(
             normalize_snapshot_dir("/assistant/1/dev/snapshots/run/"),
             "assistant/1/dev/snapshots/run/"
+        );
+    }
+
+    #[test]
+    fn overview_key_accepts_camel_and_snake() {
+        let camel = serde_json::json!({ "overviewKey": " a/b.json " });
+        assert_eq!(overview_key_from_notify_payload(&camel), "a/b.json");
+        let snake = serde_json::json!({ "overview_key": "x/y.json" });
+        assert_eq!(overview_key_from_notify_payload(&snake), "x/y.json");
+        assert_eq!(
+            overview_key_from_notify_payload(&serde_json::json!({})),
+            ""
         );
     }
 

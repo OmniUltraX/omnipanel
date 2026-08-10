@@ -14,7 +14,8 @@ mod types;
 
 pub use chat::{
     chat_index_from_notify_json, extract_inbound_message_text, fetch_chat_latest,
-    parse_inbound_chat_message, ChatLatestIndex, InboundChatContextItem, InboundChatMessage,
+    parse_inbound_chat_message, ChatLatestIndex, InboundAskUserAnswer, InboundChatContextItem,
+    InboundChatMessage,
 };
 pub use client_sync::{
     device_conversations_latest_object_key, device_modules_latest_object_key,

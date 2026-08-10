@@ -2,6 +2,16 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.12] - 2026-08-10
+
+### 新增
+
+- **助手 · ask_user 同步**：聊天 OSS 增加 `ask_user____` 段，桌面澄清表单同步到小程序；小程序可提交/跳过答案，经 notify 快通道回传桌面续跑挂起工具
+
+### 修复
+
+- **Rust 警告**：清理 assistant crate 未使用类型 / 补 overviewKey 解析单测
+
 ## [0.7.11] - 2026-08-08
 
 ### 新增

@@ -73,7 +73,9 @@ describe("applyTablePreviewDataProgressive", () => {
     };
 
     const setTablePreviews = (
-      updater: typeof previews | ((prev: typeof previews) => typeof previews),
+      updater:
+        | typeof previews
+        | ((prev: typeof previews) => typeof previews),
     ) => {
       previews = typeof updater === "function" ? updater(previews) : updater;
     };

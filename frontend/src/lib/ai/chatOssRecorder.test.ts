@@ -56,6 +56,7 @@ describe("chatOssRecorder", () => {
       tool_call: "tool_calling",
       tool_result: "tool___result",
       plan: "plan________",
+      ask_user: "ask_user____",
       error: "error______",
     });
   });
@@ -176,6 +177,42 @@ describe("chatOssRecorder", () => {
     expect(encoded).toContain("|[plan________]|");
     expect(encoded).toContain('"id":"plan_1"');
     expect(encoded).toContain('"status":"completed"');
+  });
+
+  it("同 formId 的 ask_user 覆盖为最新快照并编码为 ask_user____", () => {
+    const formA = {
+      formId: "ask_1",
+      toolCallId: "tc_1",
+      conversationId: "conv-1",
+      title: "环境",
+      questions: [
+        {
+          id: "q1",
+          prompt: "选环境",
+          type: "single_choice" as const,
+          options: [{ id: "prod", label: "生产" }],
+          required: true,
+        },
+      ],
+      status: "pending" as const,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const formB = {
+      ...formA,
+      status: "answered" as const,
+      answers: { q1: "prod" },
+      updatedAt: 2,
+    };
+    let sections = aggregateChatOssEvent([], { t: "ask_user", form: formA });
+    sections = aggregateChatOssEvent(sections, { t: "ask_user", form: formB });
+    expect(sections).toHaveLength(1);
+    expect(sections[0]).toEqual({ kind: "ask_user", items: [formB] });
+
+    const encoded = encodeChatOssSections(sections);
+    expect(encoded).toContain("|[ask_user____]|");
+    expect(encoded).toContain('"formId":"ask_1"');
+    expect(encoded).toContain('"status":"answered"');
   });
 
   it("encodeChatOssSections 使用对齐标签与分隔符", () => {

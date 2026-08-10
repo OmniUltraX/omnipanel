@@ -1,7 +1,7 @@
 import { commands } from "../../ipc/bindings";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
-import type { PlanData } from "./aiMessageParts";
+import type { PlanData, UserQuestionFormData } from "./aiMessageParts";
 
 const FLUSH_INTERVAL_MS = 3000;
 const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v2";
@@ -18,6 +18,8 @@ export const CHAT_OSS_SECTION_TAGS = {
   tool_result: "tool___result",
   /** 任务计划快照（PlanData JSON）；供小程序端渲染 PlanView */
   plan: "plan________",
+  /** 澄清表单快照（UserQuestionFormData JSON）；供小程序端渲染并答题 */
+  ask_user: "ask_user____",
   error: "error______",
 } as const;
 
@@ -31,6 +33,7 @@ export type ChatOssEvent =
   | { t: "tool_call"; id: string; name: string; arguments: string }
   | { t: "tool_result"; id: string; status: string; result?: string }
   | { t: "plan"; plan: PlanData }
+  | { t: "ask_user"; form: UserQuestionFormData }
   | { t: "error"; text: string };
 
 type ToolCallItem = { id: string; name: string; arguments: string };
@@ -42,7 +45,9 @@ type AggregatedSection =
   | { kind: "tool_call"; items: ToolCallItem[] }
   | { kind: "tool_result"; items: ToolResultItem[] }
   /** 连续 plan 快照并入同一 section；同 plan.id 覆盖为最新。 */
-  | { kind: "plan"; items: PlanData[] };
+  | { kind: "plan"; items: PlanData[] }
+  /** 连续 ask_user 快照并入同一 section；同 formId 覆盖为最新。 */
+  | { kind: "ask_user"; items: UserQuestionFormData[] };
 
 type NextIdState = {
   /** 会话 id（conversation / session） */
@@ -122,6 +127,12 @@ function isEmptyEvent(event: ChatOssEvent): boolean {
       return !event.id.trim();
     case "plan":
       return !event.plan?.id?.trim() || !Array.isArray(event.plan.steps);
+    case "ask_user":
+      return (
+        !event.form?.formId?.trim() ||
+        !event.form?.toolCallId?.trim() ||
+        !Array.isArray(event.form.questions)
+      );
     default:
       return true;
   }
@@ -167,6 +178,8 @@ function sectionBody(section: AggregatedSection): string {
         .join("\n");
     case "plan":
       return section.items.map((item) => JSON.stringify(item)).join("\n");
+    case "ask_user":
+      return section.items.map((item) => JSON.stringify(item)).join("\n");
     default:
       return "";
   }
@@ -208,6 +221,19 @@ function upsertToolResultItems(
 
 function upsertPlanItems(items: PlanData[], item: PlanData): PlanData[] {
   const idx = items.findIndex((x) => x.id === item.id);
+  if (idx >= 0) {
+    const next = items.slice();
+    next[idx] = item;
+    return next;
+  }
+  return [...items, item];
+}
+
+function upsertAskUserItems(
+  items: UserQuestionFormData[],
+  item: UserQuestionFormData,
+): UserQuestionFormData[] {
+  const idx = items.findIndex((x) => x.formId === item.formId);
   if (idx >= 0) {
     const next = items.slice();
     next[idx] = item;
@@ -282,6 +308,17 @@ export function aggregateChatOssEvent(
         };
       } else {
         next.push({ kind: "plan", items: [event.plan] });
+      }
+      return next;
+    }
+    case "ask_user": {
+      if (last && last.kind === "ask_user") {
+        next[next.length - 1] = {
+          kind: "ask_user",
+          items: upsertAskUserItems(last.items, event.form),
+        };
+      } else {
+        next.push({ kind: "ask_user", items: [event.form] });
       }
       return next;
     }

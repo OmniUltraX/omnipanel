@@ -610,7 +610,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const upsertToolCall = (id: string, name: string, args: string) => {
       if (!name.trim()) return;
-      // plan / ask_user：不写入 OSS 工具段；小程序只看 PlanView / 澄清结果
+      // plan / ask_user：不写入 OSS 工具段；小程序看 plan________ / ask_user____ 专用段
       if (!isHiddenChatToolName(name)) {
         appendChatOssEvent({
           t: "tool_call",

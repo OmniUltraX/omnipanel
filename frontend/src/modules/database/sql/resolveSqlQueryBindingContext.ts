@@ -33,10 +33,12 @@ export function resolveSqlQueryBindingContext(options: {
     if (
       tab.kind === "table" ||
       tab.kind === "designer" ||
-      tab.kind === "database" ||
-      tab.kind === "redis-query"
+      tab.kind === "database"
     ) {
       return { connId: tab.connId, database: tab.dbName ?? "" };
+    }
+    if (tab.kind === "redis-query") {
+      return { connId: tab.connId, database: tab.dbName?.trim() ?? "" };
     }
   }
 

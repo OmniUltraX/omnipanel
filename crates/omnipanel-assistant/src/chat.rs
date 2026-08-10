@@ -98,18 +98,6 @@ where
     })
 }
 
-#[derive(Debug, Deserialize)]
-struct LatestApiEnvelope {
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    data: Option<ChatLatestIndexRaw>,
-    #[serde(default)]
-    error: Option<String>,
-    #[serde(default)]
-    message: Option<String>,
-}
-
 /// `GET /api/assistant/chat/latest` 已废弃；改由 `/api/notify/wait` 连接时推送最近一条。
 /// 保留函数签名以免破坏 bindings；始终返回 `None`。
 pub async fn fetch_chat_latest(_auth: &AuthContext) -> OmniResult<Option<ChatLatestIndex>> {
@@ -195,12 +183,24 @@ pub struct InboundChatContextItem {
     pub label: String,
 }
 
+/// 助手端回传的澄清表单答案（快通道，不进普通聊天正文）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InboundAskUserAnswer {
+    pub form_id: String,
+    pub tool_call_id: String,
+    /// `answered` | `skipped`
+    pub status: String,
+    /// answers 对象的 JSON 字符串（answered 时）；跳过可为 `{}`
+    pub answers_json: String,
+}
+
 /// 助手端上行消息解析结果。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InboundChatMessage {
     pub text: String,
     pub session_id: String,
     pub contexts: Vec<InboundChatContextItem>,
+    pub ask_user: Option<InboundAskUserAnswer>,
 }
 
 /// 解析助手端写入的消息 JSON（text + session_id + contexts）；兼容纯文本与 sections。
@@ -218,6 +218,23 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
             .trim()
             .to_string();
         let contexts = parse_contexts_value(v.get("contexts"));
+        let ask_user = parse_ask_user_answer(&v);
+
+        // 澄清答案优先：即使没有 text 也直接返回
+        if ask_user.is_some() {
+            let text = ["text", "content", "message", "body"]
+                .iter()
+                .find_map(|key| v.get(*key).and_then(|x| x.as_str()))
+                .unwrap_or("")
+                .to_string();
+            return InboundChatMessage {
+                text,
+                session_id,
+                contexts,
+                ask_user,
+            };
+        }
+
         for key in ["text", "content", "message", "body"] {
             if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
                 if !s.is_empty() {
@@ -225,6 +242,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
                         text: s.to_string(),
                         session_id,
                         contexts,
+                        ask_user: None,
                     };
                 }
             }
@@ -246,6 +264,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
                     text: out,
                     session_id,
                     contexts,
+                    ask_user: None,
                 };
             }
         }
@@ -260,6 +279,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
                 text,
                 session_id: String::new(),
                 contexts: Vec::new(),
+                ask_user: None,
             };
         }
     }
@@ -286,6 +306,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
                 text: out,
                 session_id: String::new(),
                 contexts: Vec::new(),
+                ask_user: None,
             };
         }
     }
@@ -293,6 +314,7 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
         text: trimmed.to_string(),
         session_id: String::new(),
         contexts: Vec::new(),
+        ask_user: None,
     }
 }
 
@@ -338,6 +360,60 @@ fn parse_contexts_value(raw: Option<&serde_json::Value>) -> Vec<InboundChatConte
         });
     }
     out
+}
+
+/// 解析 `type=ask_user_answer` + `ask_user` 对象。
+fn parse_ask_user_answer(v: &serde_json::Value) -> Option<InboundAskUserAnswer> {
+    let type_hint = v
+        .get("type")
+        .or_else(|| v.get("kind"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim();
+    let ask = v.get("ask_user").or_else(|| v.get("askUser"))?;
+    if !ask.is_object() {
+        return None;
+    }
+    // type 缺失时仍允许：有完整 ask_user 对象即可（兼容旧草稿）
+    if !type_hint.is_empty() && type_hint != "ask_user_answer" {
+        return None;
+    }
+    let form_id = ask
+        .get("formId")
+        .or_else(|| ask.get("form_id"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let tool_call_id = ask
+        .get("toolCallId")
+        .or_else(|| ask.get("tool_call_id"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let status = ask
+        .get("status")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if form_id.is_empty() || tool_call_id.is_empty() {
+        return None;
+    }
+    if status != "answered" && status != "skipped" {
+        return None;
+    }
+    let answers_json = match ask.get("answers") {
+        Some(a) => a.to_string(),
+        None => "{}".to_string(),
+    };
+    Some(InboundAskUserAnswer {
+        form_id,
+        tool_call_id,
+        status,
+        answers_json,
+    })
 }
 
 /// 解析 `----------------\n|[tag]|\n----------------\nbody` 段落。
@@ -390,7 +466,12 @@ fn extract_section_bodies(raw: &str) -> Option<String> {
             preferred.push_str(&body);
         } else if !matches!(
             tag.as_str(),
-            "tool_calling" | "tool___result" | "ai_reasoning" | "error______" | "plan________"
+            "tool_calling"
+                | "tool___result"
+                | "ai_reasoning"
+                | "error______"
+                | "plan________"
+                | "ask_user____"
         ) {
             if !fallback.is_empty() {
                 fallback.push('\n');
@@ -444,6 +525,7 @@ mod tests {
                 text: "hello".into(),
                 session_id: "conv_1".into(),
                 contexts: Vec::new(),
+                ask_user: None,
             }
         );
         assert_eq!(
@@ -488,6 +570,45 @@ mod tests {
     }
 
     #[test]
+    fn parse_ask_user_answer_without_text() {
+        let raw = r#"{
+          "message_id":"msg-ask-1",
+          "session_id":"conv_ask",
+          "type":"ask_user_answer",
+          "ask_user":{
+            "formId":"ask_1",
+            "toolCallId":"tc_1",
+            "status":"answered",
+            "answers":{"q1":"prod"}
+          }
+        }"#;
+        let parsed = parse_inbound_chat_message(raw);
+        assert_eq!(parsed.session_id, "conv_ask");
+        assert!(parsed.text.is_empty());
+        let ask = parsed.ask_user.expect("ask_user");
+        assert_eq!(ask.form_id, "ask_1");
+        assert_eq!(ask.tool_call_id, "tc_1");
+        assert_eq!(ask.status, "answered");
+        assert!(ask.answers_json.contains("prod"));
+    }
+
+    #[test]
+    fn parse_ask_user_skip() {
+        let raw = r#"{
+          "session_id":"conv_ask",
+          "type":"ask_user_answer",
+          "ask_user":{
+            "form_id":"ask_2",
+            "tool_call_id":"tc_2",
+            "status":"skipped"
+          }
+        }"#;
+        let ask = parse_inbound_chat_message(raw).ask_user.expect("ask_user");
+        assert_eq!(ask.status, "skipped");
+        assert_eq!(ask.form_id, "ask_2");
+    }
+
+    #[test]
     fn latest_index_accepts_snake_case() {
         let raw = r#"{
           "user_id":"u1",
@@ -523,6 +644,13 @@ mod tests {
 
     #[test]
     fn latest_envelope_null_data() {
+        #[derive(Debug, Deserialize)]
+        struct LatestApiEnvelope {
+            #[serde(default)]
+            status: Option<String>,
+            #[serde(default)]
+            data: Option<ChatLatestIndexRaw>,
+        }
         let raw = r#"{"status":"ok","data":null}"#;
         let env: LatestApiEnvelope = serde_json::from_str(raw).unwrap();
         assert!(env.data.is_none());

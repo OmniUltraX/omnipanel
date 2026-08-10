@@ -5,6 +5,11 @@ import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { ASSISTANT_PAGE_AGENT_ID } from "../../lib/ai/agents";
 import { AiPromptBusyError } from "../../lib/ai/submitAiPrompt";
 import { sendToAiDock } from "../../lib/ai/sendToAiDock";
+import type { AskUserAnswerValue } from "../../lib/ai/aiMessageParts";
+import {
+  skipAskUserForm,
+  submitAskUserAnswers,
+} from "../../lib/ai/orchestration/askUserToolDispatcher";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { safeTauriUnlisten } from "../../lib/safeTauriUnlisten";
 import { useAiStore } from "../../stores/aiStore";
@@ -60,6 +65,22 @@ export type AssistantChatInboundPayload = {
   session_id?: string;
   /** 助手端选中的询问对象 */
   contexts?: Array<{ kind: string; id: string; label: string }>;
+  /** 澄清答案快通道（camelCase / snake_case 兼容） */
+  askUser?: {
+    formId: string;
+    toolCallId: string;
+    status: string;
+    answersJson: string;
+  } | null;
+  ask_user?: {
+    form_id?: string;
+    formId?: string;
+    tool_call_id?: string;
+    toolCallId?: string;
+    status?: string;
+    answers_json?: string;
+    answersJson?: string;
+  } | null;
 };
 
 type QueuedInbound = {
@@ -211,7 +232,80 @@ function resolveSessionId(payload: AssistantChatInboundPayload): string | undefi
   return id || undefined;
 }
 
+function resolveAskUserAnswer(payload: AssistantChatInboundPayload): {
+  formId: string;
+  status: "answered" | "skipped";
+  answers: Record<string, AskUserAnswerValue>;
+} | null {
+  const raw = payload.askUser ?? payload.ask_user;
+  if (!raw || typeof raw !== "object") return null;
+  const formId = String(
+    ("formId" in raw ? raw.formId : undefined) ??
+      ("form_id" in raw ? raw.form_id : undefined) ??
+      "",
+  ).trim();
+  const statusRaw = String(("status" in raw ? raw.status : undefined) ?? "")
+    .trim()
+    .toLowerCase();
+  if (!formId) return null;
+  if (statusRaw !== "answered" && statusRaw !== "skipped") return null;
+
+  let answers: Record<string, AskUserAnswerValue> = {};
+  if (statusRaw === "answered") {
+    const answersJson = String(
+      ("answersJson" in raw ? raw.answersJson : undefined) ??
+        ("answers_json" in raw ? raw.answers_json : undefined) ??
+        "{}",
+    );
+    try {
+      const parsed = JSON.parse(answersJson) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        answers = parsed as Record<string, AskUserAnswerValue>;
+      }
+    } catch {
+      console.warn("[assistant-chat-inbox] ask_user answers JSON 无效", answersJson);
+      return null;
+    }
+  }
+
+  return { formId, status: statusRaw, answers };
+}
+
+/** 澄清答案：不排队、不等 isGenerating，直接 resolve 挂起工具 */
+async function applyAskUserInbound(
+  payload: AssistantChatInboundPayload,
+  answer: {
+    formId: string;
+    status: "answered" | "skipped";
+    answers: Record<string, AskUserAnswerValue>;
+  },
+): Promise<void> {
+  const messageId = (payload.messageId || payload.objectKey || "").trim();
+  if (messageId && hasSeen(messageId)) return;
+
+  const conversationId = resolveSessionId(payload);
+  prepareInboundUi(conversationId);
+  void focusMainWindow();
+
+  try {
+    if (answer.status === "skipped") {
+      await skipAskUserForm(answer.formId);
+    } else {
+      await submitAskUserAnswers(answer.formId, answer.answers);
+    }
+    if (messageId) markSeen(messageId);
+  } catch (err) {
+    console.warn("[assistant-chat-inbox] ask_user 提交失败", err);
+  }
+}
+
 function applyInbound(payload: AssistantChatInboundPayload): void {
+  const askAnswer = resolveAskUserAnswer(payload);
+  if (askAnswer) {
+    void applyAskUserInbound(payload, askAnswer);
+    return;
+  }
+
   const messageId = (payload.messageId || payload.objectKey || "").trim();
   const text = (payload.text || "").trim();
   if (!text) {
