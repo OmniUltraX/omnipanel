@@ -20,7 +20,7 @@ import {
 } from "../../../lib/ai/chatOssRecorder";
 import { isHiddenChatToolName, isPlanToolName } from "../../../lib/ai/hiddenChatTools";
 import { createStreamAppendBatcher } from "../../../lib/ai/streamAppendBatcher";
-import { isTauriRuntime } from "../../../lib/isTauriRuntime";
+import { canUseAiBackend } from "../../../lib/isTauriRuntime";
 import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioModels";
 import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
@@ -954,8 +954,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     if (options?.inline) {
       const { blockId, sessionId, continueThread } = options.inline;
-      if (!isTauriRuntime()) {
-        pushAssistantErrorMessage(blockId, "AI 助手需要在 Tauri 桌面环境中运行。");
+      if (!canUseAiBackend()) {
+        pushAssistantErrorMessage(blockId, "当前环境无法连接 AI 后端，请使用桌面端或 Web 服务构建。");
         useBlocksStore.getState().updateBlock(blockId, { status: "failed", exitCode: 1 });
         return;
       }
@@ -1017,11 +1017,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    if (!isTauriRuntime()) {
+    if (!canUseAiBackend()) {
       addMessage(convId, { role: "user", content: userText });
       addMessage(convId, {
         role: "assistant",
-        content: "AI 助手需要在 Tauri 桌面环境中运行，并先在设置中配置 AI 模型。",
+        content: "当前环境无法连接 AI 后端。请使用桌面端，或通过 omnipanel-server 的 Web 构建访问，并先在设置中配置 AI 模型。",
       });
       return;
     }
@@ -1089,7 +1089,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   onReloadRef.current = async (parentId) => {
     if (!parentId || isGenerating) return;
     const convId = activeConversationId;
-    if (!convId || !isTauriRuntime()) return;
+    if (!convId || !canUseAiBackend()) return;
 
     const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
     if (!conv) return;

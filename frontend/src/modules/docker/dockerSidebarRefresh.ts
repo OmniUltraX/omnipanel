@@ -1,4 +1,5 @@
 import { commands } from "@/ipc/bindings";
+import { asArray } from "@/ipc/asArray";
 import { unwrapCommand, type CommandResult } from "@/ipc/result";
 import type {
   DockerSidebarCacheEntry,
@@ -21,13 +22,15 @@ async function fetchCategory(
 ): Promise<Partial<DockerSidebarCacheEntry>> {
   switch (category) {
     case "images":
-      return { images: await unwrap(commands.dockerListImages(connectionId)) };
+      return { images: asArray(await unwrap(commands.dockerListImages(connectionId))) };
     case "containers":
-      return { containers: await unwrap(commands.dockerListContainers(connectionId, null)) };
+      return {
+        containers: asArray(await unwrap(commands.dockerListContainers(connectionId, null))),
+      };
     case "networks":
-      return { networks: await unwrap(commands.dockerListNetworks(connectionId)) };
+      return { networks: asArray(await unwrap(commands.dockerListNetworks(connectionId))) };
     case "volumes":
-      return { volumes: await unwrap(commands.dockerListVolumes(connectionId)) };
+      return { volumes: asArray(await unwrap(commands.dockerListVolumes(connectionId))) };
   }
 }
 

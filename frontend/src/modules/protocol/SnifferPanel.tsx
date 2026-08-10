@@ -119,9 +119,10 @@ export function SnifferPanel() {
   useEffect(() => {
     invoke<NetworkInterface[]>("sniffer_list_interfaces")
       .then((ifaces) => {
-        setInterfaces(ifaces);
-        if (ifaces.length > 0 && !selectedIface) {
-          setSelectedIface(ifaces[0].name);
+        const list = Array.isArray(ifaces) ? ifaces : [];
+        setInterfaces(list);
+        if (list.length > 0 && !selectedIface) {
+          setSelectedIface(list[0].name);
         }
       })
       .catch((e) => console.error("Failed to list interfaces:", e));
@@ -139,8 +140,10 @@ export function SnifferPanel() {
             }),
             invoke<CaptureStats>("sniffer_get_stats", { captureId }),
           ]);
-          setPackets(newPackets);
-          setStats(newStats);
+          setPackets(Array.isArray(newPackets) ? newPackets : []);
+          if (newStats && typeof newStats === "object" && !Array.isArray(newStats)) {
+            setStats(newStats);
+          }
         } catch (e) {
           console.error("Poll error:", e);
         }

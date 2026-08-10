@@ -319,9 +319,12 @@ export function tabModeToEditorOpenMode(mode: "data" | "sql"): SqlEditorOpenMode
 }
 
 export function rowsToRecord(
-  columns: string[],
-  rows: unknown[][],
+  columns: string[] | null | undefined,
+  rows: unknown[][] | null | undefined,
 ): Record<string, unknown>[] {
+  if (!columns || !rows) {
+    return [];
+  }
   return rows.map((row) => {
     const obj: Record<string, unknown> = {};
     for (let i = 0; i < columns.length; i++) {

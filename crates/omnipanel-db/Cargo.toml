@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-store = { path = "../omnipanel-store" }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

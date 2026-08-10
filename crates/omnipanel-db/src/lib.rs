@@ -10,14 +10,30 @@ use serde::Serialize;
 use serde_json::Value;
 
 mod blob_value;
+mod introspect;
 mod mongodb;
 mod mysql;
 mod postgres;
 mod qdrant;
 mod redis;
+mod schema_refresh;
 mod sqlite;
 
 pub use blob_value::encode_blob_value;
+
+pub use introspect::{
+    db_create_database, db_get_table_details, db_introspect_schema, db_introspect_table,
+    db_list_character_sets, db_list_connection_users, db_list_databases_with_stats,
+    db_list_table_details, db_table_ddl, CreateDatabaseArgs, DbCharsetMeta, DbColumnMeta,
+    DbDatabaseMeta, DbIndexMeta, DbIntrospectResult, DbNamedTableDetails, DbRoutineMeta,
+    DbTableDetails, DbTableSchema, DbUserMeta,
+};
+
+pub use schema_refresh::{
+    db_refresh_schema_node, refresh_connection_payload, SchemaCacheDatabasePayload,
+    SchemaConnectionRefreshPayload, SchemaNodeRefreshArgs, SchemaNodeRefreshResult,
+    SchemaTableRefreshPayload,
+};
 
 pub use mongodb::MongoDriver;
 

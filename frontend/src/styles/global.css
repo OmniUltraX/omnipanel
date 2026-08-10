@@ -4325,12 +4325,19 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
     flex: 0 0 auto;
     flex-shrink: 0;
-    min-width: var(--shell-win-controls-width);
+    /* 默认按内容收缩；有 .win-controls 时再按三键宽度占位（见下方 :has） */
+    min-width: 0;
+    width: max-content;
     height: 100%;
     align-items: stretch;
     align-self: stretch;
+    justify-content: flex-end;
     position: relative;
     z-index: 3;
+}
+
+.dockable-workspace.dock-window-control .dv-right-actions-container:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
 }
 
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container {
@@ -4391,12 +4398,18 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
     flex: 0 0 auto;
     flex-shrink: 0;
-    min-width: var(--shell-win-controls-width);
+    /* 无窗控时按 AI/设置内容贴右，避免右侧空一截 */
+    min-width: 0;
+    width: max-content;
     height: 100%;
     align-items: stretch;
     position: relative;
     z-index: 5;
     -webkit-app-region: no-drag;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
 }
 
 /*
@@ -4421,19 +4434,29 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
-    min-width: var(--shell-win-controls-width);
     /* 高于 .ai-dockview.open(z-index:6)，避免侧栏叠层挡住顶栏 AI 开关 */
     position: relative;
     z-index: 10;
 }
 
-.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dv-right-actions-container:has(.win-controls) {
     min-width: var(--shell-win-controls-width);
+}
+
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
     position: relative;
     z-index: 10;
 }
 
-/* macOS：右侧无窗控三键，chrome 区按内容收缩并贴右，避免 AI 旁留出 Windows 占位空白 */
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dock-window-title-actions--ai-dock-open:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
+}
+
+/* 无窗控三键（macOS / Web）：chrome 区按内容收缩并贴右，避免 AI 旁留出 Windows 占位空白 */
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dv-right-actions-container,
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions,
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac,
@@ -4441,13 +4464,20 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 html[data-platform="macos"]
     .workspace:has(.ai-dockview.open)
     .dockable-workspace.dock-window-control
-    .dv-right-actions-container {
+    .dv-right-actions-container,
+.dockable-workspace.dock-window-control .dv-right-actions-container:has(.dock-window-title-actions--no-win-controls),
+.dockable-workspace.dock-window-control .dock-window-title-actions--no-win-controls,
+.dockable-workspace.dock-window-control .dock-window-title-actions--no-win-controls.dock-window-title-actions--ai-dock-open,
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dv-right-actions-container:has(.dock-window-title-actions--no-win-controls) {
     min-width: 0;
     width: max-content;
     justify-content: flex-end;
 }
 
-html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac {
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac,
+.dockable-workspace.dock-window-control .dock-window-title-actions--no-win-controls {
     margin-left: 0;
 }
 
@@ -4515,9 +4545,12 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 .dockable-workspace.dock-window-control .dock-window-title-actions--controls-only {
     flex: 0 0 auto;
     flex-shrink: 0;
-    min-width: var(--shell-win-controls-width);
     justify-content: flex-end;
     margin-left: 0;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions--controls-only:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
 }
 
 .dockable-workspace.dock-window-control
@@ -5673,6 +5706,11 @@ html[data-platform="macos"] .app {
     --sidebar-w: 72px;
     /* 主壳右侧仅 AI 一键，勿再按 Windows 三键宽度占位（否则 AI 左侧/右侧会留空） */
     --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+}
+
+/* Web：无自定义窗控三键，右侧仅 AI + 设置，勿按桌面三键宽度占位 */
+html[data-shell="web"] .app {
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
 
 html[data-platform="macos"] .sidebar.sidebar--mac {
@@ -23867,6 +23905,10 @@ html[data-platform="macos"] .workspace-window-root {
     --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
 }
 
+html[data-shell="web"] .workspace-window-root {
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
+}
+
 .workspace-preview--detached.workspace-preview--fullscreen .workspace-preview__bottom-stack {
     position: absolute !important;
     top: 0 !important;
@@ -25128,6 +25170,10 @@ html.module-window-root #root {
 
 html[data-platform="macos"] .module-window {
     /* 模块窗：AI + 设置，无 Windows 三键 */
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
+}
+
+html[data-shell="web"] .module-window {
     --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
 

@@ -63,7 +63,7 @@ pub struct FileEntry {
 }
 
 /// FTP 连接建立（同步客户端，spawn_blocking 内使用）。
-fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<suppaftp::FtpStream, String> {
+pub(crate) fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<suppaftp::FtpStream, String> {
     use suppaftp::FtpStream;
     let port = cfg.port.unwrap_or(21);
     let addr = format!("{}:{}", cfg.host, port);
@@ -77,7 +77,7 @@ fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<suppaftp::FtpS
 }
 
 /// FTP 远端路径（空路径回退 rootPath / 根）。
-fn ftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
+pub(crate) fn ftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
     if path.is_empty() {
         if cfg.root_path.is_empty() {
             "/".to_string()
@@ -465,7 +465,7 @@ pub(crate) fn resolve_secret(conn: &Connection) -> Option<String> {
 }
 
 /// 解析 SFTP 文件连接的实际 SSH 端点（含关联 SSH 连接上的 host/port/user）。
-async fn ssh_config_from_file_conn(
+pub(crate) async fn ssh_config_from_file_conn(
     state: &ServerState,
     conn: &Connection,
     cfg: &FileConnConfig,
@@ -615,7 +615,7 @@ fn filter_file_entries(
     Ok(entries)
 }
 
-fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
+pub(crate) fn list_local_dir(path: &str) -> Result<Vec<FileEntry>, OmniError> {
     let p = resolve_local_path(path)?;
     if !p.exists() {
         return Err(OmniError::new(

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
+import { canUseIpcBackend } from "../lib/isTauriRuntime";
 import { useDbSqlFileStore } from "./dbSqlFileStore";
 import {
   createEmptyTreeChartDocument,
@@ -44,10 +45,6 @@ let initPromise: Promise<void> | null = null;
 
 function makeId(): string {
   return `ctr-file:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 function uniqueName(nodes: DbTreeChartFileNode[], name: string, excludeId?: string): string {
@@ -149,7 +146,7 @@ function serializeNodeForDisk(node: DbTreeChartFileNode) {
 
 async function persistNodes(nodes: DbTreeChartFileNode[]): Promise<void> {
   writeNodesCache(nodes);
-  if (!isTauriRuntime()) {
+  if (!canUseIpcBackend()) {
     return;
   }
   try {
@@ -199,7 +196,7 @@ export const useDbTreeChartFileStore = create<DbTreeChartFileState>()(
         }
         const nodes = get().nodes;
         if (nodes.length === 0) {
-          if (!isTauriRuntime()) {
+          if (!canUseIpcBackend()) {
             set({ dirtyFileIds: [] });
             return;
           }
@@ -364,7 +361,7 @@ export async function initDbTreeChartFilesStore(force = false): Promise<void> {
   }
 
   initPromise = (async () => {
-    if (!isTauriRuntime()) {
+    if (!canUseIpcBackend()) {
       const cached = readNodesCache() ?? readLegacyPersistedNodes();
       if (cached?.length) {
         useDbTreeChartFileStore.setState({ nodes: cached, dirtyFileIds: [] });
@@ -419,7 +416,7 @@ export async function recoverTreeChartFilesFromLocalStorage(): Promise<number> {
 
   let diskCount = 0;
   let mergedById = new Map<string, DbTreeChartFileNode>();
-  if (isTauriRuntime()) {
+  if (canUseIpcBackend()) {
     try {
       const res = await commands.dbTreeChartFilesLoad();
       if (res.status === "ok") {

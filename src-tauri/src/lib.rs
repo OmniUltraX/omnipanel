@@ -9,6 +9,7 @@ mod panel;
 mod protocol;
 mod ssh_tmux;
 mod state;
+mod transfer_bridge;
 #[cfg(windows)]
 mod webview_dpi;
 

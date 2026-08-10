@@ -80,12 +80,32 @@ export const useSshHostStore = create<SshHostStoreState>((set, get) => ({
   setOverview: (resourceId, patch) =>
     set((state) => {
       const prev = state.hosts[resourceId] ?? EMPTY_SNAPSHOT;
+      const nextOverview: HostOverviewState = { ...prev.overview, ...patch };
+      // 空进程列表视为相等，避免软降级每次返回新 [] 触发无限重渲染（React #185）
+      if (
+        Array.isArray(patch.processes) &&
+        patch.processes.length === 0 &&
+        prev.overview.processes.length === 0
+      ) {
+        nextOverview.processes = prev.overview.processes;
+      }
+      if (
+        nextOverview.phase === prev.overview.phase &&
+        nextOverview.stats === prev.overview.stats &&
+        nextOverview.processes === prev.overview.processes &&
+        nextOverview.error === prev.overview.error &&
+        nextOverview.processError === prev.overview.processError &&
+        nextOverview.updatedAt === prev.overview.updatedAt &&
+        nextOverview.refreshing === prev.overview.refreshing
+      ) {
+        return state;
+      }
       return {
         hosts: {
           ...state.hosts,
           [resourceId]: {
             ...prev,
-            overview: { ...prev.overview, ...patch },
+            overview: nextOverview,
           },
         },
       };
@@ -94,12 +114,21 @@ export const useSshHostStore = create<SshHostStoreState>((set, get) => ({
   setMonitoring: (resourceId, patch) =>
     set((state) => {
       const prev = state.hosts[resourceId] ?? EMPTY_SNAPSHOT;
+      const nextMonitoring: HostMonitoringState = { ...prev.monitoring, ...patch };
+      if (
+        nextMonitoring.enabled === prev.monitoring.enabled &&
+        nextMonitoring.cpuSeries === prev.monitoring.cpuSeries &&
+        nextMonitoring.memSeries === prev.monitoring.memSeries &&
+        nextMonitoring.netSeries === prev.monitoring.netSeries
+      ) {
+        return state;
+      }
       return {
         hosts: {
           ...state.hosts,
           [resourceId]: {
             ...prev,
-            monitoring: { ...prev.monitoring, ...patch },
+            monitoring: nextMonitoring,
           },
         },
       };
@@ -168,6 +197,9 @@ export const useSshHostStore = create<SshHostStoreState>((set, get) => ({
   setTerminalConnected: (resourceId, connected) =>
     set((state) => {
       const prev = state.hosts[resourceId] ?? EMPTY_SNAPSHOT;
+      if (prev.terminalConnected === connected) {
+        return state;
+      }
       return {
         hosts: {
           ...state.hosts,

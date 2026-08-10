@@ -13,23 +13,23 @@ use omnipanel_error::OmniError;
 #[tauri::command]
 #[specta::specta]
 pub async fn db_mysql_export_list(
-    app: AppHandle,
+    _app: AppHandle,
     connection_id: String,
 ) -> Result<Vec<MysqlExportRecord>, OmniError> {
-    Ok(list_mysql_exports(&app, &connection_id).map_err(OmniError::internal)?)
+    Ok(list_mysql_exports(&connection_id).map_err(OmniError::internal)?)
 }
 
 /// 将导出文件复制到用户指定路径（需已通过 save 对话框授权）。
 #[tauri::command]
 #[specta::specta]
 pub async fn db_mysql_export_save_as(
-    app: AppHandle,
+    _app: AppHandle,
     connection_id: String,
     export_id: String,
     dest_path: String,
 ) -> Result<String, OmniError> {
     Ok(
-        copy_mysql_export_file(&app, &connection_id, &export_id, &dest_path)
+        copy_mysql_export_file(&connection_id, &export_id, &dest_path)
             .map_err(OmniError::internal)?,
     )
 }
@@ -38,11 +38,11 @@ pub async fn db_mysql_export_save_as(
 #[tauri::command]
 #[specta::specta]
 pub async fn db_mysql_export_delete(
-    app: AppHandle,
+    _app: AppHandle,
     connection_id: String,
     export_id: String,
 ) -> Result<(), OmniError> {
-    delete_mysql_export(&app, &connection_id, &export_id).map_err(OmniError::internal)?;
+    delete_mysql_export(&connection_id, &export_id).map_err(OmniError::internal)?;
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
+import { asArray } from "../../../ipc/asArray";
 import { unwrapCommand } from "../../../ipc/result";
 import { peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
 import { handleDockerAutoFetchFailure } from "../dockerConnectionOffline";
@@ -89,9 +90,11 @@ export function useDockerContainerGrid(
     const refreshContainers = async (initial: boolean) => {
       if (initial) setLoading(true);
       try {
-        const list = await unwrap(commands.dockerListContainers(connectionId, null), {
-          quiet: true,
-        });
+        const list = asArray(
+          await unwrap(commands.dockerListContainers(connectionId, null), {
+            quiet: true,
+          }),
+        );
         if (cancelled) return;
         startTransition(() => {
           setContainers(list);

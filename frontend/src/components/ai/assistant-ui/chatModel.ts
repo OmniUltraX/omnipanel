@@ -5,7 +5,7 @@ import {
   fetchWithNetworkHint,
   withOptionalBearerAuth,
 } from "../../../lib/fetchHeaders";
-import { isTauriRuntime } from "../../../lib/isTauriRuntime";
+import { canUseAiBackend } from "../../../lib/isTauriRuntime";
 import { streamPostViaTauri } from "../../../lib/tauriHttpStream";
 
 export type StreamChunk =
@@ -79,7 +79,8 @@ async function openStreamingResponseBody(
   body: string,
   signal?: AbortSignal,
 ): Promise<AsyncIterable<string>> {
-  if (isTauriRuntime()) {
+  // 桌面 / Web 均走后端 reqwest 代理，避免浏览器 CORS 与密钥暴露。
+  if (canUseAiBackend()) {
     return streamPostViaTauri(url, headers, body, { signal, timeoutMs: 120_000 });
   }
 

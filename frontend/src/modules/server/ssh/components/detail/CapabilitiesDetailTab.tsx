@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { appConfirm } from "@/lib/appConfirm";
 import { useI18n } from "@/i18n";
+import { asArray } from "@/ipc/asArray";
 import type { WorkspaceResource } from "@/lib/resourceRegistry";
 import { showToast } from "@/stores/toastStore";
 import { useConnectionStore } from "@/stores/connectionStore";
@@ -100,11 +101,15 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
     }
   }, [resourceId, entry.result, entry.loading, probe]);
 
+  const tools = useMemo(
+    () => asArray<RemoteToolCapability>(entry.result?.tools),
+    [entry.result],
+  );
+
   const grouped = useMemo(() => {
-    const result = entry.result;
-    if (!result) return [] as { category: ToolCategory; tools: RemoteToolCapability[] }[];
+    if (!entry.result) return [] as { category: ToolCategory; tools: RemoteToolCapability[] }[];
     const map = new Map<ToolCategory, RemoteToolCapability[]>();
-    for (const tool of result.tools) {
+    for (const tool of tools) {
       const list = map.get(tool.category) ?? [];
       list.push(tool);
       map.set(tool.category, list);
@@ -113,7 +118,7 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
       category,
       tools: map.get(category)!,
     }));
-  }, [entry.result]);
+  }, [entry.result, tools]);
 
   const handleInstall = useCallback(
     async (tool: RemoteToolCapability) => {
@@ -177,7 +182,7 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
             {t("ssh.toolCapabilities.probedAt", { time: formatProbedAt(result.probedAt) })}
           </span>
           <span className="cap-meta cap-meta--count">
-            {t("ssh.toolCapabilities.toolCount", { count: result.tools.length })}
+            {t("ssh.toolCapabilities.toolCount", { count: tools.length })}
           </span>
         </div>
       ) : null}
@@ -192,14 +197,14 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
         <div className="capabilities__empty">{t("ssh.toolCapabilities.empty")}</div>
       ) : null}
 
-      {grouped.map(({ category, tools }) => (
+      {grouped.map(({ category, tools: groupTools }) => (
         <section key={category} className="capabilities__group">
           <h4 className="capabilities__group-title">
             {t(`ssh.toolCapabilities.categories.${category}`)}
-            <span className="capabilities__group-count">{tools.length}</span>
+            <span className="capabilities__group-count">{groupTools.length}</span>
           </h4>
           <div className="capabilities__list">
-            {tools.map((tool) => {
+            {groupTools.map((tool) => {
               const badge = stateBadge(tool.state);
               const installing = entry.installing[tool.id] === true;
               const autoInstall = isAutoInstallable(tool.installMethod);

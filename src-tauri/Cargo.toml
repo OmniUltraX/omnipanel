@@ -35,14 +35,17 @@ tauri-plugin-mcp-bridge = { version = "0.12", optional = true }
 omnipanel-core = { path = "../crates/omnipanel-core" }
 omnipanel-ai = { path = "../crates/omnipanel-ai" }
 omnipanel-error = { path = "../crates/omnipanel-error" }
+omnipanel-bg = { path = "../crates/omnipanel-bg" }
 omnipanel-store = { path = "../crates/omnipanel-store" }
 omnipanel-exec = { path = "../crates/omnipanel-exec" }
 omnipanel-ssh = { path = "../crates/omnipanel-ssh" }
 omnipanel-db = { path = "../crates/omnipanel-db" }
+omnipanel-db-sync = { path = "../crates/omnipanel-db-sync" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
 omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
+omnipanel-transfer = { path = "../crates/omnipanel-transfer", features = ["specta"] }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

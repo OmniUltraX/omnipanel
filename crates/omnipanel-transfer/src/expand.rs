@@ -2,18 +2,12 @@
 
 use omnipanel_error::{ErrorCode, OmniError};
 
-use crate::commands::file_manager::{
-    list_local_dir, load_file_connection, parse_file_config, protocol_of, resolve_local_path,
-    FileProtocol, LOCAL_CONNECTION_ID,
-};
-use crate::state::AppState;
+use crate::provider::{TransferHost, TransferProtocol};
+use crate::types::FileTransferItemSpec;
+use crate::util::open_sftp;
 
-use super::types::FileTransferItemSpec;
-use super::util::open_sftp;
-
-/// 将目录项展开为文件列表；`name` 为相对根目录的路径（含中间目录）。
 pub async fn expand_transfer_items(
-    state: &AppState,
+    host: &dyn TransferHost,
     items: &[FileTransferItemSpec],
 ) -> Result<Vec<FileTransferItemSpec>, OmniError> {
     let mut out = Vec::new();
@@ -23,7 +17,7 @@ pub async fn expand_transfer_items(
             continue;
         }
         expand_dir(
-            state,
+            host,
             &item.connection_id,
             &item.path,
             &item.name,
@@ -42,14 +36,14 @@ pub async fn expand_transfer_items(
 }
 
 async fn expand_dir(
-    state: &AppState,
+    host: &dyn TransferHost,
     connection_id: &str,
     dir_path: &str,
     root_folder_name: &str,
     rel_prefix: &str,
     out: &mut Vec<FileTransferItemSpec>,
 ) -> Result<(), OmniError> {
-    let entries = list_entries(state, connection_id, dir_path).await?;
+    let entries = list_entries(host, connection_id, dir_path).await?;
     for entry in entries {
         let rel = if rel_prefix.is_empty() {
             format!("{root_folder_name}/{}", entry.name)
@@ -58,7 +52,7 @@ async fn expand_dir(
         };
         if entry.kind == "dir" {
             Box::pin(expand_dir(
-                state,
+                host,
                 connection_id,
                 &entry.path,
                 root_folder_name,
@@ -87,12 +81,12 @@ struct Listed {
 }
 
 async fn list_entries(
-    state: &AppState,
+    host: &dyn TransferHost,
     connection_id: &str,
     path: &str,
 ) -> Result<Vec<Listed>, OmniError> {
-    if connection_id == LOCAL_CONNECTION_ID {
-        let entries = list_local_dir(path)?;
+    if connection_id == host.local_connection_id() {
+        let entries = host.list_local_dir(path)?;
         return Ok(entries
             .into_iter()
             .filter(|e| e.name != "." && e.name != "..")
@@ -100,18 +94,15 @@ async fn list_entries(
                 name: e.name,
                 path: e.path,
                 kind: e.kind,
-                size: Some(e.size as f64),
+                size: e.size,
             })
             .collect());
     }
 
-    let conn = load_file_connection(state, connection_id)
-        .await?
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let cfg = parse_file_config(&conn)?;
-    match protocol_of(&cfg) {
-        FileProtocol::Sftp => {
-            let session = open_sftp(state, connection_id).await?;
+    let proto = host.connection_protocol(connection_id).await?;
+    match proto {
+        TransferProtocol::Sftp => {
+            let session = open_sftp(host, connection_id).await?;
             let entries = session.sftp_list(path).await?;
             Ok(entries
                 .into_iter()
@@ -135,16 +126,16 @@ async fn list_entries(
                 })
                 .collect())
         }
-        FileProtocol::Local => {
-            let p = resolve_local_path(path)?;
-            let entries = list_local_dir(&p.to_string_lossy())?;
+        TransferProtocol::Local => {
+            let p = host.resolve_local_path(path)?;
+            let entries = host.list_local_dir(&p.to_string_lossy())?;
             Ok(entries
                 .into_iter()
                 .map(|e| Listed {
                     name: e.name,
                     path: e.path,
                     kind: e.kind,
-                    size: Some(e.size as f64),
+                    size: e.size,
                 })
                 .collect())
         }

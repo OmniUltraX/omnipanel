@@ -1,9 +1,7 @@
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
+import { canUseTerminalBackend } from "../../../lib/isTauriRuntime";
 import { TerminalPaneView } from "../../terminal/TerminalPaneView";
 import type { TerminalPane } from "../../../stores/terminalStore";
-
-const isTauriRuntime =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 interface ConnectionCliTerminalWorkspaceProps {
   pane: TerminalPane | null;
@@ -23,11 +21,12 @@ export function ConnectionCliTerminalWorkspace({
   terminalActive,
   onSenderChange,
 }: ConnectionCliTerminalWorkspaceProps) {
-  if (!isTauriRuntime) {
+  if (!canUseTerminalBackend()) {
     return (
       <div className="db-connection-cli-terminal db-connection-cli-terminal--idle">
         <div className="db-tables-panel-empty">
-          请在 Tauri 桌面应用中运行以使用嵌入式终端（<code>npm run tauri dev</code>）
+          当前构建未启用终端后端。请使用桌面应用或 Web 构建（
+          <code>OMNIPANEL_WEB=1</code>）对接 <code>omnipanel-server</code>。
         </div>
       </div>
     );

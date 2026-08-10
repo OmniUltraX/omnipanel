@@ -6,37 +6,28 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use omnipanel_error::{ErrorCode, OmniError};
-use tauri::AppHandle;
 use tokio::sync::Mutex;
 
-use crate::commands::file_manager::{
-    load_file_connection, parse_file_config, ssh_config_from_file_conn, LOCAL_CONNECTION_ID,
-};
-use crate::state::AppState;
+use crate::event::{emit_job, TransferEventSink};
+use crate::provider::{TransferHost, TransferProtocol};
+use crate::types::{FileTransferJob, FileTransferState};
+use crate::util::{check_cancel, open_sftp};
 
-use super::types::{FileTransferJob, FileTransferState};
-use super::util::{emit_job, open_sftp};
-
-/// 解析目标 SFTP 的 host/port/user（文件配置为空时回落到关联 SSH 连接）。
 async fn resolve_sftp_endpoint(
-    state: &AppState,
+    host: &dyn TransferHost,
     connection_id: &str,
 ) -> Result<(String, u16, String), OmniError> {
-    let conn = load_file_connection(state, connection_id)
-        .await?
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
-    let cfg = parse_file_config(&conn)?;
-    let ssh = ssh_config_from_file_conn(state, &conn, &cfg).await?;
-    let host = ssh.host.trim().to_string();
-    if host.is_empty() {
+    let ep = host.resolve_sftp_endpoint(connection_id).await?;
+    let host_name = ep.host.trim().to_string();
+    if host_name.is_empty() {
         return Err(OmniError::new(ErrorCode::InvalidInput, "目标主机为空"));
     }
-    let user = if ssh.user.trim().is_empty() {
+    let user = if ep.user.trim().is_empty() {
         "root".into()
     } else {
-        ssh.user.trim().to_string()
+        ep.user.trim().to_string()
     };
-    Ok((host, ssh.port, user))
+    Ok((host_name, ep.port, user))
 }
 
 type ProbeCache = Mutex<std::collections::HashMap<String, (bool, Instant)>>;
@@ -52,17 +43,8 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\"'\"'"))
 }
 
-fn check_cancel(cancel: &AtomicBool) -> Result<(), OmniError> {
-    if cancel.load(Ordering::Relaxed) {
-        Err(OmniError::new(ErrorCode::Internal, "传输已取消"))
-    } else {
-        Ok(())
-    }
-}
-
-/// 从源主机探测目标 host:port 是否可达。
 pub async fn probe_reachability(
-    state: &AppState,
+    host: &dyn TransferHost,
     source_connection_id: &str,
     dest_host: &str,
     dest_port: u16,
@@ -77,8 +59,7 @@ pub async fn probe_reachability(
         }
     }
 
-    let session = open_sftp(state, source_connection_id).await?;
-    // 优先 nc / bash /dev/tcp；失败则尝试 timeout+ssh 探测端口
+    let session = open_sftp(host, source_connection_id).await?;
     let host_q = shell_quote(dest_host);
     let probe_cmd = format!(
         "if command -v nc >/dev/null 2>&1; then nc -z -w 3 {host_q} {dest_port}; \
@@ -134,22 +115,26 @@ fn generate_ephemeral_keypair(work_dir: &Path) -> Result<(PathBuf, PathBuf, Stri
 }
 
 async fn install_pubkey_on_dest(
-    state: &AppState,
+    host: &dyn TransferHost,
     dest_connection_id: &str,
     pub_line: &str,
     marker: &str,
 ) -> Result<String, OmniError> {
-    let session = open_sftp(state, dest_connection_id).await?;
-    // 解析家目录
+    let session = open_sftp(host, dest_connection_id).await?;
     let home = session
         .exec_command("printf %s \"$HOME\"")
         .await
         .unwrap_or_else(|_| "/root".into());
     let ssh_dir = format!("{home}/.ssh");
     let auth_keys = format!("{ssh_dir}/authorized_keys");
-    let _ = session.exec_command(&format!("mkdir -p {} && chmod 700 {}", shell_quote(&ssh_dir), shell_quote(&ssh_dir))).await;
+    let _ = session
+        .exec_command(&format!(
+            "mkdir -p {} && chmod 700 {}",
+            shell_quote(&ssh_dir),
+            shell_quote(&ssh_dir)
+        ))
+        .await;
     let line = format!("{pub_line} {marker}");
-    // 追加并去重 marker
     let cmd = format!(
         "touch {ak} && chmod 600 {ak} && grep -F {m} {ak} >/dev/null 2>&1 || printf '%s\\n' {line} >> {ak}",
         ak = shell_quote(&auth_keys),
@@ -161,12 +146,12 @@ async fn install_pubkey_on_dest(
 }
 
 async fn remove_pubkey_marker(
-    state: &AppState,
+    host: &dyn TransferHost,
     dest_connection_id: &str,
     auth_keys: &str,
     marker: &str,
 ) {
-    if let Ok(session) = open_sftp(state, dest_connection_id).await {
+    if let Ok(session) = open_sftp(host, dest_connection_id).await {
         let cmd = format!(
             "if [ -f {ak} ]; then grep -vF {m} {ak} > {ak}.tmp 2>/dev/null && mv {ak}.tmp {ak}; fi",
             ak = shell_quote(auth_keys),
@@ -177,12 +162,12 @@ async fn remove_pubkey_marker(
 }
 
 async fn place_private_key_on_source(
-    state: &AppState,
+    host: &dyn TransferHost,
     source_connection_id: &str,
     local_priv: &Path,
     remote_dir: &str,
 ) -> Result<String, OmniError> {
-    let session = open_sftp(state, source_connection_id).await?;
+    let session = open_sftp(host, source_connection_id).await?;
     let _ = session
         .exec_command(&format!(
             "mkdir -p {} && chmod 700 {}",
@@ -200,23 +185,22 @@ async fn place_private_key_on_source(
     Ok(remote_key)
 }
 
-async fn cleanup_source_key(state: &AppState, source_connection_id: &str, remote_dir: &str) {
-    if let Ok(session) = open_sftp(state, source_connection_id).await {
+async fn cleanup_source_key(host: &dyn TransferHost, source_connection_id: &str, remote_dir: &str) {
+    if let Ok(session) = open_sftp(host, source_connection_id).await {
         let _ = session
             .exec_command(&format!("rm -rf {}", shell_quote(remote_dir)))
             .await;
     }
 }
 
-/// Push：源推宿。成功返回 Ok；调用方失败时应回落 Relay。
 pub async fn run_remote_direct(
-    app: &AppHandle,
-    state: &AppState,
+    sink: &dyn TransferEventSink,
+    host: &dyn TransferHost,
     job: &mut FileTransferJob,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), OmniError> {
-    if job.source.connection_id == LOCAL_CONNECTION_ID
-        || job.dest.connection_id == LOCAL_CONNECTION_ID
+    if job.source.connection_id == host.local_connection_id()
+        || job.dest.connection_id == host.local_connection_id()
     {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
@@ -232,13 +216,13 @@ pub async fn run_remote_direct(
 
     check_cancel(&cancel)?;
     job.state = FileTransferState::Probing;
-    emit_job(app, job).await;
+    emit_job(sink, job).await;
 
     let (dest_host, dest_port, dest_user) =
-        resolve_sftp_endpoint(state, &job.dest.connection_id).await?;
+        resolve_sftp_endpoint(host, &job.dest.connection_id).await?;
 
     let reachable =
-        probe_reachability(state, &job.source.connection_id, &dest_host, dest_port).await?;
+        probe_reachability(host, &job.source.connection_id, &dest_host, dest_port).await?;
     if !reachable {
         return Err(OmniError::new(
             ErrorCode::Connection,
@@ -249,23 +233,29 @@ pub async fn run_remote_direct(
     check_cancel(&cancel)?;
     job.state = FileTransferState::Running;
     job.route_reason = "远程直传（源→宿，数据不经本机）".into();
-    emit_job(app, job).await;
+    emit_job(sink, job).await;
 
     let marker = format!("omnipanel-xfer-{}", job.id);
-    let local_work = std::env::temp_dir().join("omnipanel-xfer-keys").join(&job.id);
+    let local_work = std::env::temp_dir()
+        .join("omnipanel-xfer-keys")
+        .join(&job.id);
     let (priv_path, _pub_path, pub_text) = generate_ephemeral_keypair(&local_work)?;
 
     let auth_keys =
-        install_pubkey_on_dest(state, &job.dest.connection_id, &pub_text, &marker).await?;
+        install_pubkey_on_dest(host, &job.dest.connection_id, &pub_text, &marker).await?;
     let remote_key_dir = format!("/tmp/omnipanel-xfer-{}", job.id);
 
     let transfer_result = async {
         check_cancel(&cancel)?;
-        let remote_key =
-            place_private_key_on_source(state, &job.source.connection_id, &priv_path, &remote_key_dir)
-                .await?;
+        let remote_key = place_private_key_on_source(
+            host,
+            &job.source.connection_id,
+            &priv_path,
+            &remote_key_dir,
+        )
+        .await?;
 
-        let session = open_sftp(state, &job.source.connection_id).await?;
+        let session = open_sftp(host, &job.source.connection_id).await?;
         let src_q = shell_quote(&job.source.path);
         let dest_spec = format!("{dest_user}@{dest_host}:{}", job.dest.path);
         let dest_q = shell_quote(&dest_spec);
@@ -281,40 +271,37 @@ pub async fn run_remote_direct(
         session.exec_command(&cmd).await?;
         job.progress = 100.0;
         job.bytes_done = job.bytes_total.unwrap_or(1.0);
-        emit_job(app, job).await;
+        emit_job(sink, job).await;
         Ok::<(), OmniError>(())
     }
     .await;
 
-    cleanup_source_key(state, &job.source.connection_id, &remote_key_dir).await;
-    remove_pubkey_marker(state, &job.dest.connection_id, &auth_keys, &marker).await;
+    cleanup_source_key(host, &job.source.connection_id, &remote_key_dir).await;
+    remove_pubkey_marker(host, &job.dest.connection_id, &auth_keys, &marker).await;
     let _ = std::fs::remove_dir_all(&local_work);
 
     transfer_result
 }
 
-/// 两端是否具备 RemoteDirect 资格（均为 SFTP 且目标有可解析 host）。
 pub async fn remote_direct_eligible(
-    state: &AppState,
+    host: &dyn TransferHost,
     source_connection_id: &str,
     dest_connection_id: &str,
 ) -> bool {
     if source_connection_id == dest_connection_id
-        || source_connection_id == LOCAL_CONNECTION_ID
-        || dest_connection_id == LOCAL_CONNECTION_ID
+        || source_connection_id == host.local_connection_id()
+        || dest_connection_id == host.local_connection_id()
     {
         return false;
     }
-    let Ok(src) = super::util::resolve_protocol(state, source_connection_id).await else {
+    let Ok(src) = super::util::resolve_protocol(host, source_connection_id).await else {
         return false;
     };
-    let Ok(dst) = super::util::resolve_protocol(state, dest_connection_id).await else {
+    let Ok(dst) = super::util::resolve_protocol(host, dest_connection_id).await else {
         return false;
     };
-    if src != crate::commands::file_manager::FileProtocol::Sftp
-        || dst != crate::commands::file_manager::FileProtocol::Sftp
-    {
+    if src != TransferProtocol::Sftp || dst != TransferProtocol::Sftp {
         return false;
     }
-    resolve_sftp_endpoint(state, dest_connection_id).await.is_ok()
+    resolve_sftp_endpoint(host, dest_connection_id).await.is_ok()
 }

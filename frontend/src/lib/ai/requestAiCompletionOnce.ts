@@ -11,7 +11,7 @@ import {
   resolveBackendFromSelection,
   type ResolvedBackend,
 } from "./inferenceBackend";
-import { isTauriRuntime } from "../isTauriRuntime";
+import { canUseAiBackend } from "../isTauriRuntime";
 
 export const AI_COMPLETION_ONCE_TIMEOUT_MS = 15_000;
 export const AI_COMPLETION_ONCE_RETRY_DELAY_MS = 3_000;
@@ -221,7 +221,7 @@ async function requestViaInternalBackend(
   backend: ResolvedBackend,
   options: RequestAiCompletionOnceOptions,
 ): Promise<AiCompletionOnceResult> {
-  if (!isTauriRuntime()) return { ok: false, reason: "no-provider" };
+  if (!canUseAiBackend()) return { ok: false, reason: "no-provider" };
 
   const { runInternalAiChat } = await import("./orchestrator");
   const timeoutMs = options.timeoutMs ?? AI_COMPLETION_ONCE_TIMEOUT_MS;

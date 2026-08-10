@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type SshProcessInfo } from "../../../../ipc/bindings";
+import { canUseTerminalBackend } from "../../../../lib/isTauriRuntime";
 import { RESOURCE_TAG_KEYS } from "../../../../lib/resourceTags";
 import { persistResourceTag } from "../../../../stores/connectionStore";
 import { useSshStatsStore } from "../../../../stores/sshStatsStore";
@@ -39,7 +40,7 @@ export function useSshOverview(resourceId: string | null) {
           const result = await commands.sshPoolLoadProcesses(resourceId);
           if (result.status === "ok") {
             setOverview(resourceId, {
-              processes: result.data,
+              processes: Array.isArray(result.data) ? result.data : [],
               processError: null,
               updatedAt: Date.now(),
               refreshing: false,
@@ -80,7 +81,7 @@ export function useSshOverview(resourceId: string | null) {
         if (processOk) {
           setOverview(resourceId, {
             phase: "ready",
-            processes: processResult.data,
+            processes: Array.isArray(processResult.data) ? processResult.data : [],
             processError: null,
             updatedAt: Date.now(),
             refreshing: true,
@@ -173,7 +174,7 @@ export function useSshOverview(resourceId: string | null) {
 
   useEffect(() => {
     if (!resourceId) return;
-    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+    if (typeof window === "undefined" || !canUseTerminalBackend()) return;
 
     const unlistenPromise = listen<{ resourceId: string; processes: SshProcessInfo[] }>(
       "ssh-process-ports",

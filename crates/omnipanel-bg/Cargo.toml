@@ -1,0 +1,15 @@
+[package]
+name = "omnipanel-bg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OmniPanel 后台任务池（桌面 / Web 共用）"
+
+[dependencies]
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-store = { path = "../omnipanel-store" }
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+tokio.workspace = true
+tracing.workspace = true

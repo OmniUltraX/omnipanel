@@ -115,6 +115,7 @@ function watchEditableElements(): void {
 export function initDesktopShell(): void {
   // 浏览器预览与 Tauri 均打上平台标记，供 CSS / 布局做窗口控件适配
   document.documentElement.dataset.platform = isMacOS() ? "macos" : "windows";
+  document.documentElement.dataset.shell = isTauriRuntime() ? "desktop" : "web";
 
   if (!isTauriRuntime()) return;
 

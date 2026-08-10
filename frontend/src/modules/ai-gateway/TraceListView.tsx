@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { commands, type AiSessionRecord } from "../../ipc/bindings";
-import { isTauriRuntime } from "../../lib/isTauriRuntime";
+import { canUseIpcBackend } from "../../lib/isTauriRuntime";
 import { TraceDetailView } from "./TraceDetailView";
 
 const SOURCES = [
@@ -17,7 +17,7 @@ export function TraceListView() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!isTauriRuntime()) return;
+    if (!canUseIpcBackend()) return;
     setLoading(true);
     void commands
       .aiListSessions(source)

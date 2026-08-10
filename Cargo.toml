@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/omnipanel-error",
+    "crates/omnipanel-bg",
     "crates/omnipanel-store",
     "crates/omnipanel-exec",
     "crates/omnipanel-ssh",
@@ -15,6 +16,8 @@ members = [
     "crates/omnipanel-gateway",
     "crates/omnipanel-s3",
     "crates/omnipanel-server",
+    "crates/omnipanel-transfer",
+    "crates/omnipanel-db-sync",
 ]
 
 [workspace.package]
