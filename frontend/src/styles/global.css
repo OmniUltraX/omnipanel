@@ -4421,16 +4421,34 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
-    min-width: var(--shell-win-controls-width, 138px);
+    min-width: var(--shell-win-controls-width);
     /* 高于 .ai-dockview.open(z-index:6)，避免侧栏叠层挡住顶栏 AI 开关 */
     position: relative;
     z-index: 10;
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
-    min-width: var(--shell-win-controls-width, 138px);
+    min-width: var(--shell-win-controls-width);
     position: relative;
     z-index: 10;
+}
+
+/* macOS：右侧无窗控三键，chrome 区按内容收缩并贴右，避免 AI 旁留出 Windows 占位空白 */
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dv-right-actions-container,
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions,
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac,
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open,
+html[data-platform="macos"]
+    .workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dv-right-actions-container {
+    min-width: 0;
+    width: max-content;
+    justify-content: flex-end;
+}
+
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac {
+    margin-left: 0;
 }
 
 .dockable-workspace.dock-window-control .dock-window-drag-spacer {
@@ -5645,6 +5663,58 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     gap: var(--sp-1);
     z-index: 10;
     height: 100%;
+}
+
+/*
+ * macOS 红绿灯标题区：必须与右侧 Tab 栏同高对齐。
+ * 规则放在 unlayered，否则会被上方 .sidebar 的 padding 盖掉（@layer components 优先级更低）。
+ */
+html[data-platform="macos"] .app {
+    --sidebar-w: 72px;
+    /* 主壳右侧仅 AI 一键，勿再按 Windows 三键宽度占位（否则 AI 左侧/右侧会留空） */
+    --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac {
+    padding-top: 0;
+    padding-bottom: var(--sp-3);
+    gap: var(--sp-1);
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls.win-controls--mac {
+    width: calc(100% + 1px);
+    height: var(--shell-dv-tab-bar-h, var(--topbar-h));
+    min-height: var(--shell-dv-tab-bar-h, var(--topbar-h));
+    max-height: var(--shell-dv-tab-bar-h, var(--topbar-h));
+    margin: 0 -1px 0 0;
+    padding: 0 0 0 16px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    box-sizing: border-box;
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn {
+    -webkit-app-region: no-drag;
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-logo {
+    width: 32px;
+    height: 32px;
+    margin-top: var(--sp-3);
+    margin-bottom: var(--sp-3);
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-item {
+    width: 36px;
+    height: 36px;
 }
 
 .sidebar-logo {
@@ -8088,28 +8158,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         opacity: 1;
     }
 
-    /*
-     * 主壳左侧栏顶部：与右侧 Tab 栏同高、同底色，形成连续标题区；
-     * 向右延伸 1px 盖住侧栏右边框，避免标题带被竖线切开。
-     */
-    .sidebar-win-controls.win-controls--mac {
-        width: calc(100% + 1px);
-        height: var(--topbar-h);
-        min-height: var(--topbar-h);
-        max-height: var(--topbar-h);
-        margin: 0 -1px 0 0;
-        padding: 0 0 0 16px;
-        justify-content: flex-start;
-        background: var(--bg);
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-        box-sizing: border-box;
-        -webkit-app-region: drag;
-    }
-
-    .sidebar-win-controls.win-controls--mac .win-btn {
-        -webkit-app-region: no-drag;
-    }
+    /* 侧栏红绿灯高度/padding 见文件前部 unlayered 规则（须压过 .sidebar padding） */
 
     .dock-mac-traffic-lights.win-controls--mac {
         height: 100%;
@@ -8118,31 +8167,6 @@ button.omni-btn-tool[aria-pressed="true"] {
         padding-left: 16px;
         padding-right: 10px;
         margin: 0;
-    }
-
-    html[data-platform="macos"] .app {
-        /* 略加宽侧栏，保证 12+8+12+8+12 与左右内边距不被挤压 */
-        --sidebar-w: 72px;
-        /* 右侧仅保留 AI / 设置等 chrome 按钮占位 */
-        --shell-win-controls-width: 76px;
-    }
-
-    html[data-platform="macos"] .sidebar.sidebar--mac {
-        padding-top: 0;
-        padding-bottom: var(--sp-3);
-        gap: var(--sp-1);
-    }
-
-    html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-logo {
-        width: 32px;
-        height: 32px;
-        margin-top: var(--sp-3);
-        margin-bottom: var(--sp-3);
-    }
-
-    html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-item {
-        width: 36px;
-        height: 36px;
     }
 
     html[data-platform="macos"] .dock-prefix-actions {
@@ -23838,6 +23862,11 @@ textarea.content-preview-text--editable {
     --shell-win-controls-width: 138px;
 }
 
+html[data-platform="macos"] .workspace-window-root {
+    /* 独立工作区窗：右侧无 Windows 三键，仅 AI */
+    --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+}
+
 .workspace-preview--detached.workspace-preview--fullscreen .workspace-preview__bottom-stack {
     position: absolute !important;
     top: 0 !important;
@@ -25095,6 +25124,11 @@ html.module-window-root #root {
     color: var(--fg);
     --shell-dv-tab-bar-h: var(--topbar-h);
     --shell-win-controls-width: 138px;
+}
+
+html[data-platform="macos"] .module-window {
+    /* 模块窗：AI + 设置，无 Windows 三键 */
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
 
 /* 模块窗内复用主窗 .workspace AI 侧栏布局（脱离 .app 网格） */

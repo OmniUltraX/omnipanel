@@ -1,11 +1,12 @@
 import { useAiStore } from "../../stores/aiStore";
 import { useI18n } from "../../i18n";
+import { formatModShortcut } from "../../lib/platform";
 
 /** Dock 右上角窗口控制旁的 AI 助手入口 */
 export function AiChromeButton() {
   const { t } = useI18n();
   const drawerOpen = useAiStore((s) => s.drawerOpen);
-  const label = t("shell.topbar.aiAssistant", { shortcut: "Ctrl+`" });
+  const label = t("shell.topbar.aiAssistant", { shortcut: formatModShortcut("`") });
 
   return (
     <button

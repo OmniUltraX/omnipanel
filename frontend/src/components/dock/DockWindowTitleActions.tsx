@@ -66,15 +66,24 @@ export function DockWindowChromeActions({ mode, leftActions }: DockWindowChromeA
   const showDrag = mode === "drag" || mode === "both";
   const showControls = mode === "controls" || mode === "both";
   // macOS 红绿灯改由 Sidebar（主壳）或 dock 前缀区（独立窗）托管，右侧不再重复
-  const showWinControls = showControls && !usesMacTrafficLights();
+  const mac = usesMacTrafficLights();
+  const showWinControls = showControls && !mac;
 
-  if (!showDrag && !showWinControls && !leftActions && !(showControls && usesMacTrafficLights())) {
+  if (!showDrag && !showWinControls && !leftActions && !(showControls && mac)) {
     return null;
   }
 
   return (
     <div
-      className={`dock-window-title-actions drag-ignore${showWinControls && !showDrag ? " dock-window-title-actions--controls-only" : ""}${aiDockOpen ? " dock-window-title-actions--ai-dock-open" : ""}`}
+      className={[
+        "dock-window-title-actions",
+        "drag-ignore",
+        showWinControls && !showDrag ? "dock-window-title-actions--controls-only" : "",
+        aiDockOpen ? "dock-window-title-actions--ai-dock-open" : "",
+        mac ? "dock-window-title-actions--mac" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-tauri-drag-region="false"
       onDoubleClick={handleDoubleClick}
     >
