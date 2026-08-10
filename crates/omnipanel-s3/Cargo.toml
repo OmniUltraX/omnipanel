@@ -1,0 +1,21 @@
+[package]
+name = "omnipanel-s3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "S3 对象存储客户端：AWS/阿里云 OSS/腾讯云 COS/七牛 Kodo，SigV4 自签 + rust-s3 双路径（从桌面端 src-tauri 下沉复用）"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+reqwest = { workspace = true }
+omnipanel-error = { path = "../omnipanel-error" }
+chrono = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+percent-encoding = "2"
+hex = { workspace = true }
+quick-xml = { version = "0.32", features = ["serialize"] }
+rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }

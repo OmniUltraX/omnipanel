@@ -89,6 +89,28 @@ cd frontend && npm run tauri dev
 cd frontend && npm run dev
 ```
 
+### 🌐 Web 模式（P0：前后端分离）
+
+同一套前端产物、同一个 Rust 后端能力，浏览器直接打开即用（本地终端/SSH/Docker 等操作发生在服务端所在机器）：
+
+```bash
+# 1. 构建 Web 版前端（把 @tauri-apps/api 替换为 HTTP/WS 桥）
+cd frontend && OMNIPANEL_WEB=1 npm run build && cd ..
+
+# 2. 启动 Web 服务端（内嵌静态托管 + /ipc/invoke + WS 事件流）
+cargo run -p omnipanel-server -- --static-dir frontend/dist --port 8899
+
+# 3. 浏览器打开 http://127.0.0.1:8899
+```
+
+架构：不改任何业务代码，只把 `invoke`/`listen` 的底层传输从 Tauri IPC 换成 HTTP + WebSocket：
+
+- `POST /ipc/invoke`：`{ cmd, args }` → 命令分发（等价 Tauri `invoke`）
+- `WS /ipc/events`：后端事件广播（等价 Tauri `listen`）
+- `GET /`：静态托管 `frontend/dist`
+
+P0 已打通本地终端链路（`create_terminal`/`write_terminal`/`resize_terminal`/`close_terminal`/`terminal_snapshot`/`list_shells`），其余模块命令按 `crates/omnipanel-server/src/ipc.rs` 的 match 渐进接入。桌面端（`tauri build`）不受任何影响。
+
 ### 📁 项目结构
 
 ```

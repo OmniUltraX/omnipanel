@@ -13,6 +13,8 @@ members = [
     "crates/omnipanel-ai",
     "crates/omnipanel-mcp",
     "crates/omnipanel-gateway",
+    "crates/omnipanel-s3",
+    "crates/omnipanel-server",
 ]
 
 [workspace.package]
