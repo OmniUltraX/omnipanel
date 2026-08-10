@@ -93,6 +93,36 @@ async fn live_multipart_upload() {
 
 #[tokio::test]
 #[ignore = "需要本地 mock S3 服务器"]
+async fn live_multipart_copy() {
+    let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
+
+    // 准备源对象（8MB，分 2 片 5MB 复制）
+    let payload: Vec<u8> = (0..8 * 1024 * 1024)
+        .map(|i| (i % 249) as u8)
+        .collect();
+    client
+        .upload_object_multipart("live-copy/src.bin", &payload, 1024 * 1024)
+        .await
+        .expect("upload src");
+
+    // 服务端分片复制：8MB 对象，part_size 5MB → 2 片
+    let copied = client
+        .copy_object_multipart("live-copy/src.bin", "live-copy/dst.bin", payload.len() as u64, 5 * 1024 * 1024)
+        .await
+        .expect("multipart copy");
+    assert_eq!(copied as usize, payload.len());
+
+    // 读回校验内容一致
+    let data = client.get_object("live-copy/dst.bin").await.expect("get dst");
+    assert_eq!(data, payload);
+
+    // 清理
+    client.delete_object("live-copy/src.bin").await.expect("cleanup src");
+    client.delete_object("live-copy/dst.bin").await.expect("cleanup dst");
+}
+
+#[tokio::test]
+#[ignore = "需要本地 mock S3 服务器"]
 async fn live_multipart_abort() {
     let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
 

@@ -105,11 +105,13 @@ class Handler(BaseHTTPRequestHandler):
             key = p.lstrip("/")
         return key, parse_qs(parsed.query)
 
-    def _send_xml(self, xml, status=200):
+    def _send_xml(self, xml, status=200, headers=None):
         body = xml.encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/xml")
         self.send_header("Content-Length", str(len(body)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -187,12 +189,46 @@ class Handler(BaseHTTPRequestHandler):
             self._send_empty(204)
             return True
 
-        # PUT ?uploadId&partNumber → UploadPart
+        # PUT ?uploadId&partNumber → UploadPart 或 UploadPartCopy
         if method == "PUT" and part_number:
-            length = int(self.headers.get("Content-Length", "0"))
-            data = self.rfile.read(length) if length > 0 else b""
+            # UploadPartCopy：x-amz-copy-source 可选 + x-amz-copy-source-range
+            copy_source = self.headers.get("x-amz-copy-source")
+            copy_range = self.headers.get("x-amz-copy-source-range")
             d = self._multipart_dir(upload_id)
             os.makedirs(d, exist_ok=True)
+            if copy_source:
+                src = copy_source.lstrip("/")
+                if src.startswith(BUCKET + "/"):
+                    src = src[len(BUCKET) + 1:]
+                src_full = os.path.join(DATA_DIR, src)
+                if not os.path.isfile(src_full):
+                    self._send_xml(XML_HEADER + "<Error><Code>NoSuchKey</Code><Message>copy source missing</Message></Error>", 404)
+                    return True
+                with open(src_full, "rb") as f:
+                    content = f.read()
+                # 应用 copy-range：bytes=start-end
+                if copy_range:
+                    m = re.match(r"bytes=(\d+)-(\d*)", copy_range)
+                    if m:
+                        start = int(m.group(1))
+                        end_str = m.group(2)
+                        end = int(end_str) if end_str else len(content) - 1
+                        end = min(end, len(content) - 1)
+                        if start > end:
+                            self._send_xml(XML_HEADER + "<Error><Code>InvalidRange</Code></Error>", 416)
+                            return True
+                        content = content[start:end + 1]
+                with open(os.path.join(d, f"part-{part_number}"), "wb") as f:
+                    f.write(content)
+                etag = f'"part-{part_number}-copy"'
+                self._send_xml(
+                    XML_HEADER + f"<CopyPartResult><ETag>{etag}</ETag></CopyPartResult>",
+                    200,
+                    headers={"ETag": etag},
+                )
+                return True
+            length = int(self.headers.get("Content-Length", "0"))
+            data = self.rfile.read(length) if length > 0 else b""
             with open(os.path.join(d, f"part-{part_number}"), "wb") as f:
                 f.write(data)
             self._send_empty(200, headers={"ETag": f'"part-{part_number}"'})

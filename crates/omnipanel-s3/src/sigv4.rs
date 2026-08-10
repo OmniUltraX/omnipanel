@@ -634,6 +634,52 @@ impl SigV4Client {
             .ok_or_else(|| OmniError::new(ErrorCode::Io, "OSS 分片上传响应缺少 ETag"))
     }
 
+    /// 服务端分片复制（`PUT ?partNumber=&uploadId=` + `x-amz-copy-source`）。
+    ///
+    /// `copy_source`：`/bucket/key`（同桶可省略 bucket，写 `/key` 亦可，服务端按桶解析）。
+    /// `copy_range`：可选，`bytes=start-end`（用于大对象按分片范围复制）。
+    /// 返回 ETag。
+    pub async fn upload_part_copy(
+        &self,
+        key: &str,
+        part_number: u32,
+        upload_id: &str,
+        copy_source: &str,
+        copy_range: Option<&str>,
+    ) -> Result<String, OmniError> {
+        let uri = canonical_object_uri(key);
+        let pairs = vec![
+            ("partNumber".to_string(), part_number.to_string()),
+            ("uploadId".to_string(), upload_id.to_string()),
+        ];
+        let mut headers = vec![("x-amz-copy-source", copy_source)];
+        if let Some(range) = copy_range {
+            headers.push(("x-amz-copy-source-range", range));
+        }
+        // UploadPartCopy 无请求体：SHA256 为空串
+        let (resp, sig_debug) = self.signed_request("PUT", &uri, &pairs, &[], &headers).await?;
+        let status = resp.status().as_u16();
+        let body = resp.bytes().await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取分片复制响应失败").with_cause(e.to_string())
+        })?;
+        if !(200..300).contains(&status) {
+            let text = String::from_utf8_lossy(&body);
+            return Err(http_error_with_sig_debug(
+                &format!("uploadPartCopy#{part_number}"),
+                status,
+                &text,
+                &sig_debug,
+            ));
+        }
+        let text = String::from_utf8_lossy(&body);
+        // 响应体为 CopyPartResult XML，内含 <ETag>..</ETag>
+        xml_tag(&text, "ETag")
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                OmniError::new(ErrorCode::Io, "OSS 分片复制响应缺少 ETag").with_cause(text.into_owned())
+            })
+    }
+
     /// 完成分块上传（`POST ?uploadId=` + CompleteMultipartUpload XML）。
     pub async fn complete_multipart_upload(
         &self,
@@ -727,6 +773,24 @@ impl SigV4Client {
             ));
         }
         Ok(())
+    }
+
+    /// HEAD 对象返回 `Content-Length`（字节）。
+    pub async fn head_object_size(&self, key: &str) -> Result<u64, OmniError> {
+        let uri = canonical_object_uri(key);
+        let (resp, sig_debug) = self.signed_request("HEAD", &uri, &[], &[], &[]).await?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(http_error_with_sig_debug("headObject", status, &text, &sig_debug));
+        }
+        let len = resp
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        Ok(len)
     }
 
     /// HEAD 对象（用于连接探测）。

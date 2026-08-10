@@ -205,11 +205,17 @@ struct DbArgs {
 /// - Native 工具：完全一致（`ToolRegistry::execute_isolated`）；
 /// - 服务端可自执的 UiDelegated 工具（SSH / Docker / DB / Files）：直接调用本 crate 命令，
 ///   不经浏览器回传；
-/// - 纯 UI 工具 / 外部 MCP：返回明确错误。
+/// - 纯 UI 工具：返回明确错误；
+/// - 外部 MCP：默认需审批（`state.mcp_external_require_approval`，默认 true）。
+///   - 关闭审批：服务端直接 `call_service_tool` 自执；
+///   - 开启审批：注册 pending 通道，经 WS 事件通知浏览器弹出审批，
+///     浏览器 `ai_chat_tool_result` 回传 `approved` 后执行/拒绝。
 pub struct ServerToolExecutor<'a> {
     state: &'a ServerState,
     /// 与本次请求 `tools_mode.module_filter` 一致；执行期二次校验，防止模型越权调用。
     module_filter: Option<String>,
+    /// 当前对话 id（审批通道 key 前缀）。
+    conversation_id: String,
 }
 
 impl<'a> ServerToolExecutor<'a> {
@@ -217,6 +223,73 @@ impl<'a> ServerToolExecutor<'a> {
         Self {
             state,
             module_filter,
+            conversation_id: String::new(),
+        }
+    }
+
+    /// 绑定会话 id（审批通道 key 用 `conversation_id:tool_call_id`）。
+    pub fn with_conversation(mut self, conversation_id: String) -> Self {
+        self.conversation_id = conversation_id;
+        self
+    }
+
+    /// 外部 MCP 工具需审批：注册 pending 通道并等待浏览器 `ai_chat_tool_result` 回传。
+    /// 审批通过后才真正 `call_service_tool`；拒绝/超时返回明确错误。
+    async fn execute_external_with_approval(
+        &self,
+        tool_call_id: &str,
+        service_id: &str,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> (String, bool) {
+        let key = format!("{}:{}", self.conversation_id, tool_call_id);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.state
+            .pending_internal_tool_results
+            .lock()
+            .await
+            .insert(key.clone(), tx);
+
+        // 经 WS 事件总线广播审批请求，前端据此弹出审批（对齐桌面端 ToolCallUpdate::Pending
+        // 语义；浏览器收到后调 ai_chat_tool_result）。
+        self.state.bus.emit(
+            "tool-approval-required",
+            serde_json::json!({
+                "conversationId": self.conversation_id,
+                "toolCallId": tool_call_id,
+                "toolName": format!("{service_id}::{tool_name}"),
+                "arguments": args,
+            }),
+        );
+
+        match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
+            Ok(Ok((_result, true))) => {
+                // 审批通过 → 服务端自执
+                let manager = match self.state.ensure_mcp_manager().await {
+                    Some(m) => m,
+                    None => {
+                        return (
+                            format!("Error: 外部 MCP 管理器不可用（无法调用 {service_id}::{tool_name}）"),
+                            false,
+                        )
+                    }
+                };
+                let manager = manager.lock().await;
+                match manager.call_service_tool(service_id, tool_name, args).await {
+                    Ok(outcome) => (outcome.content.clone(), !outcome.is_error),
+                    Err(err) => (format!("Error: {err}"), false),
+                }
+            }
+            Ok(Ok((result, false))) => (result, false), // 用户拒绝：回传拒绝理由
+            Ok(Err(_)) => ("工具响应通道已关闭".to_string(), false),
+            Err(_) => {
+                self.state
+                    .pending_internal_tool_results
+                    .lock()
+                    .await
+                    .remove(&key);
+                ("外部工具审批超时（300s）".to_string(), false)
+            }
         }
     }
 }
@@ -268,6 +341,17 @@ impl<'a> ToolExecutor for ServerToolExecutor<'a> {
         if let Some((service_id, tool_name)) =
             omnipanel_mcp::external::parse_registry_tool_name(name)
         {
+            // P5：审批开关。默认需审批（与桌面端一致），浏览器 `ai_chat_tool_result` 回传。
+            if self
+                .state
+                .mcp_external_require_approval
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return self
+                    .execute_external_with_approval(_tool_call_id, &service_id, &tool_name, args)
+                    .await;
+            }
+            // 关闭审批：服务端直接自执
             let manager = match self.state.ensure_mcp_manager().await {
                 Some(m) => m,
                 None => {

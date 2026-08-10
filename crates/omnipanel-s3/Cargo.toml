@@ -11,6 +11,7 @@ serde_json.workspace = true
 tracing.workspace = true
 tokio.workspace = true
 reqwest = { workspace = true }
+http = { workspace = true }
 omnipanel-error = { path = "../omnipanel-error" }
 chrono = "0.4"
 hmac = "0.12"

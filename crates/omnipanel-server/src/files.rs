@@ -1252,6 +1252,74 @@ pub async fn file_rename(
     }
 }
 
+/// S3 服务端复制（同一连接内 `from_path` → `to_path`，完全不经本机）。
+///
+/// - 小对象（≤8MB 或单次 CopyObject 成功）走 `copy_object_internal`；
+/// - 大对象走 `copy_object_multipart`（UploadPartCopy 分片直传，规避 5GB 单次拷贝上限）。
+/// 返回复制后的对象大小（字节）。
+pub async fn file_s3_copy_object(
+    state: &ServerState,
+    connection_id: String,
+    from_path: String,
+    to_path: String,
+) -> Result<u64, String> {
+    if connection_id == LOCAL_CONNECTION_ID {
+        return Err("本地连接不支持 S3 服务端复制".to_string());
+    }
+    let conn = load_file_connection(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("连接不存在: {connection_id}"))?;
+    let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
+    if protocol_of(&cfg) != "s3" {
+        return Err("file_s3_copy_object 仅支持 S3 连接".to_string());
+    }
+    let secret = resolve_secret(&conn).unwrap_or_default();
+    let client = s3_client_for(&cfg, &secret)?;
+    let from_key = s3_object_key(&from_path);
+    let to_key = s3_object_key(&to_path);
+
+    // 先尝试单次服务端拷贝（5GB 内，rust-s3 路径）；失败或为 SigV4 路径时按大小分片复制。
+    // SigV4 路径（阿里云/七牛）单次 CopyObject 本身不支持，直接走 multipart。
+    let object_size = {
+        // HEAD 获取源对象大小；拿不到时按 multipart 兜底（5MB 片）。
+        let size = client
+            .head_object_size(&from_key)
+            .await
+            .ok();
+        match size {
+            Some(sz) => sz,
+            None => {
+                // 无法 HEAD：尝试单次拷贝；失败再报错
+                client
+                    .copy_object_internal(&from_key, &to_key)
+                    .await
+                    .map_err(|e| e.user_message())?;
+                return Ok(0);
+            }
+        }
+    };
+
+    // 小对象（≤5GB）且非 SigV4-only：单次服务端拷贝
+    if object_size <= 5 * 1024 * 1024 * 1024 {
+        if client
+            .copy_object_internal(&from_key, &to_key)
+            .await
+            .is_ok()
+        {
+            return Ok(object_size);
+        }
+        // 回落到分片复制（SigV4 路径会在这里失败单次拷贝，落到此处）
+    }
+
+    // 大对象 / SigV4 路径：分片服务端复制
+    let copied = client
+        .copy_object_multipart(&from_key, &to_key, object_size, 8 * 1024 * 1024)
+        .await
+        .map_err(|e| e.user_message())?;
+    Ok(copied)
+}
+
 pub async fn file_delete(
     state: &ServerState,
     connection_id: String,
