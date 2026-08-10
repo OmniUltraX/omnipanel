@@ -230,7 +230,7 @@ export function Sidebar() {
   );
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${usesMacTrafficLights() ? " sidebar--mac" : ""}`}>
       {usesMacTrafficLights() ? (
         <WinControls className="sidebar-win-controls" />
       ) : null}
@@ -240,7 +240,7 @@ export function Sidebar() {
         title={logoTitle}
         onClick={() => toggleWorkspaceFromChromeIcon(navigate, location.pathname)}
       >
-        <AppLogo size={36} className="sidebar-logo__img" />
+        <AppLogo size={usesMacTrafficLights() ? 32 : 36} className="sidebar-logo__img" />
       </button>
 
       {navPaths.filter((item) => isModulePathEnabled(item.path)).map(renderItem)}
