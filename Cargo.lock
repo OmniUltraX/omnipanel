@@ -4774,6 +4774,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-s3"
+version = "0.0.5"
+dependencies = [
+ "chrono",
+ "hex",
+ "hmac 0.12.1",
+ "omnipanel-error",
+ "percent-encoding",
+ "quick-xml 0.32.0",
+ "reqwest 0.12.28",
+ "rust-s3",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "omnipanel-server"
 version = "0.0.5"
 dependencies = [
@@ -4790,6 +4809,7 @@ dependencies = [
  "omnipanel-docker",
  "omnipanel-error",
  "omnipanel-mcp",
+ "omnipanel-s3",
  "omnipanel-ssh",
  "omnipanel-store",
  "reqwest 0.12.28",

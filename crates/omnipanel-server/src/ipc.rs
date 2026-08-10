@@ -607,7 +607,14 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             let path = get_str(&args, "path").unwrap_or_default();
             let search = args.get("search").and_then(|v| v.as_str()).map(str::to_string);
-            respond(crate::files::file_list_dir(state, connection_id, path, search).await)
+            let continuation_token = args.get("continuationToken").and_then(|v| v.as_str()).map(str::to_string);
+            respond(crate::files::file_list_dir(state, connection_id, path, search, continuation_token).await)
+        }
+        "file_s3_search" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let query = get_str(&args, "query").unwrap_or_default();
+            let continuation_token = args.get("continuationToken").and_then(|v| v.as_str()).map(str::to_string);
+            respond(crate::files::file_s3_search(state, connection_id, query, continuation_token).await)
         }
         "file_read_file" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();

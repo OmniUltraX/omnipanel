@@ -5,15 +5,14 @@
 //!
 //! - **local ↔ SFTP**：分块流式（不整文件进内存），支持断点续传
 //!   （partial 文件 + offset 续写，复用 `omnipanel-ssh` 的 resume 原语）；
-//! - **SFTP ↔ SFTP**：源连接下载分块 → 目标连接上传分块（服务端中转）。
+//! - **SFTP ↔ SFTP**：源连接下载分块 → 目标连接上传分块（服务端中转，偏移续写）；
+//! - **S3 参与**：local/SFTP ↔ S3（get/put 中转）、S3 ↔ S3 同桶服务端拷贝优先
+//!   （复制不可用或跨桶时回落内存 relay）。
 //! - 进度经 `files-transfer-progress` 事件广播（对齐桌面端事件名）。
 //!
 //! 诚实边界：
 //! - 不做 RemoteDirect（两远端之间直连，需要双方都可达对方的公网地址，Web 无头
-//!   场景通常不具备）；FastPath（同连接内服务端拷贝）仅在 S3 同桶服务端拷贝场景
-//!   存在，Web 端 S3 未集成，故不实现。
-//! - 不支持 FTP/S3（Web 端 `files.rs` 目前 local + SFTP；FTP/S3 见 `files.rs` 的
-//!   协议扩展边界）。
+//!   场景通常不具备）。
 //! - 大文件 relay 的带宽是服务端出口带宽，与桌面端一致（传输发生在服务端机器上）。
 
 use std::path::Path;
@@ -21,11 +20,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use omnipanel_error::{ErrorCode, OmniError};
+use omnipanel_s3::S3Config;
 use serde::{Deserialize, Serialize};
 
 use crate::files::{
-    LOCAL_CONNECTION_ID, load_file_connection, parse_file_config, resolve_local_path,
-    sftp_session_for,
+    LOCAL_CONNECTION_ID, load_file_connection, parse_file_config, protocol_of, resolve_local_path,
+    resolve_secret, sftp_session_for,
 };
 use crate::state::ServerState;
 
@@ -193,6 +193,49 @@ async fn source_sftp_session(
     sftp_session_for(state, connection_id, &conn, &cfg).await
 }
 
+/// 按连接 id 构造 S3 客户端（凭据走 Vault 注入）。非 S3 连接返回错误。
+async fn s3_client_for_connection(
+    state: &ServerState,
+    connection_id: &str,
+) -> Result<omnipanel_s3::S3Client, OmniError> {
+    let conn = load_file_connection(state, connection_id)
+        .await?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
+    let cfg = parse_file_config(&conn)?;
+    if protocol_of(&cfg) != "s3" {
+        return Err(OmniError::invalid_input(format!(
+            "连接不是 S3 类型: {connection_id}"
+        )));
+    }
+    let secret = resolve_secret(&conn).unwrap_or_default();
+    let s3_cfg = S3Config {
+        bucket: cfg.bucket.clone(),
+        provider: cfg.provider.clone(),
+        region: cfg.region.clone(),
+        endpoint: cfg.endpoint.clone(),
+        access_key: cfg.access_key.clone(),
+        prefix: cfg.prefix.clone(),
+    };
+    omnipanel_s3::S3Client::new(s3_cfg, secret)
+}
+
+/// 连接协议（local / sftp / ftp / s3）。
+async fn connection_protocol(state: &ServerState, connection_id: &str) -> Result<String, OmniError> {
+    if connection_id == LOCAL_CONNECTION_ID {
+        return Ok("local".to_string());
+    }
+    let conn = load_file_connection(state, connection_id)
+        .await?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
+    let cfg = parse_file_config(&conn)?;
+    Ok(protocol_of(&cfg).to_string())
+}
+
+/// S3 object key：去开头 `/`。
+fn s3_key(path: &str) -> String {
+    path.trim_start_matches('/').to_string()
+}
+
 /// 目标为 SFTP 时上传本地文件（支持断点续传）。
 async fn relay_sftp_dest(
     state: &ServerState,
@@ -294,6 +337,155 @@ async fn relay_sftp_sftp(
     Ok(total)
 }
 
+/// 下载源连接文件到本地临时文件，返回 (temp 路径, 字节数)。
+/// 源协议：local 直接路径 / SFTP 下载 / S3 get。
+async fn source_to_local_temp(
+    state: &ServerState,
+    source_connection_id: &str,
+    source_path: &str,
+    job_id: &str,
+    cancel: &AtomicBool,
+) -> Result<(std::path::PathBuf, u64), OmniError> {
+    let proto = connection_protocol(state, source_connection_id).await?;
+    match proto.as_str() {
+        "local" => {
+            let src = resolve_local_path(source_path)?;
+            if !src.exists() {
+                return Err(OmniError::new(ErrorCode::NotFound, "源文件不存在"));
+            }
+            let len = tokio::fs::metadata(&src).await.map(|m| m.len()).unwrap_or(0);
+            Ok((src, len))
+        }
+        "sftp" => {
+            let session = source_sftp_session(state, source_connection_id).await?;
+            let temp = std::env::temp_dir().join(format!("{job_id}.src"));
+            session
+                .sftp_download_to_file(source_path, &temp)
+                .await?;
+            if cancel.load(Ordering::Relaxed) {
+                let _ = tokio::fs::remove_file(&temp).await;
+                return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
+            }
+            let len = tokio::fs::metadata(&temp).await.map(|m| m.len()).unwrap_or(0);
+            Ok((temp, len))
+        }
+        "s3" => {
+            let client = s3_client_for_connection(state, source_connection_id).await?;
+            let data = client.get_object(&s3_key(source_path)).await?;
+            if cancel.load(Ordering::Relaxed) {
+                return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
+            }
+            let temp = std::env::temp_dir().join(format!("{job_id}.src"));
+            tokio::fs::write(&temp, &data).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "写入本地临时文件失败").with_cause(e.to_string())
+            })?;
+            let len = data.len() as u64;
+            Ok((temp, len))
+        }
+        other => Err(OmniError::invalid_input(format!(
+            "不支持的源协议: {other}"
+        ))),
+    }
+}
+
+/// 将本地临时文件上传到目标连接。目标协议：local / sftp / s3。
+async fn local_temp_to_dest(
+    state: &ServerState,
+    dest_connection_id: &str,
+    dest_path: &str,
+    temp: &std::path::Path,
+    resume: bool,
+    cancel: &AtomicBool,
+) -> Result<u64, OmniError> {
+    let proto = connection_protocol(state, dest_connection_id).await?;
+    match proto.as_str() {
+        "local" => {
+            if let Some(parent) = Path::new(dest_path).parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "创建本地目标目录失败").with_cause(e.to_string())
+                })?;
+            }
+            tokio::fs::copy(temp, dest_path).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "本地复制失败").with_cause(e.to_string())
+            })?;
+            let meta = tokio::fs::metadata(dest_path).await.ok();
+            Ok(meta.map(|m| m.len()).unwrap_or(0))
+        }
+        "sftp" => relay_sftp_dest(state, dest_connection_id, dest_path, temp, resume, cancel).await,
+        "s3" => {
+            let client = s3_client_for_connection(state, dest_connection_id).await?;
+            let data = tokio::fs::read(temp).await.map_err(|e| {
+                OmniError::new(ErrorCode::Io, "读取本地临时文件失败").with_cause(e.to_string())
+            })?;
+            client.put_object(&s3_key(dest_path), &data).await?;
+            Ok(data.len() as u64)
+        }
+        other => Err(OmniError::invalid_input(format!(
+            "不支持的目标协议: {other}"
+        ))),
+    }
+}
+
+/// S3 → S3 中继：同桶服务端拷贝优先，否则内存 relay。
+async fn relay_s3_s3(
+    state: &ServerState,
+    source_connection_id: &str,
+    source_path: &str,
+    dest_connection_id: &str,
+    dest_path: &str,
+    cancel: &AtomicBool,
+) -> Result<u64, OmniError> {
+    let src_client = s3_client_for_connection(state, source_connection_id).await?;
+    let dst_client = s3_client_for_connection(state, dest_connection_id).await?;
+    let src_key = s3_key(source_path);
+    let dst_key = s3_key(dest_path);
+
+    // 同桶：尝试服务端拷贝（不经本机）
+    if source_connection_id == dest_connection_id
+        || same_bucket_and_endpoint(state, source_connection_id, dest_connection_id).await?
+    {
+        if src_client
+            .copy_object_internal(&src_key, &dst_key)
+            .await
+            .is_ok()
+        {
+            // head 无法拿到 Content-Length（rust-s3 head 只返回状态码）；
+            // 返回 0 表示无法精确计量，进度事件用 bytesTotal=None 处理。
+            let _ = cancel.load(Ordering::Relaxed);
+            return Ok(0);
+        }
+    }
+
+    // 跨桶/服务端拷贝不可用：内存 relay（S3 对象通常可整载；大文件由上层限制）
+    let data = src_client.get_object(&src_key).await?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
+    }
+    dst_client.put_object(&dst_key, &data).await?;
+    Ok(data.len() as u64)
+}
+
+/// 判断两个 S3 连接是否同 bucket + 同 endpoint（用于服务端拷贝判定）。
+async fn same_bucket_and_endpoint(
+    state: &ServerState,
+    a: &str,
+    b: &str,
+) -> Result<bool, OmniError> {
+    let conn_a = load_file_connection(state, a)
+        .await?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
+    let conn_b = load_file_connection(state, b)
+        .await?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
+    let cfg_a = parse_file_config(&conn_a)?;
+    let cfg_b = parse_file_config(&conn_b)?;
+    let ep_a = omnipanel_s3::normalize_s3_api_endpoint(&cfg_a.endpoint, &cfg_a.bucket);
+    let ep_b = omnipanel_s3::normalize_s3_api_endpoint(&cfg_b.endpoint, &cfg_b.bucket);
+    Ok(cfg_a.bucket.trim() == cfg_b.bucket.trim()
+        && ep_a.eq_ignore_ascii_case(&ep_b)
+        && cfg_a.access_key.trim() == cfg_b.access_key.trim())
+}
+
 /// 启动一个 relay 传输（后台任务，返回 job id）。
 ///
 /// 进度经 `files-transfer-progress` 事件广播：`{ jobId, state, bytesDone, bytesTotal, progress, error }`。
@@ -330,7 +522,44 @@ pub async fn transfer_start(
     tokio::spawn(async move {
         emit_progress(&bus, &job_id, TransferState::Running, 0.0, None, None);
         let result: Result<u64, OmniError> = async {
-            if dest_connection_id == LOCAL_CONNECTION_ID {
+            let dest_proto =
+                connection_protocol(&state_ref, &dest_connection_id).await?;
+            let source_proto =
+                connection_protocol(&state_ref, &source_connection_id).await?;
+
+            if dest_proto == "s3" && source_proto == "s3" {
+                relay_s3_s3(
+                    &state_ref,
+                    &source_connection_id,
+                    &source_path,
+                    &dest_connection_id,
+                    &dest_path,
+                    &cancel_flag,
+                )
+                .await
+            } else if dest_proto == "s3" || source_proto == "s3" {
+                // local/SFTP ↔ S3：经本地临时文件中转（S3 get/put）
+                let (temp, _len) = source_to_local_temp(
+                    &state_ref,
+                    &source_connection_id,
+                    &source_path,
+                    &job_id,
+                    &cancel_flag,
+                )
+                .await?;
+                let cleanup = temp.clone();
+                let n = local_temp_to_dest(
+                    &state_ref,
+                    &dest_connection_id,
+                    &dest_path,
+                    &temp,
+                    resume,
+                    &cancel_flag,
+                )
+                .await;
+                let _ = tokio::fs::remove_file(&cleanup).await;
+                n
+            } else if dest_connection_id == LOCAL_CONNECTION_ID {
                 relay_local_dest(
                     &state_ref,
                     &source_connection_id,

@@ -29,6 +29,7 @@ omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }
 omnipanel-mcp = { path = "../omnipanel-mcp" }
+omnipanel-s3 = { path = "../omnipanel-s3" }
 bollard = { workspace = true }
 reqwest = { workspace = true }
 suppaftp = { version = "6", default-features = false, features = ["rustls"] }

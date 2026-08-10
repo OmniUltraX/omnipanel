@@ -622,6 +622,7 @@ async fn files_list(state: &ServerState, args: &FilesListArgs) -> Result<String,
         args.connection_id.clone(),
         args.path.clone(),
         args.search.clone(),
+        None,
     )
     .await?;
     Ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()))
@@ -680,6 +681,7 @@ async fn files_search(state: &ServerState, args: &FilesSearchArgs) -> Result<Str
         args.connection_id.clone(),
         start,
         Some(args.query.clone()),
+        None,
     )
     .await?;
     Ok(serde_json::to_string_pretty(&list).unwrap_or_else(|_| "{}".to_string()))

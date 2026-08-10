@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
+use omnipanel_s3::{S3Client, S3Config};
 use omnipanel_ssh::{SshAuth, SshConfig, SshSession, ssh_config_from_json};
 use omnipanel_store::{Connection, ConnectionKind, Vault, inject_ssh_vault_into_config};
 use serde::{Deserialize, Serialize};
@@ -275,6 +276,17 @@ pub struct FileConnConfig {
     pub ssh_connection_id: Option<String>,
     #[serde(default)]
     pub bucket: String,
+    /// aws | aliyun | tencent | qiniu；缺省 aws（兼容旧连接）
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub region: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default, rename = "accessKey")]
+    pub access_key: String,
+    #[serde(default)]
+    pub prefix: String,
 }
 
 pub(crate) fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, OmniError> {
@@ -292,6 +304,148 @@ pub(crate) fn protocol_of(cfg: &FileConnConfig) -> &str {
     }
 }
 
+/// 构造 S3 客户端（凭据走 Vault 注入）。
+fn s3_client_for(cfg: &FileConnConfig, secret: &str) -> Result<S3Client, String> {
+    let s3_cfg = S3Config {
+        bucket: cfg.bucket.clone(),
+        provider: cfg.provider.clone(),
+        region: cfg.region.clone(),
+        endpoint: cfg.endpoint.clone(),
+        access_key: cfg.access_key.clone(),
+        prefix: cfg.prefix.clone(),
+    };
+    S3Client::new(s3_cfg, secret.to_string()).map_err(|e| e.user_message())
+}
+
+/// S3 object key：去掉开头 `/`。
+fn s3_object_key(path: &str) -> String {
+    path.trim_start_matches('/').to_string()
+}
+
+/// 目录前缀：S3 目录以 `/` 结尾（对齐桌面端 normalize_s3_prefix）。
+fn s3_prefix_of(path: &str, cfg: &FileConnConfig) -> String {
+    let base = cfg.prefix.trim_matches('/');
+    let mut p = path.trim_matches('/').to_string();
+    if !base.is_empty() {
+        if let Some(rest) = p.strip_prefix(&base) {
+            p = rest.trim_matches('/').to_string();
+        }
+    }
+    if path.is_empty() || path == "/" || p.is_empty() {
+        if base.is_empty() {
+            return String::new();
+        }
+        return format!("{base}/");
+    }
+    if base.is_empty() {
+        format!("{p}/")
+    } else {
+        format!("{base}/{p}/")
+    }
+}
+
+/// S3 目录项 → 统一 FileEntry。
+fn s3_entry_to_file(name: &str, key: &str, is_dir: bool, size: u64) -> FileEntry {
+    FileEntry {
+        name: name.to_string(),
+        path: key.to_string(),
+        kind: if is_dir { "dir".into() } else { "file".into() },
+        size: size as f64,
+        modified: 0,
+        permissions: None,
+    }
+}
+
+/// 列出 S3 目录（Delimiter=/，含 CommonPrefixes 子目录与对象）。
+async fn list_s3_dir(
+    cfg: &FileConnConfig,
+    secret: &str,
+    path: &str,
+    search: Option<&str>,
+    start_token: Option<String>,
+) -> Result<FileListDirResult, String> {
+    let client = s3_client_for(cfg, secret)?;
+    let prefix = s3_prefix_of(path, cfg);
+    let search_q = search
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty());
+    let page = client
+        .list_objects_v2(prefix, Some("/".to_string()), start_token, Some(200))
+        .await
+        .map_err(|e| e.user_message())?;
+
+    let mut entries = Vec::new();
+    for cp in &page.common_prefixes {
+        let key = cp.trim_end_matches('/');
+        let name = key.rsplit('/').next().unwrap_or(key).to_string();
+        if search_q.as_ref().map_or(true, |q| name.to_lowercase().contains(q)) {
+            entries.push(s3_entry_to_file(&name, cp, true, 0));
+        }
+    }
+    for obj in &page.contents {
+        if obj.key.ends_with('/') {
+            continue;
+        }
+        let name = obj
+            .key
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or(&obj.key)
+            .to_string();
+        if search_q.as_ref().map_or(true, |q| name.to_lowercase().contains(q)) {
+            entries.push(s3_entry_to_file(&name, &obj.key, false, obj.size));
+        }
+    }
+    sort_file_entries(&mut entries);
+    Ok(FileListDirResult {
+        entries,
+        truncated: page.is_truncated,
+        next_continuation_token: page.next_continuation_token,
+    })
+}
+
+/// 删除 S3 前缀下全部对象（含子目录中的文件），并尝试删除目录占位对象。
+async fn delete_s3_prefix_recursive(
+    cfg: &FileConnConfig,
+    secret: &str,
+    prefix: &str,
+) -> Result<(), String> {
+    let client = s3_client_for(cfg, secret)?;
+    let prefix = if prefix.ends_with('/') {
+        prefix.to_string()
+    } else {
+        format!("{prefix}/")
+    };
+    let mut token: Option<String> = None;
+    loop {
+        let page = client
+            .list_objects_v2(prefix.clone(), None, token, Some(1000))
+            .await
+            .map_err(|e| e.user_message())?;
+        for obj in &page.contents {
+            client.delete_object(&obj.key).await.map_err(|e| e.user_message())?;
+        }
+        if !page.is_truncated {
+            break;
+        }
+        token = page.next_continuation_token.clone();
+        if token.is_none() {
+            break;
+        }
+    }
+    let _ = client.delete_object(&prefix).await;
+    Ok(())
+}
+
+/// 判定 S3 路径按目录删除。
+fn is_s3_prefix_delete_path(path: &str, entry_kind: Option<&str>) -> bool {
+    if entry_kind == Some("dir") {
+        return true;
+    }
+    s3_object_key(path).ends_with('/')
+}
+
 /// 连接 id → 连接模型（本机返回 None）。
 pub(crate) async fn load_file_connection(
     state: &ServerState,
@@ -304,7 +458,7 @@ pub(crate) async fn load_file_connection(
     Ok(storage.get_connection(connection_id)?)
 }
 
-fn resolve_secret(conn: &Connection) -> Option<String> {
+pub(crate) fn resolve_secret(conn: &Connection) -> Option<String> {
     conn.credential_ref
         .as_deref()
         .and_then(|r| Vault::get(r).ok())
@@ -602,6 +756,7 @@ pub async fn file_list_dir(
     connection_id: String,
     path: String,
     search: Option<String>,
+    continuation_token: Option<String>,
 ) -> Result<FileListDirResult, String> {
     if connection_id == LOCAL_CONNECTION_ID {
         let entries =
@@ -665,8 +820,137 @@ pub async fn file_list_dir(
                 next_continuation_token: None,
             })
         }
-        proto => Err(format!("Web 端暂不支持文件协议: {proto}（当前支持 local / sftp / ftp）")),
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let token = continuation_token
+                .as_deref()
+                .filter(|t| !t.is_empty())
+                .map(str::to_string);
+            list_s3_dir(&cfg, &secret, &path, search.as_deref(), token).await
+        }
+        proto => Err(format!("Web 端暂不支持文件协议: {proto}（当前支持 local / sftp / ftp / s3）")),
     }
+}
+
+/// 在 S3 连接存储桶内搜索：含 `/` 时按 key 前缀，否则按文件名子串匹配。
+pub async fn file_s3_search(
+    state: &ServerState,
+    connection_id: String,
+    query: String,
+    continuation_token: Option<String>,
+) -> Result<FileListDirResult, String> {
+    let conn = load_file_connection(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("连接不存在: {connection_id}"))?;
+    let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
+    if protocol_of(&cfg) != "s3" {
+        return Err("仅 S3 连接支持此搜索".to_string());
+    }
+    let secret = resolve_secret(&conn).unwrap_or_default();
+    let client = s3_client_for(&cfg, &secret)?;
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(FileListDirResult {
+            entries: Vec::new(),
+            truncated: false,
+            next_continuation_token: None,
+        });
+    }
+
+    let token = continuation_token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .map(str::to_string);
+
+    // 含 `/` 且以 `/` 结尾 → 按 key 前缀列目录一层
+    let prefix_mode = trimmed.contains('/') && trimmed.ends_with('/');
+    if prefix_mode {
+        let prefix = {
+            let base = cfg.prefix.trim();
+            let q = trimmed.strip_prefix('/').unwrap_or(trimmed);
+            if base.is_empty() {
+                q.to_string()
+            } else {
+                let base = base.trim_end_matches('/');
+                format!("{base}/{q}")
+            }
+        };
+        let page = client
+            .list_objects_v2(prefix, Some("/".to_string()), token, Some(200))
+            .await
+            .map_err(|e| e.user_message())?;
+        let mut entries = Vec::new();
+        for cp in &page.common_prefixes {
+            let key = cp.trim_end_matches('/');
+            let name = key.rsplit('/').next().unwrap_or(key).to_string();
+            entries.push(s3_entry_to_file(&name, cp, true, 0));
+        }
+        for obj in &page.contents {
+            if obj.key.ends_with('/') {
+                continue;
+            }
+            let name = obj
+                .key
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or(&obj.key)
+                .to_string();
+            entries.push(s3_entry_to_file(&name, &obj.key, false, obj.size));
+        }
+        sort_file_entries(&mut entries);
+        return Ok(FileListDirResult {
+            entries,
+            truncated: page.is_truncated,
+            next_continuation_token: page.next_continuation_token,
+        });
+    }
+
+    // 文件名子串匹配：翻页扫描（最多 200 条结果）
+    let search_q = trimmed.to_lowercase();
+    let mut entries = Vec::new();
+    let mut page_token = token;
+    loop {
+        let page = client
+            .list_objects_v2(String::new(), None, page_token, Some(1000))
+            .await
+            .map_err(|e| e.user_message())?;
+        for obj in &page.contents {
+            if obj.key.ends_with('/') {
+                continue;
+            }
+            let name = obj
+                .key
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or(&obj.key)
+                .to_string();
+            if name.to_lowercase().contains(&search_q) {
+                entries.push(s3_entry_to_file(&name, &obj.key, false, obj.size));
+                if entries.len() >= 200 {
+                    return Ok(FileListDirResult {
+                        entries,
+                        truncated: true,
+                        next_continuation_token: page.next_continuation_token.clone(),
+                    });
+                }
+            }
+        }
+        if !page.is_truncated {
+            break;
+        }
+        page_token = page.next_continuation_token.clone();
+        if page_token.is_none() {
+            break;
+        }
+    }
+    Ok(FileListDirResult {
+        entries,
+        truncated: false,
+        next_continuation_token: None,
+    })
 }
 
 pub async fn file_read_file(
@@ -704,6 +988,16 @@ pub async fn file_read_file(
             }
             Ok(data)
         }
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let client = s3_client_for(&cfg, &secret)?;
+            let key = s3_object_key(&path);
+            let data = client.get_object(&key).await.map_err(|e| e.user_message())?;
+            if data.len() as u64 > max_bytes {
+                return Err("文件过大".to_string());
+            }
+            Ok(data)
+        }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
 }
@@ -734,6 +1028,12 @@ pub async fn file_upload_file(
             let secret = resolve_secret(&conn).unwrap_or_default();
             write_ftp_file(&cfg, &secret, &path, &data).map_err(|e| e.to_string())
         }
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let client = s3_client_for(&cfg, &secret)?;
+            let key = s3_object_key(&path);
+            client.put_object(&key, &data).await.map_err(|e| e.user_message())
+        }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
 }
@@ -762,6 +1062,15 @@ pub async fn file_mkdir(
         "ftp" => {
             let secret = resolve_secret(&conn).unwrap_or_default();
             mkdir_ftp(&cfg, &secret, &path).map_err(|e| e.to_string())
+        }
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let client = s3_client_for(&cfg, &secret)?;
+            let mut key = s3_object_key(&path);
+            if !key.ends_with('/') {
+                key.push('/');
+            }
+            client.put_object(&key, &[]).await.map_err(|e| e.user_message())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -792,6 +1101,16 @@ pub async fn file_rename(
         "ftp" => {
             let secret = resolve_secret(&conn).unwrap_or_default();
             rename_ftp(&cfg, &secret, &old_path, &new_path).map_err(|e| e.to_string())
+        }
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let client = s3_client_for(&cfg, &secret)?;
+            let old_key = s3_object_key(&old_path);
+            let new_key = s3_object_key(&new_path);
+            let bytes = client.get_object(&old_key).await.map_err(|e| e.user_message())?;
+            client.put_object(&new_key, &bytes).await.map_err(|e| e.user_message())?;
+            client.delete_object(&old_key).await.map_err(|e| e.user_message())?;
+            Ok(())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -834,6 +1153,25 @@ pub async fn file_delete(
                 path.clone()
             };
             delete_ftp(&cfg, &secret, &p).map_err(|e| e.to_string())
+        }
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let client = s3_client_for(&cfg, &secret)?;
+            let key = s3_object_key(&path);
+            if key.is_empty() {
+                return Err("不能删除存储桶根目录".to_string());
+            }
+            if is_s3_prefix_delete_path(&path, entry_kind.as_deref()) {
+                let prefix = if key.ends_with('/') {
+                    key
+                } else {
+                    format!("{key}/")
+                };
+                delete_s3_prefix_recursive(&cfg, &secret, &prefix).await?;
+            } else {
+                client.delete_object(&key).await.map_err(|e| e.user_message())?;
+            }
+            Ok(())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -939,6 +1277,13 @@ pub async fn file_upload_local_bytes(
         "ftp" => {
             let secret = resolve_secret(&conn).unwrap_or_default();
             write_ftp_file(&cfg, &secret, &dest_path, &data).map_err(|e| e.to_string())?;
+            Ok(dest_connection_id)
+        }
+        "s3" => {
+            let secret = resolve_secret(&conn).unwrap_or_default();
+            let client = s3_client_for(&cfg, &secret)?;
+            let key = s3_object_key(&dest_path);
+            client.put_object(&key, &data).await.map_err(|e| e.user_message())?;
             Ok(dest_connection_id)
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
