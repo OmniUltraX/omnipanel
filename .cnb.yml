@@ -1,0 +1,45 @@
+# OmniPanel 云原生开发流水线
+#
+# 点击分支页「云原生开发」按钮 → 创建开发环境 → 自动运行 Web 版前后端，
+# 并在「仅预览」模式下直接打开业务端口预览（等价于本地 `cargo run` + `vite build`）。
+#
+# 链路：
+#   .cnb.yml (vscode 事件, onlyPreview)
+#     └─ launch: ./scripts/start-web.sh
+#         ├─ npm ci + OMNIPANEL_WEB=1 构建前端 (frontend/dist)
+#         └─ cargo build --release -p omnipanel-server
+#             └─ 运行 omnipanel-server --bind 0.0.0.0:8686 --static-dir frontend/dist
+#
+# 业务端口 8686 需绑定 0.0.0.0 才能被端口预览访问（见 docs/web-p2.md）。
+# 若需标准 WebIDE（可编辑代码）而非仅预览，可去掉 vscode.options.onlyPreview。
+$:
+  vscode:
+    - runner:
+        cpus: 8
+      docker:
+        # 优先用仓库 .ide/Dockerfile 构建开发镜像（预装 Rust + Node）；
+        # 构建失败时回退默认镜像 cnbcool/default-dev-env。
+        build: .ide/Dockerfile
+        image: cnbcool/default-dev-env:latest
+      services:
+        - docker
+        - name: vscode
+          options:
+            # 仅预览模式：进入后直接启动并打开 Web 版页面，而非 WebIDE
+            onlyPreview: true
+            # 进入后自动执行的启动命令（见 scripts/start-web.sh）
+            launch: ./scripts/start-web.sh
+            # 离线保活时间（超过则回收环境），避免长时间无操作被回收
+            keepAliveTimeout: 30m
+      env:
+        OMNIPANEL_WEB: "1"
+        OMNIPANEL_WEB_PORT: "8686"
+      # 进入前预装前端依赖（缩短 launch 等待；进入后再执行 start-web.sh 完成构建与启动）
+      stages:
+        - name: 预装前端依赖
+          script: |
+            set -euo pipefail
+            cd "$CNB_WORKSPACE" 2>/dev/null || true
+            if [ -d frontend ] && [ ! -d frontend/node_modules ]; then
+              npm ci --prefix frontend || npm install --prefix frontend
+            fi
