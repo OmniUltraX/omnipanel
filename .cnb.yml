@@ -29,6 +29,9 @@ $:
             onlyPreview: true
             # 进入后自动执行的启动命令（见 scripts/start-web.sh）
             launch: ./scripts/start-web.sh
+            # launch 启动的业务服务（omnipanel-server）在后台守护运行，
+            # 避免非守护模式下 launch 脚本因前台阻塞超过 5 分钟被强制关闭
+            daemon: true
             # 离线保活时间（超过则回收环境），避免长时间无操作被回收
             keepAliveTimeout: 30m
       env:
@@ -39,7 +42,7 @@ $:
         - name: 预装前端依赖
           script: |
             set -euo pipefail
-            cd "$CNB_WORKSPACE" 2>/dev/null || true
+            cd "$CNB_BUILD_WORKSPACE" 2>/dev/null || true
             if [ -d frontend ] && [ ! -d frontend/node_modules ]; then
               npm ci --prefix frontend || npm install --prefix frontend
             fi
