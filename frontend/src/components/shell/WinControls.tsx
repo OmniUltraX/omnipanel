@@ -4,6 +4,7 @@ import { useI18n } from "../../i18n";
 import { useTauriWindowMaximized } from "../../hooks/useTauriWindowMaximized";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { MODULE_WINDOW_PREFIX } from "../../lib/moduleWindow";
+import { usesMacTrafficLights } from "../../lib/platform";
 import {
   attachSnapMaximizeButton,
   OMNIPANEL_SNAP_MAXIMIZE_ID,
@@ -14,6 +15,8 @@ export { OMNIPANEL_SNAP_MAXIMIZE_ID };
 /** 主窗 + 模块独立窗（`module-*`）可挂 Snap Layout；其它子窗/登录窗不挂 */
 function isSnapLayoutEligibleWindow(): boolean {
   if (!isTauriRuntime()) return false;
+  // Snap Layout 为 Windows 11 能力
+  if (usesMacTrafficLights()) return false;
   try {
     const label = getCurrentWindow().label;
     return label === "main" || label.startsWith(MODULE_WINDOW_PREFIX);
@@ -31,10 +34,39 @@ interface WinControlsProps {
   enableSnapLayout?: boolean;
 }
 
+function TrafficLightIcon({ kind }: { kind: "close" | "minimize" | "zoom" }) {
+  if (kind === "close") {
+    return (
+      <svg className="win-btn__glyph" width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden>
+        <path d="M1 1l4 4M5 1L1 5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (kind === "minimize") {
+    return (
+      <svg className="win-btn__glyph" width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden>
+        <path d="M1 3h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="win-btn__glyph" width="6" height="6" viewBox="0 0 6 6" fill="none" aria-hidden>
+      <path
+        d="M2.2 1.2H4.8V3.8M3.8 2.2H1.2V4.8"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function WinControls({ className, enableSnapLayout = false }: WinControlsProps) {
   const { t } = useI18n();
   const isMaximized = useTauriWindowMaximized();
   const maximizeRef = useRef<HTMLButtonElement>(null);
+  const mac = usesMacTrafficLights();
   const snapEnabled = Boolean(enableSnapLayout && isSnapLayoutEligibleWindow());
 
   useEffect(() => {
@@ -68,50 +100,86 @@ export function WinControls({ className, enableSnapLayout = false }: WinControls
       .catch((e) => console.error("[WinControls] close failed", e));
   };
 
-  return (
-    <div
-      className={`win-controls${className ? ` ${className}` : ""}`}
-      data-tauri-drag-region="false"
+  const closeBtn = (
+    <button
+      type="button"
+      className="win-btn close"
+      title={t("shell.topbar.close")}
+      aria-label={t("shell.topbar.close")}
+      onClick={handleClose}
     >
-      <button
-        type="button"
-        className="win-btn minimize"
-        title={t("shell.topbar.minimize")}
-        onClick={handleMinimize}
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M0 5h10" stroke="currentColor" strokeWidth="1.2" />
-        </svg>
-      </button>
-      <button
-        ref={maximizeRef}
-        type="button"
-        id={snapEnabled ? OMNIPANEL_SNAP_MAXIMIZE_ID : undefined}
-        className="win-btn maximize"
-        title={isMaximized ? t("shell.topbar.restore") : t("shell.topbar.maximize")}
-        onClick={handleMaximize}
-      >
-        {isMaximized ? (
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <rect x="0.5" y="0.5" width="5.5" height="5.5" stroke="currentColor" strokeWidth="1.2" />
-            <rect x="4" y="4" width="5.5" height="5.5" fill="var(--bg)" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
-        ) : (
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1.2" />
-          </svg>
-        )}
-      </button>
-      <button
-        type="button"
-        className="win-btn close"
-        title={t("shell.topbar.close")}
-        onClick={handleClose}
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      {mac ? (
+        <TrafficLightIcon kind="close" />
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1.2" />
         </svg>
-      </button>
+      )}
+    </button>
+  );
+
+  const minimizeBtn = (
+    <button
+      type="button"
+      className="win-btn minimize"
+      title={t("shell.topbar.minimize")}
+      aria-label={t("shell.topbar.minimize")}
+      onClick={handleMinimize}
+    >
+      {mac ? (
+        <TrafficLightIcon kind="minimize" />
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+          <path d="M0 5h10" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      )}
+    </button>
+  );
+
+  const maximizeBtn = (
+    <button
+      ref={maximizeRef}
+      type="button"
+      id={snapEnabled ? OMNIPANEL_SNAP_MAXIMIZE_ID : undefined}
+      className="win-btn maximize"
+      title={isMaximized ? t("shell.topbar.restore") : t("shell.topbar.maximize")}
+      aria-label={isMaximized ? t("shell.topbar.restore") : t("shell.topbar.maximize")}
+      onClick={handleMaximize}
+    >
+      {mac ? (
+        <TrafficLightIcon kind="zoom" />
+      ) : isMaximized ? (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+          <rect x="0.5" y="0.5" width="5.5" height="5.5" stroke="currentColor" strokeWidth="1.2" />
+          <rect x="4" y="4" width="5.5" height="5.5" fill="var(--bg)" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+          <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1.2" />
+        </svg>
+      )}
+    </button>
+  );
+
+  return (
+    <div
+      className={`win-controls${mac ? " win-controls--mac" : " win-controls--windows"}${className ? ` ${className}` : ""}`}
+      data-tauri-drag-region="false"
+    >
+      {/* macOS：关闭 → 最小化 → 缩放；Windows：最小化 → 最大化 → 关闭 */}
+      {mac ? (
+        <>
+          {closeBtn}
+          {minimizeBtn}
+          {maximizeBtn}
+        </>
+      ) : (
+        <>
+          {minimizeBtn}
+          {maximizeBtn}
+          {closeBtn}
+        </>
+      )}
     </div>
   );
 }

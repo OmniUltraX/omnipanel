@@ -216,6 +216,26 @@
     height: 100%;
 }
 
+.subwindow-header--mac {
+    gap: var(--sp-2);
+}
+
+.subwindow-header--mac .win-controls--mac {
+    height: 100%;
+    margin-right: var(--sp-1);
+    padding-left: 4px;
+}
+
+.subwindow-header--mac .win-controls--mac .win-btn {
+    width: 12px;
+    height: 12px;
+}
+
+.subwindow-header--mac .subwindow-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .subwindow-resize-handle {
     position: absolute;
     z-index: 2;

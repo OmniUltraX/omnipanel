@@ -6,6 +6,20 @@ export function isMacOS(): boolean {
   return /Mac|iPhone|iPad|iPod/i.test(platform);
 }
 
+/** 使用 macOS 左上角红绿灯窗口控件（无边框自绘标题栏） */
+export function usesMacTrafficLights(): boolean {
+  return isMacOS();
+}
+
+/**
+ * 主壳左侧栏是否托管红绿灯。
+ * 独立模块窗 / 工作区窗没有 `.app > .sidebar`，改由 dock 前缀区托管。
+ */
+export function hostsMacTrafficLightsInSidebar(): boolean {
+  if (!usesMacTrafficLights() || typeof document === "undefined") return false;
+  return Boolean(document.querySelector(".app > aside.sidebar"));
+}
+
 /** 当前平台的主修饰键是否按下：macOS 为 Cmd，其它为 Ctrl */
 export function isModKeyPressed(e: KeyboardEvent): boolean {
   return isMacOS() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;

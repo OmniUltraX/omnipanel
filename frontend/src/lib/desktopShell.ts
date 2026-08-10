@@ -1,4 +1,5 @@
 import { isTauriRuntime } from "./isTauriRuntime";
+import { isMacOS } from "./platform";
 
 /** 显式声明后仍允许浏览器原生右键菜单（极少数场景）。 */
 function allowsBrowserContextMenu(target: EventTarget | null): boolean {
@@ -112,6 +113,9 @@ function watchEditableElements(): void {
  * 应用内自定义右键菜单（React onContextMenu）不受影响。
  */
 export function initDesktopShell(): void {
+  // 浏览器预览与 Tauri 均打上平台标记，供 CSS / 布局做窗口控件适配
+  document.documentElement.dataset.platform = isMacOS() ? "macos" : "windows";
+
   if (!isTauriRuntime()) return;
 
   document.documentElement.setAttribute("spellcheck", "false");

@@ -8006,6 +8006,138 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: 10px;
     }
 
+    /* macOS traffic lights（仿原生：关闭 / 最小化 / 缩放） */
+    .win-controls--mac {
+        gap: 8px;
+        margin-left: 0;
+        padding: 0 10px;
+        height: 100%;
+        min-height: 28px;
+    }
+
+    .win-controls--mac .win-btn {
+        width: 12px;
+        height: 12px;
+        padding: 0;
+        border-radius: 50%;
+        color: transparent;
+        background: #ff5f57;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+        transition: filter 0.12s ease, color 0.12s ease, background 0.12s ease;
+    }
+
+    .win-controls--mac .win-btn.minimize {
+        background: #febc2e;
+    }
+
+    .win-controls--mac .win-btn.maximize {
+        background: #28c840;
+    }
+
+    .win-controls--mac .win-btn:hover,
+    .win-controls--mac .win-btn:focus-visible,
+    .win-controls--mac:hover .win-btn {
+        color: rgba(0, 0, 0, 0.55);
+        filter: brightness(0.96);
+    }
+
+    .win-controls--mac .win-btn:active {
+        filter: brightness(0.88);
+        background: inherit;
+    }
+
+    .win-controls--mac .win-btn.close:hover,
+    .win-controls--mac .win-btn.close:active {
+        background: #ff5f57;
+        color: rgba(0, 0, 0, 0.55);
+    }
+
+    .win-controls--mac .win-btn.minimize:hover,
+    .win-controls--mac .win-btn.minimize:active {
+        background: #febc2e;
+    }
+
+    .win-controls--mac .win-btn.maximize:hover,
+    .win-controls--mac .win-btn.maximize:active {
+        background: #28c840;
+    }
+
+    .win-controls--mac .win-btn svg,
+    .win-controls--mac .win-btn__glyph {
+        width: 6px;
+        height: 6px;
+        opacity: 0;
+        transition: opacity 0.12s ease;
+        pointer-events: none;
+    }
+
+    .win-controls--mac .win-btn:hover svg,
+    .win-controls--mac .win-btn:focus-visible svg,
+    .win-controls--mac:hover .win-btn svg {
+        opacity: 1;
+    }
+
+    .sidebar-win-controls {
+        width: 100%;
+        height: var(--topbar-h);
+        min-height: var(--topbar-h);
+        justify-content: center;
+        align-items: center;
+        padding: 0;
+        margin: 0 0 2px;
+        flex-shrink: 0;
+    }
+
+    .dock-mac-traffic-lights {
+        height: 100%;
+        align-self: stretch;
+        padding-left: 14px;
+        padding-right: 8px;
+        margin: 0;
+    }
+
+    html[data-platform="macos"] .app {
+        /* 右侧仅保留 AI / 设置等 chrome 按钮占位 */
+        --shell-win-controls-width: 76px;
+    }
+
+    html[data-platform="macos"] .sidebar {
+        padding-top: 0;
+    }
+
+    html[data-platform="macos"] .sidebar-logo {
+        margin-bottom: var(--sp-3);
+    }
+
+    html[data-platform="macos"] .dock-prefix-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 100%;
+        flex-shrink: 0;
+    }
+
+    html[data-platform="macos"] .login-page__chrome--mac {
+        justify-content: flex-start;
+    }
+
+    html[data-platform="macos"] .login-page__chrome--mac .login-page__win-controls {
+        height: 100%;
+        padding-left: 14px;
+    }
+
+    html[data-platform="macos"] .workspace-bottom-titlebar--mac {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+    }
+
+    html[data-platform="macos"] .workspace-bottom-titlebar--mac .win-controls--mac {
+        height: 100%;
+        flex-shrink: 0;
+        padding-left: 14px;
+    }
+
     /* Topbar button */
     .topbar-btn {
         width: 28px;

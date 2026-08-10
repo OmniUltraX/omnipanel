@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../../../i18n";
 import { Button } from "../primitives/Button";
 import { SubWindowControls } from "./SubWindowControls";
+import { usesMacTrafficLights } from "../../../lib/platform";
 import {
   registerMinimizedSubWindow,
   unregisterMinimizedSubWindow,
@@ -368,6 +369,47 @@ export function SubWindow({
       title
     );
 
+  const macTraffic = usesMacTrafficLights();
+  const windowControls = windowChrome ? (
+    <SubWindowControls
+      isMaximized={visualState === "maximized"}
+      onMinimize={handleMinimize}
+      onToggleMaximize={handleToggleMaximize}
+      onClose={onClose}
+      onMaximizeToWorkspace={onMaximizeToWorkspace}
+    />
+  ) : showHeaderClose ? (
+    <Button
+      type="button"
+      variant="icon"
+      className="subwindow-close"
+      title={closeLabel}
+      aria-label={closeLabel}
+      onClick={onClose}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        width="14"
+        height="14"
+        aria-hidden
+      >
+        <path d="M4 4l8 8M12 4l-8 8" />
+      </svg>
+    </Button>
+  ) : null;
+
+  const headerContent = (
+    <>
+      {macTraffic && windowChrome ? windowControls : null}
+      {titleNode}
+      {headerExtra ? <div className="subwindow-header-extra">{headerExtra}</div> : null}
+      {!(macTraffic && windowChrome) ? windowControls : null}
+    </>
+  );
+
   return createPortal(
     <>
       {visualState === "minimized" ? (
@@ -383,47 +425,14 @@ export function SubWindow({
           style={panelStyle}
         >
           <div
-            className={`subwindow-header${windowChrome ? " subwindow-header--draggable" : ""}`}
+            className={`subwindow-header${windowChrome ? " subwindow-header--draggable" : ""}${macTraffic && windowChrome ? " subwindow-header--mac" : ""}`}
             onPointerDown={handleHeaderPointerDown}
             onPointerMove={handleHeaderPointerMove}
             onPointerUp={handleHeaderPointerUp}
             onPointerCancel={handleHeaderPointerUp}
             onDoubleClick={handleHeaderDoubleClick}
           >
-            {titleNode}
-            {headerExtra ? (
-              <div className="subwindow-header-extra">{headerExtra}</div>
-            ) : null}
-            {windowChrome ? (
-              <SubWindowControls
-                isMaximized={visualState === "maximized"}
-                onMinimize={handleMinimize}
-                onToggleMaximize={handleToggleMaximize}
-                onClose={onClose}
-                onMaximizeToWorkspace={onMaximizeToWorkspace}
-              />
-            ) : showHeaderClose ? (
-              <Button
-                type="button"
-                variant="icon"
-                className="subwindow-close"
-                title={closeLabel}
-                aria-label={closeLabel}
-                onClick={onClose}
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  width="14"
-                  height="14"
-                  aria-hidden
-                >
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </Button>
-            ) : null}
+            {headerContent}
           </div>
           <div className="subwindow-body">{children}</div>
           {windowChrome && visualState === "normal"
@@ -450,47 +459,14 @@ export function SubWindow({
             onClick={(event) => event.stopPropagation()}
           >
             <div
-              className={`subwindow-header${windowChrome ? " subwindow-header--draggable" : ""}`}
+              className={`subwindow-header${windowChrome ? " subwindow-header--draggable" : ""}${macTraffic && windowChrome ? " subwindow-header--mac" : ""}`}
               onPointerDown={handleHeaderPointerDown}
               onPointerMove={handleHeaderPointerMove}
               onPointerUp={handleHeaderPointerUp}
               onPointerCancel={handleHeaderPointerUp}
               onDoubleClick={handleHeaderDoubleClick}
             >
-              {titleNode}
-              {headerExtra ? (
-                <div className="subwindow-header-extra">{headerExtra}</div>
-              ) : null}
-              {windowChrome ? (
-                <SubWindowControls
-                  isMaximized={visualState === "maximized"}
-                  onMinimize={handleMinimize}
-                  onToggleMaximize={handleToggleMaximize}
-                  onClose={onClose}
-                  onMaximizeToWorkspace={onMaximizeToWorkspace}
-                />
-            ) : showHeaderClose ? (
-              <Button
-                type="button"
-                variant="icon"
-                className="subwindow-close"
-                title={closeLabel}
-                aria-label={closeLabel}
-                onClick={onClose}
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  width="14"
-                  height="14"
-                  aria-hidden
-                >
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </Button>
-            ) : null}
+              {headerContent}
             </div>
             <div className="subwindow-body">{children}</div>
             {windowChrome && visualState === "normal"

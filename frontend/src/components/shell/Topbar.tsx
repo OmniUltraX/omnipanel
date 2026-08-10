@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useCallback } from "react";
 import { TopbarTabs } from "../ui/layout/TopbarTabs";
 import { WinControls } from "./WinControls";
+import { usesMacTrafficLights } from "../../lib/platform";
 
 interface TopbarProps {
   title: string;
@@ -106,7 +107,7 @@ export function Topbar({ title, children, hidden = false }: TopbarProps) {
             </svg>
           </button>
 
-          <WinControls />
+          {!usesMacTrafficLights() ? <WinControls /> : null}
         </div>
       </div>
     </div>

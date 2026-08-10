@@ -67,6 +67,11 @@ import type { DockTabPageType } from "./dockableTab";
 import type { DockWindowChromeMode } from "./dockWindowChromeActions";
 import { DockWindowChromeActions } from "./DockWindowTitleActions";
 import { resolveDockWindowChromeLayout, resolveSegmentWindowChromeHosts } from "./dockWindowChromeLayout";
+import { WinControls } from "../shell/WinControls";
+import {
+  hostsMacTrafficLightsInSidebar,
+  usesMacTrafficLights,
+} from "../../lib/platform";
 import {
   syncGroupHeaderPosition,
   type DockHeaderPosition,
@@ -865,8 +870,20 @@ export function DockableWorkspace({
   const prefixHeaderActions = useCallback(
     (_props: IDockviewHeaderActionsProps) => {
       const node = preActionsRef.current;
-      if (!node) return null;
-      return <div className="dock-prefix-actions">{node}</div>;
+      // 独立窗（无主壳 Sidebar）时，macOS 红绿灯挂在 Tab 栏最左侧
+      const showMacTraffic =
+        windowControlRef.current &&
+        usesMacTrafficLights() &&
+        !hostsMacTrafficLightsInSidebar();
+      if (!node && !showMacTraffic) return null;
+      return (
+        <div className="dock-prefix-actions">
+          {showMacTraffic ? (
+            <WinControls className="dock-mac-traffic-lights" enableSnapLayout />
+          ) : null}
+          {node}
+        </div>
+      );
     },
     [],
   );
@@ -2297,7 +2314,11 @@ export function DockableWorkspace({
             leftHeaderActionsComponent={
               createPanelRequest || addTabConfig?.show ? leftHeaderActions : undefined
             }
-            prefixHeaderActionsComponent={preActions ? prefixHeaderActions : undefined}
+            prefixHeaderActionsComponent={
+              preActions || (windowControl && usesMacTrafficLights())
+                ? prefixHeaderActions
+                : undefined
+            }
             rightHeaderActionsComponent={rightHeaderActions}
             noPanelsOverlay={acceptExternalDrops ? "emptyGroup" : undefined}
             theme={themeDark}

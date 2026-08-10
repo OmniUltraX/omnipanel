@@ -1,9 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
-import { useTauriWindowMaximized } from "../../hooks/useTauriWindowMaximized";
+import { usesMacTrafficLights } from "../../lib/platform";
+import { WinControls } from "../shell/WinControls";
 
 interface WorkspaceBottomTitleBarProps {
   /** 全屏模式下显示窗口控制按钮，否则显示全屏按钮 */
@@ -17,22 +18,10 @@ export function WorkspaceBottomTitleBar({
   const workspaceName = useWorkspaceStore((state) => state.workspace.name);
   const enterFullscreen = useBottomPanelStore((state) => state.enterFullscreen);
   const exitFullscreen = useBottomPanelStore((state) => state.exitFullscreen);
-  const isMaximized = useTauriWindowMaximized(showWinControls);
   const spacerDragRef = useRef<{ startX: number; startY: number } | null>(null);
+  const mac = usesMacTrafficLights();
 
-  const handleMinimize = async () => {
-    await getCurrentWindow().minimize();
-  };
-
-  const handleMaximize = async () => {
-    await getCurrentWindow().toggleMaximize();
-  };
-
-  const handleClose = async () => {
-    await getCurrentWindow().close();
-  };
-
-  const onSpacerMouseDown = useCallback((e: React.MouseEvent) => {
+  const onSpacerMouseDown = useCallback((e: ReactMouseEvent) => {
     spacerDragRef.current = { startX: e.clientX, startY: e.clientY };
   }, []);
 
@@ -71,11 +60,38 @@ export function WorkspaceBottomTitleBar({
     }
   };
 
+  const exitFullscreenBtn = (
+    <button
+      type="button"
+      className="workspace-bottom-titlebar-btn workspace-bottom-titlebar-btn--exit-fullscreen"
+      title={t("shell.workspacePanel.exitFullscreen")}
+      aria-label={t("shell.workspacePanel.exitFullscreen")}
+      onClick={exitFullscreen}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        width="14"
+        height="14"
+        aria-hidden
+      >
+        <path d="M4 14H9v5" />
+        <path d="M20 10h-5V5" />
+        <path d="M14 10l7-7" />
+        <path d="M3 21l7-7" />
+      </svg>
+    </button>
+  );
+
   return (
     <div
-      className={`workspace-bottom-titlebar${showWinControls ? " workspace-bottom-titlebar--fullscreen" : ""}`}
+      className={`workspace-bottom-titlebar${showWinControls ? " workspace-bottom-titlebar--fullscreen" : ""}${mac && showWinControls ? " workspace-bottom-titlebar--mac" : ""}`}
       onDoubleClick={handleDoubleClick}
     >
+      {mac && showWinControls ? <WinControls enableSnapLayout /> : null}
+
       <span className="workspace-bottom-titlebar-label" data-tauri-drag-region>
         {workspaceName}
       </span>
@@ -87,60 +103,8 @@ export function WorkspaceBottomTitleBar({
       <div className="workspace-bottom-titlebar-actions" data-tauri-drag-region="false">
         {showWinControls ? (
           <>
-            <button
-              type="button"
-              className="workspace-bottom-titlebar-btn workspace-bottom-titlebar-btn--exit-fullscreen"
-              title={t("shell.workspacePanel.exitFullscreen")}
-              aria-label={t("shell.workspacePanel.exitFullscreen")}
-              onClick={exitFullscreen}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                width="14"
-                height="14"
-                aria-hidden
-              >
-                <path d="M4 14H9v5" />
-                <path d="M20 10h-5V5" />
-                <path d="M14 10l7-7" />
-                <path d="M3 21l7-7" />
-              </svg>
-            </button>
-            <div className="win-controls">
-            <button
-              className="win-btn minimize"
-              title={t("shell.topbar.minimize")}
-              onClick={handleMinimize}
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M0 5h10" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-            </button>
-            <button
-              className="win-btn maximize"
-              title={isMaximized ? t("shell.topbar.restore") : t("shell.topbar.maximize")}
-              onClick={handleMaximize}
-            >
-              {isMaximized ? (
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="0.5" y="0.5" width="5.5" height="5.5" stroke="currentColor" strokeWidth="1.2" />
-                  <rect x="4" y="4" width="5.5" height="5.5" fill="var(--bg)" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-              ) : (
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-              )}
-            </button>
-            <button className="win-btn close" title={t("shell.topbar.close")} onClick={handleClose}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1.2" />
-              </svg>
-            </button>
-          </div>
+            {exitFullscreenBtn}
+            {!mac ? <WinControls enableSnapLayout /> : null}
           </>
         ) : (
           <button

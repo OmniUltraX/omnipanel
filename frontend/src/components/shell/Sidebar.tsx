@@ -20,8 +20,10 @@ import {
   scheduleModuleWindowHoverPrewarm,
 } from "../../lib/moduleWindow";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
+import { usesMacTrafficLights } from "../../lib/platform";
 import { SidebarMiniappButton } from "./SidebarMiniappButton";
 import { SidebarUserButton } from "./SidebarUserButton";
+import { WinControls } from "./WinControls";
 
 const navPaths = [
   {
@@ -229,6 +231,9 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
+      {usesMacTrafficLights() ? (
+        <WinControls className="sidebar-win-controls" />
+      ) : null}
       <button
         type="button"
         className={`sidebar-logo${isWorkspaceHome ? " active" : ""}`}
