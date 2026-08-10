@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================
-# OmniPanel 云原生开发：自动构建并启动 Web 版前后端
+# OmniPanel 云原生开发：构建并启动 Web 版前后端
 #
 # 被 .cnb.yml 的 vscode.options.launch 调用（仅预览模式）。
 # 效果等价于本地：
 #   cd frontend && OMNIPANEL_WEB=1 npm run build && cd ..
 #   cargo build --release -p omnipanel-server
 #   ./target/release/omnipanel-server --bind 0.0.0.0:8686 --static-dir frontend/dist
+#
+# 正常流程：.cnb.yml 的 stages 阶段已在完整源码工作区完成前后端构建，
+# 本脚本检测到产物后跳过构建、秒级启动服务，确保 8686 端口在检测窗口内就绪。
+# 若产物缺失（如镜像未预编译/环境重建），则在此兜底构建后启动。
 #
 # 业务端口固定 8686（仅预览模式必须，见 docs 业务端口预览），且必须绑 0.0.0.0 才能被端口预览访问。
 # =============================================================
@@ -32,11 +36,11 @@ if command -v fuser >/dev/null 2>&1 && fuser -k "$PORT/tcp" >/dev/null 2>&1; the
 fi
 
 # ---------- 1. 前端：Web 模式构建（生成 frontend/dist） ----------
-# 镜像构建阶段已预编译（见 .ide/Dockerfile），产物已存在时跳过重复构建，秒级启动。
+# 正常情况下 stages 阶段已构建（见 .cnb.yml），产物存在时跳过，秒级启动。
 if [ -d frontend/dist ] && [ -f frontend/dist/index.html ]; then
-  log "前端产物已存在（镜像预编译），跳过前端构建。"
+  log "前端产物已存在（stages 已构建），跳过前端构建。"
 else
-  log "构建前端（Web 模式，OMNIPANEL_WEB=1）..."
+  log "前端产物缺失，兜底构建前端（Web 模式，OMNIPANEL_WEB=1）..."
   if [ ! -d frontend/node_modules ]; then
     log "安装前端依赖..."
     npm ci --prefix frontend || npm install --prefix frontend
@@ -48,11 +52,11 @@ fi
 
 # ---------- 2. 后端：构建 omnipanel-server ----------
 BIN="$ROOT_DIR/target/release/omnipanel-server"
-# 镜像构建阶段已预编译（见 .ide/Dockerfile），产物已存在时跳过重复构建，秒级启动。
+# 正常情况下 stages 阶段已构建（见 .cnb.yml），产物存在时跳过，秒级启动。
 if [ -x "$BIN" ]; then
-  log "后端产物已存在（镜像预编译），跳过后端构建。"
+  log "后端产物已存在（stages 已构建），跳过后端构建。"
 else
-  log "构建后端 omnipanel-server（release）..."
+  log "后端产物缺失，兜底构建 omnipanel-server（release）..."
   cargo build --release -p omnipanel-server || fail "后端构建失败，请查看上方日志"
 fi
 
