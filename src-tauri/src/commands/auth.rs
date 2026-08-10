@@ -310,8 +310,8 @@ fn apply_client_identity_headers_with_app(
     req.header("X-App-Id", app_id)
         .header("X-App-Role", CLIENT_APP_ROLE)
         .header("X-Device-Id", &identity.device_id)
-        // HeaderValue 仅允许可见 ASCII；中文主机名等需降级，避免请求构建失败
-        .header("X-Device-Name", ascii_header_value(&identity.device_name, "OmniPanel"))
+        // HeaderValue 仅允许可见 ASCII；非 ASCII 主机名做百分号编码（服务端解码）
+        .header("X-Device-Name", header_device_name(&identity.device_name))
         .header("X-Device-OS", ascii_header_value(&identity.os_type, "unknown"))
 }
 
@@ -417,6 +417,18 @@ fn ascii_header_value(raw: &str, fallback: &str) -> String {
     }
 }
 
+/// 设备名写入 HTTP Header：纯 ASCII 原样；含非 ASCII（如中文电脑名）则百分号编码。
+fn header_device_name(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "OmniPanel".to_string();
+    }
+    if trimmed.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+        return trimmed.to_string();
+    }
+    urlencoding::encode(trimmed).into_owned()
+}
+
 fn format_reqwest_error(err: &reqwest::Error) -> String {
     let mut parts = vec![err.to_string()];
     let mut source = std::error::Error::source(err);
@@ -434,13 +446,76 @@ fn device_identity_path() -> Result<PathBuf, OmniError> {
     Ok(module_dir(AUTH_MODULE_DIR)?.join(DEVICE_IDENTITY_FILE))
 }
 
-fn local_hostname() -> String {
-    std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
+fn env_nonempty(key: &str) -> Option<String> {
+    std::env::var(key)
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "OmniPanel".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_scutil_get(key: &str) -> Option<String> {
+    let output = std::process::Command::new("scutil")
+        .args(["--get", key])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() || name.eq_ignore_ascii_case("not set") {
+        return None;
+    }
+    Some(name)
+}
+
+/// 读取本机可读设备名。macOS GUI 应用通常没有 COMPUTERNAME/HOSTNAME 环境变量，
+/// 需走 scutil / sysinfo，否则会落到占位名「OmniPanel」。
+fn local_hostname() -> String {
+    // Windows：计算机名
+    if let Some(name) = env_nonempty("COMPUTERNAME") {
+        return name;
+    }
+
+    // macOS：系统偏好设置里的「电脑名称」，再回退 Bonjour LocalHostName
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(name) = macos_scutil_get("ComputerName") {
+            return name;
+        }
+        if let Some(name) = macos_scutil_get("LocalHostName") {
+            return name;
+        }
+    }
+
+    if let Some(name) = env_nonempty("HOSTNAME") {
+        return name;
+    }
+
+    // sysinfo：Unix gethostname / Windows GetComputerNameEx
+    if let Some(name) = sysinfo::System::host_name() {
+        let trimmed = name
+            .trim()
+            .trim_end_matches('.')
+            .trim_end_matches(".local")
+            .trim()
+            .to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(raw) = fs::read_to_string("/etc/hostname") {
+            let name = raw.trim();
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+
+    "OmniPanel".to_string()
 }
 
 fn local_os_type() -> String {
@@ -2605,5 +2680,20 @@ mod tests {
         let ticket = "abc+/=def";
         let url = normalize_wechat_qrcode_url("https://example.com/ignored", ticket);
         assert!(url.contains("ticket=abc%2B%2F%3Ddef"));
+    }
+
+    #[test]
+    fn header_device_name_keeps_ascii() {
+        assert_eq!(header_device_name("Easons-MacBook-Pro"), "Easons-MacBook-Pro");
+        assert_eq!(header_device_name("  "), "OmniPanel");
+    }
+
+    #[test]
+    fn header_device_name_percent_encodes_unicode() {
+        let encoded = header_device_name("张三的MacBook Pro");
+        assert!(encoded.chars().all(|c| c.is_ascii()));
+        assert!(encoded.contains('%'));
+        let decoded = urlencoding::decode(&encoded).expect("decode");
+        assert_eq!(decoded, "张三的MacBook Pro");
     }
 }

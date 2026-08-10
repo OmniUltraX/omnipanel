@@ -1,3 +1,4 @@
+mod ai_models;
 mod assistant;
 mod database;
 mod docker;
@@ -13,6 +14,7 @@ use serde_json::Value;
 
 use crate::types::{AssistantSnapshotModules, ModuleSection};
 
+pub use ai_models::AiModelsCollector;
 pub use assistant::AssistantCollector;
 pub use database::DatabaseCollector;
 pub use docker::DockerCollector;
@@ -43,6 +45,8 @@ pub struct CollectContext {
     pub recent_tasks: Vec<Value>,
     /// AI 助手会话列表元数据（由前端注入；不含消息正文）
     pub assistant_conversations: Vec<Value>,
+    /// AI 模型目录（由前端注入；不含 API Key）
+    pub ai_models: Vec<Value>,
 }
 
 pub trait MetadataCollector: Send + Sync {
@@ -66,6 +70,7 @@ pub fn default_collectors() -> Vec<Box<dyn MetadataCollector>> {
         Box::new(ProtocolCollector),
         Box::new(TasksCollector),
         Box::new(AssistantCollector),
+        Box::new(AiModelsCollector),
     ]
 }
 
@@ -90,6 +95,7 @@ pub fn assemble_modules(
             "protocol" => modules.protocol = section,
             "tasks" => modules.tasks = section,
             "assistant" => modules.assistant = section,
+            "aiModels" => modules.ai_models = section,
             other => {
                 tracing::warn!(module = other, "unknown assistant collector module_id");
             }

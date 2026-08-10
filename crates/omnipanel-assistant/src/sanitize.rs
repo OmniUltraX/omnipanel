@@ -264,6 +264,26 @@ pub fn sanitize_terminal_session_meta(
     })
 }
 
+/// AI 模型目录条目（不含 API Key / baseUrl）。
+pub fn sanitize_ai_model_meta(
+    id: &str,
+    provider_id: &str,
+    provider_name: &str,
+    model_name: &str,
+    api_standard: &str,
+    enabled: bool,
+) -> Value {
+    serde_json::json!({
+        "id": id,
+        "kind": "aiModel",
+        "providerId": provider_id,
+        "providerName": provider_name,
+        "modelName": model_name,
+        "apiStandard": api_standard,
+        "enabled": enabled,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

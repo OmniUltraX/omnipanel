@@ -37,6 +37,7 @@ import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../stores/quickInputStore";
 import { FileConnectionDialog, type FileProtocol } from "./FileConnectionDialog";
 import { FileConnectionPanel, buildS3BindKey } from "./FileConnectionPanel";
+import { readStoredFilesDetailVisible } from "./filesDetailSidebarPersist";
 import { FilesSidebar } from "./FilesSidebar";
 import {
   clearFilesDrag,
@@ -236,7 +237,7 @@ function FilesBrowserView() {
     const prev = useFilesWorkspaceSessionStore.getState().panelStates[connId];
     setPanelState(connId, {
       viewMode: prev?.viewMode ?? "list",
-      detailVisible: prev?.detailVisible ?? true,
+      detailVisible: prev?.detailVisible ?? readStoredFilesDetailVisible(),
       currentPath: path,
       history: [path],
       historyIndex: 0,
@@ -442,7 +443,7 @@ function FilesBrowserView() {
       const prev = useFilesWorkspaceSessionStore.getState().panelStates[saved.id];
       useFilesWorkspaceSessionStore.getState().setPanelState(saved.id, {
         viewMode: prev?.viewMode ?? "list",
-        detailVisible: prev?.detailVisible ?? true,
+        detailVisible: prev?.detailVisible ?? readStoredFilesDetailVisible(),
         // 配置（尤其 S3 bucket）变更后回到根目录，避免继续展示旧桶目录缓存
         currentPath: "",
         history: [""],

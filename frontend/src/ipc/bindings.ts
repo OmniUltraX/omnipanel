@@ -1485,6 +1485,16 @@ export type AssistantTerminalSessionSnapshotItem = {
 	updatedAt: number | null,
 };
 
+export type AssistantAiModelSnapshotItem = {
+	/** providerId::modelName */
+	id: string,
+	providerId: string,
+	providerName: string,
+	modelName: string,
+	apiStandard: string,
+	enabled: boolean,
+};
+
 export type AssistantPushRequest = {
 	token: string,
 	dryRun?: boolean,
@@ -1493,6 +1503,8 @@ export type AssistantPushRequest = {
 	conversations?: AssistantConversationSnapshotItem[],
 	/**  前端注入的终端会话列表（与 AI 会话分离）。 */
 	terminalSessions?: AssistantTerminalSessionSnapshotItem[],
+	/**  前端注入的 AI 模型目录（不含 API Key）。 */
+	aiModels?: AssistantAiModelSnapshotItem[],
 };
 
 export type AssistantUploadTextRequest = {

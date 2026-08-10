@@ -170,6 +170,85 @@ pub fn chat_index_from_notify_json(raw: &str) -> Result<ChatLatestIndex, serde_j
     })
 }
 
+/// 助手端切模通知（无 OSS；payload 内直接带 sessionId / modelSelectionId）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSetModelNotify {
+    pub session_id: String,
+    pub model_selection_id: String,
+    #[serde(default)]
+    pub provider_id: String,
+    #[serde(default)]
+    pub model_name: String,
+    #[serde(default)]
+    pub published_at: String,
+}
+
+/// 从通用 notify SSE 解析 `assistant.chat.setModel`。
+pub fn set_model_from_notify_json(raw: &str) -> Result<ChatSetModelNotify, serde_json::Error> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Envelope {
+        #[serde(default)]
+        event: String,
+        #[serde(default)]
+        published_at: String,
+        #[serde(default)]
+        payload: serde_json::Value,
+    }
+    let env: Envelope = serde_json::from_str(raw)?;
+    let event = env.event.trim();
+    if event != "assistant.chat.setModel" {
+        return Err(serde::de::Error::custom(format!("unexpected event: {event}")));
+    }
+    let p = &env.payload;
+    let session_id = p
+        .get("sessionId")
+        .or_else(|| p.get("session_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let model_selection_id = p
+        .get("modelSelectionId")
+        .or_else(|| p.get("model_selection_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mut provider_id = p
+        .get("providerId")
+        .or_else(|| p.get("provider_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mut model_name = p
+        .get("modelName")
+        .or_else(|| p.get("model_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if (provider_id.is_empty() || model_name.is_empty()) && !model_selection_id.is_empty() {
+        if let Some((pid, mname)) = model_selection_id.split_once("::") {
+            if provider_id.is_empty() {
+                provider_id = pid.trim().to_string();
+            }
+            if model_name.is_empty() {
+                model_name = mname.trim().to_string();
+            }
+        }
+    }
+    Ok(ChatSetModelNotify {
+        session_id,
+        model_selection_id,
+        provider_id,
+        model_name,
+        published_at: env.published_at,
+    })
+}
+
 /// 从 OSS 正文解析出可展示的助手消息文本。
 pub fn extract_inbound_message_text(raw: &str) -> String {
     parse_inbound_chat_message(raw).text

@@ -1,15 +1,20 @@
-//! 助手端远程命令：订阅 DB / 文件 / Docker 命令，本机执行后回传 `assistant.command.result`。
+//! 助手端远程命令：订阅 DB / 文件 / Docker / 终端命令，本机执行后回传 `assistant.command.result`。
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use omnipanel_assistant::AuthContext;
 use omnipanel_error::{ErrorCode, OmniError};
+use serde::Deserialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
+use serde::Serialize;
+use specta::Type;
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::oneshot;
 
 use crate::commands::assistant_chat::build_auth_long;
 use crate::commands::database::{
@@ -17,9 +22,18 @@ use crate::commands::database::{
 };
 use crate::commands::docker::{docker_list_compose_projects, docker_list_containers};
 use crate::commands::file_manager::file_list_dir;
+use crate::commands::ssh::pool_session;
 use crate::state::{AppState, ProxyConfig};
 
 const RESULT_MAX_BYTES: usize = 64 * 1024;
+/// exec 单字段（stdout/stderr）最大字节，避免结果包超限
+const EXEC_STREAM_MAX_BYTES: usize = 24 * 1024;
+/// 远程 exec 默认/上下限超时（毫秒）
+const EXEC_DEFAULT_TIMEOUT_MS: u64 = 30_000;
+const EXEC_MIN_TIMEOUT_MS: u64 = 1_000;
+const EXEC_MAX_TIMEOUT_MS: u64 = 120_000;
+/// openOrFocus 等待前端打开并回传同步数据
+const OPEN_OR_FOCUS_WAIT_MS: u64 = 20_000;
 /// 忽略连接时回放的过旧命令（秒）
 const FRESH_SECS: i64 = 120;
 /// 远程预览默认行数
@@ -29,7 +43,65 @@ const PREVIEW_MAX_LIMIT: u32 = 100;
 const DOCKER_LOCAL_CONNECTION_ID: &str = "docker-local";
 
 const REMOTE_CMD_EVENTS: &str =
-    "client.db.command,client.files.command,client.docker.command";
+    "client.db.command,client.files.command,client.docker.command,client.terminal.command";
+
+type TerminalCmdReplyTx = oneshot::Sender<Result<Value, String>>;
+
+fn terminal_cmd_pending() -> &'static Mutex<HashMap<String, TerminalCmdReplyTx>> {
+    static PENDING: OnceLock<Mutex<HashMap<String, TerminalCmdReplyTx>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 前端 `listen(assistant-terminal-open-or-focus)` 的 payload。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantTerminalOpenOrFocusEvent {
+    pub request_id: String,
+    pub connection_id: String,
+    pub op: String,
+}
+
+/// 前端打开终端后回传同步结果。
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantTerminalCmdReplyRequest {
+    pub request_id: String,
+    pub ok: bool,
+    #[serde(default)]
+    pub result: Option<Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_terminal_cmd_reply(
+    req: AssistantTerminalCmdReplyRequest,
+) -> Result<(), OmniError> {
+    let request_id = req.request_id.trim().to_string();
+    if request_id.is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "缺少 requestId"));
+    }
+    let tx = {
+        let mut map = terminal_cmd_pending()
+            .lock()
+            .map_err(|_| OmniError::new(ErrorCode::Internal, "pending lock poisoned"))?;
+        map.remove(&request_id)
+    };
+    let Some(tx) = tx else {
+        tracing::warn!(%request_id, "terminal cmd reply 无对应 pending（可能已超时）");
+        return Ok(());
+    };
+    let payload = if req.ok {
+        Ok(req.result.unwrap_or(json!({})))
+    } else {
+        Err(req
+            .error
+            .unwrap_or_else(|| "前端打开终端失败".to_string()))
+    };
+    let _ = tx.send(payload);
+    Ok(())
+}
 
 /// 与聊天收件箱共用 stop 标志，随登录启停。
 pub async fn run_remote_cmd_loop(
@@ -194,7 +266,8 @@ async fn handle_remote_envelope(
     let is_db = event == "client.db.command";
     let is_files = event == "client.files.command" || event == "client.files.list";
     let is_docker = event == "client.docker.command";
-    if !is_db && !is_files && !is_docker {
+    let is_terminal = event == "client.terminal.command";
+    if !is_db && !is_files && !is_docker && !is_terminal {
         return Ok(());
     }
 
@@ -249,10 +322,22 @@ async fn handle_remote_envelope(
             Ok(v) => (true, Some(v), None),
             Err(e) => (false, None, Some(e)),
         }
-    } else {
+    } else if is_docker {
         let filter = payload_str(&payload, &["filter"]);
         let project = payload_str(&payload, &["project"]);
         match execute_docker_op(app, &op, &connection_id, &filter, &project).await {
+            Ok(v) => (true, Some(v), None),
+            Err(e) => (false, None, Some(e)),
+        }
+    } else {
+        let command = payload_str(&payload, &["command", "cmd"]);
+        let timeout_ms = payload_u32(&payload, &["timeoutMs", "timeout_ms"])
+            .map(|v| v as u64)
+            .unwrap_or(EXEC_DEFAULT_TIMEOUT_MS)
+            .clamp(EXEC_MIN_TIMEOUT_MS, EXEC_MAX_TIMEOUT_MS);
+        match execute_terminal_op(app, &op, &connection_id, &request_id, &command, timeout_ms)
+            .await
+        {
             Ok(v) => (true, Some(v), None),
             Err(e) => (false, None, Some(e)),
         }
@@ -324,6 +409,107 @@ async fn execute_files_op(
         }
         other => Err(format!("不支持的 files op: {other}")),
     }
+}
+
+/// 终端：openOrFocus 通知前端；exec 在 Rust 连接池一次性执行。
+async fn execute_terminal_op(
+    app: &AppHandle,
+    op: &str,
+    connection_id: &str,
+    request_id: &str,
+    command: &str,
+    timeout_ms: u64,
+) -> Result<Value, String> {
+    if connection_id.trim().is_empty() {
+        return Err("缺少 connectionId".into());
+    }
+    let op_norm = match op.trim() {
+        "" | "openOrFocus" | "open" | "connect" => "openOrFocus",
+        "exec" | "execute" | "run" => "exec",
+        other => return Err(format!("不支持的 terminal op: {other}")),
+    };
+
+    if op_norm == "openOrFocus" {
+        let (tx, rx) = oneshot::channel::<Result<Value, String>>();
+        {
+            let mut map = terminal_cmd_pending()
+                .lock()
+                .map_err(|_| "pending lock poisoned".to_string())?;
+            if let Some(old) = map.insert(request_id.to_string(), tx) {
+                let _ = old.send(Err("被更新的 openOrFocus 请求取代".into()));
+            }
+        }
+        let payload = AssistantTerminalOpenOrFocusEvent {
+            request_id: request_id.to_string(),
+            connection_id: connection_id.trim().to_string(),
+            op: op_norm.to_string(),
+        };
+        if let Err(e) = app.emit("assistant-terminal-open-or-focus", payload) {
+            let mut map = terminal_cmd_pending()
+                .lock()
+                .map_err(|_| "pending lock poisoned".to_string())?;
+            map.remove(request_id);
+            return Err(format!("通知前端打开终端失败: {e}"));
+        }
+        match tokio::time::timeout(Duration::from_millis(OPEN_OR_FOCUS_WAIT_MS), rx).await {
+            Ok(Ok(Ok(v))) => return Ok(v),
+            Ok(Ok(Err(e))) => return Err(e),
+            Ok(Err(_)) => {
+                return Err("前端打开终端回传通道已关闭".into());
+            }
+            Err(_) => {
+                let mut map = terminal_cmd_pending()
+                    .lock()
+                    .map_err(|_| "pending lock poisoned".to_string())?;
+                map.remove(request_id);
+                return Err(format!(
+                    "等待前端打开终端超时（{}ms）",
+                    OPEN_OR_FOCUS_WAIT_MS
+                ));
+            }
+        }
+    }
+
+    let cmd = command.trim();
+    if cmd.is_empty() {
+        return Err("命令不能为空".into());
+    }
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "应用状态不可用".to_string())?;
+    let session = pool_session(&*state, connection_id.trim())
+        .await
+        .map_err(|e| e.to_string())?;
+    let output = tokio::time::timeout(
+        Duration::from_millis(timeout_ms),
+        session.exec_capture(cmd),
+    )
+    .await
+    .map_err(|_| format!("命令执行超时（{}ms）", timeout_ms))?
+    .map_err(|e| e.to_string())?;
+
+    let (stdout, stdout_cut) = truncate_exec_stream(&output.stdout);
+    let (stderr, stderr_cut) = truncate_exec_stream(&output.stderr);
+    Ok(json!({
+        "stdout": stdout,
+        "stderr": stderr,
+        "exitCode": output.exit_code,
+        "exit_code": output.exit_code,
+        "truncated": stdout_cut || stderr_cut,
+        "op": op_norm,
+        "connectionId": connection_id.trim(),
+    }))
+}
+
+fn truncate_exec_stream(raw: &str) -> (String, bool) {
+    if raw.len() <= EXEC_STREAM_MAX_BYTES {
+        return (raw.to_string(), false);
+    }
+    let mut end = EXEC_STREAM_MAX_BYTES;
+    while end > 0 && !raw.is_char_boundary(end) {
+        end -= 1;
+    }
+    (format!("{}…", &raw[..end]), true)
 }
 
 async fn execute_docker_op(

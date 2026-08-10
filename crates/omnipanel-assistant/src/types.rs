@@ -15,6 +15,7 @@ pub const MODULE_IDS: &[&str] = &[
     "protocol",
     "tasks",
     "assistant",
+    "aiModels",
 ];
 
 /// 采集后的各模块 section（内存态，上传前再拆文件）。
@@ -30,6 +31,7 @@ pub struct AssistantSnapshotModules {
     pub protocol: ModuleSection,
     pub tasks: ModuleSection,
     pub assistant: ModuleSection,
+    pub ai_models: ModuleSection,
 }
 
 impl AssistantSnapshotModules {
@@ -44,6 +46,7 @@ impl AssistantSnapshotModules {
             "protocol" => Some(&self.protocol),
             "tasks" => Some(&self.tasks),
             "assistant" => Some(&self.assistant),
+            "aiModels" => Some(&self.ai_models),
             _ => None,
         }
     }
@@ -115,6 +118,7 @@ pub struct SnapshotOverviewModules {
     pub protocol: OverviewModuleEntry,
     pub tasks: OverviewModuleEntry,
     pub assistant: OverviewModuleEntry,
+    pub ai_models: OverviewModuleEntry,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -215,6 +219,7 @@ pub fn build_snapshot_bundle(
             "protocol" => overview_modules.protocol = entry,
             "tasks" => overview_modules.tasks = entry,
             "assistant" => overview_modules.assistant = entry,
+            "aiModels" => overview_modules.ai_models = entry,
             _ => {}
         }
     }
@@ -247,7 +252,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn bundle_has_overview_and_nine_modules() {
+    fn bundle_has_overview_and_ten_modules() {
         let mut modules = AssistantSnapshotModules::default();
         modules.database = ModuleSection::from_items(vec![json!({"id":"db1"})]);
         modules.tasks = ModuleSection::from_items(vec![json!({"id":"t1"}), json!({"id":"t2"})]);
@@ -262,7 +267,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(bundle.file_count(), 10);
+        assert_eq!(bundle.file_count(), 11);
         assert!(bundle.overview_key.ends_with("/overview.json"));
         assert_eq!(bundle.files.last().unwrap().object_key, bundle.overview_key);
 
@@ -282,5 +287,10 @@ mod tests {
             .assistant
             .object_key
             .ends_with("/modules/assistant.json"));
+        assert!(overview
+            .modules
+            .ai_models
+            .object_key
+            .ends_with("/modules/aiModels.json"));
     }
 }

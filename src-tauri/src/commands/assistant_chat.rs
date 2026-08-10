@@ -7,7 +7,8 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use omnipanel_assistant::{
     chat_index_from_notify_json, fetch_chat_latest, fetch_oss_sts, get_object_bytes,
-    parse_inbound_chat_message, AuthContext, ChatLatestIndex,
+    parse_inbound_chat_message, set_model_from_notify_json, AuthContext, ChatLatestIndex,
+    ChatSetModelNotify,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::Serialize;
@@ -62,6 +63,18 @@ pub struct AssistantChatInboundEvent {
     /// 澄清表单答案（快通道）；有值时即使 text 为空也推送。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ask_user: Option<AssistantChatAskUserAnswer>,
+}
+
+/// 前端 `listen(assistant-chat-set-model)` 的 payload。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatSetModelEvent {
+    pub session_id: String,
+    pub model_selection_id: String,
+    #[serde(default)]
+    pub provider_id: String,
+    #[serde(default)]
+    pub model_name: String,
 }
 
 struct ChatInboxRuntime {
@@ -252,6 +265,29 @@ async fn emit_inbound(app: &AppHandle, event: AssistantChatInboundEvent) {
     let _ = app.emit("assistant-chat-inbound", event);
 }
 
+async fn emit_set_model(app: &AppHandle, event: ChatSetModelNotify) {
+    if event.session_id.trim().is_empty() || event.model_selection_id.trim().is_empty() {
+        tracing::warn!(
+            session_id = %event.session_id,
+            model_selection_id = %event.model_selection_id,
+            "助手切模通知字段不完整，跳过"
+        );
+        return;
+    }
+    let payload = AssistantChatSetModelEvent {
+        session_id: event.session_id,
+        model_selection_id: event.model_selection_id,
+        provider_id: event.provider_id,
+        model_name: event.model_name,
+    };
+    tracing::info!(
+        session_id = %payload.session_id,
+        model_selection_id = %payload.model_selection_id,
+        "收到助手切模通知"
+    );
+    let _ = app.emit("assistant-chat-set-model", payload);
+}
+
 async fn handle_index(app: &AppHandle, auth: &AuthContext, index: ChatLatestIndex) {
     match load_inbound_from_key(
         auth,
@@ -331,7 +367,7 @@ async fn listen_chat_sse(
     last_dedupe: &mut String,
 ) -> Result<(), OmniError> {
     let url = format!(
-        "{}/api/notify/wait?events=assistant.chat.message",
+        "{}/api/notify/wait?events=assistant.chat.message,assistant.chat.setModel",
         auth.api_base.trim_end_matches('/'),
     );
     tracing::info!(%url, "聊天收件箱 SSE 连接中");
@@ -415,6 +451,25 @@ async fn listen_chat_sse(
                     "notify" | "message" => {
                         if data.trim().is_empty() {
                             continue;
+                        }
+                        // 先识别切模（无 OSS objectKey）
+                        if let Ok(set_model) = set_model_from_notify_json(&data) {
+                            if !set_model.session_id.is_empty()
+                                && !set_model.model_selection_id.is_empty()
+                            {
+                                let key = format!(
+                                    "setModel:{}:{}:{}",
+                                    set_model.session_id,
+                                    set_model.model_selection_id,
+                                    set_model.published_at
+                                );
+                                if !key.is_empty() && key == *last_dedupe {
+                                    continue;
+                                }
+                                *last_dedupe = key;
+                                emit_set_model(app, set_model).await;
+                                continue;
+                            }
                         }
                         let index: ChatLatestIndex = match chat_index_from_notify_json(&data)
                             .or_else(|_| ChatLatestIndex::parse_json(&data))

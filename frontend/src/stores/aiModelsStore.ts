@@ -371,6 +371,10 @@ async function persistProviders(providers: AiModelProvider[]): Promise<void> {
   } catch (e) {
     console.warn("[aiModelsStore] 写入磁盘失败:", e);
   }
+  // 模型目录变更后推助手端快照（脱敏，不含 API Key）
+  void import("../modules/assistant").then((m) => {
+    m.scheduleAssistantSnapshotSync();
+  });
 }
 
 /**
