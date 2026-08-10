@@ -29,7 +29,7 @@ ENV PATH="/root/.cargo/bin:${PATH}" \
 # 常用开发工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git curl wget unzip openssh-client build-essential pkg-config \
-      libssl-dev cmake \
+      libssl-dev cmake libdbus-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 支持中文命令行
