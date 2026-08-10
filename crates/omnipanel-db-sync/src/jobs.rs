@@ -160,7 +160,7 @@ fn is_ignored_compare_field(table: &str, column: &str, ignored: &HashSet<String>
 }
 
 async fn compare_table_rows(
-    app: &Arc<dyn DbSyncEventSink>,
+    _app: &Arc<dyn DbSyncEventSink>,
     source: &DbConnectionConfig,
     target: &DbConnectionConfig,
     table_name: &str,

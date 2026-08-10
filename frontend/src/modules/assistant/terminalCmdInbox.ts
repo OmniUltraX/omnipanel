@@ -119,7 +119,7 @@ function applyOpenOrFocus(payload: AssistantTerminalOpenOrFocusPayload): void {
     }
 
     const tab = useTerminalStore.getState().tabs.find((t) => t.id === tabId);
-    const sessionId = tab?.sessionId || tab?.session?.id || "";
+    const sessionId = tab?.sessionId || "";
     // 等一帧，让 store / 建连副作用落稳
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     const blocks = sessionId ? collectRecentShellBlocks(sessionId) : [];

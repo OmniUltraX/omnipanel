@@ -17,7 +17,7 @@ use omnipanel_ssh::{
 use omnipanel_store::{
     inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, Vault,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
 

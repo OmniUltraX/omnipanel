@@ -7,7 +7,6 @@ use omnipanel_db_sync::{
     BgTaskDbEvent, BgTaskMysqlExportEvent, DbSyncEventSink, MysqlExportEventSink,
     SyncExecResultEvent, SshSessionProvider,
 };
-use omnipanel_error::OmniResult;
 use omnipanel_ssh::SshSession;
 use tauri::{AppHandle, Emitter};
 

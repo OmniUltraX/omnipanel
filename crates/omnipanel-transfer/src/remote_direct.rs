@@ -1,7 +1,7 @@
 //! SFTP↔SFTP 远程直传：数据面不经本机；探测失败或执行失败回落 StreamRelay。
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

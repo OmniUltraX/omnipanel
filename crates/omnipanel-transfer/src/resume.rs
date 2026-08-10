@@ -1,7 +1,6 @@
 //! 传输任务持久化与断点续传元数据。
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};

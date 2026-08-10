@@ -1,10 +1,9 @@
 //! 跨连接文件传输：Tauri IPC 薄适配层（引擎在 `omnipanel-transfer`）。
 
 pub use omnipanel_transfer::{
-    rate_limit, FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEndpoint,
-    FileTransferEngine, FileTransferItemSpec, FileTransferJob, FileTransferListResult,
-    FileTransferOp, FileTransferPlanRequest, FileTransferPlanResult, FileTransferRoute,
-    FileTransferState, TRANSFER_PROGRESS_EVENT,
+    rate_limit, FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEngine,
+    FileTransferItemSpec, FileTransferListResult, FileTransferOp, FileTransferPlanRequest,
+    FileTransferPlanResult, FileTransferState,
 };
 
 use std::path::PathBuf;

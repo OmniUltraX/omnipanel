@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use omnipanel_error::{ErrorCode, OmniError};
@@ -13,7 +13,7 @@ use crate::resume::{
     sftp_partial_len, source_fingerprint,
 };
 use crate::types::{FileTransferJob, FileTransferState};
-use crate::util::{check_cancel, open_sftp, resolve_protocol, set_progress, s3_key, temp_transfer_path};
+use crate::util::{check_cancel, open_sftp, resolve_protocol, set_progress, temp_transfer_path};
 
 async fn set_progress_with_persist(
     sink: &dyn TransferEventSink,

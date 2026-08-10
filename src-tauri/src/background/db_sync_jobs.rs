@@ -21,8 +21,7 @@ use tauri::AppHandle;
 use crate::background::db_sync_bridge::db_sync_sink;
 
 pub use omnipanel_db_sync::{
-    row_diff_cache::TableRowDiffPayload, DataSyncModes, DbDataSyncSqlGenerateResult,
-    DbSyncExecTableSpec, DbSyncSqlPreviewTable, DbSyncTableSpec,
+    DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncSqlPreviewTable, DbSyncTableSpec,
 };
 
 pub async fn run_db_data_sync_analysis(

@@ -66,10 +66,6 @@ impl BackgroundWorkerPool {
             .await
     }
 
-    pub async fn cancel(&self, id: &str) -> Result<(), OmniError> {
-        self.inner.cancel(id, None).await
-    }
-
     pub async fn cancel_and_emit(&self, app: &AppHandle, id: &str) -> Result<(), OmniError> {
         let sink: Arc<dyn TaskEventSink> = Arc::new(TauriTaskEventSink(app.clone()));
         self.inner.cancel(id, Some(sink)).await

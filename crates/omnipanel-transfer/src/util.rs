@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 
-use crate::provider::{TransferHost, TransferProtocol, LOCAL_CONNECTION_ID};
+use crate::provider::{TransferHost, TransferProtocol};
 use crate::remote_direct::remote_direct_eligible;
 use crate::types::{FileTransferEndpoint, FileTransferJob, FileTransferRoute};
 use crate::event::TransferEventSink;

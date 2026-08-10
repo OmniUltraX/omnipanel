@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use omnipanel_db::{
-    DbDriver, DbParams, MongoDriver, QueryResult, RedisKeyDetail, RedisSearchKeysResult,
+    DbParams, MongoDriver, QueryResult, RedisKeyDetail, RedisSearchKeysResult,
     RedisSlowLogEntry, mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
 };
 use omnipanel_error::OmniError;
@@ -725,30 +725,6 @@ pub struct TableRowCount {
 /// 将领域错误转为前端可读文案（含底层 cause）。
 fn err_msg(e: OmniError) -> String {
     e.user_message()
-}
-
-/// 打开可复用的数据库驱动（供后台同步任务分页读取，避免每页新建连接池）。
-pub(crate) async fn open_db_driver(c: &DbConnectionConfig) -> Result<Box<dyn DbDriver>, String> {
-    let mut c = c.clone();
-    omnipanel_store::fill_db_password_from_vault(&mut c);
-    omnipanel_db::connect(&to_params(&c)).await.map_err(err_msg)
-}
-
-pub(crate) fn query_result_to_row_maps(
-    result: QueryResult,
-) -> Vec<HashMap<String, serde_json::Value>> {
-    let columns = result.columns;
-    result
-        .rows
-        .into_iter()
-        .map(|record| {
-            columns
-                .iter()
-                .cloned()
-                .zip(record)
-                .collect::<HashMap<String, serde_json::Value>>()
-        })
-        .collect()
 }
 
 /// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。
@@ -2530,24 +2506,6 @@ pub async fn db_count_tables(
         });
     }
     Ok(out)
-}
-
-/// 在指定库上执行单条 SQL（DDL / DML），返回影响行数。
-pub async fn db_run_sql(
-    connection: DbConnectionConfig,
-    schema: Option<String>,
-    sql: String,
-) -> Result<u64, String> {
-    let params = with_schema(&connection, schema);
-    if params.database.trim().is_empty() {
-        return Err("未指定数据库".to_string());
-    }
-    let driver = omnipanel_db::connect(&params).await.map_err(err_msg)?;
-    driver
-        .execute(&sql)
-        .await
-        .map_err(err_msg)
-        .map(|result| result.rows_affected)
 }
 
 /// 执行任意 SQL（SELECT 返回行集，DML 返回影响行数）。高风险写操作由前端经执行引擎确认后调用。
