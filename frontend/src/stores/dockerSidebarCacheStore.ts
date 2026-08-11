@@ -11,6 +11,7 @@ import {
   type DockerSidebarRefreshScope,
 } from "@/modules/docker/dockerSidebarCache";
 import { fetchDockerSidebarResources } from "@/modules/docker/dockerSidebarRefresh";
+import { warmComposeMetaFromContainers } from "@/modules/docker/dockerComposeApi";
 
 /**
  * 侧栏资源（容器/镜像/网络/卷）缓存：后端 `~/.omnipd/docker/sidebar-cache.json` 持久化。
@@ -247,6 +248,12 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>((set, 
             }
             return { connections, hydrated: true };
           });
+          // 已有侧栏缓存时预热 compose meta，打开面板可跳过全量 list
+          for (const [id, entry] of Object.entries(get().connections)) {
+            if (entry.containers?.length) {
+              warmComposeMetaFromContainers(id, entry.containers);
+            }
+          }
         } catch {
           set({ hydrated: true });
         }

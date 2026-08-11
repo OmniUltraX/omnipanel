@@ -2089,7 +2089,8 @@ pub(crate) fn to_container_summary(c: bollard::models::ContainerSummary) -> Dock
         .map(|m| m.into_keys().collect())
         .unwrap_or_default();
     let labels_map = c.labels.clone().unwrap_or_default();
-    let (compose_project, compose_service) = compose_fields_from_label_map(&labels_map);
+    let (compose_project, compose_service, compose_working_dir, compose_config_files) =
+        compose_fields_from_label_map(&labels_map);
 
     DockerContainerSummary {
         short_id: short_id(&id),
@@ -2106,6 +2107,8 @@ pub(crate) fn to_container_summary(c: bollard::models::ContainerSummary) -> Dock
         created_at: c.created.unwrap_or(0),
         compose_project,
         compose_service,
+        compose_working_dir,
+        compose_config_files,
     }
 }
 
@@ -2174,7 +2177,8 @@ pub(crate) fn to_container_detail(
     let label_map = config
         .and_then(|cfg| cfg.labels.clone())
         .unwrap_or_default();
-    let (compose_project, compose_service) = compose_fields_from_label_map(&label_map);
+    let (compose_project, compose_service, compose_working_dir, compose_config_files) =
+        compose_fields_from_label_map(&label_map);
 
     let summary = DockerContainerSummary {
         short_id: short_id(&id),
@@ -2198,6 +2202,8 @@ pub(crate) fn to_container_detail(
         created_at: 0,
         compose_project,
         compose_service,
+        compose_working_dir,
+        compose_config_files,
     };
 
     DockerContainerDetail {

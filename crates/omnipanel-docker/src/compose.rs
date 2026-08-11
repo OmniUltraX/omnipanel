@@ -11,10 +11,15 @@ pub const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
 pub const COMPOSE_WORKDIR_LABEL: &str = "com.docker.compose.project.working_dir";
 pub const COMPOSE_CONFIG_LABEL: &str = "com.docker.compose.project.config_files";
 
-/// 从 Docker 标签映射提取 Compose 项目/服务名。
+/// 从 Docker 标签映射提取 Compose 项目/服务/工作目录/配置文件。
 pub fn compose_fields_from_label_map(
     labels: &std::collections::HashMap<String, String>,
-) -> (Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     (
         labels
             .get(COMPOSE_PROJECT_LABEL)
@@ -24,12 +29,29 @@ pub fn compose_fields_from_label_map(
             .get(COMPOSE_SERVICE_LABEL)
             .filter(|value| !value.is_empty())
             .cloned(),
+        labels
+            .get(COMPOSE_WORKDIR_LABEL)
+            .filter(|value| !value.is_empty())
+            .cloned(),
+        labels
+            .get(COMPOSE_CONFIG_LABEL)
+            .filter(|value| !value.is_empty())
+            .cloned(),
     )
 }
 
-pub fn compose_fields_from_kv(labels: &[crate::model::DockerKeyValue]) -> (Option<String>, Option<String>) {
+pub fn compose_fields_from_kv(
+    labels: &[crate::model::DockerKeyValue],
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let mut project = None;
     let mut service = None;
+    let mut working_dir = None;
+    let mut config_files = None;
     for item in labels {
         if item.key == COMPOSE_PROJECT_LABEL && !item.value.is_empty() {
             project = Some(item.value.clone());
@@ -37,8 +59,14 @@ pub fn compose_fields_from_kv(labels: &[crate::model::DockerKeyValue]) -> (Optio
         if item.key == COMPOSE_SERVICE_LABEL && !item.value.is_empty() {
             service = Some(item.value.clone());
         }
+        if item.key == COMPOSE_WORKDIR_LABEL && !item.value.is_empty() {
+            working_dir = Some(item.value.clone());
+        }
+        if item.key == COMPOSE_CONFIG_LABEL && !item.value.is_empty() {
+            config_files = Some(item.value.clone());
+        }
     }
-    (project, service)
+    (project, service, working_dir, config_files)
 }
 
 /// 单个容器的 Compose 归属信息（adapter 从标签/状态提取）。

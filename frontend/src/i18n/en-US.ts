@@ -4292,10 +4292,15 @@ export const enUS: TranslationDict = {
         "Restart all services in project \"{project}\"? Running services will be interrupted briefly.",
       rebuildConfirm:
         "Rebuild project \"{project}\"? Images will be rebuilt and containers recreated.",
+      down: "Delete",
+      downing: "Deleting…",
+      downConfirm:
+        "Delete Compose project \"{project}\"? This runs compose down and removes its containers and networks. This cannot be undone.",
       started: "Project services started",
       stopped: "Project services stopped",
       restarted: "Project restarted",
       rebuilt: "Project rebuilt",
+      downed: "Project deleted",
       actionFailed: "Compose action failed",
       containerStoppedHint: "Container stopped — click start to run",
       logsInclude: "Include in compose logs",

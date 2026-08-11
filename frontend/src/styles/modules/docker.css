@@ -1701,6 +1701,10 @@
         color: var(--success);
     }
 
+    .docker-compose-panel__container-action-btn--danger {
+        color: var(--danger);
+    }
+
     .docker-compose-panel__container-logs-toggle.is-on {
         color: var(--accent);
     }

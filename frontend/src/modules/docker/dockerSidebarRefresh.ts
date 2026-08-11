@@ -8,6 +8,7 @@ import type {
 } from "./dockerSidebarCache";
 import { EMPTY_DOCKER_SIDEBAR_CACHE_ENTRY } from "./dockerSidebarCache";
 import { handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
+import { warmComposeMetaFromContainers } from "./dockerComposeApi";
 
 /** 侧栏刷新失败会落到 entry.error，避免刷屏 console */
 function unwrap<T>(promise: Promise<CommandResult<T>>): Promise<T> {
@@ -16,6 +17,14 @@ function unwrap<T>(promise: Promise<CommandResult<T>>): Promise<T> {
 
 const ALL_CATEGORIES: DockerSidebarCategory[] = ["images", "containers", "networks", "volumes"];
 
+function warmComposeMetaIfNeeded(
+  connectionId: string,
+  containers: DockerSidebarCacheEntry["containers"] | undefined,
+): void {
+  if (!containers?.length) return;
+  warmComposeMetaFromContainers(connectionId, containers);
+}
+
 async function fetchCategory(
   connectionId: string,
   category: DockerSidebarCategory,
@@ -23,10 +32,11 @@ async function fetchCategory(
   switch (category) {
     case "images":
       return { images: asArray(await unwrap(commands.dockerListImages(connectionId))) };
-    case "containers":
-      return {
-        containers: asArray(await unwrap(commands.dockerListContainers(connectionId, null))),
-      };
+    case "containers": {
+      const containers = asArray(await unwrap(commands.dockerListContainers(connectionId, null)));
+      warmComposeMetaIfNeeded(connectionId, containers);
+      return { containers };
+    }
     case "networks":
       return { networks: asArray(await unwrap(commands.dockerListNetworks(connectionId))) };
     case "volumes":
@@ -53,6 +63,7 @@ export async function fetchDockerSidebarResources(
     if (scope.kind === "connection") {
       // 手动全量刷新：顺序拉取，避免 SSH 上对多个 docker list 并发抢 exec 锁导致整次首拉挂起
       const containers = await unwrap(commands.dockerListContainers(scope.connectionId, null));
+      warmComposeMetaIfNeeded(scope.connectionId, containers);
       const images = await unwrap(commands.dockerListImages(scope.connectionId));
       const networks = await unwrap(commands.dockerListNetworks(scope.connectionId));
       const volumes = await unwrap(commands.dockerListVolumes(scope.connectionId));

@@ -25,7 +25,7 @@ import {
   type DockerContainerLifecycleAction,
 } from "./dockerContainerLifecycle";
 import type { DockerContainerGridItem } from "./hooks/useDockerContainerGrid";
-import { ComposeStackIcon, DirectoryIcon, LogsIcon, ParamsIcon, PlayIcon, RestartIcon, StopIcon } from "./icons";
+import { ComposeStackIcon, DirectoryIcon, LogsIcon, ParamsIcon, PlayIcon, RestartIcon, StopIcon, TrashIcon } from "./icons";
 import type { DockerContainerSubWindowKind } from "./DockerDockPanel";
 
 async function writeToClipboard(text: string): Promise<boolean> {
@@ -94,7 +94,7 @@ function TableMetricCell({
   );
 }
 
-export type DockerComposeGroupAction = "up" | "stop" | "restart";
+export type DockerComposeGroupAction = "up" | "stop" | "restart" | "down";
 
 type DockerContainerListTableProps = {
   items: DockerContainerGridItem[];
@@ -635,6 +635,19 @@ export function DockerContainerListTable({
                                 }
                               >
                                 <RestartIcon />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="icon"
+                                size="icon-xs"
+                                className="docker-container-card__lifecycle-btn docker-container-card__lifecycle-btn--danger"
+                                title={t("docker.composePanel.down")}
+                                aria-label={t("docker.composePanel.down")}
+                                onClick={(event) =>
+                                  onComposeGroupAction(group.project, "down", event)
+                                }
+                              >
+                                <TrashIcon />
                               </Button>
                             </>
                           )}

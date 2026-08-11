@@ -4,6 +4,7 @@ import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState"
 import { useI18n } from "../../i18n";
 import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
 import { appConfirm } from "../../lib/appConfirm";
+import { useDockerPanelDockStore } from "../../stores/dockerPanelDockStore";
 import { DockerContainerExecTerminal } from "./DockerContainerExecTerminal";
 import { DockerContainerOverviewCard } from "./DockerContainerOverviewCard";
 import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
@@ -114,6 +115,8 @@ export function DockerContainerDockPanel({
         if (action === "remove") {
           const confirmed = await appConfirm(
             t("docker.dockPanel.removeContainerConfirm", { name }),
+            t("docker.dockPanel.removeContainer"),
+            { kind: "warning", confirmLabel: t("docker.dockPanel.removeContainer") },
           );
           if (!confirmed) return;
         }
@@ -121,6 +124,11 @@ export function DockerContainerDockPanel({
         setContainerPending(target.id, true);
         try {
           await runDockerContainerAction(connection.connectionId, target.id, action);
+          if (action === "remove") {
+            useDockerPanelDockStore
+              .getState()
+              .removeContainerTabs(connection.connectionId, target.id);
+          }
           refreshNow();
           refreshDockerConnectionSidebarCache(connection.connectionId);
         } catch (e) {

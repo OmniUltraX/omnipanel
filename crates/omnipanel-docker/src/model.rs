@@ -219,6 +219,13 @@ pub struct DockerContainerSummary {
     /// Compose 服务名（`com.docker.compose.service`）。
     #[serde(default)]
     pub compose_service: Option<String>,
+    /// Compose 工作目录（`com.docker.compose.project.working_dir`）。
+    /// 侧栏已拉过容器列表时可直接打开配置，避免再跑一次全量 `list_compose_projects`。
+    #[serde(default)]
+    pub compose_working_dir: Option<String>,
+    /// Compose 配置文件路径（`com.docker.compose.project.config_files`）。
+    #[serde(default)]
+    pub compose_config_files: Option<String>,
 }
 
 /// 键值对（环境变量、标签）。
