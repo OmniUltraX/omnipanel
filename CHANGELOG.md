@@ -2,6 +2,27 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.14] - 2026-08-11
+
+### 新增
+
+- **系统托盘 · 打开工作区**：右键菜单增加「打开工作区」子菜单，列出全部工作区；点击后聚焦独立窗或进入主窗全屏，工作区变更时菜单自动刷新
+- **助手 · AI 模型 / 终端指令**：模型元数据上报与远程设模通知；助手端可唤起桌面终端会话（openOrFocus）
+- **聊天 OSS**：`chatOssRecorder` 处理 `turn_end` 事件，完善回合结束落盘
+- **文件 · 详情侧栏**：详情侧栏展开态全局持久化
+- **架构**：抽取 `omnipanel-bg` / `omnipanel-db-sync` / `omnipanel-server` 等无 Tauri 共享模块，对齐 Web / 桌面双端
+
+### 变更
+
+- **侧栏顶栏**：macOS / Windows 左侧壳侧栏宽度统一为 56px；两侧均增加与 Tab 栏同高的顶条，顶栏视觉贯通全窗
+- **工程规范**：清理 transfer / db-sync / src-tauri 未使用 import 与死代码，`cargo check` 无项目内警告
+
+### 修复
+
+- **macOS 设备名**：GUI 下无法读到 `HOSTNAME` 时改为 `scutil` / sysinfo；非 ASCII 电脑名百分号编码上报
+- **半屏工作区**：空态顶栏 spacer 不再拖拽控制 OS 窗口；半屏双击顶栏不再误触全屏切换
+- **类型**：`terminalCmdInbox` 改用 `tab.sessionId`，修复 `TerminalSessionInfo` 无 `id` 的 `tsc` 错误
+
 ## [0.7.13] - 2026-08-10
 
 ### 新增
