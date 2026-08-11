@@ -20,7 +20,10 @@ RUN npm run build
 FROM rust:bookworm AS rust-builder
 WORKDIR /build
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+  && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    libdbus-1-dev \
   && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -38,7 +41,11 @@ RUN cargo build --release -p omnipanel-server
 # ---------- 运行时 ----------
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libssl3 \
+    libdbus-1-3 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
