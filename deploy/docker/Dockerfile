@@ -10,6 +10,8 @@ WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# vite alias @repo-logo → ../logo
+COPY logo /build/logo
 ENV SKIP_GEN_BINDINGS=1
 ENV OMNIPANEL_WEB=1
 RUN npm run build
