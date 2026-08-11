@@ -15,7 +15,7 @@ ENV OMNIPANEL_WEB=1
 RUN npm run build
 
 # ---------- 后端：仅编译 omnipanel-server（不含 Tauri） ----------
-FROM rust:1.85-bookworm AS rust-builder
+FROM rust:bookworm AS rust-builder
 WORKDIR /build
 RUN apt-get update \
   && apt-get install -y --no-install-recommends pkg-config libssl-dev \
