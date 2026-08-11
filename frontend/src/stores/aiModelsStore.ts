@@ -662,7 +662,7 @@ if (import.meta.hot) {
     data[HMR_STATE_KEY] = useAiModelsStore.getState().providers;
   });
 
-  const hmrProviders = import.meta.hot.data[HMR_STATE_KEY] as AiModelProvider[] | undefined;
+  const hmrProviders = import.meta.hot.data?.[HMR_STATE_KEY] as AiModelProvider[] | undefined;
   if (hmrProviders?.length) {
     useAiModelsStore.setState({ providers: hmrProviders });
   } else {

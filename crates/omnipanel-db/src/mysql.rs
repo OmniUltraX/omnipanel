@@ -7,7 +7,8 @@ use sqlx::types::chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{
-    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err, split_statements,
+    DbDriver, DbParams, QueryResult, decode_text_as_json_or_string, encode_blob_value, is_query,
+    map_sqlx_err, safe_int_to_value, sanitize_json_value_for_js, split_statements,
 };
 
 pub struct MySqlDriver {
@@ -212,12 +213,11 @@ async fn run(pool: &MySqlPool, sql: &str) -> OmniResult<QueryResult> {
 fn decode_json_column(row: &MySqlRow, index: usize) -> Option<Value> {
     row.try_get::<Json<Value>, _>(index)
         .ok()
-        .map(|Json(v)| v)
+        .map(|Json(v)| sanitize_json_value_for_js(v))
 }
 
 fn decode_bytes_as_json_or_text(bytes: Vec<u8>) -> Value {
-    let text = String::from_utf8_lossy(&bytes).into_owned();
-    serde_json::from_str(&text).unwrap_or(Value::String(text))
+    decode_text_as_json_or_string(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn extract(row: &MySqlRow, index: usize) -> Value {
@@ -379,16 +379,6 @@ where
                 .ok()
                 .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         })
-}
-
-/// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
-fn safe_int_to_value(v: i128) -> Value {
-    const SAFE_MAX: i128 = 1i128 << 53;
-    if v.abs() < SAFE_MAX {
-        serde_json::json!(v)
-    } else {
-        Value::String(v.to_string())
-    }
 }
 
 #[cfg(test)]

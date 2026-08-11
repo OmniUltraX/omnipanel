@@ -50,6 +50,7 @@ import {
   schemaRoutineMatchesSearch,
   schemaSearchMatches,
   schemaTableObjectMatchesSearch,
+  schemaTableObjectSubtreeMatchesSearch,
   schemaUserMatchesSearch,
 } from "./schemaTreeSearch";
 
@@ -221,22 +222,30 @@ function appendTableObjectRows(
   const allIndexes = tbl.indexes ?? [];
   const fieldsFolderMatches = isSearchMode && schemaSearchMatches(q, fieldsLabel);
   const indexesFolderMatches = isSearchMode && schemaSearchMatches(q, indexesLabel);
+  const matchingColumns = isSearchMode
+    ? allColumns.filter((col) => schemaColumnMatchesSearch(q, col))
+    : [];
+  const matchingIndexes =
+    isSearchMode && objectKind === "table"
+      ? allIndexes.filter((idx) => schemaIndexMatchesSearch(q, idx))
+      : [];
+  // 搜索模式：不依赖展开；表名命中时不展开全部列/索引；列/索引命中则直接展示
   const columnsToShow = !isSearchMode
     ? allColumns
-    : colsExpanded
-      ? tableSelfMatches || fieldsFolderMatches
-        ? allColumns
-        : allColumns.filter((col) => schemaColumnMatchesSearch(q, col))
-      : [];
+    : fieldsFolderMatches
+      ? allColumns
+      : tableSelfMatches
+        ? []
+        : matchingColumns;
   const indexesToShow =
     objectKind === "table"
       ? !isSearchMode
         ? allIndexes
-        : idxExpanded
-          ? tableSelfMatches || indexesFolderMatches
-            ? allIndexes
-            : allIndexes.filter((idx) => schemaIndexMatchesSearch(q, idx))
-          : []
+        : indexesFolderMatches
+          ? allIndexes
+          : tableSelfMatches
+            ? []
+            : matchingIndexes
       : [];
   const pagedColumns = paginateSchemaChildren(columnsToShow, colsFolderId, childVisibleLimits);
   const pagedIndexes = paginateSchemaChildren(indexesToShow, idxFolderId, childVisibleLimits);
@@ -258,22 +267,24 @@ function appendTableObjectRows(
     connectionHasTableSchemaChildren(conn.config);
   const showColumnsSection = !isSearchMode
     ? allColumns.length > 0
-    : fieldsFolderMatches || (colsExpanded && columnsToShow.length > 0);
+    : fieldsFolderMatches || matchingColumns.length > 0;
   const showIndexesSection =
     objectKind === "table" &&
     (!isSearchMode
       ? allIndexes.length > 0
-      : indexesFolderMatches || (idxExpanded && indexesToShow.length > 0));
+      : indexesFolderMatches || matchingIndexes.length > 0);
   const tableRefreshing = Boolean(refreshingNodeIds[tableKey]);
   const needsDetailsLoad =
     showTableSchemaChildren && !tbl.detailsError && allColumns.length === 0;
+  const searchShowsChildren =
+    isSearchMode && (showColumnsSection || showIndexesSection);
 
   pushNode(rows, {
     kind: "node",
     key: tableKey,
     item: tableItem,
     depth,
-    expanded: tableExpanded,
+    expanded: tableExpanded || searchShowsChildren,
     hasChildren:
       showTableSchemaChildren &&
       (showColumnsSection || showIndexesSection || needsDetailsLoad || tableRefreshing),
@@ -286,7 +297,14 @@ function appendTableObjectRows(
     labelClickTableName: tbl.name,
   });
 
-  if (!showTableSchemaChildren || !tableExpanded) {
+  if (!showTableSchemaChildren) {
+    return;
+  }
+  // 非搜索仍依赖展开；搜索命中列/索引时直接展示缓存子节点
+  if (!isSearchMode && !tableExpanded) {
+    return;
+  }
+  if (isSearchMode && !searchShowsChildren) {
     return;
   }
 
@@ -295,13 +313,56 @@ function appendTableObjectRows(
   }
 
   if (needsDetailsLoad) {
-    pushMessage(rows, `${tableKey}:loading-details`, depth + 1, t("common.loading"), "empty");
+    if (!isSearchMode) {
+      pushMessage(rows, `${tableKey}:loading-details`, depth + 1, t("common.loading"), "empty");
+    }
     return;
   }
 
   if (!tbl.columns) {
     return;
   }
+
+  // 搜索模式：命中列/索引扁平展示在表下，不依赖字段/索引文件夹展开
+  if (isSearchMode) {
+    for (const col of columnsToShow) {
+      const colId = `${tableKey}:col:${col.name}`;
+      const colItem = buildColumnTreeItem(
+        conn.config.id,
+        dbName,
+        tbl.name,
+        col.name,
+        col.type,
+        colId,
+      );
+      pushNode(rows, {
+        kind: "node",
+        key: colId,
+        item: colItem,
+        depth: depth + 1,
+        expanded: false,
+        hasChildren: false,
+        meta: metaFor(colId, col.type),
+        isPk: col.isPk,
+        isFk: col.isFk,
+      });
+    }
+    for (const idx of indexesToShow) {
+      const idxId = `${tableKey}:idx:${idx.name}`;
+      const idxItem = buildIndexTreeItem(conn.config.id, dbName, tbl.name, idx.name, idxId);
+      pushNode(rows, {
+        kind: "node",
+        key: idxId,
+        item: idxItem,
+        depth: depth + 1,
+        expanded: false,
+        hasChildren: false,
+        meta: metaFor(idxId, idx.columns.join(", ")),
+      });
+    }
+    return;
+  }
+
   if (showColumnsSection) {
     const colsFolderItem = buildFolderTreeItem(
       colsFolderId,
@@ -343,7 +404,7 @@ function appendTableObjectRows(
           isFk: col.isFk,
         });
       }
-      if (!isSearchMode && pagedColumns.hasMore) {
+      if (pagedColumns.hasMore) {
         pushLoadMore(rows, colsFolderId, depth + 2, pagedColumns.remaining);
       }
     }
@@ -384,7 +445,7 @@ function appendTableObjectRows(
         meta: metaFor(idxId, idx.columns.join(", ")),
       });
     }
-    if (!isSearchMode && pagedIndexes.hasMore) {
+    if (pagedIndexes.hasMore) {
       pushLoadMore(rows, idxFolderId, depth + 2, pagedIndexes.remaining);
     }
   }
@@ -504,6 +565,9 @@ function appendConnectionSchemaRows(
     resolvedTheme,
   } = params;
   const { q, isSearchMode, searchLabels, routineLabel } = ctx;
+  const includeTableSchemaChildren =
+    Boolean(params.showTableSchemaChildren) &&
+    connectionHasTableSchemaChildren(conn.config);
 
     const connId = `conn:${conn.config.id}`;
     if (
@@ -515,6 +579,7 @@ function appendConnectionSchemaRows(
         makeTableFilterKey,
         searchLabels,
         routineLabel,
+        includeTableSchemaChildren,
       )
     ) {
       return;
@@ -606,6 +671,7 @@ function appendConnectionSchemaRows(
             tableFilter,
             searchLabels,
             routineLabel,
+            includeTableSchemaChildren,
           ) &&
           queriesToShowInSearch.length === 0
         ) {
@@ -630,10 +696,18 @@ function appendConnectionSchemaRows(
         const viewsExpanded = expandedNodeIds.has(viewsFolderId);
         const otherExpanded = expandedNodeIds.has(otherFolderId);
         const tablesToShow = isSearchMode
-          ? visibleTables.filter((tbl) => schemaTableObjectMatchesSearch(q, tbl))
+          ? visibleTables.filter((tbl) =>
+              includeTableSchemaChildren
+                ? schemaTableObjectSubtreeMatchesSearch(q, tbl, "table")
+                : schemaTableObjectMatchesSearch(q, tbl),
+            )
           : visibleTables;
         const viewsToShow = isSearchMode
-          ? (db.views ?? []).filter((view) => schemaTableObjectMatchesSearch(q, view))
+          ? (db.views ?? []).filter((view) =>
+              includeTableSchemaChildren
+                ? schemaTableObjectSubtreeMatchesSearch(q, view, "view")
+                : schemaTableObjectMatchesSearch(q, view),
+            )
           : allViews;
         const routinesToShow = isSearchMode
           ? allRoutines.filter((routine) =>
@@ -964,16 +1038,15 @@ function appendConnectionSchemaRows(
       const usersFolderRefreshing = Boolean(refreshingNodeIds[usersFolderId]);
       const allUsers = conn.users ?? [];
       const usersFolderMatches = isSearchMode && schemaSearchMatches(q, searchLabels.users);
+      // 搜索模式：扫本地缓存全部用户，不依赖「用户」文件夹是否展开
       const usersToShow = isSearchMode
-        ? usersExpanded
-          ? usersFolderMatches
-            ? allUsers
-            : allUsers.filter((user) => schemaUserMatchesSearch(q, user))
-          : []
+        ? usersFolderMatches
+          ? allUsers
+          : allUsers.filter((user) => schemaUserMatchesSearch(q, user))
         : allUsers;
       const showUsersFolder =
         (isSearchMode
-          ? usersFolderMatches || (usersExpanded && usersToShow.length > 0)
+          ? usersFolderMatches || usersToShow.length > 0
           : allUsers.length > 0) || usersFolderRefreshing;
       if (showUsersFolder) {
         const usersFolderItem = buildFolderTreeItem(
@@ -981,12 +1054,13 @@ function appendConnectionSchemaRows(
           t("database.sidebar.users"),
           conn.config.id,
         );
+        const usersSearchExpanded = isSearchMode && usersToShow.length > 0;
         pushNode(rows, {
           kind: "node",
           key: usersFolderId,
           item: usersFolderItem,
           depth: baseDepth + 1,
-          expanded: usersExpanded,
+          expanded: usersExpanded || usersSearchExpanded,
           hasChildren: true,
           meta:
             fullConnRefreshing || usersFolderRefreshing
@@ -996,8 +1070,13 @@ function appendConnectionSchemaRows(
                 : undefined,
         });
 
-        if (usersExpanded) {
-          const pagedUsers = paginateSchemaChildren(usersToShow, usersFolderId, childVisibleLimits);
+        if (usersExpanded || usersSearchExpanded) {
+          const pagedUsers = paginateSchemaChildren(
+            usersToShow,
+            usersFolderId,
+            childVisibleLimits,
+            isSearchMode ? { unpaginated: true } : undefined,
+          );
           for (const user of pagedUsers.visible) {
             const uid = userNodeId(conn.config.id, user.name, user.host);
             const userItem: SchemaTreeItem = {

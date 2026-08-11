@@ -1,6 +1,6 @@
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import type { SchemaFilterState } from "./DatabaseFilterDialog";
-import { getVisibleItems } from "./DatabaseFilterDialog";
+import type { SchemaFilterState } from "./schemaFilterState";
+import { getVisibleItems } from "./schemaFilterState";
 import { connectionHasTableSchemaChildren, isConnectionEnabled, isRedisConnection } from "../api";
 import type {
   CachedConnection,
@@ -290,6 +290,8 @@ export function schemaDatabaseSubtreeMatchesSearch(
     indexes: string;
   },
   routineTypeLabel: (routineType: string) => string,
+  /** 为 true 时把本地缓存的列/索引也纳入匹配（不依赖树展开） */
+  includeTableSchemaChildren = false,
 ): boolean {
   if (schemaSearchMatches(query, db.name)) {
     return true;
@@ -297,12 +299,27 @@ export function schemaDatabaseSubtreeMatchesSearch(
   if (schemaSearchMatches(query, labels.tables, labels.views, labels.other)) {
     return true;
   }
-  const tables = getVisibleItems(db.tables ?? [], tableFilter);
-  // 侧栏「搜表名」只匹配表名/注释，不把列名/索引名算入（否则 profile 等列会让表误命中 file）
-  if (tables.some((tbl) => schemaTableObjectMatchesSearch(query, tbl))) {
+  if (includeTableSchemaChildren && schemaSearchMatches(query, labels.fields, labels.indexes)) {
     return true;
   }
-  if ((db.views ?? []).some((view) => schemaTableObjectMatchesSearch(query, view))) {
+  const tables = getVisibleItems(db.tables ?? [], tableFilter);
+  // 搜本地缓存：表名/注释；若开启表下级节点，再匹配已缓存的列/索引
+  if (
+    tables.some((tbl) =>
+      includeTableSchemaChildren
+        ? schemaTableObjectSubtreeMatchesSearch(query, tbl, "table")
+        : schemaTableObjectMatchesSearch(query, tbl),
+    )
+  ) {
+    return true;
+  }
+  if (
+    (db.views ?? []).some((view) =>
+      includeTableSchemaChildren
+        ? schemaTableObjectSubtreeMatchesSearch(query, view, "view")
+        : schemaTableObjectMatchesSearch(query, view),
+    )
+  ) {
     return true;
   }
   if (
@@ -329,6 +346,8 @@ export function schemaConnectionSubtreeMatchesSearch(
     users: string;
   },
   routineTypeLabel: (routineType: string) => string,
+  /** 为 true 时把本地缓存的列/索引也纳入匹配（不依赖树展开） */
+  includeTableSchemaChildren = false,
 ): boolean {
   if (schemaSearchMatches(query, conn.config.name)) {
     return true;
@@ -340,7 +359,14 @@ export function schemaConnectionSubtreeMatchesSearch(
   for (const db of databases) {
     const tableFilter = tableFilters[makeTableFilterKey(conn.config.id, db.name)];
     if (
-      schemaDatabaseSubtreeMatchesSearch(query, db, tableFilter, labels, routineTypeLabel)
+      schemaDatabaseSubtreeMatchesSearch(
+        query,
+        db,
+        tableFilter,
+        labels,
+        routineTypeLabel,
+        includeTableSchemaChildren,
+      )
     ) {
       return true;
     }

@@ -15,6 +15,14 @@ import {
 import { showToast } from "../../../stores/toastStore";
 import { TablePreviewQuerySqlInput } from "./TablePreviewQuerySqlInput";
 
+function QueryClearIcon() {
+  return (
+    <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <path d="M3 3l6 6M9 3 3 9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const CHANGE_FILTER_OPTIONS: Array<{
   value: PreviewChangeRowFilter;
   tone: "default" | "update" | "insert" | "delete";
@@ -160,6 +168,18 @@ export function TablePreviewQueryBar({
     setOrderDraft(canonicalOrder);
   }, [canonicalOrder]);
 
+  const clearWhere = useCallback(() => {
+    whereEditingRef.current = false;
+    setWhereDraft("");
+    onFilterChange(null);
+  }, [onFilterChange]);
+
+  const clearOrder = useCallback(() => {
+    orderEditingRef.current = false;
+    setOrderDraft("");
+    onSortChange(null);
+  }, [onSortChange]);
+
   const handleResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (!enableFilter) return;
@@ -198,6 +218,8 @@ export function TablePreviewQueryBar({
     CHANGE_FILTER_OPTIONS[0];
 
   const orderRatio = 1 - whereRatio;
+  const canClearWhere = whereDraft.trim().length > 0;
+  const canClearOrder = orderDraft.trim().length > 0;
 
   return (
     <div className={`db-table-query-bar${resizing ? " is-resizing" : ""}`}>
@@ -278,6 +300,21 @@ export function TablePreviewQueryBar({
                 onCommit={commitWhere}
                 onCancel={cancelWhere}
               />
+              {canClearWhere ? (
+                <button
+                  type="button"
+                  className="db-table-query-clear-btn"
+                  title={t("database.tableDetail.clearWhere")}
+                  aria-label={t("database.tableDetail.clearWhere")}
+                  onMouseDown={(event) => {
+                    // 避免先 blur 提交旧内容，再清空
+                    event.preventDefault();
+                  }}
+                  onClick={clearWhere}
+                >
+                  <QueryClearIcon />
+                </button>
+              ) : null}
             </div>
             <div
               className="db-table-query-resize"
@@ -346,6 +383,21 @@ export function TablePreviewQueryBar({
             onCommit={commitOrder}
             onCancel={cancelOrder}
           />
+          {canClearOrder ? (
+            <button
+              type="button"
+              className="db-table-query-clear-btn"
+              title={t("database.tableDetail.clearOrder")}
+              aria-label={t("database.tableDetail.clearOrder")}
+              onMouseDown={(event) => {
+                // 避免先 blur 提交旧内容，再清空
+                event.preventDefault();
+              }}
+              onClick={clearOrder}
+            >
+              <QueryClearIcon />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

@@ -7,6 +7,8 @@ export type SqlWorkspaceTab = {
   label: string;
   /** 侧栏 SQL 文件树中的文件 id，用于持久化连接/库绑定。 */
   sqlFileId?: string;
+  /** 侧栏「查询」单例草稿（不落文件）。 */
+  scratchQuery?: boolean;
   /** 是否仅在底部工作区中显示（例如移动到工作区后） */
   workspaceOnly?: boolean;
   /** @deprecated 旧预览槽位；新打开为常驻 */
@@ -220,6 +222,23 @@ export function findPreviewDockTab(tabs: DbWorkspaceTab[]): DbWorkspaceTab | und
 
 export function makeSqlTabId(): string {
   return `sql:${Date.now()}`;
+}
+
+/** 侧栏「查询」入口对应的单例 SQL Tab（不绑定查询文件）。 */
+export const SCRATCH_SQL_TAB_ID = "sql:scratch-query";
+
+export function isScratchSqlTab(
+  tab: Pick<SqlWorkspaceTab, "id" | "scratchQuery" | "sqlFileId"> | null | undefined,
+): boolean {
+  if (!tab) return false;
+  return tab.scratchQuery === true || tab.id === SCRATCH_SQL_TAB_ID;
+}
+
+export function findScratchSqlTabId(tabs: readonly DbWorkspaceTab[]): string | null {
+  const hit = tabs.find(
+    (tab): tab is SqlWorkspaceTab => tab.kind === "sql" && isScratchSqlTab(tab),
+  );
+  return hit?.id ?? null;
 }
 
 export function makeTableTabId(): string {

@@ -4,7 +4,10 @@ use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 use serde_json::Value;
 
-use crate::{DbDriver, DbParams, QueryResult, encode_blob_value, is_query, split_statements};
+use crate::{
+    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, safe_int_to_value,
+    split_statements,
+};
 
 /// SQLite 驱动：每次操作在阻塞线程中打开连接（文件打开成本低，避免持有非 Send 连接跨 await）。
 pub struct SqliteDriver {
@@ -150,7 +153,7 @@ fn run(conn: &Connection, sql: &str) -> OmniResult<QueryResult> {
                 for i in 0..col_count {
                     let value = match row.get_ref(i) {
                         Ok(ValueRef::Null) => Value::Null,
-                        Ok(ValueRef::Integer(n)) => safe_int_to_value(n),
+                        Ok(ValueRef::Integer(n)) => safe_int_to_value(i128::from(n)),
                         Ok(ValueRef::Real(f)) => serde_json::json!(f),
                         Ok(ValueRef::Text(t)) => {
                             Value::String(String::from_utf8_lossy(t).into_owned())
@@ -176,16 +179,6 @@ fn run(conn: &Connection, sql: &str) -> OmniResult<QueryResult> {
         }
     }
     Ok(result)
-}
-
-/// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
-fn safe_int_to_value(v: i64) -> Value {
-    const SAFE_MAX: i64 = 1i64 << 53;
-    if v.abs() < SAFE_MAX {
-        serde_json::json!(v)
-    } else {
-        Value::String(v.to_string())
-    }
 }
 
 #[cfg(test)]

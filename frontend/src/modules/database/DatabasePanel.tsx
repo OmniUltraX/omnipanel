@@ -41,7 +41,6 @@ import {
   beginTablePreviewFetch,
   bumpTablePreviewApplyGeneration,
 } from "./workspace/applyTablePreviewData";
-import { IconDropdownButton } from "../../components/ui/IconDropdownButton";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -69,7 +68,8 @@ import {
   useDbTreeChartFileStore,
   type DbTreeChartFileNode,
 } from "../../stores/dbTreeChartFileStore";
-import { useDbDataDictionaryStore, type DataDictionaryEntry } from "../../stores/dbDataDictionaryStore";
+import { useDbScratchQueryStore } from "../../stores/dbScratchQueryStore";
+import { DockTabIcon } from "../../components/dock/DockTabIcon";
 import {
   connectionMatchesGroup,
   normalizeConnectionGroup,
@@ -167,6 +167,9 @@ import {
   makeDatabaseListTabLabel,
   makeConnectionTabLabel,
   makeConnectionScopedTabLabel,
+  SCRATCH_SQL_TAB_ID,
+  isScratchSqlTab,
+  findScratchSqlTabId,
   type SchemaDockOpenMode,
   type ConnectionInfoWorkspaceTab,
   type SlowQueryLogWorkspaceTab,
@@ -182,7 +185,6 @@ import {
 import { TreeChartPanel } from "./treeChart/TreeChartPanel";
 import { DatabaseToolbox } from "./toolbox/DatabaseToolbox";
 import { TableDesignerDockPane } from "./tableDesigner/TableDesignerDockPane";
-import { DataDictionaryDialog } from "./workspace/DataDictionaryDialog";
 import { supportsTableDesign, resolveTableDesignerDriver } from "./tableDesigner/resolveTableDesignerDriver";
 import { DatabaseTableEditorHost } from "./workspace/DatabaseTableEditorHost";
 import type { SyncTask } from "./toolbox/types";
@@ -390,12 +392,6 @@ export function DatabasePanel() {
   const [editingConnection, setEditingConnection] = useState<DbConnectionConfig | null>(null);
   const [schemaRefreshToken, setSchemaRefreshToken] = useState(0);
 
-  const dictionaries = useDbDataDictionaryStore((s) => s.dictionaries);
-  const addDictionary = useDbDataDictionaryStore((s) => s.addDictionary);
-  const updateDictionary = useDbDataDictionaryStore((s) => s.updateDictionary);
-  const [dictDialogOpen, setDictDialogOpen] = useState(false);
-  const [editingDictEntry, setEditingDictEntry] = useState<DataDictionaryEntry | null>(null);
-
   const [connections, setConnections] = useState<DbConnectionConfig[]>(() => {
     return takeBootstrappedDbConnections() ?? [];
   });
@@ -467,21 +463,6 @@ export function DatabasePanel() {
   } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string; index: number } | null>(null);
   const updateSchemaExpanded = useDbSchemaTreeExpandedStore((s) => s.updateExpanded);
-
-  const handleOpenDictDialog = (entry?: DataDictionaryEntry | null) => {
-    setEditingDictEntry(entry ?? null);
-    setDictDialogOpen(true);
-  };
-
-  const handleDictSubmit = (name: string, data: string) => {
-    if (editingDictEntry) {
-      updateDictionary(editingDictEntry.id, name, data);
-    } else {
-      addDictionary(name, data);
-    }
-    setDictDialogOpen(false);
-    setEditingDictEntry(null);
-  };
 
   const [createDbDialog, setCreateDbDialog] = useState<
     | {
@@ -779,12 +760,35 @@ export function DatabasePanel() {
     store.updateFileBinding(tab.sqlFileId, state.connId, state.database);
   }, []);
 
+  const persistScratchQueryState = useCallback((tabId: string, state: SqlTabState) => {
+    const tab = workspaceTabsRef.current.find(
+      (item): item is SqlWorkspaceTab => item.id === tabId && item.kind === "sql",
+    );
+    if (!tab || !isScratchSqlTab(tab)) {
+      return;
+    }
+    useDbScratchQueryStore.getState().setDraft({
+      sql: state.sql,
+      connId: state.connId,
+      database: state.database,
+      cursorOffset: state.cursorOffset,
+    });
+  }, []);
+
   const syncSqlFileTabHeaderMeta = useCallback(
     (tabId: string, dirty: boolean, savedOverride?: boolean) => {
       const tab = workspaceTabsRef.current.find(
         (item): item is SqlWorkspaceTab => item.id === tabId && item.kind === "sql",
       );
       if (!tab || useDbWorkspaceTabStore.getState().tablePreviews[tab.id]?.tableName) {
+        return;
+      }
+      if (isScratchSqlTab(tab)) {
+        patchDockTabFileMeta(tabId, {
+          type: "file",
+          dirty: false,
+          saved: false,
+        });
         return;
       }
       patchDockTabFileMeta(tabId, {
@@ -797,25 +801,32 @@ export function DatabasePanel() {
   );
 
   const updateSqlTabState = useCallback((tabId: string, patch: Partial<SqlTabState>) => {
-    const shouldPersist =
+    const shouldPersistFile =
       patch.sql !== undefined || patch.connId !== undefined || patch.database !== undefined;
+    const shouldPersistScratch =
+      shouldPersistFile || patch.cursorOffset !== undefined;
     let nextStateForPersist: SqlTabState | null = null;
 
     setSqlTabStates((prev) => {
       const nextState = { ...(prev[tabId] ?? createDefaultSqlTabState()), ...patch };
-      if (shouldPersist) {
+      if (shouldPersistFile || shouldPersistScratch) {
         nextStateForPersist = nextState;
       }
       return { ...prev, [tabId]: nextState };
     });
 
     if (nextStateForPersist) {
-      persistSqlFileState(tabId, nextStateForPersist);
+      if (shouldPersistFile) {
+        persistSqlFileState(tabId, nextStateForPersist);
+      }
+      if (shouldPersistScratch) {
+        persistScratchQueryState(tabId, nextStateForPersist);
+      }
     }
 
     if (patch.sql !== undefined || patch.connId !== undefined || patch.database !== undefined) {
       const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
-      if (tab?.kind === "sql") {
+      if (tab?.kind === "sql" && !isScratchSqlTab(tab)) {
         setDirtySqlWorkspaceTabIds((prev) => {
           if (prev.has(tabId)) return prev;
           const next = new Set(prev);
@@ -832,7 +843,7 @@ export function DatabasePanel() {
     ) {
       syncConnForTabId(tabId);
     }
-  }, [persistSqlFileState, syncSqlFileTabHeaderMeta, syncConnForTabId]);
+  }, [persistSqlFileState, persistScratchQueryState, syncSqlFileTabHeaderMeta, syncConnForTabId]);
 
   const updateSqlResultSession = useCallback(
     (sqlTabId: string, sessionId: string, patch: Partial<SqlResultSession>) => {
@@ -2336,6 +2347,17 @@ export function DatabasePanel() {
       let closedAtSeq = Date.now();
       for (const tab of workspaceTabsRef.current) {
         if (!idSet.has(tab.id)) continue;
+        if (tab.kind === "sql" && isScratchSqlTab(tab)) {
+          const scratchState = tabStoreSnapshot.sqlTabStates[tab.id];
+          if (scratchState) {
+            useDbScratchQueryStore.getState().setDraft({
+              sql: scratchState.sql,
+              connId: scratchState.connId,
+              database: scratchState.database,
+              cursorOffset: scratchState.cursorOffset,
+            });
+          }
+        }
         pushRecentClosedPanel(
           buildClosedPanelEntry({
             tab,
@@ -4249,6 +4271,80 @@ export function DatabasePanel() {
     openSqlDraftTab,
   ]);
 
+  /** 侧栏「查询」：单例 SQL 编辑器，不落文件；关闭后再打开恢复上次内容。 */
+  const handleOpenScratchQuery = useCallback(() => {
+    const existingId = findScratchSqlTabId(workspaceTabsRef.current);
+    if (existingId) {
+      activateWorkspaceTab(existingId);
+      return;
+    }
+
+    const draft = useDbScratchQueryStore.getState();
+    const binding = resolveSqlQueryBindingContext({
+      connections,
+      activeWorkspaceTab,
+      activeConnId,
+      activeDatabaseKey,
+      activeTableKey,
+      sqlTabConnDb: activeSqlTabConnDb,
+    });
+
+    const draftConnValid =
+      Boolean(draft.connId) &&
+      connections.some(
+        (conn) =>
+          conn.id === draft.connId &&
+          isSqlCapableConnection(conn) &&
+          isConnectionEnabled(conn),
+      );
+    const connId = draftConnValid ? draft.connId : (binding?.connId ?? "");
+    const database = draftConnValid ? draft.database : (binding?.database ?? "");
+    const connection = connections.find((c) => c.id === connId);
+    const sql = draft.sql ?? "";
+    const cursorOffset = Math.max(0, Math.min(draft.cursorOffset ?? 0, sql.length));
+    const tabId = SCRATCH_SQL_TAB_ID;
+    const tab: SqlWorkspaceTab = {
+      id: tabId,
+      kind: "sql",
+      scratchQuery: true,
+      label: makeSqlTabLabel({
+        action: t("database.workspace.scratchQuery"),
+        database,
+        connection: connection?.name ?? null,
+      }),
+    };
+
+    setSqlTabStates((prev) => ({
+      ...prev,
+      [tabId]: {
+        ...createDefaultSqlTabState(database, connId),
+        sql,
+        cursorOffset,
+      },
+    }));
+    setWorkspaceTabs((prev) => [...prev, tab]);
+    activateWorkspaceTab(tabId);
+    setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
+    if (connId) {
+      setActiveConnIdIfChanged(connId);
+    }
+    syncSqlFileTabHeaderMeta(tabId, false, false);
+  }, [
+    activateWorkspaceTab,
+    activeConnId,
+    activeDatabaseKey,
+    activeTableKey,
+    activeWorkspaceTab,
+    activeSqlTabConnDb,
+    connections,
+    setActiveConnIdIfChanged,
+    setSqlTabStates,
+    setTabModes,
+    setWorkspaceTabs,
+    syncSqlFileTabHeaderMeta,
+    t,
+  ]);
+
   const sqlQueryBindingContext = useMemo(
     () =>
       resolveSqlQueryBindingContext({
@@ -5256,6 +5352,23 @@ export function DatabasePanel() {
         return;
       }
 
+      if (isScratchSqlTab(tab)) {
+        useDbScratchQueryStore.getState().setDraft({
+          sql: sqlToSave,
+          connId: state.connId,
+          database: state.database,
+          cursorOffset: state.cursorOffset,
+        });
+        setDirtySqlWorkspaceTabIds((prev) => {
+          if (!prev.has(tabId)) return prev;
+          const next = new Set(prev);
+          next.delete(tabId);
+          return next;
+        });
+        syncSqlFileTabHeaderMeta(tabId, false, false);
+        return;
+      }
+
       const name = await quickInput({
         title: t("database.queryFiles.saveAsTitle"),
         placeholder: t("database.queryFiles.fileNamePlaceholder"),
@@ -5996,29 +6109,21 @@ export function DatabasePanel() {
       tagModuleKey="database"
       leftHeaderActions={<ModuleLeftHeaderActions moduleKey="database" />}
       leftIconRail={
-        <IconDropdownButton
-          title={t("database.dataDictionary.title")}
-          ariaLabel={t("database.dataDictionary.title")}
-          icon={
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-              <line x1="3" y1="9" x2="21" y2="9" />
-              <line x1="9" y1="3" x2="9" y2="9" />
-            </svg>
-          }
-          items={[
-            {
-              id: "new",
-              label: t("database.dataDictionary.new"),
-              onSelect: () => handleOpenDictDialog(null),
-            },
-            ...dictionaries.map((entry) => ({
-              id: entry.id,
-              label: entry.name,
-              onSelect: () => handleOpenDictDialog(entry),
-            })),
-          ]}
-        />
+        <div className="module-mode-icon-rail">
+          <button
+            type="button"
+            className={`module-mode-icon-rail__btn${
+              activeWorkspaceTab?.kind === "sql" && isScratchSqlTab(activeWorkspaceTab)
+                ? " module-mode-icon-rail__btn--active"
+                : ""
+            }`}
+            title={t("database.workspace.scratchQuery")}
+            aria-label={t("database.workspace.scratchQuery")}
+            onClick={handleOpenScratchQuery}
+          >
+            <DockTabIcon kind="sql" />
+          </button>
+        </div>
       }
       leftSidebar={
         <DatabaseSchemaSidebar
@@ -6120,15 +6225,6 @@ export function DatabasePanel() {
         setSchemaRefreshToken((token) => token + 1);
         void refreshConnections();
       }}
-    />
-    <DataDictionaryDialog
-      open={dictDialogOpen}
-      entry={editingDictEntry}
-      onCancel={() => {
-        setDictDialogOpen(false);
-        setEditingDictEntry(null);
-      }}
-      onSubmit={handleDictSubmit}
     />
     </DbWorkspaceProviders>
     </DbSidebarLinkageProvider>

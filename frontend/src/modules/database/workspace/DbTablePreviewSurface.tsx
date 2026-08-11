@@ -861,6 +861,29 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   }, [effectiveDetailPosition, showPreviewGrid, active]);
 
   // 勿用 active 卸载网格/详情：Dock keep-alive 下卸载再挂载会明显「闪加载」
+  // 但 macOS WKWebView 下 dockview 的 visibility:hidden 压不住绝对定位 canvas 合成层，
+  // 切到库列表/其他 Tab 时会透出旧表数据残影——与 SQL 结果区同因，用 display:none 切断。
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!active) {
+      const root = surfaceRef.current;
+      if (!root) return;
+      for (const canvas of root.querySelectorAll("canvas")) {
+        // 清空位图，避免 visibility 穿透时仍显示旧像素
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      return;
+    }
+    // 从 display:none 恢复后强制按新视口重绘（ResizeObserver 偶发不触发）
+    const wrap = surfaceRef.current?.querySelector(".db-data-table-wrap");
+    if (wrap instanceof HTMLElement) {
+      requestAnimationFrame(() => {
+        wrap.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+    }
+  }, [active]);
+
   const detailPanel = (
     <TableDetailPanel
       activeTab={detailTab}
@@ -995,6 +1018,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
    */
   return (
     <div
+      ref={surfaceRef}
       className="db-workspace-pane db-workspace-pane--data"
       style={active ? undefined : { display: "none" }}
       aria-hidden={!active}

@@ -5780,6 +5780,36 @@
         min-width: 120px;
     }
 
+    .db-table-query-clear-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        margin: 0;
+        padding: 0;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        opacity: 0.7;
+        transition: opacity 100ms ease, color 100ms ease, background 100ms ease;
+    }
+
+    .db-table-query-clear-btn:hover {
+        opacity: 1;
+        color: var(--text);
+        background: color-mix(in srgb, var(--text) 10%, transparent);
+    }
+
+    .db-table-query-clear-btn:focus-visible {
+        opacity: 1;
+        outline: 1px solid var(--accent);
+        outline-offset: 1px;
+    }
+
     .db-table-query-resize {
         position: relative;
         flex: 0 0 10px;
@@ -6729,6 +6759,7 @@
         visibility: hidden !important;
         pointer-events: none !important;
         display: none !important;
+        opacity: 0 !important;
     }
 
     .db-module-dock .dv-render-overlay[style*="visibility: hidden"] .db-workspace-pane--data,

@@ -11,6 +11,7 @@ use serde_json::Value;
 
 mod blob_value;
 mod introspect;
+mod json_value;
 mod mongodb;
 mod mysql;
 mod postgres;
@@ -18,6 +19,10 @@ mod qdrant;
 mod redis;
 mod schema_refresh;
 mod sqlite;
+
+pub(crate) use json_value::{
+    decode_text_as_json_or_string, safe_int_to_value, sanitize_json_value_for_js,
+};
 
 pub use blob_value::encode_blob_value;
 

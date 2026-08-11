@@ -7,7 +7,7 @@ use mongodb::{Client, Collection};
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::{Map, Value};
 
-use crate::{DbDriver, DbParams, QueryResult, is_query};
+use crate::{DbDriver, DbParams, QueryResult, is_query, safe_int_to_value};
 
 const DEFAULT_MONGO_PORT: u16 = 27017;
 const DEFAULT_SAMPLE_LIMIT: i64 = 200;
@@ -243,8 +243,8 @@ fn bson_to_json(value: &Bson) -> Value {
     match value {
         Bson::Null => Value::Null,
         Bson::Boolean(v) => Value::Bool(*v),
-        Bson::Int32(v) => Value::Number((*v).into()),
-        Bson::Int64(v) => Value::Number((*v).into()),
+        Bson::Int32(v) => safe_int_to_value(i128::from(*v)),
+        Bson::Int64(v) => safe_int_to_value(i128::from(*v)),
         Bson::Double(v) => serde_json::Number::from_f64(*v)
             .map(Value::Number)
             .unwrap_or(Value::Null),

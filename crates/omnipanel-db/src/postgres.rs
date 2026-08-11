@@ -6,7 +6,8 @@ use sqlx::types::Json;
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{
-    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err, split_statements,
+    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err, safe_int_to_value,
+    sanitize_json_value_for_js, split_statements,
 };
 
 const DEFAULT_PG_PORT: u16 = 5432;
@@ -212,25 +213,15 @@ fn extract(row: &PgRow, index: usize) -> Value {
             .unwrap_or_else(|_| Value::String("[BYTEA]".to_string())),
         "json" | "jsonb" => row
             .try_get::<Json<Value>, _>(index)
-            .map(|Json(v)| v)
+            .map(|Json(v)| sanitize_json_value_for_js(v))
             .unwrap_or(Value::Null),
         _ => row
             .try_get::<String, _>(index)
             .map(Value::String)
             .or_else(|_| {
                 row.try_get::<Json<Value>, _>(index)
-                    .map(|Json(v)| v)
+                    .map(|Json(v)| sanitize_json_value_for_js(v))
             })
             .unwrap_or(Value::Null),
-    }
-}
-
-/// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
-fn safe_int_to_value(v: i128) -> Value {
-    const SAFE_MAX: i128 = 1i128 << 53;
-    if v.abs() < SAFE_MAX {
-        serde_json::json!(v)
-    } else {
-        Value::String(v.to_string())
     }
 }
