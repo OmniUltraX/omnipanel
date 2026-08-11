@@ -59,14 +59,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 组织命名空间下 GHCR 包默认 private；GITHUB_TOKEN 无法改可见性，需 PACKAGES_TOKEN
+      # 组织命名空间下 GHCR 包默认 private；GITHUB_TOKEN 无法改可见性，需 PACKAGES_TOKEN。
+      # 注意：step if 不能引用 secrets 上下文（会 Invalid workflow file），改走 env 判断。
       - name: Make GHCR package public
-        if: github.ref_type == 'tag' && secrets.PACKAGES_TOKEN != ''
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           PACKAGE_NAME: omnipanel-web
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::未配置 PACKAGES_TOKEN，GHCR 包仍为 private。请配置组织 Secret 后运行 GHCR Make Public workflow，"
+            echo "或在 https://github.com/orgs/OmniUltraX/packages/container/omnipanel-web/settings 手动设为 Public"
+            exit 0
+          fi
           API="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE_NAME}"
           VISIBILITY="$(gh api "$API" --jq .visibility 2>/dev/null || echo unknown)"
           if [ "$VISIBILITY" = "public" ]; then
@@ -75,9 +81,3 @@ jobs:
             gh api --method PATCH "$API" -f visibility=public
             echo "✓ Package ${PACKAGE_NAME} visibility set to public"
           fi
-
-      - name: Remind GHCR visibility if PACKAGES_TOKEN missing
-        if: github.ref_type == 'tag' && secrets.PACKAGES_TOKEN == ''
-        run: |
-          echo "::warning::未配置 PACKAGES_TOKEN，GHCR 包仍为 private。请配置组织 Secret 后运行 GHCR Make Public workflow，"
-          echo "或在 https://github.com/orgs/OmniUltraX/packages/container/omnipanel-web/settings 手动设为 Public"

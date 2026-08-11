@@ -2,6 +2,12 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.17] - 2026-08-11
+
+### 修复
+
+- **CI · Docker Web**：`docker-web.yml` 的 step `if` 误用 `secrets` 上下文导致工作流校验失败（0s Invalid workflow file），tag 发版无法构建镜像；改为 env 判断 `PACKAGES_TOKEN`
+
 ## [0.7.16] - 2026-08-11
 
 ### 新增
