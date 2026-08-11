@@ -32,18 +32,26 @@ export const TableDataGridTransposeFieldCell = memo(function TableDataGridTransp
 }) {
   const fieldFiltered = canFilter && filterColumnNames.has(fieldName);
   const fieldSortActive = enableSort && sortColumn === fieldName;
+  const fieldComment = fieldMeta?.comment?.trim();
   return (
     <span className="db-data-table-field-inner">
-      <span className="db-data-table-th-label-wrap">
-        <span className="db-data-table-cell-text">{fieldName}</span>
-        {fieldMeta?.nullable === false ? (
-          <span
-            className="db-data-table-th-nullability db-data-table-th-nullability--no"
-            title={t("database.results.columnNotNullable")}
-          >
-            {t("database.results.columnNotNullableShort")}
+      <span className="db-data-table-field-main">
+        {fieldComment ? (
+          <span className="db-data-table-th-header__comment" title={fieldComment}>
+            {fieldComment}
           </span>
         ) : null}
+        <span className="db-data-table-th-label-wrap">
+          <span className="db-data-table-cell-text">{fieldName}</span>
+          {fieldMeta?.nullable === false ? (
+            <span
+              className="db-data-table-th-nullability db-data-table-th-nullability--no"
+              title={t("database.results.columnNotNullable")}
+            >
+              {t("database.results.columnNotNullableShort")}
+            </span>
+          ) : null}
+        </span>
       </span>
       {enableSort ? (
         <ColumnSortIndicator

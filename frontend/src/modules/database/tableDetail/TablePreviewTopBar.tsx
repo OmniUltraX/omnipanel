@@ -1,6 +1,8 @@
+import { useCallback, useState } from "react";
 import { Button } from "../../../components/ui/Button";
 import { IconPlus } from "../../../components/ui/Icons";
 import { useI18n } from "../../../i18n";
+import { showToast } from "../../../stores/toastStore";
 import { TABLE_PREVIEW_PAGE_SIZE_OPTIONS } from "../workspace/dbWorkspaceState";
 
 export interface TablePreviewTopBarProps {
@@ -22,6 +24,12 @@ export interface TablePreviewTopBarProps {
   transposed: boolean;
   detailCollapsed: boolean;
   colSidebarCollapsed: boolean;
+  /** 当前预览表名（工具栏右侧可复制芯片） */
+  tableName?: string;
+  /** 当前库名 */
+  databaseName?: string;
+  /** 字段数；缺省时不展示字段芯片 */
+  columnCount?: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onRefresh: () => void;
@@ -44,6 +52,32 @@ export interface TablePreviewTopBarProps {
   onCopyPreviewSql?: () => void;
   copySqlHint?: boolean;
   previewSqlTitle?: string;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  const clip = navigator.clipboard;
+  if (clip && typeof clip.writeText === "function") {
+    try {
+      await clip.writeText(text);
+      return true;
+    } catch {
+      // fall through
+    }
+  }
+  try {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.setAttribute("readonly", "");
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 function IconRefresh() {
@@ -151,6 +185,9 @@ export function TablePreviewTopBar({
   transposed,
   detailCollapsed,
   colSidebarCollapsed,
+  tableName,
+  databaseName,
+  columnCount,
   onPageChange,
   onPageSizeChange,
   onRefresh,
@@ -174,6 +211,7 @@ export function TablePreviewTopBar({
   previewSqlTitle,
 }: TablePreviewTopBarProps) {
   const { t } = useI18n();
+  const [copiedHint, setCopiedHint] = useState<"table" | "database" | null>(null);
   const canDiscard = dirtyCount > 0 && !isCommitting;
   const pageSizeOptions = TABLE_PREVIEW_PAGE_SIZE_OPTIONS.includes(
     pageSize as (typeof TABLE_PREVIEW_PAGE_SIZE_OPTIONS)[number],
@@ -189,6 +227,29 @@ export function TablePreviewTopBar({
   const commitTitle = saveShortcutHint
     ? `${t("database.results.commitDirty", { count: dirtyCount })} (${saveShortcutHint})`
     : t("database.results.commitDirty", { count: dirtyCount });
+
+  const handleCopyIdentity = useCallback(
+    async (kind: "table" | "database", value: string) => {
+      const ok = await copyText(value);
+      if (!ok) {
+        showToast(t("database.results.copyTableIdentityFailed"));
+        return;
+      }
+      setCopiedHint(kind);
+      window.setTimeout(() => {
+        setCopiedHint((prev) => (prev === kind ? null : prev));
+      }, 1200);
+      showToast(
+        kind === "table"
+          ? t("database.results.copyTableNameDone")
+          : t("database.results.copyDatabaseNameDone"),
+      );
+    },
+    [t],
+  );
+
+  const showIdentity =
+    Boolean(tableName) || Boolean(databaseName) || (columnCount != null && columnCount >= 0);
 
   return (
     <div className="db-table-topbar">
@@ -373,6 +434,67 @@ export function TablePreviewTopBar({
           ) : null}
         </span>
       </div>
+
+      {showIdentity ? (
+        <div className="db-table-topbar-identity" aria-label={t("database.results.tableIdentity")}>
+          {tableName ? (
+            <span
+              className="db-table-topbar-identity__chip db-table-topbar-identity__chip--table"
+              role="button"
+              tabIndex={0}
+              title={
+                copiedHint === "table"
+                  ? t("database.results.copyTableNameDone")
+                  : t("database.results.copyTableNameHint", { name: tableName })
+              }
+              aria-label={t("database.results.copyTableNameHint", { name: tableName })}
+              onClick={() => {
+                // 拖选文本时不抢复制，方便框选后 Ctrl/Cmd+C
+                if (window.getSelection()?.toString()) return;
+                void handleCopyIdentity("table", tableName);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void handleCopyIdentity("table", tableName);
+                }
+              }}
+            >
+              {tableName}
+            </span>
+          ) : null}
+          {databaseName ? (
+            <span
+              className="db-table-topbar-identity__chip db-table-topbar-identity__chip--muted"
+              role="button"
+              tabIndex={0}
+              title={
+                copiedHint === "database"
+                  ? t("database.results.copyDatabaseNameDone")
+                  : t("database.results.copyDatabaseNameHint", { name: databaseName })
+              }
+              aria-label={t("database.results.copyDatabaseNameHint", { name: databaseName })}
+              onClick={() => {
+                if (window.getSelection()?.toString()) return;
+                void handleCopyIdentity("database", databaseName);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void handleCopyIdentity("database", databaseName);
+                }
+              }}
+            >
+              {databaseName}
+            </span>
+          ) : null}
+          {columnCount != null && columnCount >= 0 ? (
+            <span className="db-table-topbar-identity__chip db-table-topbar-identity__chip--muted">
+              {t("database.results.columnCount", { count: columnCount })}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="db-table-topbar-group db-table-topbar-group--end">
         <Button

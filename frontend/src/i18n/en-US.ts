@@ -2865,6 +2865,13 @@ export const enUS: TranslationDict = {
       filterCombinator: "Combinator",
       copyPreviewSql: "Copy current query SQL",
       copyPreviewSqlDone: "SQL copied",
+      tableIdentity: "Current table",
+      columnCount: "{count} fields",
+      copyTableNameHint: "Click to copy table name: {name}",
+      copyTableNameDone: "Table name copied",
+      copyDatabaseNameHint: "Click to copy database name: {name}",
+      copyDatabaseNameDone: "Database name copied",
+      copyTableIdentityFailed: "Copy failed",
       contextMenu: {
         sortDbAsc: "Sort ascending (database)",
         sortDbDesc: "Sort descending (database)",

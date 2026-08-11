@@ -2664,6 +2664,13 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     user-select: text !important;
 }
 
+/* 表预览工具栏身份芯片：可框选复制表名 / 库名 */
+.db-table-topbar-identity,
+.db-table-topbar-identity * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
 .db-sql-hover-card {
     min-width: min(560px, 92vw);
     max-width: min(760px, 92vw);

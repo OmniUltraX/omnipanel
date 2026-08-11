@@ -247,7 +247,7 @@ export function resolveCellPreviewContent(
 }
 
 const CELL_OVERLAY_FONT =
-  '11px "Geist Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif';
+  '12px "Geist Variable", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif';
 const CELL_OVERLAY_HORIZONTAL_CHROME = 18;
 
 let cellOverlayMeasureCanvas: HTMLCanvasElement | null = null;

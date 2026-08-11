@@ -2852,6 +2852,13 @@ export const zhCN = {
       filterCombinator: "组合",
       copyPreviewSql: "复制当前查询 SQL",
       copyPreviewSqlDone: "已复制 SQL",
+      tableIdentity: "当前表",
+      columnCount: "{count} 字段",
+      copyTableNameHint: "点击复制表名：{name}",
+      copyTableNameDone: "已复制表名",
+      copyDatabaseNameHint: "点击复制库名：{name}",
+      copyDatabaseNameDone: "已复制库名",
+      copyTableIdentityFailed: "复制失败",
       contextMenu: {
         sortDbAsc: "数据库升序排序",
         sortDbDesc: "数据库降序排序",
