@@ -1,0 +1,29 @@
+name: GHCR Make Public
+
+# 一次性或按需：将 ghcr.io/omniultrax/omnipanel-web 设为 public（匿名可 pull）
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  public:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set omnipanel-web package to public
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_NAME: omnipanel-web
+        run: |
+          set -euo pipefail
+          API="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE_NAME}"
+          VISIBILITY="$(gh api "$API" --jq .visibility 2>/dev/null || echo unknown)"
+          echo "Current visibility: ${VISIBILITY}"
+          if [ "$VISIBILITY" = "public" ]; then
+            echo "✓ Package is already public"
+            exit 0
+          fi
+          gh api --method PATCH "$API" -f visibility=public
+          gh api "$API" --jq .visibility | grep -qx public
+          echo "✓ Package visibility is now public"
