@@ -1,6 +1,8 @@
 # OmniPanel Web — Docker 部署
 
-镜像：`ghcr.io/omniultrax/omnipanel-web`
+镜像：`ghcr.io/omniultrax/omnipanel-web`（**公开镜像**，无需 `docker login` 即可拉取）
+
+> 组织 GHCR 包默认 private。若 `docker pull` 返回 403，请在 [包设置页](https://github.com/orgs/OmniUltraX/packages/container/omnipanel-web/settings) 将可见性改为 **Public**，或配置组织 Secret `PACKAGES_TOKEN`（PAT，`write:packages`）后运行 **GHCR Make Public** workflow。
 
 浏览器访问同一套 OmniPanel 前端，后端为 `omnipanel-server`（HTTP `/ipc/invoke` + WebSocket `/ipc/events`）。数据持久化在容器内 `HOME`（默认 `/data/.omnipd`）。
 

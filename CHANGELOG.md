@@ -2,6 +2,19 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.7.17] - 2026-08-11
+
+### 修复
+
+- **CI · Docker Web**：`docker-web.yml` 的 step `if` 误用 `secrets` 上下文导致工作流校验失败（0s Invalid workflow file），tag 发版无法构建镜像；改为 env 判断 `PACKAGES_TOKEN`
+
+## [0.7.16] - 2026-08-11
+
+### 新增
+
+- **数据库 · 内置演示连接**：启动时自动注入「OmniPanel 元数据库」与「文件索引库」两条本地 SQLite 连接（桌面 / Web 共用）；用户删除后写入 tombstone，不再自动恢复
+- **官网 / README**：补充 Web 版多平台一键部署入口（Render / Zeabur / Railway / Koyeb / DigitalOcean / Fly.io）及部署配置
+
 ## [0.7.15] - 2026-08-11
 
 ### 新增

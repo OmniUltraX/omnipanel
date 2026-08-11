@@ -1246,6 +1246,40 @@ p {
 }
 
 /* Download section (embedded) */
+#deploy .section-head {
+  max-width: 48ch;
+}
+
+.deploy-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px 40px;
+  margin-top: 8px;
+}
+
+.deploy-badge-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.deploy-badge-label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+.deploy-badge-item a {
+  display: inline-block;
+  line-height: 0;
+}
+
+.deploy-badge-item img {
+  height: 32px;
+  width: auto;
+}
+
 #download .section-head {
   max-width: 48ch;
 }

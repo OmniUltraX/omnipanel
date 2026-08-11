@@ -6,13 +6,13 @@
     <title data-i18n-title="meta.title">OmniPanel — AI 原生跨平台工程工作站</title>
     <meta
       name="description"
-      content="OmniPanel 将终端、SSH、数据库、Docker、服务器管理、协议调试与 AI 辅助集成于单一桌面应用。一个窗口，贯穿开发运维上下文。"
+      content="OmniPanel 将终端、SSH、数据库、Docker、服务器管理、文件、协议调试与 AI 辅助集成于桌面与 Web 双形态。一个窗口，贯穿开发运维上下文。"
     />
     <meta name="theme-color" content="#0c1118" />
     <meta property="og:title" content="OmniPanel — AI 原生跨平台工程工作站" />
     <meta
       property="og:description"
-      content="All in One · 小而全而优而美。终端、SSH、数据库、Docker 与 AI 在同一工作台无缝协作。"
+      content="All in One · 小而全而优而美。终端、SSH、数据库、Docker、文件、协议调试与 AI —— 桌面与 Web 双形态。"
     />
     <meta property="og:type" content="website" />
     <script>
@@ -86,9 +86,11 @@
         </button>
         <nav id="site-nav" data-nav-menu>
           <a href="#showcase" data-i18n="nav.showcase">实机界面</a>
+          <a href="#highlights" data-i18n="nav.highlights">近期亮点</a>
           <a href="#modules" data-i18n="nav.modules">核心模块</a>
           <a href="#ai" data-i18n="nav.ai">AI 原生</a>
           <a href="#architecture" data-i18n="nav.architecture">技术架构</a>
+          <a href="#deploy" data-i18n="nav.deploy">部署</a>
           <a href="#download" data-i18n="nav.download">下载</a>
           <a href="#contact" data-i18n="nav.contact">联系我们</a>
         </nav>
@@ -113,19 +115,20 @@
             一个窗口，管理服务器、数据库、容器与工作流
           </h1>
           <p class="lead" data-i18n="hero.lead">
-            一个 AI，贯穿开发运维上下文。OmniPanel 是你的个人工程操作系统 —— 终端、SSH（含 tmux）、数据库、Docker、宝塔/1Panel
-            面板、云资源与 AI 在同一个工作台中无缝协作。
+            一个 AI，贯穿开发运维上下文。OmniPanel 将终端、SSH、数据库、Docker、服务器管理、文件、协议调试与 AI 辅助集成于单一工作台 —— 支持桌面应用与 Web 版（Docker 一键部署）。
           </p>
           <div class="hero-cta">
             <a class="btn btn-primary" data-download-link href="#download" data-i18n="hero.ctaDownload"
               >下载 OmniPanel</a
             >
+            <a class="btn btn-secondary" href="#deploy" data-i18n="hero.ctaDeploy">Web 版部署</a>
             <a class="btn btn-secondary" data-repo-link href="#" data-i18n="hero.ctaSource">查看源码</a>
           </div>
           <div class="pill-row">
             <span class="pill">Tauri 2</span>
             <span class="pill">Rust + React</span>
             <span class="pill">Local-first</span>
+            <span class="pill">Web + Docker</span>
           </div>
         </div>
       </section>
@@ -215,12 +218,52 @@
         </div>
       </section>
 
+      <section class="section" id="highlights">
+        <div class="container">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow" data-i18n="highlights.eyebrow">Highlights</p>
+            <h2 class="h2 text-fx" data-i18n="highlights.title" data-split="words">近期亮点</h2>
+            <p class="lead" data-i18n="highlights.lead">
+              v0.7.x 持续交付：Web 版、面板集成、终端 AI、数据库与跨端安全能力。
+            </p>
+          </div>
+          <div class="grid-3">
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="highlights.web.h">Web 版</h3>
+              <p data-i18n="highlights.web.p">
+                浏览器访问 + GHCR 公开镜像，Render / Zeabur / Railway 等一键部署
+              </p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="highlights.panel.h">面板集成</h3>
+              <p data-i18n="highlights.panel.p">宝塔 / 1Panel 四域，1Panel v1/v2 兼容，云厂商资源入口</p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="highlights.ssh.h">SSH / 文件</h3>
+              <p data-i18n="highlights.ssh.p">tmux 远端会话治理，跨连接传输与超大日志预览</p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="highlights.termAi.h">终端 AI</h3>
+              <p data-i18n="highlights.termAi.p">直通 Shell Agent、Plan / ask_user 卡片、危险命令二次确认</p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="highlights.db.h">数据库</h3>
+              <p data-i18n="highlights.db.p">侧栏 SQL 查询、虚拟滚动网格、NL2SQL、Schema 全树检索</p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="highlights.sec.h">安全</h3>
+              <p data-i18n="highlights.sec.p">Vault 钥匙串凭据、设备码跨端同步、敏感信息脱敏</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section class="section" id="modules">
         <div class="container">
           <div class="section-head" data-reveal>
             <p class="eyebrow" data-i18n="modules.eyebrow">Core Modules</p>
             <h2 class="h2 text-fx" data-i18n="modules.title" data-split="words">
-              八大模块，覆盖日常开发运维完整闭环
+              九大模块，覆盖日常开发运维完整闭环
             </h2>
           </div>
           <div class="grid-3">
@@ -232,7 +275,7 @@
               </div>
               <h3>Terminal</h3>
               <p data-i18n="mod.terminal.p">
-                多标签分屏、Blocks 输出分组、命令历史、危险命令二次确认，专业级终端体验。
+                多标签分屏、Blocks 输出分组、命令历史、危险命令二次确认，VT100/VT220 高兼容。
               </p>
               <div class="tag-list">
                 <span class="tag">xterm.js</span>
@@ -248,11 +291,26 @@
                 </svg>
               </div>
               <h3>SSH / SFTP</h3>
-              <p data-i18n="mod.ssh.p">连接管理、可视化文件传输、端口转发、跳板机；tmux 远端会话治理与主机监控。</p>
+              <p data-i18n="mod.ssh.p">连接管理、SFTP、端口转发、跳板机；tmux 远端会话治理与主机监控。</p>
               <div class="tag-list">
                 <span class="tag">russh</span>
                 <span class="tag">SFTP</span>
                 <span class="tag">tmux</span>
+              </div>
+            </article>
+            <article class="module-card" data-reveal>
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+                </svg>
+              </div>
+              <h3>Files</h3>
+              <p data-i18n="mod.files.p">本地 / 远程浏览、收藏与全局收藏、跨连接文件传输、统一预览壳。</p>
+              <div class="tag-list">
+                <span class="tag">SFTP</span>
+                <span class="tag">Transfer</span>
+                <span class="tag">Preview</span>
               </div>
             </article>
             <article class="module-card" data-reveal>
@@ -282,7 +340,7 @@
               </div>
               <h3>Docker</h3>
               <p data-i18n="mod.docker.p">
-                容器生命周期、实时日志跟踪、容器 Shell、Compose 编排，支持本地 / SSH / 1Panel。
+                容器、镜像、Compose、网络、卷；本地 / 远程 Engine / SSH 宿主机 / 1Panel。
               </p>
               <div class="tag-list">
                 <span class="tag">bollard</span>
@@ -328,7 +386,7 @@
                 </svg>
               </div>
               <h3>AI Assistant</h3>
-              <p data-i18n="mod.ai.p">上下文感知、操作链编排、结构化澄清表单与敏感信息脱敏；AI 只建议不越权，危险操作需确认。</p>
+              <p data-i18n="mod.ai.p">上下文感知、Plan / Skills、操作链编排、`omni_ask_user` 澄清表单与敏感信息脱敏；危险操作需确认。</p>
               <div class="tag-list">
                 <span class="tag">Claude</span>
                 <span class="tag">GPT</span>
@@ -343,7 +401,7 @@
                 </svg>
               </div>
               <h3>Workflow</h3>
-              <p data-i18n="mod.workflow.p">命令模板、部署流水线、排障手册与快捷启动，参数化执行与完整审计记录。</p>
+              <p data-i18n="mod.workflow.p">命令模板、部署流水线、排障手册、快捷启动与任务中心，参数化执行与完整审计记录。</p>
               <div class="tag-list">
                 <span class="tag" data-i18n="mod.workflow.tagTpl">模板</span>
                 <span class="tag" data-i18n="mod.workflow.tagAudit">审计</span>
@@ -427,6 +485,38 @@
         </div>
       </section>
 
+      <section class="section section-tight" id="ai-lines">
+        <div class="container">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow" data-i18n="ai.lines.eyebrow">AI Stack</p>
+            <h2 class="h2 text-fx" data-i18n="ai.lines.title" data-split="words">三条 AI 能力线</h2>
+            <p class="lead" data-i18n="ai.lines.lead">
+              内置助手、纯 LLM 路由与外部 Agent 接入，按需组合、互不耦合。
+            </p>
+          </div>
+          <div class="grid-3">
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="ai.lines.orch.h">InternalOrchestrator</h3>
+              <p data-i18n="ai.lines.orch.p">
+                Tauri IPC `ai_chat_stream`：内置 UI，多 backend、`omni_*` 工具与终端审批
+              </p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="ai.lines.router.h">Agent Router</h3>
+              <p data-i18n="ai.lines.router.p">
+                `http://127.0.0.1:8765/v1/*`：OpenAI 兼容 SSE 纯路由，零 MCP 耦合
+              </p>
+            </article>
+            <article class="card use-card" data-reveal>
+              <h3 data-i18n="ai.lines.mcp.h">OmniMCP</h3>
+              <p data-i18n="ai.lines.mcp.p">
+                `http://127.0.0.1:12756/mcp`：Cursor / Claude Code 等外部 Agent 接入
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section class="section" id="architecture">
         <div class="container">
           <div class="section-head" data-reveal>
@@ -435,7 +525,7 @@
               Tauri 2 + Rust 核心，本地优先
             </h2>
             <p class="lead" style="margin-top: 12px" data-i18n="arch.lead">
-              单二进制、内存安全、凭据本地存储。React 前端 + Rust 后端 IPC，模块能力收敛在 omnipanel-* crates。
+              单二进制、内存安全、凭据本地存储。桌面 Tauri IPC + Web HTTP/WS 双传输；模块能力收敛在 omnipanel-* crates。
             </p>
           </div>
           <div data-reveal>
@@ -443,6 +533,7 @@
               <span class="layer-name" data-i18n="arch.ui">UI 层</span>
               <div class="layer-items">
                 <span>Tauri 2</span>
+                <span>omnipanel-server</span>
                 <span>React 18</span>
                 <span>TypeScript</span>
                 <span>Vite</span>
@@ -453,11 +544,13 @@
               <div class="layer-items">
                 <span>Terminal</span>
                 <span>SSH</span>
+                <span>Files</span>
                 <span>Database</span>
                 <span>Docker</span>
                 <span>Server</span>
                 <span>Protocol</span>
                 <span>AI</span>
+                <span>Workflow</span>
               </div>
             </div>
             <div class="arch-layer">
@@ -516,6 +609,97 @@
                 选中服务器分组后统一执行命令，结果按机器聚合对比。批量分发、模板化执行。
               </p>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="deploy">
+        <div class="container">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow" data-i18n="deploy.eyebrow">Deploy</p>
+            <h2 class="h2 text-fx" data-i18n="deploy.title" data-split="words">部署</h2>
+            <p class="lead" data-i18n="deploy.lead">
+              Web 版支持 Docker、Render、Zeabur、Railway、Koyeb、DigitalOcean、Fly.io 等平台部署。
+            </p>
+          </div>
+          <div class="deploy-badges" data-reveal>
+            <div class="deploy-badge-item">
+              <p class="deploy-badge-label" data-i18n="deploy.render">一键部署到 Render</p>
+              <a
+                href="https://render.com/deploy?repo=https://github.com/OmniUltraX/omnipanel"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src="https://render.com/images/deploy-to-render-button.svg"
+                  alt="Deploy to Render"
+                  height="32"
+                />
+              </a>
+            </div>
+            <div class="deploy-badge-item">
+              <p class="deploy-badge-label" data-i18n="deploy.zeabur">一键部署到 Zeabur</p>
+              <a
+                href="https://zeabur.com/projects/new?gitRepo=https://github.com/OmniUltraX/omnipanel"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img src="https://zeabur.com/button.svg" alt="Deploy on Zeabur" height="32" />
+              </a>
+            </div>
+            <div class="deploy-badge-item">
+              <p class="deploy-badge-label" data-i18n="deploy.railway">一键部署到 Railway</p>
+              <a
+                href="https://railway.app/new/template?template=https://github.com/OmniUltraX/omnipanel"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img src="https://railway.com/button.svg" alt="Deploy on Railway" height="32" />
+              </a>
+            </div>
+            <div class="deploy-badge-item">
+              <p class="deploy-badge-label" data-i18n="deploy.koyeb">一键部署到 Koyeb</p>
+              <a
+                href="https://app.koyeb.com/deploy?type=docker&image=ghcr.io/omniultrax/omnipanel-web:latest&name=omnipanel-web&ports=8899:http"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src="https://www.koyeb.com/static/images/deploy/button.svg"
+                  alt="Deploy to Koyeb"
+                  height="32"
+                />
+              </a>
+            </div>
+            <div class="deploy-badge-item">
+              <p class="deploy-badge-label" data-i18n="deploy.digitalocean">一键部署到 DigitalOcean</p>
+              <a
+                href="https://cloud.digitalocean.com/apps/new?repo=https://github.com/OmniUltraX/omnipanel/tree/master"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  src="https://www.deploytodo.com/do-btn-blue.svg"
+                  alt="Deploy to DigitalOcean"
+                  height="32"
+                />
+              </a>
+            </div>
+            <div class="deploy-badge-item">
+              <p class="deploy-badge-label" data-i18n="deploy.flyio">一键部署到 Fly.io</p>
+              <a
+                href="https://fly.io/launch?source=github"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="deploy-fly-badge"
+              >
+                <img
+                  src="https://img.shields.io/badge/Deploy%20on-Fly.io-8B5CF6?style=for-the-badge&logo=fly.io&logoColor=white"
+                  alt="Deploy on Fly.io"
+                  height="32"
+                />
+              </a>
+            </div>
           </div>
         </div>
       </section>

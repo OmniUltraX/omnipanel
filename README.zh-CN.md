@@ -23,7 +23,7 @@
 
 ---
 
-**OmniPanel** 是一个 AI 原生的跨平台个人工程工作台。它将终端、SSH、数据库、Docker、服务器管理、协议调试和 AI 辅助集成为一个桌面应用 —— 告别工具频繁切换，专注真正重要的工作。
+**OmniPanel** 是一个 AI 原生的跨平台个人工程工作台。它将终端、SSH、数据库、Docker、服务器管理、文件、协议调试和 AI 辅助集成于**桌面应用与 Web 版** —— 告别工具频繁切换，专注真正重要的工作。
 
 > 一个窗口，管理服务器、数据库、容器与工作流；一个 AI，贯穿开发运维上下文。
 
@@ -57,9 +57,18 @@ AI Agent 服务巡检：基于真实容器与主机上下文生成结构化健�
 | **AI 助手** | 上下文感知运维，Plan / Skills，`omni_ask_user`，敏感信息脱敏，多模型 |
 | **工作流 / 任务** | 模板、排障手册、任务中心、快捷启动，可审计执行 |
 
-### v0.7.0 新增亮点
+### 近期亮点（v0.7.x）
 
-面板四域与 1Panel v1/v2 兼容、SSH tmux 会话、跨连接文件传输、快捷启动、Vault 钥匙串凭据、云厂商入口 —— 详见 [CHANGELOG.md](./CHANGELOG.md)。
+| 类别 | 说明 |
+|------|------|
+| **Web 版** | 浏览器访问 + GHCR 公开 Docker 镜像，支持 Render / Zeabur / Railway 等一键部署 |
+| **面板集成** | 宝塔 / 1Panel 四域（网站·应用·证书·计划任务），1Panel v1/v2 兼容 |
+| **SSH / 文件** | tmux 远端会话治理；跨连接文件传输与超大日志预览 |
+| **终端 AI** | 直通 Shell Agent、Plan / ask_user 卡片、危险命令二次确认 |
+| **数据库** | 侧栏 SQL 查询、虚拟滚动网格、NL2SQL、Schema 全树检索 |
+| **安全** | Vault 钥匙串凭据、设备码跨端同步、敏感信息脱敏 |
+
+完整版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ### 🛠️ 技术栈
 
@@ -112,9 +121,39 @@ cargo run -p omnipanel-server -- --static-dir frontend/dist --port 8899
 
 P0 已打通本地终端链路（`create_terminal`/`write_terminal`/`resize_terminal`/`close_terminal`/`terminal_snapshot`/`list_shells`），其余模块命令按 `crates/omnipanel-server/src/ipc.rs` 的 match 渐进接入。桌面端（`tauri build`）不受任何影响。
 
-### 🐳 Docker 一键部署（推荐）
+## 部署
 
-镜像：[ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web)
+本项目 **Web 版** 支持 **Docker、Render、Zeabur、Railway、Koyeb、DigitalOcean、Fly.io** 等平台部署。
+
+**一键部署到 Render**
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/OmniUltraX/omnipanel)
+
+**一键部署到 Zeabur**
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/projects/new?gitRepo=https://github.com/OmniUltraX/omnipanel)
+
+**一键部署到 Railway**
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/OmniUltraX/omnipanel)
+
+**一键部署到 Koyeb**
+
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/omniultrax/omnipanel-web:latest&name=omnipanel-web&ports=8899:http)
+
+**一键部署到 DigitalOcean**
+
+[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/OmniUltraX/omnipanel/tree/master)
+
+**一键部署到 Fly.io**
+
+[![Deploy on Fly.io](https://img.shields.io/badge/Deploy%20on-Fly.io-8B5CF6?style=for-the-badge&logo=fly.io&logoColor=white)](https://fly.io/launch?source=github)
+
+> Fly.io：在 Launch 流程中选择本仓库，使用根目录 `fly.toml`；或本地 `fly launch` 后 `fly deploy`。
+
+### Docker 部署
+
+镜像：[ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web)（公开镜像，无需 `docker login`）
 
 ```bash
 # 方式一：docker run（管理宿主机 Docker 需挂载 docker.sock）

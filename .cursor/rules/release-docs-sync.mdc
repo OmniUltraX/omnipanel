@@ -1,21 +1,9 @@
-# Cursor IDE Rules
+---
+description: 发版/提交时必须同步 README、官网、CHANGELOG 等对外文档
+alwaysApply: true
+---
 
-This project uses CLAUDE.md as the primary guidance file. See CLAUDE.md for full project context, architecture, and conventions.
-
-## Mandatory Type Check (强校验)
-
-**所有前端代码变更完成后，必须运行 `tsc -b` 通过后才能视为完成。** 这是 CI 流水线（`tauri-apps/tauri-action` → `build:ci` → `tsc -b && vite build`）的强校验门禁，本地不通过则 CI 必挂。
-
-```bash
-cd frontend && npx tsc -b
-```
-
-- 零 error 才算通过；warning 可接受但建议修复。
-- 新增/删除 import 时同步检查未使用变量（TS6133）。
-- 类型变更时检查跨文件兼容性（TS2322/TS2345 等）。
-- 测试文件的类型必须与被测代码的签名严格匹配，不要用 `typeof` 推断具体字面量类型代替 `Record<string, ...>` 等宽泛类型。
-
-## Release / Commit Docs Sync（发版与提交文档同步）
+# Release / Commit Docs Sync（发版与提交文档同步）
 
 **只要涉及发版、打 tag、版本 bump，或用户明确要求「提交 / 发版 / 发布」时，必须同步更新对外文档与官网，不得只改代码或只改 CHANGELOG。**
 
@@ -35,5 +23,3 @@ cd frontend && npx tsc -b
 2. **普通功能提交**：若变更会反映到对外介绍（新模块、部署、破坏性变更），同一提交或紧随的文档提交中同步 README / 官网；纯内部重构可不动。
 3. **中英文与官网**：同一事实不要只改一侧；亮点/部署按钮等对外文案保持一致。
 4. CI 会校验 tag 版本在 `CHANGELOG.md` 中有对应 `## [version]` 段落——缺了发版会失败。
-
-完整说明见 CLAUDE.md 同名章节。
