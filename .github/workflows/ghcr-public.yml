@@ -1,19 +1,33 @@
 name: GHCR Make Public
 
-# 一次性或按需：将 ghcr.io/omniultrax/omnipanel-web 设为 public（匿名可 pull）
+# 将 ghcr.io/omniultrax/omnipanel-web 设为 public（匿名可 docker pull）
+#
+# 前置：在组织 Secrets 配置 PACKAGES_TOKEN（PAT，scope: write:packages）
+# https://github.com/orgs/OmniUltraX/settings/secrets/actions
 on:
   workflow_dispatch:
 
 permissions:
-  packages: write
+  packages: read
 
 jobs:
   public:
     runs-on: ubuntu-latest
     steps:
+      - name: Require PACKAGES_TOKEN
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          if [ -z "${PACKAGES_TOKEN}" ]; then
+            echo "::error::缺少组织 Secret PACKAGES_TOKEN（PAT，scope: write:packages）。"
+            echo "或在 GitHub 网页手动公开："
+            echo "https://github.com/orgs/OmniUltraX/packages/container/omnipanel-web/settings"
+            exit 1
+          fi
+
       - name: Set omnipanel-web package to public
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           PACKAGE_NAME: omnipanel-web
         run: |
           set -euo pipefail
