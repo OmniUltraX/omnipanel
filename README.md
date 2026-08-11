@@ -13,6 +13,7 @@
   </p>
   <p align="center">
     <a href="https://omniultrax.github.io/omnipanel/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
+    <a href="https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square" alt="Docker"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/releases"><img src="https://img.shields.io/github/v/release/OmniUltraX/omnipanel?style=flat-square&color=007aff" alt="Release"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
     <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.85+-orange?style=flat-square&color=ff5f57" alt="Rust"></a>
@@ -88,6 +89,22 @@ cd frontend && npm run tauri dev
 # Or frontend only
 cd frontend && npm run dev
 ```
+
+### 🐳 Docker (Web edition)
+
+Image: [ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web)
+
+```bash
+docker run -d --name omnipanel -p 8899:8899 \
+  -v omnipanel-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e OMNIPANEL_API_KEY=replace-with-a-long-random-secret \
+  ghcr.io/omniultrax/omnipanel-web:latest
+
+# Or: cd deploy/docker && cp .env.example .env && docker compose up -d
+```
+
+Open <http://localhost:8899>. If `OMNIPANEL_API_KEY` is unset, the container still starts but logs a security warning (local trial only). See [docs/web/docker.md](./docs/web/docker.md).
 
 ### 📁 Project Structure
 

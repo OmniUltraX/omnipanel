@@ -13,6 +13,7 @@
   </p>
   <p align="center">
     <a href="https://omniultrax.github.io/omnipanel/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
+    <a href="https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square" alt="Docker"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/releases"><img src="https://img.shields.io/github/v/release/OmniUltraX/omnipanel?style=flat-square&color=007aff" alt="Release"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
     <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.85+-orange?style=flat-square&color=ff5f57" alt="Rust"></a>
@@ -110,6 +111,26 @@ cargo run -p omnipanel-server -- --static-dir frontend/dist --port 8899
 - `GET /`：静态托管 `frontend/dist`
 
 P0 已打通本地终端链路（`create_terminal`/`write_terminal`/`resize_terminal`/`close_terminal`/`terminal_snapshot`/`list_shells`），其余模块命令按 `crates/omnipanel-server/src/ipc.rs` 的 match 渐进接入。桌面端（`tauri build`）不受任何影响。
+
+### 🐳 Docker 一键部署（推荐）
+
+镜像：[ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web)
+
+```bash
+# 方式一：docker run（管理宿主机 Docker 需挂载 docker.sock）
+docker run -d --name omnipanel -p 8899:8899 \
+  -v omnipanel-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e OMNIPANEL_API_KEY=请替换为长随机字符串 \
+  ghcr.io/omniultrax/omnipanel-web:latest
+
+# 方式二：docker compose
+cd deploy/docker && cp .env.example .env && docker compose up -d
+```
+
+浏览器打开 <http://localhost:8899>。`OMNIPANEL_API_KEY` **未设置时容器仍可启动**，但会打印安全警告（方案 A：适合本地试用）；生产环境请务必设置。
+
+详细说明见 [docs/web/docker.md](./docs/web/docker.md)。
 
 ### 📁 项目结构
 

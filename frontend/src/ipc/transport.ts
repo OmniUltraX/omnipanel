@@ -23,13 +23,22 @@ const WEB_WS_BASE = (() => {
   return `${proto}//${window.location.host}${base}`;
 })();
 
+/** Docker 运行时 config.js 或 Vite 构建期环境变量。 */
+function resolveApiKey(): string | undefined {
+  if (typeof window !== "undefined" && window.__OMNIPANEL_API_KEY__) {
+    return window.__OMNIPANEL_API_KEY__;
+  }
+  const fromEnv = import.meta.env.VITE_OMNIPANEL_API_KEY as string | undefined;
+  return fromEnv?.trim() || undefined;
+}
+
 /**
  * 发送 IPC 命令。Web 模式下等价于 Tauri `invoke`：
  * - 命令成功（HTTP 200 且 `ok:true`）→ resolve `data`
  * - 命令失败（HTTP 200 且 `ok:false`，或网络错误）→ reject error
  */
 export async function webInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const apiKey = import.meta.env.VITE_OMNIPANEL_API_KEY as string | undefined;
+  const apiKey = resolveApiKey();
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (apiKey) {
     headers.authorization = `Bearer ${apiKey}`;
@@ -88,7 +97,7 @@ class WebEventBus {
     }
 
     return new Promise((resolve, reject) => {
-      const apiKey = import.meta.env.VITE_OMNIPANEL_API_KEY as string | undefined;
+      const apiKey = resolveApiKey();
       const url = WEB_WS_BASE.replace(/\/$/, "") + "/ipc/events";
       const ws = new WebSocket(apiKey ? `${url}?token=${encodeURIComponent(apiKey)}` : url);
       this.ws = ws;

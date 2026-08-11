@@ -1,0 +1,34 @@
+# OmniPanel Web — Docker Compose 一键启动
+#
+# 用法:
+#   cd deploy/docker
+#   cp .env.example .env    # 建议设置 OMNIPANEL_API_KEY
+#   docker compose up -d
+#   浏览器打开 http://localhost:8899
+#
+# 管理宿主机 Docker：默认已挂载 /var/run/docker.sock（仅可信内网使用）
+
+services:
+  omnipanel:
+    image: ghcr.io/omniultrax/omnipanel-web:latest
+    container_name: omnipanel-web
+    ports:
+      - "${OMNIPANEL_PORT:-8899}:8899"
+    environment:
+      OMNIPANEL_API_KEY: ${OMNIPANEL_API_KEY:-}
+      OMNIPANEL_PORT: "8899"
+      OMNIPANEL_BIND: "0.0.0.0"
+    volumes:
+      - omnipanel-data:/data
+      # 管理宿主机 Docker Engine（高权限；生产务必设置 OMNIPANEL_API_KEY）
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8899/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  omnipanel-data:

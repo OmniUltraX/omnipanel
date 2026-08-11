@@ -1,0 +1,17 @@
+# 构建上下文为仓库根目录（docker build -f deploy/docker/Dockerfile .）
+target/
+**/target/
+frontend/node_modules/
+frontend/dist/
+website/node_modules/
+website/dist/
+.git/
+.github/
+design/
+docs/examples/
+**/*.md
+!README.md
+scripts/__pycache__/
+*.log
+.env
+.env.*
