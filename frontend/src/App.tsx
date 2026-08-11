@@ -272,6 +272,7 @@ function AppShell() {
       showAll: t("shell.closeBehavior.trayShowAll"),
       quit: t("shell.closeBehavior.trayQuit"),
       quickOpen: t("shell.closeBehavior.trayQuickOpen"),
+      openWorkspaces: t("shell.closeBehavior.trayOpenWorkspaces"),
       openModules: t("shell.closeBehavior.trayOpenModules"),
       moduleLabels: {
         terminal: t("shell.nav.terminal"),

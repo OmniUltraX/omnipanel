@@ -1537,7 +1537,8 @@ select,
     padding: 0;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
-    -webkit-app-region: drag;
+    /* 半屏嵌入顶栏：禁止拖拽控制 OS 窗口（全屏才走 dock windowControl） */
+    -webkit-app-region: no-drag;
 }
 
 .workspace-panel-empty-topbar .workspace-switcher {
@@ -1551,6 +1552,7 @@ select,
 .workspace-panel-empty-spacer {
     flex: 1;
     min-width: 0;
+    -webkit-app-region: no-drag;
 }
 
 .workspace-panel-mode-btn,
