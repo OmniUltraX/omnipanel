@@ -62,6 +62,15 @@ export function clearTablePreviewRowCache(tabId: string): void {
   }
 }
 
+/**
+ * 硬重置（换表 / beginFetch）：写入空 cache 并 notify。
+ * 与 clear（删除条目）不同——订阅方会 apply 空行，而不会回退到仍可能滞后的 displayRows（#44）。
+ */
+export function resetTablePreviewRowCache(tabId: string): void {
+  cache.set(tabId, { rows: [], columns: [], name: "" });
+  notify(tabId);
+}
+
 export function subscribeTablePreviewRowCache(
   tabId: string,
   listener: () => void,

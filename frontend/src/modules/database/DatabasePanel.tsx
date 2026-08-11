@@ -5614,35 +5614,43 @@ export function DatabasePanel() {
                 connection,
               };
               return (
-                <div className="db-workspace-pane db-dock-pane">
-                  <DatabaseTablesPanel
-                    selection={selection}
-                    onDesignTable={handleDesignTable}
-                    onOpenTableData={(tableSelection) =>
-                      handleSelectTable(tableSelection, "permanent")
-                    }
-                    onExportDatabase={
-                      isMysqlConnectionInfoCapable(connection)
-                        ? (dbSelection) => {
-                            void handleExportDatabase(
-                              dbSelection.connection,
-                              dbSelection.dbName,
-                            );
-                          }
-                        : undefined
-                    }
-                    onImportDatabase={
-                      isMysqlConnectionInfoCapable(connection)
-                        ? (dbSelection) => {
-                            handleOpenImportDatabase(
-                              dbSelection.connection,
-                              dbSelection.dbName,
-                            );
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
+                <DbDockTabActive tabId={tab.id}>
+                  {(active) => (
+                    <div
+                      className="db-workspace-pane db-dock-pane"
+                      style={active ? undefined : { display: "none" }}
+                      aria-hidden={!active}
+                    >
+                      <DatabaseTablesPanel
+                        selection={selection}
+                        onDesignTable={handleDesignTable}
+                        onOpenTableData={(tableSelection) =>
+                          handleSelectTable(tableSelection, "permanent")
+                        }
+                        onExportDatabase={
+                          isMysqlConnectionInfoCapable(connection)
+                            ? (dbSelection) => {
+                                void handleExportDatabase(
+                                  dbSelection.connection,
+                                  dbSelection.dbName,
+                                );
+                              }
+                            : undefined
+                        }
+                        onImportDatabase={
+                          isMysqlConnectionInfoCapable(connection)
+                            ? (dbSelection) => {
+                                handleOpenImportDatabase(
+                                  dbSelection.connection,
+                                  dbSelection.dbName,
+                                );
+                              }
+                            : undefined
+                        }
+                      />
+                    </div>
+                  )}
+                </DbDockTabActive>
               );
             }}
           </ConnectionResolvedDockPane>

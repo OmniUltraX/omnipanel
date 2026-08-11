@@ -6717,6 +6717,26 @@
         pointer-events: none !important;
     }
 
+    /*
+     * Mac WKWebView：非激活 dock panel 仅 visibility:hidden 时，绝对定位 canvas
+     * 仍可能被合成到当前 Tab 上，造成「旧表内容遮挡 / 总览卡住」（#44）。
+     * 主路径靠各 Surface 非激活时 display:none；此处为属性选择器兜底。
+     */
+    .db-module-dock .dv-render-overlay[style*="visibility: hidden"] .db-data-table-canvas,
+    .db-module-dock .dv-render-overlay[style*="visibility:hidden"] .db-data-table-canvas,
+    .db-module-dock .dv-render-overlay[style*="visibility: hidden"] .db-tables-panel-grid-canvas,
+    .db-module-dock .dv-render-overlay[style*="visibility:hidden"] .db-tables-panel-grid-canvas {
+        visibility: hidden !important;
+        pointer-events: none !important;
+        display: none !important;
+    }
+
+    .db-module-dock .dv-render-overlay[style*="visibility: hidden"] .db-workspace-pane--data,
+    .db-module-dock .dv-render-overlay[style*="visibility:hidden"] .db-workspace-pane--data {
+        display: none !important;
+        pointer-events: none !important;
+    }
+
     .db-sql-result-session {
         flex: 1;
         min-height: 0;

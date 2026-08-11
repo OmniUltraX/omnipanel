@@ -10,6 +10,7 @@ import {
 import {
   clearTablePreviewRowCache,
   patchTablePreviewRowCacheRows,
+  resetTablePreviewRowCache,
   setTablePreviewRowCache,
 } from "./tablePreviewRowCache";
 
@@ -21,11 +22,19 @@ type SetTablePreviews = (
 /** 每个 Tab 的灌数代数：切换表 / 重新加载时 bump，取消进行中的分片写入 */
 const applyGenerationByTab = new Map<string, number>();
 
-export function bumpTablePreviewApplyGeneration(tabId: string): number {
+export function bumpTablePreviewApplyGeneration(
+  tabId: string,
+  options?: { /** true：写入空 cache（换表硬重置）；默认 delete，刷新时可回退旧行 */ resetCache?: boolean },
+): number {
   const next = (applyGenerationByTab.get(tabId) ?? 0) + 1;
   applyGenerationByTab.set(tabId, next);
-  // 取消在途灌数时清掉 cache，避免画旧表
-  clearTablePreviewRowCache(tabId);
+  if (options?.resetCache) {
+    // 空 cache + notify → Canvas 画空行，禁止回退旧 displayRows（#44）
+    resetTablePreviewRowCache(tabId);
+  } else {
+    // 取消在途灌数时清掉 cache；订阅方回退 displayRows，同表刷新不闪空
+    clearTablePreviewRowCache(tabId);
+  }
   return next;
 }
 
@@ -45,14 +54,15 @@ export type BeginTablePreviewFetchPatch = {
 };
 
 /**
- * 发起新的表预览请求前：bump 代数、清 cache、重置展示（避免 Canvas / React 残留旧表数据）。
+ * 发起新的表预览请求前：bump 代数、重置 cache 为空、重置展示（避免 Canvas / React 残留旧表数据）。
+ * 注意：不能只 clear cache——订阅方在 React 重渲前会回退到旧 displayRows，旧表会盖在新表头上（#44）。
  */
 export function beginTablePreviewFetch(
   tabId: string,
   setTablePreviews: SetTablePreviews,
   patch: BeginTablePreviewFetchPatch = {},
 ): number {
-  const generation = bumpTablePreviewApplyGeneration(tabId);
+  const generation = bumpTablePreviewApplyGeneration(tabId, { resetCache: true });
   setTablePreviews((prev) => {
     const existing = prev[tabId] ?? createDefaultTablePreviewState();
     return {
@@ -128,14 +138,19 @@ export async function applyTablePreviewDataProgressive(
   const isEmpty = data.rows.length === 0;
 
   // Phase 1：元数据进 React（必须轻）
-  // 有数据且 Canvas 模式：暂留旧 rows 引用，避免 cache notify 前整表重渲。
+  // 有数据且 Canvas 模式：同表刷新可暂留旧 rows，避免 cache notify 前整表闪空。
+  // 列结构变了（预览 Tab 原地换表）绝不能留旧 rows，否则新表头会配旧行（#44）。
   // 空结果：必须 rows=[]，否则过滤无匹配时仍显示上次数据（#47）。
   setTablePreviews((prevMap) => {
     const cur = prevMap[tabId];
     const prevData = cur?.data;
+    const sameColumns =
+      !!prevData &&
+      prevData.columns.length === data.columns.length &&
+      prevData.columns.every((col, index) => col === data.columns[index]);
     const phase1Rows = isEmpty
       ? []
-      : canvasMode
+      : canvasMode && sameColumns
         ? (prevData?.rows ?? [])
         : [];
     return {

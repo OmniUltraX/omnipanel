@@ -822,9 +822,18 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
    */
   const hasPreviewData = Boolean(preview?.data);
   const deferredDisplayRows = useDeferredValue(previewDisplayRows);
-  /** 有待插入行时跳过 defer，避免「新建行」点击后晚一拍才进网格 / Canvas paint */
+  /** 预览 Tab 原地换表时 tabId 不变，用表身份强制 remount 网格 */
+  const previewTableKey = `${tab.connId}:${tab.dbName}:${tab.tableName}`;
+  /**
+   * 换表 / 加载重置时禁止使用滞后的 deferred 旧行，否则会把上一张表灌回 Canvas（#44）。
+   */
   const gridDisplayRows =
-    pendingInsertCount > 0 ? previewDisplayRows : deferredDisplayRows;
+    pendingInsertCount > 0 ||
+    preview?.loading ||
+    !hasPreviewData ||
+    (previewDisplayRows.length === 0 && deferredDisplayRows.length > 0)
+      ? previewDisplayRows
+      : deferredDisplayRows;
   const showPreviewGrid = Boolean(
     showShell && gridMounted && (hasPreviewColumns || hasPreviewData),
   );
@@ -891,6 +900,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
 
   const previewGrid = showPreviewGrid && preview ? (
     <TableDataGrid
+      // 预览 Tab 原地换表时 tabId 不变；用表身份 remount，拆掉旧 Canvas 图层（#44）
+      key={previewTableKey}
       columns={previewColumns}
       rows={hasPreviewData ? gridDisplayRows : []}
       totalRows={(preview.totalRows ?? 0) + pendingInsertCount}
@@ -977,8 +988,17 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     </div>
   ) : null;
 
+  /**
+   * 非激活时 display:none 切断 Canvas 合成穿透（Mac WKWebView）。
+   * dockview 仅 visibility:hidden 时，绝对定位 canvas 仍会盖住当前 Tab（总览「卡住」/#44）。
+   * 不卸载 React 树，切回不闪；active 由 onActiveTabPreview 在 pointerdown 同步写入。
+   */
   return (
-    <div className="db-workspace-pane db-workspace-pane--data">
+    <div
+      className="db-workspace-pane db-workspace-pane--data"
+      style={active ? undefined : { display: "none" }}
+      aria-hidden={!active}
+    >
       {preview?.error ? (
         <div
           className="empty-state compact text-danger"

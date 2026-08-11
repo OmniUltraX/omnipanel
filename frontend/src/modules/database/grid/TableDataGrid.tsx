@@ -1845,6 +1845,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   const canvasPaintRowsRef = useRef<Array<{ index: number; original: Record<string, unknown> }>>(
     [],
   );
+  /** 用于检测预览 Tab 原地换表（同 rowSourceTabId，tableName 变了） */
+  const prevPaintTableKeyRef = useRef(tableName);
 
   const mapRows = useCallback(
     (source: Record<string, unknown>[]) =>
@@ -1892,6 +1894,43 @@ export const TableDataGrid = memo(function TableDataGrid({
     return mapped.length;
   }, [mapRows]);
 
+  /**
+   * 预览 Tab 原地换表时 tabId / rowSourceTabId 不变，Canvas paint ref 不会自动卸掉。
+   * beginTablePreviewFetch 清 cache 的 notify 又可能在 React 重渲前回退到旧 displayRows，
+   * 把旧表行画到新表头下（#44）。换表或 rows 已重置为空时，在 layout 阶段强制清空并归零滚动。
+   */
+  useLayoutEffect(() => {
+    if (!useCanvasBody || !rowSourceTabId) return;
+    const tableChanged = prevPaintTableKeyRef.current !== tableName;
+    prevPaintTableKeyRef.current = tableName;
+    if (!tableChanged && rows.length > 0) return;
+
+    if (tableChanged) {
+      const wrap = wrapRef.current;
+      if (wrap) {
+        wrap.scrollTop = 0;
+        wrap.scrollLeft = 0;
+      }
+      // 先擦位图，再写空 paint，避免旧帧在 rAF 前仍合成遮挡
+      canvasBodyRef.current?.clear();
+    }
+
+    // 换表丢弃旧 pending；同表空结果仅保留尚未提交的新建行
+    const source = tableChanged ? [] : extractPendingInsertRows(displayRowsRef.current);
+    const mapped = mapRows(source);
+    canvasPaintRowsRef.current = mapped;
+    tableRowsRef.current = mapped;
+    tableRowCountRef.current = mapped.length;
+    canvasBodyRef.current?.invalidate();
+  }, [
+    useCanvasBody,
+    rowSourceTabId,
+    tableName,
+    rows.length,
+    extractPendingInsertRows,
+    mapRows,
+  ]);
+
   /** 仅跟踪 pending 插入 key，避免加载分片时 displayRows 引用抖动触发重绘 */
   const pendingInsertPaintKey = useMemo(() => {
     const keys: string[] = [];
@@ -1919,8 +1958,11 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (transposedRef.current) return;
       const cached = getTablePreviewRowCache(rowSourceTabId);
       if (!cached) {
-        // cache 空时回退 props（phase1 / 已同步进 React）；display 已含 pending
-        const mapped = mapRows(displayRowsRef.current);
+        // cache 空：仅在 React 侧仍有行时回退（同表刷新保留旧画）；
+        // rows 已清空则画空，避免 bump notify 抢在重渲前把旧表画到新表头（#44）
+        const fallback =
+          displayRowsRef.current.length > 0 ? displayRowsRef.current : [];
+        const mapped = mapRows(fallback);
         canvasPaintRowsRef.current = mapped;
         tableRowsRef.current = mapped;
         tableRowCountRef.current = mapped.length;

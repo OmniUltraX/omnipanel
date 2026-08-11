@@ -79,6 +79,8 @@ export type TableDataGridCanvasBodyHandle = {
   hitTestClientPoint: (clientX: number, clientY: number) => GridHitResult | null;
   getCellViewportRect: (rowIndex: number, colIndex: number) => CellViewportRect | null;
   invalidate: () => void;
+  /** 立刻擦掉位图与快照（换表时防止旧帧残留遮挡） */
+  clear: () => void;
 };
 
 export type TableDataGridCanvasBodyProps = {
@@ -469,6 +471,34 @@ export const TableDataGridCanvasBody = forwardRef<
     [rebuildSnapshot, scrollElementRef],
   );
 
+  const clearCanvas = useCallback(() => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    snapshotRef.current = null;
+    rowOffsetsRef.current = [0];
+    measuredCacheRef.current = null;
+    scrollAlignReadyRef.current = false;
+    structureDirtyRef.current = true;
+    skipHeaderMeasureRef.current = true;
+    hoverRef.current = null;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      // 归零缓冲，避免旧尺寸位图在下次 paint 前仍被合成
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    if (sizerRef.current) {
+      sizerRef.current.style.height = "0px";
+    }
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -492,8 +522,16 @@ export const TableDataGridCanvasBody = forwardRef<
       hitTestClientPoint: clientToHit,
       getCellViewportRect,
       invalidate: markStructureDirtyAndPaint,
+      clear: clearCanvas,
     }),
-    [clientToHit, getCellViewportRect, rebuildSnapshot, markStructureDirtyAndPaint, scrollElementRef],
+    [
+      clientToHit,
+      getCellViewportRect,
+      rebuildSnapshot,
+      markStructureDirtyAndPaint,
+      clearCanvas,
+      scrollElementRef,
+    ],
   );
 
   const anchorFromHit = useCallback(
