@@ -1,0 +1,19 @@
+spec:
+  name: omnipanel-web
+  services:
+    - name: web
+      dockerfile_path: deploy/docker/Dockerfile
+      git:
+        branch: master
+        repo_clone_url: https://github.com/OmniUltraX/omnipanel.git
+      http_port: 8899
+      instance_count: 1
+      health_check:
+        http_path: /healthz
+      envs:
+        - key: OMNIPANEL_API_KEY
+          scope: RUN_TIME
+          type: SECRET
+        - key: OMNIPANEL_PORT
+          value: "8899"
+          scope: RUN_TIME

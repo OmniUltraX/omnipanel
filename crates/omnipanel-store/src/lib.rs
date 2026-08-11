@@ -75,8 +75,9 @@ pub use embedding_config::{
     save_embedding_provider, EmbeddingProviderConfig,
 };
 pub use database::{
-    fill_db_password_from_vault, DatabaseConnectionStore, DbConnectionConfig,
-    load_database_connections, save_database_connections,
+    ensure_builtin_demo_connections, fill_db_password_from_vault, mark_builtin_demo_removed,
+    DatabaseConnectionStore, DbConnectionConfig, BUILTIN_FILE_INDEX_CONN_ID,
+    BUILTIN_META_DB_CONN_ID, load_database_connections, save_database_connections,
 };
 pub use http::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
 pub use knowledge::{KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult};

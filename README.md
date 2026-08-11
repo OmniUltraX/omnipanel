@@ -23,7 +23,7 @@
 
 ---
 
-**OmniPanel** is an AI-native, cross-platform engineering workstation for developers. It unifies terminal, SSH, database, Docker, server management, protocol debugging, and AI assistance into a single desktop application — eliminating context switching and letting you focus on what matters.
+**OmniPanel** is an AI-native, cross-platform engineering workstation for developers. It unifies terminal, SSH, databases, Docker, server management, files, protocol debugging, and AI assistance in **desktop and Web editions** — eliminating context switching and letting you focus on what matters.
 
 > One window to manage servers, databases, containers, and workflows. One AI that understands your entire engineering context.
 
@@ -57,9 +57,18 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |
 | **Workflow / Tasks** | Templates, runbooks, task center, Quick Launcher, auditable execution |
 
-### What's new in v0.7.0
+### Recent highlights (v0.7.x)
 
-Panel domains + 1Panel v1/v2 compatibility, SSH tmux sessions, cross-connection file transfer, Quick Launcher, Vault credentials, cloud vendor entry — see [CHANGELOG.md](./CHANGELOG.md).
+| Area | Highlights |
+|------|------------|
+| **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
+| **Panel integration** | BT Panel / 1Panel domains (sites·apps·certs·cron); 1Panel v1/v2 compatible |
+| **SSH / Files** | tmux remote session governance; cross-connection transfer and large log preview |
+| **Terminal AI** | Passthrough shell agent, Plan / ask_user cards, dangerous-command confirmation |
+| **Database** | Sidebar SQL query, virtual-scroll grid, NL2SQL, full-schema search |
+| **Security** | Vault keyring credentials, device-code sync, secret redaction |
+
+Full release notes: [CHANGELOG.md](./CHANGELOG.md).
 
 ### 🛠️ Tech Stack
 
@@ -90,9 +99,61 @@ cd frontend && npm run tauri dev
 cd frontend && npm run dev
 ```
 
-### 🐳 Docker (Web edition)
+### 🌐 Web edition (P0: frontend / backend split)
 
-Image: [ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web)
+Same frontend build and Rust backend — open in the browser (local terminal / SSH / Docker run on the server host):
+
+```bash
+# 1. Build web frontend (@tauri-apps/api → HTTP/WS bridge)
+cd frontend && OMNIPANEL_WEB=1 npm run build && cd ..
+
+# 2. Start web server (static hosting + /ipc/invoke + WS events)
+cargo run -p omnipanel-server -- --static-dir frontend/dist --port 8899
+
+# 3. Open http://127.0.0.1:8899
+```
+
+Architecture: business code unchanged; only swap Tauri IPC transport for HTTP + WebSocket:
+
+- `POST /ipc/invoke`: `{ cmd, args }` → command dispatch (equivalent to Tauri `invoke`)
+- `WS /ipc/events`: backend event broadcast (equivalent to Tauri `listen`)
+- `GET /`: static `frontend/dist`
+
+P0 covers the local terminal path (`create_terminal` / `write_terminal` / `resize_terminal` / `close_terminal` / `terminal_snapshot` / `list_shells`); other modules are wired progressively in `crates/omnipanel-server/src/ipc.rs`. Desktop (`tauri build`) is unaffected.
+
+## Deploy
+
+**Web edition** supports **Docker, Render, Zeabur, Railway, Koyeb, DigitalOcean, and Fly.io**.
+
+**One-click deploy to Render**
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/OmniUltraX/omnipanel)
+
+**One-click deploy to Zeabur**
+
+[![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/projects/new?gitRepo=https://github.com/OmniUltraX/omnipanel)
+
+**One-click deploy to Railway**
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/OmniUltraX/omnipanel)
+
+**One-click deploy to Koyeb**
+
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/omniultrax/omnipanel-web:latest&name=omnipanel-web&ports=8899:http)
+
+**One-click deploy to DigitalOcean**
+
+[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/OmniUltraX/omnipanel/tree/master)
+
+**One-click deploy to Fly.io**
+
+[![Deploy on Fly.io](https://img.shields.io/badge/Deploy%20on-Fly.io-8B5CF6?style=for-the-badge&logo=fly.io&logoColor=white)](https://fly.io/launch?source=github)
+
+> Fly.io: select this repo in Launch (uses `fly.toml` at repo root), or run `fly launch` then `fly deploy` locally.
+
+### Docker
+
+Image: [ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web) (public — no `docker login`)
 
 ```bash
 docker run -d --name omnipanel -p 8899:8899 \

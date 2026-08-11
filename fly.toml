@@ -1,0 +1,24 @@
+# fly launch 后按需修改 app 名与 region
+app = "omnipanel-web"
+primary_region = "hkg"
+
+[build]
+  dockerfile = "deploy/docker/Dockerfile"
+
+[http_service]
+  internal_port = 8899
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[mounts]
+  source = "omnipanel_data"
+  destination = "/data"

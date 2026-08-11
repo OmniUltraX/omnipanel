@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: omnipanel-web
+    runtime: image
+    plan: free
+    image:
+      url: ghcr.io/omniultrax/omnipanel-web:latest
+    healthCheckPath: /healthz
+    envVars:
+      - key: OMNIPANEL_API_KEY
+        sync: false
+      - key: OMNIPANEL_PORT
+        value: "8899"
