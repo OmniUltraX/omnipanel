@@ -1,7 +1,37 @@
 import { create } from "zustand";
 
-import { commands, type CapabilityProbeResult, type InstallToolResult } from "@/ipc/bindings";
+import { asArray } from "@/ipc/asArray";
+import {
+  commands,
+  type CapabilityProbeResult,
+  type InstallToolResult,
+  type RemoteToolCapability,
+} from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
+
+/** Web 软降级可能返回 `[]`/`{}`；规范成带 `tools: []` 的探测结果，避免 `.tools` 迭代崩溃。 */
+function normalizeProbeResult(
+  resourceId: string,
+  raw: unknown,
+): CapabilityProbeResult | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      resourceId,
+      tools: [],
+      elapsedMs: 0,
+      probedAt: 0,
+      lazyProbeIds: [],
+    };
+  }
+  const obj = raw as Partial<CapabilityProbeResult>;
+  return {
+    resourceId: String(obj.resourceId || resourceId),
+    tools: asArray<RemoteToolCapability>(obj.tools),
+    elapsedMs: typeof obj.elapsedMs === "number" ? obj.elapsedMs : 0,
+    probedAt: typeof obj.probedAt === "number" ? obj.probedAt : 0,
+    lazyProbeIds: asArray<string>(obj.lazyProbeIds),
+  };
+}
 
 /** 单台主机的探测态。 */
 export type ResourceCapabilities = {
@@ -59,9 +89,10 @@ export const useCapabilitiesStore = create<State>((set) => ({
       },
     }));
     try {
-      const result = await unwrapCommand(
+      const raw = await unwrapCommand(
         commands.sshPoolProbeCapabilities(resourceId, force),
       );
+      const result = normalizeProbeResult(resourceId, raw);
       set((state) => ({
         entries: {
           ...state.entries,
@@ -104,7 +135,7 @@ export const useCapabilitiesStore = create<State>((set) => ({
         const entry = ensureEntry(state.entries, resourceId);
         const result = entry.result;
         if (result && res.state) {
-          const tools = result.tools.map((tool) =>
+          const tools = asArray<RemoteToolCapability>(result.tools).map((tool) =>
             tool.id === toolId ? { ...tool, state: res.state! } : tool,
           );
           return {

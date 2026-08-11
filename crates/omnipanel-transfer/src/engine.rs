@@ -4,24 +4,22 @@ use std::sync::Arc;
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{FileTransferJobRecord, Storage};
-use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex, Semaphore};
 
-use crate::commands::file_manager::{local_home, resolve_local_path, LOCAL_CONNECTION_ID};
-use crate::state::AppState;
-
-use super::expand::expand_transfer_items;
-use super::fastpath::run_fastpath;
-use super::remote_direct::run_remote_direct;
-use super::resume::{load_jobs, normalize_after_load};
-use super::stream_relay::run_relay;
-use super::types::{
+use crate::event::{emit_job, TransferEventSink};
+use crate::expand::expand_transfer_items;
+use crate::fastpath::run_fastpath;
+use crate::provider::TransferHost;
+use crate::remote_direct::run_remote_direct;
+use crate::resume::{load_jobs, normalize_after_load};
+use crate::stream_relay::run_relay_with_engine;
+use crate::types::{
     FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEndpoint, FileTransferJob,
     FileTransferListResult, FileTransferOp, FileTransferPlanRequest, FileTransferPlanResult,
     FileTransferRoute, FileTransferState,
 };
-use super::util::{
-    decide_route, dest_path_exists, emit_job, endpoint, join_dest, leaf_name, now_ms, open_sftp,
+use crate::util::{
+    decide_route, dest_path_exists, endpoint, join_dest, leaf_name, now_ms, open_sftp,
     unique_rename_name_for,
 };
 
@@ -32,7 +30,6 @@ fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}-{seq}", now_ms())
 }
 
-/// 进度持久化降频间隔（毫秒）。进度变更不超过此间隔不写库，避免高频 IO 拖垮 UI。
 const PROGRESS_PERSIST_INTERVAL_MS: u64 = 1000;
 
 pub struct FileTransferEngine {
@@ -40,7 +37,6 @@ pub struct FileTransferEngine {
     cancel_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
     semaphore: Mutex<Arc<Semaphore>>,
     storage: Arc<Mutex<Storage>>,
-    /// 上次进度持久化时间戳（毫秒），用于降频。
     last_progress_persist: Mutex<u64>,
 }
 
@@ -68,7 +64,6 @@ impl FileTransferEngine {
                 }
             }
         }
-        // 一次性迁移：SQLite 表为空时，从旧 jobs.json 导入
         if needs_json_migration {
             let json_jobs = normalize_after_load(load_jobs());
             if !json_jobs.is_empty() {
@@ -100,7 +95,6 @@ impl FileTransferEngine {
         *sem = Arc::new(Semaphore::new(n));
     }
 
-    /// 状态变更持久化（立即）：用于 enqueue/cancel/retry/done/error 等关键节点。
     async fn persist(&self) {
         let jobs = self.jobs.lock().await;
         let s = self.storage.lock().await;
@@ -112,8 +106,6 @@ impl FileTransferEngine {
         }
     }
 
-    /// 进度持久化（降频）：仅在距上次持久化超过 `PROGRESS_PERSIST_INTERVAL_MS` 时写入。
-    /// 用于 spawn_job 内部的进度上报，避免高频 IO。
     pub async fn persist_progress_throttled(&self, job: &FileTransferJob) {
         let now = now_ms();
         {
@@ -132,11 +124,11 @@ impl FileTransferEngine {
 
     pub async fn plan(
         &self,
-        state: &AppState,
+        host: &dyn TransferHost,
         request: &FileTransferPlanRequest,
     ) -> FileTransferPlanResult {
         let (route, route_reason, needs_direct_confirm) = decide_route(
-            state,
+            host,
             &request.source_connection_id,
             &request.dest_connection_id,
             request.force_route.clone(),
@@ -194,32 +186,28 @@ impl FileTransferEngine {
     }
 
     pub async fn enqueue(
-        &self,
-        app: AppHandle,
+        self: &Arc<Self>,
+        host: Arc<dyn TransferHost>,
+        sink: Arc<dyn TransferEventSink>,
         request: FileTransferEnqueueRequest,
     ) -> Result<String, OmniError> {
         if request.items.is_empty() {
             return Err(OmniError::new(ErrorCode::InvalidInput, "没有要传输的文件"));
         }
 
-        let state = app.state::<AppState>();
-        let expanded = expand_transfer_items(state.inner(), &request.items).await?;
+        let expanded = expand_transfer_items(host.as_ref(), &request.items).await?;
 
         let batch_id = new_id("batch");
-        let dest_dir = if request.dest_connection_id == LOCAL_CONNECTION_ID
+        let dest_dir = if request.dest_connection_id == host.local_connection_id()
             && request.dest_dir.trim().is_empty()
         {
-            local_home()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| request.dest_dir.clone())
+            host.local_home().unwrap_or_else(|_| request.dest_dir.clone())
         } else {
             request.dest_dir.clone()
         };
 
-        // ask 策略且未 force：若建议直传，enqueue 时默认先按建议 route 执行；
-        // 前端应在 paste 前 plan + 确认后传 forceRoute。
         let (route, route_reason, _) = decide_route(
-            state.inner(),
+            host.as_ref(),
             &expanded[0].connection_id,
             &request.dest_connection_id,
             request.force_route.clone(),
@@ -227,7 +215,6 @@ impl FileTransferEngine {
         )
         .await;
 
-        // ask 且未指定 force：为避免未确认就直传，降为 relay（前端确认后会 force remoteDirect）
         let (route, route_reason) = if request.force_route.is_none()
             && request.remote_direct_policy == "ask"
             && matches!(route, FileTransferRoute::RemoteDirect)
@@ -245,7 +232,7 @@ impl FileTransferEngine {
             let mut dest_rel = item.name.clone();
             let dest_path = join_dest(&dest_dir, &dest_rel);
 
-            let exists = dest_path_exists(state.inner(), &request.dest_connection_id, &dest_path)
+            let exists = dest_path_exists(host.as_ref(), &request.dest_connection_id, &dest_path)
                 .await
                 .unwrap_or(false);
             if exists {
@@ -254,7 +241,7 @@ impl FileTransferEngine {
                     FileTransferConflictPolicy::Overwrite => {}
                     FileTransferConflictPolicy::Rename => {
                         dest_rel = unique_rename_name_for(
-                            state.inner(),
+                            host.as_ref(),
                             &request.dest_connection_id,
                             &dest_dir,
                             &item.name,
@@ -296,8 +283,8 @@ impl FileTransferEngine {
             };
             created.push(job_id.clone());
             self.jobs.lock().await.insert(job_id.clone(), job.clone());
-            emit_job(&app, &job).await;
-            self.spawn_job(app.clone(), job_id);
+            emit_job(sink.as_ref(), &job).await;
+            FileTransferEngine::spawn_job(Arc::clone(self), host.clone(), sink.clone(), job_id);
         }
 
         if created.is_empty() {
@@ -310,7 +297,12 @@ impl FileTransferEngine {
         Ok(batch_id)
     }
 
-    pub async fn retry(&self, app: AppHandle, job_id: &str) -> Result<(), OmniError> {
+    pub async fn retry(
+        self: &Arc<Self>,
+        host: Arc<dyn TransferHost>,
+        sink: Arc<dyn TransferEventSink>,
+        job_id: &str,
+    ) -> Result<(), OmniError> {
         {
             let mut jobs = self.jobs.lock().await;
             let job = jobs
@@ -326,15 +318,19 @@ impl FileTransferEngine {
             job.error = None;
             job.progress = 0.0;
             job.bytes_done = 0.0;
-            emit_job(&app, job).await;
+            emit_job(sink.as_ref(), job).await;
         }
-        self.spawn_job(app, job_id.to_string());
+        FileTransferEngine::spawn_job(Arc::clone(self), host, sink, job_id.to_string());
         Ok(())
     }
 
-    fn spawn_job(&self, app: AppHandle, job_id: String) {
+    fn spawn_job(
+        engine: Arc<Self>,
+        host: Arc<dyn TransferHost>,
+        sink: Arc<dyn TransferEventSink>,
+        job_id: String,
+    ) {
         let cancel = Arc::new(AtomicBool::new(false));
-        let engine = app.state::<AppState>().file_transfers.clone();
 
         tokio::spawn(async move {
             {
@@ -352,7 +348,6 @@ impl FileTransferEngine {
                 return;
             }
 
-            let state = app.state::<AppState>();
             let mut job = {
                 let jobs = engine.jobs.lock().await;
                 match jobs.get(&job_id) {
@@ -367,24 +362,38 @@ impl FileTransferEngine {
 
             let run_result = match job.route.clone() {
                 FileTransferRoute::Fastpath => {
-                    run_fastpath(&app, state.inner(), &mut job, cancel.clone()).await
+                    run_fastpath(sink.as_ref(), host.as_ref(), &mut job, cancel.clone()).await
                 }
                 FileTransferRoute::RemoteDirect => {
-                    match run_remote_direct(&app, state.inner(), &mut job, cancel.clone()).await {
+                    match run_remote_direct(sink.as_ref(), host.as_ref(), &mut job, cancel.clone())
+                        .await
+                    {
                         Ok(()) => Ok(()),
                         Err(e) if e.message.contains("已取消") => Err(e),
                         Err(e) => {
-                            // 回落本机中继
                             job.route = FileTransferRoute::Relay;
-                            job.route_reason =
-                                format!("直传失败已回落中继：{}", e.message);
-                            emit_job(&app, &job).await;
-                            run_relay(&app, state.inner(), &mut job, cancel.clone()).await
+                            job.route_reason = format!("直传失败已回落中继：{}", e.message);
+                            emit_job(sink.as_ref(), &job).await;
+                            run_relay_with_engine(
+                                sink.as_ref(),
+                                host.as_ref(),
+                                Some(&engine),
+                                &mut job,
+                                cancel.clone(),
+                            )
+                            .await
                         }
                     }
                 }
                 FileTransferRoute::Relay => {
-                    run_relay(&app, state.inner(), &mut job, cancel.clone()).await
+                    run_relay_with_engine(
+                        sink.as_ref(),
+                        host.as_ref(),
+                        Some(&engine),
+                        &mut job,
+                        cancel.clone(),
+                    )
+                    .await
                 }
             };
 
@@ -400,7 +409,7 @@ impl FileTransferEngine {
                         if matches!(job.op, FileTransferOp::Move)
                             && !matches!(job.route, FileTransferRoute::Fastpath)
                         {
-                            let _ = delete_source_after_move(state.inner(), &job).await;
+                            let _ = delete_source_after_move(host.as_ref(), &job).await;
                         }
                     }
                 }
@@ -419,22 +428,25 @@ impl FileTransferEngine {
                 let mut jobs = engine.jobs.lock().await;
                 jobs.insert(job_id.clone(), job.clone());
             }
-            emit_job(&app, &job).await;
+            emit_job(sink.as_ref(), &job).await;
             engine.persist().await;
             engine.cancel_flags.lock().await.remove(&job_id);
         });
     }
 }
 
-async fn delete_source_after_move(state: &AppState, job: &FileTransferJob) -> Result<(), OmniError> {
-    if job.source.connection_id == LOCAL_CONNECTION_ID {
-        let src = resolve_local_path(&job.source.path)?;
+async fn delete_source_after_move(
+    host: &dyn TransferHost,
+    job: &FileTransferJob,
+) -> Result<(), OmniError> {
+    if job.source.connection_id == host.local_connection_id() {
+        let src = host.resolve_local_path(&job.source.path)?;
         tokio::fs::remove_file(src).await.map_err(|e| {
             OmniError::new(ErrorCode::Io, "剪切后删除源文件失败").with_cause(e.to_string())
         })?;
         return Ok(());
     }
-    if let Ok(session) = open_sftp(state, &job.source.connection_id).await {
+    if let Ok(session) = open_sftp(host, &job.source.connection_id).await {
         let _ = session.sftp_remove(&job.source.path).await;
     }
     Ok(())
@@ -492,7 +504,6 @@ fn str_to_state(s: &str) -> FileTransferState {
     }
 }
 
-/// 把内存中的 `FileTransferJob` 转为 SQLite 持久化记录。
 fn job_to_record(job: &FileTransferJob) -> FileTransferJobRecord {
     let now = now_ms();
     FileTransferJobRecord {
@@ -522,7 +533,6 @@ fn job_to_record(job: &FileTransferJob) -> FileTransferJobRecord {
     }
 }
 
-/// 把 SQLite 记录还原为内存中的 `FileTransferJob`。
 fn record_to_job(rec: &FileTransferJobRecord) -> Result<FileTransferJob, OmniError> {
     Ok(FileTransferJob {
         id: rec.id.clone(),

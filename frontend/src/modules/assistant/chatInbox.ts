@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { commands } from "../../ipc/bindings";
-import { ASSISTANT_CHAT_INBOUND } from "../../ipc/events";
+import { ASSISTANT_CHAT_INBOUND, ASSISTANT_CHAT_SET_MODEL } from "../../ipc/events";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { ASSISTANT_PAGE_AGENT_ID } from "../../lib/ai/agents";
 import { AiPromptBusyError } from "../../lib/ai/submitAiPrompt";
@@ -18,6 +18,7 @@ import {
   useAiComposerContextStore,
   type ComposerContextItem,
 } from "../../stores/aiComposerContextStore";
+import { scheduleAssistantSnapshotSync } from "./autoSync";
 
 const SEEN_STORAGE_KEY = "omnipanel-assistant-chat-seen.v1";
 const SEEN_MAX = 200;
@@ -83,6 +84,17 @@ export type AssistantChatInboundPayload = {
   } | null;
 };
 
+export type AssistantChatSetModelPayload = {
+  sessionId?: string;
+  session_id?: string;
+  modelSelectionId?: string;
+  model_selection_id?: string;
+  providerId?: string;
+  provider_id?: string;
+  modelName?: string;
+  model_name?: string;
+};
+
 type QueuedInbound = {
   text: string;
   conversationId?: string;
@@ -92,6 +104,7 @@ type QueuedInbound = {
 
 let startedToken: string | null = null;
 let unlistenInbound: UnlistenFn | null = null;
+let unlistenSetModel: UnlistenFn | null = null;
 let startPromise: Promise<void> | null = null;
 
 /** 入站提示排队：当前正在生成时先入队，避免 submit 被直接丢弃。 */
@@ -335,6 +348,25 @@ function applyInbound(payload: AssistantChatInboundPayload): void {
   void drainInboundQueue();
 }
 
+/** 助手端切模：确保会话存在并更新 modelSelectionId */
+function applySetModel(payload: AssistantChatSetModelPayload): void {
+  const sessionId = String(payload.sessionId ?? payload.session_id ?? "").trim();
+  const modelSelectionId = String(
+    payload.modelSelectionId ?? payload.model_selection_id ?? "",
+  ).trim();
+  if (!sessionId || !modelSelectionId) {
+    console.warn("[assistant-chat-inbox] setModel 字段不完整", payload);
+    return;
+  }
+
+  const store = useAiStore.getState();
+  store.ensureConversationId(sessionId, {
+    agentId: ASSISTANT_PAGE_AGENT_ID,
+  });
+  store.setConversationModelSelectionId(sessionId, modelSelectionId);
+  scheduleAssistantSnapshotSync({ immediate: true });
+}
+
 /** 登录后启动：订阅 App Event + 后端 SSE/latest 收件箱。 */
 export async function startAssistantChatInbox(): Promise<void> {
   const token = useAuthStore.getState().token?.trim() ?? "";
@@ -355,6 +387,12 @@ export async function startAssistantChatInbox(): Promise<void> {
     unlistenInbound = await listen<AssistantChatInboundPayload>(ASSISTANT_CHAT_INBOUND, (event) => {
       applyInbound(event.payload);
     });
+    unlistenSetModel = await listen<AssistantChatSetModelPayload>(
+      ASSISTANT_CHAT_SET_MODEL,
+      (event) => {
+        applySetModel(event.payload);
+      },
+    );
 
     try {
       await unwrapCommand(commands.assistantChatInboxStart(token), { quiet: true });
@@ -362,6 +400,8 @@ export async function startAssistantChatInbox(): Promise<void> {
     } catch (err) {
       safeTauriUnlisten(unlistenInbound);
       unlistenInbound = null;
+      safeTauriUnlisten(unlistenSetModel);
+      unlistenSetModel = null;
       startedToken = null;
       console.warn("[assistant-chat-inbox] start failed", formatIpcError(err));
     }
@@ -379,6 +419,8 @@ export async function stopAssistantChatInbox(): Promise<void> {
   startedToken = null;
   safeTauriUnlisten(unlistenInbound);
   unlistenInbound = null;
+  safeTauriUnlisten(unlistenSetModel);
+  unlistenSetModel = null;
   inboundQueue.length = 0;
   try {
     await unwrapCommand(commands.assistantChatInboxStop(), { quiet: true });

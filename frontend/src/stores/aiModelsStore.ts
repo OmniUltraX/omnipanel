@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
+import { canUseAiBackend } from "../lib/isTauriRuntime";
 import { fetchProviderModelList, mergeModelCatalog, buildApiModelMeta } from "../lib/fetchProviderModels";
 import type { ApiModelMeta } from "../lib/fetchProviderModels";
 
@@ -332,11 +333,6 @@ function toStrictProviders(list: LooseProvider[] | undefined): AiModelProvider[]
   return list.map(toStrictProvider);
 }
 
-/** 是否运行在 Tauri 环境中（Tauri 2 使用 __TAURI_INTERNALS__） */
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 function serializeProviderForDisk(provider: AiModelProvider) {
   return {
     id: provider.id,
@@ -357,7 +353,7 @@ function serializeProviderForDisk(provider: AiModelProvider) {
 
 /** 持久化当前 providers：写 ai-models.json（localStorage 由 persist 中间件自动处理）。 */
 async function persistProviders(providers: AiModelProvider[]): Promise<void> {
-  if (!isTauriRuntime()) {
+  if (!canUseAiBackend()) {
     return;
   }
   try {
@@ -371,6 +367,10 @@ async function persistProviders(providers: AiModelProvider[]): Promise<void> {
   } catch (e) {
     console.warn("[aiModelsStore] 写入磁盘失败:", e);
   }
+  // 模型目录变更后推助手端快照（脱敏，不含 API Key）
+  void import("../modules/assistant").then((m) => {
+    m.scheduleAssistantSnapshotSync();
+  });
 }
 
 /**
@@ -682,7 +682,7 @@ export async function initAiModelsStore(force = false): Promise<void> {
   if (!force && useAiModelsStore.getState().providers.length > 0) {
     return;
   }
-  if (!isTauriRuntime()) {
+  if (!canUseAiBackend()) {
     const cached = readProvidersCache();
     if (cached?.length) {
       useAiModelsStore.setState({ providers: cached });

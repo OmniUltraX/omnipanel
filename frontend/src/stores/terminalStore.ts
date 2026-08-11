@@ -488,29 +488,48 @@ export const useTerminalStore = create<TerminalState>()(
         set((state) => ({ tabs: updateTabById(state.tabs, tabId, (tab) => ({ ...tab, terminal })) })),
 
       setStatus: (sessionId, status) => {
+        let changed = false;
         set((state) => {
-          const tabs = state.tabs.map((tab) =>
-            tab.sessionId === sessionId || tab.id === sessionId ? { ...tab, status } : tab,
+          const tabIndex = state.tabs.findIndex(
+            (tab) => tab.sessionId === sessionId || tab.id === sessionId,
           );
           const pane = state.embeddedPanes[sessionId];
           const detached = state.detachedRuntime[sessionId];
-          const tabsChanged = tabs.some((tab, i) => tab !== state.tabs[i]);
-          if (!pane && !detached && !tabsChanged) return state;
-          const nextDetached = detached
-            ? { ...state.detachedRuntime, [sessionId]: { ...detached, status } }
+          const tabNeedsUpdate =
+            tabIndex >= 0 && state.tabs[tabIndex].status !== status;
+          const paneNeedsUpdate = Boolean(pane && pane.status !== status);
+          const detachedNeedsUpdate = Boolean(detached && detached.status !== status);
+          if (!tabNeedsUpdate && !paneNeedsUpdate && !detachedNeedsUpdate) {
+            return state;
+          }
+          changed = true;
+          const tabs = tabNeedsUpdate
+            ? state.tabs.map((tab, index) =>
+                index === tabIndex ? { ...tab, status } : tab,
+              )
+            : state.tabs;
+          const nextDetached = detachedNeedsUpdate
+            ? {
+                ...state.detachedRuntime,
+                [sessionId]: { ...detached!, status },
+              }
             : state.detachedRuntime;
-          if (!pane) return { tabs, detachedRuntime: nextDetached };
+          if (!paneNeedsUpdate) {
+            return { tabs, detachedRuntime: nextDetached };
+          }
           return {
             tabs,
             detachedRuntime: nextDetached,
             embeddedPanes: {
               ...state.embeddedPanes,
-              [sessionId]: { ...pane, status },
+              [sessionId]: { ...pane!, status },
             },
           };
         });
         // 连接态变化需同步到助手端（创建时多为 connecting，连上后否则会一直卡住）
-        scheduleAssistantSnapshotSync();
+        if (changed) {
+          scheduleAssistantSnapshotSync();
+        }
       },
 
       setBackendSessionId: (sessionId, backendSessionId) =>

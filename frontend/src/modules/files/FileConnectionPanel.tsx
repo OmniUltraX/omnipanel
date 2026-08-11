@@ -90,6 +90,10 @@ import {
 import { buildS3PublicUrl, parseFileConfigJson } from "./s3PublicUrl";
 import { formatPathForInput, parseFileNavigationPath, splitPathForPrefixFallback } from "./fileNavigationPath";
 import type { FileConnectionPanelSnapshot } from "./filesWorkspaceSession";
+import {
+  readStoredFilesDetailVisible,
+  writeStoredFilesDetailVisible,
+} from "./filesDetailSidebarPersist";
 
 type ViewMode = FileConnectionPanelSnapshot["viewMode"];
 type FileCtxState = { x: number; y: number; entry: FileEntry } | null;
@@ -241,7 +245,22 @@ export function FileConnectionPanel({
   const [searchLoading, setSearchLoading] = useState(false);
   const [indexStatus, setIndexStatus] = useState<FileIndexStatus | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(savedState?.viewMode ?? "list");
-  const [detailVisible, setDetailVisible] = useState(savedState?.detailVisible ?? true);
+  // 详情侧栏显隐为全局偏好；首次无 localStorage 时沿用本连接会话快照作迁移
+  const [detailVisible, setDetailVisible] = useState(() => {
+    try {
+      if (localStorage.getItem("omnipanel.files.detailVisible") !== null) {
+        return readStoredFilesDetailVisible();
+      }
+    } catch {
+      // ignore
+    }
+    const fromSession = savedState?.detailVisible;
+    if (typeof fromSession === "boolean") {
+      writeStoredFilesDetailVisible(fromSession);
+      return fromSession;
+    }
+    return readStoredFilesDetailVisible();
+  });
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
   const [copyToast, setCopyToast] = useState<string | null>(null);
@@ -259,7 +278,7 @@ export function FileConnectionPanel({
   const initializedRef = useRef(false);
   const sessionRef = useRef<FileConnectionPanelSnapshot>({
     viewMode: savedState?.viewMode ?? "list",
-    detailVisible: savedState?.detailVisible ?? true,
+    detailVisible: readStoredFilesDetailVisible(),
     currentPath: shouldDiscardRestoredPath ? "" : (savedState?.currentPath ?? ""),
     history: shouldDiscardRestoredPath ? [""] : (savedState?.history ?? []),
     historyIndex: shouldDiscardRestoredPath ? 0 : (savedState?.historyIndex ?? -1),
@@ -270,13 +289,15 @@ export function FileConnectionPanel({
     shouldDiscardRestoredPath
       ? {
           viewMode: savedState?.viewMode ?? "list",
-          detailVisible: savedState?.detailVisible ?? true,
+          detailVisible: readStoredFilesDetailVisible(),
           currentPath: "",
           history: [""],
           historyIndex: 0,
           s3BindKey,
         }
-      : savedState,
+      : savedState
+        ? { ...savedState, detailVisible: readStoredFilesDetailVisible() }
+        : savedState,
   );
   const [pathEditing, setPathEditing] = useState(false);
   const [pathInput, setPathInput] = useState("");
@@ -451,6 +472,16 @@ export function FileConnectionPanel({
     if (!initializedRef.current) return;
     schedulePersistPanelState();
   }, [viewMode, detailVisible, currentPath, history, historyIndex, s3BindKey, schedulePersistPanelState]);
+
+  // 详情侧栏：立即写入全局偏好；切回本 tab 时从全局同步，避免多连接间状态不一致
+  useEffect(() => {
+    writeStoredFilesDetailVisible(detailVisible);
+  }, [detailVisible]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    setDetailVisible(readStoredFilesDetailVisible());
+  }, [isActive]);
 
   useEffect(() => {
     return () => {

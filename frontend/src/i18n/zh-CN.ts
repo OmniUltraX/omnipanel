@@ -893,6 +893,7 @@ export const zhCN = {
       quit: "退出应用",
       trayShowAll: "显示全部窗口",
       trayQuickOpen: "快捷打开",
+      trayOpenWorkspaces: "打开工作区",
       trayOpenModules: "打开模块窗口",
       trayQuit: "退出",
     },

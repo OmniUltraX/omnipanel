@@ -17,7 +17,7 @@ use omnipanel_ssh::{
 use omnipanel_store::{
     inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, Vault,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -780,119 +780,14 @@ pub async fn sftp_cache_for_preview(
 }
 
 /// 远端媒体探测结果（不下载整文件）。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SftpMediaProbe {
-    pub duration_secs: Option<f64>,
-    #[specta(type = Option<f64>)]
-    pub size: Option<u64>,
-    /// JPEG 封面的 data URL（无封面时为 null）
-    pub poster_data_url: Option<String>,
-}
+pub use omnipanel_ssh::media::SftpMediaProbe;
 
 /// 打开边下边播流后的句柄。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SftpMediaStream {
-    pub url: String,
-    pub token: String,
-    #[specta(type = f64)]
-    pub size: u64,
-    pub mime: String,
-}
+pub use omnipanel_ssh::media::SftpMediaStream;
 
-fn parse_wav_duration_secs(bytes: &[u8]) -> Option<f64> {
-    if bytes.len() < 44 {
-        return None;
-    }
-    if &bytes[0..4] != b"RIFF" && &bytes[0..4] != b"RF64" {
-        return None;
-    }
-    if &bytes[8..12] != b"WAVE" {
-        return None;
-    }
-    let mut i = 12usize;
-    let mut byte_rate: Option<u32> = None;
-    let mut data_size: Option<u32> = None;
-    while i + 8 <= bytes.len() {
-        let id = &bytes[i..i + 4];
-        let size = u32::from_le_bytes(bytes[i + 4..i + 8].try_into().ok()?);
-        let payload = i + 8;
-        if id == b"fmt " && payload + 16 <= bytes.len() {
-            // byteRate @ +8 within fmt payload (PCM layout)
-            byte_rate = Some(u32::from_le_bytes(
-                bytes[payload + 8..payload + 12].try_into().ok()?,
-            ));
-        } else if id == b"data" {
-            data_size = Some(size);
-            break;
-        }
-        let step = 8u64 + u64::from(size) + (u64::from(size) & 1);
-        i = i.checked_add(step as usize)?;
-    }
-    let rate = byte_rate.filter(|r| *r > 0)?;
-    let data = data_size?;
-    Some(f64::from(data) / f64::from(rate))
-}
-
-async fn probe_duration_ffprobe(
-    session: &omnipanel_ssh::SshSession,
-    path: &str,
-) -> Option<f64> {
-    let quoted = shell_single_quote(path);
-    let cmd = format!(
-        "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {quoted} 2>/dev/null"
-    );
-    let output = session.exec_capture(&cmd).await.ok()?;
-    if output.exit_code != 0 {
-        return None;
-    }
-    let text = output.stdout.trim();
-    let secs: f64 = text.parse().ok()?;
-    if secs.is_finite() && secs >= 0.0 {
-        Some(secs)
-    } else {
-        None
-    }
-}
-
-/// 远端抽一帧封面，经 base64 回传为 data URL（无 ffmpeg 时返回 None）。
-async fn probe_poster_data_url(
-    session: &omnipanel_ssh::SshSession,
-    path: &str,
-) -> Option<String> {
-    let lower = path.to_ascii_lowercase();
-    let is_video = [".mp4", ".webm", ".m4v", ".mov", ".ogv"]
-        .iter()
-        .any(|ext| lower.ends_with(ext));
-    if !is_video {
-        return None;
-    }
-    let quoted = shell_single_quote(path);
-    // 管道 base64，避免 exec_capture 的 lossy UTF-8 破坏二进制 JPEG
-    let cmd = format!(
-        "ffmpeg -v error -ss 1 -i {quoted} -frames:v 1 -f image2pipe -vcodec mjpeg - 2>/dev/null | base64 -w 0 2>/dev/null || ffmpeg -v error -ss 1 -i {quoted} -frames:v 1 -f image2pipe -vcodec mjpeg - 2>/dev/null | base64 2>/dev/null"
-    );
-    let output = session.exec_capture(&cmd).await.ok()?;
-    if output.exit_code != 0 {
-        return None;
-    }
-    let b64 = output.stdout.split_whitespace().collect::<String>();
-    if b64.len() < 32 || b64.len() > 2_000_000 {
-        return None;
-    }
-    if STANDARD.decode(&b64).is_err() {
-        return None;
-    }
-    Some(format!("data:image/jpeg;base64,{b64}"))
-}
-
-fn path_looks_like_video(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    [".mp4", ".webm", ".m4v", ".mov", ".ogv"]
-        .iter()
-        .any(|ext| lower.ends_with(ext))
-}
+pub use omnipanel_ssh::log_tail::{
+    LogLine, LogSearchHit, LogSearchOptions, LogSessionInfo, LogTailChunk, LogTailHandle,
+};
 
 /// 探测远端媒体时长/大小/封面：不下载整文件。
 #[tauri::command]
@@ -902,87 +797,13 @@ pub async fn sftp_probe_media(
     id: String,
     path: String,
 ) -> Result<SftpMediaProbe, OmniError> {
-    let session = {
-        let sessions = state.ssh_sessions.lock().await;
-        if sessions.contains_key(&id) {
-            None
-        } else {
-            drop(sessions);
-            Some(pool_session(&state, &id).await?)
-        }
-    };
-
-    let size = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(s) = sessions.get(&id) {
-            s.sftp_file_size(&path).await
-        } else {
-            drop(sessions);
-            session
-                .as_ref()
-                .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "SSH 会话不存在"))?
-                .sftp_file_size(&path)
-                .await
-        }
-    };
-
-    let mut duration_secs = {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(s) = sessions.get(&id) {
-            probe_duration_ffprobe(s, &path).await
-        } else {
-            drop(sessions);
-            probe_duration_ffprobe(
-                session
-                    .as_ref()
-                    .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "SSH 会话不存在"))?
-                    .as_ref(),
-                &path,
-            )
-            .await
-        }
-    };
-
-    if duration_secs.is_none() {
-        let head = {
-            let sessions = state.ssh_sessions.lock().await;
-            if let Some(s) = sessions.get(&id) {
-                s.sftp_read_range(&path, 0, 256 * 1024).await
-            } else {
-                drop(sessions);
-                session
-                    .as_ref()
-                    .ok_or_else(|| OmniError::new(ErrorCode::Ssh, "SSH 会话不存在"))?
-                    .sftp_read_range(&path, 0, 256 * 1024)
-                    .await
-            }
-        }
-        .ok();
-        if let Some(bytes) = head {
-            duration_secs = parse_wav_duration_secs(&bytes);
-        }
+    let sessions = state.ssh_sessions.lock().await;
+    if let Some(session) = sessions.get(&id) {
+        return Ok(omnipanel_ssh::media::probe_sftp_media(session, &path).await);
     }
-
-    let poster_data_url = if path_looks_like_video(&path) {
-        let sessions = state.ssh_sessions.lock().await;
-        if let Some(s) = sessions.get(&id) {
-            probe_poster_data_url(s, &path).await
-        } else {
-            drop(sessions);
-            match session.as_ref() {
-                Some(s) => probe_poster_data_url(s.as_ref(), &path).await,
-                None => None,
-            }
-        }
-    } else {
-        None
-    };
-
-    Ok(SftpMediaProbe {
-        duration_secs,
-        size,
-        poster_data_url,
-    })
+    drop(sessions);
+    let session = pool_session(&state, &id).await?;
+    Ok(omnipanel_ssh::media::probe_sftp_media(session.as_ref(), &path).await)
 }
 
 /// 注册本地 Range 代理令牌，返回可供 `<video>`/`<audio>` 边下边播的 URL。
@@ -1009,7 +830,7 @@ pub async fn sftp_open_media_stream(
     }
 
     let mime = crate::media_stream::guess_media_mime(&path).to_string();
-    let entry = crate::media_stream::MediaStreamEntry {
+    let entry = omnipanel_ssh::media::MediaStreamEntry {
         ssh_id: id,
         remote_path: path,
         size,
@@ -1130,20 +951,6 @@ pub async fn sftp_chmod(
     Ok(())
 }
 
-/// 仅允许从白名单 URL 本机下载二进制并经 SFTP 安装到远端（用于 my2sql 等）。
-fn assert_allowed_binary_download_url(url: &str) -> Result<(), OmniError> {
-    let ok = url.starts_with("https://raw.githubusercontent.com/liuhr/my2sql/")
-        || url.starts_with("https://github.com/liuhr/my2sql/");
-    if ok {
-        Ok(())
-    } else {
-        Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "不允许从此 URL 下载远程安装包",
-        ))
-    }
-}
-
 /// 本机下载二进制并经 SFTP 安装到远端的内部实现（命令函数的薄包装底层）。
 ///
 /// `url_whitelist` 为 true 时走 my2sql 白名单校验；false 时跳过（已由调用方校验）。
@@ -1155,80 +962,10 @@ pub(crate) async fn download_install_binary_inner(
     url_whitelist: bool,
 ) -> Result<String, OmniError> {
     if url_whitelist {
-        assert_allowed_binary_download_url(url)?;
+        omnipanel_ssh::capabilities::assert_allowed_binary_download_url(url)?;
     }
-    let remote_path = remote_path.trim();
-    if remote_path.is_empty() || remote_path.contains('\0') {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "远程安装路径无效"));
-    }
-
-    let proxy_config = state.proxy_config.lock().await.clone();
-    let client = crate::commands::proxy::build_http_client_for_url(
-        url,
-        &proxy_config,
-        std::time::Duration::from_secs(120),
-    )
-    .map_err(|e| OmniError::new(ErrorCode::Connection, format!("创建下载客户端失败: {e}")))?;
-
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Connection, format!("下载失败: {e}")))?;
-    if !response.status().is_success() {
-        return Err(OmniError::new(
-            ErrorCode::Connection,
-            format!("下载失败，HTTP {}", response.status()),
-        ));
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Io, format!("读取下载内容失败: {e}")))?;
-    if bytes.len() < 1024 {
-        return Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "下载内容过小，可能不是有效二进制",
-        ));
-    }
-
     let session = pool_session(state, resource_id).await?;
-
-    let abs_path = if remote_path.starts_with("~/") || remote_path == "~" {
-        let home = session.exec_capture("printf %s \"$HOME\"").await?;
-        let home = home.stdout.trim();
-        if home.is_empty() {
-            return Err(OmniError::new(ErrorCode::Internal, "远端 HOME 为空"));
-        }
-        if remote_path == "~" {
-            home.to_string()
-        } else {
-            format!("{}/{}", home.trim_end_matches('/'), &remote_path[2..])
-        }
-    } else {
-        remote_path.to_string()
-    };
-
-    let parent = abs_path
-        .rsplit_once('/')
-        .map(|(p, _)| p)
-        .filter(|p| !p.is_empty())
-        .unwrap_or(".");
-    let mkdir_cmd = format!("mkdir -p {}", shell_single_quote(parent));
-    session
-        .exec_capture(&mkdir_cmd)
-        .await?
-        .ok_or_err("创建远端目录失败")?;
-
-    session.sftp_upload(&abs_path, &bytes).await?;
-
-    let chmod_cmd = format!("chmod 755 {}", shell_single_quote(&abs_path));
-    session
-        .exec_capture(&chmod_cmd)
-        .await?
-        .ok_or_err("chmod 失败")?;
-
-    Ok(abs_path)
+    omnipanel_ssh::capabilities::download_install_binary(&session, url, remote_path).await
 }
 
 /// 本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。
@@ -2630,85 +2367,6 @@ async fn estimate_line_count(session: &SshSession, path: &str, size: u64) -> Opt
     }
     let est = ((size as f64) * (lines as f64) / (bytes as f64)).round() as u64;
     Some(est.max(1))
-}
-
-/// 日志会话元信息（打开时探测一次）。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LogSessionInfo {
-    #[specta(type = f64)]
-    pub size_bytes: u64,
-    /// 总行数（精确 wc -l，或采样估算）。
-    #[specta(type = Option<f64>)]
-    pub total_lines: Option<u64>,
-    /// true = total_lines 来自采样估算（wc -l 超时/失败），前端应走末尾窗口模式。
-    pub lines_estimated: bool,
-}
-
-/// 一行日志（带绝对行号，1-based）。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LogLine {
-    #[specta(type = f64)]
-    pub line_no: u64,
-    pub text: String,
-}
-
-/// grep 命中（带行号与命中片段）。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LogSearchHit {
-    #[specta(type = f64)]
-    pub line_no: u64,
-    pub content: String,
-    /// 命中在 content 中的起止列（None 表示未提供精确列）。
-    #[specta(type = Option<f64>)]
-    pub match_start: Option<usize>,
-    #[specta(type = Option<f64>)]
-    pub match_end: Option<usize>,
-}
-
-/// 日志搜索选项（合并参数以符合 specta 参数个数上限）。
-#[derive(Debug, Clone, Default, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LogSearchOptions {
-    pub is_regex: Option<bool>,
-    pub max_results: Option<u32>,
-    pub context_before: Option<u32>,
-    pub context_after: Option<u32>,
-    /// 从后往前搜（大日志默认建议 true）
-    pub reverse: Option<bool>,
-    /// 仅搜该行之前（向上续搜，作结果过滤；大文件请配合 skip_matches）
-    #[specta(type = Option<f64>)]
-    pub before_line: Option<u64>,
-    /// 仅搜该行之后（向下续搜）
-    #[specta(type = Option<f64>)]
-    pub after_line: Option<u64>,
-    /// 反搜从 EOF 起步时用于还原真实行号
-    #[specta(type = Option<f64>)]
-    pub total_lines_hint: Option<u64>,
-    /// 从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页
-    pub skip_matches: Option<u32>,
-}
-
-/// 跟踪句柄（返回 token 用于后续停止）。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LogTailHandle {
-    pub token: String,
-}
-
-/// 跟踪事件 payload：通过 `sftp-log-tail-{token}` 事件推送给前端。
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LogTailChunk {
-    pub token: String,
-    /// 本次推送的新行（已按 \n 切分，已去 \r）。
-    pub lines: Vec<String>,
-    /// 远端进程退出码（仅 Exit 事件有）。
-    pub exit_code: Option<i32>,
-    /// 错误信息（仅 Closed / 异常有）。
-    pub error: Option<String>,
 }
 
 /// 打开日志会话：探测文件大小与总行数。

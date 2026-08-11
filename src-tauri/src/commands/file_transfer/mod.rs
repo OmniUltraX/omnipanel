@@ -1,30 +1,19 @@
-//! 跨连接文件传输引擎：FastPath / RemoteDirect / StreamRelay。
+//! 跨连接文件传输：Tauri IPC 薄适配层（引擎在 `omnipanel-transfer`）。
 
-mod engine;
-mod expand;
-mod fastpath;
-mod rate_limit;
-mod remote_direct;
-mod resume;
-mod stream_relay;
-mod types;
-mod util;
-
-pub use engine::FileTransferEngine;
-pub use types::{
-    FileTransferEnqueueRequest, FileTransferPlanRequest, FileTransferPlanResult,
+pub use omnipanel_transfer::{
+    rate_limit, FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEngine,
+    FileTransferItemSpec, FileTransferListResult, FileTransferOp, FileTransferPlanRequest,
+    FileTransferPlanResult, FileTransferState,
 };
 
-use tauri::{AppHandle, Manager, State};
+use std::path::PathBuf;
 
 use omnipanel_error::{ErrorCode, OmniError};
+use tauri::{AppHandle, Manager, State};
 
+use crate::commands::file_manager::{local_temp_dir, LOCAL_CONNECTION_ID};
 use crate::state::AppState;
-
-use types::{
-    FileTransferConflictPolicy, FileTransferItemSpec, FileTransferListResult, FileTransferOp,
-    FileTransferState,
-};
+use crate::transfer_bridge::{transfer_host, transfer_sink};
 
 #[tauri::command]
 #[specta::specta]
@@ -32,14 +21,14 @@ pub async fn file_transfer_plan(
     state: State<'_, AppState>,
     request: FileTransferPlanRequest,
 ) -> Result<FileTransferPlanResult, OmniError> {
-    Ok(state.file_transfers.plan(&state, &request).await)
+    let host = transfer_host(state.app_handle.clone());
+    Ok(state
+        .file_transfers
+        .plan(host.as_ref(), &request)
+        .await)
 }
 
 /// 上传浏览器拖拽/粘贴的本地文件字节到目标连接。
-///
-/// 用于 SftpPanel/终端拖拽 File 对象（无绝对路径）的场景：
-/// 后端先把 bytes 写入本地临时文件，再入队传输引擎（自动获得进度/取消/断点续传）。
-/// 返回 batch_id，前端可通过 `files-transfer-progress` 事件监听进度。
 #[tauri::command]
 #[specta::specta]
 pub async fn file_transfer_upload_local_bytes(
@@ -51,12 +40,6 @@ pub async fn file_transfer_upload_local_bytes(
     dest_dir: String,
     conflict_policy: FileTransferConflictPolicy,
 ) -> Result<String, OmniError> {
-    use crate::commands::file_manager::{local_temp_dir, LOCAL_CONNECTION_ID};
-    use std::path::PathBuf;
-
-    // 允许空文件（0 字节）上传；内容经临时文件入队。
-
-    // 写入本地临时文件
     let temp_dir = local_temp_dir().map_err(|e| {
         OmniError::new(ErrorCode::Io, "获取临时目录失败").with_cause(e.to_string())
     })?;
@@ -92,12 +75,15 @@ pub async fn file_transfer_upload_local_bytes(
         force_route: None,
         remote_direct_policy: "never".into(),
     };
-    let result = state.file_transfers.enqueue(app.clone(), request).await;
+    let host = transfer_host(app.clone());
+    let sink = transfer_sink(app.clone());
+    let result = state
+        .file_transfers
+        .enqueue(host, sink, request)
+        .await;
 
     match result {
         Ok(batch_id) => {
-            // 传输是异步的，启动清理任务：轮询批次状态，全部终态后删除临时文件。
-            // 安全超时 1 小时，防止异常泄漏。
             let app_clone = app.clone();
             let temp_path_clone = temp_path.clone();
             let batch_id_clone = batch_id.clone();
@@ -109,7 +95,10 @@ pub async fn file_transfer_upload_local_bytes(
                     tokio::time::sleep(interval).await;
                     if tokio::time::Instant::now() > deadline {
                         let _ = tokio::fs::remove_file(&temp_path_clone).await;
-                        tracing::warn!("临时文件清理超时（1h），强制删除：{}", temp_path_clone.display());
+                        tracing::warn!(
+                            "临时文件清理超时（1h），强制删除：{}",
+                            temp_path_clone.display()
+                        );
                         return;
                     }
                     let state = app_clone.state::<AppState>();
@@ -120,7 +109,6 @@ pub async fn file_transfer_upload_local_bytes(
                         .filter(|j| j.batch_id == batch_id_clone)
                         .collect();
                     if batch_jobs.is_empty() {
-                        // 批次已被清理（clear_finished），直接删临时文件
                         let _ = tokio::fs::remove_file(&temp_path_clone).await;
                         return;
                     }
@@ -154,8 +142,9 @@ pub async fn file_transfer_enqueue(
     state: State<'_, AppState>,
     request: FileTransferEnqueueRequest,
 ) -> Result<String, OmniError> {
-    let _ = &state;
-    state.file_transfers.enqueue(app, request).await
+    let host = transfer_host(app.clone());
+    let sink = transfer_sink(app);
+    state.file_transfers.enqueue(host, sink, request).await
 }
 
 #[tauri::command]
@@ -182,8 +171,12 @@ pub async fn file_transfer_retry(
     state: State<'_, AppState>,
     job_id: String,
 ) -> Result<(), OmniError> {
-    let _ = &state;
-    state.file_transfers.retry(app, &job_id).await
+    let host = transfer_host(app.clone());
+    let sink = transfer_sink(app);
+    state
+        .file_transfers
+        .retry(host, sink, &job_id)
+        .await
 }
 
 #[tauri::command]
@@ -205,7 +198,6 @@ pub async fn file_transfer_set_concurrency(
 
 #[tauri::command]
 #[specta::specta]
-// 速率可超 u32 范围，用 f64 承载（IPC 本就是 JSON number），避免 specta 拒绝 u64
 pub async fn file_transfer_set_rate_limit(rate_limit_bps: f64) -> Result<(), OmniError> {
     rate_limit::set_rate_limit_bps(rate_limit_bps.max(0.0) as u64);
     Ok(())

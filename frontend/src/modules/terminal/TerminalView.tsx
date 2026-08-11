@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { useTerminal, type TerminalInputMode } from "../../hooks/useTerminal";
 import { useModuleSuspended } from "../../lib/moduleVisibility";
+import { canUseTerminalBackend } from "../../lib/isTauriRuntime";
 import {
   findTerminalPane,
   useTerminalStore,
@@ -16,9 +17,6 @@ import {
 } from "./mockTerminal";
 import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme } from "./terminalTheme";
 import { triggerAiDrawerToggle } from "../../hooks/useAiDrawerShortcut";
-
-const isTauriRuntime =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export type TerminalViewProps = {
   sessionId: string;
@@ -52,7 +50,8 @@ export function TerminalView({
   const sendRef = useRef<((cmd: string) => void) | null>(null);
   const setStatus = useTerminalStore((state) => state.setStatus);
   const moduleSuspended = useModuleSuspended();
-  const terminalSuspended = !isTauriRuntime || moduleSuspended;
+  const terminalBackend = canUseTerminalBackend();
+  const terminalSuspended = !terminalBackend || moduleSuspended;
 
   // 终端文件链接：cwd / sessionType 从 store 拿
   // 注意：避免在 selector 中返回新对象（zustand 默认 Object.is 比较，会触发 re-render）
@@ -110,7 +109,7 @@ export function TerminalView({
   );
 
   useEffect(() => {
-    if (!isTauriRuntime) return;
+    if (!terminalBackend) return;
     if (!active) {
       onSenderChange(sessionId, null);
       return;
@@ -119,10 +118,13 @@ export function TerminalView({
     return () => {
       onSenderChange(sessionId, null);
     };
-  }, [active, onSenderChange, paneStatus, sessionId]);
+  }, [active, onSenderChange, paneStatus, sessionId, terminalBackend]);
 
+  const startupKey = startup.join("\0");
+
+  // 无真实后端时（纯浏览器 UI 预览）保留 mock；OMNIPANEL_WEB / Tauri 走上面的 useTerminal
   useEffect(() => {
-    if (isTauriRuntime) return;
+    if (terminalBackend) return;
     const container = containerRef.current;
     if (!container) return;
 
@@ -162,9 +164,11 @@ export function TerminalView({
       term.dispose();
       termRef.current = null;
     };
-  }, [onSenderChange, resource, sessionId, setStatus, startup]);
+    // resource / startup 用稳定标识，避免父组件每次 render 新引用导致装拆循环（React #185）
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resource/startup 以 id/key 稳定
+  }, [onSenderChange, resource?.id, sessionId, setStatus, startupKey, terminalBackend]);
 
-  // 主题变化时动态更新终端主题（web 版终端）
+  // 主题变化时动态更新终端主题（仅 mock 路径使用 termRef；真实路径由 useTerminal 处理）
   useEffect(() => {
     const unsub = useSettingsStore.subscribe((state, prev) => {
       if (state.resolved !== prev.resolved) {
@@ -174,9 +178,6 @@ export function TerminalView({
     });
     return unsub;
   }, []);
-
-  // 系统文件拖放由 TerminalPaneView 在可见 shell 区域统一处理
-  //（命令栏模式下本 wrap 为 pointer-events:none，挂在此处无效）
 
   return (
     <div

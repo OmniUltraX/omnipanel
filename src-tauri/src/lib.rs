@@ -9,6 +9,7 @@ mod panel;
 mod protocol;
 mod ssh_tmux;
 mod state;
+mod transfer_bridge;
 #[cfg(windows)]
 mod webview_dpi;
 
@@ -526,6 +527,7 @@ fn export_ipc_bindings() {
         commands::assistant_chat::assistant_chat_fetch_object,
         commands::assistant_chat::assistant_chat_inbox_start,
         commands::assistant_chat::assistant_chat_inbox_stop,
+        commands::assistant_remote_cmd::assistant_terminal_cmd_reply,
         commands::client_sync::client_sync_push_conversations,
         commands::client_sync_modules::client_sync_push_modules,
         commands::client_sync_modules::client_sync_peek_device,
@@ -1371,6 +1373,7 @@ fn build_and_run_tauri() {
             commands::assistant_chat::assistant_chat_fetch_object,
             commands::assistant_chat::assistant_chat_inbox_start,
             commands::assistant_chat::assistant_chat_inbox_stop,
+            commands::assistant_remote_cmd::assistant_terminal_cmd_reply,
             commands::client_sync::client_sync_push_conversations,
             commands::client_sync_modules::client_sync_push_modules,
             commands::client_sync_modules::client_sync_peek_device,

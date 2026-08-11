@@ -73,6 +73,13 @@ export const UPDATE_DOWNLOAD_COMPLETE = "update-download-complete" as const;
 /** 助手端 → 客户端聊天收件（payload: messageId / objectKey / createdAt / text） */
 export const ASSISTANT_CHAT_INBOUND = "assistant-chat-inbound" as const;
 
+/** 助手端 → 客户端切模（payload: sessionId / modelSelectionId） */
+export const ASSISTANT_CHAT_SET_MODEL = "assistant-chat-set-model" as const;
+
+/** 助手端 → 客户端打开/聚焦 SSH 终端（payload: connectionId） */
+export const ASSISTANT_TERMINAL_OPEN_OR_FOCUS =
+  "assistant-terminal-open-or-focus" as const;
+
 export type IpcEventName =
   | typeof TERMINAL_OUTPUT
   | typeof TERMINAL_EVENT
@@ -95,4 +102,6 @@ export type IpcEventName =
   | typeof TASK_STATUS
   | typeof WORKFLOW_EXECUTION_COMPLETE
   | typeof UPDATE_DOWNLOAD_COMPLETE
-  | typeof ASSISTANT_CHAT_INBOUND;
+  | typeof ASSISTANT_CHAT_INBOUND
+  | typeof ASSISTANT_CHAT_SET_MODEL
+  | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS;

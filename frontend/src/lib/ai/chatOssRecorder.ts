@@ -21,6 +21,8 @@ export const CHAT_OSS_SECTION_TAGS = {
   /** 澄清表单快照（UserQuestionFormData JSON）；供小程序端渲染并答题 */
   ask_user: "ask_user____",
   error: "error______",
+  /** 本轮生成结束标记；助手端据此立刻结束「正在同步」 */
+  turn_end: "turn_end____",
 } as const;
 
 export type ChatOssSectionTag =
@@ -34,7 +36,8 @@ export type ChatOssEvent =
   | { t: "tool_result"; id: string; status: string; result?: string }
   | { t: "plan"; plan: PlanData }
   | { t: "ask_user"; form: UserQuestionFormData }
-  | { t: "error"; text: string };
+  | { t: "error"; text: string }
+  | { t: "turn_end" };
 
 type ToolCallItem = { id: string; name: string; arguments: string };
 type ToolResultItem = { id: string; status: string; result?: string };
@@ -47,7 +50,8 @@ type AggregatedSection =
   /** 连续 plan 快照并入同一 section；同 plan.id 覆盖为最新。 */
   | { kind: "plan"; items: PlanData[] }
   /** 连续 ask_user 快照并入同一 section；同 formId 覆盖为最新。 */
-  | { kind: "ask_user"; items: UserQuestionFormData[] };
+  | { kind: "ask_user"; items: UserQuestionFormData[] }
+  | { kind: "turn_end" };
 
 type NextIdState = {
   /** 会话 id（conversation / session） */
@@ -133,6 +137,8 @@ function isEmptyEvent(event: ChatOssEvent): boolean {
         !event.form?.toolCallId?.trim() ||
         !Array.isArray(event.form.questions)
       );
+    case "turn_end":
+      return false;
     default:
       return true;
   }
@@ -180,6 +186,8 @@ function sectionBody(section: AggregatedSection): string {
       return section.items.map((item) => JSON.stringify(item)).join("\n");
     case "ask_user":
       return section.items.map((item) => JSON.stringify(item)).join("\n");
+    case "turn_end":
+      return "1";
     default:
       return "";
   }
@@ -322,6 +330,12 @@ export function aggregateChatOssEvent(
       }
       return next;
     }
+    case "turn_end": {
+      // 仅保留最后一个结束标记，避免同一缓冲重复
+      if (last && last.kind === "turn_end") return next;
+      next.push({ kind: "turn_end" });
+      return next;
+    }
     default:
       return next;
   }
@@ -433,11 +447,12 @@ export function appendChatOssChunk(chunk: string): void {
   appendChatOssEvent({ t: "content", text: chunk });
 }
 
-/** 结束本轮生成：刷新剩余缓冲并释放会话。 */
+/** 结束本轮生成：写入 turn_end 标记、刷新剩余缓冲并释放会话。 */
 export async function stopChatOssRecording(): Promise<void> {
   const session = activeSession;
   activeSession = null;
   if (session) {
+    session.appendEvent({ t: "turn_end" });
     await session.stop();
   }
 }

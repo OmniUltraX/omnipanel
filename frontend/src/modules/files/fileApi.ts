@@ -1,4 +1,5 @@
 import { commands, type Connection, type FileIndexSearchResult, type FileIndexStatus, type FileListDirResult, type FileManagerConnectionInfo } from "../../ipc/bindings";
+import { asArray } from "../../ipc/asArray";
 import { unwrapCommandResult, type CommandResult, type IpcErrorLike } from "../../ipc/result";
 import { fmtError } from "./utils";
 
@@ -21,8 +22,27 @@ function unwrap<T>(
   });
 }
 
+function normalizeListDirResult(raw: unknown): FileListDirResult {
+  if (Array.isArray(raw)) {
+    return {
+      entries: raw as FileListDirResult["entries"],
+      truncated: false,
+      nextContinuationToken: null,
+    };
+  }
+  if (!raw || typeof raw !== "object") {
+    return { entries: [], truncated: false, nextContinuationToken: null };
+  }
+  const obj = raw as Partial<FileListDirResult>;
+  return {
+    entries: asArray(obj.entries),
+    truncated: Boolean(obj.truncated),
+    nextContinuationToken: obj.nextContinuationToken ?? null,
+  };
+}
+
 export async function listFileConnections(): Promise<FileManagerConnectionInfo[]> {
-  return unwrap(await commands.fileListConnections());
+  return asArray(unwrap(await commands.fileListConnections()));
 }
 
 export async function listDirectory(
@@ -34,14 +54,16 @@ export async function listDirectory(
 ): Promise<FileListDirResult> {
   const query = search?.trim() ? search.trim() : null;
   const token = continuationToken?.trim() ? continuationToken.trim() : null;
-  return unwrap(await commands.fileListDir(connectionId, path, query, token), {
-    op: "fileListDir",
-    connectionId,
-    path,
-    search: query,
-    continuationToken: token,
-    quiet: options?.quiet,
-  });
+  return normalizeListDirResult(
+    unwrap(await commands.fileListDir(connectionId, path, query, token), {
+      op: "fileListDir",
+      connectionId,
+      path,
+      search: query,
+      continuationToken: token,
+      quiet: options?.quiet,
+    }),
+  );
 }
 
 export async function saveFileConnection(connection: Connection, secret: string | null): Promise<Connection> {

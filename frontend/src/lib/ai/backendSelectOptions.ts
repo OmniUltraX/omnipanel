@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { commands, type BackendInfo } from "../../ipc/bindings";
 
-import { isTauriRuntime } from "../isTauriRuntime";
+import { canUseAiBackend } from "../isTauriRuntime";
 
 import {
 
@@ -120,7 +120,7 @@ export function buildBackendSelectOptions(
 
 async function fetchCliBackends(): Promise<BackendInfo[]> {
 
-  if (!isTauriRuntime()) return [];
+  if (!canUseAiBackend()) return [];
 
   const res = await commands.aiListBackends();
 

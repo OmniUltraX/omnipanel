@@ -1,4 +1,5 @@
 import { commands, type OmniError_Serialize } from "../../ipc/bindings";
+import { canUseIpcBackend } from "../isTauriRuntime";
 import { buildOnePanelAuthHeaders, normalizeOnePanelBaseUrl } from "./auth";
 import {
   OnePanelApiError,
@@ -38,7 +39,7 @@ export interface OnePanelClientOptions {
   apiKey: string;
   /** 连接 ID：apiKey 为空时从 Vault 解析密钥 */
   connectionId?: string;
-  /** 默认 true：在 Tauri 环境走 Rust 后端，避免 WebView CORS。 */
+  /** 默认 true：在有 IPC 后端时走 Rust 代理，避免浏览器 CORS。 */
   useTauri?: boolean;
 }
 
@@ -76,10 +77,6 @@ function buildQueryString(query?: OnePanelRequestOptions["query"]): string {
   }
   const qs = params.toString();
   return qs ? `?${qs}` : "";
-}
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 function formatIpcError(error: OmniError_Serialize): string {
@@ -205,7 +202,7 @@ export class OnePanelClient {
     const pathWithQuery = `${path}${buildQueryString(options.query)}`;
     const apiKey = await this.resolveApiKey();
 
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelRequest(
         this.baseUrl,
         apiKey,
@@ -252,7 +249,7 @@ export class OnePanelClient {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     const apiKey = await this.resolveApiKey();
 
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelRequestText(
         this.baseUrl,
         apiKey,
@@ -713,7 +710,7 @@ export class OnePanelClient {
   async downloadWebsiteSsl(id: number): Promise<{ filename: string; bytes: Uint8Array }> {
     const fallbackName = `ssl-${id}.zip`;
     const apiKey = await this.resolveApiKey();
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelRequestBytes(
         this.baseUrl,
         apiKey,
@@ -939,7 +936,7 @@ export class OnePanelClient {
     overwrite?: boolean;
   }): Promise<void> {
     const apiKey = await this.resolveApiKey();
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelUploadFile(
         this.baseUrl,
         apiKey,
@@ -1062,7 +1059,7 @@ export class OnePanelClient {
     }
 
     const apiKey = await this.resolveApiKey();
-    if (this.useTauri && isTauriRuntime()) {
+    if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelAppIcon(this.baseUrl, apiKey, key);
       if (result.status === "error") {
         throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);

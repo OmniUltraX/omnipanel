@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { commands, type AiTraceRecord } from "../../ipc/bindings";
-import { isTauriRuntime } from "../../lib/isTauriRuntime";
+import { canUseIpcBackend } from "../../lib/isTauriRuntime";
 
 function formatTracePayload(trace: AiTraceRecord): string {
   if (trace.eventType !== "prompt_sent") {
@@ -26,7 +26,7 @@ export function TraceDetailView({ sessionId }: { sessionId: string }) {
   const [traces, setTraces] = useState<AiTraceRecord[]>([]);
 
   useEffect(() => {
-    if (!isTauriRuntime()) return;
+    if (!canUseIpcBackend()) return;
     void commands
       .aiListSessionTraces(sessionId)
       .then((res) => {

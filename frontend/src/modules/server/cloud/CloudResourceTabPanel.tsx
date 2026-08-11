@@ -30,7 +30,8 @@ async function loadRows(
   const regionArg = region.trim() || null;
   switch (tab) {
     case "oss": {
-      const list = await unwrapCommand(commands.cloudListOss(connectionId, regionArg));
+      const raw = await unwrapCommand(commands.cloudListOss(connectionId, regionArg));
+      const list = Array.isArray(raw) ? raw : [];
       return list.map((item) => ({
         id: item.name,
         name: item.name,
@@ -41,7 +42,8 @@ async function loadRows(
       }));
     }
     case "swas": {
-      const list = await unwrapCommand(commands.cloudListSwas(connectionId, regionArg));
+      const raw = await unwrapCommand(commands.cloudListSwas(connectionId, regionArg));
+      const list = Array.isArray(raw) ? raw : [];
       return list.map((item) => ({
         id: item.instanceId,
         name: item.instanceName || item.instanceId,
@@ -54,7 +56,8 @@ async function loadRows(
       }));
     }
     case "domains": {
-      const list = await unwrapCommand(commands.cloudListDomains(connectionId));
+      const raw = await unwrapCommand(commands.cloudListDomains(connectionId));
+      const list = Array.isArray(raw) ? raw : [];
       return list.map((item) => ({
         id: item.domainName || item.instanceId,
         domain: item.domainName,
@@ -65,7 +68,8 @@ async function loadRows(
       }));
     }
     case "ecs": {
-      const list = await unwrapCommand(commands.cloudListEcs(connectionId, regionArg));
+      const raw = await unwrapCommand(commands.cloudListEcs(connectionId, regionArg));
+      const list = Array.isArray(raw) ? raw : [];
       return list.map((item) => ({
         id: item.instanceId,
         name: item.instanceName || item.instanceId,
@@ -80,7 +84,8 @@ async function loadRows(
       }));
     }
     case "certs": {
-      const list = await unwrapCommand(commands.cloudListCerts(connectionId));
+      const raw = await unwrapCommand(commands.cloudListCerts(connectionId));
+      const list = Array.isArray(raw) ? raw : [];
       return list.map((item) => ({
         id: item.orderId || item.domain,
         name: item.name,

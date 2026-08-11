@@ -43,7 +43,7 @@ export function useLocalOverview(enabled: boolean) {
           const processResult = await commands.localListProcesses();
           if (processResult.status === "ok") {
             setOverview(resourceId, {
-              processes: processResult.data,
+              processes: Array.isArray(processResult.data) ? processResult.data : [],
               updatedAt: Date.now(),
               phase: "ready",
               refreshing: false,
@@ -79,7 +79,7 @@ export function useLocalOverview(enabled: boolean) {
 
         if (processOk) {
           setOverview(resourceId, {
-            processes: processResult.data,
+            processes: Array.isArray(processResult.data) ? processResult.data : [],
             updatedAt: Date.now(),
           });
         }

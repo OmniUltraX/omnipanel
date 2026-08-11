@@ -488,16 +488,21 @@ export function RedisConnectionInfoPanel({
 
   const clientColumns = clientsResult?.columns ?? [];
   const clientRows = useMemo(
-    () => (clientsResult ? rowsToRecord(clientColumns, clientsResult.rows) : []),
+    () =>
+      clientsResult && clientColumns.length > 0
+        ? rowsToRecord(clientColumns, clientsResult.rows)
+        : [],
     [clientColumns, clientsResult],
   );
 
-  const configRows = useMemo(
-    () => (configResult ? rowsToRecord(configResult.columns, configResult.rows) : []),
-    [configResult],
-  );
-
   const configColumns = configResult?.columns ?? [];
+  const configRows = useMemo(
+    () =>
+      configResult && configColumns.length > 0
+        ? rowsToRecord(configColumns, configResult.rows)
+        : [],
+    [configResult, configColumns],
+  );
   const parameterColumn = resolveColumnName(configColumns, PARAMETER_COLUMNS);
   const valueColumn = resolveColumnName(configColumns, VALUE_COLUMNS);
 

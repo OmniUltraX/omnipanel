@@ -10,12 +10,34 @@ mod gpu;
 mod openssh_config;
 mod process;
 mod stats;
+pub mod capabilities;
+pub mod log_tail;
+pub mod media;
 pub mod tmux;
+
+pub use capabilities::{
+    assert_allowed_binary_download_url, download_install_binary, enable_panel_api,
+    find_tool_spec, install_remote_tool, is_manifest_download_url, probe_capabilities,
+    probe_panels, CapabilityCache, CapabilityProbeResult, EnablePanelApiResult, InstallMethod,
+    InstallToolResult, PanelProbeItem, PanelProbeResult, RemoteToolCapability, ToolCategory,
+    ToolSpec, ToolState,
+};
 
 pub use gpu::{
     attach_process_gpu, parse_intel_lspci_output, parse_nvidia_gpu_output, parse_nvidia_process_gpu,
     parse_remote_gpu_sections, parse_rocm_smi_output, INTEL_GPU_QUERY, NVIDIA_GPU_QUERY,
     NVIDIA_PROCESS_GPU_QUERY, ROCM_SMI_QUERY,
+};
+pub use log_tail::{
+    local_log_open, local_log_read_lines, local_log_tail_initial, local_log_tail_start,
+    local_log_tail_stop, new_log_token, sftp_log_open, sftp_log_read_lines, sftp_log_tail_initial,
+    LogLine, LogSearchHit, LogSearchOptions, LogSessionInfo, LogTailChunk, LogTailEventSink,
+    LogTailHandle, SftpLogTailController,
+};
+pub use media::{
+    guess_media_mime, parse_bytes_range_header, probe_sftp_media, read_media_range,
+    resolve_media_byte_range, sftp_read_bytes_range, MediaRangeResponse, MediaSessionProvider,
+    MediaStreamEntry, SftpMediaProbe, SftpMediaStream, MEDIA_MAX_CHUNK, MEDIA_MAX_FULL_GET,
 };
 pub use connection_config::ssh_config_from_json;
 pub use openssh_config::{

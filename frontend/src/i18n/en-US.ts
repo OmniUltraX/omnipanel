@@ -897,6 +897,7 @@ export const enUS: TranslationDict = {
       quit: "Quit application",
       trayShowAll: "Show all windows",
       trayQuickOpen: "Quick open",
+      trayOpenWorkspaces: "Open workspace",
       trayOpenModules: "Open module window",
       trayQuit: "Quit",
     },

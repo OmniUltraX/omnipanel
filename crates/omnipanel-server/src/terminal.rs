@@ -6,12 +6,15 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use omnipanel_core::output_buffer;
 use omnipanel_core::terminal::{list_available_shells, ShellInfo, ShellSpec, Terminal, TerminalConfig};
+use omnipanel_exec::ExecutionEngine;
+use omnipanel_ssh::capabilities::CapabilityCache;
+use omnipanel_store::FileIndexStorage;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
@@ -49,6 +52,10 @@ pub struct ServerState {
     pub file_sftp_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
     /// 跨连接 relay 传输的取消标志（按 job id）。
     pub transfer_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// 跨连接文件传输引擎（桌面端 `file_transfer_*` 适配）。
+    pub file_transfers: Arc<crate::file_transfer::FileTransferEngine>,
+    /// 媒体 Range 流：token → SFTP 远端条目（边下边播，不整文件缓存）。
+    pub media_streams: Arc<Mutex<HashMap<String, omnipanel_ssh::MediaStreamEntry>>>,
     /// MCP 管理器（懒初始化：bootstrap 内置 OmniMCP HTTP 服务 + stdio 子进程）。
     pub mcp_manager: Arc<Mutex<Option<omnipanel_mcp::SharedMcpManager>>>,
     /// 外部 MCP 工具是否需审批（默认 true，与桌面端一致）。false 时服务端直接自执。
@@ -56,6 +63,34 @@ pub struct ServerState {
     /// 挂起等待审批/回传的外部工具结果通道（`conversation_id:tool_call_id` → oneshot）。
     pub pending_internal_tool_results:
         Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<(String, bool)>>>>,
+    /// SSH 隧道登记表（Web 端进程内元数据；真正端口转发后续可接）。
+    pub ssh_tunnels: crate::store_bridge::SshTunnelMap,
+    /// 后台任务池（Schema 缓存刷新 / DB 同步等）。
+    pub worker_pool: Arc<crate::bg_worker_pool::BackgroundWorkerPool>,
+    /// 运行中的工作流取消标志（按 execution_id）。
+    pub running_workflows: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
+    /// gRPC 调试会话。
+    pub grpc_sessions: Arc<Mutex<HashMap<String, crate::protocol::grpc::GrpcSession>>>,
+    /// Modbus 调试会话。
+    pub modbus_sessions: Arc<Mutex<HashMap<String, crate::protocol::modbus::ModbusSession>>>,
+    /// SSH tmux 会话管理（Web 端与桌面端同构，使用 EventBus）。
+    pub tmux: Arc<crate::ssh_tmux::TmuxManager>,
+    /// 终端 tmux 模式偏好：auto / always / never。
+    pub terminal_tmux_mode: std::sync::Mutex<String>,
+    /// SSH 远端能力探测缓存。
+    pub capability_cache: CapabilityCache,
+    /// 本地文件 FTS 索引存储。
+    pub file_index_storage: Arc<Mutex<FileIndexStorage>>,
+    /// 文件索引构建任务取消标志（connection_id → cancel）。
+    pub file_index_tasks: Arc<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    /// 动作执行引擎（workflow / task_run）。
+    pub engine: Arc<ExecutionEngine>,
+    /// ACP Agent 连接状态。
+    pub acp: Mutex<crate::acp_cmds::AcpState>,
+    /// 运行中的任务句柄（task_run 取消用）。
+    pub running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    /// 文件索引自定义存储目录（空字符串表示默认）。
+    pub file_index_storage_dir: Arc<Mutex<String>>,
 }
 
 impl Default for ServerState {
@@ -70,10 +105,18 @@ impl ServerState {
             .expect("打开 ~/.omnipd/store/omnipanel.db 失败");
         let db_connections = crate::state::open_db_connections()
             .expect("加载数据库连接配置失败");
+        let file_transfers = Arc::new(crate::file_transfer::FileTransferEngine::new());
+        let transfer_cancel_flags = file_transfers.relay_cancel_flags.clone();
+        let bus = EventBus::new();
+        let worker_pool = Arc::new(crate::bg_worker_pool::BackgroundWorkerPool::new(
+            crate::bg_worker_pool::default_worker_count(),
+            storage.clone(),
+            bus.clone(),
+        ));
         Self {
             terminal_sessions: Mutex::new(HashMap::new()),
             output_buffers: output_buffer::new_buffers(),
-            bus: EventBus::new(),
+            bus,
             storage,
             db_connections,
             running_db_queries: Arc::new(Mutex::new(HashMap::new())),
@@ -84,10 +127,28 @@ impl ServerState {
             docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),
             ai_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             file_sftp_sessions: Arc::new(Mutex::new(HashMap::new())),
-            transfer_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
+            transfer_cancel_flags,
+            file_transfers,
+            media_streams: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
+            ssh_tunnels: crate::store_bridge::new_ssh_tunnel_map(),
+            worker_pool,
+            running_workflows: Arc::new(Mutex::new(HashMap::new())),
+            grpc_sessions: Arc::new(Mutex::new(HashMap::new())),
+            modbus_sessions: Arc::new(Mutex::new(HashMap::new())),
+            tmux: Arc::new(crate::ssh_tmux::TmuxManager::new()),
+            terminal_tmux_mode: std::sync::Mutex::new("auto".to_string()),
+            capability_cache: CapabilityCache::new(),
+            file_index_storage: Arc::new(Mutex::new(
+                FileIndexStorage::open_at_dir("").expect("打开文件索引存储失败"),
+            )),
+            file_index_tasks: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            engine: crate::exec_cmds::new_execution_engine(),
+            acp: Mutex::new(crate::acp_cmds::AcpState::default()),
+            running_tasks: Arc::new(Mutex::new(HashMap::new())),
+            file_index_storage_dir: Arc::new(Mutex::new(String::new())),
         }
     }
 

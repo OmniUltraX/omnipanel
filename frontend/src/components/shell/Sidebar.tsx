@@ -230,17 +230,22 @@ export function Sidebar() {
   );
 
   return (
-    <aside className={`sidebar${usesMacTrafficLights() ? " sidebar--mac" : ""}`}>
-      {usesMacTrafficLights() ? (
-        <WinControls className="sidebar-win-controls" />
-      ) : null}
+    <aside
+      className={`sidebar${usesMacTrafficLights() ? " sidebar--mac" : " sidebar--win"}`}
+    >
+      {/* 与右侧 Tab 栏同高的顶条：mac 放红绿灯，Windows 作拖拽区，保证顶栏视觉贯通全窗 */}
+      <div className="sidebar-top-chrome" data-tauri-drag-region>
+        {usesMacTrafficLights() ? (
+          <WinControls className="sidebar-win-controls" />
+        ) : null}
+      </div>
       <button
         type="button"
         className={`sidebar-logo${isWorkspaceHome ? " active" : ""}`}
         title={logoTitle}
         onClick={() => toggleWorkspaceFromChromeIcon(navigate, location.pathname)}
       >
-        <AppLogo size={usesMacTrafficLights() ? 32 : 36} className="sidebar-logo__img" />
+        <AppLogo size={36} className="sidebar-logo__img" />
       </button>
 
       {navPaths.filter((item) => isModulePathEnabled(item.path)).map(renderItem)}

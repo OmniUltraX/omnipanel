@@ -14,8 +14,8 @@ mod types;
 
 pub use chat::{
     chat_index_from_notify_json, extract_inbound_message_text, fetch_chat_latest,
-    parse_inbound_chat_message, ChatLatestIndex, InboundAskUserAnswer, InboundChatContextItem,
-    InboundChatMessage,
+    parse_inbound_chat_message, set_model_from_notify_json, ChatLatestIndex, ChatSetModelNotify,
+    InboundAskUserAnswer, InboundChatContextItem, InboundChatMessage,
 };
 pub use client_sync::{
     device_conversations_latest_object_key, device_modules_latest_object_key,
@@ -35,9 +35,9 @@ pub use oss::{
 };
 pub use push::{push_snapshot, PushOptions, PushSnapshotResult};
 pub use sanitize::{
-    sanitize_assistant_conversation_meta, sanitize_connection_meta, sanitize_db_connection_meta,
-    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta,
-    sanitize_terminal_session_meta, strip_secret_keys,
+    sanitize_ai_model_meta, sanitize_assistant_conversation_meta, sanitize_connection_meta,
+    sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
+    sanitize_task_meta, sanitize_terminal_session_meta, strip_secret_keys,
 };
 pub use sts::{fetch_oss_sts, AuthContext, OssStsCredentials};
 pub use types::*;

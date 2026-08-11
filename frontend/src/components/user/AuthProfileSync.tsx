@@ -7,6 +7,7 @@ import {
 import {
   scheduleAssistantSnapshotSync,
   startAssistantChatInbox,
+  startAssistantTerminalCmdInbox,
 } from "../../modules/assistant";
 import {
   scheduleClientConversationSync,
@@ -41,6 +42,7 @@ export function AuthProfileSync() {
     // 冷启动已登录：补一次快照，避免助手端长期看不到数据
     scheduleAssistantSnapshotSync();
     void startAssistantChatInbox();
+    void startAssistantTerminalCmdInbox();
   }, [authHydrated, token]);
 
   // 登录后维持 Redis presence 心跳；登出 / token 清空时停止

@@ -1537,7 +1537,8 @@ select,
     padding: 0;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
-    -webkit-app-region: drag;
+    /* 半屏嵌入顶栏：禁止拖拽控制 OS 窗口（全屏才走 dock windowControl） */
+    -webkit-app-region: no-drag;
 }
 
 .workspace-panel-empty-topbar .workspace-switcher {
@@ -1551,6 +1552,7 @@ select,
 .workspace-panel-empty-spacer {
     flex: 1;
     min-width: 0;
+    -webkit-app-region: no-drag;
 }
 
 .workspace-panel-mode-btn,
@@ -4325,12 +4327,19 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
     flex: 0 0 auto;
     flex-shrink: 0;
-    min-width: var(--shell-win-controls-width);
+    /* 默认按内容收缩；有 .win-controls 时再按三键宽度占位（见下方 :has） */
+    min-width: 0;
+    width: max-content;
     height: 100%;
     align-items: stretch;
     align-self: stretch;
+    justify-content: flex-end;
     position: relative;
     z-index: 3;
+}
+
+.dockable-workspace.dock-window-control .dv-right-actions-container:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
 }
 
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container {
@@ -4391,12 +4400,18 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
     flex: 0 0 auto;
     flex-shrink: 0;
-    min-width: var(--shell-win-controls-width);
+    /* 无窗控时按 AI/设置内容贴右，避免右侧空一截 */
+    min-width: 0;
+    width: max-content;
     height: 100%;
     align-items: stretch;
     position: relative;
     z-index: 5;
     -webkit-app-region: no-drag;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
 }
 
 /*
@@ -4421,19 +4436,29 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
-    min-width: var(--shell-win-controls-width);
     /* 高于 .ai-dockview.open(z-index:6)，避免侧栏叠层挡住顶栏 AI 开关 */
     position: relative;
     z-index: 10;
 }
 
-.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dv-right-actions-container:has(.win-controls) {
     min-width: var(--shell-win-controls-width);
+}
+
+.workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dock-window-title-actions--ai-dock-open {
     position: relative;
     z-index: 10;
 }
 
-/* macOS：右侧无窗控三键，chrome 区按内容收缩并贴右，避免 AI 旁留出 Windows 占位空白 */
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dock-window-title-actions--ai-dock-open:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
+}
+
+/* 无窗控三键（macOS / Web）：chrome 区按内容收缩并贴右，避免 AI 旁留出 Windows 占位空白 */
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dv-right-actions-container,
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions,
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac,
@@ -4441,13 +4466,20 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 html[data-platform="macos"]
     .workspace:has(.ai-dockview.open)
     .dockable-workspace.dock-window-control
-    .dv-right-actions-container {
+    .dv-right-actions-container,
+.dockable-workspace.dock-window-control .dv-right-actions-container:has(.dock-window-title-actions--no-win-controls),
+.dockable-workspace.dock-window-control .dock-window-title-actions--no-win-controls,
+.dockable-workspace.dock-window-control .dock-window-title-actions--no-win-controls.dock-window-title-actions--ai-dock-open,
+.workspace:has(.ai-dockview.open)
+    .dockable-workspace.dock-window-control
+    .dv-right-actions-container:has(.dock-window-title-actions--no-win-controls) {
     min-width: 0;
     width: max-content;
     justify-content: flex-end;
 }
 
-html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac {
+html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac,
+.dockable-workspace.dock-window-control .dock-window-title-actions--no-win-controls {
     margin-left: 0;
 }
 
@@ -4515,9 +4547,12 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 .dockable-workspace.dock-window-control .dock-window-title-actions--controls-only {
     flex: 0 0 auto;
     flex-shrink: 0;
-    min-width: var(--shell-win-controls-width);
     justify-content: flex-end;
     margin-left: 0;
+}
+
+.dockable-workspace.dock-window-control .dock-window-title-actions--controls-only:has(.win-controls) {
+    min-width: var(--shell-win-controls-width);
 }
 
 .dockable-workspace.dock-window-control
@@ -5666,36 +5701,66 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 }
 
 /*
- * macOS 红绿灯标题区：必须与右侧 Tab 栏同高对齐。
+ * 侧栏顶条与右侧 Tab 栏同高对齐，使窗口顶部形成贯通色带。
  * 规则放在 unlayered，否则会被上方 .sidebar 的 padding 盖掉（@layer components 优先级更低）。
+ * 侧栏宽度与 Windows 共用 tokens `--sidebar-w`（56px）。
  */
 html[data-platform="macos"] .app {
-    --sidebar-w: 72px;
     /* 主壳右侧仅 AI 一键，勿再按 Windows 三键宽度占位（否则 AI 左侧/右侧会留空） */
     --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
 }
 
-html[data-platform="macos"] .sidebar.sidebar--mac {
+/* Web：无自定义窗控三键，右侧仅 AI + 设置，勿按桌面三键宽度占位 */
+html[data-shell="web"] .app {
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
+}
+
+.sidebar.sidebar--mac,
+.sidebar.sidebar--win {
     padding-top: 0;
     padding-bottom: var(--sp-3);
     gap: var(--sp-1);
 }
 
-html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls.win-controls--mac {
+.sidebar-top-chrome {
     width: calc(100% + 1px);
     height: var(--shell-dv-tab-bar-h, var(--topbar-h));
     min-height: var(--shell-dv-tab-bar-h, var(--topbar-h));
     max-height: var(--shell-dv-tab-bar-h, var(--topbar-h));
     margin: 0 -1px 0 0;
-    padding: 0 0 0 16px;
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
+    justify-content: center;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
+    box-sizing: border-box;
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-top-chrome {
+    /* 56px 侧栏内放下 3×12 + 2×6 红绿灯：左右略收紧 */
+    padding: 0 4px;
+    gap: 6px;
+}
+
+html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls.win-controls--mac {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: transparent;
+    border-bottom: none;
     box-sizing: border-box;
     flex-shrink: 0;
     -webkit-app-region: drag;
@@ -5705,16 +5770,10 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     -webkit-app-region: no-drag;
 }
 
-html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-logo {
-    width: 32px;
-    height: 32px;
+.sidebar.sidebar--mac .sidebar-logo,
+.sidebar.sidebar--win .sidebar-logo {
     margin-top: var(--sp-3);
     margin-bottom: var(--sp-3);
-}
-
-html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-item {
-    width: 36px;
-    height: 36px;
 }
 
 .sidebar-logo {
@@ -23867,6 +23926,10 @@ html[data-platform="macos"] .workspace-window-root {
     --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
 }
 
+html[data-shell="web"] .workspace-window-root {
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
+}
+
 .workspace-preview--detached.workspace-preview--fullscreen .workspace-preview__bottom-stack {
     position: absolute !important;
     top: 0 !important;
@@ -25128,6 +25191,10 @@ html.module-window-root #root {
 
 html[data-platform="macos"] .module-window {
     /* 模块窗：AI + 设置，无 Windows 三键 */
+    --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
+}
+
+html[data-shell="web"] .module-window {
     --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
 

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
-import { isTauriRuntime } from "../../../lib/isTauriRuntime";
+import { canUseIpcBackend, isTauriRuntime } from "../../../lib/isTauriRuntime";
 import type { DbConnectionConfig } from "../api";
 import { buildNavicatImportPreview } from "./buildImportPreview";
 import { parseNavicatNcx } from "./parseNavicatNcx";
@@ -11,7 +11,7 @@ export async function decryptNavicatPasswords(ciphertexts: string[]): Promise<st
   if (ciphertexts.length === 0) {
     return [];
   }
-  if (isTauriRuntime()) {
+  if (canUseIpcBackend()) {
     return invoke<string[]>("decrypt_navicat_passwords", { ciphertexts });
   }
   return ciphertexts.map(() => "");

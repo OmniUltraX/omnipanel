@@ -105,6 +105,8 @@ export default defineConfig(({ command }) => ({
     "process.version": '""',
     "process.versions": "{}",
     global: "globalThis",
+    // Web 构建启用真实 PTY/SSH（TerminalView 等用 canUseTerminalBackend 判断）
+    __OMNIPANEL_WEB__: JSON.stringify(isWebBuild),
   },
   optimizeDeps: {
     include: [

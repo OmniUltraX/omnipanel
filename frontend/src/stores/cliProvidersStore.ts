@@ -1,4 +1,4 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 
 import { persist, createJSONStorage } from "zustand/middleware";
 
@@ -8,7 +8,7 @@ import { commands, type CliProviderRecord } from "../ipc/bindings";
 
 import { isSupportedAgentKind } from "../lib/agents/types";
 
-import { isTauriRuntime } from "../lib/isTauriRuntime";
+import { canUseAiBackend } from "../lib/isTauriRuntime";
 
 import { useAcpServicesStore } from "./acpServicesStore";
 
@@ -198,7 +198,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
       syncProviders: async (options) => {
 
-        if (!isTauriRuntime()) return;
+        if (!canUseAiBackend()) return;
 
         const hasSnapshot = get().providers.length > 0;
 
@@ -266,7 +266,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
       refreshModels: async (providerId, options) => {
 
-        if (!isTauriRuntime()) return get().modelCache[providerId] ?? [];
+        if (!canUseAiBackend()) return get().modelCache[providerId] ?? [];
 
         if (!options?.silent) {
 
@@ -333,7 +333,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
       setProviderEnabled: async (id, enabled) => {
 
-        if (!isTauriRuntime()) return false;
+        if (!canUseAiBackend()) return false;
 
         const prev = get().providers.find((p) => p.id === id);
 
@@ -407,7 +407,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
       setModelEnabled: async (providerId, modelName, enabled) => {
 
-        if (!isTauriRuntime()) return false;
+        if (!canUseAiBackend()) return false;
 
         const provider = get().providers.find((p) => p.id === providerId);
 

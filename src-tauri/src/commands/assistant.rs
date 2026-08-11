@@ -1,10 +1,10 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
-    fetch_oss_sts, push_snapshot, sanitize_assistant_conversation_meta, sanitize_connection_meta,
-    sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
-    sanitize_task_meta, sanitize_terminal_session_meta, upload_object_bytes, AuthContext,
-    CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
+    fetch_oss_sts, push_snapshot, sanitize_ai_model_meta, sanitize_assistant_conversation_meta,
+    sanitize_connection_meta, sanitize_db_connection_meta, sanitize_http_request_meta,
+    sanitize_knowledge_meta, sanitize_task_meta, sanitize_terminal_session_meta, upload_object_bytes,
+    AuthContext, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{load_database_connections, ConnectionKind};
@@ -71,6 +71,18 @@ pub struct AssistantTerminalSessionSnapshotItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct AssistantAiModelSnapshotItem {
+    /// providerId::modelName
+    pub id: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model_name: String,
+    pub api_standard: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AssistantPushRequest {
     pub token: String,
     #[serde(default)]
@@ -83,6 +95,9 @@ pub struct AssistantPushRequest {
     /// 前端注入的终端会话列表（与 AI 会话分离）。
     #[serde(default)]
     pub terminal_sessions: Vec<AssistantTerminalSessionSnapshotItem>,
+    /// 前端注入的 AI 模型目录（不含 API Key）。
+    #[serde(default)]
+    pub ai_models: Vec<AssistantAiModelSnapshotItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -133,6 +148,7 @@ pub async fn assistant_push_snapshot(
         request.bind_id,
         &request.conversations,
         &request.terminal_sessions,
+        &request.ai_models,
     )
     .await?;
 
@@ -233,6 +249,7 @@ async fn build_collect_context(
     bind_id: Option<String>,
     conversations: &[AssistantConversationSnapshotItem],
     terminal_sessions: &[AssistantTerminalSessionSnapshotItem],
+    ai_models: &[AssistantAiModelSnapshotItem],
 ) -> Result<CollectContext, OmniError> {
     let storage = state.storage.lock().await;
 
@@ -469,5 +486,18 @@ async fn build_collect_context(
                 })
                 .collect()
         },
+        ai_models: ai_models
+            .iter()
+            .map(|m| {
+                sanitize_ai_model_meta(
+                    &m.id,
+                    &m.provider_id,
+                    &m.provider_name,
+                    &m.model_name,
+                    &m.api_standard,
+                    m.enabled,
+                )
+            })
+            .collect(),
     })
 }

@@ -7,6 +7,8 @@ import {
   scheduleAssistantSnapshotSync,
   startAssistantChatInbox,
   stopAssistantChatInbox,
+  startAssistantTerminalCmdInbox,
+  stopAssistantTerminalCmdInbox,
 } from "../modules/assistant";
 import {
   cancelClientConversationSync,
@@ -33,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
         // 登录后尽快推一次，便于助手端拿到初始快照
         scheduleAssistantSnapshotSync({ immediate: true });
         void startAssistantChatInbox();
+        void startAssistantTerminalCmdInbox();
         // 客户端间：仅上传本机快照（跨端导入改为手动）
         scheduleClientConversationSync({ immediate: true });
         scheduleClientModuleSync({ immediate: true });
@@ -44,6 +47,7 @@ export const useAuthStore = create<AuthState>()(
         cancelClientConversationSync();
         cancelClientModuleSync();
         void stopAssistantChatInbox();
+        void stopAssistantTerminalCmdInbox();
         if (token && !opts?.skipRemote) {
           void logoutSession(token).catch(() => {
             /* 退出时网络失败可忽略，本地会话照样清掉 */

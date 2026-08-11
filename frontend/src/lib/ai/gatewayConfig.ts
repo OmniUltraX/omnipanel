@@ -1,5 +1,5 @@
 import { commands } from "../../ipc/bindings";
-import { isTauriRuntime } from "../isTauriRuntime";
+import { canUseAiBackend } from "../isTauriRuntime";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { resolveGatewayListenPort } from "./localServicePorts";
 
@@ -8,7 +8,7 @@ let applying = false;
 
 /** 把当前 Agent Router 设置下发到后端（仅在变更时调用，去重）。 */
 async function apply(): Promise<void> {
-  if (!isTauriRuntime() || applying) return;
+  if (!canUseAiBackend() || applying) return;
   const s = useSettingsStore.getState();
   const listenPort = resolveGatewayListenPort(s.aiGatewayPort);
   const key = `${s.aiGatewayEnabled}|${listenPort}|${s.aiGatewayApiKey}|${s.aiGatewayBindLan}|${s.mcpExternalRequireApproval}`;

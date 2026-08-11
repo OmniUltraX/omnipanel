@@ -6,7 +6,7 @@ import {
   OMNIMCP_BUILTIN_MCP_URL,
   resolveGatewayListenPort,
 } from "../../lib/ai/localServicePorts";
-import { isTauriRuntime } from "../../lib/isTauriRuntime";
+import { canUseIpcBackend } from "../../lib/isTauriRuntime";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 interface AiServicesHealth {
@@ -43,7 +43,7 @@ export function StatusBarAiServicesIndicator() {
 
   useEffect(() => {
     const check = () => {
-      const probe = isTauriRuntime()
+      const probe = canUseIpcBackend()
         ? probeViaTauri(enabled, port)
         : probeViaFetch(enabled, port);
 

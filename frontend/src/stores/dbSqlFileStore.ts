@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
+import { canUseIpcBackend } from "../lib/isTauriRuntime";
 import type { SqlTabState } from "../modules/database/workspace/dbWorkspaceState";
 
 export type DbSqlFileNodeType = "folder" | "file";
@@ -48,10 +49,6 @@ let initPromise: Promise<void> | null = null;
 
 function makeId(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 function uniqueName(
@@ -190,7 +187,7 @@ function serializeNodeForDisk(node: DbSqlFileNode) {
 
 async function persistNodes(nodes: DbSqlFileNode[]): Promise<void> {
   writeNodesCache(nodes);
-  if (!isTauriRuntime()) {
+  if (!canUseIpcBackend()) {
     return;
   }
   try {
@@ -435,7 +432,7 @@ export async function initDbSqlFilesStore(force = false): Promise<void> {
   }
 
   initPromise = (async () => {
-    if (!isTauriRuntime()) {
+    if (!canUseIpcBackend()) {
       const cached = readNodesCache() ?? readLegacyPersistedNodes();
       if (cached?.length) {
         useDbSqlFileStore.setState({ nodes: cached, dirtyFileIds: [] });

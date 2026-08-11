@@ -58,6 +58,7 @@ describe("chatOssRecorder", () => {
       plan: "plan________",
       ask_user: "ask_user____",
       error: "error______",
+      turn_end: "turn_end____",
     });
   });
 
@@ -275,7 +276,7 @@ describe("chatOssRecorder", () => {
     vi.useRealTimers();
   });
 
-  it("结束时刷新剩余缓冲", async () => {
+  it("结束时刷新剩余缓冲并写入 turn_end", async () => {
     startChatOssRecording("conv-2");
     appendChatOssEvent({ t: "content", text: "tail" });
     await stopChatOssRecording();
@@ -286,5 +287,6 @@ describe("chatOssRecorder", () => {
     );
     expect(req.contents).toContain("|[ai___message]|");
     expect(req.contents).toContain("tail");
+    expect(req.contents).toContain("|[turn_end____]|");
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { asArray } from "../../../../ipc/asArray";
 import { commands } from "../../../../ipc/bindings";
 import type { SshTunnelInfo } from "../../../../ipc/bindings";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
@@ -58,7 +59,7 @@ export function TunnelsSidebarPanel({
     try {
       const res = await commands.sshListTunnels();
       if (res.status === "ok") {
-        setTunnels(res.data);
+        setTunnels(asArray(res.data));
       } else {
         setError(res.error.message);
       }

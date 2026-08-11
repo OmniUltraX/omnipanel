@@ -124,6 +124,8 @@ export function WorkspacePanel({
 
   const handleTopbarDoubleClick = useCallback(
     (event: React.MouseEvent) => {
+      // 半屏嵌入空顶栏不参与全屏切换；仅工程工作区全屏 / 有 Tab 的 dock 顶栏双击切换
+      if (!isEngineeringFullscreen) return;
       const target = event.target as HTMLElement;
       const inHeader = target.closest(
         ".workspace-panel-empty-topbar, .dv-tabs-and-actions-container",
@@ -138,7 +140,7 @@ export function WorkspacePanel({
       }
       toggleEngineeringWorkspaceFullscreen(navigate);
     },
-    [navigate],
+    [isEngineeringFullscreen, navigate],
   );
 
   const handlePopOutWindow = useCallback(() => {

@@ -1,6 +1,7 @@
 import type { SerializedDockview } from "dockview-core";
 import { isLayoutUsable } from "../../components/dock/dockViewLayout";
 import { fileConnPanelId } from "./filesWorkspacePanels";
+import { readStoredFilesDetailVisible } from "./filesDetailSidebarPersist";
 
 export type FilePanelViewMode = "list" | "grid";
 
@@ -34,7 +35,7 @@ export interface FilesWorkspaceSessionSnapshot {
 export function createDefaultPanelState(): FileConnectionPanelSnapshot {
   return {
     viewMode: "list",
-    detailVisible: true,
+    detailVisible: readStoredFilesDetailVisible(),
     currentPath: "",
     history: [],
     historyIndex: -1,
@@ -45,7 +46,9 @@ function sanitizePanelState(raw: unknown): FileConnectionPanelSnapshot | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Partial<FileConnectionPanelSnapshot>;
   const viewMode = o.viewMode === "grid" ? "grid" : "list";
-  const detailVisible = o.detailVisible !== false;
+  // 显式 false 保留；缺省则回退全局偏好（避免旧快照缺字段时总是强制打开）
+  const detailVisible =
+    typeof o.detailVisible === "boolean" ? o.detailVisible : readStoredFilesDetailVisible();
   const currentPath = typeof o.currentPath === "string" ? o.currentPath : "";
   const history = Array.isArray(o.history)
     ? o.history.filter((item): item is string => typeof item === "string")

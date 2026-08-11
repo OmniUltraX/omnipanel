@@ -1573,7 +1573,11 @@ async fn delete_s3_prefix_recursive(
     Ok(())
 }
 
-async fn s3_delete_object(cfg: &FileConnConfig, secret: &str, key: &str) -> Result<(), OmniError> {
+pub(crate) async fn s3_delete_object(
+    cfg: &FileConnConfig,
+    secret: &str,
+    key: &str,
+) -> Result<(), OmniError> {
     if uses_sigv4_compat_client(cfg) {
         let client = sigv4_compat_client(cfg, secret)?;
         return client.delete_object(key).await;
