@@ -32,6 +32,7 @@ import {
   layoutStructureFingerprint,
 } from "./dockViewLayout";
 import { DockErrorBoundary } from "./DockErrorBoundary";
+import { DockPanelErrorBoundary } from "./DockPanelErrorBoundary";
 import {
   registerDockviewInstance,
   transferPanelToTarget,
@@ -761,7 +762,9 @@ export function DockableWorkspace({
             className="dock-pane-surface"
             data-dock-tab-id={tabId}
           >
-            {renderPanelRef.current(tabId)}
+            <DockPanelErrorBoundary tabId={tabId}>
+              {renderPanelRef.current(tabId)}
+            </DockPanelErrorBoundary>
           </div>
         );
       },

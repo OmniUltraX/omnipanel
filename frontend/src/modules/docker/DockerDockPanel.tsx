@@ -10,6 +10,7 @@ import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bin
 import { formatIpcError } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
+import { useDockerPanelDockStore } from "../../stores/dockerPanelDockStore";
 import {
   DockerContainerListTable,
   type DockerComposeGroupAction,
@@ -355,6 +356,8 @@ export function DockerDockPanel({
         if (action === "remove") {
           const confirmed = await appConfirm(
             t("docker.dockPanel.removeContainerConfirm", { name: containerName }),
+            t("docker.dockPanel.removeContainer"),
+            { kind: "warning", confirmLabel: t("docker.dockPanel.removeContainer") },
           );
           if (!confirmed) return;
         }
@@ -362,6 +365,11 @@ export function DockerDockPanel({
         setContainerPending(container.id, true);
         try {
           await runDockerContainerAction(connection.connectionId, container.id, action);
+          if (action === "remove") {
+            useDockerPanelDockStore
+              .getState()
+              .removeContainerTabs(connection.connectionId, container.id);
+          }
           refreshNow();
           refreshDockerConnectionSidebarCache(connection.connectionId);
         } catch (e) {
@@ -384,13 +392,17 @@ export function DockerDockPanel({
             ? t("docker.composePanel.stopConfirm", { project })
             : action === "restart"
               ? t("docker.composePanel.restartConfirm", { project })
-              : t("docker.composePanel.startConfirm", { project });
+              : action === "down"
+                ? t("docker.composePanel.downConfirm", { project })
+                : t("docker.composePanel.startConfirm", { project });
         const confirmTitle =
           action === "stop"
             ? t("docker.composePanel.stop")
             : action === "restart"
               ? t("docker.composePanel.restart")
-              : t("docker.composePanel.start");
+              : action === "down"
+                ? t("docker.composePanel.down")
+                : t("docker.composePanel.start");
         const confirmed = await appConfirm(confirmMessage, confirmTitle, {
           kind: "warning",
           confirmLabel: confirmTitle,
@@ -418,8 +430,16 @@ export function DockerDockPanel({
               ? t("docker.composePanel.stopped")
               : action === "restart"
                 ? t("docker.composePanel.restarted")
-                : t("docker.composePanel.started"),
+                : action === "down"
+                  ? t("docker.composePanel.downed")
+                  : t("docker.composePanel.started"),
           );
+          if (action === "down") {
+            invalidateComposeProjectMeta(connection.connectionId, project);
+            useDockerPanelDockStore
+              .getState()
+              .removeComposeTabs(connection.connectionId, project);
+          }
           refreshNow();
           refreshDockerConnectionSidebarCache(connection.connectionId);
         } catch (e) {

@@ -218,7 +218,9 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
     `module-segment-dock--variant-${variant}`,
     !showTabBar && "module-segment-dock--no-tab-bar",
     className,
-    !enabled && "module-segment-dock--route-inactive",
+    // windowControl 时 Tab 栏承载最小化/最大化/关闭；route-inactive 会 display:none 整条栏，
+    // 独立模块窗会直接失去窗口控制。仅对无窗口控制的嵌套 dock 隐藏顶栏。
+    !enabled && !windowControl && "module-segment-dock--route-inactive",
     contentSuspended && "module-segment-dock--content-suspended",
   ]
     .filter(Boolean)

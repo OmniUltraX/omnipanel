@@ -7,6 +7,8 @@ import type {
   DockerContainerStats,
   DockerContainerSummary,
 } from "../../ipc/bindings";
+import { appConfirm } from "../../lib/appConfirm";
+import { useDockerPanelDockStore } from "../../stores/dockerPanelDockStore";
 import { runDockerContainerAction } from "./dockerContainerActions";
 import {
   getContainerLifecyclePhase,
@@ -18,8 +20,9 @@ import {
   isComposeLogServiceEnabled,
 } from "./dockerComposePanelCache";
 import { containerRowLabel } from "./dockerResourceLabels";
+import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import { useComposeProjectContainers } from "./hooks/useComposeProjectContainers";
-import { LogsIcon, PlayIcon, RestartIcon, StopIcon } from "./icons";
+import { LogsIcon, PlayIcon, RestartIcon, StopIcon, TrashIcon } from "./icons";
 
 function clampPercent(value: number | null | undefined): number {
   if (value == null || Number.isNaN(value)) return 0;
@@ -133,6 +136,17 @@ function ComposeContainerActions({
         onClick={(event) => onAction("start", event)}
       >
         <PlayIcon />
+      </Button>
+      <Button
+        type="button"
+        variant="icon"
+        size="icon-xs"
+        className="docker-compose-panel__container-action-btn docker-compose-panel__container-action-btn--danger"
+        title={t("docker.dockPanel.removeContainer")}
+        aria-label={t("docker.dockPanel.removeContainer")}
+        onClick={(event) => onAction("remove", event)}
+      >
+        <TrashIcon />
       </Button>
     </div>
   );
@@ -270,10 +284,28 @@ export function DockerComposeContainersColumn({
     ) => {
       event.stopPropagation();
       void (async () => {
+        const target = projectContainers.find((item) => item.container.id === containerId)
+          ?.container;
+        if (!target) return;
+        if (action === "remove") {
+          const name = containerRowLabel(target);
+          const confirmed = await appConfirm(
+            t("docker.dockPanel.removeContainerConfirm", { name }),
+            t("docker.dockPanel.removeContainer"),
+            { kind: "warning", confirmLabel: t("docker.dockPanel.removeContainer") },
+          );
+          if (!confirmed) return;
+        }
         onActionError(null);
         setPendingContainerActions((current) => ({ ...current, [containerId]: true }));
         try {
           await runDockerContainerAction(connection.connectionId, containerId, action);
+          if (action === "remove") {
+            useDockerPanelDockStore
+              .getState()
+              .removeContainerTabs(connection.connectionId, containerId);
+            refreshDockerConnectionSidebarCache(connection.connectionId);
+          }
           refreshNow();
         } catch (e) {
           onActionError(String(e));
@@ -286,7 +318,7 @@ export function DockerComposeContainersColumn({
         }
       })();
     },
-    [connection.connectionId, onActionError, refreshNow],
+    [connection.connectionId, onActionError, projectContainers, refreshNow, t],
   );
 
   const handleToggleContainerLogs = useCallback(

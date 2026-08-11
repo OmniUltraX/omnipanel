@@ -5,14 +5,20 @@ import { CodeEditor, codeEditorLanguageFromPath, type CodeEditorLanguage } from 
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import type { DockerConnectionInfo } from "../../ipc/bindings";
+import { useDockerPanelDockStore } from "../../stores/dockerPanelDockStore";
 import {
   getComposeProjectMeta,
+  invalidateComposeProjectMeta,
+  isComposeFilesCacheFresh,
+  peekComposeFilesCache,
   peekComposeProjectMeta,
   readComposeProjectFiles,
   runComposeAction,
+  warmComposeMetaFromContainers,
   writeComposeProjectFiles,
 } from "./dockerComposeApi";
-import { debugCompose } from "./dockerComposeDebug";
+import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
+import { debugCompose, beginComposeDebug } from "./dockerComposeDebug";
 import {
   peekComposePanelCache,
   seedComposePanelFromMeta,
@@ -20,6 +26,10 @@ import {
 } from "./dockerComposePanelCache";
 import { DockerComposeContainersColumn } from "./DockerComposeContainersColumn";
 import { DockerComposeLogsColumn } from "./DockerComposeLogsColumn";
+import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
+
+/** 同连接+项目合并并发 loadFiles，避免 Strict Mode 双跑整条链路 */
+const loadFilesInflight = new Map<string, Promise<void>>();
 
 export interface DockerComposePanelProps {
   connection: DockerConnectionInfo;
@@ -90,22 +100,34 @@ export function DockerComposePanel({
     () => peekComposePanelCache(connection.connectionId, composeProject),
     [connection.connectionId, composeProject],
   );
+  const filesCache = useMemo(
+    () => peekComposeFilesCache(connection.connectionId, composeProject),
+    [connection.connectionId, composeProject],
+  );
   const seededMeta = useMemo(() => seedComposePanelFromMeta(cachedMeta), [cachedMeta]);
 
   const [workingDir, setWorkingDir] = useState<string | null>(
-    panelCache?.workingDir ?? seededMeta.workingDir,
+    panelCache?.workingDir ?? filesCache?.workingDir ?? seededMeta.workingDir,
   );
   const [configFile, setConfigFile] = useState<string | null>(
-    panelCache?.configFile ?? seededMeta.configFile,
+    panelCache?.configFile ?? filesCache?.configFile ?? seededMeta.configFile,
   );
-  const [composePath, setComposePath] = useState(panelCache?.composePath ?? "");
-  const [envPath, setEnvPath] = useState(panelCache?.envPath ?? "");
-  const [composeContent, setComposeContent] = useState(panelCache?.composeContent ?? "");
-  const [envContent, setEnvContent] = useState(panelCache?.envContent ?? "");
+  const [composePath, setComposePath] = useState(
+    panelCache?.composePath ?? filesCache?.files.composePath ?? "",
+  );
+  const [envPath, setEnvPath] = useState(panelCache?.envPath ?? filesCache?.files.envPath ?? "");
+  const [composeContent, setComposeContent] = useState(
+    panelCache?.composeContent ?? filesCache?.files.composeContent ?? "",
+  );
+  const [envContent, setEnvContent] = useState(
+    panelCache?.envContent ?? filesCache?.files.envContent ?? "",
+  );
   const [savedComposeContent, setSavedComposeContent] = useState(
-    panelCache?.savedComposeContent ?? "",
+    panelCache?.savedComposeContent ?? filesCache?.files.composeContent ?? "",
   );
-  const [savedEnvContent, setSavedEnvContent] = useState(panelCache?.savedEnvContent ?? "");
+  const [savedEnvContent, setSavedEnvContent] = useState(
+    panelCache?.savedEnvContent ?? filesCache?.files.envContent ?? "",
+  );
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [filesReadOnly, setFilesReadOnly] = useState(panelCache?.filesReadOnly ?? false);
@@ -115,7 +137,7 @@ export function DockerComposePanel({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [composeActionPending, setComposeActionPending] = useState<
-    "stop" | "restart" | "rebuild" | null
+    "stop" | "restart" | "rebuild" | "down" | null
   >(null);
   const [logsText, setLogsText] = useState(panelCache?.logsText ?? "");
   const [logEnabledByService, setLogEnabledByService] = useState<Record<string, boolean>>(
@@ -126,6 +148,8 @@ export function DockerComposePanel({
 
   const composeDirty = composeContent !== savedComposeContent;
   const envDirty = envContent !== savedEnvContent;
+  const dirtyRef = useRef({ composeDirty, envDirty });
+  dirtyRef.current = { composeDirty, envDirty };
 
   const pathsRef = useRef({
     workingDir,
@@ -141,6 +165,41 @@ export function DockerComposePanel({
     envContent,
     metaReady,
   };
+
+  const applyRemoteFiles = useCallback(
+    (
+      files: {
+        workingDir: string | null;
+        composePath: string;
+        envPath: string;
+        composeContent: string;
+        envContent: string;
+      },
+      fallbackWorkingDir: string | null,
+      options?: { respectDirty?: boolean },
+    ) => {
+      const respectDirty = options?.respectDirty !== false;
+      const dirty = dirtyRef.current;
+      setWorkingDir(files.workingDir ?? fallbackWorkingDir);
+      setComposePath(files.composePath);
+      setEnvPath(files.envPath);
+      if (!respectDirty || !dirty.composeDirty) {
+        setComposeContent(files.composeContent);
+        setSavedComposeContent(files.composeContent);
+      } else {
+        setSavedComposeContent(files.composeContent);
+      }
+      if (!respectDirty || !dirty.envDirty) {
+        setEnvContent(files.envContent);
+        setSavedEnvContent(files.envContent);
+      } else {
+        setSavedEnvContent(files.envContent);
+      }
+      setFilesReadOnly(false);
+      setMetaReady(Boolean(files.workingDir ?? fallbackWorkingDir));
+    },
+    [],
+  );
 
   // 状态变更写入内存缓存，关闭 dock 后再打开可回填
   useEffect(() => {
@@ -176,11 +235,12 @@ export function DockerComposePanel({
   ]);
 
   const loadProjectMeta = useCallback(async () => {
-    const started = performance.now();
-    const meta = await getComposeProjectMeta(connection.connectionId, composeProject);
-    debugCompose("loadProjectMeta", {
+    const span = beginComposeDebug("loadProjectMeta", {
+      connectionId: connection.connectionId,
       composeProject,
-      ms: Math.round(performance.now() - started),
+    });
+    const meta = await getComposeProjectMeta(connection.connectionId, composeProject);
+    span.end("完成", {
       meta: meta
         ? {
             workingDir: meta.workingDir,
@@ -196,90 +256,192 @@ export function DockerComposePanel({
   }, [connection.connectionId, composeProject]);
 
   /**
-   * 读 compose/.env：
-   * - 已有内容 → 直接跳过
-   * - 已有 workingDir（面板缓存 / 上次 meta）→ 跳过昂贵的 dockerListComposeProjects
-   * - 否则才拉全量项目列表拿路径，再读文件
+   * 读 compose/.env（Stale-while-revalidate）：
+   * - 有可用缓存 → 立刻展示，若已过期则后台静默刷新
+   * - 新鲜缓存 → 跳过远端
+   * - 无缓存 → loading + 拉远端
+   * - 已有 workingDir / 侧栏 labels → 跳过全量 list
    */
   const loadFiles = useCallback(
     async (force = false) => {
-      setFilesError(null);
-      const snap = pathsRef.current;
-      const hasContent = snap.composeContent.length > 0 || snap.envContent.length > 0;
-      if (!force && hasContent) {
-        debugCompose("loadFiles 跳过：命中面板缓存", {
-          composeProject,
-          composeBytes: snap.composeContent.length,
-          envBytes: snap.envContent.length,
-        });
-        if (!snap.metaReady) setMetaReady(true);
-        return;
-      }
-      if (!hasContent) {
-        setFilesLoading(true);
-      }
-      const overallStarted = performance.now();
-      try {
-        let wd = snap.workingDir;
-        let cf = snap.configFile;
-        let skippedMetaList = false;
-        if (wd) {
-          skippedMetaList = true;
-          setMetaReady(true);
-          debugCompose("loadFiles 跳过全量 Compose 列表：已有 workingDir", {
+      const loadKey = `${connection.connectionId}::${composeProject}`;
+      if (!force) {
+        const existing = loadFilesInflight.get(loadKey);
+        if (existing) {
+          debugCompose("loadFiles 合并进行中的请求", {
+            connectionId: connection.connectionId,
             composeProject,
-            workingDir: wd,
-            configFile: cf,
           });
-        } else {
-          const meta = await loadProjectMeta();
-          wd = meta?.workingDir ?? null;
-          cf = meta?.configFiles?.split(",")[0]?.trim() || null;
+          await existing;
+          return;
+        }
+      }
+
+      const run = (async () => {
+        setFilesError(null);
+        const snap = pathsRef.current;
+        let hasContent = snap.composeContent.length > 0 || snap.envContent.length > 0;
+        const span = beginComposeDebug("loadFiles", {
+          connectionId: connection.connectionId,
+          composeProject,
+          force,
+          hasContent,
+          cachedWorkingDir: snap.workingDir,
+          cachedConfigFile: snap.configFile,
+          metaReady: snap.metaReady,
+        });
+
+        // 内存面板空时，用持久化文件缓存秒开
+        if (!hasContent) {
+          const persisted = peekComposeFilesCache(connection.connectionId, composeProject);
+          if (persisted) {
+            span.step("SWR：展示持久化/内存文件缓存", {
+              ageMs: Date.now() - persisted.fetchedAt,
+              fresh: isComposeFilesCacheFresh(persisted),
+              composeBytes: persisted.files.composeContent.length,
+              envBytes: persisted.files.envContent.length,
+            });
+            applyRemoteFiles(persisted.files, persisted.workingDir, { respectDirty: false });
+            if (persisted.workingDir) setWorkingDir(persisted.workingDir);
+            if (persisted.configFile) setConfigFile(persisted.configFile);
+            hasContent = true;
+            pathsRef.current = {
+              ...pathsRef.current,
+              workingDir: persisted.workingDir ?? pathsRef.current.workingDir,
+              configFile: persisted.configFile ?? pathsRef.current.configFile,
+              composeContent: persisted.files.composeContent,
+              envContent: persisted.files.envContent,
+              metaReady: true,
+            };
+          }
         }
 
-        const readRequest = {
-          project: composeProject,
-          workingDir: wd,
-          configFile: cf,
-        };
-        debugCompose("loadFiles 开始读文件", { ...readRequest, skippedMetaList });
-        const readStarted = performance.now();
-        const files = await readComposeProjectFiles(connection.connectionId, readRequest);
-        debugCompose("loadFiles 完成", {
-          composePath: files.composePath,
-          envPath: files.envPath,
-          composeBytes: files.composeContent.length,
-          envBytes: files.envContent.length,
-          readMs: Math.round(performance.now() - readStarted),
-          totalMs: Math.round(performance.now() - overallStarted),
-          skippedMetaList,
-        });
-        setWorkingDir(files.workingDir ?? wd);
-        setComposePath(files.composePath);
-        setEnvPath(files.envPath);
-        setComposeContent(files.composeContent);
-        setEnvContent(files.envContent);
-        setSavedComposeContent(files.composeContent);
-        setSavedEnvContent(files.envContent);
-        setFilesReadOnly(false);
-        setMetaReady(Boolean(files.workingDir ?? wd));
-      } catch (e) {
-        debugCompose("loadFiles 失败", {
-          error: String(e),
-          totalMs: Math.round(performance.now() - overallStarted),
-        });
-        setFilesError(String(e));
-        setFilesReadOnly(true);
-        setMetaReady(true);
+        const filesCacheEntry = peekComposeFilesCache(connection.connectionId, composeProject);
+        const cacheFresh = Boolean(filesCacheEntry && isComposeFilesCacheFresh(filesCacheEntry));
+
+        if (!force && hasContent && cacheFresh) {
+          span.end("跳过：内容缓存仍新鲜", {
+            ageMs: filesCacheEntry ? Date.now() - filesCacheEntry.fetchedAt : null,
+            composeBytes: pathsRef.current.composeContent.length,
+            envBytes: pathsRef.current.envContent.length,
+          });
+          if (!pathsRef.current.metaReady) setMetaReady(true);
+          return;
+        }
+
+        const swrBackground = !force && hasContent;
+        if (!swrBackground) {
+          setFilesLoading(true);
+        } else {
+          span.step("SWR：已有内容，后台 revalidate", {
+            ageMs: filesCacheEntry ? Date.now() - filesCacheEntry.fetchedAt : null,
+          });
+        }
+
+        try {
+          let wd = pathsRef.current.workingDir;
+          let cf = pathsRef.current.configFile;
+          let skippedMetaList = false;
+
+          if (!wd) {
+            const sidebarContainers =
+              useDockerSidebarCacheStore.getState().getEntry(connection.connectionId).containers;
+            warmComposeMetaFromContainers(connection.connectionId, sidebarContainers);
+            const seeded = peekComposeProjectMeta(connection.connectionId, composeProject);
+            if (seeded?.workingDir) {
+              wd = seeded.workingDir;
+              cf = seeded.configFiles?.split(",")[0]?.trim() || null;
+              setWorkingDir(wd);
+              setConfigFile(cf);
+              span.step("侧栏容器 labels 预热 workingDir", {
+                workingDir: wd,
+                configFile: cf,
+              });
+            }
+          }
+
+          if (wd) {
+            skippedMetaList = true;
+            setMetaReady(true);
+            span.step("跳过全量 Compose 列表：已有 workingDir", {
+              workingDir: wd,
+              configFile: cf,
+            });
+          } else {
+            span.step("无 workingDir，开始 loadProjectMeta（可能很慢）");
+            const meta = await loadProjectMeta();
+            wd = meta?.workingDir ?? null;
+            cf = meta?.configFiles?.split(",")[0]?.trim() || null;
+            span.step("loadProjectMeta 返回", {
+              workingDir: wd,
+              configFile: cf,
+            });
+          }
+
+          const readRequest = {
+            project: composeProject,
+            workingDir: wd,
+            configFile: cf,
+          };
+          span.step("开始读 compose/.env 文件", {
+            ...readRequest,
+            skippedMetaList,
+            swrBackground,
+          });
+          const files = await readComposeProjectFiles(connection.connectionId, readRequest, {
+            force: force || swrBackground,
+          });
+          span.step("读文件返回，写回 React state", {
+            composePath: files.composePath,
+            envPath: files.envPath,
+            composeBytes: files.composeContent.length,
+            envBytes: files.envContent.length,
+            skippedMetaList,
+            swrBackground,
+            skippedDirtyCompose: dirtyRef.current.composeDirty,
+            skippedDirtyEnv: dirtyRef.current.envDirty,
+          });
+          applyRemoteFiles(files, wd, { respectDirty: swrBackground });
+          span.end(swrBackground ? "SWR 后台刷新完成" : "完成");
+        } catch (e) {
+          span.end("失败", { error: String(e), swrBackground });
+          // 后台刷新失败：保留已展示的缓存，不把面板打成只读错误态
+          if (!swrBackground) {
+            setFilesError(String(e));
+            setFilesReadOnly(true);
+            setMetaReady(true);
+          } else {
+            debugCompose("SWR 后台刷新失败（保留缓存展示）", {
+              connectionId: connection.connectionId,
+              composeProject,
+              error: String(e),
+            });
+          }
+        } finally {
+          setFilesLoading(false);
+        }
+      })();
+
+      if (!force) {
+        loadFilesInflight.set(loadKey, run);
+      }
+      try {
+        await run;
       } finally {
-        setFilesLoading(false);
+        if (loadFilesInflight.get(loadKey) === run) {
+          loadFilesInflight.delete(loadKey);
+        }
       }
     },
-    [composeProject, connection.connectionId, loadProjectMeta],
+    [applyRemoteFiles, composeProject, connection.connectionId, loadProjectMeta],
   );
 
   useEffect(() => {
     if (!isActive) return;
+    debugCompose("Compose 面板激活，触发 loadFiles", {
+      connectionId: connection.connectionId,
+      composeProject,
+    });
     void loadFiles(false);
   }, [isActive, connection.connectionId, composeProject, loadFiles]);
 
@@ -305,20 +467,24 @@ export function DockerComposePanel({
   );
 
   const handleComposeLifecycle = useCallback(
-    (action: "stop" | "restart" | "rebuild") => {
+    (action: "stop" | "restart" | "rebuild" | "down") => {
       void (async () => {
         const confirmMessage =
           action === "stop"
             ? t("docker.composePanel.stopConfirm", { project: composeProject })
             : action === "restart"
               ? t("docker.composePanel.restartConfirm", { project: composeProject })
-              : t("docker.composePanel.rebuildConfirm", { project: composeProject });
+              : action === "down"
+                ? t("docker.composePanel.downConfirm", { project: composeProject })
+                : t("docker.composePanel.rebuildConfirm", { project: composeProject });
         const confirmTitle =
           action === "stop"
             ? t("docker.composePanel.stop")
             : action === "restart"
               ? t("docker.composePanel.restart")
-              : t("docker.composePanel.rebuild");
+              : action === "down"
+                ? t("docker.composePanel.down")
+                : t("docker.composePanel.rebuild");
         const confirmed = await appConfirm(confirmMessage, confirmTitle, {
           kind: "warning",
           confirmLabel: confirmTitle,
@@ -338,8 +504,18 @@ export function DockerComposePanel({
               ? t("docker.composePanel.stopped")
               : action === "restart"
                 ? t("docker.composePanel.restarted")
-                : t("docker.composePanel.rebuilt"),
+                : action === "down"
+                  ? t("docker.composePanel.downed")
+                  : t("docker.composePanel.rebuilt"),
           );
+          if (action === "down") {
+            invalidateComposeProjectMeta(connection.connectionId, composeProject);
+            refreshDockerConnectionSidebarCache(connection.connectionId);
+            useDockerPanelDockStore
+              .getState()
+              .removeComposeTabs(connection.connectionId, composeProject);
+            return;
+          }
           setContainersRefreshToken((n) => n + 1);
         } catch (e) {
           setActionError(String(e));
@@ -475,6 +651,16 @@ export function DockerComposePanel({
             {composeActionPending === "rebuild"
               ? t("docker.composePanel.rebuilding")
               : t("docker.composePanel.rebuild")}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={composeActionPending != null}
+            onClick={() => handleComposeLifecycle("down")}
+          >
+            {composeActionPending === "down"
+              ? t("docker.composePanel.downing")
+              : t("docker.composePanel.down")}
           </Button>
           {saveMessage ? <span className="docker-compose-panel__toast">{saveMessage}</span> : null}
           {actionMessage ? <span className="docker-compose-panel__toast">{actionMessage}</span> : null}

@@ -229,24 +229,27 @@ export function Sidebar() {
     </button>
   );
 
-  return (
-    <aside
-      className={`sidebar${usesMacTrafficLights() ? " sidebar--mac" : " sidebar--win"}`}
+  const isMac = usesMacTrafficLights();
+  const logoButton = (
+    <button
+      type="button"
+      className={`sidebar-logo${isWorkspaceHome ? " active" : ""}${isMac ? "" : " window-drag-surface--interactive"}`}
+      title={logoTitle}
+      data-tauri-drag-region={isMac ? undefined : "false"}
+      onClick={() => toggleWorkspaceFromChromeIcon(navigate, location.pathname)}
     >
-      {/* 与右侧 Tab 栏同高的顶条：mac 放红绿灯，Windows 作拖拽区，保证顶栏视觉贯通全窗 */}
+      <AppLogo size={isMac ? 36 : 28} className="sidebar-logo__img" />
+    </button>
+  );
+
+  return (
+    <aside className={`sidebar${isMac ? " sidebar--mac" : " sidebar--win"}`}>
+      {/* 与右侧 Tab 栏同高的顶条：mac 放红绿灯，Windows 放 logo（兼拖拽区），保证顶栏视觉贯通全窗 */}
       <div className="sidebar-top-chrome" data-tauri-drag-region>
-        {usesMacTrafficLights() ? (
-          <WinControls className="sidebar-win-controls" />
-        ) : null}
+        {isMac ? <WinControls className="sidebar-win-controls" /> : logoButton}
       </div>
-      <button
-        type="button"
-        className={`sidebar-logo${isWorkspaceHome ? " active" : ""}`}
-        title={logoTitle}
-        onClick={() => toggleWorkspaceFromChromeIcon(navigate, location.pathname)}
-      >
-        <AppLogo size={36} className="sidebar-logo__img" />
-      </button>
+      {/* mac：红绿灯占顶条，logo 仍在下方导航区 */}
+      {isMac ? logoButton : null}
 
       {navPaths.filter((item) => isModulePathEnabled(item.path)).map(renderItem)}
       <div className="sidebar-divider" />

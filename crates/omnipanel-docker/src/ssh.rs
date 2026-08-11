@@ -904,9 +904,17 @@ pub async fn image_history(
 
 /// 远端 Compose 项目识别（基于 Engine API 容器列表 labels）。
 pub async fn list_compose_projects(session: &SshSession) -> OmniResult<Vec<DockerComposeProject>> {
+    let total = std::time::Instant::now();
+    tracing::debug!(
+        target: "docker_compose_files",
+        "ssh list_compose_projects 开始（containers/json?all=1）"
+    );
     let api = SshDockerApi::new(session);
+    let fetch_started = std::time::Instant::now();
     let raw: Vec<bollard::models::ContainerSummary> =
         api.get_json("/containers/json?all=1").await?;
+    let fetch_ms = fetch_started.elapsed().as_millis();
+    let agg_started = std::time::Instant::now();
     let mut rows = Vec::new();
     for item in raw {
         let labels = item.labels.clone().unwrap_or_default();
@@ -933,7 +941,16 @@ pub async fn list_compose_projects(session: &SshSession) -> OmniResult<Vec<Docke
                 == Some("running".to_string()),
         });
     }
-    Ok(aggregate_compose(rows))
+    let projects = aggregate_compose(rows);
+    tracing::debug!(
+        target: "docker_compose_files",
+        fetch_ms,
+        aggregate_ms = agg_started.elapsed().as_millis(),
+        total_ms = total.elapsed().as_millis(),
+        project_count = projects.len(),
+        "ssh list_compose_projects 完成"
+    );
+    Ok(projects)
 }
 
 /// 远端镜像拉取（`docker pull`）。进度通过可选的 `progress` 回调实时上报（每行作为一段）。
