@@ -15,6 +15,9 @@ src-tauri/target/
 .idea/
 .vscode/
 .cursor/
+# 团队共享的 Cursor 项目规则需要入库
+!.cursor/rules/
+!.cursor/rules/**
 .opencode/
 *.swp
 *.swo

@@ -1,0 +1,25 @@
+---
+description: 发版/提交时必须同步 README、官网、CHANGELOG 等对外文档
+alwaysApply: true
+---
+
+# Release / Commit Docs Sync（发版与提交文档同步）
+
+**只要涉及发版、打 tag、版本 bump，或用户明确要求「提交 / 发版 / 发布」时，必须同步更新对外文档与官网，不得只改代码或只改 CHANGELOG。**
+
+至少检查并按需更新：
+
+| 产物 | 路径 | 何时更新 |
+|------|------|----------|
+| 变更日志 | `CHANGELOG.md` | 每个正式版本（`## [x.y.z]`）；发版 tag 前必有对应段落 |
+| 英文 README | `README.md` | 用户可见能力、部署方式、亮点摘要变化时 |
+| 中文 README | `README.zh-CN.md` | 与英文 README **同次变更、内容对齐** |
+| 官网文案 | `website/`（如 `index.html`、`src/i18n.ts`、相关样式） | 官网展示的能力、部署入口、亮点与 README 不一致时 |
+| 部署配置 | 仓库根目录 `render.yaml` / `railway.toml` / `fly.toml` / `.do/` 等 | README/官网新增或变更一键部署方式时 |
+
+约定：
+
+1. **发版（`chore(release)` / `v*` tag）**：CHANGELOG 必改；若本版含用户可见能力或部署变化，README（中英）与官网同提交。
+2. **普通功能提交**：若变更会反映到对外介绍（新模块、部署、破坏性变更），同一提交或紧随的文档提交中同步 README / 官网；纯内部重构可不动。
+3. **中英文与官网**：同一事实不要只改一侧；亮点/部署按钮等对外文案保持一致。
+4. CI 会校验 tag 版本在 `CHANGELOG.md` 中有对应 `## [version]` 段落——缺了发版会失败。
