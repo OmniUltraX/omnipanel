@@ -602,6 +602,24 @@ impl RedisDriver {
         redis_ops::stream_trim(&mut conn, key, maxlen, approximate).await
     }
 
+    pub async fn stream_cleanup_inactive_consumers(
+        &self,
+        key: &str,
+        group: &str,
+        idle_threshold_ms: u64,
+        target_consumer: Option<&str>,
+    ) -> OmniResult<redis_ops::RedisStreamConsumerCleanupResult> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_cleanup_inactive_consumers(
+            &mut conn,
+            key,
+            group,
+            idle_threshold_ms,
+            target_consumer,
+        )
+        .await
+    }
+
     pub async fn acl_list(&self) -> OmniResult<Vec<RedisAclUser>> {
         let mut conn = self.conn.clone();
         redis_ops::acl_list(&mut conn).await

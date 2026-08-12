@@ -1,123 +1,51 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
 import {
   redisStreamClaim,
+  redisStreamCleanupInactiveConsumers,
   redisStreamGroupDestroy,
-  redisStreamMonitor,
-  redisStreamPending,
   redisStreamTrim,
   type DbConnectionConfig,
-  type RedisStreamConsumer,
-  type RedisStreamGroup,
-  type RedisStreamMonitorSnapshot,
-  type RedisStreamPendingEntry,
 } from "../api";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../workspace/DbTablesPanelGrid";
+import { showToast } from "../../../stores/toastStore";
 import { RedisOpsDangerDialog } from "./RedisOpsDangerDialog";
+import {
+  type RedisStreamConsumer,
+  type RedisStreamGroup,
+  type RedisStreamMonitorState,
+  type RedisStreamPendingEntry,
+} from "./useRedisStreamMonitor";
 
 interface RedisStreamOpsPanelProps {
   connection: DbConnectionConfig;
   streamKey: string;
-  active?: boolean;
-}
-
-interface RateSample {
-  at: number;
-  lag: number;
-  entriesRead: number;
-}
-
-function streamIdTs(id: string | null | undefined): Date | null {
-  if (!id) {
-    return null;
-  }
-  const ms = Number.parseInt(id.split("-")[0] ?? "", 10);
-  if (!Number.isFinite(ms)) {
-    return null;
-  }
-  return new Date(ms);
+  monitor: RedisStreamMonitorState;
+  renderChrome?: (toolbar: ReactNode) => ReactNode;
 }
 
 export function RedisStreamOpsPanel({
   connection,
   streamKey,
-  active = true,
+  monitor,
+  renderChrome,
 }: RedisStreamOpsPanelProps) {
   const { t } = useI18n();
-  const [snapshot, setSnapshot] = useState<RedisStreamMonitorSnapshot | null>(null);
-  const [pending, setPending] = useState<RedisStreamPendingEntry[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [destroyOpen, setDestroyOpen] = useState(false);
   const [trimOpen, setTrimOpen] = useState(false);
-  const samplesRef = useRef<RateSample[]>([]);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
 
-  const refresh = useCallback(async () => {
-    if (!streamKey) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await redisStreamMonitor(connection, streamKey, selectedGroup ?? undefined);
-      setSnapshot(data);
-      const group = selectedGroup ?? data.groups[0]?.name;
-      if (group) {
-        setSelectedGroup(group);
-        const pendingRows = await redisStreamPending(connection, streamKey, group);
-        setPending(pendingRows);
-      } else {
-        setPending([]);
-      }
-      const primary = data.groups[0];
-      if (primary?.lag != null && primary.entriesRead != null) {
-        const now = Date.now();
-        const samples = [...samplesRef.current, { at: now, lag: primary.lag, entriesRead: primary.entriesRead }];
-        samplesRef.current = samples.slice(-12);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [connection, selectedGroup, streamKey]);
-
-  useEffect(() => {
-    if (!active || !streamKey) {
-      return;
-    }
-    void refresh();
-  }, [active, refresh, streamKey]);
-
-  useEffect(() => {
-    if (!active || !autoRefresh || !streamKey) {
-      return;
-    }
-    const timer = window.setInterval(() => void refresh(), 10_000);
-    return () => window.clearInterval(timer);
-  }, [active, autoRefresh, refresh, streamKey]);
-
-  const rateStats = useMemo(() => {
-    const samples = samplesRef.current;
-    if (samples.length < 2) {
-      return null;
-    }
-    const prev = samples[samples.length - 2];
-    const curr = samples[samples.length - 1];
-    const dt = (curr.at - prev.at) / 1000;
-    if (dt <= 0) {
-      return null;
-    }
-    const lagDelta = prev.lag - curr.lag;
-    const rate = (curr.entriesRead - prev.entriesRead) / dt;
-    const activeConsumers = snapshot?.consumers.filter((c) => c.active).length ?? 0;
-    const catchUpHours =
-      lagDelta > 0 && curr.lag > 0 ? curr.lag / (lagDelta / dt) / 3600 : null;
-    return { lagDelta, rate, activeConsumers, catchUpHours, lag: curr.lag };
-  }, [snapshot]);
+  const {
+    snapshot,
+    selectedGroup,
+    setSelectedGroup,
+    selectedConsumer,
+    setSelectedConsumer,
+    filteredPending,
+    error,
+    refresh,
+  } = monitor;
 
   const groupColumns = useMemo<DbTablesPanelGridColumn<RedisStreamGroup>[]>(
     () => [
@@ -129,24 +57,8 @@ export function RedisStreamOpsPanel({
       },
       {
         id: "pending",
-        header: "Pending",
+        header: "P",
         render: (g) => (g.pending != null ? g.pending.toLocaleString() : "—"),
-      },
-      {
-        id: "entriesRead",
-        header: t("database.redisOps.colEntriesRead"),
-        render: (g) => (g.entriesRead != null ? g.entriesRead.toLocaleString() : "—"),
-      },
-      {
-        id: "lastDelivered",
-        header: t("database.redisOps.colLastDelivered"),
-        render: (g) => g.lastDeliveredId ?? "—",
-      },
-      {
-        id: "behind",
-        header: t("database.redisOps.colBehind"),
-        render: (g) =>
-          g.behindSeconds != null ? `${g.behindSeconds}s` : "—",
       },
     ],
     [t],
@@ -157,16 +69,20 @@ export function RedisStreamOpsPanel({
       {
         id: "name",
         header: t("database.redisOps.colConsumer"),
+        nameCell: true,
+        defaultWidth: 220,
+        getTitle: (c) => c.name,
+        getCopyValue: (c) => c.name,
         render: (c) => (c.active ? `● ${c.name}` : c.name),
       },
       {
         id: "idle",
-        header: "Idle (ms)",
+        header: "Idle",
         render: (c) => (c.idleMs != null ? c.idleMs.toLocaleString() : "—"),
       },
       {
         id: "pending",
-        header: "Pending",
+        header: "P",
         render: (c) => (c.pending != null ? c.pending.toLocaleString() : "—"),
       },
     ],
@@ -177,7 +93,7 @@ export function RedisStreamOpsPanel({
     () => [
       { id: "id", header: "ID", render: (p) => p.id },
       { id: "consumer", header: t("database.redisOps.colConsumer"), render: (p) => p.consumer },
-      { id: "idle", header: "Idle (ms)", render: (p) => p.idleMs.toLocaleString() },
+      { id: "idle", header: "Idle", render: (p) => p.idleMs.toLocaleString() },
       {
         id: "delivery",
         header: t("database.redisOps.colDeliveryCount"),
@@ -187,14 +103,14 @@ export function RedisStreamOpsPanel({
     [t],
   );
 
-  const newestTs = streamIdTs(snapshot?.newestId);
-  const ldTs = streamIdTs(snapshot?.groups[0]?.lastDeliveredId);
-
   const handleClaim = async () => {
-    if (!selectedGroup || pending.length === 0) {
+    if (!selectedGroup || filteredPending.length === 0) {
       return;
     }
-    const consumer = snapshot?.consumers.find((c) => c.active)?.name ?? snapshot?.consumers[0]?.name;
+    const consumer =
+      selectedConsumer ??
+      snapshot?.consumers.find((c) => c.active)?.name ??
+      snapshot?.consumers[0]?.name;
     if (!consumer) {
       return;
     }
@@ -204,7 +120,7 @@ export function RedisStreamOpsPanel({
       selectedGroup,
       consumer,
       60_000,
-      pending[0]?.id ?? "0-0",
+      filteredPending[0]?.id ?? "0-0",
       10,
     );
     await refresh();
@@ -225,120 +141,154 @@ export function RedisStreamOpsPanel({
     await refresh();
   };
 
+  const handleCleanup = async () => {
+    if (!selectedGroup) {
+      return;
+    }
+    const target =
+      selectedConsumer && snapshot?.consumers.find((c) => c.name === selectedConsumer)?.active
+        ? selectedConsumer
+        : snapshot?.consumers.find((c) => c.active)?.name ?? null;
+    const result = await redisStreamCleanupInactiveConsumers(
+      connection,
+      streamKey,
+      selectedGroup,
+      300_000,
+      target,
+    );
+    setCleanupOpen(false);
+    await refresh();
+    if (result.removedConsumers.length > 0) {
+      showToast(
+        t("database.redisOps.cleanupDone", {
+          count: result.removedConsumers.length,
+          claimed: result.claimedPending,
+        }),
+      );
+    } else if (result.failed.length > 0) {
+      showToast(result.failed[0] ?? t("database.redisOps.cleanupFailed"));
+    } else {
+      showToast(t("database.redisOps.cleanupNone"));
+    }
+  };
+
+  const hasGroups = (snapshot?.groups.length ?? 0) > 0;
+
+  const toolbar = (
+    <div className="redis-stream-ops__toolbar">
+      <Button variant="ghost" size="sm" onClick={() => void handleClaim()} disabled={!selectedGroup}>
+        {t("database.redisOps.claim")}
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setDestroyOpen(true)} disabled={!selectedGroup}>
+        {t("database.redisOps.destroyGroup")}
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setTrimOpen(true)}>
+        {t("database.redisOps.trim")}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setCleanupOpen(true)}
+        disabled={!selectedGroup}
+      >
+        {t("database.redisOps.cleanupInactive")}
+      </Button>
+    </div>
+  );
+
   return (
-    <div className="redis-stream-ops">
-      <div className="redis-stream-ops__toolbar">
-        <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading}>
-          {t("common.refresh")}
-        </Button>
-        <label className="redis-stream-ops__auto">
-          <input
-            type="checkbox"
-            checked={autoRefresh}
-            onChange={(e) => setAutoRefresh(e.target.checked)}
-          />
-          {t("database.redisOps.autoRefresh")}
-        </label>
-        <Button variant="ghost" size="sm" onClick={() => void handleClaim()} disabled={!selectedGroup}>
-          {t("database.redisOps.claim")}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setDestroyOpen(true)} disabled={!selectedGroup}>
-          {t("database.redisOps.destroyGroup")}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setTrimOpen(true)}>
-          {t("database.redisOps.trim")}
-        </Button>
-      </div>
+    <>
+      {renderChrome ? renderChrome(toolbar) : null}
+      <div className="redis-stream-ops">
+        {!renderChrome ? toolbar : null}
 
       {error ? <div className="redis-stream-ops__error">{error}</div> : null}
 
-      <div className="redis-stream-ops__metrics">
-        <div className="redis-stream-ops__metric">
-          <span className="label">Lag</span>
-          <span className="value">{snapshot?.groups[0]?.lag?.toLocaleString() ?? "—"}</span>
+      {!hasGroups ? (
+        <div className="redis-stream-ops__empty empty-state compact">
+          {t("database.redisOps.noGroups")}
         </div>
-        <div className="redis-stream-ops__metric">
-          <span className="label">Pending</span>
-          <span className="value">{snapshot?.groups[0]?.pending?.toLocaleString() ?? "—"}</span>
-        </div>
-        <div className="redis-stream-ops__metric">
-          <span className="label">{t("database.redisOps.colBehind")}</span>
-          <span className="value">
-            {snapshot?.groups[0]?.behindSeconds != null
-              ? `${snapshot.groups[0].behindSeconds}s`
-              : "—"}
-          </span>
-        </div>
-        <div className="redis-stream-ops__metric">
-          <span className="label">LD</span>
-          <span className="value">{ldTs?.toLocaleString() ?? "—"}</span>
-        </div>
-        <div className="redis-stream-ops__metric">
-          <span className="label">{t("database.redisOps.newest")}</span>
-          <span className="value">{newestTs?.toLocaleString() ?? "—"}</span>
-        </div>
-        <div className="redis-stream-ops__metric">
-          <span className="label">{t("database.redisOps.activeConsumers")}</span>
-          <span className="value">
-            {rateStats
-              ? `${rateStats.activeConsumers}/${snapshot?.consumers.length ?? 0}`
-              : `${snapshot?.consumers.filter((c) => c.active).length ?? 0}/${snapshot?.consumers.length ?? 0}`}
-          </span>
-        </div>
-        {rateStats ? (
-          <>
-            <div className="redis-stream-ops__metric">
-              <span className="label">Δ Lag (10s)</span>
-              <span className="value">{rateStats.lagDelta}</span>
-            </div>
-            <div className="redis-stream-ops__metric">
-              <span className="label">Rate/s</span>
-              <span className="value">{rateStats.rate.toFixed(1)}</span>
-            </div>
-            <div className="redis-stream-ops__metric">
-              <span className="label">{t("database.redisOps.catchUpHours")}</span>
-              <span className="value">
-                {rateStats.catchUpHours != null ? rateStats.catchUpHours.toFixed(1) : "—"}
+      ) : (
+        <div className="redis-stream-ops__workspace">
+          <aside className="redis-stream-ops__groups-pane">
+            <div className="redis-stream-ops__pane-head">
+              <span className="redis-stream-ops__pane-title" title={selectedGroup ?? undefined}>
+                {selectedGroup ?? t("database.redisOps.groups")}
               </span>
+              <span className="redis-stream-ops__pane-count">{snapshot?.groups.length ?? 0}</span>
             </div>
-          </>
-        ) : null}
-      </div>
+            <DbTablesPanelGrid
+              variant="processlist"
+              className="db-tables-panel-grid--fit redis-stream-ops__groups-grid"
+              columns={groupColumns}
+              rows={snapshot?.groups ?? []}
+              rowKey={(g) => g.name}
+              selectedRowKey={selectedGroup}
+              onRowClick={(g) => setSelectedGroup(g.name)}
+            />
+          </aside>
 
-      <div className="redis-stream-ops__section">
-        <div className="redis-stream-ops__section-title">{t("database.redisOps.groups")}</div>
-        <DbTablesPanelGrid
-          variant="processlist"
-          className="db-tables-panel-grid--fit"
-          columns={groupColumns}
-          rows={snapshot?.groups ?? []}
-          rowKey={(g) => g.name}
-          selectedRowKey={selectedGroup}
-          onRowClick={(g) => setSelectedGroup(g.name)}
-        />
-      </div>
+          <div className="redis-stream-ops__detail-pane">
+            <div className="redis-stream-ops__detail-split">
+              <section className="redis-stream-ops__sub-pane">
+                <div className="redis-stream-ops__pane-head">
+                  <span className="redis-stream-ops__pane-title">{t("database.redisOps.consumers")}</span>
+                  {selectedConsumer ? (
+                    <>
+                      <span className="redis-stream-ops__pane-count" title={selectedConsumer}>
+                        {selectedConsumer}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="redis-stream-ops__context-clear"
+                        onClick={() => setSelectedConsumer(null)}
+                      >
+                        {t("database.redisOps.clearConsumerFilter")}
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="redis-stream-ops__pane-hint">
+                      {t("database.redisOps.consumersHint")}
+                    </span>
+                  )}
+                </div>
+                <DbTablesPanelGrid
+                  variant="processlist"
+                  className="db-tables-panel-grid--fit"
+                  columns={consumerColumns}
+                  rows={snapshot?.consumers ?? []}
+                  rowKey={(c) => c.name}
+                  selectedRowKey={selectedConsumer}
+                  onRowClick={(c) =>
+                    setSelectedConsumer(selectedConsumer === c.name ? null : c.name)
+                  }
+                />
+              </section>
 
-      <div className="redis-stream-ops__section">
-        <div className="redis-stream-ops__section-title">{t("database.redisOps.consumers")}</div>
-        <DbTablesPanelGrid
-          variant="processlist"
-          className="db-tables-panel-grid--fit"
-          columns={consumerColumns}
-          rows={snapshot?.consumers ?? []}
-          rowKey={(c) => c.name}
-        />
-      </div>
-
-      <div className="redis-stream-ops__section">
-        <div className="redis-stream-ops__section-title">Pending</div>
-        <DbTablesPanelGrid
-          variant="processlist"
-          className="db-tables-panel-grid--fit"
-          columns={pendingColumns}
-          rows={pending}
-          rowKey={(p) => p.id}
-        />
-      </div>
+              <section className="redis-stream-ops__sub-pane">
+                <div className="redis-stream-ops__pane-head">
+                  <span className="redis-stream-ops__pane-title">Pending</span>
+                  <span className="redis-stream-ops__pane-count">{filteredPending.length}</span>
+                  {selectedConsumer ? (
+                    <span className="redis-stream-ops__pane-hint">
+                      {t("database.redisOps.pendingFiltered")}
+                    </span>
+                  ) : null}
+                </div>
+                <DbTablesPanelGrid
+                  variant="processlist"
+                  className="db-tables-panel-grid--fit"
+                  columns={pendingColumns}
+                  rows={filteredPending}
+                  rowKey={(p) => p.id}
+                  onRowClick={(p) => setSelectedConsumer(p.consumer)}
+                />
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
 
       <RedisOpsDangerDialog
         open={destroyOpen}
@@ -358,6 +308,16 @@ export function RedisStreamOpsPanel({
         onCancel={() => setTrimOpen(false)}
         onConfirm={() => void handleTrim()}
       />
-    </div>
+      <RedisOpsDangerDialog
+        open={cleanupOpen}
+        title={t("database.redisOps.cleanupInactive")}
+        description={t("database.redisOps.cleanupInactiveDesc")}
+        command={`XGROUP DELCONSUMER ${streamKey} ${selectedGroup ?? ""} <inactive>`}
+        confirmPhrase={selectedGroup ?? "CLEANUP"}
+        onCancel={() => setCleanupOpen(false)}
+        onConfirm={() => void handleCleanup()}
+      />
+      </div>
+    </>
   );
 }

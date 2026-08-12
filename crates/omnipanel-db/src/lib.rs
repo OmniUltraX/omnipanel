@@ -51,8 +51,9 @@ pub use redis::{
     RedisSlowLogEntry,
 };
 pub use redis_ops::{
-    RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer, RedisStreamEntry,
-    RedisStreamGroup, RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
+    RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer,
+    RedisStreamConsumerCleanupResult, RedisStreamEntry, RedisStreamGroup,
+    RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
 };
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
@@ -443,6 +444,19 @@ pub async fn redis_stream_trim(
 ) -> OmniResult<u64> {
     let driver = RedisDriver::connect(params).await?;
     driver.stream_trim(key, maxlen, approximate).await
+}
+
+pub async fn redis_stream_cleanup_inactive_consumers(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+    idle_threshold_ms: u64,
+    target_consumer: Option<&str>,
+) -> OmniResult<RedisStreamConsumerCleanupResult> {
+    let driver = RedisDriver::connect(params).await?;
+    driver
+        .stream_cleanup_inactive_consumers(key, group, idle_threshold_ms, target_consumer)
+        .await
 }
 
 pub async fn redis_acl_list(params: &DbParams) -> OmniResult<Vec<RedisAclUser>> {

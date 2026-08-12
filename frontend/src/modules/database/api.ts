@@ -348,8 +348,11 @@ export async function redisDbsize(connection: DbConnectionConfig): Promise<numbe
 export async function redisKeyDetail(
   connection: DbConnectionConfig,
   key: string,
+  options?: { quiet?: boolean },
 ): Promise<RedisKeyDetail> {
-  const result = await unwrapCommand(commands.dbRedisKeyDetail(ipcConn(connection), key));
+  const result = await unwrapCommand(commands.dbRedisKeyDetail(ipcConn(connection), key), {
+    quiet: options?.quiet,
+  });
   return {
     key: result.key,
     keyType: result.keyType,
@@ -430,6 +433,12 @@ export interface RedisStreamMonitorSnapshot {
   groups: RedisStreamGroup[];
   consumers: RedisStreamConsumer[];
   sampledAt: number;
+}
+
+export interface RedisStreamConsumerCleanupResult {
+  removedConsumers: string[];
+  claimedPending: number;
+  failed: string[];
 }
 
 export interface RedisAclUser {
@@ -581,6 +590,29 @@ export async function redisStreamTrim(
       commands.dbRedisStreamTrim(ipcConn(connection), key, maxlen, approximate),
     )) ?? 0
   );
+}
+
+export async function redisStreamCleanupInactiveConsumers(
+  connection: DbConnectionConfig,
+  key: string,
+  group: string,
+  idleThresholdMs = 300_000,
+  targetConsumer?: string | null,
+): Promise<RedisStreamConsumerCleanupResult> {
+  const result = await unwrapCommand(
+    commands.dbRedisStreamCleanupInactiveConsumers(
+      ipcConn(connection),
+      key,
+      group,
+      idleThresholdMs,
+      targetConsumer ?? null,
+    ),
+  );
+  return {
+    removedConsumers: result.removedConsumers ?? [],
+    claimedPending: result.claimedPending ?? 0,
+    failed: result.failed ?? [],
+  };
 }
 
 export async function redisAclList(connection: DbConnectionConfig): Promise<RedisAclUser[]> {

@@ -43,6 +43,7 @@ import { RedisPubSubPanel } from "../../protocol/RedisPubSubPanel";
 
 const SCAN_BATCH_LIMIT = 1000;
 const FETCH_ALL_HARD_LIMIT = 10000;
+const KEY_LIST_AUTO_REFRESH_MS = 30_000;
 const ALL_KEY_TYPES = ["string", "list", "set", "zset", "hash", "stream"] as const;
 
 type SearchScope = "key" | "value" | "all";
@@ -71,6 +72,7 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
   );
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
   const [autoLoad, setAutoLoad] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [entries, setEntries] = useState<RedisKeyEntry[]>([]);
   const [scanCursor, setScanCursor] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -232,6 +234,37 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
     }
   }, [fetchKeys, refreshDbsize]);
 
+  const refreshKeyList = useCallback(
+    async (options?: { silent?: boolean; preserveSelection?: boolean }) => {
+      if (
+        searchingRef.current ||
+        loadingMoreRef.current ||
+        fetchingAllRef.current
+      ) {
+        return;
+      }
+      const silent = options?.silent ?? true;
+      const preserveSelection = options?.preserveSelection ?? true;
+      if (!preserveSelection) {
+        setSelectedKey(null);
+      }
+      if (!silent) {
+        setSearching(true);
+        setError(null);
+        setHitFetchAllLimit(false);
+      }
+      try {
+        await refreshDbsize();
+        await fetchKeys({ cursor: 0, append: false });
+      } finally {
+        if (!silent) {
+          setSearching(false);
+        }
+      }
+    },
+    [fetchKeys, refreshDbsize],
+  );
+
   const loadMore = useCallback(
     async (options?: { silent?: boolean }) => {
       if (
@@ -311,6 +344,16 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
     }
     void loadMore({ silent: true });
   }, [loadMore]);
+
+  useEffect(() => {
+    if (!capable || !autoRefresh) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void refreshKeyList({ silent: true, preserveSelection: true });
+    }, KEY_LIST_AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [capable, autoRefresh, refreshKeyList]);
 
   useEffect(() => {
     if (!capable) {
@@ -447,6 +490,16 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
       void refreshDbsize();
     },
     [refreshDbsize],
+  );
+
+  const handleKeyMissing = useCallback(
+    (key: string) => {
+      setSelectedKey((current) => (current === key ? null : current));
+      setEntries((prev) => prev.filter((entry) => entry.key !== key));
+      void refreshDbsize();
+      void refreshKeyList({ silent: true, preserveSelection: true });
+    },
+    [refreshDbsize, refreshKeyList],
   );
 
   const handleSelectKey = useCallback((key: string) => {
@@ -591,6 +644,14 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
             </button>
             <button
               type="button"
+              className={`redis-query-chip${autoRefresh ? " active" : ""}`}
+              onClick={() => setAutoRefresh((v) => !v)}
+              title={t("database.redisQuery.autoRefreshHint")}
+            >
+              {t("database.redisQuery.autoRefresh")}
+            </button>
+            <button
+              type="button"
               className="redis-query-chip"
               onClick={() => void runSearch()}
               disabled={busy}
@@ -662,6 +723,7 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
               selectedKey={selectedKey}
               active={rightTab === "detail"}
               onDeleted={handleDeleted}
+              onKeyMissing={handleKeyMissing}
             />
           </div>
           <div

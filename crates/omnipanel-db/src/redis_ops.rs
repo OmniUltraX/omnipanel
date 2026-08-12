@@ -83,6 +83,16 @@ pub struct RedisStreamMonitorSnapshot {
     pub sampled_at: u64,
 }
 
+/// 清理非活跃消费者结果。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamConsumerCleanupResult {
+    pub removed_consumers: Vec<String>,
+    #[specta(type = f64)]
+    pub claimed_pending: u64,
+    pub failed: Vec<String>,
+}
+
 /// Stream 条目。
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -390,6 +400,130 @@ pub async fn stream_group_destroy(
         .await
         .map_err(map_redis_err)?;
     Ok(())
+}
+
+pub async fn stream_group_delconsumer(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    group: &str,
+    consumer: &str,
+) -> OmniResult<()> {
+    let _: u64 = redis::cmd("XGROUP")
+        .arg("DELCONSUMER")
+        .arg(key)
+        .arg(group)
+        .arg(consumer)
+        .query_async(conn)
+        .await
+        .map_err(map_redis_err)?;
+    Ok(())
+}
+
+pub async fn stream_claim_ids(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    group: &str,
+    consumer: &str,
+    min_idle_ms: u64,
+    ids: &[String],
+) -> OmniResult<u64> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let mut cmd = redis::cmd("XCLAIM");
+    cmd.arg(key).arg(group).arg(consumer).arg(min_idle_ms);
+    for id in ids {
+        cmd.arg(id);
+    }
+    let claimed: redis::Value = cmd.query_async(conn).await.map_err(map_redis_err)?;
+    Ok(parse_xclaim_count(claimed))
+}
+
+pub async fn stream_pending_for_consumer(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    group: &str,
+    consumer: &str,
+    count: usize,
+) -> OmniResult<Vec<RedisStreamPendingEntry>> {
+    let count = count.clamp(1, 200);
+    let value: redis::Value = redis::cmd("XPENDING")
+        .arg(key)
+        .arg(group)
+        .arg("-")
+        .arg("+")
+        .arg(count)
+        .arg(consumer)
+        .query_async(conn)
+        .await
+        .map_err(map_redis_err)?;
+    Ok(parse_stream_pending(value))
+}
+
+/// 清理 idle 超过阈值的消费者：Pending 先 XCLAIM 到活跃消费者，再 DELCONSUMER。
+pub async fn stream_cleanup_inactive_consumers(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    group: &str,
+    idle_threshold_ms: u64,
+    target_consumer: Option<&str>,
+) -> OmniResult<RedisStreamConsumerCleanupResult> {
+    let consumers = stream_consumers(conn, key, group).await?;
+    let target = target_consumer
+        .map(|s| s.to_string())
+        .or_else(|| {
+            consumers
+                .iter()
+                .find(|c| c.idle_ms.map(|v| v < idle_threshold_ms).unwrap_or(true))
+                .map(|c| c.name.clone())
+        });
+
+    let mut removed_consumers = Vec::new();
+    let mut failed = Vec::new();
+    let mut claimed_pending = 0u64;
+
+    for consumer in &consumers {
+        let idle = consumer.idle_ms.unwrap_or(0);
+        if idle < idle_threshold_ms {
+            continue;
+        }
+        if target.as_deref() == Some(consumer.name.as_str()) {
+            continue;
+        }
+
+        if let Some(ref tgt) = target {
+            loop {
+                let pending =
+                    stream_pending_for_consumer(conn, key, group, &consumer.name, 100).await?;
+                if pending.is_empty() {
+                    break;
+                }
+                let ids: Vec<String> = pending.iter().map(|p| p.id.clone()).collect();
+                let n = stream_claim_ids(conn, key, group, tgt, 0, &ids).await?;
+                claimed_pending += n;
+                if n == 0 {
+                    break;
+                }
+            }
+        } else if consumer.pending.unwrap_or(0) > 0 {
+            failed.push(format!(
+                "{}: 存在 Pending 且无可用活跃消费者接管",
+                consumer.name
+            ));
+            continue;
+        }
+
+        match stream_group_delconsumer(conn, key, group, &consumer.name).await {
+            Ok(()) => removed_consumers.push(consumer.name.clone()),
+            Err(e) => failed.push(format!("{}: {e}", consumer.name)),
+        }
+    }
+
+    Ok(RedisStreamConsumerCleanupResult {
+        removed_consumers,
+        claimed_pending,
+        failed,
+    })
 }
 
 pub async fn stream_trim(
@@ -744,21 +878,51 @@ fn parse_stream_consumers(value: redis::Value) -> Vec<RedisStreamConsumer> {
     match value {
         redis::Value::Array(items) => items
             .into_iter()
-            .filter_map(|item| {
-                let map = parse_stream_map(item);
-                if map.is_empty() {
-                    return None;
-                }
-                let idle_ms = map.get("idle").and_then(|v| v.parse().ok());
-                Some(RedisStreamConsumer {
-                    name: map.get("name").cloned().unwrap_or_default(),
-                    pending: map.get("pending").and_then(|v| v.parse().ok()),
-                    idle_ms,
-                    active: idle_ms.map(|v| v < 60_000).unwrap_or(false),
-                })
-            })
+            .filter_map(parse_stream_consumer)
             .collect(),
         _ => Vec::new(),
+    }
+}
+
+fn parse_stream_consumer(item: redis::Value) -> Option<RedisStreamConsumer> {
+    let map = parse_stream_map(item.clone());
+    let (name, pending, idle_ms) = if let Some(name) = map.get("name").filter(|s| !s.is_empty()) {
+        (
+            name.clone(),
+            map.get("pending").and_then(|v| v.parse().ok()),
+            map.get("idle").and_then(|v| v.parse().ok()),
+        )
+    } else if let redis::Value::Array(parts) = item {
+        if parts.len() < 3 {
+            return None;
+        }
+        let first = redis_value_to_string(&parts[0]);
+        if first.eq_ignore_ascii_case("name") {
+            return None;
+        }
+        (
+            first,
+            redis_value_to_string(&parts[1]).parse().ok(),
+            redis_value_to_string(&parts[2]).parse().ok(),
+        )
+    } else {
+        return None;
+    };
+    if name.is_empty() {
+        return None;
+    }
+    Some(RedisStreamConsumer {
+        name,
+        pending,
+        idle_ms,
+        active: idle_ms.map(|v| v < 60_000).unwrap_or(false),
+    })
+}
+
+fn parse_xclaim_count(value: redis::Value) -> u64 {
+    match value {
+        redis::Value::Array(items) => items.len() as u64,
+        _ => 0,
     }
 }
 

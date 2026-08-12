@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
@@ -15,9 +15,18 @@ import { connectionWithDatabase } from "../toolbox/types";
 import { TableDataGrid, type TableDataGridActiveCell } from "../grid/TableDataGrid";
 import { CellEditorPanel, type CellEditorPanelHandle } from "../cell_editor";
 import { RedisStreamOpsPanel } from "./RedisStreamOpsPanel";
+import { RedisStreamMonitorStrip } from "./RedisStreamMonitorStrip";
+import { useRedisStreamMonitor } from "./useRedisStreamMonitor";
 import { RedisKeyCrudToolbar } from "./RedisKeyCrudToolbar";
+import { RedisStringValueView } from "./RedisBinaryValueView";
+import { formatRedisKeyDetailError, isRedisKeyNotFoundError } from "./redisKeyErrors";
 
 type StreamDetailTab = "entries" | "ops";
+
+/** 底部单元格预览：与表预览底栏一致（px 字符串供 react-resizable-panels） */
+const REDIS_CELL_EDITOR_DEFAULT_SIZE = "280px";
+const REDIS_CELL_EDITOR_MIN_SIZE = "180px";
+const REDIS_GRID_MIN_SIZE = "120px";
 
 interface RedisKeyDetailPanelProps {
   connection: DbConnectionConfig;
@@ -25,6 +34,7 @@ interface RedisKeyDetailPanelProps {
   selectedKey: string | null;
   active?: boolean;
   onDeleted?: (key: string) => void;
+  onKeyMissing?: (key: string) => void;
 }
 
 function formatBytes(size: number | null | undefined): string {
@@ -93,6 +103,7 @@ export function RedisKeyDetailPanel({
   selectedKey,
   active = true,
   onDeleted,
+  onKeyMissing,
 }: RedisKeyDetailPanelProps) {
   const { t } = useI18n();
   const capable = isRedisConnection(connection);
@@ -111,6 +122,13 @@ export function RedisKeyDetailPanel({
     [connection, dbName],
   );
 
+  const isStreamKey = detail?.keyType === "stream";
+  const streamMonitor = useRedisStreamMonitor({
+    connection: scopedConnection,
+    streamKey: isStreamKey && detail ? detail.key : null,
+    enabled: active && Boolean(isStreamKey && detail?.key),
+  });
+
   const refresh = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!capable || !selectedKey) {
@@ -123,12 +141,18 @@ export function RedisKeyDetailPanel({
       }
       setError(null);
       try {
-        const next = await redisKeyDetail(scopedConnection, selectedKey);
+        const next = await redisKeyDetail(scopedConnection, selectedKey, { quiet: true });
         setDetail(next);
       } catch (e) {
-        setError(typeof e === "string" ? e : JSON.stringify(e));
-        if (!silent) {
+        if (isRedisKeyNotFoundError(e)) {
+          onKeyMissing?.(selectedKey);
           setDetail(null);
+          setError(t("database.redisQuery.keyMissing", { key: selectedKey }));
+        } else {
+          setError(formatRedisKeyDetailError(e));
+          if (!silent) {
+            setDetail(null);
+          }
         }
       } finally {
         if (!silent) {
@@ -136,7 +160,7 @@ export function RedisKeyDetailPanel({
         }
       }
     },
-    [capable, selectedKey, scopedConnection],
+    [capable, selectedKey, scopedConnection, onKeyMissing, t],
   );
 
   useEffect(() => {
@@ -323,14 +347,94 @@ export function RedisKeyDetailPanel({
     />
   ) : null;
 
+  const streamTabBar =
+    detail.keyType === "stream" ? (
+      <div
+        className="redis-key-detail-stream-tabs"
+        role="tablist"
+        aria-label={`${t("database.redisOps.streamEntries")} / ${t("database.redisOps.streamOps")}`}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={streamTab === "entries"}
+          className={`redis-key-detail-stream-tab${streamTab === "entries" ? " is-active" : ""}`}
+          onClick={() => setStreamTab("entries")}
+        >
+          {t("database.redisOps.streamEntries")}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={streamTab === "ops"}
+          className={`redis-key-detail-stream-tab${streamTab === "ops" ? " is-active" : ""}`}
+          onClick={() => setStreamTab("ops")}
+        >
+          {t("database.redisOps.streamOps")}
+        </button>
+      </div>
+    ) : null;
+
+  const renderStreamChrome = (toolbar?: ReactNode) => (
+    <div className="redis-key-detail-stream-chrome">
+      {streamTabBar}
+      {toolbar ? <div className="redis-key-detail-stream-chrome__toolbar">{toolbar}</div> : null}
+    </div>
+  );
+
+  const streamEntriesPanel =
+    stringValue != null ? (
+      <RedisStringValueView value={stringValue} sizeBytes={detail?.sizeBytes} />
+    ) : tableGrid ? (
+      <DockLayout direction="vertical" className="redis-key-detail-split">
+        <DockPanel minSize={REDIS_GRID_MIN_SIZE}>
+          <div className="redis-key-detail-grid-pane">{tableGrid}</div>
+        </DockPanel>
+        <DockHandle direction="vertical" />
+        <DockPanel
+          defaultSize={REDIS_CELL_EDITOR_DEFAULT_SIZE}
+          minSize={REDIS_CELL_EDITOR_MIN_SIZE}
+          collapsible
+          collapsedSize={0}
+          panelRef={cellEditorPanelRef}
+          onResize={handleCellEditorPanelResize}
+          className="dock-panel-bottom db-cell-editor-dock-bottom"
+        >
+          <CellEditorPanel
+            ref={cellEditorRef}
+            cellKey={activeCellKey}
+            columnName={editorColumnName}
+            columnType={editorColumnType}
+            currentValue={activeCellValue}
+            selectionCount={activeCell ? 1 : 0}
+            editorOpen={!cellEditorCollapsed}
+            readOnly
+            onApply={handlePreviewApply}
+          />
+        </DockPanel>
+      </DockLayout>
+    ) : (
+      <pre className="redis-key-detail-string">{JSON.stringify(parsedValue, null, 2)}</pre>
+    );
+
   return (
-    <div className="redis-key-detail">
+    <div className={`redis-key-detail${detail.keyType === "stream" ? " redis-key-detail--stream" : ""}`}>
       <div className="redis-key-detail-header">
         <div className="redis-key-detail-name" title={detail.key}>
           {detail.key}
         </div>
         <div className="redis-key-detail-actions">
-          <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              void refresh();
+              if (detail.keyType === "stream") {
+                void streamMonitor.refresh();
+              }
+            }}
+            disabled={loading}
+          >
             {t("common.refresh")}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => void handleCopy()}>
@@ -346,63 +450,70 @@ export function RedisKeyDetailPanel({
           </Button>
         </div>
       </div>
-      <div className="redis-key-detail-meta">
-        <span className="redis-key-type-badge">{detail.keyType.toUpperCase()}</span>
-        <span>
-          {t("database.redisQuery.sizeLabel")}: {formatBytes(detail.sizeBytes)}
-        </span>
-        <span>{formatTtl(detail.ttl, t)}</span>
-      </div>
-      <RedisKeyCrudToolbar
-        connection={scopedConnection}
-        keyName={detail.key}
-        keyType={detail.keyType}
-        onChanged={() => void refresh({ silent: true })}
-      />
       {detail.keyType === "stream" ? (
-        <div className="redis-key-detail-stream-tabs" role="tablist">
-          <button
-            type="button"
-            className={`db-toolbox-tab${streamTab === "entries" ? " active" : ""}`}
-            onClick={() => setStreamTab("entries")}
-          >
-            {t("database.redisOps.streamEntries")}
-          </button>
-          <button
-            type="button"
-            className={`db-toolbox-tab${streamTab === "ops" ? " active" : ""}`}
-            onClick={() => setStreamTab("ops")}
-          >
-            {t("database.redisOps.streamOps")}
-          </button>
+        <div className="redis-key-detail-meta redis-key-detail-meta--stream">
+          <div className="redis-key-detail-meta-primary">
+            <span className="redis-key-type-badge">{detail.keyType.toUpperCase()}</span>
+            <span>{formatBytes(detail.sizeBytes)}</span>
+            <span>{formatTtl(detail.ttl, t)}</span>
+          </div>
+          <RedisStreamMonitorStrip monitor={streamMonitor} />
         </div>
+      ) : (
+        <div className="redis-key-detail-meta">
+          <span className="redis-key-type-badge">{detail.keyType.toUpperCase()}</span>
+          <span>
+            {t("database.redisQuery.sizeLabel")}: {formatBytes(detail.sizeBytes)}
+          </span>
+          <span>{formatTtl(detail.ttl, t)}</span>
+        </div>
+      )}
+      {detail.keyType !== "stream" ? (
+        <RedisKeyCrudToolbar
+          connection={scopedConnection}
+          keyName={detail.key}
+          keyType={detail.keyType}
+          onChanged={() => void refresh({ silent: true })}
+        />
       ) : null}
       {error ? <div className="redis-key-detail-inline-error">{error}</div> : null}
       <div
-        className={`redis-key-detail-body${tableGrid && detail.keyType !== "stream" ? " redis-key-detail-body--grid" : ""}`}
+        className={`redis-key-detail-body${
+          detail.keyType === "stream" ? " redis-key-detail-body--stream" : ""
+        }${
+          tableGrid && (detail.keyType !== "stream" || streamTab === "entries")
+            ? " redis-key-detail-body--grid"
+            : ""
+        }${detail.keyType === "stream" && streamTab === "ops" ? " redis-key-detail-body--stream-ops" : ""}`}
       >
         {detail.keyType === "stream" && streamTab === "ops" ? (
           <RedisStreamOpsPanel
             connection={scopedConnection}
             streamKey={detail.key}
-            active={active}
+            monitor={streamMonitor}
+            renderChrome={(toolbar) => renderStreamChrome(toolbar)}
           />
+        ) : detail.keyType === "stream" ? (
+          <>
+            {renderStreamChrome()}
+            <div className="redis-key-detail-stream-panel">{streamEntriesPanel}</div>
+          </>
         ) : stringValue != null ? (
-          <pre className="redis-key-detail-string">{stringValue}</pre>
+          <RedisStringValueView value={stringValue} sizeBytes={detail.sizeBytes} />
         ) : tableGrid ? (
           <DockLayout direction="vertical" className="redis-key-detail-split">
-            <DockPanel defaultSize={68} minSize={120}>
+            <DockPanel minSize={REDIS_GRID_MIN_SIZE}>
               <div className="redis-key-detail-grid-pane">{tableGrid}</div>
             </DockPanel>
             <DockHandle direction="vertical" />
             <DockPanel
-              defaultSize={32}
-              minSize={100}
+              defaultSize={REDIS_CELL_EDITOR_DEFAULT_SIZE}
+              minSize={REDIS_CELL_EDITOR_MIN_SIZE}
               collapsible
               collapsedSize={0}
               panelRef={cellEditorPanelRef}
               onResize={handleCellEditorPanelResize}
-              className="dock-panel-bottom"
+              className="dock-panel-bottom db-cell-editor-dock-bottom"
             >
               <CellEditorPanel
                 ref={cellEditorRef}
@@ -426,10 +537,6 @@ export function RedisKeyDetailPanel({
       {detail.valueTruncated ? (
         <div className="redis-key-detail-footer">
           {t("database.redisQuery.valueTruncated")}
-        </div>
-      ) : detail.keyType === "string" && stringValue?.startsWith("\\x") ? (
-        <div className="redis-key-detail-footer">
-          {t("database.redisQuery.binaryReadonly")}
         </div>
       ) : null}
     </div>

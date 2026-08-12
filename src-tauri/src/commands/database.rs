@@ -5,8 +5,9 @@ use std::time::Duration;
 use omnipanel_db::{
     DbParams, MongoDriver, QueryResult, RedisAclUser, RedisInfoResult, RedisKeyDetail,
     RedisMemoryStats, RedisSearchKeysResult, RedisSlowLogEntry, RedisStreamConsumer,
-    RedisStreamGroup, RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
-    mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
+    RedisStreamConsumerCleanupResult, RedisStreamGroup, RedisStreamMonitorSnapshot,
+    RedisStreamPendingEntry, RedisStreamRangeResult, mongodb_list_databases, mysql_connect_options,
+    qdrant_list_databases, redis_stream_cleanup_inactive_consumers,
 };
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
@@ -3206,6 +3207,30 @@ pub async fn db_redis_stream_trim(
     )
     .await
     .map(|n| n as f64)
+    .map_err(err_msg)
+}
+
+/// Redis 清理非活跃 Stream 消费者（转移 Pending + DELCONSUMER）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_cleanup_inactive_consumers(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+    idle_threshold_ms: f64,
+    target_consumer: Option<String>,
+) -> Result<RedisStreamConsumerCleanupResult, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    redis_stream_cleanup_inactive_consumers(
+        &to_params(&connection),
+        &key,
+        &group,
+        idle_threshold_ms as u64,
+        target_consumer.as_deref(),
+    )
+    .await
     .map_err(err_msg)
 }
 

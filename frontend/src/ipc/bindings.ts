@@ -134,6 +134,7 @@ export const commands = {
 	dbRedisStreamGroupCreate: (connection: DbConnectionConfig, key: string, group: string, id: string, mkstream: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_create", { connection, key, group, id, mkstream })),
 	dbRedisStreamGroupDestroy: (connection: DbConnectionConfig, key: string, group: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_destroy", { connection, key, group })),
 	dbRedisStreamTrim: (connection: DbConnectionConfig, key: string, maxlen: number, approximate: boolean | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_trim", { connection, key, maxlen, approximate })),
+	dbRedisStreamCleanupInactiveConsumers: (connection: DbConnectionConfig, key: string, group: string, idleThresholdMs: number, targetConsumer: string | null) => typedError<RedisStreamConsumerCleanupResult_Serialize, string>(__TAURI_INVOKE("db_redis_stream_cleanup_inactive_consumers", { connection, key, group, idleThresholdMs, targetConsumer })),
 	dbRedisAclList: (connection: DbConnectionConfig) => typedError<RedisAclUser_Serialize[], string>(__TAURI_INVOKE("db_redis_acl_list", { connection })),
 	dbRedisAclGetuser: (connection: DbConnectionConfig, username: string) => typedError<RedisAclUser_Serialize, string>(__TAURI_INVOKE("db_redis_acl_getuser", { connection, username })),
 	dbRedisAclSetuser: (connection: DbConnectionConfig, username: string, rule: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_acl_setuser", { connection, username, rule })),
@@ -4288,6 +4289,12 @@ export type RedisStreamMonitorSnapshot_Serialize = {
 	groups: RedisStreamGroup_Serialize[],
 	consumers?: RedisStreamConsumer_Serialize[],
 	sampledAt: number | null,
+};
+
+export type RedisStreamConsumerCleanupResult_Serialize = {
+	removedConsumers: string[],
+	claimedPending: number | null,
+	failed: string[],
 };
 
 export type RedisAclUser_Serialize = {
