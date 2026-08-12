@@ -19,7 +19,7 @@ fn home_dir() -> OmniResult<PathBuf> {
 fn ssh_keygen_command() -> Command {
     #[cfg(windows)]
     {
-        let mut cmd = Command::new("ssh-keygen.exe");
+        let cmd = Command::new("ssh-keygen.exe");
         cmd
     }
     #[cfg(not(windows))]

@@ -51,22 +51,23 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **SSH / SFTP** | Connection manager, SFTP, tunnels, jump hosts; **tmux** remote session governance |
 | **Files** | Local / remote browsing, favorites, **cross-connection transfer** |
 | **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools, multi-engine support |
-| **Docker** | Local / remote Engine / SSH host / 1Panel — containers, images, Compose, networks, volumes |
+| **Docker** | Local / remote Engine / SSH host / 1Panel / **BT Panel** — containers, images, Compose, networks, volumes |
 | **Server** | Host monitor; **BT Panel / 1Panel** (sites, apps, certs, cron); **cloud vendors** |
 | **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |
 | **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |
 | **Workflow / Tasks** | Templates, runbooks, task center, Quick Launcher, auditable execution |
+| **Workspace** | **Custom monitor panels** and pluggable small widgets (host / Docker / MySQL / Redis) |
 
-### Recent highlights (v0.7.x)
+### Recent highlights (v0.8.x)
 
 | Area | Highlights |
 |------|------------|
+| **Custom monitor panels** | Drag-and-drop grid panels with host / Docker / MySQL / Redis widgets |
+| **Docker · BT Panel** | BT Panel Docker source, SSH one-click import, sidebar folders |
+| **Redis** | Visual ops for Streams and richer key preview |
+| **Database** | Copyable table identity chip; empty filter clears rows; macOS grid scroll fix |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
 | **Panel integration** | BT Panel / 1Panel domains (sites·apps·certs·cron); 1Panel v1/v2 compatible |
-| **SSH / Files** | tmux remote session governance; cross-connection transfer and large log preview |
-| **Terminal AI** | Passthrough shell agent, Plan / ask_user cards, dangerous-command confirmation |
-| **Database** | Sidebar SQL query, virtual-scroll grid, NL2SQL, full-schema search |
-| **Security** | Vault keyring credentials, device-code sync, secret redaction |
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md).
 

@@ -54,7 +54,11 @@ describe("applyTablePreviewDataProgressive", () => {
     });
 
     expect(previews[tabId]?.data?.rows).toEqual([]);
-    expect(getTablePreviewRowCache(tabId)).toBeUndefined();
+    expect(getTablePreviewRowCache(tabId)).toEqual({
+      name: "",
+      columns: [],
+      rows: [],
+    });
   });
 
   it("phase1 does not keep old rows when columns change in canvas mode", async () => {

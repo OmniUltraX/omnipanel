@@ -361,6 +361,7 @@ impl OnePanelClient {
 /// 1Panel Docker 适配器。
 pub struct OnePanelAdapter {
     client: OnePanelClient,
+    #[allow(dead_code)]
     connection_id: String,
     ssh: Arc<SshSession>,
 }

@@ -61,6 +61,8 @@ pub(crate) fn cloud_secret_ref(connection_id: &str) -> String {
     format!("cloud-secret-{connection_id}")
 }
 
+#[allow(dead_code)]
+/// 桌面端保存已内联同类逻辑；保留供服务端统一规范化云连接（Secret 入 Vault、config 脱敏）复用。
 pub(crate) fn normalize_cloud_connection(mut connection: Connection) -> Result<Connection, OmniError> {
     if connection.kind != ConnectionKind::Cloud {
         return Ok(connection);
@@ -162,7 +164,7 @@ async fn http_for_aliyun(endpoint: &str) -> Result<reqwest::Client, OmniError> {
 }
 
 pub async fn cloud_test(
-    state: &ServerState,
+    _state: &ServerState,
     connection: Connection,
     secret: Option<String>,
 ) -> Result<String, OmniError> {

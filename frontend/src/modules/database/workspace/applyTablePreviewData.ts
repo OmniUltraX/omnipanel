@@ -11,7 +11,6 @@ import {
   clearTablePreviewRowCache,
   patchTablePreviewRowCacheRows,
   resetTablePreviewRowCache,
-  setTablePreviewRowCache,
 } from "./tablePreviewRowCache";
 
 type TablePreviewsMap = Record<string, TablePreviewState>;
@@ -175,7 +174,8 @@ export async function applyTablePreviewDataProgressive(
   if (isStale()) return;
 
   if (isEmpty) {
-    setTablePreviewRowCache(tabId, null);
+    // 写空 cache 并 notify，避免 delete 后 Canvas 回退到仍滞后的 displayRows（#47）
+    resetTablePreviewRowCache(tabId);
     return;
   }
 

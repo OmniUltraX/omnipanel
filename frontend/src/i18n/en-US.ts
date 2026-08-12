@@ -2951,6 +2951,8 @@ export const enUS: TranslationDict = {
       columnCount: "{count} fields",
       copyTableNameHint: "Click to copy table name: {name}",
       copyTableNameDone: "Table name copied",
+      copyQualifiedTableNameHint: "Click to copy table identifier: {name}",
+      copyQualifiedTableNameDone: "Table identifier copied",
       copyDatabaseNameHint: "Click to copy database name: {name}",
       copyDatabaseNameDone: "Database name copied",
       copyTableIdentityFailed: "Copy failed",

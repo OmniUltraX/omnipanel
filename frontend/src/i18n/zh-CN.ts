@@ -2938,6 +2938,8 @@ export const zhCN = {
       columnCount: "{count} 字段",
       copyTableNameHint: "点击复制表名：{name}",
       copyTableNameDone: "已复制表名",
+      copyQualifiedTableNameHint: "点击复制表标识：{name}",
+      copyQualifiedTableNameDone: "已复制表标识",
       copyDatabaseNameHint: "点击复制库名：{name}",
       copyDatabaseNameDone: "已复制库名",
       copyTableIdentityFailed: "复制失败",
