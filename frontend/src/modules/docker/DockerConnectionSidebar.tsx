@@ -19,8 +19,10 @@ export interface DockerConnectionSidebarProps {
   connections: DockerConnectionInfo[];
   loading?: boolean;
   refreshingAll?: boolean;
+  importingFromSsh?: boolean;
   onNavigate: DockerSidebarNavigate;
   onCreate: () => void;
+  onImportFromSsh?: () => void;
   onRefreshAll?: () => void;
   onEditConnection?: (connection: DockerConnectionInfo) => void;
   onDeleteConnection?: (connectionIds: string | string[]) => void;
@@ -31,8 +33,10 @@ export const DockerConnectionSidebar = memo(function DockerConnectionSidebar({
   connections,
   loading,
   refreshingAll,
+  importingFromSsh,
   onNavigate,
   onCreate,
+  onImportFromSsh,
   onRefreshAll,
   onEditConnection,
   onDeleteConnection,
@@ -66,9 +70,11 @@ export const DockerConnectionSidebar = memo(function DockerConnectionSidebar({
           activeNavKey={activeNavKey}
           loading={loading}
           refreshingAll={refreshingAll}
+          importingFromSsh={importingFromSsh}
           searchQuery={searchQuery}
           onNavigate={onNavigate}
           onCreate={onCreate}
+          onImportFromSsh={onImportFromSsh}
           onRefreshAll={onRefreshAll}
           onEditConnection={onEditConnection}
           onDeleteConnection={onDeleteConnection}

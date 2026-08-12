@@ -827,6 +827,10 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
         "docker_list_connections" => {
             respond(crate::docker::docker_list_connections(state).await)
         }
+        "docker_get_connection_secret" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond_omni(crate::docker::docker_get_connection_secret(state, id).await)
+        }
         "docker_probe_connection" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             respond(crate::docker::docker_probe_connection(state, connection_id).await)

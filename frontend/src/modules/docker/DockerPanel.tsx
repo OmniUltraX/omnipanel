@@ -18,6 +18,7 @@ import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmpty
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { importDockerFromSshConnections } from "./importDockerFromSsh";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { usePoolConnectionRegistration } from "../../stores/connectionPoolStore";
@@ -43,6 +44,9 @@ import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
+import {
+  dockerConnectionMissingRequiredBoundSsh,
+} from "./dockerConnectionSource";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
 import {
   isDockerComposeTab,
@@ -119,6 +123,8 @@ export function DockerPanel() {
   }, [moduleLive, sidebarCacheHydrated, hydrateSidebarCache]);
 
   const [refreshingAllCaches, setRefreshingAllCaches] = useState(false);
+  const [importingFromSsh, setImportingFromSsh] = useState(false);
+  const saveStoredConnection = useConnectionStore((s) => s.save);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
     y: number;
@@ -187,6 +193,7 @@ export function DockerPanel() {
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
   const [showAddConn, setShowAddConn] = useState(false);
   const [editDockerConnection, setEditDockerConnection] = useState<Connection | undefined>();
+  const [editDockerStatusHint, setEditDockerStatusHint] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const connectionById = useMemo(() => {
@@ -252,6 +259,19 @@ export function DockerPanel() {
 
   const handleNavigate = useCallback(
     (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "permanent") => {
+      const connection = connectionById.get(target.connectionId);
+      if (connection && dockerConnectionMissingRequiredBoundSsh(connection)) {
+        const stored = storedConnections.find((c) => c.id === connection.connectionId);
+        if (!stored) {
+          showToast(t("docker.sidebar.editFailed"));
+          return;
+        }
+        setEditDockerStatusHint(t("docker.sidebar.bindSshRequiredHint"));
+        setEditDockerConnection(stored);
+        setShowAddConn(true);
+        return;
+      }
+
       // 先同步开 Tab（transition 保侧栏反馈），数据由 panel isActive 后异步拉取
       openDockTabNow({
         applyTabSync: () => {
@@ -281,7 +301,15 @@ export function DockerPanel() {
         },
       });
     },
-    [selectConnection, selectContainer, selectCompose, setActiveNavKey],
+    [
+      connectionById,
+      selectConnection,
+      selectContainer,
+      selectCompose,
+      setActiveNavKey,
+      storedConnections,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -314,6 +342,7 @@ export function DockerPanel() {
       showToast(t("docker.sidebar.editFailed"));
       return;
     }
+    setEditDockerStatusHint(null);
     setEditDockerConnection(conn);
     setShowAddConn(true);
   };
@@ -362,6 +391,38 @@ export function DockerPanel() {
       setRefreshingAllCaches(false);
     }
   }, [connectionById, connections, refreshingAllCaches, t]);
+
+  const handleImportFromSsh = useCallback(async () => {
+    if (importingFromSsh) return;
+    setImportingFromSsh(true);
+    try {
+      const result = await importDockerFromSshConnections({
+        connections: storedConnections,
+        saveConn: saveStoredConnection,
+      });
+      await reloadConnections();
+      if (result.added > 0) {
+        showToast(
+          t("docker.sidebar.importFromSshDone", {
+            added: String(result.added),
+            skipped: String(result.skipped),
+          }),
+        );
+      } else if (result.errors[0]) {
+        showToast(result.errors[0]);
+      } else {
+        showToast(t("docker.sidebar.importFromSshEmpty"));
+      }
+    } catch (error) {
+      showToast(
+        t("docker.sidebar.importFromSshFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    } finally {
+      setImportingFromSsh(false);
+    }
+  }, [importingFromSsh, reloadConnections, saveStoredConnection, storedConnections, t]);
 
   const dockerDeepLinkHandledRef = useRef(false);
   useEffect(() => {
@@ -574,11 +635,13 @@ export function DockerPanel() {
               connections={visibleConnections}
               loading={connectionsLoading}
               refreshingAll={refreshingAllCaches}
+              importingFromSsh={importingFromSsh}
               onNavigate={handleNavigate}
               onCreate={() => {
                 setEditDockerConnection(undefined);
                 setShowAddConn(true);
               }}
+              onImportFromSsh={() => void handleImportFromSsh()}
               onRefreshAll={() => void handleRefreshAllCaches()}
               onEditConnection={handleEditDockerConnection}
               onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
@@ -636,12 +699,15 @@ export function DockerPanel() {
             onClose={() => {
               setShowAddConn(false);
               setEditDockerConnection(undefined);
+              setEditDockerStatusHint(null);
             }}
             editConnection={editDockerConnection}
+            statusHint={editDockerStatusHint}
             onSaved={(connection) => {
               void reloadConnections();
               refreshDockerConnectionSidebarCache(connection.id);
               setEditDockerConnection(undefined);
+              setEditDockerStatusHint(null);
             }}
           />
         </Suspense>

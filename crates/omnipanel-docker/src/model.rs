@@ -17,7 +17,7 @@ pub enum DockerConnectionSource {
     SshEngine,
     /// 通过 1Panel 面板 API 适配。
     OnePanel,
-    /// 预留：宝塔 / Portainer 等其他面板 API。
+    /// 宝塔（BT Panel）面板 API 适配。
     PanelAdapter,
 }
 
@@ -27,8 +27,9 @@ impl DockerConnectionSource {
             "local-engine" => Self::LocalEngine,
             "remote-engine" => Self::RemoteEngine,
             "ssh-engine" => Self::SshEngine,
-            "onepanel" => Self::OnePanel,
-            "panel-adapter" => Self::PanelAdapter,
+            "onepanel" | "one-panel" => Self::OnePanel,
+            // 宝塔：对外序列化为 panel-adapter；配置亦可写 btpanel / baota
+            "panel-adapter" | "btpanel" | "baota" => Self::PanelAdapter,
             _ => Self::LocalEngine,
         }
     }
@@ -105,6 +106,22 @@ impl DockerCapabilities {
             can_prune: true,
             read_only: false,
             source: DockerConnectionSource::OnePanel,
+        }
+    }
+
+    /// 宝塔适配器能力：近似 1Panel（列表 / 基础启停；无日志流 / exec / 高级构建）。
+    pub fn btpanel() -> Self {
+        Self {
+            can_overview: true,
+            can_stream_logs: false,
+            can_container_exec: false,
+            can_inspect: false,
+            can_manage_containers: true,
+            can_manage_images: true,
+            can_compose: true,
+            can_prune: false,
+            read_only: false,
+            source: DockerConnectionSource::PanelAdapter,
         }
     }
 }

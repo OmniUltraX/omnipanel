@@ -1958,8 +1958,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       if (transposedRef.current) return;
       const cached = getTablePreviewRowCache(rowSourceTabId);
       if (!cached) {
-        // cache 空：仅在 React 侧仍有行时回退（同表刷新保留旧画）；
-        // rows 已清空则画空，避免 bump notify 抢在重渲前把旧表画到新表头（#44）
+        // cache 被 clear（同表刷新）：React 侧仍有行时回退保留旧画。
+        // rows 已清空则画空，避免 bump notify 抢在重渲前把旧表画到新表头（#44）。
+        // 过滤无匹配时 cache 为 reset 空占位（rows=[]），走下方 apply，不回退旧行（#47）。
         const fallback =
           displayRowsRef.current.length > 0 ? displayRowsRef.current : [];
         const mapped = mapRows(fallback);

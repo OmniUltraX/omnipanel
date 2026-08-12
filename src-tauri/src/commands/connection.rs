@@ -177,6 +177,27 @@ fn normalize_docker_or_panel_connection(
         }
     }
 
+    // Docker btpanel.apiKey（兼容 panel.apiKey）
+    let bt_api_key = value
+        .pointer("/btpanel/apiKey")
+        .or_else(|| value.pointer("/panel/apiKey"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(api_key) = bt_api_key {
+        let cred_ref = format!("docker-btpanel-{id}");
+        Vault::store(&cred_ref, &api_key)?;
+        if connection.credential_ref.is_none() {
+            connection.credential_ref = Some(cred_ref);
+        }
+        if let Some(op) = value.get_mut("btpanel").and_then(|v| v.as_object_mut()) {
+            op.insert("apiKey".into(), Value::String(String::new()));
+        }
+        if let Some(op) = value.get_mut("panel").and_then(|v| v.as_object_mut()) {
+            op.insert("apiKey".into(), Value::String(String::new()));
+        }
+    }
+
     // Docker 内嵌 ssh.auth.password / pem
     if let Some(auth) = value
         .pointer_mut("/ssh/auth")
@@ -288,6 +309,8 @@ pub async fn conn_delete(state: State<'_, AppState>, id: String) -> Result<(), O
         delete_connection_vault_secrets(&conn);
         // Docker 专用钥匙串
         let _ = Vault::delete(&format!("docker-onepanel-{}", conn.id));
+        let _ = Vault::delete(&format!("docker-btpanel-{}", conn.id));
+        let _ = Vault::delete(&format!("docker-btpanel-session-{}", conn.id));
         let _ = Vault::delete(&format!("docker-ssh-password-{}", conn.id));
         let _ = Vault::delete(&format!("docker-ssh-pem-{}", conn.id));
         let _ = Vault::delete(&format!("docker-ssh-passphrase-{}", conn.id));

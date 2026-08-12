@@ -1,5 +1,6 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "@/i18n";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { SidebarTreeEmpty, SidebarTreeNode } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo, DockerContainerSummary } from "@/ipc/bindings";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
@@ -19,6 +20,10 @@ import {
 } from "./dockerTreeSearch";
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { dockerSidebarCategoryRefreshKey } from "./dockerSidebarCache";
+import {
+  confirmAndDownComposeProject,
+  confirmAndRemoveDockerContainer,
+} from "./dockerTreeDestructiveActions";
 
 type DockerContainersTreeBranchProps = {
   connection: DockerConnectionInfo;
@@ -34,6 +39,10 @@ type DockerContainersTreeBranchProps = {
   onRefreshCategory: () => void;
 };
 
+type TreeContextTarget =
+  | { kind: "compose"; project: string }
+  | { kind: "container"; container: DockerContainerSummary };
+
 export function DockerContainersTreeBranch({
   connection,
   containers,
@@ -48,6 +57,9 @@ export function DockerContainersTreeBranch({
   onRefreshCategory,
 }: DockerContainersTreeBranchProps) {
   const { t } = useI18n();
+  const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
+  const [ctxTarget, setCtxTarget] = useState<TreeContextTarget | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const composeProjectGroups = useMemo(
     () =>
@@ -97,6 +109,69 @@ export function DockerContainersTreeBranch({
     [connectionNameMatch, searchQuery, t],
   );
 
+  const openContextMenu = useCallback((event: ReactMouseEvent, target: TreeContextTarget) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setActionError(null);
+    setCtxPos({ x: event.clientX, y: event.clientY });
+    setCtxTarget(target);
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setCtxPos(null);
+    setCtxTarget(null);
+  }, []);
+
+  const ctxItems = useMemo<ContextMenuItem[]>(() => {
+    if (!ctxTarget) return [];
+    if (ctxTarget.kind === "compose") {
+      const project = ctxTarget.project;
+      return [
+        {
+          id: "compose-down",
+          label: t("docker.composePanel.down"),
+          danger: true,
+          onClick: () => {
+            void (async () => {
+              try {
+                await confirmAndDownComposeProject({
+                  connectionId: connection.connectionId,
+                  project,
+                  t,
+                });
+              } catch (error) {
+                setActionError(String(error));
+              }
+            })();
+          },
+        },
+      ];
+    }
+    const container = ctxTarget.container;
+    const name = container.name || container.shortId || container.id.slice(0, 12);
+    return [
+      {
+        id: "container-remove",
+        label: t("docker.dockPanel.removeContainer"),
+        danger: true,
+        onClick: () => {
+          void (async () => {
+            try {
+              await confirmAndRemoveDockerContainer({
+                connectionId: connection.connectionId,
+                containerId: container.id,
+                containerName: name,
+                t,
+              });
+            } catch (error) {
+              setActionError(String(error));
+            }
+          })();
+        },
+      },
+    ];
+  }, [connection.connectionId, ctxTarget, t]);
+
   const openComposeProject = (project: string, mode?: DockerConnectionDockOpenMode) => {
     ensureExpanded(makeDockerTreeKey(connection.connectionId));
     ensureExpanded(makeDockerComposeProjectTreeKey(connection.connectionId, project));
@@ -144,6 +219,7 @@ export function DockerContainersTreeBranch({
         }
         onToggle={() => {}}
         onActivate={() => openItem("permanent")}
+        onContextMenu={(event) => openContextMenu(event, { kind: "container", container })}
         trailing={
           <div className="tree-node-actions">
             <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
@@ -171,6 +247,11 @@ export function DockerContainersTreeBranch({
 
   return (
     <>
+      {actionError ? (
+        <div className="form-hint" role="alert" style={{ color: "var(--danger, #ef4444)", marginBottom: 8 }}>
+          {actionError}
+        </div>
+      ) : null}
       {visibleComposeProjects.map((group) => {
         const projectKey = makeDockerComposeProjectTreeKey(connection.connectionId, group.project);
         const projectExpanded = isExpanded(projectKey);
@@ -192,6 +273,9 @@ export function DockerContainersTreeBranch({
               active={activeNavKey === projectKey}
               onToggle={() => toggle(projectKey)}
               onActivate={() => openComposeProject(group.project, "permanent")}
+              onContextMenu={(event) =>
+                openContextMenu(event, { kind: "compose", project: group.project })
+              }
               shouldIgnoreClick={(target) =>
                 Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
               }
@@ -222,6 +306,10 @@ export function DockerContainersTreeBranch({
         getKey={(container) => container.id}
         renderItem={(container) => renderContainerNode(container, 1)}
       />
+
+      {ctxPos ? (
+        <ContextMenu items={ctxItems} position={ctxPos} onClose={closeContextMenu} />
+      ) : null}
     </>
   );
 }

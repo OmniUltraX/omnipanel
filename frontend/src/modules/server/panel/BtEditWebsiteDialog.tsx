@@ -61,11 +61,13 @@ export function BtEditWebsiteDialog({
     void (async () => {
       try {
         const client = createBtPanelClient(server.address, server.key, server.id);
-        const [versions, phpInfo, sites] = await Promise.all([
-          client.getPhpVersions().catch(() => [] as BtPhpVersion[]),
-          client.getSitePhpVersion(siteName).catch(() => ({}) as Record<string, unknown>),
-          client.getWebsiteList({ limit: 200 }).catch(() => ({ data: [] })),
-        ]);
+        const versions = await client.getPhpVersions().catch(() => [] as BtPhpVersion[]);
+        const phpInfo = await client
+          .getSitePhpVersion(siteName)
+          .catch(() => ({}) as Record<string, unknown>);
+        const sites = await client
+          .getWebsiteList({ limit: 200 })
+          .catch(() => ({ data: [] as { id?: number; ps?: string }[] }));
         if (cancelled) return;
         setPhpVersions(versions);
         const current =

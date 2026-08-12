@@ -211,7 +211,12 @@ export function TablePreviewTopBar({
   previewSqlTitle,
 }: TablePreviewTopBarProps) {
   const { t } = useI18n();
-  const [copiedHint, setCopiedHint] = useState<"table" | "database" | null>(null);
+  const [copiedHint, setCopiedHint] = useState<"qualified" | "table" | "database" | null>(null);
+  const qualifiedTableName =
+    databaseName && tableName
+      ? `${databaseName}.${tableName}`
+      : tableName ?? databaseName ?? "";
+  const canCopyQualified = Boolean(databaseName && tableName);
   const canDiscard = dirtyCount > 0 && !isCommitting;
   const pageSizeOptions = TABLE_PREVIEW_PAGE_SIZE_OPTIONS.includes(
     pageSize as (typeof TABLE_PREVIEW_PAGE_SIZE_OPTIONS)[number],
@@ -229,7 +234,7 @@ export function TablePreviewTopBar({
     : t("database.results.commitDirty", { count: dirtyCount });
 
   const handleCopyIdentity = useCallback(
-    async (kind: "table" | "database", value: string) => {
+    async (kind: "qualified" | "table" | "database", value: string) => {
       const ok = await copyText(value);
       if (!ok) {
         showToast(t("database.results.copyTableIdentityFailed"));
@@ -240,9 +245,11 @@ export function TablePreviewTopBar({
         setCopiedHint((prev) => (prev === kind ? null : prev));
       }, 1200);
       showToast(
-        kind === "table"
-          ? t("database.results.copyTableNameDone")
-          : t("database.results.copyDatabaseNameDone"),
+        kind === "qualified"
+          ? t("database.results.copyQualifiedTableNameDone")
+          : kind === "table"
+            ? t("database.results.copyTableNameDone")
+            : t("database.results.copyDatabaseNameDone"),
       );
     },
     [t],
@@ -437,7 +444,34 @@ export function TablePreviewTopBar({
 
       {showIdentity ? (
         <div className="db-table-topbar-identity" aria-label={t("database.results.tableIdentity")}>
-          {tableName ? (
+          {canCopyQualified ? (
+            <span
+              className="db-table-topbar-identity__chip db-table-topbar-identity__chip--table"
+              role="button"
+              tabIndex={0}
+              title={
+                copiedHint === "qualified"
+                  ? t("database.results.copyQualifiedTableNameDone")
+                  : t("database.results.copyQualifiedTableNameHint", { name: qualifiedTableName })
+              }
+              aria-label={t("database.results.copyQualifiedTableNameHint", {
+                name: qualifiedTableName,
+              })}
+              onClick={() => {
+                // 拖选文本时不抢复制，方便框选后 Ctrl/Cmd+C
+                if (window.getSelection()?.toString()) return;
+                void handleCopyIdentity("qualified", qualifiedTableName);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void handleCopyIdentity("qualified", qualifiedTableName);
+                }
+              }}
+            >
+              {qualifiedTableName}
+            </span>
+          ) : tableName ? (
             <span
               className="db-table-topbar-identity__chip db-table-topbar-identity__chip--table"
               role="button"
@@ -462,8 +496,7 @@ export function TablePreviewTopBar({
             >
               {tableName}
             </span>
-          ) : null}
-          {databaseName ? (
+          ) : databaseName ? (
             <span
               className="db-table-topbar-identity__chip db-table-topbar-identity__chip--muted"
               role="button"

@@ -202,5 +202,9 @@ pub async fn docker_host_run_cli(
             ErrorCode::InvalidInput,
             "1Panel 连接暂不支持在宿主机执行 docker CLI",
         )),
+        DockerTarget::BtPanel(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "宝塔连接暂不支持在宿主机执行 docker CLI",
+        )),
     }
 }

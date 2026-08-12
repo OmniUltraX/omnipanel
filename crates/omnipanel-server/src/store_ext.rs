@@ -5,7 +5,6 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
-use base64::Engine;
 use omnipanel_assistant::{
     fetch_oss_sts, get_object_bytes_optional, upload_object_bytes,
 };
@@ -176,7 +175,7 @@ fn load_local_meta() -> Result<Option<LocalVaultMeta>, OmniError> {
 
 fn save_local_meta(salt: &[u8]) -> Result<(), OmniError> {
     use base64::Engine;
-    let meta = LocalVaultMeta {
+        let meta = LocalVaultMeta {
         salt_b64: base64::engine::general_purpose::STANDARD.encode(salt),
         updated_at: now_ms(),
     };
@@ -331,7 +330,7 @@ async fn collect_secret_entries(state: &ServerState) -> Result<Vec<SecretsVaultE
         ssh_password_ref, ssh_pem_ref,
     };
     let mut entries = Vec::new();
-    let mut push_entry = |entries: &mut Vec<SecretsVaultEntry>, reference: String, kind: &str, label: &str| {
+    let push_entry = |entries: &mut Vec<SecretsVaultEntry>, reference: String, kind: &str, label: &str| {
         if let Ok(value) = Vault::get(&reference) {
             if !value.is_empty() {
                 entries.push(SecretsVaultEntry {
@@ -454,7 +453,7 @@ pub async fn secrets_vault_push(
 }
 
 pub async fn secrets_vault_pull(
-    state: &ServerState,
+    _state: &ServerState,
     request: SecretsVaultPullRequest,
 ) -> Result<SecretsVaultPullResult, OmniError> {
     let password = normalize_device_code(&request.device_code)?;

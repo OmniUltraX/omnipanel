@@ -73,6 +73,16 @@
         flex-shrink: 0;
     }
 
+    .docker-sidebar-tree-wrap {
+        min-height: 120px;
+        flex: 1;
+    }
+
+    .docker-tree-drop-target {
+        outline: 1px dashed var(--accent, #3b82f6);
+        background: color-mix(in srgb, var(--accent, #3b82f6) 12%, transparent);
+    }
+
     .docker-tree-image-size {
         font-variant-numeric: tabular-nums;
         white-space: nowrap;

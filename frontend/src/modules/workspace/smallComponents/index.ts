@@ -40,7 +40,22 @@ export {
   resolveSelectedSizeValue,
   sizePresetValue,
 } from "./SizeSelect";
+export { SmallComponentScaleSelect } from "./ScaleSelect";
+export {
+  applyWidgetScale,
+  DEFAULT_WIDGET_SCALE,
+  inferWidgetScale,
+  normalizeWidgetScale,
+  resolveBaseSizePreset,
+  sizeBoundsWithScale,
+  WIDGET_SCALE_FACTORS,
+  type WidgetScale,
+} from "./widgetScale";
 export { formatWidgetSizeLabel, resolveWidgetSizeId } from "./formatWidgetSizeLabel";
+export {
+  DatabaseSchemaTargetSelect,
+  type DatabaseSchemaTargetSelectProps,
+} from "./DatabaseSchemaTargetSelect";
 export {
   DockerTargetSelect,
   type DockerTargetSelectProps,
@@ -50,3 +65,5 @@ export {
 import "./serverResourceMonitor/ServerResourceMonitorWidget";
 import "./dockerContainerMonitor/DockerContainerMonitorWidget";
 import "./dockerComposeMonitor/DockerComposeMonitorWidget";
+import "./mysqlOverview/MysqlOverviewWidget";
+import "./redisOverview/RedisOverviewWidget";

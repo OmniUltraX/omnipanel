@@ -56,6 +56,8 @@ export interface SmallComponentClass {
   readonly sizes: readonly SmallComponentSize[];
   /** 数据源类型；省略则无需选择连接 */
   readonly dataSourceKind?: SmallComponentDataSourceKind;
+  /** database 数据源按引擎过滤（如 mysql / mariadb） */
+  readonly dataSourceDbTypes?: readonly string[];
   /** 二级目标类型；省略则无需二级选择 */
   readonly targetKind?: import("./types").SmallComponentTargetKind;
   readonly View: ComponentType<SmallComponentRenderProps>;
@@ -158,6 +160,7 @@ export function definitionFromSmallComponentClass(
     descriptionKey: Cls.descriptionKey,
     sizes: Cls.sizes,
     dataSourceKind: Cls.dataSourceKind ?? null,
+    dataSourceDbTypes: Cls.dataSourceDbTypes,
     targetKind: Cls.targetKind ?? null,
     component: bindSmallComponentView(Cls),
     createInstance: (ctx) => new Cls(ctx),

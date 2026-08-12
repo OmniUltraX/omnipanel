@@ -13,7 +13,7 @@ import type { ServerEntry } from "@/modules/server/panel/serverConnection";
 import { findSshForPanel, parseSshConfig } from "@/modules/server/panel/serverConnection";
 import { dashboardToHostStats } from "./panelMonitorStats";
 import { createOnePanelClient } from "@/lib/onepanel";
-import { createBtPanelClient } from "@/lib/btpanel";
+import { createBtPanelClient, isBtPanelAuthFailureMessage } from "@/lib/btpanel";
 import type { OnePanelDashboardBase } from "@/lib/onepanel/types";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { commands } from "@/ipc/bindings";
@@ -93,7 +93,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
       : null;
 
   const refreshDashboardCurrent = useCallback(
-    async (options?: { silent?: boolean }) => {
+    async (options?: { silent?: boolean }): Promise<"ok" | "auth" | "error"> => {
       try {
         if (server.serviceType === "1panel") {
           const op = createOnePanelClient(server.address, server.key, server.id);
@@ -103,11 +103,10 @@ export function ServerMonitorTab({ server, active = true }: Props) {
           );
         } else {
           const bt = createBtPanelClient(server.address, server.key, server.id);
-          const [total, network, disks] = await Promise.all([
-            bt.getSystemTotal(),
-            bt.getNetwork(),
-            bt.getDiskInfo(),
-          ]);
+          // 串行：避免每 2s 并发 3 路把宝塔验证失败计数打满
+          const total = await bt.getSystemTotal();
+          const network = await bt.getNetwork();
+          const disks = await bt.getDiskInfo();
           const memPct = total.memTotal ? ((total.memRealUsed ?? 0) / total.memTotal) * 100 : 0;
           const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
           const rootDisk = disks[0];
@@ -143,13 +142,22 @@ export function ServerMonitorTab({ server, active = true }: Props) {
         if (!options?.silent) {
           setError(null);
         }
+        return "ok";
       } catch (e) {
-        if (!options?.silent) {
-          setError(String(e));
+        const msg = String(e);
+        const auth =
+          server.serviceType === "bt" && isBtPanelAuthFailureMessage(msg);
+        // 鉴权/封禁始终展示，避免静默轮询把状态藏起来
+        if (!options?.silent || auth) {
+          setError(msg);
         }
+        if (auth) {
+          return "auth";
+        }
+        return "error";
       }
     },
-    [server.address, server.key, server.serviceType],
+    [server.address, server.id, server.key, server.serviceType],
   );
 
   const load = useCallback(async () => {
@@ -184,11 +192,29 @@ export function ServerMonitorTab({ server, active = true }: Props) {
     if (!pollingActive) {
       return;
     }
-    void refreshDashboardCurrent();
-    const timer = window.setInterval(() => {
-      void refreshDashboardCurrent({ silent: true });
+    let stopped = false;
+    let timer: number | null = null;
+
+    const tick = async (silent: boolean) => {
+      if (stopped) return;
+      const result = await refreshDashboardCurrent({ silent });
+      if (stopped) return;
+      // 鉴权/封禁后停轮询，避免每 2s 继续打宝塔验证计数
+      if (result === "auth") {
+        stopped = true;
+        if (timer != null) window.clearInterval(timer);
+        return;
+      }
+    };
+
+    void tick(false);
+    timer = window.setInterval(() => {
+      void tick(true);
     }, DASHBOARD_POLL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      stopped = true;
+      if (timer != null) window.clearInterval(timer);
+    };
   }, [pollingActive, refreshDashboardCurrent, server.id]);
 
   useEffect(() => {

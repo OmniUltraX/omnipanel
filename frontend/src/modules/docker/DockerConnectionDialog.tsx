@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useMemo, useState } from "react";
 import { FormDialog } from "../../components/ui/form/FormDialog";
 import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { Select } from "../../components/ui/form/Select";
@@ -7,38 +6,24 @@ import { TextInput } from "../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { sanitizeSshGroupInput } from "../../lib/sshGroups";
 import type { Connection } from "../../ipc/bindings";
+import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { useI18n } from "../../i18n";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 import { BrandIconImg } from "../server/brandIcons";
-
-/** Backend type from docker_probe_ssh_docker */
-interface DockerAutoDetectResult {
-  available: boolean;
-  version?: string;
-  os?: string;
-  containers: number;
-  images: number;
-  error?: string;
-}
-
-/** Backend type from docker_list_ssh_hosts */
-interface SshHostInfo {
-  connectionId: string;
-  name: string;
-  host: string;
-  port: number;
-  user: string;
-}
+import dockerBrandIcon from "../../assets/icons/docker.svg";
 
 interface DockerConnectionDialogProps {
   open: boolean;
   onClose: () => void;
   onSaved?: (connection: Connection) => void;
   editConnection?: Connection;
+  /** 打开编辑表单时的提示（如缺少绑定 SSH），展示在表单顶部 info 区 */
+  statusHint?: string | null;
 }
 
-type Source = "ssh-engine" | "onepanel";
+type Source = "ssh-engine" | "onepanel" | "btpanel";
 type SshAuth = "password" | "privateKey";
 
 interface DockerForm {
@@ -59,18 +44,10 @@ interface DockerForm {
   panelInsecure: boolean;
 }
 
-const ENV_OPTIONS: { value: string; label: string }[] = [
-  { value: "local", label: "本地" },
-  { value: "dev", label: "开发" },
-  { value: "staging", label: "预发" },
-  { value: "prod", label: "生产" },
-  { value: "unknown", label: "未标记" },
-];
-
 const EMPTY: DockerForm = {
   name: "",
   group: "默认",
-  envTag: "local",
+  envTag: "unknown",
   source: "ssh-engine",
   sshHost: "",
   sshPort: "22",
@@ -82,7 +59,7 @@ const EMPTY: DockerForm = {
   boundSshConnectionId: "",
   panelBaseUrl: "",
   panelApiKey: "",
-  panelInsecure: false,
+  panelInsecure: true,
 };
 
 function sshConfigFromConnection(conn: Connection): Record<string, unknown> | null {
@@ -131,6 +108,9 @@ function formToConfig(form: DockerForm, sshConnections: Connection[]): string {
   if (form.source === "onepanel") {
     return formToOnePanelConfig(form);
   }
+  if (form.source === "btpanel") {
+    return formToBtPanelConfig(form);
+  }
   // ssh-engine
   if (form.boundSshConnectionId.trim()) {
     const bound = sshConnections.find((c) => c.id === form.boundSshConnectionId.trim());
@@ -169,7 +149,22 @@ function formToOnePanelConfig(form: DockerForm): string {
   const cfg: Record<string, unknown> = {
     source: "onepanel",
     host: form.panelBaseUrl.trim(),
+    boundSshConnectionId: form.boundSshConnectionId.trim(),
     onepanel: {
+      baseUrl: form.panelBaseUrl.trim(),
+      apiKey: form.panelApiKey,
+      insecure: form.panelInsecure,
+    },
+  };
+  return JSON.stringify(cfg);
+}
+
+function formToBtPanelConfig(form: DockerForm): string {
+  const cfg: Record<string, unknown> = {
+    source: "btpanel",
+    host: form.panelBaseUrl.trim(),
+    boundSshConnectionId: form.boundSshConnectionId.trim(),
+    btpanel: {
       baseUrl: form.panelBaseUrl.trim(),
       apiKey: form.panelApiKey,
       insecure: form.panelInsecure,
@@ -213,13 +208,31 @@ function connectionToForm(conn: Connection): DockerForm {
     if (typeof cfg.boundSshConnectionId === "string") {
       base.boundSshConnectionId = cfg.boundSshConnectionId;
     }
-  } else if (source === "onepanel") {
+  } else if (source === "onepanel" || source === "one-panel") {
     base.source = "onepanel";
     const panel = cfg.onepanel as Record<string, unknown> | undefined;
     if (panel) {
       if (typeof panel.baseUrl === "string") base.panelBaseUrl = panel.baseUrl;
       base.panelApiKey = "";
       if (panel.insecure === true) base.panelInsecure = true;
+    }
+    if (typeof cfg.boundSshConnectionId === "string") {
+      base.boundSshConnectionId = cfg.boundSshConnectionId;
+    }
+  } else if (source === "btpanel" || source === "baota" || source === "panel-adapter") {
+    base.source = "btpanel";
+    const panel =
+      (cfg.btpanel as Record<string, unknown> | undefined) ??
+      (cfg.panel as Record<string, unknown> | undefined);
+    if (panel) {
+      if (typeof panel.baseUrl === "string") base.panelBaseUrl = panel.baseUrl;
+      base.panelApiKey = "";
+      if (panel.insecure === true) base.panelInsecure = true;
+    } else if (typeof cfg.host === "string") {
+      base.panelBaseUrl = cfg.host;
+    }
+    if (typeof cfg.boundSshConnectionId === "string") {
+      base.boundSshConnectionId = cfg.boundSshConnectionId;
     }
   }
   return base;
@@ -230,6 +243,7 @@ export function DockerConnectionDialog({
   onClose,
   onSaved,
   editConnection,
+  statusHint = null,
 }: DockerConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
@@ -239,9 +253,6 @@ export function DockerConnectionDialog({
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [connectedHosts, setConnectedHosts] = useState<SshHostInfo[]>([]);
-  const [detectResult, setDetectResult] = useState<DockerAutoDetectResult | null>(null);
-  const [detecting, setDetecting] = useState(false);
   const [sshManualMode, setSshManualMode] = useState(false);
   const [legacySourceNotice, setLegacySourceNotice] = useState<string | null>(null);
 
@@ -252,47 +263,9 @@ export function DockerConnectionDialog({
 
   const isEdit = !!editConnection?.id;
 
-  /** Load connected SSH hosts when dialog opens in ssh-engine mode */
-  const loadSshHosts = useCallback(async () => {
-    try {
-      const hosts = await invoke<SshHostInfo[]>("docker_list_ssh_hosts");
-      setConnectedHosts(hosts);
-    } catch {
-      setConnectedHosts([]);
-    }
-  }, []);
-
-  /** Probe selected SSH host for Docker daemon */
-  const handleDetectDocker = useCallback(async (sshConnectionId: string) => {
-    if (!sshConnectionId) return;
-    setDetecting(true);
-    setDetectResult(null);
-    try {
-      const result = await invoke<DockerAutoDetectResult>("docker_probe_ssh_docker", {
-        sshConnectionId,
-      });
-      setDetectResult(result);
-    } catch (e) {
-      setDetectResult({ available: false, containers: 0, images: 0, error: String(e) });
-    } finally {
-      setDetecting(false);
-    }
-  }, []);
-
-  /** Quick-fill from a connected SSH host */
-  const handleUseSshHost = useCallback((host: SshHostInfo) => {
-    setForm((prev) => ({
-      ...prev,
-      sshHost: host.host,
-      sshPort: String(host.port),
-      sshUser: host.user,
-      boundSshConnectionId: host.connectionId,
-    }));
-    setDetectResult(null);
-  }, []);
-
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     if (editConnection) {
       let cfgSource = "ssh-engine";
       try {
@@ -308,10 +281,26 @@ export function DockerConnectionDialog({
       setSshManualMode(!next.boundSshConnectionId);
       setLegacySourceNotice(
         cfgSource === "remote-engine"
-          ? "原「远程 Engine API 直连」已不再支持，请改用 SSH 宿主机或 1Panel 并重新保存。"
+          ? "原「远程 Engine API 直连」已不再支持，请改用 SSH 宿主机、1Panel 或宝塔并重新保存。"
           : null,
       );
       setTags(userConnectionTags(editConnection.tags));
+
+      // config 不存明文 API Key；编辑时从 Vault 回显
+      if (next.source === "onepanel" || next.source === "btpanel") {
+        void unwrapCommand(commands.dockerGetConnectionSecret(editConnection.id), {
+          quiet: true,
+        })
+          .then((secret) => {
+            if (cancelled || !secret.trim()) return;
+            setForm((prev) =>
+              prev.panelApiKey.trim() ? prev : { ...prev, panelApiKey: secret },
+            );
+          })
+          .catch(() => {
+            /* Vault 无密钥或读取失败：保持空，由用户填写 */
+          });
+      }
     } else {
       setForm(EMPTY);
       setSshManualMode(false);
@@ -320,10 +309,10 @@ export function DockerConnectionDialog({
     }
     setError(null);
     setSaving(false);
-    setDetectResult(null);
-    setDetecting(false);
-    loadSshHosts();
-  }, [open, editConnection, loadSshHosts]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editConnection]);
 
   if (!open) return null;
 
@@ -346,7 +335,14 @@ export function DockerConnectionDialog({
     }
     if (form.source === "onepanel") {
       if (!form.panelBaseUrl.trim()) return "请输入 1Panel 面板地址";
-      if (!form.panelApiKey.trim()) return "请输入 1Panel API Key";
+      // 编辑时留空表示保留 Vault 原密钥（异步回显前也可保存）
+      if (!isEdit && !form.panelApiKey.trim()) return "请输入 1Panel API Key";
+      if (!form.boundSshConnectionId.trim()) return "请绑定 SSH 连接（无面板接口时回退）";
+    }
+    if (form.source === "btpanel") {
+      if (!form.panelBaseUrl.trim()) return "请输入宝塔面板地址";
+      if (!isEdit && !form.panelApiKey.trim()) return "请输入宝塔 API Key";
+      if (!form.boundSshConnectionId.trim()) return "请绑定 SSH 连接（无面板接口时回退）";
     }
     return null;
   };
@@ -394,9 +390,11 @@ export function DockerConnectionDialog({
       status={
         error
           ? { kind: "error", message: error }
-          : legacySourceNotice
-            ? { kind: "info", message: legacySourceNotice }
-            : null
+          : statusHint
+            ? { kind: "info", message: statusHint }
+            : legacySourceNotice
+              ? { kind: "info", message: legacySourceNotice }
+              : null
       }
       primaryAction={{
         label: saving ? "保存中…" : "保存",
@@ -416,22 +414,47 @@ export function DockerConnectionDialog({
 
           <div className="form-field">
             <label className="form-label">引擎来源</label>
-            <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
               {(
                 [
                   { value: "ssh-engine" as const, label: "SSH 宿主机", hint: "在远端调用 docker CLI" },
                   { value: "onepanel" as const, label: "1Panel 面板", hint: "通过 /api/v2 调用" },
+                  { value: "btpanel" as const, label: "宝塔面板", hint: "面板地址 + API Key" },
                 ]
               ).map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   className={`engine-chip${form.source === opt.value ? " engine-chip--active" : ""}`}
-                  onClick={() => update("source", opt.value)}
+                  onClick={() => {
+                    setError(null);
+                    setForm((prev) => ({
+                      ...prev,
+                      source: opt.value,
+                      ...(opt.value === "btpanel" ? { panelInsecure: true } : {}),
+                    }));
+                  }}
                 >
+                  {opt.value === "ssh-engine" ? (
+                    <span className="engine-chip-icon">
+                      <img
+                        src={dockerBrandIcon}
+                        alt=""
+                        width={18}
+                        height={18}
+                        className="engine-chip-logo"
+                        draggable={false}
+                      />
+                    </span>
+                  ) : null}
                   {opt.value === "onepanel" ? (
                     <span className="engine-chip-icon">
                       <BrandIconImg kind="1panel" size={18} className="engine-chip-logo" />
+                    </span>
+                  ) : null}
+                  {opt.value === "btpanel" ? (
+                    <span className="engine-chip-icon">
+                      <BrandIconImg kind="bt" size={18} className="engine-chip-logo" />
                     </span>
                   ) : null}
                   <div className="engine-chip-title">{opt.label}</div>
@@ -440,16 +463,22 @@ export function DockerConnectionDialog({
               ))}
             </div>
             <p className="form-hint" style={{ marginTop: 8 }}>
-              本机 Docker 已默认可用，无需添加连接；此处仅配置远程 SSH 宿主机或 1Panel 面板。
+              本机 Docker 已默认可用，无需添加连接；此处配置远程 SSH、1Panel 或宝塔面板。
             </p>
           </div>
 
-          {form.source === "onepanel" && (
+          {(form.source === "onepanel" || form.source === "btpanel") && (
             <>
               <div className="form-field">
-                <label className="form-label">1Panel 面板地址</label>
+                <label className="form-label">
+                  {form.source === "btpanel" ? "宝塔面板地址" : "1Panel 面板地址"}
+                </label>
                 <TextInput
-                  placeholder="http://192.168.1.2:9999"
+                  placeholder={
+                    form.source === "btpanel"
+                      ? "http://192.168.1.2:8888"
+                      : "http://192.168.1.2:9999"
+                  }
                   value={form.panelBaseUrl}
                   onChange={(value) => update("panelBaseUrl", value)}
                   style={{ width: "100%" }}
@@ -459,11 +488,41 @@ export function DockerConnectionDialog({
                 <label className="form-label">API Key</label>
                 <PasswordInput
                   copyable
-                  placeholder="1Panel 面板设置中的 API Key"
+                  placeholder={
+                    isEdit
+                      ? "已保存则回显；留空表示保留原密钥"
+                      : form.source === "btpanel"
+                        ? "宝塔面板设置 → API 接口密钥"
+                        : "1Panel 面板设置中的 API Key"
+                  }
                   value={form.panelApiKey}
                   onChange={(value) => update("panelApiKey", value)}
                   style={{ width: "100%" }}
                 />
+              </div>
+              <div className="form-field">
+                <label className="form-label">绑定 SSH 连接</label>
+                {sshConnections.length > 0 ? (
+                  <>
+                    <Select
+                      className="input"
+                      value={form.boundSshConnectionId}
+                      onChange={(v) => update("boundSshConnectionId", v)}
+                      style={{ width: "100%" }}
+                      searchable={sshConnections.length >= 8}
+                      options={[
+                        { value: "", label: "请选择…" },
+                        ...sshConnections.map((c) => ({ value: c.id, label: c.name })),
+                      ]}
+                    />
+                    <p className="form-hint" style={{ marginTop: 6 }}>
+                      必填。面板有 HTTP 接口时走 API；无对应接口（如宝塔 Compose 配置/日志、stats）时回退到该
+                      SSH 上的 Docker。
+                    </p>
+                  </>
+                ) : (
+                  <p className="form-hint">请先在 SSH 模块添加主机连接，再绑定到此面板 Docker。</p>
+                )}
               </div>
               <div className="form-field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <input
@@ -474,10 +533,13 @@ export function DockerConnectionDialog({
                 />
                 <label htmlFor="panel-insecure" className="form-label" style={{ marginBottom: 0 }}>
                   允许 HTTPS 自签证书
+                  {form.source === "btpanel" ? "（宝塔建议开启）" : ""}
                 </label>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                1Panel 适配器已支持容器管理与 Compose 编排；暂不支持镜像 push/pull/build 与 stats 实时流。
+                {form.source === "btpanel"
+                  ? "容器/镜像/网络/卷等优先走宝塔 HTTP API；其余能力走绑定 SSH。"
+                  : "1Panel HTTP API 优先；无对应接口时走绑定 SSH。"}
               </div>
             </>
           )}
@@ -498,7 +560,6 @@ export function DockerConnectionDialog({
                       } else {
                         update("boundSshConnectionId", v);
                       }
-                      setDetectResult(null);
                     }}
                     style={{ width: "100%" }}
                     searchable={sshConnections.length >= 8}
@@ -512,74 +573,6 @@ export function DockerConnectionDialog({
               ) : (
                 <div className="form-hint" style={{ marginBottom: 8 }}>
                   暂无已配置的 SSH 连接，请先在 SSH 模块添加，或使用下方手动填写。
-                </div>
-              )}
-
-              {form.boundSshConnectionId && (
-                <div className="form-field">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ alignSelf: "flex-start" }}
-                    disabled={detecting}
-                    onClick={() => void handleDetectDocker(form.boundSshConnectionId)}
-                  >
-                    {detecting ? "探测中…" : "自动探测 Docker"}
-                  </button>
-                  {detectResult && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        padding: "8px 12px",
-                        borderRadius: 6,
-                        fontSize: 12,
-                        background: detectResult.available
-                          ? "rgba(34,197,94,0.1)"
-                          : "rgba(239,68,68,0.1)",
-                        border: `1px solid ${detectResult.available ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
-                        color: detectResult.available ? "#22c55e" : "#ef4444",
-                      }}
-                    >
-                      {detectResult.available ? (
-                        <>
-                          Docker 已安装 — 版本 <strong>{detectResult.version}</strong>
-                          {detectResult.os && <> · {detectResult.os}</>}
-                          <br />
-                          容器: {detectResult.containers} · 镜像: {detectResult.images}
-                        </>
-                      ) : (
-                        <>{detectResult.error || "Docker 未安装或不可用"}</>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {connectedHosts.length > 0 && (
-                <div className="form-field">
-                  <label className="form-label">已在线 SSH 主机（快速选择）</label>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {connectedHosts.map((h) => (
-                      <button
-                        key={h.connectionId}
-                        type="button"
-                        className="engine-chip"
-                        style={{ padding: "4px 10px", fontSize: 12 }}
-                        onClick={() => {
-                          const conn = sshConnections.find((c) => c.id === h.connectionId);
-                          if (conn) {
-                            setForm((prev) => applyBoundSshToForm(prev, conn));
-                            setSshManualMode(false);
-                          } else {
-                            handleUseSshHost(h);
-                          }
-                          setDetectResult(null);
-                        }}
-                      >
-                        {h.name} ({h.user}@{h.host}:{h.port})
-                      </button>
-                    ))}
-                  </div>
                 </div>
               )}
 
@@ -692,29 +685,6 @@ export function DockerConnectionDialog({
               )}
             </>
           )}
-
-          <div className="form-row">
-            <div className="form-field" style={{ flex: 1 }}>
-              <label className="form-label">环境标签</label>
-              <Select
-                className="input"
-                value={form.envTag}
-                onChange={(v) => update("envTag", v)}
-                style={{ width: "100%" }}
-                searchable={false}
-                options={ENV_OPTIONS}
-              />
-            </div>
-            <div className="form-field" style={{ flex: 1 }}>
-              <label className="form-label">分组</label>
-              <TextInput
-                placeholder="默认"
-                value={form.group}
-                onChange={(value) => update("group", value)}
-                style={{ width: "100%" }}
-              />
-            </div>
-          </div>
 
           <div className="form-section-title">{t("resourceTags.section")}</div>
           <GlobalTagEditor

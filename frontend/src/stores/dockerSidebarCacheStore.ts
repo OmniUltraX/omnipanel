@@ -12,6 +12,7 @@ import {
 } from "@/modules/docker/dockerSidebarCache";
 import { fetchDockerSidebarResources } from "@/modules/docker/dockerSidebarRefresh";
 import { warmComposeMetaFromContainers } from "@/modules/docker/dockerComposeApi";
+import { publishDockerSidebarRefreshFailed } from "@/modules/docker/dockerSidebarCacheStatusLog";
 
 /**
  * 侧栏资源（容器/镜像/网络/卷）缓存：后端 `~/.omnipd/docker/sidebar-cache.json` 持久化。
@@ -104,11 +105,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 function failedEntry(current: DockerSidebarCacheEntry, error: unknown): DockerSidebarCacheEntry {
+  const message = String(error);
+  publishDockerSidebarRefreshFailed(message);
   return {
     ...current,
     // 失败也写入 refreshedAt，结束「从未拉取」态，避免 UI 永久停在加载中
     refreshedAt: current.refreshedAt ?? Date.now(),
-    error: String(error),
+    error: message,
   };
 }
 

@@ -4,7 +4,7 @@ import { Button } from "../../../../components/ui/Button";
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
-import { createBtPanelClient } from "../../../../lib/btpanel";
+import { createBtPanelClient, isBtPanelAuthFailureMessage } from "../../../../lib/btpanel";
 import {
   createOnePanelClient,
   type OnePanelApp,
@@ -281,33 +281,52 @@ export function ServerAppsTab({ server }: Props) {
     void (async () => {
       const next: Record<string, string> = {};
       const failed: string[] = [];
-      await Promise.all(
-        missing.map(async (key) => {
-          try {
-            const app = cards.find((item) => item.key === key);
-            const url = isBt
-              ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(
-                  key,
-                  app?.icon,
-                )
-              : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(
-                  key,
-                );
-            // 非 data URL 在 WebView 中不可靠，视为失败走占位
-            if (url?.startsWith("data:") || url?.startsWith("blob:")) {
-              next[key] = url;
-              const iconKey = (app?.icon || "").trim();
-              if (iconKey) next[iconKey] = url;
-            } else {
-              failed.push(key);
-            }
-          } catch {
+      // 宝塔图标走鉴权下载：串行，避免一次挂载并发十几路把验证失败打满
+      const loadOne = async (key: string) => {
+        try {
+          const app = cards.find((item) => item.key === key);
+          const url = isBt
+            ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(
+                key,
+                app?.icon,
+              )
+            : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(
+                key,
+              );
+          // 非 data URL 在 WebView 中不可靠，视为失败走占位
+          if (url?.startsWith("data:") || url?.startsWith("blob:")) {
+            next[key] = url;
+            const iconKey = (app?.icon || "").trim();
+            if (iconKey) next[iconKey] = url;
+          } else {
             failed.push(key);
-          } finally {
-            iconInflightRef.current.delete(key);
           }
-        }),
-      );
+        } catch (err) {
+          failed.push(key);
+          if (isBt && isBtPanelAuthFailureMessage(String(err))) {
+            throw err;
+          }
+        } finally {
+          iconInflightRef.current.delete(key);
+        }
+      };
+
+      let stoppedByAuth = false;
+      try {
+        if (isBt) {
+          for (const key of missing) {
+            if (cancelled) break;
+            await loadOne(key);
+          }
+        } else {
+          await Promise.all(missing.map((key) => loadOne(key)));
+        }
+      } catch {
+        // 宝塔鉴权/封禁：已熔断，剩余图标不再请求
+        stoppedByAuth = true;
+        for (const key of missing) iconInflightRef.current.delete(key);
+      }
+
       if (cancelled) return;
       if (Object.keys(next).length > 0) {
         setServerAppIcons(server.id, next);
@@ -321,8 +340,10 @@ export function ServerAppsTab({ server }: Props) {
           return merged;
         });
       }
-      // 继续拉取下一批
-      setIconLoadTick((n) => n + 1);
+      // 鉴权失败后不再拉下一批，避免空转刷熔断错误
+      if (!stoppedByAuth) {
+        setIconLoadTick((n) => n + 1);
+      }
     })();
 
     return () => {

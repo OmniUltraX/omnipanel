@@ -18,6 +18,7 @@ import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
 } from "./dockerConnectionOffline";
+import { runWithDockerBoundSsh } from "./ensureDockerBoundSsh";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -146,16 +147,28 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     setLoading(true);
     setError(null);
     try {
-      // 顺序拉取：SSH 并发 list 易抢 exec 通道
-      const nextImages = await fetchImages(connection.connectionId);
-      const nextContainers = await fetchContainers(connection.connectionId);
-      startTransition(() => {
-        setImages(nextImages);
-        setContainers(nextContainers);
-      });
+      await runWithDockerBoundSsh(
+        connection.connectionId,
+        async () => {
+          // 顺序拉取：SSH 并发 list 易抢 exec 通道
+          const nextImages = await fetchImages(connection.connectionId);
+          const nextContainers = await fetchContainers(connection.connectionId);
+          startTransition(() => {
+            setImages(nextImages);
+            setContainers(nextContainers);
+          });
+        },
+        connection.boundSshConnectionId,
+      );
       refreshSidebarImages();
     } catch (err) {
-      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+      if (
+        err &&
+        typeof err === "object" &&
+        (err as { code?: string }).code === "cancelled"
+      ) {
+        setError(null);
+      } else if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
         setError(null);
       } else {
         setError(String(err));
@@ -163,7 +176,7 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     } finally {
       setLoading(false);
     }
-  }, [connection.connectionId, refreshSidebarImages]);
+  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebarImages]);
 
   useEffect(() => {
     // cache-first：切换连接时先灌入侧栏缓存，再由 isActive 触发后台 refresh，禁止同步清空

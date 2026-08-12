@@ -7030,6 +7030,8 @@
     .db-data-table-wrap--canvas {
         --db-grid-header-height: 28px;
         position: relative;
+        /* 禁止 Mac WebView 横向橡皮筋滚出列内容外的空白（#46） */
+        overscroll-behavior-x: none;
     }
 
     /* Canvas 模式：表头单独 sticky，body 用 sizer + 绝对定位 canvas */

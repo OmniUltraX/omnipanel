@@ -5,14 +5,11 @@ import { useDockerSidebarCacheStore } from "../../../stores/dockerSidebarCacheSt
 import { fetchComposeProjects } from "../../docker/dockerComposeApi";
 import { containerRowLabel } from "../../docker/dockerResourceLabels";
 import { selectDockerSidebarCacheEntry } from "../../docker/dockerSidebarCache";
-import type {
-  HomeCustomPanelWidgetTarget,
-  SmallComponentTargetKind,
-} from "./types";
+import type { HomeCustomPanelWidgetTarget } from "./types";
 
 export type DockerTargetSelectProps = {
   connectionId: string | null;
-  targetKind: NonNullable<SmallComponentTargetKind>;
+  targetKind: "docker-container" | "docker-compose";
   value: HomeCustomPanelWidgetTarget | undefined;
   onChange: (target: HomeCustomPanelWidgetTarget | null) => void;
   className?: string;

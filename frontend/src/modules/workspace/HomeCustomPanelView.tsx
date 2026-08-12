@@ -8,13 +8,16 @@ import { IconSettings, IconTrash } from "../../components/ui/icons/Icons";
 import { Button } from "../../components/ui/primitives/Button";
 import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useDbConnectionListStore } from "../../stores/dbConnectionListStore";
 import {
+  DatabaseSchemaTargetSelect,
   DockerTargetSelect,
   getSmallComponent,
   listSmallComponents,
   SmallComponentDataSourceSelect,
+  SmallComponentScaleSelect,
   SmallComponentSizeSelect,
-  sizeBoundsFromPresets,
+  sizeBoundsWithScale,
   type HomeCustomPanelWidget,
   type SmallComponentDefinition,
 } from "./smallComponents";
@@ -33,12 +36,12 @@ interface HomeCustomPanelViewProps {
   panelId: HomeCustomPanelId;
 }
 
-/** 传给 RGL 的布局：缩放边界始终取定义全部预设并集，避免旧数据 min/max 锁死 */
+/** 传给 RGL 的布局：缩放边界取定义预设并集（含 2×） */
 function layoutFromWidgets(widgets: HomeCustomPanelWidget[]): Layout {
   return widgets.map((widget) => {
     const def = getSmallComponent(widget.type);
     const bounds = def?.sizes?.length
-      ? sizeBoundsFromPresets(def.sizes)
+      ? sizeBoundsWithScale(def.sizes)
       : {};
     return {
       i: widget.id,
@@ -332,6 +335,7 @@ function CustomPanelWidgetChrome({
       s.customPanels[panelId]?.widgets.find((w) => w.id === widget.id) ?? widget,
   );
   const connections = useConnectionStore((s) => s.connections);
+  const dbConnections = useDbConnectionListStore((s) => s.connections);
   const def = getSmallComponent(liveWidget.type);
   const Comp = def?.component;
   const setCustomPanelWidgetDataSource = useDashboardStore(
@@ -343,7 +347,11 @@ function CustomPanelWidgetChrome({
   const setCustomPanelWidgetSize = useDashboardStore(
     (s) => s.setCustomPanelWidgetSize,
   );
+  const setCustomPanelWidgetScale = useDashboardStore(
+    (s) => s.setCustomPanelWidgetScale,
+  );
   const dataSourceKind = def?.dataSourceKind ?? null;
+  const dataSourceDbTypes = def?.dataSourceDbTypes ?? null;
   const targetKind = def?.targetKind ?? null;
   const typeLabel = def
     ? t(def.labelKey as never)
@@ -351,8 +359,11 @@ function CustomPanelWidgetChrome({
   const dataSourceName = useMemo(() => {
     const id = liveWidget.dataSourceId;
     if (!id) return null;
+    if (dataSourceKind === "database") {
+      return dbConnections.find((c) => c.id === id)?.name ?? null;
+    }
     return connections.find((c) => c.id === id)?.name ?? null;
-  }, [connections, liveWidget.dataSourceId]);
+  }, [connections, dataSourceKind, dbConnections, liveWidget.dataSourceId]);
   const targetLabel = useMemo(() => {
     const target = liveWidget.target;
     if (!target) return null;
@@ -360,6 +371,7 @@ function CustomPanelWidgetChrome({
     if (target.kind === "docker-container") {
       return target.containerId.slice(0, 12);
     }
+    if (target.kind === "database-schema") return target.database;
     return null;
   }, [liveWidget.target]);
   const displayName = useMemo(() => {
@@ -382,6 +394,7 @@ function CustomPanelWidgetChrome({
           ? "home-custom-panel-widget__inner is-editing"
           : "home-custom-panel-widget__inner"
       }
+      data-module={dataSourceKind ?? "none"}
     >
       <div className="home-custom-panel-widget__header">
         <button
@@ -448,15 +461,27 @@ function CustomPanelWidgetChrome({
         cancelLabel={t("common.close")}
         cancelVariant="secondary"
       >
-        {def?.sizes?.length ? (
+        {(def?.sizes?.length ?? 0) > 1 ? (
           <FormField label={t("homeWorkspace.customPanel.selectSize")}>
             <SmallComponentSizeSelect
               widget={liveWidget}
-              def={def}
+              def={def!}
               borderless={false}
               className="home-custom-panel-widget-edit__control"
               onChange={(sizeId) =>
                 setCustomPanelWidgetSize(panelId, liveWidget.id, sizeId)
+              }
+            />
+          </FormField>
+        ) : null}
+        {def?.sizes?.length ? (
+          <FormField label={t("homeWorkspace.customPanel.selectScale")}>
+            <SmallComponentScaleSelect
+              widget={liveWidget}
+              borderless={false}
+              className="home-custom-panel-widget-edit__control"
+              onChange={(scale) =>
+                setCustomPanelWidgetScale(panelId, liveWidget.id, scale)
               }
             />
           </FormField>
@@ -466,6 +491,7 @@ function CustomPanelWidgetChrome({
             <SmallComponentDataSourceSelect
               kind={dataSourceKind}
               value={liveWidget.dataSourceId ?? null}
+              dbTypes={dataSourceDbTypes}
               borderless={false}
               className="home-custom-panel-widget-edit__control"
               onChange={(dataSourceId) =>
@@ -483,18 +509,31 @@ function CustomPanelWidgetChrome({
             label={
               targetKind === "docker-container"
                 ? t("homeWorkspace.customPanel.target.container")
-                : t("homeWorkspace.customPanel.target.compose")
+                : targetKind === "docker-compose"
+                  ? t("homeWorkspace.customPanel.target.compose")
+                  : t("homeWorkspace.customPanel.target.database")
             }
           >
-            <DockerTargetSelect
-              connectionId={liveWidget.dataSourceId ?? null}
-              targetKind={targetKind}
-              value={liveWidget.target}
-              className="home-custom-panel-widget-edit__control"
-              onChange={(target) =>
-                setCustomPanelWidgetTarget(panelId, liveWidget.id, target)
-              }
-            />
+            {targetKind === "database-schema" ? (
+              <DatabaseSchemaTargetSelect
+                connectionId={liveWidget.dataSourceId ?? null}
+                value={liveWidget.target}
+                className="home-custom-panel-widget-edit__control"
+                onChange={(target) =>
+                  setCustomPanelWidgetTarget(panelId, liveWidget.id, target)
+                }
+              />
+            ) : (
+              <DockerTargetSelect
+                connectionId={liveWidget.dataSourceId ?? null}
+                targetKind={targetKind}
+                value={liveWidget.target}
+                className="home-custom-panel-widget-edit__control"
+                onChange={(target) =>
+                  setCustomPanelWidgetTarget(panelId, liveWidget.id, target)
+                }
+              />
+            )}
           </FormField>
         ) : null}
       </FormDialog>

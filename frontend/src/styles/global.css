@@ -1286,13 +1286,53 @@ select,
     border-radius: var(--radius-md, 6px);
     background: var(--bg);
     overflow: hidden;
-    transition: border-color 0.12s ease;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    --sc-module-accent: var(--border);
+}
+
+.home-custom-panel-widget__inner[data-module="ssh"] {
+    --sc-module-accent: #2aa8c4;
+}
+
+.home-custom-panel-widget__inner[data-module="docker"] {
+    --sc-module-accent: #5b6cff;
+}
+
+.home-custom-panel-widget__inner[data-module="database"] {
+    --sc-module-accent: #d4a017;
+}
+
+.home-custom-panel-widget__inner[data-module="panel"] {
+    --sc-module-accent: #2f9e6e;
+}
+
+.home-custom-panel-widget__inner[data-module="ssh"],
+.home-custom-panel-widget__inner[data-module="docker"],
+.home-custom-panel-widget__inner[data-module="database"],
+.home-custom-panel-widget__inner[data-module="panel"] {
+    border-color: color-mix(in srgb, var(--sc-module-accent) 55%, var(--border));
 }
 
 .home-custom-panel-widget__inner:hover,
 .home-custom-panel-widget__inner.is-editing,
 .react-grid-item.react-draggable-dragging .home-custom-panel-widget__inner {
     border-color: var(--border);
+}
+
+.home-custom-panel-widget__inner[data-module="ssh"]:hover,
+.home-custom-panel-widget__inner[data-module="ssh"].is-editing,
+.react-grid-item.react-draggable-dragging .home-custom-panel-widget__inner[data-module="ssh"],
+.home-custom-panel-widget__inner[data-module="docker"]:hover,
+.home-custom-panel-widget__inner[data-module="docker"].is-editing,
+.react-grid-item.react-draggable-dragging .home-custom-panel-widget__inner[data-module="docker"],
+.home-custom-panel-widget__inner[data-module="database"]:hover,
+.home-custom-panel-widget__inner[data-module="database"].is-editing,
+.react-grid-item.react-draggable-dragging .home-custom-panel-widget__inner[data-module="database"],
+.home-custom-panel-widget__inner[data-module="panel"]:hover,
+.home-custom-panel-widget__inner[data-module="panel"].is-editing,
+.react-grid-item.react-draggable-dragging .home-custom-panel-widget__inner[data-module="panel"] {
+    border-color: color-mix(in srgb, var(--sc-module-accent) 75%, var(--border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sc-module-accent) 18%, transparent);
 }
 
 .home-custom-panel-widget__header {
@@ -1303,6 +1343,21 @@ select,
     padding: 4px 6px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-deeper);
+}
+
+.home-custom-panel-widget__inner[data-module="ssh"] .home-custom-panel-widget__header,
+.home-custom-panel-widget__inner[data-module="docker"] .home-custom-panel-widget__header,
+.home-custom-panel-widget__inner[data-module="database"] .home-custom-panel-widget__header,
+.home-custom-panel-widget__inner[data-module="panel"] .home-custom-panel-widget__header {
+    border-bottom-color: color-mix(in srgb, var(--sc-module-accent) 35%, var(--border));
+    background: color-mix(in srgb, var(--sc-module-accent) 12%, var(--bg-deeper));
+}
+
+.home-custom-panel-widget__inner[data-module="ssh"] .home-custom-panel-widget__type,
+.home-custom-panel-widget__inner[data-module="docker"] .home-custom-panel-widget__type,
+.home-custom-panel-widget__inner[data-module="database"] .home-custom-panel-widget__type,
+.home-custom-panel-widget__inner[data-module="panel"] .home-custom-panel-widget__type {
+    color: color-mix(in srgb, var(--sc-module-accent) 70%, var(--fg));
 }
 
 .home-custom-panel-widget__drag {
@@ -1882,6 +1937,169 @@ select,
     margin: 0;
     font-size: 11px;
     color: var(--danger, #e5484d);
+}
+
+.sc-mysql-ov,
+.sc-redis-ov {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 8px;
+    gap: 6px;
+}
+
+.sc-mysql-ov[data-loading="1"],
+.sc-redis-ov[data-loading="1"] {
+    opacity: 0.92;
+}
+
+.sc-mysql-ov--empty,
+.sc-redis-ov--empty {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 4px;
+    height: 100%;
+    padding: 12px;
+}
+
+.sc-mysql-ov__empty-title,
+.sc-redis-ov__empty-title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.sc-mysql-ov__empty-hint,
+.sc-redis-ov__empty-hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+.sc-mysql-ov__grid,
+.sc-redis-ov__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    flex: 1;
+    min-height: 0;
+    align-content: start;
+}
+
+.sc-mysql-ov__cell,
+.sc-redis-ov__cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 8px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-deeper);
+    border-left: 3px solid color-mix(in srgb, var(--meta) 55%, var(--border));
+}
+
+.sc-mysql-ov__cell[data-tone="ok"],
+.sc-redis-ov__cell[data-tone="ok"] {
+    border-left-color: var(--success);
+}
+
+.sc-mysql-ov__cell[data-tone="off"],
+.sc-redis-ov__cell[data-tone="off"] {
+    border-left-color: color-mix(in srgb, var(--muted) 70%, var(--border));
+}
+
+.sc-mysql-ov__cell[data-tone="warn"],
+.sc-redis-ov__cell[data-tone="warn"] {
+    border-left-color: var(--warn);
+}
+
+.sc-mysql-ov__cell-label,
+.sc-redis-ov__cell-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sc-mysql-ov__cell-value,
+.sc-redis-ov__cell-value {
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sc-mysql-ov__cell[data-tone="ok"] .sc-mysql-ov__cell-value,
+.sc-redis-ov__cell[data-tone="ok"] .sc-redis-ov__cell-value {
+    color: var(--success);
+}
+
+.sc-mysql-ov__cell[data-tone="off"] .sc-mysql-ov__cell-value,
+.sc-redis-ov__cell[data-tone="off"] .sc-redis-ov__cell-value {
+    color: var(--muted);
+}
+
+.sc-mysql-ov__bar-track,
+.sc-redis-ov__bar-track {
+    height: 4px;
+    margin-top: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--fg) 8%, var(--bg-deeper));
+    overflow: hidden;
+}
+
+.sc-mysql-ov__bar-fill,
+.sc-redis-ov__bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}
+
+.sc-mysql-ov__bar-fill[data-tone="ok"],
+.sc-redis-ov__bar-fill[data-tone="ok"] {
+    background: var(--success);
+}
+
+.sc-mysql-ov__bar-fill[data-tone="warn"],
+.sc-redis-ov__bar-fill[data-tone="warn"] {
+    background: var(--warn);
+}
+
+.sc-mysql-ov__bar-fill[data-tone="off"],
+.sc-redis-ov__bar-fill[data-tone="off"] {
+    background: color-mix(in srgb, var(--muted) 70%, var(--border));
+}
+
+.sc-mysql-ov__cell-hint,
+.sc-redis-ov__cell-hint {
+    font-size: 10px;
+    color: var(--meta);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sc-mysql-ov__banner,
+.sc-redis-ov__banner {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--danger, #e5484d);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .home-board-view.dashboard {
@@ -9789,17 +10007,59 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
     }
 
+    .statusbar-log-wrap {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 0;
+        max-width: min(520px, 50vw);
+        overflow: hidden;
+    }
+
+    .statusbar-log-clear {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border: none;
+        border-radius: 3px;
+        background: transparent;
+        color: inherit;
+        opacity: 0.65;
+        cursor: pointer;
+    }
+
+    .statusbar-log-clear:hover {
+        opacity: 1;
+        background: color-mix(in srgb, currentColor 12%, transparent);
+    }
+
+    .statusbar-log-wrap--error .statusbar-log-clear,
+    .statusbar-log-wrap--warn .statusbar-log-clear {
+        color: inherit;
+    }
+
     .statusbar-log {
         display: flex;
         align-items: center;
         gap: var(--sp-1);
         min-width: 0;
-        max-width: min(480px, 45vw);
+        flex: 1 1 auto;
+        overflow: hidden;
+        color: var(--fg-2);
+        cursor: pointer;
+    }
+
+    /* flex 容器本身不会出现省略号，文案放在子元素里截断 */
+    .statusbar-log-text {
+        min-width: 0;
+        flex: 1 1 auto;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--fg-2);
-        cursor: pointer;
     }
 
     .statusbar-log:hover {
@@ -9824,6 +10084,22 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .statusbar-log--error {
         color: var(--danger);
+    }
+
+    .statusbar-log-detail-dialog .statusbar-log-detail-body {
+        margin: 0;
+        max-height: min(50vh, 360px);
+        overflow: auto;
+        padding: var(--sp-3);
+        border-radius: var(--radius-md, 6px);
+        background: var(--bg-2, var(--panel));
+        color: var(--text);
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        user-select: text;
     }
 
     .connection-pool-indicator {

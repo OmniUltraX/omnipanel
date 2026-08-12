@@ -500,7 +500,7 @@ fn filter_bundle(bundle: ClientSyncModulesBundle, sel: &ClientSyncImportSelectio
 
 /// 预览其它设备可同步数据（不含正文大字段以外的列表元数据）。
 pub async fn client_sync_peek_device(
-    state: &crate::state::ServerState,
+    _state: &crate::state::ServerState,
     request: ClientSyncPeekRequest,
 ) -> Result<ClientSyncPeekResult, OmniError> {
     if request.token.trim().is_empty() {

@@ -66,7 +66,7 @@ function resolveAlignedScrollLeft(
 /** 消除 scrollWidth 亚像素偏大导致的「滚到尽头仍可继续横滚」空白（#46 Mac WebView） */
 function clampHorizontalScroll(wrap: HTMLElement): void {
   const maxLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-  if (wrap.scrollLeft > maxLeft + 0.5) {
+  if (wrap.scrollLeft > maxLeft) {
     wrap.scrollLeft = maxLeft;
   }
 }
@@ -200,20 +200,19 @@ export const TableDataGridCanvasBody = forwardRef<
     snapshotRef.current = bundle.snapshot;
     rowOffsetsRef.current = bundle.rowOffsets;
     structureDirtyRef.current = false;
+    const contentWidth = Math.max(bundle.snapshot.totalWidth, 1);
     if (sizerRef.current) {
       sizerRef.current.style.height = `${bundle.snapshot.totalHeight}px`;
       // 与表头 table 同宽，保证 scrollWidth / maxScrollLeft 一致
-      sizerRef.current.style.width = `${Math.max(bundle.snapshot.totalWidth, 1)}px`;
+      sizerRef.current.style.width = `${contentWidth}px`;
     }
     if (wrap) {
-      clampHorizontalScroll(wrap);
-    }
-    if (wrap && measured && measured.totalWidth > 0) {
       const table = wrap.querySelector<HTMLElement>("table.db-data-table");
       // 拖拽中由表头增量维护 width，避免覆盖
       if (table && !dragging) {
-        table.style.width = `${measured.totalWidth}px`;
+        table.style.width = `${contentWidth}px`;
       }
+      clampHorizontalScroll(wrap);
     }
     return bundle;
   }, [dragRangeRef, dragRowHeightRef, dragColumnWidthsRef, dragColumnWidthRef, scrollElementRef, tableRowsRef]);

@@ -215,7 +215,7 @@ pub async fn assistant_push_snapshot(
 
 /// 使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。
 pub async fn assistant_upload_oss_text(
-    state: &crate::state::ServerState,
+    _state: &crate::state::ServerState,
     request: AssistantUploadTextRequest,
 ) -> Result<AssistantUploadTextResult, OmniError> {
     if request.token.trim().is_empty() {

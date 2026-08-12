@@ -11,6 +11,7 @@ import type {
 import { unwrapCommand } from "../../ipc/result";
 import { DOCKER_QUIET_IPC, handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
 import { beginComposeDebug, debugCompose } from "./dockerComposeDebug";
+import { runWithDockerBoundSsh } from "./ensureDockerBoundSsh";
 import {
   invalidateComposeFilesCache,
   isComposeFilesCacheFresh,
@@ -178,12 +179,14 @@ export async function fetchComposeProjects(connectionId: string): Promise<Docker
   const span = beginComposeDebug("fetchComposeProjects", { connectionId });
   const promise = (async () => {
     try {
-      span.step("IPC dockerListComposeProjects 发出");
-      const projects = await unwrap(commands.dockerListComposeProjects(connectionId), DOCKER_QUIET_IPC);
-      span.end("IPC 返回", { connectionId, count: projects.length });
-      composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
-      warmComposeMetaCache(connectionId, projects);
-      return projects;
+      return await runWithDockerBoundSsh(connectionId, async () => {
+        span.step("IPC dockerListComposeProjects 发出");
+        const projects = await unwrap(commands.dockerListComposeProjects(connectionId), DOCKER_QUIET_IPC);
+        span.end("IPC 返回", { connectionId, count: projects.length });
+        composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
+        warmComposeMetaCache(connectionId, projects);
+        return projects;
+      });
     } catch (error) {
       span.end("失败", { error: String(error) });
       handleDockerAutoFetchFailure(connectionId, error);
@@ -250,21 +253,23 @@ export async function readComposeProjectFiles(
   });
   const promise = (async () => {
     try {
-      span.step("IPC dockerReadComposeFiles 发出");
-      const files = await unwrap(commands.dockerReadComposeFiles(connectionId, request));
-      writeComposeFilesCache(connectionId, project, files, {
-        workingDir: request.workingDir ?? files.workingDir,
-        configFile: request.configFile,
+      return await runWithDockerBoundSsh(connectionId, async () => {
+        span.step("IPC dockerReadComposeFiles 发出");
+        const files = await unwrap(commands.dockerReadComposeFiles(connectionId, request));
+        writeComposeFilesCache(connectionId, project, files, {
+          workingDir: request.workingDir ?? files.workingDir,
+          configFile: request.configFile,
+        });
+        span.end("IPC 返回", {
+          composePath: files.composePath,
+          envPath: files.envPath,
+          composeBytes: files.composeContent.length,
+          envBytes: files.envContent.length,
+          composePreview: files.composeContent.slice(0, 120),
+          envPreview: files.envContent.slice(0, 120),
+        });
+        return files;
       });
-      span.end("IPC 返回", {
-        composePath: files.composePath,
-        envPath: files.envPath,
-        composeBytes: files.composeContent.length,
-        envBytes: files.envContent.length,
-        composePreview: files.composeContent.slice(0, 120),
-        envPreview: files.envContent.slice(0, 120),
-      });
-      return files;
     } catch (error) {
       span.end("失败", {
         connectionId,
@@ -335,7 +340,9 @@ export async function writeComposeProjectFiles(
   connectionId: string,
   request: DockerComposeWriteFilesRequest,
 ): Promise<void> {
-  await unwrap(commands.dockerWriteComposeFiles(connectionId, request));
+  await runWithDockerBoundSsh(connectionId, () =>
+    unwrap(commands.dockerWriteComposeFiles(connectionId, request)),
+  );
   const existing = peekComposeFilesCache(connectionId, request.project);
   writeComposeFilesCache(
     connectionId,
@@ -370,7 +377,9 @@ export async function runComposeAction(
   action: "up" | "stop" | "down" | "restart" | "rebuild" | "pull" | "logs",
   request: DockerComposeRequest,
 ): Promise<DockerComposeResult> {
-  return unwrap(commands.dockerComposeAction(connectionId, action, request));
+  return runWithDockerBoundSsh(connectionId, () =>
+    unwrap(commands.dockerComposeAction(connectionId, action, request)),
+  );
 }
 
 export function findComposeProjectMeta(

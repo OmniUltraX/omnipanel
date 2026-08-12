@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { publishModuleStatusLog } from "../../lib/moduleStatusLog";
 import type { RefreshAllDockerSidebarCachesOptions } from "./hooks/useDockerConnectionResources";
 
@@ -5,7 +6,7 @@ type TranslateFn = (key: string, params?: Record<string, string | number>) => st
 
 /** Docker 侧栏「刷新全部连接缓存」→ 状态栏进度日志 */
 export function createDockerSidebarCacheRefreshReporter(
-  t: TranslateFn,
+  translate: TranslateFn,
   getConnectionName: (connectionId: string) => string,
 ): RefreshAllDockerSidebarCachesOptions {
   return {
@@ -13,14 +14,14 @@ export function createDockerSidebarCacheRefreshReporter(
     onStart: (total) => {
       publishModuleStatusLog(
         "docker",
-        t("docker.statusLog.refreshingAll", { total }),
+        translate("docker.statusLog.refreshingAll", { total }),
         "progress",
       );
     },
     onConnectionDone: ({ done, total, connectionName }) => {
       publishModuleStatusLog(
         "docker",
-        t("docker.statusLog.refreshingConnection", {
+        translate("docker.statusLog.refreshingConnection", {
           name: connectionName,
           done,
           total,
@@ -31,20 +32,38 @@ export function createDockerSidebarCacheRefreshReporter(
     onComplete: (total) => {
       publishModuleStatusLog(
         "docker",
-        t("docker.statusLog.allDone", { total }),
+        translate("docker.statusLog.allDone", { total }),
         "success",
+      );
+    },
+    onSomeFailed: ({ failed, total, message }) => {
+      publishModuleStatusLog(
+        "docker",
+        translate("docker.statusLog.someFailed", { failed, total, message }),
+        "error",
       );
     },
   };
 }
 
 export function publishDockerSidebarCacheRefreshFailed(
-  t: TranslateFn,
+  translate: TranslateFn,
   message: string,
 ): void {
   publishModuleStatusLog(
     "docker",
-    t("docker.statusLog.allFailed", { message }),
+    translate("docker.statusLog.allFailed", { message }),
+    "error",
+  );
+}
+
+/** 单连接 / 单分类侧栏缓存刷新失败 → 状态栏错误 */
+export function publishDockerSidebarRefreshFailed(message: string): void {
+  const text = message.trim();
+  if (!text) return;
+  publishModuleStatusLog(
+    "docker",
+    t("docker.statusLog.refreshFailed", { message: text }),
     "error",
   );
 }

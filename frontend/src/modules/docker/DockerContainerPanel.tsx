@@ -27,6 +27,7 @@ import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
 } from "./dockerConnectionOffline";
+import { runWithDockerBoundSsh } from "./ensureDockerBoundSsh";
 import type { DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -214,18 +215,30 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     setLoading(true);
     setError(null);
     try {
-      // 顺序拉取：SSH 上并发 list 易抢 exec 通道触发 Channel send error
-      const nextContainers = await fetchContainers(connection.connectionId);
-      const nextLogs = await fetchLogInfos(connection.connectionId).catch(
-        () => [] as DockerContainerLogInfo[],
+      await runWithDockerBoundSsh(
+        connection.connectionId,
+        async () => {
+          // 顺序拉取：SSH 上并发 list 易抢 exec 通道触发 Channel send error
+          const nextContainers = await fetchContainers(connection.connectionId);
+          const nextLogs = await fetchLogInfos(connection.connectionId).catch(
+            () => [] as DockerContainerLogInfo[],
+          );
+          startTransition(() => {
+            setContainers(nextContainers);
+            setLogById(buildLogInfoByContainerId(nextLogs));
+          });
+        },
+        connection.boundSshConnectionId,
       );
-      startTransition(() => {
-        setContainers(nextContainers);
-        setLogById(buildLogInfoByContainerId(nextLogs));
-      });
       refreshSidebarContainers();
     } catch (err) {
-      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+      if (
+        err &&
+        typeof err === "object" &&
+        (err as { code?: string }).code === "cancelled"
+      ) {
+        setError(null);
+      } else if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
         setError(null);
       } else {
         setError(String(err));
@@ -233,7 +246,7 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     } finally {
       setLoading(false);
     }
-  }, [connection.connectionId, refreshSidebarContainers]);
+  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebarContainers]);
 
   useEffect(() => {
     const cached = peekDockerSidebarCache(connection.connectionId);

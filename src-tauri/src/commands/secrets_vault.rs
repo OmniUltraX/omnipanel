@@ -241,6 +241,18 @@ async fn collect_secret_entries_async(state: &AppState) -> Result<Vec<SecretsVau
                     "docker-panel",
                     &label,
                 );
+                push_entry(
+                    &mut entries,
+                    format!("docker-btpanel-{}", conn.id),
+                    "docker-btpanel",
+                    &label,
+                );
+                push_entry(
+                    &mut entries,
+                    format!("docker-btpanel-session-{}", conn.id),
+                    "docker-btpanel-session",
+                    &label,
+                );
             }
             _ => {}
         }

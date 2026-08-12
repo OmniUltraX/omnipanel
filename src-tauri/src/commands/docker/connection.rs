@@ -6,6 +6,59 @@ use std::time::Duration;
 /// 列表探测超时：避免单个不可达主机拖死侧栏加载。
 const LIST_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
+/// 编辑 Docker 连接表单：从 Vault 取回面板 API Key（列表 / config 永不存明文）。
+#[tauri::command]
+#[specta::specta]
+pub async fn docker_get_connection_secret(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, OmniError> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(OmniError::invalid_input("连接 id 为空"));
+    }
+    let conn = {
+        let storage = state.storage.lock().await;
+        storage.get_connection(id)?
+    }
+    .ok_or_else(|| OmniError::not_found(format!("Docker 连接 {id} 不存在")))?;
+
+    if !matches!(conn.kind, omnipanel_store::ConnectionKind::Docker) {
+        return Err(OmniError::invalid_input("连接不是 Docker 类型"));
+    }
+
+    let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
+    let source = cfg
+        .source
+        .as_deref()
+        .map(DockerConnectionSource::parse)
+        .unwrap_or(DockerConnectionSource::LocalEngine);
+
+    let vault_key = match source {
+        DockerConnectionSource::OnePanel => format!("docker-onepanel-{id}"),
+        DockerConnectionSource::PanelAdapter => format!("docker-btpanel-{id}"),
+        _ => {
+            return Err(OmniError::invalid_input(
+                "仅 1Panel / 宝塔连接支持回显 API Key",
+            ));
+        }
+    };
+
+    if let Ok(key) = Vault::get(&vault_key) {
+        if !key.trim().is_empty() {
+            return Ok(key);
+        }
+    }
+    if let Some(r) = conn.credential_ref.as_deref() {
+        if let Ok(key) = Vault::get(r) {
+            if !key.trim().is_empty() {
+                return Ok(key);
+            }
+        }
+    }
+    Ok(String::new())
+}
+
 /// 卷详情（`docker volume inspect`）。
 #[tauri::command]
 #[specta::specta]
@@ -52,10 +105,14 @@ pub async fn docker_list_connections(
             .host
             .or_else(|| cfg.ssh.as_ref().map(|s| format!("{}@{}", s.user, s.host)))
             .or_else(|| cfg.onepanel.as_ref().map(|p| p.base_url.clone()))
+            .or_else(|| cfg.btpanel.as_ref().map(|p| p.base_url.clone()))
             .unwrap_or_else(|| conn.name.clone());
         let warning_message = match source {
             DockerConnectionSource::OnePanel => {
                 Some("1Panel 面板模式：容器 / 镜像 exec / 镜像 push-pull / build".to_string())
+            }
+            DockerConnectionSource::PanelAdapter => {
+                Some("宝塔面板模式：容器列表与启停 / 镜像 / 网络 / 卷 / Compose 项目".to_string())
             }
             _ => None,
         };
@@ -77,11 +134,13 @@ pub async fn docker_list_connections(
     }
 
     // 并行探测各实例，回填 status / 版本信息（侧栏 topbar-tab-dot 依赖此字段）
+    // 注意：此处不走 with_adapter 重试——宝塔鉴权失败再打会加速封禁
     let probe_results = join_all(out.iter().map(|info| {
         let connection_id = info.connection_id.clone();
         async {
             let probed = tokio::time::timeout(LIST_PROBE_TIMEOUT, async {
-                with_adapter(&state, &connection_id, |a| async move { a.probe().await }).await
+                let adapter = resolve_adapter(&state, &connection_id).await?;
+                adapter.probe().await
             })
             .await;
             match probed {

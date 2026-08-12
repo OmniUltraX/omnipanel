@@ -190,6 +190,15 @@ pub async fn sftp_log_search(
             );
             (cmd, None, false)
         }
+    } else if let Some(before_l) = before {
+        let end = before_l.saturating_sub(1);
+        if end == 0 {
+            return Ok(Vec::new());
+        }
+        let cmd = format!(
+            "head -n {end} {path_q} | grep -n --color=never --line-buffered {grep_flags}{context_args} -m {take} {pattern_quoted}"
+        );
+        (cmd, None, false)
     } else if let Some(after_l) = after {
         if skip > 0 {
             let cmd = format!(

@@ -106,12 +106,10 @@ export function measureHeaderColumnGeometry(
     if (!(width > 0)) return null;
     columns.push({ x: th.offsetLeft, width });
   }
-  const table = wrap.querySelector<HTMLElement>("table.db-data-table");
   const last = columns[columns.length - 1]!;
-  const totalWidth = Math.max(
-    table?.offsetWidth ?? 0,
-    last.x + last.width,
-  );
+  // 列几何右边界即内容宽；勿用 table.offsetWidth——min-width:100% 会把 table 撑满视口，
+  // 列宽之和更窄时 scrollWidth 偏大，Mac WebView 横滚到底仍有空白（#46）。
+  const totalWidth = last.x + last.width;
   return { columns, totalWidth };
 }
 

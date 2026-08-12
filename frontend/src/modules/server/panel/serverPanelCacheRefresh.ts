@@ -1,6 +1,7 @@
 import {
   btDockerAppIconPath,
   createBtPanelClient,
+  isBtPanelAuthFailureMessage,
   type BtDockerApp,
   type BtInstalledApp,
   type BtSoftItem,
@@ -176,30 +177,42 @@ export async function fetchServerPanelResources(
       entry.error = errors.length > 0 ? errors.join("；") : null;
     } else if (server.serviceType === "bt") {
       const client = createBtPanelClient(server.address, server.key, server.id);
-      const [siteResult, certificatesResult, typesResult] = await Promise.allSettled([
-        client.getWebsiteList({ limit: 200, type: -1 }),
-        client.getSslList(),
-        client.getSiteTypes(),
-      ]);
+      // 串行：任一鉴权/封禁失败立刻停，避免 Promise.all 并发把验证失败次数打满
       const errors: string[] = [];
       let websites: Record<string, unknown>[] = [];
-      if (siteResult.status === "fulfilled") {
-        const raw = siteResult.value.data as unknown;
+      try {
+        const site = await client.getWebsiteList({ limit: 200, type: -1 });
+        const raw = site.data as unknown;
         websites = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
-      } else {
-        errors.push(`网站：${formatError(siteResult.reason)}`);
+      } catch (err) {
+        errors.push(`网站：${formatError(err)}`);
+        if (isBtPanelAuthFailureMessage(formatError(err))) {
+          entry.error = errors.join("；");
+          entry.refreshedAt = Date.now();
+          return entry;
+        }
       }
-      if (certificatesResult.status === "fulfilled") {
-        const raw = certificatesResult.value as unknown;
+      try {
+        const certificates = await client.getSslList();
+        const raw = certificates as unknown;
         entry.certificates = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
-      } else {
-        errors.push(`证书：${formatError(certificatesResult.reason)}`);
+      } catch (err) {
+        errors.push(`证书：${formatError(err)}`);
+        if (isBtPanelAuthFailureMessage(formatError(err))) {
+          entry.websites = websites;
+          entry.error = errors.join("；");
+          entry.refreshedAt = Date.now();
+          return entry;
+        }
       }
-      if (typesResult.status === "fulfilled") {
-        const raw = typesResult.value;
+      try {
+        const types = await client.getSiteTypes();
+        const raw = types;
         entry.siteGroups = (Array.isArray(raw) ? raw : [])
           .map((g) => ({ id: String(g.id), name: (g.name || "").trim() }))
           .filter((g) => g.name);
+      } catch (err) {
+        errors.push(`分组：${formatError(err)}`);
       }
       entry.websites = enrichWebsitesWithGroups(websites, entry.siteGroups);
       if (errors.length > 0 && entry.websites.length === 0 && entry.certificates.length === 0) {
@@ -271,21 +284,18 @@ export async function fetchServerPanelApps(
   if (server.serviceType === "bt") {
     try {
       const client = createBtPanelClient(server.address, server.key, server.id);
-      // 主路径：传统软件商店（兼容性最好）；Docker 商店作补充（未初始化时忽略）
-      const [softResult, dockerResult, dockerInstalledResult] = await Promise.allSettled([
-        client.getSoftList({ p: 1, type: 0, query: "", force: 0, row: 300 }),
-        client.getDockerApps(),
-        client.getInstalledApps({ p: 1, row: 500, appType: "all" }),
-      ]);
-
+      // 串行：鉴权/封禁失败立刻停，避免 3 路并发打满宝塔验证计数
       const errors: string[] = [];
       let apps: OnePanelApp[] = [];
       let installedApps: OnePanelInstalledApp[] = [];
       const seen = new Set<string>();
+      let softOk = false;
 
-      if (softResult.status === "fulfilled") {
-        const typeMap = new Map(softResult.value.types.map((t) => [t.id, t.title]));
-        for (const item of softResult.value.items) {
+      try {
+        const soft = await client.getSoftList({ p: 1, type: 0, query: "", force: 0, row: 300 });
+        softOk = true;
+        const typeMap = new Map(soft.types.map((t) => [t.id, t.title]));
+        for (const item of soft.items) {
           const mapped = btSoftItemToMarketApp(item, typeMap);
           const key = mapped.key.toLowerCase();
           if (!key || seen.has(key)) continue;
@@ -302,23 +312,43 @@ export async function fetchServerPanelApps(
             });
           }
         }
-      } else {
-        errors.push(`软件商店：${formatError(softResult.reason)}`);
-      }
-
-      if (dockerInstalledResult.status === "fulfilled") {
-        for (const item of dockerInstalledResult.value.items) {
-          installedApps.push(btInstalledToOnePanel(item));
+      } catch (err) {
+        errors.push(`软件商店：${formatError(err)}`);
+        if (isBtPanelAuthFailureMessage(formatError(err))) {
+          return {
+            apps,
+            installedApps,
+            appsRefreshedAt: Date.now(),
+            appsError: errors.join("；"),
+          };
         }
       }
 
-      if (dockerResult.status === "fulfilled") {
+      try {
+        const installed = await client.getInstalledApps({ p: 1, row: 500, appType: "all" });
+        for (const item of installed.items) {
+          installedApps.push(btInstalledToOnePanel(item));
+        }
+      } catch (err) {
+        errors.push(`已安装：${formatError(err)}`);
+        if (isBtPanelAuthFailureMessage(formatError(err))) {
+          return {
+            apps,
+            installedApps,
+            appsRefreshedAt: Date.now(),
+            appsError: errors.join("；"),
+          };
+        }
+      }
+
+      try {
+        const dockerApps = await client.getDockerApps();
         const installedKeys = new Set(
           installedApps
             .map((item) => (item.appKey || item.name || "").trim().toLowerCase())
             .filter(Boolean),
         );
-        for (const item of dockerResult.value.items) {
+        for (const item of dockerApps.items) {
           const mapped = btDockerAppToMarketApp(item);
           const key = mapped.key.toLowerCase();
           if (!key || seen.has(key)) continue;
@@ -326,8 +356,11 @@ export async function fetchServerPanelApps(
           if (installedKeys.has(key)) mapped.installed = true;
           apps.push(mapped);
         }
-      } else if (softResult.status !== "fulfilled") {
-        errors.push(`Docker 应用：${formatError(dockerResult.reason)}`);
+      } catch (err) {
+        // Docker 商店未初始化时忽略；仅当软商店也失败时记错误
+        if (!softOk) {
+          errors.push(`Docker 应用：${formatError(err)}`);
+        }
       }
 
       if (errors.length > 0 && apps.length === 0 && installedApps.length === 0) {
