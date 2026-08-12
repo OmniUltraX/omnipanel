@@ -12,6 +12,7 @@ import { useI18n } from "../../i18n";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 import { BrandIconImg } from "../server/brandIcons";
+import dockerBrandIcon from "../../assets/icons/docker.svg";
 
 interface DockerConnectionDialogProps {
   open: boolean;
@@ -43,18 +44,10 @@ interface DockerForm {
   panelInsecure: boolean;
 }
 
-const ENV_OPTIONS: { value: string; label: string }[] = [
-  { value: "local", label: "本地" },
-  { value: "dev", label: "开发" },
-  { value: "staging", label: "预发" },
-  { value: "prod", label: "生产" },
-  { value: "unknown", label: "未标记" },
-];
-
 const EMPTY: DockerForm = {
   name: "",
   group: "默认",
-  envTag: "local",
+  envTag: "unknown",
   source: "ssh-engine",
   sshHost: "",
   sshPort: "22",
@@ -442,6 +435,18 @@ export function DockerConnectionDialog({
                     }));
                   }}
                 >
+                  {opt.value === "ssh-engine" ? (
+                    <span className="engine-chip-icon">
+                      <img
+                        src={dockerBrandIcon}
+                        alt=""
+                        width={18}
+                        height={18}
+                        className="engine-chip-logo"
+                        draggable={false}
+                      />
+                    </span>
+                  ) : null}
                   {opt.value === "onepanel" ? (
                     <span className="engine-chip-icon">
                       <BrandIconImg kind="1panel" size={18} className="engine-chip-logo" />
@@ -680,29 +685,6 @@ export function DockerConnectionDialog({
               )}
             </>
           )}
-
-          <div className="form-row">
-            <div className="form-field" style={{ flex: 1 }}>
-              <label className="form-label">环境标签</label>
-              <Select
-                className="input"
-                value={form.envTag}
-                onChange={(v) => update("envTag", v)}
-                style={{ width: "100%" }}
-                searchable={false}
-                options={ENV_OPTIONS}
-              />
-            </div>
-            <div className="form-field" style={{ flex: 1 }}>
-              <label className="form-label">分组</label>
-              <TextInput
-                placeholder="默认"
-                value={form.group}
-                onChange={(value) => update("group", value)}
-                style={{ width: "100%" }}
-              />
-            </div>
-          </div>
 
           <div className="form-section-title">{t("resourceTags.section")}</div>
           <GlobalTagEditor

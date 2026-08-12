@@ -107,12 +107,11 @@ export function WebsiteInfoSubWindow({
         if (server.serviceType === "bt") {
           if (!siteName) throw new Error(t("server.websites.missingSiteName"));
           const client = createBtPanelClient(server.address, server.key, server.id);
-          const [sites, domains, phpInfo, ssl] = await Promise.all([
-            client.getWebsiteList({ limit: 200 }),
-            client.getSiteDomains(websiteId).catch(() => null),
-            client.getSitePhpVersion(siteName).catch(() => ({})),
-            client.getSiteSsl(siteName).catch(() => ({})),
-          ]);
+          // 串行：任一鉴权失败由 client 熔断，避免 4 路并发打满验证计数
+          const sites = await client.getWebsiteList({ limit: 200 });
+          const domains = await client.getSiteDomains(websiteId).catch(() => null);
+          const phpInfo = await client.getSitePhpVersion(siteName).catch(() => ({}));
+          const ssl = await client.getSiteSsl(siteName).catch(() => ({}));
           const site = sites.data.find((row) => row.id === websiteId) ?? null;
           const detail: Record<string, unknown> = {
             primaryDomain: siteName,

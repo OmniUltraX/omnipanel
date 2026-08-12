@@ -68,10 +68,8 @@ export function BtCreateWebsiteDialog({ open, server, onClose, onCreated }: Prop
     void (async () => {
       try {
         const client = createBtPanelClient(server.address, server.key, server.id);
-        const [versions, types] = await Promise.all([
-          client.getPhpVersions().catch(() => [] as BtPhpVersion[]),
-          client.getSiteTypes().catch(() => [] as BtSiteType[]),
-        ]);
+        const versions = await client.getPhpVersions().catch(() => [] as BtPhpVersion[]);
+        const types = await client.getSiteTypes().catch(() => [] as BtSiteType[]);
         if (cancelled) return;
         setPhpVersions(versions);
         setSiteTypes(types);

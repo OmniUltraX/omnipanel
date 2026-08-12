@@ -8,8 +8,8 @@
 //! 文档标注多为 GET，实际面板与现有客户端统一走 POST + 表单。
 
 use std::path::Path;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
@@ -35,6 +35,76 @@ use crate::{
 };
 
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+const AUTH_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+
+/// 按面板 origin 熔断，避免鉴权失败后轮询/重试继续打验证计数。
+static AUTH_GATES: LazyLock<Mutex<std::collections::HashMap<String, (Instant, String)>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+fn gate_key(base: &str) -> String {
+    base.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+fn is_bt_lockout_message(msg: &str) -> bool {
+    (msg.contains("连续") && msg.contains("验证失败"))
+        || (msg.contains("禁止") && (msg.contains("小时") || msg.contains("分钟")))
+}
+
+fn parse_lockout_duration(msg: &str) -> Duration {
+    if let Some(rest) = msg.split("禁止").nth(1) {
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = digits.parse::<u64>() {
+            if rest.contains("小时") {
+                return Duration::from_secs(n.min(24) * 3600);
+            }
+            if rest.contains("分钟") {
+                return Duration::from_secs(n.min(24 * 60) * 60);
+            }
+        }
+    }
+    Duration::from_secs(3600)
+}
+
+fn assert_bt_not_locked(base: &str) -> OmniResult<()> {
+    let key = gate_key(base);
+    let mut map = AUTH_GATES
+        .lock()
+        .map_err(|_| OmniError::new(ErrorCode::Internal, "宝塔熔断锁失败"))?;
+    if let Some((until, message)) = map.get(&key) {
+        if Instant::now() >= *until {
+            map.remove(&key);
+            return Ok(());
+        }
+        return Err(OmniError::new(ErrorCode::Auth, message.clone()));
+    }
+    Ok(())
+}
+
+fn trip_bt_auth_failure(base: &str, message: &str) {
+    if !is_bt_auth_or_lockout_message(message) {
+        return;
+    }
+    let until = if is_bt_lockout_message(message) {
+        Instant::now() + parse_lockout_duration(message)
+    } else {
+        Instant::now() + AUTH_COOLDOWN
+    };
+    let key = gate_key(base);
+    if let Ok(mut map) = AUTH_GATES.lock() {
+        if let Some((existing, _)) = map.get(&key) {
+            if *existing >= until {
+                return;
+            }
+        }
+        map.insert(key, (until, message.trim().to_string()));
+    }
+}
+
+fn clear_bt_auth_gate(base: &str) {
+    if let Ok(mut map) = AUTH_GATES.lock() {
+        map.remove(&gate_key(base));
+    }
+}
 
 /// 宝塔面板 Docker HTTP 客户端。
 #[derive(Clone)]
@@ -118,6 +188,7 @@ impl BtPanelClient {
 
     /// POST 表单到宝塔路径，返回解析后的 JSON。
     pub async fn post_form(&self, path: &str, extra: Map<String, Value>) -> OmniResult<Value> {
+        assert_bt_not_locked(&self.base_url)?;
         let path = if path.starts_with('/') {
             path.to_string()
         } else {
@@ -173,9 +244,13 @@ impl BtPanelClient {
         );
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
+            trip_bt_auth_failure(&self.base_url, "宝塔 API 接口密钥错误");
             return Err(OmniError::new(ErrorCode::Auth, "宝塔 API 接口密钥错误").with_cause(text));
         }
         if !status.is_success() {
+            if is_bt_auth_or_lockout_message(&text) {
+                trip_bt_auth_failure(&self.base_url, &text);
+            }
             // 业务/路由类 HTTP 错误用 Internal，避免前端一律当成「实例离线」
             return Err(
                 OmniError::new(ErrorCode::Internal, format!("宝塔 API 错误 ({status})"))
@@ -200,14 +275,22 @@ impl BtPanelClient {
         extra: Map<String, Value>,
     ) -> OmniResult<Value> {
         let value = self.post_form(path, extra).await?;
-        let unwrapped = unwrap_bt_payload(value)?;
-        tracing::debug!(
-            target: "btpanel",
-            %path,
-            shape = %summarize_json_shape(&unwrapped),
-            "宝塔 payload 解包后"
-        );
-        Ok(unwrapped)
+        match unwrap_bt_payload(value) {
+            Ok(unwrapped) => {
+                clear_bt_auth_gate(&self.base_url);
+                tracing::debug!(
+                    target: "btpanel",
+                    %path,
+                    shape = %summarize_json_shape(&unwrapped),
+                    "宝塔 payload 解包后"
+                );
+                Ok(unwrapped)
+            }
+            Err(err) => {
+                trip_bt_auth_failure(&self.base_url, &err.message);
+                Err(err)
+            }
+        }
     }
 
     /// 动作类接口：期望 `{ status: true, msg: "..." }`。

@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// 按面板地址复用带 Cookie 的 HTTP 客户端（文档要求保存 cookie 并在后续请求附带）。
 static CLIENTS: LazyLock<Mutex<HashMap<String, Client>>> =
@@ -14,6 +14,89 @@ static CLIENTS: LazyLock<Mutex<HashMap<String, Client>>> =
 static ENTRANCES: LazyLock<Mutex<HashMap<String, Option<String>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// 按面板 origin 熔断，避免鉴权失败后继续打验证计数。
+static AUTH_GATES: LazyLock<Mutex<HashMap<String, (Instant, String)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+const AUTH_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+
+fn gate_key(base: &str) -> String {
+    base.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+fn is_bt_auth_or_lockout_message(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    msg.contains("密钥")
+        || msg.contains("校验")
+        || msg.contains("验证")
+        || msg.contains("权限")
+        || msg.contains("白名单")
+        || lower.contains("api key")
+        || lower.contains("unauthorized")
+        || (msg.contains("禁止") && (msg.contains("小时") || msg.contains("分钟")))
+        || (msg.contains("连续") && msg.contains("失败"))
+}
+
+fn is_bt_lockout_message(msg: &str) -> bool {
+    (msg.contains("连续") && msg.contains("验证失败"))
+        || (msg.contains("禁止") && (msg.contains("小时") || msg.contains("分钟")))
+}
+
+fn parse_lockout_duration(msg: &str) -> Duration {
+    if let Some(rest) = msg.split("禁止").nth(1) {
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = digits.parse::<u64>() {
+            if rest.contains("小时") {
+                return Duration::from_secs(n.min(24) * 3600);
+            }
+            if rest.contains("分钟") {
+                return Duration::from_secs(n.min(24 * 60) * 60);
+            }
+        }
+    }
+    Duration::from_secs(3600)
+}
+
+fn assert_not_locked(base: &str) -> Result<(), OmniError> {
+    let key = gate_key(base);
+    let mut map = AUTH_GATES
+        .lock()
+        .map_err(|_| OmniError::internal("宝塔熔断锁失败"))?;
+    if let Some((until, message)) = map.get(&key) {
+        if Instant::now() >= *until {
+            map.remove(&key);
+            return Ok(());
+        }
+        return Err(OmniError::new(ErrorCode::Auth, message.clone()));
+    }
+    Ok(())
+}
+
+fn trip_auth_failure(base: &str, message: &str) {
+    if !is_bt_auth_or_lockout_message(message) {
+        return;
+    }
+    let until = if is_bt_lockout_message(message) {
+        Instant::now() + parse_lockout_duration(message)
+    } else {
+        Instant::now() + AUTH_COOLDOWN
+    };
+    let key = gate_key(base);
+    if let Ok(mut map) = AUTH_GATES.lock() {
+        if let Some((existing, _)) = map.get(&key) {
+            if *existing >= until {
+                return;
+            }
+        }
+        map.insert(key, (until, message.trim().to_string()));
+    }
+}
+
+fn clear_auth_gate(base: &str) {
+    if let Ok(mut map) = AUTH_GATES.lock() {
+        map.remove(&gate_key(base));
+    }
+}
 /// 生成 request_token：`md5(string(request_time) + md5(api_sk))`（小写 hex）。
 pub fn build_request_token(api_sk: &str, request_time: i64) -> String {
     let api_key_md5 = format!("{:x}", md5::compute(api_sk));
@@ -124,6 +207,7 @@ pub async fn request(
     body: Option<Map<String, Value>>,
 ) -> Result<Value, OmniError> {
     let base = normalize_base_url(host)?;
+    assert_not_locked(&base)?;
     let client = client_for_host(host)?;
 
     let path = if path.starts_with('/') {
@@ -151,17 +235,35 @@ pub async fn request(
     let text = String::from_utf8_lossy(&bytes).into_owned();
 
     if status == reqwest::StatusCode::UNAUTHORIZED {
+        trip_auth_failure(&base, "API 接口密钥错误");
         return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text));
     }
 
     if !status.is_success() {
+        if is_bt_auth_or_lockout_message(&text) {
+            trip_auth_failure(&base, &text);
+        }
         return Err(
             OmniError::new(ErrorCode::Connection, format!("宝塔 API 错误 ({status})"))
                 .with_cause(truncate_text(&text, 300)),
         );
     }
 
-    parse_response_value(&text)
+    let value = parse_response_value(&text)?;
+    // 即便整体仍返回 JSON 给前端，鉴权/封禁文案也要熔断，避免后续并发继续打面板
+    let auth_fail = value.get("status") == Some(&Value::Bool(false))
+        && value
+            .get("msg")
+            .and_then(|m| m.as_str())
+            .is_some_and(is_bt_auth_or_lockout_message);
+    if auth_fail {
+        if let Some(msg) = value.get("msg").and_then(|m| m.as_str()) {
+            trip_auth_failure(&base, msg);
+        }
+    } else {
+        clear_auth_gate(&base);
+    }
+    Ok(value)
 }
 
 /// 连通性测试（官方文档：/system?action=GetSystemTotal）。
@@ -446,6 +548,8 @@ pub async fn fetch_docker_app_icon(
     if name.is_empty() {
         return Err(OmniError::invalid_input("应用名称不能为空"));
     }
+    let base = normalize_base_url(host)?;
+    assert_not_locked(&base)?;
     // 仅允许安全的文件名片段，避免路径穿越
     if !is_safe_icon_token(name) {
         return Err(OmniError::invalid_input("非法的应用名称"));

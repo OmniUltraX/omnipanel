@@ -3,6 +3,12 @@ import { canUseIpcBackend } from "../isTauriRuntime";
 import { btDockerAppIconUrl } from "./appsMap";
 import { buildBtAuthFields, normalizeBtPanelBaseUrl } from "./auth";
 import {
+  assertBtPanelNotLocked,
+  clearBtPanelLockout,
+  isBtPanelAuthFailureMessage,
+  tripBtPanelAuthFailure,
+} from "./circuitBreaker";
+import {
   BtPanelApiError,
   type BtAddDatabaseParams,
   type BtAddSiteParams,
@@ -165,22 +171,39 @@ export class BtPanelClient {
   async request<T = unknown>(options: BtRequestOptions): Promise<T> {
     const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
     const tolerate = Boolean(options.tolerateFalseStatus);
+    assertBtPanelNotLocked(this.baseUrl);
     const apiSk = await this.resolveApiSk();
 
-    if (this.useTauri && canUseIpcBackend()) {
-      const result = await commands.panelBtRequest(
-        this.baseUrl,
-        apiSk,
-        path,
-        serializeParams(options.params),
-      );
-      if (result.status === "error") {
-        throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+    try {
+      if (this.useTauri && canUseIpcBackend()) {
+        const result = await commands.panelBtRequest(
+          this.baseUrl,
+          apiSk,
+          path,
+          serializeParams(options.params),
+        );
+        if (result.status === "error") {
+          throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+        }
+        clearBtPanelLockout(this.baseUrl);
+        return parseResponseText<T>(result.data, tolerate);
       }
-      return parseResponseText<T>(result.data, tolerate);
-    }
 
-    return this.requestViaFetch<T>(path, apiSk, options.params, tolerate);
+      const data = await this.requestViaFetch<T>(path, apiSk, options.params, tolerate);
+      clearBtPanelLockout(this.baseUrl);
+      return data;
+    } catch (error) {
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : String(error ?? "");
+      if (isBtPanelAuthFailureMessage(msg)) {
+        tripBtPanelAuthFailure(this.baseUrl, msg);
+      }
+      throw error;
+    }
   }
 
   private async requestViaFetch<T>(
@@ -503,22 +526,37 @@ export class BtPanelClient {
     if (!name) {
       throw new BtPanelApiError("应用名称不能为空", 0);
     }
+    assertBtPanelNotLocked(this.baseUrl);
     const file = (iconFile ?? "").trim() || null;
-    if (this.useTauri && canUseIpcBackend()) {
-      const apiSk = await this.resolveApiSk();
-      const result = await commands.panelBtAppIcon(this.baseUrl, apiSk, name, file);
-      if (result.status === "error") {
-        throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+    try {
+      if (this.useTauri && canUseIpcBackend()) {
+        const apiSk = await this.resolveApiSk();
+        const result = await commands.panelBtAppIcon(this.baseUrl, apiSk, name, file);
+        if (result.status === "error") {
+          throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+        }
+        clearBtPanelLockout(this.baseUrl);
+        return result.data;
       }
-      return result.data;
+      // 浏览器开发态：直接拼 URL（需地址含安全入口，且可能受 CORS 限制）
+      if (file) {
+        const base = this.baseUrl.replace(/\/$/, "");
+        const basename = file.replace(/^.*[/\\]/, "");
+        return `${base}/static/img/soft_ico/${basename}`;
+      }
+      return btDockerAppIconUrl(this.baseUrl, name);
+    } catch (error) {
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : String(error ?? "");
+      if (isBtPanelAuthFailureMessage(msg)) {
+        tripBtPanelAuthFailure(this.baseUrl, msg);
+      }
+      throw error;
     }
-    // 浏览器开发态：直接拼 URL（需地址含安全入口，且可能受 CORS 限制）
-    if (file) {
-      const base = this.baseUrl.replace(/\/$/, "");
-      const basename = file.replace(/^.*[/\\]/, "");
-      return `${base}/static/img/soft_ico/${basename}`;
-    }
-    return btDockerAppIconUrl(this.baseUrl, name);
   }
 
   /** POST /mod/docker/com/get_apps — Docker 应用商店列表。 */

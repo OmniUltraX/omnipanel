@@ -4,6 +4,15 @@ export {
   normalizeBtPanelBaseUrl,
 } from "./auth";
 export {
+  assertBtPanelNotLocked,
+  clearBtPanelLockout,
+  getBtPanelLockout,
+  isBtPanelAuthFailureMessage,
+  isBtPanelLockoutMessage,
+  tripBtPanelAuthFailure,
+  tripBtPanelAuthFailureFromError,
+} from "./circuitBreaker";
+export {
   BtPanelApiError,
   type BtAddDatabaseParams,
   type BtAddSiteParams,
