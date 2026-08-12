@@ -293,7 +293,7 @@ export function RedisConnectionInfoPanel({
   );
   const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("overview");
   const [search, setSearch] = useState("");
-  /** 首次进入「命令行」后再挂载 CLI，避免打开连接就并发拉起 redis-cli 与 CLIENT LIST。 */
+  /** 首次进入「命令行」后再挂载 REPL，避免打开连接就初始化命令行会话。 */
   const [cliMounted, setCliMounted] = useState(false);
   const [databasesLoading, setDatabasesLoading] = useState(capable);
   const [databasesError, setDatabasesError] = useState<string | null>(null);

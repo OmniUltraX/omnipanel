@@ -6,11 +6,9 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
 import { TextInput } from "../../../components/ui/form/TextInput";
-import { useConnectionStore } from "../../../stores/connectionStore";
 import {
   isRedisConnection,
   redisDbsize,
@@ -33,12 +31,6 @@ import { RedisKeyBrowserList } from "./RedisKeyBrowserList";
 import { RedisKeyDetailPanel } from "./RedisKeyDetailPanel";
 import { RedisSlowLogPanel } from "./RedisSlowLogPanel";
 import { ConnectionCliTabPanel } from "../workspace/ConnectionCliTabPanel";
-import {
-  isRedisDeploymentCacheUsable,
-  readRedisDeploymentCache,
-  writeRedisDeploymentCache,
-} from "../redisDeploymentCache";
-import { probeRedisDeployment, type RedisDeploymentInfo } from "../redisDeploymentDetect";
 import { RedisPubSubPanel } from "../../protocol/RedisPubSubPanel";
 
 const SCAN_BATCH_LIMIT = 1000;
@@ -59,10 +51,6 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
   const { t } = useI18n();
   const capable = isRedisConnection(connection);
   const activeDb = fixedDbName ?? (connection.database?.trim() || "0");
-
-  const sshConnections = useConnectionStore(
-    useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
-  );
 
   const [searchScope, setSearchScope] = useState<SearchScope>("key");
   const [keyword, setKeyword] = useState("");
@@ -91,11 +79,6 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
   const [hitFetchAllLimit, setHitFetchAllLimit] = useState(false);
   const [typesMenuOpen, setTypesMenuOpen] = useState(false);
 
-  const [deployment, setDeployment] = useState<RedisDeploymentInfo | null>(() =>
-    capable ? readRedisDeploymentCache(connection) : null,
-  );
-  const [deploymentLoading, setDeploymentLoading] = useState(false);
-
   const searchRequestIdRef = useRef(0);
   const fetchAllCancelRef = useRef(false);
   const hasMoreRef = useRef(false);
@@ -121,12 +104,11 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
 
   const includeValuePreview = searchScope === "value" || searchScope === "all";
   const typesArray = useMemo(() => [...selectedTypes], [selectedTypes]);
+  const allTypesSelected = selectedTypes.size === ALL_KEY_TYPES.length;
   const typeFilterLabel =
-    selectedTypes.size === ALL_KEY_TYPES.length
-      ? t("database.redisQuery.typesAll")
-      : selectedTypes.size === 0
-        ? t("database.redisQuery.typesNone")
-        : t("database.redisQuery.typesSelected", { count: selectedTypes.size });
+    selectedTypes.size === 0
+      ? t("database.redisQuery.typesNone")
+      : t("database.redisQuery.typesSelected", { count: selectedTypes.size });
 
   const visibleEntries = useMemo(() => {
     const scoped = filterEntriesBySearchScope(entries, keyword, searchScope, fuzzy);
@@ -395,39 +377,6 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [typesMenuOpen]);
 
-  useEffect(() => {
-    if (!capable || rightTab !== "cli") {
-      return;
-    }
-    const cached = readRedisDeploymentCache(connection);
-    if (isRedisDeploymentCacheUsable(cached)) {
-      setDeployment(cached);
-      return;
-    }
-    let cancelled = false;
-    setDeploymentLoading(true);
-    void probeRedisDeployment(connection, sshConnections)
-      .then((info) => {
-        if (cancelled) return;
-        writeRedisDeploymentCache(connection, info);
-        setDeployment(info);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        const fallback: RedisDeploymentInfo = { kind: "unknown", reason: "probe_failed" };
-        writeRedisDeploymentCache(connection, fallback);
-        setDeployment(fallback);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDeploymentLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [capable, rightTab, connection, sshConnections]);
-
   const toggleFolder = useCallback((id: string) => {
     setExpandedFolders((prev) => {
       const next = new Set(prev);
@@ -451,6 +400,10 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
       return next;
     });
   }, []);
+
+  const handleToggleAllTypes = useCallback(() => {
+    setSelectedTypes(allTypesSelected ? new Set() : new Set(ALL_KEY_TYPES));
+  }, [allTypesSelected]);
 
   const handleSearchKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -580,20 +533,29 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
             <div className="redis-query-type-filter">
               <button
                 type="button"
-                className={`redis-query-type-trigger${typesMenuOpen ? " active" : ""}`}
+                className={`redis-query-chip redis-query-type-trigger${typesMenuOpen ? " active" : ""}${
+                  selectedTypes.size > 0 && selectedTypes.size < ALL_KEY_TYPES.length
+                    ? " active"
+                    : ""
+                }`}
                 onClick={() => setTypesMenuOpen((v) => !v)}
                 title={t("database.redisQuery.types")}
               >
-                {typeFilterLabel}
+                <span className="redis-query-type-trigger__label">{typeFilterLabel}</span>
+                <span className="redis-query-type-trigger__caret" aria-hidden>
+                  ▾
+                </span>
               </button>
               {typesMenuOpen ? (
                 <div className="redis-query-type-menu">
                   <button
                     type="button"
                     className="redis-query-type-menu-action"
-                    onClick={() => setSelectedTypes(new Set(ALL_KEY_TYPES))}
+                    onClick={handleToggleAllTypes}
                   >
-                    {t("database.redisQuery.typesSelectAll")}
+                    {allTypesSelected
+                      ? t("database.redisQuery.typesDeselectAll")
+                      : t("database.redisQuery.typesSelectAll")}
                   </button>
                   {ALL_KEY_TYPES.map((type) => (
                     <label key={type} className="redis-query-type-menu-item">
@@ -736,9 +698,6 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
             <ConnectionCliTabPanel
               connection={scopedConnection}
               client="redis"
-              deployment={deployment}
-              deploymentLoading={deploymentLoading}
-              sshConnections={sshConnections}
               panelActive
               visible={rightTab === "cli"}
             />
