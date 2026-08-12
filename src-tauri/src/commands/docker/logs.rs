@@ -75,6 +75,10 @@ pub async fn docker_stream_container_logs(
                 onepanel_poll_container_logs(adapter, &container_id_owned, &query, follow, stop, emit)
                     .await
             }
+            DockerTarget::BtPanel(_) => Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "宝塔适配器暂不支持容器日志流",
+            )),
         };
 
         let _ = app.emit(
@@ -169,6 +173,11 @@ pub async fn docker_stream_stats(
                 .await
             }
             DockerTarget::OnePanel(adapter) => {
+                adapter
+                    .stream_stats(&container_id, stop_for_task.clone(), sink)
+                    .await
+            }
+            DockerTarget::BtPanel(adapter) => {
                 adapter
                     .stream_stats(&container_id, stop_for_task.clone(), sink)
                     .await

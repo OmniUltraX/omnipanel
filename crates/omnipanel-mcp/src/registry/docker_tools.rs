@@ -9,7 +9,7 @@
 //! - Local Engine: `LocalDockerAdapter::connect()`
 //! - Remote Engine: `LocalDockerAdapter::connect_remote_http/https`
 //! - SSH Engine: 一次性 `SshSession::connect_no_shell` → `SshDockerAdapter::new`
-//! - 1Panel: `OnePanelAdapter::new(OnePanelClient::new(...), ...)`
+//! - 1Panel / 宝塔: 面板 API + 强制绑定 SSH（无面板接口时回退 `SshDockerAdapter`）
 //!
 //! 性能权衡：每次调用都重新建立连接（与 ssh_tools.rs 同策略）。外部 MCP
 //! 调用频率远低于内部 AI 工具，且避免引入连接池生命周期管理。
@@ -18,8 +18,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use omnipanel_docker::{
-    ContainerFilter, DockerAdapter, DockerConnectionSource, DockerContainerAction,
-    DockerLogQuery, LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter,
+    BtPanelAdapter, BtPanelClient, ContainerFilter, DockerAdapter, DockerConnectionSource,
+    DockerContainerAction, DockerLogQuery, LocalDockerAdapter, OnePanelAdapter, OnePanelClient,
+    SshDockerAdapter,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{ssh_config_from_json, SshConfig, SshSession};
@@ -68,6 +69,9 @@ struct DockerConnectionConfig {
     bound_ssh_connection_id: Option<String>,
     #[serde(default)]
     onepanel: Option<OnePanelConfigDto>,
+    /// 宝塔面板配置（亦兼容 JSON 字段名 `panel`）
+    #[serde(default, alias = "panel")]
+    btpanel: Option<BtPanelConfigDto>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -79,11 +83,21 @@ struct OnePanelConfigDto {
     insecure: bool,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BtPanelConfigDto {
+    base_url: String,
+    api_key: String,
+    #[serde(default)]
+    insecure: bool,
+}
+
 /// 已解析的 Docker 操作目标（与 Tauri 侧 `DockerTarget` 对应，但简化为枚举适配器）。
 enum DockerTarget {
     Local(LocalDockerAdapter),
     Ssh(SshDockerAdapter, Arc<SshSession>),
     OnePanel(OnePanelAdapter),
+    BtPanel(BtPanelAdapter),
 }
 
 /// 从 storage 同步读取 Docker 连接配置（不建立任何连接）。
@@ -190,13 +204,76 @@ async fn build_target(
             let adapter = SshDockerAdapter::new(session_arc.clone());
             DockerTarget::Ssh(adapter, session_arc)
         }
-        DockerConnectionSource::OnePanel | DockerConnectionSource::PanelAdapter => {
+        DockerConnectionSource::OnePanel => {
             let panel = cfg.onepanel.as_ref().ok_or_else(|| {
                 "onepanel 类型缺少 Docker 1Panel 配置".to_string()
             })?;
+            if cfg
+                .bound_ssh_connection_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none()
+            {
+                return Err(
+                    "1Panel Docker 连接必须绑定 SSH 连接（用于无面板接口时的能力回退）".to_string(),
+                );
+            }
+            let ssh_config = {
+                let storage = storage.lock().await;
+                resolve_ssh_config_for_docker(&storage, &cfg)?
+            };
+            let session = tokio::time::timeout(
+                Duration::from_secs(DOCKER_OP_TIMEOUT_SECS),
+                SshSession::connect_no_shell(ssh_config),
+            )
+            .await
+            .map_err(|_| format!("SSH 连接超时（{DOCKER_OP_TIMEOUT_SECS}s）"))?
+            .map_err(|e| format!("SSH 连接失败: {}", e.user_message()))?;
+            let session_arc = Arc::new(session);
             let client = OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
-            let adapter = OnePanelAdapter::new(client, connection_id.to_string());
+            let adapter =
+                OnePanelAdapter::new(client, connection_id.to_string(), session_arc);
             DockerTarget::OnePanel(adapter)
+        }
+        DockerConnectionSource::PanelAdapter => {
+            let mut panel = cfg.btpanel.clone().ok_or_else(|| {
+                "宝塔类型缺少 Docker 面板配置（btpanel / panel）".to_string()
+            })?;
+            if panel.api_key.trim().is_empty() {
+                if let Ok(key) =
+                    omnipanel_store::Vault::get(&format!("docker-btpanel-{connection_id}"))
+                {
+                    panel.api_key = key;
+                }
+            }
+            if cfg
+                .bound_ssh_connection_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none()
+            {
+                return Err(
+                    "宝塔 Docker 连接必须绑定 SSH 连接（用于无面板接口时的能力回退）".to_string(),
+                );
+            }
+            let ssh_config = {
+                let storage = storage.lock().await;
+                resolve_ssh_config_for_docker(&storage, &cfg)?
+            };
+            let session = tokio::time::timeout(
+                Duration::from_secs(DOCKER_OP_TIMEOUT_SECS),
+                SshSession::connect_no_shell(ssh_config),
+            )
+            .await
+            .map_err(|_| format!("SSH 连接超时（{DOCKER_OP_TIMEOUT_SECS}s）"))?
+            .map_err(|e| format!("SSH 连接失败: {}", e.user_message()))?;
+            let session_arc = Arc::new(session);
+            let client = BtPanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
+            let adapter =
+                BtPanelAdapter::new(client, connection_id.to_string(), session_arc);
+            DockerTarget::BtPanel(adapter)
         }
     };
     Ok((conn_name, target))
@@ -245,6 +322,9 @@ pub async fn list_containers(
             result?
         }
         DockerTarget::OnePanel(adapter) => {
+            with_timeout(adapter.list_containers(filter), DOCKER_OP_TIMEOUT_SECS).await?
+        }
+        DockerTarget::BtPanel(adapter) => {
             with_timeout(adapter.list_containers(filter), DOCKER_OP_TIMEOUT_SECS).await?
         }
     };
@@ -323,6 +403,10 @@ pub async fn container_logs(
             with_timeout(adapter.container_logs(&container_id, &query), DOCKER_OP_TIMEOUT_SECS)
                 .await?
         }
+        DockerTarget::BtPanel(adapter) => {
+            with_timeout(adapter.container_logs(&container_id, &query), DOCKER_OP_TIMEOUT_SECS)
+                .await?
+        }
     };
 
     Ok(serde_json::to_string(&serde_json::json!({
@@ -358,6 +442,9 @@ pub async fn inspect_container(
             result?
         }
         DockerTarget::OnePanel(adapter) => {
+            with_timeout(adapter.inspect_container(&container_id), DOCKER_OP_TIMEOUT_SECS).await?
+        }
+        DockerTarget::BtPanel(adapter) => {
             with_timeout(adapter.inspect_container(&container_id), DOCKER_OP_TIMEOUT_SECS).await?
         }
     };
@@ -408,6 +495,10 @@ pub async fn container_action(
             r
         }
         DockerTarget::OnePanel(adapter) => {
+            with_timeout(adapter.container_action(&container_id, action), DOCKER_OP_TIMEOUT_SECS)
+                .await
+        }
+        DockerTarget::BtPanel(adapter) => {
             with_timeout(adapter.container_action(&container_id, action), DOCKER_OP_TIMEOUT_SECS)
                 .await
         }
@@ -475,6 +566,14 @@ pub async fn exec(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, S
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
                 "1Panel 连接暂不支持一次性 exec；请在宿主机 SSH 终端执行",
+            )
+            .user_message()
+            .to_string());
+        }
+        DockerTarget::BtPanel(_) => {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "宝塔连接暂不支持一次性 exec；请在宿主机 SSH 终端执行",
             )
             .user_message()
             .to_string());

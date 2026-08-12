@@ -12,8 +12,8 @@ use std::time::Duration;
 use omnipanel_docker::{
     ContainerFilter, DockerAdapter, DockerConnectionInfo, DockerConnectionSource,
     DockerConnectionStatus, DockerContainerSummary, DockerOverview, DockerProbe,
-    LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter,
-    local_engine_status,
+    BtPanelAdapter, BtPanelClient, LocalDockerAdapter, OnePanelAdapter, OnePanelClient,
+    SshDockerAdapter, local_engine_status,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::SshConfig;
@@ -50,11 +50,23 @@ pub struct DockerConnectionConfig {
     pub bound_ssh_connection_id: Option<String>,
     #[serde(default)]
     pub onepanel: Option<OnePanelConfigDto>,
+    /// 宝塔面板配置（亦兼容 JSON 字段名 `panel`）
+    #[serde(default, alias = "panel")]
+    pub btpanel: Option<BtPanelConfigDto>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OnePanelConfigDto {
+    pub base_url: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub insecure: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BtPanelConfigDto {
     pub base_url: String,
     pub api_key: String,
     #[serde(default)]
@@ -67,6 +79,7 @@ pub enum DockerTarget {
     Remote(bollard::Docker),
     Ssh(Arc<omnipanel_ssh::SshSession>),
     OnePanel(OnePanelAdapter),
+    BtPanel(BtPanelAdapter),
 }
 
 /// 解析连接 id 到操作目标。
@@ -144,14 +157,73 @@ pub async fn resolve_target(
                     "1Panel API 密钥未配置（请重新填写并保存连接）",
                 ));
             }
+            let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "1Panel")?;
+            let session =
+                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
             let adapter = OnePanelAdapter::new(
                 OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure),
                 connection_id.to_string(),
+                session,
             );
             Ok(DockerTarget::OnePanel(adapter))
         }
+        Some(DockerConnectionSource::PanelAdapter) => {
+            let mut panel = cfg.btpanel.ok_or_else(|| {
+                OmniError::new(
+                    ErrorCode::InvalidInput,
+                    "宝塔类型缺少 Docker 面板配置（btpanel / panel）",
+                )
+            })?;
+            if panel.api_key.trim().is_empty() {
+                if let Ok(key) =
+                    omnipanel_store::Vault::get(&format!("docker-btpanel-{connection_id}"))
+                {
+                    panel.api_key = key;
+                } else if let Some(r) = conn.credential_ref.as_deref() {
+                    if let Ok(key) = omnipanel_store::Vault::get(r) {
+                        panel.api_key = key;
+                    }
+                }
+            }
+            if panel.api_key.trim().is_empty() {
+                return Err(OmniError::new(
+                    ErrorCode::Auth,
+                    "宝塔 API 密钥未配置（请重新填写并保存连接）",
+                ));
+            }
+            let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "宝塔")?;
+            let session =
+                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
+            let client = BtPanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
+            tracing::info!(
+                target: "btpanel",
+                connection_id = %connection_id,
+                base_url = %panel.base_url,
+                api_key_len = panel.api_key.len(),
+                insecure = panel.insecure,
+                "解析宝塔 Docker 连接"
+            );
+            let adapter = BtPanelAdapter::new(client, connection_id.to_string(), session);
+            Ok(DockerTarget::BtPanel(adapter))
+        }
         _ => Ok(DockerTarget::Local),
     }
+}
+
+/// 面板类 Docker 连接必须绑定 SSH（无面板 API 时回退）。
+fn require_bound_ssh_id(
+    bound: Option<String>,
+    panel_label: &str,
+) -> Result<String, OmniError> {
+    bound
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("{panel_label} Docker 连接必须绑定 SSH 连接（用于无面板接口时的能力回退）"),
+            )
+        })
 }
 
 /// 从复用池获取 SSH 会话，不存在则建立并缓存（与桌面端 `ensure_docker_ssh` 等价）。
@@ -168,45 +240,64 @@ async fn ensure_docker_ssh(
         }
     }
 
-    let mut ssh = ssh.ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::InvalidInput,
-            "ssh-engine 类型缺少 Docker SSH 配置",
-        )
-    })?;
-    // 内嵌 SSH：从 Vault 回填密码 / PEM
-    if let omnipanel_ssh::SshAuth::Password { ref mut password } = ssh.auth {
-        if password.is_empty() {
-            if let Ok(pw) = omnipanel_store::Vault::get(&format!("docker-ssh-password-{connection_id}")) {
-                *password = pw;
+    let bound_id = bound_id.filter(|id| !id.trim().is_empty());
+    let session = if let Some(ref ssh_id) = bound_id {
+        let ssh_conn = {
+            let storage = state.storage.lock().await;
+            storage.get_connection(ssh_id)?
+        }
+        .ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::NotFound,
+                format!("绑定的 SSH 连接 {ssh_id} 不存在"),
+            )
+        })?;
+        let ssh_cfg = crate::state::resolve_ssh_config(&ssh_conn)?;
+        Arc::new(omnipanel_ssh::SshSession::connect_no_shell(ssh_cfg).await?)
+    } else {
+        let mut ssh = ssh.ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::InvalidInput,
+                "ssh-engine 类型缺少 Docker SSH 配置",
+            )
+        })?;
+        // 内嵌 SSH：从 Vault 回填密码 / PEM
+        if let omnipanel_ssh::SshAuth::Password { ref mut password } = ssh.auth {
+            if password.is_empty() {
+                if let Ok(pw) =
+                    omnipanel_store::Vault::get(&format!("docker-ssh-password-{connection_id}"))
+                {
+                    *password = pw;
+                }
+            }
+        } else if let omnipanel_ssh::SshAuth::PrivateKey {
+            ref mut pem,
+            ref mut passphrase,
+            ..
+        } = ssh.auth
+        {
+            if pem.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+                if let Ok(p) =
+                    omnipanel_store::Vault::get(&format!("docker-ssh-pem-{connection_id}"))
+                {
+                    *pem = Some(p);
+                }
+            }
+            if passphrase.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+                if let Ok(pp) =
+                    omnipanel_store::Vault::get(&format!("docker-ssh-passphrase-{connection_id}"))
+                {
+                    *passphrase = Some(pp);
+                }
             }
         }
-    } else if let omnipanel_ssh::SshAuth::PrivateKey {
-        ref mut pem,
-        ref mut passphrase,
-        ..
-    } = ssh.auth
-    {
-        if pem.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
-            if let Ok(p) = omnipanel_store::Vault::get(&format!("docker-ssh-pem-{connection_id}")) {
-                *pem = Some(p);
-            }
-        }
-        if passphrase.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
-            if let Ok(pp) =
-                omnipanel_store::Vault::get(&format!("docker-ssh-passphrase-{connection_id}"))
-            {
-                *passphrase = Some(pp);
-            }
-        }
-    }
+        Arc::new(omnipanel_ssh::SshSession::connect_no_shell(ssh).await?)
+    };
 
-    let session = Arc::new(omnipanel_ssh::SshSession::connect_no_shell(ssh).await?);
     let mut pool = state.docker_ssh_sessions.lock().await;
     if let Some(existing) = pool.get(connection_id) {
         let existing = existing.clone();
         drop(pool);
-        let _ = bound_id;
         session.disconnect().await;
         return Ok(existing);
     }
@@ -221,6 +312,7 @@ pub fn adapter_for(target: DockerTarget) -> Result<Box<dyn DockerAdapter>, OmniE
         DockerTarget::Remote(docker) => Ok(Box::new(LocalDockerAdapter::with_docker(docker))),
         DockerTarget::Ssh(session) => Ok(Box::new(SshDockerAdapter::new(session))),
         DockerTarget::OnePanel(adapter) => Ok(Box::new(adapter)),
+        DockerTarget::BtPanel(adapter) => Ok(Box::new(adapter)),
     }
 }
 
@@ -273,6 +365,57 @@ where
         }
     }
     Err(OmniError::new(ErrorCode::Ssh, "SSH 会话不可用或已断开"))
+}
+
+/// 编辑 Docker 连接表单：从 Vault 取回面板 API Key。
+pub async fn docker_get_connection_secret(
+    state: &ServerState,
+    id: String,
+) -> Result<String, OmniError> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(OmniError::invalid_input("连接 id 为空"));
+    }
+    let conn = {
+        let storage = state.storage.lock().await;
+        storage.get_connection(id)?
+    }
+    .ok_or_else(|| OmniError::not_found(format!("Docker 连接 {id} 不存在")))?;
+
+    if !matches!(conn.kind, omnipanel_store::ConnectionKind::Docker) {
+        return Err(OmniError::invalid_input("连接不是 Docker 类型"));
+    }
+
+    let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
+    let source = cfg
+        .source
+        .as_deref()
+        .map(DockerConnectionSource::parse)
+        .unwrap_or(DockerConnectionSource::LocalEngine);
+
+    let vault_key = match source {
+        DockerConnectionSource::OnePanel => format!("docker-onepanel-{id}"),
+        DockerConnectionSource::PanelAdapter => format!("docker-btpanel-{id}"),
+        _ => {
+            return Err(OmniError::invalid_input(
+                "仅 1Panel / 宝塔连接支持回显 API Key",
+            ));
+        }
+    };
+
+    if let Ok(key) = omnipanel_store::Vault::get(&vault_key) {
+        if !key.trim().is_empty() {
+            return Ok(key);
+        }
+    }
+    if let Some(r) = conn.credential_ref.as_deref() {
+        if let Ok(key) = omnipanel_store::Vault::get(r) {
+            if !key.trim().is_empty() {
+                return Ok(key);
+            }
+        }
+    }
+    Ok(String::new())
 }
 
 /// 列出全部 Docker 连接（本地 Engine + 已保存连接 + 并行探测状态）。

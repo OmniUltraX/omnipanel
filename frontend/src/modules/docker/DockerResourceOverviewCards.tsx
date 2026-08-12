@@ -5,6 +5,7 @@ import { commands, type DockerConnectionInfo } from "../../ipc/bindings";
 import { unwrapCommand as unwrapOk } from "../../ipc/result";
 import { ComposeStackIcon, ContainerIcon, ImageLayersIcon } from "./icons";
 import { DOCKER_QUIET_IPC, handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
+import { runWithDockerBoundSsh } from "./ensureDockerBoundSsh";
 
 export interface DockerResourceOverviewCardsProps {
   connection: DockerConnectionInfo;
@@ -66,31 +67,42 @@ export function DockerResourceOverviewCards({
     }
     setLoading(true);
     try {
-      // 顺序拉取：SSH 宿主机上并发 list 会抢同一 exec 通道，易触发 Channel send error
-      const quiet = DOCKER_QUIET_IPC;
-      const containers = await unwrapOk(commands.dockerListContainers(connectionId, null), quiet);
-      const compose = await unwrapOk(commands.dockerListComposeProjects(connectionId), quiet).catch(
-        () => [],
+      await runWithDockerBoundSsh(
+        connectionId,
+        async () => {
+          // 顺序拉取：SSH 宿主机上并发 list 会抢同一 exec 通道，易触发 Channel send error
+          const quiet = DOCKER_QUIET_IPC;
+          const containers = await unwrapOk(commands.dockerListContainers(connectionId, null), quiet);
+          const compose = await unwrapOk(
+            commands.dockerListComposeProjects(connectionId),
+            quiet,
+          ).catch(() => []);
+          const images = await unwrapOk(commands.dockerListImages(connectionId), quiet);
+          const networks = await unwrapOk(commands.dockerListNetworks(connectionId), quiet);
+          const volumes = await unwrapOk(commands.dockerListVolumes(connectionId), quiet);
+          setCounts({
+            containers: containers.length,
+            compose: compose.length,
+            images: images.length,
+            networks: networks.length,
+            volumes: volumes.length,
+            registries: 0,
+          });
+        },
+        connection.boundSshConnectionId,
       );
-      const images = await unwrapOk(commands.dockerListImages(connectionId), quiet);
-      const networks = await unwrapOk(commands.dockerListNetworks(connectionId), quiet);
-      const volumes = await unwrapOk(commands.dockerListVolumes(connectionId), quiet);
-      setCounts({
-        containers: containers.length,
-        compose: compose.length,
-        images: images.length,
-        networks: networks.length,
-        volumes: volumes.length,
-        registries: 0,
-      });
     } catch (error) {
-      handleDockerAutoFetchFailure(connectionId, error);
+      if (
+        !(error && typeof error === "object" && (error as { code?: string }).code === "cancelled")
+      ) {
+        handleDockerAutoFetchFailure(connectionId, error);
+      }
       // 保留上次成功数据；失败时不打断页面主体
     } finally {
       setLoading(false);
       setLoaded(true);
     }
-  }, [connection.connectionId, connection.status]);
+  }, [connection.boundSshConnectionId, connection.connectionId, connection.status]);
 
   useEffect(() => {
     setLoaded(false);

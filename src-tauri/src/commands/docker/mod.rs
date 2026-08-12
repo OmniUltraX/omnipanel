@@ -22,10 +22,10 @@ use omnipanel_docker::{
     DockerHostCliResult, DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
     DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
     DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
-    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, LocalDockerAdapter,
-    OnePanelAdapter, OnePanelClient, SshDockerAdapter, bollard, local_engine_status,
-    remote_engine_daemon_config, restart_local_engine, run_local_docker_cli, run_ssh_docker_cli,
-    start_local_engine,
+    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, BtPanelAdapter, BtPanelClient,
+    LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter, bollard,
+    local_engine_status, remote_engine_daemon_config, restart_local_engine, run_local_docker_cli,
+    run_ssh_docker_cli, start_local_engine,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshConfig, SshSession};
@@ -98,11 +98,23 @@ struct DockerConnectionConfig {
     /// 1Panel 面板配置：baseUrl / apiKey / insecure
     #[serde(default)]
     onepanel: Option<OnePanelConfigDto>,
+    /// 宝塔面板配置：baseUrl / apiKey / insecure（亦兼容 JSON 字段名 `panel`）
+    #[serde(default, alias = "panel")]
+    btpanel: Option<BtPanelConfigDto>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OnePanelConfigDto {
+    base_url: String,
+    api_key: String,
+    #[serde(default)]
+    insecure: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BtPanelConfigDto {
     base_url: String,
     api_key: String,
     #[serde(default)]
@@ -115,6 +127,7 @@ pub(crate) enum DockerTarget {
     Remote(bollard::Docker),
     Ssh(Arc<SshSession>),
     OnePanel(OnePanelAdapter),
+    BtPanel(BtPanelAdapter),
 }
 
 /// 解析连接 id 到操作目标。SSH 目标会从复用池获取或建立会话。
@@ -193,14 +206,71 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
                     "1Panel API 密钥未配置（请重新填写并保存连接）",
                 ));
             }
+            let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "1Panel")?;
+            let session =
+                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
             let adapter = OnePanelAdapter::new(
                 OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure),
                 connection_id.to_string(),
+                session,
             );
             Ok(DockerTarget::OnePanel(adapter))
         }
+        Some(DockerConnectionSource::PanelAdapter) => {
+            let mut panel = cfg.btpanel.ok_or_else(|| {
+                OmniError::new(
+                    ErrorCode::InvalidInput,
+                    "宝塔类型缺少 Docker 面板配置（btpanel / panel）",
+                )
+            })?;
+            if panel.api_key.trim().is_empty() {
+                if let Ok(key) = Vault::get(&format!("docker-btpanel-{connection_id}")) {
+                    panel.api_key = key;
+                } else if let Some(r) = conn.credential_ref.as_deref() {
+                    if let Ok(key) = Vault::get(r) {
+                        panel.api_key = key;
+                    }
+                }
+            }
+            if panel.api_key.trim().is_empty() {
+                return Err(OmniError::new(
+                    ErrorCode::Auth,
+                    "宝塔 API 密钥未配置（请重新填写并保存连接）",
+                ));
+            }
+            let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "宝塔")?;
+            let session =
+                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
+            let client = BtPanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
+            tracing::info!(
+                target: "btpanel",
+                connection_id = %connection_id,
+                base_url = %panel.base_url,
+                api_key_len = panel.api_key.len(),
+                insecure = panel.insecure,
+                "解析宝塔 Docker 连接"
+            );
+            let adapter = BtPanelAdapter::new(client, connection_id.to_string(), session);
+            Ok(DockerTarget::BtPanel(adapter))
+        }
         _ => Ok(DockerTarget::Local),
     }
+}
+
+/// 面板类 Docker 连接必须绑定 SSH（无面板 API 时回退）。
+fn require_bound_ssh_id(
+    bound: Option<String>,
+    panel_label: &str,
+) -> Result<String, OmniError> {
+    bound
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("{panel_label} Docker 连接必须绑定 SSH 连接（用于无面板接口时的能力回退）"),
+            )
+        })
 }
 
 /// 读取 Docker 连接绑定的 SSH 连接 id（如有）。
@@ -409,6 +479,7 @@ pub(crate) fn adapter_for(target: DockerTarget) -> Result<Box<dyn DockerAdapter>
         DockerTarget::Remote(docker) => Ok(Box::new(LocalDockerAdapter::with_docker(docker))),
         DockerTarget::Ssh(session) => Ok(Box::new(SshDockerAdapter::new(session))),
         DockerTarget::OnePanel(adapter) => Ok(Box::new(adapter)),
+        DockerTarget::BtPanel(adapter) => Ok(Box::new(adapter)),
     }
 }
 

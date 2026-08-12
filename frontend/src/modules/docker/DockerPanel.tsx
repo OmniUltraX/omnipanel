@@ -43,6 +43,9 @@ import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import { DockerSidebarLinkageProvider } from "./DockerSidebarLinkageContext";
 import { isBuiltinLocalDockerConnection } from "./constants";
+import {
+  dockerConnectionMissingRequiredBoundSsh,
+} from "./dockerConnectionSource";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
 import {
   isDockerComposeTab,
@@ -187,6 +190,7 @@ export function DockerPanel() {
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
   const [showAddConn, setShowAddConn] = useState(false);
   const [editDockerConnection, setEditDockerConnection] = useState<Connection | undefined>();
+  const [editDockerStatusHint, setEditDockerStatusHint] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const connectionById = useMemo(() => {
@@ -252,6 +256,19 @@ export function DockerPanel() {
 
   const handleNavigate = useCallback(
     (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "permanent") => {
+      const connection = connectionById.get(target.connectionId);
+      if (connection && dockerConnectionMissingRequiredBoundSsh(connection)) {
+        const stored = storedConnections.find((c) => c.id === connection.connectionId);
+        if (!stored) {
+          showToast(t("docker.sidebar.editFailed"));
+          return;
+        }
+        setEditDockerStatusHint(t("docker.sidebar.bindSshRequiredHint"));
+        setEditDockerConnection(stored);
+        setShowAddConn(true);
+        return;
+      }
+
       // 先同步开 Tab（transition 保侧栏反馈），数据由 panel isActive 后异步拉取
       openDockTabNow({
         applyTabSync: () => {
@@ -281,7 +298,15 @@ export function DockerPanel() {
         },
       });
     },
-    [selectConnection, selectContainer, selectCompose, setActiveNavKey],
+    [
+      connectionById,
+      selectConnection,
+      selectContainer,
+      selectCompose,
+      setActiveNavKey,
+      storedConnections,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -314,6 +339,7 @@ export function DockerPanel() {
       showToast(t("docker.sidebar.editFailed"));
       return;
     }
+    setEditDockerStatusHint(null);
     setEditDockerConnection(conn);
     setShowAddConn(true);
   };
@@ -636,12 +662,15 @@ export function DockerPanel() {
             onClose={() => {
               setShowAddConn(false);
               setEditDockerConnection(undefined);
+              setEditDockerStatusHint(null);
             }}
             editConnection={editDockerConnection}
+            statusHint={editDockerStatusHint}
             onSaved={(connection) => {
               void reloadConnections();
               refreshDockerConnectionSidebarCache(connection.id);
               setEditDockerConnection(undefined);
+              setEditDockerStatusHint(null);
             }}
           />
         </Suspense>

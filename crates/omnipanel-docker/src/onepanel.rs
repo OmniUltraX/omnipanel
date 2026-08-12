@@ -2,7 +2,7 @@
 //!
 //! 1Panel 通过自家的 `/api/v2/...` REST API 暴露 Docker 操作。本模块把其中
 //! 高频端点（容器列表 / 详情 / 启停 / 日志 / 镜像列表 / Compose 列表）包装为
-//! [`crate::DockerAdapter`]；未覆盖的端点返回明确"暂不支持"错误。
+//! [`crate::DockerAdapter`]；无对应面板接口的能力委托给绑定 SSH（[`crate::ssh::SshDockerAdapter`]）。
 //!
 //! 认证：1Panel 期望请求携带两个 header：
 //! - `1Panel-Timestamp`：Unix 秒
@@ -10,12 +10,15 @@
 //!
 //! 入口基础 URL 例：`http://192.168.1.2:9999`。
 
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
+use omnipanel_ssh::SshSession;
 use serde::{Deserialize, Serialize};
 
+use crate::ssh::SshDockerAdapter;
 use crate::{
     ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
     DockerComposeProject, DockerComposeProjectFiles, DockerComposeReadFilesRequest,
@@ -358,16 +361,21 @@ impl OnePanelClient {
 /// 1Panel Docker 适配器。
 pub struct OnePanelAdapter {
     client: OnePanelClient,
-    #[allow(dead_code)]
     connection_id: String,
+    ssh: Arc<SshSession>,
 }
 
 impl OnePanelAdapter {
-    pub fn new(client: OnePanelClient, connection_id: String) -> Self {
+    pub fn new(client: OnePanelClient, connection_id: String, ssh: Arc<SshSession>) -> Self {
         Self {
             client,
             connection_id,
+            ssh,
         }
+    }
+
+    fn ssh(&self) -> SshDockerAdapter {
+        SshDockerAdapter::new(self.ssh.clone())
     }
 
     /// 批量获取容器 CPU / 内存占用（1Panel `GET /containers/list/stats`）。
@@ -1729,12 +1737,12 @@ impl DockerAdapter for OnePanelAdapter {
         crate::image_search::search_via_registry_mirrors(&mirrors, term, limit).await
     }
 
-    async fn inspect_image(&self, _id: &str) -> OmniResult<DockerImageDetail> {
-        Err(not_supported("镜像详情"))
+    async fn inspect_image(&self, id: &str) -> OmniResult<DockerImageDetail> {
+        self.ssh().inspect_image(id).await
     }
 
-    async fn image_history(&self, _id: &str) -> OmniResult<Vec<DockerImageHistoryLayer>> {
-        Err(not_supported("镜像历史"))
+    async fn image_history(&self, id: &str) -> OmniResult<Vec<DockerImageHistoryLayer>> {
+        self.ssh().image_history(id).await
     }
 
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>> {
@@ -1744,30 +1752,30 @@ impl DockerAdapter for OnePanelAdapter {
 
     async fn pull_image(
         &self,
-        _image: &str,
-        _progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
+        image: &str,
+        progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
     ) -> OmniResult<DockerPullResult> {
-        Err(not_supported("镜像拉取"))
+        self.ssh().pull_image(image, progress).await
     }
 
     async fn push_image(
         &self,
-        _image: &str,
-        _progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
+        image: &str,
+        progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
     ) -> OmniResult<DockerPullResult> {
-        Err(not_supported("镜像推送"))
+        self.ssh().push_image(image, progress).await
     }
 
-    async fn tag_image(&self, _source: &str, _target: &str) -> OmniResult<()> {
-        Err(not_supported("镜像打 tag"))
+    async fn tag_image(&self, source: &str, target: &str) -> OmniResult<()> {
+        self.ssh().tag_image(source, target).await
     }
 
     async fn build_image(
         &self,
-        _ctx: &DockerBuildContext,
-        _progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
+        ctx: &DockerBuildContext,
+        progress: Option<Box<dyn Fn(DockerImageProgress) + Send + Sync>>,
     ) -> OmniResult<DockerBuildResult> {
-        Err(not_supported("镜像构建"))
+        self.ssh().build_image(ctx, progress).await
     }
 
     async fn compose_action(
@@ -2041,11 +2049,11 @@ impl DockerAdapter for OnePanelAdapter {
 
     async fn stream_stats(
         &self,
-        _container_id: &str,
-        _stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-        _sink: Box<dyn FnMut(DockerContainerStats) + Send>,
+        container_id: &str,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        sink: Box<dyn FnMut(DockerContainerStats) + Send>,
     ) -> OmniResult<()> {
-        Err(not_supported("stats 实时流"))
+        self.ssh().stream_stats(container_id, stop, sink).await
     }
 
     async fn list_networks(&self) -> OmniResult<Vec<DockerNetworkSummary>> {
@@ -2119,7 +2127,7 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn prune_networks(&self) -> OmniResult<DockerPruneResult> {
-        Err(not_supported("清理未使用网络"))
+        self.ssh().prune_networks().await
     }
 
     async fn connect_container_to_network(
@@ -2259,7 +2267,7 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn prune_build_cache(&self) -> OmniResult<DockerPruneResult> {
-        Err(not_supported("清理构建缓存"))
+        self.ssh().prune_build_cache().await
     }
 
     async fn inspect_network(&self, name: &str) -> OmniResult<DockerNetworkDetail> {
@@ -2440,96 +2448,104 @@ impl DockerAdapter for OnePanelAdapter {
 
     async fn read_container_file(
         &self,
-        _container_id: &str,
-        _path: &str,
-        _max_bytes: i64,
+        container_id: &str,
+        path: &str,
+        max_bytes: i64,
     ) -> OmniResult<Vec<u8>> {
-        Err(not_supported("读取容器内文件"))
+        self.ssh()
+            .read_container_file(container_id, path, max_bytes)
+            .await
     }
 
     async fn write_container_file(
         &self,
-        _container_id: &str,
-        _path: &str,
-        _data: Vec<u8>,
+        container_id: &str,
+        path: &str,
+        data: Vec<u8>,
     ) -> OmniResult<()> {
-        Err(not_supported("写入容器内文件"))
+        self.ssh()
+            .write_container_file(container_id, path, data)
+            .await
     }
 
     async fn swarm_init(
         &self,
-        _listen_addr: Option<&str>,
-        _advertise_addr: Option<&str>,
+        listen_addr: Option<&str>,
+        advertise_addr: Option<&str>,
     ) -> OmniResult<String> {
-        Err(not_supported("Swarm 初始化"))
+        self.ssh().swarm_init(listen_addr, advertise_addr).await
     }
     async fn swarm_join(
         &self,
-        _remote_addrs: Vec<String>,
-        _token: &str,
-        _listen_addr: Option<&str>,
+        remote_addrs: Vec<String>,
+        token: &str,
+        listen_addr: Option<&str>,
     ) -> OmniResult<()> {
-        Err(not_supported("Swarm 加入"))
+        self.ssh()
+            .swarm_join(remote_addrs, token, listen_addr)
+            .await
     }
-    async fn swarm_leave(&self, _force: bool) -> OmniResult<()> {
-        Err(not_supported("Swarm 离开"))
+    async fn swarm_leave(&self, force: bool) -> OmniResult<()> {
+        self.ssh().swarm_leave(force).await
     }
     async fn swarm_inspect(&self) -> OmniResult<serde_json::Value> {
-        Err(not_supported("Swarm 查看"))
+        self.ssh().swarm_inspect().await
     }
     async fn service_list(&self) -> OmniResult<Vec<DockerServiceSummary>> {
-        Err(not_supported("Swarm 服务管理"))
+        self.ssh().service_list().await
     }
-    async fn service_create(&self, _req: &DockerCreateServiceRequest) -> OmniResult<String> {
-        Err(not_supported("Swarm 服务管理"))
+    async fn service_create(&self, req: &DockerCreateServiceRequest) -> OmniResult<String> {
+        self.ssh().service_create(req).await
     }
     async fn service_update(
         &self,
-        _id: &str,
-        _replicas: Option<u64>,
-        _image: Option<&str>,
+        id: &str,
+        replicas: Option<u64>,
+        image: Option<&str>,
     ) -> OmniResult<()> {
-        Err(not_supported("Swarm 服务管理"))
+        self.ssh().service_update(id, replicas, image).await
     }
-    async fn service_remove(&self, _id: &str) -> OmniResult<()> {
-        Err(not_supported("Swarm 服务管理"))
+    async fn service_remove(&self, id: &str) -> OmniResult<()> {
+        self.ssh().service_remove(id).await
     }
-    async fn service_logs(&self, _id: &str, _tail: Option<&str>) -> OmniResult<String> {
-        Err(not_supported("Swarm 服务管理"))
+    async fn service_logs(&self, id: &str, tail: Option<&str>) -> OmniResult<String> {
+        self.ssh().service_logs(id, tail).await
     }
     async fn node_list(&self) -> OmniResult<Vec<DockerNodeSummary>> {
-        Err(not_supported("Swarm 节点管理"))
+        self.ssh().node_list().await
     }
-    async fn node_inspect(&self, _id: &str) -> OmniResult<serde_json::Value> {
-        Err(not_supported("Swarm 节点管理"))
+    async fn node_inspect(&self, id: &str) -> OmniResult<serde_json::Value> {
+        self.ssh().node_inspect(id).await
     }
     async fn node_update(
         &self,
-        _id: &str,
-        _availability: Option<&str>,
-        _labels: Option<Vec<DockerKeyValue>>,
+        id: &str,
+        availability: Option<&str>,
+        labels: Option<Vec<DockerKeyValue>>,
     ) -> OmniResult<()> {
-        Err(not_supported("Swarm 节点管理"))
+        self.ssh().node_update(id, availability, labels).await
     }
-    async fn node_remove(&self, _id: &str, _force: bool) -> OmniResult<()> {
-        Err(not_supported("Swarm 节点管理"))
+    async fn node_remove(&self, id: &str, force: bool) -> OmniResult<()> {
+        self.ssh().node_remove(id, force).await
     }
     async fn stack_deploy(
         &self,
-        _name: &str,
-        _compose_content: &str,
-        _env: Option<Vec<String>>,
+        name: &str,
+        compose_content: &str,
+        env: Option<Vec<String>>,
     ) -> OmniResult<()> {
-        Err(not_supported("Stack 管理"))
+        self.ssh()
+            .stack_deploy(name, compose_content, env)
+            .await
     }
     async fn stack_list(&self) -> OmniResult<Vec<DockerStackSummary>> {
-        Err(not_supported("Stack 管理"))
+        self.ssh().stack_list().await
     }
-    async fn stack_remove(&self, _name: &str) -> OmniResult<()> {
-        Err(not_supported("Stack 管理"))
+    async fn stack_remove(&self, name: &str) -> OmniResult<()> {
+        self.ssh().stack_remove(name).await
     }
-    async fn stack_services(&self, _name: &str) -> OmniResult<Vec<DockerServiceSummary>> {
-        Err(not_supported("Stack 管理"))
+    async fn stack_services(&self, name: &str) -> OmniResult<Vec<DockerServiceSummary>> {
+        self.ssh().stack_services(name).await
     }
 
     async fn read_daemon_config(&self) -> OmniResult<DockerDaemonConfigFile> {
@@ -2606,9 +2622,11 @@ impl OnePanelConnectionConfig {
 pub fn adapter_from_config(
     cfg: &OnePanelConnectionConfig,
     connection_id: String,
+    ssh: Arc<SshSession>,
 ) -> OnePanelAdapter {
     OnePanelAdapter::new(
         OnePanelClient::new(&cfg.base_url, &cfg.api_key, cfg.insecure),
         connection_id,
+        ssh,
     )
 }

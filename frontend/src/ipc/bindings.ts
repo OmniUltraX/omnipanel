@@ -230,6 +230,8 @@ export const commands = {
 	cloudListCerts: (connectionId: string) => typedError<CloudCertificateItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_certs", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
+	/**  编辑 Docker 连接表单：从 Vault 取回面板 API Key（列表 / config 永不存明文）。 */
+	dockerGetConnectionSecret: (id: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_get_connection_secret", { id })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerProbeConnection: (connectionId: string) => typedError<DockerProbe, OmniError_Serialize>(__TAURI_INVOKE("docker_probe_connection", { connectionId })),
 	dockerResetSshSession: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_reset_ssh_session", { connectionId })),

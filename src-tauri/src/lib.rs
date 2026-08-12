@@ -147,6 +147,7 @@ fn export_ipc_bindings() {
         commands::cloud::cloud_list_ecs,
         commands::cloud::cloud_list_certs,
         commands::docker::docker_list_connections,
+        commands::docker::docker_get_connection_secret,
         commands::docker::docker_probe_connection,
         commands::docker::docker_reset_ssh_session,
         commands::docker::docker_get_local_engine_status,
@@ -984,6 +985,7 @@ fn build_and_run_tauri() {
             commands::cloud::cloud_list_certs,
             // Docker（容器工作区）
             commands::docker::docker_list_connections,
+            commands::docker::docker_get_connection_secret,
             commands::docker::docker_probe_connection,
             commands::docker::docker_reset_ssh_session,
             commands::docker::docker_get_local_engine_status,

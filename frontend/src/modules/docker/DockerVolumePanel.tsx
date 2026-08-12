@@ -20,6 +20,7 @@ import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
 } from "./dockerConnectionOffline";
+import { runWithDockerBoundSsh } from "./ensureDockerBoundSsh";
 import { dockerVolumeMatchesSearch } from "./dockerTreeSearch";
 import { volumeRowLabel } from "./dockerResourceLabels";
 import { makeDockerVolumeSftpAdapter } from "./dockerVolumeSftpAdapter";
@@ -64,19 +65,31 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
     setLoading(true);
     setError(null);
     try {
-      const next = await fetchVolumes(connection.connectionId);
-      startTransition(() => {
-        setVolumes(next);
-        setSelectedVolumeName((current) => {
-          if (current && next.some((volume) => volume.name === current)) {
-            return current;
-          }
-          return next[0]?.name ?? null;
-        });
-      });
+      await runWithDockerBoundSsh(
+        connection.connectionId,
+        async () => {
+          const next = await fetchVolumes(connection.connectionId);
+          startTransition(() => {
+            setVolumes(next);
+            setSelectedVolumeName((current) => {
+              if (current && next.some((volume) => volume.name === current)) {
+                return current;
+              }
+              return next[0]?.name ?? null;
+            });
+          });
+        },
+        connection.boundSshConnectionId,
+      );
       refreshSidebarVolumes();
     } catch (err) {
-      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+      if (
+        err &&
+        typeof err === "object" &&
+        (err as { code?: string }).code === "cancelled"
+      ) {
+        setError(null);
+      } else if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
         setError(null);
       } else {
         setError(String(err));
@@ -84,7 +97,7 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
     } finally {
       setLoading(false);
     }
-  }, [connection.connectionId, refreshSidebarVolumes]);
+  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebarVolumes]);
 
   useEffect(() => {
     const cached = peekDockerSidebarCache(connection.connectionId);

@@ -29,8 +29,14 @@ export function isDockerUnavailableError(error: unknown): boolean {
       cause?: string | null;
     };
     const code = (err.code ?? "").toLowerCase();
-    if (code === "ssh" || code === "connection") return true;
     const text = `${err.message ?? ""} ${err.cause ?? ""}`;
+    // 宝塔 HTTP/鉴权业务失败也常标 Connection，不能一律当成实例离线
+    if (/宝塔/.test(text) && !matchesUnavailableText(text)) {
+      return false;
+    }
+    if (code === "ssh") return true;
+    // connection 仅在文案像真正不可达时才视为 offline
+    if (code === "connection" && matchesUnavailableText(text)) return true;
     if (matchesUnavailableText(text)) return true;
   }
 
@@ -38,7 +44,7 @@ export function isDockerUnavailableError(error: unknown): boolean {
 }
 
 function matchesUnavailableText(text: string): boolean {
-  return /打开 SSH|Channel send|channel open|connection reset|broken pipe|会话不可用|连接失败|timed?\s*out|超时|unreachable|ECONNREFUSED|ECONNRESET|ConnectException|SSH 会话/i.test(
+  return /打开 SSH|Channel send|channel open|connection reset|broken pipe|会话不可用|连接失败|timed?\s*out|超时|unreachable|ECONNREFUSED|ECONNRESET|ConnectException|SSH 会话|certificate|SSL|TLS|self[- ]?signed|证书/i.test(
     text,
   );
 }

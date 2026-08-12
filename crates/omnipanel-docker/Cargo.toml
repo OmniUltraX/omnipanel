@@ -23,6 +23,6 @@ tar = "0.4"
 base64 = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["native-tls"] }
 native-tls = "0.2"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "cookies"] }
 md5 = "0.7"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

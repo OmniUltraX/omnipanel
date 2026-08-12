@@ -1,7 +1,7 @@
 import type { DockerTreeCategory } from "./dockerSidebarNav";
 import dockerBrandIcon from "../../assets/icons/docker.svg";
 import { BrandIconImg } from "../server/brandIcons";
-import { isOnePanelDockerSource, type DockerConnectionSourceValue } from "./dockerConnectionSource";
+import { isBtPanelDockerSource, isOnePanelDockerSource, type DockerConnectionSourceValue } from "./dockerConnectionSource";
 import {
   ComposeStackIcon,
   ContainerIcon,
@@ -21,6 +21,7 @@ const iconProps = {
 export type DockerTreeIconKind =
   | "connection"
   | "connection-1panel"
+  | "connection-bt"
   | DockerTreeCategory
   | "image"
   | "container"
@@ -31,7 +32,9 @@ export type DockerTreeIconKind =
 export function dockerConnectionIconKind(
   source: DockerConnectionSourceValue,
 ): DockerTreeIconKind {
-  return isOnePanelDockerSource(source) ? "connection-1panel" : "connection";
+  if (isOnePanelDockerSource(source)) return "connection-1panel";
+  if (isBtPanelDockerSource(source)) return "connection-bt";
+  return "connection";
 }
 
 export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
@@ -50,6 +53,8 @@ export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
       );
     case "connection-1panel":
       return <BrandIconImg kind="1panel" size={13} className="docker-tree-brand-icon" />;
+    case "connection-bt":
+      return <BrandIconImg kind="bt" size={13} className="docker-tree-brand-icon" />;
     case "images":
       return <ImageLayersIcon size={13} />;
     case "containers":

@@ -82,6 +82,10 @@ pub async fn docker_exec_command(
             ErrorCode::InvalidInput,
             "1Panel 连接暂不支持一次性 exec；请在宿主机 SSH 终端执行",
         )),
+        DockerTarget::BtPanel(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "宝塔连接暂不支持一次性 exec；请在宿主机 SSH 终端执行",
+        )),
     }
 }
 
@@ -263,6 +267,10 @@ pub(crate) async fn create_exec_for_target(
                 .create_container_exec(container_id, shell, cols, rows)
                 .await
         }
+        DockerTarget::BtPanel(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "宝塔连接暂不支持容器交互终端；请改用 SSH 连接",
+        )),
     }
 }
 
@@ -406,6 +414,12 @@ pub async fn docker_create_host_shell_session(
                     adapter.create_host_shell(cols, rows),
                 )
                 .await
+            }
+            DockerTarget::BtPanel(_) => {
+                return Err(OmniError::new(
+                    ErrorCode::InvalidInput,
+                    "宝塔连接暂不支持宿主机 Docker shell；请改用 SSH 连接",
+                ));
             }
         };
 

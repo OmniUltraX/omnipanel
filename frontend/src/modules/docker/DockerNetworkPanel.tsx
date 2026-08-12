@@ -20,6 +20,7 @@ import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
 } from "./dockerConnectionOffline";
+import { runWithDockerBoundSsh } from "./ensureDockerBoundSsh";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import {
@@ -176,16 +177,28 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     setLoading(true);
     setError(null);
     try {
-      // 顺序拉取：SSH 并发 list 易抢 exec 通道
-      const nextNetworks = await fetchNetworks(connection.connectionId);
-      const nextContainers = await fetchContainers(connection.connectionId);
-      startTransition(() => {
-        setNetworks(nextNetworks);
-        setContainers(nextContainers);
-      });
+      await runWithDockerBoundSsh(
+        connection.connectionId,
+        async () => {
+          // 顺序拉取：SSH 并发 list 易抢 exec 通道
+          const nextNetworks = await fetchNetworks(connection.connectionId);
+          const nextContainers = await fetchContainers(connection.connectionId);
+          startTransition(() => {
+            setNetworks(nextNetworks);
+            setContainers(nextContainers);
+          });
+        },
+        connection.boundSshConnectionId,
+      );
       refreshSidebar();
     } catch (err) {
-      if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
+      if (
+        err &&
+        typeof err === "object" &&
+        (err as { code?: string }).code === "cancelled"
+      ) {
+        setError(null);
+      } else if (handleDockerAutoFetchFailure(connection.connectionId, err)) {
         setError(null);
       } else {
         setError(String(err));
@@ -193,7 +206,7 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     } finally {
       setLoading(false);
     }
-  }, [connection.connectionId, refreshSidebar]);
+  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebar]);
 
   useEffect(() => {
     const cached = peekDockerSidebarCache(connection.connectionId);

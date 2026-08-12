@@ -9,17 +9,19 @@ import {
   type DockerSidebarCategory,
 } from "../dockerSidebarCache";
 import {
+  isBtPanelDockerSource,
   isLocalDockerSource,
   isOnePanelDockerSource,
   isSshDockerSource,
 } from "../dockerConnectionSource";
 import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
 
-/** 侧栏资源树支持本地 Engine / SSH 宿主机 / 1Panel（及面板适配）。 */
+/** 侧栏资源树支持本地 Engine / SSH 宿主机 / 1Panel / 宝塔。 */
 export function connectionSupportsSidebarResources(connection: DockerConnectionInfo): boolean {
   return (
     isLocalDockerSource(connection.source) ||
     isOnePanelDockerSource(connection.source) ||
+    isBtPanelDockerSource(connection.source) ||
     isSshDockerSource(connection.source)
   );
 }

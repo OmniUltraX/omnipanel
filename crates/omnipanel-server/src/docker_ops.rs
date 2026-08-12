@@ -324,6 +324,8 @@ pub async fn docker_host_run_cli(
         .map_err(|e| e.to_string()),
         DockerTarget::OnePanel(_) => Err(not_supported("1Panel 连接暂不支持在宿主机执行 docker CLI"))
             .map_err(|e| e.to_string()),
+        DockerTarget::BtPanel(_) => Err(not_supported("宝塔连接暂不支持在宿主机执行 docker CLI"))
+            .map_err(|e| e.to_string()),
     }
 }
 
@@ -780,6 +782,10 @@ pub async fn docker_stream_container_logs(
                 )
                 .await
             }
+            DockerTarget::BtPanel(_) => Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "宝塔适配器暂不支持容器日志流",
+            )),
         };
 
         bus.emit(
@@ -863,6 +869,12 @@ pub async fn docker_stream_stats(
                 .await
             }
             DockerTarget::OnePanel(adapter) => {
+                use omnipanel_docker::DockerAdapter as _;
+                adapter
+                    .stream_stats(&container_id, stop_for_task.clone(), sink)
+                    .await
+            }
+            DockerTarget::BtPanel(adapter) => {
                 use omnipanel_docker::DockerAdapter as _;
                 adapter
                     .stream_stats(&container_id, stop_for_task.clone(), sink)
@@ -1009,6 +1021,10 @@ async fn create_exec_for_target(
                 .create_container_exec(container_id, shell, cols, rows)
                 .await
         }
+        DockerTarget::BtPanel(_) => Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "宝塔连接暂不支持容器交互终端；请改用 SSH 连接",
+        )),
     }
 }
 
@@ -1057,6 +1073,9 @@ pub async fn docker_exec_command(
         }
         DockerTarget::OnePanel(_) => Err(
             "1Panel 连接暂不支持一次性 exec；请在宿主机 SSH 终端执行".to_string(),
+        ),
+        DockerTarget::BtPanel(_) => Err(
+            "宝塔连接暂不支持一次性 exec；请在宿主机 SSH 终端执行".to_string(),
         ),
     }
 }
@@ -1213,6 +1232,9 @@ pub async fn docker_create_host_shell_session(
                     adapter.create_host_shell(cols, rows),
                 )
                 .await
+            }
+            DockerTarget::BtPanel(_) => {
+                return Err("宝塔连接暂不支持宿主机 Docker shell；请改用 SSH 连接".to_string());
             }
         };
 
