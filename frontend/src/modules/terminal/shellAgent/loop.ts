@@ -110,11 +110,29 @@ function bufferHasUsablePromptBelowCard(sessionId: string): boolean {
   return false;
 }
 
-/** 清掉远端当前输入行（bash/zsh: Ctrl+A Ctrl+K；PowerShell: Escape） */
-export function clearRemoteInputLine(sessionId: string): void {
-  const label = (findTerminalPane(sessionId)?.shellLabel ?? "").toLowerCase();
-  if (/powershell|pwsh/.test(label)) {
-    writeTerminalRaw(sessionId, "\x1b");
+/** 当前会话是否为 PowerShell / pwsh（含 shellSpec） */
+export function isPowerShellSession(sessionId: string): boolean {
+  const pane = findTerminalPane(sessionId);
+  const kind = pane?.shellSpec?.kind;
+  if (kind === "powershell" || kind === "powershell5") return true;
+  const label = (pane?.shellLabel ?? "").toLowerCase();
+  return /powershell|pwsh/.test(label);
+}
+
+/**
+ * 清掉远端当前输入行。
+ * - bash/zsh: Ctrl+A / Ctrl+K / Ctrl+U（原地清空）
+ * - PowerShell: **只用 Ctrl+C**。Escape/Backspace/Ctrl+U 会回显成 `^U^C`、Vi 模式残留，
+ *   或与本地 decoration 脱节导致 `>>` 续行、光标停在卡片中间。
+ *   Ctrl+C 会多一行取消痕迹；由 beginRouteAi 用 `\x1b[A` 把该行改写成蓝字问题，避免「双份输入」。
+ */
+export function clearRemoteInputLine(
+  sessionId: string,
+  _opts?: { typedText?: string },
+): void {
+  if (isPowerShellSession(sessionId)) {
+    writeTerminalRaw(sessionId, "\x03");
+    markShellPromptReady(sessionId);
     return;
   }
   writeTerminalRaw(sessionId, "\x01");
@@ -144,6 +162,56 @@ function cursorOnEmptyShellPrompt(sessionId: string): boolean {
     const buf = term.buffer.active;
     const line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
     return lineLooksLikeShellPrompt(line);
+  } catch {
+    return false;
+  }
+}
+
+/** PowerShell 续行提示 `>>`（绝不能再对其发 Enter，否则越积越多） */
+function cursorOnPowerShellContinuation(sessionId: string): boolean {
+  const term = getXterm(sessionId);
+  if (!term?.buffer?.active) return false;
+  try {
+    const buf = term.buffer.active;
+    const line = (buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "")
+      .replace(/\s+$/u, "");
+    return /^>>/.test(line);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 光标是否在活跃卡下方的空主提示符上（真正可输入位置）。
+ * 仅「行像 PS>」不够——本地 \r\n 脱节时 PTY 仍可能停在卡上。
+ */
+function cursorBelowActiveCardOnEmptyPrompt(sessionId: string): boolean {
+  try {
+    const term = getXterm(sessionId);
+    if (!term?.buffer?.active || !cursorOnEmptyShellPrompt(sessionId)) return false;
+    const geo = getShellAgentGeometry(sessionId);
+    if (!geo || geo.mode !== "inline" || geo.anchorLine < 0) return true;
+    const cursorAbs = term.buffer.active.baseY + term.buffer.active.cursorY;
+    const cardEnd = geo.anchorLine + Math.max(1, geo.rows);
+    return cursorAbs >= cardEnd;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 光标是否落在活跃流内卡占位区内。
+ */
+function cursorInsideActiveCard(sessionId: string): boolean {
+  try {
+    const term = getXterm(sessionId);
+    const geo = getShellAgentGeometry(sessionId);
+    if (!term?.buffer?.active || !geo || geo.mode !== "inline" || geo.anchorLine < 0) {
+      return false;
+    }
+    const cursorAbs = term.buffer.active.baseY + term.buffer.active.cursorY;
+    const cardEnd = geo.anchorLine + Math.max(1, geo.rows);
+    return cursorAbs >= geo.anchorLine && cursorAbs < cardEnd;
   } catch {
     return false;
   }
@@ -190,10 +258,21 @@ function scheduleFinalCardAfterExec(
 }
 
 /**
+ * PowerShell 收尾：只处理 `>>` 续行（Ctrl+C）。
+ * 禁止循环发 Enter 推光标——已多次验证会制造 `>>` 洪水。
+ */
+async function abortPowerShellContinuationIfNeeded(sessionId: string): Promise<void> {
+  if (!isPowerShellSession(sessionId)) return;
+  if (!cursorOnPowerShellContinuation(sessionId)) return;
+  writeTerminalRaw(sessionId, "\x03");
+  await waitForTerminalOutputIdle(sessionId, 80, 800);
+}
+
+/**
  * 审批通过后的执行前序列（方案 C 纪律）：
  * 1. **不撤流内卡**（approve 不改几何；卡片切「已同意」态，继续盖住占位行）
  * 2. 仅当用户有残留输入才清行，并等回显静默
- * 3. 占位区下方画 prompt 前缀 → 注入命令 echo
+ * 3. 画 prompt 前缀 → 注入命令（PowerShell 跳过本地假前缀）
  */
 export async function prepareShellAgentExecution(
   sessionId: string,
@@ -210,6 +289,7 @@ export async function prepareShellAgentExecution(
     clearRemoteInputLineBeforeExec(sessionId);
     await waitForTerminalOutputIdle(sessionId, 50, 500);
   }
+  await abortPowerShellContinuationIfNeeded(sessionId);
   prepareShellAgentEcho(sessionId, command);
 }
 
@@ -586,17 +666,32 @@ function releaseShellAgentToPrompt(sessionId: string): void {
     .then(async () => {
       if (promptReleasedForTurn.get(sessionId) !== turn) return;
 
-      // 命令跑完后常见：卡下已有 prompt。再扫一次；没有才发回车
+      // PowerShell：若已陷入 `>>`，只 Ctrl+C，绝不循环 Enter
+      await abortPowerShellContinuationIfNeeded(sessionId);
+
       let needPtyEnter = consumeReanchorPtySync(sessionId);
-      if (bufferHasUsablePromptBelowCard(sessionId)) {
+      if (cursorBelowActiveCardOnEmptyPrompt(sessionId)) {
         needPtyEnter = false;
         clearReanchorPtySync(sessionId);
+      } else if (
+        cursorInsideActiveCard(sessionId) ||
+        !bufferHasUsablePromptBelowCard(sessionId)
+      ) {
+        needPtyEnter = true;
       }
 
       if (needPtyEnter) {
-        // 只发 \n：PTY 常见 ICRNL 会把 \r 也变成 \n，\r\n 等于提交两次 → 双 prompt
-        writeTerminalRaw(sessionId, "\n");
-        await waitForTerminalOutputIdle(sessionId, 100, 800);
+        await abortPowerShellContinuationIfNeeded(sessionId);
+        // 最多一次 \n；PowerShell 在非空主提示符上禁止发
+        if (isPowerShellSession(sessionId)) {
+          if (cursorOnEmptyShellPrompt(sessionId) && !cursorOnPowerShellContinuation(sessionId)) {
+            writeTerminalRaw(sessionId, "\n");
+            await waitForTerminalOutputIdle(sessionId, 100, 800);
+          }
+        } else {
+          writeTerminalRaw(sessionId, "\n");
+          await waitForTerminalOutputIdle(sessionId, 100, 800);
+        }
       }
       finishFocus();
     })

@@ -116,6 +116,37 @@ export const commands = {
 	dbRedisDeleteKey: (connection: DbConnectionConfig, key: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_delete_key", { connection, key })),
 	/**  Redis 慢日志。 */
 	dbRedisSlowlog: (connection: DbConnectionConfig, count: number | null) => typedError<RedisSlowLogEntry_Serialize[], string>(__TAURI_INVOKE("db_redis_slowlog", { connection, count })),
+	dbRedisInfo: (connection: DbConnectionConfig, section: string | null) => typedError<RedisInfoResult_Serialize, string>(__TAURI_INVOKE("db_redis_info", { connection, section })),
+	dbRedisMemoryStats: (connection: DbConnectionConfig) => typedError<RedisMemoryStats_Serialize, string>(__TAURI_INVOKE("db_redis_memory_stats", { connection })),
+	dbRedisMemoryDoctor: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_redis_memory_doctor", { connection })),
+	dbRedisMemoryPurge: (connection: DbConnectionConfig) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_memory_purge", { connection })),
+	dbRedisConfigSet: (connection: DbConnectionConfig, parameter: string, value: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_set", { connection, parameter, value })),
+	dbRedisConfigRewrite: (connection: DbConnectionConfig) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_rewrite", { connection })),
+	dbRedisFlushDb: (connection: DbConnectionConfig, async: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_db", { connection, async })),
+	dbRedisFlushAll: (connection: DbConnectionConfig, async: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_all", { connection, async })),
+	dbRedisStreamRange: (connection: DbConnectionConfig, key: string, start: string | null, end: string | null, count: number | null, reverse: boolean | null) => typedError<RedisStreamRangeResult_Serialize, string>(__TAURI_INVOKE("db_redis_stream_range", { connection, key, start, end, count, reverse })),
+	dbRedisStreamGroups: (connection: DbConnectionConfig, key: string) => typedError<RedisStreamGroup_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_groups", { connection, key })),
+	dbRedisStreamConsumers: (connection: DbConnectionConfig, key: string, group: string) => typedError<RedisStreamConsumer_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_consumers", { connection, key, group })),
+	dbRedisStreamPending: (connection: DbConnectionConfig, key: string, group: string, start: string | null, end: string | null, count: number | null) => typedError<RedisStreamPendingEntry_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_pending", { connection, key, group, start, end, count })),
+	dbRedisStreamMonitor: (connection: DbConnectionConfig, key: string, group: string | null) => typedError<RedisStreamMonitorSnapshot_Serialize, string>(__TAURI_INVOKE("db_redis_stream_monitor", { connection, key, group })),
+	dbRedisStreamAck: (connection: DbConnectionConfig, key: string, group: string, ids: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_ack", { connection, key, group, ids })),
+	dbRedisStreamClaim: (connection: DbConnectionConfig, key: string, group: string, consumer: string, minIdleMs: number, startId: string, count: number | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_claim", { connection, key, group, consumer, minIdleMs, startId, count })),
+	dbRedisStreamGroupCreate: (connection: DbConnectionConfig, key: string, group: string, id: string, mkstream: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_create", { connection, key, group, id, mkstream })),
+	dbRedisStreamGroupDestroy: (connection: DbConnectionConfig, key: string, group: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_destroy", { connection, key, group })),
+	dbRedisStreamTrim: (connection: DbConnectionConfig, key: string, maxlen: number, approximate: boolean | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_trim", { connection, key, maxlen, approximate })),
+	dbRedisAclList: (connection: DbConnectionConfig) => typedError<RedisAclUser_Serialize[], string>(__TAURI_INVOKE("db_redis_acl_list", { connection })),
+	dbRedisAclGetuser: (connection: DbConnectionConfig, username: string) => typedError<RedisAclUser_Serialize, string>(__TAURI_INVOKE("db_redis_acl_getuser", { connection, username })),
+	dbRedisAclSetuser: (connection: DbConnectionConfig, username: string, rule: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_acl_setuser", { connection, username, rule })),
+	dbRedisAclDeluser: (connection: DbConnectionConfig, username: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_acl_deluser", { connection, username })),
+	dbRedisHashSetField: (connection: DbConnectionConfig, key: string, field: string, value: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_hash_set_field", { connection, key, field, value })),
+	dbRedisHashDelFields: (connection: DbConnectionConfig, key: string, fields: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_hash_del_fields", { connection, key, fields })),
+	dbRedisListPush: (connection: DbConnectionConfig, key: string, side: string, values: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_push", { connection, key, side, values })),
+	dbRedisListRemove: (connection: DbConnectionConfig, key: string, count: number, value: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_remove", { connection, key, count, value })),
+	dbRedisSetAdd: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_set_add", { connection, key, members })),
+	dbRedisSetRemove: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_set_remove", { connection, key, members })),
+	dbRedisZsetAdd: (connection: DbConnectionConfig, key: string, member: string, score: number) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_add", { connection, key, member, score })),
+	dbRedisZsetRemove: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_remove", { connection, key, members })),
+	dbRedisExpireKey: (connection: DbConnectionConfig, key: string, seconds: number) => typedError<boolean, string>(__TAURI_INVOKE("db_redis_expire_key", { connection, key, seconds })),
 	/**  Qdrant 按 point id 批量删除。 */
 	dbQdrantDeletePoints: (args: QdrantDeletePointsArgs) => typedError<number | null, string>(__TAURI_INVOKE("db_qdrant_delete_points", { args })),
 	/**  按 Schema 树节点类型刷新缓存片段（连接 / 库 / 表 / 用户等）。 */
@@ -4202,6 +4233,66 @@ export type RedisSlowLogEntry_Serialize = {
 	command: string,
 	clientAddr?: string | null,
 	clientName?: string | null,
+};
+
+export type RedisInfoResult_Serialize = {
+	sections: Record<string, Record<string, string>>,
+};
+
+export type RedisMemoryStats_Serialize = {
+	entries: Record<string, string>,
+};
+
+export type RedisStreamGroup_Serialize = {
+	name: string,
+	consumers?: number | null,
+	pending?: number | null,
+	lag?: number | null,
+	entriesRead?: number | null,
+	lastDeliveredId?: string | null,
+	behindSeconds?: number | null,
+};
+
+export type RedisStreamConsumer_Serialize = {
+	name: string,
+	pending?: number | null,
+	idleMs?: number | null,
+	active: boolean,
+};
+
+export type RedisStreamPendingEntry_Serialize = {
+	id: string,
+	consumer: string,
+	idleMs: number | null,
+	deliveryCount: number | null,
+};
+
+export type RedisStreamEntry_Serialize = {
+	id: string,
+	fields: Record<string, string>,
+};
+
+export type RedisStreamRangeResult_Serialize = {
+	entries: RedisStreamEntry_Serialize[],
+	reverse: boolean,
+};
+
+export type RedisStreamMonitorSnapshot_Serialize = {
+	key: string,
+	newestId?: string | null,
+	newestTsMs?: number | null,
+	groups: RedisStreamGroup_Serialize[],
+	consumers?: RedisStreamConsumer_Serialize[],
+	sampledAt: number | null,
+};
+
+export type RedisAclUser_Serialize = {
+	username: string,
+	flags: string,
+	commands: string,
+	keys: string,
+	channels: string,
+	raw: string,
 };
 
 /**  批量探测后单个工具的结果。 */

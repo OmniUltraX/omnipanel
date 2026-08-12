@@ -238,19 +238,24 @@ export const SSH_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: "omni_ssh_exec",
     description:
-      "在指定 SSH 主机上非交互式执行 shell 命令，返回 stdout/stderr/exit_code。\
-不支持 TUI/流式命令（top/vim/tail -f），请用 top -bn1 | head / tail -n 100 等替代。\
-危险命令会进入用户确认流程。",
+      "在当前绑定的终端会话执行命令（本地 PowerShell/CMD/bash 或 SSH 均可），返回输出。\
+终端内联场景可不传 resource_id。不支持 TUI/流式（top/vim/tail -f）；危险命令需确认。\
+查时间/文件/进程等实时事实必须调用本工具，禁止凭记忆编造。",
     inputSchema: {
       type: "object",
       properties: {
-        resource_id: resourceIdSchema,
+        resource_id: {
+          type: "string",
+          description:
+            "可选；SSH 连接 id。终端内联已绑定会话时可省略；侧栏/多主机场景再传",
+        },
         command: {
           type: "string",
-          description: "要在远程主机上执行的非交互式 shell 命令",
+          description:
+            "要在当前终端会话执行的非交互式命令（语法须匹配该会话 shell：PowerShell 用 Get-Date 等）",
         },
       },
-      required: ["resource_id", "command"],
+      required: ["command"],
     },
     handler: sshExec,
   },

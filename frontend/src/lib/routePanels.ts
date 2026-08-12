@@ -1,6 +1,5 @@
 import {
   DASHBOARD_PATH,
-  MODULE_PATHS,
   isDashboardPath,
   isWorkspacePath,
   moduleKeyFromPath,
@@ -10,6 +9,7 @@ import {
 /** 含 dockview / 需保活的模块：叠层路由，禁止 display:none */
 export const OVERLAY_MODULE_KEYS = [
   "terminal",
+  "ssh",
   "docker",
   "database",
   "files",
@@ -30,13 +30,9 @@ export function isOverlayModulePath(pathname: string): boolean {
   return isOverlayModuleKey(moduleKeyFromPath(pathname));
 }
 
-/** 看板 / 工程工作区 / SSH 重定向 — 走轻量 shell 路由 */
+/** 看板 / 工程工作区 — 走轻量 shell 路由 */
 export function isShellRoutePath(pathname: string): boolean {
-  return (
-    isDashboardPath(pathname) ||
-    isWorkspacePath(pathname) ||
-    pathname === MODULE_PATHS.ssh
-  );
+  return isDashboardPath(pathname) || isWorkspacePath(pathname);
 }
 
 /**

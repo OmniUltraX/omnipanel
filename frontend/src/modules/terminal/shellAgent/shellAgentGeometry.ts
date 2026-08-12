@@ -1,13 +1,5 @@
-/**
- * Shell Agent 流内几何管理器（方案 C 核心纪律）：
- *
- * 1. 伪造内容只有两类且全部可见：蓝字问题行（入口负责）+ 占位空行（必须被 decoration 盖住）。
- * 2. 占位行归卡片所有：registerMarker 在占位区首行，decoration height=N 盖住 N 行占位，
- *    光标天然落在占位区下方，approve 后命令回显/输出/新 prompt 依次下流。
- * 3. approve 不改几何：dispose 卡片即可，占位行留在 scrollback 作为交互痕迹。
- * 4. decoration 不可用 → 无活跃卡（detached），仅流内 xterm decoration，**无底部浮层**。
- */
 import type { IDecoration, IMarker, Terminal } from "@xterm/xterm";
+import { findTerminalPane } from "@/stores/terminalStore";
 import { lineLooksLikeShellPrompt } from "../passthroughAi/screenLine";
 import { getXterm } from "../xtermRegistry";
 import {
@@ -20,6 +12,15 @@ import {
   transformPendingConfirmToAgreedHtml,
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
+
+/** 明确的 PowerShell 会话（仅用于禁止本地假 prompt；占位绝不走 PTY Enter） */
+function sessionIsPowerShell(sessionId: string): boolean {
+  const pane = findTerminalPane(sessionId);
+  if (!pane) return false;
+  const kind = pane.shellSpec?.kind;
+  if (kind === "powershell" || kind === "powershell5") return true;
+  return /powershell|pwsh/i.test(pane.shellLabel ?? "");
+}
 
 export type ShellAgentCardKind = "thinking" | "cmd" | "ask" | "final";
 export type ShellAgentGeometryMode = "inline" | "detached";
@@ -102,12 +103,13 @@ export function contentHeightToCardRows(
   const rowH = terminalRowHeightPx(sessionId);
   const raw = contentHeightPx / rowH;
   // final：略减再 ceil，抵消测高偏大/亚像素，少占空行（多占的行缩 decoration 也清不掉 buffer）
+  // 不可减太多：overflow:visible 时内容会盖住下方命令/prompt → 卡片「重叠」
   const rows =
     kind === "final"
-      ? Math.ceil(Math.max(0, raw - 0.35))
+      ? Math.ceil(Math.max(0, raw - 0.1))
       : Math.ceil(raw);
-  // ask：多留 1 行防底边裁切；final 不再额外 +1
-  const pad = kind === "ask" ? 1 : 0;
+  // ask / final：多留 1 行防底边裁切与盖住下一行 prompt
+  const pad = kind === "ask" || kind === "final" ? 1 : 0;
   const hardMax = maxCardRowsFor(sessionId, kind);
   return Math.min(hardMax, Math.max(MIN_CARD_ROWS, rows + pad));
 }
@@ -198,7 +200,11 @@ function whenDecorationPortalIdle(
   });
 }
 
-function injectFrozenCardSnapshot(deco: IDecoration, frozenHtml: string): void {
+function injectFrozenCardSnapshot(
+  deco: IDecoration,
+  frozenHtml: string,
+  sessionId?: string,
+): void {
   whenDecorationPortalIdle(deco, () => {
     try {
       const el = deco.element;
@@ -238,6 +244,10 @@ function injectFrozenCardSnapshot(deco: IDecoration, frozenHtml: string): void {
         }
       }
       el.replaceChildren(snapshot);
+      shieldShellAgentDecorationPointer(
+        el,
+        sessionId ? getXterm(sessionId) : null,
+      );
     } catch {
       // ignore
     }
@@ -374,7 +384,7 @@ export function archiveActiveInlineCard(sessionId: string): void {
   });
 
   if (frozenHtml) {
-    injectFrozenCardSnapshot(deco, frozenHtml);
+    injectFrozenCardSnapshot(deco, frozenHtml, sessionId);
   }
 }
 
@@ -463,6 +473,27 @@ function freshGeometry(
   };
 }
 
+/**
+ * 拦截 decoration 上的 mousedown，避免冒泡到 xterm SelectionService
+ * （否则拖选卡片会选中底层占位空行）。不 preventDefault，保留 DOM 选中与按钮点击。
+ */
+export function shieldShellAgentDecorationPointer(
+  el: HTMLElement,
+  term?: Terminal | null,
+): void {
+  if (el.dataset.shellAgentPtrShield === "1") return;
+  el.dataset.shellAgentPtrShield = "1";
+  // 冒泡阶段拦截：先让卡片内按钮/文本选中收到事件，再阻止传到 xterm
+  el.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    try {
+      term?.clearSelection();
+    } catch {
+      // ignore
+    }
+  });
+}
+
 function registerCardDecoration(
   term: Terminal,
   marker: IMarker,
@@ -476,6 +507,7 @@ function registerCardDecoration(
         x: 0,
         width: term.cols,
         height: rows,
+        layer: "top",
       }) ?? null
     );
   } catch {
@@ -567,7 +599,7 @@ export function beginShellAgentCard(
     return detached;
   }
 
-  // 占位行：本地写 \r\n 推进光标，decoration 盖在这些空行上
+  // 占位只本地 \r\n。PowerShell 向 PTY 发 Enter 会变成 `>>` 续行，已验证不可用。
   term.write("\r\n".repeat(rows));
   const decoration = registerCardDecoration(term, marker, rows, base.promptIndentCols);
   if (!decoration) {
@@ -854,7 +886,6 @@ export function reanchorShellAgentCard(
         return;
       }
 
-      // 原子切换到新卡（保持 inline，卡片不中断）
       setGeometry(sessionId, {
         ...freshGeometry({
           cardKind: kind,
@@ -871,21 +902,19 @@ export function reanchorShellAgentCard(
       });
       markReanchorNeedsPtySync(sessionId);
 
-      // 旧卡冻结进 scrollback（不阻断新卡）
       if (oldDecoration) {
         if (oldMarker) {
           pushArchived(sessionId, { decoration: oldDecoration, marker: oldMarker });
         }
         if (frozenHtml) {
-          injectFrozenCardSnapshot(oldDecoration, frozenHtml);
+          injectFrozenCardSnapshot(oldDecoration, frozenHtml, sessionId);
         }
       }
       onReady?.();
     });
   };
 
-  // final：若光标停在命令结束后的空 prompt 上，先本地换行再钉卡，
-  // 否则 decoration 会盖住该 prompt，或卡插在输出与迟到 prompt 之间。
+  // final：空 prompt 上先本地换行再钉卡，避免盖住可输入行
   if (kind === "final" && cursorLineLooksLikeEmptyPrompt(term)) {
     term.write("\r\n", () => placeCard());
     return;
@@ -992,6 +1021,9 @@ export function paintShellAgentPromptPrefix(sessionId: string): void {
 export function prepareShellAgentEcho(sessionId: string, _command: string): void {
   const term = getXterm(sessionId);
   if (!term) return;
+
+  // PowerShell：禁止再画本地 prompt 前缀，否则会出现 `PS> PS> Get-Date`
+  if (sessionIsPowerShell(sessionId)) return;
 
   const geo = geometries.get(sessionId);
   const inlineCardActive = geo?.mode === "inline" && Boolean(geo.cardKind);

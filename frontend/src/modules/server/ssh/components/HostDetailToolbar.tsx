@@ -13,6 +13,12 @@ import { formatUptime } from "./monitoring/monitoringUtils";
 
 type Actions = ReturnType<typeof useSshHostActions>;
 
+type OverviewRefreshProps = {
+  updatedAt: number | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+};
+
 type Props = {
   resource: WorkspaceResource;
   username: string;
@@ -21,6 +27,7 @@ type Props = {
   detailTab: DetailTab;
   onDetailTabChange: (tab: DetailTab) => void;
   actions: Actions;
+  overviewRefresh?: OverviewRefreshProps | null;
 };
 
 function HostDetailTags({ resourceId }: { resourceId: string }) {
@@ -53,6 +60,39 @@ function MonitoringTabSwitch({ resourceId }: { resourceId: string }) {
   );
 }
 
+function OverviewRefreshControls({
+  updatedAt,
+  refreshing,
+  onRefresh,
+}: OverviewRefreshProps) {
+  const { t } = useI18n();
+
+  return (
+    <div className="ssh-detail-toolbar__refresh">
+      {updatedAt != null && (
+        <span>
+          {t("ssh.monitoring.updatedAt", {
+            time: new Date(updatedAt).toLocaleTimeString(),
+          })}
+        </span>
+      )}
+      <button
+        type="button"
+        className={`mon-refresh-btn${refreshing ? " spinning" : ""}`}
+        onClick={onRefresh}
+        disabled={refreshing}
+        title={t("ssh.monitoring.refresh")}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M23 4v6h-6M1 20v-6h6" />
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+        </svg>
+        {refreshing ? t("ssh.monitoring.refreshing") : t("ssh.monitoring.refresh")}
+      </button>
+    </div>
+  );
+}
+
 export function HostDetailToolbar({
   resource,
   username,
@@ -61,6 +101,7 @@ export function HostDetailToolbar({
   detailTab,
   onDetailTabChange,
   actions,
+  overviewRefresh,
 }: Props) {
   const { t } = useI18n();
 
@@ -99,30 +140,39 @@ export function HostDetailToolbar({
 
   return (
     <div className="ssh-detail-toolbar">
-      <div className="ssh-detail-toolbar__identity">
-        <span className={`ssh-detail-toolbar__dot ssh-detail-toolbar__dot--${resource.status ?? "online"}`} />
-        <div className="ssh-detail-toolbar__identity-text">
-          <div className="ssh-detail-toolbar__title-row">
-            <span className="ssh-detail-toolbar__name">{resource.name}</span>
-            <HostDetailTags resourceId={resource.id} />
-            <HostStatusIndicator resourceId={resource.id} showLabel />
-            <span className="badge badge-muted">
-              {sshGroupLabel(normalizeSshGroup(resource.group), t)}
-            </span>
+      <div className="ssh-detail-toolbar__row ssh-detail-toolbar__row--primary">
+        <div className="ssh-detail-toolbar__identity">
+          <span className={`ssh-detail-toolbar__dot ssh-detail-toolbar__dot--${resource.status ?? "online"}`} />
+          <div className="ssh-detail-toolbar__identity-text">
+            <div className="ssh-detail-toolbar__title-row">
+              <span className="ssh-detail-toolbar__name">{resource.name}</span>
+              <HostDetailTags resourceId={resource.id} />
+              <HostStatusIndicator resourceId={resource.id} showLabel />
+              <span className="badge badge-muted">
+                {sshGroupLabel(normalizeSshGroup(resource.group), t)}
+              </span>
+            </div>
+            <div className="ssh-detail-toolbar__meta">
+              <span className="ssh-detail-toolbar__meta-primary">
+                {username}@{hostAddress}
+              </span>
+              {metaParts.length > 0 ? (
+                <span className="ssh-detail-toolbar__meta-secondary">
+                  {metaParts.join(" · ")}
+                </span>
+              ) : null}
+            </div>
           </div>
-          <div className="ssh-detail-toolbar__meta">
-            <span>{username}@{hostAddress}</span>
-            {metaParts.length > 0 && (
-              <>
-                <span className="ssh-detail-toolbar__sep">·</span>
-                <span>{metaParts.join(" · ")}</span>
-              </>
-            )}
-          </div>
+        </div>
+        <div className="ssh-detail-toolbar__trailing">
+          {detailTab === "overview" && overviewRefresh ? (
+            <OverviewRefreshControls {...overviewRefresh} />
+          ) : null}
+          <MonitoringTabSwitch resourceId={resource.id} />
         </div>
       </div>
 
-      <div className="ssh-detail-toolbar__center">
+      <div className="ssh-detail-toolbar__row ssh-detail-toolbar__row--secondary">
         <div className="ssh-detail-toolbar__tabs" role="tablist">
           {DETAIL_TABS.map((tab) => (
             <button
@@ -152,8 +202,6 @@ export function HostDetailToolbar({
           ))}
         </div>
       </div>
-
-      <MonitoringTabSwitch resourceId={resource.id} />
     </div>
   );
 }

@@ -4,7 +4,6 @@ import {
   resolveResourceById,
 } from "../../stores/connectionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { useTerminalLeftPanelStore } from "./terminalLeftPanelStore";
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import { requestTerminalExecution } from "./executeTerminalCommand";
@@ -92,7 +91,6 @@ export function useTerminalTabDockPane(
       onActivate();
       return;
     }
-    useTerminalLeftPanelStore.getState().focusSessions();
     startTransition(() => {
       useTerminalStore.getState().setActiveTab(tabId);
     });

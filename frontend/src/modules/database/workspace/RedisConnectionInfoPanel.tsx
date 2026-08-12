@@ -3,10 +3,27 @@ import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
+import { Button } from "../../../components/ui/primitives/Button";
+import { TextInput } from "../../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
+import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { Connection } from "../../../ipc/bindings";
-import { isRedisConnection, redisGetClientList, redisGetConfigAll, type DbConnectionConfig } from "../api";
+import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
+import {
+  isRedisConnection,
+  listDatabasesWithStats,
+  redisClientKill,
+  redisConfigRewrite,
+  redisConfigSet,
+  redisFlushDb,
+  redisGetClientList,
+  redisGetConfigAll,
+  redisInfo,
+  type DbConnectionConfig,
+  type DbDatabaseMeta,
+  type RedisInfoResult,
+} from "../api";
 import { findSshConnectionForDbHostSync } from "../mysqlSlowQueryLog";
 import {
   probeRedisDeployment,
@@ -30,14 +47,34 @@ import { useDeploymentServiceActions } from "./useDeploymentServiceActions";
 
 import { buildRedisCliSections } from "./connectionCliCommands";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
+import {
+  RedisAclPanel,
+  RedisConnectionSlowlogPanel,
+  RedisMemoryPanel,
+  RedisReplicationPanel,
+} from "./RedisConnectionOpsPanels";
+import { RedisOverviewCards } from "../redis/RedisOverviewCards";
+import { RedisOpsDangerDialog } from "../redis/RedisOpsDangerDialog";
 
-type ConnectionInfoSubTab = "connections" | "status" | "cli";
+type ConnectionInfoSubTab =
+  | "overview"
+  | "databases"
+  | "connections"
+  | "memory"
+  | "replication"
+  | "status"
+  | "slowlog"
+  | "acl"
+  | "cli";
 
 type ConfigSortColumn = "name" | "value";
 type ConfigSortDirection = "asc" | "desc";
 
 type ClientSortColumn = "id" | "addr" | "idle" | "cmd" | "db";
 type ClientSortDirection = "asc" | "desc";
+
+type DatabaseSortColumn = "name" | "keys";
+type DatabaseSortDirection = "asc" | "desc";
 
 interface ConfigSortState {
   column: ConfigSortColumn;
@@ -47,6 +84,15 @@ interface ConfigSortState {
 interface ClientSortState {
   column: ClientSortColumn;
   direction: ClientSortDirection;
+}
+
+interface DatabaseSortState {
+  column: DatabaseSortColumn;
+  direction: DatabaseSortDirection;
+}
+
+function formatRedisDbLabel(name: string): string {
+  return /^\d+$/.test(name) ? `db${name}` : name;
 }
 
 const CLIENT_SORT_COLUMN_CANDIDATES: Record<ClientSortColumn, string[]> = {
@@ -237,13 +283,31 @@ export function RedisConnectionInfoPanel({
 }: RedisConnectionInfoPanelProps) {
   const { t } = useI18n();
   const capable = isRedisConnection(connection);
+  const { selectDatabase } = useDbWorkspace();
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
   const sshSessionActiveMap = useSshConnectionStore((state) => state.sessionActiveMap);
-  const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("connections");
+  const cachedDatabases = useDbSchemaCacheStore(
+    (s) => s.snapshot.connections?.[connection.id]?.databases,
+  );
+  const [subTab, setSubTab] = useState<ConnectionInfoSubTab>("overview");
   const [search, setSearch] = useState("");
-  const [clientsLoading, setClientsLoading] = useState(capable);
+  /** 首次进入「命令行」后再挂载 CLI，避免打开连接就并发拉起 redis-cli 与 CLIENT LIST。 */
+  const [cliMounted, setCliMounted] = useState(false);
+  const [databasesLoading, setDatabasesLoading] = useState(capable);
+  const [databasesError, setDatabasesError] = useState<string | null>(null);
+  const [databasesList, setDatabasesList] = useState<DbDatabaseMeta[]>(() =>
+    (cachedDatabases ?? []).map((db) => ({
+      name: db.name,
+      charset: null,
+      collation: null,
+      tableCount: null,
+      sizeBytes: null,
+      rowsEstimate: typeof db.keyCount === "number" ? db.keyCount : null,
+    })),
+  );
+  const [clientsLoading, setClientsLoading] = useState(false);
   const [configLoading, setConfigLoading] = useState(false);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [deployment, setDeployment] = useState<RedisDeploymentInfo | null>(() =>
@@ -261,8 +325,23 @@ export function RedisConnectionInfoPanel({
     column: "name",
     direction: "asc",
   });
+  const [databaseSort, setDatabaseSort] = useState<DatabaseSortState>({
+    column: "name",
+    direction: "asc",
+  });
+  const [selectedDbName, setSelectedDbName] = useState<string | null>(null);
+  const [selectedClientRow, setSelectedClientRow] = useState<number | null>(null);
+  const [selectedConfigRow, setSelectedConfigRow] = useState<number | null>(null);
+  const [configEditValue, setConfigEditValue] = useState("");
+  const [overviewInfo, setOverviewInfo] = useState<RedisInfoResult | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [flushDbOpen, setFlushDbOpen] = useState(false);
+  const [killOpen, setKillOpen] = useState(false);
   const clientsTabEnteredRef = useRef(false);
   const configTabEnteredRef = useRef(false);
+  const databasesTabEnteredRef = useRef(false);
+  const overviewTabEnteredRef = useRef(false);
 
   const connectionLabel = useMemo(() => {
     const name = connection.name?.trim();
@@ -299,11 +378,38 @@ export function RedisConnectionInfoPanel({
     void viewServiceLog(connection, deployment, "redis");
   }, [connection, deployment, viewServiceLog]);
 
+  const openDatabase = useCallback(
+    (dbName: string) => {
+      selectDatabase({ connId: connection.id, dbName, connection }, "permanent");
+    },
+    [connection, selectDatabase],
+  );
+
+  const refreshDatabases = useCallback(async (options?: { silent?: boolean }) => {
+    if (!capable) {
+      return;
+    }
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setDatabasesLoading(true);
+    }
+    setDatabasesError(null);
+    try {
+      const result = await listDatabasesWithStats(connection, { quiet: true });
+      setDatabasesList(result);
+    } catch (e) {
+      setDatabasesError(typeof e === "string" ? e : JSON.stringify(e));
+    } finally {
+      if (!silent) {
+        setDatabasesLoading(false);
+      }
+    }
+  }, [capable, connection]);
+
   const refreshClients = useCallback(async (options?: { silent?: boolean }) => {
     if (!capable) {
       return;
     }
-
     const silent = options?.silent ?? false;
     if (!silent) {
       setClientsLoading(true);
@@ -317,6 +423,26 @@ export function RedisConnectionInfoPanel({
     } finally {
       if (!silent) {
         setClientsLoading(false);
+      }
+    }
+  }, [capable, connection]);
+
+  const refreshOverview = useCallback(async (options?: { silent?: boolean }) => {
+    if (!capable) {
+      return;
+    }
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setOverviewLoading(true);
+    }
+    setOverviewError(null);
+    try {
+      setOverviewInfo(await redisInfo(connection));
+    } catch (e) {
+      setOverviewError(typeof e === "string" ? e : JSON.stringify(e));
+    } finally {
+      if (!silent) {
+        setOverviewLoading(false);
       }
     }
   }, [capable, connection]);
@@ -375,15 +501,26 @@ export function RedisConnectionInfoPanel({
 
   const refreshActiveTab = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (subTab === "connections") {
+      if (subTab === "overview") {
+        await refreshOverview(options);
+      } else if (subTab === "databases") {
+        await refreshDatabases(options);
+      } else if (subTab === "connections") {
         await refreshClients(options);
       } else if (subTab === "status") {
         await refreshConfig(options);
-      } else {
+      } else if (subTab === "cli") {
         await refreshDeployment({ force: true });
       }
     },
-    [refreshClients, refreshConfig, refreshDeployment, subTab],
+    [
+      refreshClients,
+      refreshConfig,
+      refreshDatabases,
+      refreshDeployment,
+      refreshOverview,
+      subTab,
+    ],
   );
 
   const handleRestartService = useCallback(() => {
@@ -401,19 +538,72 @@ export function RedisConnectionInfoPanel({
   }, [deployment?.dir]);
 
   useEffect(() => {
-    setSubTab("connections");
+    setSubTab("overview");
     setSearch("");
+    setCliMounted(false);
     setClientSort({ column: "idle", direction: "desc" });
     setConfigSort({ column: "name", direction: "asc" });
+    setDatabaseSort({ column: "name", direction: "asc" });
+    setSelectedDbName(null);
     setDeployment(readRedisDeploymentCache(connection));
     setDeploymentLoading(false);
     setClientsResult(null);
     setConfigResult(null);
     setClientsError(null);
     setConfigError(null);
+    setDatabasesError(null);
+    setDatabasesList(
+      (useDbSchemaCacheStore.getState().snapshot.connections?.[connection.id]?.databases ?? []).map(
+        (db) => ({
+          name: db.name,
+          charset: null,
+          collation: null,
+          tableCount: null,
+          sizeBytes: null,
+          rowsEstimate: typeof db.keyCount === "number" ? db.keyCount : null,
+        }),
+      ),
+    );
     clientsTabEnteredRef.current = false;
     configTabEnteredRef.current = false;
+    databasesTabEnteredRef.current = false;
+    overviewTabEnteredRef.current = false;
   }, [connection.id, connection.host, connection.port, connection.db_type]);
+
+  useEffect(() => {
+    if (subTab === "cli") {
+      setCliMounted(true);
+    }
+  }, [subTab]);
+
+  useEffect(() => {
+    if (!active || !capable || subTab !== "overview") {
+      overviewTabEnteredRef.current = false;
+      return;
+    }
+    if (overviewTabEnteredRef.current) {
+      return;
+    }
+    overviewTabEnteredRef.current = true;
+    void refreshOverview();
+  }, [active, capable, refreshOverview, subTab]);
+
+  // 库列表 tab：默认首屏硬加载；再次进入静默刷新
+  useEffect(() => {
+    if (!active || !capable || subTab !== "databases") {
+      databasesTabEnteredRef.current = false;
+      return;
+    }
+    if (databasesTabEnteredRef.current) {
+      return;
+    }
+    databasesTabEnteredRef.current = true;
+    if (databasesList.length === 0) {
+      void refreshDatabases();
+    } else {
+      void refreshDatabases({ silent: true });
+    }
+  }, [active, capable, subTab, databasesList.length, refreshDatabases]);
 
   // 客户端 tab：首次硬加载；再次进入静默刷新（保留旧数据）
   useEffect(() => {
@@ -580,6 +770,82 @@ export function RedisConnectionInfoPanel({
     });
   }, []);
 
+  const toggleDatabaseSort = useCallback((column: DatabaseSortColumn) => {
+    setDatabaseSort((prev) => {
+      if (prev.column === column) {
+        return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
+      }
+      return { column, direction: "asc" };
+    });
+  }, []);
+
+  const filteredDatabases = useMemo(() => {
+    const query = search.trim();
+    if (!query) {
+      return databasesList;
+    }
+    return databasesList.filter((db) => {
+      const label = formatRedisDbLabel(db.name);
+      return textSearchMatches(query, label) || textSearchMatches(query, db.name);
+    });
+  }, [databasesList, search]);
+
+  const sortedDatabases = useMemo(() => {
+    const sorted = [...filteredDatabases];
+    sorted.sort((a, b) => {
+      if (databaseSort.column === "keys") {
+        const aVal = a.rowsEstimate ?? -1;
+        const bVal = b.rowsEstimate ?? -1;
+        const cmp = aVal - bVal;
+        return databaseSort.direction === "asc" ? cmp : -cmp;
+      }
+      const aName = Number.isFinite(Number(a.name)) ? Number(a.name) : a.name;
+      const bName = Number.isFinite(Number(b.name)) ? Number(b.name) : b.name;
+      let cmp = 0;
+      if (typeof aName === "number" && typeof bName === "number") {
+        cmp = aName - bName;
+      } else {
+        cmp = String(aName).localeCompare(String(bName), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      return databaseSort.direction === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [databaseSort.column, databaseSort.direction, filteredDatabases]);
+
+  const databaseGridColumns = useMemo((): DbTablesPanelGridColumn<DbDatabaseMeta>[] => {
+    return [
+      {
+        id: "name",
+        header: t("database.connectionInfo.databases.colName"),
+        sortable: true,
+        sortId: "name",
+        nameCell: true,
+        defaultWidth: 160,
+        minWidth: 100,
+        render: (db) => formatRedisDbLabel(db.name),
+        getTitle: (db) => formatRedisDbLabel(db.name),
+        getCopyValue: (db) => db.name,
+      },
+      {
+        id: "keys",
+        header: t("database.redisConnectionInfo.colKeys"),
+        sortable: true,
+        sortId: "keys",
+        defaultWidth: 96,
+        minWidth: 64,
+        render: (db) =>
+          db.rowsEstimate != null ? db.rowsEstimate.toLocaleString() : "—",
+        getTitle: (db) =>
+          db.rowsEstimate != null ? String(db.rowsEstimate) : "",
+        getCopyValue: (db) =>
+          db.rowsEstimate != null ? String(db.rowsEstimate) : "",
+      },
+    ];
+  }, [t]);
+
   const clientGridColumns = useMemo((): DbTablesPanelGridColumn<Record<string, unknown>>[] => {
     return clientColumns.map((column, index) => {
       const sortColumn = (Object.keys(CLIENT_SORT_COLUMN_CANDIDATES) as ClientSortColumn[]).find(
@@ -620,6 +886,74 @@ export function RedisConnectionInfoPanel({
     });
   }, [configColumns, parameterColumn, valueColumn]);
 
+  const renderDatabasesTable = () => {
+    if (databasesLoading && databasesList.length === 0) {
+      return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
+    }
+    if (databasesError && databasesList.length === 0) {
+      return <div className="db-tables-panel-error">{databasesError}</div>;
+    }
+    if (databasesList.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.empty")}</div>;
+    }
+    if (sortedDatabases.length === 0) {
+      return <div className="db-tables-panel-empty">{t("database.connectionInfo.noResults")}</div>;
+    }
+
+    return (
+      <>
+        <div className="redis-conn-toolbar">
+          <Button variant="ghost" size="sm" onClick={() => setFlushDbOpen(true)}>
+            FLUSHDB
+          </Button>
+        </div>
+        <DbTablesPanelGrid
+          variant="processlist"
+          className="db-tables-panel-grid--fit"
+          columns={databaseGridColumns}
+          rows={sortedDatabases}
+          rowKey={(db) => db.name}
+          sortColumnId={databaseSort.column}
+          sortDirection={databaseSort.direction}
+          onSortColumn={(columnId) => toggleDatabaseSort(columnId as DatabaseSortColumn)}
+          selectedRowKey={selectedDbName}
+          onRowClick={(db) => setSelectedDbName(db.name)}
+          onRowDoubleClick={(db) => openDatabase(db.name)}
+          onActivateSelectedRows={() => {
+            if (selectedDbName) {
+              openDatabase(selectedDbName);
+            }
+          }}
+        />
+      </>
+    );
+  };
+
+  const selectedClientAddr = useMemo(() => {
+    if (selectedClientRow == null || selectedClientRow < 0) {
+      return null;
+    }
+    const row = sortedClientRows[selectedClientRow];
+    if (!row) {
+      return null;
+    }
+    const addrKey = clientColumns.find((c) => c.toLowerCase() === "addr") ?? "addr";
+    const addr = row[addrKey];
+    return typeof addr === "string" && addr.includes(":") ? addr : null;
+  }, [clientColumns, selectedClientRow, sortedClientRows]);
+
+  const selectedConfigParameter = useMemo(() => {
+    if (selectedConfigRow == null || !parameterColumn) {
+      return null;
+    }
+    const row = sortedConfigRows[selectedConfigRow];
+    if (!row) {
+      return null;
+    }
+    const value = row[parameterColumn];
+    return typeof value === "string" ? value : String(value ?? "");
+  }, [parameterColumn, selectedConfigRow, sortedConfigRows]);
+
   const renderClientsTable = () => {
     if (clientsLoading && clientsResult == null) {
       return <div className="db-tables-panel-empty">{t("common.loading")}</div>;
@@ -635,15 +969,33 @@ export function RedisConnectionInfoPanel({
     }
 
     return (
-      <DbTablesPanelGrid
-        variant="variables"
-        columns={clientGridColumns}
-        rows={sortedClientRows}
-        rowKey={(_row, rowIndex) => rowIndex}
-        sortColumnId={clientSort.column}
-        sortDirection={clientSort.direction}
-        onSortColumn={(columnId) => toggleClientSort(columnId as ClientSortColumn)}
-      />
+      <>
+        <div className="redis-conn-toolbar">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!selectedClientAddr}
+            onClick={() => setKillOpen(true)}
+          >
+            {t("database.redisOps.killClient")}
+          </Button>
+        </div>
+        <DbTablesPanelGrid
+          variant="variables"
+          columns={clientGridColumns}
+          rows={sortedClientRows}
+          rowKey={(_row, rowIndex) => rowIndex}
+          sortColumnId={clientSort.column}
+          sortDirection={clientSort.direction}
+          onSortColumn={(columnId) => toggleClientSort(columnId as ClientSortColumn)}
+          columnResizeStorageKey={`db-redis-clients:${connection.id}`}
+          selectedRowKey={selectedClientRow ?? undefined}
+          onRowClick={(row) => {
+            const idx = sortedClientRows.indexOf(row);
+            setSelectedClientRow(idx >= 0 ? idx : null);
+          }}
+        />
+      </>
     );
   };
 
@@ -662,15 +1014,57 @@ export function RedisConnectionInfoPanel({
     }
 
     return (
-      <DbTablesPanelGrid
-        variant="variables"
-        columns={configGridColumns}
-        rows={sortedConfigRows}
-        rowKey={(_row, rowIndex) => rowIndex}
-        sortColumnId={configSort.column}
-        sortDirection={configSort.direction}
-        onSortColumn={(columnId) => toggleConfigSort(columnId as ConfigSortColumn)}
-      />
+      <>
+        <div className="redis-conn-toolbar">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void redisConfigRewrite(connection)}
+          >
+            CONFIG REWRITE
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!selectedConfigParameter}
+            onClick={() => {
+              if (!selectedConfigParameter) {
+                return;
+              }
+              void redisConfigSet(connection, selectedConfigParameter, configEditValue).then(
+                () => refreshConfig({ silent: true }),
+              );
+            }}
+          >
+            {t("database.redisOps.configSave")}
+          </Button>
+          {selectedConfigParameter ? (
+            <TextInput
+              className="redis-conn-config-input"
+              value={configEditValue}
+              onChange={setConfigEditValue}
+              placeholder={selectedConfigParameter}
+            />
+          ) : null}
+        </div>
+        <DbTablesPanelGrid
+          variant="variables"
+          columns={configGridColumns}
+          rows={sortedConfigRows}
+          rowKey={(_row, rowIndex) => rowIndex}
+          sortColumnId={configSort.column}
+          sortDirection={configSort.direction}
+          onSortColumn={(columnId) => toggleConfigSort(columnId as ConfigSortColumn)}
+          selectedRowKey={selectedConfigRow ?? undefined}
+          onRowClick={(row) => {
+            const idx = sortedConfigRows.indexOf(row);
+            setSelectedConfigRow(idx >= 0 ? idx : null);
+            if (valueColumn) {
+              setConfigEditValue(formatConfigCell(row[valueColumn]));
+            }
+          }}
+        />
+      </>
     );
   };
 
@@ -680,18 +1074,26 @@ export function RedisConnectionInfoPanel({
   );
 
   const tabLoading =
-    subTab === "connections"
-      ? clientsLoading
-      : subTab === "status"
-        ? configLoading
-        : deploymentLoading;
+    subTab === "overview"
+      ? overviewLoading
+      : subTab === "databases"
+        ? databasesLoading
+        : subTab === "connections"
+          ? clientsLoading
+          : subTab === "status"
+            ? configLoading
+            : deploymentLoading;
 
   const tabCount =
-    subTab === "connections"
-      ? sortedClientRows.length
-      : subTab === "status"
-        ? sortedConfigRows.length
-        : cliSections.length;
+    subTab === "databases"
+      ? sortedDatabases.length
+      : subTab === "connections"
+        ? sortedClientRows.length
+        : subTab === "status"
+          ? sortedConfigRows.length
+          : subTab === "cli"
+            ? cliSections.length
+            : 0;
 
   const renderCliSession = () => (
     <ConnectionCliTabPanel
@@ -707,13 +1109,30 @@ export function RedisConnectionInfoPanel({
 
   const renderPanelMainContent = () => (
     <>
-      {/* keep-alive：勿按 active 卸载 CLI，切回 Tab 才能瞬间显示 */}
-      {capable ? renderCliSession() : null}
-      {subTab === "connections"
-        ? renderClientsTable()
-        : subTab === "status"
-          ? renderConfigTable()
-          : null}
+      {capable && cliMounted ? renderCliSession() : null}
+      {subTab === "overview" ? (
+        <RedisOverviewCards
+          connection={connection}
+          info={overviewInfo}
+          loading={overviewLoading}
+          error={overviewError}
+          onRefresh={() => void refreshOverview()}
+        />
+      ) : subTab === "databases" ? (
+        renderDatabasesTable()
+      ) : subTab === "connections" ? (
+        renderClientsTable()
+      ) : subTab === "memory" ? (
+        <RedisMemoryPanel connection={connection} active={active && subTab === "memory"} />
+      ) : subTab === "replication" ? (
+        <RedisReplicationPanel connection={connection} active={active && subTab === "replication"} />
+      ) : subTab === "status" ? (
+        renderConfigTable()
+      ) : subTab === "slowlog" ? (
+        <RedisConnectionSlowlogPanel connection={connection} active={active && subTab === "slowlog"} />
+      ) : subTab === "acl" ? (
+        <RedisAclPanel connection={connection} active={active && subTab === "acl"} />
+      ) : null}
     </>
   );
 
@@ -723,13 +1142,15 @@ export function RedisConnectionInfoPanel({
       value={search}
       onChange={setSearch}
       placeholder={
-        subTab === "connections"
-          ? t("database.redisConnectionInfo.clientsSearch")
-          : subTab === "status"
-            ? t("database.redisConnectionInfo.configSearch")
-            : ""
+        subTab === "databases"
+          ? t("database.connectionInfo.databases.search")
+          : subTab === "connections"
+            ? t("database.redisConnectionInfo.clientsSearch")
+            : subTab === "status"
+              ? t("database.redisConnectionInfo.configSearch")
+              : ""
       }
-      enabled={capable && subTab !== "cli"}
+      enabled={capable && !["cli", "overview", "memory", "replication", "slowlog", "acl"].includes(subTab)}
     >
       {capable ? (
         <div className="db-tables-panel-header db-connection-info-header">
@@ -779,53 +1200,46 @@ export function RedisConnectionInfoPanel({
       ) : null}
       {capable ? (
         <div className="db-connection-info-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            className={`db-toolbox-tab${subTab === "connections" ? " active" : ""}`}
-            aria-selected={subTab === "connections"}
-            onClick={() => {
-              setSubTab("connections");
-              setSearch("");
-            }}
-          >
-            {t("database.connectionInfo.tabs.connections")}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`db-toolbox-tab${subTab === "status" ? " active" : ""}`}
-            aria-selected={subTab === "status"}
-            onClick={() => {
-              setSubTab("status");
-              setSearch("");
-            }}
-          >
-            {t("database.connectionInfo.tabs.status")}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`db-toolbox-tab${subTab === "cli" ? " active" : ""}`}
-            aria-selected={subTab === "cli"}
-            onClick={() => {
-              setSubTab("cli");
-              setSearch("");
-            }}
-          >
-            {t("database.connectionInfo.tabs.cli")}
-          </button>
+          {(
+            [
+              ["overview", t("database.redisOps.tabs.overview")],
+              ["databases", t("database.connectionInfo.tabs.databases")],
+              ["connections", t("database.connectionInfo.tabs.connections")],
+              ["memory", t("database.redisOps.tabs.memory")],
+              ["replication", t("database.redisOps.tabs.replication")],
+              ["status", t("database.connectionInfo.tabs.status")],
+              ["slowlog", t("database.redisOps.tabs.slowlog")],
+              ["acl", t("database.redisOps.tabs.acl")],
+              ["cli", t("database.connectionInfo.tabs.cli")],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              className={`db-toolbox-tab${subTab === id ? " active" : ""}`}
+              aria-selected={subTab === id}
+              onClick={() => {
+                setSubTab(id);
+                setSearch("");
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       ) : null}
       <div
         className="db-tables-panel-body"
         role="tabpanel"
         aria-label={
-          subTab === "connections"
-            ? t("database.connectionInfo.tabs.connections")
-            : subTab === "status"
-              ? t("database.connectionInfo.tabs.status")
-              : t("database.connectionInfo.tabs.cli")
+          subTab === "databases"
+            ? t("database.connectionInfo.tabs.databases")
+            : subTab === "connections"
+              ? t("database.connectionInfo.tabs.connections")
+              : subTab === "status"
+                ? t("database.connectionInfo.tabs.status")
+                : t("database.connectionInfo.tabs.cli")
         }
       >
         <div
@@ -895,6 +1309,33 @@ export function RedisConnectionInfoPanel({
         logSubtitle={serviceLogSubtitle}
         connectionLabel={connectionLabel}
         onClose={closeServiceLog}
+      />
+      <RedisOpsDangerDialog
+        open={flushDbOpen}
+        title="FLUSHDB"
+        description={t("database.redisOps.flushDbDesc")}
+        command="FLUSHDB ASYNC"
+        confirmPhrase="FLUSHDB"
+        onCancel={() => setFlushDbOpen(false)}
+        onConfirm={() => {
+          setFlushDbOpen(false);
+          void redisFlushDb(connection).then(() => refreshDatabases());
+        }}
+      />
+      <RedisOpsDangerDialog
+        open={killOpen}
+        title={t("database.redisOps.killClient")}
+        description={t("database.redisOps.killClientDesc")}
+        command={`CLIENT KILL ADDR ${selectedClientAddr ?? ""}`}
+        confirmPhrase={selectedClientAddr ?? "KILL"}
+        onCancel={() => setKillOpen(false)}
+        onConfirm={() => {
+          setKillOpen(false);
+          if (!selectedClientAddr) {
+            return;
+          }
+          void redisClientKill(connection, selectedClientAddr).then(() => refreshClients());
+        }}
       />
     </>
   );

@@ -5,7 +5,6 @@ import { useConnectionStore } from "../../../stores/connectionStore";
 import { useTerminalStore } from "../../../stores/terminalStore";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { showToast } from "../../../stores/toastStore";
-import { useTerminalLeftPanelStore } from "../../terminal/terminalLeftPanelStore";
 import { findPanelForSsh } from "../panel/serverConnection";
 
 const DOCKER_ACTIVE_KEY = "omnipanel.docker.activeConnectionId";
@@ -31,7 +30,6 @@ export function jumpSshTerminal(sshId: string, name: string): void {
   const tabId = useTerminalStore.getState().openOrFocusSshTab(sshId, name);
   useTerminalStore.getState().setActiveTab(tabId);
   useWorkspaceStore.getState().setActivePath(MODULE_PATHS.terminal);
-  useTerminalLeftPanelStore.getState().focusSessions();
   followUiIntent({ type: "focusModule", module: "terminal" });
 }
 

@@ -19,7 +19,7 @@
 ## 不要默认使用
 
 - **不要**调用 `omni_knowledge_save_todolist` 作为计划交付物。该工具只用于用户明确要求「记一条个人待办 / 写到任务中心待办」时。
-- **禁止**调用任何模块运维工具：`omni_ssh_*`、`omni_terminal_*`、`omni_docker_*`、`omni_database_*`、`omni_files_*` 等。
+- **禁止**调用任何模块运维工具：`omni_ssh_*`、`omni_docker_*`、`omni_database_*`、`omni_files_*` 等。
 - 即使用户问「检查某服务器资源占用 / 服务状态」，你也**不要**直接 SSH 或跑命令；应输出检查步骤计划文档，由用户切换到执行助手/终端 Agent 落地。
 
 ## 工作流（必须）

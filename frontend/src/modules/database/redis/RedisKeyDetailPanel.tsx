@@ -14,6 +14,10 @@ import {
 import { connectionWithDatabase } from "../toolbox/types";
 import { TableDataGrid, type TableDataGridActiveCell } from "../grid/TableDataGrid";
 import { CellEditorPanel, type CellEditorPanelHandle } from "../cell_editor";
+import { RedisStreamOpsPanel } from "./RedisStreamOpsPanel";
+import { RedisKeyCrudToolbar } from "./RedisKeyCrudToolbar";
+
+type StreamDetailTab = "entries" | "ops";
 
 interface RedisKeyDetailPanelProps {
   connection: DbConnectionConfig;
@@ -98,6 +102,7 @@ export function RedisKeyDetailPanel({
   const [deleting, setDeleting] = useState(false);
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
   const [cellEditorCollapsed, setCellEditorCollapsed] = useState(false);
+  const [streamTab, setStreamTab] = useState<StreamDetailTab>("ops");
   const cellEditorRef = useRef<CellEditorPanelHandle>(null);
   const cellEditorPanelRef = useRef<PanelImperativeHandle | null>(null);
 
@@ -145,6 +150,7 @@ export function RedisKeyDetailPanel({
       return;
     }
     setActiveCell(null);
+    setStreamTab("ops");
     void refresh();
   }, [active, selectedKey, refresh]);
 
@@ -185,10 +191,19 @@ export function RedisKeyDetailPanel({
   );
 
   const stringValue = typeof parsedValue === "string" ? parsedValue : null;
-  const tableRows = useMemo(
-    () => (Array.isArray(parsedValue) ? (parsedValue as Record<string, unknown>[]) : null),
-    [parsedValue],
-  );
+  const streamEntries = useMemo(() => {
+    if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
+      return null;
+    }
+    const obj = parsedValue as { entries?: Record<string, unknown>[] };
+    return Array.isArray(obj.entries) ? obj.entries : null;
+  }, [parsedValue]);
+  const tableRows = useMemo(() => {
+    if (streamEntries) {
+      return streamEntries;
+    }
+    return Array.isArray(parsedValue) ? (parsedValue as Record<string, unknown>[]) : null;
+  }, [parsedValue, streamEntries]);
   const tableColumns = useMemo(() => {
     if (!tableRows) {
       return [] as string[];
@@ -338,11 +353,41 @@ export function RedisKeyDetailPanel({
         </span>
         <span>{formatTtl(detail.ttl, t)}</span>
       </div>
+      <RedisKeyCrudToolbar
+        connection={scopedConnection}
+        keyName={detail.key}
+        keyType={detail.keyType}
+        onChanged={() => void refresh({ silent: true })}
+      />
+      {detail.keyType === "stream" ? (
+        <div className="redis-key-detail-stream-tabs" role="tablist">
+          <button
+            type="button"
+            className={`db-toolbox-tab${streamTab === "entries" ? " active" : ""}`}
+            onClick={() => setStreamTab("entries")}
+          >
+            {t("database.redisOps.streamEntries")}
+          </button>
+          <button
+            type="button"
+            className={`db-toolbox-tab${streamTab === "ops" ? " active" : ""}`}
+            onClick={() => setStreamTab("ops")}
+          >
+            {t("database.redisOps.streamOps")}
+          </button>
+        </div>
+      ) : null}
       {error ? <div className="redis-key-detail-inline-error">{error}</div> : null}
       <div
-        className={`redis-key-detail-body${tableGrid ? " redis-key-detail-body--grid" : ""}`}
+        className={`redis-key-detail-body${tableGrid && detail.keyType !== "stream" ? " redis-key-detail-body--grid" : ""}`}
       >
-        {stringValue != null ? (
+        {detail.keyType === "stream" && streamTab === "ops" ? (
+          <RedisStreamOpsPanel
+            connection={scopedConnection}
+            streamKey={detail.key}
+            active={active}
+          />
+        ) : stringValue != null ? (
           <pre className="redis-key-detail-string">{stringValue}</pre>
         ) : tableGrid ? (
           <DockLayout direction="vertical" className="redis-key-detail-split">

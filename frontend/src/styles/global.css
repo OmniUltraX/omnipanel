@@ -3890,11 +3890,21 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    overscroll-behavior: none;
     --dv-tabs-and-actions-container-font-size: 13px;
     --dv-tabs-and-actions-container-height: 32px;
     --dv-sash-color: transparent;
     --dv-active-sash-color: var(--accent);
     --dv-drag-over-background-color: var(--accent-soft);
+}
+
+/* 截断 dockview overlay 撑高的可滚动溢出，避免 scrollIntoView 把整页滚飞 */
+.dockable-workspace > .dockable-workspace__dockview,
+.dockable-workspace .dv-shell {
+    overflow: hidden !important;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
 }
 
 /* 椤诲湪 dockview 鏍硅妭鐐硅鐩?themeDark 鍐呯疆鍙橀噺锛屽啓鍦?.dockable-workspace 涓婁笉浼氬悜涓嬬敓鏁?*/

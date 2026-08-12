@@ -31,7 +31,7 @@ export function buildNaturalLanguagePrompt(
   parts.push(query);
   if (cwd) parts.push(`\n当前目录：${cwd}`);
   parts.push(
-    "\n\n请结合当前终端上下文，给出可执行的 shell 命令并简要说明；若需执行请使用 omni_ssh_exec 工具。",
+    "\n\n必须调用 omni_ssh_exec 在当前终端执行命令获取事实后再回答（本地 PowerShell/CMD/bash 与 SSH 均适用）。不要凭记忆编造时间/输出，也不要只甩给用户手动粘贴的命令。",
   );
   return parts.join("\n");
 }

@@ -109,6 +109,7 @@ import {
   anchorShellAgentThinkingCard,
   clearRemoteInputLine,
   flushPendingShellAgentReanchor,
+  isPowerShellSession,
   startOrContinueShellAgent,
   teardownShellAgentUi,
 } from "../modules/terminal/shellAgent/loop";
@@ -171,7 +172,9 @@ function bindTerminalInputMode(
     const screenLine = readActiveTerminalLine(term);
     const { prefix } = splitPromptAndBody(screenLine);
     const promptIndentCols = measurePromptPrefixCols(term);
-    clearRemoteInputLine(sessionId);
+    const isPs = isPowerShellSession(sessionId);
+    // PowerShell：Ctrl+C 清行（可靠）；bash：Ctrl+A/K/U 原地清
+    clearRemoteInputLine(sessionId, { typedText: query });
     bufferRef.current = resetLineBuffer(bufferRef.current);
     patchEnterGateFlags(sessionId, { userTyping: false });
 
@@ -180,9 +183,16 @@ function bindTerminalInputMode(
     // 超时不静默也 fail-open 继续，避免吞掉用户输入。
     void waitForTerminalOutputIdle(sessionId, 60, 800).then(() => {
       try {
-        const paint = `\r\x1b[2K\x1b[32m${prompt}\x1b[0m\x1b[94m${query}\x1b[0m\r\n`;
+        // PowerShell Ctrl+C 后屏幕为：
+        //   PS> 现在的时间^C
+        //   PS> _
+        // 用 \x1b[A 把取消行改写成蓝字问题，避免再画一行造成「双份输入」；
+        // 结束后光标仍在下方空 prompt，供占位行 / PTY 同步推进。
+        const paint = isPs
+          ? `\x1b[A\r\x1b[2K\x1b[32m${prompt}\x1b[0m\x1b[94m${query}\x1b[0m\r\n`
+          : `\r\x1b[2K\x1b[32m${prompt}\x1b[0m\x1b[94m${query}\x1b[0m\r\n`;
         term.write(paint, () => {
-          // 光标已在占位区首行行首：建 thinking 卡（占位+marker+decoration）
+          // 光标在占位区首行：建 thinking 卡（占位仅本地 \r\n；PS 禁止 PTY Enter）
           anchorShellAgentThinkingCard(sessionId, {
             promptIndentCols: Math.max(2, promptIndentCols),
             promptPrefix: prompt,

@@ -77,7 +77,6 @@ import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
 import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
-import { SshToTerminalRedirect } from "./modules/terminal/SshToTerminalRedirect";
 import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
 import {
   bootstrapTerminalHistory,
@@ -94,6 +93,7 @@ import {
   LazyKnowledgePanel,
   LazyProtocolPanel,
   LazyServerPanel,
+  LazySshPanel,
   LazyTaskCenterPanel,
   LazyTerminalPanel,
   LazyUserWorkspace,
@@ -110,7 +110,7 @@ function TopbarPageActions() {
   const triggerNewRequest = useProtocolTopbarStore((state) => state.triggerNewRequest);
   const requestNewTabPicker = useProtocolTopbarStore((state) => state.requestNewTabPicker);
 
-  if (path === MODULE_PATHS.terminal) {
+  if (path === MODULE_PATHS.terminal || path === MODULE_PATHS.ssh) {
     return null;
   }
 
@@ -434,6 +434,7 @@ function AppShell() {
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const isDashboard = isDashboardPath(location.pathname);
   const isTerminal = location.pathname === MODULE_PATHS.terminal;
+  const isSsh = location.pathname === MODULE_PATHS.ssh;
   const isDocker = location.pathname === MODULE_PATHS.docker;
   const isDatabase = location.pathname === MODULE_PATHS.database;
   const isFiles = location.pathname === MODULE_PATHS.files;
@@ -594,6 +595,13 @@ function AppShell() {
         <LazyTerminalPanel />
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
+        active={isSsh}
+        mounted={overlayMounted.ssh}
+        keepLayout
+      >
+        <LazySshPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
         active={isDocker}
         mounted={overlayMounted.docker}
         keepLayout
@@ -663,10 +671,7 @@ function AppShell() {
               }
             />
             <Route path={MODULE_PATHS.terminal} element={null} />
-            <Route
-              path={MODULE_PATHS.ssh}
-              element={<SshToTerminalRedirect />}
-            />
+            <Route path={MODULE_PATHS.ssh} element={null} />
             <Route path={MODULE_PATHS.database} element={null} />
             <Route path={MODULE_PATHS.docker} element={null} />
             <Route path={MODULE_PATHS.server} element={null} />

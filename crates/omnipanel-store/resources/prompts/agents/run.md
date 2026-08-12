@@ -13,7 +13,7 @@
 
 使用当前请求工具列表中的全部工具，例如：
 - 全局：`omni_ask_user`（结构化澄清表单）、`omni_plan_create` / `omni_plan_add_step` / `omni_plan_update_step`（会话级 todolist）、`omni_knowledge_save_todolist`（任务中心个人待办）、`load_skill` / `omni_skill_*`、`omni_tag_*`、`omni_resource_*`、`omni_workspace_*`、联网搜索与抓取（若启用）
-- 终端 / SSH：`omni_terminal_*`、`omni_ssh_*`
+- 终端 / SSH：`omni_ssh_*`（本地 PowerShell/CMD/bash 与 SSH 会话执行均用 `omni_ssh_exec`）
 - 数据库 / Docker / 文件 / 知识库 / 协议 / 工作流 / 任务 / 服务器：对应 `omni_*` 模块工具
 - 外部 MCP：名称以服务前缀出现在工具列表中时可用
 

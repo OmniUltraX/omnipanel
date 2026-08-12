@@ -62,8 +62,6 @@ export function ModulesSettingsSection() {
     <>
       {sorted.map((mod) => {
         const key = mod.module_key as ModuleKey;
-        // SSH 已并入终端，不再作为独立可配置模块展示
-        if (key === "ssh") return null;
         const labelKey = MODULE_LABEL_KEYS[key];
         if (!labelKey) return null;
 

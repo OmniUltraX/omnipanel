@@ -1,6 +1,5 @@
 import type { NavigateFunction } from "react-router-dom";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useTerminalLeftPanelStore } from "../modules/terminal/terminalLeftPanelStore";
 import { useBottomPanelStore } from "../stores/bottomPanelStore";
 import { DEFAULT_WORKSPACE, useWorkspaceStore } from "../stores/workspaceStore";
 import { useDashboardStore } from "../modules/workspace/useDashboardStore";
@@ -293,8 +292,7 @@ export function leaveWorkspaceHomeForFeature(): void {
 }
 
 export function navigateToSshManagement(navigate: NavigateFunction): void {
-  useTerminalLeftPanelStore.getState().focusSsh();
-  navigateToFeature(MODULE_PATHS.terminal, navigate);
+  navigateToFeature(MODULE_PATHS.ssh, navigate);
 }
 
 export function navigateToFeature(path: string, navigate: NavigateFunction): void {

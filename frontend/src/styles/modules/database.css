@@ -1140,6 +1140,21 @@
         border-left: 1px solid var(--border);
     }
 
+    /*
+     * ScopedSearch 会多包一层 .scoped-search-content；必须继续把 flex/overflow 约束传下去，
+     * 否则 Redis CLIENT LIST 等超宽表会按 min-content 撑破列宽，出现右侧内容整体上移且无法滚回。
+     */
+    .db-tables-panel.scoped-search-host,
+    .db-tables-panel .scoped-search-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
     .db-tables-panel--dock {
         border-left: none;
     }
@@ -1648,6 +1663,7 @@
 
     .db-tables-panel-body {
         flex: 1;
+        min-width: 0;
         min-height: 0;
         overflow: hidden;
     }
@@ -1673,6 +1689,7 @@
 
     .db-tables-panel-grid-wrap {
         height: 100%;
+        min-width: 0;
         min-height: 0;
         overflow: auto;
     }
@@ -1687,6 +1704,18 @@
         border-spacing: 0;
         font-size: var(--font-size-sm, 13px);
         table-layout: auto;
+    }
+
+    /* 少列场景（如 Redis 库列表）按内容收缩，避免 Keys 被撑到视口最右侧 */
+    .db-tables-panel-grid.db-tables-panel-grid--fit {
+        width: max-content;
+        max-width: 100%;
+        min-width: 280px;
+    }
+
+    .db-tables-panel-grid.db-tables-panel-grid--fit th,
+    .db-tables-panel-grid.db-tables-panel-grid--fit td {
+        padding-right: 24px;
     }
 
     .db-tables-panel-grid thead th {
@@ -1820,6 +1849,7 @@
     .db-tables-panel-grid-host {
         height: 100%;
         min-height: 0;
+        min-width: 0;
         width: 100%;
         outline: none;
     }
@@ -11703,4 +11733,177 @@
     .db-users-workbench-right {
         border-left: none;
     }
+}
+
+/* Redis ops panels */
+.redis-ops-overview__toolbar,
+.redis-ops-memory__toolbar,
+.redis-ops-repl__toolbar,
+.redis-ops-acl__toolbar,
+.redis-stream-ops__toolbar,
+.redis-conn-toolbar,
+.redis-key-crud-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.redis-ops-overview__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    padding: 12px;
+}
+
+.redis-ops-overview__card {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md, 6px);
+    background: var(--bg);
+}
+
+.redis-ops-overview__card-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.redis-ops-overview__card-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.redis-ops-memory__summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 12px;
+    font-size: 13px;
+}
+
+.redis-ops-memory__doctor {
+    margin: 0 12px 12px;
+    padding: 10px;
+    border-radius: var(--radius-md, 6px);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    white-space: pre-wrap;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.redis-ops-warn {
+    color: var(--danger, #e55);
+}
+
+.redis-stream-ops__metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.redis-stream-ops__metric {
+    min-width: 100px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg);
+}
+
+.redis-stream-ops__metric .label {
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+}
+
+.redis-stream-ops__metric .value {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.redis-stream-ops__section {
+    padding: 8px 12px 12px;
+}
+
+.redis-stream-ops__section-title {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--fg-2);
+}
+
+.redis-key-detail-stream-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.redis-conn-config-input {
+    flex: 1;
+    min-width: 160px;
+}
+
+.redis-ops-danger-dialog {
+    background: var(--bg-deeper);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg, 8px);
+    width: 480px;
+    max-width: 90vw;
+    padding: 16px;
+}
+
+.redis-ops-danger-dialog__header {
+    margin-bottom: 12px;
+}
+
+.redis-ops-danger-dialog__title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.redis-ops-danger-dialog__desc {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.redis-ops-danger-dialog__prod {
+    padding: 8px;
+    margin-bottom: 8px;
+    border-radius: var(--radius-sm, 4px);
+    background: color-mix(in srgb, var(--danger, #e55) 12%, transparent);
+    color: var(--danger, #e55);
+    font-size: 12px;
+}
+
+.redis-ops-danger-dialog__cmd {
+    padding: 8px;
+    margin-bottom: 8px;
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    overflow-x: auto;
+}
+
+.redis-ops-danger-dialog__label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+
+.redis-ops-danger-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
 }
