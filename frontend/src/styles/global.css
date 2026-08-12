@@ -10007,17 +10007,59 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
     }
 
+    .statusbar-log-wrap {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 0;
+        max-width: min(520px, 50vw);
+        overflow: hidden;
+    }
+
+    .statusbar-log-clear {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border: none;
+        border-radius: 3px;
+        background: transparent;
+        color: inherit;
+        opacity: 0.65;
+        cursor: pointer;
+    }
+
+    .statusbar-log-clear:hover {
+        opacity: 1;
+        background: color-mix(in srgb, currentColor 12%, transparent);
+    }
+
+    .statusbar-log-wrap--error .statusbar-log-clear,
+    .statusbar-log-wrap--warn .statusbar-log-clear {
+        color: inherit;
+    }
+
     .statusbar-log {
         display: flex;
         align-items: center;
         gap: var(--sp-1);
         min-width: 0;
-        max-width: min(480px, 45vw);
+        flex: 1 1 auto;
+        overflow: hidden;
+        color: var(--fg-2);
+        cursor: pointer;
+    }
+
+    /* flex 容器本身不会出现省略号，文案放在子元素里截断 */
+    .statusbar-log-text {
+        min-width: 0;
+        flex: 1 1 auto;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--fg-2);
-        cursor: pointer;
     }
 
     .statusbar-log:hover {
@@ -10042,6 +10084,22 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .statusbar-log--error {
         color: var(--danger);
+    }
+
+    .statusbar-log-detail-dialog .statusbar-log-detail-body {
+        margin: 0;
+        max-height: min(50vh, 360px);
+        overflow: auto;
+        padding: var(--sp-3);
+        border-radius: var(--radius-md, 6px);
+        background: var(--bg-2, var(--panel));
+        color: var(--text);
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        user-select: text;
     }
 
     .connection-pool-indicator {

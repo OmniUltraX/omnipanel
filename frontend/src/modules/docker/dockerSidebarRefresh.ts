@@ -13,6 +13,7 @@ import {
   isMissingDockerBoundSshError,
   runWithDockerBoundSsh,
 } from "./ensureDockerBoundSsh";
+import { publishDockerSidebarRefreshFailed } from "./dockerSidebarCacheStatusLog";
 
 /** 侧栏刷新失败会落到 entry.error，避免刷屏 console */
 function unwrap<T>(promise: Promise<CommandResult<T>>): Promise<T> {
@@ -57,6 +58,14 @@ function markLoaded(
     next[category] = true;
   }
   return next;
+}
+
+function toSidebarErrorMessage(error: unknown): string {
+  return formatIpcError(
+    error && typeof error === "object"
+      ? (error as { message?: string; cause?: string | null; code?: string | null })
+      : String(error),
+  );
 }
 
 export async function fetchDockerSidebarResources(
@@ -134,30 +143,31 @@ export async function fetchDockerSidebarResources(
     }
     // 「未绑定 SSH」已在 recover 里弹过提示，侧栏不再重复堆长错误
     if (isMissingDockerBoundSshError(error)) {
+      const message = "请绑定 SSH 连接后重试";
+      publishDockerSidebarRefreshFailed(message);
       return {
         ...current,
         refreshedAt: current.refreshedAt ?? Date.now(),
-        error: "请绑定 SSH 连接后重试",
+        error: message,
       };
     }
-    // 连不上实例：标记未连接，不把错误文案塞进侧栏
+    // 连不上实例：标记未连接；错误仍推到状态栏，便于排查
     if (handleDockerAutoFetchFailure(scope.connectionId, error)) {
       console.warn("[docker-sidebar] treated as offline", label, detail);
+      publishDockerSidebarRefreshFailed(toSidebarErrorMessage(error));
       return {
         ...current,
         refreshedAt: current.refreshedAt ?? Date.now(),
         error: null,
       };
     }
+    const message = toSidebarErrorMessage(error);
+    publishDockerSidebarRefreshFailed(message);
     return {
       ...current,
       // 失败也标记已尝试，侧栏结束「加载中」并展示错误；不标记 loaded，便于展开时重试
       refreshedAt: current.refreshedAt ?? Date.now(),
-      error: formatIpcError(
-        error && typeof error === "object"
-          ? (error as { message?: string; cause?: string | null; code?: string | null })
-          : String(error),
-      ),
+      error: message,
     };
   }
 }

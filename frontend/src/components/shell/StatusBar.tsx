@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type KeyboardEvent } from "react";
+import { useEffect, useState, useCallback, type KeyboardEvent, type MouseEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorkspaceWindowStore } from "../../stores/workspaceWindowStore";
@@ -23,6 +23,14 @@ import { StatusBarLocalRuntimeIndicator } from "./StatusBarLocalRuntimeIndicator
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
 import { useActionDraftStore } from "../../stores/actionDraftStore";
+import { Button } from "../ui/primitives/Button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/primitives/dialog";
 
 /** 统一审批队列：状态栏待确认入口 */
 function StatusBarApprovalBadge() {
@@ -59,7 +67,7 @@ function StatusBarApprovalBadge() {
       onKeyDown={handleKeyDown}
     >
       <span className="statusbar-dot yellow" aria-hidden />
-      {message}
+      <span className="statusbar-log-text">{message}</span>
     </span>
   );
 }
@@ -105,7 +113,7 @@ function StatusBarBackgroundTaskLog() {
       onKeyDown={handleKeyDown}
     >
       {level === "progress" ? <span className="statusbar-dot yellow" aria-hidden /> : null}
-      {message}
+      <span className="statusbar-log-text">{message}</span>
     </span>
   );
 }
@@ -114,8 +122,11 @@ function StatusBarBackgroundTaskLog() {
 function StatusBarModuleLog() {
   const { t } = useI18n();
   const location = useLocation();
+  const [detailOpen, setDetailOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const setActivePublisher = useStatusBarLogStore((s) => s.setActivePublisher);
+  const clearLog = useStatusBarLogStore((s) => s.clear);
+  const activePublisher = useStatusBarLogStore((s) => s.activePublisher);
   const hasBackgroundTasks = useBackgroundTaskStore(
     (s) => countRunningBackgroundTasks(s.tasks) > 0,
   );
@@ -131,6 +142,26 @@ function StatusBarModuleLog() {
   useEffect(() => {
     setCopied(false);
   }, [logEntry?.id]);
+
+  useEffect(() => {
+    if (!logEntry?.message) {
+      setDetailOpen(false);
+    }
+  }, [logEntry?.message]);
+
+  const handleClear = useCallback(
+    (event: MouseEvent) => {
+      event.stopPropagation();
+      if (!activePublisher) return;
+      clearLog(activePublisher);
+      setDetailOpen(false);
+    },
+    [activePublisher, clearLog],
+  );
+
+  const handleOpenDetail = useCallback(() => {
+    setDetailOpen(true);
+  }, []);
 
   const handleCopy = useCallback(async () => {
     if (!logEntry?.message) {
@@ -149,35 +180,64 @@ function StatusBarModuleLog() {
     (event: KeyboardEvent<HTMLSpanElement>) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        void handleCopy();
+        handleOpenDetail();
       }
     },
-    [handleCopy],
+    [handleOpenDetail],
   );
 
   if (!logEntry?.message || hasBackgroundTasks) {
     return null;
   }
 
-  const title = copied
-    ? t("common.copied")
-    : `${logEntry.message}\n${t("shell.statusbar.copyLog")}`;
-
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      className={`statusbar-log statusbar-log--${logEntry.level}${copied ? " statusbar-log--copied" : ""}`}
-      title={title}
-      aria-label={logEntry.message}
-      onClick={() => void handleCopy()}
-      onKeyDown={handleKeyDown}
-    >
-      {logEntry.level === "progress" ? (
-        <span className="statusbar-dot yellow" aria-hidden />
-      ) : null}
-      {logEntry.message}
-    </span>
+    <>
+      <span className={`statusbar-log-wrap statusbar-log-wrap--${logEntry.level}`}>
+        <button
+          type="button"
+          className="statusbar-log-clear"
+          title={t("shell.statusbar.clearLog")}
+          aria-label={t("shell.statusbar.clearLog")}
+          onClick={handleClear}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden>
+            <path d="M18 6L6 18" />
+            <path d="M6 6l12 12" />
+          </svg>
+        </button>
+        <span
+          role="button"
+          tabIndex={0}
+          className={`statusbar-log statusbar-log--${logEntry.level}`}
+          title={`${logEntry.message}\n${t("shell.statusbar.copyLog")}`}
+          aria-label={logEntry.message}
+          onClick={handleOpenDetail}
+          onKeyDown={handleKeyDown}
+        >
+          {logEntry.level === "progress" ? (
+            <span className="statusbar-dot yellow" aria-hidden />
+          ) : null}
+          <span className="statusbar-log-text">{logEntry.message}</span>
+        </span>
+      </span>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="statusbar-log-detail-dialog sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("shell.statusbar.logDetail")}</DialogTitle>
+          </DialogHeader>
+          <pre className="statusbar-log-detail-body">{logEntry.message}</pre>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => void handleCopy()}>
+              {copied ? t("common.copied") : t("common.copy")}
+            </Button>
+            <Button type="button" onClick={() => setDetailOpen(false)}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

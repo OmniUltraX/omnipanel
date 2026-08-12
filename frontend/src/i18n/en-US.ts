@@ -761,7 +761,9 @@ export const enUS: TranslationDict = {
       switchToTaskBar: "Switch to tab bar mode",
       switchToSplitWindow: "Switch to split window mode",
       workspacePoppedOutHint: "This workspace is in a separate window; the main window does not show the bottom panel",
-      copyLog: "Click to copy full message",
+      copyLog: "Click to view full message",
+      clearLog: "Clear log",
+      logDetail: "Log detail",
       panelActions: "Panel actions",
       panelType: {
         unknown: "Other",
@@ -4115,6 +4117,8 @@ export const enUS: TranslationDict = {
       refreshingConnection: "Refreshing “{name}” cache ({done}/{total})…",
       allDone: "All connection caches refreshed ({total})",
       allFailed: "Failed to refresh connection caches: {message}",
+      refreshFailed: "Failed to refresh container cache: {message}",
+      someFailed: "Some connection caches failed ({failed}/{total}): {message}",
     },
     sidebar: {
       title: "Docker",

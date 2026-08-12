@@ -119,6 +119,7 @@ export type RefreshAllDockerSidebarCachesOptions = {
   onStart?: (total: number) => void;
   onConnectionDone?: (progress: DockerSidebarRefreshAllProgress) => void;
   onComplete?: (total: number) => void;
+  onSomeFailed?: (payload: { failed: number; total: number; message: string }) => void;
 };
 
 /** 刷新当前列表中全部 Docker 连接的侧栏资源缓存。 */
@@ -132,10 +133,16 @@ export async function refreshAllDockerSidebarCaches(
   options?.onStart?.(total);
   const store = useDockerSidebarCacheStore.getState();
   let done = 0;
+  let failed = 0;
+  let lastError = "";
 
   await Promise.all(
     connectionIds.map(async (connectionId) => {
-      await store.refreshScope({ kind: "connection", connectionId });
+      const entry = await store.refreshScope({ kind: "connection", connectionId });
+      if (entry.error?.trim()) {
+        failed += 1;
+        lastError = entry.error.trim();
+      }
       done += 1;
       options?.onConnectionDone?.({
         done,
@@ -146,6 +153,14 @@ export async function refreshAllDockerSidebarCaches(
     }),
   );
 
+  if (failed > 0) {
+    options?.onSomeFailed?.({
+      failed,
+      total,
+      message: lastError || String(failed),
+    });
+    return;
+  }
   options?.onComplete?.(total);
 }
 

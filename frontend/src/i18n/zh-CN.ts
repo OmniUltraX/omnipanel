@@ -757,7 +757,9 @@ export const zhCN = {
       switchToTaskBar: "切换为标签栏模式",
       switchToSplitWindow: "切换为分屏模式",
       workspacePoppedOutHint: "当前工作区已在独立窗口中，主窗不展示底栏",
-      copyLog: "点击复制完整内容",
+      copyLog: "点击查看完整内容",
+      clearLog: "清除日志",
+      logDetail: "日志详情",
       panelActions: "面板操作",
       panelType: {
         unknown: "其他",
@@ -4058,6 +4060,8 @@ export const zhCN = {
       refreshingConnection: "正在刷新「{name}」缓存（{done}/{total}）…",
       allDone: "全部连接缓存已刷新（{total}）",
       allFailed: "刷新连接缓存失败：{message}",
+      refreshFailed: "刷新容器缓存失败：{message}",
+      someFailed: "部分连接缓存刷新失败（{failed}/{total}）：{message}",
     },
     sidebar: {
       title: "Docker",
