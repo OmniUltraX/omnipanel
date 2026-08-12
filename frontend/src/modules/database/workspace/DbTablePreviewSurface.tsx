@@ -1051,6 +1051,15 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             transposed={preview.transposed}
             detailCollapsed={detailCollapsed}
             colSidebarCollapsed={colSidebarCollapsed}
+            tableName={tab.tableName || undefined}
+            databaseName={tab.dbName || undefined}
+            columnCount={
+              colMeta && colMeta.length > 0
+                ? colMeta.length
+                : previewColumns.length > 0
+                  ? previewColumns.length
+                  : undefined
+            }
             onPageChange={handlePreviewPageChange}
             onPageSizeChange={handlePreviewPageSizeChange}
             onRefresh={() => ws.requestTabAction({ kind: "refresh", tabId: tab.id })}

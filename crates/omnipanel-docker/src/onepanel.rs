@@ -886,7 +886,8 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
             .collect()
     };
     let labels = parse_json_labels(v.get("labels"));
-    let (compose_project, compose_service) = crate::compose::compose_fields_from_kv(&labels);
+    let (compose_project, compose_service, compose_working_dir, compose_config_files) =
+        crate::compose::compose_fields_from_kv(&labels);
     Some(DockerContainerSummary {
         short_id: crate::short_id(&id),
         id,
@@ -914,6 +915,8 @@ fn parse_container_summary(v: &serde_json::Value) -> Option<DockerContainerSumma
             .unwrap_or(0),
         compose_project,
         compose_service,
+        compose_working_dir,
+        compose_config_files,
     })
 }
 
@@ -990,15 +993,34 @@ fn enrich_containers_compose_project(
 ) {
     use std::collections::HashMap;
 
-    let mut by_id: HashMap<&str, &str> = HashMap::new();
-    let mut by_name: HashMap<&str, &str> = HashMap::new();
+    struct ComposeMeta<'a> {
+        project: &'a str,
+        working_dir: Option<&'a str>,
+        config_files: Option<&'a str>,
+    }
+
+    let mut by_id: HashMap<&str, ComposeMeta<'_>> = HashMap::new();
+    let mut by_name: HashMap<&str, ComposeMeta<'_>> = HashMap::new();
     for project in compose_list {
+        let meta = ComposeMeta {
+            project: project.name.as_str(),
+            working_dir: project.working_dir.as_deref().filter(|s| !s.is_empty()),
+            config_files: project.path.as_deref().filter(|s| !s.is_empty()),
+        };
         for c in &project.containers {
             if !c.id.is_empty() {
-                by_id.insert(c.id.as_str(), project.name.as_str());
+                by_id.insert(c.id.as_str(), ComposeMeta {
+                    project: meta.project,
+                    working_dir: meta.working_dir,
+                    config_files: meta.config_files,
+                });
             }
             if !c.name.is_empty() {
-                by_name.insert(c.name.as_str(), project.name.as_str());
+                by_name.insert(c.name.as_str(), ComposeMeta {
+                    project: meta.project,
+                    working_dir: meta.working_dir,
+                    config_files: meta.config_files,
+                });
             }
         }
     }
@@ -1006,24 +1028,33 @@ fn enrich_containers_compose_project(
         return;
     }
 
-    for container in containers.iter_mut() {
-        if container.compose_project.is_some() {
-            continue;
+    let apply_meta = |container: &mut DockerContainerSummary, meta: &ComposeMeta<'_>| {
+        if container.compose_project.is_none() {
+            container.compose_project = Some(meta.project.to_string());
         }
-        if let Some(project) = by_id.get(container.id.as_str()).copied() {
-            container.compose_project = Some(project.to_string());
+        if container.compose_working_dir.is_none() {
+            container.compose_working_dir = meta.working_dir.map(str::to_string);
+        }
+        if container.compose_config_files.is_none() {
+            container.compose_config_files = meta.config_files.map(str::to_string);
+        }
+    };
+
+    for container in containers.iter_mut() {
+        if let Some(meta) = by_id.get(container.id.as_str()) {
+            apply_meta(container, meta);
             continue;
         }
         // 长短 ID 互匹配（列表可能是短 ID，Compose 侧可能是完整 ID）
-        if let Some((_, project)) = by_id.iter().find(|(id, _)| {
+        if let Some((_, meta)) = by_id.iter().find(|(id, _)| {
             container.id.starts_with(**id) || id.starts_with(container.id.as_str())
         }) {
-            container.compose_project = Some((*project).to_string());
+            apply_meta(container, meta);
             continue;
         }
         let name = container.name.trim_start_matches('/');
-        if let Some(project) = by_name.get(name).copied() {
-            container.compose_project = Some(project.to_string());
+        if let Some(meta) = by_name.get(name) {
+            apply_meta(container, meta);
         }
     }
 }
@@ -1858,7 +1889,15 @@ impl DockerAdapter for OnePanelAdapter {
         &self,
         req: &DockerComposeReadFilesRequest,
     ) -> OmniResult<DockerComposeProjectFiles> {
+        let total = std::time::Instant::now();
+        tracing::debug!(
+            target: "docker_compose_files",
+            project = %req.project,
+            "onepanel read_compose_project_files 开始"
+        );
+        let find_started = std::time::Instant::now();
         let info = find_onepanel_compose(&self.client, &req.project).await?;
+        let find_ms = find_started.elapsed().as_millis();
         let detail_path = req
             .config_file
             .as_ref()
@@ -1877,6 +1916,7 @@ impl DockerAdapter for OnePanelAdapter {
             .filter(|s| !s.trim().is_empty())
             .or_else(|| info.resolved_working_dir());
 
+        let compose_started = std::time::Instant::now();
         let compose_content: String = self
             .client
             .post_json(
@@ -1889,7 +1929,9 @@ impl DockerAdapter for OnePanelAdapter {
             )
             .await
             .map_err(|e| e.with_cause("1Panel 读取 Compose 文件失败"))?;
+        let compose_ms = compose_started.elapsed().as_millis();
 
+        let env_started = std::time::Instant::now();
         let env_content = if !info.env.is_empty() {
             info.env.clone()
         } else {
@@ -1905,6 +1947,18 @@ impl DockerAdapter for OnePanelAdapter {
                 Err(_) => String::new(),
             }
         };
+        let env_ms = env_started.elapsed().as_millis();
+        tracing::debug!(
+            target: "docker_compose_files",
+            project = %req.project,
+            find_ms,
+            compose_ms,
+            env_ms,
+            total_ms = total.elapsed().as_millis(),
+            compose_bytes = compose_content.len(),
+            env_bytes = env_content.len(),
+            "onepanel read_compose_project_files 完成"
+        );
 
         Ok(DockerComposeProjectFiles {
             project: req.project.clone(),

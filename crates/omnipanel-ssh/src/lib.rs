@@ -1132,6 +1132,44 @@ impl SshSession {
             .map_err(|e| OmniError::new(ErrorCode::Ssh, "下载文件失败").with_cause(e.to_string()))
     }
 
+    /// 同一 SFTP 会话内读取多个文本文件；路径不存在时对应项为 `None`。
+    /// 权限等非「缺失」错误会直接返回 `Err`（由调用方决定是否回退）。
+    /// 比多次 `sftp_download` / shell `cat` 更省：只开一次子系统通道。
+    pub async fn sftp_read_texts_optional(
+        &self,
+        paths: &[&str],
+    ) -> OmniResult<Vec<Option<String>>> {
+        let _exec_permit = self
+            .exec_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH 资源繁忙，请稍后重试"))?;
+        let sftp = self.open_sftp_inner().await?;
+        let mut results = Vec::with_capacity(paths.len());
+        for path in paths {
+            match sftp.read(*path).await {
+                Ok(bytes) => {
+                    results.push(Some(String::from_utf8_lossy(&bytes).into_owned()));
+                }
+                Err(error) => {
+                    let msg = error.to_string();
+                    let missing = msg.contains("No such file")
+                        || msg.contains("not found")
+                        || msg.contains("No such file or directory")
+                        || msg.contains("SSH_FX_NO_SUCH_FILE");
+                    if missing {
+                        results.push(None);
+                    } else {
+                        return Err(OmniError::new(ErrorCode::Ssh, "下载文件失败")
+                            .with_cause(format!("{path}: {msg}")));
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+
     /// 将远端文件流式写入本地路径（分块拷贝，避免整文件进内存）。
     pub async fn sftp_download_to_file(
         &self,

@@ -6,10 +6,17 @@ import type {
   DockerComposeRequest,
   DockerComposeResult,
   DockerComposeWriteFilesRequest,
+  DockerContainerSummary,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { DOCKER_QUIET_IPC, handleDockerAutoFetchFailure } from "./dockerConnectionOffline";
-import { debugCompose } from "./dockerComposeDebug";
+import { beginComposeDebug, debugCompose } from "./dockerComposeDebug";
+import {
+  invalidateComposeFilesCache,
+  isComposeFilesCacheFresh,
+  peekComposeFilesCache,
+  writeComposeFilesCache,
+} from "./dockerComposeFilesCache";
 
 const unwrap = unwrapCommand;
 
@@ -26,7 +33,17 @@ type ComposeProjectsListCacheEntry = {
 const composeMetaCache = new Map<string, ComposeMetaCacheEntry>();
 /** 连接级项目列表缓存：避免每个 Compose Tab 都再跑一次全量 list */
 const composeProjectsListCache = new Map<string, ComposeProjectsListCacheEntry>();
+/** 同 key 并发合并，避免 Strict Mode / 面板双激活用两次 IPC */
+const fetchComposeProjectsInflight = new Map<string, Promise<DockerComposeProject[]>>();
+const readComposeFilesInflight = new Map<string, Promise<DockerComposeProjectFiles>>();
 const COMPOSE_META_TTL_MS = 60_000;
+
+export {
+  peekComposeFilesCache,
+  isComposeFilesCacheFresh,
+  COMPOSE_FILES_FRESH_TTL_MS,
+} from "./dockerComposeFilesCache";
+export type { ComposeFilesCacheEntry } from "./dockerComposeFilesCache";
 
 function composeMetaCacheKey(connectionId: string, project: string): string {
   return `${connectionId}::${project.trim()}`;
@@ -40,6 +57,49 @@ function warmComposeMetaCache(connectionId: string, projects: DockerComposeProje
       fetchedAt: now,
     });
   }
+}
+
+/**
+ * 用侧栏已加载的容器 labels 预热 compose meta。
+ * 打开 Compose 面板时可跳过昂贵的 `dockerListComposeProjects`。
+ */
+export function warmComposeMetaFromContainers(
+  connectionId: string,
+  containers: ReadonlyArray<
+    Pick<DockerContainerSummary, "composeProject" | "composeWorkingDir" | "composeConfigFiles">
+  >,
+): number {
+  const byName = new Map<string, DockerComposeProject>();
+  for (const container of containers) {
+    const name = container.composeProject?.trim();
+    if (!name) continue;
+    const workingDir = container.composeWorkingDir?.trim() || null;
+    if (!workingDir) continue;
+    const existing = byName.get(name);
+    if (existing?.workingDir) continue;
+    byName.set(name, {
+      name,
+      workingDir,
+      configFiles: container.composeConfigFiles?.trim() || null,
+      serviceCount: 0,
+      containerCount: 0,
+      runningContainerCount: 0,
+      services: [],
+    });
+  }
+  const projects = [...byName.values()];
+  if (projects.length === 0) return 0;
+  warmComposeMetaCache(connectionId, projects);
+  debugCompose("warmComposeMetaFromContainers", {
+    connectionId,
+    warmed: projects.length,
+    sample: projects.slice(0, 3).map((p) => ({
+      name: p.name,
+      workingDir: p.workingDir,
+      configFiles: p.configFiles,
+    })),
+  });
+  return projects.length;
 }
 
 export function peekComposeProjectMeta(
@@ -56,19 +116,35 @@ export async function getComposeProjectMeta(
   connectionId: string,
   projectName: string,
 ): Promise<DockerComposeProject | undefined> {
+  const span = beginComposeDebug("getComposeProjectMeta", {
+    connectionId,
+    project: projectName,
+  });
   const key = composeMetaCacheKey(connectionId, projectName);
   const cached = composeMetaCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < COMPOSE_META_TTL_MS) {
-    debugCompose("getComposeProjectMeta 命中缓存", { project: projectName });
+    span.end("命中 meta 缓存", {
+      workingDir: cached.meta.workingDir,
+      configFiles: cached.meta.configFiles,
+    });
     return cached.meta;
   }
+  span.step("缓存未命中，拉取全量项目列表");
   const projects = await fetchComposeProjects(connectionId);
-  return findComposeProjectMeta(projects, projectName);
+  const meta = findComposeProjectMeta(projects, projectName);
+  span.end("从全量列表解析 meta", {
+    found: Boolean(meta),
+    workingDir: meta?.workingDir,
+    configFiles: meta?.configFiles,
+    projectCount: projects.length,
+  });
+  return meta;
 }
 
 export function invalidateComposeProjectMeta(connectionId: string, projectName?: string): void {
   if (projectName) {
     composeMetaCache.delete(composeMetaCacheKey(connectionId, projectName));
+    invalidateComposeFilesCache(connectionId, projectName);
     return;
   }
   composeProjectsListCache.delete(connectionId);
@@ -77,6 +153,7 @@ export function invalidateComposeProjectMeta(connectionId: string, projectName?:
       composeMetaCache.delete(key);
     }
   }
+  invalidateComposeFilesCache(connectionId);
 }
 
 /**
@@ -89,56 +166,169 @@ export async function fetchComposeProjects(connectionId: string): Promise<Docker
     debugCompose("fetchComposeProjects 命中连接级缓存", {
       connectionId,
       count: cached.projects.length,
+      ageMs: Date.now() - cached.fetchedAt,
     });
     return cached.projects;
   }
-  debugCompose("fetchComposeProjects 请求全量列表", { connectionId });
-  const started = performance.now();
-  try {
-    const projects = await unwrap(commands.dockerListComposeProjects(connectionId), DOCKER_QUIET_IPC);
-    debugCompose("fetchComposeProjects 完成", {
-      connectionId,
-      count: projects.length,
-      ms: Math.round(performance.now() - started),
-    });
-    composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
-    warmComposeMetaCache(connectionId, projects);
-    return projects;
-  } catch (error) {
-    handleDockerAutoFetchFailure(connectionId, error);
-    throw error;
+  const inflight = fetchComposeProjectsInflight.get(connectionId);
+  if (inflight) {
+    debugCompose("fetchComposeProjects 合并进行中的 IPC", { connectionId });
+    return inflight;
   }
+  const span = beginComposeDebug("fetchComposeProjects", { connectionId });
+  const promise = (async () => {
+    try {
+      span.step("IPC dockerListComposeProjects 发出");
+      const projects = await unwrap(commands.dockerListComposeProjects(connectionId), DOCKER_QUIET_IPC);
+      span.end("IPC 返回", { connectionId, count: projects.length });
+      composeProjectsListCache.set(connectionId, { projects, fetchedAt: Date.now() });
+      warmComposeMetaCache(connectionId, projects);
+      return projects;
+    } catch (error) {
+      span.end("失败", { error: String(error) });
+      handleDockerAutoFetchFailure(connectionId, error);
+      throw error;
+    } finally {
+      fetchComposeProjectsInflight.delete(connectionId);
+    }
+  })();
+  fetchComposeProjectsInflight.set(connectionId, promise);
+  return promise;
+}
+
+function readComposeFilesInflightKey(
+  connectionId: string,
+  request: DockerComposeReadFilesRequest,
+): string {
+  return [
+    connectionId,
+    request.project.trim(),
+    request.workingDir?.trim() ?? "",
+    request.configFile?.trim() ?? "",
+  ].join("::");
 }
 
 export async function readComposeProjectFiles(
   connectionId: string,
   request: DockerComposeReadFilesRequest,
+  options?: { force?: boolean },
 ): Promise<DockerComposeProjectFiles> {
-  debugCompose("readComposeProjectFiles 请求", {
+  const project = request.project.trim();
+  if (!options?.force) {
+    const cached = peekComposeFilesCache(connectionId, project);
+    if (
+      cached &&
+      isComposeFilesCacheFresh(cached) &&
+      (!request.workingDir || !cached.workingDir || request.workingDir === cached.workingDir)
+    ) {
+      debugCompose("readComposeProjectFiles 命中新鲜内容缓存", {
+        connectionId,
+        project,
+        ageMs: Date.now() - cached.fetchedAt,
+        composeBytes: cached.files.composeContent.length,
+        envBytes: cached.files.envContent.length,
+      });
+      return cached.files;
+    }
+  }
+  const inflightKey = readComposeFilesInflightKey(connectionId, request);
+  const inflight = readComposeFilesInflight.get(inflightKey);
+  if (inflight) {
+    debugCompose("readComposeProjectFiles 合并进行中的 IPC", {
+      connectionId,
+      project: request.project,
+      workingDir: request.workingDir,
+    });
+    return inflight;
+  }
+  const span = beginComposeDebug("readComposeProjectFiles", {
     connectionId,
     project: request.project,
     workingDir: request.workingDir,
     configFile: request.configFile,
+    force: Boolean(options?.force),
   });
-  try {
-    const files = await unwrap(commands.dockerReadComposeFiles(connectionId, request));
-    debugCompose("readComposeProjectFiles 响应", {
-      composePath: files.composePath,
-      envPath: files.envPath,
-      composeBytes: files.composeContent.length,
-      envBytes: files.envContent.length,
-      composePreview: files.composeContent.slice(0, 120),
-      envPreview: files.envContent.slice(0, 120),
-    });
-    return files;
-  } catch (error) {
-    debugCompose("readComposeProjectFiles 失败", {
+  const promise = (async () => {
+    try {
+      span.step("IPC dockerReadComposeFiles 发出");
+      const files = await unwrap(commands.dockerReadComposeFiles(connectionId, request));
+      writeComposeFilesCache(connectionId, project, files, {
+        workingDir: request.workingDir ?? files.workingDir,
+        configFile: request.configFile,
+      });
+      span.end("IPC 返回", {
+        composePath: files.composePath,
+        envPath: files.envPath,
+        composeBytes: files.composeContent.length,
+        envBytes: files.envContent.length,
+        composePreview: files.composeContent.slice(0, 120),
+        envPreview: files.envContent.slice(0, 120),
+      });
+      return files;
+    } catch (error) {
+      span.end("失败", {
+        connectionId,
+        project: request.project,
+        error: String(error),
+      });
+      throw error;
+    } finally {
+      readComposeFilesInflight.delete(inflightKey);
+    }
+  })();
+  readComposeFilesInflight.set(inflightKey, promise);
+  return promise;
+}
+
+/**
+ * 打开 Compose Tab 前预取配置文件（依赖侧栏已预热的 workingDir）。
+ * 面板 loadFiles 可命中内容缓存，体感接近秒开。
+ */
+export function prefetchComposeProjectFiles(connectionId: string, projectName: string): void {
+  const project = projectName.trim();
+  if (!project) return;
+  const meta = peekComposeProjectMeta(connectionId, project);
+  const workingDir = meta?.workingDir?.trim() || null;
+  if (!workingDir) {
+    debugCompose("prefetchComposeProjectFiles 跳过：无 workingDir", {
       connectionId,
-      project: request.project,
+      project,
+    });
+    return;
+  }
+  const configFile = meta?.configFiles?.split(",")[0]?.trim() || null;
+  const cached = peekComposeFilesCache(connectionId, project);
+  if (cached && isComposeFilesCacheFresh(cached)) {
+    debugCompose("prefetchComposeProjectFiles 已有新鲜缓存", {
+      connectionId,
+      project,
+      ageMs: Date.now() - cached.fetchedAt,
+    });
+    return;
+  }
+  const request: DockerComposeReadFilesRequest = {
+    project,
+    workingDir,
+    configFile,
+  };
+  const inflightKey = readComposeFilesInflightKey(connectionId, request);
+  if (readComposeFilesInflight.has(inflightKey)) {
+    debugCompose("prefetchComposeProjectFiles 已有进行中请求", { connectionId, project });
+    return;
+  }
+  debugCompose("prefetchComposeProjectFiles 开始", {
+    connectionId,
+    project,
+    workingDir,
+    configFile,
+  });
+  void readComposeProjectFiles(connectionId, request).catch((error) => {
+    debugCompose("prefetchComposeProjectFiles 失败（忽略）", {
+      connectionId,
+      project,
       error: String(error),
     });
-    throw error;
-  }
+  });
 }
 
 export async function writeComposeProjectFiles(
@@ -146,6 +336,33 @@ export async function writeComposeProjectFiles(
   request: DockerComposeWriteFilesRequest,
 ): Promise<void> {
   await unwrap(commands.dockerWriteComposeFiles(connectionId, request));
+  const existing = peekComposeFilesCache(connectionId, request.project);
+  writeComposeFilesCache(
+    connectionId,
+    request.project,
+    {
+      project: request.project,
+      workingDir: request.workingDir ?? existing?.files.workingDir ?? null,
+      composePath:
+        request.composePath != null && request.composePath !== ""
+          ? request.composePath
+          : (existing?.files.composePath ?? ""),
+      composeContent:
+        request.composeContent != null
+          ? request.composeContent
+          : (existing?.files.composeContent ?? ""),
+      envPath:
+        request.envPath != null && request.envPath !== ""
+          ? request.envPath
+          : (existing?.files.envPath ?? ""),
+      envContent:
+        request.envContent != null ? request.envContent : (existing?.files.envContent ?? ""),
+    },
+    {
+      workingDir: request.workingDir ?? existing?.workingDir ?? null,
+      configFile: request.configFile ?? existing?.configFile ?? null,
+    },
+  );
 }
 
 export async function runComposeAction(

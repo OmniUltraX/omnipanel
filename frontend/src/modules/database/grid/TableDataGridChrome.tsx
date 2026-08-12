@@ -187,8 +187,14 @@ export function ColumnHeaderLabel({
 }) {
   const showNotNull = meta?.nullable === false;
   const typeLabel = meta?.type?.trim();
+  const comment = meta?.comment?.trim();
   return (
     <span className="db-data-table-th-header">
+      {comment ? (
+        <span className="db-data-table-th-header__comment" title={comment}>
+          {comment}
+        </span>
+      ) : null}
       <span className="db-data-table-th-header__name-row">
         <span className="db-data-table-th-header__name">{label}</span>
         {showNotNull ? (

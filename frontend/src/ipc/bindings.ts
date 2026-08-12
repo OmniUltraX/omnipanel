@@ -2661,6 +2661,10 @@ export type DockerContainerSummary = {
 	composeProject?: string | null,
 	/**  Compose 服务名（`com.docker.compose.service`）。 */
 	composeService?: string | null,
+	/**  Compose 工作目录（`com.docker.compose.project.working_dir`）。 */
+	composeWorkingDir?: string | null,
+	/**  Compose 配置文件路径（`com.docker.compose.project.config_files`）。 */
+	composeConfigFiles?: string | null,
 };
 
 /**  创建容器请求。 */

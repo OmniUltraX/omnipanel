@@ -28,6 +28,7 @@ import {
   type DockerNetworksPanelTab,
   type DockerVolumesPanelTab,
 } from "../modules/docker/dockerConnectionWorkspaceTabs";
+import { prefetchComposeProjectFiles } from "../modules/docker/dockerComposeApi";
 
 interface DockerPanelDockState {
   tabs: DockerConnectionWorkspaceTab[];
@@ -54,6 +55,8 @@ interface DockerPanelDockState {
   setDockLayout: (layout: SerializedDockview | null) => void;
   removeConnectionTabs: (connectionId: string) => void;
   removeContainerTabs: (connectionId: string, containerId: string) => void;
+  /** 关闭指定 Compose 项目相关 Tab（down 拆除后） */
+  removeComposeTabs: (connectionId: string, composeProject: string) => void;
 }
 
 function getActiveConnectionId(
@@ -506,6 +509,8 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
       },
 
       selectCompose: (connectionId, composeProject, mode = "permanent") => {
+        // 面板 mount 前先预取，loadFiles 可直接命中内容缓存
+        prefetchComposeProjectFiles(connectionId, composeProject);
         set((state) => {
           const existingTabId = findTabIdForCompose(state.tabs, connectionId, composeProject);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -602,6 +607,24 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
                 tab.kind === "container" &&
                 tab.connectionId === connectionId &&
                 tab.containerId.trim().toLowerCase() === normalized
+              ),
+          );
+          return {
+            tabs,
+            activeTabId: reconcileActiveTabId(tabs, state.activeTabId),
+          };
+        });
+      },
+
+      removeComposeTabs: (connectionId, composeProject) => {
+        set((state) => {
+          const project = composeProject.trim();
+          const tabs = state.tabs.filter(
+            (tab) =>
+              !(
+                tab.kind === "compose" &&
+                tab.connectionId === connectionId &&
+                tab.composeProject === project
               ),
           );
           return {

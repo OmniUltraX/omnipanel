@@ -17,8 +17,9 @@ export function getContainerLifecyclePhase(
   actionPending: boolean,
 ): ContainerLifecyclePhase {
   if (actionPending) return "transitional";
-  const state = container.state.trim().toLowerCase();
-  const status = container.statusText.trim().toLowerCase();
+  // 侧栏缓存 / IPC 偶发缺字段时勿抛错——否则会拖垮整棵 dock（含顶栏）
+  const state = (container.state ?? "").trim().toLowerCase();
+  const status = (container.statusText ?? "").trim().toLowerCase();
   if (TRANSITIONAL_STATE_KEYWORDS.some((keyword) => state.includes(keyword) || status.includes(keyword))) {
     return "transitional";
   }

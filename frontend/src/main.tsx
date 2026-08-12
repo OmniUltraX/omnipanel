@@ -15,6 +15,7 @@ import "./styles/modules/server.css";
 import "./styles/modules/monitoring.css";
 import "./styles/modules/home-monitor.css";
 import "./styles/modules/workflow.css";
+import "react-grid-layout/css/styles.css";
 import { initDesktopShell } from "./lib/desktopShell";
 import { initProductionDiagnostics } from "./lib/productionDiagnostics";
 import { parseWorkspaceWindowParams, workspaceWindowDebugLog } from "./lib/workspaceWindow";

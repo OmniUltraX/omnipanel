@@ -192,7 +192,11 @@ function probePanelBackgroundBatch(
   return { selectedBg, rowSelectedBg };
 }
 
-function baseTheme(style: CSSStyleDeclaration, fontFamily: string): Omit<
+function baseTheme(
+  style: CSSStyleDeclaration,
+  fontFamily: string,
+  fontSize: number,
+): Omit<
   GridThemeTokens,
   | "rownumBg"
   | "rownumStripedBg"
@@ -233,7 +237,7 @@ function baseTheme(style: CSSStyleDeclaration, fontFamily: string): Omit<
     success: readColor(style, "--success", "#3d9a6a"),
     danger: readColor(style, "--danger", "#d14b4b"),
     fontFamily,
-    fontSize: 11,
+    fontSize,
     cellPaddingX: 8,
     cellPaddingY: 4,
     dirtyUpdateFg: readColor(style, "--warn", "#d4a017"),
@@ -265,8 +269,12 @@ export function readCanvasGridTheme(
     '"Geist Variable", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
   );
   const fontFamily = dataGridFont;
+  const gridFontSize = parsePx(
+    style.getPropertyValue("--db-data-grid-font-size"),
+    12,
+  );
   const probeHost = host ?? document.body;
-  const base = baseTheme(style, fontFamily);
+  const base = baseTheme(style, fontFamily, gridFontSize);
   const accentSoft = readColor(style, "--accent-soft", "rgba(76, 139, 245, 0.18)");
 
   let result: GridThemeTokens;
@@ -282,7 +290,7 @@ export function readCanvasGridTheme(
     result = {
       ...base,
       bg: hostBg && hostBg !== "rgba(0, 0, 0, 0)" && hostBg !== "transparent" ? hostBg : base.bg,
-      fontSize: 11,
+      fontSize: gridFontSize,
       cellPaddingX: 8,
       cellPaddingY: 6,
       rownumBg: base.bg,
