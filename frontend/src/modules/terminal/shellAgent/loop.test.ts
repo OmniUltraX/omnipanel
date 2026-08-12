@@ -81,13 +81,41 @@ import { writeTerminalRaw } from "../terminalPaneSenders";
 
 const SID = "loop-test-session";
 
-function createFakeTerm() {
+function createFakeTerm(opts?: { cursorY?: number; promptLine?: string }) {
   const decorations: Array<{ disposed: boolean }> = [];
+  let markerLine = 0;
+  const cursorY = opts?.cursorY ?? 20;
+  const promptLine = opts?.promptLine ?? "$ ";
+  const lines: Record<number, string> = {
+    [cursorY]: promptLine,
+    [cursorY - 1]: "df -h",
+    [cursorY - 2]: "Filesystem Size",
+  };
   return {
     cols: 80,
+    rows: 40,
     decorations,
-    registerMarker() {
-      return { isDisposed: false, dispose() {} } as unknown as IMarker;
+    buffer: {
+      active: {
+        baseY: 0,
+        get cursorY() {
+          return cursorY;
+        },
+        length: cursorY + 5,
+        getLine(y: number) {
+          const text = lines[y] ?? "";
+          return { translateToString: () => text };
+        },
+      },
+    },
+    registerMarker(offset = 0) {
+      const line = markerLine + offset;
+      markerLine += 1;
+      return {
+        isDisposed: false,
+        line,
+        dispose() {},
+      } as unknown as IMarker;
     },
     registerDecoration() {
       const state = { disposed: false };
@@ -261,7 +289,8 @@ describe("notifyShellAgentRejected", () => {
   });
 
   it("拒绝后 idle 并请求 PTY 拉新 prompt，不停留在 streaming", async () => {
-    const term = createFakeTerm();
+    // 光标不在空 prompt 上，release 才会发 \n 拉新行
+    const term = createFakeTerm({ cursorY: 5, promptLine: "" });
     registerXterm(SID, term as unknown as Terminal);
     useShellAgentStore.getState().ensure(SID);
     useShellAgentStore.getState().setBlockId(SID, "block-busy");
