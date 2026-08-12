@@ -4,7 +4,7 @@ import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/
 import { asArray } from "../../../ipc/asArray";
 import { unwrapCommand } from "../../../ipc/result";
 import { peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
-import { handleDockerAutoFetchFailure } from "../dockerConnectionOffline";
+import { handleDockerAutoFetchFailure, isBtPanelAuthOrLockoutError } from "../dockerConnectionOffline";
 import {
   DOCKER_CONTAINERS_POLL_MS,
   DOCKER_STATS_INITIAL_DELAY_MS,
@@ -77,6 +77,8 @@ export function useDockerContainerGrid(
     }
 
     let cancelled = false;
+    let stopPolling = false;
+    let timer: number | null = null;
     const needsInitialFetch = loadedConnectionIdRef.current !== connectionId;
     if (needsInitialFetch) {
       // cache-first：换连接时先灌侧栏缓存，避免闪白串数感
@@ -87,7 +89,15 @@ export function useDockerContainerGrid(
       });
     }
 
+    const clearPollTimer = () => {
+      if (timer != null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+
     const refreshContainers = async (initial: boolean) => {
+      if (stopPolling) return;
       if (initial) setLoading(true);
       try {
         const list = asArray(
@@ -103,7 +113,12 @@ export function useDockerContainerGrid(
         loadedConnectionIdRef.current = connectionId;
       } catch (e) {
         if (!cancelled) {
-          if (handleDockerAutoFetchFailure(connectionId, e)) {
+          if (isBtPanelAuthOrLockoutError(e)) {
+            // 鉴权/封禁：只保留这次失败，停止后续自动轮询，避免被宝塔锁 IP
+            stopPolling = true;
+            clearPollTimer();
+            setContainersError(String(e));
+          } else if (handleDockerAutoFetchFailure(connectionId, e)) {
             setContainersError(null);
           } else {
             setContainersError(String(e));
@@ -124,12 +139,13 @@ export function useDockerContainerGrid(
     }
 
     // 容器列表也要周期刷新（含与 stats 同间隔的场景），否则状态/CPU 关联会一直停留在初次结果
-    const timer = window.setInterval(() => void refreshContainers(false), containersPollMs);
+    timer = window.setInterval(() => void refreshContainers(false), containersPollMs);
 
     return () => {
       cancelled = true;
+      stopPolling = true;
       refreshContainersRef.current = null;
-      window.clearInterval(timer);
+      clearPollTimer();
     };
   }, [connectionId, containersPollMs, enabled]);
 

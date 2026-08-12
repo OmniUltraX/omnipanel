@@ -338,7 +338,7 @@ where
     for attempt in 0..2 {
         let adapter = match resolve_adapter(state, connection_id).await {
             Ok(a) => a,
-            Err(err) if attempt == 0 => {
+            Err(err) if attempt == 0 && is_ssh_recoverable(&err) => {
                 // SSH 会话不可用时先清缓存再试一次
                 state
                     .docker_ssh_sessions
@@ -352,7 +352,7 @@ where
         };
         match op(adapter).await {
             Ok(value) => return Ok(value),
-            Err(err) if attempt == 0 => {
+            Err(err) if attempt == 0 && is_ssh_recoverable(&err) => {
                 state
                     .docker_ssh_sessions
                     .lock()
@@ -592,6 +592,16 @@ pub async fn invalidate_docker_ssh(state: &ServerState, connection_id: &str) {
 
 /// SSH 会话是否可恢复（与桌面端 `is_ssh_session_recoverable` 同构）。
 pub fn is_ssh_recoverable(err: &OmniError) -> bool {
+    // 宝塔鉴权/封禁绝不能重试：每次失败会计数，满 20 次锁 1 小时
+    if matches!(err.code, ErrorCode::Auth)
+        || omnipanel_docker::is_bt_auth_or_lockout_message(&err.message)
+        || err
+            .cause
+            .as_deref()
+            .is_some_and(omnipanel_docker::is_bt_auth_or_lockout_message)
+    {
+        return false;
+    }
     match err.code {
         ErrorCode::Ssh | ErrorCode::Connection | ErrorCode::Terminal => true,
         ErrorCode::Auth => false,

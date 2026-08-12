@@ -410,6 +410,16 @@ pub(crate) async fn invalidate_docker_ssh(state: &AppState, connection_id: &str)
 }
 
 pub(crate) fn is_ssh_session_recoverable(err: &OmniError) -> bool {
+    // 宝塔鉴权/封禁绝不能重试：每次失败会计数，满 20 次锁 1 小时
+    if matches!(err.code, ErrorCode::Auth)
+        || omnipanel_docker::is_bt_auth_or_lockout_message(&err.message)
+        || err
+            .cause
+            .as_deref()
+            .is_some_and(omnipanel_docker::is_bt_auth_or_lockout_message)
+    {
+        return false;
+    }
     match err.code {
         ErrorCode::Ssh | ErrorCode::Connection | ErrorCode::Terminal => true,
         ErrorCode::Auth => false,

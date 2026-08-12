@@ -33,7 +33,7 @@ use std::sync::Arc;
 pub use compose::aggregate_compose;
 pub use daemon_config::remote_engine_daemon_config;
 pub use host_cli::{run_local_docker_cli, run_ssh_docker_cli, validate_docker_cli_command};
-pub use btpanel::{BtPanelAdapter, BtPanelClient};
+pub use btpanel::{is_bt_auth_or_lockout_message, BtPanelAdapter, BtPanelClient};
 pub use local::{DockerExecOutput, DockerExecSession, DockerOneShotExecOutput, LocalDockerAdapter};
 pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;

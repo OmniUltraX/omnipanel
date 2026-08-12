@@ -376,6 +376,20 @@ fn parse_response_value(text: &str) -> OmniResult<Value> {
     })
 }
 
+/// 宝塔鉴权失败或临时封禁（继续请求会把失败计数打满，锁 IP/密钥 1 小时）。
+pub fn is_bt_auth_or_lockout_message(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    msg.contains("密钥")
+        || msg.contains("校验")
+        || msg.contains("验证")
+        || msg.contains("权限")
+        || msg.contains("白名单")
+        || lower.contains("api key")
+        || lower.contains("unauthorized")
+        || msg.contains("禁止") && (msg.contains("小时") || msg.contains("分钟"))
+        || msg.contains("连续") && msg.contains("失败")
+}
+
 /// 解包宝塔常见响应：`{status, msg}` 中 msg 为对象/数组时取 msg；status=false 报错。
 fn unwrap_bt_payload(value: Value) -> OmniResult<Value> {
     if let Some(status) = value.get("status") {
@@ -390,7 +404,7 @@ fn unwrap_bt_payload(value: Value) -> OmniResult<Value> {
                 shape = %summarize_json_shape(&value),
                 "宝塔业务 status=false"
             );
-            let code = if msg.contains("密钥") || msg.contains("校验") || msg.contains("权限") {
+            let code = if is_bt_auth_or_lockout_message(msg) {
                 ErrorCode::Auth
             } else {
                 ErrorCode::Internal
@@ -1132,7 +1146,22 @@ impl DockerAdapter for BtPanelAdapter {
                 })
             }
             Err(e) => {
-                // 回退：用容器列表探测连通性
+                // 鉴权/封禁：只试一次，禁止再打 get_list（连续失败会被宝塔锁 1 小时）
+                if matches!(e.code, ErrorCode::Auth)
+                    || is_bt_auth_or_lockout_message(&e.message)
+                    || e.cause
+                        .as_deref()
+                        .is_some_and(is_bt_auth_or_lockout_message)
+                {
+                    tracing::warn!(
+                        target: "btpanel",
+                        error = %e.user_message(),
+                        "probe 鉴权/封禁失败，跳过 list 回退"
+                    );
+                    return Err(OmniError::new(ErrorCode::Auth, e.message.clone())
+                        .with_cause(e.cause.unwrap_or_else(|| "宝塔 API 鉴权失败".into())));
+                }
+                // 非鉴权错误才回退列表探测（例如旧面板无 setup/get_config）
                 match fetch_containers(&self.client).await {
                     Ok(_) => Ok(DockerProbe {
                         status: DockerConnectionStatus::Online,
@@ -1144,11 +1173,22 @@ impl DockerAdapter for BtPanelAdapter {
                             e.message
                         )),
                     }),
-                    Err(list_err) => Err(OmniError::new(
-                        ErrorCode::Connection,
-                        format!("宝塔不可达：{}", list_err.message),
-                    )
-                    .with_cause(e.message)),
+                    Err(list_err) => {
+                        if matches!(list_err.code, ErrorCode::Auth)
+                            || is_bt_auth_or_lockout_message(&list_err.message)
+                            || list_err
+                                .cause
+                                .as_deref()
+                                .is_some_and(is_bt_auth_or_lockout_message)
+                        {
+                            return Err(list_err);
+                        }
+                        Err(OmniError::new(
+                            ErrorCode::Connection,
+                            format!("宝塔不可达：{}", list_err.message),
+                        )
+                        .with_cause(e.message))
+                    }
                 }
             }
         }

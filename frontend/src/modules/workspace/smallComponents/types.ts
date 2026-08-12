@@ -52,10 +52,12 @@ export interface SmallComponentRenderProps extends SmallComponentInstanceContext
  * 小组件二级绑定目标（在 dataSourceId 之上）。
  * - docker-container：具体容器
  * - docker-compose：Compose 项目
+ * - database-schema：具体业务库（磁盘占用等按库统计）
  */
 export type HomeCustomPanelWidgetTarget =
   | { kind: "docker-container"; containerId: string }
-  | { kind: "docker-compose"; composeProject: string };
+  | { kind: "docker-compose"; composeProject: string }
+  | { kind: "database-schema"; database: string };
 
 /** 定义侧声明的二级目标类型（驱动编辑表单） */
 export type SmallComponentTargetKind =
@@ -79,6 +81,11 @@ export interface SmallComponentDefinition {
    */
   dataSourceKind?: SmallComponentDataSourceKind;
   /**
+   * 当 dataSourceKind 为 database 时，可按 db_type 过滤（如仅 MySQL）。
+   * 值小写比较（mysql / mariadb）。
+   */
+  dataSourceDbTypes?: readonly string[];
+  /**
    * 二级目标：Docker 连接选定后再选容器 / Compose 项目。
    */
   targetKind?: SmallComponentTargetKind;
@@ -94,6 +101,11 @@ export interface HomeCustomPanelWidget {
   type: string;
   /** 选用的尺寸预设 id（对应 SmallComponentSize.id）；未设则按布局数值） */
   sizeId?: string;
+  /**
+   * 等比缩放倍率（1× / 2×）：相对 sizeId 对应预设的 w/h。
+   * 省略视为 1。
+   */
+  scale?: 1 | 2;
   /** 绑定的数据源连接 id（SSH / DB / Docker 等） */
   dataSourceId?: string;
   /** 二级目标（容器 id / Compose 项目名等） */

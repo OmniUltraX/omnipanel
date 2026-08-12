@@ -8,11 +8,26 @@ import { getSmallComponent } from "./smallComponents/registry";
 import {
   migrateServerMonitorSizeId,
   SERVER_RESOURCE_MONITOR_TYPE,
-  serverMonitorPresetByMode,
 } from "./smallComponents/serverResourceMonitor/layout";
 import {
+  MYSQL_OVERVIEW_SIZES,
+  MYSQL_OVERVIEW_TYPE,
+} from "./smallComponents/mysqlOverview/layout";
+import {
+  REDIS_OVERVIEW_SIZES,
+  REDIS_OVERVIEW_TYPE,
+} from "./smallComponents/redisOverview/layout";
+import {
+  applyWidgetScale,
+  DEFAULT_WIDGET_SCALE,
+  inferWidgetScale,
+  normalizeWidgetScale,
+  resolveBaseSizePreset,
+  sizeBoundsWithScale,
+  type WidgetScale,
+} from "./smallComponents/widgetScale";
+import {
   getDefaultSize,
-  sizeBoundsFromPresets,
   type HomeCustomPanelWidget,
   type HomeCustomPanelWidgetTarget,
 } from "./smallComponents/types";
@@ -82,17 +97,21 @@ function sanitizeWidgetTarget(raw: unknown): HomeCustomPanelWidgetTarget | undef
     const composeProject = rec.composeProject.trim();
     if (composeProject) return { kind: "docker-compose", composeProject };
   }
+  if (rec.kind === "database-schema" && typeof rec.database === "string") {
+    const database = rec.database.trim();
+    if (database) return { kind: "database-schema", database };
+  }
   return undefined;
 }
 
-/** 用定义全部预设并集覆盖实例缩放边界（可拖到任意支持的高×宽） */
+/** 用定义预设并集（含 2×）覆盖实例缩放边界 */
 function withDefinitionResizeBounds(
   type: string,
   layout: HomeCustomPanelWidget["layout"],
 ): HomeCustomPanelWidget["layout"] {
   const def = getSmallComponent(type);
   if (!def?.sizes?.length) return layout;
-  const bounds = sizeBoundsFromPresets(def.sizes);
+  const bounds = sizeBoundsWithScale(def.sizes);
   return {
     ...layout,
     minW: bounds.minW,
@@ -100,6 +119,33 @@ function withDefinitionResizeBounds(
     maxW: bounds.maxW,
     maxH: bounds.maxH,
   };
+}
+
+/**
+ * 按 sizeId 预设 × scale 得到有效栅格。
+ * MySQL 等固定预设在布局回调时也靠此纠正，避免旧 persist / RGL 写回错误值。
+ */
+function layoutFromSizeScale(
+  type: string,
+  sizeId: string | undefined,
+  scale: WidgetScale,
+  layout: HomeCustomPanelWidget["layout"],
+): HomeCustomPanelWidget["layout"] {
+  const def = getSmallComponent(type);
+  const sizes =
+    type === MYSQL_OVERVIEW_TYPE
+      ? MYSQL_OVERVIEW_SIZES
+      : type === REDIS_OVERVIEW_TYPE
+        ? REDIS_OVERVIEW_SIZES
+        : (def?.sizes ?? []);
+  const base = resolveBaseSizePreset(sizes, sizeId);
+  if (!base) return withDefinitionResizeBounds(type, layout);
+  const scaled = applyWidgetScale(base, scale);
+  return withDefinitionResizeBounds(type, {
+    ...layout,
+    w: scaled.w,
+    h: scaled.h,
+  });
 }
 
 function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
@@ -124,21 +170,51 @@ function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
     let sizeId =
       typeof rec.sizeId === "string" && rec.sizeId ? rec.sizeId : undefined;
 
-    // 服务器监控：旧 1x4 / 2x2 迁移到 2x4 / 4x1，并校正栅格
+    // 服务器监控：旧 1x4 / 2x2 迁移到新内容模式 id
     if (rec.type === SERVER_RESOURCE_MONITOR_TYPE) {
       const mode = migrateServerMonitorSizeId(sizeId, { w, h });
       if (mode) {
-        const preset = serverMonitorPresetByMode(mode);
         sizeId = mode;
-        w = preset.w;
-        h = preset.h;
       }
+    }
+
+    // MySQL 概览：统一固定为 4×3 基座
+    if (rec.type === MYSQL_OVERVIEW_TYPE) {
+      const preset = MYSQL_OVERVIEW_SIZES[0];
+      if (preset) {
+        sizeId = preset.id ?? "4x3";
+      }
+    }
+
+    // Redis 概览：统一固定为 4×3 基座
+    if (rec.type === REDIS_OVERVIEW_TYPE) {
+      const preset = REDIS_OVERVIEW_SIZES[0];
+      if (preset) {
+        sizeId = preset.id ?? "4x3";
+      }
+    }
+
+    const def = getSmallComponent(rec.type);
+    const sizes =
+      rec.type === MYSQL_OVERVIEW_TYPE
+        ? MYSQL_OVERVIEW_SIZES
+        : rec.type === REDIS_OVERVIEW_TYPE
+          ? REDIS_OVERVIEW_SIZES
+          : (def?.sizes ?? []);
+    const base = resolveBaseSizePreset(sizes, sizeId);
+    const scale = inferWidgetScale(base, { w, h }, rec.scale);
+    const scaled = base
+      ? applyWidgetScale(base, scale)
+      : { w: Math.max(1, Math.floor(w)), h: Math.max(1, Math.floor(h)) };
+    if (base) {
+      sizeId = base.id ?? `${base.h}x${base.w}`;
     }
 
     next.push({
       id: rec.id,
       type: rec.type,
       sizeId,
+      scale,
       dataSourceId:
         typeof rec.dataSourceId === "string" && rec.dataSourceId
           ? rec.dataSourceId
@@ -147,8 +223,8 @@ function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
       layout: withDefinitionResizeBounds(rec.type, {
         x: Math.max(0, Math.floor(x)),
         y: Math.max(0, Math.floor(y)),
-        w: Math.max(1, Math.floor(w)),
-        h: Math.max(1, Math.floor(h)),
+        w: scaled.w,
+        h: scaled.h,
       }),
     });
   }
@@ -258,11 +334,17 @@ interface DashboardState extends DashboardContainerState {
   setCustomPanelLayout: (panelId: HomeCustomPanelId, layout: Layout) => void;
   /** 向自定义面板添加已注册的小组件 */
   addCustomPanelWidget: (panelId: HomeCustomPanelId, type: string) => string | null;
-  /** 按预制尺寸切换小组件栅格 w/h（不再支持拖角缩放） */
+  /** 按预制尺寸切换小组件栅格 w/h（保留当前 scale） */
   setCustomPanelWidgetSize: (
     panelId: HomeCustomPanelId,
     widgetId: string,
     sizeId: string,
+  ) => void;
+  /** 等比缩放 1× / 2×（相对当前 sizeId 预设） */
+  setCustomPanelWidgetScale: (
+    panelId: HomeCustomPanelId,
+    widgetId: string,
+    scale: WidgetScale,
   ) => void;
   /** 设置小组件数据源（连接 id） */
   setCustomPanelWidgetDataSource: (
@@ -365,19 +447,34 @@ export const useDashboardStore = create<DashboardState>()(
           const widgets = panel.widgets.map((widget) => {
             const item = byId.get(widget.id);
             if (!item) return widget;
-            const nextLayout = withDefinitionResizeBounds(widget.type, {
-              ...widget.layout,
-              x: item.x,
-              y: item.y,
-              w: item.w,
-              h: item.h,
-            });
+            const scale = normalizeWidgetScale(
+              widget.scale ?? DEFAULT_WIDGET_SCALE,
+            );
             const def = getSmallComponent(widget.type);
-            const nextSizeId = resolveWidgetSizeId(
+            const nextSizeId =
+              widget.type === MYSQL_OVERVIEW_TYPE
+                ? (MYSQL_OVERVIEW_SIZES[0]?.id ?? "4x3")
+                : widget.type === REDIS_OVERVIEW_TYPE
+                  ? (REDIS_OVERVIEW_SIZES[0]?.id ?? "4x3")
+                  : resolveWidgetSizeId(
+                      widget.type,
+                      def?.sizes,
+                      // 用未缩放前的形态推断模式：除以 scale 再匹配
+                      {
+                        w: Math.max(1, Math.round(item.w / scale)),
+                        h: Math.max(1, Math.round(item.h / scale)),
+                      },
+                      widget.sizeId,
+                    );
+            const nextLayout = layoutFromSizeScale(
               widget.type,
-              def?.sizes,
-              nextLayout,
-              widget.sizeId,
+              nextSizeId,
+              scale,
+              {
+                ...widget.layout,
+                x: item.x,
+                y: item.y,
+              },
             );
             if (
               layoutsEqual(widget.layout, nextLayout) &&
@@ -385,7 +482,9 @@ export const useDashboardStore = create<DashboardState>()(
               widget.layout.minH === nextLayout.minH &&
               widget.layout.maxW === nextLayout.maxW &&
               widget.layout.maxH === nextLayout.maxH &&
-              widget.sizeId === nextSizeId
+              widget.sizeId === nextSizeId &&
+              normalizeWidgetScale(widget.scale ?? DEFAULT_WIDGET_SCALE) ===
+                scale
             ) {
               return widget;
             }
@@ -394,6 +493,7 @@ export const useDashboardStore = create<DashboardState>()(
               ...widget,
               layout: nextLayout,
               sizeId: nextSizeId,
+              scale,
             };
           });
           if (!changed) return state;
@@ -412,18 +512,20 @@ export const useDashboardStore = create<DashboardState>()(
           const panel = state.customPanels[panelId];
           if (!panel) return state;
           const size = getDefaultSize(def);
-          const bounds = sizeBoundsFromPresets(def.sizes);
-          const origin = nextWidgetOrigin(panel.widgets, size.w);
+          const scale = DEFAULT_WIDGET_SCALE;
+          const scaled = applyWidgetScale(size, scale);
+          const bounds = sizeBoundsWithScale(def.sizes);
+          const origin = nextWidgetOrigin(panel.widgets, scaled.w);
           const widget: HomeCustomPanelWidget = {
             id,
             type,
             sizeId: size.id,
+            scale,
             layout: {
               x: origin.x,
               y: origin.y,
-              w: size.w,
-              h: size.h,
-              // 必须用全部预设并集，否则默认 4×4 的 minH 会阻止拖到 1×4 / 2×2
+              w: scaled.w,
+              h: scaled.h,
               minW: bounds.minW,
               minH: bounds.minH,
               maxW: bounds.maxW,
@@ -455,19 +557,55 @@ export const useDashboardStore = create<DashboardState>()(
             (s) => (s.id ?? `${s.h}x${s.w}`) === sizeId,
           );
           if (!preset) return state;
-          const bounds = sizeBoundsFromPresets(def.sizes);
-          const nextLayout = {
-            ...prev.layout,
-            w: preset.w,
-            h: preset.h,
-            minW: bounds.minW,
-            minH: bounds.minH,
-            maxW: bounds.maxW,
-            maxH: bounds.maxH,
-          };
+          const scale = normalizeWidgetScale(
+            prev.scale ?? DEFAULT_WIDGET_SCALE,
+          );
           const nextSizeId = preset.id ?? `${preset.h}x${preset.w}`;
+          const nextLayout = layoutFromSizeScale(
+            prev.type,
+            nextSizeId,
+            scale,
+            prev.layout,
+          );
           if (
             prev.sizeId === nextSizeId &&
+            prev.layout.w === nextLayout.w &&
+            prev.layout.h === nextLayout.h &&
+            normalizeWidgetScale(prev.scale ?? DEFAULT_WIDGET_SCALE) === scale
+          ) {
+            return state;
+          }
+          const widgets = panel.widgets.slice();
+          widgets[idx] = {
+            ...prev,
+            sizeId: nextSizeId,
+            scale,
+            layout: nextLayout,
+          };
+          return {
+            customPanels: {
+              ...state.customPanels,
+              [panelId]: { ...panel, widgets },
+            },
+          };
+        }),
+      setCustomPanelWidgetScale: (panelId, widgetId, scale) =>
+        set((state) => {
+          const panel = state.customPanels[panelId];
+          if (!panel) return state;
+          const idx = panel.widgets.findIndex((w) => w.id === widgetId);
+          if (idx < 0) return state;
+          const prev = panel.widgets[idx];
+          const nextScale = normalizeWidgetScale(scale);
+          const nextLayout = layoutFromSizeScale(
+            prev.type,
+            prev.sizeId,
+            nextScale,
+            prev.layout,
+          );
+          if (
+            normalizeWidgetScale(prev.scale ?? DEFAULT_WIDGET_SCALE) ===
+              nextScale &&
             prev.layout.w === nextLayout.w &&
             prev.layout.h === nextLayout.h
           ) {
@@ -476,7 +614,7 @@ export const useDashboardStore = create<DashboardState>()(
           const widgets = panel.widgets.slice();
           widgets[idx] = {
             ...prev,
-            sizeId: nextSizeId,
+            scale: nextScale,
             layout: nextLayout,
           };
           return {
@@ -524,7 +662,10 @@ export const useDashboardStore = create<DashboardState>()(
               prev.target.containerId === nextTarget.containerId) ||
             (prev.target?.kind === "docker-compose" &&
               nextTarget?.kind === "docker-compose" &&
-              prev.target.composeProject === nextTarget.composeProject);
+              prev.target.composeProject === nextTarget.composeProject) ||
+            (prev.target?.kind === "database-schema" &&
+              nextTarget?.kind === "database-schema" &&
+              prev.target.database === nextTarget.database);
           if (same) return state;
           const widgets = panel.widgets.slice();
           widgets[idx] = { ...prev, target: nextTarget };
@@ -585,13 +726,42 @@ export const useDashboardStore = create<DashboardState>()(
     {
       name: "omnipanel.dashboard.home-tab",
       // v9：移除内置「资源监控」页签（改由自定义面板小组件承担）
-      version: 9,
+      // v10：MySQL 概览强制 5×3（高×宽），纠正早期误存的 w×h
+      // v11：MySQL 概览改为 4×3
+      // v12：全体小组件支持 1× / 2× 等比缩放（scale 字段）
+      version: 12,
       // 只持久化 tab / 自定义面板元数据；容器列表仍走内存缓存
       partialize: (state) => ({
         homeTabId: state.homeTabId,
         openTabIds: state.openTabIds,
         customPanels: state.customPanels,
       }),
+      // 每次 hydrate 都走 sanitize，避免同 version 下旧栅格尺寸卡死
+      merge: (persisted, current) => {
+        const raw = (persisted ?? {}) as {
+          homeTabId?: unknown;
+          openTabIds?: unknown;
+          customPanels?: unknown;
+        };
+        const customPanels = sanitizeCustomPanels(raw.customPanels);
+        const openTabIds = sanitizeOpenTabs(
+          raw.openTabIds ?? current.openTabIds,
+          customPanels,
+        );
+        const homeTabId =
+          typeof raw.homeTabId === "string" &&
+          isHomeDashboardTabId(raw.homeTabId) &&
+          (openTabIds.length === 0 ||
+            openTabIds.includes(raw.homeTabId as HomeDashboardTabId))
+            ? (raw.homeTabId as HomeDashboardTabId)
+            : (openTabIds[0] ?? current.homeTabId ?? "board");
+        return {
+          ...current,
+          homeTabId,
+          openTabIds,
+          customPanels,
+        };
+      },
       migrate: (persisted) => {
         const raw = (persisted ?? {}) as {
           homeTabId?: unknown;

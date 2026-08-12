@@ -72,6 +72,7 @@ export async function fetchDockerSidebarResources(
     return await runWithDockerBoundSsh(scope.connectionId, async () => {
       if (scope.kind === "connection") {
         // 手动全量刷新：顺序拉取，避免 SSH 上对多个 docker list 并发抢 exec 锁导致整次首拉挂起
+        // 任一分类鉴权/封禁失败则立刻中止，避免连续打满宝塔验证计数
         const containers = await unwrap(commands.dockerListContainers(scope.connectionId, null));
         warmComposeMetaIfNeeded(scope.connectionId, containers);
         const images = await unwrap(commands.dockerListImages(scope.connectionId));

@@ -134,11 +134,13 @@ pub async fn docker_list_connections(
     }
 
     // 并行探测各实例，回填 status / 版本信息（侧栏 topbar-tab-dot 依赖此字段）
+    // 注意：此处不走 with_adapter 重试——宝塔鉴权失败再打会加速封禁
     let probe_results = join_all(out.iter().map(|info| {
         let connection_id = info.connection_id.clone();
         async {
             let probed = tokio::time::timeout(LIST_PROBE_TIMEOUT, async {
-                with_adapter(&state, &connection_id, |a| async move { a.probe().await }).await
+                let adapter = resolve_adapter(&state, &connection_id).await?;
+                adapter.probe().await
             })
             .await;
             match probed {
