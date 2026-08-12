@@ -616,7 +616,6 @@ export function TerminalSessionSidebar({
                     icon={<FolderIcon />}
                     hasChildren
                     expanded={expanded}
-                    active={group.sessions.some((session) => session.id === resolvedActiveSessionId)}
                     className={[
                       "term-session-tree__connection-node",
                       dropHint === "before" ? "term-session-tree__connection-node--drop-before" : "",

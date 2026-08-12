@@ -380,40 +380,38 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
             {t("database.cellEditor.multiCellHint", { count: selectionCount })}
           </div>
         ) : (
-          <div className="db-cell-editor-meta">
-            <div className="db-cell-editor-meta-block">
-              <div className="db-cell-editor-meta-label">{t("database.cellEditor.columnName")}</div>
-              <div className="db-cell-editor-meta-value db-cell-editor-meta-value--strong">
+          <dl className="db-cell-editor-meta">
+            <div className="db-cell-editor-meta-row db-cell-editor-meta-row--primary">
+              <dt className="db-cell-editor-meta-label">{t("database.cellEditor.columnName")}</dt>
+              <dd className="db-cell-editor-meta-value db-cell-editor-meta-value--strong">
                 {columnName ?? "—"}
-              </div>
+              </dd>
             </div>
-            <div className="db-cell-editor-meta-grid">
-              <div className="db-cell-editor-meta-cell">
-                <span className="db-cell-editor-meta-label">{t("database.cellEditor.rowNumber")}</span>
-                <span className="db-cell-editor-meta-value">{displayRow ?? "—"}</span>
-              </div>
-              <div className="db-cell-editor-meta-cell">
-                <span className="db-cell-editor-meta-label">{t("database.cellEditor.dataType")}</span>
-                <span className="db-cell-editor-meta-value db-cell-editor-meta-value--type">
-                  {resolvedType || "—"}
-                </span>
-              </div>
-              <div className="db-cell-editor-meta-cell">
-                <span className="db-cell-editor-meta-label">NULL</span>
-                <span className="db-cell-editor-meta-value">{nullableLabel}</span>
-              </div>
-              <div className="db-cell-editor-meta-cell">
-                <span className="db-cell-editor-meta-label">{t("database.cellEditor.length")}</span>
-                <span className="db-cell-editor-meta-value">{lengthLabel}</span>
-              </div>
+            <div className="db-cell-editor-meta-row">
+              <dt className="db-cell-editor-meta-label">{t("database.cellEditor.rowNumber")}</dt>
+              <dd className="db-cell-editor-meta-value">{displayRow ?? "—"}</dd>
             </div>
-            <div className="db-cell-editor-meta-block">
-              <div className="db-cell-editor-meta-label">{t("database.cellEditor.comment")}</div>
-              <div className="db-cell-editor-meta-value">
+            <div className="db-cell-editor-meta-row">
+              <dt className="db-cell-editor-meta-label">{t("database.cellEditor.dataType")}</dt>
+              <dd className="db-cell-editor-meta-value db-cell-editor-meta-value--type">
+                {resolvedType || "—"}
+              </dd>
+            </div>
+            <div className="db-cell-editor-meta-row">
+              <dt className="db-cell-editor-meta-label">NULL</dt>
+              <dd className="db-cell-editor-meta-value">{nullableLabel}</dd>
+            </div>
+            <div className="db-cell-editor-meta-row">
+              <dt className="db-cell-editor-meta-label">{t("database.cellEditor.length")}</dt>
+              <dd className="db-cell-editor-meta-value">{lengthLabel}</dd>
+            </div>
+            <div className="db-cell-editor-meta-row db-cell-editor-meta-row--comment">
+              <dt className="db-cell-editor-meta-label">{t("database.cellEditor.comment")}</dt>
+              <dd className="db-cell-editor-meta-value" title={comment || undefined}>
                 {comment || t("database.cellEditor.noComment")}
-              </div>
+              </dd>
             </div>
-          </div>
+          </dl>
         )}
 
         <div className="db-cell-editor-value-section">

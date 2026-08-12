@@ -1867,6 +1867,34 @@ export function DockableWorkspace({
     return () => observer.disconnect();
   }, [layoutReady, relayoutFromContainer]);
 
+  /**
+   * dockview 部分 hidden overlay 会把 scrollHeight 撑到约 2× 视口；随后任意
+   * scrollIntoView/focus 会把 .dockable-workspace 滚走，且 overflow:hidden 无滚动条，
+   * 表现为右侧内容整体上移且无法恢复。这里强制锁死 scrollTop/Left。
+   */
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const lockScroll = () => {
+      if (wrapper.scrollTop !== 0) wrapper.scrollTop = 0;
+      if (wrapper.scrollLeft !== 0) wrapper.scrollLeft = 0;
+      const shell = wrapper.querySelector<HTMLElement>(
+        ".dv-shell, .dockable-workspace__dockview",
+      );
+      if (shell) {
+        if (shell.scrollTop !== 0) shell.scrollTop = 0;
+        if (shell.scrollLeft !== 0) shell.scrollLeft = 0;
+      }
+    };
+
+    lockScroll();
+    wrapper.addEventListener("scroll", lockScroll, { passive: true, capture: true });
+    return () => {
+      wrapper.removeEventListener("scroll", lockScroll, true);
+    };
+  }, [tabs.length, layoutReady]);
+
   // 同步 activeTabId
   useEffect(() => {
     const api = apiRef.current;

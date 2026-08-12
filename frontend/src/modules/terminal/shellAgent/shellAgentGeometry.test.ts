@@ -1,5 +1,15 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IDecoration, IMarker, Terminal } from "@xterm/xterm";
+
+vi.mock("../../../stores/settingsStore", () => ({
+  useSettingsStore: {
+    getState: () => ({ locale: "zh-CN" }),
+  },
+}));
+vi.mock("../../../stores/terminalStore", () => ({
+  findTerminalPane: () => undefined,
+}));
+
 import { registerXterm, unregisterXterm } from "../xtermRegistry";
 import {
   archiveActiveInlineCard,

@@ -336,10 +336,10 @@ const SCHEMA_WEB_FETCH: &str = r#"{
 const SCHEMA_SSH_EXEC: &str = r#"{
   "type": "object",
   "properties": {
-    "resource_id": { "type": "string", "description": "SSH 主机连接 id（可先用 omni_ssh_list_connections 查询）" },
-    "command": { "type": "string", "description": "要在远程主机上执行的非交互式 shell 命令。不支持 TUI/流式命令（如 top、vim、tail -f），请用 top -bn1 | head / tail -n 100 等替代。" }
+    "resource_id": { "type": "string", "description": "可选；SSH 连接 id。终端内联已绑定会话时可省略；侧栏/多主机场景再传" },
+    "command": { "type": "string", "description": "要在当前终端会话执行的非交互式命令（语法须匹配该会话 shell）。不支持 TUI/流式命令（如 top、vim、tail -f）。" }
   },
-  "required": ["resource_id", "command"]
+  "required": ["command"]
 }"#;
 
 const SCHEMA_SSH_CREATE_RUN_SCRIPT: &str = r#"{
@@ -677,8 +677,8 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_ssh_exec",
         module_key: "terminal",
         description:
-            "在指定 SSH 主机上非交互式执行 shell 命令，返回 stdout/stderr/exit_code。\
-             危险命令同样进入用户确认流程。不支持 TUI/流式命令（top/vim/tail -f）。",
+            "在当前绑定的终端会话执行命令（本地 PowerShell/CMD/bash 或 SSH 均可），返回输出。\
+             终端内联可不传 resource_id。查时间/文件/进程等实时事实必须调用，禁止凭记忆编造。不支持 TUI/流式命令。",
         input_schema: SCHEMA_SSH_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
@@ -1230,7 +1230,8 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
         assert!(required.iter().any(|x| x.as_str() == Some("command")));
-        assert!(required.iter().any(|x| x.as_str() == Some("resource_id")));
+        // 终端内联可省略 resource_id；侧栏/多主机场景再传
+        assert!(!required.iter().any(|x| x.as_str() == Some("resource_id")));
         assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated);
     }
 

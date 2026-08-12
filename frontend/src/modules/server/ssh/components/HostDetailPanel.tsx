@@ -8,6 +8,7 @@ import { WorkspaceEmptyPage } from "../../../../components/ui/workspace/Workspac
 import { DETAIL_TABS } from "../constants";
 import { useSshHostContext } from "../hooks/useSshHostContext";
 import { useSshHostActions } from "../hooks/useSshHostActions";
+import { useSshOverview } from "../hooks/useSshOverview";
 import { HostDetailToolbar } from "./HostDetailToolbar";
 import { CapabilitiesDetailTab } from "./detail/CapabilitiesDetailTab";
 import { HostTunnelsDetailTab } from "./detail/HostTunnelsDetailTab";
@@ -35,6 +36,7 @@ export function HostDetailPanel({ hostId }: Props) {
   }, [hostId, sshResources]);
 
   const hostContext = useSshHostContext(activeResource?.id ?? null, activeResource);
+  const overview = useSshOverview(activeResource?.id ?? null);
   const actions = useSshHostActions(activeResource, hostContext, {
     onOpenTunnels: () => setDetailTab("tunnels"),
   });
@@ -61,6 +63,11 @@ export function HostDetailPanel({ hostId }: Props) {
         detailTab={detailTab}
         onDetailTabChange={setDetailTab}
         actions={actions}
+        overviewRefresh={{
+          updatedAt: overview.updatedAt,
+          refreshing: overview.refreshing,
+          onRefresh: overview.refresh,
+        }}
       />
 
       <div
@@ -69,7 +76,7 @@ export function HostDetailPanel({ hostId }: Props) {
         }`}
       >
         {detailTab === "overview" && (
-          <OverviewDetailTab activeResource={activeResource} />
+          <OverviewDetailTab activeResource={activeResource} overview={overview} />
         )}
         {detailTab === "tunnels" && (
           <HostTunnelsDetailTab activeResource={activeResource} />

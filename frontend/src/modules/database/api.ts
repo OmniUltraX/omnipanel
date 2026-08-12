@@ -348,8 +348,11 @@ export async function redisDbsize(connection: DbConnectionConfig): Promise<numbe
 export async function redisKeyDetail(
   connection: DbConnectionConfig,
   key: string,
+  options?: { quiet?: boolean },
 ): Promise<RedisKeyDetail> {
-  const result = await unwrapCommand(commands.dbRedisKeyDetail(ipcConn(connection), key));
+  const result = await unwrapCommand(commands.dbRedisKeyDetail(ipcConn(connection), key), {
+    quiet: options?.quiet,
+  });
   return {
     key: result.key,
     keyType: result.keyType,
@@ -389,6 +392,334 @@ export async function redisSlowlog(
     clientAddr: row.clientAddr ?? null,
     clientName: row.clientName ?? null,
   }));
+}
+
+export interface RedisInfoResult {
+  sections: Record<string, Record<string, string>>;
+}
+
+export interface RedisMemoryStats {
+  entries: Record<string, string>;
+}
+
+export interface RedisStreamGroup {
+  name: string;
+  consumers?: number | null;
+  pending?: number | null;
+  lag?: number | null;
+  entriesRead?: number | null;
+  lastDeliveredId?: string | null;
+  behindSeconds?: number | null;
+}
+
+export interface RedisStreamConsumer {
+  name: string;
+  pending?: number | null;
+  idleMs?: number | null;
+  active: boolean;
+}
+
+export interface RedisStreamPendingEntry {
+  id: string;
+  consumer: string;
+  idleMs: number;
+  deliveryCount: number;
+}
+
+export interface RedisStreamMonitorSnapshot {
+  key: string;
+  newestId?: string | null;
+  newestTsMs?: number | null;
+  groups: RedisStreamGroup[];
+  consumers: RedisStreamConsumer[];
+  sampledAt: number;
+}
+
+export interface RedisStreamConsumerCleanupResult {
+  removedConsumers: string[];
+  claimedPending: number;
+  failed: string[];
+}
+
+export interface RedisAclUser {
+  username: string;
+  flags: string;
+  commands: string;
+  keys: string;
+  channels: string;
+  raw: string;
+}
+
+export async function redisClientKill(
+  connection: DbConnectionConfig,
+  addr: string,
+): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisClientKill(ipcConn(connection), addr))) ?? 0;
+}
+
+export async function redisInfo(
+  connection: DbConnectionConfig,
+  section?: string,
+): Promise<RedisInfoResult> {
+  const result = await unwrapCommand(commands.dbRedisInfo(ipcConn(connection), section ?? null));
+  return { sections: result.sections ?? {} };
+}
+
+export async function redisMemoryStats(connection: DbConnectionConfig): Promise<RedisMemoryStats> {
+  const result = await unwrapCommand(commands.dbRedisMemoryStats(ipcConn(connection)));
+  return { entries: result.entries ?? {} };
+}
+
+export async function redisMemoryDoctor(connection: DbConnectionConfig): Promise<string> {
+  return unwrapCommand(commands.dbRedisMemoryDoctor(ipcConn(connection)));
+}
+
+export async function redisMemoryPurge(connection: DbConnectionConfig): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisMemoryPurge(ipcConn(connection)))) ?? 0;
+}
+
+export async function redisConfigSet(
+  connection: DbConnectionConfig,
+  parameter: string,
+  value: string,
+): Promise<void> {
+  await unwrapCommand(commands.dbRedisConfigSet(ipcConn(connection), parameter, value));
+}
+
+export async function redisConfigRewrite(connection: DbConnectionConfig): Promise<void> {
+  await unwrapCommand(commands.dbRedisConfigRewrite(ipcConn(connection)));
+}
+
+export async function redisFlushDb(connection: DbConnectionConfig, async = true): Promise<void> {
+  await unwrapCommand(commands.dbRedisFlushDb(ipcConn(connection), async));
+}
+
+export async function redisFlushAll(connection: DbConnectionConfig, async = true): Promise<void> {
+  await unwrapCommand(commands.dbRedisFlushAll(ipcConn(connection), async));
+}
+
+export async function redisStreamMonitor(
+  connection: DbConnectionConfig,
+  key: string,
+  group?: string,
+): Promise<RedisStreamMonitorSnapshot> {
+  const result = await unwrapCommand(
+    commands.dbRedisStreamMonitor(ipcConn(connection), key, group ?? null),
+  );
+  return {
+    key: result.key,
+    newestId: result.newestId ?? null,
+    newestTsMs: result.newestTsMs ?? null,
+    groups: (result.groups ?? []).map((g) => ({
+      name: g.name,
+      consumers: g.consumers ?? null,
+      pending: g.pending ?? null,
+      lag: g.lag ?? null,
+      entriesRead: g.entriesRead ?? null,
+      lastDeliveredId: g.lastDeliveredId ?? null,
+      behindSeconds: g.behindSeconds ?? null,
+    })),
+    consumers: (result.consumers ?? []).map((c) => ({
+      name: c.name,
+      pending: c.pending ?? null,
+      idleMs: c.idleMs ?? null,
+      active: c.active,
+    })),
+    sampledAt: result.sampledAt ?? 0,
+  };
+}
+
+export async function redisStreamPending(
+  connection: DbConnectionConfig,
+  key: string,
+  group: string,
+): Promise<RedisStreamPendingEntry[]> {
+  const rows = asArray(
+    await unwrapCommand(
+      commands.dbRedisStreamPending(ipcConn(connection), key, group, null, null, 50),
+    ),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    consumer: row.consumer,
+    idleMs: row.idleMs ?? 0,
+    deliveryCount: row.deliveryCount ?? 0,
+  }));
+}
+
+export async function redisStreamClaim(
+  connection: DbConnectionConfig,
+  key: string,
+  group: string,
+  consumer: string,
+  minIdleMs: number,
+  startId: string,
+  count = 10,
+): Promise<number> {
+  return (
+    (await unwrapCommand(
+      commands.dbRedisStreamClaim(
+        ipcConn(connection),
+        key,
+        group,
+        consumer,
+        minIdleMs,
+        startId,
+        count,
+      ),
+    )) ?? 0
+  );
+}
+
+export async function redisStreamGroupDestroy(
+  connection: DbConnectionConfig,
+  key: string,
+  group: string,
+): Promise<void> {
+  await unwrapCommand(commands.dbRedisStreamGroupDestroy(ipcConn(connection), key, group));
+}
+
+export async function redisStreamTrim(
+  connection: DbConnectionConfig,
+  key: string,
+  maxlen: number,
+  approximate = true,
+): Promise<number> {
+  return (
+    (await unwrapCommand(
+      commands.dbRedisStreamTrim(ipcConn(connection), key, maxlen, approximate),
+    )) ?? 0
+  );
+}
+
+export async function redisStreamCleanupInactiveConsumers(
+  connection: DbConnectionConfig,
+  key: string,
+  group: string,
+  idleThresholdMs = 300_000,
+  targetConsumer?: string | null,
+): Promise<RedisStreamConsumerCleanupResult> {
+  const result = await unwrapCommand(
+    commands.dbRedisStreamCleanupInactiveConsumers(
+      ipcConn(connection),
+      key,
+      group,
+      idleThresholdMs,
+      targetConsumer ?? null,
+    ),
+  );
+  return {
+    removedConsumers: result.removedConsumers ?? [],
+    claimedPending: result.claimedPending ?? 0,
+    failed: result.failed ?? [],
+  };
+}
+
+export async function redisAclList(connection: DbConnectionConfig): Promise<RedisAclUser[]> {
+  const rows = asArray(await unwrapCommand(commands.dbRedisAclList(ipcConn(connection))));
+  return rows.map((row) => ({
+    username: row.username,
+    flags: row.flags,
+    commands: row.commands,
+    keys: row.keys,
+    channels: row.channels,
+    raw: row.raw,
+  }));
+}
+
+export async function redisAclDeluser(
+  connection: DbConnectionConfig,
+  username: string,
+): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisAclDeluser(ipcConn(connection), username))) ?? 0;
+}
+
+export async function redisHashSetField(
+  connection: DbConnectionConfig,
+  key: string,
+  field: string,
+  value: string,
+): Promise<void> {
+  await unwrapCommand(commands.dbRedisHashSetField(ipcConn(connection), key, field, value));
+}
+
+export async function redisHashDelFields(
+  connection: DbConnectionConfig,
+  key: string,
+  fields: string[],
+): Promise<number> {
+  return (
+    (await unwrapCommand(commands.dbRedisHashDelFields(ipcConn(connection), key, fields))) ?? 0
+  );
+}
+
+export async function redisListPush(
+  connection: DbConnectionConfig,
+  key: string,
+  side: "left" | "right",
+  values: string[],
+): Promise<number> {
+  return (
+    (await unwrapCommand(
+      commands.dbRedisListPush(ipcConn(connection), key, side, values),
+    )) ?? 0
+  );
+}
+
+export async function redisListRemove(
+  connection: DbConnectionConfig,
+  key: string,
+  count: number,
+  value: string,
+): Promise<number> {
+  return (
+    (await unwrapCommand(
+      commands.dbRedisListRemove(ipcConn(connection), key, count, value),
+    )) ?? 0
+  );
+}
+
+export async function redisSetAdd(
+  connection: DbConnectionConfig,
+  key: string,
+  members: string[],
+): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisSetAdd(ipcConn(connection), key, members))) ?? 0;
+}
+
+export async function redisSetRemove(
+  connection: DbConnectionConfig,
+  key: string,
+  members: string[],
+): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisSetRemove(ipcConn(connection), key, members))) ?? 0;
+}
+
+export async function redisZsetAdd(
+  connection: DbConnectionConfig,
+  key: string,
+  member: string,
+  score: number,
+): Promise<number> {
+  return (
+    (await unwrapCommand(commands.dbRedisZsetAdd(ipcConn(connection), key, member, score))) ?? 0
+  );
+}
+
+export async function redisZsetRemove(
+  connection: DbConnectionConfig,
+  key: string,
+  members: string[],
+): Promise<number> {
+  return (await unwrapCommand(commands.dbRedisZsetRemove(ipcConn(connection), key, members))) ?? 0;
+}
+
+export async function redisExpireKey(
+  connection: DbConnectionConfig,
+  key: string,
+  seconds: number,
+): Promise<boolean> {
+  return unwrapCommand(commands.dbRedisExpireKey(ipcConn(connection), key, seconds));
 }
 
 /** Qdrant 按 point id 批量删除。 */

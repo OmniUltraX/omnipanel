@@ -6,6 +6,7 @@ type ModuleChunkLoader = () => Promise<unknown>;
 
 const OVERLAY_CHUNK_LOADERS: Record<OverlayModuleKey, ModuleChunkLoader> = {
   terminal: () => import("../modules/terminal/TerminalPanel"),
+  ssh: () => import("../modules/server/SshPanel"),
   database: () => import("../modules/database/DatabasePanel"),
   docker: () => import("../modules/docker/DockerPanel"),
   files: () => import("../modules/files/FilesPanel"),
@@ -19,6 +20,7 @@ const OVERLAY_CHUNK_LOADERS: Record<OverlayModuleKey, ModuleChunkLoader> = {
 /** 空闲 Shell 预热顺序：终端优先，与 chunk 预热一致 */
 export const IDLE_OVERLAY_SHELL_KEYS: readonly OverlayModuleKey[] = [
   "terminal",
+  "ssh",
   "database",
   "docker",
   "server",

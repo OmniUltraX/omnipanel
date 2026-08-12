@@ -18,6 +18,16 @@ describe("lineLooksLikeShellPrompt", () => {
     expect(lineLooksLikeShellPrompt("Connecting...")).toBe(false);
   });
 
+  it("识别 PowerShell 主提示符", () => {
+    expect(lineLooksLikeShellPrompt("PS C:\\Users\\chaoj>")).toBe(true);
+    expect(lineLooksLikeShellPrompt("PS C:\\Users\\chaoj> ")).toBe(true);
+  });
+
+  it("PowerShell 续行提示不算主提示符", () => {
+    expect(lineLooksLikeShellPrompt(">>")).toBe(false);
+    expect(lineLooksLikeShellPrompt(">> ")).toBe(false);
+  });
+
   it("已有正文的提示行不算等待输入", () => {
     // 带正文时末尾不是提示符符，启发式应返回 false
     expect(lineLooksLikeShellPrompt("root@host:~# ls")).toBe(false);
@@ -31,6 +41,11 @@ describe("stripShellPromptPrefix", () => {
 
   it("剥掉 user $ 提示符", () => {
     expect(stripShellPromptPrefix("admin@host:~$ ls -la")).toBe("ls -la");
+  });
+
+  it("剥掉 PowerShell 提示符", () => {
+    expect(stripShellPromptPrefix("PS C:\\Users\\chaoj> 现在的时间")).toBe("现在的时间");
+    expect(stripShellPromptPrefix("PS C:\\Users\\chaoj>")).toBe("");
   });
 
   it("无提示符时原样", () => {

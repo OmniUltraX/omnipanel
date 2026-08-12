@@ -26,7 +26,8 @@ function toolCallKey(conversationId: string, toolCallId: string): string {
 
 /**
  * ACP / 缺参场景：若未传 resource_id，尝试从绑定的终端会话注入 SSH 连接 id。
- * 本地终端（非 SSH）无法走 omni_ssh_exec，留给 handler 报错。
+ * 本地终端内联路径走 PTY（见下方 inline 分支），不依赖 resource_id；
+ * 非内联且无 SSH resource_id 时由 handler 报错。
  */
 function injectSshResourceIdIfNeeded(
   toolName: string,
@@ -45,6 +46,17 @@ function injectSshResourceIdIfNeeded(
   const resourceId = pane?.resourceId?.trim();
   if (!resourceId || resourceId === LOCAL_TERMINAL_RESOURCE_ID) return;
   args.resource_id = resourceId;
+}
+
+/** 历史别名 → 统一终端执行工具名（omni_terminal_* 已并入 omni_ssh_exec） */
+const LEGACY_TERMINAL_EXEC_ALIASES = new Set([
+  "omni_terminal_run_terminal_command",
+  "run_terminal_command",
+]);
+
+export function normalizeDelegatedToolName(toolName: string): string {
+  if (LEGACY_TERMINAL_EXEC_ALIASES.has(toolName)) return SSH_EXEC_TOOL_NAME;
+  return toolName;
 }
 
 /** 非终端 UiDelegated 工具（数据库 / SSH 等）：调用已注册 handler 并回传结果。
@@ -133,8 +145,10 @@ export async function dispatchPendingTool(options: {
   inline?: { blockId: string; sessionId: string } | null;
   terminalSessionId?: string | null;
 }): Promise<void> {
+  const toolName = normalizeDelegatedToolName(options.toolName);
+
   // 子会话集群工具：动态 import 避免循环依赖（subConversationRunner 反向依赖 dispatchPendingTool）
-  if (options.toolName === SPAWN_SUB_CONVERSATIONS_TOOL) {
+  if (toolName === SPAWN_SUB_CONVERSATIONS_TOOL) {
     const { dispatchSpawnSubConversations } = await import(
       "./orchestration/subConversationRunner"
     );
@@ -146,7 +160,7 @@ export async function dispatchPendingTool(options: {
   }
 
   // SSH 体检工具：已迁移到 sub-conv 模型，与 omni_spawn_sub_conversations 走同一通道
-  if (options.toolName === SSH_FLEET_HEALTH_TOOL) {
+  if (toolName === SSH_FLEET_HEALTH_TOOL) {
     const { dispatchSshFleetHealthAsSubConv } = await import(
       "./orchestration/subConversationRunner"
     );
@@ -158,19 +172,19 @@ export async function dispatchPendingTool(options: {
   }
 
   // Plan 工具（todolist）：动态 import 避免循环依赖
-  if (PLAN_TOOLS.has(options.toolName)) {
+  if (PLAN_TOOLS.has(toolName)) {
     const { dispatchPlanTool } = await import("./orchestration/planToolDispatcher");
     return dispatchPlanTool({
       conversationId: options.conversationId,
       toolCallId: options.toolCallId,
-      toolName: options.toolName,
+      toolName,
       argsJson: options.argsJson,
       inline: options.inline ?? null,
     });
   }
 
   // 结构化澄清表单：写 part 后等人提交，不立即回传
-  if (options.toolName === ASK_USER_TOOL) {
+  if (toolName === ASK_USER_TOOL) {
     const { dispatchAskUserTool } = await import("./orchestration/askUserToolDispatcher");
     // 终端内嵌场景：从 block aiThread 反查最近一条 assistant 消息 id，作为父消息 fallback
     let assistantTurnId: string | null = null;
@@ -197,15 +211,15 @@ export async function dispatchPendingTool(options: {
     });
   }
 
-  // 终端内联会话：omni_ssh_exec 走当前 Tab PTY，生成可见命令块（含审批条）
-  if (options.inline && options.toolName === SSH_EXEC_TOOL_NAME) {
+  // 终端内联会话：omni_ssh_exec（含历史别名）走当前 Tab PTY，生成可见命令块（含审批条）
+  if (options.inline && toolName === SSH_EXEC_TOOL_NAME) {
     const { dispatchInlineTerminalPendingTool } = await import(
       "../../modules/terminal/inlineToolBridge"
     );
     return dispatchInlineTerminalPendingTool({
       conversationId: options.conversationId,
       toolCallId: options.toolCallId,
-      toolName: options.toolName,
+      toolName,
       argsJson: options.argsJson,
       blockId: options.inline.blockId,
       sessionId: options.inline.sessionId,
@@ -216,7 +230,7 @@ export async function dispatchPendingTool(options: {
   return handleModulePendingTool({
     conversationId: options.conversationId,
     toolCallId: options.toolCallId,
-    toolName: options.toolName,
+    toolName,
     argsJson: options.argsJson,
     terminalSessionId: options.terminalSessionId ?? sessionFromInline,
   });

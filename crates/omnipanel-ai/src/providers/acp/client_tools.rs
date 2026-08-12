@@ -242,12 +242,28 @@ pub fn parse_client_tool_calls(text: &str) -> Vec<ParsedToolCall> {
     vec![]
 }
 
-/// 从解析结果中选取终端工具调用（优先 omni_ssh_exec）。
+/// 从解析结果中选取终端工具调用（优先 omni_ssh_exec，兼容历史别名）。
 pub fn pick_terminal_tool_call(calls: &[ParsedToolCall]) -> Option<&ParsedToolCall> {
     calls
         .iter()
-        .find(|c| c.name == TERMINAL_CLIENT_TOOL)
+        .find(|c| c.name == TERMINAL_CLIENT_TOOL || is_legacy_terminal_exec_alias(&c.name))
         .or_else(|| calls.first())
+}
+
+fn is_legacy_terminal_exec_alias(name: &str) -> bool {
+    matches!(
+        name,
+        "omni_terminal_run_terminal_command" | "run_terminal_command"
+    )
+}
+
+/// 历史 `omni_terminal_*` 跑命令工具 → 统一为 `omni_ssh_exec`。
+fn normalize_terminal_exec_tool_name(name: &str) -> &str {
+    if is_legacy_terminal_exec_alias(name) {
+        TERMINAL_CLIENT_TOOL
+    } else {
+        name
+    }
 }
 
 fn extract_json_fence(text: &str) -> Option<String> {
@@ -327,7 +343,7 @@ fn normalize_tool_calls(raw: Vec<RawToolCall>) -> Vec<ParsedToolCall> {
             };
             Some(ParsedToolCall {
                 id,
-                name: name.to_string(),
+                name: normalize_terminal_exec_tool_name(name).to_string(),
                 arguments,
             })
         })
@@ -449,6 +465,15 @@ mod tests {
     #[test]
     fn empty_tools_yields_empty_section() {
         assert!(build_available_functions_section(&[]).is_empty());
+    }
+
+    #[test]
+    fn parse_tool_calls_normalizes_legacy_terminal_alias() {
+        let raw = r#"{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_terminal_run_terminal_command","arguments":"{\"command\":\"Get-Date\"}"}}]}"#;
+        let calls = parse_client_tool_calls(raw);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, TERMINAL_CLIENT_TOOL);
+        assert!(calls[0].arguments.contains("Get-Date"));
     }
 
     #[test]

@@ -4798,8 +4798,10 @@ export function DatabasePanel() {
       if (!conn) return;
 
       // 单击 preview 不展开树（秒开预览）；常驻打开默认展开，双击收起传 expandTree:false
+      // Redis 无「库」页签，预览也要展开才能在侧栏看到 db0..N
       const shouldExpandTree =
-        options?.expandTree ?? mode !== "preview";
+        options?.expandTree ??
+        (mode !== "preview" || isRedisConnection(conn));
       if (shouldExpandTree) {
         updateSchemaExpanded((prev) => {
           const next = new Set(prev);
@@ -4812,11 +4814,15 @@ export function DatabasePanel() {
         // 连通探测只更新状态点，不拉库表
         void probeDbConnectionRuntime(conn);
         // Schema：仅无有效缓存时浅加载；有缓存不刷新（留给专门刷新按钮）
+        // Redis 空库列表视为无效缓存（历史失败会留下 []，显示「0 DB」）
         const entry = useDbSchemaCacheStore.getState().snapshot.connections?.[connId];
         const refreshing = Boolean(
           useDbSchemaCacheStore.getState().refreshingConnectionIds[connId],
         );
-        if (!isSchemaCacheEntryOk(entry) && !refreshing) {
+        const redisNeedsDbList =
+          isRedisConnection(conn) &&
+          (!entry?.databases || entry.databases.length === 0);
+        if ((!isSchemaCacheEntryOk(entry) || redisNeedsDbList) && !refreshing) {
           void submitSchemaCacheRefresh([connId], schemaCacheReporter).catch((err) => {
             schemaCacheReporter.onError?.(String(err));
           });

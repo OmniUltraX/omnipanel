@@ -17,6 +17,7 @@ mod mysql;
 mod postgres;
 mod qdrant;
 mod redis;
+mod redis_ops;
 mod schema_refresh;
 mod sqlite;
 
@@ -48,6 +49,11 @@ pub use qdrant::{QdrantCollectionInfo, QdrantDriver};
 pub use redis::{
     RedisDatabaseInfo, RedisDriver, RedisKeyDetail, RedisKeyEntry, RedisSearchKeysResult,
     RedisSlowLogEntry,
+};
+pub use redis_ops::{
+    RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer,
+    RedisStreamConsumerCleanupResult, RedisStreamEntry, RedisStreamGroup,
+    RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
 };
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
@@ -295,6 +301,251 @@ pub async fn redis_slowlog(params: &DbParams, count: usize) -> OmniResult<Vec<Re
 pub async fn redis_client_kill_addr(params: &DbParams, addr: &str) -> OmniResult<u64> {
     let driver = RedisDriver::connect(params).await?;
     driver.client_kill_addr(addr).await
+}
+
+/// Redis `INFO`。
+pub async fn redis_info(params: &DbParams, section: Option<&str>) -> OmniResult<RedisInfoResult> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.info(section).await
+}
+
+pub async fn redis_memory_stats(params: &DbParams) -> OmniResult<RedisMemoryStats> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.memory_stats().await
+}
+
+pub async fn redis_memory_doctor(params: &DbParams) -> OmniResult<String> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.memory_doctor().await
+}
+
+pub async fn redis_memory_purge(params: &DbParams) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.memory_purge().await
+}
+
+pub async fn redis_config_set(params: &DbParams, parameter: &str, value: &str) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.config_set(parameter, value).await
+}
+
+pub async fn redis_config_rewrite(params: &DbParams) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.config_rewrite().await
+}
+
+pub async fn redis_flush_db(params: &DbParams, r#async: bool) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.flush_db(r#async).await
+}
+
+pub async fn redis_flush_all(params: &DbParams, r#async: bool) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.flush_all(r#async).await
+}
+
+pub async fn redis_stream_range(
+    params: &DbParams,
+    key: &str,
+    start: Option<&str>,
+    end: Option<&str>,
+    count: Option<usize>,
+    reverse: bool,
+) -> OmniResult<RedisStreamRangeResult> {
+    let driver = RedisDriver::connect(params).await?;
+    driver
+        .stream_range(key, start, end, count, reverse)
+        .await
+}
+
+pub async fn redis_stream_groups(params: &DbParams, key: &str) -> OmniResult<Vec<RedisStreamGroup>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_groups(key).await
+}
+
+pub async fn redis_stream_consumers(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+) -> OmniResult<Vec<RedisStreamConsumer>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_consumers(key, group).await
+}
+
+pub async fn redis_stream_pending(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+    start: Option<&str>,
+    end: Option<&str>,
+    count: Option<usize>,
+) -> OmniResult<Vec<RedisStreamPendingEntry>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver
+        .stream_pending(key, group, start, end, count)
+        .await
+}
+
+pub async fn redis_stream_monitor(
+    params: &DbParams,
+    key: &str,
+    group: Option<&str>,
+) -> OmniResult<RedisStreamMonitorSnapshot> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_monitor(key, group).await
+}
+
+pub async fn redis_stream_ack(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+    ids: &[String],
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_ack(key, group, ids).await
+}
+
+pub async fn redis_stream_claim(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+    consumer: &str,
+    min_idle_ms: u64,
+    start_id: &str,
+    count: Option<u64>,
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver
+        .stream_claim(key, group, consumer, min_idle_ms, start_id, count)
+        .await
+}
+
+pub async fn redis_stream_group_create(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+    id: &str,
+    mkstream: bool,
+) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_group_create(key, group, id, mkstream).await
+}
+
+pub async fn redis_stream_group_destroy(params: &DbParams, key: &str, group: &str) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_group_destroy(key, group).await
+}
+
+pub async fn redis_stream_trim(
+    params: &DbParams,
+    key: &str,
+    maxlen: u64,
+    approximate: bool,
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.stream_trim(key, maxlen, approximate).await
+}
+
+pub async fn redis_stream_cleanup_inactive_consumers(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+    idle_threshold_ms: u64,
+    target_consumer: Option<&str>,
+) -> OmniResult<RedisStreamConsumerCleanupResult> {
+    let driver = RedisDriver::connect(params).await?;
+    driver
+        .stream_cleanup_inactive_consumers(key, group, idle_threshold_ms, target_consumer)
+        .await
+}
+
+pub async fn redis_acl_list(params: &DbParams) -> OmniResult<Vec<RedisAclUser>> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.acl_list().await
+}
+
+pub async fn redis_acl_getuser(params: &DbParams, username: &str) -> OmniResult<RedisAclUser> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.acl_getuser(username).await
+}
+
+pub async fn redis_acl_setuser(params: &DbParams, username: &str, rule: &str) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.acl_setuser(username, rule).await
+}
+
+pub async fn redis_acl_deluser(params: &DbParams, username: &str) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.acl_deluser(username).await
+}
+
+pub async fn redis_hash_set_field(
+    params: &DbParams,
+    key: &str,
+    field: &str,
+    value: &str,
+) -> OmniResult<()> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.hash_set_field(key, field, value).await
+}
+
+pub async fn redis_hash_del_fields(
+    params: &DbParams,
+    key: &str,
+    fields: &[String],
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.hash_del_fields(key, fields).await
+}
+
+pub async fn redis_list_push(
+    params: &DbParams,
+    key: &str,
+    side: &str,
+    values: &[String],
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.list_push(key, side, values).await
+}
+
+pub async fn redis_list_remove(
+    params: &DbParams,
+    key: &str,
+    count: i64,
+    value: &str,
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.list_remove(key, count, value).await
+}
+
+pub async fn redis_set_add(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.set_add(key, members).await
+}
+
+pub async fn redis_set_remove(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.set_remove(key, members).await
+}
+
+pub async fn redis_zset_add(
+    params: &DbParams,
+    key: &str,
+    member: &str,
+    score: f64,
+) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.zset_add(key, member, score).await
+}
+
+pub async fn redis_zset_remove(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.zset_remove(key, members).await
+}
+
+pub async fn redis_expire_key(params: &DbParams, key: &str, seconds: i64) -> OmniResult<bool> {
+    let driver = RedisDriver::connect(params).await?;
+    driver.expire_key(key, seconds).await
 }
 
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。

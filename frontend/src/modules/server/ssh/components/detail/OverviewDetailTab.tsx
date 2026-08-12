@@ -1,11 +1,15 @@
-import { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
+import type { useSshOverview } from "@/modules/server/ssh/hooks/useSshOverview";
 import type { SshManagerContext } from "@/modules/server/ssh/hooks/useSshManager";
 import { MonitoringDashboard } from "@/modules/server/ssh/components/monitoring/MonitoringDashboard";
 import { ProcessListPanel } from "@/components/server";
 
-type Props = Pick<SshManagerContext, "activeResource">;
+type OverviewState = ReturnType<typeof useSshOverview>;
 
-export function OverviewDetailTab({ activeResource }: Props) {
+type Props = Pick<SshManagerContext, "activeResource"> & {
+  overview: OverviewState;
+};
+
+export function OverviewDetailTab({ activeResource, overview }: Props) {
   const resourceId = activeResource?.id ?? null;
 
   const {
@@ -17,7 +21,7 @@ export function OverviewDetailTab({ activeResource }: Props) {
     refreshing,
     refreshProcesses,
     refresh,
-  } = useSshOverview(resourceId);
+  } = overview;
 
   return (
     <div className="ssh-ov-page">
@@ -25,12 +29,9 @@ export function OverviewDetailTab({ activeResource }: Props) {
         phase={phase}
         stats={stats}
         error={error}
-        updatedAt={updatedAt}
-        refreshing={refreshing}
         processCount={processes.length}
         hideStatusBar
         onRetry={() => refresh()}
-        onRefresh={() => refresh()}
       >
         <ProcessListPanel
           resourceId={resourceId}

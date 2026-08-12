@@ -5,6 +5,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::{DbDriver, DbParams, QueryResult};
+use crate::redis_ops::{
+    self, RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer,
+    RedisStreamGroup, RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
+};
 
 /// Redis 键搜索结果（供查询面板展示）。
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -83,6 +87,9 @@ const MAX_SCAN_VISITS_PER_REQUEST: usize = 8_000;
 /// 单次请求最多执行的 SCAN 轮次，避免无匹配时在整库上长时间阻塞。
 const MAX_SCAN_ROUNDS_PER_REQUEST: usize = 64;
 const KEY_DETAIL_PREVIEW_LIMIT: usize = 200;
+/// 建连瞬断（如 Multiplexed driver terminated）时的重试次数。
+const CONNECT_RETRY_ATTEMPTS: u32 = 3;
+const CONNECT_RETRY_BASE_DELAY_MS: u64 = 80;
 
 pub struct RedisDriver {
     conn: MultiplexedConnection,
@@ -132,12 +139,28 @@ impl RedisDriver {
 
         let client = Client::open(url)
             .map_err(|e| OmniError::connection("Redis 连接参数无效").with_cause(e.to_string()))?;
-        let conn = client
-            .get_multiplexed_tokio_connection()
-            .await
-            .map_err(|e| OmniError::connection("Redis 连接失败").with_cause(e.to_string()))?;
 
-        Ok(Self { conn })
+        let mut last_err: Option<redis::RedisError> = None;
+        for attempt in 0..CONNECT_RETRY_ATTEMPTS {
+            match client.get_multiplexed_tokio_connection().await {
+                Ok(conn) => return Ok(Self { conn }),
+                Err(e) => {
+                    let transient = is_transient_redis_connect_error(&e);
+                    last_err = Some(e);
+                    if transient && attempt + 1 < CONNECT_RETRY_ATTEMPTS {
+                        let delay_ms = CONNECT_RETRY_BASE_DELAY_MS * u64::from(attempt + 1);
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+
+        let cause = last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        Err(OmniError::connection("Redis 连接失败").with_cause(cause))
     }
 
     /// 执行 `CONFIG GET`，返回参数名与值的键值对列表。
@@ -441,6 +464,226 @@ impl RedisDriver {
             .map_err(map_redis_err)?;
         Ok(killed)
     }
+
+    pub async fn info(&self, section: Option<&str>) -> OmniResult<RedisInfoResult> {
+        let mut conn = self.conn.clone();
+        redis_ops::info(&mut conn, section).await
+    }
+
+    pub async fn memory_stats(&self) -> OmniResult<RedisMemoryStats> {
+        let mut conn = self.conn.clone();
+        redis_ops::memory_stats(&mut conn).await
+    }
+
+    pub async fn memory_doctor(&self) -> OmniResult<String> {
+        let mut conn = self.conn.clone();
+        redis_ops::memory_doctor(&mut conn).await
+    }
+
+    pub async fn memory_purge(&self) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::memory_purge(&mut conn).await
+    }
+
+    pub async fn config_set(&self, parameter: &str, value: &str) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::config_set(&mut conn, parameter, value).await
+    }
+
+    pub async fn config_rewrite(&self) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::config_rewrite(&mut conn).await
+    }
+
+    pub async fn flush_db(&self, r#async: bool) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::flush_db(&mut conn, r#async).await
+    }
+
+    pub async fn flush_all(&self, r#async: bool) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::flush_all(&mut conn, r#async).await
+    }
+
+    pub async fn stream_range(
+        &self,
+        key: &str,
+        start: Option<&str>,
+        end: Option<&str>,
+        count: Option<usize>,
+        reverse: bool,
+    ) -> OmniResult<RedisStreamRangeResult> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_range(&mut conn, key, start, end, count, reverse).await
+    }
+
+    pub async fn stream_groups(&self, key: &str) -> OmniResult<Vec<RedisStreamGroup>> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_groups(&mut conn, key).await
+    }
+
+    pub async fn stream_consumers(
+        &self,
+        key: &str,
+        group: &str,
+    ) -> OmniResult<Vec<RedisStreamConsumer>> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_consumers(&mut conn, key, group).await
+    }
+
+    pub async fn stream_pending(
+        &self,
+        key: &str,
+        group: &str,
+        start: Option<&str>,
+        end: Option<&str>,
+        count: Option<usize>,
+    ) -> OmniResult<Vec<RedisStreamPendingEntry>> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_pending(&mut conn, key, group, start, end, count)
+            .await
+    }
+
+    pub async fn stream_monitor(
+        &self,
+        key: &str,
+        group: Option<&str>,
+    ) -> OmniResult<RedisStreamMonitorSnapshot> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_monitor(&mut conn, key, group).await
+    }
+
+    pub async fn stream_ack(&self, key: &str, group: &str, ids: &[String]) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_ack(&mut conn, key, group, ids).await
+    }
+
+    pub async fn stream_claim(
+        &self,
+        key: &str,
+        group: &str,
+        consumer: &str,
+        min_idle_ms: u64,
+        start_id: &str,
+        count: Option<u64>,
+    ) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_claim(
+            &mut conn,
+            key,
+            group,
+            consumer,
+            min_idle_ms,
+            start_id,
+            count,
+        )
+        .await
+    }
+
+    pub async fn stream_group_create(
+        &self,
+        key: &str,
+        group: &str,
+        id: &str,
+        mkstream: bool,
+    ) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_group_create(&mut conn, key, group, id, mkstream)
+            .await
+    }
+
+    pub async fn stream_group_destroy(&self, key: &str, group: &str) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_group_destroy(&mut conn, key, group).await
+    }
+
+    pub async fn stream_trim(&self, key: &str, maxlen: u64, approximate: bool) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_trim(&mut conn, key, maxlen, approximate).await
+    }
+
+    pub async fn stream_cleanup_inactive_consumers(
+        &self,
+        key: &str,
+        group: &str,
+        idle_threshold_ms: u64,
+        target_consumer: Option<&str>,
+    ) -> OmniResult<redis_ops::RedisStreamConsumerCleanupResult> {
+        let mut conn = self.conn.clone();
+        redis_ops::stream_cleanup_inactive_consumers(
+            &mut conn,
+            key,
+            group,
+            idle_threshold_ms,
+            target_consumer,
+        )
+        .await
+    }
+
+    pub async fn acl_list(&self) -> OmniResult<Vec<RedisAclUser>> {
+        let mut conn = self.conn.clone();
+        redis_ops::acl_list(&mut conn).await
+    }
+
+    pub async fn acl_getuser(&self, username: &str) -> OmniResult<RedisAclUser> {
+        let mut conn = self.conn.clone();
+        redis_ops::acl_getuser(&mut conn, username).await
+    }
+
+    pub async fn acl_setuser(&self, username: &str, rule: &str) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::acl_setuser(&mut conn, username, rule).await
+    }
+
+    pub async fn acl_deluser(&self, username: &str) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::acl_deluser(&mut conn, username).await
+    }
+
+    pub async fn hash_set_field(&self, key: &str, field: &str, value: &str) -> OmniResult<()> {
+        let mut conn = self.conn.clone();
+        redis_ops::hash_set_field(&mut conn, key, field, value).await
+    }
+
+    pub async fn hash_del_fields(&self, key: &str, fields: &[String]) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::hash_del_fields(&mut conn, key, fields).await
+    }
+
+    pub async fn list_push(&self, key: &str, side: &str, values: &[String]) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::list_push(&mut conn, key, side, values).await
+    }
+
+    pub async fn list_remove(&self, key: &str, count: i64, value: &str) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::list_remove(&mut conn, key, count, value).await
+    }
+
+    pub async fn set_add(&self, key: &str, members: &[String]) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::set_add(&mut conn, key, members).await
+    }
+
+    pub async fn set_remove(&self, key: &str, members: &[String]) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::set_remove(&mut conn, key, members).await
+    }
+
+    pub async fn zset_add(&self, key: &str, member: &str, score: f64) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::zset_add(&mut conn, key, member, score).await
+    }
+
+    pub async fn zset_remove(&self, key: &str, members: &[String]) -> OmniResult<u64> {
+        let mut conn = self.conn.clone();
+        redis_ops::zset_remove(&mut conn, key, members).await
+    }
+
+    pub async fn expire_key(&self, key: &str, seconds: i64) -> OmniResult<bool> {
+        let mut conn = self.conn.clone();
+        redis_ops::expire_key(&mut conn, key, seconds).await
+    }
 }
 
 async fn memory_usage_bytes(conn: &mut MultiplexedConnection, key: &str) -> OmniResult<u64> {
@@ -541,9 +784,25 @@ async fn read_key_value(
                 .query_async(conn)
                 .await
                 .map_err(map_redis_err)?;
+            let range = redis_ops::stream_range(conn, key, None, None, Some(20), true)
+                .await
+                .unwrap_or(RedisStreamRangeResult {
+                    entries: Vec::new(),
+                    reverse: true,
+                });
+            let entries: Vec<Value> = range
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "id": entry.id,
+                        "fields": entry.fields,
+                    })
+                })
+                .collect();
             Ok((
-                serde_json::json!({ "length": len }),
-                false,
+                serde_json::json!({ "length": len, "entries": entries }),
+                len as usize > KEY_DETAIL_PREVIEW_LIMIT,
             ))
         }
         other => Ok((
@@ -915,6 +1174,19 @@ fn map_redis_err(err: redis::RedisError) -> OmniError {
     OmniError::database("Redis 操作失败").with_cause(err.to_string())
 }
 
+/// 建连阶段常见瞬断：驱动提前退出 / IO 中断，适合短间隔重试。
+fn is_transient_redis_connect_error(err: &redis::RedisError) -> bool {
+    let msg = err.to_string().to_ascii_lowercase();
+    msg.contains("multiplexed connection driver unexpectedly terminated")
+        || msg.contains("connection reset")
+        || msg.contains("broken pipe")
+        || msg.contains("connection refused")
+        || msg.contains("timed out")
+        || msg.contains("os error 10054")
+        || msg.contains("os error 10053")
+        || msg.contains("os error 104")
+}
+
 fn parse_config_get_response(value: redis::Value) -> OmniResult<Vec<(String, String)>> {
     match value {
         redis::Value::Nil => Ok(Vec::new()),
@@ -980,13 +1252,13 @@ fn build_client_list_columns(clients: &[std::collections::HashMap<String, String
             seen.insert(key.clone());
         }
     }
+    // 只保留常用列：Redis 7+ CLIENT LIST 字段极多，全量展示会撑破右侧 flex 布局。
     let mut columns = Vec::new();
     for key in CLIENT_LIST_COLUMN_ORDER {
         if seen.remove(*key) {
             columns.push((*key).to_string());
         }
     }
-    columns.extend(seen.into_iter());
     columns
 }
 
@@ -1287,5 +1559,15 @@ fn is_write_command(name: &str) -> bool {
             | "RENAME"
             | "FLUSHDB"
             | "FLUSHALL"
+            | "XACK"
+            | "XCLAIM"
+            | "XAUTOCLAIM"
+            | "XGROUP"
+            | "XTRIM"
+            | "CONFIG"
+            | "MEMORY"
+            | "ACL"
+            | "LREM"
+            | "SREM"
     )
 }

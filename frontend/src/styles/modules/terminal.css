@@ -1849,12 +1849,15 @@
     }
 
     .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done,
-    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done *,
     .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-agreed,
-    .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-agreed *,
-    .term-shell-agent-deco-card--frozen .term-shell-agent-tool,
-    .term-shell-agent-deco-card--frozen .term-shell-agent-tool * {
+    .term-shell-agent-deco-card--frozen .term-shell-agent-tool {
         pointer-events: auto;
+        cursor: text;
+    }
+
+    .term-shell-agent-deco-card--frozen .term-shell-agent-btn,
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card__note-actions,
+    .term-shell-agent-deco-card--frozen [data-shell-agent-expand] {
         cursor: pointer;
     }
 
@@ -1872,7 +1875,7 @@
         max-height: none;
         overflow: visible;
         box-sizing: border-box;
-        margin: 2px 0;
+        margin: 4px 0;
     }
 
     .term-shell-agent-card {
@@ -1956,7 +1959,7 @@
         gap: 8px;
         width: 100%;
         max-width: min(720px, 100%);
-        margin: 2px 0;
+        margin: 4px 0;
         padding: 6px 12px;
         border: 1px solid var(--border);
         border-radius: var(--r-sm);
@@ -4491,6 +4494,36 @@ body.term-session-tree--dragging .tree-action-btn {
     user-select: text !important;
 }
 
+/* 直通 Shell Agent 卡片（xterm decoration）：正文可选中复制 */
+.term-shell-agent-card,
+.term-shell-agent-card *,
+.term-shell-agent-tool,
+.term-shell-agent-tool *,
+.term-shell-agent-md,
+.term-shell-agent-md *,
+.term-shell-agent-float__body,
+.term-shell-agent-float__body * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
+.term-shell-agent-card__actions,
+.term-shell-agent-card__actions *,
+.term-shell-agent-card__footer,
+.term-shell-agent-card__footer *,
+.term-shell-agent-card__note-actions,
+.term-shell-agent-card__note-actions *,
+.term-shell-agent-btn,
+.term-shell-agent-btn *,
+.term-shell-agent-ico,
+.term-shell-agent-dots,
+.term-shell-agent-dots *,
+.term-shell-agent-float__head,
+.term-shell-agent-float__head * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+}
+
 .term-xterm-wrap:not(.term-xterm-wrap--live),
 .term-xterm-wrap--live-native,
 .term-xterm-wrap:not(.term-xterm-wrap--live) .xterm,
@@ -4574,13 +4607,13 @@ html[data-theme="dark"] .term-xterm-wrap .xterm .composition-view {
     color: #f4f1ed;
 }
 
-/* 直通空提示符灰色占位（decoration，不进 PTY；随主题变灰阶） */
+/* 直通空提示符灰色占位（decoration，不进 PTY；随主题变灰阶）
+ * 垂直对齐：xterm 内联 line-height=height，须在 onRender 里改为 height+2（见 passthroughPromptHint.ts） */
 .term-passthrough-prompt-hint {
     color: #8b8680;
     opacity: 0.72;
     font-family: inherit;
     font-size: inherit;
-    line-height: inherit;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

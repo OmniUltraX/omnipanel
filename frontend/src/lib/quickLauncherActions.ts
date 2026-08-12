@@ -15,7 +15,6 @@ import {
 } from "./terminalSession";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useTerminalStore } from "../stores/terminalStore";
-import { useTerminalLeftPanelStore } from "../modules/terminal/terminalLeftPanelStore";
 import { followUiIntent } from "./ai/uiFollow";
 import {
   listenModuleWindowShown,
@@ -61,8 +60,7 @@ async function runCommand(id: string): Promise<void> {
       return;
     case "ssh":
     case "new-ssh":
-      useTerminalLeftPanelStore.getState().focusSsh();
-      navigateToPath(MODULE_PATHS.terminal);
+      navigateToPath(MODULE_PATHS.ssh);
       return;
     case "docker":
       navigateToPath(MODULE_PATHS.docker);

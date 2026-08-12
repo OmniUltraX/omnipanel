@@ -3410,6 +3410,13 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     user-select: text !important;
 }
 
+/* 表预览工具栏身份芯片：可框选复制表名 / 库名 */
+.db-table-topbar-identity,
+.db-table-topbar-identity * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
 .db-sql-hover-card {
     min-width: min(560px, 92vw);
     max-width: min(760px, 92vw);
@@ -4636,11 +4643,21 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    overscroll-behavior: none;
     --dv-tabs-and-actions-container-font-size: 13px;
     --dv-tabs-and-actions-container-height: 32px;
     --dv-sash-color: transparent;
     --dv-active-sash-color: var(--accent);
     --dv-drag-over-background-color: var(--accent-soft);
+}
+
+/* 截断 dockview overlay 撑高的可滚动溢出，避免 scrollIntoView 把整页滚飞 */
+.dockable-workspace > .dockable-workspace__dockview,
+.dockable-workspace .dv-shell {
+    overflow: hidden !important;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
 }
 
 /* 椤诲湪 dockview 鏍硅妭鐐硅鐩?themeDark 鍐呯疆鍙橀噺锛屽啓鍦?.dockable-workspace 涓婁笉浼氬悜涓嬬敓鏁?*/
@@ -23677,13 +23694,14 @@ button.omni-btn-tool[aria-pressed="true"] {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* react-obj-view 鍚戜笂鏌ユ壘 overflow:auto|scroll 鐨勭鍏堜綔涓鸿櫄鎷熸粴鍔ㄥ鍣?*/
     overflow: auto;
     padding: 0;
+    background: var(--bg);
 }
 
 .content-preview-json--virtual .virtual-json-view {
-    display: block;
+    flex: 1;
+    min-height: 0;
 }
 
 .content-preview-json--virtual .big-objview-container {
@@ -23694,73 +23712,16 @@ button.omni-btn-tool[aria-pressed="true"] {
     min-height: 100%;
     height: auto !important;
     background: transparent !important;
-    padding: var(--sp-3) var(--sp-4);
+    padding: 0;
     box-sizing: border-box;
 }
 
-/* react-json-view-lite 鈥?涓庡簲鐢ㄤ富棰樺榻愶紙VirtualJsonView锛?*/
+/* react-json-view-lite — 旧版哈希类兜底（VirtualJsonView 已改用 json-view-* 语义类） */
 .virtual-json-view {
     font-family: var(--font-mono);
     font-size: 12px;
-    line-height: 1.55;
+    line-height: 1.5;
     color: var(--fg-2);
-}
-
-.virtual-json-view ._GzYRV {
-    line-height: 1.55;
-}
-
-.virtual-json-view ._1MGIk,
-.virtual-json-view ._2bSDX {
-    color: var(--accent);
-    font-weight: 600;
-}
-
-.virtual-json-view ._2T6PJ,
-.virtual-json-view ._1Gho6,
-.virtual-json-view ._Chy1W,
-.virtual-json-view ._2bveF {
-    color: var(--danger);
-}
-
-.virtual-json-view ._1bQdo,
-.virtual-json-view ._1prJR {
-    color: color-mix(in srgb, var(--accent) 82%, white);
-}
-
-.virtual-json-view ._3zQKs,
-.virtual-json-view ._LaAZe,
-.virtual-json-view ._GTKgm {
-    color: var(--success);
-}
-
-.virtual-json-view ._1xvuR,
-.virtual-json-view ._vGjyY,
-.virtual-json-view ._2vRm- {
-    color: var(--meta);
-}
-
-.virtual-json-view ._3uHL6,
-.virtual-json-view ._oLqym,
-.virtual-json-view ._2AXVT,
-.virtual-json-view ._2KJWg,
-.virtual-json-view ._17H2C,
-.virtual-json-view ._3QHg2,
-.virtual-json-view ._3fDAz,
-.virtual-json-view ._gsbQL {
-    color: var(--fg-2);
-}
-
-.virtual-json-view ._f10Tu {
-    color: var(--muted);
-}
-
-.virtual-json-view ._2IvMF {
-    background: color-mix(in srgb, var(--warn) 28%, transparent);
-}
-
-.virtual-json-view ._11RoI {
-    background: transparent !important;
 }
 
 .content-preview-text {

@@ -23,8 +23,9 @@ export function scrollDockTabIntoView(
     tabEl.closest<HTMLElement>(".dv-scrollable");
 
   if (!scrollParent) {
-    tabEl.scrollIntoView({ inline: "nearest", block: "nearest" });
-    return true;
+    // 切勿对 tab 调 scrollIntoView：会连带滚 .dockable-workspace（overflow:hidden 仍可被滚），
+    // 一旦 dockview overlay 把 scrollHeight 撑高就会「右侧整体上移且无法恢复」。
+    return false;
   }
 
   const tabRect = tabEl.getBoundingClientRect();

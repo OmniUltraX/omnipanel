@@ -22,7 +22,8 @@ export type TerminalCommandCoreResult =
 
 /**
  * 终端 PTY 内执行命令的核心（供 UI/内联审批等本地路径复用）。
- * 对外 AI 工具已统一为 `omni_ssh_exec`，不再注册为内置工具。
+ * 对外 AI「跑命令」工具已统一为 `omni_ssh_exec`（覆盖本地会话与 SSH）；
+ * 本模块不再单独注册 `omni_terminal_*`。
  */
 export async function executeTerminalCommandCore(
   args: TerminalCommandCoreArgs,

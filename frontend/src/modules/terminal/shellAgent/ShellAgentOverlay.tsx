@@ -26,9 +26,11 @@ import {
   fitShellAgentCardToContent,
   getShellAgentGeometry,
   relayoutShellAgentCard,
+  shieldShellAgentDecorationPointer,
   subscribeShellAgentGeometry,
   SHELL_AGENT_PORTAL_HOST_CLASS,
 } from "./shellAgentGeometry";
+import { hasDomTextSelection } from "../terminalTextSelection";
 import { useShellAgentStore } from "./shellAgentStore";
 import { ShellAgentMarkdown } from "./ShellAgentMarkdown";
 import {
@@ -395,6 +397,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
         el.style.maxHeight = "100%";
         el.style.overflow = "hidden";
       }
+      shieldShellAgentDecorationPointer(el, getXterm(sessionId));
       setDecoEl(ensurePortalHost(el, { grow, scrollable }));
     };
 
@@ -412,7 +415,19 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       cancelAnimationFrame(frame);
       renderDisposable?.dispose();
     };
-  }, [geometry?.decoration, geometry?.version, geometry?.mode, geometry?.cardKind]);
+  }, [geometry?.decoration, geometry?.version, geometry?.mode, geometry?.cardKind, sessionId]);
+
+  // 历史冻结卡也可能没有 pointer shield（热更新 / 旧快照）；按会话扫一遍补上
+  useEffect(() => {
+    const term = getXterm(sessionId);
+    const root = term?.element;
+    if (!root) return;
+    root.querySelectorAll(".term-shell-agent-deco-card").forEach((node) => {
+      if (node instanceof HTMLElement) {
+        shieldShellAgentDecorationPointer(node, term);
+      }
+    });
+  }, [sessionId, geoVersion]);
 
   useEffect(() => {
     const term = getXterm(sessionId);
@@ -505,6 +520,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     const onClick = (e: MouseEvent) => {
       const target = e.target;
       if (!(target instanceof Element)) return;
+
+      // 拖选正文后不要抢展开浮层；按钮 / 展开控件仍可点
+      const isActionClick = Boolean(
+        target.closest("button") ||
+          target.closest("[data-shell-agent-expand]") ||
+          target.closest(".term-shell-agent-btn"),
+      );
+      if (!isActionClick && hasDomTextSelection()) return;
 
       const thinkingCard = target.closest(
         `.term-shell-agent-card[data-shell-agent-frozen-thinking="1"][data-session-id="${sessionId}"]`,

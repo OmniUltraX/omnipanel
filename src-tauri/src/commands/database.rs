@@ -3,8 +3,11 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use omnipanel_db::{
-    DbParams, MongoDriver, QueryResult, RedisKeyDetail, RedisSearchKeysResult,
-    RedisSlowLogEntry, mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
+    DbParams, MongoDriver, QueryResult, RedisAclUser, RedisInfoResult, RedisKeyDetail,
+    RedisMemoryStats, RedisSearchKeysResult, RedisSlowLogEntry, RedisStreamConsumer,
+    RedisStreamConsumerCleanupResult, RedisStreamGroup, RedisStreamMonitorSnapshot,
+    RedisStreamPendingEntry, RedisStreamRangeResult, mongodb_list_databases, mysql_connect_options,
+    qdrant_list_databases, redis_stream_cleanup_inactive_consumers,
 };
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
@@ -2879,6 +2882,570 @@ pub async fn db_redis_slowlog(
         return Err("仅 Redis 连接支持慢日志".to_string());
     }
     omnipanel_db::redis_slowlog(&to_params(&connection), count.unwrap_or(64) as usize)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `INFO`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_info(
+    connection: DbConnectionConfig,
+    section: Option<String>,
+) -> Result<RedisInfoResult, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 INFO".to_string());
+    }
+    omnipanel_db::redis_info(
+        &to_params(&connection),
+        section.as_deref(),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+/// Redis `MEMORY STATS`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_memory_stats(
+    connection: DbConnectionConfig,
+) -> Result<RedisMemoryStats, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 MEMORY STATS".to_string());
+    }
+    omnipanel_db::redis_memory_stats(&to_params(&connection))
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `MEMORY DOCTOR`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_memory_doctor(connection: DbConnectionConfig) -> Result<String, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 MEMORY DOCTOR".to_string());
+    }
+    omnipanel_db::redis_memory_doctor(&to_params(&connection))
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `MEMORY PURGE`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_memory_purge(connection: DbConnectionConfig) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 MEMORY PURGE".to_string());
+    }
+    omnipanel_db::redis_memory_purge(&to_params(&connection))
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `CONFIG SET`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_config_set(
+    connection: DbConnectionConfig,
+    parameter: String,
+    value: String,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 CONFIG SET".to_string());
+    }
+    omnipanel_db::redis_config_set(&to_params(&connection), &parameter, &value)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `CONFIG REWRITE`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_config_rewrite(connection: DbConnectionConfig) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 CONFIG REWRITE".to_string());
+    }
+    omnipanel_db::redis_config_rewrite(&to_params(&connection))
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `FLUSHDB`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_flush_db(
+    connection: DbConnectionConfig,
+    r#async: Option<bool>,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 FLUSHDB".to_string());
+    }
+    omnipanel_db::redis_flush_db(&to_params(&connection), r#async.unwrap_or(true))
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `FLUSHALL`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_flush_all(
+    connection: DbConnectionConfig,
+    r#async: Option<bool>,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 FLUSHALL".to_string());
+    }
+    omnipanel_db::redis_flush_all(&to_params(&connection), r#async.unwrap_or(true))
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis Stream 范围查询。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_range(
+    connection: DbConnectionConfig,
+    key: String,
+    start: Option<String>,
+    end: Option<String>,
+    count: Option<u32>,
+    reverse: Option<bool>,
+) -> Result<RedisStreamRangeResult, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_range(
+        &to_params(&connection),
+        &key,
+        start.as_deref(),
+        end.as_deref(),
+        count.map(|n| n as usize),
+        reverse.unwrap_or(false),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+/// Redis `XINFO GROUPS`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_groups(
+    connection: DbConnectionConfig,
+    key: String,
+) -> Result<Vec<RedisStreamGroup>, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_groups(&to_params(&connection), &key)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `XINFO CONSUMERS`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_consumers(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+) -> Result<Vec<RedisStreamConsumer>, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_consumers(&to_params(&connection), &key, &group)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `XPENDING`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_pending(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+    start: Option<String>,
+    end: Option<String>,
+    count: Option<u32>,
+) -> Result<Vec<RedisStreamPendingEntry>, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_pending(
+        &to_params(&connection),
+        &key,
+        &group,
+        start.as_deref(),
+        end.as_deref(),
+        count.map(|n| n as usize),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+/// Redis Stream 监控快照。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_monitor(
+    connection: DbConnectionConfig,
+    key: String,
+    group: Option<String>,
+) -> Result<RedisStreamMonitorSnapshot, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_monitor(&to_params(&connection), &key, group.as_deref())
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `XACK`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_ack(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+    ids: Vec<String>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_ack(&to_params(&connection), &key, &group, &ids)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `XAUTOCLAIM`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_claim(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+    consumer: String,
+    min_idle_ms: f64,
+    start_id: String,
+    count: Option<f64>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_claim(
+        &to_params(&connection),
+        &key,
+        &group,
+        &consumer,
+        min_idle_ms as u64,
+        &start_id,
+        count.map(|n| n as u64),
+    )
+    .await
+    .map(|n| n as f64)
+    .map_err(err_msg)
+}
+
+/// Redis `XGROUP CREATE`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_group_create(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+    id: String,
+    mkstream: Option<bool>,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_group_create(
+        &to_params(&connection),
+        &key,
+        &group,
+        &id,
+        mkstream.unwrap_or(false),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+/// Redis `XGROUP DESTROY`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_group_destroy(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_group_destroy(&to_params(&connection), &key, &group)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `XTRIM`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_trim(
+    connection: DbConnectionConfig,
+    key: String,
+    maxlen: f64,
+    approximate: Option<bool>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    omnipanel_db::redis_stream_trim(
+        &to_params(&connection),
+        &key,
+        maxlen as u64,
+        approximate.unwrap_or(true),
+    )
+    .await
+    .map(|n| n as f64)
+    .map_err(err_msg)
+}
+
+/// Redis 清理非活跃 Stream 消费者（转移 Pending + DELCONSUMER）。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_stream_cleanup_inactive_consumers(
+    connection: DbConnectionConfig,
+    key: String,
+    group: String,
+    idle_threshold_ms: f64,
+    target_consumer: Option<String>,
+) -> Result<RedisStreamConsumerCleanupResult, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 Stream".to_string());
+    }
+    redis_stream_cleanup_inactive_consumers(
+        &to_params(&connection),
+        &key,
+        &group,
+        idle_threshold_ms as u64,
+        target_consumer.as_deref(),
+    )
+    .await
+    .map_err(err_msg)
+}
+
+/// Redis `ACL LIST`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_acl_list(
+    connection: DbConnectionConfig,
+) -> Result<Vec<RedisAclUser>, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 ACL".to_string());
+    }
+    omnipanel_db::redis_acl_list(&to_params(&connection))
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `ACL GETUSER`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_acl_getuser(
+    connection: DbConnectionConfig,
+    username: String,
+) -> Result<RedisAclUser, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 ACL".to_string());
+    }
+    omnipanel_db::redis_acl_getuser(&to_params(&connection), &username)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `ACL SETUSER`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_acl_setuser(
+    connection: DbConnectionConfig,
+    username: String,
+    rule: String,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 ACL".to_string());
+    }
+    omnipanel_db::redis_acl_setuser(&to_params(&connection), &username, &rule)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `ACL DELUSER`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_acl_deluser(
+    connection: DbConnectionConfig,
+    username: String,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持 ACL".to_string());
+    }
+    omnipanel_db::redis_acl_deluser(&to_params(&connection), &username)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `HSET`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_hash_set_field(
+    connection: DbConnectionConfig,
+    key: String,
+    field: String,
+    value: String,
+) -> Result<(), String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_hash_set_field(&to_params(&connection), &key, &field, &value)
+        .await
+        .map_err(err_msg)
+}
+
+/// Redis `HDEL`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_hash_del_fields(
+    connection: DbConnectionConfig,
+    key: String,
+    fields: Vec<String>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_hash_del_fields(&to_params(&connection), &key, &fields)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `LPUSH` / `RPUSH`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_list_push(
+    connection: DbConnectionConfig,
+    key: String,
+    side: String,
+    values: Vec<String>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_list_push(&to_params(&connection), &key, &side, &values)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `LREM`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_list_remove(
+    connection: DbConnectionConfig,
+    key: String,
+    count: f64,
+    value: String,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_list_remove(&to_params(&connection), &key, count as i64, &value)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `SADD`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_set_add(
+    connection: DbConnectionConfig,
+    key: String,
+    members: Vec<String>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_set_add(&to_params(&connection), &key, &members)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `SREM`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_set_remove(
+    connection: DbConnectionConfig,
+    key: String,
+    members: Vec<String>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_set_remove(&to_params(&connection), &key, &members)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `ZADD`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_zset_add(
+    connection: DbConnectionConfig,
+    key: String,
+    member: String,
+    score: f64,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_zset_add(&to_params(&connection), &key, &member, score)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `ZREM`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_zset_remove(
+    connection: DbConnectionConfig,
+    key: String,
+    members: Vec<String>,
+) -> Result<f64, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_zset_remove(&to_params(&connection), &key, &members)
+        .await
+        .map(|n| n as f64)
+        .map_err(err_msg)
+}
+
+/// Redis `EXPIRE`。
+#[tauri::command]
+#[specta::specta]
+pub async fn db_redis_expire_key(
+    connection: DbConnectionConfig,
+    key: String,
+    seconds: f64,
+) -> Result<bool, String> {
+    if connection.db_type.to_lowercase() != "redis" {
+        return Err("仅 Redis 连接支持".to_string());
+    }
+    omnipanel_db::redis_expire_key(&to_params(&connection), &key, seconds as i64)
         .await
         .map_err(err_msg)
 }

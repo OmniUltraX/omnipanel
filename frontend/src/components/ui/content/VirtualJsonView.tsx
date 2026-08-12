@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { JsonView, darkStyles, defaultStyles } from "react-json-view-lite";
-import { isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
+import { useMemo } from "react";
+import { JsonView, defaultStyles } from "react-json-view-lite";
 import { getTextSearchMatchIndices } from "../../../lib/textSearchMatch";
 import { cn } from "../../../lib/utils";
 import { useScopedSearchQuery } from "../search/ScopedSearch";
+import "./VirtualJsonView.css";
 
 export interface VirtualJsonViewProps {
   value: object;
@@ -12,22 +12,31 @@ export interface VirtualJsonViewProps {
   expandDepth?: number;
 }
 
-function useJsonViewThemeStyles(): typeof defaultStyles {
-  const [light, setLight] = useState(() => isLightTheme());
-
-  useEffect(() => {
-    const sync = () => setLight(isLightTheme());
-    sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme"],
-    });
-    return () => observer.disconnect();
-  }, []);
-
-  return light ? defaultStyles : darkStyles;
-}
+/** 与应用主题变量对齐的 JSON 树样式（替代库内置 defaultStyles / darkStyles） */
+const OMNI_JSON_VIEW_STYLES: typeof defaultStyles = {
+  container: "json-view-container",
+  basicChildStyle: "json-view-child",
+  childFieldsContainer: "json-view-child-fields",
+  label: "json-view-label",
+  clickableLabel: "json-view-label json-view-label-clickable",
+  nullValue: "json-view-null",
+  undefinedValue: "json-view-undefined",
+  stringValue: "json-view-string",
+  numberValue: "json-view-number",
+  booleanValue: "json-view-boolean",
+  otherValue: "json-view-other",
+  punctuation: "json-view-punctuation",
+  expandIcon: "json-view-expand-icon",
+  collapseIcon: "json-view-collapse-icon",
+  collapsedContent: "json-view-collapsed-content",
+  noQuotesForStringValues: false,
+  quotesForFieldNames: false,
+  ariaLables: {
+    collapseJson: "折叠 JSON",
+    expandJson: "展开 JSON",
+  },
+  stringifyStringValues: false,
+};
 
 /** 子树（含对象键）是否包含搜索匹配，用于搜索时自动展开路径。 */
 function jsonSubtreeContainsQuery(value: unknown, query: string): boolean {
@@ -59,7 +68,6 @@ export function VirtualJsonView({
   className,
   expandDepth = 2,
 }: VirtualJsonViewProps) {
-  const style = useJsonViewThemeStyles();
   const searchQuery = useScopedSearchQuery();
   const needle = searchQuery.trim();
 
@@ -84,7 +92,7 @@ export function VirtualJsonView({
       <JsonView
         key={needle ? `search:${needle}` : "default"}
         data={value}
-        style={style}
+        style={OMNI_JSON_VIEW_STYLES}
         shouldExpandNode={shouldExpandNode}
       />
     </div>

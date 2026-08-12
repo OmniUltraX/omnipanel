@@ -114,6 +114,16 @@ function paintHint(sessionId: string, term: Terminal, text: string): void {
     // 勿覆盖 className：xterm 用自带 class 定位，冲掉会漂到左上角
     element.classList.add("term-passthrough-prompt-hint");
     element.textContent = text;
+    // xterm 内联写入 line-height=cellHeight，相对同行列 prompt 字形会略偏上；
+    // 实测 +2px 与 shell prompt 基线对齐（CSS 压不过内联，须在 onRender 覆盖）
+    const cellH =
+      parseFloat(element.style.height) ||
+      element.offsetHeight ||
+      0;
+    if (cellH > 0) {
+      // 实测 height+2（24→26）与 PS/ bash prompt 基线对齐
+      element.style.lineHeight = `${cellH + 2}px`;
+    }
   });
 
   bySession.set(sessionId, {
