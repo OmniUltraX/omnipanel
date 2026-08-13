@@ -4,6 +4,7 @@ import {
   registerSmallComponentClass,
   type SmallComponentClass,
 } from "../base";
+import { RedisOverviewIcon } from "../widgetIcons";
 import {
   REDIS_OVERVIEW_DB_TYPES,
   REDIS_OVERVIEW_SIZES,
@@ -20,6 +21,7 @@ export class RedisOverviewWidget extends SmallComponentBase {
   static readonly labelKey = "homeWorkspace.widgets.redisOverview.label";
   static readonly descriptionKey =
     "homeWorkspace.widgets.redisOverview.description";
+  static readonly Icon = RedisOverviewIcon;
   static readonly sizes = REDIS_OVERVIEW_SIZES;
   static readonly dataSourceKind = "database" as const;
   static readonly dataSourceDbTypes = REDIS_OVERVIEW_DB_TYPES;
@@ -53,4 +55,4 @@ export class RedisOverviewWidget extends SmallComponentBase {
 }
 
 registerSmallComponentClass(RedisOverviewWidget as unknown as SmallComponentClass);
-
+

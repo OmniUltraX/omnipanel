@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../stores/dbConnectionListStore";
 import {
+  BtJavaProjectTargetSelect,
   DatabaseSchemaTargetSelect,
   DockerTargetSelect,
   getSmallComponent,
@@ -302,14 +303,23 @@ function SmallComponentPicker({
                 onClick={() => onSelect(item.type)}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
-                <span className="home-custom-panel-picker__item-label">
-                  {t(item.labelKey as never)}
+                <span className="home-custom-panel-picker__item-icon" aria-hidden>
+                  {item.icon ? (
+                    <item.icon size={18} />
+                  ) : (
+                    <span className="home-custom-panel-picker__item-icon-fallback" />
+                  )}
                 </span>
-                {item.descriptionKey ? (
-                  <span className="home-custom-panel-picker__item-desc">
-                    {t(item.descriptionKey as never)}
+                <span className="home-custom-panel-picker__item-text">
+                  <span className="home-custom-panel-picker__item-label">
+                    {t(item.labelKey as never)}
                   </span>
-                ) : null}
+                  {item.descriptionKey ? (
+                    <span className="home-custom-panel-picker__item-desc">
+                      {t(item.descriptionKey as never)}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             ))
           )}
@@ -352,6 +362,7 @@ function CustomPanelWidgetChrome({
   );
   const dataSourceKind = def?.dataSourceKind ?? null;
   const dataSourceDbTypes = def?.dataSourceDbTypes ?? null;
+  const dataSourcePanelServiceTypes = def?.dataSourcePanelServiceTypes ?? null;
   const targetKind = def?.targetKind ?? null;
   const typeLabel = def
     ? t(def.labelKey as never)
@@ -372,6 +383,7 @@ function CustomPanelWidgetChrome({
       return target.containerId.slice(0, 12);
     }
     if (target.kind === "database-schema") return target.database;
+    if (target.kind === "bt-java-project") return target.projectName;
     return null;
   }, [liveWidget.target]);
   const displayName = useMemo(() => {
@@ -492,6 +504,7 @@ function CustomPanelWidgetChrome({
               kind={dataSourceKind}
               value={liveWidget.dataSourceId ?? null}
               dbTypes={dataSourceDbTypes}
+              panelServiceTypes={dataSourcePanelServiceTypes}
               borderless={false}
               className="home-custom-panel-widget-edit__control"
               onChange={(dataSourceId) =>
@@ -511,11 +524,22 @@ function CustomPanelWidgetChrome({
                 ? t("homeWorkspace.customPanel.target.container")
                 : targetKind === "docker-compose"
                   ? t("homeWorkspace.customPanel.target.compose")
-                  : t("homeWorkspace.customPanel.target.database")
+                  : targetKind === "bt-java-project"
+                    ? t("homeWorkspace.customPanel.target.javaProject")
+                    : t("homeWorkspace.customPanel.target.database")
             }
           >
             {targetKind === "database-schema" ? (
               <DatabaseSchemaTargetSelect
+                connectionId={liveWidget.dataSourceId ?? null}
+                value={liveWidget.target}
+                className="home-custom-panel-widget-edit__control"
+                onChange={(target) =>
+                  setCustomPanelWidgetTarget(panelId, liveWidget.id, target)
+                }
+              />
+            ) : targetKind === "bt-java-project" ? (
+              <BtJavaProjectTargetSelect
                 connectionId={liveWidget.dataSourceId ?? null}
                 value={liveWidget.target}
                 className="home-custom-panel-widget-edit__control"

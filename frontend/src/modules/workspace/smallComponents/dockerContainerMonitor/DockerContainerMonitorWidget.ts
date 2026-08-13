@@ -4,6 +4,7 @@ import {
   registerSmallComponentClass,
   type SmallComponentClass,
 } from "../base";
+import { DockerMonitorIcon } from "../widgetIcons";
 import {
   DOCKER_CONTAINER_MONITOR_TYPE,
   DOCKER_MONITOR_SIZES,
@@ -20,6 +21,7 @@ export class DockerContainerMonitorWidget extends SmallComponentBase {
     "homeWorkspace.widgets.dockerContainerMonitor.label";
   static readonly descriptionKey =
     "homeWorkspace.widgets.dockerContainerMonitor.description";
+  static readonly Icon = DockerMonitorIcon;
   static readonly sizes = DOCKER_MONITOR_SIZES;
   static readonly dataSourceKind = "docker" as const;
   static readonly targetKind = "docker-container" as const;

@@ -104,6 +104,36 @@ export interface BtJavaProject {
   [key: string]: unknown;
 }
 
+/** get_load_info 解析后的负载 + JVM 关键参数。 */
+export interface BtJavaProjectLoadInfo {
+  /** CPU 占用百分比 0–100（来自 cpu_percent，已是百分比） */
+  cpuPercent: number | null;
+  /** 内存占用百分比 0–100（优先显式百分比；否则 memory_used / -Xmx） */
+  memoryPercent: number | null;
+  /** 已用内存字节（memory_used / memory_info.uss） */
+  memoryUsedBytes: number | null;
+  /** 线程数 */
+  threads: number | null;
+  /** 连接数（connects） */
+  connects: number | null;
+  /** 运行时长（秒） */
+  runningTimeSec: number | null;
+  /** 主进程 PID */
+  pid: number | null;
+  /** -Xmx 堆上限（字节） */
+  heapMaxBytes: number | null;
+  /** -Xms 堆初始（字节） */
+  heapMinBytes: number | null;
+  /** --server.port / 监听端口 */
+  serverPort: number | null;
+  /** --spring.profiles.active */
+  springProfile: string | null;
+  /** -jar 包名（不含路径） */
+  jarName: string | null;
+  /** 原始响应（调试 / 兜底） */
+  raw: unknown;
+}
+
 export interface BtDataListResult<T> {
   data: T[];
   page?: string;

@@ -1,0 +1,211 @@
+/* 由 BtJavaWebsiteMonitorView 直接 import，避免只改 global.css 时 HMR/缓存导致样式未生效 */
+
+.sc-bt-java-mon {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 4px 2px;
+  gap: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.sc-bt-java-mon--empty {
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12px;
+  gap: 4px;
+}
+
+.sc-bt-java-mon__empty-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.sc-bt-java-mon__empty-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.sc-bt-java-mon__status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.sc-bt-java-mon__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--bg-deeper);
+  color: var(--muted);
+}
+
+.sc-bt-java-mon__pill.is-on {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.sc-bt-java-mon__pill.is-off {
+  color: var(--muted);
+}
+
+.sc-bt-java-mon__pill.is-err {
+  color: var(--danger, #e5484d);
+  background: color-mix(in srgb, var(--danger, #e5484d) 12%, transparent);
+}
+
+.sc-bt-java-mon__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  align-content: stretch;
+}
+
+.sc-bt-java-mon__cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-deeper);
+  border-left: 3px solid color-mix(in srgb, var(--meta) 55%, var(--border));
+  box-sizing: border-box;
+}
+
+.sc-bt-java-mon__cell[data-tone="ok"] {
+  border-left-color: var(--success);
+}
+
+.sc-bt-java-mon__cell[data-tone="warn"] {
+  border-left-color: var(--warn);
+}
+
+.sc-bt-java-mon__cell[data-tone="danger"] {
+  border-left-color: var(--danger, #e5484d);
+}
+
+.sc-bt-java-mon__cell-label {
+  font-size: 10px;
+  color: var(--meta);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sc-bt-java-mon__cell-value {
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sc-bt-java-mon__track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 8%, var(--bg-deeper));
+  overflow: hidden;
+  width: 100%;
+}
+
+.sc-bt-java-mon__fill {
+  height: 100%;
+  border-radius: inherit;
+  min-width: 0;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.sc-bt-java-mon__fill[data-tone="ok"] {
+  background: var(--success);
+}
+
+.sc-bt-java-mon__fill[data-tone="warn"] {
+  background: var(--warn);
+}
+
+.sc-bt-java-mon__fill[data-tone="danger"] {
+  background: var(--danger, #e5484d);
+}
+
+.sc-bt-java-mon__idle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sc-bt-java-mon__idle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.sc-bt-java-mon__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  flex-shrink: 0;
+  max-height: 36px;
+  overflow: hidden;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--meta);
+  line-height: 1.3;
+}
+
+.sc-bt-java-mon__meta-item {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-deeper);
+  color: var(--fg-2, var(--fg));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sc-bt-java-mon__meta-item.is-muted {
+  color: var(--meta);
+}
+
+.sc-bt-java-mon__error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--danger, #e5484d);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}

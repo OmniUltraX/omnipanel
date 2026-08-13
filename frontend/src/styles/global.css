@@ -1237,9 +1237,9 @@ select,
 
 .home-custom-panel-picker__item {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: flex-start;
-    gap: 2px;
+    gap: var(--sp-2);
     width: 100%;
     border: 0;
     background: transparent;
@@ -1253,6 +1253,44 @@ select,
 .home-custom-panel-picker__item:hover,
 .home-custom-panel-picker__item.is-active {
     background: var(--bg-hover, var(--bg-deeper));
+}
+
+.home-custom-panel-picker__item-icon {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-top: 1px;
+    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-deeper, var(--bg));
+    color: var(--accent, var(--fg));
+}
+
+.home-custom-panel-picker__item-icon svg,
+.home-custom-panel-picker__item-icon img {
+    display: block;
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+}
+
+.home-custom-panel-picker__item-icon-fallback {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--muted);
+    opacity: 0.45;
+}
+
+.home-custom-panel-picker__item-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
 }
 
 .home-custom-panel-picker__item-label {
@@ -1938,6 +1976,8 @@ select,
     font-size: 11px;
     color: var(--danger, #e5484d);
 }
+
+/* 宝塔 Java 网站监控样式见 btJavaWebsiteMonitor/BtJavaWebsiteMonitorView.css */
 
 .sc-mysql-ov,
 .sc-redis-ov {

@@ -10,6 +10,7 @@ import type {
   SmallComponentController,
   SmallComponentDataSourceKind,
   SmallComponentDefinition,
+  SmallComponentIcon,
   SmallComponentInstanceContext,
   SmallComponentRenderProps,
   SmallComponentSize,
@@ -53,11 +54,15 @@ export interface SmallComponentClass {
   readonly type: string;
   readonly labelKey: string;
   readonly descriptionKey?: string;
+  /** 组件列表左侧图标 */
+  readonly Icon?: SmallComponentIcon;
   readonly sizes: readonly SmallComponentSize[];
   /** 数据源类型；省略则无需选择连接 */
   readonly dataSourceKind?: SmallComponentDataSourceKind;
   /** database 数据源按引擎过滤（如 mysql / mariadb） */
   readonly dataSourceDbTypes?: readonly string[];
+  /** panel 数据源按面板类型过滤（如仅宝塔） */
+  readonly dataSourcePanelServiceTypes?: readonly ("bt" | "1panel")[];
   /** 二级目标类型；省略则无需二级选择 */
   readonly targetKind?: import("./types").SmallComponentTargetKind;
   readonly View: ComponentType<SmallComponentRenderProps>;
@@ -158,9 +163,11 @@ export function definitionFromSmallComponentClass(
     type: Cls.type,
     labelKey: Cls.labelKey,
     descriptionKey: Cls.descriptionKey,
+    icon: Cls.Icon,
     sizes: Cls.sizes,
     dataSourceKind: Cls.dataSourceKind ?? null,
     dataSourceDbTypes: Cls.dataSourceDbTypes,
+    dataSourcePanelServiceTypes: Cls.dataSourcePanelServiceTypes,
     targetKind: Cls.targetKind ?? null,
     component: bindSmallComponentView(Cls),
     createInstance: (ctx) => new Cls(ctx),

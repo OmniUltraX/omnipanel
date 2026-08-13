@@ -4,6 +4,7 @@ import { useI18n } from "../../../i18n";
 import type { Connection } from "../../../ipc/bindings";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../../stores/dbConnectionListStore";
+import { parsePanelConfig } from "../../server/panel/serverConnection";
 import type { SmallComponentDataSourceKind } from "./types";
 
 function connectionSubtitle(conn: Connection): string {
@@ -15,8 +16,10 @@ function connectionSubtitle(conn: Connection): string {
     const port = typeof cfg.port === "number" ? cfg.port : undefined;
     const user = typeof cfg.user === "string" ? cfg.user : undefined;
     const database = typeof cfg.database === "string" ? cfg.database : undefined;
+    const address = typeof cfg.address === "string" ? cfg.address : undefined;
     if (host && user) return `${user}@${host}${port ? `:${port}` : ""}`;
     if (host) return `${host}${port ? `:${port}` : ""}`;
+    if (address) return address;
     if (database) return database;
   } catch {
     // ignore
@@ -44,6 +47,7 @@ function dbConnectionSubtitle(conn: {
 export function useDataSourceOptions(
   kind: SmallComponentDataSourceKind,
   dbTypes?: readonly string[] | null,
+  panelServiceTypes?: readonly ("bt" | "1panel")[] | null,
 ): SelectOption[] {
   const connections = useConnectionStore((s) => s.connections);
   const dbConnections = useDbConnectionListStore((s) => s.connections);
@@ -72,15 +76,27 @@ export function useDataSourceOptions(
         }))
         .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
     }
+    const allowPanel =
+      kind === "panel"
+        ? (panelServiceTypes?.filter(Boolean) ?? [])
+        : [];
     return connections
-      .filter((c) => c.kind === kind)
+      .filter((c) => {
+        if (c.kind !== kind) return false;
+        if (kind !== "panel" || allowPanel.length === 0) return true;
+        try {
+          return allowPanel.includes(parsePanelConfig(c).serviceType);
+        } catch {
+          return false;
+        }
+      })
       .map((c) => ({
         value: c.id,
         label: c.name,
         subtitle: connectionSubtitle(c),
       }))
       .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
-  }, [connections, dbConnections, dbTypes, kind]);
+  }, [connections, dbConnections, dbTypes, kind, panelServiceTypes]);
 }
 
 type Props = {
@@ -93,6 +109,8 @@ type Props = {
   borderless?: boolean;
   /** database 数据源按引擎过滤 */
   dbTypes?: readonly string[] | null;
+  /** panel 数据源按面板类型过滤（如仅宝塔） */
+  panelServiceTypes?: readonly ("bt" | "1panel")[] | null;
 };
 
 /** 小组件：按类型筛选连接作为数据源 */
@@ -104,9 +122,10 @@ export function SmallComponentDataSourceSelect({
   disabled,
   borderless = true,
   dbTypes = null,
+  panelServiceTypes = null,
 }: Props) {
   const { t } = useI18n();
-  const options = useDataSourceOptions(kind, dbTypes);
+  const options = useDataSourceOptions(kind, dbTypes, panelServiceTypes);
 
   const placeholderKey =
     kind === "ssh"
@@ -115,7 +134,9 @@ export function SmallComponentDataSourceSelect({
         ? "homeWorkspace.customPanel.dataSource.placeholderDatabase"
         : kind === "docker"
           ? "homeWorkspace.customPanel.dataSource.placeholderDocker"
-          : "homeWorkspace.customPanel.dataSource.placeholder";
+          : kind === "panel"
+            ? "homeWorkspace.customPanel.dataSource.placeholderPanel"
+            : "homeWorkspace.customPanel.dataSource.placeholder";
 
   return (
     <Select

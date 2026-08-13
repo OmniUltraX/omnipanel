@@ -1,6 +1,12 @@
 import type { ComponentType } from "react";
 import type { ConnectionKind } from "../../../ipc/bindings";
 
+/** 小组件列表 / 标题旁图标 */
+export type SmallComponentIcon = ComponentType<{
+  size?: number;
+  className?: string;
+}>;
+
 /** 小组件栅格尺寸（12 列体系）；可作唯一尺寸，也可作多预设之一 */
 export interface SmallComponentSize {
   /** 预设 id（多尺寸时用于区分；单尺寸可省略） */
@@ -53,11 +59,13 @@ export interface SmallComponentRenderProps extends SmallComponentInstanceContext
  * - docker-container：具体容器
  * - docker-compose：Compose 项目
  * - database-schema：具体业务库（磁盘占用等按库统计）
+ * - bt-java-project：宝塔 Java 项目（get_load_info）
  */
 export type HomeCustomPanelWidgetTarget =
   | { kind: "docker-container"; containerId: string }
   | { kind: "docker-compose"; composeProject: string }
-  | { kind: "database-schema"; database: string };
+  | { kind: "database-schema"; database: string }
+  | { kind: "bt-java-project"; projectName: string };
 
 /** 定义侧声明的二级目标类型（驱动编辑表单） */
 export type SmallComponentTargetKind =
@@ -70,6 +78,8 @@ export interface SmallComponentDefinition {
   /** i18n key；UI 层用 t() 解析 */
   labelKey: string;
   descriptionKey?: string;
+  /** 组件列表左侧图标 */
+  icon?: SmallComponentIcon;
   /**
    * 支持的尺寸预设（至少一个）。
    * 添加到画布时默认使用第一项；min/max 约束可取全体预设并集。
@@ -85,6 +95,10 @@ export interface SmallComponentDefinition {
    * 值小写比较（mysql / mariadb）。
    */
   dataSourceDbTypes?: readonly string[];
+  /**
+   * 当 dataSourceKind 为 panel 时，可按面板类型过滤（如仅宝塔）。
+   */
+  dataSourcePanelServiceTypes?: readonly ("bt" | "1panel")[];
   /**
    * 二级目标：Docker 连接选定后再选容器 / Compose 项目。
    */

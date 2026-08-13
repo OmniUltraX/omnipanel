@@ -5,6 +5,7 @@ import {
   registerSmallComponentClass,
   type SmallComponentClass,
 } from "../base";
+import { ServerResourceMonitorIcon } from "../widgetIcons";
 import {
   SERVER_RESOURCE_MONITOR_SIZES,
   SERVER_RESOURCE_MONITOR_TYPE,
@@ -21,6 +22,7 @@ export class ServerResourceMonitorWidget extends SmallComponentBase {
   static readonly labelKey = "homeWorkspace.widgets.serverResourceMonitor.label";
   static readonly descriptionKey =
     "homeWorkspace.widgets.serverResourceMonitor.description";
+  static readonly Icon = ServerResourceMonitorIcon;
   static readonly sizes = SERVER_RESOURCE_MONITOR_SIZES;
   static readonly dataSourceKind = "ssh" as const;
   static readonly View = ServerResourceMonitorView;

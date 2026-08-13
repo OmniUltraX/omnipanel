@@ -43,6 +43,7 @@ export {
   type BtInstalledAppsResult,
   type BtJavaProject,
   type BtJavaProjectListParams,
+  type BtJavaProjectLoadInfo,
   type BtSoftItem,
   type BtSoftListParams,
   type BtSoftListResult,
@@ -62,6 +63,7 @@ export {
   createBtPanelClient,
   type BtPanelClientOptions,
 } from "./client";
+export { parseBtJavaProjectLoadInfo, parseJvmRuntimeHints, parseJvmSizeArg } from "./javaLoadInfo";
 export {
   fetchBtMergedWebsiteList,
   isPidInfoPresent,

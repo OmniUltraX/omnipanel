@@ -31,6 +31,7 @@ import {
   type BtInstalledAppsResult,
   type BtJavaProject,
   type BtJavaProjectListParams,
+  type BtJavaProjectLoadInfo,
   type BtSoftItem,
   type BtSoftListParams,
   type BtSoftListResult,
@@ -43,6 +44,7 @@ import {
   type BtSystemTotal,
   type BtWebsiteListParams,
 } from "./types";
+import { parseBtJavaProjectLoadInfo } from "./javaLoadInfo";
 
 export interface BtPanelClientOptions {
   host: string;
@@ -91,7 +93,8 @@ function parseResponseText<T>(text: string, tolerateFalseStatus = false): T {
           trimmed.slice(0, 300),
         );
       }
-      if (typeof obj.code === "number" && obj.code !== 0) {
+      // tolerate 时同步放行非 0 code（部分接口成功也会带 code/msg:"success"）
+      if (typeof obj.code === "number" && obj.code !== 0 && !tolerateFalseStatus) {
         throw new BtPanelApiError(
           enrichBtPanelErrorMessage(obj.msg?.trim() || `宝塔 API 错误 (${obj.code})`),
           obj.code,
@@ -330,6 +333,86 @@ export class BtPanelClient {
         page: payload.page,
       };
     }
+  }
+
+  /**
+   * 官方文档：`/mod/java/project/get_load_info/stype`
+   * @see https://docs.bt.cn/api/java/get_load_info
+   *
+   * 获取运行中 Java 项目的 CPU / 内存；优先 `/stype`，失败回退无后缀。
+   */
+  async getJavaProjectLoadInfo(projectName: string): Promise<BtJavaProjectLoadInfo> {
+    const name = projectName.trim();
+    if (!name) {
+      throw new BtPanelApiError("项目名称为空", 0);
+    }
+    const body = { data: JSON.stringify({ project_name: name }) };
+    const attempts: Array<{
+      path: string;
+      params: Record<string, string | number | boolean | undefined | null>;
+    }> = [
+      { path: "/mod/java/project/get_load_info/stype", params: body },
+      { path: "/mod/java/project/get_load_info", params: body },
+      {
+        path: "/mod/java/project/get_load_info/stype",
+        params: { project_name: name },
+      },
+    ];
+
+    let lastError: unknown = null;
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i]!;
+      console.debug("[bt-java-load] request", {
+        projectName: name,
+        attempt: i + 1,
+        path: attempt.path,
+        params: attempt.params,
+      });
+      try {
+        const payload = await this.request<unknown>({
+          path: attempt.path,
+          params: attempt.params,
+          tolerateFalseStatus: true,
+        });
+        console.debug("[bt-java-load] raw response", {
+          projectName: name,
+          attempt: i + 1,
+          path: attempt.path,
+          payload,
+        });
+        const parsed = parseBtJavaProjectLoadInfo(payload);
+        console.debug("[bt-java-load] parsed", {
+          projectName: name,
+          attempt: i + 1,
+          cpuPercent: parsed.cpuPercent,
+          memoryPercent: parsed.memoryPercent,
+          memoryUsedBytes: parsed.memoryUsedBytes,
+        });
+        return parsed;
+      } catch (error) {
+        lastError = error;
+        console.warn("[bt-java-load] attempt failed", {
+          projectName: name,
+          attempt: i + 1,
+          path: attempt.path,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message, cause: (error as BtPanelApiError).body }
+              : error,
+        });
+        if (!(error instanceof BtPanelApiError)) throw error;
+      }
+    }
+    console.error("[bt-java-load] all attempts failed", {
+      projectName: name,
+      error:
+        lastError instanceof Error
+          ? { name: lastError.name, message: lastError.message }
+          : lastError,
+    });
+    throw lastError instanceof Error
+      ? lastError
+      : new BtPanelApiError("获取 Java 项目负载失败", 0);
   }
 
   /** /site?action=get_site_types — 网站分类。 */

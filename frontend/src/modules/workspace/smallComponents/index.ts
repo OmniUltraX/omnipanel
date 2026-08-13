@@ -5,6 +5,7 @@ export type {
   SmallComponentDataSourceKind,
   SmallComponentDefaultSize,
   SmallComponentDefinition,
+  SmallComponentIcon,
   SmallComponentInstanceContext,
   SmallComponentRenderProps,
   SmallComponentSize,
@@ -53,6 +54,10 @@ export {
 } from "./widgetScale";
 export { formatWidgetSizeLabel, resolveWidgetSizeId } from "./formatWidgetSizeLabel";
 export {
+  BtJavaProjectTargetSelect,
+  type BtJavaProjectTargetSelectProps,
+} from "./BtJavaProjectTargetSelect";
+export {
   DatabaseSchemaTargetSelect,
   type DatabaseSchemaTargetSelectProps,
 } from "./DatabaseSchemaTargetSelect";
@@ -67,3 +72,4 @@ import "./dockerContainerMonitor/DockerContainerMonitorWidget";
 import "./dockerComposeMonitor/DockerComposeMonitorWidget";
 import "./mysqlOverview/MysqlOverviewWidget";
 import "./redisOverview/RedisOverviewWidget";
+import "./btJavaWebsiteMonitor/BtJavaWebsiteMonitorWidget";

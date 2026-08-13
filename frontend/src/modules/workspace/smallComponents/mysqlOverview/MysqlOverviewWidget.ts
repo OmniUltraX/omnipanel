@@ -4,6 +4,7 @@ import {
   registerSmallComponentClass,
   type SmallComponentClass,
 } from "../base";
+import { MysqlOverviewIcon } from "../widgetIcons";
 import {
   MYSQL_OVERVIEW_DB_TYPES,
   MYSQL_OVERVIEW_SIZES,
@@ -19,6 +20,7 @@ export class MysqlOverviewWidget extends SmallComponentBase {
   static readonly type = MYSQL_OVERVIEW_TYPE;
   static readonly labelKey = "homeWorkspace.widgets.mysqlOverview.label";
   static readonly descriptionKey = "homeWorkspace.widgets.mysqlOverview.description";
+  static readonly Icon = MysqlOverviewIcon;
   static readonly sizes = MYSQL_OVERVIEW_SIZES;
   static readonly dataSourceKind = "database" as const;
   static readonly dataSourceDbTypes = MYSQL_OVERVIEW_DB_TYPES;

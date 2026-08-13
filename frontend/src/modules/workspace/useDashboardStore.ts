@@ -101,6 +101,10 @@ function sanitizeWidgetTarget(raw: unknown): HomeCustomPanelWidgetTarget | undef
     const database = rec.database.trim();
     if (database) return { kind: "database-schema", database };
   }
+  if (rec.kind === "bt-java-project" && typeof rec.projectName === "string") {
+    const projectName = rec.projectName.trim();
+    if (projectName) return { kind: "bt-java-project", projectName };
+  }
   return undefined;
 }
 
@@ -665,7 +669,10 @@ export const useDashboardStore = create<DashboardState>()(
               prev.target.composeProject === nextTarget.composeProject) ||
             (prev.target?.kind === "database-schema" &&
               nextTarget?.kind === "database-schema" &&
-              prev.target.database === nextTarget.database);
+              prev.target.database === nextTarget.database) ||
+            (prev.target?.kind === "bt-java-project" &&
+              nextTarget?.kind === "bt-java-project" &&
+              prev.target.projectName === nextTarget.projectName);
           if (same) return state;
           const widgets = panel.widgets.slice();
           widgets[idx] = { ...prev, target: nextTarget };
