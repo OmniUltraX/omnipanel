@@ -43,8 +43,8 @@ pub async fn run_db_data_sync_analysis(
         ignored_fields,
         cancel,
         progress,
-    )
-    .await
+                )
+                .await
 }
 
 pub async fn run_db_schema_sync_analysis(
@@ -65,7 +65,7 @@ pub async fn run_db_schema_sync_analysis(
         cancel,
         progress,
     )
-    .await
+        .await
 }
 
 pub async fn run_db_data_sync_execute(
@@ -86,7 +86,7 @@ pub async fn run_db_data_sync_execute(
         cancel,
         progress,
     )
-    .await
+        .await
 }
 
 pub async fn run_db_schema_sync_execute(
@@ -155,9 +155,9 @@ pub async fn preview_schema_sync_sql(
         source_db,
         target_db,
         tables,
-        create_missing_tables,
-    )
-    .await
+            create_missing_tables,
+        )
+        .await
 }
 
 pub async fn batch_table_ddl(

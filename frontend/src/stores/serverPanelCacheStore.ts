@@ -46,7 +46,8 @@ function toMeta(server: ServerPanelCacheServerMeta): ServerPanelCacheServerMeta 
     id: server.id,
     name: server.name,
     address: server.address,
-    key: server.key,
+    // 明文只存 Vault；缓存/内存一律空，客户端按 id 回源，避免残留错误密钥触发「密钥检验失败」
+    key: "",
     serviceType: server.serviceType,
     createdAt: server.createdAt,
   };
@@ -242,7 +243,7 @@ export const useServerPanelCacheStore = create<ServerPanelCacheState>()(
       name: "omnipanel-server-panel-cache.v1",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        panelServers: state.panelServers,
+        panelServers: state.panelServers.map((s) => ({ ...s, key: "" })),
         resourcesByServerId: state.resourcesByServerId,
       }),
       merge: (persisted, current) => {

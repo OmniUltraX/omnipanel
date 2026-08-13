@@ -4,7 +4,7 @@ import { FormDialog } from "../../../components/ui/form/FormDialog";
 import { PasswordInput } from "../../../components/ui/form/PasswordInput";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
-import { createBtPanelClient, BtPanelApiError } from "../../../lib/btpanel";
+import { createBtPanelClient, BtPanelApiError, clearBtPanelLockout } from "../../../lib/btpanel";
 import { createOnePanelClient } from "../../../lib/onepanel";
 import type { Connection } from "../../../ipc/bindings";
 import {
@@ -65,35 +65,46 @@ export function ServerConnectionDialog({
   const validate = (): string | null => {
     if (!form.name.trim()) return t("server.create.nameRequired");
     if (!form.panelAddress.trim()) return t("server.create.addressRequired");
-    if (!form.panelKey.trim()) return t("server.create.keyRequired");
+    // 编辑时可留空密钥（保留 Vault）；新建必须填写
+    if (!isEdit && !form.panelKey.trim()) return t("server.create.keyRequired");
     return null;
   };
 
   const handleTestPanel = async () => {
-    if (!form.panelAddress.trim() || !form.panelKey.trim()) {
+    if (!form.panelAddress.trim()) {
       setPanelStatus({
         kind: "error",
-        message: !form.panelAddress.trim()
-          ? t("server.create.addressRequired")
-          : t("server.create.keyRequired"),
+        message: t("server.create.addressRequired"),
+      });
+      return;
+    }
+    const inlineKey = form.panelKey.trim();
+    if (!inlineKey && !editPanelConnection?.id) {
+      setPanelStatus({
+        kind: "error",
+        message: t("server.create.keyRequired"),
       });
       return;
     }
     setTestingPanel(true);
     setPanelStatus({ kind: "info", message: t("server.create.testing") });
     try {
+      // 编辑留空：走 connectionId → Vault；新建/改密钥：用表单明文
+      const connectionId = inlineKey ? undefined : editPanelConnection?.id;
+      const address = form.panelAddress.trim();
+      clearBtPanelLockout(address);
       if (form.serviceType === "1panel") {
-        const client = createOnePanelClient(form.panelAddress.trim(), form.panelKey.trim());
+        const client = createOnePanelClient(address, inlineKey, connectionId);
         const info = await client.getDeviceBase();
-        const hostname = info.hostname ?? form.panelAddress.trim();
+        const hostname = info.hostname ?? address;
         setPanelStatus({
           kind: "success",
           message: t("server.create.testSuccess", { hostname }),
         });
       } else {
-        const client = createBtPanelClient(form.panelAddress.trim(), form.panelKey.trim());
+        const client = createBtPanelClient(address, inlineKey, connectionId);
         const info = await client.getSystemTotal();
-        const hostname = info.system ?? info.version ?? form.panelAddress.trim();
+        const hostname = info.system ?? info.version ?? address;
         setPanelStatus({
           kind: "success",
           message: t("server.create.testSuccess", { hostname }),
@@ -142,6 +153,9 @@ export function ServerConnectionDialog({
   };
 
   const footerStatus = error ? { kind: "error" as const, message: error } : panelStatus;
+  const canTest =
+    Boolean(form.panelAddress.trim()) &&
+    (Boolean(form.panelKey.trim()) || Boolean(editPanelConnection?.id));
 
   return (
     <FormDialog
@@ -156,7 +170,7 @@ export function ServerConnectionDialog({
         {
           label: testingPanel ? t("server.create.testing") : t("server.create.test"),
           variant: "ghost",
-          disabled: saving || testingPanel || !form.panelAddress.trim() || !form.panelKey.trim(),
+          disabled: saving || testingPanel || !canTest,
           onClick: () => void handleTestPanel(),
         },
       ]}
@@ -190,8 +204,13 @@ export function ServerConnectionDialog({
           copyable
           value={form.panelKey}
           onChange={(value) => update("panelKey", value)}
-          placeholder="••••••••"
+          placeholder={
+            isEdit ? t("server.create.keyPlaceholderEdit") : "••••••••"
+          }
         />
+        {isEdit ? (
+          <p className="form-hint">{t("server.create.keyEditHint")}</p>
+        ) : null}
       </div>
 
       <div className="form-field">

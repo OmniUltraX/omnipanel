@@ -25,7 +25,8 @@ export function connectionToServerEntry(connection: Connection): ServerEntry {
     id: connection.id,
     name: connection.name,
     address: cfg.address,
-    key: cfg.key,
+    // 密钥在 Vault；业务路径通过 connectionId 回源，不依赖此处明文
+    key: "",
     serviceType: cfg.serviceType,
     createdAt: connection.createdAt ?? Date.now(),
   };

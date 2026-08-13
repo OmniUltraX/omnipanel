@@ -42,6 +42,11 @@ pub async fn panel_resolve_api_key(
     let key = conn
         .credential_ref
         .as_deref()
+        .filter(|r| {
+            r.starts_with("panel-key-")
+                || r.starts_with("docker-btpanel-")
+                || r.starts_with("docker-onepanel-")
+        })
         .and_then(|r| Vault::get(r).ok())
         .or_else(|| Vault::get(&format!("panel-key-{connection_id}")).ok())
         .unwrap_or_default();
@@ -49,7 +54,7 @@ pub async fn panel_resolve_api_key(
     if key.trim().is_empty() {
         return Err(OmniError::invalid_input("panel API key not found, please re-save the connection"));
     }
-    Ok(key)
+    Ok(key.trim().to_string())
 }
 
 /// Generic 1Panel API request (issued from the Rust backend to avoid WebView CORS).

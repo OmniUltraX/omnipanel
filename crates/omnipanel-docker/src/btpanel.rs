@@ -35,7 +35,7 @@ use crate::{
 };
 
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
-const AUTH_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+const AUTH_COOLDOWN: Duration = Duration::from_secs(15);
 
 /// 按面板 origin 熔断，避免鉴权失败后轮询/重试继续打验证计数。
 static AUTH_GATES: LazyLock<Mutex<std::collections::HashMap<String, (Instant, String)>>> =

@@ -6,6 +6,7 @@ export {
 export {
   assertBtPanelNotLocked,
   clearBtPanelLockout,
+  enrichBtPanelAuthMessage,
   getBtPanelLockout,
   isBtPanelAuthFailureMessage,
   isBtPanelLockoutMessage,
@@ -40,6 +41,8 @@ export {
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
+  type BtJavaProject,
+  type BtJavaProjectListParams,
   type BtSoftItem,
   type BtSoftListParams,
   type BtSoftListResult,
@@ -59,6 +62,12 @@ export {
   createBtPanelClient,
   type BtPanelClientOptions,
 } from "./client";
+export {
+  fetchBtMergedWebsiteList,
+  isPidInfoPresent,
+  javaProjectRunStatus,
+  mergeBtSitesWithJavaProjects,
+} from "./websites";
 export {
   btDockerAppIconPath,
   btDockerAppIconUrl,

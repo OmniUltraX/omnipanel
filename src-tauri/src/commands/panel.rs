@@ -29,6 +29,11 @@ pub async fn panel_resolve_api_key(
     let key = conn
         .credential_ref
         .as_deref()
+        .filter(|r| {
+            r.starts_with("panel-key-")
+                || r.starts_with("docker-btpanel-")
+                || r.starts_with("docker-onepanel-")
+        })
         .and_then(|r| Vault::get(r).ok())
         .or_else(|| Vault::get(&format!("panel-key-{connection_id}")).ok())
         .unwrap_or_default();
@@ -36,7 +41,7 @@ pub async fn panel_resolve_api_key(
     if key.trim().is_empty() {
         return Err(OmniError::invalid_input("未找到面板 API 密钥，请重新保存连接"));
     }
-    Ok(key)
+    Ok(key.trim().to_string())
 }
 
 /// 通用 1Panel API 请求（由 Rust 后端发起，避免 WebView CORS）。

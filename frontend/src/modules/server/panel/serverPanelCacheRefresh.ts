@@ -1,6 +1,7 @@
 import {
   btDockerAppIconPath,
   createBtPanelClient,
+  fetchBtMergedWebsiteList,
   isBtPanelAuthFailureMessage,
   type BtDockerApp,
   type BtInstalledApp,
@@ -181,9 +182,8 @@ export async function fetchServerPanelResources(
       const errors: string[] = [];
       let websites: Record<string, unknown>[] = [];
       try {
-        const site = await client.getWebsiteList({ limit: 200, type: -1 });
-        const raw = site.data as unknown;
-        websites = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+        // sites + 官方 Java project_list 合并（进程运行态以后者为准）
+        websites = await fetchBtMergedWebsiteList(client, { limit: 200, type: -1 });
       } catch (err) {
         errors.push(`网站：${formatError(err)}`);
         if (isBtPanelAuthFailureMessage(formatError(err))) {

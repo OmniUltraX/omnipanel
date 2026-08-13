@@ -178,8 +178,13 @@ export class OnePanelClient {
   }
 
   private async resolveApiKey(): Promise<string> {
-    if (this.apiKey.trim()) return this.apiKey;
+    // 构造时明文优先；空则回源 Vault
+    const inline = this.apiKey.trim();
+    if (inline) return inline;
     if (!this.connectionId) {
+      throw new OnePanelApiError("缺少 1Panel API 密钥", 0);
+    }
+    if (!canUseIpcBackend()) {
       throw new OnePanelApiError("缺少 1Panel API 密钥", 0);
     }
     if (!this.resolvePromise) {
@@ -188,9 +193,16 @@ export class OnePanelClient {
         if (result.status === "error") {
           throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
         }
-        this.apiKey = result.data;
-        return this.apiKey;
-      })();
+        const fromVault = result.data.trim();
+        if (!fromVault) {
+          throw new OnePanelApiError("缺少 1Panel API 密钥", 0);
+        }
+        this.apiKey = fromVault;
+        return fromVault;
+      })().catch((err) => {
+        this.resolvePromise = null;
+        throw err;
+      });
     }
     return this.resolvePromise;
   }

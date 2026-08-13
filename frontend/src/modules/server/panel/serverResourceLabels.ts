@@ -1,3 +1,4 @@
+import { isPidInfoPresent } from "../../../lib/btpanel";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerDetailTab } from "./serverSidebarNav";
 
@@ -85,25 +86,24 @@ export function websiteRowGroupId(row: Record<string, unknown>): string | null {
   return null;
 }
 
-/** 是否为运行中状态（用于启停按钮） */
-export function isWebsiteRunning(status: string): boolean {
-  const lower = status.trim().toLowerCase();
-  return (
-    lower === "running" ||
-    lower === "start" ||
-    lower === "started" ||
-    lower === "active" ||
-    lower === "online" ||
-    lower === "up" ||
-    lower === "healthy" ||
-    lower.includes("运行") ||
-    lower.includes("启动")
-  );
-}
-
-/** 是否为已停止状态 */
+/** 是否为已停止状态（优先于运行中判定，避免「未启动」被 includes(启动) 误判） */
 export function isWebsiteStopped(status: string): boolean {
   const lower = status.trim().toLowerCase();
+  if (!lower || lower === "—" || lower === "-" || lower === "unknown" || lower === "n/a") {
+    return false;
+  }
+  // 中文否定式优先
+  if (
+    lower === "未启动" ||
+    lower === "未运行" ||
+    lower === "已停止" ||
+    lower === "已关闭" ||
+    lower === "已停用" ||
+    lower === "停用" ||
+    (lower.startsWith("未") && (lower.includes("启动") || lower.includes("运行")))
+  ) {
+    return true;
+  }
   return (
     lower === "stopped" ||
     lower === "stop" ||
@@ -111,8 +111,46 @@ export function isWebsiteStopped(status: string): boolean {
     lower === "down" ||
     lower === "exited" ||
     lower === "inactive" ||
+    lower === "disable" ||
+    lower === "disabled" ||
+    lower === "0" ||
+    lower === "false" ||
+    lower === "no" ||
+    lower === "off" ||
     lower.includes("停止") ||
-    lower.includes("关闭")
+    lower.includes("关闭") ||
+    lower.includes("禁用") ||
+    lower.includes("停用")
+  );
+}
+
+/** 是否为运行中状态（用于启停按钮） */
+export function isWebsiteRunning(status: string): boolean {
+  // 停止态优先，防止「未启动」等否定文案命中「启动/运行」子串
+  if (isWebsiteStopped(status)) return false;
+  const lower = status.trim().toLowerCase();
+  return (
+    lower === "running" ||
+    lower === "normal" || // 1Panel PHP 站点运行态
+    lower === "start" ||
+    lower === "started" ||
+    lower === "active" ||
+    lower === "online" ||
+    lower === "up" ||
+    lower === "healthy" ||
+    lower === "enable" ||
+    lower === "enabled" ||
+    lower === "1" ||
+    lower === "true" ||
+    lower === "yes" ||
+    lower === "on" ||
+    lower === "运行" ||
+    lower === "运行中" ||
+    lower === "已启动" ||
+    lower === "启用" ||
+    lower.includes("运行") ||
+    lower.includes("启动") ||
+    lower.includes("启用")
   );
 }
 
@@ -144,8 +182,17 @@ export function websiteSslId(row: Record<string, unknown>): number | null {
   return null;
 }
 
+/**
+ * 规范化网站运行状态展示文案。
+ * - 宝塔 sites.status：'1' / '0'（或数字）
+ * - 1Panel：Running / Stopped；创建态可能出现 normal / running
+ */
 export function websiteRowStatus(row: Record<string, unknown>): string {
-  const raw = row.status ?? row.appStatus;
+  // 宝塔 Java project_list：pid_info 为空=未启动，非空=已启动
+  if ("pid_info" in row) {
+    return isPidInfoPresent(row.pid_info) ? "Running" : "Stopped";
+  }
+  const raw = row.status ?? row.appStatus ?? row.run_status ?? row.runStatus;
   if (raw == null || raw === "") return "—";
   if (typeof raw === "boolean") return raw ? "Running" : "Stopped";
   if (typeof raw === "number") {
@@ -153,9 +200,10 @@ export function websiteRowStatus(row: Record<string, unknown>): string {
     if (raw === 0) return "Stopped";
   }
   const text = String(raw).trim();
-  if (text === "1") return "Running";
-  if (text === "0") return "Stopped";
-  return text || "—";
+  if (!text) return "—";
+  if (isWebsiteStopped(text)) return "Stopped";
+  if (isWebsiteRunning(text)) return "Running";
+  return text;
 }
 
 /** 网站状态 → badge 色调（success / warn / danger / accent / muted） */
@@ -164,36 +212,12 @@ export function websiteStatusBadgeClass(status: string): string {
   if (!lower || lower === "—" || lower === "-" || lower === "unknown" || lower === "n/a") {
     return "badge badge-muted";
   }
-  if (
-    lower === "running" ||
-    lower === "start" ||
-    lower === "started" ||
-    lower === "active" ||
-    lower === "online" ||
-    lower === "up" ||
-    lower === "healthy" ||
-    lower === "enable" ||
-    lower === "enabled" ||
-    lower.includes("运行") ||
-    lower.includes("启动") ||
-    lower.includes("启用")
-  ) {
-    return "badge badge-success";
-  }
-  if (
-    lower === "stopped" ||
-    lower === "stop" ||
-    lower === "offline" ||
-    lower === "down" ||
-    lower === "exited" ||
-    lower === "inactive" ||
-    lower === "disable" ||
-    lower === "disabled" ||
-    lower.includes("停止") ||
-    lower.includes("关闭") ||
-    lower.includes("禁用")
-  ) {
+  // 与 isWebsite* 同一判定顺序，避免「未启动」被当成成功态
+  if (isWebsiteStopped(status)) {
     return "badge badge-danger";
+  }
+  if (isWebsiteRunning(status)) {
+    return "badge badge-success";
   }
   if (
     lower === "starting" ||
@@ -201,7 +225,6 @@ export function websiteStatusBadgeClass(status: string): string {
     lower === "pending" ||
     lower === "busy" ||
     lower === "installing" ||
-    lower.includes("中") ||
     lower.includes("等待")
   ) {
     return "badge badge-warn";

@@ -156,6 +156,10 @@ export function ServerPanelTreeSidebar({
     (s) => s.syncPanelServersFromConnections,
   );
   const refreshAllResources = useServerPanelCacheStore((s) => s.refreshAllResources);
+  const refreshServer = useServerPanelCacheStore((s) => s.refreshServer);
+  const refreshServerApps = useServerPanelCacheStore((s) => s.refreshServerApps);
+  const isServerRefreshing = useServerPanelCacheStore((s) => s.isServerRefreshing);
+  const isServerAppsRefreshing = useServerPanelCacheStore((s) => s.isServerAppsRefreshing);
   const cacheRefreshing = useServerPanelCacheStore((s) => s.refreshing);
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
@@ -175,6 +179,18 @@ export function ServerPanelTreeSidebar({
       await refreshAllResources(panelServers);
     })();
   }, [refreshAllResources, refreshConnections, syncPanelServersFromConnections]);
+
+  const handleRefreshServer = useCallback(
+    (server: ServerEntry) => {
+      void (async () => {
+        await refreshServer(server);
+        if (server.serviceType === "1panel" || server.serviceType === "bt") {
+          await refreshServerApps(server);
+        }
+      })();
+    },
+    [refreshServer, refreshServerApps],
+  );
 
   const handleSyncFromSsh = useCallback(() => {
     void (async () => {
@@ -349,6 +365,9 @@ export function ServerPanelTreeSidebar({
             const serverKey = makeServerTreeKey(server.id);
             const serverExpanded = isExpanded(serverKey);
             const iconKind = serverTreeIconKindForPanel(server.serviceType);
+            const supportsResources = serverSupportsResources(server);
+            const serverRefreshing =
+              isServerRefreshing(server.id) || isServerAppsRefreshing(server.id);
             return (
               <div key={server.id} className="server-tree-server">
                 <SidebarTreeNode
@@ -379,6 +398,12 @@ export function ServerPanelTreeSidebar({
                   onToggle={() => toggle(serverKey)}
                   onActivate={() => onNavigate({ serverId: server.id }, "permanent")}
                   onContextMenu={(event) => handleContextMenu(event, server)}
+                  onRefresh={
+                    supportsResources ? () => handleRefreshServer(server) : undefined
+                  }
+                  refreshing={serverRefreshing}
+                  refreshDisabled={connectionsLoading || cacheRefreshing || syncingFromSsh}
+                  refreshTitle={t("server.sidebar.refreshPanel")}
                 />
                 <ServerTreeBranch
                   server={server}

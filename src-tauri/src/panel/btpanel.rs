@@ -18,7 +18,7 @@ static ENTRANCES: LazyLock<Mutex<HashMap<String, Option<String>>>> =
 static AUTH_GATES: LazyLock<Mutex<HashMap<String, (Instant, String)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-const AUTH_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+const AUTH_COOLDOWN: Duration = Duration::from_secs(15);
 
 fn gate_key(base: &str) -> String {
     base.trim().trim_end_matches('/').to_ascii_lowercase()
@@ -76,9 +76,11 @@ fn trip_auth_failure(base: &str, message: &str) {
     if !is_bt_auth_or_lockout_message(message) {
         return;
     }
+    let enriched = enrich_auth_message(message);
     let until = if is_bt_lockout_message(message) {
         Instant::now() + parse_lockout_duration(message)
     } else {
+        // 普通密钥/IP 失败仅短冷却，避免挡住用户改密钥或改白名单后立刻重试
         Instant::now() + AUTH_COOLDOWN
     };
     let key = gate_key(base);
@@ -88,8 +90,21 @@ fn trip_auth_failure(base: &str, message: &str) {
                 return;
             }
         }
-        map.insert(key, (until, message.trim().to_string()));
+        map.insert(key, (until, enriched));
     }
+}
+
+fn enrich_auth_message(message: &str) -> String {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return "宝塔 API 鉴权失败".to_string();
+    }
+    if trimmed.contains("密钥校验失败") || trimmed.contains("接口密钥错误") {
+        return format!(
+            "{trimmed}。若密钥确认无误，请检查：① 面板地址是否为 https://主机:端口；② IP 白名单是否包含本机出口 IP（可临时填 *）；③ 是否刚触发过验证失败熔断（请等待数秒后重试）。"
+        );
+    }
+    trimmed.to_string()
 }
 
 fn clear_auth_gate(base: &str) {
@@ -268,6 +283,9 @@ pub async fn request(
 
 /// 连通性测试（官方文档：/system?action=GetSystemTotal）。
 pub async fn test_connection(host: &str, api_sk: &str) -> Result<Value, OmniError> {
+    let base = normalize_base_url(host)?;
+    // 手动测试前清熔断，允许用户改密钥/白名单后立即重试
+    clear_auth_gate(&base);
     request(host, api_sk, "/system?action=GetSystemTotal", None).await
 }
 

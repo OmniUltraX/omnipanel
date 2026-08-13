@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import {
   IconFile,
@@ -21,7 +22,7 @@ import {
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
 } from "../../../database/workspace/DbTablesPanelGrid";
-import { createBtPanelClient } from "../../../../lib/btpanel";
+import { createBtPanelClient, fetchBtMergedWebsiteList } from "../../../../lib/btpanel";
 import { createOnePanelClient } from "../../../../lib/onepanel";
 import type { ServerEntry } from "../serverConnection";
 import { useServerWebsites } from "../useServerWebsites";
@@ -144,7 +145,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<"" | "running" | "stopped">("");
   const [sslFilter, setSslFilter] = useState<"" | "yes" | "no" | "expired">("");
   const [remoteRows, setRemoteRows] = useState<Record<string, unknown>[] | null>(null);
@@ -157,7 +158,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
 
   useEffect(() => {
     setGroupFilter("");
-    setTypeFilter("");
+    setTypeFilters([]);
     setStatusFilter("");
     setSslFilter("");
     setSearchInput("");
@@ -198,18 +199,13 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           const client = createBtPanelClient(server.address, server.key, server.id);
           const typeId =
             groupFilter && /^-?\d+$/.test(groupFilter) ? Number(groupFilter) : -1;
-          const result = await client.getWebsiteList({
+          const websites = await fetchBtMergedWebsiteList(client, {
             limit: 200,
             type: typeId,
             search: searchQuery || undefined,
           });
           if (cancelled) return;
-          const enriched = enrichWebsitesWithGroups(
-            Array.isArray(result.data)
-              ? (result.data as unknown as Record<string, unknown>[])
-              : [],
-            siteGroups ?? [],
-          );
+          const enriched = enrichWebsitesWithGroups(websites, siteGroups ?? []);
           setRemoteRows(enriched);
         } catch (err) {
           if (cancelled) return;
@@ -301,7 +297,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           if (!haystack.includes(q)) return false;
         }
       }
-      if (typeFilter && row.type !== typeFilter) return false;
+      if (typeFilters.length > 0 && !typeFilters.includes(row.type)) return false;
       if (statusFilter === "running" && !isWebsiteRunning(row.status)) return false;
       if (statusFilter === "stopped" && !isWebsiteStopped(row.status)) return false;
       if (sslFilter === "yes" && !row.hasCert) return false;
@@ -322,7 +318,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     searchQuery,
     sslFilter,
     statusFilter,
-    typeFilter,
+    typeFilters,
   ]);
 
   const sortedRows = useMemo(() => {
@@ -442,31 +438,30 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         sortable: true,
         nameCell: true,
         defaultWidth: 200,
-        minWidth: 140,
+        minWidth: 120,
         render: (row) => {
           const canOpenInfo = canManage && row.websiteId != null && Boolean(row.siteName);
-          const domainNode = canOpenInfo ? (
-            <button
-              type="button"
-              className="server-resource-text-btn"
-              onClick={(event) => {
-                event.stopPropagation();
-                setAction({
-                  kind: "info",
-                  websiteId: row.websiteId!,
-                  siteName: row.siteName!,
-                  title: t("server.websites.infoTitle", { name: row.domain }),
-                });
-              }}
-            >
-              {row.domain}
-            </button>
-          ) : (
-            <span className="server-resource-path-text">{row.domain}</span>
-          );
           return (
             <div className="server-resource-path-cell" onClick={(event) => event.stopPropagation()}>
-              {domainNode}
+              {canOpenInfo ? (
+                <button
+                  type="button"
+                  className="server-resource-text-btn server-resource-path-text"
+                  title={t("server.websites.info")}
+                  onClick={() => {
+                    setAction({
+                      kind: "info",
+                      websiteId: row.websiteId!,
+                      siteName: row.siteName!,
+                      title: t("server.websites.infoTitle", { name: row.domain }),
+                    });
+                  }}
+                >
+                  {row.domain}
+                </button>
+              ) : (
+                <span className="server-resource-path-text">{row.domain}</span>
+              )}
               {row.url ? (
                 <Button
                   type="button"
@@ -501,7 +496,10 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           <span className="badge badge-muted">{formatWebsiteType(row.type)}</span>
         ),
         getTitle: (row) => formatWebsiteType(row.type),
-        getCopyValue: (row) => formatWebsiteType(row.type),
+        getCopyValue: (row) => {
+          const label = formatWebsiteType(row.type);
+          return label === "—" ? undefined : label;
+        },
       },
       {
         id: "group",
@@ -557,41 +555,28 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         sortId: "status",
         header: t("server.websites.columns.status"),
         sortable: true,
-        defaultWidth: 128,
-        minWidth: 100,
+        defaultWidth: 100,
+        minWidth: 72,
         render: (row) => {
           const running = isWebsiteRunning(row.status);
           const stopped = isWebsiteStopped(row.status);
-          const canToggle = canManage && row.websiteId != null && (running || stopped);
-          const busy = statusBusyId === row.websiteId;
-          const actionLabel = running
-            ? t("server.websites.stopWebsite")
-            : t("server.websites.startWebsite");
-          return (
-            <div
-              className="server-resource-status-cell"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <span className={websiteStatusBadgeClass(row.status)}>{row.status}</span>
-              {canToggle ? (
-                <Button
-                  type="button"
-                  variant={running ? "danger" : "icon"}
-                  size="icon-xs"
-                  className={running ? undefined : "db-connection-info-deploy-action-btn"}
-                  disabled={busy || statusBusyId != null}
-                  title={busy ? t("server.websites.statusBusy") : actionLabel}
-                  aria-label={busy ? t("server.websites.statusBusy") : actionLabel}
-                  onClick={() => void handleToggleStatus(row)}
-                >
-                  {running ? <IconStop size={14} /> : <IconPlay size={14} />}
-                </Button>
-              ) : null}
-            </div>
-          );
+          const label = running
+            ? t("server.websites.statusRunning")
+            : stopped
+              ? t("server.websites.statusStopped")
+              : row.status;
+          return <span className={websiteStatusBadgeClass(row.status)}>{label}</span>;
         },
-        getTitle: (row) => row.status,
-        getCopyValue: (row) => row.status,
+        getTitle: (row) => {
+          if (isWebsiteRunning(row.status)) return t("server.websites.statusRunning");
+          if (isWebsiteStopped(row.status)) return t("server.websites.statusStopped");
+          return row.status;
+        },
+        getCopyValue: (row) => {
+          if (isWebsiteRunning(row.status)) return t("server.websites.statusRunning");
+          if (isWebsiteStopped(row.status)) return t("server.websites.statusStopped");
+          return row.status;
+        },
       },
       {
         id: "certificate",
@@ -615,6 +600,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
             <span
               className={websiteCertificateDaysBadgeClass(row.certDaysLeft)}
               style={websiteCertificateDaysBadgeStyle(row.certDaysLeft)}
+              title={row.certExpireRaw ?? undefined}
             >
               {label}
             </span>
@@ -653,16 +639,43 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         variant: "actionsSticky",
         copyable: false,
         resizable: false,
-        defaultWidth: 136,
-        minWidth: 120,
+        defaultWidth: 156,
+        minWidth: 156,
         render: (row) => {
           const canAct = canManage && row.websiteId != null && Boolean(row.siteName);
           const busy = actionBusyId === row.websiteId;
+          const running = isWebsiteRunning(row.status);
+          const stopped = isWebsiteStopped(row.status);
+          const canToggle = canAct && (running || stopped);
+          const statusBusy = statusBusyId === row.websiteId;
+          const actionLabel = running
+            ? t("server.websites.stopWebsite")
+            : t("server.websites.startWebsite");
           return (
             <div
               className="db-tables-panel-grid__row-actions"
               onClick={(event) => event.stopPropagation()}
             >
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-xs"
+                className="db-connection-info-deploy-action-btn"
+                disabled={!canToggle || statusBusy || statusBusyId != null}
+                title={
+                  !canToggle
+                    ? t("server.websites.panelOnly")
+                    : statusBusy
+                      ? t("server.websites.statusBusy")
+                      : actionLabel
+                }
+                aria-label={
+                  statusBusy ? t("server.websites.statusBusy") : actionLabel
+                }
+                onClick={() => void handleToggleStatus(row)}
+              >
+                {running ? <IconStop size={14} /> : <IconPlay size={14} />}
+              </Button>
               <Button
                 type="button"
                 variant="icon"
@@ -767,14 +780,15 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         sortDirection={sortDirection}
         onSortColumn={toggleSort}
         selectedRowKey={selectedItemId ?? null}
-        columnResizeStorageKey={`omnipanel.server.websites.column-widths.${server.id}.v3`}
+        // 网站行含操作按钮等 React 单元格；canvas 模式只绘文本，强制走 DOM host
+        virtualizeRows={false}
+        columnResizeStorageKey={`omnipanel.server.websites.column-widths.${server.id}.v5`}
       />
     );
   };
 
-  const applySearch = () => setSearchQuery(searchInput.trim());
   const hasActiveFilters = Boolean(
-    searchQuery || groupFilter || typeFilter || statusFilter || sslFilter,
+    searchQuery || groupFilter || typeFilters.length > 0 || statusFilter || sslFilter,
   );
   const countLabel = hasActiveFilters
     ? t("server.websites.filteredCount", {
@@ -783,6 +797,44 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       })
     : String(rows.length);
 
+  const groupSelectOptions = useMemo(
+    () => [
+      { value: "", label: t("server.websites.allGroups") },
+      ...(siteGroups ?? []).map((group) => ({
+        value: group.id,
+        label: group.name,
+      })),
+    ],
+    [siteGroups, t],
+  );
+
+  const statusSelectOptions = useMemo(
+    () => [
+      { value: "", label: t("server.websites.allStatuses") },
+      { value: "running", label: t("server.websites.statusRunning") },
+      { value: "stopped", label: t("server.websites.statusStopped") },
+    ],
+    [t],
+  );
+
+  const sslSelectOptions = useMemo(
+    () => [
+      { value: "", label: t("server.websites.allSsl") },
+      { value: "yes", label: t("server.websites.sslYes") },
+      { value: "no", label: t("server.websites.sslNo") },
+      { value: "expired", label: t("server.websites.certExpired") },
+    ],
+    [t],
+  );
+
+  const toggleTypeFilter = useCallback((type: string) => {
+    setTypeFilters((prev) =>
+      prev.includes(type) ? prev.filter((item) => item !== type) : [...prev, type],
+    );
+  }, []);
+
+  const busy = loading || remoteLoading || refreshing;
+
   return (
     <div className="server-panel-tab server-websites-panel">
       <div className="server-panel-tab-toolbar">
@@ -790,29 +842,56 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
           {t("server.tabs.websites")}
           <span className="badge badge-muted server-panel-tab-count">{countLabel}</span>
         </span>
-        <div className="server-panel-tab-actions">
-          <Button
-            type="button"
-            variant="icon"
-            size="icon-xs"
-            disabled={refreshing}
-            title={refreshing ? t("server.refreshing") : t("server.refresh")}
-            aria-label={refreshing ? t("server.refreshing") : t("server.refresh")}
-            onClick={handleRefresh}
-          >
-            <IconRefresh size={14} />
-          </Button>
-          <Button
-            type="button"
-            variant="icon"
-            size="icon-xs"
-            disabled={!canManage || refreshing}
-            title={canManage ? t("server.websites.create") : t("server.create.panelOnly")}
-            aria-label={canManage ? t("server.websites.create") : t("server.create.panelOnly")}
-            onClick={() => setCreateOpen(true)}
-          >
-            <IconPlus size={14} />
-          </Button>
+        <div className="server-websites-toolbar-right">
+          {typeOptions.length > 0 ? (
+            <div
+              className="server-websites-type-toggles"
+              role="group"
+              aria-label={t("server.websites.columns.type")}
+            >
+              {typeOptions.map((type) => {
+                const active = typeFilters.includes(type);
+                const label = formatWebsiteType(type);
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    className={`server-websites-type-toggle${active ? " is-active" : ""}`}
+                    aria-pressed={active}
+                    title={label}
+                    onClick={() => toggleTypeFilter(type)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <div className="server-panel-tab-actions">
+            <Button
+              type="button"
+              variant="icon"
+              size="icon-xs"
+              className="db-tables-panel-meta-refresh-btn"
+              disabled={busy}
+              title={busy ? t("server.refreshing") : t("server.refresh")}
+              aria-label={busy ? t("server.refreshing") : t("server.refresh")}
+              onClick={handleRefresh}
+            >
+              <IconRefresh size={14} />
+            </Button>
+            <Button
+              type="button"
+              variant="icon"
+              size="icon-xs"
+              disabled={!canManage || busy}
+              title={canManage ? t("server.websites.create") : t("server.create.panelOnly")}
+              aria-label={canManage ? t("server.websites.create") : t("server.create.panelOnly")}
+              onClick={() => setCreateOpen(true)}
+            >
+              <IconPlus size={14} />
+            </Button>
+          </div>
         </div>
       </div>
       <div className="server-websites-filters">
@@ -823,7 +902,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
             onChange={setSearchInput}
             placeholder={t("server.websites.searchPlaceholder")}
             onKeyDown={(event) => {
-              if (event.key === "Enter") applySearch();
+              if (event.key === "Enter") setSearchQuery(searchInput.trim());
             }}
           />
           <Button
@@ -832,62 +911,38 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
             size="icon-xs"
             title={t("server.websites.search")}
             aria-label={t("server.websites.search")}
-            onClick={applySearch}
+            onClick={() => setSearchQuery(searchInput.trim())}
           >
             <IconSearch size={14} />
           </Button>
         </div>
-        <select
-          className="input server-websites-filters__group"
+        <Select
+          className="server-websites-filters__group"
+          size="sm"
           value={groupFilter}
-          onChange={(event) => setGroupFilter(event.target.value)}
+          onChange={setGroupFilter}
+          options={groupSelectOptions}
+          searchable={(siteGroups?.length ?? 0) > 8}
           aria-label={t("server.websites.columns.group")}
-        >
-          <option value="">{t("server.websites.allGroups")}</option>
-          {(siteGroups ?? []).map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input server-websites-filters__group"
-          value={typeFilter}
-          onChange={(event) => setTypeFilter(event.target.value)}
-          aria-label={t("server.websites.columns.type")}
-        >
-          <option value="">{t("server.websites.allTypes")}</option>
-          {typeOptions.map((type) => (
-            <option key={type} value={type}>
-              {formatWebsiteType(type)}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input server-websites-filters__group"
+        />
+        <Select
+          className="server-websites-filters__group"
+          size="sm"
           value={statusFilter}
-          onChange={(event) =>
-            setStatusFilter(event.target.value as "" | "running" | "stopped")
-          }
+          onChange={(value) => setStatusFilter(value as "" | "running" | "stopped")}
+          options={statusSelectOptions}
+          searchable={false}
           aria-label={t("server.websites.columns.status")}
-        >
-          <option value="">{t("server.websites.allStatuses")}</option>
-          <option value="running">{t("server.websites.statusRunning")}</option>
-          <option value="stopped">{t("server.websites.statusStopped")}</option>
-        </select>
-        <select
-          className="input server-websites-filters__group"
+        />
+        <Select
+          className="server-websites-filters__group"
+          size="sm"
           value={sslFilter}
-          onChange={(event) =>
-            setSslFilter(event.target.value as "" | "yes" | "no" | "expired")
-          }
+          onChange={(value) => setSslFilter(value as "" | "yes" | "no" | "expired")}
+          options={sslSelectOptions}
+          searchable={false}
           aria-label={t("server.websites.columns.certificate")}
-        >
-          <option value="">{t("server.websites.allSsl")}</option>
-          <option value="yes">{t("server.websites.sslYes")}</option>
-          <option value="no">{t("server.websites.sslNo")}</option>
-          <option value="expired">{t("server.websites.certExpired")}</option>
-        </select>
+        />
       </div>
       {(error && gridRows.length > 0) ||
       (certificatesError && gridRows.length > 0) ||

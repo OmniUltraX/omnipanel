@@ -32,7 +32,8 @@ export function panelConnectionToForm(connection: Connection): PanelFormData {
   return {
     name: connection.name,
     panelAddress: panel.address,
-    panelKey: panel.key,
+    // API Key 在 Vault，编辑不回显；留空保存表示保留原密钥
+    panelKey: "",
     serviceType: panel.serviceType,
     remark,
   };
@@ -64,6 +65,8 @@ export function buildPanelOnlyConnection(
     group: normalizeServerGroup(existing?.group),
     envTag: existing?.envTag?.trim() || DEFAULT_ENV_TAG,
     tags,
+    // 编辑留空密钥时必须带回 credentialRef，避免后端覆盖成 null
+    credentialRef: existing?.credentialRef ?? (existing?.id ? `panel-key-${existing.id}` : null),
     config: JSON.stringify(config),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

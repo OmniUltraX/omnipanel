@@ -232,6 +232,7 @@ export function buildPanelConnection(
     group: normalizeServerGroup(group),
     envTag: "dev",
     config: JSON.stringify(config),
+    credentialRef: existingId ? `panel-key-${existingId}` : null,
     createdAt: createdAt ?? now,
     updatedAt: now,
   };

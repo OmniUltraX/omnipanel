@@ -9,7 +9,7 @@ type GateEntry = {
 /** 按面板 origin 熔断，避免并发/重试把「验证失败」打满至封禁。 */
 const gates = new Map<string, GateEntry>();
 
-const AUTH_COOLDOWN_MS = 10 * 60 * 1000;
+const AUTH_COOLDOWN_MS = 15 * 1000;
 
 export function btPanelGateKey(baseUrl: string): string {
   try {
@@ -67,9 +67,9 @@ export function getBtPanelLockout(baseUrl: string): GateEntry | null {
   return gate;
 }
 
-/** 记录鉴权/封禁失败：封禁按提示时长，普通鉴权失败短冷却。 */
+/** 记录鉴权/封禁失败：封禁按提示时长；普通密钥/IP 失败仅短冷却，避免挡住用户改密钥重试。 */
 export function tripBtPanelAuthFailure(baseUrl: string, rawMessage: string): void {
-  const message = rawMessage.trim() || "宝塔 API 鉴权失败";
+  const message = enrichBtPanelAuthMessage(rawMessage.trim() || "宝塔 API 鉴权失败");
   if (!isBtPanelAuthFailureMessage(message)) return;
 
   const key = btPanelGateKey(baseUrl);
@@ -90,6 +90,38 @@ export function clearBtPanelLockout(baseUrl?: string): void {
     return;
   }
   gates.delete(btPanelGateKey(baseUrl));
+}
+
+/** 补全密钥/IP 失败提示，避免用户误以为「密钥错了」而反复粘贴。 */
+export function enrichBtPanelAuthMessage(msg: string): string {
+  const trimmed = msg.trim();
+  if (!trimmed) return "宝塔 API 鉴权失败";
+
+  const ipMatch = trimmed.match(/IP校验失败[^[]*\[([^\]]+)\]/i);
+  if (ipMatch || /IP校验失败|IP.?校验|IP.?白名单/i.test(trimmed)) {
+    const ip = ipMatch?.[1]?.trim();
+    const ipHint = ip ? `当前访问 IP：${ip}。` : "";
+    return (
+      `${trimmed}。${ipHint}` +
+      "请到宝塔「面板设置 → API 接口」将本机出口 IP 加入白名单（可临时填 *），保存后再试。"
+    );
+  }
+
+  if (/密钥校验失败|接口密钥错误|API\s*接口密钥错误/i.test(trimmed)) {
+    return (
+      `${trimmed}。` +
+      "若密钥确认无误，请检查：① 面板地址是否为 https://主机:端口；② IP 白名单是否包含本机出口 IP（可临时填 *）；③ 是否刚触发过验证失败熔断（请等待数秒后重试）。"
+    );
+  }
+
+  if (/连续\s*\d+\s*次验证失败|禁止\s*\d+\s*小时|验证失败.*禁止/i.test(trimmed)) {
+    return (
+      `${trimmed}。` +
+      "这是宝塔侧临时封禁。请确认 API 已开启、密钥正确、IP 白名单已放行，并等待封禁时长结束；期间请勿反复点测试。"
+    );
+  }
+
+  return trimmed;
 }
 
 /** 从任意错误对象提取文案并尝试熔断。 */

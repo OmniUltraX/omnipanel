@@ -172,6 +172,17 @@ fn normalize_docker_or_panel_connection(
             Vault::store(&cred_ref, &key)?;
             connection.credential_ref = Some(cred_ref);
             value["key"] = Value::String(String::new());
+        } else {
+            // 编辑留空：保留 Vault；纠正误指向 SSH 密码等非面板密钥的 credential_ref
+            let expected = format!("panel-key-{id}");
+            let ref_ok = connection
+                .credential_ref
+                .as_deref()
+                .is_some_and(is_panel_api_credential_ref);
+            if !ref_ok {
+                connection.credential_ref = Some(expected);
+            }
+            value["key"] = Value::String(String::new());
         }
     }
 
@@ -402,6 +413,11 @@ pub async fn conn_test(
                 let from_vault = connection
                     .credential_ref
                     .as_deref()
+                    .filter(|r| {
+                        r.starts_with("panel-key-")
+                            || r.starts_with("docker-btpanel-")
+                            || r.starts_with("docker-onepanel-")
+                    })
                     .and_then(|r| Vault::get(r).ok())
                     .or_else(|| Vault::get(&format!("panel-key-{}", connection.id)).ok());
                 if let Some(key) = from_vault {

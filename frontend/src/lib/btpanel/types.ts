@@ -69,6 +69,41 @@ export interface BtSite {
   rname?: string;
 }
 
+/**
+ * 官方文档：GET `/mod/java/project/project_list/stype`
+ * 面板实际多为 POST `/mod/java/project/project_list[/stype]`，表单字段 `data` 为 JSON。
+ * @see https://docs.bt.cn/api/java/project_list
+ */
+export interface BtJavaProjectListParams {
+  p?: number;
+  limit?: number;
+  search?: string;
+  typeId?: string | number;
+}
+
+/** Java 项目列表条目（字段随面板版本略有差异）。 */
+export interface BtJavaProject {
+  id?: number;
+  name?: string;
+  project_name?: string;
+  project_type?: string;
+  /** 进程信息：非空表示已启动（宝塔 Java project_list 运行态以此为准） */
+  pid_info?: unknown;
+  starting?: boolean;
+  /** 运行状态：布尔 / 0|1 / running|stopped 等（兼容字段） */
+  status?: boolean | string | number;
+  run?: boolean;
+  run_status?: string | number;
+  port?: number | string;
+  pid?: number | string;
+  path?: string;
+  project_path?: string;
+  project_cwd?: string;
+  ps?: string;
+  project_ps?: string;
+  [key: string]: unknown;
+}
+
 export interface BtDataListResult<T> {
   data: T[];
   page?: string;

@@ -5,6 +5,7 @@ import { buildBtAuthFields, normalizeBtPanelBaseUrl } from "./auth";
 import {
   assertBtPanelNotLocked,
   clearBtPanelLockout,
+  enrichBtPanelAuthMessage,
   isBtPanelAuthFailureMessage,
   tripBtPanelAuthFailure,
 } from "./circuitBreaker";
@@ -28,6 +29,8 @@ import {
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
+  type BtJavaProject,
+  type BtJavaProjectListParams,
   type BtSoftItem,
   type BtSoftListParams,
   type BtSoftListResult,
@@ -65,32 +68,7 @@ function serializeParams(params?: BtRequestOptions["params"]): string | null {
 }
 
 function enrichBtPanelErrorMessage(msg: string): string {
-  const trimmed = msg.trim();
-  if (!trimmed) return "宝塔 API 错误";
-
-  // 宝塔「API 接口 → IP 白名单」未放行本机出口 IP
-  const ipMatch = trimmed.match(/IP校验失败[^[]*\[([^\]]+)\]/i);
-  if (ipMatch || /IP校验失败|IP.?校验|IP.?白名单/i.test(trimmed)) {
-    const ip = ipMatch?.[1]?.trim();
-    const ipHint = ip ? `当前访问 IP：${ip}。` : "";
-    return (
-      `${trimmed}。${ipHint}` +
-      "请到宝塔面板「面板设置 → API 接口」将上述 IP 加入白名单（可填 * 临时关闭校验），保存后再试。"
-    );
-  }
-
-  // 连续校验失败触发的临时封禁（常见于密钥错误或 IP 白名单未配好反复点「测试」）
-  if (/连续\s*\d+\s*次验证失败|禁止\s*\d+\s*小时|验证失败.*禁止/i.test(trimmed)) {
-    return (
-      `${trimmed}。` +
-      "这是宝塔侧临时封禁，不是 OmniPanel 故障。" +
-      "请先到「面板设置 → API 接口」确认：① API 已开启；② 密钥正确；③ 已把访问 IP（如 10.110.10.6）加入白名单。" +
-      "然后等待提示的封禁时长结束再测；期间请勿反复点「测试连接」。" +
-      "若需立刻解禁，请在服务器上用宝塔官方方式清除 API/登录失败限制（不同版本菜单位置可能不同）。"
-    );
-  }
-
-  return trimmed;
+  return enrichBtPanelAuthMessage(msg);
 }
 
 function parseResponseText<T>(text: string, tolerateFalseStatus = false): T {
@@ -150,8 +128,13 @@ export class BtPanelClient {
   }
 
   private async resolveApiSk(): Promise<string> {
-    if (this.apiSk.trim()) return this.apiSk;
+    // 构造时传入的明文优先（测试连接 / 刚粘贴的密钥）；空则回源 Vault
+    const inline = this.apiSk.trim();
+    if (inline) return inline;
     if (!this.connectionId) {
+      throw new BtPanelApiError("缺少宝塔 API 密钥", 0);
+    }
+    if (!canUseIpcBackend()) {
       throw new BtPanelApiError("缺少宝塔 API 密钥", 0);
     }
     if (!this.resolvePromise) {
@@ -160,9 +143,16 @@ export class BtPanelClient {
         if (result.status === "error") {
           throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
         }
-        this.apiSk = result.data;
-        return this.apiSk;
-      })();
+        const fromVault = result.data.trim();
+        if (!fromVault) {
+          throw new BtPanelApiError("缺少宝塔 API 密钥", 0);
+        }
+        this.apiSk = fromVault;
+        return fromVault;
+      })().catch((err) => {
+        this.resolvePromise = null;
+        throw err;
+      });
     }
     return this.resolvePromise;
   }
@@ -241,6 +231,8 @@ export class BtPanelClient {
 
   /** 连通性测试（/system?action=GetSystemTotal）。 */
   async testConnection(): Promise<boolean> {
+    // 手动测试前清熔断，避免上次失败挡住正确密钥重试
+    clearBtPanelLockout(this.baseUrl);
     try {
       await this.getSystemTotal();
       return true;
@@ -300,6 +292,44 @@ export class BtPanelClient {
       type: params.type ?? -1,
       search: params.search,
     });
+  }
+
+  /**
+   * 官方文档：`/mod/java/project/project_list/stype`
+   * @see https://docs.bt.cn/api/java/project_list
+   *
+   * 实测面板多为 POST + 表单字段 `data`（JSON）；优先官方 `/stype` 路径，失败回退无后缀。
+   */
+  async getJavaProjectList(
+    params: BtJavaProjectListParams = {},
+  ): Promise<BtDataListResult<BtJavaProject>> {
+    const data = JSON.stringify({
+      search: params.search ?? "",
+      p: params.p ?? 1,
+      limit: params.limit ?? 200,
+      type_id: params.typeId ?? "",
+    });
+    const body = { data };
+    try {
+      const payload = await this.request<BtDataListResult<BtJavaProject>>({
+        path: "/mod/java/project/project_list/stype",
+        params: body,
+      });
+      return {
+        data: Array.isArray(payload.data) ? payload.data : [],
+        page: payload.page,
+      };
+    } catch (error) {
+      if (!(error instanceof BtPanelApiError)) throw error;
+      const payload = await this.request<BtDataListResult<BtJavaProject>>({
+        path: "/mod/java/project/project_list",
+        params: body,
+      });
+      return {
+        data: Array.isArray(payload.data) ? payload.data : [],
+        page: payload.page,
+      };
+    }
   }
 
   /** /site?action=get_site_types — 网站分类。 */
