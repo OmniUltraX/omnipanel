@@ -324,6 +324,61 @@ function syncXtermCursorToAbsLine(
   });
 }
 
+function ensurePromptTrailingSpace(prompt: string): string {
+  const trimmed = prompt.replace(/\s+$/u, "");
+  if (!trimmed) return "";
+  return `${trimmed} `;
+}
+
+/** 从 buffer / 几何里取出本轮真实主提示符（如 `PS C:\\Users\\chaoj> `） */
+function readLastMainShellPrompt(sessionId: string): string | null {
+  const fromGeo = getShellAgentGeometry(sessionId)?.promptPrefix ?? "";
+  if (fromGeo.trim() && lineLooksLikeShellPrompt(fromGeo)) {
+    return ensurePromptTrailingSpace(fromGeo);
+  }
+  try {
+    const term = getXterm(sessionId);
+    if (!term?.buffer?.active) return fromGeo.trim() ? ensurePromptTrailingSpace(fromGeo) : null;
+    const buf = term.buffer.active;
+    const end = Math.max(0, buf.length - 1);
+    for (let y = end; y >= 0; y -= 1) {
+      const line = (buf.getLine(y)?.translateToString(true) ?? "").replace(/\s+$/u, "");
+      if (!line || /^>>/.test(line)) continue;
+      if (lineLooksLikeShellPrompt(line)) return ensurePromptTrailingSpace(line);
+    }
+  } catch {
+    // ignore
+  }
+  return fromGeo.trim() ? ensurePromptTrailingSpace(fromGeo) : null;
+}
+
+/**
+ * 卡下空行补画本地 prompt。PTY 禁止再发 Enter（会出 >>）；
+ * 本地前缀只影响画面，输入仍走已在空 PS> 上的 ConPTY。
+ */
+function paintPowerShellPromptIfMissing(sessionId: string): Promise<void> {
+  const term = getXterm(sessionId);
+  if (!term?.buffer?.active) return Promise.resolve();
+  try {
+    const buf = term.buffer.active;
+    const line = (buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "")
+      .replace(/\s+$/u, "");
+    if (lineLooksLikeShellPrompt(line)) return Promise.resolve();
+    if (line.length > 0) return Promise.resolve();
+    const prefix = readLastMainShellPrompt(sessionId);
+    if (!prefix) return Promise.resolve();
+    return new Promise((resolve) => {
+      try {
+        term.write(prefix, () => resolve());
+      } catch {
+        resolve();
+      }
+    });
+  } catch {
+    return Promise.resolve();
+  }
+}
+
 /** 把焦点从卡片 DOM 夺回 xterm，避免 IME 锚在「已同意」卡上 */
 function blurShellAgentDomFocus(): void {
   try {
@@ -357,14 +412,13 @@ async function ensurePowerShellInputCursor(sessionId: string): Promise<void> {
   };
 
   /**
-   * 光标必须严格在卡底之下，并再留 1 行空白。
-   * fit 扩高后光标常停在「卡内最后一行」，IME 会贴在结果卡后边。
+   * 光标必须严格在卡底之下（decoration 覆盖 [anchor, bottom)）。
+   * 多留的空行会变成「有光标无 PS>」；提示符改由 paintPowerShellPromptIfMissing 补。
    */
   const syncBelowCard = async (): Promise<void> => {
     const bottom = cardBottom();
     if (bottom == null) return;
-    // 目标：卡底下一行（bottom），再多 1 行避开 overflow / 卡边
-    const target = bottom + 1;
+    const target = bottom;
     const buf = term.buffer.active;
     let cursorAbs = buf.baseY + buf.cursorY;
     if (cursorAbs >= target) return;
@@ -397,7 +451,7 @@ async function ensurePowerShellInputCursor(sessionId: string): Promise<void> {
         return y;
       }
     }
-    return Math.max(minY + 1, Math.min(end, minY + 1));
+    return Math.max(minY, Math.min(end, minY));
   };
 
   // 1) 先保证在结果卡下方（含额外空行）
@@ -414,10 +468,11 @@ async function ensurePowerShellInputCursor(sessionId: string): Promise<void> {
     await waitForTerminalOutputIdle(sessionId, 100, 1000);
   }
 
-  // 4) Ctrl+C / 迟到 fit 后再钉一次卡下
+  // 4) Ctrl+C / 迟到 fit 后再钉一次卡下，并补画 PS> 提示符
   await syncBelowCard();
   await syncXtermCursorToAbsLine(sessionId, findInputLineBelowCard());
   await syncBelowCard();
+  await paintPowerShellPromptIfMissing(sessionId);
   blurShellAgentDomFocus();
 }
 
