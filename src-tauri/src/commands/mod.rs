@@ -35,6 +35,7 @@ pub mod fileio;
 pub mod grpc;
 pub mod knowledge;
 pub mod knowledge_vector;
+pub mod lan_discovery;
 pub mod todo;
 pub mod local_runtime;
 pub mod ollama_catalog;

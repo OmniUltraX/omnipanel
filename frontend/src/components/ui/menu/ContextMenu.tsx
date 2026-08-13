@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -10,6 +11,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { clampMenuPosition, computeSubmenuPosition, type Point } from "../../../lib/contextMenuPosition";
+import { useI18n } from "../../../i18n";
+import { useLanDiscoveryUiStore } from "../../../stores/lanDiscoveryUiStore";
+import { withGlobalShareMenuItem } from "./withGlobalShareMenuItem";
 
 export interface ContextMenuItem {
   /** 菜单项唯一标识（用于React key，避免嵌套菜单索引冲突） */
@@ -279,6 +283,16 @@ export function ContextMenu({ items, position, onClose, className }: ContextMenu
   const menuRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState(position);
   const [ready, setReady] = useState(false);
+  const { t } = useI18n();
+  const openShareDialog = useLanDiscoveryUiStore((s) => s.openDialog);
+  const menuItems = useMemo(
+    () =>
+      withGlobalShareMenuItem(items, {
+        label: t("lanDiscovery.share"),
+        onClick: openShareDialog,
+      }),
+    [items, openShareDialog, t],
+  );
 
   useLayoutEffect(() => {
     const el = menuRef.current;
@@ -286,7 +300,7 @@ export function ContextMenu({ items, position, onClose, className }: ContextMenu
     const { width, height } = el.getBoundingClientRect();
     setCoords(clampMenuPosition(position, { width, height }));
     setReady(true);
-  }, [position.x, position.y, items]);
+  }, [position.x, position.y, menuItems]);
 
   useEffect(() => {
     const handler = (e: MouseEvent | KeyboardEvent) => {
@@ -326,7 +340,7 @@ export function ContextMenu({ items, position, onClose, className }: ContextMenu
         }}
         role="menu"
       >
-        <ContextMenuPanel items={items} onClose={onClose} />
+        <ContextMenuPanel items={menuItems} onClose={onClose} />
       </div>
     </>,
     document.body,

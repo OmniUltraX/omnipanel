@@ -674,6 +674,16 @@ export const commands = {
 	localKillProcess: (pid: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_kill_process", { pid })),
 	/**  枚举本机已安装字体族名（可选仅等宽字体）。 */
 	listSystemFonts: (monospaceOnly: boolean | null) => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("list_system_fonts", { monospaceOnly })),
+	/**  开始局域网 OmniPanel 扫描（弹窗打开时调用）。 */
+	lanDiscoveryStartScan: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_start_scan")),
+	/**  停止局域网扫描。 */
+	lanDiscoveryStopScan: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_stop_scan")),
+	/**  当前已发现 peers 快照。 */
+	lanDiscoveryListPeers: () => typedError<LanDiscoveryPeer[], OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_list_peers")),
+	/**  responder / 扫描状态。 */
+	lanDiscoveryStatus: () => typedError<LanDiscoveryStatus, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_status")),
+	/**  向对端分享自定义面板 JSON。 */
+	lanDiscoverySharePanel: (peerIp: string, panelJson: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_share_panel", { peerIp, panelJson })),
 	/**
 	 *  创建 SSH 隧道（端口转发）。
 	 *  通过 SSH exec 运行 `ssh -L/-R/-D` 命令实现，隧道进程在后台运行。
@@ -5305,6 +5315,36 @@ export type ToolState =
 
 /**  隧道类型。 */
 export type TunnelType = "local" | "remote" | "dynamic";
+
+/** 局域网发现到的 OmniPanel 客户端。 */
+export type LanDiscoveryPeer = {
+	id: string,
+	name: string,
+	ip: string,
+	version: string,
+	os: string,
+	lastSeen: number,
+};
+
+/** 局域网发现服务状态。 */
+export type LanDiscoveryStatus = {
+	responderOk: boolean,
+	listenPort: number | null,
+	error: string | null,
+	scanning: boolean,
+};
+
+/** 局域网发现 peers 事件 payload。 */
+export type LanDiscoveryPeersEvent = {
+	peers: LanDiscoveryPeer[],
+};
+
+/** 收到自定义面板分享邀请。 */
+export type LanDiscoveryShareOfferEvent = {
+	fromId: string,
+	fromIp: string,
+	panelJson: string,
+};
 
 export type UpdateInfo = {
 	available: boolean,

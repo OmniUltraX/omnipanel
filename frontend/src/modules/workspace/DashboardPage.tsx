@@ -1,11 +1,19 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { WorkspaceSwitcher } from "../../components/shell/WorkspaceSwitcher";
+import {
+  ContextMenu,
+  buildTabCloseMenuItems,
+  type ContextMenuItem,
+  type TabContextMenuAction,
+} from "../../components/ui/menu";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { DASHBOARD_PATH } from "../../lib/paths";
 import { quickInput } from "../../lib/quickInput";
 import { useI18n } from "../../i18n";
+import { useLanDiscoveryUiStore } from "../../stores/lanDiscoveryUiStore";
 import { HomeBoardView } from "./HomeBoardView";
 import { HomeCustomPanelView } from "./HomeCustomPanelView";
 import {
@@ -15,6 +23,7 @@ import {
   isHomeCustomPanelId,
   isHomeDashboardTabId,
   useDashboardStore,
+  type HomeCustomPanelId,
   type HomeDashboardTabId,
 } from "./useDashboardStore";
 
@@ -35,6 +44,14 @@ export function DashboardPage() {
   const createCustomPanel = useDashboardStore((s) => s.createCustomPanel);
   const renameCustomPanel = useDashboardStore((s) => s.renameCustomPanel);
   const closeHomeTab = useDashboardStore((s) => s.closeHomeTab);
+  const openShareDialog = useLanDiscoveryUiStore((s) => s.openDialog);
+
+  const [tabCtxMenu, setTabCtxMenu] = useState<{
+    x: number;
+    y: number;
+    tabId: string;
+    index: number;
+  } | null>(null);
 
   const labelForTab = useCallback(
     (tabId: HomeDashboardTabId) => {
@@ -102,6 +119,86 @@ export function DashboardPage() {
     },
     [handleRenameCustomPanel],
   );
+
+  const handleDockTabContextMenu = useCallback(
+    (event: React.MouseEvent, tabId: string, index: number) => {
+      event.preventDefault();
+      setTabCtxMenu({ x: event.clientX, y: event.clientY, tabId, index });
+    },
+    [],
+  );
+
+  const handleTabContextAction = useCallback(
+    (action: TabContextMenuAction) => {
+      if (!tabCtxMenu) return;
+      const { tabId } = tabCtxMenu;
+      const visibleTabs = openTabIds;
+      const idx = visibleTabs.findIndex((id) => id === tabId);
+
+      if (action === "rename") {
+        void handleRenameCustomPanel(tabId);
+      } else if (action === "close") {
+        if (isHomeDashboardTabId(tabId)) closeHomeTab(tabId);
+      } else if (action === "closeLeft") {
+        if (idx > 0) {
+          for (const id of visibleTabs.slice(0, idx)) closeHomeTab(id);
+        }
+      } else if (action === "closeRight") {
+        if (idx >= 0 && idx < visibleTabs.length - 1) {
+          for (const id of visibleTabs.slice(idx + 1)) closeHomeTab(id);
+        }
+      } else if (action === "closeOthers") {
+        if (idx >= 0) {
+          for (const id of visibleTabs.filter((x) => x !== tabId)) closeHomeTab(id);
+        }
+      } else if (action === "closeAll") {
+        for (const id of visibleTabs) closeHomeTab(id);
+      }
+      setTabCtxMenu(null);
+    },
+    [closeHomeTab, handleRenameCustomPanel, openTabIds, tabCtxMenu],
+  );
+
+  const tabContextMenuItems = useMemo((): ContextMenuItem[] => {
+    if (!tabCtxMenu) return [];
+    const { tabId, index } = tabCtxMenu;
+    const menuIndex = openTabIds.findIndex((id) => id === tabId);
+    const closeItems = buildTabCloseMenuItems(
+      t,
+      openTabIds.length,
+      menuIndex >= 0 ? menuIndex : index,
+      handleTabContextAction,
+      {
+        showRename: isHomeCustomPanelId(tabId),
+        renameLabelKey: "homeWorkspace.customPanel.renameMenu",
+      },
+    );
+    if (!isHomeCustomPanelId(tabId)) return closeItems;
+    const panel = customPanels[tabId as HomeCustomPanelId];
+    const label =
+      panel?.label ?? t("homeWorkspace.customPanel.defaultTitle");
+    return [
+      ...closeItems,
+      { id: "tab-sep-share", separator: true, label: "" },
+      {
+        id: GLOBAL_SHARE_MENU_ID,
+        label: t("lanDiscovery.share"),
+        onClick: () =>
+          openShareDialog({
+            kind: "custom-panel",
+            panelId: tabId,
+            label,
+          }),
+      },
+    ];
+  }, [
+    customPanels,
+    handleTabContextAction,
+    openShareDialog,
+    openTabIds,
+    t,
+    tabCtxMenu,
+  ]);
 
   const addTabConfig = useMemo(() => {
     if (!isActiveRoute) return undefined;
@@ -176,30 +273,40 @@ export function DashboardPage() {
         : openTabIds[0];
 
   return (
-    <ModuleSegmentDock
-      className="dashboard-module-dock"
-      dockScope="dashboard"
-      tabs={segmentTabs}
-      activeTabId={resolvedActiveTabId}
-      onActiveTabChange={onActiveTabChange}
-      onCloseTab={onCloseTab}
-      onTabDoubleClick={handleTabDoubleClick}
-      // 顶栏承载窗口控制，绝不能因路由抖动打上 route-inactive。
-      // 「+」菜单已由 addTabConfig 按 isActiveRoute 自行开关。
-      enabled={true}
-      preActions={preActions}
-      addTabConfig={addTabConfig}
-      renderPanel={renderPanel}
-      emptyContent={
-        <WorkspaceEmptyPage
-          title={t("routes.dashboard")}
-          prompt={t("homeWorkspace.emptyPrompt")}
-          actionList={{
-            title: t("homeWorkspace.newPage"),
-            items: emptyQuickActions,
-          }}
+    <>
+      <ModuleSegmentDock
+        className="dashboard-module-dock"
+        dockScope="dashboard"
+        tabs={segmentTabs}
+        activeTabId={resolvedActiveTabId}
+        onActiveTabChange={onActiveTabChange}
+        onCloseTab={onCloseTab}
+        onTabDoubleClick={handleTabDoubleClick}
+        onTabContextMenu={handleDockTabContextMenu}
+        // 顶栏承载窗口控制，绝不能因路由抖动打上 route-inactive。
+        // 「+」菜单已由 addTabConfig 按 isActiveRoute 自行开关。
+        enabled={true}
+        preActions={preActions}
+        addTabConfig={addTabConfig}
+        renderPanel={renderPanel}
+        emptyContent={
+          <WorkspaceEmptyPage
+            title={t("routes.dashboard")}
+            prompt={t("homeWorkspace.emptyPrompt")}
+            actionList={{
+              title: t("homeWorkspace.newPage"),
+              items: emptyQuickActions,
+            }}
+          />
+        }
+      />
+      {isActiveRoute && tabCtxMenu ? (
+        <ContextMenu
+          items={tabContextMenuItems}
+          position={{ x: tabCtxMenu.x, y: tabCtxMenu.y }}
+          onClose={() => setTabCtxMenu(null)}
         />
-      }
-    />
+      ) : null}
+    </>
   );
 }

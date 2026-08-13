@@ -1,0 +1,183 @@
+.lan-discovery-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(72vh, 560px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 14px;
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--bg));
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 28%, transparent);
+  color: var(--fg);
+}
+
+.lan-discovery-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lan-discovery-dialog__header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lan-discovery-dialog__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.lan-discovery-dialog__close:hover {
+  background: var(--bg-hover, var(--bg-deeper));
+  color: var(--fg);
+}
+
+.lan-discovery-dialog__desc,
+.lan-discovery-dialog__status,
+.lan-discovery-dialog__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.lan-discovery-dialog__warn {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warning, #d29922);
+}
+
+.lan-discovery-dialog__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger, #e5484d);
+}
+
+.lan-discovery-dialog__pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent, var(--fg));
+}
+
+.lan-discovery-dialog__pulse::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: lan-discovery-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes lan-discovery-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lan-discovery-dialog__list {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-deeper, var(--bg));
+}
+
+.lan-discovery-dialog__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lan-discovery-dialog__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.lan-discovery-dialog__item:last-child {
+  border-bottom: none;
+}
+
+.lan-discovery-dialog__peer-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.lan-discovery-dialog__peer-btn.is-clickable {
+  cursor: pointer;
+}
+
+.lan-discovery-dialog__peer-btn.is-clickable:hover:not(:disabled) {
+  background: var(--bg-hover, var(--surface));
+}
+
+.lan-discovery-dialog__peer-btn:disabled {
+  opacity: 0.7;
+}
+
+.lan-discovery-dialog__item-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lan-discovery-dialog__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lan-discovery-dialog__ip {
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--muted);
+}
+
+.lan-discovery-dialog__item-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lan-discovery-dialog__empty {
+  padding: 28px 16px;
+  text-align: center;
+}
+
+.lan-discovery-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+}

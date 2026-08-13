@@ -333,6 +333,11 @@ fn export_ipc_bindings() {
         commands::system::local_process_detail,
         commands::system::local_kill_process,
         commands::system::list_system_fonts,
+        commands::lan_discovery::lan_discovery_start_scan,
+        commands::lan_discovery::lan_discovery_stop_scan,
+        commands::lan_discovery::lan_discovery_list_peers,
+        commands::lan_discovery::lan_discovery_status,
+        commands::lan_discovery::lan_discovery_share_panel,
         commands::ssh::ssh_create_tunnel,
         commands::ssh::ssh_close_tunnel,
         commands::ssh::ssh_list_tunnels,
@@ -718,6 +723,7 @@ fn build_and_run_tauri() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         // Windows 11：自定义最大化按钮悬停弹出 Snap Layout（非 Windows 为 no-op）
         .plugin(
             tauri_plugin_snap_layout::init()
@@ -815,6 +821,9 @@ fn build_and_run_tauri() {
 
             // 启动 SSH 端口探测后台任务
             background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
+
+            // 局域网客户端发现：常驻 responder（失败不阻塞启动）
+            commands::lan_discovery::start_responder(app.handle());
 
             Ok(())
         })
@@ -1215,6 +1224,11 @@ fn build_and_run_tauri() {
             commands::system::local_process_detail,
             commands::system::local_kill_process,
             commands::system::list_system_fonts,
+            commands::lan_discovery::lan_discovery_start_scan,
+            commands::lan_discovery::lan_discovery_stop_scan,
+            commands::lan_discovery::lan_discovery_list_peers,
+            commands::lan_discovery::lan_discovery_status,
+            commands::lan_discovery::lan_discovery_share_panel,
             // Updater
             commands::updater::check_update,
             commands::updater::install_update,
