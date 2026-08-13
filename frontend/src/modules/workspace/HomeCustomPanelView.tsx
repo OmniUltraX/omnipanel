@@ -5,10 +5,13 @@ import GridLayout, {
 } from "react-grid-layout";
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
 import { IconSettings, IconTrash } from "../../components/ui/icons/Icons";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { Button } from "../../components/ui/primitives/Button";
 import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../stores/dbConnectionListStore";
+import { useLanDiscoveryUiStore } from "../../stores/lanDiscoveryUiStore";
 import {
   BtJavaProjectTargetSelect,
   DatabaseSchemaTargetSelect,
@@ -104,6 +107,45 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
     setPickerOpen(true);
   }, []);
 
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const openShareDialog = useLanDiscoveryUiStore((s) => s.openDialog);
+  const panelLabel =
+    useDashboardStore((s) => s.customPanels[panelId]?.label) ??
+    t("homeWorkspace.customPanel.defaultTitle");
+
+  const handleCanvasContextMenu = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest(".home-custom-panel-widget")) return;
+    if (target.closest(".home-custom-panel-picker")) return;
+    if (target.closest(".form-dialog, .modal-dialog, .modal-overlay")) return;
+    e.preventDefault();
+    setCanvasMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const canvasMenuItems = useMemo((): ContextMenuItem[] => {
+    return [
+      {
+        id: "custom-panel-add-widget",
+        label: t("homeWorkspace.customPanel.addWidget"),
+        onClick: () => setPickerOpen(true),
+      },
+      { id: "custom-panel-sep-share", separator: true, label: "" },
+      {
+        id: GLOBAL_SHARE_MENU_ID,
+        label: t("lanDiscovery.share"),
+        onClick: () =>
+          openShareDialog({
+            kind: "custom-panel",
+            panelId,
+            label: panelLabel,
+          }),
+      },
+    ];
+  }, [openShareDialog, panelId, panelLabel, t]);
+
   return (
     <div className="dashboard-page dashboard-page--custom-panel">
       <div className="home-custom-panel">
@@ -111,6 +153,7 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
           className="home-custom-panel__canvas"
           ref={containerRef}
           onDoubleClick={handleCanvasDoubleClick}
+          onContextMenu={handleCanvasContextMenu}
         >
           {isEmpty ? (
             <div className="home-custom-panel__empty">
@@ -169,6 +212,14 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
           catalog={catalog}
           onSelect={handleAdd}
           onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+
+      {canvasMenu ? (
+        <ContextMenu
+          items={canvasMenuItems}
+          position={canvasMenu}
+          onClose={() => setCanvasMenu(null)}
         />
       ) : null}
     </div>

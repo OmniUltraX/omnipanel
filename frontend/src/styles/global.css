@@ -20326,7 +20326,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    padding: var(--sp-1);
+    padding: 2px;
     min-width: 140px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
@@ -20350,10 +20350,12 @@ button.omni-btn-tool[aria-pressed="true"] {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: var(--sp-2);
+    gap: 6px;
     width: 100%;
-    padding: var(--sp-2) var(--sp-3);
+    min-height: 24px;
+    padding: 2px 8px;
     font-size: 12px;
+    line-height: 1.25;
     text-align: left;
     background: none;
     border: none;
@@ -20373,8 +20375,8 @@ button.omni-btn-tool[aria-pressed="true"] {
 }
 
 .context-menu-item__icon svg {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
 }
 
 .context-menu-item__label {
@@ -20385,7 +20387,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 .context-menu-item__shortcut {
     flex-shrink: 0;
     margin-left: auto;
-    padding-left: var(--sp-4);
+    padding-left: var(--sp-3);
     font-size: 11px;
     color: var(--meta);
     font-variant-numeric: tabular-nums;
@@ -20425,7 +20427,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 .context-menu-sep {
     height: 1px;
     background: var(--border-soft);
-    margin: 4px 0;
+    margin: 2px 4px;
     flex-shrink: 0;
 }
 
@@ -20438,7 +20440,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    padding: var(--sp-1);
+    padding: 2px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
