@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useI18n } from "../../../i18n";
+import { VirtualJsonView } from "../../../components/ui/content/VirtualJsonView";
+import { parsePreviewJsonText } from "../../../lib/contentPreview";
 import {
   buildRedisBinaryHexDump,
   detectRedisBinaryFormat,
@@ -8,6 +10,7 @@ import {
 } from "./redisBinaryPreview";
 
 type BinaryViewMode = "hex" | "escaped";
+type JsonViewMode = "json" | "raw";
 
 interface RedisBinaryValueViewProps {
   escaped: string;
@@ -72,15 +75,62 @@ export function RedisBinaryValueView({ escaped, parsed, sizeBytes }: RedisBinary
   );
 }
 
+function RedisJsonValueView({ value, jsonValue }: { value: string; jsonValue: object }) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<JsonViewMode>("json");
+
+  return (
+    <div className="redis-binary-value">
+      <div className="redis-binary-value__head">
+        <div className="redis-binary-value__meta">
+          <span className="redis-binary-value__badge">JSON</span>
+        </div>
+        <div className="redis-binary-value__modes" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "json"}
+            className={`redis-binary-value__mode${mode === "json" ? " is-active" : ""}`}
+            onClick={() => setMode("json")}
+          >
+            {t("database.redisQuery.jsonViewTree")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "raw"}
+            className={`redis-binary-value__mode${mode === "raw" ? " is-active" : ""}`}
+            onClick={() => setMode("raw")}
+          >
+            {t("database.redisQuery.jsonViewRaw")}
+          </button>
+        </div>
+      </div>
+      <div
+        className={`redis-binary-value__body${
+          mode === "json" ? " redis-binary-value__body--json" : ""
+        }`}
+      >
+        {mode === "json" ? <VirtualJsonView value={jsonValue} expandDepth={2} /> : value}
+      </div>
+    </div>
+  );
+}
+
 interface RedisStringValueViewProps {
   value: string;
   sizeBytes?: number | null;
 }
 
 export function RedisStringValueView({ value, sizeBytes }: RedisStringValueViewProps) {
-  const parsed = useMemo(() => parseRedisEscapedBinary(value), [value]);
-  if (parsed) {
-    return <RedisBinaryValueView escaped={value} parsed={parsed} sizeBytes={sizeBytes} />;
+  const binary = useMemo(() => parseRedisEscapedBinary(value), [value]);
+  const jsonValue = useMemo(() => parsePreviewJsonText(value), [value]);
+
+  if (binary) {
+    return <RedisBinaryValueView escaped={value} parsed={binary} sizeBytes={sizeBytes} />;
+  }
+  if (jsonValue) {
+    return <RedisJsonValueView value={value} jsonValue={jsonValue} />;
   }
   return <pre className="redis-key-detail-string">{value}</pre>;
 }

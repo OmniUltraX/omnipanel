@@ -1,12 +1,12 @@
 # OmniPanel 云原生开发启动按钮定制
 #
-# 点击分支页「云原生开发」按钮：自动创建开发环境并打开 Web 版页面预览
-# （仅预览模式，见 .cnb.yml）。
+# 点击分支页「云原生开发」按钮：自动创建开发环境，构建完成后进入标准 WebIDE，
+# 通过「端口」面板映射 8686 端口预览 Web 版页面（见 .cnb.yml，已从仅预览模式改为标准模式）。
 workspace:
   launch:
     button:
-      name: 🚀 启动 Web 版 OmniPanel
-      description: 一键进入云原生开发环境并自动运行 Web 版前后端（8686 端口预览）
+      name: 🚀 启动 OmniPanel 开发环境
+      description: 一键进入云原生开发环境，构建前后端后通过 8686 端口预览 Web 版
     cpus: 8
     disabled: false
-    autoOpenWebIDE: false
+    autoOpenWebIDE: true

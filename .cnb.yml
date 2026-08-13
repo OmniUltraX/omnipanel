@@ -1,22 +1,24 @@
 # OmniPanel 云原生开发流水线
 #
 # 点击分支页「云原生开发」按钮 → 创建开发环境 → 自动构建并运行 Web 版前后端，
-# 并在「仅预览」模式下直接打开业务端口预览（等价于本地 `cargo run` + `vite build`）。
+# 进入标准 WebIDE 环境，通过「端口」面板映射 8686 端口预览 Web 页面
+# （等价于本地 `cargo run` + `vite build`）。
 #
 # 链路：
-#   .cnb.yml (vscode 事件, onlyPreview)
-#     ├─ stages: 在完整源码工作区中构建前端(frontend/dist) + 后端(target/release/omnipanel-server)
-#     │          通过 vscode:go 内置任务，等构建完成后才开放环境/进行端口检测
-#     └─ launch: ./scripts/start-web.sh（产物已存在则跳过构建、秒级启动）
-#         └─ 运行 omnipanel-server --bind 0.0.0.0:8686 --static-dir frontend/dist
+#   .cnb.yml (vscode 事件, 标准云开发模式)
+#     └─ stages: 在完整源码工作区中构建前端(frontend/dist) + 后端(target/release/omnipanel-server)
+#         └─ 通过 vscode:go 内置任务，等构建完成后再开放环境
 #
-# 说明：仅预览模式在 Prepare 阶段对业务端口 8686 做启动检测（窗口约 226s）。
-# docker.build 的镜像构建上下文不含仓库源码，无法在镜像阶段预编译；
-# 因此将耗时的前后端构建放在 stages（此处工作区含完整源码），并用 vscode:go
-# 等构建完成后再开放环境，确保 launch 启动的服务在端口检测窗口内就绪。
+# 说明：此前采用「仅预览模式」（onlyPreview + launch + 8686 端口自动检测）
+# 多次构建失败，根因是仅预览模式在 Prepare 阶段即对 8686 端口做启动检测（窗口约 226s），
+# 且该检测发生在 stages 构建之前；而 docker.build 镜像上下文不含仓库源码，无法镜像预编译产物，
+# 导致 launch 启动时产物缺失、全量构建远超检测窗口而超时（见 Issue #20）。
+# 故改为标准云开发模式：stages 完成构建，vscode:go 构建完成后再开放环境，
+# 用户进入后通过「端口」面板映射 8686 预览 Web 页面，规避端口检测时序死锁。
 #
 # 业务端口 8686 需绑定 0.0.0.0 才能被端口预览访问（见 docs/web-p2.md）。
-# 若需标准 WebIDE（可编辑代码）而非仅预览，可去掉 vscode.options.onlyPreview。
+# 若需恢复「仅预览」自动打开页面，需先解决产物前置问题（如 docker.build 配置
+# 源码上下文 by 列表以实现镜像预编译），再开启 vscode.options.onlyPreview。
 $:
   vscode:
     - runner:
@@ -31,20 +33,16 @@ $:
         - docker
         - name: vscode
           options:
-            # 仅预览模式：进入后直接启动并打开 Web 版页面，而非 WebIDE
-            onlyPreview: true
-            # 进入后自动执行的启动命令（见 scripts/start-web.sh）
-            launch: ./scripts/start-web.sh
-            # launch 启动的业务服务（omnipanel-server）在后台守护运行，
-            # 避免非守护模式下 launch 脚本因前台阻塞超过 5 分钟被强制关闭
-            daemon: true
+            # 标准云开发模式：构建完成后进入 WebIDE，通过「端口」面板映射 8686 预览。
+            # 此前仅预览模式的 launch + daemon + 8686 自动检测在 Prepare 阶段早于 stages 执行，
+            # 产物缺失导致端口检测超时（见文件头注释与 Issue #20），故移除。
             # 离线保活时间（超过则回收环境），避免长时间无操作被回收
             keepAliveTimeout: 30m
       env:
         OMNIPANEL_WEB: "1"
         OMNIPANEL_WEB_PORT: "8686"
-      # 进入前在完整源码工作区完成前后端构建（docker.build 上下文不含源码，无法在镜像阶段预编译）；
-      # 用 vscode:go 等全部构建完成后再开放环境/端口检测，避免 8686 启动检测超时。
+      # 在完整源码工作区完成前后端构建（docker.build 上下文不含源码，无法镜像预编译），
+      # 用 vscode:go 等全部构建完成后再开放环境，确保进入后即可通过 8686 端口预览。
       stages:
         - name: 安装前端依赖
           script: |

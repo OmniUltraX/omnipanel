@@ -38,6 +38,7 @@ import {
   clearShellAgentLastCmd,
   clearShellAgentThinkingFull,
   clearShellAgentConfirmFreeze,
+  getShellAgentLastCmd,
   markShellAgentConfirmFreeze,
 } from "./thinkingCache";
 
@@ -217,21 +218,263 @@ function cursorInsideActiveCard(sessionId: string): boolean {
   }
 }
 
+/** 执行开始时卡片底线：final 必须钉在此行之下，避免结果卡插在 Get-Date 回显之上 */
+const execOutputFloor = new Map<string, number>();
+
+function snapshotExecOutputFloor(sessionId: string): void {
+  try {
+    const term = getXterm(sessionId);
+    const geo = getShellAgentGeometry(sessionId);
+    let floor = 0;
+    if (term?.buffer?.active) {
+      floor = term.buffer.active.baseY + term.buffer.active.cursorY;
+    }
+    if (geo && geo.mode === "inline" && geo.anchorLine >= 0) {
+      floor = Math.max(floor, geo.anchorLine + Math.max(1, geo.rows));
+    }
+    // 卡底空 PS> 与卡末行同号时，要求至少再下行才算越过，避免「未执行就钉 final」
+    execOutputFloor.set(sessionId, floor);
+  } catch {
+    // ignore
+  }
+}
+
+function clearExecOutputFloor(sessionId: string): void {
+  execOutputFloor.delete(sessionId);
+}
+
+function cursorPastExecOutputFloor(sessionId: string): boolean {
+  const floor = execOutputFloor.get(sessionId);
+  if (floor == null) return isShellAgentCursorPastPlaceholder(sessionId);
+  try {
+    const term = getXterm(sessionId);
+    if (!term?.buffer?.active) return true;
+    const cursorAbs = term.buffer.active.baseY + term.buffer.active.cursorY;
+    return cursorAbs > floor;
+  } catch {
+    return false;
+  }
+}
+
+/** 从执行底线扫到 buffer 末尾（不限光标）：是否已有命令回显/输出 */
+function bufferHasExecEchoFromFloor(sessionId: string): boolean {
+  const floor = execOutputFloor.get(sessionId);
+  if (floor == null) return true;
+  try {
+    const term = getXterm(sessionId);
+    if (!term?.buffer?.active) return false;
+    const buf = term.buffer.active;
+    const cmd = (getShellAgentLastCmd(sessionId)?.command ?? "").trim();
+    const cmdNeedle = cmd.length > 0 ? cmd.slice(0, Math.min(cmd.length, 48)) : "";
+    const end = Math.max(0, buf.length - 1);
+    for (let y = floor; y <= end; y += 1) {
+      const line = (buf.getLine(y)?.translateToString(true) ?? "").replace(/\s+$/u, "");
+      if (!line) continue;
+      if (cmdNeedle && line.includes(cmdNeedle)) return true;
+      if (lineLooksLikeShellPrompt(line)) continue;
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** 底线以下最后一行非空内容（含光标下方的回显） */
+function findLastContentLineFromFloor(sessionId: string): number | null {
+  const floor = execOutputFloor.get(sessionId);
+  try {
+    const term = getXterm(sessionId);
+    if (!term?.buffer?.active) return null;
+    const buf = term.buffer.active;
+    const from = floor ?? 0;
+    const end = Math.max(0, buf.length - 1);
+    let last: number | null = null;
+    for (let y = from; y <= end; y += 1) {
+      const line = (buf.getLine(y)?.translateToString(true) ?? "").replace(/\s+$/u, "");
+      if (line) last = y;
+    }
+    return last;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 命令执行后的 final 卡必须落在「shell 回显 prompt」之后。
- * 过早重锚会把结果卡插在 date 输出与 prompt 中间。
+ * 仅本地移动 xterm 光标到目标绝对行（CSI A/B），不向 PTY 插行。
+ * 用于光标卡在「已同意」占位区、而 Get-Date 回显已写在更下方的脱节场景。
  */
-async function settleAfterExecBeforeFinalCard(sessionId: string): Promise<void> {
-  await waitForTerminalOutputIdle(sessionId, 120, 2500);
+function syncXtermCursorToAbsLine(
+  sessionId: string,
+  targetAbsLine: number,
+): Promise<void> {
   const term = getXterm(sessionId);
-  // 测试用假终端无 buffer：跳过等待，直接放行
+  if (!term?.buffer?.active) return Promise.resolve();
+  const buf = term.buffer.active;
+  const cursorAbs = buf.baseY + buf.cursorY;
+  const delta = targetAbsLine - cursorAbs;
+  if (delta === 0) return Promise.resolve();
+  const seq = delta > 0 ? `\x1b[${delta}B\r` : `\x1b[${-delta}A\r`;
+  return new Promise((resolve) => {
+    try {
+      term.write(seq, () => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/** 把焦点从卡片 DOM 夺回 xterm，避免 IME 锚在「已同意」卡上 */
+function blurShellAgentDomFocus(): void {
+  try {
+    const ae = document.activeElement;
+    if (
+      ae instanceof HTMLElement &&
+      ae.closest(
+        ".term-shell-agent-card, .term-shell-agent-tool, .term-shell-agent-deco-card, .term-shell-agent-portal-host",
+      )
+    ) {
+      ae.blur();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * PowerShell 收官：输入光标必须在「当前流内卡」之下（尤其是 final 结果卡）。
+ * fit 扩高后光标常停在卡内最后一行占位上，IME 会看起来像「在结果卡后边」。
+ */
+async function ensurePowerShellInputCursor(sessionId: string): Promise<void> {
+  const term = getXterm(sessionId);
   if (!term?.buffer?.active) return;
 
-  const deadline = Date.now() + 1500;
-  while (Date.now() < deadline) {
-    if (cursorOnEmptyShellPrompt(sessionId)) return;
+  /** decoration 覆盖 [anchor, anchor+rows)；可输入至少从 anchor+rows 起 */
+  const cardBottom = (): number | null => {
+    const geo = getShellAgentGeometry(sessionId);
+    if (!geo || geo.mode !== "inline" || geo.anchorLine < 0) return null;
+    return geo.anchorLine + Math.max(1, geo.rows);
+  };
+
+  /**
+   * 光标必须严格在卡底之下，并再留 1 行空白。
+   * fit 扩高后光标常停在「卡内最后一行」，IME 会贴在结果卡后边。
+   */
+  const syncBelowCard = async (): Promise<void> => {
+    const bottom = cardBottom();
+    if (bottom == null) return;
+    // 目标：卡底下一行（bottom），再多 1 行避开 overflow / 卡边
+    const target = bottom + 1;
+    const buf = term.buffer.active;
+    let cursorAbs = buf.baseY + buf.cursorY;
+    if (cursorAbs >= target) return;
+
+    const lastBuf = Math.max(0, buf.length - 1);
+    if (cursorAbs < lastBuf) {
+      await syncXtermCursorToAbsLine(sessionId, Math.min(target, lastBuf));
+      cursorAbs = term.buffer.active.baseY + term.buffer.active.cursorY;
+    }
+    const still = target - cursorAbs;
+    if (still > 0) {
+      await new Promise<void>((resolve) => {
+        try {
+          term.write("\r\n".repeat(still), () => resolve());
+        } catch {
+          resolve();
+        }
+      });
+    }
+  };
+
+  const findInputLineBelowCard = (): number => {
+    const buf = term.buffer.active;
+    const end = Math.max(0, buf.length - 1);
+    const minY = cardBottom() ?? 0;
+    for (let y = end; y >= minY; y -= 1) {
+      const line = (buf.getLine(y)?.translateToString(true) ?? "").replace(/\s+$/u, "");
+      if (!line) continue;
+      if (lineLooksLikeShellPrompt(line) || /^>>/.test(line)) {
+        return y;
+      }
+    }
+    return Math.max(minY + 1, Math.min(end, minY + 1));
+  };
+
+  // 1) 先保证在结果卡下方（含额外空行）
+  await syncBelowCard();
+
+  // 2) 再对齐到卡下的 PS>/>>（若有）；对齐后若又回到卡内则再推下去
+  await syncXtermCursorToAbsLine(sessionId, findInputLineBelowCard());
+  await syncBelowCard();
+
+  // 3) 续行只 Ctrl+C，禁止 Enter
+  await abortPowerShellContinuationIfNeeded(sessionId);
+  if (cursorOnPowerShellContinuation(sessionId)) {
+    writeTerminalRaw(sessionId, "\x03");
+    await waitForTerminalOutputIdle(sessionId, 100, 1000);
+  }
+
+  // 4) Ctrl+C / 迟到 fit 后再钉一次卡下
+  await syncBelowCard();
+  await syncXtermCursorToAbsLine(sessionId, findInputLineBelowCard());
+  await syncBelowCard();
+  blurShellAgentDomFocus();
+}
+
+function isSafeToPlaceFinalAfterExec(sessionId: string, isPs: boolean): boolean {
+  if (cursorInsideActiveCard(sessionId)) return false;
+  if (!cursorPastExecOutputFloor(sessionId)) return false;
+  if (isPs) {
+    // PS 执行后常尚未画出空 PS>（截图即停在日期行）；有回显且光标已过底线即可钉
+    return bufferHasExecEchoFromFloor(sessionId);
+  }
+  if (!cursorOnEmptyShellPrompt(sessionId)) return false;
+  return true;
+}
+
+/**
+ * 命令执行后：对齐光标到回显下方，再允许钉 final。
+ * 返回 false 时由调用方归还 prompt，避免 IME 永久卡在卡片里。
+ */
+async function settleAfterExecBeforeFinalCard(sessionId: string): Promise<boolean> {
+  const isPs = isPowerShellSession(sessionId);
+
+  const execDeadline = Date.now() + 3000;
+  while (Date.now() < execDeadline) {
+    if (!getEnterGateFlags(sessionId).agentExecuting) {
+      const phase = useShellAgentStore.getState().get(sessionId)?.phase;
+      if (phase !== "executing") break;
+    }
     await sleep(40);
   }
+
+  await waitForTerminalOutputIdle(
+    sessionId,
+    isPs ? 220 : 120,
+    isPs ? 5000 : 2500,
+  );
+
+  if (!getXterm(sessionId)?.buffer?.active) return false;
+
+  const placeDeadline = Date.now() + (isPs ? 8000 : 4000);
+  while (Date.now() < placeDeadline) {
+    if (isPs) {
+      if (bufferHasExecEchoFromFloor(sessionId)) {
+        const last = findLastContentLineFromFloor(sessionId);
+        if (last != null) {
+          // 光标挪到回显下一行，IME / final 不再落在「已同意」卡内
+          await syncXtermCursorToAbsLine(sessionId, last + 1);
+        }
+        if (isSafeToPlaceFinalAfterExec(sessionId, true)) {
+          return true;
+        }
+      }
+    } else if (isSafeToPlaceFinalAfterExec(sessionId, false)) {
+      return true;
+    }
+    await sleep(40);
+  }
+  return false;
 }
 
 function scheduleFinalCardAfterExec(
@@ -241,7 +484,7 @@ function scheduleFinalCardAfterExec(
   const gen = (finalSettleGen.get(sessionId) ?? 0) + 1;
   finalSettleGen.set(sessionId, gen);
   void (async () => {
-    await settleAfterExecBeforeFinalCard(sessionId);
+    const ready = await settleAfterExecBeforeFinalCard(sessionId);
     if (finalSettleGen.get(sessionId) !== gen) return;
     const agent = useShellAgentStore.getState().get(sessionId);
     if (!agent || agent.phase === "cancelled" || agent.phase === "idle") {
@@ -253,7 +496,27 @@ function scheduleFinalCardAfterExec(
       onReady?.();
       return;
     }
-    reanchorShellAgentCard(sessionId, "final", onReady);
+
+    if (!ready || !isSafeToPlaceFinalAfterExec(sessionId, isPowerShellSession(sessionId))) {
+      pushShellAgentDebugEvent("finalSettle aborted", "sync/release without final");
+      clearExecOutputFloor(sessionId);
+      if (onReady) onReady();
+      else releaseShellAgentToPrompt(sessionId);
+      return;
+    }
+
+    // PS：钉卡前再对齐一次，避免 settle 与 write 之间光标被其它输出拽走
+    if (isPowerShellSession(sessionId)) {
+      const last = findLastContentLineFromFloor(sessionId);
+      if (last != null) {
+        await syncXtermCursorToAbsLine(sessionId, last + 1);
+      }
+    }
+
+    reanchorShellAgentCard(sessionId, "final", () => {
+      clearExecOutputFloor(sessionId);
+      onReady?.();
+    });
   })();
 }
 
@@ -558,7 +821,7 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
     sessionId,
     executing ? "executing" : "observing",
   );
-  // 同意后：把确认卡封成「已同意」留在 scrollback，再钉矮槽给工具条
+  // 同意后：把确认卡封成「已同意」留在 scrollback
   if (executing) {
     const geo = getShellAgentGeometry(sessionId);
     if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
@@ -567,11 +830,27 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
         "";
       // 已在工具条上：禁止再次 mark+reanchor，否则会多冻一张「已同意」
       if (live.includes("term-shell-agent-tool")) {
+        snapshotExecOutputFloor(sessionId);
         return;
       }
       markShellAgentConfirmFreeze(sessionId, "agreed");
-      reanchorShellAgentCard(sessionId, "cmd", undefined, 2);
+
+      // PowerShell：确认卡阶段布局是好的；再 reanchor 写本地 \r\n 会与 PTY 脱节，
+      // 导致执行回显/结果卡重叠、prompt 损坏。只冻结当前卡，命令在卡下真实 PS> 执行。
+      // 底线必须在 archive 前快照（归档后 rows=0，会丢掉卡片高度）。
+      if (isPowerShellSession(sessionId)) {
+        snapshotExecOutputFloor(sessionId);
+        archiveActiveInlineCard(sessionId);
+        return;
+      }
+
+      // 其它 shell：钉矮槽给工具条（原行为）
+      reanchorShellAgentCard(sessionId, "cmd", () => {
+        snapshotExecOutputFloor(sessionId);
+      }, 2);
+      return;
     }
+    snapshotExecOutputFloor(sessionId);
   }
 }
 
@@ -648,6 +927,7 @@ function releaseShellAgentToPrompt(sessionId: string): void {
 
   const finishFocus = () => {
     markShellPromptReady(sessionId);
+    blurShellAgentDomFocus();
     try {
       const term = getXterm(sessionId);
       term?.scrollToBottom();
@@ -666,7 +946,26 @@ function releaseShellAgentToPrompt(sessionId: string): void {
     .then(async () => {
       if (promptReleasedForTurn.get(sessionId) !== turn) return;
 
-      // PowerShell：若已陷入 `>>`，只 Ctrl+C，绝不循环 Enter
+      // PowerShell：禁止为拉 prompt 发 Enter（会出 >>，且 conpty 易把光标 CUP 回卡片区）
+      if (isPowerShellSession(sessionId)) {
+        clearReanchorPtySync(sessionId);
+        await ensurePowerShellInputCursor(sessionId);
+        finishFocus();
+        // 结果卡 fit 可能在 release 之后仍扩高一行，延迟再推一次，避免 IME 贴在卡边
+        window.setTimeout(() => {
+          void ensurePowerShellInputCursor(sessionId).then(() => {
+            blurShellAgentDomFocus();
+            try {
+              getXterm(sessionId)?.focus();
+            } catch {
+              // ignore
+            }
+          });
+        }, 150);
+        return;
+      }
+
+      // PowerShell 以外：若已陷入续行则由各 shell 自恢复；此处只处理 bash 等
       await abortPowerShellContinuationIfNeeded(sessionId);
 
       let needPtyEnter = consumeReanchorPtySync(sessionId);
@@ -681,17 +980,8 @@ function releaseShellAgentToPrompt(sessionId: string): void {
       }
 
       if (needPtyEnter) {
-        await abortPowerShellContinuationIfNeeded(sessionId);
-        // 最多一次 \n；PowerShell 在非空主提示符上禁止发
-        if (isPowerShellSession(sessionId)) {
-          if (cursorOnEmptyShellPrompt(sessionId) && !cursorOnPowerShellContinuation(sessionId)) {
-            writeTerminalRaw(sessionId, "\n");
-            await waitForTerminalOutputIdle(sessionId, 100, 800);
-          }
-        } else {
-          writeTerminalRaw(sessionId, "\n");
-          await waitForTerminalOutputIdle(sessionId, 100, 800);
-        }
+        writeTerminalRaw(sessionId, "\n");
+        await waitForTerminalOutputIdle(sessionId, 100, 800);
       }
       finishFocus();
     })
@@ -704,6 +994,7 @@ function clearPromptReleaseGuard(sessionId: string): void {
   promptReleasedForTurn.delete(sessionId);
   finalSettleGen.delete(sessionId);
   releaseInFlight.delete(sessionId);
+  clearExecOutputFloor(sessionId);
 }
 
 /** final 卡高度稳定后由 ShellAgentOverlay 回调 */
@@ -738,6 +1029,7 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
 
   const geo = getShellAgentGeometry(sessionId);
   const past = isShellAgentCursorPastPlaceholder(sessionId);
+  const isPs = isPowerShellSession(sessionId);
 
   // 仍停在思考卡：封成「思考完成」并重锚 final，避免转圈残留
   if (geo?.decoration && geo.cardKind === "thinking") {
@@ -745,14 +1037,18 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
     return;
   }
 
-  // 命令输出已在卡下方：原地改 final 会盖住输出 → 等 prompt 后再重锚
-  if (geo?.decoration && past && geo.cardKind === "cmd") {
+  // 命令输出已在卡下方，或 PowerShell：禁止原地改 final（会盖住/插在回显前）
+  if (geo?.decoration && geo.cardKind === "cmd" && (past || isPs)) {
     scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
     return;
   }
 
-  // 已在 cmd 槽且未越过：只切 final
+  // 已在 cmd 槽且未越过（非 PS）：只切 final
   if (geo?.decoration && geo.cardKind !== "final") {
+    if (isPs) {
+      scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
+      return;
+    }
     setShellAgentCardKind(sessionId, "final");
     scheduleTurnFinishFallback(sessionId);
     return;
@@ -760,6 +1056,18 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
 
   if (geo?.decoration && geo.cardKind === "final") {
     scheduleTurnFinishFallback(sessionId);
+    return;
+  }
+
+  // PowerShell 同意后确认卡已 archive → 无 live decoration；勿直接 release，
+  // 否则会与 scheduleFinalCardAfterExec 抢跑，结果卡落点错乱。
+  if (
+    isPs &&
+    (cur.phase === "streaming" ||
+      cur.phase === "observing" ||
+      cur.phase === "executing")
+  ) {
+    scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
     return;
   }
 

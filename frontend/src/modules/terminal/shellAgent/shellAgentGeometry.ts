@@ -13,7 +13,7 @@ import {
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
 
-/** 明确的 PowerShell 会话（仅用于禁止本地假 prompt；占位绝不走 PTY Enter） */
+/** 明确的 PowerShell 会话（用于禁止本地假 prompt 前缀等） */
 function sessionIsPowerShell(sessionId: string): boolean {
   const pane = findTerminalPane(sessionId);
   if (!pane) return false;
