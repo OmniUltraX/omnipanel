@@ -92,6 +92,7 @@ async function ensureSshConnectionReady(
     title: messages.passwordPromptTitle,
     subtitle: messages.passwordPromptSubtitle(current.name),
     placeholder: messages.passwordPromptPlaceholder,
+    password: true,
     validate: (value) => (value.trim() ? null : messages.passwordRequired),
   });
   if (!password) {

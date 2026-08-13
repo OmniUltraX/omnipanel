@@ -3,7 +3,9 @@ import { connectAgentByKind } from "../agents/connect";
 import { statusByKind } from "../agents/detect";
 import { getAgentAdapter } from "../agents/registry";
 import {
+  parseModelSelectionId,
   resolveModelSelection,
+  resolveProviderApiKey,
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
 import { isTauriRuntime } from "../isTauriRuntime";
@@ -28,13 +30,20 @@ export async function syncAcpAgentConfigFile(
     if (!resolved) {
       throw new Error("所选模型无效或已禁用，请先在「设置 → AI 模型」中配置");
     }
-    if (!resolved.apiKey.trim()) {
+    const parsed = parseModelSelectionId(modelSelectionId);
+    const provider = parsed
+      ? providers.find((p) => p.id === parsed.providerId)
+      : undefined;
+    const apiKey =
+      resolved.apiKey.trim() ||
+      (provider ? await resolveProviderApiKey(provider) : "");
+    if (!apiKey.trim()) {
       throw new Error("所选模型的 API Key 为空，请先在「设置 → AI 模型」中填写");
     }
 
     const result = await commands.acpSaveAgentConfig({
       model: resolved.name,
-      apiKey: resolved.apiKey,
+      apiKey,
       baseUrl: resolved.baseUrl,
       apiStandard: resolved.apiStandard,
     });

@@ -69,9 +69,10 @@ fn models_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("ai-models.json"))
 }
 
-fn scrub_provider_for_disk(mut p: AiModelProvider) -> AiModelProvider {
+fn scrub_provider_for_disk(mut p: AiModelProvider) -> Result<AiModelProvider, String> {
     if !p.api_key.trim().is_empty() {
-        let _ = Vault::store(&ai_provider_key_ref(&p.id), p.api_key.trim());
+        Vault::store(&ai_provider_key_ref(&p.id), p.api_key.trim())
+            .map_err(|e| format!("保存 API Key 到钥匙串失败: {}", e.message))?;
         p.has_api_key = true;
     } else {
         p.has_api_key = Vault::get(&ai_provider_key_ref(&p.id))
@@ -80,7 +81,7 @@ fn scrub_provider_for_disk(mut p: AiModelProvider) -> AiModelProvider {
             || p.has_api_key;
     }
     p.api_key.clear();
-    p
+    Ok(p)
 }
 
 fn redact_provider_for_frontend(mut p: AiModelProvider) -> AiModelProvider {
@@ -89,10 +90,11 @@ fn redact_provider_for_frontend(mut p: AiModelProvider) -> AiModelProvider {
         .is_some_and(|k| !k.is_empty())
         || p.has_api_key
         || !p.api_key.trim().is_empty();
-    // 迁移：磁盘仍有明文时写入 Vault
+    // 迁移：磁盘仍有明文时写入 Vault（失败时仍清空前端明文，避免落盘）
     if !p.api_key.trim().is_empty() {
-        let _ = Vault::store(&ai_provider_key_ref(&p.id), p.api_key.trim());
-        p.has_api_key = true;
+        if Vault::store(&ai_provider_key_ref(&p.id), p.api_key.trim()).is_ok() {
+            p.has_api_key = true;
+        }
     }
     p.api_key.clear();
     p
@@ -105,6 +107,21 @@ pub fn resolve_ai_provider_api_key(provider_id: &str, request_key: &str) -> Stri
     }
     Vault::get(&ai_provider_key_ref(provider_id))
         .unwrap_or_default()
+}
+
+/// 前端在拉取 /models、ACP 同步等场景按需取回 Vault 中的 API Key。
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_models_resolve_api_key(provider_id: String) -> Result<String, String> {
+    let id = provider_id.trim();
+    if id.is_empty() {
+        return Err("provider_id 不能为空".into());
+    }
+    let key = Vault::get(&ai_provider_key_ref(id)).unwrap_or_default();
+    if key.trim().is_empty() {
+        return Err("未找到该提供商的 API Key，请重新填写并保存".into());
+    }
+    Ok(key)
 }
 
 /// 读取 AI 模型配置 JSON 文件。文件不存在时返回默认空配置。
@@ -179,10 +196,10 @@ pub async fn ai_models_save(app: AppHandle, mut file: AiModelsFile) -> Result<()
             }
         }
     }
-    file.providers = file
-        .providers
-        .into_iter()
-        .map(scrub_provider_for_disk)
-        .collect();
+    let mut scrubbed = Vec::with_capacity(file.providers.len());
+    for p in file.providers {
+        scrubbed.push(scrub_provider_for_disk(p)?);
+    }
+    file.providers = scrubbed;
     ai_models_save_inner(&path, &file)
 }

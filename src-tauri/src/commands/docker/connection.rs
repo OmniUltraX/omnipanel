@@ -45,14 +45,20 @@ pub async fn docker_get_connection_secret(
     };
 
     if let Ok(key) = Vault::get(&vault_key) {
-        if !key.trim().is_empty() {
-            return Ok(key);
+        let key = key.trim();
+        if !key.is_empty() {
+            return Ok(key.to_string());
         }
     }
+    // 仅接受面板 API Key 引用；勿回退到 docker-ssh-password（会把 SSH 密码当成 API Key）
     if let Some(r) = conn.credential_ref.as_deref() {
-        if let Ok(key) = Vault::get(r) {
-            if !key.trim().is_empty() {
-                return Ok(key);
+        if r == vault_key || r.starts_with("docker-btpanel-") || r.starts_with("docker-onepanel-")
+        {
+            if let Ok(key) = Vault::get(r) {
+                let key = key.trim();
+                if !key.is_empty() {
+                    return Ok(key.to_string());
+                }
             }
         }
     }

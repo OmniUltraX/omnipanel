@@ -5,6 +5,8 @@ export interface QuickInputOptions {
   subtitle?: string;
   placeholder?: string;
   defaultValue?: string;
+  /** 密码输入模式 */
+  password?: boolean;
   validate?: (value: string) => string | null;
 }
 

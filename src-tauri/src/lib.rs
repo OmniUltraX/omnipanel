@@ -502,6 +502,7 @@ fn export_ipc_bindings() {
         // AI 模型持久化
         commands::ai_models::ai_models_load,
         commands::ai_models::ai_models_save,
+        commands::ai_models::ai_models_resolve_api_key,
         commands::opencode::detect_opencode_install,
         commands::agents::detect_all_agents,
         commands::db_sql_files::db_sql_files_load,
@@ -1381,6 +1382,7 @@ fn build_and_run_tauri() {
             // AI 模型持久化
             commands::ai_models::ai_models_load,
             commands::ai_models::ai_models_save,
+            commands::ai_models::ai_models_resolve_api_key,
             commands::opencode::detect_opencode_install,
         commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,

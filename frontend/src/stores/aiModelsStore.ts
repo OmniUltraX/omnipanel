@@ -351,6 +351,39 @@ function serializeProviderForDisk(provider: AiModelProvider) {
   };
 }
 
+/** 内存中的明文已写入 Vault 后清空，仅保留 hasApiKey。 */
+function scrubProvidersApiKeysInMemory(providers: AiModelProvider[]): AiModelProvider[] {
+  return providers.map((p) => ({
+    ...p,
+    apiKey: "",
+    hasApiKey: Boolean(p.hasApiKey) || Boolean(p.apiKey.trim()),
+  }));
+}
+
+/**
+ * 解析提供商 API Key：优先内存明文，否则在已配置时从 Vault 取回。
+ * 供前端直连 /models、ACP 同步等路径使用；对话主路径由 Rust 自行读 Vault。
+ */
+export async function resolveProviderApiKey(provider: AiModelProvider): Promise<string> {
+  const inline = provider.apiKey.trim();
+  if (inline) return inline;
+  if (!provider.hasApiKey) return "";
+  if (!canUseAiBackend()) return "";
+  try {
+    const res = await commands.aiModelsResolveApiKey(provider.id);
+    if (res.status === "ok") {
+      return res.data.trim();
+    }
+    console.warn("[aiModelsStore] 解析 API Key 失败:", res.error);
+  } catch (e) {
+    console.warn("[aiModelsStore] 解析 API Key 失败:", e);
+  }
+  return "";
+}
+
+/** 是否已从磁盘/Vault 完成一次对齐（避免 localStorage 空密钥复水后跳过 load）。 */
+let hydratedFromDisk = false;
+
 /** 持久化当前 providers：写 ai-models.json（localStorage 由 persist 中间件自动处理）。 */
 async function persistProviders(providers: AiModelProvider[]): Promise<void> {
   if (!canUseAiBackend()) {
@@ -363,6 +396,18 @@ async function persistProviders(providers: AiModelProvider[]): Promise<void> {
     });
     if (res.status === "error") {
       console.warn("[aiModelsStore] 写入磁盘失败:", res.error);
+    } else {
+      // 明文已入 Vault：同步清空内存明文，避免后续误以为「内存里还有 Key」
+      const ids = new Set(providers.map((p) => p.id));
+      const current = useAiModelsStore.getState().providers;
+      if (
+        current.length === providers.length &&
+        current.every((p) => ids.has(p.id))
+      ) {
+        useAiModelsStore.setState({
+          providers: scrubProvidersApiKeysInMemory(current),
+        });
+      }
     }
   } catch (e) {
     console.warn("[aiModelsStore] 写入磁盘失败:", e);
@@ -383,15 +428,18 @@ export const useAiModelsStore = create<AiModelsState>()(
     (set, get) => ({
   providers: [],
   addProvider: (input) => {
+    const apiKey = input.apiKey.trim();
     const provider: AiModelProvider = {
       id: genId(),
       providerName: normalizeProviderName(input.providerName),
       apiStandard: input.apiStandard,
       baseUrl: normalizeBaseUrl(input.baseUrl),
-      apiKey: input.apiKey.trim(),
+      apiKey,
+      hasApiKey: Boolean(apiKey) || Boolean(input.hasApiKey),
       modelNames: normalizeModelNames(input.modelNames),
       manualModelNames: normalizeManualModelNames(input.manualModelNames),
       disabledModelNames: normalizeDisabledModelNames(input.disabledModelNames),
+      apiModelMeta: input.apiModelMeta,
       createdAt: Date.now(),
     };
     const next = [provider, ...get().providers];
@@ -401,12 +449,14 @@ export const useAiModelsStore = create<AiModelsState>()(
   },
   upsertProviderById: (id, input) => {
     const existing = get().providers.find((p) => p.id === id);
+    const apiKey = input.apiKey.trim();
     const provider: AiModelProvider = {
       id,
       providerName: normalizeProviderName(input.providerName),
       apiStandard: input.apiStandard,
       baseUrl: normalizeBaseUrl(input.baseUrl),
-      apiKey: input.apiKey.trim(),
+      apiKey,
+      hasApiKey: Boolean(apiKey) || Boolean(input.hasApiKey) || Boolean(existing?.hasApiKey),
       modelNames: normalizeModelNames(input.modelNames),
       manualModelNames: normalizeManualModelNames(input.manualModelNames),
       excludedModelNames: existing?.excludedModelNames,
@@ -445,6 +495,12 @@ export const useAiModelsStore = create<AiModelsState>()(
         patch.disabledModelNames !== undefined
           ? normalizeDisabledModelNames(patch.disabledModelNames)
           : p.disabledModelNames;
+      const nextApiKey =
+        patch.apiKey !== undefined ? patch.apiKey.trim() : p.apiKey;
+      const nextHasApiKey =
+        patch.hasApiKey !== undefined
+          ? Boolean(patch.hasApiKey)
+          : Boolean(nextApiKey) || Boolean(p.hasApiKey);
       return {
         ...p,
         ...patch,
@@ -452,7 +508,8 @@ export const useAiModelsStore = create<AiModelsState>()(
           ? { providerName: normalizeProviderName(patch.providerName) }
           : {}),
         ...(patch.baseUrl !== undefined ? { baseUrl: normalizeBaseUrl(patch.baseUrl) } : {}),
-        ...(patch.apiKey !== undefined ? { apiKey: patch.apiKey.trim() } : {}),
+        apiKey: nextApiKey,
+        hasApiKey: nextHasApiKey,
         modelNames,
         manualModelNames: pruneManualModelNames(modelNames, manualModelNames),
         excludedModelNames: normalizeExcludedModelNames(excludedModelNames),
@@ -595,8 +652,12 @@ export const useAiModelsStore = create<AiModelsState>()(
       return { ok: false, error: "not_found" };
     }
 
-    // 本地 Ollama / LM Studio 等可不填 API Key；云端缺 Key 会由 HTTP 401 体现
-    const fetched = await fetchProviderModelList(provider.baseUrl, provider.apiKey);
+    // 本地 Ollama / LM Studio 等可不填 API Key；云端密钥在 Vault 时需按需取回
+    const apiKey = await resolveProviderApiKey(provider);
+    if (!apiKey && provider.hasApiKey) {
+      return { ok: false, error: "no_api_key" };
+    }
+    const fetched = await fetchProviderModelList(provider.baseUrl, apiKey);
     if (!fetched.ok) {
       return { ok: false, error: fetched.error };
     }
@@ -676,10 +737,13 @@ if (import.meta.hot) {
 /**
  * 应用启动时调用一次：
  *  1. 若磁盘文件为空,尝试从旧版 localStorage 迁移一次性数据；
- *  2. 将磁盘内容载入内存。
+ *  2. 将磁盘内容载入内存（含 hasApiKey；明文在 Vault）。
+ *
+ * 注意：不能仅因 zustand persist 已从 localStorage 复水（apiKey 恒为空）就跳过，
+ * 否则 hasApiKey / 与 Vault 的对齐会丢失，后续刷新模型会 401。
  */
 export async function initAiModelsStore(force = false): Promise<void> {
-  if (!force && useAiModelsStore.getState().providers.length > 0) {
+  if (!force && hydratedFromDisk) {
     return;
   }
   if (!canUseAiBackend()) {
@@ -708,7 +772,9 @@ export async function initAiModelsStore(force = false): Promise<void> {
           providers: legacy.map((p) => serializeProviderForDisk({ ...p, disabledModelNames: p.disabledModelNames ?? [] })),
         });
         if (saveRes.status === "ok") {
-          useAiModelsStore.setState({ providers: legacy });
+          useAiModelsStore.setState({
+            providers: scrubProvidersApiKeysInMemory(legacy),
+          });
           console.info(
             `[aiModelsStore] 已从 localStorage 迁移 ${legacy.length} 个 AI 提供商到磁盘`
           );
@@ -729,6 +795,7 @@ export async function initAiModelsStore(force = false): Promise<void> {
       const providers = toStrictProviders(file.providers as unknown as LooseProvider[]);
       useAiModelsStore.setState({ providers });
     }
+    hydratedFromDisk = true;
   } catch (e) {
     console.warn("[aiModelsStore] 初始化加载失败:", e);
     const cached = readProvidersCache();
@@ -738,9 +805,9 @@ export async function initAiModelsStore(force = false): Promise<void> {
   }
 }
 
-/** 掩码显示 API Key：仅保留最后 4 个可见字符 */
-export function maskApiKey(key: string): string {
-  if (!key) return "";
+/** 掩码显示 API Key：仅保留最后 4 个可见字符；无明文但已配置时显示占位 */
+export function maskApiKey(key: string, hasApiKey = false): string {
+  if (!key) return hasApiKey ? "••••••••" : "";
   if (key.length <= 4) return "•".repeat(key.length);
   return `••••${key.slice(-4)}`;
 }

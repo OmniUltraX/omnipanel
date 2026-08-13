@@ -17,6 +17,7 @@ export function QuickInputHost() {
       subtitle={request.subtitle}
       placeholder={request.placeholder}
       defaultValue={request.defaultValue}
+      password={request.password}
       validate={request.validate}
       onConfirm={confirm}
       onCancel={cancel}

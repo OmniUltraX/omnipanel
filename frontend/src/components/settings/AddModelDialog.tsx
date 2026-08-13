@@ -13,6 +13,7 @@ import {
   defaultBaseUrlFor,
   isValidBaseUrl,
   parseModelNames,
+  resolveProviderApiKey,
   useAiModelsStore,
   type AiModelProvider,
   type ApiStandard,
@@ -161,11 +162,12 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
     }
 
     if (isEdit && editProvider) {
-      const effectiveKey = apiKey || editProvider.apiKey;
-
       setSaving(true);
       setError(null);
       setInfo(t("settings.aiModels.fetch.loading"));
+
+      // 编辑时留空表示保留原密钥：从 Vault 取回，避免空 Bearer 导致 401
+      const effectiveKey = apiKey || (await resolveProviderApiKey(editProvider));
 
       const catalog = await resolveModelCatalog(baseUrl, effectiveKey, form.modelNames, t);
       setSaving(false);
@@ -181,7 +183,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
         apiModelMeta: catalog.apiModelMeta,
         apiStandard: form.apiStandard,
         baseUrl,
-        ...(apiKey ? { apiKey } : {}),
+        ...(apiKey ? { apiKey, hasApiKey: true } : {}),
         disabledModelNames: (editProvider.disabledModelNames ?? []).filter((name) =>
           catalog.modelNames.includes(name),
         ),
@@ -210,6 +212,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
       apiStandard: form.apiStandard,
       baseUrl,
       apiKey,
+      hasApiKey: Boolean(apiKey),
       disabledModelNames: [],
     });
     onSaved?.(created.id);

@@ -1515,12 +1515,17 @@ fn parse_onepanel_file_mode(mode: &str) -> u32 {
 
 fn parse_onepanel_file_entry(v: &serde_json::Value) -> Option<DockerFileEntry> {
     let name = json_str(v.get("name"));
-    if name.is_empty() {
+    if name.is_empty() || name == "." || name == ".." {
         return None;
     }
     let path = json_str(v.get("path")).if_empty_then(&name);
     let is_dir = v.get("isDir").and_then(|x| x.as_bool()).unwrap_or(false);
-    let is_symlink = v.get("isLink").and_then(|x| x.as_bool()).unwrap_or(false);
+    // 容器文件用 isLink；宿主机 /files/search 用 isSymlink。
+    let is_symlink = v
+        .get("isLink")
+        .and_then(|x| x.as_bool())
+        .or_else(|| v.get("isSymlink").and_then(|x| x.as_bool()))
+        .unwrap_or(false);
     let mode = v
         .get("mode")
         .and_then(|x| x.as_str())
@@ -1535,6 +1540,26 @@ fn parse_onepanel_file_entry(v: &serde_json::Value) -> Option<DockerFileEntry> {
         is_dir,
         is_symlink,
     })
+}
+
+/// 把 `DockerCreateVolumeRequest.labels` 转成 1Panel `dto.VolumeCreate.labels`（`["k=v"]`）。
+fn volume_labels_as_strings(labels: &[(String, String)]) -> Vec<String> {
+    labels
+        .iter()
+        .filter(|(k, _)| !k.trim().is_empty())
+        .map(|(k, v)| {
+            if v.is_empty() {
+                k.clone()
+            } else {
+                format!("{k}={v}")
+            }
+        })
+        .collect()
+}
+
+/// 拼接卷内相对路径对应的宿主机绝对路径（Unix）。
+fn volume_host_path(mountpoint: &str, inner_path: &str) -> OmniResult<String> {
+    crate::volume_files::resolve_volume_unix_path(mountpoint, inner_path)
 }
 
 #[async_trait]
@@ -2175,16 +2200,20 @@ impl DockerAdapter for OnePanelAdapter {
             .map(|v| DockerVolumeSummary {
                 name: v
                     .get("name")
+                    .or_else(|| v.get("Name"))
                     .and_then(|x| x.as_str())
                     .unwrap_or_default()
                     .to_string(),
                 driver: v
                     .get("driver")
+                    .or_else(|| v.get("Driver"))
                     .and_then(|x| x.as_str())
                     .unwrap_or_default()
                     .to_string(),
                 mountpoint: v
                     .get("mountpoint")
+                    .or_else(|| v.get("Mountpoint"))
+                    .or_else(|| v.get("mountPoint"))
                     .and_then(|x| x.as_str())
                     .unwrap_or_default()
                     .to_string(),
@@ -2196,44 +2225,47 @@ impl DockerAdapter for OnePanelAdapter {
     }
 
     async fn create_volume(&self, req: &DockerCreateVolumeRequest) -> OmniResult<String> {
+        // 文档：POST /containers/volume，body = dto.VolumeCreate（driver/name 必填；labels/options 为 string[]）。
+        let driver = req
+            .driver
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("local");
         self.client
-            .post_json(
-                "/api/v2/volumes/create",
+            .post_ok_with_timeout(
+                "/api/v2/containers/volume",
                 serde_json::json!({
                     "name": req.name,
-                    "driver": req.driver,
-                    "labels": req.labels,
+                    "driver": driver,
+                    "labels": volume_labels_as_strings(&req.labels),
+                    "options": serde_json::Value::Array(vec![]),
                 }),
+                DEFAULT_HTTP_TIMEOUT,
             )
             .await
-            .map(|_: serde_json::Value| req.name.clone())
-            .map_err(|e| e.with_cause("1Panel 创建卷失败"))
+            .map_err(|e| e.with_cause("1Panel 创建卷失败"))?;
+        Ok(req.name.clone())
     }
 
     async fn remove_volume(&self, name: &str, force: bool) -> OmniResult<()> {
+        // 文档：POST /containers/volume/del，body = dto.BatchDelete（names 必填）。
         self.client
-            .post_json(
-                "/api/v2/volumes/remove",
-                serde_json::json!({ "name": name, "force": force }),
+            .post_ok_with_timeout(
+                "/api/v2/containers/volume/del",
+                serde_json::json!({
+                    "names": [name],
+                    "force": force,
+                }),
+                DEFAULT_HTTP_TIMEOUT,
             )
             .await
-            .map(|_: serde_json::Value| ())
             .map_err(|e| e.with_cause("1Panel 删除卷失败"))
     }
 
     async fn prune_volumes(&self) -> OmniResult<DockerPruneVolumesResult> {
-        let v: serde_json::Value = self
-            .client
-            .post_json("/api/v2/volumes/prune", serde_json::json!({}))
-            .await
-            .map_err(|e| e.with_cause("1Panel 清理卷失败"))?;
-        Ok(DockerPruneVolumesResult {
-            deleted: vec![],
-            freed_space_bytes: v
-                .get("spaceReclaimed")
-                .and_then(|x| x.as_i64())
-                .unwrap_or(0),
-        })
+        // 1Panel OpenAPI 无独立 prune 端点，经绑定 SSH 走 docker volume prune。
+        self.ssh().prune_volumes().await
     }
 
     async fn system_disk_usage(&self) -> OmniResult<DockerSystemDiskUsage> {
@@ -2387,33 +2419,40 @@ impl DockerAdapter for OnePanelAdapter {
             .map_err(|e| e.with_cause("1Panel 查询卷详情失败"))?;
         let item = raw
             .into_iter()
-            .find(|v| v.get("name").and_then(|x| x.as_str()) == Some(name))
+            .find(|v| {
+                v.get("name").or_else(|| v.get("Name")).and_then(|x| x.as_str()) == Some(name)
+            })
             .ok_or_else(|| not_supported("卷详情"))?;
         Ok(DockerVolumeDetail {
             name: item
                 .get("name")
+                .or_else(|| item.get("Name"))
                 .and_then(|x| x.as_str())
                 .unwrap_or(name)
                 .to_string(),
             driver: item
                 .get("driver")
+                .or_else(|| item.get("Driver"))
                 .and_then(|x| x.as_str())
                 .unwrap_or("local")
                 .to_string(),
             mountpoint: item
                 .get("mountpoint")
+                .or_else(|| item.get("Mountpoint"))
+                .or_else(|| item.get("mountPoint"))
                 .and_then(|x| x.as_str())
                 .unwrap_or_default()
                 .to_string(),
             scope: item
                 .get("scope")
+                .or_else(|| item.get("Scope"))
                 .and_then(|x| x.as_str())
                 .unwrap_or("local")
                 .to_string(),
             created_at: 0,
             size_bytes: -1,
-            labels: parse_json_labels(item.get("labels")),
-            options: parse_json_labels(item.get("options")),
+            labels: parse_json_labels(item.get("labels").or_else(|| item.get("Labels"))),
+            options: parse_json_labels(item.get("options").or_else(|| item.get("Options"))),
             reference_count: 0,
         })
     }
@@ -2423,8 +2462,9 @@ impl DockerAdapter for OnePanelAdapter {
         container_id: &str,
         path: &str,
     ) -> OmniResult<Vec<DockerFileEntry>> {
+        // 文档：POST /containers/files/search，body = dto.ContainerFileReq。
         let path = if path.trim().is_empty() { "/" } else { path };
-        let raw: Vec<serde_json::Value> = self
+        let data: serde_json::Value = self
             .client
             .post_json(
                 "/api/v2/containers/files/search",
@@ -2435,6 +2475,7 @@ impl DockerAdapter for OnePanelAdapter {
             )
             .await
             .map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
+        let raw = extract_search_items(data).map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
         let mut entries: Vec<DockerFileEntry> = raw
             .iter()
             .filter_map(parse_onepanel_file_entry)
@@ -2453,9 +2494,36 @@ impl DockerAdapter for OnePanelAdapter {
         path: &str,
         max_bytes: i64,
     ) -> OmniResult<Vec<u8>> {
-        self.ssh()
-            .read_container_file(container_id, path, max_bytes)
+        // 文档：POST /containers/files/content → dto.ContainerFileContent。
+        let data: serde_json::Value = self
+            .client
+            .post_json(
+                "/api/v2/containers/files/content",
+                serde_json::json!({
+                    "containerID": container_id,
+                    "path": path,
+                }),
+            )
             .await
+            .map_err(|e| e.with_cause("1Panel 读取容器文件失败"))?;
+        if data.get("isBinary").and_then(|x| x.as_bool()).unwrap_or(false) {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "该文件为二进制，暂不支持预览",
+            ));
+        }
+        let content = data
+            .get("content")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default();
+        let bytes = content.as_bytes().to_vec();
+        if max_bytes > 0 && (bytes.len() as i64) > max_bytes {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("文件超过 {} 字节限制", max_bytes),
+            ));
+        }
+        Ok(bytes)
     }
 
     async fn write_container_file(
@@ -2467,6 +2535,84 @@ impl DockerAdapter for OnePanelAdapter {
         self.ssh()
             .write_container_file(container_id, path, data)
             .await
+    }
+
+    async fn list_volume_dir(
+        &self,
+        volume_name: &str,
+        path: &str,
+    ) -> OmniResult<Vec<DockerFileEntry>> {
+        // 卷内文件无专用 API：经卷 mountpoint + 宿主机 POST /files/search 浏览。
+        let detail = self.inspect_volume(volume_name).await?;
+        let host_path = volume_host_path(&detail.mountpoint, path)?;
+        let data: serde_json::Value = self
+            .client
+            .request(
+                reqwest::Method::POST,
+                "/api/v2/files/search",
+                Some(serde_json::json!({
+                    "path": host_path,
+                    "expand": true,
+                    "page": 1,
+                    "pageSize": 500,
+                    "showHidden": true,
+                })),
+                Some(&[("operateNode", "local")]),
+                DEFAULT_HTTP_TIMEOUT,
+            )
+            .await
+            .map_err(|e| e.with_cause("1Panel 列出卷目录失败"))?;
+        let raw = extract_search_items(data).map_err(|e| e.with_cause("1Panel 列出卷目录失败"))?;
+        let mut entries: Vec<DockerFileEntry> = raw
+            .iter()
+            .filter_map(parse_onepanel_file_entry)
+            .map(|mut entry| {
+                entry.path = crate::volume_files::join_volume_display_path(path, &entry.name);
+                entry
+            })
+            .collect();
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        });
+        Ok(entries)
+    }
+
+    async fn read_volume_file(
+        &self,
+        volume_name: &str,
+        path: &str,
+        max_bytes: i64,
+    ) -> OmniResult<Vec<u8>> {
+        let detail = self.inspect_volume(volume_name).await?;
+        let host_path = volume_host_path(&detail.mountpoint, path)?;
+        let data: serde_json::Value = self
+            .client
+            .request(
+                reqwest::Method::POST,
+                "/api/v2/files/content",
+                Some(serde_json::json!({
+                    "path": host_path,
+                    "expand": true,
+                })),
+                Some(&[("operateNode", "local")]),
+                DEFAULT_HTTP_TIMEOUT,
+            )
+            .await
+            .map_err(|e| e.with_cause("1Panel 读取卷内文件失败"))?;
+        let content = data
+            .get("content")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default();
+        let bytes = content.as_bytes().to_vec();
+        if max_bytes > 0 && (bytes.len() as i64) > max_bytes {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("文件超过 {} 字节限制", max_bytes),
+            ));
+        }
+        Ok(bytes)
     }
 
     async fn swarm_init(

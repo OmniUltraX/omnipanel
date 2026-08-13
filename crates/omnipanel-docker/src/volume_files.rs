@@ -55,6 +55,12 @@ pub fn resolve_volume_absolute_path(mountpoint: &str, inner_path: &str) -> OmniR
     Ok(full)
 }
 
+/// 解析为 Unix 风格绝对路径（供 1Panel `/files/*` 等宿主机文件 API 使用）。
+pub fn resolve_volume_unix_path(mountpoint: &str, inner_path: &str) -> OmniResult<String> {
+    let full = resolve_volume_absolute_path(mountpoint, inner_path)?;
+    Ok(full.to_string_lossy().replace('\\', "/"))
+}
+
 pub async fn list_local_volume_dir(
     mountpoint: &str,
     inner_path: &str,

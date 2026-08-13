@@ -140,18 +140,31 @@ pub(crate) fn delete_connection_vault_secrets(conn: &Connection) {
     // Docker / Panel 等其它 ref 命名在 normalize 时写入 credential_ref，上面已覆盖
 }
 
+/// 是否为面板 API Key 的 Vault 引用（勿把 docker-ssh-password / ssh-password 当 API Key）。
+fn is_panel_api_credential_ref(reference: &str) -> bool {
+    reference.starts_with("docker-btpanel-")
+        || reference.starts_with("docker-onepanel-")
+        || reference.starts_with("panel-key-")
+}
+
 /// Docker / Panel config 中的 apiKey / key / 内嵌 SSH 密码进 Vault。
 fn normalize_docker_or_panel_connection(
     mut connection: Connection,
 ) -> Result<Connection, OmniError> {
     let mut value: Value = serde_json::from_str(&connection.config).unwrap_or(json!({}));
     let id = connection.id.clone();
+    let source = value
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
 
     // Panel: { key }
     if connection.kind == ConnectionKind::Panel {
         if let Some(key) = value
             .get("key")
             .and_then(|v| v.as_str())
+            .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
         {
@@ -166,11 +179,13 @@ fn normalize_docker_or_panel_connection(
     if let Some(api_key) = value
         .pointer("/onepanel/apiKey")
         .and_then(|v| v.as_str())
+        .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
     {
         let cred_ref = format!("docker-onepanel-{id}");
         Vault::store(&cred_ref, &api_key)?;
+        // 必须覆盖旧的 docker-ssh-password 等引用，否则编辑回显/兜底会误用 SSH 密码当 API Key
         connection.credential_ref = Some(cred_ref);
         if let Some(op) = value.get_mut("onepanel").and_then(|v| v.as_object_mut()) {
             op.insert("apiKey".into(), Value::String(String::new()));
@@ -182,19 +197,43 @@ fn normalize_docker_or_panel_connection(
         .pointer("/btpanel/apiKey")
         .or_else(|| value.pointer("/panel/apiKey"))
         .and_then(|v| v.as_str())
+        .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     if let Some(api_key) = bt_api_key {
         let cred_ref = format!("docker-btpanel-{id}");
         Vault::store(&cred_ref, &api_key)?;
-        if connection.credential_ref.is_none() {
-            connection.credential_ref = Some(cred_ref);
-        }
+        // 同上：宝塔密钥写入后必须把 credential_ref 指到 docker-btpanel-*（历史 bug 仅在 is_none 时写入）
+        connection.credential_ref = Some(cred_ref);
         if let Some(op) = value.get_mut("btpanel").and_then(|v| v.as_object_mut()) {
             op.insert("apiKey".into(), Value::String(String::new()));
         }
         if let Some(op) = value.get_mut("panel").and_then(|v| v.as_object_mut()) {
             op.insert("apiKey".into(), Value::String(String::new()));
+        }
+    }
+
+    // 编辑时密钥留空（保留 Vault）：仍纠正误指向 SSH 密码的 credential_ref
+    if matches!(
+        source.as_str(),
+        "btpanel" | "baota" | "panel-adapter"
+    ) {
+        let expected = format!("docker-btpanel-{id}");
+        let ref_ok = connection
+            .credential_ref
+            .as_deref()
+            .is_some_and(is_panel_api_credential_ref);
+        if !ref_ok {
+            connection.credential_ref = Some(expected);
+        }
+    } else if matches!(source.as_str(), "onepanel" | "one-panel") {
+        let expected = format!("docker-onepanel-{id}");
+        let ref_ok = connection
+            .credential_ref
+            .as_deref()
+            .is_some_and(is_panel_api_credential_ref);
+        if !ref_ok {
+            connection.credential_ref = Some(expected);
         }
     }
 

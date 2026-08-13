@@ -314,8 +314,18 @@ pub async fn ai_models_save(file: AiModelsFile) -> Result<(), String> {
                 .to_string();
             if let Some(key) = obj.get("apiKey").and_then(|v| v.as_str()) {
                 if !key.trim().is_empty() {
-                    let _ = Vault::store(&ai_provider_key_ref(&id), key.trim());
+                    Vault::store(&ai_provider_key_ref(&id), key.trim())
+                        .map_err(|e| format!("保存 API Key 到钥匙串失败: {}", e.message))?;
                     obj.insert("hasApiKey".into(), serde_json::json!(true));
+                } else {
+                    let has = Vault::get(&ai_provider_key_ref(&id))
+                        .ok()
+                        .is_some_and(|k| !k.is_empty())
+                        || obj
+                            .get("hasApiKey")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                    obj.insert("hasApiKey".into(), serde_json::json!(has));
                 }
             }
             obj.insert("apiKey".into(), serde_json::json!(""));
@@ -323,6 +333,19 @@ pub async fn ai_models_save(file: AiModelsFile) -> Result<(), String> {
     }
     let raw = serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?;
     fs::write(&path, raw).map_err(|e| format!("写入 ai-models.json 失败: {e}"))
+}
+
+/// 前端按需从 Vault 取回提供商 API Key。
+pub async fn ai_models_resolve_api_key(provider_id: String) -> Result<String, String> {
+    let id = provider_id.trim();
+    if id.is_empty() {
+        return Err("provider_id 不能为空".into());
+    }
+    let key = Vault::get(&ai_provider_key_ref(id)).unwrap_or_default();
+    if key.trim().is_empty() {
+        return Err("未找到该提供商的 API Key，请重新填写并保存".into());
+    }
+    Ok(key)
 }
 
 /* -------------------- SSH 隧道（进程内） -------------------- */

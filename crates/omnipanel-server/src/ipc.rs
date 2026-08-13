@@ -1437,6 +1437,14 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
                 };
             respond(crate::store_bridge::ai_models_save(file).await)
         }
+        "ai_models_resolve_api_key" => {
+            let provider_id = args
+                .get("providerId")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            respond(crate::store_bridge::ai_models_resolve_api_key(provider_id).await)
+        }
 
         /* ---------------- 启动热路径：连接 / 模块 / HTTP 协议库 / 隧道 / 本机监控 ---------------- */
         "conn_list" => respond_omni(crate::store_bridge::conn_list(state).await),

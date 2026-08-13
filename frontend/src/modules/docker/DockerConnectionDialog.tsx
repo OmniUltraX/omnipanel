@@ -152,7 +152,7 @@ function formToOnePanelConfig(form: DockerForm): string {
     boundSshConnectionId: form.boundSshConnectionId.trim(),
     onepanel: {
       baseUrl: form.panelBaseUrl.trim(),
-      apiKey: form.panelApiKey,
+      apiKey: form.panelApiKey.trim(),
       insecure: form.panelInsecure,
     },
   };
@@ -166,7 +166,7 @@ function formToBtPanelConfig(form: DockerForm): string {
     boundSshConnectionId: form.boundSshConnectionId.trim(),
     btpanel: {
       baseUrl: form.panelBaseUrl.trim(),
-      apiKey: form.panelApiKey,
+      apiKey: form.panelApiKey.trim(),
       insecure: form.panelInsecure,
     },
   };
@@ -294,7 +294,9 @@ export function DockerConnectionDialog({
           .then((secret) => {
             if (cancelled || !secret.trim()) return;
             setForm((prev) =>
-              prev.panelApiKey.trim() ? prev : { ...prev, panelApiKey: secret },
+              prev.panelApiKey.trim()
+                ? prev
+                : { ...prev, panelApiKey: secret.trim() },
             );
           })
           .catch(() => {

@@ -26,14 +26,13 @@ const READONLY_CAPABILITIES = {
 export function makeDockerVolumeSftpAdapter(
   connectionId: string,
   volumeName: string,
-  source: DockerConnectionSource,
+  _source: DockerConnectionSource,
 ): SftpPanelAdapter {
-  const canPreview = source !== "one-panel";
-
+  // 1Panel：经卷 mountpoint + 宿主机 /files/search|content 只读浏览；本地/SSH/Engine 同源能力。
   return {
     capabilities: {
       ...READONLY_CAPABILITIES,
-      preview: canPreview,
+      preview: true,
     },
     list: async (path) => {
       const entries = await unwrap(
@@ -46,11 +45,7 @@ export function makeDockerVolumeSftpAdapter(
       });
       return normalized;
     },
-    readBytes: canPreview
-      ? async (path, maxBytes) =>
-          unwrap(
-            commands.dockerReadVolumeFile(connectionId, volumeName, path, maxBytes),
-          )
-      : undefined,
+    readBytes: async (path, maxBytes) =>
+      unwrap(commands.dockerReadVolumeFile(connectionId, volumeName, path, maxBytes)),
   };
 }

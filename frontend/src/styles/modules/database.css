@@ -2836,29 +2836,6 @@
         accent-color: var(--accent);
     }
 
-    .quick-input-dialog {
-        width: 360px;
-    }
-
-    .quick-input-heading {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .quick-input-heading h3 {
-        margin: 0;
-    }
-
-    .quick-input-subtitle {
-        margin: 4px 0 0;
-        font-size: 12px;
-        font-weight: 400;
-        color: var(--meta);
-        line-height: 1.4;
-    }
-
-    /* Modal / FormDialog / WarnAlert / Zoomable image styles — moved to global.css (shared by all modules) */
-
     /* LogViewer（公共日志组件） */
     .log-viewer-panel {
         flex: 1;

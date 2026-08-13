@@ -142,12 +142,24 @@ pub async fn resolve_target(
                 )
             })?;
             if panel.api_key.trim().is_empty() {
-                if let Ok(key) = omnipanel_store::Vault::get(&format!("docker-onepanel-{connection_id}"))
+                if let Ok(key) =
+                    omnipanel_store::Vault::get(&format!("docker-onepanel-{connection_id}"))
                 {
-                    panel.api_key = key;
-                } else if let Some(r) = conn.credential_ref.as_deref() {
-                    if let Ok(key) = omnipanel_store::Vault::get(r) {
+                    let key = key.trim().to_string();
+                    if !key.is_empty() {
                         panel.api_key = key;
+                    }
+                }
+                if panel.api_key.trim().is_empty() {
+                    if let Some(r) = conn.credential_ref.as_deref() {
+                        if r.starts_with("docker-onepanel-") || r.starts_with("panel-key-") {
+                            if let Ok(key) = omnipanel_store::Vault::get(r) {
+                                let key = key.trim().to_string();
+                                if !key.is_empty() {
+                                    panel.api_key = key;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -157,6 +169,7 @@ pub async fn resolve_target(
                     "1Panel API 密钥未配置（请重新填写并保存连接）",
                 ));
             }
+            panel.api_key = panel.api_key.trim().to_string();
             let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "1Panel")?;
             let session =
                 ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
@@ -178,10 +191,21 @@ pub async fn resolve_target(
                 if let Ok(key) =
                     omnipanel_store::Vault::get(&format!("docker-btpanel-{connection_id}"))
                 {
-                    panel.api_key = key;
-                } else if let Some(r) = conn.credential_ref.as_deref() {
-                    if let Ok(key) = omnipanel_store::Vault::get(r) {
+                    let key = key.trim().to_string();
+                    if !key.is_empty() {
                         panel.api_key = key;
+                    }
+                }
+                if panel.api_key.trim().is_empty() {
+                    if let Some(r) = conn.credential_ref.as_deref() {
+                        if r.starts_with("docker-btpanel-") {
+                            if let Ok(key) = omnipanel_store::Vault::get(r) {
+                                let key = key.trim().to_string();
+                                if !key.is_empty() {
+                                    panel.api_key = key;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -191,6 +215,7 @@ pub async fn resolve_target(
                     "宝塔 API 密钥未配置（请重新填写并保存连接）",
                 ));
             }
+            panel.api_key = panel.api_key.trim().to_string();
             let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "宝塔")?;
             let session =
                 ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;

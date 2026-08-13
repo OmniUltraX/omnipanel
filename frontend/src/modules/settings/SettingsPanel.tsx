@@ -698,8 +698,14 @@ function ModelsSection() {
                           {provider.baseUrl}
                         </span>
                         <span className="ai-model-row-sep">·</span>
-                        <span className="ai-model-row-key" title={provider.apiKey}>
-                          {maskApiKey(provider.apiKey)}
+                        <span
+                          className="ai-model-row-key"
+                          title={
+                            provider.apiKey ||
+                            (provider.hasApiKey ? t("settings.aiModels.fields.apiKeyHintEdit") : "")
+                          }
+                        >
+                          {maskApiKey(provider.apiKey, Boolean(provider.hasApiKey))}
                         </span>
                       </div>
                     </div>

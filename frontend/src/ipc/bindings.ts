@@ -1042,6 +1042,8 @@ export const commands = {
 	aiModelsLoad: () => typedError<AiModelsFile_Serialize, string>(__TAURI_INVOKE("ai_models_load")),
 	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
 	aiModelsSave: (file: AiModelsFile_Deserialize) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
+	/**  按需从钥匙串取回提供商 API Key（前端直连 /models 等场景）。 */
+	aiModelsResolveApiKey: (providerId: string) => typedError<string, string>(__TAURI_INVOKE("ai_models_resolve_api_key", { providerId })),
 	/**  检测本机是否已安装 OpenCode CLI。 */
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
 	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */

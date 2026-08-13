@@ -130,7 +130,7 @@ impl BtPanelClient {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, insecure: bool) -> Self {
         Self {
             base_url: normalize_base_url(&base_url.into()),
-            api_key: api_key.into(),
+            api_key: api_key.into().trim().to_string(),
             insecure,
             cookie_jar: Arc::new(Jar::default()),
         }

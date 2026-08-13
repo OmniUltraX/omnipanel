@@ -19663,6 +19663,81 @@ button.omni-btn-tool[aria-pressed="true"] {
         justify-content: center;
     }
 
+    /* VS Code 风格 Quick Input：靠近顶部的单字段输入条 */
+    .quick-input-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: var(--z-dialog);
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: min(12vh, 72px) 16px 24px;
+        background: rgba(0, 0, 0, 0.32);
+    }
+
+    /* 外层仅作定位容器，视觉上与内部 input 同尺寸 */
+    .quick-input {
+        position: relative;
+        width: min(720px, 100%);
+        padding: 0;
+        margin: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        display: block;
+        animation: quick-input-in 90ms ease-out;
+    }
+
+    @keyframes quick-input-in {
+        from {
+            opacity: 0;
+            transform: translateY(-6px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .quick-input__field {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        line-height: 0;
+    }
+
+    .quick-input__field > .input-field,
+    .quick-input__control {
+        width: 100%;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .quick-input__control {
+        height: 36px;
+        font-size: 13px;
+        padding: 0 12px;
+        box-sizing: border-box;
+    }
+
+    .quick-input__field > .input-field .input {
+        height: 36px;
+        font-size: 13px;
+        padding: 0 12px;
+        box-sizing: border-box;
+    }
+
+    .quick-input__sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
     .modal-dialog {
         width: 520px;
         max-width: 90vw;

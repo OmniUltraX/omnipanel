@@ -1,7 +1,7 @@
 import { quickInput } from "../stores/quickInputStore";
 
 /**
- * 应用内输入框（`QuickInputHost` + `QuickInputDialog`）。
+ * 应用内顶部 Quick Input（`QuickInputHost` + VS Code 风格输入条）。
  *
  * **禁止**改为 `window.prompt` 或 Tauri 原生输入框。
  */

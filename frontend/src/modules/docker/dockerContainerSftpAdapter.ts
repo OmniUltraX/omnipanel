@@ -28,12 +28,14 @@ export function makeDockerContainerSftpAdapter(
   containerId: string,
   source: DockerConnectionSource,
 ): SftpPanelAdapter {
-  const canReadWrite = source !== "one-panel";
+  // 1Panel：/containers/files/search|content 支持只读列出与预览；写入仍依赖 SSH，暂不开放。
+  const canWrite = source !== "one-panel";
+  const canPreview = true;
 
   return {
     capabilities: {
       ...READONLY_CAPABILITIES,
-      preview: canReadWrite,
+      preview: canPreview,
     },
     list: async (path) => {
       const entries = await unwrap(
@@ -46,13 +48,9 @@ export function makeDockerContainerSftpAdapter(
       });
       return normalized;
     },
-    readBytes: canReadWrite
-      ? async (path, maxBytes) =>
-          unwrap(
-            commands.dockerReadContainerFile(connectionId, containerId, path, maxBytes),
-          )
-      : undefined,
-    writeBytes: canReadWrite
+    readBytes: async (path, maxBytes) =>
+      unwrap(commands.dockerReadContainerFile(connectionId, containerId, path, maxBytes)),
+    writeBytes: canWrite
       ? async (path, bytes) => {
           await unwrap(
             commands.dockerWriteContainerFile(connectionId, containerId, path, bytes),

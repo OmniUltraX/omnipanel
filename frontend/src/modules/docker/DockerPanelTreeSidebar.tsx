@@ -47,6 +47,7 @@ import {
   dockerSidebarConnectionRefreshKey,
 } from "./dockerSidebarCache";
 import { hasSidebarTreeSearch } from "@/lib/sidebarTreeSearch";
+import { quickInput } from "@/lib/quickInput";
 import { useDockerSidebarCacheStore } from "@/stores/dockerSidebarCacheStore";
 import {
   dockerConnectionNameMatchesSearch,
@@ -414,16 +415,32 @@ export function DockerPanelTreeSidebar({
   }, []);
 
   const handleCreateFolder = (parentId: string | null) => {
-    const name = window.prompt(t("docker.sidebar.newFolderPrompt"), t("docker.sidebar.newFolderDefault"));
-    if (name == null) return;
-    const id = createFolder(name, parentId);
-    ensureExpanded(`docker-folder:${id}`);
+    void (async () => {
+      const name = await quickInput({
+        title: t("docker.sidebar.newFolder"),
+        subtitle: t("docker.sidebar.newFolderPrompt"),
+        placeholder: t("docker.sidebar.newFolderDefault"),
+        defaultValue: t("docker.sidebar.newFolderDefault"),
+        validate: (value) => (value.trim() ? null : t("quickInput.required")),
+      });
+      if (name == null) return;
+      const id = createFolder(name, parentId);
+      ensureExpanded(`docker-folder:${id}`);
+    })();
   };
 
   const handleRenameFolder = (folder: DockerSidebarFolder) => {
-    const name = window.prompt(t("docker.sidebar.renameFolderPrompt"), folder.name);
-    if (name == null) return;
-    renameFolder(folder.id, name);
+    void (async () => {
+      const name = await quickInput({
+        title: t("docker.sidebar.renameFolder"),
+        subtitle: t("docker.sidebar.renameFolderPrompt"),
+        placeholder: folder.name,
+        defaultValue: folder.name,
+        validate: (value) => (value.trim() ? null : t("quickInput.required")),
+      });
+      if (name == null) return;
+      renameFolder(folder.id, name);
+    })();
   };
 
   const ctxItems: ContextMenuItem[] = (() => {
