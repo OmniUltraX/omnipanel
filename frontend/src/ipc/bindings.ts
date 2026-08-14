@@ -5409,6 +5409,12 @@ export type TeamSyncPushModulesRequest = {
 	deletedHttpCollections?: ClientSyncTombstone[],
 	deletedHttpEnvironments?: ClientSyncTombstone[],
 	deletedWorkspaces?: ClientSyncTombstone[],
+	excludedConnections?: string[],
+	excludedDatabases?: string[],
+	excludedKnowledge?: string[],
+	excludedHttpRequests?: string[],
+	excludedHttpCollections?: string[],
+	excludedWorkspaces?: string[],
 };
 
 export type TeamSyncPushModulesResult = {
@@ -5427,6 +5433,12 @@ export type TeamSyncPeekModulesRequest = {
 	token: string,
 	teamId: number,
 	workspacesJson?: string | null,
+	excludedConnections?: string[],
+	excludedDatabases?: string[],
+	excludedKnowledge?: string[],
+	excludedHttpRequests?: string[],
+	excludedHttpCollections?: string[],
+	excludedWorkspaces?: string[],
 };
 
 export type TeamSyncPeekItem = {
@@ -5437,6 +5449,7 @@ export type TeamSyncPeekItem = {
 	parentId: string,
 	kind: string,
 	synced: boolean,
+	excluded: boolean,
 };
 
 export type TeamSyncPeekModule = {

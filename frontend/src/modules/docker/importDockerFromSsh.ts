@@ -12,6 +12,7 @@ import {
   type BackgroundTaskInfo,
 } from "@/stores/backgroundTaskStore";
 import { parseSshConfig } from "../server/panel/serverConnection";
+import { panelProbeReachableAddress } from "../server/panel/panelAddress";
 
 export type ImportDockerFromSshProgress = {
   total: number;
@@ -42,13 +43,9 @@ function findDockerBoundToSsh(connections: Connection[], sshId: string): Connect
   });
 }
 
-/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1。 */
+/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1，并拼入安全入口。 */
 function realPanelAddress(panel: PanelProbeItem, ssh: Connection): string {
-  if (!panel.address) return "";
-  const cfg = parseSshConfig(ssh);
-  const host = (cfg?.publicIp || cfg?.host || "").trim();
-  if (!host) return panel.address;
-  return panel.address.replace("127.0.0.1", host);
+  return panelProbeReachableAddress(panel, ssh);
 }
 
 function makeTask(

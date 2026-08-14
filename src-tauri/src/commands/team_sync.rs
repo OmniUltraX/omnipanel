@@ -84,6 +84,18 @@ pub struct TeamSyncPushModulesRequest {
     pub deleted_http_environments: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
     #[serde(default)]
     pub deleted_workspaces: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
+    #[serde(default)]
+    pub excluded_connections: Vec<String>,
+    #[serde(default)]
+    pub excluded_databases: Vec<String>,
+    #[serde(default)]
+    pub excluded_knowledge: Vec<String>,
+    #[serde(default)]
+    pub excluded_http_requests: Vec<String>,
+    #[serde(default)]
+    pub excluded_http_collections: Vec<String>,
+    #[serde(default)]
+    pub excluded_workspaces: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -117,6 +129,18 @@ pub struct TeamSyncPeekModulesRequest {
     pub team_id: i64,
     #[serde(default)]
     pub workspaces_json: Option<String>,
+    #[serde(default)]
+    pub excluded_connections: Vec<String>,
+    #[serde(default)]
+    pub excluded_databases: Vec<String>,
+    #[serde(default)]
+    pub excluded_knowledge: Vec<String>,
+    #[serde(default)]
+    pub excluded_http_requests: Vec<String>,
+    #[serde(default)]
+    pub excluded_http_collections: Vec<String>,
+    #[serde(default)]
+    pub excluded_workspaces: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -132,6 +156,7 @@ pub struct TeamSyncPeekItem {
     #[serde(default)]
     pub kind: String,
     pub synced: bool,
+    pub excluded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -204,6 +229,117 @@ fn to_peek_modules_request(request: &TeamSyncPeekModulesRequest) -> ClientSyncPu
     }
 }
 
+fn parse_id_set(ids: &[String]) -> HashSet<String> {
+    ids.iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+#[derive(Debug, Clone, Default)]
+struct TeamSyncExclusionSets {
+    connections: HashSet<String>,
+    databases: HashSet<String>,
+    knowledge: HashSet<String>,
+    http_requests: HashSet<String>,
+    http_collections: HashSet<String>,
+    workspaces: HashSet<String>,
+}
+
+fn parse_exclusions(
+    excluded_connections: &[String],
+    excluded_databases: &[String],
+    excluded_knowledge: &[String],
+    excluded_http_requests: &[String],
+    excluded_http_collections: &[String],
+    excluded_workspaces: &[String],
+) -> TeamSyncExclusionSets {
+    TeamSyncExclusionSets {
+        connections: parse_id_set(excluded_connections),
+        databases: parse_id_set(excluded_databases),
+        knowledge: parse_id_set(excluded_knowledge),
+        http_requests: parse_id_set(excluded_http_requests),
+        http_collections: parse_id_set(excluded_http_collections),
+        workspaces: parse_id_set(excluded_workspaces),
+    }
+}
+
+fn exclusions_from_push(request: &TeamSyncPushModulesRequest) -> TeamSyncExclusionSets {
+    parse_exclusions(
+        &request.excluded_connections,
+        &request.excluded_databases,
+        &request.excluded_knowledge,
+        &request.excluded_http_requests,
+        &request.excluded_http_collections,
+        &request.excluded_workspaces,
+    )
+}
+
+fn exclusions_from_peek(request: &TeamSyncPeekModulesRequest) -> TeamSyncExclusionSets {
+    parse_exclusions(
+        &request.excluded_connections,
+        &request.excluded_databases,
+        &request.excluded_knowledge,
+        &request.excluded_http_requests,
+        &request.excluded_http_collections,
+        &request.excluded_workspaces,
+    )
+}
+
+fn knowledge_excluded_ids(
+    bundle: &ClientSyncModulesBundle,
+    direct: &HashSet<String>,
+) -> HashSet<String> {
+    let mut out = direct.clone();
+    loop {
+        let mut changed = false;
+        for entry in &bundle.knowledge {
+            if out.contains(&entry.id) {
+                continue;
+            }
+            let parent = entry.parent_id.trim();
+            if !parent.is_empty() && out.contains(parent) {
+                out.insert(entry.id.clone());
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    out
+}
+
+fn apply_team_sync_exclusions(
+    mut bundle: ClientSyncModulesBundle,
+    ex: &TeamSyncExclusionSets,
+) -> ClientSyncModulesBundle {
+    bundle
+        .connections
+        .retain(|c| !ex.connections.contains(&c.connection.id));
+    bundle
+        .database_connections
+        .retain(|c| !ex.databases.contains(&c.connection.id));
+    bundle.workspaces.retain(|w| !ex.workspaces.contains(&w.id));
+
+    bundle
+        .http_collections
+        .retain(|c| !ex.http_collections.contains(&c.id));
+    bundle.http_requests.retain(|r| {
+        !ex.http_requests.contains(&r.id)
+            && !r
+                .collection_id
+                .as_ref()
+                .map(|id| ex.http_collections.contains(id))
+                .unwrap_or(false)
+    });
+
+    let kn_excluded = knowledge_excluded_ids(&bundle, &ex.knowledge);
+    bundle.knowledge.retain(|k| !kn_excluded.contains(&k.id));
+
+    bundle
+}
+
 fn connection_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
     bundle
         .connections
@@ -236,11 +372,19 @@ fn workspace_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
     bundle.workspaces.iter().map(|w| w.id.clone()).collect()
 }
 
-fn mark_peek_synced(items: Vec<ClientSyncPeekItem>, remote_ids: &HashSet<String>) -> Vec<TeamSyncPeekItem> {
+fn mark_peek_items(
+    module_key: &str,
+    items: Vec<ClientSyncPeekItem>,
+    remote_ids: &HashSet<String>,
+    ex: &TeamSyncExclusionSets,
+    knowledge_excluded: &HashSet<String>,
+) -> Vec<TeamSyncPeekItem> {
     items
         .into_iter()
         .map(|item| {
-            let synced = !item.id.starts_with("__group__:")
+            let excluded = is_peek_item_excluded(module_key, &item, ex, knowledge_excluded);
+            let synced = !excluded
+                && !item.id.starts_with("__group__:")
                 && !item.id.starts_with("__module__:")
                 && item.kind != "folder"
                 && remote_ids.contains(&item.id);
@@ -252,9 +396,35 @@ fn mark_peek_synced(items: Vec<ClientSyncPeekItem>, remote_ids: &HashSet<String>
                 parent_id: item.parent_id,
                 kind: item.kind,
                 synced,
+                excluded,
             }
         })
         .collect()
+}
+
+fn is_peek_item_excluded(
+    module_key: &str,
+    item: &ClientSyncPeekItem,
+    ex: &TeamSyncExclusionSets,
+    knowledge_excluded: &HashSet<String>,
+) -> bool {
+    if item.id.starts_with("__module__:") || item.id.starts_with("__group__:") {
+        return false;
+    }
+    match module_key {
+        "connections" => ex.connections.contains(&item.id),
+        "databases" => ex.databases.contains(&item.id),
+        "knowledge" => knowledge_excluded.contains(&item.id),
+        "http" => {
+            if item.kind == "folder" {
+                ex.http_collections.contains(&item.id)
+            } else {
+                ex.http_requests.contains(&item.id)
+            }
+        }
+        "workspaces" => ex.workspaces.contains(&item.id),
+        _ => false,
+    }
 }
 
 fn module_folder_id(key: &str) -> String {
@@ -278,6 +448,7 @@ fn nest_items_under_module(
         parent_id: String::new(),
         kind: "folder".to_string(),
         synced: false,
+        excluded: false,
     });
     for mut item in items {
         if item.id == module_id {
@@ -296,10 +467,12 @@ fn nest_items_under_module(
 fn build_team_peek_modules(
     local: &ClientSyncModulesBundle,
     remote: Option<&ClientSyncModulesBundle>,
+    ex: &TeamSyncExclusionSets,
 ) -> TeamSyncPeekResult {
     let local_peek = build_peek_from_bundle(local);
     let remote_found = remote.is_some();
     let remote_updated_at = remote.map(|b| b.updated_at).unwrap_or(0.0);
+    let knowledge_excluded = knowledge_excluded_ids(local, &ex.knowledge);
 
     let remote_conn = remote.map(connection_ids).unwrap_or_default();
     let remote_db = remote.map(database_ids).unwrap_or_default();
@@ -318,35 +491,59 @@ fn build_team_peek_modules(
             key: "connections".to_string(),
             items: nest_items_under_module(
                 "connections",
-                mark_peek_synced(local_peek.connections, &remote_conn),
+                mark_peek_items(
+                    "connections",
+                    local_peek.connections,
+                    &remote_conn,
+                    ex,
+                    &knowledge_excluded,
+                ),
             ),
         },
         TeamSyncPeekModule {
             key: "databases".to_string(),
             items: nest_items_under_module(
                 "databases",
-                mark_peek_synced(local_peek.databases, &remote_db),
+                mark_peek_items(
+                    "databases",
+                    local_peek.databases,
+                    &remote_db,
+                    ex,
+                    &knowledge_excluded,
+                ),
             ),
         },
         TeamSyncPeekModule {
             key: "knowledge".to_string(),
             items: nest_items_under_module(
                 "knowledge",
-                mark_peek_synced(local_peek.knowledge, &remote_kn),
+                mark_peek_items(
+                    "knowledge",
+                    local_peek.knowledge,
+                    &remote_kn,
+                    ex,
+                    &knowledge_excluded,
+                ),
             ),
         },
         TeamSyncPeekModule {
             key: "http".to_string(),
             items: nest_items_under_module(
                 "http",
-                mark_peek_synced(http_items, &remote_http),
+                mark_peek_items("http", http_items, &remote_http, ex, &knowledge_excluded),
             ),
         },
         TeamSyncPeekModule {
             key: "workspaces".to_string(),
             items: nest_items_under_module(
                 "workspaces",
-                mark_peek_synced(local_peek.workspaces, &remote_ws),
+                mark_peek_items(
+                    "workspaces",
+                    local_peek.workspaces,
+                    &remote_ws,
+                    ex,
+                    &knowledge_excluded,
+                ),
             ),
         },
     ];
@@ -550,10 +747,12 @@ pub async fn team_sync_push_modules(
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_modules_push_request(&request);
+    let exclusions = exclusions_from_push(&request);
     let bundle = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
     };
+    let bundle = apply_team_sync_exclusions(bundle, &exclusions);
     let body = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
     })?;
@@ -617,6 +816,7 @@ pub async fn team_sync_peek_modules(
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_peek_modules_request(&request);
+    let exclusions = exclusions_from_peek(&request);
     let local = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
@@ -634,5 +834,5 @@ pub async fn team_sync_peek_modules(
         None
     };
 
-    Ok(build_team_peek_modules(&local, remote.as_ref()))
+    Ok(build_team_peek_modules(&local, remote.as_ref(), &exclusions))
 }

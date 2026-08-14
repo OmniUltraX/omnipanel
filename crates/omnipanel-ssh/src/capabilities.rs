@@ -1520,7 +1520,14 @@ EOF
         fi
     fi
 
-    echo "address:${proto}://127.0.0.1:${port}"
+    addr_path=""
+    if [ -n "$entrance" ]; then
+        case "$entrance" in
+            /*) addr_path="$entrance" ;;
+            *) addr_path="/$entrance" ;;
+        esac
+    fi
+    echo "address:${proto}://127.0.0.1:${port}${addr_path}"
     if [ -n "$entrance" ]; then
         case "$entrance" in
             /*) echo "entrance:$entrance" ;;
@@ -1566,6 +1573,42 @@ fn scrub_probe_text(s: &str) -> String {
     out.trim().to_string()
 }
 
+/// 将安全入口路径拼入面板 origin（若尚未包含）。
+fn merge_panel_entrance_into_address(address: &str, entrance: &str) -> String {
+    let address = address.trim();
+    if address.is_empty() {
+        return String::new();
+    }
+    let entrance = entrance.trim();
+    if entrance.is_empty() {
+        return address.trim_end_matches('/').to_string();
+    }
+    let path = if entrance.starts_with('/') {
+        entrance.to_string()
+    } else {
+        format!("/{entrance}")
+    };
+    let path_norm = path.trim_end_matches('/');
+
+    let lower = address.to_ascii_lowercase();
+    let path_start = if let Some(idx) = lower.find("://") {
+        address[idx + 3..]
+            .find('/')
+            .map(|i| idx + 3 + i)
+            .unwrap_or(address.len())
+    } else {
+        address.find('/').unwrap_or(address.len())
+    };
+    let current_path = address[path_start..].trim_end_matches('/');
+    if current_path == path_norm || current_path.ends_with(path_norm) {
+        return address.trim_end_matches('/').to_string();
+    }
+    if current_path.is_empty() {
+        return format!("{}{}", address.trim_end_matches('/'), path_norm);
+    }
+    address.trim_end_matches('/').to_string()
+}
+
 /// 解析面板探测输出。
 fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
     let mut panels = Vec::new();
@@ -1585,14 +1628,15 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
                         .get("port")
                         .and_then(|v| v.trim().parse().ok())
                         .unwrap_or(0);
-                    let address = fields
-                        .get("address")
-                        .map(|v| scrub_probe_text(v))
-                        .unwrap_or_default();
                     let entrance = fields
                         .get("entrance")
                         .map(|v| scrub_probe_text(v))
                         .unwrap_or_default();
+                    let raw_address = fields
+                        .get("address")
+                        .map(|v| scrub_probe_text(v))
+                        .unwrap_or_default();
+                    let address = merge_panel_entrance_into_address(&raw_address, &entrance);
                     let api_enabled = fields
                         .get("api_enabled")
                         .map(|v| v.trim() == "1")
@@ -2199,7 +2243,7 @@ note:v2
         assert_eq!(panels.len(), 1);
         assert_eq!(panels[0].port, 7777);
         assert_eq!(panels[0].entrance, "/777777");
-        assert_eq!(panels[0].address, "http://127.0.0.1:7777");
+        assert_eq!(panels[0].address, "http://127.0.0.1:7777/777777");
     }
 }
 

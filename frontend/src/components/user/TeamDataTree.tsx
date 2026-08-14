@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import type { TeamSyncPeekItem, TeamSyncPeekModule, TeamSyncPeekResult } from "../../ipc/bindings";
-import { IconChevronDown, IconFolder } from "../ui/icons/Icons";
+import {
+  clearTeamSyncExcluded,
+  markTeamSyncExcluded,
+  type TeamSyncModuleKey,
+} from "../../modules/teamSync/exclusions";
+import { showToast } from "../../stores/toastStore";
+import { IconChevronDown, IconFolder, IconLink, IconXCircle } from "../ui/icons/Icons";
+
+type PeekItem = TeamSyncPeekItem & { moduleKey: TeamSyncModuleKey };
 
 type TreeNode = {
-  item: TeamSyncPeekItem;
+  item: PeekItem;
   children: TreeNode[];
 };
 
 function isFolder(item: TeamSyncPeekItem): boolean {
   return item.kind === "folder";
+}
+
+function isVirtualNode(item: TeamSyncPeekItem): boolean {
+  return item.id.startsWith("__module__:") || item.id.startsWith("__group__:");
 }
 
 function normalizeParentId(parentId: string | null | undefined): string {
@@ -21,8 +33,8 @@ function moduleKeyFromId(id: string): string | null {
   return id.slice("__module__:".length);
 }
 
-function buildTree(items: TeamSyncPeekItem[]): TreeNode[] {
-  const byParent = new Map<string, TeamSyncPeekItem[]>();
+function buildTree(items: PeekItem[]): TreeNode[] {
+  const byParent = new Map<string, PeekItem[]>();
   for (const item of items) {
     const parent = normalizeParentId(item.parentId);
     const list = byParent.get(parent) ?? [];
@@ -30,7 +42,7 @@ function buildTree(items: TeamSyncPeekItem[]): TreeNode[] {
     byParent.set(parent, list);
   }
 
-  const sortItems = (list: TeamSyncPeekItem[]) =>
+  const sortItems = (list: PeekItem[]) =>
     [...list].sort((a, b) => {
       const folderFirst = Number(isFolder(b)) - Number(isFolder(a));
       if (folderFirst !== 0) return folderFirst;
@@ -67,6 +79,31 @@ function flattenVisible(
   return rows;
 }
 
+function collectSyncTargets(node: TreeNode): PeekItem[] {
+  const targets: PeekItem[] = [];
+  if (!isVirtualNode(node.item)) {
+    targets.push(node.item);
+  }
+  for (const child of node.children) {
+    targets.push(...collectSyncTargets(child));
+  }
+  return targets;
+}
+
+function nodeSyncState(node: TreeNode): {
+  hasTargets: boolean;
+  allExcluded: boolean;
+} {
+  const targets = collectSyncTargets(node);
+  if (targets.length === 0) {
+    return { hasTargets: false, allExcluded: false };
+  }
+  return {
+    hasTargets: true,
+    allExcluded: targets.every((item) => item.excluded),
+  };
+}
+
 function formatUpdatedAt(value: number, locale: string): string {
   if (!value || value <= 0) return "—";
   const ms = value < 1e12 ? value * 1000 : value;
@@ -83,18 +120,27 @@ function resolveLabel(item: TeamSyncPeekItem, t: (key: string) => string): strin
   return item.label;
 }
 
-function flattenModules(modules: TeamSyncPeekModule[]): TeamSyncPeekItem[] {
-  return modules.flatMap((module) => module.items);
+function flattenModules(modules: TeamSyncPeekModule[]): PeekItem[] {
+  return modules.flatMap((module) =>
+    module.items.map((item) => ({
+      ...item,
+      moduleKey: module.key as TeamSyncModuleKey,
+    })),
+  );
 }
 
 export function TeamDataTree({
+  teamId,
   peek,
   loading,
   error,
+  onExclusionChange,
 }: {
+  teamId: number;
   peek: TeamSyncPeekResult | null;
   loading: boolean;
   error: string | null;
+  onExclusionChange: () => void;
 }) {
   const { t, locale } = useI18n();
   const items = useMemo(() => (peek ? flattenModules(peek.modules) : []), [peek]);
@@ -116,6 +162,21 @@ export function TeamDataTree({
     });
   };
 
+  const applySubtreeExclusion = (node: TreeNode, excluded: boolean) => {
+    const targets = collectSyncTargets(node);
+    for (const target of targets) {
+      if (excluded) {
+        markTeamSyncExcluded(teamId, target.moduleKey, target.id, target.kind);
+      } else {
+        clearTeamSyncExcluded(teamId, target.moduleKey, target.id, target.kind);
+      }
+    }
+    showToast(
+      t(excluded ? "userCenter.teams.cancelSyncSuccess" : "userCenter.teams.restoreSyncSuccess"),
+    );
+    onExclusionChange();
+  };
+
   if (loading) {
     return <p className="user-center-devices__hint">{t("userCenter.teams.dataPreviewLoading")}</p>;
   }
@@ -135,13 +196,16 @@ export function TeamDataTree({
             })
           : t("userCenter.teams.dataPreviewRemoteMissing")}
       </p>
-      <div className="data-sync-table-wrap">
-        <table className="data-sync-table">
+      <div className="data-sync-table-wrap user-center-team-data__table-wrap">
+        <table className="data-sync-table user-center-team-data__table">
           <thead>
             <tr>
               <th>{t("userCenter.teams.dataPreviewColumnName")}</th>
               <th>{t("userCenter.teams.dataPreviewColumnDetail")}</th>
               <th className="data-sync-table__time">{t("userCenter.teams.dataPreviewColumnUpdated")}</th>
+              <th className="user-center-team-data__actions-col">
+                {t("userCenter.teams.dataPreviewColumnActions")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -151,11 +215,14 @@ export function TeamDataTree({
               const folder = isFolder(item);
               const isCollapsed = collapsed.has(item.id);
               const label = resolveLabel(item, t);
+              const syncState = nodeSyncState(node);
+              const showExcludedBadge =
+                item.excluded || (isVirtualNode(item) && syncState.allExcluded && syncState.hasTargets);
 
               return (
                 <tr key={item.id} className={folder ? "is-folder" : ""}>
                   <td className="data-sync-table__name">
-                    <div className="data-sync-tree-cell" style={{ paddingLeft: depth * 16 }}>
+                    <div className="data-sync-tree-cell" style={{ paddingLeft: depth * 14 }}>
                       {hasChildren ? (
                         <button
                           type="button"
@@ -163,20 +230,50 @@ export function TeamDataTree({
                           aria-expanded={!isCollapsed}
                           onClick={() => toggleCollapsed(item.id)}
                         >
-                          <IconChevronDown size={12} />
+                          <IconChevronDown size={11} />
                         </button>
                       ) : (
                         <span className="data-sync-tree-toggle-spacer" />
                       )}
-                      {folder ? <IconFolder size={13} className="data-sync-tree-folder-icon" /> : null}
+                      {folder ? <IconFolder size={12} className="data-sync-tree-folder-icon" /> : null}
                       <span>{label}</span>
                       {item.synced ? (
                         <span className="user-center-team-data__synced">{t("userCenter.teams.syncedBadge")}</span>
+                      ) : null}
+                      {showExcludedBadge ? (
+                        <span className="user-center-team-data__excluded">
+                          {t("userCenter.teams.excludedBadge")}
+                        </span>
                       ) : null}
                     </div>
                   </td>
                   <td className="data-sync-table__detail">{item.detail || "—"}</td>
                   <td className="data-sync-table__time">{formatUpdatedAt(item.updatedAt, locale)}</td>
+                  <td className="user-center-team-data__actions-col">
+                    {syncState.hasTargets ? (
+                      syncState.allExcluded ? (
+                        <button
+                          type="button"
+                          className="btn-icon user-center-team-data__action-btn"
+                          title={t("userCenter.teams.restoreSync")}
+                          aria-label={t("userCenter.teams.restoreSync")}
+                          onClick={() => applySubtreeExclusion(node, false)}
+                        >
+                          <IconLink size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-icon user-center-team-data__action-btn user-center-team-data__action-btn--danger"
+                          title={t("userCenter.teams.cancelSync")}
+                          aria-label={t("userCenter.teams.cancelSync")}
+                          onClick={() => applySubtreeExclusion(node, true)}
+                        >
+                          <IconXCircle size={14} />
+                        </button>
+                      )
+                    ) : null}
+                  </td>
                 </tr>
               );
             })}

@@ -10,6 +10,7 @@ import {
 } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "../../modules/clientSync/tombstones";
+import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 export type {
@@ -75,6 +76,7 @@ export async function pushTeamModules(
       teamId,
       workspacesJson: collectWorkspacesJson(),
       ...deletedPayload(),
+      ...teamSyncExclusionsForIpc(teamId),
     }),
   );
 }
@@ -95,6 +97,7 @@ export async function peekTeamModules(
       token,
       teamId,
       workspacesJson: collectWorkspacesJson(),
+      ...teamSyncExclusionsForIpc(teamId),
     }),
     { quiet: true, logLabel: "[team-sync:peek]" },
   );

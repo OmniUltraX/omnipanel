@@ -11,6 +11,7 @@ import {
   findPanelForSsh,
   parseSshConfig,
 } from "../../../panel/serverConnection";
+import { panelProbeReachableAddress } from "../../../panel/panelAddress";
 import { usePanelProbe } from "../../hooks/usePanelProbe";
 import { BrandIconImg } from "../../../brandIcons";
 
@@ -52,14 +53,12 @@ export function PanelProbeSection({ resourceId, connection }: Props) {
     return findPanelForSsh(connections, connection.id) ?? null;
   }, [connections, connection]);
 
-  // 把探测结果里的 127.0.0.1 替换为真实 host（面板地址对外应该是可达的）
+  // 把探测结果里的 127.0.0.1 替换为真实 host，并拼入安全入口
   const realAddress = useCallback(
     (panel: PanelProbeItem): string => {
-      if (!panel.address) return "";
-      if (!sshHost) return panel.address;
-      return panel.address.replace("127.0.0.1", sshHost);
+      return panelProbeReachableAddress(panel, connection);
     },
-    [sshHost],
+    [connection],
   );
 
   const panelTypeLabel = useCallback(

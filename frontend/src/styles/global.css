@@ -1527,6 +1527,10 @@ select,
     padding: var(--sp-2);
 }
 
+.home-custom-panel-widget__body:has(.sc-docker-mon--compose) {
+    overflow: visible;
+}
+
 .home-custom-panel-widget__missing {
     margin: 0;
     font-size: 12px;
@@ -1969,6 +1973,28 @@ select,
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.sc-docker-mon--compose {
+    height: auto;
+    min-height: 0;
+    flex-shrink: 0;
+}
+
+.sc-docker-mon--compose .sc-docker-mon__list {
+    flex: none;
+    overflow: visible;
+}
+
+.sc-docker-mon__row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.sc-docker-mon__row-restart {
+    flex-shrink: 0;
 }
 
 .sc-docker-mon__error {
@@ -25976,12 +26002,74 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     border-radius: 999px;
     color: var(--accent);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     line-height: 1;
     margin-left: var(--sp-2);
-    padding: 3px 8px;
+    padding: 2px 6px;
     white-space: nowrap;
+}
+
+.user-center-team-data__excluded {
+    background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    margin-left: var(--sp-2);
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
+.user-center-team-data__actions-col {
+    width: 44px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.user-center-team-data__table-wrap .data-sync-table th,
+.user-center-team-data__table-wrap .data-sync-table td {
+    padding: 4px 8px;
+    line-height: 1.25;
+}
+
+.user-center-team-data__table .data-sync-table__time {
+    width: 128px;
+    font-size: 11px;
+}
+
+.user-center-team-data__table .data-sync-table__detail {
+    font-size: 11px;
+}
+
+.user-center-team-data__table .data-sync-tree-cell {
+    gap: 3px;
+}
+
+.user-center-team-data__table .data-sync-tree-toggle {
+    width: 16px;
+    height: 16px;
+}
+
+.user-center-team-data__table .data-sync-tree-toggle-spacer {
+    width: 16px;
+    height: 16px;
+}
+
+.user-center-team-data__action-btn {
+    width: 24px;
+    height: 24px;
+    margin-inline: auto;
+}
+
+.user-center-team-data__action-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.user-center-team-data__action-btn--danger:hover {
+    color: var(--danger, #e5484d);
 }
 
 .user-center-team-member-list {

@@ -802,7 +802,13 @@ export function UserCenterTeams() {
                 </div>
               </div>
 
-              <TeamDataTree peek={dataPeek} loading={dataPeekLoading} error={dataPeekError} />
+              <TeamDataTree
+                teamId={selectedTeam.id}
+                peek={dataPeek}
+                loading={dataPeekLoading}
+                error={dataPeekError}
+                onExclusionChange={() => void loadTeamDataPeek(selectedTeam)}
+              />
 
               <div className="user-center-teams-sync">
                 <div className="user-center-devices__header">

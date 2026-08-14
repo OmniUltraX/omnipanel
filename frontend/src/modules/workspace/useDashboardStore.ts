@@ -18,6 +18,12 @@ import {
   REDIS_OVERVIEW_TYPE,
 } from "./smallComponents/redisOverview/layout";
 import {
+  DOCKER_COMPOSE_MONITOR_TYPE,
+} from "./smallComponents/dockerMonitorShared/sizes";
+import {
+  COMPOSE_MONITOR_MAX_GRID_H,
+} from "./smallComponents/dockerMonitorShared/composeMonitorLayout";
+import {
   applyWidgetScale,
   DEFAULT_WIDGET_SCALE,
   inferWidgetScale,
@@ -145,6 +151,13 @@ function layoutFromSizeScale(
   const base = resolveBaseSizePreset(sizes, sizeId);
   if (!base) return withDefinitionResizeBounds(type, layout);
   const scaled = applyWidgetScale(base, scale);
+  if (type === DOCKER_COMPOSE_MONITOR_TYPE) {
+    return withDefinitionResizeBounds(type, {
+      ...layout,
+      w: scaled.w,
+      h: Math.max(scaled.h, layout.h),
+    });
+  }
   return withDefinitionResizeBounds(type, {
     ...layout,
     w: scaled.w,
@@ -362,6 +375,12 @@ interface DashboardState extends DashboardContainerState {
     widgetId: string,
     target: HomeCustomPanelWidgetTarget | null,
   ) => void;
+  /** Compose 监控：按内容容器数量同步栅格高度 */
+  setCustomPanelWidgetLayoutHeight: (
+    panelId: HomeCustomPanelId,
+    widgetId: string,
+    h: number,
+  ) => void;
   /** 移除自定义面板中的小组件实例 */
   removeCustomPanelWidget: (panelId: HomeCustomPanelId, widgetId: string) => void;
   /** 关闭首页 tab；若关掉当前激活页则切到邻接页 */
@@ -454,6 +473,20 @@ export const useDashboardStore = create<DashboardState>()(
             const scale = normalizeWidgetScale(
               widget.scale ?? DEFAULT_WIDGET_SCALE,
             );
+            if (widget.type === DOCKER_COMPOSE_MONITOR_TYPE) {
+              const nextLayout = withDefinitionResizeBounds(widget.type, {
+                ...widget.layout,
+                x: item.x,
+                y: item.y,
+                w: item.w,
+                h: item.h,
+              });
+              if (layoutsEqual(widget.layout, nextLayout)) {
+                return widget;
+              }
+              changed = true;
+              return { ...widget, layout: nextLayout };
+            }
             const def = getSmallComponent(widget.type);
             const nextSizeId =
               widget.type === MYSQL_OVERVIEW_TYPE
@@ -676,6 +709,33 @@ export const useDashboardStore = create<DashboardState>()(
           if (same) return state;
           const widgets = panel.widgets.slice();
           widgets[idx] = { ...prev, target: nextTarget };
+          return {
+            customPanels: {
+              ...state.customPanels,
+              [panelId]: { ...panel, widgets },
+            },
+          };
+        }),
+      setCustomPanelWidgetLayoutHeight: (panelId, widgetId, h) =>
+        set((state) => {
+          const panel = state.customPanels[panelId];
+          if (!panel) return state;
+          const idx = panel.widgets.findIndex((w) => w.id === widgetId);
+          if (idx < 0) return state;
+          const prev = panel.widgets[idx];
+          const bounds = withDefinitionResizeBounds(prev.type, prev.layout);
+          const minH = bounds.minH ?? prev.layout.minH ?? 2;
+          const maxH =
+            prev.type === DOCKER_COMPOSE_MONITOR_TYPE
+              ? COMPOSE_MONITOR_MAX_GRID_H
+              : (bounds.maxH ?? prev.layout.maxH ?? 12);
+          const nextH = Math.max(minH, Math.min(maxH, Math.round(h)));
+          if (prev.layout.h === nextH) return state;
+          const widgets = panel.widgets.slice();
+          widgets[idx] = {
+            ...prev,
+            layout: { ...prev.layout, h: nextH },
+          };
           return {
             customPanels: {
               ...state.customPanels,
