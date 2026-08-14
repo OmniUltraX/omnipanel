@@ -17,9 +17,7 @@ export function UserCenterWindow() {
       ? t("userCenter.nav.subscription")
       : page === "devices"
         ? t("userCenter.nav.devices")
-        : page === "dataSync"
-          ? t("userCenter.nav.dataSync")
-          : t("userCenter.nav.account");
+        : t("userCenter.nav.account");
 
   return (
     <SubWindow

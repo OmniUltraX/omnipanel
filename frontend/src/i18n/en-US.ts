@@ -81,6 +81,7 @@ export const enUS: TranslationDict = {
         mcpTools: "Loading MCP tool catalog…",
         builtinTools: "Loading built-in tool catalog…",
         connections: "Syncing connection list…",
+        cloudSync: "Pulling latest cloud snapshot…",
         connectionPool: "Initializing connection pool…",
         actionListener: "Registering action listener…",
         aiModels: "Loading AI model configuration…",

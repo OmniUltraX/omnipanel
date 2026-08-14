@@ -127,22 +127,17 @@ export function Bootstrap() {
           void syncGatewayConfig();
         });
 
-        await pushLog(t("app.splash.logs.connections"));
-        await initConnections();
-
-        // 已登录：上传本机快照到 OSS（跨端导入改为手动，不再自动 pull）
+        await pushLog(t("app.splash.logs.cloudSync"));
         if (token) {
           try {
-            const {
-              scheduleClientConversationSync,
-              scheduleClientModuleSync,
-            } = await import("./modules/clientSync");
-            scheduleClientConversationSync({ immediate: true });
-            scheduleClientModuleSync({ immediate: true });
-          } catch (err) {
-            console.warn("[bootstrap] client sync push skipped:", err);
+            const { pullCloudSnapshot } = await import("./modules/clientSync");
+            await pullCloudSnapshot();
+          } catch {
           }
         }
+
+        await pushLog(t("app.splash.logs.connections"));
+        await initConnections();
 
         await pushLog(t("app.splash.logs.connectionPool"));
         initConnectionPool();

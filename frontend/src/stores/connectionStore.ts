@@ -237,7 +237,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         }
         recordModuleTombstones("connection", [id]);
         scheduleAssistantSnapshotSync();
-        scheduleClientModuleSync({ immediate: true });
+        scheduleClientModuleSync();
       } else {
         set({ error: res.error.message });
       }

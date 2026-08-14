@@ -79,6 +79,7 @@ export const zhCN = {
         mcpTools: "正在加载 MCP 工具目录…",
         builtinTools: "正在加载内置工具目录…",
         connections: "正在同步连接列表…",
+        cloudSync: "正在从云端拉取最新快照…",
         connectionPool: "正在初始化连接池…",
         actionListener: "正在注册动作监听器…",
         aiModels: "正在加载 AI 模型配置…",

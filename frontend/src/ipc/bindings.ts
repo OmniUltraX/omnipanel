@@ -1178,14 +1178,14 @@ export const commands = {
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
 	/**  停止收件箱 SSE 循环。 */
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
-	/**  推送本机 AI 会话快照到 `sync/{userId}/devices/{deviceId}/ai-conversations/latest.json`。 */
+	/**  推送本机 AI 会话快照到 `sync/{userId}/ai-conversations/latest.json`。 */
 	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
-	/**  推送本机模块快照到 `sync/{userId}/devices/{deviceId}/modules/latest.json`。 */
+	/**  从云端拉取账号 AI 会话快照。 */
+	clientSyncPullConversations: (request: ClientSyncPullConversationsRequest) => typedError<ClientSyncPullConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_conversations", { request })),
+	/**  推送本机模块快照到 `sync/{userId}/modules/latest.json`。 */
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
-	/**  预览其它设备可同步数据（不含正文大字段以外的列表元数据）。 */
-	clientSyncPeekDevice: (request: ClientSyncPeekRequest) => typedError<ClientSyncPeekResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_peek_device", { request })),
-	/**  从其它设备导入勾选的数据到本机。 */
-	clientSyncImportFromDevice: (request: ClientSyncImportRequest) => typedError<ClientSyncImportResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_import_from_device", { request })),
+	/**  从云端拉取账号模块快照并应用到本机。 */
+	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -1946,63 +1946,31 @@ export type CliProviderUpsertInput = {
 	modelDiscoveryArgs?: string[],
 };
 
-export type ClientSyncImportRequest = {
+export type ClientSyncPullConversationsRequest = {
 	token: string,
-	deviceId: string,
-	selection: ClientSyncImportSelection,
 };
 
-export type ClientSyncImportResult = {
+export type ClientSyncPullConversationsResult = {
+	found: boolean,
+	objectKey: string | null,
+	bodyJson: string | null,
+	bytes: number | null,
+};
+
+export type ClientSyncPullModulesRequest = {
+	token: string,
+};
+
+export type ClientSyncPullModulesResult = {
+	found: boolean,
+	objectKey: string | null,
+	bytes: number | null,
 	appliedConnections: number | null,
 	appliedDatabases: number | null,
 	appliedKnowledge: number | null,
 	appliedHttpRequests: number | null,
 	appliedWorkspaces: number | null,
-	/**  勾选的工作区 JSON，由前端写入 workspaceStore。 */
 	workspacesJson: string | null,
-	/**  选中的会话完整 JSON（数组），由前端 merge 进 aiStore。 */
-	conversationsJson: string | null,
-};
-
-export type ClientSyncImportSelection = {
-	connectionIds?: string[],
-	databaseIds?: string[],
-	knowledgeIds?: string[],
-	httpRequestIds?: string[],
-	httpCollectionIds?: string[],
-	workspaceIds?: string[],
-	conversationIds?: string[],
-};
-
-export type ClientSyncPeekItem = {
-	id: string,
-	label: string,
-	detail?: string,
-	updatedAt: number | null,
-	/**  树形父节点 id；空表示根级。连接分组使用 `__group__:{name}` 虚拟节点。 */
-	parentId?: string,
-	/**  `folder` | `item`（空视为 item） */
-	kind?: string,
-};
-
-export type ClientSyncPeekRequest = {
-	token: string,
-	deviceId: string,
-};
-
-export type ClientSyncPeekResult = {
-	deviceId: string,
-	modulesFound: boolean,
-	conversationsFound: boolean,
-	modulesUpdatedAt: number | null,
-	conversationsUpdatedAt: number | null,
-	connections: ClientSyncPeekItem[],
-	databases: ClientSyncPeekItem[],
-	knowledge: ClientSyncPeekItem[],
-	httpRequests: ClientSyncPeekItem[],
-	httpCollections: ClientSyncPeekItem[],
-	workspaces: ClientSyncPeekItem[],
-	conversations: ClientSyncPeekItem[],
 };
 
 export type ClientSyncPushConversationsRequest = {

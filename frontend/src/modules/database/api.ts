@@ -797,7 +797,7 @@ export async function deleteConnection(id: string): Promise<void> {
   );
   recordModuleTombstones("database", [id]);
   scheduleAssistantSnapshotSync();
-  scheduleClientModuleSync({ immediate: true });
+  scheduleClientModuleSync();
 }
 
 export async function testConnection(

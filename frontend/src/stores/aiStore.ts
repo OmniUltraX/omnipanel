@@ -54,7 +54,7 @@ function scheduleConversationListSnapshotSync(options?: {
     m.scheduleAssistantSnapshotSync(options);
   });
   void import("../modules/clientSync").then((m) => {
-    m.scheduleClientConversationSync(options);
+    m.scheduleClientConversationSync();
   });
 }
 

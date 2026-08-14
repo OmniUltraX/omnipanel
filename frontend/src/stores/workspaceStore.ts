@@ -163,7 +163,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             detail: { prevWorkspaceId: prevId, nextWorkspaceId: newWorkspace.id },
           }),
         );
-        scheduleClientModuleSync({ immediate: true });
+        scheduleClientModuleSync();
         return newWorkspace;
       },
 
@@ -233,7 +233,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           // ignore
         }
         recordModuleTombstones("workspace", [id]);
-        scheduleClientModuleSync({ immediate: true });
+        scheduleClientModuleSync();
         return true;
       },
 
