@@ -15,6 +15,12 @@ import { useTerminalStore } from "@/stores/terminalStore";
 import { isLocalTerminalResource } from "@/modules/terminal/paneResource";
 import { buildProcessDirectoryList } from "@/modules/server/ssh/utils/parseCommandPaths";
 import { jumpSshSftp } from "@/modules/server/ssh/sshHostQuickJumps";
+import {
+  clearCachedProcessDetail,
+  getCachedProcessDetail,
+  resolveProcessCommandLine,
+  setCachedProcessDetail,
+} from "@/modules/server/ssh/processDetailCache";
 
 type Props = {
   resourceId: string | null;
@@ -46,7 +52,7 @@ export function ProcessDetailDrawer({
     () =>
       process
         ? buildProcessDirectoryList({
-            command: detail?.commandLine ?? process.command,
+            command: resolveProcessCommandLine(detail, process.command),
             cwd: detail?.cwd,
             exe: detail?.exe,
             openFiles: detail?.openFiles,
@@ -56,12 +62,21 @@ export function ProcessDetailDrawer({
   );
 
   const open = process != null;
-  const commandText = detail?.commandLine || process?.command || "";
+  const commandText = resolveProcessCommandLine(detail, process?.command);
+  const commandReady = Boolean(detail?.commandLine?.trim() || detail?.args?.length);
   const isLocal = isLocalTerminalResource(resourceId);
 
   useEffect(() => {
     if (!resourceId || !process) {
       setDetail(null);
+      setDetailError(null);
+      setDetailLoading(false);
+      return;
+    }
+
+    const cached = getCachedProcessDetail(resourceId, process.pid);
+    if (cached) {
+      setDetail(cached);
       setDetailError(null);
       setDetailLoading(false);
       return;
@@ -80,6 +95,7 @@ export function ProcessDetailDrawer({
       .then((res) => {
         if (cancelled) return;
         if (res.status === "ok") {
+          setCachedProcessDetail(resourceId, process.pid, res.data);
           setDetail(res.data);
         } else {
           setDetailError(res.error.message);
@@ -107,6 +123,7 @@ export function ProcessDetailDrawer({
         : await commands.sshPoolKillProcess(resourceId, process.pid, 9);
       if (res.status === "ok") {
         setConfirmKill(false);
+        clearCachedProcessDetail(resourceId, process.pid);
         onKilled();
         onClose();
       } else {
@@ -189,13 +206,14 @@ export function ProcessDetailDrawer({
               </section>
               <section className="ssh-process-drawer-section">
                 <h4>{t("ssh.processList.command")}</h4>
-                {detailLoading && (
-                  <p className="text-muted text-sm">{t("ssh.processDetail.loading")}</p>
-                )}
                 {detailError && (
                   <p className="text-muted text-sm">{t("ssh.processDetail.detailError", { error: detailError })}</p>
                 )}
-                <pre className="ssh-process-drawer-cmd">{commandText}</pre>
+                <pre className="ssh-process-drawer-cmd">
+                  {detailLoading && !commandReady
+                    ? t("ssh.processDetail.loading")
+                    : commandText || "—"}
+                </pre>
                 <dl className="drawer-kv ssh-process-drawer-procfs">
                   <dt>{t("ssh.processDetail.cwd")}</dt>
                   <dd>{detail?.cwd ?? "—"}</dd>

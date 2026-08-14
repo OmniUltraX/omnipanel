@@ -186,10 +186,16 @@ emit_link() {{
 emit_link CWD "$proc/cwd"
 emit_link EXE "$proc/exe"
 emit_link ROOT "$proc/root"
+cmd=""
 if [ -r "$proc/cmdline" ]; then
   cmd=$(tr "\000" " " < "$proc/cmdline" 2>/dev/null | sed "s/[[:space:]]*$//")
   [ -n "$cmd" ] && printf "CMD\t%s\n" "$cmd"
   tr "\000" "\n" < "$proc/cmdline" 2>/dev/null | awk '"'"'length($0)>0 {{print "ARG\t" $0}}'"'"'
+fi
+if [ -z "$cmd" ]; then
+  ps_bin=$(command -v ps 2>/dev/null || echo ps)
+  cmd=$($ps_bin -p "$pid" -o args= --no-headers 2>/dev/null | sed "s/^[[:space:]]*//;s/[[:space:]]*$//")
+  [ -n "$cmd" ] && printf "CMD\t%s\n" "$cmd"
 fi
 count=0
 for fd in "$proc"/fd/*; do
@@ -234,6 +240,10 @@ pub fn parse_process_detail_output(pid: u32, output: &str) -> SshProcessDetail {
             }
             _ => {}
         }
+    }
+
+    if detail.command_line.is_none() && !detail.args.is_empty() {
+        detail.command_line = Some(detail.args.join(" "));
     }
 
     detail
