@@ -192,9 +192,12 @@ export function UserCenterTeams() {
   );
 
   const loadTeamDataPeek = useCallback(
-    async (team: TeamSummary) => {
+    async (team: TeamSummary, options?: { silent?: boolean }) => {
       if (!token) return;
-      setDataPeekLoading(true);
+      const silent = options?.silent === true;
+      if (!silent) {
+        setDataPeekLoading(true);
+      }
       setDataPeekError(null);
       try {
         const result = await peekTeamModules(token, team.id);
@@ -204,10 +207,14 @@ export function UserCenterTeams() {
           handleSessionExpired();
           return;
         }
-        setDataPeek(null);
+        if (!silent) {
+          setDataPeek(null);
+        }
         setDataPeekError(formatTeamSyncError(e));
       } finally {
-        setDataPeekLoading(false);
+        if (!silent) {
+          setDataPeekLoading(false);
+        }
       }
     },
     [handleSessionExpired, token],
@@ -807,7 +814,7 @@ export function UserCenterTeams() {
                 peek={dataPeek}
                 loading={dataPeekLoading}
                 error={dataPeekError}
-                onExclusionChange={() => void loadTeamDataPeek(selectedTeam)}
+                onExclusionChange={() => void loadTeamDataPeek(selectedTeam, { silent: true })}
               />
 
               <div className="user-center-teams-sync">

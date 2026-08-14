@@ -145,11 +145,15 @@ export function TeamDataTree({
   const { t, locale } = useI18n();
   const items = useMemo(() => (peek ? flattenModules(peek.modules) : []), [peek]);
   const tree = useMemo(() => buildTree(items), [items]);
+  const treeStructureKey = useMemo(
+    () => items.map((item) => `${item.id}|${normalizeParentId(item.parentId)}`).join(";"),
+    [items],
+  );
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setCollapsed(new Set());
-  }, [items]);
+  }, [treeStructureKey]);
 
   const rows = useMemo(() => flattenVisible(tree, collapsed), [tree, collapsed]);
 
