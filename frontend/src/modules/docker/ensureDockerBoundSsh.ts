@@ -7,11 +7,113 @@ import { appAlert } from "../../lib/appAlert";
 import { appConfirm } from "../../lib/appConfirm";
 import { ensureSshReady, isSshConnectionEstablished } from "../database/mysqlSlowQueryLog";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useSshConnectionStore } from "../../stores/sshConnectionStore";
+import {
+  loadSshPoolActiveSessions,
+  useSshConnectionStore,
+} from "../../stores/sshConnectionStore";
+import { useTerminalStore } from "../../stores/terminalStore";
 
 const MISSING_BOUND_SSH_RE = /必须绑定\s*SSH\s*连接/i;
 const SSH_NEED_OPEN_RE =
   /打开 SSH|会话不可用|SSH 会话|Channel send|channel open|connection reset|broken pipe|ECONNREFUSED|ECONNRESET/i;
+
+/** 启动期监控恢复 / 连接池预热时，短暂等待建连完成再决定是否弹窗。 */
+const BOUND_SSH_WAIT_MS = 6000;
+const BOUND_SSH_POLL_MS = 200;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function markBoundSshSessionActive(sshId: string): void {
+  useSshConnectionStore.getState().setSessionActive(sshId, true);
+}
+
+async function probeBoundSshPool(sshId: string): Promise<boolean> {
+  try {
+    const stats = await commands.sshPoolFetchStats(sshId);
+    if (stats.status === "ok") {
+      markBoundSshSessionActive(sshId);
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function isSshConnectionInProgress(sshId: string): boolean {
+  const poolStatus = useSshConnectionStore.getState().statusMap[sshId]?.status;
+  if (poolStatus === "connecting") return true;
+
+  const embeddedPanes = useTerminalStore.getState().embeddedPanes;
+  for (const pane of Object.values(embeddedPanes)) {
+    if (pane.resourceId === sshId && pane.type === "remote" && pane.status === "connecting") {
+      return true;
+    }
+  }
+  const tabs = useTerminalStore.getState().tabs;
+  for (const tab of tabs) {
+    if (
+      tab.session.resourceId === sshId &&
+      tab.session.type === "remote" &&
+      tab.status === "connecting"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 启动后自定义看板可能早于 SSH 池快照/监控恢复：先静默探测并等待建连，
+ * 避免「尚未打开」确认框与后台已成功的数据加载互相矛盾。
+ */
+async function tryEstablishBoundSshSilently(sshId: string): Promise<boolean> {
+  if (isSshConnectionEstablished(sshId)) return true;
+
+  await loadSshPoolActiveSessions();
+  if (isSshConnectionEstablished(sshId)) return true;
+  if (await probeBoundSshPool(sshId)) return true;
+
+  const deadline = Date.now() + BOUND_SSH_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (isSshConnectionEstablished(sshId)) return true;
+    if (await probeBoundSshPool(sshId)) return true;
+
+    const inProgress = isSshConnectionInProgress(sshId) || ensureInflight.has(sshId);
+    if (!inProgress) break;
+
+    await sleep(BOUND_SSH_POLL_MS);
+  }
+
+  if (isSshConnectionEstablished(sshId)) return true;
+  if (await probeBoundSshPool(sshId)) return true;
+
+  const ready = await ensureSshReady(sshId);
+  if (ready) {
+    markBoundSshSessionActive(sshId);
+    return true;
+  }
+  return isSshConnectionEstablished(sshId);
+}
+
+async function openBoundSshAfterConfirm(sshId: string): Promise<boolean> {
+  if (await probeBoundSshPool(sshId)) return true;
+
+  const ready = await ensureSshReady(sshId);
+  if (ready) {
+    markBoundSshSessionActive(sshId);
+    return true;
+  }
+
+  await appAlert("打开依赖的 SSH 连接失败，请检查凭据后重试。", "OmniPanel", {
+    kind: "error",
+  });
+  return false;
+}
 
 export type DockerBoundSshHint = {
   /** 列表探针已带回的绑定 id，优先于本地 config 解析 */
@@ -74,6 +176,7 @@ export async function ensureDockerBoundSshOpen(
 
   const task = (async () => {
     if (isSshConnectionEstablished(sshId)) return true;
+    if (await tryEstablishBoundSshSilently(sshId)) return true;
 
     const confirmed = await appConfirm(
       "该实例所依赖的SSH连接尚未打开，是否立即打开？",
@@ -86,23 +189,7 @@ export async function ensureDockerBoundSshOpen(
     );
     if (!confirmed) return false;
 
-    // 优先走连接池建连（Docker 回退复用 ssh_pool），避免强行跳转到终端模块
-    const stats = await commands.sshPoolFetchStats(sshId);
-    if (stats.status === "ok") {
-      useSshConnectionStore.getState().setSessionActive(sshId, true);
-      return true;
-    }
-
-    const ready = await ensureSshReady(sshId);
-    if (ready) {
-      useSshConnectionStore.getState().setSessionActive(sshId, true);
-      return true;
-    }
-
-    await appAlert("打开依赖的 SSH 连接失败，请检查凭据后重试。", "OmniPanel", {
-      kind: "error",
-    });
-    return false;
+    return openBoundSshAfterConfirm(sshId);
   })().finally(() => {
     ensureInflight.delete(sshId);
   });

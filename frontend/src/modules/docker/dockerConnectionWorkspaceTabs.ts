@@ -1,4 +1,4 @@
-/** 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据，新打开不再走预览槽。 */
+/** 侧栏单击打开临时预览标签，双击打开常驻标签。 */
 export type DockerConnectionDockOpenMode = "preview" | "permanent";
 
 export type DockerConnectionPanelTab = {
@@ -6,7 +6,7 @@ export type DockerConnectionPanelTab = {
   kind: "connection";
   label: string;
   connectionId: string;
-  /** @deprecated 旧「单击预览」槽位；新打开固定为常驻（false/undefined） */
+  /** 临时预览槽位；双击或显式 permanent 打开后为 false/undefined */
   preview?: boolean;
 };
 
@@ -211,20 +211,18 @@ export function isDockerComposeTab(
   return tab.kind === "compose";
 }
 
-/** 过滤废弃 Tab（含旧顶层镜像/网络/卷/容器列表），并将旧预览 Tab 提升为常驻。 */
+/** 过滤废弃 Tab（含旧顶层镜像/网络/卷/容器列表）。 */
 export function sanitizeDockerDockTabs(
   tabs: DockerConnectionWorkspaceTab[],
 ): DockerConnectionWorkspaceTab[] {
-  return tabs
-    .filter((tab) => {
-      const kind = (tab as { kind?: string }).kind;
-      return (
-        kind !== "service-group" &&
-        kind !== "images" &&
-        kind !== "networks" &&
-        kind !== "volumes" &&
-        kind !== "containers"
-      );
-    })
-    .map((tab) => (tab.preview ? { ...tab, preview: false } : tab));
+  return tabs.filter((tab) => {
+    const kind = (tab as { kind?: string }).kind;
+    return (
+      kind !== "service-group" &&
+      kind !== "images" &&
+      kind !== "networks" &&
+      kind !== "volumes" &&
+      kind !== "containers"
+    );
+  });
 }

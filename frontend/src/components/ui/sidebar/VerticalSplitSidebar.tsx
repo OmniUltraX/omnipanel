@@ -42,6 +42,8 @@ export function VerticalSplitSidebarSection({
   maxBodyHeightPx = 480,
   autoSize = false,
   autoSizePersist,
+  /** 拖拽手柄位置：首段常用 bottom，其余段默认 top */
+  resizePlacement = "top",
 }: VerticalSplitSidebarSectionConfig & {
   actions?: ReactNode;
   children: ReactNode;
@@ -53,6 +55,7 @@ export function VerticalSplitSidebarSection({
   onBodyHeightChange?: (heightPx: number) => void;
   minBodyHeightPx?: number;
   maxBodyHeightPx?: number;
+  resizePlacement?: "top" | "bottom";
 }) {
   const showBody = expanded || keepMounted;
   const controlled = typeof bodyHeightPx === "number" && Number.isFinite(bodyHeightPx);
@@ -156,11 +159,14 @@ export function VerticalSplitSidebarSection({
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current;
       if (!drag || drag.pointerId !== event.pointerId || !effectiveOnChange) return;
-      // 手柄在段顶部：向上拖增大本段高度（边界上移挤压上段、本段变高）
-      const next = clampHeight(drag.startHeight - (event.clientY - drag.startY));
+      const delta = event.clientY - drag.startY;
+      const next =
+        resizePlacement === "bottom"
+          ? clampHeight(drag.startHeight + delta)
+          : clampHeight(drag.startHeight - delta);
       effectiveOnChange(next);
     },
-    [clampHeight, effectiveOnChange],
+    [clampHeight, effectiveOnChange, resizePlacement],
   );
 
   const onResizePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -174,6 +180,24 @@ export function VerticalSplitSidebarSection({
     }
   }, []);
 
+  const resizeHandle = resizable ? (
+    <div
+      className={cn(
+        "vsplit-sidebar-section__resize",
+        resizePlacement === "bottom" && "vsplit-sidebar-section__resize--bottom",
+      )}
+      role="separator"
+      aria-orientation="horizontal"
+      aria-valuenow={effectiveHeight}
+      aria-valuemin={minBodyHeightPx}
+      aria-valuemax={maxBodyHeightPx}
+      onPointerDown={onResizePointerDown}
+      onPointerMove={onResizePointerMove}
+      onPointerUp={onResizePointerUp}
+      onPointerCancel={onResizePointerUp}
+    />
+  ) : null;
+
   return (
     <section
       className={cn(
@@ -182,20 +206,7 @@ export function VerticalSplitSidebarSection({
         sized && expanded && "vsplit-sidebar-section--sized",
       )}
     >
-      {resizable ? (
-        <div
-          className="vsplit-sidebar-section__resize"
-          role="separator"
-          aria-orientation="horizontal"
-          aria-valuenow={effectiveHeight}
-          aria-valuemin={minBodyHeightPx}
-          aria-valuemax={maxBodyHeightPx}
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={onResizePointerUp}
-          onPointerCancel={onResizePointerUp}
-        />
-      ) : null}
+      {resizePlacement !== "bottom" ? resizeHandle : null}
       <div className="vsplit-sidebar-section__header-row window-drag-surface" data-tauri-drag-region>
         <button
           type="button"
@@ -242,6 +253,7 @@ export function VerticalSplitSidebarSection({
           )}
         </div>
       ) : null}
+      {resizePlacement === "bottom" ? resizeHandle : null}
     </section>
   );
 }
@@ -288,22 +300,39 @@ export function usePersistedVerticalSplitSections<T extends string>(
   return { sections, setSections, toggleSection, setSectionExpanded };
 }
 
-function readPersistedSizes<T extends string>(
-  storageKey: string,
+type PersistedSizeBundle<T extends string> = {
+  sizes: Partial<Record<T, number>>;
+  userSized: T[];
+};
+
+function readNumericSizeMap<T extends string>(
+  source: Record<string, unknown>,
 ): Partial<Record<T, number>> {
+  const next: Partial<Record<T, number>> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "userSized" || key === "sizes") continue;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      next[key as T] = value;
+    }
+  }
+  return next;
+}
+
+function readPersistedSizeBundle<T extends string>(storageKey: string): PersistedSizeBundle<T> {
   try {
     const raw = localStorage.getItem(storageKey);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Partial<Record<T, unknown>>;
-    const next: Partial<Record<T, number>> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-        next[key as T] = value;
-      }
+    if (!raw) return { sizes: {}, userSized: [] };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed.sizes && typeof parsed.sizes === "object" && !Array.isArray(parsed.sizes)) {
+      const sizes = readNumericSizeMap<T>(parsed.sizes as Record<string, unknown>);
+      const userSized = Array.isArray(parsed.userSized)
+        ? parsed.userSized.filter((key): key is T => typeof key === "string")
+        : [];
+      return { sizes, userSized };
     }
-    return next;
+    return { sizes: readNumericSizeMap<T>(parsed), userSized: [] };
   } catch {
-    return {};
+    return { sizes: {}, userSized: [] };
   }
 }
 
@@ -312,13 +341,23 @@ function readPersistedSizes<T extends string>(
  * 未手动拖过的段可继续用内容测量结果覆盖。
  */
 export function usePersistedVerticalSplitSizes<T extends string>(storageKey: string) {
-  const [sizes, setSizes] = useState(() => readPersistedSizes<T>(storageKey));
-  const userSizedKeysRef = useRef<Set<T>>(
-    new Set(Object.keys(readPersistedSizes<T>(storageKey)) as T[]),
-  );
+  const initialBundleRef = useRef<PersistedSizeBundle<T> | null>(null);
+  if (!initialBundleRef.current) {
+    initialBundleRef.current = readPersistedSizeBundle<T>(storageKey);
+  }
+  const initialBundle = initialBundleRef.current;
+
+  const [sizes, setSizes] = useState(() => initialBundle.sizes);
+  const userSizedKeysRef = useRef<Set<T>>(new Set(initialBundle.userSized));
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(sizes));
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        sizes,
+        userSized: [...userSizedKeysRef.current],
+      }),
+    );
   }, [storageKey, sizes]);
 
   const setSize = useCallback((key: T, heightPx: number, options?: { user?: boolean }) => {
@@ -339,6 +378,10 @@ function readPersistedSizeValue(storageKey: string, id: string): number | undefi
     const raw = localStorage.getItem(storageKey);
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed.sizes && typeof parsed.sizes === "object" && !Array.isArray(parsed.sizes)) {
+      const v = (parsed.sizes as Record<string, unknown>)[id];
+      return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+    }
     const v = parsed[id];
     return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
   } catch {
@@ -348,10 +391,18 @@ function readPersistedSizeValue(storageKey: string, id: string): number | undefi
 
 function writePersistedSizeValue(storageKey: string, id: string, value: number) {
   try {
-    const raw = localStorage.getItem(storageKey);
-    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    parsed[id] = value;
-    localStorage.setItem(storageKey, JSON.stringify(parsed));
+    const bundle = readPersistedSizeBundle(storageKey);
+    bundle.sizes[id] = value;
+    if (!bundle.userSized.includes(id)) {
+      bundle.userSized.push(id);
+    }
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        sizes: bundle.sizes,
+        userSized: bundle.userSized,
+      }),
+    );
   } catch {
     // ignore
   }

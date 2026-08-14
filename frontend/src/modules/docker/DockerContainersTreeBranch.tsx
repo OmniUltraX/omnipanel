@@ -218,6 +218,7 @@ export function DockerContainersTreeBranch({
           Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
         }
         onToggle={() => {}}
+        onSelect={() => openItem("preview")}
         onActivate={() => openItem("permanent")}
         onContextMenu={(event) => openContextMenu(event, { kind: "container", container })}
         trailing={
@@ -272,6 +273,7 @@ export function DockerContainersTreeBranch({
               expanded={projectExpanded}
               active={activeNavKey === projectKey}
               onToggle={() => toggle(projectKey)}
+              onSelect={() => openComposeProject(group.project, "preview")}
               onActivate={() => openComposeProject(group.project, "permanent")}
               onContextMenu={(event) =>
                 openContextMenu(event, { kind: "compose", project: group.project })

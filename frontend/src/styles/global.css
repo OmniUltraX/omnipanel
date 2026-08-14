@@ -17081,6 +17081,24 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--meta);
     }
 
+    .server-app-card__status--action {
+        border: none;
+        background: transparent;
+        padding: 0;
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .server-app-card__status--action:hover {
+        opacity: 0.85;
+    }
+
+    .app-install-log-dialog__viewer {
+        min-height: 320px;
+        max-height: min(60vh, 480px);
+    }
+
     .server-app-card__tags {
         display: flex;
         flex-wrap: wrap;
@@ -17250,9 +17268,17 @@ button.omni-btn-tool[aria-pressed="true"] {
         align-items: stretch;
     }
 
+    .server-panel-monitor-dashboard .mon-metrics--no-gpu {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     @container server-panel-monitor (max-width: 640px) {
         .server-panel-monitor-dashboard .mon-metrics {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .server-panel-monitor-dashboard .mon-metrics--no-gpu {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
     }
 
@@ -17710,14 +17736,21 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-height: 0;
     }
 
+    .settings-workspace .dock-panel-left .dock-rail-shell {
+        height: 100%;
+        min-height: 0;
+    }
+
     .settings-nav {
         width: 100%;
         min-width: 0;
+        min-height: 0;
+        flex: 1;
         background: var(--bg-deeper);
         display: flex;
         flex-direction: column;
-        flex-shrink: 0;
         overflow-y: auto;
+        overflow-x: hidden;
         padding: var(--sp-2) 0;
         gap: var(--sp-1);
     }
@@ -22600,6 +22633,12 @@ button.omni-btn-tool[aria-pressed="true"] {
 .vsplit-sidebar-section--collapsed,
 .schema-sidebar-section--collapsed {
     flex: 0 0 auto;
+}
+
+/* 非首段折叠时贴齐侧栏底部（SSH 隧道/密钥等中间段收起时合并到底部） */
+.vsplit-sidebar-section--collapsed:not(:first-child),
+.schema-sidebar-section--collapsed:not(:first-child) {
+    margin-top: auto;
 }
 
 .vsplit-sidebar-section--sized {

@@ -93,14 +93,14 @@ function ServerTreeBranch({
     <div className="server-tree-children">
       {categories.map((item) => {
         const itemKey = makeServerTreeKey(server.id, item.category);
-        const openCategory = () => {
+        const openCategory = (mode: "preview" | "permanent") => {
           ensureExpanded(makeServerTreeKey(server.id));
           onNavigate(
             {
               serverId: server.id,
               detailTab: item.category,
             },
-            "permanent",
+            mode,
           );
         };
         return (
@@ -117,7 +117,8 @@ function ServerTreeBranch({
             expanded={false}
             active={activeNavKey === itemKey}
             onToggle={() => {}}
-            onActivate={openCategory}
+            onSelect={() => openCategory("preview")}
+            onActivate={() => openCategory("permanent")}
           />
         );
       })}
@@ -396,6 +397,7 @@ export function ServerPanelTreeSidebar({
                   expanded={serverExpanded}
                   active={activeNavKey === serverKey || activeServerId === server.id}
                   onToggle={() => toggle(serverKey)}
+                  onSelect={() => onNavigate({ serverId: server.id }, "preview")}
                   onActivate={() => onNavigate({ serverId: server.id }, "permanent")}
                   onContextMenu={(event) => handleContextMenu(event, server)}
                   onRefresh={

@@ -19,13 +19,23 @@ import {
   setServerAppIcons,
 } from "../serverAppIconCache";
 import { useServerApps } from "../useServerApps";
+import { AppInstallLogDialog } from "../AppInstallLogDialog";
+import {
+  findInstalledAppForMarket,
+  isAppInstallInProgress,
+  readInstalledAppStatus,
+  resolveAppInstallDisplayState,
+  type AppInstallDisplayState,
+} from "../serverAppInstallStatus";
 
 interface Props {
   server: ServerEntry;
 }
 
 type MarketCard = OnePanelApp & {
-  isInstalled: boolean;
+  installState: AppInstallDisplayState;
+  installId?: number;
+  installMessage?: string;
 };
 
 function formatError(err: unknown): string {
@@ -76,15 +86,21 @@ function defaultParamsFromDetail(params: unknown): Record<string, unknown> {
   return out;
 }
 
-function buildInstalledKeySet(installed: OnePanelInstalledApp[]): Set<string> {
-  const keys = new Set<string>();
-  for (const item of installed) {
-    const appKey = (item.appKey ?? "").trim().toLowerCase();
-    if (appKey) keys.add(appKey);
-    const name = (item.name ?? "").trim().toLowerCase();
-    if (name) keys.add(name);
+function resolveMarketCard(
+  app: OnePanelApp,
+  installedApps: OnePanelInstalledApp[],
+): MarketCard {
+  const installed = findInstalledAppForMarket(app, installedApps);
+  if (installed) {
+    const status = readInstalledAppStatus(installed);
+    return {
+      ...app,
+      installState: resolveAppInstallDisplayState(status),
+      installId: installed.id,
+      installMessage: installed.message,
+    };
   }
-  return keys;
+  return { ...app, installState: "available" };
 }
 
 /**
@@ -160,6 +176,7 @@ export function ServerAppsTab({ server }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dockerHint, setDockerHint] = useState<string | null>(null);
+  const [logTarget, setLogTarget] = useState<{ installId: number; label: string } | null>(null);
 
   const error = !supportsApps
     ? t("server.appMarket.unsupported")
@@ -231,7 +248,20 @@ export function ServerAppsTab({ server }: Props) {
     }
   }, [isBt, isOnePanel, refresh, refreshing, server.address, server.id, server.key, supportsApps, syncing, t]);
 
-  const installedKeys = useMemo(() => buildInstalledKeySet(installedApps), [installedApps]);
+  const hasInstallingApps = useMemo(
+    () =>
+      isOnePanel &&
+      installedApps.some((item) => isAppInstallInProgress(readInstalledAppStatus(item))),
+    [installedApps, isOnePanel],
+  );
+
+  useEffect(() => {
+    if (!hasInstallingApps) return;
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [hasInstallingApps, refresh]);
 
   const cards = useMemo<MarketCard[]>(() => {
     return apps
@@ -244,17 +274,9 @@ export function ServerAppsTab({ server }: Props) {
           (tag) => (tag.name || "").trim() === category || (tag.key || "").trim() === category,
         );
       })
-      .map((app) => {
-        const key = (app.key || "").trim().toLowerCase();
-        const name = (app.name || "").trim().toLowerCase();
-        const isInstalled =
-          Boolean(app.installed) ||
-          (key !== "" && installedKeys.has(key)) ||
-          (name !== "" && installedKeys.has(name));
-        return { ...app, isInstalled };
-      })
-      .filter((app) => !installedOnly || app.isInstalled);
-  }, [apps, category, installedKeys, installedOnly, query]);
+      .map((app) => resolveMarketCard(app, installedApps))
+      .filter((app) => !installedOnly || app.installState !== "available");
+  }, [apps, category, installedApps, installedOnly, query]);
 
   // 懒加载缺失图标（1Panel / 宝塔均走后端代理为 data URL）
   useEffect(() => {
@@ -357,7 +379,7 @@ export function ServerAppsTab({ server }: Props) {
 
   const handleInstall = useCallback(
     async (app: MarketCard) => {
-      if (!supportsApps || installingKey || app.isInstalled) return;
+      if (!supportsApps || installingKey || app.installState !== "available") return;
       const label = app.name || app.key;
       const versionHint = pickLatestVersion(app.versions);
       const confirmed = await appConfirm(
@@ -433,7 +455,7 @@ export function ServerAppsTab({ server }: Props) {
           pullImage: true,
           allowPort: true,
         });
-        showToast(t("server.appMarket.installSuccess", { name: label }));
+        showToast(t("server.appMarket.installQueued", { name: label }));
         await refresh();
       } catch (err) {
         setActionError(formatError(err));
@@ -575,7 +597,41 @@ export function ServerAppsTab({ server }: Props) {
                         ) : null}
                       </div>
                     </div>
-                    {app.isInstalled ? (
+                    {app.installState === "installing" ? (
+                      <button
+                        type="button"
+                        className="server-app-card__status server-app-card__status--warning server-app-card__status--action"
+                        title={t("server.appMarket.viewInstallLog")}
+                        onClick={() => {
+                          if (app.installId != null) {
+                            setLogTarget({
+                              installId: app.installId,
+                              label: app.name || app.key || "—",
+                            });
+                          }
+                        }}
+                      >
+                        {t("server.appMarket.installing")}
+                      </button>
+                    ) : null}
+                    {app.installState === "failed" ? (
+                      <button
+                        type="button"
+                        className="server-app-card__status server-app-card__status--danger server-app-card__status--action"
+                        title={t("server.appMarket.viewInstallLog")}
+                        onClick={() => {
+                          if (app.installId != null) {
+                            setLogTarget({
+                              installId: app.installId,
+                              label: app.name || app.key || "—",
+                            });
+                          }
+                        }}
+                      >
+                        {t("server.appMarket.installFailed")}
+                      </button>
+                    ) : null}
+                    {app.installState === "installed" ? (
                       <span className="server-app-card__status server-app-card__status--success">
                         {t("server.appMarket.installed")}
                       </span>
@@ -602,7 +658,7 @@ export function ServerAppsTab({ server }: Props) {
 
                   {desc ? <p className="server-app-card__message">{desc}</p> : null}
 
-                  {!app.isInstalled ? (
+                  {app.installState === "available" ? (
                     <div className="server-app-card__footer">
                       <Button
                         type="button"
@@ -621,6 +677,16 @@ export function ServerAppsTab({ server }: Props) {
           </div>
         ) : null}
       </div>
+
+      <AppInstallLogDialog
+        open={logTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setLogTarget(null);
+        }}
+        server={server}
+        installId={logTarget?.installId ?? null}
+        appLabel={logTarget?.label ?? ""}
+      />
     </div>
   );
 }

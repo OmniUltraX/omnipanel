@@ -18,6 +18,7 @@ import {
   type OnePanelApp,
   type OnePanelAppDetail,
   type OnePanelAppInstallCreate,
+  type OnePanelTaskLogContent,
   type OnePanelAppSearchParams,
   type OnePanelAppSearchResult,
   type OnePanelAppTag,
@@ -1186,7 +1187,7 @@ export class OnePanelClient {
   }
 
   /** POST /apps/install — 安装应用（MVP 使用默认参数）。 */
-  async installApp(payload: OnePanelAppInstallCreate): Promise<void> {
+  async installApp(payload: OnePanelAppInstallCreate): Promise<OnePanelInstalledApp> {
     if (!Number.isFinite(payload.appDetailId) || payload.appDetailId <= 0) {
       throw new OnePanelApiError("appDetailId 无效", 0);
     }
@@ -1194,7 +1195,7 @@ export class OnePanelClient {
     if (!name) {
       throw new OnePanelApiError("应用实例名不能为空", 0);
     }
-    await this.request<unknown>({
+    return this.request<OnePanelInstalledApp>({
       method: "POST",
       path: "/apps/install",
       body: {
@@ -1207,6 +1208,32 @@ export class OnePanelClient {
         hostMode: payload.hostMode ?? false,
       },
     });
+  }
+
+  /** POST /logs/tasks/read — 读取应用安装任务日志。 */
+  async readAppInstallTaskLog(params: {
+    installId: number;
+    page?: number;
+    pageSize?: number;
+    latest?: boolean;
+  }): Promise<OnePanelTaskLogContent> {
+    const data = await this.request<Record<string, unknown>>({
+      method: "POST",
+      path: "/logs/tasks/read",
+      body: {
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 500,
+        resourceID: params.installId,
+        taskType: "app",
+        taskOperate: "install",
+        latest: params.latest ?? true,
+      },
+    });
+    const parsed = parseFileLineContent(data);
+    return {
+      ...parsed,
+      taskStatus: typeof data?.taskStatus === "string" ? data.taskStatus : undefined,
+    };
   }
 
   /** POST /apps/installed/search — 已安装应用列表。 */

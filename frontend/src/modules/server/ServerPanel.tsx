@@ -172,7 +172,7 @@ export function ServerPanel() {
   }, [isActiveRoute]);
 
   const handleNavigate = useCallback(
-    (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "permanent") => {
+    (target: ServerSidebarNavTarget, mode: ServerPanelDockOpenMode = "preview") => {
       openDockTabNow({
         applyTabSync: () => {
           if (target.detailTab) {
@@ -191,7 +191,7 @@ export function ServerPanel() {
   );
 
   const handleNavigateCloud = useCallback(
-    (target: CloudSidebarNavTarget, mode: ServerPanelDockOpenMode = "permanent") => {
+    (target: CloudSidebarNavTarget, mode: ServerPanelDockOpenMode = "preview") => {
       openDockTabNow({
         applyTabSync: () => {
           selectCloud(target.accountId, mode);

@@ -86,6 +86,10 @@ function CloudAccountBranch({
             expanded={false}
             active={activeNavKey === regionKey}
             onToggle={() => {}}
+            onSelect={() => {
+              ensureExpanded(makeCloudTreeKey(account.id));
+              onNavigate({ accountId: account.id, region: item.region }, "preview");
+            }}
             onActivate={() => {
               ensureExpanded(makeCloudTreeKey(account.id));
               onNavigate({ accountId: account.id, region: item.region }, "permanent");
@@ -239,6 +243,16 @@ export function CloudTreeSidebar({
                       (!regionSelected && activeAccountId === account.id)
                     }
                     onToggle={() => toggle(accountKey)}
+                    onSelect={() => {
+                      ensureExpanded(accountKey);
+                      const firstRegion = account.regions[0];
+                      onNavigate(
+                        firstRegion
+                          ? { accountId: account.id, region: firstRegion }
+                          : { accountId: account.id },
+                        "preview",
+                      );
+                    }}
                     onActivate={() => {
                       ensureExpanded(accountKey);
                       const firstRegion = account.regions[0];

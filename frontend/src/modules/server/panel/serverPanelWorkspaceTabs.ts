@@ -1,4 +1,4 @@
-/** 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据。 */
+/** 侧栏单击打开临时预览标签，双击打开常驻标签。 */
 export type ServerPanelDockOpenMode = "preview" | "permanent";
 
 export type ServerPanelResourceKind = "websites" | "certificates" | "cronjobs";
@@ -10,7 +10,7 @@ export type ServerOverviewPanelTab = {
   kind: "server";
   label: string;
   serverId: string;
-  /** @deprecated 旧「单击预览」槽位；新打开固定为常驻（false/undefined） */
+  /** 临时预览槽位；双击或显式 permanent 打开后为 false/undefined */
   preview?: boolean;
 };
 
@@ -54,7 +54,7 @@ export type ServerPanelWorkspaceTab =
   | ServerCronjobsPanelTab;
 
 /**
- * 查找遗留的预览 Tab（新打开固定为常驻，此函数仅服务兼容路径）。
+ * 查找当前预览 Tab（单击打开的临时槽位）。
  */
 export function findPreviewDockTab(
   tabs: ServerPanelWorkspaceTab[],
@@ -62,7 +62,7 @@ export function findPreviewDockTab(
   return tabs.find((tab) => tab.preview);
 }
 
-/** 将旧预览 Tab 提升为常驻。 */
+/** 规范化 Tab kind，保留预览状态。 */
 export function sanitizeServerPanelDockTabs(
   tabs: ServerPanelWorkspaceTab[],
 ): ServerPanelWorkspaceTab[] {
@@ -72,7 +72,7 @@ export function sanitizeServerPanelDockTabs(
       ...tab,
       kind: isServerPanelWorkspaceTabKind(kind) ? kind : "server",
     };
-    return normalized.preview ? { ...normalized, preview: false } : normalized;
+    return normalized;
   });
 }
 

@@ -104,15 +104,23 @@
     align-items: stretch;
 }
 
+.mon-metrics--no-gpu {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 /* 终端侧栏：固定 2×2，避免 auto-fit 在中宽面板出现 3+1 */
 .mon-dashboard--compact .mon-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-/* 详情页：中等宽度降为 2 列 */
+/* 详情页：中等宽度降为 2 列（无 GPU 时保持 3 列均分） */
 @container mon-dashboard (max-width: 1040px) {
-    .mon-dashboard:not(.mon-dashboard--compact) .mon-metrics {
+    .mon-dashboard:not(.mon-dashboard--compact) .mon-metrics:not(.mon-metrics--no-gpu) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .mon-dashboard:not(.mon-dashboard--compact) .mon-metrics--no-gpu {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
