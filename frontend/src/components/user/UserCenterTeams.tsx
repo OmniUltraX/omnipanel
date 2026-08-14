@@ -9,11 +9,26 @@ import {
   fetchTeams,
   formatTeamError,
   removeTeamMember,
+  searchTeamMemberCandidates,
   updateTeamMember,
   type TeamMember,
+  type TeamMemberCandidate,
   type TeamSummary,
 } from "../../lib/auth/teamApi";
+import {
+  fetchTeamShare,
+  formatTeamSyncError,
+  listTeamShares,
+  pullTeamModules,
+  pushTeamModules,
+  type TeamShareSummary,
+} from "../../lib/auth/teamSyncApi";
+import {
+  importCustomPanelShareSnapshot,
+  type CustomPanelShareSnapshot,
+} from "../../modules/workspace/smallComponents/customPanelShare";
 import { isAuthSessionError } from "../../lib/auth/loginApi";
+import { quickInput } from "../../lib/quickInput";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
@@ -65,14 +80,14 @@ export function UserCenterTeams() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createName, setCreateName] = useState("");
   const [creating, setCreating] = useState(false);
 
   const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [addUnionId, setAddUnionId] = useState("");
-  const [addDisplayName, setAddDisplayName] = useState("");
-  const [addRole, setAddRole] = useState<"manager" | "user">("user");
+  const [addMemberEmail, setAddMemberEmail] = useState("");
+  const [memberSearchResults, setMemberSearchResults] = useState<TeamMemberCandidate[]>([]);
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false);
+  const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
+  const [memberSearchDone, setMemberSearchDone] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
 
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -82,6 +97,13 @@ export function UserCenterTeams() {
 
   const [busyUnionId, setBusyUnionId] = useState<string | null>(null);
   const [dissolving, setDissolving] = useState(false);
+
+  const [teamShares, setTeamShares] = useState<TeamShareSummary[]>([]);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [sharesError, setSharesError] = useState<string | null>(null);
+  const [syncModulesPushing, setSyncModulesPushing] = useState(false);
+  const [syncModulesPulling, setSyncModulesPulling] = useState(false);
+  const [importingShareId, setImportingShareId] = useState<string | null>(null);
 
   const roleLabel = useCallback(
     (role: string) => {
@@ -136,6 +158,27 @@ export function UserCenterTeams() {
     [handleSessionExpired, token],
   );
 
+  const loadTeamShares = useCallback(
+    async (team: TeamSummary) => {
+      if (!token) return;
+      setSharesLoading(true);
+      setSharesError(null);
+      try {
+        const list = await listTeamShares(token, team.id);
+        setTeamShares(list);
+      } catch (e) {
+        if (isAuthSessionError(e)) {
+          handleSessionExpired();
+          return;
+        }
+        setSharesError(formatTeamSyncError(e));
+      } finally {
+        setSharesLoading(false);
+      }
+    },
+    [handleSessionExpired, token],
+  );
+
   useEffect(() => {
     void loadTeams();
   }, [loadTeams]);
@@ -144,10 +187,13 @@ export function UserCenterTeams() {
     if (!selectedTeam) {
       setMembers([]);
       setMembersError(null);
+      setTeamShares([]);
+      setSharesError(null);
       return;
     }
     void loadMembers(selectedTeam);
-  }, [loadMembers, selectedTeam]);
+    void loadTeamShares(selectedTeam);
+  }, [loadMembers, loadTeamShares, selectedTeam]);
 
   const selectedRole = normalizeRole(selectedTeam?.roleCode);
   const canManage = canManageMembers(selectedRole);
@@ -161,19 +207,21 @@ export function UserCenterTeams() {
     [t],
   );
 
-  const handleCreateTeam = async () => {
+  const handleCreateTeam = useCallback(async () => {
     if (!token || creating) return;
-    const name = createName.trim();
-    if (!name) {
-      showToast(t("userCenter.teams.createNameRequired"));
-      return;
-    }
+    const name = await quickInput({
+      title: t("userCenter.teams.createTitle"),
+      subtitle: t("userCenter.teams.createSubtitle"),
+      placeholder: t("userCenter.teams.teamNamePlaceholder"),
+      validate: (value) =>
+        value.trim() ? null : t("userCenter.teams.createNameRequired"),
+    });
+    if (!name) return;
+
     setCreating(true);
     try {
-      await createTeam(token, name);
+      await createTeam(token, name.trim());
       showToast(t("userCenter.teams.createSuccess"));
-      setCreateOpen(false);
-      setCreateName("");
       await loadTeams();
     } catch (e) {
       if (isAuthSessionError(e)) {
@@ -183,6 +231,83 @@ export function UserCenterTeams() {
       }
     } finally {
       setCreating(false);
+    }
+  }, [creating, handleSessionExpired, loadTeams, t, token]);
+
+  const resetAddMemberDialog = useCallback(() => {
+    setAddMemberEmail("");
+    setMemberSearchResults([]);
+    setMemberSearchLoading(false);
+    setMemberSearchError(null);
+    setMemberSearchDone(false);
+  }, []);
+
+  const openAddMemberDialog = useCallback(() => {
+    resetAddMemberDialog();
+    setAddMemberOpen(true);
+  }, [resetAddMemberDialog]);
+
+  const closeAddMemberDialog = useCallback(() => {
+    if (addingMember) return;
+    setAddMemberOpen(false);
+    resetAddMemberDialog();
+  }, [addingMember, resetAddMemberDialog]);
+
+  const handleSearchMemberByEmail = async () => {
+    if (!token || !selectedTeam || memberSearchLoading) return;
+    const email = addMemberEmail.trim();
+    if (!email || !email.includes("@")) {
+      showToast(t("userCenter.teams.emailRequired"));
+      return;
+    }
+
+    setMemberSearchLoading(true);
+    setMemberSearchError(null);
+    setMemberSearchResults([]);
+    setMemberSearchDone(false);
+    try {
+      const results = await searchTeamMemberCandidates(token, selectedTeam.id, email);
+      const existingUnionIds = new Set(members.map((member) => member.unionId));
+      const filtered = results.filter(
+        (candidate) =>
+          candidate.unionId.trim() &&
+          !existingUnionIds.has(candidate.unionId) &&
+          (!myUnionId || candidate.unionId !== myUnionId),
+      );
+      setMemberSearchResults(filtered);
+      setMemberSearchDone(true);
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        setMemberSearchError(formatTeamError(e));
+      }
+    } finally {
+      setMemberSearchLoading(false);
+    }
+  };
+
+  const handleSelectMemberCandidate = async (candidate: TeamMemberCandidate) => {
+    if (!token || !selectedTeam || addingMember) return;
+    setAddingMember(true);
+    try {
+      await addTeamMember(token, selectedTeam.id, {
+        unionId: candidate.unionId,
+        roleCode: "user",
+        userTeamName: candidate.nickname.trim() || null,
+      });
+      showToast(t("userCenter.teams.addMemberSuccess"));
+      setAddMemberOpen(false);
+      resetAddMemberDialog();
+      await loadMembers(selectedTeam);
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        showToast(formatTeamError(e));
+      }
+    } finally {
+      setAddingMember(false);
     }
   };
 
@@ -209,37 +334,6 @@ export function UserCenterTeams() {
       }
     } finally {
       setDissolving(false);
-    }
-  };
-
-  const handleAddMember = async () => {
-    if (!token || !selectedTeam || addingMember) return;
-    const unionId = addUnionId.trim();
-    if (!unionId) {
-      showToast(t("userCenter.teams.unionIdRequired"));
-      return;
-    }
-    setAddingMember(true);
-    try {
-      await addTeamMember(token, selectedTeam.id, {
-        unionId,
-        roleCode: addRole,
-        userTeamName: addDisplayName.trim() || null,
-      });
-      showToast(t("userCenter.teams.addMemberSuccess"));
-      setAddMemberOpen(false);
-      setAddUnionId("");
-      setAddDisplayName("");
-      setAddRole("user");
-      await loadMembers(selectedTeam);
-    } catch (e) {
-      if (isAuthSessionError(e)) {
-        handleSessionExpired();
-      } else {
-        showToast(formatTeamError(e));
-      }
-    } finally {
-      setAddingMember(false);
     }
   };
 
@@ -300,81 +394,149 @@ export function UserCenterTeams() {
     }
   };
 
-  const renderCreateDialog = () => (
-    <FormDialog
-      open={createOpen}
-      onClose={() => {
-        if (creating) return;
-        setCreateOpen(false);
-      }}
-      title={t("userCenter.teams.createTitle")}
-      subtitle={t("userCenter.teams.createSubtitle")}
-      primaryAction={{
-        label: creating ? t("userCenter.teams.creating") : t("userCenter.teams.create"),
-        disabled: creating,
-        onClick: () => void handleCreateTeam(),
-      }}
-      cancelDisabled={creating}
-    >
-      <FormField label={t("userCenter.teams.teamName")}>
-        <TextInput
-          className="input"
-          value={createName}
-          onChange={setCreateName}
-          disabled={creating}
-          placeholder={t("userCenter.teams.teamNamePlaceholder")}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void handleCreateTeam();
-          }}
-        />
-      </FormField>
-    </FormDialog>
-  );
+  const handlePushTeamModules = async () => {
+    if (!token || !selectedTeam || syncModulesPushing) return;
+    setSyncModulesPushing(true);
+    try {
+      const result = await pushTeamModules(token, selectedTeam.id);
+      showToast(
+        t("userCenter.teams.syncModulesPushSuccess", {
+          size: Math.max(1, Math.round(result.bytes / 1024)),
+        }),
+      );
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        showToast(formatTeamSyncError(e));
+      }
+    } finally {
+      setSyncModulesPushing(false);
+    }
+  };
+
+  const handlePullTeamModules = async () => {
+    if (!token || !selectedTeam || syncModulesPulling) return;
+    setSyncModulesPulling(true);
+    try {
+      const result = await pullTeamModules(token, selectedTeam.id);
+      let detail = "";
+      try {
+        const parsed = JSON.parse(result.bodyJson) as {
+          connections?: unknown[];
+          databaseConnections?: unknown[];
+        };
+        detail = t("userCenter.teams.syncModulesPullDetail", {
+          connections: parsed.connections?.length ?? 0,
+          databases: parsed.databaseConnections?.length ?? 0,
+        });
+      } catch {
+        detail = t("userCenter.teams.syncModulesPullSize", {
+          size: Math.max(1, Math.round(result.bytes / 1024)),
+        });
+      }
+      showToast(t("userCenter.teams.syncModulesPullSuccess", { detail }));
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        showToast(formatTeamSyncError(e));
+      }
+    } finally {
+      setSyncModulesPulling(false);
+    }
+  };
+
+  const handleImportTeamShare = async (share: TeamShareSummary) => {
+    if (!token || !selectedTeam || importingShareId) return;
+    setImportingShareId(share.shareId);
+    try {
+      const fetched = await fetchTeamShare(token, selectedTeam.id, share.shareId);
+      const envelope = JSON.parse(fetched.bodyJson) as {
+        snapshot?: CustomPanelShareSnapshot;
+      };
+      if (!envelope.snapshot) {
+        showToast(t("userCenter.teams.shareImportInvalid"));
+        return;
+      }
+      const panelId = importCustomPanelShareSnapshot(envelope.snapshot);
+      if (!panelId) {
+        showToast(t("userCenter.teams.shareImportInvalid"));
+        return;
+      }
+      showToast(t("userCenter.teams.shareImportSuccess", { panel: share.panelLabel }));
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        showToast(formatTeamSyncError(e));
+      }
+    } finally {
+      setImportingShareId(null);
+    }
+  };
 
   const renderAddMemberDialog = () => (
     <FormDialog
       open={addMemberOpen}
-      onClose={() => {
-        if (addingMember) return;
-        setAddMemberOpen(false);
-      }}
+      onClose={closeAddMemberDialog}
       title={t("userCenter.teams.addMemberTitle")}
       subtitle={t("userCenter.teams.addMemberSubtitle")}
-      primaryAction={{
-        label: addingMember ? t("userCenter.teams.addingMember") : t("userCenter.teams.addMember"),
-        disabled: addingMember,
-        onClick: () => void handleAddMember(),
-      }}
-      cancelDisabled={addingMember}
+      cancelDisabled={addingMember || memberSearchLoading}
+      primaryAction={undefined}
     >
-      <FormField label={t("userCenter.teams.unionId")}>
+      <FormField label={t("userCenter.teams.memberEmail")}>
         <TextInput
           className="input"
-          value={addUnionId}
-          onChange={setAddUnionId}
-          disabled={addingMember}
-          placeholder={t("userCenter.teams.unionIdPlaceholder")}
+          value={addMemberEmail}
+          onChange={(value) => {
+            setAddMemberEmail(value);
+            setMemberSearchDone(false);
+            setMemberSearchError(null);
+          }}
+          disabled={addingMember || memberSearchLoading}
+          placeholder={t("userCenter.teams.memberEmailPlaceholder")}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            void handleSearchMemberByEmail();
+          }}
         />
       </FormField>
-      <FormField label={t("userCenter.teams.memberDisplayName")}>
-        <TextInput
-          className="input"
-          value={addDisplayName}
-          onChange={setAddDisplayName}
-          disabled={addingMember}
-          placeholder={t("userCenter.teams.memberDisplayNamePlaceholder")}
-        />
-      </FormField>
-      <FormField label={t("userCenter.teams.memberRole")}>
-        <Select
-          className="setting-select"
-          size="sm"
-          value={addRole}
-          onChange={(value) => setAddRole(value as "manager" | "user")}
-          searchable={false}
-          options={memberRoleOptions}
-        />
-      </FormField>
+      <p className="user-center-team-add-member__hint">{t("userCenter.teams.memberEmailHint")}</p>
+
+      {memberSearchLoading ? (
+        <p className="user-center-team-add-member__status">{t("userCenter.teams.memberSearchLoading")}</p>
+      ) : memberSearchError ? (
+        <p className="user-center-team-add-member__error">{memberSearchError}</p>
+      ) : memberSearchDone && memberSearchResults.length === 0 ? (
+        <p className="user-center-team-add-member__status">{t("userCenter.teams.memberSearchEmpty")}</p>
+      ) : memberSearchResults.length > 0 ? (
+        <ul className="user-center-team-add-member__results">
+          {memberSearchResults.map((candidate) => {
+            const displayName =
+              candidate.nickname.trim() ||
+              candidate.email.trim() ||
+              maskUnionId(candidate.unionId) ||
+              t("userCenter.teams.unnamedMember");
+            return (
+              <li key={candidate.unionId}>
+                <button
+                  type="button"
+                  className="user-center-team-add-member__result"
+                  disabled={addingMember}
+                  onClick={() => void handleSelectMemberCandidate(candidate)}
+                >
+                  <span className="user-center-team-add-member__result-name">{displayName}</span>
+                  <span className="user-center-team-add-member__result-meta">
+                    {candidate.email.trim() || maskUnionId(candidate.unionId)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </FormDialog>
   );
 
@@ -474,7 +636,7 @@ export function UserCenterTeams() {
                 >
                   {t("userCenter.teams.refresh")}
                 </Button>
-                <Button type="button" variant="primary" size="sm" onClick={() => setAddMemberOpen(true)}>
+                <Button type="button" variant="primary" size="sm" onClick={openAddMemberDialog}>
                   <IconPlus size={14} />
                   {t("userCenter.teams.addMember")}
                 </Button>
@@ -551,9 +713,94 @@ export function UserCenterTeams() {
               })}
             </ul>
           )}
+
+          <div className="user-center-teams-sync">
+            <div className="user-center-devices__header">
+              <div>
+                <h4 className="user-center-teams-detail__subtitle">
+                  {t("userCenter.teams.syncTitle")}
+                </h4>
+                <p className="user-center-section__desc">{t("userCenter.teams.syncDesc")}</p>
+              </div>
+              <div className="user-center-devices__header-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void loadTeamShares(selectedTeam)}
+                  disabled={sharesLoading}
+                >
+                  {t("userCenter.teams.syncRefresh")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={syncModulesPulling}
+                  onClick={() => void handlePullTeamModules()}
+                >
+                  {syncModulesPulling
+                    ? t("userCenter.teams.syncModulesPulling")
+                    : t("userCenter.teams.syncModulesPull")}
+                </Button>
+                {canManage ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={syncModulesPushing}
+                    onClick={() => void handlePushTeamModules()}
+                  >
+                    {syncModulesPushing
+                      ? t("userCenter.teams.syncModulesPushing")
+                      : t("userCenter.teams.syncModulesPush")}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {sharesLoading ? (
+              <p className="user-center-devices__hint">{t("userCenter.teams.sharesLoading")}</p>
+            ) : sharesError ? (
+              <p className="user-center-devices__error">{sharesError}</p>
+            ) : teamShares.length === 0 ? (
+              <p className="user-center-devices__group-empty">{t("userCenter.teams.sharesEmpty")}</p>
+            ) : (
+              <ul className="user-center-team-share-list">
+                {teamShares.map((share) => {
+                  const fromName =
+                    share.fromDisplayName.trim() ||
+                    maskUnionId(share.fromUnionId) ||
+                    t("userCenter.teams.unnamedMember");
+                  const importing = importingShareId === share.shareId;
+                  return (
+                    <li key={share.shareId} className="user-center-team-share">
+                      <div className="user-center-team-share__main">
+                        <span className="user-center-team-share__name">{share.panelLabel}</span>
+                        <span className="user-center-team-share__meta">
+                          {t("userCenter.teams.shareFrom", { name: fromName })} ·{" "}
+                          {formatTime(share.createdAt, locale)}
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={importing}
+                        onClick={() => void handleImportTeamShare(share)}
+                      >
+                        {importing
+                          ? t("userCenter.teams.shareImporting")
+                          : t("userCenter.teams.shareImport")}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
 
-        {renderCreateDialog()}
         {renderAddMemberDialog()}
         {renderEditMemberDialog()}
       </div>
@@ -572,9 +819,15 @@ export function UserCenterTeams() {
             <Button type="button" variant="secondary" size="sm" onClick={() => void loadTeams()} disabled={loading}>
               {t("userCenter.teams.refresh")}
             </Button>
-            <Button type="button" variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={creating}
+              onClick={() => void handleCreateTeam()}
+            >
               <IconPlus size={14} />
-              {t("userCenter.teams.create")}
+              {creating ? t("userCenter.teams.creating") : t("userCenter.teams.create")}
             </Button>
           </div>
         </div>
@@ -597,8 +850,14 @@ export function UserCenterTeams() {
             </div>
             <p className="user-center-teams-empty__title">{t("userCenter.teams.emptyTitle")}</p>
             <p className="user-center-teams-empty__desc">{t("userCenter.teams.emptyDesc")}</p>
-            <Button type="button" variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
-              {t("userCenter.teams.create")}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={creating}
+              onClick={() => void handleCreateTeam()}
+            >
+              {creating ? t("userCenter.teams.creating") : t("userCenter.teams.create")}
             </Button>
           </div>
         ) : (
@@ -629,8 +888,6 @@ export function UserCenterTeams() {
           </ul>
         )}
       </section>
-
-      {renderCreateDialog()}
     </div>
   );
 }

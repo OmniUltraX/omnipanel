@@ -1,7 +1,7 @@
-import { commands, type TeamCreated, type TeamMember, type TeamSummary } from "../../ipc/bindings";
+import { commands, type TeamCreated, type TeamMember, type TeamMemberCandidate, type TeamSummary } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 
-export type { TeamCreated, TeamMember, TeamSummary };
+export type { TeamCreated, TeamMember, TeamMemberCandidate, TeamSummary };
 
 export async function fetchTeams(
   token: string,
@@ -30,6 +30,14 @@ export async function fetchTeamMembers(
     quiet: options?.quiet,
     logLabel: "[teams]",
   });
+}
+
+export async function searchTeamMemberCandidates(
+  token: string,
+  teamId: number,
+  email: string,
+): Promise<TeamMemberCandidate[]> {
+  return unwrapCommand(commands.teamSearchMemberCandidates(token, teamId, email));
 }
 
 export async function addTeamMember(

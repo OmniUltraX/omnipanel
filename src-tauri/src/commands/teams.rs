@@ -40,6 +40,15 @@ pub struct TeamCreated {
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct TeamMemberCandidate {
+    pub union_id: String,
+    pub email: String,
+    pub nickname: String,
+    pub avatar_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamMember {
     #[specta(type = f64)]
     pub id: i64,
@@ -90,6 +99,20 @@ struct ApiTeamResponse {
 struct ApiTeamMemberListResponse {
     items: Option<Vec<ApiTeamMemberItem>>,
     error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiTeamMemberSearchResponse {
+    items: Option<Vec<ApiTeamMemberCandidateItem>>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiTeamMemberCandidateItem {
+    union_id: Option<String>,
+    email: Option<String>,
+    nickname: Option<String>,
+    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,6 +242,47 @@ fn map_team_member(item: ApiTeamMemberItem) -> TeamMember {
         created_at: item.created_at.unwrap_or_default(),
         updated_at: item.updated_at.unwrap_or_default(),
     }
+}
+
+fn map_team_member_candidate(item: ApiTeamMemberCandidateItem) -> Option<TeamMemberCandidate> {
+    let union_id = item.union_id.unwrap_or_default().trim().to_string();
+    if union_id.is_empty() {
+        return None;
+    }
+    Some(TeamMemberCandidate {
+        union_id,
+        email: item.email.unwrap_or_default(),
+        nickname: item.nickname.unwrap_or_default(),
+        avatar_url: item.avatar_url.unwrap_or_default(),
+    })
+}
+
+fn parse_team_member_search_response(body: &str) -> Result<Vec<TeamMemberCandidate>, OmniError> {
+    if let Ok(parsed) = serde_json::from_str::<ApiTeamMemberSearchResponse>(body) {
+        if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+            return Err(OmniError::new(ErrorCode::Internal, error));
+        }
+        return Ok(parsed
+            .items
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(map_team_member_candidate)
+            .collect());
+    }
+
+    if let Ok(items) = serde_json::from_str::<Vec<ApiTeamMemberCandidateItem>>(body) {
+        return Ok(items
+            .into_iter()
+            .filter_map(map_team_member_candidate)
+            .collect());
+    }
+
+    if let Ok(item) = serde_json::from_str::<ApiTeamMemberCandidateItem>(body) {
+        return Ok(map_team_member_candidate(item).into_iter().collect());
+    }
+
+    Err(OmniError::new(ErrorCode::Internal, "解析成员搜索结果失败")
+        .with_cause(format!("body={body}")))
 }
 
 async fn build_auth_client(
@@ -416,6 +480,52 @@ pub async fn team_list_members(
         .into_iter()
         .map(map_team_member)
         .collect())
+}
+
+/// 按邮箱搜索可添加的团队成员候选（GET /api/teams/{team_id}/members/search）。
+#[tauri::command]
+#[specta::specta]
+pub async fn team_search_member_candidates(
+    state: State<'_, AppState>,
+    token: String,
+    team_id: i64,
+    email: String,
+) -> Result<Vec<TeamMemberCandidate>, OmniError> {
+    let token = require_token(&token)?;
+    if team_id <= 0 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "团队 ID 无效"));
+    }
+    let email = email.trim().to_string();
+    if email.is_empty() || !email.contains('@') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
+    }
+
+    let encoded_email = urlencoding::encode(&email);
+    let url = auth_url(&format!(
+        "/api/teams/{team_id}/members/search?email={encoded_email}"
+    ));
+    let client = build_auth_client(&state, &url).await?;
+
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "搜索成员失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取成员搜索响应失败").with_cause(e.to_string())
+    })?;
+
+    if !status.is_success() {
+        return Err(parse_api_error(&body, status, "搜索成员失败"));
+    }
+
+    parse_team_member_search_response(&body)
 }
 
 /// 添加团队成员（POST /api/teams/{team_id}/members）。

@@ -202,7 +202,7 @@ fn collect_database_items() -> Result<Vec<ClientSyncDatabaseItem>, OmniError> {
     Ok(out)
 }
 
-fn collect_local_bundle(
+pub(crate) fn collect_local_bundle(
     storage: &omnipanel_store::Storage,
     request: &ClientSyncPushModulesRequest,
 ) -> Result<ClientSyncModulesBundle, OmniError> {

@@ -10,6 +10,7 @@ mod oss;
 mod push;
 mod sanitize;
 mod sts;
+mod team_sync;
 mod types;
 
 pub use chat::{
@@ -40,4 +41,10 @@ pub use sanitize::{
     sanitize_task_meta, sanitize_terminal_session_meta, strip_secret_keys,
 };
 pub use sts::{fetch_oss_sts, AuthContext, OssStsCredentials};
+pub use team_sync::{
+    fetch_team_oss_sts, load_team_share_index, notify_team_share_created, parse_team_share_index,
+    pull_team_sync_json, push_team_sync_json, save_team_share_index, team_share_item_key,
+    validate_team_share_bundle_json, TeamShareIndex, TeamShareIndexItem, TEAM_SHARE_INDEX_KEY,
+    TEAM_SYNC_SCHEMA_VERSION,
+};
 pub use types::*;

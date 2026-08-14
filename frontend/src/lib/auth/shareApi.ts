@@ -1,4 +1,6 @@
 import type { CustomPanelShareSnapshot } from "../../modules/workspace/smallComponents/customPanelShare";
+import type { TeamSharePushResult } from "../../ipc/bindings";
+import { pushTeamShare } from "./teamSyncApi";
 
 export type ShareTargetMember = {
   teamId: number;
@@ -12,7 +14,18 @@ export type ShareToMembersRequest = {
   snapshot: CustomPanelShareSnapshot;
 };
 
-/** 分享接口占位：待服务端 API 就绪后实现。 */
-export async function shareToTeamMembers(_request: ShareToMembersRequest): Promise<void> {
-  throw new Error("SHARE_API_NOT_READY");
+/** 将自定义面板快照写入各目标团队的 OSS，并通知成员。 */
+export async function shareToTeamMembers(
+  token: string,
+  request: ShareToMembersRequest,
+): Promise<TeamSharePushResult> {
+  return pushTeamShare({
+    token,
+    snapshotJson: JSON.stringify(request.snapshot),
+    targets: request.targets.map((target) => ({
+      teamId: target.teamId,
+      unionId: target.unionId,
+      displayName: target.displayName,
+    })),
+  });
 }

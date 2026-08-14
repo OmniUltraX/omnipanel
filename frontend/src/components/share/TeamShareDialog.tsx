@@ -148,16 +148,14 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
 
     setSharing(true);
     try {
-      await shareToTeamMembers({ targets, snapshot });
+      if (!token) {
+        showToast(t("share.sessionExpired"));
+        return;
+      }
+      await shareToTeamMembers(token, { targets, snapshot });
       showToast(t("share.sent", { count: targets.length, panel: payload.label }));
       onClose();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (message === "SHARE_API_NOT_READY") {
-        showToast(t("share.apiPending", { count: targets.length }));
-        onClose();
-        return;
-      }
       showToast(e instanceof Error ? e.message : t("share.failed"));
     } finally {
       setSharing(false);
