@@ -80,12 +80,6 @@ export const ASSISTANT_CHAT_SET_MODEL = "assistant-chat-set-model" as const;
 export const ASSISTANT_TERMINAL_OPEN_OR_FOCUS =
   "assistant-terminal-open-or-focus" as const;
 
-/** 局域网 OmniPanel 发现结果（payload: peers[]） */
-export const LAN_DISCOVERY_PEERS = "lan-discovery-peers" as const;
-
-/** 局域网自定义面板分享邀请（payload: fromId / fromIp / panelJson） */
-export const LAN_DISCOVERY_SHARE_OFFER = "lan-discovery-share-offer" as const;
-
 export type IpcEventName =
   | typeof TERMINAL_OUTPUT
   | typeof TERMINAL_EVENT
@@ -110,6 +104,4 @@ export type IpcEventName =
   | typeof UPDATE_DOWNLOAD_COMPLETE
   | typeof ASSISTANT_CHAT_INBOUND
   | typeof ASSISTANT_CHAT_SET_MODEL
-  | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS
-  | typeof LAN_DISCOVERY_PEERS
-  | typeof LAN_DISCOVERY_SHARE_OFFER;
+  | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS;

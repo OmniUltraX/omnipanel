@@ -18,9 +18,9 @@ import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
+import { TeamShareDialogConnected } from "./components/share/TeamShareDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
-import { LanDiscoveryScanDialogHost } from "./components/lanDiscovery/LanDiscoveryScanDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
 import { SkillEvolutionPrompt } from "./components/feedback/SkillEvolutionPrompt";
@@ -717,7 +717,7 @@ function AppShell() {
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
       <ApprovalDialog />
-      <LanDiscoveryScanDialogHost />
+      <TeamShareDialogConnected />
       </div>
     </AiRuntimeProvider>
   );

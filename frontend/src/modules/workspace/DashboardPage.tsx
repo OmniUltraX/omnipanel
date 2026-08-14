@@ -13,7 +13,7 @@ import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMe
 import { DASHBOARD_PATH } from "../../lib/paths";
 import { quickInput } from "../../lib/quickInput";
 import { useI18n } from "../../i18n";
-import { useLanDiscoveryUiStore } from "../../stores/lanDiscoveryUiStore";
+import { useShareUiStore } from "../../stores/shareUiStore";
 import { HomeBoardView } from "./HomeBoardView";
 import { HomeCustomPanelView } from "./HomeCustomPanelView";
 import {
@@ -44,7 +44,7 @@ export function DashboardPage() {
   const createCustomPanel = useDashboardStore((s) => s.createCustomPanel);
   const renameCustomPanel = useDashboardStore((s) => s.renameCustomPanel);
   const closeHomeTab = useDashboardStore((s) => s.closeHomeTab);
-  const openShareDialog = useLanDiscoveryUiStore((s) => s.openDialog);
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
 
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
@@ -182,7 +182,7 @@ export function DashboardPage() {
       { id: "tab-sep-share", separator: true, label: "" },
       {
         id: GLOBAL_SHARE_MENU_ID,
-        label: t("lanDiscovery.share"),
+        label: t("share.menu"),
         onClick: () =>
           openShareDialog({
             kind: "custom-panel",

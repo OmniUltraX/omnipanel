@@ -333,11 +333,6 @@ fn export_ipc_bindings() {
         commands::system::local_process_detail,
         commands::system::local_kill_process,
         commands::system::list_system_fonts,
-        commands::lan_discovery::lan_discovery_start_scan,
-        commands::lan_discovery::lan_discovery_stop_scan,
-        commands::lan_discovery::lan_discovery_list_peers,
-        commands::lan_discovery::lan_discovery_status,
-        commands::lan_discovery::lan_discovery_share_panel,
         commands::ssh::ssh_create_tunnel,
         commands::ssh::ssh_close_tunnel,
         commands::ssh::ssh_list_tunnels,
@@ -560,6 +555,13 @@ fn export_ipc_bindings() {
         commands::auth::auth_bindings_qrcode,
         commands::auth::auth_bindings_wait,
         commands::auth::auth_bindings_cancel_wait,
+        commands::teams::team_list,
+        commands::teams::team_create,
+        commands::teams::team_dissolve,
+        commands::teams::team_list_members,
+        commands::teams::team_add_member,
+        commands::teams::team_update_member,
+        commands::teams::team_remove_member,
         commands::assistant::assistant_push_snapshot,
         commands::assistant::assistant_upload_oss_text,
         commands::assistant_chat::assistant_chat_latest,
@@ -821,9 +823,6 @@ fn build_and_run_tauri() {
 
             // 启动 SSH 端口探测后台任务
             background::BackgroundScheduler::start(ssh_pool, pool_storage, app.handle().clone());
-
-            // 局域网客户端发现：常驻 responder（失败不阻塞启动）
-            commands::lan_discovery::start_responder(app.handle());
 
             Ok(())
         })
@@ -1224,11 +1223,6 @@ fn build_and_run_tauri() {
             commands::system::local_process_detail,
             commands::system::local_kill_process,
             commands::system::list_system_fonts,
-            commands::lan_discovery::lan_discovery_start_scan,
-            commands::lan_discovery::lan_discovery_stop_scan,
-            commands::lan_discovery::lan_discovery_list_peers,
-            commands::lan_discovery::lan_discovery_status,
-            commands::lan_discovery::lan_discovery_share_panel,
             // Updater
             commands::updater::check_update,
             commands::updater::install_update,
@@ -1449,6 +1443,13 @@ fn build_and_run_tauri() {
             commands::auth::auth_bindings_qrcode,
             commands::auth::auth_bindings_wait,
             commands::auth::auth_bindings_cancel_wait,
+            commands::teams::team_list,
+            commands::teams::team_create,
+            commands::teams::team_dissolve,
+            commands::teams::team_list_members,
+            commands::teams::team_add_member,
+            commands::teams::team_update_member,
+            commands::teams::team_remove_member,
             commands::assistant::assistant_push_snapshot,
             commands::assistant::assistant_upload_oss_text,
             commands::assistant_chat::assistant_chat_latest,

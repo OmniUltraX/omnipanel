@@ -332,13 +332,6 @@ interface DashboardState extends DashboardContainerState {
   openHomeTab: (tabId: HomeBuiltinPageId) => void;
   /** 新建自定义面板并激活 */
   createCustomPanel: (label: string) => HomeCustomPanelId;
-  /**
-   * 从局域网分享快照导入为新自定义面板（新 id / 新 widget id），并打开。
-   */
-  importCustomPanelFromShare: (snapshot: {
-    label: string;
-    widgets: HomeCustomPanelWidget[];
-  }) => HomeCustomPanelId | null;
   /** 重命名自定义面板 */
   renameCustomPanel: (tabId: HomeCustomPanelId, label: string) => void;
   /** 同步 react-grid-layout 拖拽移动后的布局 */
@@ -429,29 +422,6 @@ export const useDashboardStore = create<DashboardState>()(
               label: trimmed,
               createdAt: Date.now(),
               widgets: [],
-            },
-          },
-          openTabIds: [...state.openTabIds, id],
-          homeTabId: id,
-        }));
-        return id;
-      },
-      importCustomPanelFromShare: (snapshot) => {
-        const label = snapshot.label.trim();
-        if (!label) return null;
-        const id = makeCustomPanelId();
-        const widgets = sanitizeWidgets(snapshot.widgets).map((widget) => ({
-          ...widget,
-          id: makeWidgetInstanceId(),
-        }));
-        set((state) => ({
-          customPanels: {
-            ...state.customPanels,
-            [id]: {
-              id,
-              label,
-              createdAt: Date.now(),
-              widgets,
             },
           },
           openTabIds: [...state.openTabIds, id],
