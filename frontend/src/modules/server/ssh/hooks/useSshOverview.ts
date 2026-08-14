@@ -23,15 +23,25 @@ import {
 
 export type { OverviewPhase };
 
-/** SSH 概览轮询间隔（ms），与后端 PROCESSES_CACHE_TTL 对齐 */
-const SSH_POLL_MS = 30_000;
+/** 系统指标轮询间隔（ms） */
+const SSH_STATS_POLL_MS = 30_000;
+/** 进程列表轮询间隔（ms），与后端 PROCESSES_CACHE_TTL 对齐 */
+const SSH_PROCESS_POLL_MS = 60_000;
 
-export function useSshOverview(resourceId: string | null) {
+export function useSshOverview(
+  resourceId: string | null,
+  options?: { processPolling?: boolean },
+) {
+  const processPolling = options?.processPolling ?? false;
   const overview = useHostOverview(resourceId);
   const setOverview = useSshHostStore((s) => s.setOverview);
 
   const load = useCallback(
-    async (opts?: { silent?: boolean; processesOnly?: boolean }) => {
+    async (opts?: {
+      silent?: boolean;
+      processesOnly?: boolean;
+      statsOnly?: boolean;
+    }) => {
       if (!resourceId) return;
 
       if (opts?.processesOnly) {
@@ -60,6 +70,53 @@ export function useSshOverview(resourceId: string | null) {
         return;
       }
 
+      if (opts?.statsOnly) {
+        const snapshot = useSshHostStore.getState().getSnapshot(resourceId).overview;
+        const hasCache = snapshot.phase === "ready" && snapshot.stats != null;
+        if (opts.silent || hasCache) {
+          setOverview(resourceId, { refreshing: true });
+        }
+        try {
+          const statsResult = await commands.sshPoolFetchStats(resourceId);
+          if (statsResult.status === "ok") {
+            useSshStatsStore.getState().setStats([statsResult.data]);
+            if (statsResult.data.osInfo?.trim()) {
+              void persistResourceTag(
+                resourceId,
+                RESOURCE_TAG_KEYS.os,
+                statsResult.data.osInfo,
+              );
+            }
+            setOverview(resourceId, {
+              phase: "ready",
+              stats: statsResult.data,
+              error: null,
+              updatedAt: Date.now(),
+              refreshing: false,
+            });
+          } else if (!hasCache) {
+            setOverview(resourceId, {
+              error: statsResult.error?.message ?? "加载概览失败",
+              phase: "error",
+              refreshing: false,
+            });
+          } else {
+            setOverview(resourceId, { refreshing: false });
+          }
+        } catch (e) {
+          if (!hasCache) {
+            setOverview(resourceId, {
+              error: e instanceof Error ? e.message : String(e),
+              phase: "error",
+              refreshing: false,
+            });
+          } else {
+            setOverview(resourceId, { refreshing: false });
+          }
+        }
+        return;
+      }
+
       const snapshot = useSshHostStore.getState().getSnapshot(resourceId).overview;
       const hasCache = snapshot.phase === "ready" && snapshot.stats != null;
       if (!opts?.silent && !hasCache) {
@@ -69,32 +126,14 @@ export function useSshOverview(resourceId: string | null) {
       }
 
       try {
-        const processesPromise = commands.sshPoolLoadProcesses(resourceId);
         const statsPromise = commands.sshPoolFetchStats(resourceId);
-
-        const processResult = await processesPromise;
-        const processOk = processResult.status === "ok";
-        const processErrorMsg = processOk
-          ? null
-          : (processResult.error?.message ?? "加载进程列表失败");
-
-        if (processOk) {
-          setOverview(resourceId, {
-            phase: "ready",
-            processes: Array.isArray(processResult.data) ? processResult.data : [],
-            processError: null,
-            updatedAt: Date.now(),
-            refreshing: true,
-          });
-        } else {
-          setOverview(resourceId, {
-            processError: processErrorMsg,
-            refreshing: true,
-          });
-        }
+        const processesPromise = processPolling
+          ? commands.sshPoolLoadProcesses(resourceId)
+          : null;
 
         const statsResult = await statsPromise;
         const statsOk = statsResult.status === "ok";
+
         if (statsOk) {
           useSshStatsStore.getState().setStats([statsResult.data]);
           if (statsResult.data.osInfo?.trim()) {
@@ -108,14 +147,39 @@ export function useSshOverview(resourceId: string | null) {
             phase: "ready",
             stats: statsResult.data,
             error: null,
-            processError: processOk ? null : processErrorMsg,
             updatedAt: Date.now(),
-            refreshing: false,
+            refreshing: true,
           });
-        } else if (processOk) {
+        }
+
+        let processOk = true;
+        let processErrorMsg: string | null = null;
+        if (processesPromise) {
+          const processResult = await processesPromise;
+          if (processResult.status === "ok") {
+            processOk = true;
+            processErrorMsg = null;
+            setOverview(resourceId, {
+              processes: Array.isArray(processResult.data) ? processResult.data : [],
+              processError: null,
+              updatedAt: Date.now(),
+            });
+          } else {
+            processOk = false;
+            processErrorMsg = processResult.error?.message ?? "加载进程列表失败";
+            setOverview(resourceId, { processError: processErrorMsg });
+          }
+        }
+
+        if (statsOk) {
           setOverview(resourceId, {
             phase: "ready",
-            processError: null,
+            processError: processOk ? null : processErrorMsg,
+            refreshing: false,
+          });
+        } else if (processOk && processesPromise) {
+          setOverview(resourceId, {
+            phase: "ready",
             refreshing: false,
           });
         } else {
@@ -140,10 +204,23 @@ export function useSshOverview(resourceId: string | null) {
         });
       }
     },
-    [resourceId, setOverview],
+    [processPolling, resourceId, setOverview],
   );
 
-  // 初始加载：命中缓存直接复用，否则发起新请求
+  const statsPollLoad = useCallback(
+    (opts?: { silent?: boolean; processesOnly?: boolean; statsOnly?: boolean }) => {
+      if (opts?.processesOnly) {
+        return load(opts);
+      }
+      if (opts?.silent) {
+        return load({ silent: true, statsOnly: true });
+      }
+      return load(opts);
+    },
+    [load],
+  );
+
+  // 初始加载：有缓存则 silent；是否拉进程由 processPolling 决定
   useEffect(() => {
     if (!resourceId) return;
 
@@ -154,23 +231,38 @@ export function useSshOverview(resourceId: string | null) {
       setOverview(resourceId, { phase: "loading" });
     }
 
-    void load({ silent: cached.phase === "ready" });
-  }, [resourceId, load, setOverview]);
+    if (processPolling) {
+      void load({ silent: cached.phase === "ready" });
+    } else {
+      void load({ silent: cached.phase === "ready", statsOnly: true });
+    }
+  }, [processPolling, resourceId, load, setOverview]);
 
-  // 全局轮询调度器：相同 resourceId 的多个面板复用同一定时器
+  // 全局轮询：仅刷新 CPU/内存等指标，不触发远程 ps
   useEffect(() => {
     if (!resourceId) return;
-    acquireOverviewPoller(resourceId, load, SSH_POLL_MS);
+    acquireOverviewPoller(resourceId, statsPollLoad, SSH_STATS_POLL_MS);
     return () => {
       releaseOverviewPoller(resourceId);
     };
-  }, [resourceId, load]);
+  }, [resourceId, statsPollLoad]);
 
-  // load 依赖变化时同步更新调度器内的 loader 引用（避免闭包过期）
   useEffect(() => {
     if (!resourceId) return;
-    updateOverviewLoader(resourceId, load, SSH_POLL_MS);
-  }, [resourceId, load]);
+    updateOverviewLoader(resourceId, statsPollLoad, SSH_STATS_POLL_MS);
+  }, [resourceId, statsPollLoad]);
+
+  // 仅在需要展示进程列表时轮询 ps（间隔较长）
+  useEffect(() => {
+    if (!resourceId || !processPolling) return;
+    void load({ silent: true, processesOnly: true });
+    const timer = window.setInterval(() => {
+      void load({ silent: true, processesOnly: true });
+    }, SSH_PROCESS_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [load, processPolling, resourceId]);
 
   useEffect(() => {
     if (!resourceId) return;
@@ -205,7 +297,6 @@ export function useSshOverview(resourceId: string | null) {
   }, [load]);
 
   const refresh = useCallback(() => {
-    // 用户手动刷新：走调度器去重逻辑（非 silent，强制执行）
     if (!resourceId) return;
     const promise = runOverviewLoadDedup(resourceId);
     if (promise) void promise;

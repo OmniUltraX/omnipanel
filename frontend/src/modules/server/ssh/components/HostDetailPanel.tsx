@@ -36,7 +36,9 @@ export function HostDetailPanel({ hostId }: Props) {
   }, [hostId, sshResources]);
 
   const hostContext = useSshHostContext(activeResource?.id ?? null, activeResource);
-  const overview = useSshOverview(activeResource?.id ?? null);
+  const overview = useSshOverview(activeResource?.id ?? null, {
+    processPolling: detailTab === "overview",
+  });
   const actions = useSshHostActions(activeResource, hostContext, {
     onOpenTunnels: () => setDetailTab("tunnels"),
   });

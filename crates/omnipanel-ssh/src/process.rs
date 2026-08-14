@@ -58,7 +58,8 @@ pub struct SshProcessDetail {
     pub open_files: Vec<String>,
 }
 
-pub const PS_EO_CMD: &str = "COLUMNS=4096 ps -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null";
+/// 进程列表快速采集：用 `comm` 代替 `args`，避免在进程数多的主机上 `ps` CPU 飙高；完整命令行见 `process_detail`。
+pub const PS_EO_CMD: &str = "COLUMNS=4096 ps -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,comm --no-headers 2>/dev/null";
 pub const PS_AUX_CMD: &str =
     "COLUMNS=4096 ps aux --no-headers 2>/dev/null || COLUMNS=4096 ps aux | tail -n +2";
 /// 跨 Linux / macOS / BusyBox 的统一进程列表采集脚本（与系统指标脚本一致走 bash）。
@@ -77,7 +78,7 @@ if is_darwin; then
   COLUMNS=4096 "$PS" aux 2>/dev/null | awk "NR>1"
   exit 0
 fi
-out=$(COLUMNS=4096 "$PS" -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null)
+out=$(COLUMNS=4096 "$PS" -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,comm --no-headers 2>/dev/null)
 if [ -n "$out" ]; then
   echo "$out"
   exit 0
