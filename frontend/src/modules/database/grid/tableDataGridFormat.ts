@@ -63,12 +63,17 @@ export function formatCellDisplayText(
   return cellToText(value);
 }
 
+/** 数据表表头字段名统一按小写展示（Oracle 等引擎常返回大写标识符）。 */
+export function formatColumnHeaderName(name: string): string {
+  return name.toLowerCase();
+}
+
 export function buildColumnHeaderTooltip(
   meta: DbColumnMeta | undefined,
   columnName: string,
   t: (key: string) => string,
 ): string {
-  const lines: string[] = [columnName];
+  const lines: string[] = [formatColumnHeaderName(columnName)];
   if (meta?.type) {
     lines.push(meta.type);
   }
