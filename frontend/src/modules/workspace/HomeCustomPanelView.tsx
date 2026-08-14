@@ -11,7 +11,7 @@ import { Button } from "../../components/ui/primitives/Button";
 import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../stores/dbConnectionListStore";
-import { useLanDiscoveryUiStore } from "../../stores/lanDiscoveryUiStore";
+import { useShareUiStore } from "../../stores/shareUiStore";
 import {
   BtJavaProjectTargetSelect,
   DatabaseSchemaTargetSelect,
@@ -110,7 +110,7 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const openShareDialog = useLanDiscoveryUiStore((s) => s.openDialog);
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const panelLabel =
     useDashboardStore((s) => s.customPanels[panelId]?.label) ??
     t("homeWorkspace.customPanel.defaultTitle");
@@ -135,7 +135,7 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
       { id: "custom-panel-sep-share", separator: true, label: "" },
       {
         id: GLOBAL_SHARE_MENU_ID,
-        label: t("lanDiscovery.share"),
+        label: t("share.menu"),
         onClick: () =>
           openShareDialog({
             kind: "custom-panel",

@@ -674,16 +674,6 @@ export const commands = {
 	localKillProcess: (pid: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_kill_process", { pid })),
 	/**  枚举本机已安装字体族名（可选仅等宽字体）。 */
 	listSystemFonts: (monospaceOnly: boolean | null) => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("list_system_fonts", { monospaceOnly })),
-	/**  开始局域网 OmniPanel 扫描（弹窗打开时调用）。 */
-	lanDiscoveryStartScan: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_start_scan")),
-	/**  停止局域网扫描。 */
-	lanDiscoveryStopScan: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_stop_scan")),
-	/**  当前已发现 peers 快照。 */
-	lanDiscoveryListPeers: () => typedError<LanDiscoveryPeer[], OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_list_peers")),
-	/**  responder / 扫描状态。 */
-	lanDiscoveryStatus: () => typedError<LanDiscoveryStatus, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_status")),
-	/**  向对端分享自定义面板 JSON。 */
-	lanDiscoverySharePanel: (peerIp: string, panelJson: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("lan_discovery_share_panel", { peerIp, panelJson })),
 	/**
 	 *  创建 SSH 隧道（端口转发）。
 	 *  通过 SSH exec 运行 `ssh -L/-R/-D` 命令实现，隧道进程在后台运行。
@@ -1141,6 +1131,20 @@ export const commands = {
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
 	/**  取消进行中的绑定等待（刷新二维码 / 关闭弹窗时调用）。 */
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
+	/**  当前用户加入的团队列表（GET /api/teams）。 */
+	teamList: (token: string) => typedError<TeamSummary[], OmniError_Serialize>(__TAURI_INVOKE("team_list", { token })),
+	/**  创建团队（POST /api/teams）。 */
+	teamCreate: (token: string, name: string) => typedError<TeamCreated, OmniError_Serialize>(__TAURI_INVOKE("team_create", { token, name })),
+	/**  解散团队（DELETE /api/teams/{team_id}）。 */
+	teamDissolve: (token: string, teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_dissolve", { token, teamId })),
+	/**  团队成员列表（GET /api/teams/{team_id}/members）。 */
+	teamListMembers: (token: string, teamId: number) => typedError<TeamMember[], OmniError_Serialize>(__TAURI_INVOKE("team_list_members", { token, teamId })),
+	/**  添加团队成员（POST /api/teams/{team_id}/members）。 */
+	teamAddMember: (token: string, teamId: number, unionId: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_add_member", { token, teamId, unionId, roleCode, userTeamName })),
+	/**  更新团队成员（PATCH /api/teams/{team_id}/members/{union_id}）。 */
+	teamUpdateMember: (token: string, teamId: number, unionId: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, unionId, roleCode, userTeamName })),
+	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{union_id}）。 */
+	teamRemoveMember: (token: string, teamId: number, unionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, unionId })),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
@@ -5316,34 +5320,37 @@ export type ToolState =
 /**  隧道类型。 */
 export type TunnelType = "local" | "remote" | "dynamic";
 
-/** 局域网发现到的 OmniPanel 客户端。 */
-export type LanDiscoveryPeer = {
-	id: string,
+/** 当前用户加入的团队摘要。 */
+export type TeamSummary = {
+	id: number,
 	name: string,
-	ip: string,
-	version: string,
-	os: string,
-	lastSeen: number,
+	creator: string,
+	roleCode: string,
+	userTeamName: string,
+	teamOssKey: string,
+	createdAt: string,
+	updatedAt: string,
 };
 
-/** 局域网发现服务状态。 */
-export type LanDiscoveryStatus = {
-	responderOk: boolean,
-	listenPort: number | null,
-	error: string | null,
-	scanning: boolean,
+/** 新创建的团队。 */
+export type TeamCreated = {
+	id: number,
+	name: string,
+	creator: string,
+	teamOssKey: string,
+	createdAt: string,
+	updatedAt: string,
 };
 
-/** 局域网发现 peers 事件 payload。 */
-export type LanDiscoveryPeersEvent = {
-	peers: LanDiscoveryPeer[],
-};
-
-/** 收到自定义面板分享邀请。 */
-export type LanDiscoveryShareOfferEvent = {
-	fromId: string,
-	fromIp: string,
-	panelJson: string,
+/** 团队成员。 */
+export type TeamMember = {
+	id: number,
+	teamId: number,
+	unionId: string,
+	roleCode: string,
+	userTeamName: string,
+	createdAt: string,
+	updatedAt: string,
 };
 
 export type UpdateInfo = {

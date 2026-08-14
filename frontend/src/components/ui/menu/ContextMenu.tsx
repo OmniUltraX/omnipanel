@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { clampMenuPosition, computeSubmenuPosition, type Point } from "../../../lib/contextMenuPosition";
 import { useI18n } from "../../../i18n";
-import { useLanDiscoveryUiStore } from "../../../stores/lanDiscoveryUiStore";
+import { useShareUiStore } from "../../../stores/shareUiStore";
 import { withGlobalShareMenuItem } from "./withGlobalShareMenuItem";
 
 export interface ContextMenuItem {
@@ -284,12 +284,12 @@ export function ContextMenu({ items, position, onClose, className }: ContextMenu
   const [coords, setCoords] = useState(position);
   const [ready, setReady] = useState(false);
   const { t } = useI18n();
-  const openShareDialog = useLanDiscoveryUiStore((s) => s.openDialog);
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const menuItems = useMemo(
     () =>
       withGlobalShareMenuItem(items, {
-        label: t("lanDiscovery.share"),
-        onClick: openShareDialog,
+        label: t("share.menu"),
+        onClick: () => openShareDialog(),
       }),
     [items, openShareDialog, t],
   );
