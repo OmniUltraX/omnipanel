@@ -25933,6 +25933,57 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     color: var(--fg);
 }
 
+.user-center-teams-detail__tabs {
+    display: flex;
+    gap: var(--sp-2);
+    margin: var(--sp-4) 0 var(--sp-3);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-center-teams-detail__tab {
+    appearance: none;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: -1px;
+    padding: var(--sp-2) var(--sp-3);
+}
+
+.user-center-teams-detail__tab:hover {
+    color: var(--fg);
+}
+
+.user-center-teams-detail__tab.is-active {
+    border-bottom-color: var(--accent);
+    color: var(--fg);
+}
+
+.user-center-team-data {
+    margin-bottom: var(--sp-5);
+}
+
+.user-center-team-data__meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin: 0 0 var(--sp-3);
+}
+
+.user-center-team-data__synced {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    margin-left: var(--sp-2);
+    padding: 3px 8px;
+    white-space: nowrap;
+}
+
 .user-center-team-member-list {
     list-style: none;
     margin: 0;

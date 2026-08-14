@@ -1,7 +1,7 @@
-import { commands, type TeamCreated, type TeamMember, type TeamMemberCandidate, type TeamSummary } from "../../ipc/bindings";
+import { commands, type TeamCreated, type TeamMember, type TeamSummary } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 
-export type { TeamCreated, TeamMember, TeamMemberCandidate, TeamSummary };
+export type { TeamCreated, TeamMember, TeamSummary };
 
 export async function fetchTeams(
   token: string,
@@ -32,19 +32,11 @@ export async function fetchTeamMembers(
   });
 }
 
-export async function searchTeamMemberCandidates(
-  token: string,
-  teamId: number,
-  email: string,
-): Promise<TeamMemberCandidate[]> {
-  return unwrapCommand(commands.teamSearchMemberCandidates(token, teamId, email));
-}
-
 export async function addTeamMember(
   token: string,
   teamId: number,
   input: {
-    unionId: string;
+    email: string;
     roleCode?: string | null;
     userTeamName?: string | null;
   },
@@ -53,7 +45,7 @@ export async function addTeamMember(
     commands.teamAddMember(
       token,
       teamId,
-      input.unionId,
+      input.email,
       input.roleCode ?? null,
       input.userTeamName ?? null,
     ),
@@ -63,7 +55,7 @@ export async function addTeamMember(
 export async function updateTeamMember(
   token: string,
   teamId: number,
-  unionId: string,
+  email: string,
   input: {
     roleCode?: string | null;
     userTeamName?: string | null;
@@ -73,7 +65,7 @@ export async function updateTeamMember(
     commands.teamUpdateMember(
       token,
       teamId,
-      unionId,
+      email,
       input.roleCode ?? null,
       input.userTeamName ?? null,
     ),
@@ -83,9 +75,9 @@ export async function updateTeamMember(
 export async function removeTeamMember(
   token: string,
   teamId: number,
-  unionId: string,
+  email: string,
 ): Promise<void> {
-  await unwrapCommand(commands.teamRemoveMember(token, teamId, unionId));
+  await unwrapCommand(commands.teamRemoveMember(token, teamId, email));
 }
 
 export function formatTeamError(error: unknown): string {

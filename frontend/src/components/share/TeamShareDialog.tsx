@@ -20,14 +20,8 @@ type ShareMemberRow = {
   displayName: string;
 };
 
-function maskUnionId(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= 8) return trimmed;
-  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
-}
-
-function memberKey(teamId: number, unionId: string): string {
-  return `${teamId}:${unionId}`;
+function memberKey(teamId: number, email: string): string {
+  return `${teamId}:${email.toLowerCase()}`;
 }
 
 export interface TeamShareDialogProps {
@@ -39,7 +33,7 @@ export interface TeamShareDialogProps {
 export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps) {
   const { t } = useI18n();
   const token = useAuthStore((s) => s.token);
-  const myUnionId = useUserProfileStore((s) => s.openid);
+  const myEmail = useUserProfileStore((s) => s.email);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,15 +57,17 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
         teams.map(async (team) => {
           const teamMembers = await fetchTeamMembers(token, team.id, { quiet: true });
           for (const member of teamMembers) {
-            if (myUnionId && member.unionId === myUnionId) continue;
+            const email = member.email.trim();
+            if (!email) continue;
+            if (myEmail && email.toLowerCase() === myEmail.trim().toLowerCase()) continue;
             rows.push({
-              key: memberKey(team.id, member.unionId),
+              key: memberKey(team.id, email),
               teamId: team.id,
               teamName: team.name,
-              unionId: member.unionId,
+              unionId: email,
               displayName:
                 member.userTeamName.trim() ||
-                maskUnionId(member.unionId) ||
+                email ||
                 t("share.unnamedMember"),
             });
           }
@@ -93,7 +89,7 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
     } finally {
       setLoading(false);
     }
-  }, [myUnionId, open, t, token]);
+  }, [myEmail, open, t, token]);
 
   useEffect(() => {
     if (!open) {
@@ -241,7 +237,7 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
                       <span className="team-share-dialog__item-body">
                         <span className="team-share-dialog__item-name">{row.displayName}</span>
                         <span className="team-share-dialog__item-meta">
-                          {row.teamName} · {maskUnionId(row.unionId)}
+                          {row.teamName} · {row.displayName}
                         </span>
                       </span>
                     </label>

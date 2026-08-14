@@ -4,6 +4,7 @@ import {
   type TeamSharePushResult,
   type TeamShareSummary,
   type TeamSyncFetchShareResult,
+  type TeamSyncPeekResult,
   type TeamSyncPullModulesResult,
   type TeamSyncPushModulesResult,
 } from "../../ipc/bindings";
@@ -15,6 +16,7 @@ export type {
   TeamSharePushResult,
   TeamShareSummary,
   TeamSyncFetchShareResult,
+  TeamSyncPeekResult,
   TeamSyncPullModulesResult,
   TeamSyncPushModulesResult,
 };
@@ -82,6 +84,20 @@ export async function pullTeamModules(
   teamId: number,
 ): Promise<TeamSyncPullModulesResult> {
   return unwrapCommand(commands.teamSyncPullModules(token, teamId));
+}
+
+export async function peekTeamModules(
+  token: string,
+  teamId: number,
+): Promise<TeamSyncPeekResult> {
+  return unwrapCommand(
+    commands.teamSyncPeekModules({
+      token,
+      teamId,
+      workspacesJson: collectWorkspacesJson(),
+    }),
+    { quiet: true, logLabel: "[team-sync:peek]" },
+  );
 }
 
 export async function pushTeamShare(

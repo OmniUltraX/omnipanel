@@ -295,7 +295,7 @@ pub struct ClientSyncPeekItem {
     pub kind: String,
 }
 
-fn peek_item(
+pub(crate) fn peek_item(
     id: impl Into<String>,
     label: impl Into<String>,
     detail: impl Into<String>,
@@ -317,7 +317,98 @@ fn connection_group_folder_id(group: &str) -> String {
     format!("__group__:{group}")
 }
 
-fn build_connection_peek_items(
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ModulesBundlePeek {
+    pub connections: Vec<ClientSyncPeekItem>,
+    pub databases: Vec<ClientSyncPeekItem>,
+    pub knowledge: Vec<ClientSyncPeekItem>,
+    pub http_collections: Vec<ClientSyncPeekItem>,
+    pub http_requests: Vec<ClientSyncPeekItem>,
+    pub workspaces: Vec<ClientSyncPeekItem>,
+}
+
+pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> ModulesBundlePeek {
+    ModulesBundlePeek {
+        connections: build_connection_peek_items(&bundle.connections),
+        databases: bundle
+            .database_connections
+            .iter()
+            .map(|item| {
+                peek_item(
+                    item.connection.id.clone(),
+                    item.connection.name.clone(),
+                    item.connection.db_type.clone(),
+                    0.0,
+                    "",
+                    "item",
+                )
+            })
+            .collect(),
+        knowledge: bundle
+            .knowledge
+            .iter()
+            .map(|k| {
+                let kind = if k.node_type.trim().eq_ignore_ascii_case("folder") {
+                    "folder"
+                } else {
+                    "item"
+                };
+                peek_item(
+                    k.id.clone(),
+                    k.title.clone(),
+                    k.node_type.clone(),
+                    k.updated_at as f64,
+                    k.parent_id.trim().to_string(),
+                    kind,
+                )
+            })
+            .collect(),
+        http_collections: bundle
+            .http_collections
+            .iter()
+            .map(|c| {
+                peek_item(
+                    c.id.clone(),
+                    c.name.clone(),
+                    c.description.clone(),
+                    c.updated_at as f64,
+                    "",
+                    "folder",
+                )
+            })
+            .collect(),
+        http_requests: bundle
+            .http_requests
+            .iter()
+            .map(|r| {
+                peek_item(
+                    r.id.clone(),
+                    r.name.clone(),
+                    format!("{} {}", r.method, r.url),
+                    r.updated_at as f64,
+                    r.collection_id.clone().unwrap_or_default(),
+                    "item",
+                )
+            })
+            .collect(),
+        workspaces: bundle
+            .workspaces
+            .iter()
+            .map(|w| {
+                peek_item(
+                    w.id.clone(),
+                    w.name.clone(),
+                    w.description.clone(),
+                    w.updated_at,
+                    "",
+                    "item",
+                )
+            })
+            .collect(),
+    }
+}
+
+pub(crate) fn build_connection_peek_items(
     connections: &[ClientSyncConnectionItem],
 ) -> Vec<ClientSyncPeekItem> {
     let mut groups: Vec<String> = connections
@@ -550,82 +641,13 @@ pub async fn client_sync_peek_device(
             if let Ok(bundle) = serde_json::from_slice::<ClientSyncModulesBundle>(&bytes) {
                 result.modules_found = true;
                 result.modules_updated_at = bundle.updated_at;
-                result.connections = build_connection_peek_items(&bundle.connections);
-                result.databases = bundle
-                    .database_connections
-                    .iter()
-                    .map(|item| {
-                        peek_item(
-                            item.connection.id.clone(),
-                            item.connection.name.clone(),
-                            item.connection.db_type.clone(),
-                            0.0,
-                            "",
-                            "item",
-                        )
-                    })
-                    .collect();
-                result.knowledge = bundle
-                    .knowledge
-                    .iter()
-                    .map(|k| {
-                        let kind = if k.node_type.trim().eq_ignore_ascii_case("folder") {
-                            "folder"
-                        } else {
-                            "item"
-                        };
-                        peek_item(
-                            k.id.clone(),
-                            k.title.clone(),
-                            k.node_type.clone(),
-                            k.updated_at as f64,
-                            k.parent_id.trim().to_string(),
-                            kind,
-                        )
-                    })
-                    .collect();
-                result.http_collections = bundle
-                    .http_collections
-                    .iter()
-                    .map(|c| {
-                        peek_item(
-                            c.id.clone(),
-                            c.name.clone(),
-                            c.description.clone(),
-                            c.updated_at as f64,
-                            "",
-                            "folder",
-                        )
-                    })
-                    .collect();
-                result.http_requests = bundle
-                    .http_requests
-                    .iter()
-                    .map(|r| {
-                        peek_item(
-                            r.id.clone(),
-                            r.name.clone(),
-                            format!("{} {}", r.method, r.url),
-                            r.updated_at as f64,
-                            r.collection_id.clone().unwrap_or_default(),
-                            "item",
-                        )
-                    })
-                    .collect();
-                result.workspaces = bundle
-                    .workspaces
-                    .iter()
-                    .map(|w| {
-                        peek_item(
-                            w.id.clone(),
-                            w.name.clone(),
-                            w.description.clone(),
-                            w.updated_at,
-                            "",
-                            "item",
-                        )
-                    })
-                    .collect();
+                let peek = build_peek_from_bundle(&bundle);
+                result.connections = peek.connections;
+                result.databases = peek.databases;
+                result.knowledge = peek.knowledge;
+                result.http_collections = peek.http_collections;
+                result.http_requests = peek.http_requests;
+                result.workspaces = peek.workspaces;
             }
         }
     }

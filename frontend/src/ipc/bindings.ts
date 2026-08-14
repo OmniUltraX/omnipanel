@@ -1139,14 +1139,12 @@ export const commands = {
 	teamDissolve: (token: string, teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_dissolve", { token, teamId })),
 	/**  团队成员列表（GET /api/teams/{team_id}/members）。 */
 	teamListMembers: (token: string, teamId: number) => typedError<TeamMember[], OmniError_Serialize>(__TAURI_INVOKE("team_list_members", { token, teamId })),
-	/**  按邮箱搜索可添加的团队成员候选（GET /api/teams/{team_id}/members/search）。 */
-	teamSearchMemberCandidates: (token: string, teamId: number, email: string) => typedError<TeamMemberCandidate[], OmniError_Serialize>(__TAURI_INVOKE("team_search_member_candidates", { token, teamId, email })),
-	/**  添加团队成员（POST /api/teams/{team_id}/members）。 */
-	teamAddMember: (token: string, teamId: number, unionId: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_add_member", { token, teamId, unionId, roleCode, userTeamName })),
-	/**  更新团队成员（PATCH /api/teams/{team_id}/members/{union_id}）。 */
-	teamUpdateMember: (token: string, teamId: number, unionId: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, unionId, roleCode, userTeamName })),
-	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{union_id}）。 */
-	teamRemoveMember: (token: string, teamId: number, unionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, unionId })),
+	/**  添加团队成员（POST /api/teams/{team_id}/members，按邮箱匹配已注册用户）。 */
+	teamAddMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_add_member", { token, teamId, email, roleCode, userTeamName })),
+	/**  更新团队成员（PATCH /api/teams/{team_id}/members/{email}）。 */
+	teamUpdateMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, email, roleCode, userTeamName })),
+	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）。 */
+	teamRemoveMember: (token: string, teamId: number, email: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, email })),
 	/**  将自定义面板分享给团队成员（写入团队 OSS）。 */
 	teamSharePush: (request: TeamSharePushRequest) => typedError<TeamSharePushResult, OmniError_Serialize>(__TAURI_INVOKE("team_share_push", { request })),
 	/**  列出团队 OSS 中的自定义面板分享。 */
@@ -1157,6 +1155,8 @@ export const commands = {
 	teamSyncPushModules: (request: TeamSyncPushModulesRequest) => typedError<TeamSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_push_modules", { request })),
 	/**  从团队 OSS 拉取模块快照。 */
 	teamSyncPullModules: (token: string, teamId: number) => typedError<TeamSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_pull_modules", { token, teamId })),
+	/**  预览本机模块与团队 OSS 快照对比。 */
+	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
@@ -5358,19 +5358,11 @@ export type TeamCreated = {
 export type TeamMember = {
 	id: number,
 	teamId: number,
-	unionId: string,
+	email: string,
 	roleCode: string,
 	userTeamName: string,
 	createdAt: string,
 	updatedAt: string,
-};
-
-/** 按邮箱搜索到的可添加成员候选。 */
-export type TeamMemberCandidate = {
-	unionId: string,
-	email: string,
-	nickname: string,
-	avatarUrl: string,
 };
 
 export type TeamShareTarget = {
@@ -5429,6 +5421,34 @@ export type TeamSyncPullModulesResult = {
 	objectKey: string,
 	bodyJson: string,
 	bytes: number,
+};
+
+export type TeamSyncPeekModulesRequest = {
+	token: string,
+	teamId: number,
+	workspacesJson?: string | null,
+};
+
+export type TeamSyncPeekItem = {
+	id: string,
+	label: string,
+	detail: string,
+	updatedAt: number,
+	parentId: string,
+	kind: string,
+	synced: boolean,
+};
+
+export type TeamSyncPeekModule = {
+	key: string,
+	items: TeamSyncPeekItem[],
+};
+
+export type TeamSyncPeekResult = {
+	remoteFound: boolean,
+	localUpdatedAt: number,
+	remoteUpdatedAt: number,
+	modules: TeamSyncPeekModule[],
 };
 
 export type UpdateInfo = {
