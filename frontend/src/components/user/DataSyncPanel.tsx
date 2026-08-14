@@ -197,12 +197,12 @@ function PeekTreeTable({
   };
 
   if (normalizedItems.length === 0) {
-    return <p className="data-sync-empty">{emptyText}</p>;
+    return <p className="user-center-devices__group-empty">{emptyText}</p>;
   }
 
   return (
-    <div className="data-sync-table-wrap data-sync-table-wrap--tab">
-      <table className="data-sync-table">
+    <div className="data-sync-table-wrap user-center-team-data__table-wrap">
+      <table className="data-sync-table user-center-team-data__table">
         <thead>
           <tr>
             <th className="data-sync-table__check">
@@ -260,7 +260,7 @@ function PeekTreeTable({
                 <td className="data-sync-table__name">
                   <div
                     className="data-sync-tree-cell"
-                    style={{ paddingLeft: depth * 16 }}
+                    style={{ paddingLeft: depth * 14 }}
                   >
                     {hasChildren ? (
                       <button
@@ -269,13 +269,13 @@ function PeekTreeTable({
                         aria-expanded={!isCollapsed}
                         onClick={() => toggleCollapsed(item.id)}
                       >
-                        <IconChevronDown size={12} />
+                        <IconChevronDown size={11} />
                       </button>
                     ) : (
                       <span className="data-sync-tree-toggle-spacer" />
                     )}
                     {folder ? (
-                      <IconFolder size={13} className="data-sync-tree-folder-icon" />
+                      <IconFolder size={12} className="data-sync-tree-folder-icon" />
                     ) : null}
                     <span title={item.label}>{item.label}</span>
                   </div>
@@ -480,22 +480,31 @@ export function DataSyncPanel() {
   );
 
   return (
-    <div className="data-sync-panel">
-      <aside className="data-sync-sidebar">
-        <div className="data-sync-sidebar__header">
-          <h3 className="data-sync-sidebar__title">{t("dataSync.devicesTitle")}</h3>
-          <Button type="button" variant="ghost" size="sm" onClick={() => void loadDevices()}>
+    <div className="user-center-content user-center-data-sync">
+      <div className="user-center-devices__header">
+        <div>
+          <h3 className="user-center-section__title">{t("dataSync.title")}</h3>
+          <p className="user-center-section__desc">{t("dataSync.devicesDesc")}</p>
+        </div>
+        <div className="user-center-devices__header-actions">
+          <Button type="button" variant="secondary" size="sm" onClick={() => void loadDevices()}>
             {t("dataSync.refresh")}
           </Button>
         </div>
-        <p className="data-sync-sidebar__desc">{t("dataSync.devicesDesc")}</p>
+      </div>
+
+      <div className="data-sync-panel">
+        <aside className="data-sync-sidebar">
+        <div className="data-sync-sidebar__header">
+          <h4 className="user-center-teams-detail__subtitle">{t("dataSync.devicesTitle")}</h4>
+        </div>
 
         {loadingDevices ? (
-          <p className="data-sync-empty">{t("dataSync.loadingDevices")}</p>
+          <p className="user-center-devices__hint">{t("dataSync.loadingDevices")}</p>
         ) : deviceError ? (
-          <p className="data-sync-error">{deviceError}</p>
+          <p className="user-center-devices__error">{deviceError}</p>
         ) : remoteClients.length === 0 ? (
-          <p className="data-sync-empty">{t("dataSync.noDevices")}</p>
+          <p className="user-center-devices__group-empty">{t("dataSync.noDevices")}</p>
         ) : (
           <ul className="data-sync-device-list">
             {remoteClients.map((device) => {
@@ -528,35 +537,44 @@ export function DataSyncPanel() {
             })}
           </ul>
         )}
-      </aside>
+        </aside>
 
-      <section className="data-sync-main">
+        <section className="data-sync-main">
         {!selectedDeviceId ? (
           <div className="data-sync-main__placeholder">
-            <p>{t("dataSync.selectDeviceHint")}</p>
+            <p className="user-center-devices__hint">{t("dataSync.selectDeviceHint")}</p>
           </div>
         ) : peekLoading ? (
           <div className="data-sync-main__placeholder">
-            <p>{t("dataSync.loadingPeek")}</p>
+            <p className="user-center-devices__hint">{t("dataSync.loadingPeek")}</p>
           </div>
         ) : peekError ? (
           <div className="data-sync-main__placeholder">
-            <p className="data-sync-error">{peekError}</p>
+            <p className="user-center-devices__error">{peekError}</p>
           </div>
         ) : !peek || (!peek.modulesFound && !peek.conversationsFound) ? (
           <div className="data-sync-main__placeholder">
-            <p>{t("dataSync.noSnapshot")}</p>
+            <p className="user-center-devices__hint">{t("dataSync.noSnapshot")}</p>
           </div>
         ) : (
           <>
-            <div className="data-sync-tabs" role="tablist">
+            <p className="user-center-team-data__meta">
+              {t("dataSync.snapshotMeta", {
+                time: formatUpdatedAt(
+                  Math.max(peek.modulesUpdatedAt ?? 0, peek.conversationsUpdatedAt ?? 0),
+                  locale,
+                ),
+              })}
+            </p>
+
+            <div className="user-center-teams-detail__tabs" role="tablist">
               {tabs.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   role="tab"
                   aria-selected={tab === item.id}
-                  className={`data-sync-tab${tab === item.id ? " is-active" : ""}`}
+                  className={`user-center-teams-detail__tab${tab === item.id ? " is-active" : ""}`}
                   onClick={() => setTab(item.id)}
                 >
                   {item.label}
@@ -565,7 +583,7 @@ export function DataSyncPanel() {
               ))}
             </div>
 
-            <div className="data-sync-tab-panel" role="tabpanel">
+            <div className="data-sync-tab-panel user-center-team-data" role="tabpanel">
               {tab === "connections" ? (
                 <PeekTreeTable
                   items={peek.connections}
@@ -632,23 +650,26 @@ export function DataSyncPanel() {
               ) : null}
             </div>
 
-            <div className="data-sync-footer">
-              <span className="data-sync-footer__hint">
+            <div className="data-sync-footer user-center-devices__header">
+              <span className="user-center-section__desc data-sync-footer__hint">
                 {t("dataSync.footerHint", { n: selectedCount })}
               </span>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                disabled={selectedCount === 0 || importing}
-                onClick={() => void handleImport()}
-              >
-                {importing ? t("dataSync.importing") : t("dataSync.import")}
-              </Button>
+              <div className="user-center-devices__header-actions">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={selectedCount === 0 || importing}
+                  onClick={() => void handleImport()}
+                >
+                  {importing ? t("dataSync.importing") : t("dataSync.import")}
+                </Button>
+              </div>
             </div>
           </>
         )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

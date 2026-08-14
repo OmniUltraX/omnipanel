@@ -5441,6 +5441,8 @@ export type TeamSyncPeekModulesRequest = {
 	excludedWorkspaces?: string[],
 };
 
+export type TeamSyncPeekSyncStatus = "synced" | "local" | "remote";
+
 export type TeamSyncPeekItem = {
 	id: string,
 	label: string,
@@ -5448,7 +5450,7 @@ export type TeamSyncPeekItem = {
 	updatedAt: number,
 	parentId: string,
 	kind: string,
-	synced: boolean,
+	syncStatus?: TeamSyncPeekSyncStatus | null,
 	excluded: boolean,
 };
 

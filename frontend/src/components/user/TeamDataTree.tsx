@@ -24,6 +24,12 @@ function isVirtualNode(item: TeamSyncPeekItem): boolean {
   return item.id.startsWith("__module__:") || item.id.startsWith("__group__:");
 }
 
+function isSyncManageable(item: PeekItem): boolean {
+  if (item.syncStatus === "remote") return false;
+  if (item.id.startsWith("__module__:") || item.id.startsWith("__group__:")) return false;
+  return true;
+}
+
 function normalizeParentId(parentId: string | null | undefined): string {
   return parentId?.trim() ?? "";
 }
@@ -49,13 +55,24 @@ function buildTree(items: PeekItem[]): TreeNode[] {
       return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
     });
 
+  const ids = new Set(items.map((i) => i.id));
+
   const build = (parentId: string): TreeNode[] =>
     sortItems(byParent.get(parentId) ?? []).map((item) => ({
       item,
       children: isFolder(item) ? build(item.id) : [],
     }));
 
-  const ids = new Set(items.map((i) => i.id));
+  const moduleRoots = sortItems(byParent.get("") ?? []).filter((item) =>
+    item.id.startsWith("__module__:"),
+  );
+  if (moduleRoots.length > 0) {
+    return moduleRoots.map((item) => ({
+      item,
+      children: build(item.id),
+    }));
+  }
+
   const roots = build("");
   const orphanParents = [...byParent.keys()].filter((p) => p && !ids.has(p));
   for (const parent of orphanParents) {
@@ -81,7 +98,7 @@ function flattenVisible(
 
 function collectSyncTargets(node: TreeNode): PeekItem[] {
   const targets: PeekItem[] = [];
-  if (!isVirtualNode(node.item)) {
+  if (isSyncManageable(node.item)) {
     targets.push(node.item);
   }
   for (const child of node.children) {
@@ -110,6 +127,31 @@ function formatUpdatedAt(value: number, locale: string): string {
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString(locale);
+}
+
+function resolveSyncStatusBadge(
+  item: TeamSyncPeekItem,
+  t: (key: string) => string,
+): { className: string; label: string } | null {
+  switch (item.syncStatus) {
+    case "synced":
+      return {
+        className: "user-center-team-data__sync-status user-center-team-data__sync-status--synced",
+        label: t("userCenter.teams.syncedBadge"),
+      };
+    case "local":
+      return {
+        className: "user-center-team-data__sync-status user-center-team-data__sync-status--local",
+        label: t("userCenter.teams.localOnlyBadge"),
+      };
+    case "remote":
+      return {
+        className: "user-center-team-data__sync-status user-center-team-data__sync-status--remote",
+        label: t("userCenter.teams.remoteOnlyBadge"),
+      };
+    default:
+      return null;
+  }
 }
 
 function resolveLabel(item: TeamSyncPeekItem, t: (key: string) => string): string {
@@ -220,6 +262,7 @@ export function TeamDataTree({
               const isCollapsed = collapsed.has(item.id);
               const label = resolveLabel(item, t);
               const syncState = nodeSyncState(node);
+              const syncStatusBadge = resolveSyncStatusBadge(item, t);
               const showExcludedBadge =
                 item.excluded || (isVirtualNode(item) && syncState.allExcluded && syncState.hasTargets);
 
@@ -241,8 +284,8 @@ export function TeamDataTree({
                       )}
                       {folder ? <IconFolder size={12} className="data-sync-tree-folder-icon" /> : null}
                       <span>{label}</span>
-                      {item.synced ? (
-                        <span className="user-center-team-data__synced">{t("userCenter.teams.syncedBadge")}</span>
+                      {syncStatusBadge ? (
+                        <span className={syncStatusBadge.className}>{syncStatusBadge.label}</span>
                       ) : null}
                       {showExcludedBadge ? (
                         <span className="user-center-team-data__excluded">

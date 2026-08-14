@@ -143,6 +143,14 @@ pub struct TeamSyncPeekModulesRequest {
     pub excluded_workspaces: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TeamSyncPeekSyncStatus {
+    Synced,
+    Local,
+    Remote,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSyncPeekItem {
@@ -155,7 +163,8 @@ pub struct TeamSyncPeekItem {
     pub parent_id: String,
     #[serde(default)]
     pub kind: String,
-    pub synced: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_status: Option<TeamSyncPeekSyncStatus>,
     pub excluded: bool,
 }
 
@@ -340,66 +349,364 @@ fn apply_team_sync_exclusions(
     bundle
 }
 
-fn connection_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
-    bundle
-        .connections
-        .iter()
-        .map(|c| c.connection.id.clone())
-        .collect()
-}
-
-fn database_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
-    bundle
-        .database_connections
-        .iter()
-        .map(|c| c.connection.id.clone())
-        .collect()
-}
-
-fn knowledge_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
-    bundle.knowledge.iter().map(|k| k.id.clone()).collect()
-}
-
-fn http_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
-    let mut ids: HashSet<String> = bundle.http_collections.iter().map(|c| c.id.clone()).collect();
-    for req in &bundle.http_requests {
-        ids.insert(req.id.clone());
+fn is_peek_sync_leaf(module_key: &str, item: &ClientSyncPeekItem) -> bool {
+    if item.id.starts_with("__module__:") || item.id.starts_with("__group__:") {
+        return false;
     }
-    ids
+    match module_key {
+        "knowledge" | "http" => true,
+        _ => item.kind != "folder",
+    }
 }
 
-fn workspace_ids(bundle: &ClientSyncModulesBundle) -> HashSet<String> {
-    bundle.workspaces.iter().map(|w| w.id.clone()).collect()
+fn is_peek_structure_node(item: &TeamSyncPeekItem) -> bool {
+    item.kind == "folder" || item.id.starts_with("__group__:")
 }
 
-fn mark_peek_items(
+fn align_peek_parent_id(
     module_key: &str,
-    items: Vec<ClientSyncPeekItem>,
-    remote_ids: &HashSet<String>,
+    local: &ClientSyncPeekItem,
+    remote: Option<&ClientSyncPeekItem>,
+) -> String {
+    let local_parent = local.parent_id.trim();
+    let remote_parent = remote.map(|item| item.parent_id.trim()).unwrap_or("");
+    match module_key {
+        "connections" => {
+            if local_parent.starts_with("__group__:") {
+                return local.parent_id.clone();
+            }
+            if remote_parent.starts_with("__group__:") {
+                return remote
+                    .map(|item| item.parent_id.clone())
+                    .unwrap_or_default();
+            }
+            local.parent_id.clone()
+        }
+        "knowledge" | "http" => {
+            if !local_parent.is_empty() {
+                return local.parent_id.clone();
+            }
+            if !remote_parent.is_empty() {
+                return remote
+                    .map(|item| item.parent_id.clone())
+                    .unwrap_or_default();
+            }
+            local.parent_id.clone()
+        }
+        _ => local.parent_id.clone(),
+    }
+}
+
+fn align_peek_item(
+    module_key: &str,
+    local: &ClientSyncPeekItem,
+    remote: Option<&ClientSyncPeekItem>,
+) -> ClientSyncPeekItem {
+    let parent_id = align_peek_parent_id(module_key, local, remote);
+    let (label, detail, updated_at) = match remote {
+        Some(remote_item) if remote_item.updated_at > local.updated_at => (
+            remote_item.label.clone(),
+            remote_item.detail.clone(),
+            remote_item.updated_at,
+        ),
+        _ => (
+            local.label.clone(),
+            local.detail.clone(),
+            local.updated_at,
+        ),
+    };
+    ClientSyncPeekItem {
+        id: local.id.clone(),
+        label,
+        detail,
+        updated_at,
+        parent_id,
+        kind: local.kind.clone(),
+    }
+}
+
+fn compute_sync_status(
+    in_local: bool,
+    in_remote: bool,
+    excluded: bool,
+) -> Option<TeamSyncPeekSyncStatus> {
+    if excluded {
+        return Some(TeamSyncPeekSyncStatus::Local);
+    }
+    match (in_local, in_remote) {
+        (true, true) => Some(TeamSyncPeekSyncStatus::Synced),
+        (true, false) => Some(TeamSyncPeekSyncStatus::Local),
+        (false, true) => Some(TeamSyncPeekSyncStatus::Remote),
+        (false, false) => None,
+    }
+}
+
+fn to_team_peek_item(
+    item: &ClientSyncPeekItem,
+    module_key: &str,
+    in_local: bool,
+    in_remote: bool,
+    ex: &TeamSyncExclusionSets,
+    knowledge_excluded: &HashSet<String>,
+) -> TeamSyncPeekItem {
+    let excluded = is_peek_item_excluded(module_key, item, ex, knowledge_excluded);
+    let sync_status = if is_peek_sync_leaf(module_key, item) {
+        compute_sync_status(in_local, in_remote, excluded)
+    } else {
+        None
+    };
+    TeamSyncPeekItem {
+        id: item.id.clone(),
+        label: item.label.clone(),
+        detail: item.detail.clone(),
+        updated_at: item.updated_at,
+        parent_id: item.parent_id.clone(),
+        kind: item.kind.clone(),
+        sync_status,
+        excluded,
+    }
+}
+
+fn ensure_structure_nodes(
+    module_key: &str,
+    items: &mut Vec<TeamSyncPeekItem>,
+    local_by_id: &HashMap<String, ClientSyncPeekItem>,
+    remote_by_id: &HashMap<String, ClientSyncPeekItem>,
+    ex: &TeamSyncExclusionSets,
+    knowledge_excluded: &HashSet<String>,
+) {
+    loop {
+        let ids: HashSet<String> = items.iter().map(|item| item.id.clone()).collect();
+        let mut added = false;
+        let parent_ids: Vec<String> = items
+            .iter()
+            .map(|item| item.parent_id.trim().to_string())
+            .filter(|parent| !parent.is_empty() && !ids.contains(parent))
+            .collect();
+        for parent_id in parent_ids {
+            if ids.contains(&parent_id) {
+                continue;
+            }
+            if let Some(src) = local_by_id
+                .get(&parent_id)
+                .or_else(|| remote_by_id.get(&parent_id))
+            {
+                let in_local = local_by_id.contains_key(&parent_id);
+                let in_remote = remote_by_id.contains_key(&parent_id);
+                items.push(to_team_peek_item(
+                    src,
+                    module_key,
+                    in_local,
+                    in_remote,
+                    ex,
+                    knowledge_excluded,
+                ));
+                added = true;
+                continue;
+            }
+            if parent_id.starts_with("__group__:") {
+                let label = parent_id
+                    .strip_prefix("__group__:")
+                    .unwrap_or("")
+                    .to_string();
+                items.push(TeamSyncPeekItem {
+                    id: parent_id.clone(),
+                    label,
+                    detail: "group".to_string(),
+                    updated_at: 0.0,
+                    parent_id: String::new(),
+                    kind: "folder".to_string(),
+                    sync_status: None,
+                    excluded: false,
+                });
+                added = true;
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+}
+
+fn item_depth(items: &[TeamSyncPeekItem], id: &str) -> usize {
+    let by_id: HashMap<String, &TeamSyncPeekItem> =
+        items.iter().map(|item| (item.id.clone(), item)).collect();
+    let mut depth = 0usize;
+    let mut current = id.to_string();
+    let mut visited = HashSet::new();
+    while let Some(item) = by_id.get(&current) {
+        if !visited.insert(current.clone()) {
+            break;
+        }
+        let parent = item.parent_id.trim();
+        if parent.is_empty() || parent.starts_with("__module__:") {
+            break;
+        }
+        depth += 1;
+        current = parent.to_string();
+    }
+    depth
+}
+
+fn aggregate_sync_status(statuses: &[TeamSyncPeekSyncStatus]) -> Option<TeamSyncPeekSyncStatus> {
+    if statuses.is_empty() {
+        return None;
+    }
+    if statuses
+        .iter()
+        .all(|status| *status == TeamSyncPeekSyncStatus::Synced)
+    {
+        return Some(TeamSyncPeekSyncStatus::Synced);
+    }
+    if statuses
+        .iter()
+        .all(|status| *status == TeamSyncPeekSyncStatus::Local)
+    {
+        return Some(TeamSyncPeekSyncStatus::Local);
+    }
+    if statuses
+        .iter()
+        .all(|status| *status == TeamSyncPeekSyncStatus::Remote)
+    {
+        return Some(TeamSyncPeekSyncStatus::Remote);
+    }
+    None
+}
+
+fn collect_sync_statuses_under(
+    id: &str,
+    children_by_parent: &HashMap<String, Vec<String>>,
+    items_by_id: &HashMap<String, &TeamSyncPeekItem>,
+) -> Vec<TeamSyncPeekSyncStatus> {
+    let mut out = Vec::new();
+    let Some(children) = children_by_parent.get(id) else {
+        return out;
+    };
+    for child_id in children {
+        let Some(child) = items_by_id.get(child_id.as_str()) else {
+            continue;
+        };
+        if child.id.starts_with("__group__:") {
+            out.extend(collect_sync_statuses_under(
+                child_id,
+                children_by_parent,
+                items_by_id,
+            ));
+            continue;
+        }
+        if let Some(status) = child.sync_status {
+            out.push(status);
+            continue;
+        }
+        if is_peek_structure_node(child) {
+            out.extend(collect_sync_statuses_under(
+                child_id,
+                children_by_parent,
+                items_by_id,
+            ));
+        }
+    }
+    out
+}
+
+fn apply_structure_sync_status(items: &mut [TeamSyncPeekItem]) {
+    let items_by_id: HashMap<String, &TeamSyncPeekItem> =
+        items.iter().map(|item| (item.id.clone(), item)).collect();
+    let mut children_by_parent: HashMap<String, Vec<String>> = HashMap::new();
+    for item in items.iter() {
+        let parent = item.parent_id.trim();
+        if parent.is_empty() {
+            continue;
+        }
+        children_by_parent
+            .entry(parent.to_string())
+            .or_default()
+            .push(item.id.clone());
+    }
+
+    let mut structure_ids: Vec<String> = items
+        .iter()
+        .filter(|item| item.id.starts_with("__group__:"))
+        .map(|item| item.id.clone())
+        .collect();
+    structure_ids.sort_by_key(|id| std::cmp::Reverse(item_depth(items, id)));
+
+    let mut aggregated: HashMap<String, TeamSyncPeekSyncStatus> = HashMap::new();
+    for id in structure_ids {
+        if id.starts_with("__module__:") {
+            continue;
+        }
+        let statuses = collect_sync_statuses_under(&id, &children_by_parent, &items_by_id);
+        if let Some(status) = aggregate_sync_status(&statuses) {
+            aggregated.insert(id, status);
+        }
+    }
+
+    for item in items.iter_mut() {
+        if let Some(status) = aggregated.get(&item.id) {
+            item.sync_status = Some(*status);
+        }
+    }
+}
+
+fn merge_peek_items(
+    module_key: &str,
+    local_items: Vec<ClientSyncPeekItem>,
+    remote_items: Vec<ClientSyncPeekItem>,
     ex: &TeamSyncExclusionSets,
     knowledge_excluded: &HashSet<String>,
 ) -> Vec<TeamSyncPeekItem> {
-    items
-        .into_iter()
+    let local_by_id: HashMap<String, ClientSyncPeekItem> = local_items
+        .iter()
+        .cloned()
+        .map(|item| (item.id.clone(), item))
+        .collect();
+    let remote_by_id: HashMap<String, ClientSyncPeekItem> = remote_items
+        .iter()
+        .cloned()
+        .map(|item| (item.id.clone(), item))
+        .collect();
+
+    let mut out: Vec<TeamSyncPeekItem> = local_items
+        .iter()
         .map(|item| {
-            let excluded = is_peek_item_excluded(module_key, &item, ex, knowledge_excluded);
-            let synced = !excluded
-                && !item.id.starts_with("__group__:")
-                && !item.id.starts_with("__module__:")
-                && item.kind != "folder"
-                && remote_ids.contains(&item.id);
-            TeamSyncPeekItem {
-                id: item.id,
-                label: item.label,
-                detail: item.detail,
-                updated_at: item.updated_at,
-                parent_id: item.parent_id,
-                kind: item.kind,
-                synced,
-                excluded,
-            }
+            let remote_item = remote_by_id.get(&item.id);
+            let aligned = align_peek_item(module_key, item, remote_item);
+            to_team_peek_item(
+                &aligned,
+                module_key,
+                true,
+                remote_item.is_some(),
+                ex,
+                knowledge_excluded,
+            )
         })
-        .collect()
+        .collect();
+
+    for item in &remote_items {
+        if local_by_id.contains_key(&item.id) {
+            continue;
+        }
+        out.push(to_team_peek_item(
+            item,
+            module_key,
+            false,
+            true,
+            ex,
+            knowledge_excluded,
+        ));
+    }
+
+    ensure_structure_nodes(
+        module_key,
+        &mut out,
+        &local_by_id,
+        &remote_by_id,
+        ex,
+        knowledge_excluded,
+    );
+    apply_structure_sync_status(&mut out);
+    out
 }
 
 fn is_peek_item_excluded(
@@ -447,7 +754,7 @@ fn nest_items_under_module(
         updated_at: 0.0,
         parent_id: String::new(),
         kind: "folder".to_string(),
-        synced: false,
+        sync_status: None,
         excluded: false,
     });
     for mut item in items {
@@ -470,17 +777,37 @@ fn build_team_peek_modules(
     ex: &TeamSyncExclusionSets,
 ) -> TeamSyncPeekResult {
     let local_peek = build_peek_from_bundle(local);
+    let remote_peek = remote.map(build_peek_from_bundle);
     let remote_found = remote.is_some();
     let remote_updated_at = remote.map(|b| b.updated_at).unwrap_or(0.0);
     let knowledge_excluded = knowledge_excluded_ids(local, &ex.knowledge);
 
-    let remote_conn = remote.map(connection_ids).unwrap_or_default();
-    let remote_db = remote.map(database_ids).unwrap_or_default();
-    let remote_kn = remote.map(knowledge_ids).unwrap_or_default();
-    let remote_http = remote.map(http_ids).unwrap_or_default();
-    let remote_ws = remote.map(workspace_ids).unwrap_or_default();
+    let remote_connections = remote_peek
+        .as_ref()
+        .map(|peek| peek.connections.clone())
+        .unwrap_or_default();
+    let remote_databases = remote_peek
+        .as_ref()
+        .map(|peek| peek.databases.clone())
+        .unwrap_or_default();
+    let remote_knowledge = remote_peek
+        .as_ref()
+        .map(|peek| peek.knowledge.clone())
+        .unwrap_or_default();
+    let remote_workspaces = remote_peek
+        .as_ref()
+        .map(|peek| peek.workspaces.clone())
+        .unwrap_or_default();
+    let remote_http: Vec<ClientSyncPeekItem> = remote_peek
+        .map(|peek| {
+            peek.http_collections
+                .into_iter()
+                .chain(peek.http_requests)
+                .collect()
+        })
+        .unwrap_or_default();
 
-    let http_items: Vec<ClientSyncPeekItem> = local_peek
+    let local_http: Vec<ClientSyncPeekItem> = local_peek
         .http_collections
         .into_iter()
         .chain(local_peek.http_requests)
@@ -491,10 +818,10 @@ fn build_team_peek_modules(
             key: "connections".to_string(),
             items: nest_items_under_module(
                 "connections",
-                mark_peek_items(
+                merge_peek_items(
                     "connections",
                     local_peek.connections,
-                    &remote_conn,
+                    remote_connections,
                     ex,
                     &knowledge_excluded,
                 ),
@@ -504,10 +831,10 @@ fn build_team_peek_modules(
             key: "databases".to_string(),
             items: nest_items_under_module(
                 "databases",
-                mark_peek_items(
+                merge_peek_items(
                     "databases",
                     local_peek.databases,
-                    &remote_db,
+                    remote_databases,
                     ex,
                     &knowledge_excluded,
                 ),
@@ -517,10 +844,10 @@ fn build_team_peek_modules(
             key: "knowledge".to_string(),
             items: nest_items_under_module(
                 "knowledge",
-                mark_peek_items(
+                merge_peek_items(
                     "knowledge",
                     local_peek.knowledge,
-                    &remote_kn,
+                    remote_knowledge,
                     ex,
                     &knowledge_excluded,
                 ),
@@ -530,17 +857,23 @@ fn build_team_peek_modules(
             key: "http".to_string(),
             items: nest_items_under_module(
                 "http",
-                mark_peek_items("http", http_items, &remote_http, ex, &knowledge_excluded),
+                merge_peek_items(
+                    "http",
+                    local_http,
+                    remote_http,
+                    ex,
+                    &knowledge_excluded,
+                ),
             ),
         },
         TeamSyncPeekModule {
             key: "workspaces".to_string(),
             items: nest_items_under_module(
                 "workspaces",
-                mark_peek_items(
+                merge_peek_items(
                     "workspaces",
                     local_peek.workspaces,
-                    &remote_ws,
+                    remote_workspaces,
                     ex,
                     &knowledge_excluded,
                 ),

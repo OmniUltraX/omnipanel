@@ -313,7 +313,7 @@ pub(crate) fn peek_item(
     }
 }
 
-fn connection_group_folder_id(group: &str) -> String {
+pub(crate) fn connection_group_folder_id(group: &str) -> String {
     format!("__group__:{group}")
 }
 

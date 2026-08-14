@@ -25630,6 +25630,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 }
 
 .user-center-main > .user-center-content,
+.user-center-main > .user-center-data-sync,
 .user-center-main > .data-sync-panel {
     flex: 1;
     min-height: 0;
@@ -25998,16 +25999,29 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     margin: 0 0 var(--sp-3);
 }
 
-.user-center-team-data__synced {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+.user-center-team-data__sync-status {
     border-radius: 999px;
-    color: var(--accent);
     font-size: 10px;
     font-weight: 600;
     line-height: 1;
     margin-left: var(--sp-2);
     padding: 2px 6px;
     white-space: nowrap;
+}
+
+.user-center-team-data__sync-status--synced {
+    background: var(--success-soft);
+    color: var(--success);
+}
+
+.user-center-team-data__sync-status--local {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.user-center-team-data__sync-status--remote {
+    background: var(--accent-soft);
+    color: var(--accent);
 }
 
 .user-center-team-data__excluded {
@@ -26070,6 +26084,96 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 
 .user-center-team-data__action-btn--danger:hover {
     color: var(--danger, #e5484d);
+}
+
+.user-center-data-sync {
+    gap: var(--sp-4);
+    overflow: hidden;
+}
+
+.user-center-data-sync > .user-center-devices__header .user-center-section__desc {
+    margin-bottom: 0;
+}
+
+.user-center-data-sync .data-sync-panel {
+    flex: 1;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--bg);
+}
+
+.user-center-data-sync .data-sync-sidebar {
+    width: 220px;
+    background: color-mix(in srgb, var(--bg) 96%, var(--fg) 4%);
+}
+
+.user-center-data-sync .data-sync-sidebar__header {
+    margin-bottom: var(--sp-2);
+}
+
+.user-center-data-sync .data-sync-device-item {
+    border-radius: var(--radius-md);
+    background: var(--bg);
+}
+
+.user-center-data-sync .data-sync-device-item.is-active {
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+
+.user-center-data-sync .data-sync-main {
+    padding: var(--sp-3) var(--sp-4);
+    background: var(--bg);
+}
+
+.user-center-data-sync .data-sync-main__placeholder {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.user-center-data-sync .user-center-teams-detail__tabs {
+    margin: 0 0 var(--sp-3);
+}
+
+.user-center-data-sync .data-sync-tab-panel.user-center-team-data {
+    margin-bottom: 0;
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.user-center-data-sync .data-sync-tab-panel .user-center-team-data__table-wrap {
+    flex: 1;
+    min-height: 0;
+}
+
+.user-center-data-sync .user-center-team-data__table .data-sync-table__check {
+    width: 32px;
+    text-align: center;
+    padding-inline: 4px;
+}
+
+.user-center-data-sync .user-center-team-data__table .data-sync-table__check input {
+    margin: 0;
+}
+
+.user-center-data-sync .data-sync-footer {
+    margin-top: var(--sp-3);
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.user-center-data-sync .data-sync-footer .user-center-section__desc {
+    margin: 0;
+}
+
+.user-center-data-sync .data-sync-tab__count {
+    margin-left: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
 }
 
 .user-center-team-member-list {
