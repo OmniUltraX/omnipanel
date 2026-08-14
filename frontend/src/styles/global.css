@@ -5408,6 +5408,15 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container {
     min-width: 0;
     overflow: hidden;
+    flex-shrink: 0;
+    display: flex !important;
+    visibility: visible !important;
+}
+
+.dockable-workspace.dock-window-control .dv-groupview > .dv-tabs-and-actions-container:not(.dv-groupview-header-vertical) {
+    position: sticky;
+    top: 0;
+    z-index: 4;
 }
 
 .dockable-workspace.dock-window-control .dv-pre-actions-container,
@@ -8024,6 +8033,8 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .omni-select-options {
+        flex: 1;
+        min-height: 0;
         overflow-y: auto;
         padding: 4px;
         display: flex;

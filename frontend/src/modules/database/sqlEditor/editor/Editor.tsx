@@ -29,6 +29,7 @@ import {
 } from "../../sql/sqlSearchHighlight";
 import { formatSql, formatSqlRange } from "../language/formatter";
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
+import { restoreDockWindowChromeAfterLayout } from "../../../../lib/restoreDockWindowChromeAfterLayout";
 import { createSqlEditorExtensions } from "./extensions";
 import { getShortcutKeys, matchesShortcut } from "../../../../stores/shortcutsStore";
 import { useSettingsStore } from "../../../../stores/settingsStore";
@@ -381,6 +382,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
         }),
       ),
     });
+    restoreDockWindowChromeAfterLayout("database");
   }, [sqlEditorFontFamily, sqlEditorFontSize, sqlEditorLineHeight]);
 
   // run-current-sql：Ctrl+Enter / Ctrl+Shift+R（执行光标所在语句）

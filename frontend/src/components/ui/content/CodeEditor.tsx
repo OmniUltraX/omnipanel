@@ -19,6 +19,7 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { restoreDockWindowChromeAfterLayout } from "../../../lib/restoreDockWindowChromeAfterLayout";
 import { createEditorSearchExtensions } from "./editorSearch";
 
 /** 程序化同步文档（受控 value），不应触发 onChange / dirty */
@@ -244,6 +245,7 @@ export function CodeEditor({
         }),
       ),
     });
+    restoreDockWindowChromeAfterLayout("database");
   }, [sqlEditorFontFamily, sqlEditorFontSize, sqlEditorLineHeight]);
 
   return (
