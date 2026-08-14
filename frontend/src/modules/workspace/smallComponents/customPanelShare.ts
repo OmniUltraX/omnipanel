@@ -26,3 +26,36 @@ export function buildCustomPanelShareSnapshot(
     widgets: panel.widgets.map((w) => ({ ...w })),
   };
 }
+
+function newWidgetInstanceId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `w-${crypto.randomUUID()}`;
+  }
+  return `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** 从团队分享快照导入为本机新的自定义面板。 */
+export function importCustomPanelShareSnapshot(
+  snapshot: CustomPanelShareSnapshot,
+): HomeCustomPanelId | null {
+  if (snapshot.kind !== "custom-panel") return null;
+  const panelId = useDashboardStore.getState().createCustomPanel(snapshot.label);
+  useDashboardStore.setState((state) => {
+    const panel = state.customPanels[panelId];
+    if (!panel) return state;
+    return {
+      customPanels: {
+        ...state.customPanels,
+        [panelId]: {
+          ...panel,
+          widgets: snapshot.widgets.map((widget) => ({
+            ...widget,
+            id: newWidgetInstanceId(),
+            layout: { ...widget.layout },
+          })),
+        },
+      },
+    };
+  });
+  return panelId;
+}

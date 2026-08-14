@@ -76,7 +76,7 @@ impl OssStsCredentials {
         host.starts_with(&prefix)
     }
 
-    fn validate(&self) -> OmniResult<()> {
+    pub(crate) fn validate(&self) -> OmniResult<()> {
         if self.access_key_id.trim().is_empty() || self.access_key_secret.trim().is_empty() {
             return Err(map_assistant_error(
                 AssistantErrorKind::Sts,

@@ -3,6 +3,7 @@ pub mod agent_prompt;
 pub mod ai_chat;
 pub mod auth;
 pub mod teams;
+pub mod team_sync;
 pub mod assistant;
 pub mod assistant_chat;
 pub mod assistant_remote_cmd;
