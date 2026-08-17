@@ -205,10 +205,18 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
     }, [cellKey, previewContent, isMediaPreview]);
 
     useEffect(() => {
-      if (cellKeyRef.current === cellKey) return;
-      cellKeyRef.current = cellKey;
-      baselineTextRef.current = normalized;
-      setEditText(normalized);
+      const cellChanged = cellKeyRef.current !== cellKey;
+      if (cellChanged) {
+        cellKeyRef.current = cellKey;
+        baselineTextRef.current = normalized;
+        setEditText(normalized);
+        return;
+      }
+      // 同单元格外部刷新（表数据 reload）：无本地未提交编辑时同步新值，避免右侧值面板卡在旧快照
+      if (editTextRef.current === baselineTextRef.current && editTextRef.current !== normalized) {
+        baselineTextRef.current = normalized;
+        setEditText(normalized);
+      }
     }, [cellKey, normalized]);
 
     const applyValue = useCallback(
@@ -305,7 +313,7 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
               codeLanguage={codeLanguage ?? (previewContent.kind === "json" ? "json" : "text")}
               showTextModeToolbar={false}
               className="db-cell-editor-blob-preview-view"
-              contentResetKey={cellKey ?? "cell"}
+              contentResetKey={`${cellKey ?? "cell"}:${normalized}`}
               editable={!readOnly && !isMediaPreview}
               onTextChange={readOnly ? undefined : handleChange}
             />

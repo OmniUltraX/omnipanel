@@ -108,6 +108,55 @@ describe("applyTablePreviewDataProgressive", () => {
     );
   });
 
+  it("phase1 clears rows on same-column refresh in canvas mode", async () => {
+    const tabId = "tab-same-columns-refresh";
+    let previews: Record<string, ReturnType<typeof createDefaultTablePreviewState>> = {
+      [tabId]: {
+        ...createDefaultTablePreviewState(),
+        data: {
+          name: "users",
+          columns: ["id", "name"],
+          rows: [{ id: 1, name: "old" }],
+        },
+        totalRows: 1,
+      },
+    };
+
+    const setTablePreviews = (
+      updater:
+        | typeof previews
+        | ((prev: typeof previews) => typeof previews),
+    ) => {
+      previews =
+        typeof updater === "function" ? updater(previews) : updater;
+    };
+
+    const generation = bumpTablePreviewApplyGeneration(tabId, { resetCache: true });
+    const applyPromise = applyTablePreviewDataProgressive({
+      tabId,
+      data: {
+        name: "users",
+        columns: ["id", "name"],
+        rows: [{ id: 1, name: "new" }],
+      },
+      totalRows: 1,
+      page: 0,
+      pageSize: 50,
+      setTablePreviews,
+      generation,
+      canvasMode: true,
+      chunkSize: 50,
+    });
+
+    // 让出微任务后检查 Phase 1：同列刷新也不得暂留旧行
+    await Promise.resolve();
+    expect(previews[tabId]?.data?.rows).toEqual([]);
+    expect(previews[tabId]?.loading).toBe(false);
+
+    await applyPromise;
+    expect(getTablePreviewRowCache(tabId)?.rows).toEqual([{ id: 1, name: "new" }]);
+  });
+
   it("beginTablePreviewFetch resets display data", () => {
     const tabId = "tab-begin";
     let previews: Record<string, ReturnType<typeof createDefaultTablePreviewState>> = {

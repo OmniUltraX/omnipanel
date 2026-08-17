@@ -213,6 +213,24 @@ export function clampSqlEditorFontSize(value: number): SqlEditorFontSize {
   return DEFAULT_SQL_EDITOR_FONT_SIZE;
 }
 
+/** 表数据网格字号选项（与 SQL 编辑器一致，默认更紧凑 12） */
+export const DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS = SQL_EDITOR_FONT_SIZE_OPTIONS;
+export type DatabaseTableGridFontSize = (typeof DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS)[number];
+export const DEFAULT_DATABASE_TABLE_GRID_FONT_SIZE: DatabaseTableGridFontSize = 12;
+
+export function clampDatabaseTableGridFontSize(value: number): DatabaseTableGridFontSize {
+  const n = Math.round(value);
+  if ((DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS as readonly number[]).includes(n)) {
+    return n as DatabaseTableGridFontSize;
+  }
+  return DEFAULT_DATABASE_TABLE_GRID_FONT_SIZE;
+}
+
+function applyDocumentDatabaseTableGridFontSize(size: number) {
+  const px = clampDatabaseTableGridFontSize(size);
+  document.documentElement.style.setProperty("--omni-db-table-grid-font-size", `${px}px`);
+}
+
 export function clampSqlEditorLineHeight(value: number): SqlEditorLineHeight {
   const stepped = Math.round(value * 10) / 10;
   if ((SQL_EDITOR_LINE_HEIGHT_OPTIONS as readonly number[]).includes(stepped)) {
@@ -334,6 +352,8 @@ interface SettingsState {
   databaseTableDetailPosition: DatabaseTableDetailPosition;
   /** 连接树是否允许表/视图节点展开显示字段、索引等详情 */
   databaseSchemaTreeShowTableChildren: boolean;
+  /** 表数据面板网格文字字号（px） */
+  databaseTableGridFontSize: DatabaseTableGridFontSize;
   sqlEditorFontFamily: string;
   sqlEditorFontSize: SqlEditorFontSize;
   sqlEditorLineHeight: SqlEditorLineHeight;
@@ -391,6 +411,7 @@ interface SettingsState {
     | "databaseQueryPageSize"
     | "databaseTableDetailPosition"
     | "databaseSchemaTreeShowTableChildren"
+    | "databaseTableGridFontSize"
     | "sqlEditorFontFamily"
     | "sqlEditorFontSize"
     | "sqlEditorLineHeight"
@@ -501,6 +522,7 @@ export const useSettingsStore = create<SettingsState>()(
       databaseQueryPageSize: DEFAULT_DATABASE_QUERY_PAGE_SIZE,
       databaseTableDetailPosition: "right",
       databaseSchemaTreeShowTableChildren: false,
+      databaseTableGridFontSize: DEFAULT_DATABASE_TABLE_GRID_FONT_SIZE,
       sqlEditorFontFamily: DEFAULT_SQL_EDITOR_FONT_FAMILY,
       sqlEditorFontSize: DEFAULT_SQL_EDITOR_FONT_SIZE,
       sqlEditorLineHeight: DEFAULT_SQL_EDITOR_LINE_HEIGHT,
@@ -576,6 +598,10 @@ export const useSettingsStore = create<SettingsState>()(
           patch.sqlEditorFontFamily !== undefined ||
           patch.sqlEditorFontSize !== undefined ||
           patch.sqlEditorLineHeight !== undefined;
+        const nextTableGridFontSize =
+          patch.databaseTableGridFontSize !== undefined
+            ? clampDatabaseTableGridFontSize(patch.databaseTableGridFontSize)
+            : undefined;
         set((state) => ({
           databaseQueryPageSize:
             patch.databaseQueryPageSize !== undefined
@@ -589,6 +615,10 @@ export const useSettingsStore = create<SettingsState>()(
             patch.databaseSchemaTreeShowTableChildren !== undefined
               ? Boolean(patch.databaseSchemaTreeShowTableChildren)
               : state.databaseSchemaTreeShowTableChildren,
+          databaseTableGridFontSize:
+            nextTableGridFontSize !== undefined
+              ? nextTableGridFontSize
+              : state.databaseTableGridFontSize,
           sqlEditorFontFamily:
             patch.sqlEditorFontFamily !== undefined
               ? patch.sqlEditorFontFamily.trim() || DEFAULT_SQL_EDITOR_FONT_FAMILY
@@ -608,6 +638,9 @@ export const useSettingsStore = create<SettingsState>()(
           formatSqlOnSave:
             patch.formatSqlOnSave !== undefined ? patch.formatSqlOnSave : state.formatSqlOnSave,
         }));
+        if (nextTableGridFontSize !== undefined) {
+          applyDocumentDatabaseTableGridFontSize(nextTableGridFontSize);
+        }
         if (typographyChanged) {
           restoreDockWindowChromeAfterLayout("database");
         }
@@ -713,6 +746,7 @@ export const useSettingsStore = create<SettingsState>()(
         databaseQueryPageSize: state.databaseQueryPageSize,
         databaseTableDetailPosition: state.databaseTableDetailPosition,
         databaseSchemaTreeShowTableChildren: state.databaseSchemaTreeShowTableChildren,
+        databaseTableGridFontSize: state.databaseTableGridFontSize,
         sqlEditorFontFamily: state.sqlEditorFontFamily,
         sqlEditorFontSize: state.sqlEditorFontSize,
         sqlEditorLineHeight: state.sqlEditorLineHeight,
@@ -730,6 +764,10 @@ export const useSettingsStore = create<SettingsState>()(
         applyDocumentLocale(state?.locale ?? "zh-CN");
         applyDocumentUiScale(state?.uiScale ?? UI_SCALE.default);
         applyDocumentAccentColor(state?.accentColor ?? "blue");
+        const tableGridFontSize = clampDatabaseTableGridFontSize(
+          state?.databaseTableGridFontSize ?? DEFAULT_DATABASE_TABLE_GRID_FONT_SIZE,
+        );
+        applyDocumentDatabaseTableGridFontSize(tableGridFontSize);
         const resolved = applyDocumentTheme(state?.theme ?? "system");
         useSettingsStore.setState({
           resolved,
@@ -740,6 +778,7 @@ export const useSettingsStore = create<SettingsState>()(
           ),
           databaseSchemaTreeShowTableChildren:
             state?.databaseSchemaTreeShowTableChildren ?? false,
+          databaseTableGridFontSize: tableGridFontSize,
           sqlKeywordCase:
             normalizeSqlKeywordCase(state?.sqlKeywordCase),
           formatSqlOnSave: state?.formatSqlOnSave ?? true,
@@ -772,6 +811,7 @@ export const useSettingsStore = create<SettingsState>()(
 applyDocumentLocale(useSettingsStore.getState().locale);
 applyDocumentUiScale(useSettingsStore.getState().uiScale);
 applyDocumentAccentColor(useSettingsStore.getState().accentColor);
+applyDocumentDatabaseTableGridFontSize(useSettingsStore.getState().databaseTableGridFontSize);
 
 /** 应用启动时调用：应用当前语言与主题，并监听系统主题变化。 */
 export function initSettings() {
@@ -779,6 +819,7 @@ export function initSettings() {
   applyDocumentLocale(state.locale);
   applyDocumentUiScale(state.uiScale);
   applyDocumentAccentColor(state.accentColor);
+  applyDocumentDatabaseTableGridFontSize(state.databaseTableGridFontSize);
   const resolved = applyDocumentTheme(state.theme);
   useSettingsStore.setState({ resolved });
 

@@ -30,6 +30,8 @@ import {
   SQL_EDITOR_LINE_HEIGHT_OPTIONS,
   clampSqlEditorFontSize,
   clampSqlEditorLineHeight,
+  DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS,
+  clampDatabaseTableGridFontSize,
   FILE_PREVIEW_THRESHOLD_OPTIONS,
   FILE_TRANSFER_RATE_LIMIT_OPTIONS,
   clampFilePreviewThresholdBytes,
@@ -978,6 +980,7 @@ export function SettingsPanel() {
   const databaseSchemaTreeShowTableChildren = useSettingsStore(
     (s) => s.databaseSchemaTreeShowTableChildren,
   );
+  const databaseTableGridFontSize = useSettingsStore((s) => s.databaseTableGridFontSize);
   const sqlEditorFontFamily = useSettingsStore((s) => s.sqlEditorFontFamily);
   const sqlEditorFontSize = useSettingsStore((s) => s.sqlEditorFontSize);
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
@@ -1001,6 +1004,10 @@ export function SettingsPanel() {
   );
   const sqlEditorFontSizeOptions = useMemo(
     () => SQL_EDITOR_FONT_SIZE_OPTIONS.map((n) => String(n)),
+    [],
+  );
+  const databaseTableGridFontSizeOptions = useMemo(
+    () => DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS.map((n) => String(n)),
     [],
   );
   const sqlEditorLineHeightOptions = useMemo(
@@ -1987,6 +1994,22 @@ export function SettingsPanel() {
                   onChange={(v) =>
                     setDatabaseSettings({ databaseSchemaTreeShowTableChildren: v })
                   }
+                />
+              </div>
+
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.database.tableGridFontSize")}</h4>
+                  <p>{t("settings.database.tableGridFontSizeDesc")}</p>
+                </div>
+                <SettingSelect
+                  value={String(databaseTableGridFontSize)}
+                  onChange={(v) =>
+                    setDatabaseSettings({
+                      databaseTableGridFontSize: clampDatabaseTableGridFontSize(Number(v)),
+                    })
+                  }
+                  options={databaseTableGridFontSizeOptions}
                 />
               </div>
 

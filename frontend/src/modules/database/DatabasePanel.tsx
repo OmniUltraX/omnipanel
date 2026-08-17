@@ -1837,57 +1837,74 @@ export function DatabasePanel() {
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
 
-      const applyGeneration = bumpTablePreviewApplyGeneration(tabId);
+      const existing =
+        useDbWorkspaceTabStore.getState().tablePreviews[tabId] ??
+        createDefaultTablePreviewState();
+      const pageSize = existing.pageSize;
+      const page = existing.page;
+      const sort = existing.sort;
+      const filter = existing.filter;
+      const columnRelations = existing.columnRelations ?? {};
+      const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
+
+      // 显式刷新必须硬重置 cache：clear 会让 Canvas 回退旧 displayRows，表现为刷不到外部改动
+      const applyGeneration = bumpTablePreviewApplyGeneration(tabId, { resetCache: true });
       setTablePreviews((prev) => {
-        const existing = prev[tabId] ?? createDefaultTablePreviewState();
-        const pageSize = existing.pageSize;
-        const page = existing.page;
-        const colMeta = useDbWorkspaceTabStore.getState().tableColumnMeta[tabId];
-        const columnRelations = existing.columnRelations ?? {};
-
-        void fetchTablePreviewPage({
-          connection,
-          connId,
-          tableName,
-          dbName,
-          page,
-          pageSize,
-          sort: existing.sort,
-          filter: existing.filter,
-          columnMeta: colMeta,
-          columnRelations,
-        })
-          .then(async ({ data, totalRows = 0 }) => {
-            await yieldToMain();
-            await applyTablePreviewDataProgressive({
-              tabId,
-              data,
-              totalRows,
-              page,
-              pageSize,
-              setTablePreviews,
-              generation: applyGeneration,
-              canvasMode: readStoredGridRenderMode() === "canvas",
-            });
-          })
-          .catch((e) => {
-            bumpTablePreviewApplyGeneration(tabId);
-            setTablePreviews((p) => {
-              const cur = p[tabId];
-              if (!cur) return p;
-              return {
-                ...p,
-                [tabId]: {
-                  ...cur,
-                  loading: false,
-                  error: typeof e === "string" ? e : String(e),
-                },
-              };
-            });
-          });
-
-        return { ...prev, [tabId]: { ...existing, loading: true } };
+        const cur = prev[tabId] ?? createDefaultTablePreviewState();
+        return {
+          ...prev,
+          [tabId]: {
+            ...cur,
+            loading: true,
+            error: null,
+            // 清行保留列 / 视图配置，避免壳闪没的同时杜绝旧行残留
+            data: cur.data
+              ? { name: cur.data.name, columns: cur.data.columns, rows: [] }
+              : null,
+          },
+        };
       });
+
+      void fetchTablePreviewPage({
+        connection,
+        connId,
+        tableName,
+        dbName,
+        page,
+        pageSize,
+        sort,
+        filter,
+        columnMeta: colMeta,
+        columnRelations,
+      })
+        .then(async ({ data, totalRows = 0 }) => {
+          await yieldToMain();
+          await applyTablePreviewDataProgressive({
+            tabId,
+            data,
+            totalRows,
+            page,
+            pageSize,
+            setTablePreviews,
+            generation: applyGeneration,
+            canvasMode: readStoredGridRenderMode() === "canvas",
+          });
+        })
+        .catch((e) => {
+          bumpTablePreviewApplyGeneration(tabId, { resetCache: true });
+          setTablePreviews((p) => {
+            const cur = p[tabId];
+            if (!cur) return p;
+            return {
+              ...p,
+              [tabId]: {
+                ...cur,
+                loading: false,
+                error: typeof e === "string" ? e : String(e),
+              },
+            };
+          });
+        });
     },
     [connections, setTablePreviews],
   );

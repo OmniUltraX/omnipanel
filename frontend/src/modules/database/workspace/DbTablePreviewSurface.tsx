@@ -311,13 +311,26 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     if (!activeCell) return undefined;
     const rowKey = resolvePreviewRowKey(activeCell.row, pkCols);
     const override = rowKey ? previewCellOverrides[rowKey]?.[activeCell.column] : undefined;
-    return override !== undefined ? override : activeCell.row[activeCell.column];
-  }, [activeCell, pkCols, previewCellOverrides]);
+    if (override !== undefined) return override;
+    // 优先用当前表数据中的 live 行，避免刷新后仍读选中时的旧 row 快照
+    const liveRow =
+      rowKey.length > 0
+        ? previewDisplayRows.find((row) => resolvePreviewRowKey(row, pkCols) === rowKey)
+        : previewDisplayRows[activeCell.rowIndex];
+    return (liveRow ?? activeCell.row)[activeCell.column];
+  }, [activeCell, pkCols, previewCellOverrides, previewDisplayRows]);
 
   const activeRow = useMemo(() => {
     const cell = activeCell ?? selectedCells[0] ?? null;
-    return cell?.row ?? null;
-  }, [activeCell, selectedCells]);
+    if (!cell) return null;
+    const rowKey = resolvePreviewRowKey(cell.row, pkCols);
+    if (rowKey.length > 0) {
+      return (
+        previewDisplayRows.find((row) => resolvePreviewRowKey(row, pkCols) === rowKey) ?? cell.row
+      );
+    }
+    return previewDisplayRows[cell.rowIndex] ?? cell.row;
+  }, [activeCell, selectedCells, pkCols, previewDisplayRows]);
 
   const activeRowOverrides = useMemo(() => {
     if (!activeRow) return undefined;
@@ -355,6 +368,46 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     selectedCellsKeyRef.current = nextKey;
     setSelectedCells(cells);
   }, []);
+
+  /** 表数据刷新后，把选中单元格的 row 快照换成 live 行，避免值面板继续展示旧 JSON */
+  useEffect(() => {
+    if (previewDisplayRows.length === 0) return;
+
+    const resolveLive = (
+      cell: TableDataGridActiveCell,
+    ): TableDataGridActiveCell | null => {
+      const rowKey = resolvePreviewRowKey(cell.row, pkCols);
+      let liveIndex = -1;
+      let liveRow: Record<string, unknown> | undefined;
+      if (rowKey.length > 0) {
+        liveIndex = previewDisplayRows.findIndex(
+          (row) => resolvePreviewRowKey(row, pkCols) === rowKey,
+        );
+        liveRow = liveIndex >= 0 ? previewDisplayRows[liveIndex] : undefined;
+      } else if (cell.rowIndex >= 0 && cell.rowIndex < previewDisplayRows.length) {
+        liveIndex = cell.rowIndex;
+        liveRow = previewDisplayRows[liveIndex];
+      }
+      if (!liveRow) return null;
+      if (liveRow === cell.row && liveIndex === cell.rowIndex) return cell;
+      return { ...cell, row: liveRow, rowIndex: liveIndex };
+    };
+
+    setActiveCell((prev) => {
+      if (!prev) return prev;
+      const next = resolveLive(prev);
+      activeCellRef.current = next;
+      return next;
+    });
+    setSelectedCells((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev
+        .map((cell) => resolveLive(cell))
+        .filter((cell): cell is TableDataGridActiveCell => cell != null);
+      selectedCellsKeyRef.current = selectionTargetsKey(next);
+      return next;
+    });
+  }, [previewDisplayRows, pkCols]);
 
   const handlePreviewCellCommit = useCallback(
     (
@@ -825,12 +878,15 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   /** 预览 Tab 原地换表时 tabId 不变，用表身份强制 remount 网格 */
   const previewTableKey = `${tab.connId}:${tab.dbName}:${tab.tableName}`;
   /**
-   * 换表 / 加载重置时禁止使用滞后的 deferred 旧行，否则会把上一张表灌回 Canvas（#44）。
+   * 换表 / 加载重置 / 刷新后：禁止使用滞后的 deferred 旧行。
+   * - 空结果却 deferred 仍有行 → 用 live（#44 / #47）
+   * - live 与 deferred 引用不一致 → 用 live（刷新拿到新数据后 deferred 仍可能停在旧页）
    */
   const gridDisplayRows =
     pendingInsertCount > 0 ||
     preview?.loading ||
     !hasPreviewData ||
+    previewDisplayRows !== deferredDisplayRows ||
     (previewDisplayRows.length === 0 && deferredDisplayRows.length > 0)
       ? previewDisplayRows
       : deferredDisplayRows;
