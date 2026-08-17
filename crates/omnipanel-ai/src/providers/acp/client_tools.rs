@@ -242,11 +242,12 @@ pub fn parse_client_tool_calls(text: &str) -> Vec<ParsedToolCall> {
     vec![]
 }
 
-/// 从解析结果中选取终端工具调用（优先 omni_ssh_exec，兼容历史别名）。
+/// 从解析结果中选取终端工具调用（优先 omni_terminal_exec，兼容历史别名与 omni_ssh_exec）。
 pub fn pick_terminal_tool_call(calls: &[ParsedToolCall]) -> Option<&ParsedToolCall> {
     calls
         .iter()
         .find(|c| c.name == TERMINAL_CLIENT_TOOL || is_legacy_terminal_exec_alias(&c.name))
+        .or_else(|| calls.iter().find(|c| c.name == "omni_ssh_exec"))
         .or_else(|| calls.first())
 }
 
@@ -257,7 +258,7 @@ fn is_legacy_terminal_exec_alias(name: &str) -> bool {
     )
 }
 
-/// 历史 `omni_terminal_*` 跑命令工具 → 统一为 `omni_ssh_exec`。
+/// 历史 `omni_terminal_run_terminal_command` → `omni_terminal_exec`。
 fn normalize_terminal_exec_tool_name(name: &str) -> &str {
     if is_legacy_terminal_exec_alias(name) {
         TERMINAL_CLIENT_TOOL
@@ -392,10 +393,10 @@ mod tests {
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
-                        "resource_id": { "type": "string" },
-                        "command": { "type": "string" }
+                        "command": { "type": "string" },
+                        "session_id": { "type": "string" }
                     },
-                    "required": ["resource_id", "command"]
+                    "required": ["command"]
                 }),
             },
         }
@@ -407,7 +408,7 @@ mod tests {
         let p = build_client_tools_prompt("当前的时间", None, &tools);
         assert!(p.contains("OmniPanel Client Tool API"));
         assert!(p.contains("[User]\n当前的时间"));
-        assert!(p.contains("omni_ssh_exec"));
+        assert!(p.contains("omni_terminal_exec"));
         assert!(p.contains("tool_calls"));
     }
 
@@ -431,10 +432,10 @@ mod tests {
         };
         let tools = [terminal_tool_def(), db_tool];
         let section = build_available_functions_section(&tools);
-        assert!(section.contains("omni_ssh_exec"));
+        assert!(section.contains("omni_terminal_exec"));
         assert!(section.contains("omni_database_execute_sql"));
-        // SSH exec 必填 resource_id
-        assert!(section.contains("resource_id"));
+        // 当前 Tab PTY 执行必填 command
+        assert!(section.contains("command"));
         // compact schema 保留短 description
         assert!(section.contains("\"description\":\"run terminal command\""));
     }
@@ -481,7 +482,7 @@ mod tests {
         let raw = r#"{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_ssh_exec","arguments":"{\"command\":\"date\"}"}}]}"#;
         let calls = parse_client_tool_calls(raw);
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].name, TERMINAL_CLIENT_TOOL);
+        assert_eq!(calls[0].name, "omni_ssh_exec");
         assert!(calls[0].arguments.contains("date"));
     }
 

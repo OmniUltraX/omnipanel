@@ -40,6 +40,22 @@ type ShellAgentStore = {
   isBusy: (sessionId: string) => boolean;
 };
 
+/**
+ * 直通 Shell Agent 是否正绑着这张 AI 卡片。
+ * 命令栏内联也会走同一套 PTY 执行，但不会 setBlockId；
+ * 若仅看 isBusy，第一次 omni_terminal_exec 的 notifyShellAgentExecuting
+ * 会污染 store，导致第二次工具误等确认卡而永远卡住。
+ */
+export function isLiveShellAgentForBlock(
+  sessionId: string,
+  blockId: string,
+): boolean {
+  const agent = useShellAgentStore.getState().get(sessionId);
+  if (!agent) return false;
+  if (agent.phase === "idle" || agent.phase === "cancelled") return false;
+  return Boolean(agent.blockId) && agent.blockId === blockId;
+}
+
 const DEFAULT_MAX_TURNS = 24;
 
 function freshSession(sessionId: string): ShellAgentSession {

@@ -53,6 +53,11 @@ import {
   touchInlineAiDelta,
 } from "../../../modules/terminal/inlineAiWatchdog";
 import { dispatchPendingTool } from "../../../lib/ai/internalToolBridge";
+import {
+  SSH_EXEC_TOOL_NAME,
+  isTerminalPtyExecTool,
+  parseTerminalExecCommand,
+} from "../../../lib/ai/terminalExecTool";
 import { cancelConversationClusters } from "../../../lib/ai/orchestration/clusterCancellation";
 import { applyUiFollowForTool } from "../../../lib/ai/uiFollow";
 import { errorToString } from "../../../lib/errorToString";
@@ -104,22 +109,8 @@ function resolveKnowledgeEmbeddingProviderForRag() {
 
 const EMPTY_MESSAGE_LIST: ThreadMessage[] = [];
 
-const TERMINAL_CLIENT_TOOL = "omni_ssh_exec";
-
-function parseTerminalCommand(argsJson: string): string {
-  try {
-    const parsed = JSON.parse(argsJson || "{}") as { command?: string };
-    if (typeof parsed.command === "string" && parsed.command.trim()) {
-      return parsed.command.trim();
-    }
-  } catch {
-    // ignore
-  }
-  return "";
-}
-
-function isTerminalClientTool(toolName: string): boolean {
-  return toolName === TERMINAL_CLIENT_TOOL;
+function isShellExecClientTool(toolName: string): boolean {
+  return isTerminalPtyExecTool(toolName) || toolName === SSH_EXEC_TOOL_NAME;
 }
 
 type PermissionEvent = Extract<AcpStreamEvent, { type: "permission_request" }>;
@@ -587,11 +578,15 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     }
     clearComposerContextItems();
 
-    const tryDispatchTool = (id: string) => {
+    const tryDispatchTool = (id: string, force = false) => {
       if (pendingToolBridgeRef.current.has(id)) return;
       const meta = toolMetaRef.current.get(id);
       if (!meta) return;
-      if (isTerminalClientTool(meta.name) && !parseTerminalCommand(meta.args)) {
+      if (
+        !force &&
+        isShellExecClientTool(meta.name) &&
+        !parseTerminalExecCommand(meta.args)
+      ) {
         waitingToolDispatchRef.current.add(id);
         return;
       }
@@ -697,8 +692,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         const meta = toolMetaRef.current.get(id);
         if (meta) {
           if (
-            isTerminalClientTool(meta.name) &&
-            !parseTerminalCommand(meta.args)
+            isShellExecClientTool(meta.name) &&
+            !parseTerminalExecCommand(meta.args)
           ) {
             waitingToolDispatchRef.current.add(id);
           } else {
@@ -812,6 +807,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const finishGeneration = (failed = false, aborted = false) => {
       batcher.flushNow();
+      if (!aborted) {
+        for (const id of [...waitingToolDispatchRef.current]) {
+          tryDispatchTool(id, true);
+        }
+      }
       const finishedAt = performance.now();
       if (assistantMsgId) {
         updateMessage(convId, assistantMsgId, {

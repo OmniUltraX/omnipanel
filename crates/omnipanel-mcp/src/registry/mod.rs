@@ -181,6 +181,12 @@ mod tests {
                 .map(|a| a.iter().any(|x| x.as_str() == Some("command"))),
             Some(true)
         );
+        let pty = tools
+            .iter()
+            .find(|t| t.name == "omni_terminal_exec")
+            .expect("omni_terminal_exec 应注入 terminal 模块");
+        assert_eq!(pty.kind, ToolExecutionKind::UiDelegated);
+        assert_eq!(pty.module_key, "terminal");
         // load_skill 已纳入 registry（native）
         assert!(tools.iter().any(|t| t.name == "load_skill"));
     }
@@ -246,6 +252,9 @@ mod tests {
         assert!(tools
             .iter()
             .any(|t| t.name == "omni_ssh_exec"));
+        assert!(tools
+            .iter()
+            .any(|t| t.name == "omni_terminal_exec"));
         assert!(!tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"));
         assert!(!tools.iter().any(|t| t.name == "load_skill"));
         // 会话级 plan 对模块 Agent 开放（跨模块），其余须为 terminal

@@ -1,3 +1,10 @@
+/**
+ * 启动时注册各模块内置工具 handler（UiDelegated 工具执行表）。
+ *
+ * 统一通道架构下，所有 UiDelegated 工具由后端挂起、前端 `dispatchPendingTool`
+ * 分派执行：子会话集群与 SSH 体检走 subConversationRunner，
+ * 其余模块走这里注册的 handler。
+ */
 import {
   getAllModuleBuiltinToolInfos,
   parseModuleKeyFromToolName,
@@ -11,11 +18,19 @@ import { KNOWLEDGE_MODULE_TOOLS } from "../../modules/knowledge/ai/mcpTools";
 import { SSH_MODULE_TOOLS } from "../../modules/server/ssh/ai/mcpTools";
 import { WORKSPACE_MODULE_TOOLS } from "../../modules/workspace/ai/mcpTools";
 
+export {
+  SSH_EXEC_TOOL_NAME,
+  TERMINAL_EXEC_TOOL_NAME,
+  isTerminalPtyExecTool,
+  normalizeTerminalPtyExecToolName,
+  parseTerminalExecCommand,
+  parseTerminalExecCommandFromArgs,
+  argsHaveResourceId,
+} from "./terminalExecTool";
+
 type ToolHandler = BuiltinToolRegistration["handler"];
 
 const TOOL_HANDLERS = new Map<string, ToolHandler>();
-
-export const SSH_EXEC_TOOL_NAME = "omni_ssh_exec";
 
 function registerHandlers(tools: BuiltinToolRegistration[]): void {
   for (const tool of tools) {
@@ -23,13 +38,6 @@ function registerHandlers(tools: BuiltinToolRegistration[]): void {
   }
 }
 
-/**
- * 启动时注册各模块内置工具 handler（UiDelegated 工具执行表）。
- *
- * 统一通道架构下，所有 UiDelegated 工具由后端挂起、前端 `dispatchPendingTool`
- * 分派执行：子会话集群与 SSH 体检走 subConversationRunner，
- * 其余模块走这里注册的 handler。
- */
 export function registerToolHandlers(): void {
   TOOL_HANDLERS.clear();
   registerHandlers(TERMINAL_MODULE_TOOLS);

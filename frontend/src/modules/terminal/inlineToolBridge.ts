@@ -2,6 +2,7 @@ import { checkCommand, type DangerLevel } from "../../lib/commandGuard";
 import { errorToString } from "../../lib/errorToString";
 import { getResourceById } from "../../lib/resourceRegistry";
 import { reportToolResultWithRetry } from "../../lib/ai/reportToolResult";
+import { parseTerminalExecCommand } from "../../lib/ai/terminalExecTool";
 import {
   createBlockId,
   isAiThreadToolCall,
@@ -24,7 +25,7 @@ import {
   notifyShellAgentExecuting,
   notifyShellAgentRejected,
 } from "./shellAgent/loop";
-import { useShellAgentStore } from "./shellAgent/shellAgentStore";
+import { isLiveShellAgentForBlock } from "./shellAgent/shellAgentStore";
 import { getShellAgentLastCmd, setShellAgentLastCmd } from "./shellAgent/thinkingCache";
 
 export interface InlineToolDecision {
@@ -66,15 +67,7 @@ export function getPendingInlineToolScope(
 }
 
 function parseCommandFromArgs(argsJson: string): string {
-  try {
-    const parsed = JSON.parse(argsJson) as { command?: string };
-    if (typeof parsed.command === "string" && parsed.command.trim()) {
-      return parsed.command.trim();
-    }
-  } catch {
-    // ignore
-  }
-  return "";
+  return parseTerminalExecCommand(argsJson);
 }
 
 function assessRisk(command: string, resourceId?: string): DangerLevel {
@@ -222,12 +215,11 @@ export function waitForInlineToolDecision(
       resolve,
     });
 
-    if (
-      useShellAgentStore.getState().isBusy(sessionId) ||
-      useShellAgentStore.getState().get(sessionId)?.blockId === blockId
-    ) {
+    if (isLiveShellAgentForBlock(sessionId, blockId)) {
       notifyShellAgentApprovalPending(sessionId);
-      // Shell Agent 直通必须露出可点的同意/拒绝；不走 view/loose 静默自动同意
+      // 直通必须露出可点的同意/拒绝；不走 view/loose 静默自动同意。
+      // 命令栏不得用 isBusy：第一次执行会把 store 标成 executing/streaming，
+      // 第二次只读命令会被误挂起且确认条不出现。
       return;
     }
 
@@ -380,7 +372,10 @@ export async function approveInlineTerminalTool(
       description: prevCmd?.description,
     });
 
-    notifyShellAgentExecuting(pending.sessionId, true);
+    const passthrough = isLiveShellAgentForBlock(pending.sessionId, blockId);
+    if (passthrough) {
+      notifyShellAgentExecuting(pending.sessionId, true);
+    }
     patchEnterGateFlags(pending.sessionId, { agentExecuting: true });
 
     // 方案 C 执行序列：不撤流内卡 → (有残留输入才清行并等静默) → 画 prompt → 注入
@@ -426,14 +421,16 @@ export async function approveInlineTerminalTool(
       decision = { approved: false, result: message };
     } finally {
       // 勿在此 idle：还要 deliverToolResult 让模型续写总结 / 下一轮工具
-      notifyShellAgentExecuting(pending.sessionId, false);
-      const { notifyShellAgentObserving } = await import("./shellAgent/loop");
-      notifyShellAgentObserving(pending.sessionId);
+      if (passthrough) {
+        notifyShellAgentExecuting(pending.sessionId, false);
+        const { notifyShellAgentObserving } = await import("./shellAgent/loop");
+        notifyShellAgentObserving(pending.sessionId);
+      }
       patchEnterGateFlags(pending.sessionId, { agentExecuting: false });
     }
 
     pendingByToolCallId.delete(toolCallId);
-    {
+    if (passthrough) {
       const { notifyShellAgentStreaming } = await import("./shellAgent/loop");
       notifyShellAgentStreaming(pending.sessionId);
     }
@@ -477,7 +474,9 @@ export function rejectInlineTerminalTool(blockId: string, toolCallId: string): v
   } as Partial<AiThreadToolCall>);
 
   // 先冻成「已拒绝」确认卡，避免 React 切到工具条矮卡
-  notifyShellAgentRejected(pending.sessionId);
+  if (isLiveShellAgentForBlock(pending.sessionId, blockId)) {
+    notifyShellAgentRejected(pending.sessionId);
+  }
 
   pendingByToolCallId.delete(toolCallId);
   void deliverToolResultToBackend(pending.conversationId, toolCallId, result, false, blockId);
@@ -489,8 +488,8 @@ export function newInlineToolCallId(): string {
 }
 
 /**
- * 终端内联 AI 会话中的 `omni_ssh_exec`：走当前 Tab 的 PTY 执行并生成 shell 命令块，
- * 不再静默走 ssh_pool_exec（侧栏 / 非内联仍用模块 handler）。
+ * 终端内联 AI 会话中的 `omni_terminal_exec`：走当前 Tab 的 PTY 执行并生成 shell 命令块，
+ * 不再静默走 ssh_pool_exec（侧栏 / 非内联的 omni_ssh_exec 仍用模块 handler）。
  */
 export async function dispatchInlineTerminalPendingTool(options: {
   conversationId: string;
