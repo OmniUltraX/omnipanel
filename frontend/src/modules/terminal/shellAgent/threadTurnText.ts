@@ -60,6 +60,10 @@ export function scopeThreadToQuery(
   ];
 }
 
+export function isPendingTurnThread(thread: AiThreadItem[]): boolean {
+  return thread.length === 1 && thread[0]?.id === "__pending_turn__";
+}
+
 type TurnSeg =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
@@ -170,6 +174,14 @@ function lastNonEmptyLine(text: string): string {
   return lines[lines.length - 1] ?? "";
 }
 
+function firstNonEmptyLine(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lines[0] ?? "";
+}
+
 function windowPlain(window: TurnSeg[]): string {
   return window
     .filter(
@@ -178,6 +190,17 @@ function windowPlain(window: TurnSeg[]): string {
     )
     .map((s) => s.text)
     .join("\n");
+}
+
+const SENTENCE_END_RE = /[。．.！？!?…)」』]\s*$/;
+
+/** 工具后真正开始新思考的标志；标志之前的短前缀属于工具前末行 */
+const NEW_THOUGHT_RE =
+  /搜索结果已经|我已经用|现在需要按照|现在需要|接下来要|接下来|根据.{0,8}结果|搜索完成/;
+
+/** 工具结果之后的新思考，不是工具 part 后才刷进来的同窗正文 */
+export function isNewPostToolThought(text: string): boolean {
+  return NEW_THOUGHT_RE.test(text.trim());
 }
 
 /** 工具边界插入后刷进来的思考尾巴，不是新一轮思考 / 结果解读 */
@@ -191,12 +214,173 @@ export function isToolBoundaryLeftover(before: string, after: string): boolean {
   return false;
 }
 
+function longestSuffixPrefixOverlap(left: string, right: string): number {
+  const max = Math.min(left.length, right.length);
+  for (let n = max; n >= 4; n -= 1) {
+    if (left.slice(-n) === right.slice(0, n)) return n;
+  }
+  return 0;
+}
+
+/**
+ * 工具插入把流式思考切开后，后窗开头常是前窗末行残片
+ * （`今天 8月17日" 搜索` / `etch 抓取…`）。返回应从 after 去掉的前缀长度。
+ */
+function leftoverPrefixLength(before: string, after: string): number {
+  const a = before.trimEnd();
+  const b = after.trimStart();
+  if (!a || !b) return 0;
+  if (isToolBoundaryLeftover(a, b)) return b.length;
+
+  const last = lastNonEmptyLine(a);
+  const first = firstNonEmptyLine(b);
+  const lead = after.length - b.length;
+
+  const prefixThrough = (endInB: number): number => {
+    let i = endInB;
+    while (i < b.length && /[\s]/.test(b[i] ?? "")) i += 1;
+    return lead + i;
+  };
+
+  if (last.length >= 4) {
+    if (b.startsWith(last)) return prefixThrough(last.length);
+    if (first && (last === first || last.endsWith(first))) {
+      const idx = b.indexOf(first);
+      if (idx >= 0) return prefixThrough(idx + first.length);
+    }
+    if (first.length >= 4 && first.length <= 80 && last.includes(first)) {
+      const idx = b.indexOf(first);
+      if (idx >= 0) return prefixThrough(idx + first.length);
+    }
+    const overlap = longestSuffixPrefixOverlap(last, b);
+    if (overlap >= 4) {
+      if (first && first.length <= 80 && overlap >= Math.min(first.length, overlap)) {
+        const idx = b.indexOf(first);
+        if (idx >= 0 && first.length <= overlap + 16) {
+          return prefixThrough(idx + first.length);
+        }
+      }
+      return prefixThrough(overlap);
+    }
+  }
+
+  if (SENTENCE_END_RE.test(a)) return 0;
+
+  // 同一行里「末行残片 + 新思考」：无字符重叠时（历史上的 | 今天 8月17日" 搜索结果已经…）
+  const marker = NEW_THOUGHT_RE.exec(b);
+  if (marker && marker.index > 0 && marker.index <= 48) {
+    const prefix = b.slice(0, marker.index);
+    if (!SENTENCE_END_RE.test(prefix.trimEnd())) {
+      return prefixThrough(marker.index);
+    }
+  }
+
+  if (!/^[a-z0-9]/.test(b)) return 0;
+  const m = b.match(/^[^\n。．.！？!?]+(?:[\n。．.！？!?]+)?/);
+  return m ? lead + m[0].length : 0;
+}
+
+function glueThinkingFragment(before: string, fragment: string): string {
+  const a = before.trimEnd();
+  const f = fragment.trim();
+  if (!a) return f;
+  if (!f) return a;
+  if (a.endsWith(f) || a.includes(f)) return a;
+  if (/[a-zA-Z0-9_]$/.test(a) && /^[a-z0-9]/.test(f)) return `${a}${f}`;
+  return `${a}${f}`;
+}
+
+/** 模型把工具前推理整段重放进工具后时，只保留新增后缀 */
+function stripAccumulatedPrefix(before: string, after: string): string {
+  const a = before.trim();
+  const b = after.trim();
+  if (!b) return "";
+  if (!a) return b;
+  if (isToolBoundaryLeftover(a, b)) return "";
+  if (b.startsWith(a)) return b.slice(a.length).trim();
+  const idx = b.indexOf(a);
+  if (idx > 0 && idx <= 32) return b.slice(idx + a.length).trim();
+  const n = leftoverPrefixLength(before, after);
+  if (n > 0) return after.slice(n).trim();
+  return b;
+}
+
+function mergeLeftoverIntoBefore(before: TurnSeg[], after: TurnSeg[]): TurnSeg[] {
+  const first = after.find(
+    (s): s is { kind: "text" | "reasoning"; text: string } =>
+      s.kind === "text" || s.kind === "reasoning",
+  );
+  if (!first) return before;
+  const plain = windowPlain(before);
+  let fragment = "";
+  if (isToolBoundaryLeftover(plain, first.text)) {
+    fragment = first.text.trim();
+  } else {
+    const n = leftoverPrefixLength(plain, first.text);
+    if (n > 0) fragment = first.text.slice(0, n).trim();
+  }
+  if (!fragment) return before;
+  let lastIdx = -1;
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    const s = before[i];
+    if (s && (s.kind === "text" || s.kind === "reasoning")) {
+      lastIdx = i;
+      break;
+    }
+  }
+  if (lastIdx < 0) {
+    return [...before, { kind: "reasoning", text: fragment }];
+  }
+  const last = before[lastIdx];
+  if (last?.kind !== "text" && last?.kind !== "reasoning") return before;
+  const copy = before.slice();
+  copy[lastIdx] = { ...last, text: glueThinkingFragment(last.text, fragment) };
+  return copy;
+}
+
+function firstWindowText(
+  segs: TurnSeg[],
+): { kind: "text" | "reasoning"; text: string } | undefined {
+  return segs.find(
+    (s): s is { kind: "text" | "reasoning"; text: string } =>
+      s.kind === "text" || s.kind === "reasoning",
+  );
+}
+
+/** 工具边界切开后、后窗开头属于前窗末行的残片（用于补回已冻结的思考卡） */
+export function toolBoundaryLeftoverFragment(thread: AiThreadItem[]): string {
+  const segs = currentTurnSegments(thread);
+  let lastTool = -1;
+  for (let i = segs.length - 1; i >= 0; i -= 1) {
+    if (segs[i]?.kind === "tool") {
+      lastTool = i;
+      break;
+    }
+  }
+  if (lastTool < 0) return "";
+  const before = segs.slice(prevToolIndex(segs, lastTool) + 1, lastTool);
+  const first = firstWindowText(segs.slice(lastTool + 1));
+  if (!first) return "";
+  const plain = windowPlain(before);
+  if (isToolBoundaryLeftover(plain, first.text)) return first.text.trim();
+  const n = leftoverPrefixLength(plain, first.text);
+  if (n <= 0) return "";
+  return first.text.slice(0, n).trim();
+}
+
 function dropLeftoverSegs(before: TurnSeg[], after: TurnSeg[]): TurnSeg[] {
   const plain = windowPlain(before);
-  return after.filter((s) => {
-    if (s.kind !== "text" && s.kind !== "reasoning") return true;
-    return !isToolBoundaryLeftover(plain, s.text);
-  });
+  const out: TurnSeg[] = [];
+  for (const s of after) {
+    if (s.kind !== "text" && s.kind !== "reasoning") {
+      out.push(s);
+      continue;
+    }
+    const stripped = stripAccumulatedPrefix(plain, s.text);
+    if (!stripped) continue;
+    out.push(stripped === s.text.trim() ? s : { ...s, text: stripped });
+  }
+  return out;
 }
 
 function prevToolIndex(segs: TurnSeg[], before: number): number {
@@ -206,22 +390,27 @@ function prevToolIndex(segs: TurnSeg[], before: number): number {
   return -1;
 }
 
-function isPendingToolId(thread: AiThreadItem[], toolId: string): boolean {
+function isOpenToolStatus(status: string | undefined): boolean {
+  return status === "pending" || status === "running";
+}
+
+/** 待确认 / 执行中：思考仍属于该工具之前（search/fetch 通常是 running 而非 pending） */
+function isOpenToolId(thread: AiThreadItem[], toolId: string): boolean {
   if (!toolId) return false;
-  let pending = false;
+  let open = false;
   for (const item of thread) {
-    if (isAiThreadToolCall(item) && item.id === toolId && item.status === "pending") {
-      pending = true;
+    if (isAiThreadToolCall(item) && item.id === toolId && isOpenToolStatus(item.status)) {
+      open = true;
     }
     if (isAiThreadMessage(item) && item.parts) {
       for (const part of item.parts) {
-        if (isToolCallPart(part) && part.id === toolId && part.status === "pending") {
-          pending = true;
+        if (isToolCallPart(part) && part.id === toolId && isOpenToolStatus(part.status)) {
+          open = true;
         }
       }
     }
   }
-  return pending;
+  return open;
 }
 
 function segsInCurrentThinkingWindow(thread: AiThreadItem[]): TurnSeg[] {
@@ -237,10 +426,19 @@ function segsInCurrentThinkingWindow(thread: AiThreadItem[]): TurnSeg[] {
 
   const last = segs[lastTool];
   const lastId = last?.kind === "tool" ? last.id : "";
-  // 待确认：思考属于该工具之前。tool 边界插入后 RAF 刷入的尾巴（如 ni_ssh_exec.）
+  // 待确认 / 执行中：思考属于该工具之前。tool 边界插入后 RAF 刷入的尾巴
   // 不是新一轮思考，禁止只取 after 把全文丢掉。
-  if (isPendingToolId(thread, lastId)) {
-    return segs.slice(prevToolIndex(segs, lastTool) + 1, lastTool);
+  if (isOpenToolId(thread, lastId)) {
+    const before = segs.slice(prevToolIndex(segs, lastTool) + 1, lastTool);
+    const after = segs.slice(lastTool + 1);
+    const merged = mergeLeftoverIntoBefore(before, after);
+    if (joinWindowThinking(merged).trim()) return merged;
+    // 工具 part 先插入、思考 delta 还在 tool-call 后面：整段 after 仍属当前思考卡
+    const afterThink = after.filter(
+      (s): s is { kind: "text" | "reasoning"; text: string } =>
+        s.kind === "text" || s.kind === "reasoning",
+    );
+    return afterThink.length > 0 ? afterThink : merged;
   }
 
   const before = segs.slice(prevToolIndex(segs, lastTool) + 1, lastTool);

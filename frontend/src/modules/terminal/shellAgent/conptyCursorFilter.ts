@@ -3,8 +3,11 @@
  * 里的提示符行做绝对定位（CUP/HVP/CUU）。前 1～2 个字符往往只是相对回显，
  * 第 3 个字符开始语法着色/预测会整行重绘，光标就被 CUP 拉回卡片区。
  *
- * 光标已在卡下时：丢掉落进占位的 CUP，不要改成当前行 CHA。
- * 否则 Get-Date 换行定位 `\x1b[row;22H` 会变成 `\x1b[22G`，把 `:22` 甩到 PS> 后面。
+ * 光标已在卡下 + 空闲提示符：落进占位的 CUP 改到当前行（CR/CHA），
+ * 否则丢掉 CUP 后 PSReadLine 会把整行叠在已输入文字后面（pw + pwd → pwpwd）。
+ *
+ * Get-Date 式插入（同一块里 CUP 前面已有正文，如 `11:25` + CUP + `:22`）
+ * 仍丢掉 CUP，避免变成 `\x1b[22G` 把 `:22` 甩到 PS> 后面。
  *
  * 光标还在卡内时：跳到卡底下一行列 1。
  * 真清屏（2J / 3J）原样通过。`\x1b[J` / `0J` 不是 cls。
@@ -19,6 +22,11 @@ export type ConptyCursorRewriteContext = {
   cursorAbs: number;
   /** 视口行数，用于把卡底换成 CUP 行号 */
   viewportRows?: number;
+  /**
+   * 空闲 PS> 上打字（无前台命令 / Agent 执行）。
+   * 此时落进卡区的行首 CUP 是 PSReadLine 重绘，必须钉在当前行。
+   */
+  idlePrompt?: boolean;
 };
 
 /** 真清屏：2J 全屏 / 3J scrollback。不含 0J/J（擦下方）和 1J（擦上方） */
@@ -64,6 +72,15 @@ function cupToBelowCards(ctx: ConptyCursorRewriteContext): string {
   return `\x1b[${row};1H`;
 }
 
+/** CUP 前面同一块里已有可见正文 → Get-Date 那种列插入，不是 PSReadLine 重绘 */
+function csiHasPrintablePrefix(input: string, offset: number): boolean {
+  const prefix = input.slice(0, offset);
+  const text = prefix
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
+    .replace(/[\x00-\x1f\x7f]/g, "");
+  return text.length > 0;
+}
+
 /**
  * 改写 ConPTY 光标序列。
  * - 无 ctx：一律把 CUP 钉在当前行（旧行为，单测保留）
@@ -76,7 +93,7 @@ export function stripConptyCursorRestore(
   if (!input.includes("\x1b[")) return input;
   if (hasConptyScreenReset(input)) return input;
   const selective = ctx != null && ctx.cardsBottomAbs != null;
-  return input.replace(CSI_RE, (full, params: string, cmd: string) => {
+  return input.replace(CSI_RE, (full, params: string, cmd: string, offset: number) => {
     if (cmd === "A") {
       if (!selective || !ctx) return "";
       const n = parseCsiCount(params, 1);
@@ -89,8 +106,14 @@ export function stripConptyCursorRestore(
     if (cmd === "H" || cmd === "f") {
       if (selective && ctx) {
         if (!cupHitsCard(params, ctx)) return full;
-        // 换行续写（col>1）或已在卡下：丢掉 CUP，避免 :22 甩到 PS> 后
-        if (cupCol(params) > 1 || ctx.cursorAbs >= ctx.cardsBottomAbs!) return "";
+        const below = ctx.cursorAbs >= ctx.cardsBottomAbs!;
+        const col = cupCol(params);
+        // Get-Date：`11:25` + CUP col22 + `:22` —— 丢掉 CUP，让秒数接在后面
+        if (col > 1 && csiHasPrintablePrefix(input, offset)) return "";
+        // 空闲提示符上的 PSReadLine 重绘：钉在当前输入行，禁止丢掉 CUP 叠字
+        if (below && ctx.idlePrompt) return cupToCurrentLine(params);
+        // 命令输出：换行续写或已在卡下则丢掉，避免跳进占位 / :22 甩到 PS>
+        if (col > 1 || below) return "";
         return cupToBelowCards(ctx);
       }
       return cupToCurrentLine(params);

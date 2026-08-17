@@ -45,6 +45,8 @@ import { useTerminalRunStateStore } from "./terminalRunStateStore";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
 import { Button } from "../../components/ui/primitives/Button";
 import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
+import { focusTerminalPaneInput, shouldFocusTerminalOnClick } from "./terminalClickFocus";
+import { getXterm } from "./xtermRegistry";
 import {
   clearAllSessionBlocks,
   clearEmptyOutputBlocks,
@@ -511,6 +513,7 @@ function PaneViewBody(
 ) {
   const cmdRef = useRef<CommandInputHandle>(null);
   const feedPressRef = useRef<{ x: number; y: number } | null>(null);
+  const panePressRef = useRef<{ x: number; y: number } | null>(null);
   const dragDepthRef = useRef(0);
   const [blockMenu, setBlockMenu] = useState<{
     block: TerminalBlock;
@@ -616,7 +619,7 @@ function PaneViewBody(
 
   useImperativeHandle(ref, () => ({
     focusInput: () => {
-      cmdRef.current?.focus();
+      focusTerminalPaneInput(paneId);
     },
   }));
 
@@ -627,9 +630,8 @@ function PaneViewBody(
   }, [isActive, inputMode, liveNative]);
 
   const focusCommandInput = () => {
-    if (inputMode !== "external") return;
     requestAnimationFrame(() => {
-      cmdRef.current?.focus();
+      focusTerminalPaneInput(paneId);
     });
   };
 
@@ -697,7 +699,25 @@ function PaneViewBody(
     <div
       className={`term-pane term-pane-leaf${isActive ? " is-active" : ""}${useExternalHeader ? " term-pane--external-header" : ""}`}
       data-pane-id={paneId}
-      onMouseDown={onActivate}
+      onMouseDown={(event) => {
+        onActivate();
+        if (event.button !== 0) return;
+        panePressRef.current = { x: event.clientX, y: event.clientY };
+      }}
+      onMouseUp={(event) => {
+        if (event.button !== 0) return;
+        const press = panePressRef.current;
+        panePressRef.current = null;
+        if (!press || !isSimplePointerClick(press, { x: event.clientX, y: event.clientY })) {
+          return;
+        }
+        if (!shouldFocusTerminalOnClick(event.target)) return;
+        requestAnimationFrame(() => {
+          if (hasDomTextSelection()) return;
+          if (getXterm(paneId)?.hasSelection()) return;
+          focusTerminalPaneInput(paneId);
+        });
+      }}
     >
       {externalHeader}
       {!useExternalHeader ? sessionHeader : null}

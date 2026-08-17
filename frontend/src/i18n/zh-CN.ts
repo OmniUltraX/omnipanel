@@ -3442,6 +3442,8 @@ export const zhCN = {
       closeFloat: "关闭",
       agreed: "已同意",
       agree: "同意并执行",
+      enterToConfirm: "回车确认",
+      enterKey: "Enter",
       awaitingApproval: "待确认",
       executing: "执行中…",
       observing: "正在根据输出继续…",

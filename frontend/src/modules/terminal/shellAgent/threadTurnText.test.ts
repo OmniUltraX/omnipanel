@@ -6,8 +6,10 @@ import {
   currentTurnInterpretation,
   currentTurnResultText,
   currentTurnThinkingText,
+  isPendingTurnThread,
   isToolBoundaryLeftover,
   scopeThreadToQuery,
+  toolBoundaryLeftoverFragment,
   toolHasPriorInTurn,
 } from "./threadTurnText";
 
@@ -384,6 +386,7 @@ describe("threadTurnText", () => {
       },
     ];
     const scoped = scopeThreadToQuery(thread, "看一下资源占用，分步执行");
+    expect(isPendingTurnThread(scoped)).toBe(true);
     expect(currentTurnThinkingText(scoped)).toBe("");
     expect(currentTurnThinkingText(scoped)).not.toContain("Get-Date");
   });
@@ -413,5 +416,277 @@ describe("threadTurnText", () => {
     const text = currentTurnThinkingText(scoped);
     expect(text).toContain("资源占用");
     expect(text).not.toContain("现在的时间");
+  });
+
+  it("工具后重放的整段推理只保留新增后缀，不把工具前思考再贴到后一张卡", () => {
+    const pre =
+      "用户要求查一下历史上的今天。当前本地日期是 2026-08-17。";
+    const thread: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: pre },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "completed",
+          },
+          {
+            type: "reasoning",
+            text: `${pre}我已经用 omni_web_search 获取了相关搜索结果。`,
+          },
+        ],
+        timestamp: 1,
+      },
+      {
+        kind: "tool_call",
+        id: "t-search",
+        toolName: "omni_web_search",
+        args: "{}",
+        status: "completed",
+        timestamp: 1,
+      },
+    ];
+    const text = currentTurnThinkingText(thread);
+    expect(text).toContain("我已经用 omni_web_search");
+    expect(text).not.toContain("当前本地日期");
+  });
+
+  it("工具后被截断的残词归回上一窗，不出现在后一张思考卡开头", () => {
+    const thread: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天，先search 再 fetch"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: "先 search，再 f" },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "completed",
+          },
+          {
+            type: "reasoning",
+            text: "etch 抓取相关页面。搜索完成了，我应该 fetch 几个最相关的页面。",
+          },
+        ],
+        timestamp: 1,
+      },
+      {
+        kind: "tool_call",
+        id: "t-search",
+        toolName: "omni_web_search",
+        args: "{}",
+        status: "completed",
+        timestamp: 1,
+      },
+    ];
+    const text = currentTurnThinkingText(thread);
+    expect(text).toContain("搜索完成了");
+    expect(text).not.toMatch(/^etch/);
+    expect(text).not.toContain("etch 抓取相关页面");
+  });
+
+  it("search 仍在 running 时，截断残片粘回工具前思考窗", () => {
+    const thread: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天，先search 再 fetch"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: "先 search，再 f" },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "running",
+          },
+          { type: "reasoning", text: "etch 抓取相关页面。" },
+        ],
+        timestamp: 1,
+      },
+    ];
+    const text = currentTurnThinkingText(thread);
+    expect(text).toContain("fetch 抓取相关页面");
+    expect(text).not.toBe("etch 抓取相关页面。");
+  });
+
+  it("工具 part 先到、思考在后面刷时，思考仍进当前卡", () => {
+    const thread: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天，先search 再 fetch"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "running",
+          },
+          { type: "reasoning", text: "先用 omni_web_search 搜历史上的今天。" },
+        ],
+        timestamp: 1,
+      },
+    ];
+    expect(currentTurnThinkingText(thread)).toContain("omni_web_search 搜历史上的今天");
+  });
+
+  it("工具前最后一行中文残片不能出现在工具后思考卡开头", () => {
+    const pre =
+      '用户要求先 search 再 fetch。我先用 omni_web_search 搜索"历史上的今天 8月17日" 搜索';
+    const thread: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天，先search 再 fetch"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: pre },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "completed",
+          },
+          {
+            type: "reasoning",
+            text:
+              '今天 8月17日" 搜索\n搜索结果已经返回了多个关于8月17日历史事件的链接。现在需要 fetch 其中一个链接。',
+          },
+        ],
+        timestamp: 1,
+      },
+      {
+        kind: "tool_call",
+        id: "t-search",
+        toolName: "omni_web_search",
+        args: "{}",
+        status: "completed",
+        timestamp: 1,
+      },
+    ];
+    const text = currentTurnThinkingText(thread);
+    expect(text).toContain("搜索结果已经返回了");
+    expect(text).toContain("fetch");
+    expect(text).not.toMatch(/^今天 8月17日/);
+    expect(text).not.toContain('今天 8月17日" 搜索\n');
+  });
+
+  it("同一行切开、无字符重叠时，残片归工具前窗、后窗从新思考起", () => {
+    const pre = '用户要求先 search 再 fetch。我先用 omni_web_search 搜索"历史上的';
+    const after =
+      '今天 8月17日" 搜索结果已经返回了多个关于8月17日历史事件的链接。现在需要按照用户的要求“先search 再 fetch”，fetch其中一个链接。';
+    const running: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天，先search 再 fetch"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: pre },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "running",
+          },
+          { type: "reasoning", text: after },
+        ],
+        timestamp: 1,
+      },
+    ];
+    const glued = currentTurnThinkingText(running);
+    expect(glued).toContain('历史上的今天 8月17日"');
+    expect(glued).not.toContain("搜索结果已经返回了");
+    expect(toolBoundaryLeftoverFragment(running)).toContain("今天 8月17日");
+
+    const done: AiThreadItem[] = [
+      running[0]!,
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: pre },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "completed",
+          },
+          { type: "reasoning", text: after },
+        ],
+        timestamp: 1,
+      },
+      {
+        kind: "tool_call",
+        id: "t-search",
+        toolName: "omni_web_search",
+        args: "{}",
+        status: "completed",
+        timestamp: 1,
+      },
+    ];
+    const next = currentTurnThinkingText(done);
+    expect(next).toMatch(/^搜索结果已经返回了/);
+    expect(next).not.toMatch(/^今天 8月17日/);
+    expect(toolBoundaryLeftoverFragment(done)).toContain("今天 8月17日");
+  });
+
+  it("下一工具仍在 running 时，思考窗口停在该工具之前", () => {
+    const thread: AiThreadItem[] = [
+      user("u1", "网络查一下历史上的今天"),
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        parts: [
+          { type: "reasoning", text: "先搜索历史上的今天。" },
+          {
+            type: "tool-call",
+            id: "t-search",
+            name: "omni_web_search",
+            arguments: "{}",
+            status: "completed",
+          },
+          { type: "reasoning", text: "需要打开百科页面核对。" },
+          {
+            type: "tool-call",
+            id: "t-fetch",
+            name: "omni_web_fetch",
+            arguments: "{}",
+            status: "running",
+          },
+        ],
+        timestamp: 1,
+      },
+    ];
+    const text = currentTurnThinkingText(thread);
+    expect(text).toContain("需要打开百科页面核对");
+    expect(text).not.toContain("先搜索历史上的今天");
   });
 });

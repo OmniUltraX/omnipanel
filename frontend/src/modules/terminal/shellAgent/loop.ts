@@ -10,7 +10,7 @@ import {
   submitInlineNaturalLanguage,
 } from "../warpInlineAi";
 import { cancelPendingInlineTools } from "../inlineToolBridge";
-import { isInlineTerminalToolName } from "../inlineTerminalTool";
+import { collectDisplayToolCalls, isInlineTerminalToolName } from "../inlineTerminalTool";
 import { getEnterGateFlags, patchEnterGateFlags } from "../passthroughAi/enterGates";
 import { schedulePassthroughPromptHintSync } from "../passthroughAi/passthroughPromptHint";
 import { lineLooksLikeShellPrompt } from "../passthroughAi/screenLine";
@@ -44,12 +44,21 @@ import { useShellAgentStore } from "./shellAgentStore";
 import {
   clearShellAgentLastCmd,
   clearShellAgentThinkingFull,
+  clearArchivedDisplayToolIds,
   clearShellAgentConfirmFreeze,
+  collectDisplayToolIdsFromHtml,
+  getArchivedDisplayToolIds,
   getShellAgentLastCmd,
   getShellAgentThinkingFull,
   markShellAgentConfirmFreeze,
+  setShellAgentThinkingFull,
 } from "./thinkingCache";
-import { currentTurnResultText, currentTurnThinkingText, scopeThreadToQuery } from "./threadTurnText";
+import {
+  currentTurnResultText,
+  currentTurnThinkingText,
+  isNewPostToolThought,
+  scopeThreadToQuery,
+} from "./threadTurnText";
 
 /**
  * 方案 C：直通 AI 表现层（decoration / 占位 / 内存态）随 xterm 易失；
@@ -62,6 +71,7 @@ export function teardownShellAgentUi(sessionId: string): void {
   clearShellAgentGeometry(sessionId);
   useShellAgentStore.getState().clear(sessionId);
   clearShellAgentThinkingFull(sessionId);
+  clearArchivedDisplayToolIds(sessionId);
   clearShellAgentLastCmd(sessionId);
   clearPromptReleaseGuard(sessionId);
   pendingReanchorKind.delete(sessionId);
@@ -1093,6 +1103,7 @@ export async function startOrContinueShellAgent(
   if (!trimmed) return null;
 
   clearShellAgentThinkingFull(sessionId);
+  clearArchivedDisplayToolIds(sessionId);
 
   const settings = useSettingsStore.getState();
   if (!settings.terminalPassthroughAiEnter) return null;
@@ -1185,6 +1196,7 @@ export function newShellAgentSession(sessionId: string): void {
   archiveActiveInlineCard(sessionId);
   useShellAgentStore.getState().newAgentThread(sessionId);
   clearShellAgentThinkingFull(sessionId);
+  clearArchivedDisplayToolIds(sessionId);
   clearPromptReleaseGuard(sessionId);
   pendingReanchorKind.delete(sessionId);
   pendingTurnFinish.delete(sessionId);
@@ -1242,7 +1254,13 @@ export function notifyShellAgentStreaming(sessionId: string): void {
     return;
   }
 
-  // 等命令输出落定后再钉思考/结果卡，避免插在 CookedValue 这类半截输出中间
+  // Native 工具后续无 PTY 回显：立刻钉思考/结果卡，让 token 流式进来。
+  // 跑命令才走 settle（等 CookedValue 这类半截输出落定）。
+  if (!execOutputFloor.has(sessionId)) {
+    pinFollowupCardNow(sessionId);
+    return;
+  }
+
   scheduleFinalCardAfterExec(sessionId);
 }
 
@@ -1312,6 +1330,7 @@ export function notifyShellAgentApprovalPending(sessionId: string): void {
   } else {
     setShellAgentCardKind(sessionId, "cmd");
   }
+  ensureMinCardRows(sessionId, "cmd");
   try {
     getXterm(sessionId)?.scrollToBottom();
   } catch {
@@ -1396,23 +1415,127 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
     }
     markShellAgentConfirmFreeze(sessionId, "agreed");
 
-    // PowerShell：确认卡阶段布局是好的；再 reanchor 写本地 \r\n 会与 PTY 脱节，
-    // 导致执行回显/结果卡重叠、prompt 损坏。只冻结当前卡，命令在卡下真实 PS> 执行。
-    // 底线必须在 archive 前快照（归档后 rows=0，会丢掉卡片高度）。
-    if (isPowerShellSession(sessionId)) {
-      snapshotExecOutputFloor(sessionId);
-      archiveActiveInlineCard(sessionId);
-      ensureCursorBelowCards(sessionId);
-      return;
-    }
-
-    // 其它 shell：钉矮槽给工具条（原行为）
-    reanchorShellAgentCard(sessionId, "cmd", () => {
-      snapshotExecOutputFloor(sessionId);
-    }, 2);
+    // 跑命令不另钉工具条：确认卡（已同意）就是调用卡。命令在卡下真实执行。
+    snapshotExecOutputFloor(sessionId);
+    archiveActiveInlineCard(sessionId);
+    ensureCursorBelowCards(sessionId);
     return;
   }
   snapshotExecOutputFloor(sessionId);
+}
+
+/**
+ * 非跑命令工具（web_search / fetch / …）开始：归档思考卡，钉工具条槽。
+ * 跑命令不走这里——确认卡已替代调用卡。
+ */
+export function notifyShellAgentDisplayTool(sessionId: string): void {
+  pushShellAgentDebugEvent("displayTool", "pin strip slot");
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.cardKind === "ask") return;
+  if (geo?.cardKind === "thinking" || geo?.cardKind === "final") {
+    const thinking =
+      currentTurnThinkingText(scopedAiThread(sessionId)) ||
+      getShellAgentThinkingFull(sessionId);
+    if (thinking) setShellAgentThinkingFull(sessionId, thinking);
+    // 思考还没写上就冻卡，流里只会留下「正在理解意图」——正文等于丢了。
+    // final 空占位同理：多半是新一轮被误升的结果卡，不能当工具条冻进去。
+    if (
+      (geo.cardKind === "thinking" || geo.cardKind === "final") &&
+      !getShellAgentThinkingFull(sessionId).trim() &&
+      !currentTurnResultText(scopedAiThread(sessionId)).trim()
+    ) {
+      return;
+    }
+  }
+
+  const incoming = collectDisplayToolCalls(scopedAiThread(sessionId)).filter(
+    (tc) =>
+      tc.status !== "rejected" &&
+      !getArchivedDisplayToolIds(sessionId).has(tc.id),
+  );
+
+  if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
+    if (incoming.length === 0) return;
+    const liveHtml =
+      geo.decoration.element?.innerHTML ??
+      "";
+    const shown = collectDisplayToolIdsFromHtml(liveHtml);
+    // 刚钉的空槽等 React 画上，禁止连冻空卡
+    if (shown.length === 0) return;
+    // 活条已在画这些工具：不重复钉 search
+    if (incoming.every((tc) => shown.includes(tc.id))) return;
+  }
+
+  abortFinalSettle(sessionId);
+  postExecThinking.delete(sessionId);
+  reanchorShellAgentCard(sessionId, "cmd", undefined, 2);
+}
+
+/** Native 工具后续：立刻钉思考/结果槽，禁止等 PTY idle 再倒全文 */
+function pinFollowupCardNow(sessionId: string, kind?: "thinking" | "final"): void {
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.cardKind === "ask") return;
+  const want = kind ?? resolvePostExecCardKind(sessionId);
+  if (
+    geo?.decoration &&
+    geo.cardKind === want &&
+    !isShellAgentCursorPastPlaceholder(sessionId)
+  ) {
+    return;
+  }
+  if (want === "thinking") {
+    postExecThinking.add(sessionId);
+  } else {
+    postExecThinking.delete(sessionId);
+  }
+  abortFinalSettle(sessionId);
+  reanchorShellAgentCard(sessionId, want);
+}
+
+/**
+ * Native 工具（搜索 / 抓取等）已全部完成：立刻钉思考卡让续写流式进来。
+ * 禁止走 scheduleFinalCardAfterExec（那是给命令回显用的，会干等再一次性倒出全文）。
+ */
+export function notifyShellAgentAfterDisplayTools(sessionId: string): void {
+  patchEnterGateFlags(sessionId, { agentExecuting: false });
+  useShellAgentStore.getState().setPhase(sessionId, "observing");
+  const incoming = collectDisplayToolCalls(scopedAiThread(sessionId)).filter(
+    (tc) =>
+      tc.status !== "rejected" &&
+      !getArchivedDisplayToolIds(sessionId).has(tc.id),
+  );
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
+    const shown = collectDisplayToolIdsFromHtml(geo.decoration.element?.innerHTML ?? "");
+    if (shown.length > 0 && incoming.some((tc) => !shown.includes(tc.id))) {
+      pushShellAgentDebugEvent("afterDisplayTools", "pin next strip");
+      notifyShellAgentDisplayTool(sessionId);
+      return;
+    }
+  }
+  const thinking = currentTurnThinkingText(scopedAiThread(sessionId)).trim();
+  const result = currentTurnResultText(scopedAiThread(sessionId)).trim();
+  // 工具 part 后才到的同窗思考已经属于上一张卡，不是结果后的新思考。
+  // 还有未画的 search/fetch 时优先钉条，避免再开一张重复思考卡把 fetch 挤掉。
+  if (incoming.length > 0 && thinking && !isNewPostToolThought(thinking)) {
+    pushShellAgentDebugEvent("afterDisplayTools", "same-window thought, pin next strip");
+    notifyShellAgentDisplayTool(sessionId);
+    return;
+  }
+  if (!thinking && !result) {
+    // 连续工具之间没有新思考：留在当前工具条接下一条，避免空思考卡 + 把 search 再冻一次
+    pushShellAgentDebugEvent("afterDisplayTools", "stay on strip");
+    return;
+  }
+  pushShellAgentDebugEvent("afterDisplayTools", thinking ? "pin thinking now" : "pin final now");
+  abortFinalSettle(sessionId);
+  pinFollowupCardNow(sessionId, thinking ? "thinking" : "final");
+}
+
+/** 续写正文已到：思考卡同槽换成结果卡，并结束「等思考」闸门 */
+export function notifyShellAgentPromoteToFinal(sessionId: string): void {
+  postExecThinking.delete(sessionId);
+  setShellAgentCardKind(sessionId, "final");
 }
 
 /** 用户拒绝：冻成「已拒绝」确认卡，立刻归还 prompt，勿再进 streaming/sticky 思考卡 */
@@ -1458,6 +1581,8 @@ function hasPendingShellTool(sessionId: string): boolean {
       isAiThreadToolCall(item) &&
       isInlineTerminalToolName(item.toolName) &&
       (item.status === "pending" || item.status === "running"),
+  ) || collectDisplayToolCalls(block.aiThread).some(
+    (item) => item.status === "pending" || item.status === "running",
   );
 }
 
@@ -1595,29 +1720,32 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
   }
 
   const geo = getShellAgentGeometry(sessionId);
-  const past = isShellAgentCursorPastPlaceholder(sessionId);
   const isPs = isPowerShellSession(sessionId);
 
-  // 仍停在思考卡：封成「思考完成」并重锚 final，避免转圈残留
+  // 思考卡已在流内：本轮结束直接升结果 / 收官，勿再等 PTY settle（会卡住转圈）。
   if (geo?.decoration && geo.cardKind === "thinking") {
-    scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
-    return;
-  }
-
-  // 命令输出已在卡下方，或 PowerShell：禁止原地改 final（会盖住/插在回显前）
-  if (geo?.decoration && geo.cardKind === "cmd" && (past || isPs)) {
-    scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
-    return;
-  }
-
-  // 已在 cmd 槽且未越过（非 PS）：只切 final
-  if (geo?.decoration && geo.cardKind !== "final") {
-    if (isPs) {
-      scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
+    if (isAgentBusyExecuting(sessionId)) {
+      pendingReanchorKind.set(sessionId, "final");
       return;
     }
-    setShellAgentCardKind(sessionId, "final");
+    if (resolvePostExecCardKind(sessionId) === "final") {
+      postExecThinking.delete(sessionId);
+      setShellAgentCardKind(sessionId, "final");
+    }
     scheduleTurnFinishFallback(sessionId);
+    return;
+  }
+
+  // Native 工具条已完成、无 PTY 回显：立刻钉结果/思考，勿走 settle 倒全文
+  if (geo?.decoration && geo.cardKind === "cmd" && !execOutputFloor.has(sessionId)) {
+    pinFollowupCardNow(sessionId);
+    scheduleTurnFinishFallback(sessionId);
+    return;
+  }
+
+  // 命令输出已在卡下方，或仍停在工具条/确认槽：禁止原地改 final（会盖住调用卡或回显）
+  if (geo?.decoration && geo.cardKind === "cmd") {
+    scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
     return;
   }
 
@@ -1626,7 +1754,7 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
     return;
   }
 
-  // PowerShell 同意后确认卡已 archive → 无 live decoration；勿直接 release，
+  // 无 live decoration（reanchor 失败等）：勿直接 release，
   // 否则会与 scheduleFinalCardAfterExec 抢跑，结果卡落点错乱。
   if (
     isPs &&

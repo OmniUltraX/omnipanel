@@ -621,6 +621,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       }
       toolMetaRef.current.set(id, { name, args });
       if (inline) {
+        // 先刷入尚未落地的 reasoning，避免 tool 边界插在 RAF 批次之前，
+        // 思考卡窗口被切成 tool 后的尾巴（如 ni_ssh_exec.）。
+        if (inline.assistantTurnId) {
+          flushInlineAiStream(inline.blockId, inline.assistantTurnId);
+        }
         const block = useBlocksStore.getState().findBlockById(inline.blockId);
         const exists =
           block &&
@@ -661,6 +666,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
               { type: "tool-call", id, name, arguments: args, status: "running" },
             );
           }
+          // 不在此处钉工具条：tool-call 往往比思考末行先到，立刻冻卡会留下空的「正在理解意图」。
+          // 工具条由 ShellAgentOverlay 等思考写入后再钉。
         }
         if (waitingToolDispatchRef.current.has(id)) {
           tryDispatchTool(id);

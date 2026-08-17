@@ -6,7 +6,6 @@ import type { UserQuestionFormData } from "../../../lib/ai/aiMessageParts";
 import {
   EMPTY_TERMINAL_BLOCKS,
   isAiThreadMessage,
-  isAiThreadToolCall,
   useBlocksStore,
   type AiThreadToolCall,
 } from "../../../stores/blocksStore";
@@ -15,19 +14,22 @@ import {
   approveInlineTerminalTool,
   rejectInlineTerminalTool,
 } from "../inlineToolBridge";
-import { isInlineTerminalToolName } from "../inlineTerminalTool";
+import { collectDisplayToolCalls, collectInlineTerminalToolCalls, hasUnshownDisplayTool, pickLiveStripTools, selectThreadForInlineTools } from "../inlineTerminalTool";
 import { shouldHandleConfirmEnter } from "../passthroughAi/confirmEnterHotkey";
 import { getXterm } from "../xtermRegistry";
 import {
   cancelShellAgent,
   newShellAgentSession,
+  notifyShellAgentAfterDisplayTools,
+  notifyShellAgentDisplayTool,
+  notifyShellAgentPromoteToFinal,
   onShellAgentCardFitStable,
 } from "./loop";
 import {
   fitShellAgentCardToContent,
   getShellAgentGeometry,
+  minCardRowsFor,
   relayoutShellAgentCard,
-  setShellAgentCardKind,
   shieldShellAgentDecorationPointer,
   subscribeShellAgentGeometry,
   SHELL_AGENT_PORTAL_HOST_CLASS,
@@ -36,18 +38,22 @@ import { hasDomTextSelection } from "../terminalTextSelection";
 import { useShellAgentStore } from "./shellAgentStore";
 import { ShellAgentMarkdown } from "./ShellAgentMarkdown";
 import {
-  getShellAgentLastCmd,
   lastThinkingLine,
   mergeThinkingText,
   readFrozenThinkingFromCard,
   setShellAgentLastCmd,
   setShellAgentThinkingFull,
+  clearShellAgentThinkingFull,
+  getArchivedDisplayToolIds,
+  appendLastFrozenThinkingFragment,
 } from "./thinkingCache";
 import {
   assistantNoteForTool,
   currentTurnResultText,
   currentTurnThinkingText,
+  isPendingTurnThread,
   scopeThreadToQuery,
+  toolBoundaryLeftoverFragment,
   toolHasPriorInTurn,
 } from "./threadTurnText";
 
@@ -141,22 +147,14 @@ function toggleDetailFloat(
 }
 
 /**
- * 当前轮工具条：只显示 running，或 lastCmd 对应的那一条。
- * 切勿把 thread 里全部历史工具塞进同一 decoration，否则归档后堆叠遮挡。
+ * 当前轮工具条：跑命令不进这里（确认卡已替代）。
+ * 已冻进 scrollback 的工具不再画到活卡上，否则 search 会重复、把 fetch 挤出 2 行槽。
  */
-function resolveStripTools(toolCalls: AiThreadToolCall[], sessionId: string): AiThreadToolCall[] {
-  const eligible = toolCalls.filter(
-    (tc) => tc.status !== "pending" && tc.status !== "rejected",
-  );
-  const running = eligible.filter((tc) => tc.status === "running");
-  if (running.length > 0) return running;
-  const lastId = getShellAgentLastCmd(sessionId)?.toolId ?? null;
-  if (lastId) {
-    const match = eligible.find((tc) => tc.id === lastId);
-    if (match) return [match];
-  }
-  const last = eligible[eligible.length - 1];
-  return last ? [last] : [];
+function resolveStripTools(
+  toolCalls: AiThreadToolCall[],
+  archivedIds: ReadonlySet<string>,
+): AiThreadToolCall[] {
+  return pickLiveStripTools(toolCalls, archivedIds);
 }
 
 /** 浮窗贴在锚点下方，必要时翻到上方，并夹在视口内 */
@@ -422,6 +420,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       if (cancelled) return;
       el.style.pointerEvents = "auto";
       el.style.boxSizing = "border-box";
+      el.dataset.shellAgentDecoDisplay = "flex";
       el.style.display = "flex";
       el.style.flexDirection = "column";
       el.style.justifyContent = "flex-start";
@@ -489,22 +488,43 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     [thread, geometry?.query],
   );
 
-  const toolCalls = useMemo(
-    () =>
-      thread.filter(
-        (i): i is AiThreadToolCall =>
-          isAiThreadToolCall(i) && isInlineTerminalToolName(i.toolName),
-      ),
-    [thread],
+  const scopedThread = useMemo(
+    () => selectThreadForInlineTools(thread, turnThread),
+    [thread, turnThread],
+  );
+
+  const execTools = useMemo(
+    () => collectInlineTerminalToolCalls(scopedThread),
+    [scopedThread],
+  );
+
+  const displayTools = useMemo(
+    () => collectDisplayToolCalls(scopedThread),
+    [scopedThread],
+  );
+
+  const stripTools = useMemo(
+    () => resolveStripTools(displayTools, getArchivedDisplayToolIds(sessionId)),
+    [displayTools, sessionId, geoVersion],
   );
 
   const phase = agent?.phase ?? "idle";
 
   const interpretRaw = useMemo(() => currentTurnResultText(turnThread), [turnThread]);
+  const latchKey = `${sessionId}\0${geometry?.query ?? ""}`;
+  const latchKeyRef = useRef(latchKey);
   const [latchedInterpret, setLatchedInterpret] = useState("");
+  const [latchedThinking, setLatchedThinking] = useState("");
+  if (latchKeyRef.current !== latchKey) {
+    latchKeyRef.current = latchKey;
+    if (latchedInterpret) setLatchedInterpret("");
+    if (latchedThinking) setLatchedThinking("");
+  }
 
   useEffect(() => {
     setLatchedInterpret("");
+    setLatchedThinking("");
+    clearShellAgentThinkingFull(sessionId);
   }, [sessionId, geometry?.query]);
 
   useEffect(() => {
@@ -516,18 +536,28 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     ? mergeThinkingText(latchedInterpret, interpretRaw)
     : interpretRaw;
 
-  const pendingTool = toolCalls.find((tc) => tc.status === "pending") ?? null;
+  const pendingTool = execTools.find((tc) => tc.status === "pending") ?? null;
   const pendingDesc = useMemo(() => {
     if (toolHasPriorInTurn(turnThread, pendingTool?.id ?? null)) return "";
     return shortAssistantNote(assistantNoteForTool(turnThread, pendingTool?.id ?? null), 280);
   }, [turnThread, pendingTool?.id]);
+
+  const displayToolsBusy = displayTools.some(
+    (tc) => tc.status === "pending" || tc.status === "running",
+  );
 
   const showFinal = geometry?.cardKind === "final";
 
   useEffect(() => {
     if (geometry?.cardKind !== "thinking") return;
     if (pendingTool) return;
-    if (!interpretText.trim()) return;
+    // 仅当搜索等工具仍在跑时挡住思考→结果；已完成的工具条不能让思考卡卡死
+    if (displayToolsBusy) return;
+    if (hasUnshownDisplayTool(displayTools, getArchivedDisplayToolIds(sessionId))) {
+      return;
+    }
+    // 只用本轮结果正文。上一轮 latch 会把空思考卡误升成「正在理解意图」结果卡。
+    if (!interpretRaw.trim()) return;
     if (
       phase !== "streaming" &&
       phase !== "observing" &&
@@ -535,16 +565,24 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     ) {
       return;
     }
-    setShellAgentCardKind(sessionId, "final");
-  }, [geometry?.cardKind, interpretText, phase, sessionId, pendingTool?.id]);
+    notifyShellAgentPromoteToFinal(sessionId);
+  }, [
+    geometry?.cardKind,
+    interpretRaw,
+    phase,
+    sessionId,
+    pendingTool?.id,
+    displayToolsBusy,
+    displayTools,
+  ]);
 
   const thinkingFull = useMemo(() => currentTurnThinkingText(turnThread), [turnThread]);
-  const thinkingSlot = geometry?.cardKind === "thinking" ? geometry.decoration : null;
-  const [latchedThinking, setLatchedThinking] = useState("");
-
-  useEffect(() => {
-    setLatchedThinking("");
-  }, [sessionId, thinkingSlot]);
+  const leftoverFragment = useMemo(
+    () => toolBoundaryLeftoverFragment(turnThread),
+    [turnThread],
+  );
+  const thinkingToFreezeRef = useRef("");
+  thinkingToFreezeRef.current = mergeThinkingText(latchedThinking, thinkingFull);
 
   useEffect(() => {
     if (geometry?.cardKind !== "thinking") return;
@@ -552,6 +590,86 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     setLatchedThinking((prev) => mergeThinkingText(prev, thinkingFull));
     setShellAgentThinkingFull(sessionId, thinkingFull);
   }, [sessionId, thinkingFull, geometry?.cardKind]);
+
+  useEffect(() => {
+    if (pendingTool) return;
+    if (geometry?.cardKind === "ask") return;
+    if (isPendingTurnThread(turnThread)) return;
+    if (geometry?.cardKind !== "thinking" && geometry?.cardKind !== "final" && geometry?.cardKind !== "cmd") {
+      return;
+    }
+    const archived = getArchivedDisplayToolIds(sessionId);
+    const pin = () => {
+      const text = thinkingToFreezeRef.current;
+      if (text.trim()) setShellAgentThinkingFull(sessionId, text);
+      notifyShellAgentDisplayTool(sessionId);
+    };
+    if (geometry?.cardKind === "thinking" || geometry?.cardKind === "final") {
+      if (!hasUnshownDisplayTool(displayTools, archived)) return;
+      // 空占位就冻 = 正文丢失，思考会跑到 search 后面那张卡。必须先写上再钉。
+      // final 空占位（误升）同样等思考，不能直接钉 search。
+      if (
+        !thinkingToFreezeRef.current.trim() &&
+        (geometry.cardKind === "thinking" || !interpretRaw.trim())
+      ) {
+        return;
+      }
+      if (displayToolsBusy) {
+        const wait = window.setTimeout(pin, 80);
+        return () => window.clearTimeout(wait);
+      }
+      pin();
+      return;
+    }
+    const shownIds = new Set(stripTools.map((t) => t.id));
+    if (!hasUnshownDisplayTool(displayTools, archived, shownIds)) return;
+    const shownBusy = stripTools.some(
+      (t) => t.status === "pending" || t.status === "running",
+    );
+    if (shownBusy) return;
+    notifyShellAgentDisplayTool(sessionId);
+  }, [
+    geometry?.cardKind,
+    pendingTool?.id,
+    displayToolsBusy,
+    displayTools,
+    stripTools,
+    sessionId,
+    turnThread,
+    thinkingFull,
+    latchedThinking,
+    interpretRaw,
+  ]);
+
+  useEffect(() => {
+    if (!leftoverFragment) return;
+    const root = getXterm(sessionId)?.element;
+    if (!root) return;
+    appendLastFrozenThinkingFragment(sessionId, root, leftoverFragment);
+  }, [leftoverFragment, sessionId, geometry?.cardKind]);
+
+  useEffect(() => {
+    if (geometry?.cardKind !== "cmd") return;
+    if (pendingTool) return;
+    if (displayTools.length === 0) return;
+    if (displayToolsBusy) return;
+    const shownIds = new Set(stripTools.map((t) => t.id));
+    if (hasUnshownDisplayTool(displayTools, getArchivedDisplayToolIds(sessionId), shownIds)) {
+      return;
+    }
+    // 工具条一完成：有新思考/结果才离开；否则留在条上接下一条工具
+    notifyShellAgentAfterDisplayTools(sessionId);
+  }, [
+    geometry?.cardKind,
+    pendingTool?.id,
+    displayTools.length,
+    displayToolsBusy,
+    displayTools,
+    stripTools,
+    thinkingFull,
+    interpretText,
+    sessionId,
+  ]);
 
   const displayThinking = mergeThinkingText(latchedThinking, thinkingFull);
 
@@ -757,15 +875,27 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
 
     const isFinal = geometry?.cardKind === "final";
     const isThinking = geometry?.cardKind === "thinking";
+    const cmdIsConfirm =
+      geometry?.cardKind === "cmd" && Boolean(pendingTool);
+    const cmdIsStrip =
+      geometry?.cardKind === "cmd" &&
+      !pendingTool &&
+      displayTools.length > 0;
     const measure = () => {
       const h = measureShellAgentCardHeight(container);
       if (h <= 0) return;
-      // 思考卡固定矮高度；确认 / 工具 / 结果按内容撑开
-      const capped = isThinking ? Math.min(h, 56) : h;
+      // 思考卡固定矮占位：禁止按测高扩行。扩出去的 \r\n 冻结后缩不掉，空白会一张张累加。
+      if (isThinking) return;
+      const capped = h;
       fitShellAgentCardToContent(
         sessionId,
         capped,
         isFinal ? () => onShellAgentCardFitStable(sessionId) : undefined,
+        cmdIsConfirm
+          ? { minRows: minCardRowsFor("cmd"), padRows: 1 }
+          : cmdIsStrip
+            ? { minRows: 2, padRows: 0 }
+            : undefined,
       );
     };
 
@@ -790,7 +920,9 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     pendingDesc,
     pendingTool?.id,
     pendingTool?.status,
-    toolCalls.length,
+    execTools.length,
+    displayTools.length,
+    stripTools.length,
     editing,
     draft,
     agent?.pendingAskFormId,
@@ -810,8 +942,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     cardKind !== "ask" &&
     cardKind !== "thinking" &&
     Boolean(blockId);
-  /** 当前轮工具条：勿把历史工具全堆进同一 decoration */
-  const stripTools = resolveStripTools(toolCalls, sessionId);
+  /** 当前轮工具条：跑命令不进这里（确认卡已替代） */
   const showToolStrips =
     stripTools.length > 0 &&
     !showConfirmCard &&
@@ -1085,18 +1216,21 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
               type="button"
               className="term-shell-agent-btn term-shell-agent-btn--ghost"
               data-shell-agent-expand
-              onClick={(e) =>
+              onClick={(e) => {
+                const host =
+                  e.currentTarget instanceof Element
+                    ? (e.currentTarget.closest(".term-shell-agent-tool") ??
+                      e.currentTarget)
+                    : null;
+                const anchor = readAnchorRect(host);
                 setDetail((prev) =>
                   toggleDetailFloat(prev, {
                     kind: "tool",
                     toolId: tc.id,
-                    anchor: readAnchorRect(
-                      e.currentTarget.closest(".term-shell-agent-tool") ??
-                        e.currentTarget,
-                    ),
+                    anchor,
                   }),
-                )
-              }
+                );
+              }}
             >
               {t("terminal.shellAgent.viewTool")}
             </button>
@@ -1138,7 +1272,9 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
 
   const detailTool =
     detail?.kind === "tool"
-      ? toolCalls.find((tc) => tc.id === detail.toolId) ?? null
+      ? displayTools.find((tc) => tc.id === detail.toolId) ??
+        execTools.find((tc) => tc.id === detail.toolId) ??
+        null
       : null;
 
   const detailFloat =

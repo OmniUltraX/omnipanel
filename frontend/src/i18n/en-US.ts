@@ -3456,6 +3456,8 @@ export const enUS: TranslationDict = {
       closeFloat: "Close",
       agreed: "Agreed",
       agree: "Agree & run",
+      enterToConfirm: "Press Enter to confirm",
+      enterKey: "Enter",
       awaitingApproval: "Pending approval",
       executing: "Running…",
       observing: "Continuing from output…",

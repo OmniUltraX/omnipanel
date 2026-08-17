@@ -11,6 +11,8 @@ import {
   getShellAgentThinkingFull,
   clearShellAgentThinkingFull,
   extractThinkingFromLiveHtml,
+  collectDisplayToolIdsFromHtml,
+  markArchivedDisplayToolIds,
   transformPendingConfirmToAgreedHtml,
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
@@ -53,8 +55,8 @@ const MAX_FINAL_CARD_ROWS = 96;
 
 /** 建卡时的最小占位行数（实际高度由 fitShellAgentCardToContent 测量） */
 export function minCardRowsFor(kind?: ShellAgentCardKind): number {
-  // 思考卡固定矮卡约 2 行内容，占位至少 3 行以免被 decoration 裁切看不见
-  if (kind === "thinking") return 3;
+  // 思考卡固定矮卡（一行预览）；占 2 行。再高冻结后缩 decoration 也清不掉 buffer，空白会累加。
+  if (kind === "thinking") return 2;
   // 询问表单通常多行，预留更高占位
   if (kind === "ask") return 6;
   // 结果卡按内容 fit；从 1 行起跳，避免起步过高留下空白带
@@ -103,6 +105,7 @@ export function contentHeightToCardRows(
   sessionId: string,
   contentHeightPx: number,
   kind?: ShellAgentCardKind | null,
+  opts?: { minRows?: number; padRows?: number },
 ): number {
   const rowH = terminalRowHeightPx(sessionId);
   const raw = contentHeightPx / rowH;
@@ -112,10 +115,18 @@ export function contentHeightToCardRows(
     kind === "final"
       ? Math.ceil(Math.max(0, raw - 0.1))
       : Math.ceil(raw);
-  // ask / final / cmd：多留空行，避免 decoration 矮于卡片盖住下方回显
-  const pad = kind === "cmd" ? 2 : kind === "ask" || kind === "final" ? 1 : 0;
+  // ask / final：略留空行，避免 decoration 矮于卡片盖住下方回显。
+  // cmd 工具条不要再 +2：会把 1 行 search 撑成大片空白，且 \r\n 写进 buffer 后缩 decoration 也清不掉。
+  const pad =
+    opts?.padRows ?? (kind === "ask" || kind === "final" ? 1 : 0);
   const hardMax = maxCardRowsFor(sessionId, kind);
-  const min = kind === "thinking" ? minCardRowsFor("thinking") : MIN_CARD_ROWS;
+  const min =
+    opts?.minRows ??
+    (kind === "thinking"
+      ? minCardRowsFor("thinking")
+      : kind === "cmd"
+        ? minCardRowsFor("cmd")
+        : MIN_CARD_ROWS);
   return Math.min(hardMax, Math.max(min, rows + pad));
 }
 
@@ -330,6 +341,9 @@ function injectFrozenCardSnapshot(
         }
       }
       el.replaceChildren(snapshot);
+      if (!el.dataset.shellAgentDecoDisplay) {
+        el.dataset.shellAgentDecoDisplay = "block";
+      }
       shieldShellAgentDecorationPointer(
         el,
         sessionId ? getXterm(sessionId) : null,
@@ -473,26 +487,18 @@ export function archiveActiveInlineCard(sessionId: string): void {
     version: prev.version + 1,
   });
 
-  // 空思考卡不要冻成「思考完成 + 正在理解意图」
-  if (!frozenHtml && prev.cardKind === "thinking") {
-    try {
-      deco.dispose();
-    } catch {
-      // ignore
-    }
-    return;
-  }
-
-  pushArchived(sessionId, {
+  freezeOutgoingDecoration({
+    sessionId,
+    term: getXterm(sessionId),
     decoration: deco,
     marker,
-    rows: Math.max(1, prev.rows),
-    anchorLine: markerLine(marker, prev.anchorLine),
+    kind: prev.cardKind,
+    liveHtml,
+    frozenHtml,
+    prevRows: prev.rows,
+    indentCols: prev.promptIndentCols,
+    anchorLine: prev.anchorLine,
   });
-
-  if (frozenHtml) {
-    injectFrozenCardSnapshot(deco, frozenHtml, sessionId);
-  }
 }
 
 export function subscribeShellAgentGeometry(fn: (sessionId: string) => void): () => void {
@@ -601,6 +607,163 @@ export function shieldShellAgentDecorationPointer(
   });
 }
 
+function frozenPlaceholderRows(
+  kind: ShellAgentCardKind | null,
+  liveHtml: string,
+  fallback: number,
+): number {
+  if (kind === "thinking") return 2;
+  if (kind === "cmd" && liveHtml.includes("term-shell-agent-tool")) {
+    const n = Math.max(1, collectDisplayToolIdsFromHtml(liveHtml).length);
+    return Math.max(2, n);
+  }
+  return Math.max(1, fallback);
+}
+
+function rememberArchivedDisplayTools(
+  sessionId: string,
+  kind: ShellAgentCardKind | null,
+  liveHtml: string,
+): void {
+  if (kind !== "cmd" || !liveHtml.includes("term-shell-agent-tool")) return;
+  markArchivedDisplayToolIds(sessionId, collectDisplayToolIdsFromHtml(liveHtml));
+}
+
+/** 冻结旧卡：记下已展示工具 id，并把 decoration 缩到内容高度，避免卡下空白越积越多 */
+function freezeOutgoingDecoration(opts: {
+  sessionId: string;
+  term: Terminal | null;
+  decoration: IDecoration;
+  marker: IMarker | null;
+  kind: ShellAgentCardKind | null;
+  liveHtml: string;
+  frozenHtml: string;
+  prevRows: number;
+  indentCols: number;
+  anchorLine: number;
+}): void {
+  const {
+    sessionId,
+    term,
+    decoration,
+    marker,
+    kind,
+    liveHtml,
+    frozenHtml,
+    prevRows,
+    indentCols,
+    anchorLine,
+  } = opts;
+  rememberArchivedDisplayTools(sessionId, kind, liveHtml);
+  if (!frozenHtml && kind === "thinking") {
+    try {
+      const host = decoration.element ? getPortalHost(decoration.element) : null;
+      if (host) host.innerHTML = "";
+      else if (decoration.element) decoration.element.innerHTML = "";
+      decoration.dispose();
+    } catch {
+      // ignore
+    }
+    return;
+  }
+  let archivedDeco = decoration;
+  let archivedRows = Math.max(1, prevRows);
+  const freezeRows = frozenPlaceholderRows(kind, liveHtml, archivedRows);
+  if (term && marker && freezeRows < archivedRows) {
+    const slim = registerCardDecoration(term, marker, freezeRows, indentCols);
+    if (slim) {
+      archivedDeco = slim;
+      archivedRows = freezeRows;
+      try {
+        decoration.dispose();
+      } catch {
+        // ignore
+      }
+    }
+  }
+  if (marker) {
+    pushArchived(sessionId, {
+      decoration: archivedDeco,
+      marker,
+      rows: archivedRows,
+      anchorLine: markerLine(marker, anchorLine),
+    });
+  }
+  if (frozenHtml) {
+    injectFrozenCardSnapshot(archivedDeco, frozenHtml, sessionId);
+  }
+}
+
+function terminalCellHeightPx(term: Terminal): number {
+  const el = term.element;
+  if (!el || term.rows <= 0) return 18;
+  const rowsEl = el.querySelector(".xterm-rows") ?? el.querySelector(".xterm-screen");
+  const viewHeight =
+    rowsEl?.getBoundingClientRect().height ?? el.clientHeight;
+  return Math.max(1, viewHeight / term.rows);
+}
+
+/**
+ * xterm 只按 marker 起始行是否在视口决定 decoration 显隐：起始行一卷出
+ * 顶部，整张多行卡会被 display:none，留下空白占位。
+ * 仍与视口相交时：负 top + clip-path 裁掉已滚出的顶部，看起来像卡片在往上滑。
+ */
+export function clipShellAgentDecorationToViewport(opts: {
+  viewportY: number;
+  viewportRows: number;
+  markerLine: number;
+  rows: number;
+  cellHeight: number;
+  el: HTMLElement;
+}): "hidden" | "full" | "clipped" {
+  const rows = Math.max(1, opts.rows);
+  const start = opts.markerLine;
+  const end = start + rows;
+  const viewEnd = opts.viewportY + opts.viewportRows;
+  if (start < 0 || end <= opts.viewportY || start >= viewEnd) {
+    opts.el.style.clipPath = "";
+    return "hidden";
+  }
+  const line = start - opts.viewportY;
+  const cellH = Math.max(1, opts.cellHeight);
+  if (line < 0) {
+    const hiddenPx = Math.round(-line * cellH);
+    if (opts.el.style.display === "none" || !opts.el.style.display) {
+      opts.el.style.display = opts.el.dataset.shellAgentDecoDisplay || "block";
+    }
+    opts.el.style.top = `${Math.round(line * cellH)}px`;
+    opts.el.style.height = `${Math.round(rows * cellH)}px`;
+    opts.el.style.clipPath = `inset(${hiddenPx}px 0 0 0)`;
+    return "clipped";
+  }
+  opts.el.style.clipPath = "";
+  return "full";
+}
+
+function bindDecorationViewportClip(
+  term: Terminal,
+  decoration: IDecoration,
+  rows: number,
+): void {
+  const apply = (el: HTMLElement) => {
+    try {
+      const buf = term.buffer?.active;
+      clipShellAgentDecorationToViewport({
+        viewportY: buf?.viewportY ?? 0,
+        viewportRows: term.rows || 24,
+        markerLine: decoration.marker?.line ?? -1,
+        rows,
+        cellHeight: terminalCellHeightPx(term),
+        el,
+      });
+    } catch {
+      // ignore
+    }
+  };
+  if (decoration.element) apply(decoration.element);
+  decoration.onRender(apply);
+}
+
 function registerCardDecoration(
   term: Terminal,
   marker: IMarker,
@@ -608,15 +771,16 @@ function registerCardDecoration(
   _indentCols: number,
 ): IDecoration | null {
   try {
-    return (
-      term.registerDecoration({
-        marker,
-        x: 0,
-        width: term.cols,
-        height: rows,
-        layer: "top",
-      }) ?? null
-    );
+    const decoration = term.registerDecoration({
+      marker,
+      x: 0,
+      width: term.cols,
+      height: rows,
+      layer: "top",
+    });
+    if (!decoration) return null;
+    bindDecorationViewportClip(term, decoration, rows);
+    return decoration;
   } catch {
     return null;
   }
@@ -911,7 +1075,13 @@ export function resizeShellAgentCard(
 
   const target = Math.min(
     maxCardRowsFor(sessionId, prev.cardKind),
-    Math.max(MIN_CARD_ROWS, targetRows),
+    Math.max(
+      MIN_CARD_ROWS,
+      // 思考卡禁止扩行：多写的 \r\n 冻结后缩 decoration 也清不掉，空白会一张张累加
+      prev.cardKind === "thinking"
+        ? minCardRowsFor("thinking")
+        : targetRows,
+    ),
   );
   const pastPlaceholder = cursorPastPlaceholderEnd(term, prev);
   // ask 表单可越过光标扩高；结果卡不行——会盖住卡下刚落下的 PS>
@@ -988,13 +1158,18 @@ export function fitShellAgentCardToContent(
   sessionId: string,
   contentHeightPx: number,
   onStable?: () => void,
+  opts?: { minRows?: number; padRows?: number },
 ): void {
   const prevKind = geometries.get(sessionId)?.cardKind ?? null;
-  const fitted = contentHeightToCardRows(sessionId, contentHeightPx, prevKind);
-  const rows =
-    prevKind === "thinking"
-      ? Math.max(minCardRowsFor("thinking"), fitted)
-      : fitted;
+  if (prevKind === "thinking") {
+    onStable?.();
+    return;
+  }
+  const fitted = contentHeightToCardRows(sessionId, contentHeightPx, prevKind, opts);
+  const floor =
+    opts?.minRows ??
+    (prevKind === "cmd" ? minCardRowsFor("cmd") : MIN_CARD_ROWS);
+  const rows = Math.max(floor, fitted);
   const prevTimer = fitTimers.get(sessionId);
   if (prevTimer) clearTimeout(prevTimer);
   fitTimers.set(
@@ -1039,7 +1214,7 @@ export function setShellAgentCardKind(sessionId: string, kind: ShellAgentCardKin
   setGeometry(sessionId, { ...prev, cardKind: kind, version: prev.version + 1 });
 }
 
-/** 思考卡(3 行)换成确认卡时先撑到确认卡最小占位，避免只露表头、盖住输出 */
+/** 思考卡换成确认卡时先撑到确认卡最小占位，避免只露表头、盖住输出 */
 export function ensureMinCardRows(sessionId: string, kind: ShellAgentCardKind): void {
   const prev = geometries.get(sessionId);
   if (!prev || prev.mode !== "inline") return;
@@ -1085,6 +1260,12 @@ export function reanchorShellAgentCard(
     : null;
   const liveHtml = (oldHost?.innerHTML ?? oldDecoration?.element?.innerHTML ?? "").trim();
   const frozenHtml = resolveFrozenHtml(sessionId, oldKind, liveHtml);
+  const outgoingRows = prev?.rows ?? 1;
+  const freezeRows = frozenPlaceholderRows(oldKind, liveHtml, outgoingRows);
+  // 先按冻结高度记账，再 ensureCursor。否则会按即将被缩掉的 live 行数补 \r\n，空白累加。
+  if (prev?.mode === "inline" && freezeRows < outgoingRows) {
+    setGeometry(sessionId, { ...prev, rows: freezeRows });
+  }
 
   const rows = Math.min(
     maxCardRowsFor(sessionId, kind),
@@ -1121,25 +1302,18 @@ export function reanchorShellAgentCard(
     markReanchorNeedsPtySync(sessionId);
 
     if (oldDecoration) {
-      if (!frozenHtml && oldKind === "thinking") {
-        try {
-          oldDecoration.dispose();
-        } catch {
-          // ignore
-        }
-      } else {
-        if (oldMarker) {
-          pushArchived(sessionId, {
-            decoration: oldDecoration,
-            marker: oldMarker,
-            rows: Math.max(1, prev?.rows ?? 1),
-            anchorLine: markerLine(oldMarker, prev?.anchorLine ?? 0),
-          });
-        }
-        if (frozenHtml) {
-          injectFrozenCardSnapshot(oldDecoration, frozenHtml, sessionId);
-        }
-      }
+      freezeOutgoingDecoration({
+        sessionId,
+        term,
+        decoration: oldDecoration,
+        marker: oldMarker,
+        kind: oldKind,
+        liveHtml,
+        frozenHtml,
+        prevRows: outgoingRows,
+        indentCols,
+        anchorLine: prev?.anchorLine ?? 0,
+      });
     }
     onReady?.();
   };

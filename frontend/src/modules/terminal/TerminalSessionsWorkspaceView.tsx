@@ -1,10 +1,13 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { TerminalSessionSidebar } from "./TerminalSessionSidebar";
 import { TerminalSessionsChromeProvider } from "./TerminalSessionsChromeContext";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
+import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
+import { focusTerminalPaneInput, shouldFocusTerminalOnClick } from "./terminalClickFocus";
+import { getXterm } from "./xtermRegistry";
 
 export interface TerminalSessionsWorkspaceViewProps {
   onSelectSession: (sessionId: string) => void;
@@ -71,6 +74,42 @@ export function TerminalSessionsWorkspaceView({
   ]
     .filter(Boolean)
     .join(" ");
+
+  const pressRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const root = document.querySelector(".term-sessions-workspace");
+    if (!root) return;
+
+    const onDown = (event: Event) => {
+      const e = event as MouseEvent;
+      if (e.button !== 0) return;
+      pressRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onUp = (event: Event) => {
+      const e = event as MouseEvent;
+      if (e.button !== 0) return;
+      const press = pressRef.current;
+      pressRef.current = null;
+      if (!press || !isSimplePointerClick(press, { x: e.clientX, y: e.clientY })) return;
+      if (!shouldFocusTerminalOnClick(e.target)) return;
+      requestAnimationFrame(() => {
+        if (hasDomTextSelection()) return;
+        const pane = root.querySelector(".term-pane.is-active");
+        const sessionId = pane?.getAttribute("data-pane-id");
+        if (!sessionId) return;
+        if (getXterm(sessionId)?.hasSelection()) return;
+        focusTerminalPaneInput(sessionId);
+      });
+    };
+
+    root.addEventListener("mousedown", onDown);
+    root.addEventListener("mouseup", onUp);
+    return () => {
+      root.removeEventListener("mousedown", onDown);
+      root.removeEventListener("mouseup", onUp);
+    };
+  }, []);
 
   const layout = (
     <ModuleWorkspaceLayout
