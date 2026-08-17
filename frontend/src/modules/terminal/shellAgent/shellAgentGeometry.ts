@@ -9,6 +9,8 @@ import {
   consumeShellAgentConfirmFreeze,
   getShellAgentLastCmd,
   getShellAgentThinkingFull,
+  clearShellAgentThinkingFull,
+  extractThinkingFromLiveHtml,
   transformPendingConfirmToAgreedHtml,
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
@@ -23,7 +25,8 @@ function sessionIsPowerShell(sessionId: string): boolean {
 }
 
 export type ShellAgentCardKind = "thinking" | "cmd" | "ask" | "final";
-export type ShellAgentGeometryMode = "inline" | "detached";
+/** inline：流内 decoration；idle：已归档、暂无活卡；detached：钉卡失败，才允许浮层兜底 */
+export type ShellAgentGeometryMode = "inline" | "idle" | "detached";
 
 export type ShellAgentGeometry = {
   mode: ShellAgentGeometryMode;
@@ -45,7 +48,7 @@ const MIN_CARD_ROWS = 1;
 const MAX_CARD_ROWS = 24;
 /** 询问表单可更高，但仍不超过终端可视行数，超出部分靠卡内滚动 */
 const MAX_ASK_CARD_ROWS = 48;
-/** 最终解读可写入更多 scrollback 行，避免长报告被裁切 */
+/** 最终解读占位上限；实际还受终端可视行-1 约束，超出在卡内滚动 */
 const MAX_FINAL_CARD_ROWS = 96;
 
 /** 建卡时的最小占位行数（实际高度由 fitShellAgentCardToContent 测量） */
@@ -56,6 +59,8 @@ export function minCardRowsFor(kind?: ShellAgentCardKind): number {
   if (kind === "ask") return 6;
   // 结果卡按内容 fit；从 1 行起跳，避免起步过高留下空白带
   if (kind === "final") return 1;
+  // 确认卡首帧就要挡住命令行：1 行起步会在首次贴底滚动时盖住回显
+  if (kind === "cmd") return 6;
   return MIN_CARD_ROWS;
 }
 
@@ -84,12 +89,11 @@ function maxCardRowsFor(
   if (kind === "ask") {
     return Math.min(MAX_ASK_CARD_ROWS, viewportCap);
   }
-  // final：允许超过一屏，写入 scrollback，避免长解读被 24 行天花板裁死
+  // final：占位最多一屏减一行，把 prompt 留在卡下。更高的解读在卡内滚动，
+  // 不能靠 overflow:visible 画出 decoration——终端视口会裁掉，且 prompt
+  // 已在卡下时禁止再写 \r\n 扩 buffer。
   if (kind === "final") {
-    return Math.min(
-      MAX_FINAL_CARD_ROWS,
-      Math.max(viewportCap, term?.rows ? term.rows * 2 : MAX_FINAL_CARD_ROWS),
-    );
+    return Math.min(MAX_FINAL_CARD_ROWS, viewportCap);
   }
   return Math.min(MAX_CARD_ROWS, viewportCap);
 }
@@ -108,10 +112,11 @@ export function contentHeightToCardRows(
     kind === "final"
       ? Math.ceil(Math.max(0, raw - 0.1))
       : Math.ceil(raw);
-  // ask / final：多留 1 行防底边裁切与盖住下一行 prompt
-  const pad = kind === "ask" || kind === "final" ? 1 : 0;
+  // ask / final / cmd：多留空行，避免 decoration 矮于卡片盖住下方回显
+  const pad = kind === "cmd" ? 2 : kind === "ask" || kind === "final" ? 1 : 0;
   const hardMax = maxCardRowsFor(sessionId, kind);
-  return Math.min(hardMax, Math.max(MIN_CARD_ROWS, rows + pad));
+  const min = kind === "thinking" ? minCardRowsFor("thinking") : MIN_CARD_ROWS;
+  return Math.min(hardMax, Math.max(min, rows + pad));
 }
 
 const geometries = new Map<string, ShellAgentGeometry>();
@@ -135,6 +140,8 @@ function isGeometryWriteSuspended(sessionId: string): boolean {
 type ArchivedShellAgentCard = {
   decoration: IDecoration;
   marker: IMarker;
+  rows: number;
+  anchorLine: number;
 };
 
 /** 已冻结、留在 scrollback 的历史卡片（decoration/marker 不 dispose） */
@@ -144,6 +151,85 @@ function pushArchived(sessionId: string, entry: ArchivedShellAgentCard): void {
   const list = archivedBySession.get(sessionId) ?? [];
   list.push(entry);
   archivedBySession.set(sessionId, list);
+}
+
+function markerLine(marker: IMarker | null | undefined, fallback: number): number {
+  try {
+    if (marker && !marker.isDisposed && typeof marker.line === "number" && marker.line >= 0) {
+      return marker.line;
+    }
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+/** 当前流内卡 + 已归档卡的占位区间 [start, end) */
+export function listShellAgentCardRanges(
+  sessionId: string,
+): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const geo = geometries.get(sessionId);
+  if (geo?.mode === "inline" && geo.anchorLine >= 0) {
+    const start = markerLine(geo.marker, geo.anchorLine);
+    ranges.push({ start, end: start + Math.max(1, geo.rows) });
+  }
+  for (const a of archivedBySession.get(sessionId) ?? []) {
+    const start = markerLine(a.marker, a.anchorLine);
+    ranges.push({ start, end: start + Math.max(1, a.rows) });
+  }
+  return ranges;
+}
+
+/** 所有卡片占位的最底下一行（不含该行，即第一行可输入行） */
+export function cardsBottomLine(sessionId: string): number | null {
+  const ranges = listShellAgentCardRanges(sessionId);
+  if (ranges.length === 0) return null;
+  return ranges.reduce((max, r) => Math.max(max, r.end), -1);
+}
+
+export function cursorInsideAnyCard(sessionId: string, cursorAbs: number): boolean {
+  return listShellAgentCardRanges(sessionId).some(
+    (r) => cursorAbs >= r.start && cursorAbs < r.end,
+  );
+}
+
+function readCursorAbs(term: Terminal): number | null {
+  try {
+    const buf = term.buffer?.active;
+    if (!buf) return null;
+    return buf.baseY + buf.cursorY;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 光标若还在历史/当前卡占位区内，本地换行推到卡下。
+ * PowerShell 禁止为此向 PTY 发 Enter。
+ */
+export function ensureCursorBelowCards(sessionId: string, then?: () => void): void {
+  const term = getXterm(sessionId);
+  if (!term) {
+    then?.();
+    return;
+  }
+  const bottom = cardsBottomLine(sessionId);
+  const cursor = readCursorAbs(term);
+  if (bottom == null || cursor == null) {
+    then?.();
+    return;
+  }
+  const gap = bottom - cursor;
+  if (gap <= 0) {
+    then?.();
+    return;
+  }
+  try {
+    term.write("\r\n".repeat(gap), () => then?.());
+  } catch {
+    then?.();
+  }
 }
 
 /** 等 React portal 卸载完成后再动 decoration DOM（避免 removeChild 崩溃） */
@@ -303,9 +389,14 @@ function resolveFrozenHtml(
   liveHtml: string,
 ): string {
   if (cardKind === "thinking") {
+    const full =
+      getShellAgentThinkingFull(sessionId).trim() ||
+      extractThinkingFromLiveHtml(liveHtml);
+    clearShellAgentThinkingFull(sessionId);
+    if (!full) return "";
     return buildThinkingDoneFrozenHtml({
       sessionId,
-      fullText: getShellAgentThinkingFull(sessionId),
+      fullText: full,
     });
   }
   if (cardKind === "ask") {
@@ -371,16 +462,32 @@ export function archiveActiveInlineCard(sessionId: string): void {
   const liveHtml = (host?.innerHTML ?? deco.element?.innerHTML ?? "").trim();
   const frozenHtml = resolveFrozenHtml(sessionId, prev.cardKind, liveHtml);
 
-  pushArchived(sessionId, { decoration: deco, marker });
-
   setGeometry(sessionId, {
     ...prev,
-    mode: "detached",
+    mode: "idle",
     cardKind: null,
     marker: null,
     decoration: null,
     rows: 0,
+    anchorLine: -1,
     version: prev.version + 1,
+  });
+
+  // 空思考卡不要冻成「思考完成 + 正在理解意图」
+  if (!frozenHtml && prev.cardKind === "thinking") {
+    try {
+      deco.dispose();
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  pushArchived(sessionId, {
+    decoration: deco,
+    marker,
+    rows: Math.max(1, prev.rows),
+    anchorLine: markerLine(marker, prev.anchorLine),
   });
 
   if (frozenHtml) {
@@ -515,6 +622,24 @@ function registerCardDecoration(
   }
 }
 
+function failToDetached(
+  sessionId: string,
+  kind: ShellAgentCardKind | null,
+  prev?: ShellAgentGeometry | null,
+): void {
+  const base = prev ?? geometries.get(sessionId);
+  setGeometry(sessionId, {
+    ...(base ?? freshGeometry()),
+    mode: "detached",
+    cardKind: kind,
+    marker: null,
+    decoration: null,
+    rows: 0,
+    anchorLine: -1,
+    version: (base?.version ?? 0) + 1,
+  });
+}
+
 /** 撤掉活跃流内卡（归档或清空），不展示任何浮层 UI */
 function detachActiveShellAgentGeometry(sessionId: string): void {
   const prev = geometries.get(sessionId);
@@ -527,7 +652,7 @@ function detachActiveShellAgentGeometry(sessionId: string): void {
   disposeMarker(prev);
   setGeometry(sessionId, {
     ...prev,
-    mode: "detached",
+    mode: "idle",
     cardKind: null,
     marker: null,
     decoration: null,
@@ -587,37 +712,68 @@ export function beginShellAgentCard(
     return detached;
   }
 
-  let marker: IMarker | null = null;
-  try {
-    marker = term.registerMarker(0);
-  } catch {
-    marker = null;
-  }
-  if (!marker) {
-    const detached = { ...base, mode: "detached" as const };
-    setGeometry(sessionId, detached);
-    return detached;
-  }
-
-  // 占位只本地 \r\n。PowerShell 向 PTY 发 Enter 会变成 `>>` 续行，已验证不可用。
-  term.write("\r\n".repeat(rows));
-  const decoration = registerCardDecoration(term, marker, rows, base.promptIndentCols);
-  if (!decoration) {
-    disposeMarker({ ...base, marker });
-    const detached = { ...base, mode: "detached" as const };
-    setGeometry(sessionId, detached);
-    return detached;
-  }
-
-  const geo: ShellAgentGeometry = {
-    ...base,
-    marker,
-    decoration,
-    rows,
-    anchorLine: marker.line,
+  const attachAt = (
+    marker: IMarker,
+    usedRows: number,
+  ): void => {
+    const decoration = registerCardDecoration(
+      term,
+      marker,
+      usedRows,
+      base.promptIndentCols,
+    );
+    if (!decoration) {
+      disposeMarker({ ...base, marker });
+      const detached = { ...base, mode: "detached" as const };
+      setGeometry(sessionId, detached);
+      placed = detached;
+      return;
+    }
+    const geo: ShellAgentGeometry = {
+      ...base,
+      marker,
+      decoration,
+      rows: usedRows,
+      anchorLine: marker.line,
+    };
+    setGeometry(sessionId, geo);
+    placed = geo;
   };
-  setGeometry(sessionId, geo);
-  return geo;
+
+  const place = (): void => {
+    const afterMarker = (): void => {
+      let marker: IMarker | null = null;
+      try {
+        marker = term.registerMarker(0);
+      } catch {
+        marker = null;
+      }
+      if (!marker) {
+        const detached = { ...base, mode: "detached" as const };
+        setGeometry(sessionId, detached);
+        placed = detached;
+        return;
+      }
+
+      // 占位只本地 \r\n。PowerShell 向 PTY 发 Enter 会变成 `>>` 续行。
+      writeThen(term, "\r\n".repeat(rows), () => {
+        attachAt(marker!, rows);
+      });
+    };
+
+    if (needsBlankLineBeforeMarker(term)) {
+      writeThen(term, "\r\n", afterMarker);
+    } else {
+      afterMarker();
+    }
+  };
+
+  // 续轮：光标常还停在上一张已归档卡内部，先推到卡下再钉，否则两张 decoration 重叠
+  let placed: ShellAgentGeometry | null = null;
+  ensureCursorBelowCards(sessionId, () => {
+    place();
+  });
+  return placed ?? getShellAgentGeometry(sessionId) ?? { ...base, mode: "detached" as const };
 }
 
 /** 光标是否已离开占位区（命令回显/输出已写在卡下方） */
@@ -655,8 +811,8 @@ function promptSittingJustBelowCard(term: Terminal, geo: ShellAgentGeometry): bo
     const from = geo.anchorLine + Math.max(1, geo.rows);
     const to = Math.min(buf.length - 1, Math.max(from, cursorAbs) + 2);
     for (let y = from; y <= to; y += 1) {
-      const line = buf.getLine(y)?.translateToString(true) ?? "";
-      if (lineLooksLikeShellPrompt(line)) return true;
+      const line = (buf.getLine(y)?.translateToString(true) ?? "").replace(/\s+$/u, "");
+      if (lineLooksLikeShellPrompt(line) || /^PS\s+\S+>/.test(line)) return true;
     }
   } catch {
     // ignore
@@ -672,6 +828,52 @@ function cursorLineLooksLikeEmptyPrompt(term: Terminal): boolean {
     return lineLooksLikeShellPrompt(line);
   } catch {
     return false;
+  }
+}
+
+function cursorLineText(term: Terminal): string {
+  try {
+    const buf = term.buffer?.active;
+    if (!buf) return "";
+    return (buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "").replace(
+      /\s+$/u,
+      "",
+    );
+  } catch {
+    return "";
+  }
+}
+
+function cursorAtViewportBottom(term: Terminal): boolean {
+  try {
+    const buf = term.buffer?.active;
+    if (!buf) return false;
+    return buf.cursorY >= Math.max(0, (term.rows || 1) - 1);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 当前行已有输出/prompt，或光标已贴底（下一笔 \n 会开始滚动）：
+ * 必须先换到空行再钉 marker，否则 decoration 会盖住那一行命令。
+ * 视口未满时 \n 只是走进空白单元格，所以只有贴底第一次滚动才会暴露这个问题。
+ */
+export function needsBlankLineBeforeMarker(term: Terminal): boolean {
+  if (cursorLineText(term).length > 0) return true;
+  if (cursorLineLooksLikeEmptyPrompt(term)) return true;
+  return cursorAtViewportBottom(term);
+}
+
+function writeThen(term: Terminal, data: string, then: () => void): void {
+  if (!data) {
+    then();
+    return;
+  }
+  try {
+    term.write(data, () => then());
+  } catch {
+    then();
   }
 }
 
@@ -698,7 +900,11 @@ export function resizeShellAgentCard(
   const term = getXterm(sessionId);
   const marker = prev.marker;
   if (!term || !marker || marker.isDisposed) {
-    detachActiveShellAgentGeometry(sessionId);
+    if (prev.cardKind === "cmd" || prev.cardKind === "ask") {
+      failToDetached(sessionId, prev.cardKind, prev);
+    } else {
+      detachActiveShellAgentGeometry(sessionId);
+    }
     onReady?.();
     return;
   }
@@ -708,9 +914,8 @@ export function resizeShellAgentCard(
     Math.max(MIN_CARD_ROWS, targetRows),
   );
   const pastPlaceholder = cursorPastPlaceholderEnd(term, prev);
-  // ask / final：允许越过光标限制继续扩高（表单/解读不能卡死在矮占位）
-  const allowGrowPastCursor =
-    prev.cardKind === "ask" || prev.cardKind === "final";
+  // ask 表单可越过光标扩高；结果卡不行——会盖住卡下刚落下的 PS>
+  const allowGrowPastCursor = prev.cardKind === "ask";
   // 卡下已是空 prompt：再写 \r\n 会把 prompt 顶开，留下卡下空白带
   const promptBelow = promptSittingJustBelowCard(term, prev);
   const effectiveTarget =
@@ -725,43 +930,54 @@ export function resizeShellAgentCard(
 
   const diff = effectiveTarget - prev.rows;
   if (diff > 0 && promptBelow) {
-    // 不扩占位，避免顶开下方 prompt；内容略高时由 portal overflow 可见
-    onReady?.();
-    return;
-  }
-  if (diff > 0 && (!pastPlaceholder || allowGrowPastCursor)) {
-    term.write("\r\n".repeat(diff));
-  }
-
-  const oldDecoration = prev.decoration;
-  const decoration = registerCardDecoration(
-    term,
-    marker,
-    effectiveTarget,
-    prev.promptIndentCols,
-  );
-  if (!decoration) {
+    // 不扩占位，避免把已落下的 prompt 顶开 / 盖住。超出部分由结果卡内滚动。
     onReady?.();
     return;
   }
 
-  setGeometry(sessionId, {
-    ...prev,
-    decoration,
-    rows: effectiveTarget,
-    version: prev.version + 1,
-  });
+  const applyDecoration = (): void => {
+    const cur = geometries.get(sessionId);
+    if (!cur || cur.mode !== "inline" || cur.marker !== marker) {
+      onReady?.();
+      return;
+    }
+    const oldDecoration = cur.decoration;
+    const decoration = registerCardDecoration(
+      term,
+      marker,
+      effectiveTarget,
+      cur.promptIndentCols,
+    );
+    if (!decoration) {
+      onReady?.();
+      return;
+    }
 
-  if (oldDecoration && oldDecoration !== decoration) {
-    whenDecorationPortalIdle(oldDecoration, () => {
-      try {
-        oldDecoration.dispose();
-      } catch {
-        // ignore
-      }
+    setGeometry(sessionId, {
+      ...cur,
+      decoration,
+      rows: effectiveTarget,
+      version: cur.version + 1,
     });
+
+    if (oldDecoration && oldDecoration !== decoration) {
+      whenDecorationPortalIdle(oldDecoration, () => {
+        try {
+          oldDecoration.dispose();
+        } catch {
+          // ignore
+        }
+      });
+    }
+    onReady?.();
+  };
+
+  if (diff > 0 && (!pastPlaceholder || allowGrowPastCursor)) {
+    writeThen(term, "\r\n".repeat(diff), applyDecoration);
+    return;
   }
-  onReady?.();
+
+  applyDecoration();
 }
 
 const fitTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -774,7 +990,11 @@ export function fitShellAgentCardToContent(
   onStable?: () => void,
 ): void {
   const prevKind = geometries.get(sessionId)?.cardKind ?? null;
-  const rows = contentHeightToCardRows(sessionId, contentHeightPx, prevKind);
+  const fitted = contentHeightToCardRows(sessionId, contentHeightPx, prevKind);
+  const rows =
+    prevKind === "thinking"
+      ? Math.max(minCardRowsFor("thinking"), fitted)
+      : fitted;
   const prevTimer = fitTimers.get(sessionId);
   if (prevTimer) clearTimeout(prevTimer);
   fitTimers.set(
@@ -783,13 +1003,12 @@ export function fitShellAgentCardToContent(
       fitTimers.delete(sessionId);
       const prev = geometries.get(sessionId);
       const term = getXterm(sessionId);
-      // 光标已在卡下方：非 final/ask 禁止再写 \r\n（双 prompt）；ask/final 必须能撑开
+      // 光标已在卡下方：禁止再写 \r\n 加高，否则 decoration 会盖住已有回显 / 新 PS>
       if (
         prev &&
         term &&
         cursorPastPlaceholderEnd(term, prev) &&
         rows > prev.rows &&
-        prev.cardKind !== "final" &&
         prev.cardKind !== "ask"
       ) {
         onStable?.();
@@ -818,6 +1037,16 @@ export function setShellAgentCardKind(sessionId: string, kind: ShellAgentCardKin
   if (!prev) return;
   if (prev.cardKind === kind) return;
   setGeometry(sessionId, { ...prev, cardKind: kind, version: prev.version + 1 });
+}
+
+/** 思考卡(3 行)换成确认卡时先撑到确认卡最小占位，避免只露表头、盖住输出 */
+export function ensureMinCardRows(sessionId: string, kind: ShellAgentCardKind): void {
+  const prev = geometries.get(sessionId);
+  if (!prev || prev.mode !== "inline") return;
+  const min = minCardRowsFor(kind);
+  if (prev.rows < min) {
+    resizeShellAgentCard(sessionId, min);
+  }
 }
 
 /**
@@ -862,19 +1091,126 @@ export function reanchorShellAgentCard(
     Math.max(MIN_CARD_ROWS, rowsOverride ?? minCardRowsFor(kind)),
   );
 
+  const finishAttach = (marker: IMarker, usedRows: number): void => {
+    const decoration = registerCardDecoration(term, marker, usedRows, indentCols);
+    if (!decoration) {
+      try {
+        marker.dispose();
+      } catch {
+        // ignore
+      }
+      failToDetached(sessionId, kind, prev);
+      onReady?.();
+      return;
+    }
+
+    setGeometry(sessionId, {
+      ...freshGeometry({
+        cardKind: kind,
+        promptIndentCols: indentCols,
+        promptPrefix,
+        query,
+        version: version + 1,
+      }),
+      mode: "inline",
+      marker,
+      decoration,
+      rows: usedRows,
+      anchorLine: marker.line,
+    });
+    markReanchorNeedsPtySync(sessionId);
+
+    if (oldDecoration) {
+      if (!frozenHtml && oldKind === "thinking") {
+        try {
+          oldDecoration.dispose();
+        } catch {
+          // ignore
+        }
+      } else {
+        if (oldMarker) {
+          pushArchived(sessionId, {
+            decoration: oldDecoration,
+            marker: oldMarker,
+            rows: Math.max(1, prev?.rows ?? 1),
+            anchorLine: markerLine(oldMarker, prev?.anchorLine ?? 0),
+          });
+        }
+        if (frozenHtml) {
+          injectFrozenCardSnapshot(oldDecoration, frozenHtml, sessionId);
+        }
+      }
+    }
+    onReady?.();
+  };
+
   const placeCard = () => {
+    const afterMarker = () => {
+      let marker: IMarker | null = null;
+      try {
+        marker = term.registerMarker(0);
+      } catch {
+        marker = null;
+      }
+      if (!marker || marker.isDisposed || marker.line < 0) {
+        failToDetached(sessionId, kind, prev);
+        onReady?.();
+        return;
+      }
+
+      writeThen(term, "\r\n".repeat(rows), () => {
+        finishAttach(marker!, rows);
+      });
+    };
+
+    if (needsBlankLineBeforeMarker(term)) {
+      writeThen(term, "\r\n", afterMarker);
+    } else {
+      afterMarker();
+    }
+  };
+
+  ensureCursorBelowCards(sessionId, placeCard);
+}
+
+/**
+ * 把还在流式的思考卡挪到当前光标，不冻结、不清思考缓存。
+ * 输出又涨高时用，避免 archive 把流式正文冻成「思考完成」再钉空卡。
+ */
+export function relocateInlineCardToCursor(
+  sessionId: string,
+  onReady?: () => void,
+): void {
+  if (isGeometryWriteSuspended(sessionId)) {
+    onReady?.();
+    return;
+  }
+  const term = getXterm(sessionId);
+  const prev = geometries.get(sessionId);
+  if (!term || !prev || prev.mode !== "inline" || !prev.cardKind) {
+    onReady?.();
+    return;
+  }
+  const kind = prev.cardKind;
+  const oldDecoration = prev.decoration;
+  const indentCols = prev.promptIndentCols;
+  const promptPrefix = prev.promptPrefix;
+  const query = prev.query;
+  const version = prev.version;
+  const rows = Math.max(MIN_CARD_ROWS, prev.rows || minCardRowsFor(kind));
+
+  const afterMarker = () => {
     let marker: IMarker | null = null;
     try {
       marker = term.registerMarker(0);
     } catch {
       marker = null;
     }
-    if (!marker || marker.isDisposed) {
+    if (!marker || marker.isDisposed || marker.line < 0) {
       onReady?.();
       return;
     }
-
-    term.write("\r\n".repeat(rows), () => {
+    writeThen(term, "\r\n".repeat(rows), () => {
       const decoration = registerCardDecoration(term, marker!, rows, indentCols);
       if (!decoration) {
         try {
@@ -885,7 +1221,6 @@ export function reanchorShellAgentCard(
         onReady?.();
         return;
       }
-
       setGeometry(sessionId, {
         ...freshGeometry({
           cardKind: kind,
@@ -900,26 +1235,18 @@ export function reanchorShellAgentCard(
         rows,
         anchorLine: marker!.line,
       });
-      markReanchorNeedsPtySync(sessionId);
-
       if (oldDecoration) {
-        if (oldMarker) {
-          pushArchived(sessionId, { decoration: oldDecoration, marker: oldMarker });
-        }
-        if (frozenHtml) {
-          injectFrozenCardSnapshot(oldDecoration, frozenHtml, sessionId);
+        try {
+          oldDecoration.dispose();
+        } catch {
+          // ignore
         }
       }
       onReady?.();
     });
   };
 
-  // final：空 prompt 上先本地换行再钉卡，避免盖住可输入行
-  if (kind === "final" && cursorLineLooksLikeEmptyPrompt(term)) {
-    term.write("\r\n", () => placeCard());
-    return;
-  }
-  placeCard();
+  ensureCursorBelowCards(sessionId, afterMarker);
 }
 
 /** 重锚后是否需要在 release 时向 PTY 发一次 \r\n 拉出新 prompt */
@@ -952,7 +1279,7 @@ export function disposeShellAgentCard(sessionId: string): void {
   disposeMarker(prev);
   setGeometry(sessionId, {
     ...prev,
-    mode: "detached",
+    mode: "idle",
     cardKind: null,
     marker: null,
     decoration: null,
@@ -984,7 +1311,11 @@ export function relayoutShellAgentCard(sessionId: string): void {
   const term = getXterm(sessionId);
   const marker = prev.marker;
   if (!term || !marker || marker.isDisposed) {
-    detachActiveShellAgentGeometry(sessionId);
+    if (prev.cardKind === "cmd" || prev.cardKind === "ask") {
+      failToDetached(sessionId, prev.cardKind, prev);
+    } else {
+      detachActiveShellAgentGeometry(sessionId);
+    }
     return;
   }
 

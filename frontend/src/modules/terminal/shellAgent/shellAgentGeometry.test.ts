@@ -7,9 +7,10 @@ vi.mock("../../../stores/settingsStore", () => ({
   },
 }));
 vi.mock("../../../stores/terminalStore", () => ({
-  findTerminalPane: () => undefined,
+  findTerminalPane: vi.fn(() => undefined),
 }));
 
+import { findTerminalPane } from "../../../stores/terminalStore";
 import { registerXterm, unregisterXterm } from "../xtermRegistry";
 import {
   archiveActiveInlineCard,
@@ -19,15 +20,30 @@ import {
   disposeShellAgentCard,
   getShellAgentGeometry,
   minCardRowsFor,
+  needsBlankLineBeforeMarker,
+  reanchorShellAgentCard,
   resizeShellAgentCard,
+  setShellAgentCardKind,
+  ensureMinCardRows,
+  contentHeightToCardRows,
 } from "./shellAgentGeometry";
+import { clearShellAgentThinkingFull, setShellAgentThinkingFull } from "./thinkingCache";
 
 type FakeTerm = {
   cols: number;
   rows: number;
+  cursorLine: number;
+  currentLine: string;
   writes: string[];
   markers: FakeMarker[];
   decorations: FakeDecoration[];
+  buffer: {
+    active: {
+      baseY: number;
+      cursorY: number;
+      getLine: (y: number) => { translateToString: (trim?: boolean) => string };
+    };
+  };
   registerMarker: (offset: number) => IMarker;
   registerDecoration: (opts: { marker: IMarker; height?: number }) => IDecoration | undefined;
   write: (data: string, cb?: () => void) => void;
@@ -35,6 +51,7 @@ type FakeTerm = {
 };
 
 type FakeMarker = {
+  line: number;
   isDisposed: boolean;
   disposedCount: number;
   dispose: () => void;
@@ -46,16 +63,30 @@ type FakeDecoration = {
   disposed: boolean;
 };
 
-function createFakeTerm(): FakeTerm {
+function createFakeTerm(opts?: { cursorY?: number; lineText?: string }): FakeTerm {
   const term: FakeTerm = {
     cols: 80,
     rows: 24,
+    cursorLine: opts?.cursorY ?? 0,
+    currentLine: opts?.lineText ?? "",
     writes: [],
     markers: [],
     decorations: [],
     failDecoration: false,
+    buffer: {
+      active: {
+        baseY: 0,
+        get cursorY() {
+          return term.cursorLine;
+        },
+        getLine() {
+          return { translateToString: () => term.currentLine };
+        },
+      },
+    },
     registerMarker() {
       const marker: FakeMarker = {
+        line: term.cursorLine,
         isDisposed: false,
         disposedCount: 0,
         dispose() {
@@ -85,6 +116,12 @@ function createFakeTerm(): FakeTerm {
     },
     write(data, cb) {
       term.writes.push(data);
+      const n = (data.match(/\r\n/g) ?? []).length;
+      term.cursorLine += n;
+      if (n > 0) term.currentLine = "";
+      if (term.cursorLine >= term.rows) {
+        term.cursorLine = term.rows - 1;
+      }
       cb?.();
     },
   };
@@ -96,14 +133,31 @@ const SID = "test-geo-session";
 describe("shellAgentGeometry", () => {
   beforeEach(() => {
     clearShellAgentGeometry(SID);
+    clearShellAgentThinkingFull(SID);
     unregisterXterm(SID);
+    vi.mocked(findTerminalPane).mockReturnValue(undefined);
   });
 
-  it("minCardRowsFor：thinking 至少 3 行，final 1 行起步", () => {
+  it("minCardRowsFor：thinking 至少 3 行，cmd 6 行起步，final 1 行起步", () => {
     expect(minCardRowsFor("thinking")).toBe(3);
-    expect(minCardRowsFor("cmd")).toBe(1);
+    expect(minCardRowsFor("cmd")).toBe(6);
     expect(minCardRowsFor("final")).toBe(1);
     expect(cardRowsFor("cmd")).toBe(1);
+  });
+
+  it("contentHeightToCardRows：thinking 再矮也至少 3 行", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    expect(contentHeightToCardRows(SID, 8, "thinking")).toBeGreaterThanOrEqual(3);
+  });
+
+  it("contentHeightToCardRows：final 超高不超过可视行-1，避免画出终端被裁切", () => {
+    const term = createFakeTerm();
+    term.rows = 24;
+    registerXterm(SID, term as unknown as Terminal);
+    const rows = contentHeightToCardRows(SID, 4000, "final");
+    expect(rows).toBeLessThanOrEqual(23);
+    expect(rows).toBeGreaterThan(1);
   });
 
   it("beginShellAgentCard：thinking 最小 3 行占位 + marker+decoration 就位", () => {
@@ -156,6 +210,7 @@ describe("shellAgentGeometry", () => {
       promptPrefix: "$ ",
       query: "q",
     });
+    const writesAfterBegin = term.writes.join("");
 
     resizeShellAgentCard(SID, 6);
 
@@ -164,12 +219,42 @@ describe("shellAgentGeometry", () => {
     // 原子切换：resize 后 decoration 立刻非空，不出现 null 空窗
     expect(geo?.decoration).not.toBeNull();
     expect(geo?.mode).toBe("inline");
-    // 3（thinking 初占位）+ 3（扩到 6）
-    expect(term.writes.join("")).toBe("\r\n".repeat(6));
+    expect(term.writes.join("").slice(writesAfterBegin.length)).toBe("\r\n".repeat(3));
     expect(term.decorations).toHaveLength(2);
     expect(term.decorations[1].height).toBe(6);
     // marker 复用不重建
     expect(term.markers).toHaveLength(1);
+  });
+
+  it("思考卡换确认卡：先撑到确认卡最小占位", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q",
+    });
+    expect(getShellAgentGeometry(SID)?.rows).toBe(3);
+    setShellAgentCardKind(SID, "cmd");
+    ensureMinCardRows(SID, "cmd");
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+    expect(getShellAgentGeometry(SID)?.rows).toBe(6);
+  });
+
+  it("续轮确认卡：光标已过占位不再加高，避免盖住回显", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q",
+    });
+    expect(getShellAgentGeometry(SID)?.rows).toBe(6);
+    term.cursorLine = 40;
+    resizeShellAgentCard(SID, 12);
+    expect(getShellAgentGeometry(SID)?.rows).toBe(6);
   });
 
   it("disposeShellAgentCard：撤卡留占位，几何归零", async () => {
@@ -185,7 +270,7 @@ describe("shellAgentGeometry", () => {
     disposeShellAgentCard(SID);
 
     const geo = getShellAgentGeometry(SID);
-    expect(geo?.mode).toBe("detached");
+    expect(geo?.mode).toBe("idle");
     expect(geo?.cardKind).toBeNull();
     expect(geo?.decoration).toBeNull();
     expect(geo?.rows).toBe(0);
@@ -201,7 +286,25 @@ describe("shellAgentGeometry", () => {
     expect(term.decorations[0].disposed).toBe(true);
   });
 
-  it("archiveActiveInlineCard：归档后 detached，decoration 不 dispose", () => {
+  it("archiveActiveInlineCard：有思考正文时归档不 dispose", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q",
+    });
+    setShellAgentThinkingFull(SID, "先看 CPU 占用");
+
+    archiveActiveInlineCard(SID);
+
+    const geo = getShellAgentGeometry(SID);
+    expect(geo?.mode).toBe("idle");
+    expect(term.decorations[0].disposed).toBe(false);
+  });
+
+  it("archiveActiveInlineCard：无思考正文不冻空的思考完成卡", () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
     beginShellAgentCard(SID, {
@@ -213,8 +316,81 @@ describe("shellAgentGeometry", () => {
 
     archiveActiveInlineCard(SID);
 
-    const geo = getShellAgentGeometry(SID);
-    expect(geo?.mode).toBe("detached");
+    expect(getShellAgentGeometry(SID)?.mode).toBe("idle");
+    expect(term.decorations[0].disposed).toBe(true);
+  });
+
+  it("续轮建卡：光标仍在归档卡内时先换行再钉，避免 decoration 重叠", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q1",
+    });
+    const firstMarkerLine = (term.markers[0] as FakeMarker).line;
+    archiveActiveInlineCard(SID);
+
+    // 模拟 ConPTY 把光标 CUP 回已归档确认卡内部
+    term.cursorLine = firstMarkerLine;
+
+    const geo = beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q2",
+    });
+    const secondMarkerLine = (term.markers[1] as FakeMarker).line;
+    expect(geo.mode).toBe("inline");
+    expect(secondMarkerLine).toBeGreaterThanOrEqual(firstMarkerLine + 1);
+    expect(term.decorations).toHaveLength(2);
     expect(term.decorations[0].disposed).toBe(false);
+  });
+
+  it("贴底且当前行有命令时，先换行再钉卡，避免 decoration 盖住回显", () => {
+    const term = createFakeTerm({
+      cursorY: 23,
+      lineText: 'Get-Counter "\\Processor(_Total)\\% Processor Time"',
+    });
+    registerXterm(SID, term as unknown as Terminal);
+    expect(needsBlankLineBeforeMarker(term as unknown as Terminal)).toBe(true);
+
+    const geo = beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "PS> ",
+      query: "看资源",
+    });
+
+    expect(geo.mode).toBe("inline");
+    expect(geo.rows).toBe(6);
+    // 先空一行，再写确认卡占位
+    expect(term.writes[0]).toBe("\r\n");
+    expect(term.writes.join("")).toBe("\r\n".repeat(7));
+    expect(term.currentLine).toBe("");
+  });
+
+  it("reanchor 贴底时同样先空行再钉", () => {
+    const term = createFakeTerm({
+      cursorY: 23,
+      lineText: "PS C:\\Users\\chaoj>",
+    });
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "PS> ",
+      query: "q",
+    });
+    term.cursorLine = 23;
+    term.currentLine = "Get-Volume | Where-Object {$_.DriveType -eq 'Fixed'}";
+    term.writes.length = 0;
+
+    reanchorShellAgentCard(SID, "cmd");
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+    const newlines = (term.writes.join("").match(/\r\n/g) ?? []).length;
+    expect(newlines).toBeGreaterThanOrEqual(7);
   });
 });

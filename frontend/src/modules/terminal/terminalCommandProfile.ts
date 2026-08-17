@@ -153,8 +153,13 @@ function isInteractiveCommand(command: string): boolean {
   return isInteractiveTerminalCommandFallback(command);
 }
 
+/** PowerShell 会打 Write-Progress 进度条、耗时常超过 batch idle 的 cmdlet */
+const PS_PROGRESS_CMDLET_RE =
+  /\b(Get-ComputerInfo|Get-WindowsFeature|Install-WindowsFeature|Get-HotFix|Update-Help|Install-Module|Install-Package)\b/i;
+
 function isProgressCommand(command: string): boolean {
-  return PROGRESS_COMMAND_BASES.has(commandBaseName(command));
+  if (PROGRESS_COMMAND_BASES.has(commandBaseName(command))) return true;
+  return PS_PROGRESS_CMDLET_RE.test(command);
 }
 
 function isLongRunningCommand(command: string): boolean {

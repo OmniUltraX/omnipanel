@@ -1792,11 +1792,11 @@
         pointer-events: auto;
     }
 
-    /* 结果卡：随内容增高，勿用 100% 撑满占位（会在卡下留白） */
+    /* 结果卡：锁在 decoration 高度内；超高解读在卡内滚动，避免被终端视口裁切 */
     .term-shell-agent-portal-host:has([data-card-kind="final"]) {
-        height: auto;
-        max-height: none;
-        overflow: visible;
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
     }
 
     /* 询问卡：占位触顶后在卡内滚动 */
@@ -1822,6 +1822,7 @@
         box-sizing: border-box;
         padding: 0;
         margin: 0;
+        /* 透明：跟 xterm 画布同色，不要用 --bg 盖出一块浅灰 */
         background: transparent;
         align-self: flex-start;
     }
@@ -1835,17 +1836,21 @@
 
     .term-shell-agent-deco-card[data-card-kind="final"] {
         height: auto;
-        max-height: none;
-        overflow: visible;
+        max-height: 100%;
+        min-height: 0;
+        overflow: hidden;
         align-self: flex-start;
     }
 
     .term-shell-agent-deco-card--frozen {
         pointer-events: auto;
+        /* 铺满 decoration 占位；背景透明，与 xterm 画布同色 */
+        height: 100%;
         /* 裁在 decoration 高度内，避免解冻后变高盖住下方新卡 */
         overflow: hidden;
         max-height: 100%;
         box-sizing: border-box;
+        background: transparent;
     }
 
     .term-shell-agent-deco-card--frozen .term-shell-agent-card.is-done,
@@ -1872,10 +1877,18 @@
         width: 100%;
         max-width: min(720px, 100%);
         height: auto;
-        max-height: none;
-        overflow: visible;
+        max-height: 100%;
+        overflow: hidden;
         box-sizing: border-box;
         margin: 4px 0;
+    }
+    .term-shell-agent-deco-card .term-shell-agent-card--final {
+        max-height: 100%;
+        min-height: 0;
+        overflow: hidden;
+        flex: 0 0 auto;
+        align-self: flex-start;
+        height: auto;
     }
 
     .term-shell-agent-card {
@@ -2028,9 +2041,9 @@
         background: color-mix(in oklch, var(--surface) 78%, var(--bg-deeper));
         border: 1px solid var(--border);
         box-shadow: none;
-        overflow: visible;
-        max-height: none;
-        /* 勿被父级撑高，否则测高反馈会把占位越撑越大 */
+        overflow: hidden;
+        max-height: 100%;
+        min-height: 0;
         flex: 0 0 auto;
         height: auto;
         align-self: flex-start;
@@ -2120,14 +2133,21 @@
     .term-shell-agent-card--note.is-done {
         border-color: color-mix(in oklch, var(--accent) 30%, var(--border));
     }
+    .term-shell-agent-thinking-src {
+        display: none !important;
+    }
 
     .term-shell-agent-card__interpret {
         color: var(--accent);
         font-size: 12.5px;
         line-height: 1.65;
         width: 100%;
-        overflow: visible;
-        max-height: none;
+        min-height: 0;
+        flex: 0 1 auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        max-height: 100%;
     }
 
     .term-shell-agent-card__interpret .term-shell-agent-md {
@@ -2180,6 +2200,7 @@
         align-items: center;
         gap: 8px;
         width: 100%;
+        flex: 0 0 auto;
     }
 
     .term-shell-agent-btn {
@@ -2219,6 +2240,11 @@
         border-color: var(--accent-hover);
         color: var(--accent-fg);
     }
+    .term-shell-agent-btn--primary:focus-visible,
+    .term-shell-agent-btn--danger:focus-visible {
+        outline: 2px solid color-mix(in oklch, var(--accent-fg) 70%, transparent);
+        outline-offset: 2px;
+    }
     .term-shell-agent-btn--danger {
         background: var(--danger-soft);
         border-color: color-mix(in oklch, var(--danger) 40%, var(--border));
@@ -2228,6 +2254,29 @@
         background: var(--danger);
         border-color: var(--danger);
         color: var(--accent-fg);
+    }
+    .term-shell-agent-kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 2px;
+        padding: 1px 5px;
+        min-width: 1.6em;
+        border-radius: 4px;
+        border: 1px solid color-mix(in oklch, var(--accent-fg) 38%, transparent);
+        background: color-mix(in oklch, var(--accent-fg) 16%, transparent);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        line-height: 1.2;
+        opacity: 0.92;
+        pointer-events: none;
+    }
+    .term-shell-agent-btn--danger .term-shell-agent-kbd {
+        border-color: color-mix(in oklch, currentColor 42%, transparent);
+        background: color-mix(in oklch, currentColor 14%, transparent);
+        color: inherit;
     }
     .term-shell-agent-btn--ghost {
         background: transparent;

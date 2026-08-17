@@ -110,14 +110,17 @@ import {
   clearRemoteInputLine,
   flushPendingShellAgentReanchor,
   isPowerShellSession,
+  notifyShellAgentScreenCleared,
   startOrContinueShellAgent,
   teardownShellAgentUi,
 } from "../modules/terminal/shellAgent/loop";
 import { useShellAgentStore } from "../modules/terminal/shellAgent/shellAgentStore";
 import {
+  cardsBottomLine,
   getShellAgentGeometry,
   setShellAgentGeometryWriteSuspended,
 } from "../modules/terminal/shellAgent/shellAgentGeometry";
+import { hasConptyScreenReset, stripConptyCursorRestore } from "../modules/terminal/shellAgent/conptyCursorFilter";
 import { showToast } from "../stores/toastStore";
 import { createTranslator } from "../i18n";
 import {
@@ -132,6 +135,7 @@ import {
 } from "../modules/terminal/passthroughAi/screenLine";
 import { shouldRouteInputToAi } from "../modules/terminal/commandInputRouting";
 import {
+  getXterm,
   registerXterm,
   unregisterXterm,
 } from "../modules/terminal/xtermRegistry";
@@ -150,6 +154,33 @@ import {
 import { useModuleVisibility } from "../lib/moduleVisibility";
 
 type TerminalInputBinding = { dispose: () => void };
+
+function rewriteConptyBytesForInlineCard(
+  sessionId: string,
+  bytes: Uint8Array,
+): Uint8Array | string {
+  if (!isPowerShellSession(sessionId) || getEnterGateFlags(sessionId).altScreen) {
+    return bytes;
+  }
+  // 同意执行后确认卡已归档（mode=idle），长命令 CUP 仍会画进占位行。
+  // 只要还有流内/归档卡，就要改写落到卡内的绝对定位。
+  const bottom = cardsBottomLine(sessionId);
+  if (bottom == null) return bytes;
+
+  const raw = new TextDecoder().decode(bytes);
+  if (hasConptyScreenReset(raw)) {
+    notifyShellAgentScreenCleared(sessionId);
+    return bytes;
+  }
+  const buf = getXterm(sessionId)?.buffer?.active;
+  const next = stripConptyCursorRestore(raw, {
+    cardsBottomAbs: bottom,
+    viewportY: buf?.viewportY ?? 0,
+    cursorAbs: buf ? buf.baseY + buf.cursorY : bottom,
+    viewportRows: getXterm(sessionId)?.rows,
+  });
+  return next === raw ? bytes : next;
+}
 
 function bindTerminalInputMode(
   term: Terminal,
@@ -222,6 +253,24 @@ function bindTerminalInputMode(
     return decidePassthroughEnter(sessionId, bufferRef.current, screenHint);
   };
 
+  const beginApprovePending = (): void => {
+    bufferRef.current = resetLineBuffer(bufferRef.current);
+    patchEnterGateFlags(sessionId, { reverseSearch: false, userTyping: false });
+    refreshPromptHint();
+    void import("../modules/terminal/inlineToolBridge").then(
+      ({ tryApprovePendingShellAgentEnter }) => {
+        tryApprovePendingShellAgentEnter(sessionId);
+      },
+    );
+  };
+
+  const isConfirmCardTextareaFocused = (): boolean => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLTextAreaElement)) return false;
+    if (!el.classList.contains("term-shell-agent-card__edit")) return false;
+    return el.closest("[data-session-id]")?.getAttribute("data-session-id") === sessionId;
+  };
+
   if (mode === "external") {
     // 外部 Command Bar 模式：吞掉 xterm 键盘输入，仅保留 AI 快捷键
     term.attachCustomKeyEventHandler((e) => {
@@ -280,11 +329,22 @@ function bindTerminalInputMode(
           }
         }
 
+        if (isConfirmCardTextareaFocused()) {
+          return true;
+        }
+
         const decision = decideEnter();
         if (decision.action === "route_ai") {
           e.preventDefault?.();
           e.stopPropagation?.();
           if (!swallowEnter) beginRouteAi(decision.query);
+          swallowEnter = true;
+          return false;
+        }
+        if (decision.action === "approve_pending") {
+          e.preventDefault?.();
+          e.stopPropagation?.();
+          if (!swallowEnter) beginApprovePending();
           swallowEnter = true;
           return false;
         }
@@ -303,6 +363,10 @@ function bindTerminalInputMode(
         const decision = decideEnter();
         if (decision.action === "route_ai") {
           if (!swallowEnter) beginRouteAi(decision.query);
+          return;
+        }
+        if (decision.action === "approve_pending") {
+          if (!swallowEnter) beginApprovePending();
           return;
         }
         bufferRef.current = resetLineBuffer(bufferRef.current);
@@ -1326,14 +1390,21 @@ export function useTerminal(
           ) {
             // skip xterm write
           } else {
-            term?.write(merged);
+            term?.write(rewriteConptyBytesForInlineCard(sessionId, merged));
           }
         }
 
         let text = ingestTerminalHistoryOutput(sessionId, rawText);
         if (!text) return;
-        text = stripTerminalControlSequences(text);
-        if (!text) return;
+        const stripped = stripTerminalControlSequences(text);
+        if (!stripped) {
+          // Get-ComputerInfo 进度条多为 CSI 重绘：剥离后为空，仍要唤醒 idle 检测
+          if (/[\x1b\x9b]/.test(rawText)) {
+            tapTerminalOutput(sessionId, "\u0001");
+          }
+          return;
+        }
+        text = stripped;
 
         feedTerminalOutputForWatch(sessionId, text);
         tapTerminalOutput(sessionId, text);
@@ -1870,7 +1941,7 @@ export function useTerminal(
       const rt = runtimeRef.current;
       if (rt.outputBuffer.length === 0) return;
       for (const bytes of rt.outputBuffer) {
-        term.write(bytes);
+        term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
       }
       rt.outputBuffer = [];
     }
@@ -2029,7 +2100,7 @@ export function useTerminal(
     }
     if (term && rt.outputBuffer.length > 0) {
       for (const bytes of rt.outputBuffer) {
-        term.write(bytes);
+        term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
       }
       rt.outputBuffer = [];
     }

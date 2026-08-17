@@ -1,12 +1,14 @@
 import { useActionStore, type WorkspaceAction } from "../../stores/actionStore";
 import { createBlockId, useBlocksStore, type TerminalBlock } from "../../stores/blocksStore";
-import { useTerminalStore } from "../../stores/terminalStore";
+import { findTerminalPane, useTerminalStore } from "../../stores/terminalStore";
 import {
   extractCommandOutput,
   isEchoOnlyTerminalOutput,
   isLikelyCommandEchoAsOutput,
   isMeaningfulTerminalBlock,
+  looksLikePowerShellProgressText,
   normalizeBlockCommand,
+  watchHasTrailingPowerShellPrompt,
 } from "./terminalOutputText";
 import { terminalPaneSenders } from "./terminalPaneSenders";
 import { isWarpDisplay } from "./terminalDisplayMode";
@@ -255,6 +257,26 @@ function resolveSessionCwd(tabId: string): string {
   return cwd;
 }
 
+function sessionIsPowerShell(sessionId: string): boolean {
+  const pane = findTerminalPane(sessionId);
+  const kind = pane?.shellSpec?.kind;
+  if (kind === "powershell" || kind === "powershell5") return true;
+  return /powershell|pwsh/i.test(pane?.shellLabel ?? "");
+}
+
+function watchLooksUnfinished(sessionId: string, command: string): boolean {
+  const text = getOutputWatchText(sessionId);
+  if (!text.trim()) return true;
+  if (looksLikePowerShellProgressText(text)) return true;
+  if (sessionIsPowerShell(sessionId) && !watchHasTrailingPowerShellPrompt(text)) {
+    return true;
+  }
+  return (
+    isEchoOnlyTerminalOutput(text, command) ||
+    isLikelyCommandEchoAsOutput(text, command)
+  );
+}
+
 function buildSyntheticBlock(
   sessionId: string,
   command: string,
@@ -319,9 +341,14 @@ function finishOutputWatch(sessionId: string): void {
 
   const cleaned = extractCommandOutput(watch.output, watch.command);
   if (
-    !cleaned &&
-    (isEchoOnlyTerminalOutput(watch.output, watch.command) ||
-      isLikelyCommandEchoAsOutput(watch.output, watch.command))
+    looksLikePowerShellProgressText(watch.output) ||
+    (sessionIsPowerShell(sessionId) &&
+      !watchHasTrailingPowerShellPrompt(watch.output)) ||
+    isEchoOnlyTerminalOutput(watch.output, watch.command) ||
+    isLikelyCommandEchoAsOutput(watch.output, watch.command) ||
+    (cleaned.length > 0 &&
+      (isEchoOnlyTerminalOutput(cleaned, watch.command) ||
+        isLikelyCommandEchoAsOutput(cleaned, watch.command)))
   ) {
     if (watch.idleTimer) clearTimeout(watch.idleTimer);
     watch.idleTimer = setTimeout(() => finishOutputWatch(sessionId), watch.outputIdleMs);
@@ -451,22 +478,39 @@ export async function waitForCommandResult(
   options?: WaitForCommandOptions,
 ): Promise<TerminalBlock> {
   const outputIdleMs = options?.outputIdleMs ?? OUTPUT_IDLE_MS;
+  const timeoutMs = options?.timeoutMs ?? BLOCK_WAIT_TIMEOUT_MS;
   const outputPromise = startOutputWatch(sessionId, command, options);
   const oscPromise = capOscWait(sessionId, command);
 
-  await Promise.race([outputPromise, oscPromise]);
-
-  const settleMs = outputIdleMs + MERGE_WINDOW_MS;
-  const [outputBlock, oscBlock] = await Promise.all([
-    Promise.race([
-      outputPromise.catch(() => null),
-      sleep(settleMs).then(() => null as TerminalBlock | null),
-    ]),
-    Promise.race([
-      oscPromise,
-      sleep(MERGE_WINDOW_MS).then(() => null as TerminalBlock | null),
-    ]),
+  const first = await Promise.race([
+    outputPromise.then((block) => ({ kind: "out" as const, block })),
+    oscPromise.then((block) => ({ kind: "osc" as const, block })),
   ]);
+
+  const watchUnfinished = (): boolean => watchLooksUnfinished(sessionId, command);
+
+  let outputBlock: TerminalBlock | null = first.kind === "out" ? first.block : null;
+  let oscBlock: TerminalBlock | null = first.kind === "osc" ? first.block : null;
+
+  if (first.kind === "osc" && watchUnfinished()) {
+    // OSC 可能是旧 prompt / 第一条语句结束；进度条或半截回显时继续等真实结束
+    outputBlock = await Promise.race([
+      outputPromise.catch(() => null),
+      sleep(timeoutMs).then(() => null),
+    ]);
+  } else if (!outputBlock) {
+    const settleMs = outputIdleMs + MERGE_WINDOW_MS;
+    outputBlock = await Promise.race([
+      outputPromise.catch(() => null),
+      sleep(settleMs).then(() => null),
+    ]);
+  }
+  if (!oscBlock) {
+    oscBlock = await Promise.race([
+      oscPromise,
+      sleep(MERGE_WINDOW_MS).then(() => null),
+    ]);
+  }
 
   const resolvedOutput =
     outputBlock ??

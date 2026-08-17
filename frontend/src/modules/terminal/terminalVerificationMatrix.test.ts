@@ -82,9 +82,15 @@ describe("terminalCommandProfile", () => {
     expect(profile.outputIdleMs).toBe(3_000);
   });
 
-  it("snap install 识别为 progress", () => {
-    const profile = resolveCommandProfile("snap install lxd", "用户");
-    expect(profile.kind).toBe("progress");
+  it("Get-ComputerInfo 与复合命令识别为 progress", () => {
+    const a = resolveCommandProfile("Get-ComputerInfo | Select-Object OsName", "AI");
+    expect(a.kind).toBe("progress");
+    expect(a.outputIdleMs).toBe(3_000);
+    const b = resolveCommandProfile(
+      "Get-CimInstance Win32_Processor; Get-ComputerInfo | Select-Object OsName",
+      "AI",
+    );
+    expect(b.kind).toBe("progress");
   });
 
   it("拒绝流式命令并附替代建议", () => {

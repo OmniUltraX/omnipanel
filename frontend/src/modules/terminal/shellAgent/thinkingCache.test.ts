@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildAgreedCmdFrozenHtml,
   buildRejectedCmdFrozenHtml,
+  buildThinkingDoneFrozenHtml,
+  clearShellAgentLastCmd,
+  clearShellAgentThinkingFull,
+  extractThinkingFromLiveHtml,
+  getShellAgentLastCmd,
+  getShellAgentThinkingFull,
+  mergeThinkingText,
+  readFrozenThinkingFromCard,
+  setShellAgentLastCmd,
+  setShellAgentThinkingFull,
   transformPendingConfirmToAgreedHtml,
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
@@ -18,7 +28,7 @@ const PENDING_LIVE = `
           <p class="term-shell-agent-card__desc">可执行命令： date</p>
           <pre class="term-shell-agent-card__code"><code>date</code></pre>
           <div class="term-shell-agent-card__actions">
-            <button type="button" class="term-shell-agent-btn term-shell-agent-btn--primary">同意并执行</button>
+            <button type="button" class="term-shell-agent-btn term-shell-agent-btn--primary">同意并执行<kbd class="term-shell-agent-kbd">Enter</kbd></button>
             <button type="button" class="term-shell-agent-btn">拒绝</button>
             <button type="button" class="term-shell-agent-btn term-shell-agent-btn--ghost">编辑命令</button>
           </div>
@@ -62,6 +72,7 @@ describe("agreed confirm freeze", () => {
     expect(out!).not.toContain("编辑命令");
     expect(out!).not.toContain("待确认");
     expect(out!).not.toContain("同意并执行");
+    expect(out!).not.toContain("term-shell-agent-kbd");
   });
 });
 
@@ -96,7 +107,88 @@ describe("rejected confirm freeze", () => {
     expect(out!).toContain("term-shell-agent-btn--muted");
     expect(out!).toContain("可执行命令： date");
     expect(out!).not.toContain("同意并执行");
+    expect(out!).not.toContain("term-shell-agent-kbd");
     expect(out!).not.toContain("编辑命令");
     expect(out!).not.toContain("待确认");
   });
 });
+
+describe("lastCmd description", () => {
+  afterEach(() => {
+    clearShellAgentLastCmd("s1");
+  });
+
+  it("换 toolId 且未传 description 时不沿用上一工具旁注", () => {
+    setShellAgentLastCmd("s1", {
+      command: "a",
+      toolId: "t1",
+      description: "当前时间是：2026年8月14日 15:51:30",
+    });
+    setShellAgentLastCmd("s1", { command: "b", toolId: "t2" });
+    expect(getShellAgentLastCmd("s1")?.description).toBeUndefined();
+  });
+
+  it("同一 toolId 未传 description 时保留旁注", () => {
+    setShellAgentLastCmd("s1", { command: "a", toolId: "t1", description: "旁注" });
+    setShellAgentLastCmd("s1", { command: "a", toolId: "t1" });
+    expect(getShellAgentLastCmd("s1")?.description).toBe("旁注");
+  });
+});
+
+describe("thinking full cache", () => {
+  afterEach(() => {
+    clearShellAgentThinkingFull("s1");
+  });
+
+  it("空文本不清除缓存，避免归档冻成正在理解意图", () => {
+    setShellAgentThinkingFull("s1", "当前时间是：2026年8月14日 15:51:30");
+    expect(getShellAgentThinkingFull("s1")).toContain("15:51:30");
+    setShellAgentThinkingFull("s1", "  ");
+    expect(getShellAgentThinkingFull("s1")).toContain("15:51:30");
+  });
+
+  it("短碎片不能覆盖已缓存的思考全文", () => {
+    setShellAgentThinkingFull("s1", "用户问现在的时间。我需要用 Get-Date。");
+    setShellAgentThinkingFull("s1", "ni_ssh_exec.");
+    expect(getShellAgentThinkingFull("s1")).toContain("用户问现在的时间");
+    expect(getShellAgentThinkingFull("s1")).toContain("Get-Date");
+  });
+
+  it("mergeThinkingText 保留更长全文，新窗口才替换", () => {
+    expect(
+      mergeThinkingText("用户问现在的时间。我需要用 Get-Date。", "ni_ssh_exec."),
+    ).toContain("用户问现在的时间");
+    expect(mergeThinkingText("先看 CPU。", "CPU 正常，再看内存。")).toBe(
+      "CPU 正常，再看内存。",
+    );
+    expect(
+      mergeThinkingText(
+        "CPU 12%，内存 8.1GB。磁盘正常。建议继续观察。",
+        "三步巡检已完成! ✅",
+      ),
+    ).toContain("CPU 12%");
+  });
+
+  it("从活卡 HTML 能捞回思考正文", () => {
+    const html = buildThinkingDoneFrozenHtml({
+      sessionId: "s1",
+      fullText: "用户想查看资源占用。",
+    });
+    expect(extractThinkingFromLiveHtml(html)).toContain("用户想查看资源占用");
+  });
+
+  it("冻结思考卡展开能读到全部句子，不只最后一句", () => {
+    const html = buildThinkingDoneFrozenHtml({
+      sessionId: "s1",
+      fullText: "用户想查看资源占用。\n先采样 CPU。\n最后再看内存。",
+    });
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const card = host.querySelector("[data-shell-agent-frozen-thinking]")!;
+    const full = readFrozenThinkingFromCard(card);
+    expect(full).toContain("用户想查看资源占用");
+    expect(full).toContain("先采样 CPU");
+    expect(full).toContain("最后再看内存");
+  });
+});
+

@@ -2,11 +2,83 @@
  * Shell Agent 思考正文缓存：归档冻结卡时写入「思考完成」快照，供展开浮窗读取。
  */
 const thinkingFullBySession = new Map<string, string>();
+const thinkingFullByFrozenId = new Map<string, string>();
+let frozenThinkingSeq = 0;
+
+export function stashFrozenThinking(fullText: string): string {
+  frozenThinkingSeq += 1;
+  const id = `th-${frozenThinkingSeq}`;
+  const trimmed = fullText.trim();
+  if (trimmed) thinkingFullByFrozenId.set(id, trimmed);
+  return id;
+}
+
+export function getFrozenThinking(id: string): string {
+  return thinkingFullByFrozenId.get(id) ?? "";
+}
+
+export function readFrozenThinkingFromCard(card: Element): string {
+  const id = card.getAttribute("data-thinking-id") ?? "";
+  const fromNode =
+    card.querySelector<HTMLTextAreaElement>(".term-shell-agent-thinking-src")
+      ?.value ??
+    card.querySelector(".term-shell-agent-thinking-src")?.textContent ??
+    "";
+  const fromAttr = card.getAttribute("data-thinking-full") ?? "";
+  return (
+    fromNode.trim() ||
+    (id ? getFrozenThinking(id) : "") ||
+    fromAttr.trim()
+  );
+}
+
+/**
+ * 同一思考窗口只允许正文变长。短碎片（tool 插入后的尾巴）不得覆盖全文。
+ * 新窗口（内容不是旧文的子串）则采用新文本。
+ */
+export function mergeThinkingText(prev: string, next: string): string {
+  const a = prev.trim();
+  const b = next.trim();
+  if (!b) return a;
+  if (!a) return b;
+  if (b.length >= a.length) return b;
+  if (a.includes(b)) return a;
+  // ni_ssh_exec. 这类短尾巴不是新窗口
+  if (b.length <= Math.max(24, Math.floor(a.length * 0.5))) return a;
+  return b;
+}
 
 export function setShellAgentThinkingFull(sessionId: string, text: string): void {
   const trimmed = text.trim();
+  // 窗口切空时禁止清掉上一口正文，否则归档会冻成「正在理解意图」
   if (!trimmed) return;
-  thinkingFullBySession.set(sessionId, trimmed);
+  const prev = thinkingFullBySession.get(sessionId) ?? "";
+  thinkingFullBySession.set(sessionId, mergeThinkingText(prev, trimmed));
+}
+
+/** 从活卡 / 冻结卡 HTML 捞思考正文，供归档兜底 */
+export function extractThinkingFromLiveHtml(liveHtml: string): string {
+  const area = liveHtml.match(
+    /<textarea[^>]*class="[^"]*term-shell-agent-thinking-src[^"]*"[^>]*>([\s\S]*?)<\/textarea>/i,
+  );
+  if (area?.[1]?.trim()) {
+    return area[1]
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, "&")
+      .trim();
+  }
+  const attr = liveHtml.match(/data-thinking-full="([^"]*)"/i);
+  if (attr?.[1]?.trim()) {
+    return attr[1]
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .trim();
+  }
+  return "";
 }
 
 export function getShellAgentThinkingFull(sessionId: string): string {
@@ -17,7 +89,7 @@ export function clearShellAgentThinkingFull(sessionId: string): void {
   thinkingFullBySession.delete(sessionId);
 }
 
-/** 流式预览：只取最后一行非空文本 */
+/** 卡面流式预览：只取最后一行非空文本。展开必须用全文，禁止拿这一行当 fullText。 */
 export function lastThinkingLine(text: string): string {
   const lines = text
     .split(/\r?\n/)
@@ -61,17 +133,21 @@ export function buildThinkingDoneFrozenHtml(opts: {
   const doneLabel = opts.doneLabel ?? copy.doneLabel;
   const expandLabel = opts.expandLabel ?? copy.expandLabel;
   const full = opts.fullText.trim();
+  const thinkingId = stashFrozenThinking(full);
   return (
     `<div class="term-shell-agent-card term-shell-agent-card--note is-done is-fixed is-expandable"` +
     ` data-session-id="${escapeHtmlAttr(opts.sessionId)}"` +
     ` data-shell-agent-frozen-thinking="1"` +
+    ` data-thinking-id="${escapeHtmlAttr(thinkingId)}"` +
     ` data-thinking-full="${escapeHtmlAttr(full)}"` +
     ` role="button" tabindex="0">` +
     `<span class="term-shell-agent-ico term-shell-agent-ico--check" aria-hidden>✓</span>` +
     `<div class="term-shell-agent-card__note">${escapeHtmlText(doneLabel)}</div>` +
     `<div class="term-shell-agent-card__note-actions">` +
     `<button type="button" class="term-shell-agent-btn term-shell-agent-btn--ghost" data-shell-agent-frozen-expand="1">${escapeHtmlText(expandLabel)}</button>` +
-    `</div></div>`
+    `</div>` +
+    `<textarea class="term-shell-agent-thinking-src" hidden readonly>${escapeHtmlText(full)}</textarea>` +
+    `</div>`
   );
 }
 
@@ -93,6 +169,7 @@ export function setShellAgentLastCmd(
   const command = cmd.command.trim();
   if (!command && !cmd.toolId) return;
   const prev = lastCmdBySession.get(sessionId);
+  const toolChanged = Boolean(cmd.toolId) && cmd.toolId !== prev?.toolId;
   lastCmdBySession.set(sessionId, {
     command,
     toolName: cmd.toolName,
@@ -100,7 +177,9 @@ export function setShellAgentLastCmd(
     description:
       cmd.description !== undefined
         ? cmd.description.trim()
-        : prev?.description,
+        : toolChanged
+          ? undefined
+          : prev?.description,
   });
 }
 
@@ -190,6 +269,9 @@ export function rejectedCmdCopy(): {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+/** 主按钮文案后可能带 Enter 快捷键徽章 */
+const OPTIONAL_ENTER_KBD = `(?:\\s*<kbd[\\s\\S]*?</kbd>)?`;
 
 function ensureAttrClass(attrs: string, token: string): string {
   if (new RegExp(`(?:^|\\s)${token}(?:\\s|$)`).test(attrs)) return attrs;
@@ -319,7 +401,7 @@ export function transformPendingConfirmToAgreedHtml(
   for (const label of agreeFrom) {
     out = out.replace(
       new RegExp(
-        `(class="[^"]*term-shell-agent-btn--(?:primary|danger)[^"]*"[^>]*>)\\s*${escapeRegExp(label)}\\s*(</button>)`,
+        `(class="[^"]*term-shell-agent-btn--(?:primary|danger)[^"]*"[^>]*>)\\s*${escapeRegExp(label)}${OPTIONAL_ENTER_KBD}\\s*(</button>)`,
       ),
       `$1${copy.agreedLabel}$2`,
     );
@@ -363,7 +445,7 @@ export function transformPendingConfirmToRejectedHtml(
   for (const label of primaryFrom) {
     out = out.replace(
       new RegExp(
-        `class="([^"]*)term-shell-agent-btn--(?:primary|danger)([^"]*)"([^>]*>)\\s*${escapeRegExp(label)}\\s*(</button>)`,
+        `class="([^"]*)term-shell-agent-btn--(?:primary|danger)([^"]*)"([^>]*>)\\s*${escapeRegExp(label)}${OPTIONAL_ENTER_KBD}\\s*(</button>)`,
       ),
       `class="$1term-shell-agent-btn--muted$2"$3${copy.rejectedLabel}$4`,
     );

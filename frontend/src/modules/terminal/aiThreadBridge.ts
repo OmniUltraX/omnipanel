@@ -68,12 +68,12 @@ export function getResolvedAiThread(block: TerminalBlock): AiThreadItem[] {
       timestamp: block.timestamp,
     });
   }
-  if (block.reasoning?.trim() || block.output.trim()) {
+  if (block.reasoning?.trim() || block.output?.trim()) {
     migrated.push({
       kind: "message",
       id: `${legacyPrefix}-legacy-assistant`,
       role: "assistant",
-      content: block.output.trim(),
+      content: (block.output ?? "").trim(),
       reasoning: block.reasoning?.trim(),
       timestamp: block.timestamp + 1,
     });
