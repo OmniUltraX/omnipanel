@@ -13,6 +13,7 @@ import { columnTypeTagClassName } from "./columnTypeTag";
 import { formatColumnHeaderName } from "./tableDataGridFormat";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
+import { showToast } from "../../../stores/toastStore";
 import type { DbColumnMeta } from "../api";
 
 export type TableDataGridCellMenuState = {
@@ -307,6 +308,18 @@ export function ColumnVisibilitySidebar({
     onChange(allVisible ? new Set(columns) : new Set());
   }, [allVisible, columns, onChange]);
 
+  const copyFieldName = useCallback(
+    async (name: string) => {
+      try {
+        await navigator.clipboard.writeText(name);
+        showToast(t("database.cellEditor.copyColumnNameDone"));
+      } catch {
+        showToast(t("database.cellEditor.copyFailed"));
+      }
+    },
+    [t],
+  );
+
   return (
     <aside
       className="db-data-table-col-sidebar"
@@ -374,6 +387,10 @@ export function ColumnVisibilitySidebar({
                     .filter(Boolean)
                     .join(" ")}
                   onClick={() => onColumnNavigate(name)}
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    void copyFieldName(name);
+                  }}
                 >
                   <input
                     type="checkbox"

@@ -2906,6 +2906,9 @@ export const enUS: TranslationDict = {
       transposeOn: "Transpose rows/columns",
       transposeOff: "Restore normal view",
       transposeField: "Field",
+      tableSettings: "Settings",
+      tableSettingsTitle: "Table data settings",
+      tableGridFontSize: "Grid font size",
       columnVisibility: "Columns",
       columnVisibilityTitle: "Choose columns to display",
       columnVisibilityExpand: "Expand column sidebar",
@@ -5718,6 +5721,8 @@ export const enUS: TranslationDict = {
       schemaTreeShowTableChildren: "Expand table fields in connection tree",
       schemaTreeShowTableChildrenDesc:
         "When enabled, tables/views in the connection tree can expand to show columns and indexes; when disabled, expansion stops at the table list",
+      tableGridFontSize: "Table grid font size",
+      tableGridFontSizeDesc: "Font size for cells in the table data grid",
       editorSection: "SQL Editor",
       editorFontFamily: "Font family",
       editorFontFamilyDesc: "Monospace font used in the SQL editor",

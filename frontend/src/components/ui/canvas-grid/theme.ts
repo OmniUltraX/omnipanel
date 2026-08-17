@@ -19,10 +19,13 @@ export type CanvasThemeProfile = "data-table" | "panel";
  */
 const themeCache = new Map<string, GridThemeTokens>();
 
-/** 主题签名：捕获亮/暗主题切换。data-theme 属性 + class 变化都会刷新签名。 */
+/** 主题签名：捕获亮/暗主题切换与表网格字号。data-theme / class / 字号 CSS 变量变化都会刷新签名。 */
 function getThemeSignature(): string {
   const el = document.documentElement;
-  return `${el.getAttribute("data-theme") ?? ""}|${el.className}|${el.getAttribute("data-color-scheme") ?? ""}`;
+  const tableFont =
+    el.style.getPropertyValue("--omni-db-table-grid-font-size").trim() ||
+    getComputedStyle(el).getPropertyValue("--omni-db-table-grid-font-size").trim();
+  return `${el.getAttribute("data-theme") ?? ""}|${el.className}|${el.getAttribute("data-color-scheme") ?? ""}|${tableFont}`;
 }
 
 /** 失效主题 cache（主题切换时调用）。 */

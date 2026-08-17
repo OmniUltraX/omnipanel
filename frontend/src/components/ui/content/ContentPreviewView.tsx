@@ -246,19 +246,23 @@ export function ContentPreviewView({
     );
   }
 
+  // JSON 模式：可解析时一律用树形视图（与「代码」源码编辑区分开）；
+  // editable 时仍展示树，编辑请切到「代码 / 普通文本」。
   const jsonStructuredValue =
-    !editable &&
-    (content.kind === "json" && textMode === "json"
+    content.kind === "json" && textMode === "json"
       ? content.value
       : content.kind === "text" && textMode === "json" && parsedJsonFromText
         ? parsedJsonFromText
-        : null);
+        : null;
 
   const sourceText =
     content.kind === "json" ? jsonSourceText(content.value) : content.kind === "text" ? content.text : "";
 
+  // 「代码」模式跟 codeLanguage；仅在明确处于 JSON 编辑回退时强制 json
   const editorLanguage: CodeEditorLanguage | undefined =
-    content.kind === "json" || textMode === "json" ? "json" : codeLanguage;
+    textMode === "json"
+      ? "json"
+      : (codeLanguage ?? (content.kind === "json" ? "json" : undefined));
 
   const renderEditableCodeEditor = (language: CodeEditorLanguage, extraClassName?: string) => (
     <div className={cn("content-preview-code", extraClassName)}>

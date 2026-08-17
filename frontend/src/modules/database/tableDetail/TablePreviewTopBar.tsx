@@ -1,9 +1,105 @@
-import { useCallback, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import { Button } from "../../../components/ui/Button";
-import { IconPlus } from "../../../components/ui/Icons";
+import { Select } from "../../../components/ui/form/Select";
+import { IconPlus, IconSettings } from "../../../components/ui/Icons";
 import { useI18n } from "../../../i18n";
 import { showToast } from "../../../stores/toastStore";
+import {
+  useSettingsStore,
+  DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS,
+  clampDatabaseTableGridFontSize,
+} from "../../../stores/settingsStore";
 import { TABLE_PREVIEW_PAGE_SIZE_OPTIONS } from "../workspace/dbWorkspaceState";
+
+/** 设置浮层；Select 下拉需高于此值，否则会被面板挡住 */
+const TABLE_SETTINGS_POPOVER_Z_INDEX = 200000;
+const TABLE_SETTINGS_SELECT_Z_INDEX = TABLE_SETTINGS_POPOVER_Z_INDEX + 10;
+
+function AnchorPopover({
+  anchorRef,
+  open,
+  onClose,
+  children,
+  className,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const anchor = anchorRef.current;
+    const el = panelRef.current;
+    if (!anchor || !el) return;
+    const rect = anchor.getBoundingClientRect();
+    const { width } = el.getBoundingClientRect();
+    // 靠右锚点时尽量右对齐，避免贴右边缘溢出
+    const preferredLeft = rect.right - width;
+    const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - width - 8));
+    setCoords({ left, top: rect.bottom + 6 });
+  }, [anchorRef]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null);
+      return;
+    }
+    updatePosition();
+  }, [open, updatePosition, children]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+      // Select 下拉挂到 body，点击选项时不应关掉设置面板
+      if (t instanceof Element && t.closest(".omni-select-panel")) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [open, onClose, anchorRef, updatePosition]);
+
+  if (!open) return null;
+  return createPortal(
+    <div
+      ref={panelRef}
+      className={className}
+      style={{
+        position: "fixed",
+        left: coords?.left ?? -9999,
+        top: coords?.top ?? -9999,
+        zIndex: TABLE_SETTINGS_POPOVER_Z_INDEX,
+        visibility: coords ? "visible" : "hidden",
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
 
 export interface TablePreviewTopBarProps {
   loading: boolean;
@@ -212,6 +308,10 @@ export function TablePreviewTopBar({
 }: TablePreviewTopBarProps) {
   const { t } = useI18n();
   const [copiedHint, setCopiedHint] = useState<"qualified" | "table" | "database" | null>(null);
+  const settingsAnchorRef = useRef<HTMLSpanElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const databaseTableGridFontSize = useSettingsStore((s) => s.databaseTableGridFontSize);
+  const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
   const qualifiedTableName =
     databaseName && tableName
       ? `${databaseName}.${tableName}`
@@ -593,6 +693,18 @@ export function TablePreviewTopBar({
             <IconDownload />
           </Button>
         ) : null}
+        <span ref={settingsAnchorRef} className="db-table-topbar-settings-anchor">
+          <Button
+            variant={settingsOpen ? "default" : "ghost"}
+            size="icon-sm"
+            title={t("database.results.tableSettings")}
+            aria-label={t("database.results.tableSettings")}
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((v) => !v)}
+          >
+            <IconSettings size={14} />
+          </Button>
+        </span>
         <Button
           variant={!detailCollapsed ? "default" : "ghost"}
           size="icon-sm"
@@ -606,6 +718,30 @@ export function TablePreviewTopBar({
             <path d="M10 2.5v11" />
           </svg>
         </Button>
+        <AnchorPopover
+          anchorRef={settingsAnchorRef}
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          className="sql-toolbar-popover sql-toolbar-popover--settings"
+        >
+          <div className="sql-toolbar-popover__title">{t("database.results.tableSettingsTitle")}</div>
+          <label className="sql-toolbar-popover__field">
+            <span>{t("database.results.tableGridFontSize")}</span>
+            <Select
+              value={String(databaseTableGridFontSize)}
+              onChange={(v) =>
+                setDatabaseSettings({
+                  databaseTableGridFontSize: clampDatabaseTableGridFontSize(Number(v)),
+                })
+              }
+              options={DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS.map((n) => ({
+                value: String(n),
+                label: String(n),
+              }))}
+              panelZIndex={TABLE_SETTINGS_SELECT_Z_INDEX}
+            />
+          </label>
+        </AnchorPopover>
       </div>
     </div>
   );

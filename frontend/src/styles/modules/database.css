@@ -8,8 +8,8 @@
         --relation-col-bg: color-mix(in srgb, var(--accent) 16%, var(--surface));
         --relation-display-col-border: color-mix(in srgb, var(--accent) 82%, var(--border));
         --relation-display-col-bg: color-mix(in srgb, var(--accent) 24%, var(--surface));
-        /* 数据表网格 12px；周边工具栏/筛选条等与全局 --font-size 对齐 14px */
-        --db-data-grid-font-size: 12px;
+        /* 数据表网格字号（可由设置 --omni-db-table-grid-font-size 覆盖）；周边工具栏等用 --db-data-ui-font-size */
+        --db-data-grid-font-size: var(--omni-db-table-grid-font-size, 12px);
         --db-data-ui-font-size: 14px;
         /* 左侧 schema / 查询文件树 */
         --db-schema-tree-font-size: 12px;

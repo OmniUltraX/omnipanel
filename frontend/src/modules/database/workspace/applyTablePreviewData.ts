@@ -23,7 +23,13 @@ const applyGenerationByTab = new Map<string, number>();
 
 export function bumpTablePreviewApplyGeneration(
   tabId: string,
-  options?: { /** true：写入空 cache（换表硬重置）；默认 delete，刷新时可回退旧行 */ resetCache?: boolean },
+  options?: {
+    /**
+     * true：写入空 cache（换表 / 显式刷新硬重置），Canvas 画空行，禁止回退旧 displayRows。
+     * 默认 delete：翻页等软更新可回退旧行，避免闪空。
+     */
+    resetCache?: boolean;
+  },
 ): number {
   const next = (applyGenerationByTab.get(tabId) ?? 0) + 1;
   applyGenerationByTab.set(tabId, next);
@@ -31,7 +37,7 @@ export function bumpTablePreviewApplyGeneration(
     // 空 cache + notify → Canvas 画空行，禁止回退旧 displayRows（#44）
     resetTablePreviewRowCache(tabId);
   } else {
-    // 取消在途灌数时清掉 cache；订阅方回退 displayRows，同表刷新不闪空
+    // 取消在途灌数时清掉 cache；订阅方回退 displayRows，翻页等软更新不闪空
     clearTablePreviewRowCache(tabId);
   }
   return next;
@@ -137,21 +143,11 @@ export async function applyTablePreviewDataProgressive(
   const isEmpty = data.rows.length === 0;
 
   // Phase 1：元数据进 React（必须轻）
-  // 有数据且 Canvas 模式：同表刷新可暂留旧 rows，避免 cache notify 前整表闪空。
-  // 列结构变了（预览 Tab 原地换表）绝不能留旧 rows，否则新表头会配旧行（#44）。
-  // 空结果：必须 rows=[]，否则过滤无匹配时仍显示上次数据（#47）。
+  // 行数据一律先置空：显式刷新 / 换表若暂留旧 rows，Canvas 在 cache notify 前会回退旧画，
+  // 且 useDeferredValue 可能在 Phase 3 前继续展示滞后旧行，表现为「刷新不到最新数据」。
+  // 空结果同样必须 rows=[]，否则过滤无匹配时仍显示上次数据（#47）。
   setTablePreviews((prevMap) => {
     const cur = prevMap[tabId];
-    const prevData = cur?.data;
-    const sameColumns =
-      !!prevData &&
-      prevData.columns.length === data.columns.length &&
-      prevData.columns.every((col, index) => col === data.columns[index]);
-    const phase1Rows = isEmpty
-      ? []
-      : canvasMode && sameColumns
-        ? (prevData?.rows ?? [])
-        : [];
     return {
       ...prevMap,
       [tabId]: {
@@ -161,7 +157,7 @@ export async function applyTablePreviewDataProgressive(
         data: {
           name: data.name,
           columns: data.columns,
-          rows: phase1Rows,
+          rows: [],
         },
         totalRows,
         page,
