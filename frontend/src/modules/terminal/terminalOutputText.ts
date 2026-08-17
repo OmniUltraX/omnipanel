@@ -250,10 +250,57 @@ function stripPsDirectoryHeaderOnly(text: string): string {
   return withoutHeaders.join("\n");
 }
 
+/** PowerShell Write-Progress / Get-ComputerInfo 进度条可见文本 */
+export function looksLikePowerShellProgressText(text: string): boolean {
+  const tail = text.slice(-1200);
+  return /正在加载计算机信息|Loading computer information|Completed\s+\d{1,3}\s*%/i.test(
+    tail,
+  );
+}
+
+/** 采集末尾是否已回到 PowerShell 主提示符（与 bash 等 `$` 对齐） */
+export function watchHasTrailingPowerShellPrompt(text: string): boolean {
+  const stripped = stripTerminalControlSequences(text);
+  if (looksLikePowerShellProgressText(stripped)) return false;
+  const lines = stripped.split(/\r?\n/);
+  let sawContent = false;
+  let lastWasPrompt = false;
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/u, "").trim();
+    if (!line) continue;
+    if (/^>>/.test(line)) {
+      lastWasPrompt = false;
+      continue;
+    }
+    if (PS_GLUED_PROMPT_SUFFIX_RE.test(line)) {
+      sawContent = true;
+      lastWasPrompt = true;
+      continue;
+    }
+    if (PS_PROMPT_ONLY_RE.test(line) || /^PS>\s*$/.test(line)) {
+      lastWasPrompt = true;
+      continue;
+    }
+    sawContent = true;
+    lastWasPrompt = false;
+  }
+  return sawContent && lastWasPrompt;
+}
+
+/** 采集文本是完整命令的前缀：回显尚未打完 */
+function isTruncatedCommandEcho(raw: string, command: string): boolean {
+  const sent = normalizeBlockCommand(command).replace(/\s+/g, " ").trim();
+  const got = stripTerminalControlSequences(raw).replace(/\s+/g, " ").trim();
+  if (!sent || !got) return false;
+  const minLen = Math.min(12, sent.length);
+  return got.length >= minLen && got.length < sent.length && sent.startsWith(got);
+}
+
 /** 多行命令被 PTY 整段回显、尚未产生真实 stdout 时，output 与 command 高度重合 */
 export function isLikelyCommandEchoAsOutput(raw: string, command: string): boolean {
   const sent = normalizeBlockCommand(command);
   if (!sent || !raw.trim()) return false;
+  if (isTruncatedCommandEcho(raw, command)) return true;
 
   const cleaned = extractCommandOutput(raw, command);
   if (cleaned.length > 0 && !isEchoOnlyTerminalOutput(cleaned, command)) {
@@ -265,7 +312,8 @@ export function isLikelyCommandEchoAsOutput(raw: string, command: string): boole
   if (
     strippedWithoutPs &&
     strippedWithoutPs !== sent &&
-    !strippedWithoutPs.toLowerCase().startsWith(sent.toLowerCase())
+    !strippedWithoutPs.toLowerCase().startsWith(sent.toLowerCase()) &&
+    !sent.toLowerCase().startsWith(strippedWithoutPs.toLowerCase())
   ) {
     return false;
   }
@@ -274,6 +322,13 @@ export function isLikelyCommandEchoAsOutput(raw: string, command: string): boole
   const sentNorm = sent.replace(/\s+/g, " ").trim();
   if (!rawNorm || !sentNorm) return false;
   if (rawNorm === sentNorm) return true;
+  if (
+    rawNorm.length >= Math.min(12, sentNorm.length) &&
+    sentNorm.startsWith(rawNorm) &&
+    rawNorm.length < sentNorm.length
+  ) {
+    return true;
+  }
   if (rawNorm.startsWith(sentNorm) && rawNorm.length - sentNorm.length < 48) return true;
 
   const rawLines = rawNorm.split(" ").length;
@@ -287,6 +342,7 @@ export function isLikelyCommandEchoAsOutput(raw: string, command: string): boole
 export function isEchoOnlyTerminalOutput(raw: string, command: string): boolean {
   const sent = normalizeBlockCommand(command);
   if (!sent || !raw.trim()) return true;
+  if (isTruncatedCommandEcho(raw, command)) return true;
 
   const cleaned = extractCommandOutput(raw, command);
   if (cleaned.length > 0) return false;
@@ -297,6 +353,14 @@ export function isEchoOnlyTerminalOutput(raw: string, command: string): boolean 
   const strippedNorm = stripped.replace(/\s+/g, " ");
   const sentNorm = sent.replace(/\s+/g, " ");
   if (strippedNorm === sentNorm) return true;
+  // 半截回显：采集文本是完整命令的前缀（Get-CimInstance W …）
+  if (
+    strippedNorm.length >= Math.min(12, sentNorm.length) &&
+    sentNorm.startsWith(strippedNorm) &&
+    strippedNorm.length < sentNorm.length
+  ) {
+    return true;
+  }
   if (strippedNorm.startsWith(sentNorm)) {
     const tail = strippedNorm.slice(sentNorm.length).trim();
     if (isResidualEchoTail(tail)) return true;

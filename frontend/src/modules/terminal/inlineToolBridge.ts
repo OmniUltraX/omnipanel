@@ -450,6 +450,17 @@ export async function approveInlineTerminalTool(
   }
 }
 
+/** 确认卡回车：同意当前会话待审批的内联终端工具。 */
+export function tryApprovePendingShellAgentEnter(sessionId: string): boolean {
+  for (const [toolCallId, pending] of pendingByToolCallId.entries()) {
+    if (pending.sessionId !== sessionId) continue;
+    if (approvingToolCallIds.has(toolCallId)) return true;
+    void approveInlineTerminalTool(pending.blockId, toolCallId);
+    return true;
+  }
+  return false;
+}
+
 export function rejectInlineTerminalTool(blockId: string, toolCallId: string): void {
   const pending = pendingByToolCallId.get(toolCallId);
   if (!pending || pending.blockId !== blockId) {

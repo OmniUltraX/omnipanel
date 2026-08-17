@@ -16,6 +16,7 @@ export {
   flushPendingShellAgentReanchor,
   teardownShellAgentUi,
   notifyShellAgentRejected,
+  notifyShellAgentScreenCleared,
 } from "./loop";
 export { useShellAgentStore } from "./shellAgentStore";
 export {

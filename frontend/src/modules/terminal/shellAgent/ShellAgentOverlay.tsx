@@ -16,6 +16,7 @@ import {
   rejectInlineTerminalTool,
 } from "../inlineToolBridge";
 import { isInlineTerminalToolName } from "../inlineTerminalTool";
+import { shouldHandleConfirmEnter } from "../passthroughAi/confirmEnterHotkey";
 import { getXterm } from "../xtermRegistry";
 import {
   cancelShellAgent,
@@ -26,6 +27,7 @@ import {
   fitShellAgentCardToContent,
   getShellAgentGeometry,
   relayoutShellAgentCard,
+  setShellAgentCardKind,
   shieldShellAgentDecorationPointer,
   subscribeShellAgentGeometry,
   SHELL_AGENT_PORTAL_HOST_CLASS,
@@ -35,11 +37,19 @@ import { useShellAgentStore } from "./shellAgentStore";
 import { ShellAgentMarkdown } from "./ShellAgentMarkdown";
 import {
   getShellAgentLastCmd,
-  getShellAgentThinkingFull,
   lastThinkingLine,
+  mergeThinkingText,
+  readFrozenThinkingFromCard,
   setShellAgentLastCmd,
   setShellAgentThinkingFull,
 } from "./thinkingCache";
+import {
+  assistantNoteForTool,
+  currentTurnResultText,
+  currentTurnThinkingText,
+  scopeThreadToQuery,
+  toolHasPriorInTurn,
+} from "./threadTurnText";
 
 function findAskFormInThread(
   thread: ReturnType<typeof getResolvedAiThread>,
@@ -293,19 +303,51 @@ function isDangerRisk(level: AiThreadToolCall["riskLevel"] | undefined): boolean
   return level === "high" || level === "critical";
 }
 
+function measurePartHeight(el: HTMLElement): number {
+  const interpret = el.querySelector<HTMLElement>(".term-shell-agent-card__interpret");
+  if (interpret) {
+    const md = interpret.querySelector<HTMLElement>(".term-shell-agent-md");
+    const footer = el.querySelector<HTMLElement>(".term-shell-agent-card__footer");
+    const cs = getComputedStyle(el);
+    const padY =
+      (Number.parseFloat(cs.paddingTop) || 0) + (Number.parseFloat(cs.paddingBottom) || 0);
+    const gap = Number.parseFloat(cs.rowGap || cs.gap) || 0;
+    const extras = (footer ? footer.scrollHeight + gap : 0) + padY;
+    if (md) {
+      // scrollHeight 在 max-height:100% 下至少等于撑满的 decoration，
+      // 解读变短后测高仍是旧占位，卡会留一块空白。按内容盒高。
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(md);
+        const h = range.getBoundingClientRect().height;
+        range.detach();
+        if (h > 0) return Math.ceil(h) + extras;
+      } catch {
+        // ignore
+      }
+      return md.scrollHeight + extras;
+    }
+    // 尚无 markdown：按一行占位。禁止把 flex 撑满的视口高度当成内容高度
+    return 28 + extras;
+  }
+  // portal 锁了 overflow:hidden 时 getBoundingClientRect 是裁切高度，
+  // 必须用 scrollHeight 才能把确认卡撑到不盖住下方输出
+  return Math.max(el.scrollHeight, el.offsetHeight, el.getBoundingClientRect().height);
+}
+
 function measureShellAgentCardHeight(container: HTMLElement): number {
   const parts = container.querySelectorAll<HTMLElement>(
     ".term-shell-agent-card, .term-shell-agent-tool",
   );
   if (parts.length === 0) {
-    // 用布局高度，避免 scrollHeight 被撑满后反馈放大
-    return Math.ceil(container.getBoundingClientRect().height);
+    return Math.ceil(
+      Math.max(container.scrollHeight, container.getBoundingClientRect().height),
+    );
   }
   let total = 0;
   for (const el of parts) {
-    total += el.getBoundingClientRect().height;
+    total += measurePartHeight(el);
   }
-  // 卡片间距
   if (parts.length > 1) total += (parts.length - 1) * 4;
   return Math.ceil(total);
 }
@@ -345,6 +387,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const [detail, setDetail] = useState<DetailFloat>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
   const floatRef = useRef<HTMLDivElement | null>(null);
+  const editRef = useRef<HTMLTextAreaElement | null>(null);
+  const approveBtnRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     return subscribeShellAgentGeometry((sid) => {
@@ -362,10 +406,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     const deco = geometry?.decoration ?? null;
     const inline =
       Boolean(deco) && geometry?.mode === "inline" && Boolean(geometry?.cardKind);
-    const isFinal = geometry?.cardKind === "final";
     const isAsk = geometry?.cardKind === "ask";
-    // ask：卡内滚动；final：随内容 grow，避免占位高于内容留下大块空白
-    const grow = isFinal;
+    // final 禁止 grow+overflow:visible：超高内容会被终端视口裁掉，并盖住卡下 PS>。
     const scrollable = isAsk;
 
     if (!inline || !deco) {
@@ -383,22 +425,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       el.style.display = "flex";
       el.style.flexDirection = "column";
       el.style.justifyContent = "flex-start";
-      el.style.alignItems = "flex-start";
+      el.style.alignItems = "stretch";
       el.style.padding = "0";
       el.style.margin = "0";
-      if (grow) {
-        el.style.height = "auto";
-        el.style.minHeight = "0";
-        el.style.maxHeight = "none";
-        el.style.overflow = "visible";
-      } else {
-        el.style.height = "100%";
-        el.style.minHeight = "0";
-        el.style.maxHeight = "100%";
-        el.style.overflow = "hidden";
-      }
+      // 不要 height:100%：会盖过 xterm 按 rows 设的像素高，从 marker 撑满整个终端
+      el.style.minHeight = "0";
+      el.style.overflow = "hidden";
       shieldShellAgentDecorationPointer(el, getXterm(sessionId));
-      setDecoEl(ensurePortalHost(el, { grow, scrollable }));
+      setDecoEl(ensurePortalHost(el, { grow: false, scrollable }));
     };
 
     const frame = requestAnimationFrame(() => {
@@ -450,6 +484,11 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     return getResolvedAiThread(block);
   }, [blockId, blocks]);
 
+  const turnThread = useMemo(
+    () => scopeThreadToQuery(thread, geometry?.query),
+    [thread, geometry?.query],
+  );
+
   const toolCalls = useMemo(
     () =>
       thread.filter(
@@ -461,43 +500,66 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
 
   const phase = agent?.phase ?? "idle";
 
-  const latestAssistant = useMemo(() => {
-    const texts = thread
-      .filter(isAiThreadMessage)
-      .filter((m) => m.role === "assistant")
-      .map((m) => m.content.trim())
-      .filter(Boolean);
-    return texts[texts.length - 1] ?? "";
-  }, [thread]);
+  const interpretRaw = useMemo(() => currentTurnResultText(turnThread), [turnThread]);
+  const [latchedInterpret, setLatchedInterpret] = useState("");
 
-  const latestReasoning = useMemo(() => {
-    const texts = thread
-      .filter(isAiThreadMessage)
-      .filter((m) => m.role === "assistant")
-      .map((m) => (m.reasoning ?? "").trim())
-      .filter(Boolean);
-    return texts[texts.length - 1] ?? "";
-  }, [thread]);
+  useEffect(() => {
+    setLatchedInterpret("");
+  }, [sessionId, geometry?.query]);
 
-  /** 思考预览：流式只刷最后一行；结束后显示「思考完成」 */
-  const thinkingPreviewLine = useMemo(() => {
-    const src = latestReasoning || latestAssistant;
-    return lastThinkingLine(src);
-  }, [latestReasoning, latestAssistant]);
+  useEffect(() => {
+    if (!interpretRaw.trim()) return;
+    setLatchedInterpret((prev) => mergeThinkingText(prev, interpretRaw));
+  }, [interpretRaw]);
 
-  const thinkingFull = useMemo(() => {
-    const parts: string[] = [];
-    if (latestReasoning) parts.push(latestReasoning);
-    if (latestAssistant) parts.push(latestAssistant);
-    return parts.join("\n\n").trim();
-  }, [latestReasoning, latestAssistant]);
+  const interpretText = latchedInterpret.trim()
+    ? mergeThinkingText(latchedInterpret, interpretRaw)
+    : interpretRaw;
 
   const pendingTool = toolCalls.find((tc) => tc.status === "pending") ?? null;
+  const pendingDesc = useMemo(() => {
+    if (toolHasPriorInTurn(turnThread, pendingTool?.id ?? null)) return "";
+    return shortAssistantNote(assistantNoteForTool(turnThread, pendingTool?.id ?? null), 280);
+  }, [turnThread, pendingTool?.id]);
+
   const showFinal = geometry?.cardKind === "final";
 
   useEffect(() => {
-    if (thinkingFull) setShellAgentThinkingFull(sessionId, thinkingFull);
-  }, [sessionId, thinkingFull]);
+    if (geometry?.cardKind !== "thinking") return;
+    if (pendingTool) return;
+    if (!interpretText.trim()) return;
+    if (
+      phase !== "streaming" &&
+      phase !== "observing" &&
+      phase !== "awaiting_approval"
+    ) {
+      return;
+    }
+    setShellAgentCardKind(sessionId, "final");
+  }, [geometry?.cardKind, interpretText, phase, sessionId, pendingTool?.id]);
+
+  const thinkingFull = useMemo(() => currentTurnThinkingText(turnThread), [turnThread]);
+  const thinkingSlot = geometry?.cardKind === "thinking" ? geometry.decoration : null;
+  const [latchedThinking, setLatchedThinking] = useState("");
+
+  useEffect(() => {
+    setLatchedThinking("");
+  }, [sessionId, thinkingSlot]);
+
+  useEffect(() => {
+    if (geometry?.cardKind !== "thinking") return;
+    if (!thinkingFull) return;
+    setLatchedThinking((prev) => mergeThinkingText(prev, thinkingFull));
+    setShellAgentThinkingFull(sessionId, thinkingFull);
+  }, [sessionId, thinkingFull, geometry?.cardKind]);
+
+  const displayThinking = mergeThinkingText(latchedThinking, thinkingFull);
+
+  /** 卡面预览只刷最后一行；展开 / 归档用 displayThinking 全文 */
+  const thinkingPreviewLine = useMemo(
+    () => lastThinkingLine(displayThinking),
+    [displayThinking],
+  );
 
   useEffect(() => {
     if (!pendingTool) return;
@@ -505,14 +567,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       command: resolveToolCommand(pendingTool),
       toolName: pendingTool.toolName,
       toolId: pendingTool.id,
-      description: shortAssistantNote(latestAssistant, 280),
+      description: pendingDesc,
     });
   }, [
     sessionId,
     pendingTool?.id,
     pendingTool?.args,
     pendingTool?.command,
-    latestAssistant,
+    pendingDesc,
   ]);
 
   // 冻结在 scrollback 的思考完成 / 已同意确认卡 / 工具条：委托点击展开
@@ -535,9 +597,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       if (thinkingCard) {
         e.preventDefault();
         e.stopPropagation();
-        const full =
-          thinkingCard.getAttribute("data-thinking-full") ||
-          getShellAgentThinkingFull(sessionId);
+        const full = readFrozenThinkingFromCard(thinkingCard);
         setDetail((prev) =>
           toggleDetailFloat(prev, {
             kind: "thinking",
@@ -588,39 +648,62 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     return () => document.removeEventListener("click", onClick, true);
   }, [sessionId]);
 
-  const note = shortAssistantNote(latestAssistant, 280);
-  /** 确认卡旁注跟流式正文，不做过短截断 */
-  const pendingDesc = note;
-
   useEffect(() => {
     setEditing(false);
     setDraft(pendingTool ? resolveToolCommand(pendingTool) : "");
   }, [pendingTool?.id, pendingTool?.status]);
 
+  useEffect(() => {
+    if (!editing) return;
+    editRef.current?.focus();
+  }, [editing]);
+
+  const pendingToolId = pendingTool?.id ?? null;
+
+  useEffect(() => {
+    if (!pendingToolId || editing) return;
+    const frame = window.requestAnimationFrame(() => {
+      approveBtnRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingToolId, editing, decoEl]);
+
+  useEffect(() => {
+    if (!pendingToolId || !blockId || editing) return;
+    if (
+      geometry?.cardKind === "thinking" ||
+      geometry?.cardKind === "final" ||
+      geometry?.cardKind === "ask"
+    ) {
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!shouldHandleConfirmEnter(sessionId, e)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      void approveInlineTerminalTool(blockId, pendingToolId);
+    };
+    // window 捕获早于 document / xterm textarea，不依赖 xterm 焦点
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [pendingToolId, blockId, editing, sessionId, geometry?.cardKind]);
+
   // 方案 C：只渲染流内 decoration / 审批·询问 detached；禁止 sticky 兜底与「仅 busy」复活
   const hasThinkingGeo = geometry?.cardKind === "thinking";
   const detached = geometry?.mode === "detached";
+  const needsAction =
+    phase === "awaiting_approval" || phase === "awaiting_user_input";
   const hasLivePresentation =
     Boolean(geometry?.cardKind) ||
     Boolean(geometry?.decoration) ||
-    (detached &&
-      (phase === "awaiting_approval" ||
-        phase === "awaiting_user_input" ||
-        Boolean(pendingTool)));
+    (detached && needsAction);
   const showOverlay =
     Boolean(agent) && agent?.phase !== "cancelled" && hasLivePresentation;
   const portalHost = decoEl?.isConnected ? decoEl : null;
   const inlineActive = Boolean(
     geometry?.cardKind && portalHost && showOverlay && !detached,
   );
-  const showDetachedFallback =
-    detached &&
-    showOverlay &&
-    Boolean(
-      pendingTool ||
-        phase === "awaiting_approval" ||
-        phase === "awaiting_user_input",
-    );
+  const showDetachedFallback = detached && showOverlay && needsAction;
 
   // 浮窗：点外部 / Esc / 终端滚动关闭（无模态遮罩，不挡终端操作）
   useEffect(() => {
@@ -702,7 +785,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     geometry?.version,
     phase,
     thinkingPreviewLine,
-    latestAssistant,
+    displayThinking,
+    interpretText,
     pendingDesc,
     pendingTool?.id,
     pendingTool?.status,
@@ -721,7 +805,11 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const showAskCard = cardKind === "ask" && Boolean(askForm);
   /** 待确认：独立确认卡（设计 nl-card pending） */
   const showConfirmCard =
-    Boolean(pendingTool) && cardKind !== "final" && cardKind !== "ask" && Boolean(blockId);
+    Boolean(pendingTool) &&
+    cardKind !== "final" &&
+    cardKind !== "ask" &&
+    cardKind !== "thinking" &&
+    Boolean(blockId);
   /** 当前轮工具条：勿把历史工具全堆进同一 decoration */
   const stripTools = resolveStripTools(toolCalls, sessionId);
   const showToolStrips =
@@ -744,7 +832,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const thinkingStreaming =
     thinkingVisible &&
     cardKind === "thinking" &&
-    phase === "streaming" &&
+    (phase === "streaming" || phase === "observing") &&
     !showConfirmCard;
   const thinkingDone = thinkingVisible && !thinkingStreaming;
 
@@ -763,7 +851,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       toggleDetailFloat(prev, {
         kind: "thinking",
         anchor: readAnchorRect(el),
-        fullText: thinkingFull || getShellAgentThinkingFull(sessionId),
+        fullText: displayThinking,
       }),
     );
   };
@@ -799,6 +887,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
           ? t("terminal.shellAgent.thinkingDone")
           : thinkingPreviewLine || t("terminal.shellAgent.thinking")}
       </div>
+      {displayThinking ? (
+        <textarea
+          className="term-shell-agent-thinking-src"
+          hidden
+          readOnly
+          value={displayThinking}
+        />
+      ) : null}
       <div className="term-shell-agent-card__note-actions" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
@@ -838,6 +934,13 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     showConfirmCard && confirmTool && blockId ? (
       <div
         className={`term-shell-agent-card term-shell-agent-card--cmd ${danger ? "is-danger" : "is-pending"}`}
+        data-session-id={sessionId}
+        onMouseDown={(e) => {
+          if (e.target instanceof HTMLElement && e.target.closest("button, textarea, input, a")) {
+            return;
+          }
+          approveBtnRef.current?.focus({ preventScroll: true });
+        }}
       >
         <div className="term-shell-agent-card__head">
           {danger ? (
@@ -867,6 +970,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
           ) : null}
           {editing ? (
             <textarea
+              ref={editRef}
               className="term-shell-agent-card__edit"
               value={draft}
               rows={Math.min(6, Math.max(2, draft.split("\n").length))}
@@ -880,12 +984,15 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
           ) : null}
           <div className="term-shell-agent-card__actions">
             <button
+              ref={approveBtnRef}
               type="button"
               className={
                 danger
                   ? "term-shell-agent-btn term-shell-agent-btn--danger"
                   : "term-shell-agent-btn term-shell-agent-btn--primary"
               }
+              aria-keyshortcuts={editing ? undefined : "Enter"}
+              title={editing ? undefined : t("terminal.shellAgent.enterToConfirm")}
               onClick={() =>
                 void approveInlineTerminalTool(
                   blockId,
@@ -897,6 +1004,11 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
               {danger
                 ? t("terminal.shellAgent.confirmDanger")
                 : t("terminal.shellAgent.agree")}
+              {editing ? null : (
+                <kbd className="term-shell-agent-kbd" aria-hidden>
+                  {t("terminal.shellAgent.enterKey")}
+                </kbd>
+              )}
             </button>
             <button
               type="button"
@@ -1001,24 +1113,26 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
         e.stopPropagation();
       }}
     >
-      {latestAssistant ? (
+      {interpretText ? (
         <div className="term-shell-agent-card__interpret">
-          <ShellAgentMarkdown text={latestAssistant} />
+          <ShellAgentMarkdown text={interpretText} />
         </div>
       ) : (
         <div className="term-shell-agent-card__interpret">
           {t("terminal.shellAgent.thinking")}
         </div>
       )}
-      <div className="term-shell-agent-card__footer">
-        <button
-          type="button"
-          className="term-shell-agent-btn term-shell-agent-btn--ghost"
-          onClick={() => newShellAgentSession(sessionId)}
-        >
-          {t("terminal.shellAgent.newSession")}
-        </button>
-      </div>
+      {phase === "idle" ? (
+        <div className="term-shell-agent-card__footer">
+          <button
+            type="button"
+            className="term-shell-agent-btn term-shell-agent-btn--ghost"
+            onClick={() => newShellAgentSession(sessionId)}
+          >
+            {t("terminal.shellAgent.newSession")}
+          </button>
+        </div>
+      ) : null}
     </div>
   ) : null;
 
@@ -1060,9 +1174,13 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
             <div className="term-shell-agent-float__body">
               {detail.kind === "thinking" ? (
                 <>
-                  {(detail.fullText || thinkingFull) ? (
+                  {detail.fullText ? (
                     <div className="term-shell-agent-float__section">
-                      <ShellAgentMarkdown text={detail.fullText || thinkingFull} />
+                      <ShellAgentMarkdown text={detail.fullText} />
+                    </div>
+                  ) : displayThinking ? (
+                    <div className="term-shell-agent-float__section">
+                      <ShellAgentMarkdown text={displayThinking} />
                     </div>
                   ) : (
                     <p className="term-shell-agent-float__empty">

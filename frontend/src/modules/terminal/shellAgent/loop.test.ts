@@ -67,9 +67,12 @@ import type { IDecoration, IMarker, Terminal } from "@xterm/xterm";
 import { registerXterm, unregisterXterm } from "../xtermRegistry";
 import {
   notifyShellAgentStreaming,
+  notifyShellAgentApprovalPending,
+  notifyShellAgentExecuting,
   newShellAgentSession,
   notifyShellAgentRejected,
   startOrContinueShellAgent,
+  teardownShellAgentUi,
 } from "./loop";
 import {
   beginShellAgentCard,
@@ -136,6 +139,7 @@ function createFakeTerm(opts?: { cursorY?: number; promptLine?: string }) {
 
 describe("notifyShellAgentStreaming", () => {
   beforeEach(() => {
+    teardownShellAgentUi(SID);
     useShellAgentStore.setState({ bySession: {} });
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
@@ -159,7 +163,7 @@ describe("notifyShellAgentStreaming", () => {
     expect(getShellAgentGeometry(SID)?.mode).toBe("inline");
   });
 
-  it("续轮 streaming：等 settle 后切到 final 卡以便解读流式出现", async () => {
+  it("续轮 streaming：等 settle 后钉思考卡，避免空结果卡盖住输出", async () => {
     useShellAgentStore.getState().ensure(SID);
     useShellAgentStore.getState().setPhase(SID, "observing");
     beginShellAgentCard(SID, {
@@ -173,13 +177,46 @@ describe("notifyShellAgentStreaming", () => {
 
     expect(useShellAgentStore.getState().get(SID)?.phase).toBe("streaming");
     await vi.waitFor(() => {
-      expect(getShellAgentGeometry(SID)?.cardKind).toBe("final");
+      expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
     });
+  });
+
+  it("执行中 streaming 不钉思考卡，避免盖住回显", async () => {
+    useShellAgentStore.getState().ensure(SID);
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "查磁盘",
+    });
+
+    notifyShellAgentExecuting(SID, true);
+    notifyShellAgentStreaming(SID);
+
+    expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
+    await new Promise((r) => setTimeout(r, 80));
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+  });
+
+  it("执行开始时撤掉误钉的思考卡", () => {
+    useShellAgentStore.getState().ensure(SID);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "查磁盘",
+    });
+
+    notifyShellAgentExecuting(SID, true);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).not.toBe("thinking");
+    expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
   });
 });
 
 describe("startOrContinueShellAgent busy follow-up", () => {
   beforeEach(() => {
+    teardownShellAgentUi(SID);
     useShellAgentStore.setState({ bySession: {} });
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
@@ -247,6 +284,7 @@ describe("startOrContinueShellAgent busy follow-up", () => {
 
 describe("newShellAgentSession", () => {
   beforeEach(() => {
+    teardownShellAgentUi(SID);
     useShellAgentStore.setState({ bySession: {} });
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
@@ -280,8 +318,79 @@ describe("newShellAgentSession", () => {
   });
 });
 
+describe("notifyShellAgentApprovalPending", () => {
+  beforeEach(() => {
+    teardownShellAgentUi(SID);
+    useShellAgentStore.setState({ bySession: {} });
+    clearShellAgentGeometry(SID);
+    unregisterXterm(SID);
+  });
+
+  it("从结果卡切到下一确认卡时归档另钉，不把结果卡同槽换肤", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "final",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "查资源",
+    });
+    expect(term.decorations).toHaveLength(1);
+
+    notifyShellAgentApprovalPending(SID);
+
+    expect(useShellAgentStore.getState().get(SID)?.phase).toBe("awaiting_approval");
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+    expect(term.decorations.length).toBeGreaterThanOrEqual(2);
+    expect(term.decorations[0].disposed).toBe(false);
+  });
+
+  it("续轮思考卡钉在确认位后，下一工具先等思考正文，不立刻切确认卡", async () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "observing");
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "查资源",
+    });
+
+    notifyShellAgentStreaming(SID);
+    await vi.waitFor(() => {
+      expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+    });
+
+    notifyShellAgentApprovalPending(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+    expect(useShellAgentStore.getState().get(SID)?.phase).not.toBe("awaiting_approval");
+  });
+
+  it("命令输出未落定前下一确认卡延后，不立刻切 awaiting_approval", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    useShellAgentStore.getState().ensure(SID);
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "查资源",
+    });
+    notifyShellAgentExecuting(SID, true);
+
+    notifyShellAgentApprovalPending(SID);
+
+    expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
+  });
+});
+
 describe("notifyShellAgentRejected", () => {
   beforeEach(() => {
+    teardownShellAgentUi(SID);
     useShellAgentStore.setState({ bySession: {} });
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
