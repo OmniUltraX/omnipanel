@@ -62,12 +62,12 @@ AI Agent inspection report — structured health checks grounded in live contain
 
 | Area | Highlights |
 |------|------------|
+| **Account sync** | Login pulls a shared account-level cloud snapshot across devices |
+| **Panel · App install logs** | Live install progress and error details for BT / 1Panel apps |
+| **Teams · OSS sync** | Email member invite, team data preview, sync exclusions, panel sharing |
+| **SSH · Processes** | Live process polling; cached command-line in process details |
 | **Custom monitor panels** | Drag-and-drop grid panels with host / Docker / MySQL / Redis widgets |
-| **Docker · BT Panel** | BT Panel Docker source, SSH one-click import, sidebar folders |
-| **Redis** | Visual ops for Streams and richer key preview |
-| **Database** | Copyable table identity chip; empty filter clears rows; macOS grid scroll fix |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
-| **Panel integration** | BT Panel / 1Panel domains (sites·apps·certs·cron); 1Panel v1/v2 compatible |
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md).
 

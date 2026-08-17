@@ -178,14 +178,12 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "captureId": "", "iface": "", "filter": "", "running": false, "packetCount": null, "startedAt": "" });
     }
 
-    if c == "client_sync_import_from_device" {
-        // ClientSyncImportResult arrays=[]
-        return serde_json::json!({ "appliedConnections": null, "appliedDatabases": null, "appliedKnowledge": null, "appliedHttpRequests": null, "appliedWorkspaces": null, "workspacesJson": null, "conversationsJson": null });
+    if c == "client_sync_pull_conversations" {
+        return serde_json::json!({ "found": false, "objectKey": null, "bodyJson": null, "bytes": null });
     }
 
-    if c == "client_sync_peek_device" {
-        // ClientSyncPeekResult arrays=[connections,databases,knowledge,httpRequests,httpCollections,workspaces,conversations]
-        return serde_json::json!({ "connections": [], "databases": [], "knowledge": [], "httpRequests": [], "httpCollections": [], "workspaces": [], "conversations": [], "deviceId": "", "modulesFound": false, "conversationsFound": false, "modulesUpdatedAt": null, "conversationsUpdatedAt": null });
+    if c == "client_sync_pull_modules" {
+        return serde_json::json!({ "found": false, "objectKey": null, "bytes": null, "appliedConnections": null, "appliedDatabases": null, "appliedKnowledge": null, "appliedHttpRequests": null, "appliedWorkspaces": null, "workspacesJson": null });
     }
 
     if c == "client_sync_push_conversations" {

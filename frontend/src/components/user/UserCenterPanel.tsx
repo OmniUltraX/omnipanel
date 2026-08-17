@@ -7,7 +7,6 @@ import { TextInput } from "../ui/form/TextInput";
 import { Select } from "../ui/form/Select";
 import {
   IconCheckCircle,
-  IconDownload,
   IconMonitor,
   IconUser,
   IconUsers,
@@ -42,7 +41,6 @@ import {
 import { AuthLoginMethods } from "./AuthLoginMethods";
 import { UserCenterDevices } from "./UserCenterDevices";
 import { UserCenterTeams } from "./UserCenterTeams";
-import { DataSyncPanel } from "./DataSyncPanel";
 import {
   AccountLinkBindPanel,
   type AccountLinkKind,
@@ -250,7 +248,6 @@ const NAV_ITEMS: {
   },
   { id: "team", labelKey: "userCenter.nav.team", icon: <IconUsers size={14} /> },
   { id: "devices", labelKey: "userCenter.nav.devices", icon: <IconMonitor size={14} /> },
-  { id: "dataSync", labelKey: "userCenter.nav.dataSync", icon: <IconDownload size={14} /> },
 ];
 
 export function UserCenterPanel() {
@@ -544,8 +541,6 @@ export function UserCenterPanel() {
     main = <UserCenterTeams />;
   } else if (page === "devices") {
     main = <UserCenterDevices />;
-  } else if (page === "dataSync") {
-    main = <DataSyncPanel />;
   } else {
     main = accountPage;
   }

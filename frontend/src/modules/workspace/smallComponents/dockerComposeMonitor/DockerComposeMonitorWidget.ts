@@ -6,7 +6,7 @@ import {
 import { DockerMonitorIcon } from "../widgetIcons";
 import {
   DOCKER_COMPOSE_MONITOR_TYPE,
-  DOCKER_MONITOR_SIZES,
+  DOCKER_COMPOSE_MONITOR_SIZES,
 } from "../dockerMonitorShared/sizes";
 import { DockerComposeMonitorView } from "./DockerComposeMonitorView";
 
@@ -21,7 +21,7 @@ export class DockerComposeMonitorWidget extends SmallComponentBase {
   static readonly descriptionKey =
     "homeWorkspace.widgets.dockerComposeMonitor.description";
   static readonly Icon = DockerMonitorIcon;
-  static readonly sizes = DOCKER_MONITOR_SIZES;
+  static readonly sizes = DOCKER_COMPOSE_MONITOR_SIZES;
   static readonly dataSourceKind = "docker" as const;
   static readonly targetKind = "docker-compose" as const;
   static readonly View = DockerComposeMonitorView;

@@ -2,7 +2,7 @@ import { memo } from "react";
 
 import type { DbColumnMeta } from "../api";
 import { ColumnFilterButton, ColumnSortIndicator } from "./TableDataGridChrome";
-import { formatCellDisplayText, isEmptyCellValue, isNullCellValue } from "./tableDataGridFormat";
+import { formatCellDisplayText, formatColumnHeaderName, isEmptyCellValue, isNullCellValue } from "./tableDataGridFormat";
 import { ROW_NUM_COL_ID } from "./tableDataGridConstants";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -42,7 +42,7 @@ export const TableDataGridTransposeFieldCell = memo(function TableDataGridTransp
           </span>
         ) : null}
         <span className="db-data-table-th-label-wrap">
-          <span className="db-data-table-cell-text">{fieldName}</span>
+          <span className="db-data-table-cell-text">{formatColumnHeaderName(fieldName)}</span>
           {fieldMeta?.nullable === false ? (
             <span
               className="db-data-table-th-nullability db-data-table-th-nullability--no"

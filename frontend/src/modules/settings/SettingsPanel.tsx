@@ -340,7 +340,7 @@ function SettingSelect({
       value={value}
       options={selectOptions}
       onChange={onChange}
-      searchable={options.length > 6}
+      searchable={false}
     />
   );
 }

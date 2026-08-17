@@ -141,7 +141,7 @@ import {
   isPinnedGridColumn,
   shouldVirtualizeGridColumns,
 } from "./tableDataGridColumnVirtualization";
-import { buildColumnHeaderTooltip } from "./tableDataGridFormat";
+import { buildColumnHeaderTooltip, formatColumnHeaderName } from "./tableDataGridFormat";
 import {
   applyAllColumnWidthsDom,
   buildColumnCellStyle,
@@ -3585,9 +3585,9 @@ export const TableDataGrid = memo(function TableDataGrid({
                   : colMeta
                     ? buildColumnHeaderTooltip(colMeta, colId, t)
                     : relationDisplayHeader
-                      ? relationDisplayHeader
+                      ? formatColumnHeaderName(relationDisplayHeader)
                       : colId !== ROW_NUM_COL_ID
-                        ? colId
+                        ? formatColumnHeaderName(colId)
                         : undefined;
                 return (
                 <th

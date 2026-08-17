@@ -4,17 +4,20 @@ import {
   type TeamSharePushResult,
   type TeamShareSummary,
   type TeamSyncFetchShareResult,
+  type TeamSyncPeekResult,
   type TeamSyncPullModulesResult,
   type TeamSyncPushModulesResult,
 } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "../../modules/clientSync/tombstones";
+import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 
 export type {
   TeamSharePushResult,
   TeamShareSummary,
   TeamSyncFetchShareResult,
+  TeamSyncPeekResult,
   TeamSyncPullModulesResult,
   TeamSyncPushModulesResult,
 };
@@ -73,6 +76,7 @@ export async function pushTeamModules(
       teamId,
       workspacesJson: collectWorkspacesJson(),
       ...deletedPayload(),
+      ...teamSyncExclusionsForIpc(teamId),
     }),
   );
 }
@@ -82,6 +86,21 @@ export async function pullTeamModules(
   teamId: number,
 ): Promise<TeamSyncPullModulesResult> {
   return unwrapCommand(commands.teamSyncPullModules(token, teamId));
+}
+
+export async function peekTeamModules(
+  token: string,
+  teamId: number,
+): Promise<TeamSyncPeekResult> {
+  return unwrapCommand(
+    commands.teamSyncPeekModules({
+      token,
+      teamId,
+      workspacesJson: collectWorkspacesJson(),
+      ...teamSyncExclusionsForIpc(teamId),
+    }),
+    { quiet: true, logLabel: "[team-sync:peek]" },
+  );
 }
 
 export async function pushTeamShare(

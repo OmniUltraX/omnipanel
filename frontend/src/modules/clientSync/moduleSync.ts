@@ -1,5 +1,5 @@
 import { commands } from "../../ipc/bindings";
-import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
@@ -7,9 +7,6 @@ import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
 /** 模块同步落到本机后派发，供 Database / Protocol 等面板刷新 */
 export const CLIENT_SYNC_MODULES_APPLIED_EVENT = "omnipanel:client-sync-modules-applied";
 
-const DEBOUNCE_MS = 5000;
-
-let timer: ReturnType<typeof setTimeout> | null = null;
 let inFlight: Promise<void> | null = null;
 let pendingAfterFlight = false;
 let suppressPush = false;
@@ -19,10 +16,6 @@ export function setClientModuleSyncSuppressed(value: boolean): void {
 }
 
 export function cancelClientModuleSync(): void {
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
-  }
   pendingAfterFlight = false;
 }
 
@@ -53,27 +46,14 @@ function deletedPayload() {
 }
 
 /**
- * 模块数据变更后调度推送到 `sync/{userId}/devices/{deviceId}/modules/…`。
+ * 模块数据变更后立即推送到 `sync/{userId}/modules/latest.json`。
  */
-export function scheduleClientModuleSync(options?: { immediate?: boolean }): void {
+export function scheduleClientModuleSync(): void {
   if (suppressPush) return;
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return;
 
-  if (options?.immediate) {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    void runPush();
-    return;
-  }
-
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    timer = null;
-    void runPush();
-  }, DEBOUNCE_MS);
+  void runPush();
 }
 
 async function runPush(): Promise<void> {
@@ -89,21 +69,15 @@ async function runPush(): Promise<void> {
   inFlight = (async () => {
     try {
       const deleted = deletedPayload();
-      const result = await unwrapCommand(
+      await unwrapCommand(
         commands.clientSyncPushModules({
           token,
           workspacesJson: collectWorkspacesJson(),
           ...deleted,
         }),
-        { quiet: true, logLabel: "[client-sync:modules]" },
+        { quiet: true },
       );
-      console.info(
-        "[client-sync:modules] push ok",
-        result.objectKey,
-        `${Math.round(result.bytes ?? 0)}B`,
-      );
-    } catch (err) {
-      console.warn("[client-sync:modules] push failed:", formatIpcError(err));
+    } catch {
     } finally {
       inFlight = null;
       if (pendingAfterFlight) {

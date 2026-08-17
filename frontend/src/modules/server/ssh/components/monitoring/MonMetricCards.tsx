@@ -1,4 +1,5 @@
 import { useI18n } from "@/i18n";
+import { cn } from "@/lib/utils";
 import {
   aggregateGpuUtilization,
   formatBytes,
@@ -98,15 +99,10 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
       : "";
 
   const gpuDevices = stats.gpu?.devices ?? [];
-  const gpuBadgeLabel =
-    gpuDevices.length === 0
-      ? t("ssh.overview.gpuNotDetected")
-      : gpuDevices.length === 1
-        ? shortGpuName(gpuDevices[0].name) || "GPU"
-        : `${gpuDevices.length}× GPU`;
+  const hasGpu = gpuDevices.length > 0;
 
   return (
-    <div className="mon-metrics">
+    <div className={cn("mon-metrics", !hasGpu && "mon-metrics--no-gpu")}>
       {/* CPU */}
       <div className="mon-card" data-metric="cpu">
         <div className="mon-card-head">
@@ -273,6 +269,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
       </div>
 
       {/* GPU */}
+      {hasGpu ? (
       <div className="mon-card" data-metric="gpu">
         <div className="mon-card-head">
           <div className="mon-card-title">
@@ -280,12 +277,11 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
             {t("ssh.overview.gpu")}
           </div>
           <span className="badge badge-accent" style={{ fontSize: 9 }}>
-            {gpuBadgeLabel}
+            {gpuDevices.length === 1
+              ? shortGpuName(gpuDevices[0].name) || "GPU"
+              : `${gpuDevices.length}× GPU`}
           </span>
         </div>
-        {gpuDevices.length === 0 ? (
-          <div className="mon-card-secondary">{t("ssh.overview.gpuNotDetected")}</div>
-        ) : (
           <div
             className={`mon-gpu-list${gpuDevices.length > 1 ? " mon-gpu-list--row" : ""}`}
           >
@@ -335,8 +331,8 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
               );
             })}
           </div>
-        )}
       </div>
+      ) : null}
     </div>
   );
 }

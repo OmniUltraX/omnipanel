@@ -207,6 +207,13 @@ export interface OnePanelAppInstallCreate {
   hostMode?: boolean;
 }
 
+export interface OnePanelTaskLogContent {
+  content: string;
+  end?: boolean;
+  taskStatus?: string;
+  path?: string;
+}
+
 export interface OnePanelRequestOptions {
   method?: string;
   path: string;

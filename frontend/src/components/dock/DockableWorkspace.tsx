@@ -73,6 +73,7 @@ import {
   hostsMacTrafficLightsInSidebar,
   usesMacTrafficLights,
 } from "../../lib/platform";
+import { resetDockWindowControlScroll } from "../../lib/restoreDockWindowChromeAfterLayout";
 import {
   syncGroupHeaderPosition,
   type DockHeaderPosition,
@@ -1080,6 +1081,10 @@ export function DockableWorkspace({
     }
 
     api.layout(w, h, true);
+
+    if (windowControlRef.current) {
+      resetDockWindowControlScroll();
+    }
 
     if (recovering) {
       requestAnimationFrame(() => {

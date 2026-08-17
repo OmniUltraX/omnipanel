@@ -11,7 +11,11 @@
  * 同时切 tab 瞬间各发一个 IPC 请求。
  */
 
-type Loader = (opts?: { silent?: boolean; processesOnly?: boolean }) => Promise<void>;
+type Loader = (opts?: {
+  silent?: boolean;
+  processesOnly?: boolean;
+  statsOnly?: boolean;
+}) => Promise<void>;
 
 interface PollerEntry {
   refs: number;
@@ -98,7 +102,7 @@ export function updateOverviewLoader(
  */
 export function runOverviewLoadDedup(
   resourceId: string,
-  opts?: { silent?: boolean; processesOnly?: boolean },
+  opts?: { silent?: boolean; processesOnly?: boolean; statsOnly?: boolean },
 ): Promise<void> | null {
   const entry = pollers[resourceId];
   if (!entry) return null;
@@ -109,7 +113,7 @@ export function runOverviewLoadDedup(
     }
     entry.silentLoading = true;
     entry.inflight = entry
-      .loader({ silent: true })
+      .loader(opts)
       .finally(() => {
         entry.silentLoading = false;
         entry.inflight = null;
@@ -123,8 +127,8 @@ export function runOverviewLoadDedup(
 function startTimer(entry: PollerEntry, resourceId: string): void {
   if (entry.timer !== null) return;
   entry.timer = setInterval(() => {
-    // 定时器触发走 silent 路径，享受 in-flight 去重
-    void runOverviewLoadDedup(resourceId, { silent: true });
+    // 默认定时器只刷新系统指标，不触发远程 ps
+    void runOverviewLoadDedup(resourceId, { silent: true, statsOnly: true });
   }, entry.intervalMs);
 }
 

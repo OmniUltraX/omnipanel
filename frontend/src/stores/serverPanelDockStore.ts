@@ -105,7 +105,7 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
       activeTabId: null,
       dockLayout: null,
 
-      selectServer: (serverId, mode = "permanent") => {
+      selectServer: (serverId, mode = "preview") => {
         set((state) =>
           openOrFocusTab(state, mode, findTabIdForServer(state.tabs, serverId), (id, preview) => ({
             id: id || makeServerTabId(),
@@ -117,7 +117,7 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
         );
       },
 
-      selectCloud: (accountId, mode = "permanent") => {
+      selectCloud: (accountId, mode = "preview") => {
         set((state) =>
           openOrFocusTab(state, mode, findTabIdForCloud(state.tabs, accountId), (id, preview) =>
             makeCloudTab(id || makeCloudTabId(), accountId, preview),
@@ -125,7 +125,7 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
         );
       },
 
-      selectServerResource: (serverId, kind, mode = "permanent") => {
+      selectServerResource: (serverId, kind, mode = "preview") => {
         set((state) =>
           openOrFocusTab(
             state,
@@ -173,7 +173,7 @@ export const useServerPanelDockStore = create<ServerPanelDockState>()(
     }),
     {
       name: "omnipanel-server-panel-dock.v1",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted) => {
         if (!persisted || typeof persisted !== "object") {

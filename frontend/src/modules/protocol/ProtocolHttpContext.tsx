@@ -525,7 +525,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       const res = await commands.httpDeleteCollection(id);
       if (res.status === "ok") {
         recordModuleTombstones("httpCollection", [id]);
-        scheduleClientModuleSync({ immediate: true });
+        scheduleClientModuleSync();
         if (activeCollectionId === id) {
           setActiveCollectionId(null);
         }
@@ -555,7 +555,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       const res = await commands.httpDeleteEnvironment(id);
       if (res.status === "ok") {
         recordModuleTombstones("httpEnvironment", [id]);
-        scheduleClientModuleSync({ immediate: true });
+        scheduleClientModuleSync();
         await loadEnvironments();
         await loadSavedRequests();
         setEditorState((prev) => {
@@ -576,7 +576,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       if (res.status === "ok") {
         recordModuleTombstones("httpRequest", [id]);
         scheduleAssistantSnapshotSync();
-        scheduleClientModuleSync({ immediate: true });
+        scheduleClientModuleSync();
         useProtocolHttpDockStore.getState().removeTab(id);
         if (selectedRequestId === id) {
           setSelectedRequestId(null);

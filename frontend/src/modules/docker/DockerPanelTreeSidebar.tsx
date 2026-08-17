@@ -591,6 +591,7 @@ export function DockerPanelTreeSidebar({
           expanded={connectionExpanded}
           active={activeNavKey === connectionKey || activeConnectionId === connection.connectionId}
           onToggle={() => toggle(connectionKey)}
+          onSelect={() => onNavigate({ connectionId: connection.connectionId }, "preview")}
           onActivate={() => onNavigate({ connectionId: connection.connectionId }, "permanent")}
           onContextMenu={(event) => openCtx(event, { kind: "connection", connection })}
           trailing={

@@ -23,6 +23,7 @@ export {
   type OnePanelApp,
   type OnePanelAppDetail,
   type OnePanelAppInstallCreate,
+  type OnePanelTaskLogContent,
   type OnePanelAppSearchParams,
   type OnePanelAppSearchResult,
   type OnePanelAppTag,

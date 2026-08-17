@@ -120,7 +120,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             }));
             recordModuleTombstones("knowledge", [id]);
             scheduleAssistantSnapshotSync();
-            scheduleClientModuleSync({ immediate: true });
+            scheduleClientModuleSync();
           } else {
             set({ error: res.error.message });
           }

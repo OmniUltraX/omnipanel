@@ -3087,6 +3087,13 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             };
             respond_omni(crate::client_sync_cmds::client_sync_push_conversations(state, request).await)
         }
+        "client_sync_pull_conversations" => {
+            let request: crate::client_sync_cmds::ClientSyncPullConversationsRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
+                Ok(v) => v,
+                Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
+            };
+            respond_omni(crate::client_sync_cmds::client_sync_pull_conversations(state, request).await)
+        }
         "client_sync_push_modules" => {
             let request: crate::client_sync_modules_cmds::ClientSyncPushModulesRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
                 Ok(v) => v,
@@ -3094,19 +3101,12 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             };
             respond_omni(crate::client_sync_modules_cmds::client_sync_push_modules(state, request).await)
         }
-        "client_sync_peek_device" => {
-            let request: crate::client_sync_modules_cmds::ClientSyncPeekRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
+        "client_sync_pull_modules" => {
+            let request: crate::client_sync_modules_cmds::ClientSyncPullModulesRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
                 Ok(v) => v,
                 Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
             };
-            respond_omni(crate::client_sync_modules_cmds::client_sync_peek_device(state, request).await)
-        }
-        "client_sync_import_from_device" => {
-            let request: crate::client_sync_modules_cmds::ClientSyncImportRequest = match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
-                Ok(v) => v,
-                Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
-            };
-            respond_omni(crate::client_sync_modules_cmds::client_sync_import_from_device(state, request).await)
+            respond_omni(crate::client_sync_modules_cmds::client_sync_pull_modules(state, request).await)
         }
 
         /* ---------------- 密文库 ---------------- */

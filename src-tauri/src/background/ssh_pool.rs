@@ -25,7 +25,7 @@ use crate::log_store::LogStore;
 /// 单次 TCP 探测超时（秒）
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const STATS_CACHE_TTL: Duration = Duration::from_secs(5);
-const PROCESSES_CACHE_TTL: Duration = Duration::from_secs(30);
+const PROCESSES_CACHE_TTL: Duration = Duration::from_secs(60);
 const PORTS_CACHE_TTL: Duration = Duration::from_secs(60);
 const MONITOR_POLL_INTERVAL: Duration = Duration::from_secs(5);
 

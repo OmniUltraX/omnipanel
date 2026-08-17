@@ -10,6 +10,7 @@ import {
 import { TextInput } from "../../../components/ui/TextInput";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
 import { columnTypeTagClassName } from "./columnTypeTag";
+import { formatColumnHeaderName } from "./tableDataGridFormat";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import type { DbColumnMeta } from "../api";
@@ -196,7 +197,7 @@ export function ColumnHeaderLabel({
         </span>
       ) : null}
       <span className="db-data-table-th-header__name-row">
-        <span className="db-data-table-th-header__name">{label}</span>
+        <span className="db-data-table-th-header__name">{formatColumnHeaderName(label)}</span>
         {showNotNull ? (
           <span
             className="db-data-table-th-nullability db-data-table-th-nullability--no"
@@ -381,7 +382,7 @@ export function ColumnVisibilitySidebar({
                     onClick={(e) => e.stopPropagation()}
                   />
                   <span className="db-col-visibility-popover-item-name" title={label}>
-                    {label}
+                    {formatColumnHeaderName(label)}
                   </span>
                   {meta?.comment?.trim() ? (
                     <span

@@ -67,6 +67,98 @@ fn status_is_json_payload(text: &str) -> bool {
     trimmed.starts_with('{') || trimmed.starts_with('[')
 }
 
+fn truncate_text(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    format!("{}…", &text[..max])
+}
+
+fn looks_like_html(text: &str) -> bool {
+    let trimmed = text.trim_start_matches('\u{feff}').trim();
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("<!doctype") || lower.starts_with("<html")
+}
+
+/// 包装错误上下文，保留原 message/cause，避免 `with_cause` 覆盖掉真实原因。
+fn map_onepanel_context(err: OmniError, context: &str) -> OmniError {
+    let detail = err.user_message();
+    OmniError::new(err.code, context).with_cause(detail)
+}
+
+fn non_json_response_error(text: &str) -> OmniError {
+    let trimmed = text.trim_start_matches('\u{feff}').trim();
+    if looks_like_html(trimmed) {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "1Panel 返回了 HTML 页面而非 JSON（请检查面板地址是否包含安全入口路径）",
+        )
+        .with_cause(truncate_text(trimmed, 300));
+    }
+    OmniError::new(ErrorCode::Internal, "1Panel 响应不是合法 JSON")
+        .with_cause(truncate_text(trimmed, 300))
+}
+
+fn api_path_candidates(path: &str) -> Vec<String> {
+    if path.starts_with("/api/v2/") {
+        vec![
+            path.to_string(),
+            path.replacen("/api/v2/", "/api/v1/", 1),
+        ]
+    } else if path.starts_with("/api/v1/") {
+        vec![path.to_string()]
+    } else {
+        let p = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+        vec![format!("/api/v2{p}"), format!("/api/v1{p}")]
+    }
+}
+
+fn is_order_by_oneof_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("orderby") && lower.contains("oneof")
+}
+
+/// v2 常用 camelCase，v1/旧版常用 snake_case；按常见兼容顺序依次尝试。
+fn order_by_fallback_candidates(current: &str) -> Vec<String> {
+    const ALL: [&str; 4] = ["name", "createdAt", "created_at", "state"];
+    let mut out = Vec::with_capacity(ALL.len());
+    if !current.is_empty() {
+        out.push(current.to_string());
+    }
+    for item in ALL {
+        if item != current {
+            out.push(item.to_string());
+        }
+    }
+    if out.is_empty() {
+        out.extend(ALL.iter().map(|s| s.to_string()));
+    }
+    out
+}
+
+fn onepanel_envelope_error(text: &str) -> Option<(i32, String)> {
+    if !status_is_json_payload(text) {
+        return None;
+    }
+    let parsed: OnePanelResponse<serde_json::Value> = serde_json::from_str(text).ok()?;
+    if parsed.code == 0 || parsed.code == 200 {
+        return None;
+    }
+    Some((parsed.code, parsed.message))
+}
+
+fn is_retryable_onepanel_envelope(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    is_order_by_oneof_error(message)
+        || lower.contains("not found")
+        || lower.contains("404")
+        || lower.contains("route")
+}
+
 impl OnePanelClient {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, insecure: bool) -> Self {
         Self {
@@ -122,11 +214,7 @@ impl OnePanelClient {
             .request_raw(reqwest::Method::POST, path, Some(body), None, timeout)
             .await?;
         if !status_is_json_payload(&text) {
-            return Err(OmniError::new(
-                ErrorCode::Internal,
-                "1Panel 响应不是合法 JSON",
-            )
-            .with_cause(text.chars().take(300).collect::<String>()));
+            return Err(non_json_response_error(&text));
         }
         let parsed: OnePanelResponse<serde_json::Value> =
             serde_json::from_str(&text).map_err(|e| {
@@ -204,14 +292,14 @@ impl OnePanelClient {
             .request_raw(method, path, body, query, timeout)
             .await?;
         if !status_is_json_payload(&text) {
-            return Err(OmniError::new(
-                ErrorCode::Internal,
-                "1Panel 响应不是合法 JSON",
-            )
-            .with_cause(text.chars().take(300).collect::<String>()));
+            return Err(non_json_response_error(&text));
         }
         let parsed: OnePanelResponse<T> = serde_json::from_str(&text).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "解析 1Panel 响应失败").with_cause(e.to_string())
+            OmniError::new(ErrorCode::Internal, "解析 1Panel 响应失败").with_cause(format!(
+                "{}; body: {}",
+                e,
+                truncate_text(text.trim(), 300)
+            ))
         })?;
         if parsed.code != 0 && parsed.code != 200 {
             return Err(OmniError::new(
@@ -235,7 +323,55 @@ impl OnePanelClient {
     where
         B: serde::Serialize,
     {
-        let url = format!("{}{}", self.base_url, path);
+        let body_value = match body {
+            Some(b) => Some(serde_json::to_value(&b).map_err(|e| {
+                OmniError::new(ErrorCode::InvalidInput, "1Panel 请求体序列化失败")
+                    .with_cause(e.to_string())
+            })?),
+            None => None,
+        };
+        let paths = api_path_candidates(path);
+        match self
+            .request_raw_with_paths(method.clone(), &paths, body_value.as_ref(), query, timeout)
+            .await
+        {
+            Ok(v) => Ok(v),
+            Err(err) => {
+                if self.base_url.starts_with("http://") {
+                    let https_base = format!(
+                        "https://{}",
+                        self.base_url.trim_start_matches("http://")
+                    );
+                    let https_client =
+                        Self::new(&https_base, &self.api_key, self.insecure);
+                    match https_client
+                        .request_raw_with_paths(
+                            method,
+                            &paths,
+                            body_value.as_ref(),
+                            query,
+                            timeout,
+                        )
+                        .await
+                    {
+                        Ok(v) => Ok(v),
+                        Err(_) => Err(err),
+                    }
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    async fn request_raw_with_paths(
+        &self,
+        method: reqwest::Method,
+        paths: &[String],
+        body: Option<&serde_json::Value>,
+        query: Option<&[(&str, &str)]>,
+        timeout: std::time::Duration,
+    ) -> OmniResult<String> {
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(self.insecure)
             .timeout(timeout)
@@ -244,32 +380,83 @@ impl OnePanelClient {
                 OmniError::new(ErrorCode::Connection, "构造 HTTP 客户端失败")
                     .with_cause(e.to_string())
             })?;
-        let mut req = client.request(method, &url);
-        if let Some(pairs) = query {
-            req = req.query(pairs);
+
+        let mut last_err: Option<OmniError> = None;
+        for api_path in paths {
+            let url = format!("{}{}", self.base_url, api_path);
+            let mut req = client
+                .request(method.clone(), &url)
+                .header("Accept", "application/json, text/plain, */*");
+            if let Some(pairs) = query {
+                req = req.query(pairs);
+            }
+            for (k, v) in self.auth_headers() {
+                req = req.header(k, v);
+            }
+            match body {
+                Some(value) => {
+                    req = req.json(value);
+                }
+                None if matches!(
+                    method,
+                    reqwest::Method::POST | reqwest::Method::PUT | reqwest::Method::PATCH
+                ) => {
+                    req = req.json(&serde_json::json!({}));
+                }
+                None => {}
+            }
+
+            let resp = match req.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(
+                        OmniError::new(ErrorCode::Connection, "1Panel 请求失败")
+                            .with_cause(format!("{} ({})", e, url)),
+                    );
+                    continue;
+                }
+            };
+            let status = resp.status();
+            let text = match resp.text().await {
+                Ok(t) => t,
+                Err(e) => {
+                    last_err = Some(
+                        OmniError::new(ErrorCode::Connection, "读取 1Panel 响应失败")
+                            .with_cause(format!("{} ({})", e, url)),
+                    );
+                    continue;
+                }
+            };
+
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(
+                    OmniError::new(ErrorCode::Auth, "API 接口密钥错误")
+                        .with_cause(truncate_text(&text, 300)),
+                );
+            }
+            if !status.is_success() {
+                last_err = Some(
+                    OmniError::new(ErrorCode::Connection, format!("1Panel HTTP {status}"))
+                        .with_cause(format!("{}: {}", url, truncate_text(&text, 300))),
+                );
+                continue;
+            }
+            if looks_like_html(&text) {
+                last_err = Some(non_json_response_error(&text));
+                continue;
+            }
+            if let Some((_, message)) = onepanel_envelope_error(&text) {
+                if is_retryable_onepanel_envelope(&message) {
+                    last_err = Some(OmniError::new(
+                        ErrorCode::Internal,
+                        format!("1Panel 业务错误: {message}"),
+                    ));
+                    continue;
+                }
+            }
+            return Ok(text);
         }
-        for (k, v) in self.auth_headers() {
-            req = req.header(k, v);
-        }
-        if let Some(b) = body {
-            req = req.json(&b);
-        }
-        let resp = req.send().await.map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "1Panel 请求失败")
-                .with_cause(format!("{} ({})", e, url))
-        })?;
-        let status = resp.status();
-        let text = resp.text().await.map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "读取 1Panel 响应失败")
-                .with_cause(format!("{} ({})", e, url))
-        })?;
-        if !status.is_success() {
-            return Err(
-                OmniError::new(ErrorCode::Connection, format!("1Panel HTTP {}", status))
-                    .with_cause(format!("{}: {}", url, text)),
-            );
-        }
-        Ok(text)
+        Err(last_err.unwrap_or_else(|| OmniError::new(ErrorCode::Connection, "1Panel 请求失败")))
     }
 
     fn terminal_ws_base(&self) -> String {
@@ -348,13 +535,40 @@ impl OnePanelClient {
     }
 
     /// POST 分页 search 接口，兼容 `{ items, total }` 与旧版直接数组。
+    /// OrderBy 在 v1/v2 间字段名不一致时自动回退（与前端 `requestWithOrderByFallback` 一致）。
     async fn post_search_values(
         &self,
         path: &str,
         body: serde_json::Value,
     ) -> OmniResult<Vec<serde_json::Value>> {
-        let data: serde_json::Value = self.post_json(path, body).await?;
-        extract_search_items(data)
+        let current = body
+            .get("orderBy")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut last_err: Option<OmniError> = None;
+        for order_by in order_by_fallback_candidates(&current) {
+            let mut attempt = body.clone();
+            if let Some(obj) = attempt.as_object_mut() {
+                obj.insert("orderBy".to_string(), serde_json::Value::String(order_by));
+            }
+            match self
+                .post_json::<serde_json::Value, serde_json::Value>(path, attempt)
+                .await
+            {
+                Ok(data) => return extract_search_items(data),
+                Err(err) => {
+                    if is_order_by_oneof_error(&err.user_message()) {
+                        last_err = Some(err);
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            OmniError::new(ErrorCode::Internal, "1Panel search 请求失败")
+        }))
     }
 }
 
@@ -1078,7 +1292,7 @@ async fn fetch_container_summaries(
             container_search_body(1, page_size),
         )
         .await
-        .map_err(|e| e.with_cause("列出 1Panel 容器失败"))?;
+        .map_err(|e| map_onepanel_context(e, "列出 1Panel 容器失败"))?;
     let mut out: Vec<DockerContainerSummary> =
         raw.iter().filter_map(parse_container_summary).collect();
     if out.iter().any(|c| c.compose_project.is_none()) {
@@ -1208,7 +1422,8 @@ fn container_search_body(page: u32, page_size: u32) -> serde_json::Value {
         "page": page,
         "pageSize": page_size,
         "filters": "",
-        "orderBy": "createdAt",
+        "excludeAppStore": false,
+        "orderBy": "name",
         "order": "null",
     })
 }
@@ -1218,7 +1433,7 @@ fn image_search_body(page: u32, page_size: u32) -> serde_json::Value {
         "name": "",
         "page": page,
         "pageSize": page_size,
-        "orderBy": "createdAt",
+        "orderBy": "name",
         "order": "null",
     })
 }
@@ -1228,7 +1443,7 @@ fn generic_search_body(page: u32, page_size: u32) -> serde_json::Value {
         "info": "",
         "page": page,
         "pageSize": page_size,
-        "orderBy": "createdAt",
+        "orderBy": "name",
         "order": "null",
     })
 }

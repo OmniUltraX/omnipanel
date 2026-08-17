@@ -23,6 +23,7 @@ import {
   getSqlInlineInputThemeExtensions,
   isLightTheme,
 } from "../sql/sqlEditorTheme";
+import { restoreDockWindowChromeAfterLayout } from "../../../lib/restoreDockWindowChromeAfterLayout";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import {
   createTablePreviewQueryCompletionSource,
@@ -272,6 +273,7 @@ export function TablePreviewQuerySqlInput({
         }),
       ),
     });
+    restoreDockWindowChromeAfterLayout("database");
   }, [
     sqlEditorFontFamily,
     sqlEditorFontSize,

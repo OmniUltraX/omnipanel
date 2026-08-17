@@ -58,7 +58,8 @@ pub struct SshProcessDetail {
     pub open_files: Vec<String>,
 }
 
-pub const PS_EO_CMD: &str = "COLUMNS=4096 ps -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null";
+/// 进程列表快速采集：用 `comm` 代替 `args`，避免在进程数多的主机上 `ps` CPU 飙高；完整命令行见 `process_detail`。
+pub const PS_EO_CMD: &str = "COLUMNS=4096 ps -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,comm --no-headers 2>/dev/null";
 pub const PS_AUX_CMD: &str =
     "COLUMNS=4096 ps aux --no-headers 2>/dev/null || COLUMNS=4096 ps aux | tail -n +2";
 /// 跨 Linux / macOS / BusyBox 的统一进程列表采集脚本（与系统指标脚本一致走 bash）。
@@ -77,7 +78,7 @@ if is_darwin; then
   COLUMNS=4096 "$PS" aux 2>/dev/null | awk "NR>1"
   exit 0
 fi
-out=$(COLUMNS=4096 "$PS" -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,args --no-headers 2>/dev/null)
+out=$(COLUMNS=4096 "$PS" -eo user=,pid=,pcpu=,pmem=,vsz=,rss=,stat=,start=,time=,comm --no-headers 2>/dev/null)
 if [ -n "$out" ]; then
   echo "$out"
   exit 0
@@ -185,10 +186,16 @@ emit_link() {{
 emit_link CWD "$proc/cwd"
 emit_link EXE "$proc/exe"
 emit_link ROOT "$proc/root"
+cmd=""
 if [ -r "$proc/cmdline" ]; then
   cmd=$(tr "\000" " " < "$proc/cmdline" 2>/dev/null | sed "s/[[:space:]]*$//")
   [ -n "$cmd" ] && printf "CMD\t%s\n" "$cmd"
   tr "\000" "\n" < "$proc/cmdline" 2>/dev/null | awk '"'"'length($0)>0 {{print "ARG\t" $0}}'"'"'
+fi
+if [ -z "$cmd" ]; then
+  ps_bin=$(command -v ps 2>/dev/null || echo ps)
+  cmd=$($ps_bin -p "$pid" -o args= --no-headers 2>/dev/null | sed "s/^[[:space:]]*//;s/[[:space:]]*$//")
+  [ -n "$cmd" ] && printf "CMD\t%s\n" "$cmd"
 fi
 count=0
 for fd in "$proc"/fd/*; do
@@ -233,6 +240,10 @@ pub fn parse_process_detail_output(pid: u32, output: &str) -> SshProcessDetail {
             }
             _ => {}
         }
+    }
+
+    if detail.command_line.is_none() && !detail.args.is_empty() {
+        detail.command_line = Some(detail.args.join(" "));
     }
 
     detail

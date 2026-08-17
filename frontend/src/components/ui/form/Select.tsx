@@ -161,9 +161,26 @@ export function Select({
     if (!panel) {
       return;
     }
-    panel
-      .querySelector<HTMLElement>(".omni-select-option.is-highlighted")
-      ?.scrollIntoView({ block: "nearest" });
+    const highlighted = panel.querySelector<HTMLElement>(
+      ".omni-select-option.is-highlighted",
+    );
+    if (!highlighted) {
+      return;
+    }
+    // 勿对 option 调 scrollIntoView：会连带滚祖先（含 .dockable-workspace），
+    // overflow:hidden 下标题栏会像「消失」且难以恢复。
+    const scrollParent = highlighted.closest<HTMLElement>(".omni-select-options");
+    if (!scrollParent) {
+      return;
+    }
+    const optRect = highlighted.getBoundingClientRect();
+    const parentRect = scrollParent.getBoundingClientRect();
+    const pad = 4;
+    if (optRect.top < parentRect.top + pad) {
+      scrollParent.scrollTop -= parentRect.top - optRect.top + pad;
+    } else if (optRect.bottom > parentRect.bottom - pad) {
+      scrollParent.scrollTop += optRect.bottom - parentRect.bottom + pad;
+    }
   }, []);
 
   const selectedOption = useMemo(
@@ -227,6 +244,7 @@ export function Select({
   useLayoutEffect(() => {
     if (!open) return;
     updatePanelPosition();
+    scrollHighlightedOptionIntoView();
     const onScrollOrResize = () => updatePanelPosition();
     window.addEventListener("resize", onScrollOrResize);
     window.addEventListener("scroll", onScrollOrResize, true);
@@ -234,15 +252,15 @@ export function Select({
       window.removeEventListener("resize", onScrollOrResize);
       window.removeEventListener("scroll", onScrollOrResize, true);
     };
-  }, [open, updatePanelPosition]);
+  }, [open, scrollHighlightedOptionIntoView, updatePanelPosition]);
 
   useEffect(() => {
     if (!open) return;
     requestAnimationFrame(() => {
       if (enableSearch) {
-        searchRef.current?.focus();
+        searchRef.current?.focus({ preventScroll: true });
       } else {
-        panelRef.current?.focus();
+        panelRef.current?.focus({ preventScroll: true });
       }
     });
   }, [enableSearch, open]);

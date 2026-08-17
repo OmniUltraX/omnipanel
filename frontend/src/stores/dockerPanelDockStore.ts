@@ -142,7 +142,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
       activeTabId: null,
       dockLayout: null,
 
-      selectConnection: (connectionId, mode = "permanent") => {
+      selectConnection: (connectionId, mode = "preview") => {
         set((state) => {
           const existingTabId = findTabIdForConnection(state.tabs, connectionId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -203,7 +203,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
-      selectContainer: (connectionId, containerId, mode = "permanent") => {
+      selectContainer: (connectionId, containerId, mode = "preview") => {
         set((state) => {
           const existingTabId = findTabIdForContainer(state.tabs, connectionId, containerId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -264,7 +264,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
-      selectContainers: (connectionId, mode = "permanent") => {
+      selectContainers: (connectionId, mode = "preview") => {
         set((state) => {
           const existingTabId = findTabIdForContainers(state.tabs, connectionId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -325,7 +325,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
-      selectImages: (connectionId, mode = "permanent") => {
+      selectImages: (connectionId, mode = "preview") => {
         set((state) => {
           const existingTabId = findTabIdForImages(state.tabs, connectionId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -386,7 +386,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
-      selectNetworks: (connectionId, mode = "permanent") => {
+      selectNetworks: (connectionId, mode = "preview") => {
         set((state) => {
           const existingTabId = findTabIdForNetworks(state.tabs, connectionId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -447,7 +447,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
-      selectVolumes: (connectionId, mode = "permanent") => {
+      selectVolumes: (connectionId, mode = "preview") => {
         set((state) => {
           const existingTabId = findTabIdForVolumes(state.tabs, connectionId);
           const previewTab = findPreviewDockTab(state.tabs);
@@ -508,7 +508,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
         });
       },
 
-      selectCompose: (connectionId, composeProject, mode = "permanent") => {
+      selectCompose: (connectionId, composeProject, mode = "preview") => {
         // 面板 mount 前先预取，loadFiles 可直接命中内容缓存
         prefetchComposeProjectFiles(connectionId, composeProject);
         set((state) => {
@@ -636,7 +636,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
     }),
     {
       name: "omnipanel-docker-panel-dock.v1",
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted) => {
         if (!persisted || typeof persisted !== "object") {

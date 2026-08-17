@@ -9,12 +9,7 @@ export {
   setClientModuleSyncSuppressed,
   CLIENT_SYNC_MODULES_APPLIED_EVENT,
 } from "./moduleSync";
-export {
-  peekDeviceSync,
-  importFromDevice,
-  emptyImportSelection,
-  selectionCount,
-} from "./importFromDevice";
+export { pullCloudSnapshot } from "./pullCloudSnapshot";
 export {
   recordConversationTombstones,
   recordModuleTombstones,

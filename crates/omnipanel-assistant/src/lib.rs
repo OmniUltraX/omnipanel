@@ -19,8 +19,8 @@ pub use chat::{
     InboundAskUserAnswer, InboundChatContextItem, InboundChatMessage,
 };
 pub use client_sync::{
-    device_conversations_latest_object_key, device_modules_latest_object_key,
-    device_sync_latest_object_key, pull_conversations_json, pull_modules_json,
+    account_conversations_latest_object_key, account_modules_latest_object_key,
+    account_sync_latest_object_key, pull_conversations_json, pull_modules_json,
     push_conversations_json, push_modules_json, validate_conversations_bundle_json,
     validate_modules_bundle_json, validate_sync_bundle_json,
     CLIENT_SYNC_CONVERSATIONS_SCHEMA_VERSION, CLIENT_SYNC_SCHEMA_VERSION,

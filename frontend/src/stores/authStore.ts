@@ -13,8 +13,6 @@ import {
 import {
   cancelClientConversationSync,
   cancelClientModuleSync,
-  scheduleClientConversationSync,
-  scheduleClientModuleSync,
 } from "../modules/clientSync";
 
 interface AuthState {
@@ -36,9 +34,6 @@ export const useAuthStore = create<AuthState>()(
         scheduleAssistantSnapshotSync({ immediate: true });
         void startAssistantChatInbox();
         void startAssistantTerminalCmdInbox();
-        // 客户端间：仅上传本机快照（跨端导入改为手动）
-        scheduleClientConversationSync({ immediate: true });
-        scheduleClientModuleSync({ immediate: true });
       },
       logout: (opts) => {
         const token = get().token?.trim() || null;

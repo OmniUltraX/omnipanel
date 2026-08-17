@@ -24,7 +24,9 @@ export function AdvanceTerminalMonitorStack({
 }: Props) {
   const { t } = useI18n();
   const localOverview = useLocalOverview(mode === "local");
-  const sshOverview = useSshOverview(mode === "remote" ? resourceId : null);
+  const sshOverview = useSshOverview(mode === "remote" ? resourceId : null, {
+    processPolling: true,
+  });
 
   const {
     phase,

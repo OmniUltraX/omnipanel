@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   usePersistedVerticalSplitSections,
+  usePersistedVerticalSplitSizes,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
 } from "../../../components/ui/sidebar/VerticalSplitSidebar";
@@ -17,7 +18,16 @@ import { KeysSidebarPanel } from "./components/KeysSidebarPanel";
 const SECTION_STORAGE_KEY = "omnipanel-ssh-host-sidebar-sections";
 const SIZE_STORAGE_KEY = "omnipanel-ssh-host-sidebar-sizes";
 
+const SECTION_MIN_BODY = 72;
+const SECTION_MAX_BODY = 480;
+const SECTION_DEFAULT_BODY = 160;
+
 type SectionKey = "hosts" | "tunnels" | "keys";
+type SizedSectionKey = "hosts" | "tunnels";
+
+function clampBodyHeight(value: number): number {
+  return Math.max(SECTION_MIN_BODY, Math.min(SECTION_MAX_BODY, Math.round(value)));
+}
 
 export interface SshHostSidebarProps {
   resources: WorkspaceResource[];
@@ -44,6 +54,9 @@ export function SshHostSidebar({
     SECTION_STORAGE_KEY,
     { hosts: true, tunnels: true, keys: false },
   );
+  const { sizes, setSize, isUserSized } = usePersistedVerticalSplitSizes<SizedSectionKey>(SIZE_STORAGE_KEY);
+  const hostsMeasureRef = useRef<HTMLDivElement>(null);
+  const tunnelsMeasureRef = useRef<HTMLDivElement>(null);
   const [hostHeaderActions, setHostHeaderActions] = useState<ReactNode>(null);
   const [tunnelHeaderActions, setTunnelHeaderActions] = useState<ReactNode>(null);
   const [keyHeaderActions, setKeyHeaderActions] = useState<ReactNode>(null);
@@ -95,12 +108,47 @@ export function SshHostSidebar({
     setSectionExpanded("hosts", true);
   }, [activeHostId, setSectionExpanded]);
 
+  useLayoutEffect(() => {
+    if (!sections.hosts || isUserSized("hosts")) return;
+    const el = hostsMeasureRef.current;
+    if (!el) return;
+    const next = clampBodyHeight(el.scrollHeight || SECTION_DEFAULT_BODY);
+    if (sizes.hosts !== next) setSize("hosts", next);
+  }, [
+    hostCount,
+    isUserSized,
+    resources.length,
+    sections.hosts,
+    setSize,
+    sizes.hosts,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!sections.tunnels || isUserSized("tunnels")) return;
+    const el = tunnelsMeasureRef.current;
+    if (!el) return;
+    const next = clampBodyHeight(el.scrollHeight || SECTION_DEFAULT_BODY);
+    if (sizes.tunnels !== next) setSize("tunnels", next);
+  }, [isUserSized, sections.tunnels, setSize, sizes.tunnels, tunnelCount]);
+
+  const hostsBodyHeight = sizes.hosts ?? SECTION_DEFAULT_BODY;
+  const tunnelsBodyHeight = sizes.tunnels ?? SECTION_DEFAULT_BODY;
+
   return (
     <VerticalSplitSidebar className="ssh-host-sidebar">
       <VerticalSplitSidebarSection
         title={t("ssh.sidebar.title")}
         expanded={sections.hosts}
         onToggle={() => toggleSection("hosts")}
+        bodyHeightPx={sections.hosts ? hostsBodyHeight : undefined}
+        onBodyHeightChange={
+          sections.hosts
+            ? (height) => setSize("hosts", clampBodyHeight(height), { user: true })
+            : undefined
+        }
+        resizePlacement="bottom"
+        minBodyHeightPx={SECTION_MIN_BODY}
+        maxBodyHeightPx={SECTION_MAX_BODY}
         actions={
           <>
             {hostHeaderActions}
@@ -108,25 +156,34 @@ export function SshHostSidebar({
           </>
         }
       >
-        <HostListPanel
-          resources={resources}
-          activeHostId={activeHostId}
-          onSelectHost={handleSelectHost}
-          embedded
-          selectionMode={selectionMode}
-          selectedIds={selectedIds}
-          onToggleSelect={toggleHost}
-          onHeaderMetaChange={handleHostHeaderMetaChange}
-          tagModuleKey={tagModuleKey}
-        />
+        <div ref={hostsMeasureRef} className="vsplit-sidebar-section__measure">
+          <HostListPanel
+            resources={resources}
+            activeHostId={activeHostId}
+            onSelectHost={handleSelectHost}
+            embedded
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleHost}
+            onHeaderMetaChange={handleHostHeaderMetaChange}
+            tagModuleKey={tagModuleKey}
+          />
+        </div>
       </VerticalSplitSidebarSection>
 
       <VerticalSplitSidebarSection
         title={t("ssh.tabs.tunnels")}
         expanded={sections.tunnels}
         keepMounted
-        autoSize
-        autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "tunnels" }}
+        bodyHeightPx={sections.tunnels ? tunnelsBodyHeight : undefined}
+        onBodyHeightChange={
+          sections.tunnels
+            ? (height) => setSize("tunnels", clampBodyHeight(height), { user: true })
+            : undefined
+        }
+        minBodyHeightPx={SECTION_MIN_BODY}
+        maxBodyHeightPx={SECTION_MAX_BODY}
+        resizePlacement="bottom"
         onToggle={() => {
           toggleSection("tunnels");
           setSection("tunnels");
@@ -138,20 +195,20 @@ export function SshHostSidebar({
           </>
         }
       >
-        <TunnelsSidebarPanel
-          sshResources={resources}
-          onCountChange={setTunnelCount}
-          onHeaderMetaChange={handleTunnelHeaderMetaChange}
-          onEnsureExpanded={ensureTunnelsExpanded}
-        />
+        <div ref={tunnelsMeasureRef} className="vsplit-sidebar-section__measure">
+          <TunnelsSidebarPanel
+            sshResources={resources}
+            onCountChange={setTunnelCount}
+            onHeaderMetaChange={handleTunnelHeaderMetaChange}
+            onEnsureExpanded={ensureTunnelsExpanded}
+          />
+        </div>
       </VerticalSplitSidebarSection>
 
       <VerticalSplitSidebarSection
         title={t("ssh.tabs.keys")}
         expanded={sections.keys}
         keepMounted
-        autoSize
-        autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "keys" }}
         onToggle={() => {
           toggleSection("keys");
           setSection("keys");

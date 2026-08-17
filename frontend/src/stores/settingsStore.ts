@@ -11,6 +11,7 @@ import {
   DEFAULT_SQL_KEYWORD_CASE,
   normalizeSqlKeywordCase,
 } from "../modules/database/sqlIntel/sqlKeywordCase";
+import { restoreDockWindowChromeAfterLayout } from "../lib/restoreDockWindowChromeAfterLayout";
 
 export type Locale = "zh-CN" | "en-US";
 export type UiDensity = "compact" | "standard" | "comfortable";
@@ -570,7 +571,11 @@ export const useSettingsStore = create<SettingsState>()(
             ),
           ],
         }),
-      setDatabaseSettings: (patch) =>
+      setDatabaseSettings: (patch) => {
+        const typographyChanged =
+          patch.sqlEditorFontFamily !== undefined ||
+          patch.sqlEditorFontSize !== undefined ||
+          patch.sqlEditorLineHeight !== undefined;
         set((state) => ({
           databaseQueryPageSize:
             patch.databaseQueryPageSize !== undefined
@@ -602,7 +607,11 @@ export const useSettingsStore = create<SettingsState>()(
               : state.sqlKeywordCase,
           formatSqlOnSave:
             patch.formatSqlOnSave !== undefined ? patch.formatSqlOnSave : state.formatSqlOnSave,
-        })),
+        }));
+        if (typographyChanged) {
+          restoreDockWindowChromeAfterLayout("database");
+        }
+      },
       setFileSettings: (patch) =>
         set((state) => ({
           filePreviewThresholdBytes:

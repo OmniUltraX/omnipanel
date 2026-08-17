@@ -258,7 +258,7 @@ export function DockerPanel() {
   };
 
   const handleNavigate = useCallback(
-    (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "permanent") => {
+    (target: DockerSidebarNavTarget, mode: DockerConnectionDockOpenMode = "preview") => {
       const connection = connectionById.get(target.connectionId);
       if (connection && dockerConnectionMissingRequiredBoundSsh(connection)) {
         const stored = storedConnections.find((c) => c.id === connection.connectionId);

@@ -10,8 +10,10 @@ import {
   updateOverviewLoader,
 } from "@/modules/server/ssh/hooks/sshOverviewScheduler";
 
-/** 本地概览轮询间隔（ms），与后端 STATS_CACHE_TTL 对齐 */
-const LOCAL_POLL_MS = 5_000;
+/** 本地系统指标轮询间隔（ms） */
+const LOCAL_STATS_POLL_MS = 5_000;
+/** 本地进程列表轮询间隔（ms） */
+const LOCAL_PROCESS_POLL_MS = 60_000;
 
 /**
  * 本地终端监控概览 hook。
@@ -30,7 +32,11 @@ export function useLocalOverview(enabled: boolean) {
   );
 
   const load = useCallback(
-    async (opts?: { silent?: boolean; processesOnly?: boolean }) => {
+    async (opts?: {
+      silent?: boolean;
+      processesOnly?: boolean;
+      statsOnly?: boolean;
+    }) => {
       if (!enabled) return;
 
       const cachedStats =
@@ -55,6 +61,43 @@ export function useLocalOverview(enabled: boolean) {
           }
         } catch {
           setOverview(resourceId, { refreshing: false });
+        }
+        return;
+      }
+
+      if (opts?.statsOnly) {
+        if (opts.silent || hasCache) {
+          setOverview(resourceId, { refreshing: true });
+        }
+        try {
+          const statsResult = await commands.localFetchStats();
+          if (statsResult.status === "ok") {
+            useSshStatsStore.getState().setStats([statsResult.data]);
+            setOverview(resourceId, {
+              phase: "ready",
+              error: null,
+              updatedAt: Date.now(),
+              refreshing: false,
+            });
+          } else if (!hasCache) {
+            setOverview(resourceId, {
+              error: statsResult.error?.message ?? "加载本机监控失败",
+              phase: "error",
+              refreshing: false,
+            });
+          } else {
+            setOverview(resourceId, { refreshing: false });
+          }
+        } catch (e) {
+          if (!hasCache) {
+            setOverview(resourceId, {
+              error: e instanceof Error ? e.message : String(e),
+              phase: "error",
+              refreshing: false,
+            });
+          } else {
+            setOverview(resourceId, { refreshing: false });
+          }
         }
         return;
       }
@@ -120,6 +163,19 @@ export function useLocalOverview(enabled: boolean) {
     [enabled, resourceId, setOverview],
   );
 
+  const statsPollLoad = useCallback(
+    (opts?: { silent?: boolean; processesOnly?: boolean; statsOnly?: boolean }) => {
+      if (opts?.processesOnly) {
+        return load(opts);
+      }
+      if (opts?.silent) {
+        return load({ silent: true, statsOnly: true });
+      }
+      return load(opts);
+    },
+    [load],
+  );
+
   // 初始加载
   useEffect(() => {
     if (!enabled) return;
@@ -131,20 +187,31 @@ export function useLocalOverview(enabled: boolean) {
     void load({ silent: hasCache });
   }, [enabled, resourceId, load, setOverview]);
 
-  // 全局轮询调度器：多个本地终端面板复用同一定时器
+  // 全局轮询：仅刷新系统指标
   useEffect(() => {
     if (!enabled) return;
-    acquireOverviewPoller(resourceId, load, LOCAL_POLL_MS);
+    acquireOverviewPoller(resourceId, statsPollLoad, LOCAL_STATS_POLL_MS);
     return () => {
       releaseOverviewPoller(resourceId);
     };
-  }, [enabled, resourceId, load]);
+  }, [enabled, resourceId, statsPollLoad]);
 
-  // load 依赖变化时同步更新调度器内的 loader 引用
   useEffect(() => {
     if (!enabled) return;
-    updateOverviewLoader(resourceId, load, LOCAL_POLL_MS);
-  }, [enabled, resourceId, load]);
+    updateOverviewLoader(resourceId, statsPollLoad, LOCAL_STATS_POLL_MS);
+  }, [enabled, resourceId, statsPollLoad]);
+
+  // 进程列表单独低频刷新
+  useEffect(() => {
+    if (!enabled) return;
+    void load({ silent: true, processesOnly: true });
+    const timer = window.setInterval(() => {
+      void load({ silent: true, processesOnly: true });
+    }, LOCAL_PROCESS_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [enabled, load, resourceId]);
 
   const refreshProcesses = useCallback(() => {
     void load({ silent: true, processesOnly: true });
