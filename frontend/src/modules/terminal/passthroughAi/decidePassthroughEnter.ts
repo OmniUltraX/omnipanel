@@ -3,6 +3,7 @@ import { canInterceptEnterForAi, getEnterGateFlags } from "./enterGates";
 import type { LineBufferState } from "./lineBuffer";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useShellAgentStore } from "../shellAgent/shellAgentStore";
+import { useTerminalRunStateStore } from "../terminalRunStateStore";
 
 export type PassthroughEnterDecision =
   | { action: "passthrough" }
@@ -44,6 +45,12 @@ export function decidePassthroughEnter(
   }
 
   if (!canInterceptEnterForAi(flags)) {
+    return { action: "passthrough" };
+  }
+
+  // 前台命令运行中（apt 交互 / top / vim 等）：所有输入直通 PTY，禁止 NL 分流
+  // commandRunning flag 生产代码未设置，用 runStateStore 的 isCommandLive 兜底
+  if (useTerminalRunStateStore.getState().isCommandLive(sessionId) && !awaiting) {
     return { action: "passthrough" };
   }
 
