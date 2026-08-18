@@ -1378,9 +1378,10 @@ export function useTerminal(
         // PTY 原始字节必须独立写入 xterm，不能依赖「剥离控制序列后仍有可见文本」。
         // hermes model 等多步 TUI 在步骤切换时经常只发 CSI（清行/移光标/重绘），
         // 若因 strip 后为空而 early return，会丢掉整帧重绘 → 显示错乱，看起来像无法输入。
-        if (suspendedRef.current) {
-          runtimeRef.current.outputBuffer.push(merged);
-        } else if (!visibleRef.current) {
+        // dockview 非激活 panel 仅 visibility:hidden：IntersectionObserver 仍判定可见，
+        // 但 WebGL canvas 已挂起。继续写入会污染纹理图集，切回后字间距错乱（选中才重绘）。
+        // 因此非 active 也必须缓冲，等切回后再 flush + refresh。
+        if (suspendedRef.current || !visibleRef.current || !activeRef.current) {
           runtimeRef.current.outputBuffer.push(merged);
         } else if (shouldWriteToXterm()) {
           // silent sync 期间跳过含同步噪声的 chunk（BEGIN/END 标记 / base64 blob），
@@ -1992,8 +1993,19 @@ export function useTerminal(
               // 切回可见：flush 不可见期间累积的输出
               flushOutputBuffer();
               requestAnimationFrame(() => {
-                if (destroyed || suspendedRef.current) return;
+                if (destroyed || suspendedRef.current || !activeRef.current) return;
                 fitAddon?.fit();
+                // WebGL 在隐藏 canvas 上写过会坏图集：先清再全量重绘
+                try {
+                  term?.clearTextureAtlas();
+                } catch {
+                  /* DOM renderer 无 atlas */
+                }
+                try {
+                  term?.refresh(0, Math.max((term?.rows ?? 1) - 1, 0));
+                } catch {
+                  /* ignore */
+                }
                 if (inputMode !== "external") {
                   term?.focus();
                 }
@@ -2107,7 +2119,23 @@ export function useTerminal(
       rt.outputBuffer = [];
     }
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => rt.fitAddon?.fit());
+      requestAnimationFrame(() => {
+        rt.fitAddon?.fit();
+        // 模块从 display:none 恢复可见时同样需要强制重绘，否则 WebGL 纹理叠字
+        const t = termRef.current;
+        if (t) {
+          try {
+            t.clearTextureAtlas();
+          } catch {
+            /* DOM renderer */
+          }
+          try {
+            t.refresh(0, Math.max(t.rows - 1, 0));
+          } catch {
+            /* ignore */
+          }
+        }
+      });
     });
   }, [suspended]);
 
@@ -2123,15 +2151,38 @@ export function useTerminal(
         rt.initTerminal();
       }
     }
+    // dockview 切 Tab 不会触发 IntersectionObserver（visibility:hidden 尺寸不变）。
+    // 必须在 active 恢复时 flush + 清 WebGL 图集 + 全量重绘，否则字间距错乱。
+    const term = termRef.current;
+    if (term && rt.outputBuffer.length > 0) {
+      for (const bytes of rt.outputBuffer) {
+        term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
+      }
+      rt.outputBuffer = [];
+    }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        if (!activeRef.current || suspendedRef.current) return;
         rt.fitAddon?.fit();
+        const t = termRef.current;
+        if (t) {
+          try {
+            t.clearTextureAtlas();
+          } catch {
+            /* DOM renderer */
+          }
+          try {
+            t.refresh(0, Math.max(t.rows - 1, 0));
+          } catch {
+            /* ignore */
+          }
+        }
         if (inputMode !== "external") {
-          termRef.current?.focus();
+          t?.focus();
         }
       });
     });
-  }, [moduleActive, active, inputMode, suspended]);
+  }, [moduleActive, active, inputMode, suspended, sessionId]);
 
   useEffect(() => {
     if (!sendRef) return;
