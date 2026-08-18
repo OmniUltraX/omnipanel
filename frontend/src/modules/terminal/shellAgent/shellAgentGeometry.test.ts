@@ -26,8 +26,10 @@ import {
   setShellAgentCardKind,
   ensureMinCardRows,
   contentHeightToCardRows,
+  fitShellAgentCardToContent,
+  clipShellAgentDecorationToViewport,
 } from "./shellAgentGeometry";
-import { clearShellAgentThinkingFull, setShellAgentThinkingFull } from "./thinkingCache";
+import { clearShellAgentThinkingFull, setShellAgentThinkingFull, getArchivedDisplayToolIds, clearArchivedDisplayToolIds } from "./thinkingCache";
 
 type FakeTerm = {
   cols: number;
@@ -107,7 +109,7 @@ function createFakeTerm(opts?: { cursorY?: number; lineText?: string }): FakeTer
       term.decorations.push(deco);
       return {
         marker: opts.marker,
-        element: undefined,
+        element: document.createElement("div"),
         onRender: () => ({ dispose: () => {} }),
         dispose: () => {
           deco.disposed = true;
@@ -134,21 +136,36 @@ describe("shellAgentGeometry", () => {
   beforeEach(() => {
     clearShellAgentGeometry(SID);
     clearShellAgentThinkingFull(SID);
+    clearArchivedDisplayToolIds(SID);
     unregisterXterm(SID);
     vi.mocked(findTerminalPane).mockReturnValue(undefined);
   });
 
-  it("minCardRowsFor：thinking 至少 3 行，cmd 6 行起步，final 1 行起步", () => {
-    expect(minCardRowsFor("thinking")).toBe(3);
+  it("minCardRowsFor：thinking 2 行，cmd 6 行起步，final 1 行起步", () => {
+    expect(minCardRowsFor("thinking")).toBe(2);
     expect(minCardRowsFor("cmd")).toBe(6);
     expect(minCardRowsFor("final")).toBe(1);
     expect(cardRowsFor("cmd")).toBe(1);
   });
 
-  it("contentHeightToCardRows：thinking 再矮也至少 3 行", () => {
+  it("contentHeightToCardRows：thinking 再矮也至少 2 行", () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
-    expect(contentHeightToCardRows(SID, 8, "thinking")).toBeGreaterThanOrEqual(3);
+    expect(contentHeightToCardRows(SID, 8, "thinking")).toBeGreaterThanOrEqual(2);
+  });
+
+  it("contentHeightToCardRows：确认卡默认至少 6 行", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    expect(contentHeightToCardRows(SID, 36, "cmd")).toBeGreaterThanOrEqual(6);
+  });
+
+  it("contentHeightToCardRows：工具条显式 minRows=2 时按内容取行，不抬到确认卡高度", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    const rows = contentHeightToCardRows(SID, 36, "cmd", { minRows: 2, padRows: 0 });
+    expect(rows).toBeLessThanOrEqual(3);
+    expect(rows).toBeGreaterThanOrEqual(2);
   });
 
   it("contentHeightToCardRows：final 超高不超过可视行-1，避免画出终端被裁切", () => {
@@ -160,7 +177,7 @@ describe("shellAgentGeometry", () => {
     expect(rows).toBeGreaterThan(1);
   });
 
-  it("beginShellAgentCard：thinking 最小 3 行占位 + marker+decoration 就位", () => {
+  it("beginShellAgentCard：thinking 最小 2 行占位 + marker+decoration 就位", () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
 
@@ -172,11 +189,11 @@ describe("shellAgentGeometry", () => {
     });
 
     expect(geo.mode).toBe("inline");
-    expect(geo.rows).toBe(3);
-    expect(term.writes.join("")).toBe("\r\n".repeat(3));
+    expect(geo.rows).toBe(2);
+    expect(term.writes.join("")).toBe("\r\n".repeat(2));
     expect(term.markers).toHaveLength(1);
     expect(term.decorations).toHaveLength(1);
-    expect(term.decorations[0].height).toBe(3);
+    expect(term.decorations[0].height).toBe(2);
   });
 
   it("beginShellAgentCard：无 term / decoration 注册失败 → detached", () => {
@@ -205,7 +222,7 @@ describe("shellAgentGeometry", () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
     beginShellAgentCard(SID, {
-      kind: "thinking",
+      kind: "final",
       promptIndentCols: 2,
       promptPrefix: "$ ",
       query: "q",
@@ -219,11 +236,57 @@ describe("shellAgentGeometry", () => {
     // 原子切换：resize 后 decoration 立刻非空，不出现 null 空窗
     expect(geo?.decoration).not.toBeNull();
     expect(geo?.mode).toBe("inline");
-    expect(term.writes.join("").slice(writesAfterBegin.length)).toBe("\r\n".repeat(3));
+    expect(term.writes.join("").slice(writesAfterBegin.length)).toBe("\r\n".repeat(5));
     expect(term.decorations).toHaveLength(2);
     expect(term.decorations[1].height).toBe(6);
     // marker 复用不重建
     expect(term.markers).toHaveLength(1);
+  });
+
+  it("思考卡 fit/resize 不扩行，避免冻结后空白累加", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q",
+    });
+    const afterBegin = term.writes.join("");
+
+    fitShellAgentCardToContent(SID, 400);
+    expect(getShellAgentGeometry(SID)?.rows).toBe(2);
+    expect(term.writes.join("")).toBe(afterBegin);
+
+    resizeShellAgentCard(SID, 8);
+    expect(getShellAgentGeometry(SID)?.rows).toBe(2);
+    expect(term.writes.join("")).toBe(afterBegin);
+    expect(term.decorations[0].height).toBe(2);
+  });
+
+  it("连续重锚思考卡：每张固定 2 行，补写行数不随轮次累加", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q",
+    });
+
+    const newlineCount = () => (term.writes.join("").match(/\r\n/g) ?? []).length;
+
+    term.writes.length = 0;
+    reanchorShellAgentCard(SID, "thinking");
+    const first = newlineCount();
+    expect(first).toBeLessThanOrEqual(3);
+    expect(getShellAgentGeometry(SID)?.rows).toBe(2);
+
+    term.writes.length = 0;
+    reanchorShellAgentCard(SID, "thinking");
+    const second = newlineCount();
+    expect(second).toBe(first);
+    expect(getShellAgentGeometry(SID)?.rows).toBe(2);
   });
 
   it("思考卡换确认卡：先撑到确认卡最小占位", () => {
@@ -235,7 +298,7 @@ describe("shellAgentGeometry", () => {
       promptPrefix: "$ ",
       query: "q",
     });
-    expect(getShellAgentGeometry(SID)?.rows).toBe(3);
+    expect(getShellAgentGeometry(SID)?.rows).toBe(2);
     setShellAgentCardKind(SID, "cmd");
     ensureMinCardRows(SID, "cmd");
     expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
@@ -301,7 +364,7 @@ describe("shellAgentGeometry", () => {
 
     const geo = getShellAgentGeometry(SID);
     expect(geo?.mode).toBe("idle");
-    expect(term.decorations[0].disposed).toBe(false);
+    expect(term.decorations.some((d) => !d.disposed)).toBe(true);
   });
 
   it("archiveActiveInlineCard：无思考正文不冻空的思考完成卡", () => {
@@ -344,8 +407,8 @@ describe("shellAgentGeometry", () => {
     const secondMarkerLine = (term.markers[1] as FakeMarker).line;
     expect(geo.mode).toBe("inline");
     expect(secondMarkerLine).toBeGreaterThanOrEqual(firstMarkerLine + 1);
-    expect(term.decorations).toHaveLength(2);
-    expect(term.decorations[0].disposed).toBe(false);
+    const liveDecorations = term.decorations.filter((d) => !d.disposed);
+    expect(liveDecorations).toHaveLength(2);
   });
 
   it("贴底且当前行有命令时，先换行再钉卡，避免 decoration 盖住回显", () => {
@@ -392,5 +455,78 @@ describe("shellAgentGeometry", () => {
     expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
     const newlines = (term.writes.join("").match(/\r\n/g) ?? []).length;
     expect(newlines).toBeGreaterThanOrEqual(7);
+  });
+
+  it("reanchor 冻结工具条时记下 tool id，避免 search 再画一次", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    const live = getShellAgentGeometry(SID)?.decoration?.element;
+    expect(live).toBeTruthy();
+    live!.innerHTML =
+      '<div class="term-shell-agent-tool" data-tool-id="t-search"></div>';
+
+    reanchorShellAgentCard(SID, "thinking");
+
+    expect(getArchivedDisplayToolIds(SID).has("t-search")).toBe(true);
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+  });
+
+  it("clipShellAgentDecorationToViewport：起始行在视口内不裁切", () => {
+    const el = document.createElement("div");
+    el.style.display = "block";
+    expect(
+      clipShellAgentDecorationToViewport({
+        viewportY: 10,
+        viewportRows: 24,
+        markerLine: 12,
+        rows: 8,
+        cellHeight: 18,
+        el,
+      }),
+    ).toBe("full");
+    expect(el.style.clipPath).toBe("");
+  });
+
+  it("clipShellAgentDecorationToViewport：顶部滚出但仍相交时负 top + clip-path", () => {
+    const el = document.createElement("div");
+    el.style.display = "none";
+    expect(
+      clipShellAgentDecorationToViewport({
+        viewportY: 20,
+        viewportRows: 24,
+        markerLine: 16,
+        rows: 12,
+        cellHeight: 18,
+        el,
+      }),
+    ).toBe("clipped");
+    expect(el.style.display).toBe("block");
+    expect(el.style.top).toBe("-72px");
+    expect(el.style.height).toBe("216px");
+    expect(el.style.clipPath).toBe("inset(72px 0 0 0)");
+  });
+
+  it("clipShellAgentDecorationToViewport：整张卡已滚出视口保持隐藏", () => {
+    const el = document.createElement("div");
+    el.style.display = "none";
+    el.style.clipPath = "inset(10px 0 0 0)";
+    expect(
+      clipShellAgentDecorationToViewport({
+        viewportY: 40,
+        viewportRows: 24,
+        markerLine: 10,
+        rows: 8,
+        cellHeight: 18,
+        el,
+      }),
+    ).toBe("hidden");
+    expect(el.style.display).toBe("none");
+    expect(el.style.clipPath).toBe("");
   });
 });

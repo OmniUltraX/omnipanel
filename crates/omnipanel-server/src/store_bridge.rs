@@ -348,6 +348,39 @@ pub async fn ai_models_resolve_api_key(provider_id: String) -> Result<String, St
     Ok(key)
 }
 
+/// 经服务端 HTTP 客户端拉取 `{baseUrl}/models`，避开浏览器 CORS。
+pub async fn ai_models_fetch_list(
+    base_url: String,
+    api_key: String,
+    api_standard: Option<String>,
+) -> Result<Vec<omnipanel_ai::RemoteModelInfo>, String> {
+    let root = base_url.trim().trim_end_matches('/');
+    if root.is_empty() {
+        return Err("Base URL 无效".into());
+    }
+    let proxy = crate::http_client::proxy_config();
+    let client = crate::http_client::build_http_client_for_url(
+        root,
+        &proxy,
+        std::time::Duration::from_secs(30),
+    )
+    .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+    omnipanel_ai::fetch_provider_models(&client, root, &api_key, api_standard.as_deref())
+        .await
+        .map_err(|e| match e {
+            omnipanel_ai::FetchModelsError::InvalidBaseUrl => "Base URL 无效".into(),
+            omnipanel_ai::FetchModelsError::Http { status, body } => {
+                if body.is_empty() {
+                    format!("HTTP {status}")
+                } else {
+                    format!("HTTP {status}: {body}")
+                }
+            }
+            omnipanel_ai::FetchModelsError::Network(message) => message,
+            omnipanel_ai::FetchModelsError::Parse(cause) => format!("模型列表响应无法解析: {cause}"),
+        })
+}
+
 /* -------------------- SSH 隧道（进程内） -------------------- */
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

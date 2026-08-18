@@ -402,9 +402,31 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
   updateAiThreadItem: (blockId, itemId, patch) => {
     set((state) => {
       const nextBlocks = patchSessionBlockThread(state.blocks, blockId, (thread) =>
-        thread.map((item) =>
-          item.id === itemId ? ({ ...item, ...patch } as AiThreadItem) : item,
-        ),
+        thread.map((item) => {
+          if (item.id === itemId) return { ...item, ...patch } as AiThreadItem;
+          if (item.kind !== "message" || !item.parts?.length) return item;
+          const toolPatch = patch as Partial<AiThreadToolCall>;
+          let changed = false;
+          const parts = item.parts.map((p) => {
+            if (p.type !== "tool-call" || p.id !== itemId) return p;
+            changed = true;
+            return {
+              ...p,
+              ...(toolPatch.result !== undefined ? { result: toolPatch.result } : {}),
+              ...(toolPatch.status !== undefined
+                ? {
+                    status:
+                      toolPatch.status === "pending" || toolPatch.status === "running"
+                        ? ("running" as const)
+                        : toolPatch.status === "completed"
+                          ? ("completed" as const)
+                          : ("failed" as const),
+                  }
+                : {}),
+            };
+          });
+          return changed ? { ...item, parts } : item;
+        }),
       );
       if (!nextBlocks) return state;
       return { blocks: nextBlocks };

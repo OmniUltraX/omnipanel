@@ -24,6 +24,12 @@ describe("半截命令回显", () => {
     expect(isEchoOnlyTerminalOutput("Intel(R) Core(TM) i7", LONG_CMD)).toBe(false);
     expect(isLikelyCommandEchoAsOutput("Intel(R) Core(TM) i7", LONG_CMD)).toBe(false);
   });
+
+  it("command not found 不是短命令回显", () => {
+    expect(
+      isLikelyCommandEchoAsOutput("date现在的时间: command not found", "date"),
+    ).toBe(false);
+  });
 });
 
 describe("PowerShell 进度条与提示符", () => {

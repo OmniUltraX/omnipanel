@@ -1,4 +1,6 @@
-import { normalizeBaseUrlForFetch } from "../stores/aiModelsStore";
+import { commands } from "../ipc/bindings";
+import { formatIpcError, unwrapCommand } from "../ipc/result";
+import { canUseIpcBackend } from "./isTauriRuntime";
 import { withOptionalBearerAuth } from "./fetchHeaders";
 
 interface OpenAiModelsResponse {
@@ -22,14 +24,64 @@ export interface ApiModelMeta {
   ownedBy?: string;
 }
 
-/** 从 OpenAI 兼容接口 GET {baseUrl}/models 拉取模型列表。 */
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+function toApiModelInfo(id: string, created?: number | null, ownedBy?: string | null): ApiModelInfo {
+  return {
+    id,
+    ...(created != null && Number.isFinite(created) ? { created } : {}),
+    ...(ownedBy?.trim() ? { ownedBy: ownedBy.trim() } : {}),
+  };
+}
+
+function dedupeModels(items: ApiModelInfo[]): ApiModelInfo[] {
+  const raw: ApiModelInfo[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const id = item.id.trim();
+    if (!id) continue;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    raw.push({ ...item, id });
+  }
+  raw.sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: "base" }));
+  return raw;
+}
+
+function finalizeFetched(models: ApiModelInfo[]): { ok: true; models: ApiModelInfo[] } | { ok: false; error: string } {
+  const raw = dedupeModels(models);
+  if (raw.length === 0) {
+    return { ok: false, error: "empty_list" };
+  }
+  return { ok: true, models: raw };
+}
+
+/** 从 OpenAI 兼容接口 GET {baseUrl}/models 拉取模型列表（优先走后端，避开 WebView CORS）。 */
 export async function fetchProviderModelList(
   baseUrl: string,
   apiKey: string,
+  apiStandard?: string,
 ): Promise<{ ok: true; models: ApiModelInfo[] } | { ok: false; error: string }> {
-  const root = normalizeBaseUrlForFetch(baseUrl);
+  const root = normalizeBaseUrl(baseUrl);
   if (!root) {
     return { ok: false, error: "invalid_base_url" };
+  }
+
+  if (canUseIpcBackend()) {
+    try {
+      const models = await unwrapCommand(
+        commands.aiModelsFetchList(root, apiKey, apiStandard ?? null),
+        { quiet: true, logLabel: "[ai-models]" },
+      );
+      return finalizeFetched(
+        models.map((item) => toApiModelInfo(item.id, item.created, item.ownedBy)),
+      );
+    } catch (e) {
+      return { ok: false, error: formatIpcError(e) };
+    }
   }
 
   const url = `${root}/models`;
@@ -46,30 +98,13 @@ export async function fetchProviderModelList(
     }
 
     const payload = (await res.json()) as OpenAiModelsResponse;
-    const raw: ApiModelInfo[] = [];
-    const seen = new Set<string>();
-    for (const item of payload.data ?? []) {
-      const id = item.id?.trim();
-      if (!id) continue;
-      const key = id.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const ownedBy = item.owned_by?.trim();
-      raw.push({
-        id,
-        ...(item.created != null && Number.isFinite(item.created)
-          ? { created: item.created }
-          : {}),
-        ...(ownedBy ? { ownedBy } : {}),
-      });
-    }
-
-    if (raw.length === 0) {
-      return { ok: false, error: "empty_list" };
-    }
-
-    raw.sort((a, b) => a.id.localeCompare(b.id, undefined, { sensitivity: "base" }));
-    return { ok: true, models: raw };
+    return finalizeFetched(
+      (payload.data ?? []).flatMap((item) => {
+        const id = item.id?.trim();
+        if (!id) return [];
+        return [toApiModelInfo(id, item.created, item.owned_by)];
+      }),
+    );
   } catch (e) {
     return { ok: false, error: String(e) };
   }

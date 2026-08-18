@@ -333,13 +333,22 @@ const SCHEMA_WEB_FETCH: &str = r#"{
   "required": ["url"]
 }"#;
 
+const SCHEMA_TERMINAL_EXEC: &str = r#"{
+  "type": "object",
+  "properties": {
+    "command": { "type": "string", "description": "要在当前活动终端 Tab 的 PTY 中执行的命令（语法须匹配该会话 shell：PowerShell 用 Get-Date 等）。继承该 Tab 的 cwd/环境。不支持 TUI/流式命令（如 top、vim、tail -f）。" },
+    "session_id": { "type": "string", "description": "可选；终端 Tab id。省略则使用当前活动终端。" }
+  },
+  "required": ["command"]
+}"#;
+
 const SCHEMA_SSH_EXEC: &str = r#"{
   "type": "object",
   "properties": {
-    "resource_id": { "type": "string", "description": "可选；SSH 连接 id。终端内联已绑定会话时可省略；侧栏/多主机场景再传" },
-    "command": { "type": "string", "description": "要在当前终端会话执行的非交互式命令（语法须匹配该会话 shell）。不支持 TUI/流式命令（如 top、vim、tail -f）。" }
+    "resource_id": { "type": "string", "description": "SSH 主机连接 id（可先用 omni_ssh_list_connections 查询）。走独立 exec 通道，不进入当前终端 Tab。" },
+    "command": { "type": "string", "description": "要在该 SSH 主机上执行的非交互式命令。不支持 TUI/流式命令（如 top、vim、tail -f）。" }
   },
-  "required": ["command"]
+  "required": ["resource_id", "command"]
 }"#;
 
 const SCHEMA_SSH_CREATE_RUN_SCRIPT: &str = r#"{
@@ -674,11 +683,23 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         omnimcp_backend: true,
     },
     BuiltinToolSpec {
+        tool_name: "omni_terminal_exec",
+        module_key: "terminal",
+        description:
+            "在当前活动终端 Tab 的 PTY 中执行命令（本地 PowerShell/CMD/bash，或该 Tab 已打开的 SSH 壳），\
+             继承 cwd/环境，并在终端中显示命令块。查时间/文件/进程等实时事实必须调用本工具，禁止凭记忆编造。\
+             不要传 resource_id。不支持 TUI/流式命令。指定其它 SSH 主机且不使用当前 Tab 时改用 omni_ssh_exec。",
+        input_schema: SCHEMA_TERMINAL_EXEC,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
         tool_name: "omni_ssh_exec",
         module_key: "terminal",
         description:
-            "在当前绑定的终端会话执行命令（本地 PowerShell/CMD/bash 或 SSH 均可），返回输出。\
-             终端内联可不传 resource_id。查时间/文件/进程等实时事实必须调用，禁止凭记忆编造。不支持 TUI/流式命令。",
+            "在指定 SSH 主机上通过独立 exec 通道执行非交互命令（不进入当前终端 Tab，不继承 Tab cwd）。\
+             必须提供 resource_id（可先用 omni_ssh_list_connections 查询）。不支持 TUI/流式命令。\
+             当前终端 Tab 内执行请用 omni_terminal_exec。",
         input_schema: SCHEMA_SSH_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
@@ -1182,10 +1203,13 @@ pub fn builtin_tool_module_key(tool_name: &str) -> Option<&'static str> {
     builtin_tool_spec(tool_name).map(|s| s.module_key)
 }
 
-/// 跨模块工具（`omni_plan_*` / `omni_ask_user`）：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
+/// 跨模块工具：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
 ///
-/// 模块 Agent（terminal / docker / database…）需要会话级 todolist 与结构化澄清；
-/// 若严格按 `module_key` 隔离，这些工具永远不会注入，模型也就无法调用。
+/// - `omni_plan_*` / `omni_ask_user`：会话级进度与结构化澄清
+/// - `omni_web_search` / `omni_zhihu_search` / `omni_web_fetch`：公开信息检索/抓取
+///
+/// 模块 Agent（terminal / docker / database…）若严格按 `module_key` 隔离，
+/// 这些工具永远不会注入；系统提示又要求检索走 search/fetch，模型只能改用 curl。
 pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
     matches!(
         tool_name,
@@ -1193,6 +1217,9 @@ pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
             | "omni_plan_add_step"
             | "omni_plan_update_step"
             | "omni_ask_user"
+            | "omni_web_search"
+            | "omni_zhihu_search"
+            | "omni_web_fetch"
     )
 }
 
@@ -1225,14 +1252,27 @@ mod tests {
     }
 
     #[test]
+    fn terminal_exec_tool_requires_command_not_resource_id() {
+        let spec = builtin_tool_spec("omni_terminal_exec").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        assert!(required.iter().any(|x| x.as_str() == Some("command")));
+        assert!(!required.iter().any(|x| x.as_str() == Some("resource_id")));
+        assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated);
+        assert!(!spec.omnimcp_backend);
+        assert_eq!(spec.module_key, "terminal");
+    }
+
+    #[test]
     fn ssh_exec_tool_requires_command() {
         let spec = builtin_tool_spec("omni_ssh_exec").unwrap();
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
         assert!(required.iter().any(|x| x.as_str() == Some("command")));
-        // 终端内联可省略 resource_id；侧栏/多主机场景再传
-        assert!(!required.iter().any(|x| x.as_str() == Some("resource_id")));
+        assert!(required.iter().any(|x| x.as_str() == Some("resource_id")));
         assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated);
+        assert!(spec.omnimcp_backend);
+        assert_eq!(spec.module_key, "terminal");
     }
 
     #[test]
@@ -1242,6 +1282,7 @@ mod tests {
         assert!(builtin_tool_is_native("load_skill"));
         assert!(builtin_tool_is_native("omni_database_list_connections"));
         assert!(!builtin_tool_is_native("omni_ssh_exec"));
+        assert!(!builtin_tool_is_native("omni_terminal_exec"));
     }
 
     #[test]
@@ -1249,6 +1290,10 @@ mod tests {
         assert_eq!(builtin_tool_module_key("load_skill"), Some("web"));
         assert_eq!(
             builtin_tool_module_key("omni_ssh_list_connections"),
+            Some("terminal")
+        );
+        assert_eq!(
+            builtin_tool_module_key("omni_terminal_exec"),
             Some("terminal")
         );
     }
@@ -1267,6 +1312,11 @@ mod tests {
         }
         assert!(!builtin_tool_is_cross_module("omni_knowledge_save_todolist"));
         assert!(!builtin_tool_is_cross_module("load_skill"));
+        for name in ["omni_web_search", "omni_zhihu_search", "omni_web_fetch"] {
+            assert_eq!(builtin_tool_module_key(name), Some("web"), "{name}");
+            assert!(builtin_tool_is_cross_module(name), "{name}");
+            assert!(builtin_tool_is_native(name), "{name}");
+        }
     }
 
     #[test]

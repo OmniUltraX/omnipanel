@@ -10,6 +10,7 @@ export {
   notifyShellAgentApprovalPending,
   notifyShellAgentExecuting,
   notifyShellAgentObserving,
+  notifyShellAgentAfterDisplayTools,
   notifyShellAgentTurnFinished,
   notifyShellAgentIdle,
   onShellAgentCardFitStable,
@@ -17,8 +18,10 @@ export {
   teardownShellAgentUi,
   notifyShellAgentRejected,
   notifyShellAgentScreenCleared,
+  notifyShellAgentDisplayTool,
+  notifyShellAgentPromoteToFinal,
 } from "./loop";
-export { useShellAgentStore } from "./shellAgentStore";
+export { isLiveShellAgentForBlock, useShellAgentStore } from "./shellAgentStore";
 export {
   getShellAgentGeometry,
   subscribeShellAgentGeometry,

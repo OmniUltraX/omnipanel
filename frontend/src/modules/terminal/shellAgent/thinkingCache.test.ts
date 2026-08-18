@@ -5,13 +5,19 @@ import {
   buildThinkingDoneFrozenHtml,
   clearShellAgentLastCmd,
   clearShellAgentThinkingFull,
+  clearArchivedDisplayToolIds,
+  collectDisplayToolIdsFromHtml,
   extractThinkingFromLiveHtml,
+  getArchivedDisplayToolIds,
   getShellAgentLastCmd,
   getShellAgentThinkingFull,
+  markArchivedDisplayToolIds,
   mergeThinkingText,
   readFrozenThinkingFromCard,
   setShellAgentLastCmd,
   setShellAgentThinkingFull,
+  formatShellAgentToolResult,
+  stampFrozenCmdResultInRoot,
   transformPendingConfirmToAgreedHtml,
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
@@ -53,6 +59,22 @@ describe("agreed confirm freeze", () => {
     expect(html).not.toContain("编辑命令");
     expect(html).not.toContain("查看");
     expect(html).not.toContain("term-shell-agent-ico--check");
+  });
+
+  it("自动同意沿用确认卡布局，仅文案改为自动同意", () => {
+    const html = buildAgreedCmdFrozenHtml({
+      sessionId: "s1",
+      command: "date",
+      toolId: "t1",
+      agreedLabel: "自动同意",
+    });
+    expect(html).toContain("term-shell-agent-card--cmd");
+    expect(html).toContain("is-agreed");
+    expect(html).toContain("自动同意");
+    expect(html).toContain("<code>date</code>");
+    expect(html).toContain("将在主机执行");
+    expect(html).toContain("term-shell-agent-btn--primary");
+    expect(html).not.toContain("已同意");
   });
 
   it("transformPendingConfirmToAgreedHtml 只改顶部状态与主按钮", () => {
@@ -167,6 +189,12 @@ describe("thinking full cache", () => {
         "三步巡检已完成! ✅",
       ),
     ).toContain("CPU 12%");
+    expect(
+      mergeThinkingText(
+        '今天 8月17日" 搜索\n搜索结果已经返回了多个链接。',
+        "搜索结果已经返回了多个链接。",
+      ),
+    ).toBe("搜索结果已经返回了多个链接。");
   });
 
   it("从活卡 HTML 能捞回思考正文", () => {
@@ -189,6 +217,46 @@ describe("thinking full cache", () => {
     expect(full).toContain("用户想查看资源占用");
     expect(full).toContain("先采样 CPU");
     expect(full).toContain("最后再看内存");
+  });
+});
+
+describe("archived display tool ids", () => {
+  afterEach(() => {
+    clearArchivedDisplayToolIds("s1");
+  });
+
+  it("从工具条 HTML 抽出 data-tool-id，归档后活卡不再重复画", () => {
+    const html =
+      `<div class="term-shell-agent-tool" data-tool-id="t-search"></div>` +
+      `<div class="term-shell-agent-tool" data-tool-id="t-fetch"></div>`;
+    expect(collectDisplayToolIdsFromHtml(html)).toEqual(["t-search", "t-fetch"]);
+    markArchivedDisplayToolIds("s1", ["t-search"]);
+    expect(getArchivedDisplayToolIds("s1").has("t-search")).toBe(true);
+    expect(getArchivedDisplayToolIds("s1").has("t-fetch")).toBe(false);
+  });
+});
+
+describe("formatShellAgentToolResult", () => {
+  it("抽出 payload.output，而不是整段 JSON", () => {
+    expect(
+      formatShellAgentToolResult(
+        JSON.stringify({ command: "Get-Date", output: "2026-08-18 08:42:14 +08:00" }),
+      ),
+    ).toBe("2026-08-18 08:42:14 +08:00");
+    expect(formatShellAgentToolResult("plain text")).toBe("plain text");
+    expect(formatShellAgentToolResult("")).toBe("");
+  });
+
+  it("把结果盖到冻结确认卡上", () => {
+    const root = document.createElement("div");
+    root.innerHTML = buildAgreedCmdFrozenHtml({
+      sessionId: "s1",
+      command: "Get-Date",
+      toolId: "t1",
+    });
+    stampFrozenCmdResultInRoot(root, "s1", "t1", '{"output":"2026-08-18 08:42:14"}');
+    const card = root.querySelector("[data-shell-agent-frozen-cmd='1']");
+    expect(card?.getAttribute("data-tool-result")).toContain("2026-08-18");
   });
 });
 

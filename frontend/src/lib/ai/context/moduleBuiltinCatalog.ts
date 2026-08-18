@@ -21,6 +21,17 @@ export const OMNIMCP_BUILTIN_SERVICE_ID = "omnimcp-builtin";
 /** 内置 OmniMCP HTTP 端口 / URL，与 Rust `BUILTIN_MCP_PORT` 一致（dev/release 不同） */
 export { OMNIMCP_BUILTIN_MCP_PORT, OMNIMCP_BUILTIN_MCP_URL };
 
+/** 与 Rust `builtin_tool_is_cross_module` 对齐：模块 Agent 也会注入这些 web 工具。 */
+export const CROSS_MODULE_BUILTIN_TOOL_NAMES = new Set([
+  "omni_plan_create",
+  "omni_plan_add_step",
+  "omni_plan_update_step",
+  "omni_ask_user",
+  "omni_web_search",
+  "omni_zhihu_search",
+  "omni_web_fetch",
+]);
+
 const MODULE_BUILTIN_CATALOG: Partial<Record<BuiltinCatalogModuleKey, BuiltinToolRegistration[]>> = {
   database: DATABASE_MODULE_TOOLS,
   terminal: TERMINAL_MODULE_TOOLS,

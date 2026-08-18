@@ -1047,8 +1047,10 @@ export const commands = {
 	aiModelsLoad: () => typedError<AiModelsFile_Serialize, string>(__TAURI_INVOKE("ai_models_load")),
 	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
 	aiModelsSave: (file: AiModelsFile_Deserialize) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
-	/**  按需从钥匙串取回提供商 API Key（前端直连 /models 等场景）。 */
+	/**  按需从钥匙串取回提供商 API Key（ACP 同步等场景）。 */
 	aiModelsResolveApiKey: (providerId: string) => typedError<string, string>(__TAURI_INVOKE("ai_models_resolve_api_key", { providerId })),
+	/**  经 Rust HTTP 客户端拉取 `{baseUrl}/models`，避开 WebView CORS。 */
+	aiModelsFetchList: (baseUrl: string, apiKey: string, apiStandard: string | null) => typedError<FetchedProviderModel[], OmniError_Serialize>(__TAURI_INVOKE("ai_models_fetch_list", { baseUrl, apiKey, apiStandard })),
 	/**  检测本机是否已安装 OpenCode CLI。 */
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
 	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
@@ -1448,6 +1450,13 @@ export type ApiModelMeta_Deserialize = {
 /**  接口 /models 返回的单条模型元数据。 */
 export type ApiModelMeta_Serialize = {
 	/**  Unix 秒级时间戳；Specta 导出为 number。 */
+	created?: number | null,
+	ownedBy?: string | null,
+};
+
+/**  接口 /models 拉取到的单条模型（与前端 ApiModelInfo 对齐）。 */
+export type FetchedProviderModel = {
+	id: string,
 	created?: number | null,
 	ownedBy?: string | null,
 };

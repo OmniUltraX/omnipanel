@@ -6,6 +6,12 @@ import { findTerminalPane } from "../../stores/terminalStore";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../../modules/terminal/paneResource";
 import { errorToString } from "../errorToString";
 import { getToolHandler, SSH_EXEC_TOOL_NAME } from "./toolHost";
+import {
+  TERMINAL_EXEC_TOOL_NAME,
+  argsHaveResourceId,
+  isTerminalPtyExecTool,
+  normalizeTerminalPtyExecToolName,
+} from "./terminalExecTool";
 import { PLAN_TOOL_NAMES } from "./hiddenChatTools";
 import { reportToolResultWithRetry } from "./reportToolResult";
 
@@ -26,8 +32,7 @@ function toolCallKey(conversationId: string, toolCallId: string): string {
 
 /**
  * ACP / 缺参场景：若未传 resource_id，尝试从绑定的终端会话注入 SSH 连接 id。
- * 本地终端内联路径走 PTY（见下方 inline 分支），不依赖 resource_id；
- * 非内联且无 SSH resource_id 时由 handler 报错。
+ * 仅用于 omni_ssh_exec / create_run_script；当前 Tab PTY 走 omni_terminal_exec，不依赖 resource_id。
  */
 function injectSshResourceIdIfNeeded(
   toolName: string,
@@ -48,15 +53,8 @@ function injectSshResourceIdIfNeeded(
   args.resource_id = resourceId;
 }
 
-/** 历史别名 → 统一终端执行工具名（omni_terminal_* 已并入 omni_ssh_exec） */
-const LEGACY_TERMINAL_EXEC_ALIASES = new Set([
-  "omni_terminal_run_terminal_command",
-  "run_terminal_command",
-]);
-
 export function normalizeDelegatedToolName(toolName: string): string {
-  if (LEGACY_TERMINAL_EXEC_ALIASES.has(toolName)) return SSH_EXEC_TOOL_NAME;
-  return toolName;
+  return normalizeTerminalPtyExecToolName(toolName);
 }
 
 /** 非终端 UiDelegated 工具（数据库 / SSH 等）：调用已注册 handler 并回传结果。
@@ -133,7 +131,7 @@ async function handleModulePendingTool(options: {
  * - 子会话集群（omni_spawn_sub_conversations）：走 subConversationRunner；
  * - SSH 体检（omni_orchestration_ssh_fleet_health）：走 subConversationRunner；
  * - Plan 工具（omni_plan_create/add_step/update_step）：走 planToolDispatcher；
- * - 终端内联 AI 的 omni_ssh_exec：走当前 Tab PTY + 命令块 / 审批条；
+ * - 终端内联 AI 的 omni_terminal_exec：走当前 Tab PTY + 命令块 / 审批条；
  * - 其它模块（含侧栏 omni_ssh_exec）：调用注册的 handler 直接执行。
  * 全部通过 `ai_chat_tool_result` 回传结果。
  */
@@ -211,15 +209,21 @@ export async function dispatchPendingTool(options: {
     });
   }
 
-  // 终端内联会话：omni_ssh_exec（含历史别名）走当前 Tab PTY，生成可见命令块（含审批条）
-  if (options.inline && toolName === SSH_EXEC_TOOL_NAME) {
+  // 终端内联：当前 Tab PTY 执行（omni_terminal_exec + 历史别名）。
+  // 兼容：内联里模型仍调 omni_ssh_exec 且未带 resource_id 时，同样走 PTY，避免嵌入 AI 块空转。
+  const inlinePtyExec =
+    Boolean(options.inline) &&
+    (toolName === TERMINAL_EXEC_TOOL_NAME ||
+      isTerminalPtyExecTool(options.toolName) ||
+      (toolName === SSH_EXEC_TOOL_NAME && !argsHaveResourceId(options.argsJson)));
+  if (inlinePtyExec && options.inline) {
     const { dispatchInlineTerminalPendingTool } = await import(
       "../../modules/terminal/inlineToolBridge"
     );
     return dispatchInlineTerminalPendingTool({
       conversationId: options.conversationId,
       toolCallId: options.toolCallId,
-      toolName,
+      toolName: TERMINAL_EXEC_TOOL_NAME,
       argsJson: options.argsJson,
       blockId: options.inline.blockId,
       sessionId: options.inline.sessionId,

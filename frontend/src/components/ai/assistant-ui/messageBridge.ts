@@ -5,10 +5,8 @@ import type {
 } from "@assistant-ui/react";
 
 import {
-  coalescePartsByToolSegments,
-  coalescePartsForCoherentDisplay,
-  coalesceToolsInThinkingPhases,
   deriveCompatFields,
+  layoutAiMessagePartsForDisplay,
   normalizeAiMessage,
   partsFromFlatFields,
   type AiMessage,
@@ -130,12 +128,8 @@ function buildAiMessageToThreadMessage(msg: AiMessage): ThreadMessage {
     } satisfies ThreadUserMessage;
   }
 
-  const ordered = coalescePartsForCoherentDisplay(
-    coalesceToolsInThinkingPhases(
-      coalescePartsByToolSegments(partsFromFlatFields(msg)).filter(
-        (part) => part.type !== "tool-call" || !isHiddenChatToolName(part.name),
-      ),
-    ),
+  const ordered = layoutAiMessagePartsForDisplay(partsFromFlatFields(msg)).filter(
+    (part) => part.type !== "tool-call" || !isHiddenChatToolName(part.name),
   );
   const parts: ThreadAssistantMessage["content"][number][] = [];
   for (const part of ordered) {

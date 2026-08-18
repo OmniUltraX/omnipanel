@@ -493,10 +493,12 @@ export async function waitForCommandResult(
   let oscBlock: TerminalBlock | null = first.kind === "osc" ? first.block : null;
 
   if (first.kind === "osc" && watchUnfinished()) {
-    // OSC 可能是旧 prompt / 第一条语句结束；进度条或半截回显时继续等真实结束
+    // OSC 可能是旧 prompt / 第一条语句结束；进度条或半截回显时继续等真实结束。
+    // 不能空等满 timeout（AI batch 15s）——SSH 上 command not found 早已出来。
+    const unfinishedWaitMs = Math.min(timeoutMs, Math.max(800, outputIdleMs * 2));
     outputBlock = await Promise.race([
       outputPromise.catch(() => null),
-      sleep(timeoutMs).then(() => null),
+      sleep(unfinishedWaitMs).then(() => null),
     ]);
   } else if (!outputBlock) {
     const settleMs = outputIdleMs + MERGE_WINDOW_MS;
@@ -605,9 +607,12 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
         profileKind: profile.kind,
       };
       let captureBlockId: string | undefined;
-      if (isWarpDisplay(pending.tabId)) {
+      const shouldPersistShellBlock = isAiSource || isWarpDisplay(pending.tabId);
+      if (shouldPersistShellBlock) {
         captureBlockId = armFeedCapture(pending.tabId, displayCommand);
-        if (isAiSource) {
+        // beginAiToolRun 只服务命令栏（压住 live xterm）。直通 PTY 就是主画面，
+        // 切 run-state 会把门闩/收尾搅乱，SSH 卡片更容易脱锚。
+        if (isAiSource && isWarpDisplay(pending.tabId)) {
           useTerminalRunStateStore.getState().beginAiToolRun(pending.tabId, {
             blockId: captureBlockId,
             command: displayCommand,
@@ -627,7 +632,7 @@ export function executeTerminalAction(action: WorkspaceAction): boolean {
           watchText.trim() && block.output.trim().length < watchText.trim().length
             ? { ...block, output: watchText }
             : block;
-        const stored = isWarpDisplay(pending.tabId)
+        const stored = shouldPersistShellBlock
           ? ensureShellBlockInStore(pending.tabId, mergedBlock)
           : mergedBlock;
         pending.resolveBlock?.(stored);

@@ -657,7 +657,7 @@ export const useAiModelsStore = create<AiModelsState>()(
     if (!apiKey && provider.hasApiKey) {
       return { ok: false, error: "no_api_key" };
     }
-    const fetched = await fetchProviderModelList(provider.baseUrl, apiKey);
+    const fetched = await fetchProviderModelList(provider.baseUrl, apiKey, provider.apiStandard);
     if (!fetched.ok) {
       return { ok: false, error: fetched.error };
     }

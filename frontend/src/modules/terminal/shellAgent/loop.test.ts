@@ -22,8 +22,11 @@ vi.mock("../../../stores/settingsStore", () => ({
     }),
   },
 }));
+const { findTerminalPane } = vi.hoisted(() => ({
+  findTerminalPane: vi.fn(() => ({ cwd: "/tmp", shellLabel: "bash" })),
+}));
 vi.mock("../../../stores/terminalStore", () => ({
-  findTerminalPane: () => ({ cwd: "/tmp", shellLabel: "bash" }),
+  findTerminalPane,
 }));
 vi.mock("../warpInlineAi", () => ({
   submitInlineNaturalLanguage,
@@ -61,6 +64,7 @@ vi.mock("../terminalOutputTap", () => ({
 }));
 vi.mock("../inlineTerminalTool", () => ({
   isInlineTerminalToolName: () => false,
+  collectDisplayToolCalls: () => [],
 }));
 
 import type { IDecoration, IMarker, Terminal } from "@xterm/xterm";
@@ -69,6 +73,9 @@ import {
   notifyShellAgentStreaming,
   notifyShellAgentApprovalPending,
   notifyShellAgentExecuting,
+  notifyShellAgentAfterDisplayTools,
+  notifyShellAgentDisplayTool,
+  notifyShellAgentTurnFinished,
   newShellAgentSession,
   notifyShellAgentRejected,
   startOrContinueShellAgent,
@@ -80,6 +87,7 @@ import {
   getShellAgentGeometry,
 } from "./shellAgentGeometry";
 import { useShellAgentStore } from "./shellAgentStore";
+import { setShellAgentLastCmd, setShellAgentThinkingFull } from "./thinkingCache";
 import { writeTerminalRaw } from "../terminalPaneSenders";
 
 const SID = "loop-test-session";
@@ -146,6 +154,7 @@ describe("notifyShellAgentStreaming", () => {
     registerXterm(SID, createFakeTerm() as unknown as Terminal);
     submitInlineFollowUp.mockClear();
     submitInlineNaturalLanguage.mockClear();
+    findTerminalPane.mockReturnValue({ cwd: "/tmp", shellLabel: "bash" });
   });
 
   it("首轮 streaming：保持 inline 卡", () => {
@@ -195,10 +204,27 @@ describe("notifyShellAgentStreaming", () => {
 
     expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
     await new Promise((r) => setTimeout(r, 80));
-    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+    expect(getShellAgentGeometry(SID)?.cardKind).not.toBe("thinking");
   });
 
-  it("执行开始时撤掉误钉的思考卡", () => {
+  it("跑命令同意后归档确认卡，不另钉工具条槽", () => {
+    findTerminalPane.mockReturnValue({ cwd: "/tmp", shellLabel: "PowerShell" });
+    useShellAgentStore.getState().ensure(SID);
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "PS> ",
+      query: "查磁盘",
+    });
+
+    notifyShellAgentExecuting(SID, true);
+
+    const geo = getShellAgentGeometry(SID);
+    expect(geo?.cardKind).not.toBe("cmd");
+    expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
+  });
+
+  it("执行开始时把思考卡冻成已同意确认卡，不拆卡", () => {
     useShellAgentStore.getState().ensure(SID);
     beginShellAgentCard(SID, {
       kind: "thinking",
@@ -206,6 +232,7 @@ describe("notifyShellAgentStreaming", () => {
       promptPrefix: "$ ",
       query: "查磁盘",
     });
+    setShellAgentLastCmd(SID, { command: "date", toolId: "t-date" });
 
     notifyShellAgentExecuting(SID, true);
 
@@ -419,6 +446,82 @@ describe("notifyShellAgentRejected", () => {
     // release 异步等 idle 后发 \n
     await vi.waitFor(() => {
       expect(writeTerminalRaw).toHaveBeenCalledWith(SID, "\n");
+    });
+  });
+});
+
+describe("notifyShellAgentAfterDisplayTools", () => {
+  beforeEach(() => {
+    teardownShellAgentUi(SID);
+    useShellAgentStore.setState({ bySession: {} });
+    clearShellAgentGeometry(SID);
+    unregisterXterm(SID);
+    registerXterm(SID, createFakeTerm() as unknown as Terminal);
+  });
+
+  it("无新思考时留在工具条接下一条，不等 PTY settle", () => {
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+
+    notifyShellAgentAfterDisplayTools(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+    expect(useShellAgentStore.getState().get(SID)?.phase).toBe("observing");
+  });
+
+  it("search 等展示工具条按 2 行钉，不按确认卡 6 行占位", () => {
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    setShellAgentThinkingFull(SID, "先 search 再 fetch 历史上的今天");
+
+    notifyShellAgentDisplayTool(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+    expect(getShellAgentGeometry(SID)?.rows).toBe(2);
+  });
+
+  it("思考卡还是空占位时不钉工具条，避免冻成正在理解意图", () => {
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+
+    notifyShellAgentDisplayTool(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+  });
+
+  it("思考卡在轮次结束时直接收官，不停留在 observing 转圈", async () => {
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "observing");
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+
+    notifyShellAgentTurnFinished(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+    await vi.waitFor(() => {
+      expect(useShellAgentStore.getState().get(SID)?.phase).toBe("idle");
     });
   });
 });

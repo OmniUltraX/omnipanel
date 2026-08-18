@@ -179,6 +179,9 @@ export function TerminalView({
     return unsub;
   }, []);
 
+  // 系统文件拖放由 TerminalPaneView 在可见 shell 区域统一处理
+  //（命令栏模式下本 wrap 为 pointer-events:none，挂在此处无效）
+
   return (
     <div
       ref={containerRef}

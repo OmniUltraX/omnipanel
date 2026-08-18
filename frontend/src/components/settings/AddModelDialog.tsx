@@ -53,6 +53,7 @@ const API_STANDARD_OPTIONS: { value: ApiStandard; label: string }[] = [
 async function resolveModelCatalog(
   baseUrl: string,
   apiKey: string,
+  apiStandard: ApiStandard,
   manualInput: string,
   t: (key: string, params?: Record<string, string | number>) => string,
 ): Promise<
@@ -71,7 +72,7 @@ async function resolveModelCatalog(
   }
 
   const manualModelNames = parsed.names;
-  const fetchResult = await fetchProviderModelList(baseUrl, apiKey);
+  const fetchResult = await fetchProviderModelList(baseUrl, apiKey, apiStandard);
   if (fetchResult.ok) {
     const modelNames = mergeModelCatalog(manualModelNames, fetchResult.models);
     if (modelNames.length === 0) {
@@ -169,7 +170,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
       // 编辑时留空表示保留原密钥：从 Vault 取回，避免空 Bearer 导致 401
       const effectiveKey = apiKey || (await resolveProviderApiKey(editProvider));
 
-      const catalog = await resolveModelCatalog(baseUrl, effectiveKey, form.modelNames, t);
+      const catalog = await resolveModelCatalog(baseUrl, effectiveKey, form.apiStandard, form.modelNames, t);
       setSaving(false);
       if (!catalog.ok) {
         setError(catalog.error);
@@ -197,7 +198,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
     setError(null);
     setInfo(t("settings.aiModels.fetch.loading"));
 
-    const catalog = await resolveModelCatalog(baseUrl, apiKey, form.modelNames, t);
+    const catalog = await resolveModelCatalog(baseUrl, apiKey, form.apiStandard, form.modelNames, t);
     setSaving(false);
     if (!catalog.ok) {
       setError(catalog.error);

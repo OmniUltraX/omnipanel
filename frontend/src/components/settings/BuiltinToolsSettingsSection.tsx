@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { getAgentDefinition, type AgentId } from "../../lib/ai/agents";
+import { CROSS_MODULE_BUILTIN_TOOL_NAMES } from "../../lib/ai/context/moduleBuiltinCatalog";
 import type { ModuleKey } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { useBuiltinToolStore } from "../../stores/builtinToolStore";
@@ -37,7 +38,12 @@ function toolMatchesScope(
 ): boolean {
   if (scope.mode === "all") return true;
   if (scope.mode === "none") return false;
-  if (scope.mode === "module") return tool.module_key === scope.moduleKey;
+  if (scope.mode === "module") {
+    return (
+      tool.module_key === scope.moduleKey ||
+      CROSS_MODULE_BUILTIN_TOOL_NAMES.has(tool.tool_name)
+    );
+  }
   if (!scope.toolNames.has(tool.tool_name)) return false;
   if (scope.moduleKey) return tool.module_key === scope.moduleKey;
   return true;

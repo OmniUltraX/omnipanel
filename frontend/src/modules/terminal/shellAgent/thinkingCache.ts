@@ -32,6 +32,48 @@ export function readFrozenThinkingFromCard(card: Element): string {
   );
 }
 
+function glueFrozenThinkingFragment(prev: string, fragment: string): string {
+  const a = prev.trimEnd();
+  const f = fragment.trim();
+  if (!a) return f;
+  if (!f) return a;
+  if (a.endsWith(f) || a.includes(f)) return a;
+  if (/[a-zA-Z0-9_]$/.test(a) && /^[a-z0-9]/.test(f)) return `${a}${f}`;
+  return `${a}${f}`;
+}
+
+function writeFrozenThinkingCard(card: Element, fullText: string): void {
+  const full = fullText.trim();
+  const id = card.getAttribute("data-thinking-id") ?? "";
+  if (id) thinkingFullByFrozenId.set(id, full);
+  card.setAttribute("data-thinking-full", full);
+  const ta = card.querySelector<HTMLTextAreaElement>(".term-shell-agent-thinking-src");
+  if (ta) {
+    ta.value = full;
+    ta.textContent = full;
+  }
+}
+
+/** 工具条钉早了时，把后窗开头残片补回上一张已冻结的思考卡 */
+export function appendLastFrozenThinkingFragment(
+  sessionId: string,
+  root: ParentNode,
+  fragment: string,
+): boolean {
+  const f = fragment.trim();
+  if (!f) return false;
+  const cards = root.querySelectorAll(
+    `.term-shell-agent-card[data-shell-agent-frozen-thinking="1"][data-session-id="${sessionId}"]`,
+  );
+  const card = cards[cards.length - 1];
+  if (!card) return false;
+  const prev = readFrozenThinkingFromCard(card);
+  const merged = glueFrozenThinkingFragment(prev, f);
+  if (merged === prev) return false;
+  writeFrozenThinkingCard(card, merged);
+  return true;
+}
+
 /**
  * 同一思考窗口只允许正文变长。短碎片（tool 插入后的尾巴）不得覆盖全文。
  * 新窗口（内容不是旧文的子串）则采用新文本。
@@ -42,6 +84,8 @@ export function mergeThinkingText(prev: string, next: string): string {
   if (!b) return a;
   if (!a) return b;
   if (b.length >= a.length) return b;
+  // 去掉工具前末行残片后，新文本是旧文后缀，应采用较短的干净文本
+  if (a.endsWith(b) && b.length >= 8) return b;
   if (a.includes(b)) return a;
   // ni_ssh_exec. 这类短尾巴不是新窗口
   if (b.length <= Math.max(24, Math.floor(a.length * 0.5))) return a;
@@ -87,6 +131,40 @@ export function getShellAgentThinkingFull(sessionId: string): string {
 
 export function clearShellAgentThinkingFull(sessionId: string): void {
   thinkingFullBySession.delete(sessionId);
+}
+
+const archivedDisplayToolIds = new Map<string, Set<string>>();
+const EMPTY_ARCHIVED_TOOL_IDS: ReadonlySet<string> = new Set();
+
+export function collectDisplayToolIdsFromHtml(html: string): string[] {
+  const ids: string[] = [];
+  const re = /data-tool-id="([^"]+)"/g;
+  let m: RegExpExecArray | null = re.exec(html);
+  while (m) {
+    if (m[1]) ids.push(m[1]);
+    m = re.exec(html);
+  }
+  return ids;
+}
+
+export function markArchivedDisplayToolIds(sessionId: string, ids: string[]): void {
+  if (ids.length === 0) return;
+  let set = archivedDisplayToolIds.get(sessionId);
+  if (!set) {
+    set = new Set();
+    archivedDisplayToolIds.set(sessionId, set);
+  }
+  for (const id of ids) {
+    if (id) set.add(id);
+  }
+}
+
+export function getArchivedDisplayToolIds(sessionId: string): ReadonlySet<string> {
+  return archivedDisplayToolIds.get(sessionId) ?? EMPTY_ARCHIVED_TOOL_IDS;
+}
+
+export function clearArchivedDisplayToolIds(sessionId: string): void {
+  archivedDisplayToolIds.delete(sessionId);
 }
 
 /** 卡面流式预览：只取最后一行非空文本。展开必须用全文，禁止拿这一行当 fullText。 */
@@ -187,13 +265,49 @@ export function getShellAgentLastCmd(sessionId: string): ShellAgentLastCmd | nul
   return lastCmdBySession.get(sessionId) ?? null;
 }
 
+/** 把命令工具的 outputJson 收成可展示的执行结果 */
+export function formatShellAgentToolResult(raw: string | undefined): string {
+  const text = raw?.trim() ?? "";
+  if (!text) return "";
+  try {
+    const parsed = JSON.parse(text) as { output?: unknown };
+    if (parsed && typeof parsed === "object" && typeof parsed.output === "string") {
+      return parsed.output.trim();
+    }
+  } catch {
+    // 不是 payload JSON，原样展示
+  }
+  return text;
+}
+
+/** 执行结束后把结果写进已冻结的确认卡，展开不依赖当前轮 thread */
+export function stampFrozenCmdResultInRoot(
+  root: ParentNode,
+  sessionId: string,
+  toolId: string,
+  result: string,
+): void {
+  const trimmed = result.trim();
+  if (!trimmed) return;
+  const sid = sessionId.replace(/"/g, "");
+  const cards = root.querySelectorAll(
+    `.term-shell-agent-card[data-shell-agent-frozen-cmd="1"][data-session-id="${sid}"]`,
+  );
+  for (const card of cards) {
+    if (!(card instanceof HTMLElement)) continue;
+    const id = card.getAttribute("data-tool-id") || "";
+    if (toolId && id && id !== toolId) continue;
+    card.setAttribute("data-tool-result", trimmed);
+  }
+}
+
 export function clearShellAgentLastCmd(sessionId: string): void {
   lastCmdBySession.delete(sessionId);
   confirmFreezeIntent.delete(sessionId);
 }
 
 /** 同意/拒绝后下一次 archive 必须冻成对应确认卡（勿被已切到工具条的 liveHtml 抢走） */
-type ConfirmFreezeKind = "agreed" | "rejected";
+type ConfirmFreezeKind = "agreed" | "auto-agreed" | "rejected";
 const confirmFreezeIntent = new Map<string, ConfirmFreezeKind>();
 
 export function markShellAgentConfirmFreeze(
@@ -229,6 +343,7 @@ export function consumeShellAgentAgreedFreeze(sessionId: string): boolean {
 
 export function agreedCmdCopy(): {
   agreedLabel: string;
+  autoAgreedLabel: string;
   viewLabel: string;
   willExecute: string;
 } {
@@ -237,12 +352,14 @@ export function agreedCmdCopy(): {
   if (lang.toLowerCase().startsWith("en")) {
     return {
       agreedLabel: "Agreed",
+      autoAgreedLabel: "Auto-approved",
       viewLabel: "View",
       willExecute: "Will run on host",
     };
   }
   return {
     agreedLabel: "已同意",
+    autoAgreedLabel: "自动同意",
     viewLabel: "查看",
     willExecute: "将在主机执行",
   };
@@ -340,6 +457,8 @@ function replaceConfirmStatusLabel(html: string, label: string): string {
     "High-risk action",
     "已同意",
     "Agreed",
+    "自动同意",
+    "Auto-approved",
     "已拒绝",
     "Rejected",
   ];
@@ -375,16 +494,17 @@ function stripSecondaryConfirmActions(html: string): string {
  */
 export function transformPendingConfirmToAgreedHtml(
   liveHtml: string,
-  opts: { sessionId: string; command?: string; toolId?: string },
+  opts: { sessionId: string; command?: string; toolId?: string; agreedLabel?: string },
 ): string | null {
   const copy = agreedCmdCopy();
+  const agreedLabel = opts.agreedLabel ?? copy.agreedLabel;
   let out = annotateFrozenConfirmRoot(liveHtml, {
     ...opts,
     stateClass: "is-agreed",
   });
   if (!out) return null;
 
-  out = replaceConfirmStatusLabel(out, copy.agreedLabel);
+  out = replaceConfirmStatusLabel(out, agreedLabel);
   out = out.replace(
     /term-shell-agent-card__status-label\s+(danger|accent)/g,
     "term-shell-agent-card__status-label accent",
@@ -403,7 +523,7 @@ export function transformPendingConfirmToAgreedHtml(
       new RegExp(
         `(class="[^"]*term-shell-agent-btn--(?:primary|danger)[^"]*"[^>]*>)\\s*${escapeRegExp(label)}${OPTIONAL_ENTER_KBD}\\s*(</button>)`,
       ),
-      `$1${copy.agreedLabel}$2`,
+      `$1${agreedLabel}$2`,
     );
   }
   out = stripSecondaryConfirmActions(out);

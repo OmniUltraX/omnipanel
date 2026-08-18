@@ -296,6 +296,13 @@ function isTruncatedCommandEcho(raw: string, command: string): boolean {
   return got.length >= minLen && got.length < sent.length && sent.startsWith(got);
 }
 
+/** 已有明确失败回显：不能再当成「命令还在回显」空等超时 */
+function looksLikeShellErrorOutput(text: string): boolean {
+  return /command not found|not found|No such file|Permission denied|syntax error|不是内部或外部命令|无法将[\s\S]*识别/i.test(
+    text,
+  );
+}
+
 /** 多行命令被 PTY 整段回显、尚未产生真实 stdout 时，output 与 command 高度重合 */
 export function isLikelyCommandEchoAsOutput(raw: string, command: string): boolean {
   const sent = normalizeBlockCommand(command);
@@ -321,6 +328,7 @@ export function isLikelyCommandEchoAsOutput(raw: string, command: string): boole
   const rawNorm = stripped.replace(/\s+/g, " ").trim();
   const sentNorm = sent.replace(/\s+/g, " ").trim();
   if (!rawNorm || !sentNorm) return false;
+  if (looksLikeShellErrorOutput(rawNorm)) return false;
   if (rawNorm === sentNorm) return true;
   if (
     rawNorm.length >= Math.min(12, sentNorm.length) &&

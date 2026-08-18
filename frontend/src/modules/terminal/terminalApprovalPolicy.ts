@@ -8,6 +8,7 @@ import {
   isCommandWhitelisted,
   type CommandWhitelistScope,
 } from "./terminalCommandWhitelist";
+import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 
 export type TerminalApprovalMode = "strict" | "view" | "loose";
 
@@ -236,4 +237,20 @@ export function shouldRequireTerminalApproval(
 
   // 5) view 模式：只读命令放行，其余需审批
   return !isReadOnlyTerminalCommand(command);
+}
+
+/**
+ * 内联终端工具（命令栏 / 直通 / 侧栏 omni_terminal_exec）是否需人工确认。
+ * 与 `shouldRequireTerminalApproval` 一致，集中会话作用域解析。
+ */
+export function decideInlineTerminalApproval(
+  command: string,
+  sessionId: string,
+  conversationId?: string,
+): boolean {
+  const mode = resolveTerminalApprovalMode(sessionId);
+  return shouldRequireTerminalApproval(command, mode, {
+    conversationId,
+    terminalSessionId: sessionId,
+  });
 }

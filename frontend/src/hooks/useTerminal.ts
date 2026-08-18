@@ -173,11 +173,13 @@ function rewriteConptyBytesForInlineCard(
     return bytes;
   }
   const buf = getXterm(sessionId)?.buffer?.active;
+  const flags = getEnterGateFlags(sessionId);
   const next = stripConptyCursorRestore(raw, {
     cardsBottomAbs: bottom,
     viewportY: buf?.viewportY ?? 0,
     cursorAbs: buf ? buf.baseY + buf.cursorY : bottom,
     viewportRows: getXterm(sessionId)?.rows,
+    idlePrompt: flags.userTyping || (!flags.commandRunning && !flags.agentExecuting),
   });
   return next === raw ? bytes : next;
 }

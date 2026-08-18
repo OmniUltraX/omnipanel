@@ -79,10 +79,19 @@ describe("stripConptyCursorRestore 按卡片底拦截", () => {
     expect(stripConptyCursorRestore("\x1b[21;5H", belowCards)).toBe("\x1b[21;5H");
   });
 
-  it("PSReadLine 重绘常用的擦下方（J）不能让整段 CUP 放行", () => {
+  it("命令输出时 PSReadLine 擦下方（J）不能让整段 CUP 放行", () => {
     expect(stripConptyCursorRestore("\x1b[12;1H\x1b[JGet-Process", belowCards)).toBe(
       "\x1b[JGet-Process",
     );
+  });
+
+  it("空闲提示符：落进卡区的 CUP 改到当前行，避免 PSReadLine 重绘叠字", () => {
+    const idle: ConptyCursorRewriteContext = { ...belowCards, idlePrompt: true };
+    expect(stripConptyCursorRestore("\x1b[12;1H\x1b[Jpwd", idle)).toBe("\r\x1b[Jpwd");
+    expect(stripConptyCursorRestore("\x1b[12;1Hpwd", idle)).toBe("\rpwd");
+    expect(stripConptyCursorRestore("\x1b[12;20Hpwd", idle)).toBe("\x1b[20Gpwd");
+    // Get-Date 同一块里 CUP 前已有正文：仍丢掉，秒数接在 11:25 后面
+    expect(stripConptyCursorRestore("11:25\x1b[8;22H:22", idle)).toBe("11:25:22");
   });
 
   it("CUU 会进卡内则夹紧到卡底，卡下的上移保留", () => {

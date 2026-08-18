@@ -238,24 +238,23 @@ export const SSH_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: "omni_ssh_exec",
     description:
-      "在当前绑定的终端会话执行命令（本地 PowerShell/CMD/bash 或 SSH 均可），返回输出。\
-终端内联场景可不传 resource_id。不支持 TUI/流式（top/vim/tail -f）；危险命令需确认。\
-查时间/文件/进程等实时事实必须调用本工具，禁止凭记忆编造。",
+      "在指定 SSH 主机上通过独立 exec 通道执行非交互命令（不进入当前终端 Tab，不继承 Tab cwd）。\
+必须提供 resource_id。不支持 TUI/流式（top/vim/tail -f）；危险命令需确认。\
+当前终端 Tab 内执行请用 omni_terminal_exec。",
     inputSchema: {
       type: "object",
       properties: {
         resource_id: {
           type: "string",
-          description:
-            "可选；SSH 连接 id。终端内联已绑定会话时可省略；侧栏/多主机场景再传",
+          description: "SSH 连接 id（可先用 omni_ssh_list_connections 查询）",
         },
         command: {
           type: "string",
           description:
-            "要在当前终端会话执行的非交互式命令（语法须匹配该会话 shell：PowerShell 用 Get-Date 等）",
+            "要在该 SSH 主机上执行的非交互式命令（语法须匹配远程 shell）",
         },
       },
-      required: ["command"],
+      required: ["resource_id", "command"],
     },
     handler: sshExec,
   },
@@ -263,7 +262,7 @@ export const SSH_MODULE_TOOLS: BuiltinToolRegistration[] = [
     name: "omni_ssh_create_run_script",
     description:
       "在指定 SSH 主机上创建脚本并立即执行：写入 ~/.omnipanel/scripts/<name>（同名覆盖），\
-chmod +x 后以 bash 运行。适合多行脚本或需落盘复用；简单一行命令优先用 omni_ssh_exec。",
+chmod +x 后以 bash 运行。适合多行脚本或需落盘复用；简单一行命令优先用 omni_ssh_exec（须带 resource_id）。当前终端 Tab 请用 omni_terminal_exec。",
     inputSchema: {
       type: "object",
       properties: {
