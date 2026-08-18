@@ -289,6 +289,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
           {stats ? (
             <div className="server-panel-monitor-dashboard">
               <MonMetricCards
+                compact
                 stats={stats}
                 sparklines={sparklines}
                 diskReadRate={diskReadRate}

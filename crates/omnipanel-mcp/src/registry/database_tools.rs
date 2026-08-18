@@ -39,7 +39,7 @@ fn assert_sql_identifier(name: &str, label: &str) -> Result<String, String> {
     let trimmed = name.trim();
     if !trimmed
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '-')
     {
         return Err(format!("{label} 含非法字符：{name}"));
     }
@@ -516,6 +516,7 @@ mod tests {
         assert!(assert_sql_identifier("users", "表名").is_ok());
         assert!(assert_sql_identifier("user_1", "表名").is_ok());
         assert!(assert_sql_identifier("user$1", "表名").is_ok());
+        assert!(assert_sql_identifier("edu-center", "库名").is_ok());
         // 含分号 / 引号 / 空格 应拒绝
         assert!(assert_sql_identifier("users; DROP TABLE x", "表名").is_err());
         assert!(assert_sql_identifier("`users`", "表名").is_err());

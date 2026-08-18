@@ -247,6 +247,11 @@ export const commands = {
 	 */
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
 	/**
+	 *  通用宝塔面板 GET 请求（query 签名，用于官方标注为 GET 的接口）。
+	 *  `query` 为额外 query 字段的 JSON 对象字符串。
+	 */
+	panelBtRequestGet: (host: string, apiSk: string, path: string, query: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request_get", { host, apiSk, path, query })),
+	/**
 	 *  获取宝塔应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
 	 *  `icon_file` 可选，软件商店一般为 `ico-xxx.png`；为空时按 app_name 推断 Docker/软件路径。
 	 */
@@ -3902,6 +3907,7 @@ export type MysqlExportDeployment_Deserialize = {
 	containerId?: string | null,
 	/**  Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。 */
 	mysqlPort?: number | null,
+	includeCreateDatabase?: boolean,
 };
 
 export type MysqlExportDeployment_Serialize = {
@@ -3910,6 +3916,7 @@ export type MysqlExportDeployment_Serialize = {
 	containerId?: string | null,
 	/**  Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。 */
 	mysqlPort?: number | null,
+	includeCreateDatabase?: boolean,
 };
 
 export type MysqlExportRecord = MysqlExportRecord_Serialize | MysqlExportRecord_Deserialize;

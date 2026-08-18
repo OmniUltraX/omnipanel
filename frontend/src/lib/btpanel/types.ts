@@ -472,6 +472,8 @@ export interface BtCreateDockerAppParams {
 export interface BtRequestOptions {
   /** 含 query 的路径，如 `/system?action=GetSystemTotal` */
   path: string;
+  /** 默认 POST（表单）；官方标注 GET 的接口传 `"GET"`（鉴权与业务参数走 query）。 */
+  method?: "GET" | "POST";
   params?: Record<string, string | number | boolean | undefined | null>;
   /**
    * 部分接口（如 GetSSL）用 status:false 表示业务状态而非错误。

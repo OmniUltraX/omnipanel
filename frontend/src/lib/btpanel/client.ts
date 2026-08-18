@@ -69,6 +69,12 @@ function serializeParams(params?: BtRequestOptions["params"]): string | null {
   return Object.keys(body).length > 0 ? JSON.stringify(body) : null;
 }
 
+function appendQuery(path: string, form: URLSearchParams): string {
+  const qs = form.toString();
+  if (!qs) return path;
+  return path.includes("?") ? `${path}&${qs}` : `${path}?${qs}`;
+}
+
 function enrichBtPanelErrorMessage(msg: string): string {
   return enrichBtPanelAuthMessage(msg);
 }
@@ -160,21 +166,21 @@ export class BtPanelClient {
     return this.resolvePromise;
   }
 
-  /** 原始 POST 请求。path 含 query，如 `/system?action=GetSystemTotal`。 */
+  /** 原始请求。默认 POST 表单；`method: "GET"` 时鉴权与业务参数走 query。path 含 query，如 `/system?action=GetSystemTotal`。 */
   async request<T = unknown>(options: BtRequestOptions): Promise<T> {
     const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
+    const method = options.method === "GET" ? "GET" : "POST";
     const tolerate = Boolean(options.tolerateFalseStatus);
     assertBtPanelNotLocked(this.baseUrl);
     const apiSk = await this.resolveApiSk();
 
     try {
       if (this.useTauri && canUseIpcBackend()) {
-        const result = await commands.panelBtRequest(
-          this.baseUrl,
-          apiSk,
-          path,
-          serializeParams(options.params),
-        );
+        const serialized = serializeParams(options.params);
+        const result =
+          method === "GET"
+            ? await commands.panelBtRequestGet(this.baseUrl, apiSk, path, serialized)
+            : await commands.panelBtRequest(this.baseUrl, apiSk, path, serialized);
         if (result.status === "error") {
           throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
         }
@@ -182,7 +188,7 @@ export class BtPanelClient {
         return parseResponseText<T>(result.data, tolerate);
       }
 
-      const data = await this.requestViaFetch<T>(path, apiSk, options.params, tolerate);
+      const data = await this.requestViaFetch<T>(method, path, apiSk, options.params, tolerate);
       clearBtPanelLockout(this.baseUrl);
       return data;
     } catch (error) {
@@ -200,6 +206,7 @@ export class BtPanelClient {
   }
 
   private async requestViaFetch<T>(
+    method: "GET" | "POST",
     path: string,
     apiSk: string,
     params?: BtRequestOptions["params"],
@@ -213,13 +220,17 @@ export class BtPanelClient {
       }
     }
 
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
+    const url =
+      method === "GET"
+        ? `${this.baseUrl}${appendQuery(path, form)}`
+        : `${this.baseUrl}${path}`;
+    const res = await fetch(url, {
+      method,
       headers: {
         Accept: "application/json, text/plain, */*",
-        "Content-Type": "application/x-www-form-urlencoded",
+        ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
       },
-      body: form,
+      body: method === "POST" ? form : undefined,
       credentials: "include",
     });
 
@@ -336,83 +347,39 @@ export class BtPanelClient {
   }
 
   /**
-   * 官方文档：`/mod/java/project/get_load_info/stype`
+   * 官方单页误标 GET；API 概览与同模块 `project_list` 均为 POST 表单。
+   * GET 会被面板直接掐连接（reqwest: error sending request）。
+   * @see https://docs.bt.cn/api/
    * @see https://docs.bt.cn/api/java/get_load_info
    *
-   * 获取运行中 Java 项目的 CPU / 内存；优先 `/stype`，失败回退无后缀。
+   * 获取运行中 Java 项目的 CPU / 内存。
    */
   async getJavaProjectLoadInfo(projectName: string): Promise<BtJavaProjectLoadInfo> {
     const name = projectName.trim();
     if (!name) {
       throw new BtPanelApiError("项目名称为空", 0);
     }
-    const body = { data: JSON.stringify({ project_name: name }) };
-    const attempts: Array<{
-      path: string;
-      params: Record<string, string | number | boolean | undefined | null>;
-    }> = [
-      { path: "/mod/java/project/get_load_info/stype", params: body },
-      { path: "/mod/java/project/get_load_info", params: body },
-      {
-        path: "/mod/java/project/get_load_info/stype",
-        params: { project_name: name },
-      },
-    ];
-
-    let lastError: unknown = null;
-    for (let i = 0; i < attempts.length; i++) {
-      const attempt = attempts[i]!;
-      console.debug("[bt-java-load] request", {
-        projectName: name,
-        attempt: i + 1,
-        path: attempt.path,
-        params: attempt.params,
-      });
-      try {
-        const payload = await this.request<unknown>({
-          path: attempt.path,
-          params: attempt.params,
-          tolerateFalseStatus: true,
-        });
-        console.debug("[bt-java-load] raw response", {
-          projectName: name,
-          attempt: i + 1,
-          path: attempt.path,
-          payload,
-        });
-        const parsed = parseBtJavaProjectLoadInfo(payload);
-        console.debug("[bt-java-load] parsed", {
-          projectName: name,
-          attempt: i + 1,
-          cpuPercent: parsed.cpuPercent,
-          memoryPercent: parsed.memoryPercent,
-          memoryUsedBytes: parsed.memoryUsedBytes,
-        });
-        return parsed;
-      } catch (error) {
-        lastError = error;
-        console.warn("[bt-java-load] attempt failed", {
-          projectName: name,
-          attempt: i + 1,
-          path: attempt.path,
-          error:
-            error instanceof Error
-              ? { name: error.name, message: error.message, cause: (error as BtPanelApiError).body }
-              : error,
-        });
-        if (!(error instanceof BtPanelApiError)) throw error;
-      }
-    }
-    console.error("[bt-java-load] all attempts failed", {
-      projectName: name,
-      error:
-        lastError instanceof Error
-          ? { name: lastError.name, message: lastError.message }
-          : lastError,
+    const path = "/mod/java/project/get_load_info/stype";
+    // 官方参数名 project_name；Java 模块与 project_list 一样也从 data JSON 取值。
+    const params = {
+      project_name: name,
+      data: JSON.stringify({ project_name: name }),
+    };
+    console.debug("[bt-java-load] request", { projectName: name, path, params });
+    const payload = await this.request<unknown>({
+      path,
+      params,
+      tolerateFalseStatus: true,
     });
-    throw lastError instanceof Error
-      ? lastError
-      : new BtPanelApiError("获取 Java 项目负载失败", 0);
+    console.debug("[bt-java-load] raw response", { projectName: name, path, payload });
+    const parsed = parseBtJavaProjectLoadInfo(payload);
+    console.debug("[bt-java-load] parsed", {
+      projectName: name,
+      cpuPercent: parsed.cpuPercent,
+      memoryPercent: parsed.memoryPercent,
+      memoryUsedBytes: parsed.memoryUsedBytes,
+    });
+    return parsed;
   }
 
   /** /site?action=get_site_types — 网站分类。 */

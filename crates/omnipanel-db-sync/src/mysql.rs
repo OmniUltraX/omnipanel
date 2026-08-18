@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use omnipanel_ssh::{SshSession, StreamChunk};
-use omnipanel_store::DbConnectionConfig;
+use omnipanel_store::{fill_db_password_from_vault, DbConnectionConfig};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -36,6 +36,14 @@ pub struct MysqlExportDeployment {
     /// Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mysql_port: Option<u16>,
+    /// 为 true 时使用 `--databases`（SQL 含 CREATE DATABASE / USE）。
+    /// 导出到其它库时应为 false，以便导入到用户指定的目标库名。
+    #[serde(default = "default_true")]
+    pub include_create_database: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn meta_path_for(base_dir: &Path, export_id: &str) -> PathBuf {
@@ -184,6 +192,27 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn is_loopback_host(host: &str) -> bool {
+    matches!(
+        host.trim().to_ascii_lowercase().as_str(),
+        "" | "localhost" | "127.0.0.1" | "::1" | "[::1]"
+    )
+}
+
+/// 宿主机 mysqldump/mysql 连接地址：非环回地址用连接配置里的真实 host，避免误连本机 127.0.0.1。
+fn remote_mysql_cli_host(connection: &DbConnectionConfig) -> &str {
+    let host = connection.host.trim();
+    if is_loopback_host(host) {
+        "127.0.0.1"
+    } else {
+        host
+    }
+}
+
+fn cnf_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn sanitize_db_name(name: &str) -> Result<String, String> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err("数据库名称无效".to_string());
@@ -191,11 +220,24 @@ fn sanitize_db_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-fn build_mysqldump_shell_with_defaults(defaults_file: &str, database_name: &str) -> String {
+fn mysqldump_db_target(database_name: &str, include_create_database: bool) -> String {
+    let db = shell_single_quote(database_name);
+    if include_create_database {
+        format!("--databases {db}")
+    } else {
+        db
+    }
+}
+
+fn build_mysqldump_shell_with_defaults(
+    defaults_file: &str,
+    database_name: &str,
+    include_create_database: bool,
+) -> String {
     format!(
-        "mysqldump --defaults-extra-file={defaults} --verbose --single-transaction --routines --triggers --events --set-gtid-purged=OFF --databases {db}",
+        "mysqldump --defaults-extra-file={defaults} --verbose --single-transaction --routines --triggers --events --set-gtid-purged=OFF {target}",
         defaults = shell_single_quote(defaults_file),
-        db = shell_single_quote(database_name),
+        target = mysqldump_db_target(database_name, include_create_database),
     )
 }
 
@@ -209,12 +251,15 @@ fn build_docker_mysqldump_shell(
     connection: &DbConnectionConfig,
     database_name: &str,
     mysql_port: u16,
+    include_create_database: bool,
 ) -> String {
+    // docker exec 已 `-e MYSQL_PWD=...`。单独 `-p` 会提示 Enter password，并忽略 MYSQL_PWD
+    // （1045 using password: NO）。容器内 sh 展开 $MYSQL_PWD；外层单引号避免宿主机展开。
     format!(
-        "mysqldump -h127.0.0.1 -P{port} -u{user} --verbose --single-transaction --routines --triggers --events --set-gtid-purged=OFF --databases {db}",
+        "mysqldump -h127.0.0.1 -P{port} -u{user} --password=\"$MYSQL_PWD\" --verbose --single-transaction --routines --triggers --events --set-gtid-purged=OFF {target}",
         port = mysql_port,
         user = shell_single_quote(&connection.user),
-        db = shell_single_quote(database_name),
+        target = mysqldump_db_target(database_name, include_create_database),
     )
 }
 
@@ -344,7 +389,10 @@ async fn count_base_tables_local(
 fn build_defaults_file_content(connection: &DbConnectionConfig, host: &str, port: u16) -> String {
     format!(
         "[client]\nuser={}\npassword={}\nhost={}\nport={}\n",
-        connection.user, connection.password, host, port
+        cnf_quote(&connection.user),
+        cnf_quote(&connection.password),
+        cnf_quote(host),
+        port
     )
 }
 
@@ -356,6 +404,7 @@ async fn run_local_mysqldump(
     connection: &DbConnectionConfig,
     database_name: &str,
     output_path: &Path,
+    include_create_database: bool,
     cancel: &Arc<AtomicBool>,
     progress: &ProgressCb,
 ) -> Result<(), String> {
@@ -382,15 +431,19 @@ async fn run_local_mysqldump(
 
     let stdout_file =
         fs::File::create(output_path).map_err(|e| format!("创建导出文件失败: {e}"))?;
-    let mut child = tokio::process::Command::new("mysqldump")
+    let mut dump_cmd = tokio::process::Command::new("mysqldump");
+    dump_cmd
         .arg(format!("--defaults-extra-file={}", defaults_path.display()))
         .arg("--verbose")
         .arg("--single-transaction")
         .arg("--routines")
         .arg("--triggers")
         .arg("--events")
-        .arg("--set-gtid-purged=OFF")
-        .arg("--databases")
+        .arg("--set-gtid-purged=OFF");
+    if include_create_database {
+        dump_cmd.arg("--databases");
+    }
+    let mut child = dump_cmd
         .arg(database_name)
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::piped())
@@ -473,13 +526,17 @@ async fn count_base_tables_remote(
             shell_single_quote(&connection.password),
             shell_single_quote(container_id),
             shell_single_quote(&format!(
-                "mysql -h127.0.0.1 -P{mysql_port} -u{} -N -e {}",
+                "mysql -h127.0.0.1 -P{mysql_port} -u{} --password=\"$MYSQL_PWD\" -N -e {}",
                 shell_single_quote(&connection.user),
                 shell_single_quote(&sql),
             )),
         )
     } else {
-        let defaults = build_defaults_file_content(connection, "127.0.0.1", connection.port);
+        let defaults = build_defaults_file_content(
+            connection,
+            remote_mysql_cli_host(connection),
+            connection.port,
+        );
         let remote_cnf = format!("/tmp/omnipanel-count-{}.cnf", now_millis());
         let write = format!(
             "cat > {} <<'OMNI_EOF'\n{}\nOMNI_EOF\nchmod 600 {}",
@@ -523,6 +580,7 @@ async fn run_remote_mysqldump(
     deployment: &MysqlExportDeployment,
     output_path: &Path,
     export_id: &str,
+    include_create_database: bool,
     cancel: &Arc<AtomicBool>,
     progress: &ProgressCb,
 ) -> Result<(), String> {
@@ -550,10 +608,13 @@ async fn run_remote_mysqldump(
 
     let remote_defaults = format!("/tmp/omnipanel-export-{export_id}.cnf");
     let remote_sql = format!("/tmp/omnipanel-export-{export_id}.sql");
-    // 宿主机 mysqldump：连本机可访问地址（含 Docker publish 端口）。
+    // 宿主机 mysqldump：库不在 SSH 本机时用连接配置的真实 host，勿写死 127.0.0.1。
     // 容器内 mysqldump：必须用容器内监听端口，见 resolve_docker_mysql_port。
-    let defaults_content =
-        build_defaults_file_content(connection, "127.0.0.1", connection.port);
+    let defaults_content = build_defaults_file_content(
+        connection,
+        remote_mysql_cli_host(connection),
+        connection.port,
+    );
     let write_defaults = if deployment.kind == "docker" {
         String::new()
     } else {
@@ -585,13 +646,18 @@ async fn run_remote_mysqldump(
                 connection,
                 database_name,
                 mysql_port,
+                include_create_database,
             )),
             shell_single_quote(&remote_sql),
         )
     } else {
         format!(
             "{} > {}",
-            build_mysqldump_shell_with_defaults(&remote_defaults, database_name),
+            build_mysqldump_shell_with_defaults(
+                &remote_defaults,
+                database_name,
+                include_create_database,
+            ),
             shell_single_quote(&remote_sql),
         )
     };
@@ -774,12 +840,23 @@ pub async fn run_mysql_export(
     sink: Arc<dyn MysqlExportEventSink>,
     ssh: Arc<dyn SshSessionProvider>,
     task_id: String,
-    connection: DbConnectionConfig,
+    mut connection: DbConnectionConfig,
     database_name: String,
     deployment: MysqlExportDeployment,
     cancel: Arc<AtomicBool>,
     progress: Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>,
 ) -> Result<(), String> {
+    fill_db_password_from_vault(&mut connection);
+    if connection.password.trim().is_empty() && connection.has_password {
+        return persist_early_export_failure(
+            sink.as_ref(),
+            &connection.id,
+            &database_name,
+            &task_id,
+            "无法从钥匙串读取数据库密码，请重新保存该连接的密码后再导出".to_string(),
+        )
+        .await;
+    }
     let raw_database_name = database_name.clone();
     let database_name = match sanitize_db_name(&database_name) {
         Ok(name) => name,
@@ -876,6 +953,7 @@ pub async fn run_mysql_export(
                 &deployment,
                 &output_path,
                 &export_id,
+                deployment.include_create_database,
                 &cancel,
                 &progress,
             )
@@ -885,6 +963,7 @@ pub async fn run_mysql_export(
                 &connection,
                 &database_name,
                 &output_path,
+                deployment.include_create_database,
                 &cancel,
                 &progress,
             )
@@ -967,23 +1046,30 @@ fn resolve_import_sql_path(
     }
 }
 
-fn build_docker_mysql_client_shell(connection: &DbConnectionConfig, mysql_port: u16) -> String {
+fn build_docker_mysql_client_shell(
+    connection: &DbConnectionConfig,
+    mysql_port: u16,
+    database_name: &str,
+) -> String {
     format!(
-        "mysql -h127.0.0.1 -P{port} -u{user}",
+        "mysql -h127.0.0.1 -P{port} -u{user} --password=\"$MYSQL_PWD\" {db}",
         port = mysql_port,
         user = shell_single_quote(&connection.user),
+        db = shell_single_quote(database_name),
     )
 }
 
-fn build_mysql_client_shell_with_defaults(defaults_file: &str) -> String {
+fn build_mysql_client_shell_with_defaults(defaults_file: &str, database_name: &str) -> String {
     format!(
-        "mysql --defaults-extra-file={defaults}",
+        "mysql --defaults-extra-file={defaults} {db}",
         defaults = shell_single_quote(defaults_file),
+        db = shell_single_quote(database_name),
     )
 }
 
 async fn run_local_mysql_import(
     connection: &DbConnectionConfig,
+    database_name: &str,
     sql_path: &Path,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), String> {
@@ -1000,6 +1086,7 @@ async fn run_local_mysql_import(
     let mut command = tokio::process::Command::new("mysql");
     command
         .arg(format!("--defaults-extra-file={}", defaults_path.display()))
+        .arg(database_name)
         .stdin(std::process::Stdio::from(sql_file))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -1029,6 +1116,7 @@ async fn run_remote_mysql_import(
     ssh_connection_id: &str,
     connection: &DbConnectionConfig,
     deployment: &MysqlExportDeployment,
+    database_name: &str,
     sql_path: &Path,
     import_id: &str,
     cancel: &Arc<AtomicBool>,
@@ -1066,12 +1154,19 @@ async fn run_remote_mysql_import(
             "docker exec -i -e MYSQL_PWD={} {} sh -c {} < {}",
             shell_single_quote(&connection.password),
             shell_single_quote(container_id),
-            shell_single_quote(&build_docker_mysql_client_shell(connection, mysql_port)),
+            shell_single_quote(&build_docker_mysql_client_shell(
+                connection,
+                mysql_port,
+                database_name,
+            )),
             shell_single_quote(&remote_sql),
         )
     } else {
-        let defaults_content =
-            build_defaults_file_content(connection, "127.0.0.1", connection.port);
+        let defaults_content = build_defaults_file_content(
+            connection,
+            remote_mysql_cli_host(connection),
+            connection.port,
+        );
         let write_defaults = format!(
             "cat > {} <<'OMNI_EOF'\n{}\nOMNI_EOF\nchmod 600 {}",
             shell_single_quote(&remote_defaults),
@@ -1084,7 +1179,7 @@ async fn run_remote_mysql_import(
             .map_err(|e| format!("写入远端 mysql 配置失败: {e}"))?;
         format!(
             "{} < {}",
-            build_mysql_client_shell_with_defaults(&remote_defaults),
+            build_mysql_client_shell_with_defaults(&remote_defaults, database_name),
             shell_single_quote(&remote_sql),
         )
     };
@@ -1123,13 +1218,17 @@ pub async fn run_mysql_import(
     _sink: Arc<dyn MysqlExportEventSink>,
     ssh: Arc<dyn SshSessionProvider>,
     task_id: String,
-    connection: DbConnectionConfig,
+    mut connection: DbConnectionConfig,
     database_name: String,
     deployment: MysqlExportDeployment,
     source: MysqlImportSource,
     cancel: Arc<AtomicBool>,
     progress: Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>,
 ) -> Result<(), String> {
+    fill_db_password_from_vault(&mut connection);
+    if connection.password.trim().is_empty() && connection.has_password {
+        return Err("无法从钥匙串读取数据库密码，请重新保存该连接的密码后再导入".to_string());
+    }
     let _ = task_id;
     let database_name = sanitize_db_name(&database_name)?;
     let sql_path = resolve_import_sql_path(&connection.id, &source)?;
@@ -1154,13 +1253,14 @@ pub async fn run_mysql_import(
                 ssh_id,
                 &connection,
                 &deployment,
+                &database_name,
                 &sql_path,
                 &import_id,
                 &cancel,
             )
             .await
         } else {
-            run_local_mysql_import(&connection, &sql_path, &cancel).await
+            run_local_mysql_import(&connection, &database_name, &sql_path, &cancel).await
         }
     }
     .await;
@@ -1171,5 +1271,78 @@ pub async fn run_mysql_import(
             Ok(())
         }
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_conn(host: &str, user: &str, password: &str) -> DbConnectionConfig {
+        DbConnectionConfig {
+            id: "c1".into(),
+            name: "test".into(),
+            db_type: "mysql".into(),
+            host: host.into(),
+            port: 3306,
+            user: user.into(),
+            password: password.into(),
+            database: "app".into(),
+            ssl: false,
+            status: "connected".into(),
+            enabled: true,
+            has_password: !password.is_empty(),
+        }
+    }
+
+    #[test]
+    fn remote_mysql_cli_host_keeps_non_loopback() {
+        let conn = sample_conn("192.168.10.20", "cszn", "secret");
+        assert_eq!(remote_mysql_cli_host(&conn), "192.168.10.20");
+    }
+
+    #[test]
+    fn remote_mysql_cli_host_normalizes_loopback() {
+        let conn = sample_conn("localhost", "cszn", "secret");
+        assert_eq!(remote_mysql_cli_host(&conn), "127.0.0.1");
+    }
+
+    #[test]
+    fn defaults_file_quotes_credentials_and_host() {
+        let conn = sample_conn("db.example.com", "u#1", r#"p"ass"#);
+        let cnf = build_defaults_file_content(&conn, remote_mysql_cli_host(&conn), 3307);
+        assert!(cnf.contains(r#"user="u#1""#));
+        assert!(cnf.contains(r#"password="p\"ass""#));
+        assert!(cnf.contains(r#"host="db.example.com""#));
+        assert!(cnf.contains("port=3307"));
+    }
+
+    #[test]
+    fn docker_mysqldump_passes_password_flag() {
+        let conn = sample_conn("127.0.0.1", "cszn", "secret");
+        let cmd = build_docker_mysqldump_shell(&conn, "app_db", 3306, true);
+        assert!(cmd.contains(r#"--password="$MYSQL_PWD""#), "{cmd}");
+        assert!(!cmd.contains(" -p "), "{cmd}");
+        assert!(!cmd.contains(" -p--"), "{cmd}");
+        assert!(cmd.contains("--databases"));
+        assert!(cmd.contains("-h127.0.0.1"));
+        assert!(cmd.contains("-u'cszn'"));
+    }
+
+    #[test]
+    fn docker_mysqldump_omits_create_database_when_cloning() {
+        let conn = sample_conn("127.0.0.1", "cszn", "secret");
+        let cmd = build_docker_mysqldump_shell(&conn, "app_db", 3306, false);
+        assert!(!cmd.contains("--databases"), "{cmd}");
+        assert!(cmd.contains("'app_db'"), "{cmd}");
+    }
+
+    #[test]
+    fn docker_mysql_client_passes_password_flag() {
+        let conn = sample_conn("127.0.0.1", "cszn", "secret");
+        let cmd = build_docker_mysql_client_shell(&conn, 3306, "target_db");
+        assert!(cmd.contains(r#"--password="$MYSQL_PWD""#), "{cmd}");
+        assert!(!cmd.contains(" -p "), "{cmd}");
+        assert!(cmd.contains("'target_db'"), "{cmd}");
     }
 }

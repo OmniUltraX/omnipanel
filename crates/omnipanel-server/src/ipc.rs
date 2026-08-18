@@ -2705,6 +2705,13 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let body = get_str(&args, "body");
             respond_omni(crate::panel_cmds::panel_bt_request(host, api_sk, path, body).await)
         }
+        "panel_bt_request_get" => {
+            let host = get_str(&args, "host").unwrap_or_default();
+            let api_sk = get_str(&args, "apiSk").unwrap_or_default();
+            let path = get_str(&args, "path").unwrap_or_default();
+            let query = get_str(&args, "query");
+            respond_omni(crate::panel_cmds::panel_bt_request_get(host, api_sk, path, query).await)
+        }
         "panel_bt_test_connection" => {
             let host = get_str(&args, "host").unwrap_or_default();
             let api_sk = get_str(&args, "apiSk").unwrap_or_default();

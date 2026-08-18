@@ -38,6 +38,10 @@ export interface SelectProps {
   style?: CSSProperties;
   emptyText?: string;
   searchPlaceholder?: string;
+  /** 允许输入不在列表中的值（回车或点选搜索词即提交） */
+  allowCustom?: boolean;
+  /** 自定义值在列表中的展示文案；缺省则显示原值 */
+  formatCustomOption?: (query: string) => string;
   panelZIndex?: number;
   panelMinWidth?: number;
   "aria-label"?: string;
@@ -84,6 +88,8 @@ export function Select({
   style,
   emptyText,
   searchPlaceholder,
+  allowCustom = false,
+  formatCustomOption,
   panelZIndex = 10000,
   panelMinWidth,
   "aria-label": ariaLabel,
@@ -103,18 +109,33 @@ export function Select({
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({ visibility: "hidden" });
 
   const options = useMemo(() => normalizeOptions(optionsInput), [optionsInput]);
-  const enableSearch = searchable !== false;
+  const enableSearch = searchable !== false || allowCustom;
+  const trimmedQuery = query.trim();
 
   const filteredOptions = useMemo(() => {
     const enabled = options.filter((opt) => !opt.disabled);
-    if (!enableSearch || !query.trim()) return options;
-    const ranked = rankByFuzzy(enabled, query, (opt) =>
-      `${opt.label} ${opt.subtitle ?? ""} ${opt.value}`,
-    );
-    const rankedSet = new Set(ranked.map((opt) => opt.value));
-    const disabledOpts = options.filter((opt) => opt.disabled);
-    return [...ranked, ...disabledOpts.filter((opt) => !rankedSet.has(opt.value))];
-  }, [enableSearch, options, query]);
+    let next: SelectOption[];
+    if (!enableSearch || !trimmedQuery) {
+      next = options;
+    } else {
+      const ranked = rankByFuzzy(enabled, query, (opt) =>
+        `${opt.label} ${opt.subtitle ?? ""} ${opt.value}`,
+      );
+      const rankedSet = new Set(ranked.map((opt) => opt.value));
+      const disabledOpts = options.filter((opt) => opt.disabled);
+      next = [...ranked, ...disabledOpts.filter((opt) => !rankedSet.has(opt.value))];
+    }
+    if (allowCustom && trimmedQuery && !options.some((opt) => opt.value === trimmedQuery)) {
+      next = [
+        {
+          value: trimmedQuery,
+          label: formatCustomOption?.(trimmedQuery) ?? trimmedQuery,
+        },
+        ...next,
+      ];
+    }
+    return next;
+  }, [allowCustom, enableSearch, formatCustomOption, options, query, trimmedQuery]);
 
   const selectableOptions = useMemo(
     () => filteredOptions.filter((opt) => !opt.disabled),
@@ -188,7 +209,12 @@ export function Select({
     [options, value],
   );
 
-  const displayLabel = selectedOption?.label ?? placeholder ?? "";
+  const displayLabel = selectedOption?.label
+    ?? (value
+      ? (formatCustomOption && !options.some((opt) => opt.value === value)
+        ? formatCustomOption(value)
+        : value)
+      : (placeholder ?? ""));
 
   const close = useCallback(() => {
     setOpen(false);
@@ -267,9 +293,16 @@ export function Select({
 
   useEffect(() => {
     if (!open) return;
+    if (allowCustom && trimmedQuery && trimmedQuery !== value) {
+      const customIndex = selectableOptions.findIndex((opt) => opt.value === trimmedQuery);
+      if (customIndex >= 0) {
+        setHighlightIndex(customIndex);
+        return;
+      }
+    }
     const selectedIndex = selectableOptions.findIndex((opt) => opt.value === value);
     setHighlightIndex(selectedIndex >= 0 ? selectedIndex : 0);
-  }, [open, selectableOptions, value]);
+  }, [allowCustom, open, selectableOptions, trimmedQuery, value]);
 
   useEffect(() => {
     if (highlightIndex >= selectableOptions.length) {
@@ -336,6 +369,16 @@ export function Select({
       triggerRef.current?.focus();
       return;
     }
+    if (event.key === "Enter" && selectableOptions.length === 0 && allowCustom && trimmedQuery) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (trimmedQuery !== value) {
+        onChange(trimmedQuery);
+      }
+      close();
+      requestAnimationFrame(() => triggerRef.current?.focus());
+      return;
+    }
     if (selectableOptions.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -359,7 +402,7 @@ export function Select({
     open ? "is-open" : "",
     disabled ? "is-disabled" : "",
     borderless ? "is-borderless" : "",
-    !selectedOption && placeholder ? "is-placeholder" : "",
+    !selectedOption && !value && placeholder ? "is-placeholder" : "",
     className ?? "",
   ]
     .filter(Boolean)

@@ -189,6 +189,37 @@ pub async fn panel_bt_request(
         .map_err(|e| OmniError::internal("序列化宝塔面板响应失败").with_cause(e.to_string()))
 }
 
+/// 通用宝塔面板 GET 请求（query 签名，用于官方标注为 GET 的接口）。
+/// `query` 为额外 query 字段的 JSON 对象字符串。
+#[tauri::command]
+#[specta::specta]
+pub async fn panel_bt_request_get(
+    host: String,
+    api_sk: String,
+    path: String,
+    query: Option<String>,
+) -> Result<String, OmniError> {
+    let query_map = match query {
+        Some(raw) if !raw.trim().is_empty() => {
+            let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
+                OmniError::invalid_input("请求参数不是合法 JSON").with_cause(e.to_string())
+            })?;
+            match value {
+                Value::Object(map) => Some(map),
+                Value::Null => None,
+                _ => {
+                    return Err(OmniError::invalid_input("宝塔 API GET 参数必须是 JSON 对象"));
+                }
+            }
+        }
+        _ => None,
+    };
+
+    let result = crate::panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
+    serde_json::to_string(&result)
+        .map_err(|e| OmniError::internal("序列化宝塔面板响应失败").with_cause(e.to_string()))
+}
+
 /// 宝塔面板连通性测试。
 #[tauri::command]
 #[specta::specta]

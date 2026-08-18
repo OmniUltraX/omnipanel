@@ -11,7 +11,13 @@ export type MysqlExportDeploymentOption = {
   containerId?: string;
   /** Docker 容器内监听端口；勿传宿主机 publish 端口 */
   mysqlPort?: number;
+  /** 为 false 时 dump 不含 CREATE DATABASE，便于导入到指定目标库 */
+  includeCreateDatabase?: boolean;
 };
+
+export type MysqlExportDestination =
+  | { kind: "local"; destPath: string }
+  | { kind: "clone"; targetConnection: DbConnectionConfig; targetDatabase: string };
 
 export type MysqlExportRecord = {
   id: string;

@@ -14,6 +14,7 @@ import type {
   SchemaCacheSnapshot,
 } from "./schemaCache";
 import { emptySchemaCacheSnapshot } from "./schemaCache";
+import { publishSchemaConnectionFailed } from "./schemaCacheStatusLog";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 
 export interface SchemaCacheRefreshReporter {
@@ -77,7 +78,7 @@ export async function fetchConnectionSchemaCache(
       : presetDb;
 
     if (isRedisConnection(connection)) {
-      const stats = await listDatabasesWithStats(connection);
+      const stats = await listDatabasesWithStats(connection, { quiet: true });
       const databases: SchemaCacheDatabaseEntry[] = stats.map((db) => ({
         name: db.name,
         tables: [],
@@ -89,7 +90,7 @@ export async function fetchConnectionSchemaCache(
       return { databases, users: [], refreshedAt };
     }
 
-    const dbNames = dbDisplayName ? [dbDisplayName] : await listDatabases(connection);
+    const dbNames = dbDisplayName ? [dbDisplayName] : await listDatabases(connection, { quiet: true });
     const databases: SchemaCacheDatabaseEntry[] = [];
 
     for (let index = 0; index < dbNames.length; index++) {
@@ -101,7 +102,7 @@ export async function fetchConnectionSchemaCache(
         total: dbNames.length,
       });
       try {
-        const result = await introspectSchema(connection, dbName);
+        const result = await introspectSchema(connection, dbName, { quiet: true });
         databases.push({
           name: dbName,
           tables: result.tables,
@@ -115,14 +116,16 @@ export async function fetchConnectionSchemaCache(
 
     let users: Awaited<ReturnType<typeof listConnectionUsers>> = [];
     try {
-      users = await listConnectionUsers(connection);
+      users = await listConnectionUsers(connection, { quiet: true });
     } catch {
       users = [];
     }
 
     return { databases, users, refreshedAt };
   } catch (err) {
-    return { databases: [], refreshedAt, error: String(err) };
+    const message = err instanceof Error ? err.message : String(err);
+    publishSchemaConnectionFailed(connection.name, message);
+    return { databases: [], refreshedAt, error: message };
   }
 }
 

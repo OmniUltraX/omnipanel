@@ -25,10 +25,13 @@ function formatError(err: unknown): string {
   return String(err);
 }
 
-export type ServerPanelAppsCacheSlice = Pick<
-  ServerPanelResourceCache,
-  "apps" | "installedApps" | "appsRefreshedAt" | "appsError"
->;
+export type ServerPanelAppsCacheSlice = {
+  /** 未拉到则省略，merge 时保留上次缓存 */
+  apps?: OnePanelApp[];
+  installedApps?: OnePanelInstalledApp[];
+  appsRefreshedAt: number;
+  appsError: string | null;
+};
 
 export function enrichWebsitesWithGroups(
   websites: Record<string, unknown>[],
@@ -234,8 +237,6 @@ export async function fetchServerPanelApps(
   server: ServerPanelCacheServerMeta,
 ): Promise<ServerPanelAppsCacheSlice> {
   const empty: ServerPanelAppsCacheSlice = {
-    apps: [],
-    installedApps: [],
     appsRefreshedAt: Date.now(),
     appsError: null,
   };
@@ -249,8 +250,8 @@ export async function fetchServerPanelApps(
       ]);
 
       const errors: string[] = [];
-      let apps: OnePanelApp[] = [];
-      let installedApps: OnePanelInstalledApp[] = [];
+      let apps: OnePanelApp[] | undefined;
+      let installedApps: OnePanelInstalledApp[] | undefined;
 
       if (marketResult.status === "fulfilled") {
         apps = marketResult.value.items;
@@ -263,7 +264,7 @@ export async function fetchServerPanelApps(
         errors.push(`已安装：${formatError(installedResult.reason)}`);
       }
 
-      if (errors.length > 0 && apps.length === 0 && installedApps.length === 0) {
+      if (errors.length > 0 && apps == null && installedApps == null) {
         throw new Error(errors.join("；"));
       }
 
@@ -316,8 +317,8 @@ export async function fetchServerPanelApps(
         errors.push(`软件商店：${formatError(err)}`);
         if (isBtPanelAuthFailureMessage(formatError(err))) {
           return {
-            apps,
-            installedApps,
+            ...(apps.length > 0 ? { apps } : {}),
+            ...(installedApps.length > 0 ? { installedApps } : {}),
             appsRefreshedAt: Date.now(),
             appsError: errors.join("；"),
           };
@@ -333,8 +334,8 @@ export async function fetchServerPanelApps(
         errors.push(`已安装：${formatError(err)}`);
         if (isBtPanelAuthFailureMessage(formatError(err))) {
           return {
-            apps,
-            installedApps,
+            ...(apps.length > 0 ? { apps } : {}),
+            ...(installedApps.length > 0 ? { installedApps } : {}),
             appsRefreshedAt: Date.now(),
             appsError: errors.join("；"),
           };

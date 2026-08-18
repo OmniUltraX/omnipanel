@@ -142,6 +142,35 @@ export interface OnePanelInstalledSearchResult {
   total: number;
 }
 
+/** GET /apps/installed/params/:appInstallId 单条参数（response.AppParam）。 */
+export interface OnePanelAppParam {
+  key: string;
+  type?: string;
+  labelZh?: string;
+  labelEn?: string;
+  value?: unknown;
+  showValue?: string;
+  required?: boolean;
+  edit?: boolean;
+}
+
+/** GET /apps/installed/params/:appInstallId（response.AppConfig）。 */
+export interface OnePanelAppInstalledParams {
+  params: OnePanelAppParam[];
+  containerName?: string;
+  webUI?: string;
+  cpuQuota?: number;
+  memoryLimit?: number;
+  memoryUnit?: string;
+  hostMode?: boolean;
+  allowPort?: boolean;
+  pullImage?: boolean;
+  advanced?: boolean;
+  restartPolicy?: string;
+  specifyIP?: string;
+  type?: string;
+}
+
 /** POST /apps/search 请求体。 */
 export interface OnePanelAppSearchParams {
   page?: number;

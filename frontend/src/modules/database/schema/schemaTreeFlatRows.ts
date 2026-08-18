@@ -647,7 +647,13 @@ function appendConnectionSchemaRows(
     }
 
     if (conn.databasesError) {
-      pushMessage(rows, `${connId}:db-error`, baseDepth + 1, conn.databasesError, "error");
+      pushMessage(
+        rows,
+        `${connId}:db-error`,
+        baseDepth + 1,
+        t("database.sidebar.connectionFailed"),
+        "error",
+      );
     }
 
     if (conn.databases && !isSearchMode && visibleCount === 0 && totalCount > 0) {

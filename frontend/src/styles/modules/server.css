@@ -2694,50 +2694,6 @@
         flex-wrap: wrap;
     }
 
-    .ssh-host-sidebar .vsplit-sidebar-section {
-        min-height: 0;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section__body {
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section--sized > .vsplit-sidebar-section__body {
-        overflow-x: hidden;
-        overflow-y: auto;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section:last-child:not(.vsplit-sidebar-section--collapsed) {
-        flex: 1 1 0;
-        min-height: 0;
-    }
-
-    .ssh-host-sidebar
-      .vsplit-sidebar-section:last-child:not(.vsplit-sidebar-section--collapsed)
-      > .vsplit-sidebar-section__body {
-        flex: 1;
-        min-height: 0;
-        overflow: hidden;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section__resize {
-        z-index: 3;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section__resize--bottom {
-        flex: 0 0 6px;
-        margin: 0;
-        border-bottom: 1px solid transparent;
-    }
-
-    .ssh-host-sidebar .vsplit-sidebar-section__resize--bottom:hover,
-    .ssh-host-sidebar .vsplit-sidebar-section__resize--bottom:active {
-        border-bottom-color: var(--border);
-        background: color-mix(in srgb, var(--border) 35%, transparent);
-    }
-
     .ssh-batch-panel {
         flex: 1;
         display: flex;

@@ -5,6 +5,7 @@ import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmpty
 import { Button } from "../../components/ui/primitives/Button";
 import {
   IconClock,
+  IconCopy,
   IconInbox,
   IconLightning,
 } from "../../components/ui/icons/Icons";
@@ -254,7 +255,25 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
         </div>
       )}
       {task.progress && <div className="task-card__progress-text">{task.progress}</div>}
-      {task.error && <div className="task-card__error">{task.error}</div>}
+      {task.error ? (
+        <div className="task-card__error">
+          <span className="task-card__error-text">{task.error}</span>
+          <button
+            type="button"
+            className="task-card__error-copy"
+            title={t("shell.backgroundTasks.copyError")}
+            aria-label={t("shell.backgroundTasks.copyError")}
+            onClick={() => {
+              void navigator.clipboard.writeText(task.error ?? "").then(
+                () => showToast(t("shell.backgroundTasks.copyErrorDone")),
+                () => showToast(t("shell.backgroundTasks.copyFailed")),
+              );
+            }}
+          >
+            <IconCopy size={13} />
+          </button>
+        </div>
+      ) : null}
       <div className="task-card__actions">
         {isJobRunning(task.status) && (
           <Button variant="ghost" size="sm" onClick={() => void handleCancel()} disabled={canceling}>

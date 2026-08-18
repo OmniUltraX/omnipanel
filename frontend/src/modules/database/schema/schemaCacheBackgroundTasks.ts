@@ -4,6 +4,7 @@ import { isConnectionEnabled, listConnections, testConnection, type DbConnection
 import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schemaCache";
 import { mergeConnectionSchemaCacheEntry } from "./schemaCache";
 import type { SchemaCacheRefreshReporter } from "./schemaCacheRefresh";
+import { publishSchemaConnectionFailed } from "./schemaCacheStatusLog";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import { useDbConnectionRuntimeStore } from "../../../stores/dbConnectionRuntimeStore";
 import type { BackgroundTaskInfo } from "../../../stores/backgroundTaskStore";
@@ -29,6 +30,8 @@ const connectionIdsByTaskId = new Map<string, string[]>();
 const originalConnectionIdsByTaskId = new Map<string, string[]>();
 const taskConnectionsDoneCount = new Map<string, number>();
 const reporterByTaskId = new Map<string, SchemaCacheRefreshReporter>();
+/** 任务中是否已有连接级失败（complete 时不要再用成功文案盖掉状态栏） */
+const taskHadConnectionError = new Set<string>();
 /** 全量刷新：connection_done 只缓冲，complete 时一次合并，避免边刷边改树卡死 */
 const pendingEntriesByTaskId = new Map<string, Map<string, SchemaCacheConnectionEntry>>();
 const refreshStateListeners = new Set<() => void>();
@@ -125,6 +128,7 @@ function unmarkTaskRefreshing(taskId: string, options?: { failed?: boolean; canc
   taskConnectionsDoneCount.delete(taskId);
   pendingEntriesByTaskId.delete(taskId);
   reporterByTaskId.delete(taskId);
+  taskHadConnectionError.delete(taskId);
   const runtime = useDbConnectionRuntimeStore.getState();
   if (options?.failed) {
     runtime.markOffline(original);
@@ -168,6 +172,12 @@ function reportConnectionProgress(
   connectionName: string | null | undefined,
   entry: SchemaCacheConnectionEntry | null | undefined,
 ) {
+  const error = entry?.error?.trim() ?? "";
+  if (error) {
+    taskHadConnectionError.add(taskId);
+    publishSchemaConnectionFailed(connectionName?.trim() ?? "", error);
+  }
+
   if (!connectionName || !reporter) {
     return;
   }
@@ -176,6 +186,9 @@ function reportConnectionProgress(
   taskConnectionsDoneCount.set(taskId, done);
   const total = Math.max(1, original.length);
   const index = Math.min(done, total);
+  if (error) {
+    return;
+  }
   reporter.onConnectionStart?.({
     name: connectionName,
     index,
@@ -257,6 +270,9 @@ export function initSchemaCacheBackgroundTasks() {
       }
 
       reportConnectionProgress(payload.taskId, reporter, payload.connectionName, entry ?? undefined);
+      if (connId && entry?.error?.trim()) {
+        useDbConnectionRuntimeStore.getState().markOffline([connId]);
+      }
       return;
     }
 
@@ -273,7 +289,9 @@ export function initSchemaCacheBackgroundTasks() {
       } else {
         dispatchRefreshComplete(useDbSchemaCacheStore.getState().snapshot);
       }
-      reporter?.onComplete?.();
+      if (!taskHadConnectionError.has(payload.taskId)) {
+        reporter?.onComplete?.();
+      }
       unmarkTaskRefreshing(payload.taskId);
       return;
     }

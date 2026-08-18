@@ -145,6 +145,13 @@ fn truncate_text(text: &str, max: usize) -> String {
     format!("{}…", &text[..max])
 }
 
+fn format_reqwest_error(err: &reqwest::Error) -> String {
+    match std::error::Error::source(err) {
+        Some(src) => format!("{err}: {src}"),
+        None => err.to_string(),
+    }
+}
+
 fn client_for_host(host: &str) -> Result<Client, OmniError> {
     let base = normalize_base_url(host)?;
     let mut map = CLIENTS
@@ -221,6 +228,31 @@ pub async fn request(
     path: &str,
     body: Option<Map<String, Value>>,
 ) -> Result<Value, OmniError> {
+    request_with_method(host, api_sk, HttpMethod::Post, path, body).await
+}
+
+/// 官方 Java 等文档标注为 GET 的接口：鉴权与业务参数走 query。
+pub async fn request_get(
+    host: &str,
+    api_sk: &str,
+    path: &str,
+    query: Option<Map<String, Value>>,
+) -> Result<Value, OmniError> {
+    request_with_method(host, api_sk, HttpMethod::Get, path, query).await
+}
+
+enum HttpMethod {
+    Get,
+    Post,
+}
+
+async fn request_with_method(
+    host: &str,
+    api_sk: &str,
+    method: HttpMethod,
+    path: &str,
+    fields: Option<Map<String, Value>>,
+) -> Result<Value, OmniError> {
     let base = normalize_base_url(host)?;
     assert_not_locked(&base)?;
     let client = client_for_host(host)?;
@@ -232,18 +264,23 @@ pub async fn request(
     };
     let url = format!("{base}{path}");
 
-    let extra = body.unwrap_or_default();
+    let extra = fields.unwrap_or_default();
     let form = build_form_params(api_sk, &extra);
 
-    let resp = client
-        .post(&url)
-        .header("Accept", "application/json, text/plain, */*")
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "宝塔面板请求失败").with_cause(e.to_string())
-        })?;
+    let req = match method {
+        HttpMethod::Get => client
+            .get(&url)
+            .header("Accept", "application/json, text/plain, */*")
+            .query(&form),
+        HttpMethod::Post => client
+            .post(&url)
+            .header("Accept", "application/json, text/plain, */*")
+            .form(&form),
+    };
+
+    let resp = req.send().await.map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "宝塔面板请求失败").with_cause(format_reqwest_error(&e))
+    })?;
 
     let status = resp.status();
     let bytes = resp.bytes().await.unwrap_or_default();

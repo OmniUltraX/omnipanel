@@ -15,6 +15,8 @@ import {
   type OnePanelInstalledApp,
   type OnePanelInstalledSearchParams,
   type OnePanelInstalledSearchResult,
+  type OnePanelAppParam,
+  type OnePanelAppInstalledParams,
   type OnePanelApp,
   type OnePanelAppDetail,
   type OnePanelAppInstallCreate,
@@ -1267,6 +1269,116 @@ export class OnePanelClient {
     }
     return { items: [], total: 0 };
   }
+
+  /** GET /apps/installed/params/:appInstallId — 已安装应用参数。 */
+  async getInstalledAppParams(appInstallId: number): Promise<OnePanelAppInstalledParams> {
+    if (!Number.isFinite(appInstallId) || appInstallId <= 0) {
+      throw new OnePanelApiError("应用安装 ID 无效", 0);
+    }
+    const data = await this.request<unknown>({
+      method: "GET",
+      path: `/apps/installed/params/${appInstallId}`,
+    });
+    return parseInstalledAppParams(data);
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseInstalledAppParam(raw: unknown): OnePanelAppParam | null {
+  const item = asRecord(raw);
+  if (!item) return null;
+  const key = String(item.key ?? item.envKey ?? "").trim();
+  if (!key) return null;
+  const nestedLabel = asRecord(item.label);
+  const labelZh =
+    (typeof item.labelZh === "string" && item.labelZh.trim()) ||
+    (typeof nestedLabel?.zh === "string" && nestedLabel.zh.trim()) ||
+    undefined;
+  const labelEn =
+    (typeof item.labelEn === "string" && item.labelEn.trim()) ||
+    (typeof nestedLabel?.en === "string" && nestedLabel.en.trim()) ||
+    undefined;
+  return {
+    key,
+    type: typeof item.type === "string" ? item.type : undefined,
+    labelZh,
+    labelEn,
+    value: "value" in item ? item.value : item.default,
+    showValue: typeof item.showValue === "string" ? item.showValue : undefined,
+    required: Boolean(item.required),
+    edit: Boolean(item.edit),
+  };
+}
+
+function parseInstalledAppParamList(raw: unknown): OnePanelAppParam[] {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      return parseInstalledAppParamList(JSON.parse(trimmed) as unknown);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(raw)) {
+    return raw.map(parseInstalledAppParam).filter((item): item is OnePanelAppParam => item != null);
+  }
+  const obj = asRecord(raw);
+  if (!obj) return [];
+  if (Array.isArray(obj.formFields)) {
+    return parseInstalledAppParamList(obj.formFields);
+  }
+  if (Array.isArray(obj.fields)) {
+    return parseInstalledAppParamList(obj.fields);
+  }
+  return Object.entries(obj)
+    .filter(([key]) => key !== "formFields" && key !== "fields")
+    .map(([key, value]) => {
+      const nested = asRecord(value);
+      return (
+        parseInstalledAppParam(nested ? { ...nested, key: nested.key ?? key } : { key, value }) ?? {
+          key,
+          value,
+        }
+      );
+    });
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function parseInstalledAppParams(raw: unknown): OnePanelAppInstalledParams {
+  const data = asRecord(raw) ?? {};
+  return {
+    params: parseInstalledAppParamList(data.params),
+    containerName: optionalString(data.containerName),
+    webUI: optionalString(data.webUI),
+    cpuQuota: optionalNumber(data.cpuQuota),
+    memoryLimit: optionalNumber(data.memoryLimit),
+    memoryUnit: optionalString(data.memoryUnit),
+    hostMode: typeof data.hostMode === "boolean" ? data.hostMode : undefined,
+    allowPort: typeof data.allowPort === "boolean" ? data.allowPort : undefined,
+    pullImage: typeof data.pullImage === "boolean" ? data.pullImage : undefined,
+    advanced: typeof data.advanced === "boolean" ? data.advanced : undefined,
+    restartPolicy: optionalString(data.restartPolicy),
+    specifyIP: optionalString(data.specifyIP),
+    type: optionalString(data.type),
+  };
 }
 
 /** 兼容 dart OpenAPI 的 xname / 常规 name 字段。 */

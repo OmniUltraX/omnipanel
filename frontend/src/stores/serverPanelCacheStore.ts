@@ -96,8 +96,8 @@ function mergeAppsRefresh(
   const base = normalizeServerPanelResourceCache(prev);
   return {
     ...base,
-    apps: appsSlice.apps,
-    installedApps: appsSlice.installedApps,
+    apps: appsSlice.apps ?? base.apps,
+    installedApps: appsSlice.installedApps ?? base.installedApps,
     appsRefreshedAt: appsSlice.appsRefreshedAt,
     appsError: appsSlice.appsError,
   };

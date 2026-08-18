@@ -341,12 +341,14 @@ interface DashboardState extends DashboardContainerState {
   /** 自定义面板元数据（按 id 索引） */
   customPanels: Record<string, HomeCustomPanelMeta>;
   setHomeTabId: (tabId: HomeDashboardTabId) => void;
-  /** 打开（或聚焦）一个内置首页页面 */
-  openHomeTab: (tabId: HomeBuiltinPageId) => void;
+  /** 打开（或聚焦）内置页 / 已存在的自定义面板 */
+  openHomeTab: (tabId: HomeDashboardTabId) => void;
   /** 新建自定义面板并激活 */
   createCustomPanel: (label: string) => HomeCustomPanelId;
   /** 重命名自定义面板 */
   renameCustomPanel: (tabId: HomeCustomPanelId, label: string) => void;
+  /** 永久删除自定义面板（与关闭页签不同） */
+  deleteCustomPanel: (tabId: HomeCustomPanelId) => void;
   /** 同步 react-grid-layout 拖拽移动后的布局 */
   setCustomPanelLayout: (panelId: HomeCustomPanelId, layout: Layout) => void;
   /** 向自定义面板添加已注册的小组件 */
@@ -383,7 +385,7 @@ interface DashboardState extends DashboardContainerState {
   ) => void;
   /** 移除自定义面板中的小组件实例 */
   removeCustomPanelWidget: (panelId: HomeCustomPanelId, widgetId: string) => void;
-  /** 关闭首页 tab；若关掉当前激活页则切到邻接页 */
+  /** 关闭首页 tab（自定义面板仅收起，不删除）；若关掉当前激活页则切到邻接页 */
   closeHomeTab: (tabId: HomeDashboardTabId) => void;
   /** 触发刷新的递增信号；HomeBoardView 订阅后重新拉数据 */
   refreshSignal: number;
@@ -420,8 +422,14 @@ export const useDashboardStore = create<DashboardState>()(
         }),
       openHomeTab: (tabId) =>
         set((state) => {
+          if (isHomeCustomPanelId(tabId) && !state.customPanels[tabId]) {
+            return state;
+          }
           if (state.openTabIds.includes(tabId)) {
             return { homeTabId: tabId };
+          }
+          if (isHomeCustomPanelId(tabId)) {
+            return { openTabIds: [...state.openTabIds, tabId], homeTabId: tabId };
           }
           // 内置页按定义顺序；自定义面板保持相对顺序跟在后面
           const customs = state.openTabIds.filter(isHomeCustomPanelId);
@@ -459,6 +467,19 @@ export const useDashboardStore = create<DashboardState>()(
               ...state.customPanels,
               [tabId]: { ...prev, label: trimmed },
             },
+          };
+        }),
+      deleteCustomPanel: (tabId) =>
+        set((state) => {
+          if (!state.customPanels[tabId]) return state;
+          const { [tabId]: _removed, ...customPanels } = state.customPanels;
+          const nextActive = state.openTabIds.includes(tabId)
+            ? pickActiveAfterClose(state.openTabIds, tabId, state.homeTabId)
+            : state.homeTabId;
+          return {
+            customPanels,
+            openTabIds: state.openTabIds.filter((id) => id !== tabId),
+            homeTabId: nextActive ?? state.homeTabId,
           };
         }),
       setCustomPanelLayout: (panelId, layout) =>
@@ -766,16 +787,9 @@ export const useDashboardStore = create<DashboardState>()(
             tabId,
             state.homeTabId,
           );
-          const openTabIds = state.openTabIds.filter((id) => id !== tabId);
-          let customPanels = state.customPanels;
-          if (isHomeCustomPanelId(tabId) && customPanels[tabId]) {
-            const { [tabId]: _removed, ...rest } = customPanels;
-            customPanels = rest;
-          }
           return {
-            openTabIds,
+            openTabIds: state.openTabIds.filter((id) => id !== tabId),
             homeTabId: nextActive ?? state.homeTabId,
-            customPanels,
           };
         }),
       refreshSignal: 0,
@@ -796,7 +810,8 @@ export const useDashboardStore = create<DashboardState>()(
       // v10：MySQL 概览强制 5×3（高×宽），纠正早期误存的 w×h
       // v11：MySQL 概览改为 4×3
       // v12：全体小组件支持 1× / 2× 等比缩放（scale 字段）
-      version: 12,
+      // v13：关闭自定义面板只收起页签，元数据与布局仍持久化，可再次打开
+      version: 13,
       // 只持久化 tab / 自定义面板元数据；容器列表仍走内存缓存
       partialize: (state) => ({
         homeTabId: state.homeTabId,

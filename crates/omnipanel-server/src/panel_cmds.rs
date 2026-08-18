@@ -155,6 +155,27 @@ pub async fn panel_bt_request(
         .map_err(|e| OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string()))
 }
 
+/// Generic BT-Panel GET request (query signature, for endpoints documented as GET).
+/// `query` is the extra query fields as a JSON object string.
+pub async fn panel_bt_request_get(
+    host: String,
+    api_sk: String,
+    path: String,
+    query: Option<String>,
+) -> Result<String, OmniError> {
+    let query_map = match parse_optional_json_body(query)? {
+        Some(Value::Object(map)) => Some(map),
+        Some(Value::Null) | None => None,
+        Some(_) => {
+            return Err(OmniError::invalid_input("BT-Panel API GET params must be a JSON object"));
+        }
+    };
+
+    let result = crate::panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
+    serde_json::to_string(&result)
+        .map_err(|e| OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string()))
+}
+
 /// BT-Panel connectivity test.
 pub async fn panel_bt_test_connection(host: String, api_sk: String) -> Result<bool, OmniError> {
     crate::panel::btpanel::test_connection(&host, &api_sk).await?;

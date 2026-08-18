@@ -15,6 +15,9 @@ import { ensureFileTransferListener } from "./fileManagerStore";
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
+/** 本会话窗口最多保留的已结束任务数，超出按结束时间淘汰。 */
+const SESSION_FINISHED_LIMIT = 40;
+
 export interface BackgroundTaskInfo {
   id: string;
   module: string;
@@ -31,11 +34,38 @@ export interface BackgroundTaskInfo {
   error?: string | null;
 }
 
+export function isBackgroundTaskBusy(status: BackgroundTaskStatus): boolean {
+  return status === "pending" || status === "running";
+}
+
+export function isBackgroundTaskTerminal(status: BackgroundTaskStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function withFinishedAt(task: BackgroundTaskInfo): BackgroundTaskInfo {
+  if (!isBackgroundTaskTerminal(task.status) || task.finishedAt) return task;
+  return { ...task, finishedAt: Date.now() };
+}
+
+function pruneFinishedTasks(
+  tasks: Record<string, BackgroundTaskInfo>,
+): Record<string, BackgroundTaskInfo> {
+  const finished = Object.values(tasks)
+    .filter((task) => isBackgroundTaskTerminal(task.status))
+    .sort((a, b) => (b.finishedAt ?? b.startedAt) - (a.finishedAt ?? a.startedAt));
+  if (finished.length <= SESSION_FINISHED_LIMIT) return tasks;
+  const drop = new Set(finished.slice(SESSION_FINISHED_LIMIT).map((task) => task.id));
+  const next = { ...tasks };
+  for (const id of drop) delete next[id];
+  return next;
+}
+
 interface BackgroundTaskState {
   tasks: Record<string, BackgroundTaskInfo>;
   taskListOpen: boolean;
   upsertTask: (task: BackgroundTaskInfo) => void;
   removeTask: (id: string) => void;
+  clearFinishedTasks: () => void;
   setTaskListOpen: (open: boolean) => void;
   refreshRunning: () => Promise<void>;
 }
@@ -46,13 +76,22 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
 
   upsertTask: (task) =>
     set((state) => ({
-      tasks: { ...state.tasks, [task.id]: task },
+      tasks: pruneFinishedTasks({ ...state.tasks, [task.id]: withFinishedAt(task) }),
     })),
 
   removeTask: (id) =>
     set((state) => {
       const next = { ...state.tasks };
       delete next[id];
+      return { tasks: next };
+    }),
+
+  clearFinishedTasks: () =>
+    set((state) => {
+      const next: Record<string, BackgroundTaskInfo> = {};
+      for (const task of Object.values(state.tasks)) {
+        if (isBackgroundTaskBusy(task.status)) next[task.id] = task;
+      }
       return { tasks: next };
     }),
 
@@ -64,9 +103,9 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
       set((state) => {
         const next = { ...state.tasks };
         for (const task of list) {
-          next[task.id] = task;
+          next[task.id] = withFinishedAt(task);
         }
-        return { tasks: next };
+        return { tasks: pruneFinishedTasks(next) };
       });
     } catch {
       // Tauri 未就绪时忽略
@@ -76,7 +115,7 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
 
 export function getRunningBackgroundTasks(): BackgroundTaskInfo[] {
   return Object.values(useBackgroundTaskStore.getState().tasks).filter((task) =>
-    task.status === "pending" || task.status === "running",
+    isBackgroundTaskBusy(task.status),
   );
 }
 
@@ -105,15 +144,8 @@ export function registerLocalBackgroundTaskCancel(
 /** 创建/更新前端本地后台任务，并可选记入历史。 */
 export function upsertLocalBackgroundTask(task: BackgroundTaskInfo): void {
   useBackgroundTaskStore.getState().upsertTask(task);
-  if (
-    task.status === "completed" ||
-    task.status === "failed" ||
-    task.status === "cancelled"
-  ) {
+  if (isBackgroundTaskTerminal(task.status)) {
     useBgTaskHistoryStore.getState().upsertHistory(task);
-    window.setTimeout(() => {
-      useBackgroundTaskStore.getState().removeTask(task.id);
-    }, 8000);
   }
 }
 
@@ -225,16 +257,8 @@ export function initBackgroundTasks() {
   listen<BackgroundTaskInfo>("bg-task-update", (event) => {
     const task = event.payload;
     useBackgroundTaskStore.getState().upsertTask(task);
-    if (
-      task.status === "completed" ||
-      task.status === "failed" ||
-      task.status === "cancelled"
-    ) {
+    if (isBackgroundTaskTerminal(task.status)) {
       useBgTaskHistoryStore.getState().upsertHistory(task);
-      window.setTimeout(() => {
-        useBackgroundTaskStore.getState().removeTask(task.id);
-        void refreshConnectionPool();
-      }, 8000);
     }
     void refreshConnectionPool();
   })
@@ -251,17 +275,29 @@ export function initBackgroundTasks() {
 export function useRunningBackgroundTasks(): BackgroundTaskInfo[] {
   const tasks = useBackgroundTaskStore((s) => s.tasks);
   return Object.values(tasks)
-    .filter((task) => task.status === "pending" || task.status === "running")
+    .filter((task) => isBackgroundTaskBusy(task.status))
     .sort((a, b) => a.startedAt - b.startedAt);
 }
 
-/** 状态栏展示：优先运行中任务，否则展示刚结束的任务（完成/失败）。 */
+/** 本会话窗口：运行中优先，随后按结束时间倒序保留结果。 */
+export function useSessionBackgroundTasks(): BackgroundTaskInfo[] {
+  const tasks = useBackgroundTaskStore((s) => s.tasks);
+  return Object.values(tasks).sort((a, b) => {
+    const aBusy = isBackgroundTaskBusy(a.status);
+    const bBusy = isBackgroundTaskBusy(b.status);
+    if (aBusy !== bBusy) return aBusy ? -1 : 1;
+    if (aBusy) return a.startedAt - b.startedAt;
+    return (b.finishedAt ?? b.startedAt) - (a.finishedAt ?? a.startedAt);
+  });
+}
+
+/** 状态栏展示：优先运行中任务，否则展示最近一次结束的任务（完成/失败）。 */
 export function getPrimaryBackgroundTaskForStatusBar(
   tasks: Record<string, BackgroundTaskInfo>,
 ): BackgroundTaskInfo | null {
   const list = Object.values(tasks);
   const running = list
-    .filter((task) => task.status === "pending" || task.status === "running")
+    .filter((task) => isBackgroundTaskBusy(task.status))
     .sort((a, b) => a.startedAt - b.startedAt);
   if (running.length > 0) {
     return running[0] ?? null;
@@ -273,9 +309,7 @@ export function getPrimaryBackgroundTaskForStatusBar(
 }
 
 export function countRunningBackgroundTasks(tasks: Record<string, BackgroundTaskInfo>): number {
-  return Object.values(tasks).filter(
-    (task) => task.status === "pending" || task.status === "running",
-  ).length;
+  return Object.values(tasks).filter((task) => isBackgroundTaskBusy(task.status)).length;
 }
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;

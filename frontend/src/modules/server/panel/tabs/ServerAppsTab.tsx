@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePersistedModuleTab } from "../../../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/Button";
 import { Select } from "../../../../components/ui/form/Select";
@@ -11,6 +12,7 @@ import {
   type OnePanelInstalledApp,
 } from "../../../../lib/onepanel";
 import { appConfirm } from "../../../../lib/appConfirm";
+import { quickInput } from "../../../../lib/quickInput";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
 import {
@@ -20,6 +22,12 @@ import {
 } from "../serverAppIconCache";
 import { useServerApps } from "../useServerApps";
 import { AppInstallLogDialog } from "../AppInstallLogDialog";
+import { AppInstalledParamsDialog } from "../AppInstalledParamsDialog";
+import {
+  defaultPanelAppConnectionName,
+  importPanelAppToDatabase,
+  isPanelAppManagedByDatabase,
+} from "../importPanelAppToDatabase";
 import {
   findInstalledAppForMarket,
   isAppInstallInProgress,
@@ -31,6 +39,8 @@ import {
 interface Props {
   server: ServerEntry;
 }
+
+const INSTALLED_FILTER_TABS = ["all", "installed"] as const;
 
 type MarketCard = OnePanelApp & {
   installState: AppInstallDisplayState;
@@ -160,7 +170,12 @@ export function ServerAppsTab({ server }: Props) {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
-  const [installedOnly, setInstalledOnly] = useState(false);
+  const [installedFilter, setInstalledFilter] = usePersistedModuleTab(
+    `server-apps-installed-filter-${server.id}`,
+    "all",
+    INSTALLED_FILTER_TABS,
+  );
+  const installedOnly = installedFilter === "installed";
   const [iconCache, setIconCache] = useState<Record<string, string>>(() =>
     peekServerAppIconCache(server.id).icons,
   );
@@ -177,6 +192,13 @@ export function ServerAppsTab({ server }: Props) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [dockerHint, setDockerHint] = useState<string | null>(null);
   const [logTarget, setLogTarget] = useState<{ installId: number; label: string } | null>(null);
+  const [paramsTarget, setParamsTarget] = useState<{
+    installId: number;
+    label: string;
+    appKey?: string;
+    appType?: string;
+  } | null>(null);
+  const [managingKey, setManagingKey] = useState<string | null>(null);
 
   const error = !supportsApps
     ? t("server.appMarket.unsupported")
@@ -466,6 +488,49 @@ export function ServerAppsTab({ server }: Props) {
     [installingKey, isBt, refresh, server.address, server.id, server.key, supportsApps, t],
   );
 
+  const handleManageInDatabase = useCallback(
+    async (app: MarketCard) => {
+      if (!isOnePanel || app.installState !== "installed" || app.installId == null) return;
+      if (!isPanelAppManagedByDatabase(app) || managingKey) return;
+      const appLabel = app.name || app.key || "—";
+      const name = await quickInput({
+        title: t("server.appMarket.manageInDatabaseNameTitle"),
+        placeholder: t("server.appMarket.manageInDatabaseNamePlaceholder"),
+        defaultValue: defaultPanelAppConnectionName(server.name, appLabel),
+        validate: (value) =>
+          value.trim() ? null : t("server.appMarket.manageInDatabaseNameRequired"),
+      });
+      if (!name) return;
+      setManagingKey(app.key);
+      setActionError(null);
+      try {
+        const config = await createOnePanelClient(
+          server.address,
+          server.key,
+          server.id,
+        ).getInstalledAppParams(app.installId);
+        const result = await importPanelAppToDatabase({
+          server,
+          appLabel,
+          appKey: app.key,
+          appType: app.type,
+          config,
+          name: name.trim(),
+        });
+        showToast(
+          result.created
+            ? t("server.appMarket.manageInDatabaseDone", { name: result.connection.name })
+            : t("server.appMarket.manageInDatabaseExists", { name: result.connection.name }),
+        );
+      } catch (err) {
+        setActionError(formatError(err));
+      } finally {
+        setManagingKey(null);
+      }
+    },
+    [isOnePanel, managingKey, server, t],
+  );
+
   const busyMeta = loading || refreshing || syncing;
 
   return (
@@ -539,7 +604,9 @@ export function ServerAppsTab({ server }: Props) {
             <input
               type="checkbox"
               checked={installedOnly}
-              onChange={(event) => setInstalledOnly(event.target.checked)}
+              onChange={(event) =>
+                setInstalledFilter(event.target.checked ? "installed" : "all")
+              }
             />
             <span>{t("server.appMarket.installed")}</span>
           </label>
@@ -565,8 +632,36 @@ export function ServerAppsTab({ server }: Props) {
               const desc = appDescription(app, locale);
               const busy = installingKey === app.key;
               const cardKey = `${app.id || "app"}:${app.key || app.name || index}`;
+              const canOpenParams =
+                isOnePanel && app.installState === "installed" && app.installId != null;
+              const canManageInDatabase = canOpenParams && isPanelAppManagedByDatabase(app);
+              const openParams = () => {
+                if (app.installId == null) return;
+                setParamsTarget({
+                  installId: app.installId,
+                  label: app.name || app.key || "—",
+                  appKey: app.key,
+                  appType: app.type,
+                });
+              };
               return (
-                <div key={cardKey} className="server-app-card">
+                <div
+                  key={cardKey}
+                  className={canOpenParams ? "server-app-card server-app-card--clickable" : "server-app-card"}
+                  role={canOpenParams ? "button" : undefined}
+                  tabIndex={canOpenParams ? 0 : undefined}
+                  title={canOpenParams ? t("server.appMarket.paramsOpenHint") : undefined}
+                  onClick={() => {
+                    if (canOpenParams) openParams();
+                  }}
+                  onKeyDown={(event) => {
+                    if (!canOpenParams) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openParams();
+                    }
+                  }}
+                >
                   <div className="server-app-card__top">
                     <div className="server-app-card__head">
                       {iconSrc ? (
@@ -602,7 +697,8 @@ export function ServerAppsTab({ server }: Props) {
                         type="button"
                         className="server-app-card__status server-app-card__status--warning server-app-card__status--action"
                         title={t("server.appMarket.viewInstallLog")}
-                        onClick={() => {
+                        onClick={(event) => {
+                          event.stopPropagation();
                           if (app.installId != null) {
                             setLogTarget({
                               installId: app.installId,
@@ -619,7 +715,8 @@ export function ServerAppsTab({ server }: Props) {
                         type="button"
                         className="server-app-card__status server-app-card__status--danger server-app-card__status--action"
                         title={t("server.appMarket.viewInstallLog")}
-                        onClick={() => {
+                        onClick={(event) => {
+                          event.stopPropagation();
                           if (app.installId != null) {
                             setLogTarget({
                               installId: app.installId,
@@ -665,9 +762,30 @@ export function ServerAppsTab({ server }: Props) {
                         variant="secondary"
                         size="sm"
                         disabled={!supportsApps || busy || installingKey != null}
-                        onClick={() => void handleInstall(app)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleInstall(app);
+                        }}
                       >
                         {busy ? t("server.appMarket.installing") : t("server.appMarket.install")}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {canManageInDatabase ? (
+                    <div className="server-app-card__footer">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={managingKey != null}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleManageInDatabase(app);
+                        }}
+                      >
+                        {managingKey === app.key
+                          ? t("server.appMarket.managingInDatabase")
+                          : t("server.appMarket.manageInDatabase")}
                       </Button>
                     </div>
                   ) : null}
@@ -686,6 +804,15 @@ export function ServerAppsTab({ server }: Props) {
         server={server}
         installId={logTarget?.installId ?? null}
         appLabel={logTarget?.label ?? ""}
+      />
+      <AppInstalledParamsDialog
+        open={paramsTarget != null}
+        onClose={() => setParamsTarget(null)}
+        server={server}
+        installId={paramsTarget?.installId ?? null}
+        appLabel={paramsTarget?.label ?? ""}
+        appKey={paramsTarget?.appKey}
+        appType={paramsTarget?.appType}
       />
     </div>
   );

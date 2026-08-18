@@ -2068,6 +2068,74 @@
         color: var(--fg-muted, #888);
     }
 
+    .mysql-export-dialog {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .mysql-export-dialog__pair {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px 16px;
+        align-items: start;
+    }
+
+    .mysql-export-dialog__pair .form-field {
+        min-width: 0;
+    }
+
+    .mysql-export-dialog__pair .form-field__control > input {
+        width: 100%;
+    }
+
+    .mysql-export-dialog__modes {
+        padding-top: 0;
+    }
+
+    .mysql-export-dialog__section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .mysql-export-dialog__section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+
+    .mysql-export-dialog__hint {
+        margin: 0;
+        font-size: 12px;
+        color: var(--fg-muted, #888);
+        word-break: break-all;
+    }
+
+    .mysql-export-dialog__hint--error {
+        color: var(--danger, #e05a5a);
+    }
+
+    .mysql-export-dialog .form-field__control > .omni-select {
+        width: 100%;
+        display: flex;
+    }
+
+    .mysql-export-dialog__select {
+        display: flex;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+
+    .mysql-export-dialog__select .omni-select-trigger {
+        width: 100%;
+    }
+
     .db-tables-panel-grid thead .db-tables-panel-grid__actions-col--sticky {
         z-index: 3;
     }

@@ -116,7 +116,7 @@ export function ConnectionUsersTabPanel({
     setLoading(true);
     setError(null);
     try {
-      const result = await listConnectionUsers(connection);
+      const result = await listConnectionUsers(connection, { quiet: true });
       setUsers(result);
       setSelectedKey((prev) => {
         if (prev && result.some((u) => userKey(u) === prev)) return prev;
@@ -141,7 +141,7 @@ export function ConnectionUsersTabPanel({
 
   useEffect(() => {
     if (!active || !engine) return;
-    void listDatabases(connection)
+    void listDatabases(connection, { quiet: true })
       .then((dbs) => {
         setDatabases(dbs);
         setDbName((prev) => prev || dbs[0] || connection.database || "");

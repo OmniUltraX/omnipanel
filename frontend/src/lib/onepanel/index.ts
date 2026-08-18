@@ -20,6 +20,8 @@ export {
   type OnePanelInstalledAppMeta,
   type OnePanelInstalledSearchParams,
   type OnePanelInstalledSearchResult,
+  type OnePanelAppParam,
+  type OnePanelAppInstalledParams,
   type OnePanelApp,
   type OnePanelAppDetail,
   type OnePanelAppInstallCreate,

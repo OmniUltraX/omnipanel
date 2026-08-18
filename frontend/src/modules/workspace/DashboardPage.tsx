@@ -10,6 +10,7 @@ import {
 } from "../../components/ui/menu";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
+import { appConfirm } from "../../lib/appConfirm";
 import { DASHBOARD_PATH } from "../../lib/paths";
 import { quickInput } from "../../lib/quickInput";
 import { useI18n } from "../../i18n";
@@ -19,16 +20,26 @@ import { HomeCustomPanelView } from "./HomeCustomPanelView";
 import {
   CREATE_CUSTOM_MENU_ID,
   HOME_DASHBOARD_PAGE_IDS,
-  isHomeBuiltinPageId,
   isHomeCustomPanelId,
   isHomeDashboardTabId,
   useDashboardStore,
   type HomeCustomPanelId,
+  type HomeCustomPanelMeta,
   type HomeDashboardTabId,
 } from "./useDashboardStore";
 
 function labelForBuiltinTab(t: (key: string) => string): string {
   return t("homeWorkspace.tabs.board");
+}
+
+function closedCustomPanels(
+  customPanels: Record<string, HomeCustomPanelMeta>,
+  openTabIds: HomeDashboardTabId[],
+): HomeCustomPanelMeta[] {
+  const open = new Set(openTabIds);
+  return Object.values(customPanels)
+    .filter((panel) => !open.has(panel.id))
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /** 独立看板页：/dashboard — 可关闭 / 可新建内置页与自定义面板 */
@@ -43,6 +54,7 @@ export function DashboardPage() {
   const openHomeTab = useDashboardStore((s) => s.openHomeTab);
   const createCustomPanel = useDashboardStore((s) => s.createCustomPanel);
   const renameCustomPanel = useDashboardStore((s) => s.renameCustomPanel);
+  const deleteCustomPanel = useDashboardStore((s) => s.deleteCustomPanel);
   const closeHomeTab = useDashboardStore((s) => s.closeHomeTab);
   const openShareDialog = useShareUiStore((s) => s.openShareDialog);
 
@@ -73,20 +85,25 @@ export function DashboardPage() {
     [labelForTab, openTabIds],
   );
 
-  const pageMenuItems = useMemo(
-    () => [
+  const pageMenuItems = useMemo(() => {
+    const closed = closedCustomPanels(customPanels, openTabIds);
+    return [
       ...HOME_DASHBOARD_PAGE_IDS.map((id) => ({
         id,
         label: labelForBuiltinTab(t),
+      })),
+      ...closed.map((panel, index) => ({
+        id: panel.id,
+        label: panel.label,
+        dividerBefore: index === 0,
       })),
       {
         id: CREATE_CUSTOM_MENU_ID,
         label: t("homeWorkspace.customPanel.menuLabel"),
         dividerBefore: true,
       },
-    ],
-    [t],
-  );
+    ];
+  }, [customPanels, openTabIds, t]);
 
   const handleCreateCustomPanel = useCallback(() => {
     const index =
@@ -111,6 +128,23 @@ export function DashboardPage() {
       renameCustomPanel(tabId, next.trim());
     },
     [renameCustomPanel, t],
+  );
+
+  const handleDeleteCustomPanel = useCallback(
+    async (tabId: string) => {
+      if (!isHomeCustomPanelId(tabId)) return;
+      const current =
+        useDashboardStore.getState().customPanels[tabId]?.label ??
+        t("homeWorkspace.customPanel.defaultTitle");
+      const confirmed = await appConfirm(
+        t("homeWorkspace.customPanel.deleteConfirm", { name: current }),
+        t("homeWorkspace.customPanel.deleteTitle"),
+        { confirmLabel: t("common.delete") },
+      );
+      if (!confirmed) return;
+      deleteCustomPanel(tabId);
+    },
+    [deleteCustomPanel, t],
   );
 
   const handleTabDoubleClick = useCallback(
@@ -190,9 +224,19 @@ export function DashboardPage() {
             label,
           }),
       },
+      { id: "tab-sep-delete", separator: true, label: "" },
+      {
+        id: "tab-delete-custom-panel",
+        label: t("homeWorkspace.customPanel.deleteMenu"),
+        danger: true,
+        onClick: () => {
+          void handleDeleteCustomPanel(tabId);
+        },
+      },
     ];
   }, [
     customPanels,
+    handleDeleteCustomPanel,
     handleTabContextAction,
     openShareDialog,
     openTabIds,
@@ -211,7 +255,7 @@ export function DashboardPage() {
           handleCreateCustomPanel();
           return;
         }
-        if (isHomeBuiltinPageId(id)) openHomeTab(id);
+        if (isHomeDashboardTabId(id)) openHomeTab(id);
       },
     };
   }, [handleCreateCustomPanel, isActiveRoute, openHomeTab, pageMenuItems, t]);
@@ -256,13 +300,18 @@ export function DashboardPage() {
         label: labelForBuiltinTab(t),
         onClick: () => openHomeTab(id),
       })),
+      ...closedCustomPanels(customPanels, openTabIds).map((panel) => ({
+        id: panel.id,
+        label: panel.label,
+        onClick: () => openHomeTab(panel.id),
+      })),
       {
         id: CREATE_CUSTOM_MENU_ID,
         label: t("homeWorkspace.customPanel.menuLabel"),
         onClick: handleCreateCustomPanel,
       },
     ],
-    [handleCreateCustomPanel, openHomeTab, t],
+    [customPanels, handleCreateCustomPanel, openHomeTab, openTabIds, t],
   );
 
   const resolvedActiveTabId =

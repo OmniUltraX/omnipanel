@@ -1463,7 +1463,7 @@ pub struct CreateDatabaseArgs {
     pub collation: Option<String>,
 }
 
-/// 校验数据库名：仅允许 ASCII 字母/数字/下划线/$，且首字符不能为数字，长度 1..=64。
+/// 校验数据库名：仅允许 ASCII 字母/数字/下划线/$/连字符 `-`，且首字符不能为数字，长度 1..=64。
 /// 同时屏蔽 MySQL 系统库名。
 fn validate_database_name(name: &str) -> Result<String, String> {
     let trimmed = name.trim();
@@ -1479,8 +1479,8 @@ fn validate_database_name(name: &str) -> Result<String, String> {
         return Err("数据库名必须以字母、下划线或 $ 开头".to_string());
     }
     for c in chars {
-        if !(c.is_ascii_alphanumeric() || c == '_' || c == '$') {
-            return Err("数据库名仅允许字母、数字、下划线和 $".to_string());
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '-') {
+            return Err("数据库名仅允许字母、数字、下划线、连字符 - 和 $".to_string());
         }
     }
     const RESERVED: &[&str] = &["information_schema", "performance_schema", "mysql", "sys"];

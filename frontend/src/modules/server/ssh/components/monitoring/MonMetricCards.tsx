@@ -72,9 +72,11 @@ type Props = {
   sparklines: MonitorSparklines;
   diskReadRate: number | null;
   diskWriteRate: number | null;
+  /** 面板概览等窄高场景：去掉趋势图与次级明细 */
+  compact?: boolean;
 };
 
-export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate }: Props) {
+export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate, compact = false }: Props) {
   const { t } = useI18n();
 
   const cpuPct = Math.round(stats.cpuUsage ?? stats.cpu?.usage ?? 0);
@@ -128,7 +130,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
               {t("ssh.overview.loadLine", { load: stats.load })}
               {temp != null ? ` · ${Math.round(temp)}°C` : ""}
             </div>
-            {perCore.length > 0 && (
+            {perCore.length > 0 && !compact && (
               <div className="mon-core-grid">
                 {perCore.map((u, i) => (
                   <span
@@ -142,7 +144,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
             )}
           </div>
         </div>
-        <MonSparkline values={sparklines.cpu} />
+        {!compact && <MonSparkline values={sparklines.cpu} />}
       </div>
 
       {/* Memory */}
@@ -169,7 +171,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
                 ? ` · Swap ${formatUsageBytes(stats.memory.swapUsed, stats.memory.swapTotal)}`
                 : ""}
             </div>
-            {memTotal > 0 && (
+            {memTotal > 0 && !compact && (
               <>
                 <div className="mon-mem-stack">
                   <span className="mon-mem-used" style={{ width: `${usedPct}%` }} />
@@ -207,7 +209,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
             )}
           </div>
         </div>
-        <MonSparkline values={sparklines.mem} />
+        {!compact && <MonSparkline values={sparklines.mem} />}
       </div>
 
       {/* Disk */}
@@ -229,7 +231,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
               {formatUsageBytes(stats.disk.used, stats.disk.total)}
               {ioLine}
             </div>
-            {diskList.length > 0 ? (
+            {diskList.length > 0 && !compact ? (
               <div className="mon-mount-list">
                 {diskList.slice(0, 3).map((d) => {
                   const pct = safePercent(d.used, d.total);
@@ -258,14 +260,14 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
                 })}
               </div>
             ) : null}
-            {diskList.length > 3 && (
+            {diskList.length > 3 && !compact && (
               <div className="mon-card-secondary">
                 {t("ssh.overview.diskMore", { count: diskList.length - 3 })}
               </div>
             )}
           </div>
         </div>
-        <MonSparkline values={sparklines.disk} />
+        {!compact && <MonSparkline values={sparklines.disk} />}
       </div>
 
       {/* GPU */}
@@ -326,7 +328,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate 
                       </strong>
                     </span>
                   </div>
-                  <MonSparkline values={sparklines.gpu[i] ?? []} />
+                  {!compact && <MonSparkline values={sparklines.gpu[i] ?? []} />}
                 </div>
               );
             })}

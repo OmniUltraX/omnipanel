@@ -919,8 +919,13 @@ export interface DbIntrospectResult {
 
 export async function listConnectionUsers(
   connection: DbConnectionConfig,
+  options?: { quiet?: boolean },
 ): Promise<DbUserMeta[]> {
-  return asArray(await unwrapCommand(commands.dbListConnectionUsers(ipcConn(connection))));
+  return asArray(
+    await unwrapCommand(commands.dbListConnectionUsers(ipcConn(connection)), {
+      quiet: options?.quiet,
+    }),
+  );
 }
 
 function normalizeIntrospectResult(raw: unknown, fallbackDatabase = ""): DbIntrospectResult {
@@ -939,10 +944,13 @@ function normalizeIntrospectResult(raw: unknown, fallbackDatabase = ""): DbIntro
 export async function introspectSchema(
   connection: DbConnectionConfig,
   database?: string,
+  options?: { quiet?: boolean },
 ): Promise<DbIntrospectResult> {
   const trimmed = database?.trim() ? database.trim() : null;
   return normalizeIntrospectResult(
-    await unwrapCommand(commands.dbIntrospectSchema(ipcConn(connection), trimmed)),
+    await unwrapCommand(commands.dbIntrospectSchema(ipcConn(connection), trimmed), {
+      quiet: options?.quiet,
+    }),
     trimmed ?? "",
   );
 }

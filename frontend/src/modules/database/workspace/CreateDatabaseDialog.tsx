@@ -21,7 +21,7 @@ export interface CreateDatabaseDialogProps {
 }
 
 const RESERVED_DB_NAMES = ["information_schema", "performance_schema", "mysql", "sys"];
-const DB_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/;
+const DB_NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$-]{0,63}$/;
 
 export function CreateDatabaseDialog({
   open,

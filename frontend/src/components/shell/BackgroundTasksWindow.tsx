@@ -5,12 +5,14 @@ import { MODULE_PATHS } from "../../lib/paths";
 import { SubWindow } from "../ui/window/SubWindow";
 import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
-import { IconClock } from "../ui/icons/Icons";
+import { IconClock, IconClose, IconCopy } from "../ui/icons/Icons";
+import { showToast } from "../../stores/toastStore";
 import {
   cancelAllRunningBackgroundTasks,
   cancelBackgroundTask,
+  isBackgroundTaskBusy,
   useBackgroundTaskStore,
-  useRunningBackgroundTasks,
+  useSessionBackgroundTasks,
   type BackgroundTaskInfo,
 } from "../../stores/backgroundTaskStore";
 
@@ -69,14 +71,31 @@ function taskProgressPercent(task: BackgroundTaskInfo): number | null {
 function BackgroundTaskRow({
   task,
   onCancel,
+  onDismiss,
 }: {
   task: BackgroundTaskInfo;
   onCancel: (id: string) => void;
+  onDismiss: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const busy = task.status === "pending" || task.status === "running";
-  const progressPercent = taskProgressPercent(task);
+  const busy = isBackgroundTaskBusy(task.status);
+  const progressPercent = task.status === "completed" ? 100 : taskProgressPercent(task);
   const showIndeterminate = busy && progressPercent == null;
+  const showBar = busy
+    ? progressPercent != null || showIndeterminate
+    : task.status === "completed" && progressPercent != null;
+  const resultText = !busy && !task.error && task.progress ? task.progress : null;
+
+  const handleCopyError = useCallback(async () => {
+    const text = task.error?.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(t("shell.backgroundTasks.copyErrorDone"));
+    } catch {
+      showToast(t("shell.backgroundTasks.copyFailed"));
+    }
+  }, [t, task.error]);
 
   return (
     <li className={`background-tasks-row background-tasks-row--${task.status}`}>
@@ -113,13 +132,22 @@ function BackgroundTaskRow({
           ) : null}
         </div>
 
-        {task.progress ? (
+        {busy && task.progress ? (
           <p className="background-tasks-row__message">{task.progress}</p>
         ) : null}
 
-        {busy && (progressPercent != null || showIndeterminate) ? (
+        {resultText ? (
+          <p className="background-tasks-row__result">
+            <span className="background-tasks-row__result-label">
+              {t("shell.backgroundTasks.result")}
+            </span>
+            {resultText}
+          </p>
+        ) : null}
+
+        {showBar ? (
           <div
-            className={`background-tasks-row__bar${showIndeterminate ? " background-tasks-row__bar--indeterminate" : ""}`}
+            className={`background-tasks-row__bar${showIndeterminate ? " background-tasks-row__bar--indeterminate" : ""}${task.status === "completed" ? " background-tasks-row__bar--done" : ""}`}
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
@@ -133,7 +161,18 @@ function BackgroundTaskRow({
         ) : null}
 
         {task.error ? (
-          <p className="background-tasks-row__error">{task.error}</p>
+          <div className="background-tasks-row__error">
+            <p className="background-tasks-row__error-text">{task.error}</p>
+            <button
+              type="button"
+              className="background-tasks-row__error-copy"
+              title={t("shell.backgroundTasks.copyError")}
+              aria-label={t("shell.backgroundTasks.copyError")}
+              onClick={() => void handleCopyError()}
+            >
+              <IconCopy size={13} />
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -147,7 +186,17 @@ function BackgroundTaskRow({
         >
           {t("shell.backgroundTasks.cancel")}
         </Button>
-      ) : null}
+      ) : (
+        <button
+          type="button"
+          className="background-tasks-row__dismiss"
+          title={t("shell.backgroundTasks.dismiss")}
+          aria-label={t("shell.backgroundTasks.dismiss")}
+          onClick={() => onDismiss(task.id)}
+        >
+          <IconClose size={14} />
+        </button>
+      )}
     </li>
   );
 }
@@ -157,12 +206,24 @@ export function BackgroundTasksWindow() {
   const navigate = useNavigate();
   const open = useBackgroundTaskStore((s) => s.taskListOpen);
   const setOpen = useBackgroundTaskStore((s) => s.setTaskListOpen);
-  const tasks = useRunningBackgroundTasks();
+  const removeTask = useBackgroundTaskStore((s) => s.removeTask);
+  const clearFinishedTasks = useBackgroundTaskStore((s) => s.clearFinishedTasks);
+  const tasks = useSessionBackgroundTasks();
+  const runningCount = tasks.filter((task) => isBackgroundTaskBusy(task.status)).length;
+  const finishedCount = tasks.length - runningCount;
 
-  const summaryText = useMemo(
-    () => t("shell.backgroundTasks.runningCount", { count: tasks.length }),
-    [t, tasks.length],
-  );
+  const summaryText = useMemo(() => {
+    if (runningCount > 0 && finishedCount > 0) {
+      return t("shell.backgroundTasks.summaryMixed", {
+        running: runningCount,
+        finished: finishedCount,
+      });
+    }
+    if (runningCount > 0) {
+      return t("shell.backgroundTasks.runningCount", { count: runningCount });
+    }
+    return t("shell.backgroundTasks.finishedCount", { count: finishedCount });
+  }, [t, runningCount, finishedCount]);
 
   const handleCancel = useCallback(async (id: string) => {
     try {
@@ -190,7 +251,12 @@ export function BackgroundTasksWindow() {
       <Button type="button" variant="ghost" size="xs" onClick={openTaskCenter}>
         {t("shell.backgroundTasks.openTaskCenter")}
       </Button>
-      {tasks.length > 0 ? (
+      {finishedCount > 0 ? (
+        <Button type="button" variant="ghost" size="xs" onClick={clearFinishedTasks}>
+          {t("shell.backgroundTasks.clearFinished")}
+        </Button>
+      ) : null}
+      {runningCount > 0 ? (
         <Button type="button" variant="outline" size="xs" onClick={() => void handleCancelAll()}>
           {t("shell.backgroundTasks.cancelAll")}
         </Button>
@@ -210,28 +276,28 @@ export function BackgroundTasksWindow() {
     >
       <div className="background-tasks-body">
         {tasks.length === 0 ? (
-          <div className="background-tasks-empty-wrap">
-            <ModuleEmptyState
-              icon={<IconClock size={36} className="module-empty-state__icon" />}
-              title={t("shell.backgroundTasks.empty")}
-              desc={t("shell.backgroundTasks.emptyDesc")}
-              className="background-tasks-empty"
-            />
-            <div className="background-tasks-empty-actions">
-              <Button type="button" variant="primary" size="sm" onClick={openTaskCenter}>
-                {t("shell.backgroundTasks.openTaskCenter")}
-              </Button>
-            </div>
-          </div>
+          <ModuleEmptyState
+            icon={<IconClock size={36} className="module-empty-state__icon" />}
+            title={t("shell.backgroundTasks.empty")}
+            desc={t("shell.backgroundTasks.emptyDesc")}
+            className="background-tasks-empty"
+          />
         ) : (
           <>
-            <div className="background-tasks-summary">
+            <div
+              className={`background-tasks-summary${runningCount === 0 ? " background-tasks-summary--idle" : ""}`}
+            >
               <span className="background-tasks-summary__dot" aria-hidden />
               <span className="background-tasks-summary__text">{summaryText}</span>
             </div>
             <ul className="background-tasks-list">
               {tasks.map((task) => (
-                <BackgroundTaskRow key={task.id} task={task} onCancel={handleCancel} />
+                <BackgroundTaskRow
+                  key={task.id}
+                  task={task}
+                  onCancel={handleCancel}
+                  onDismiss={removeTask}
+                />
               ))}
             </ul>
           </>

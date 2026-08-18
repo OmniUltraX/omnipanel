@@ -139,7 +139,10 @@ select,
 .content-preview-view,
 .content-preview-view *,
 .db-cell-editor-blob-preview,
-.db-cell-editor-blob-preview * {
+.db-cell-editor-blob-preview *,
+/* 1Panel 已安装应用参数：支持框选与 Ctrl+C */
+.app-installed-params,
+.app-installed-params * {
     -webkit-user-select: text !important;
     user-select: text !important;
 }
@@ -150,7 +153,9 @@ select,
 .db-cell-editor-blob-preview-toolbar *,
 .log-viewer__toolbar,
 .log-viewer__toolbar *,
-.log-viewer__lineno {
+.log-viewer__lineno,
+.app-installed-params button,
+.app-installed-params button * {
     -webkit-user-select: none !important;
     user-select: none !important;
 }
@@ -10206,9 +10211,22 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex-direction: column;
     }
 
+    .background-tasks-header-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--sp-1);
+        flex-wrap: wrap;
+    }
+
     .background-tasks-empty {
         flex: 1;
-        min-height: 220px;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: var(--sp-6) var(--sp-4);
     }
 
     .background-tasks-summary {
@@ -10237,6 +10255,12 @@ button.omni-btn-tool[aria-pressed="true"] {
     @keyframes background-tasks-pulse {
         0%, 100% { opacity: 1; transform: scale(1); }
         50% { opacity: 0.65; transform: scale(0.92); }
+    }
+
+    .background-tasks-summary--idle .background-tasks-summary__dot {
+        background: var(--success);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
+        animation: none;
     }
 
     .background-tasks-summary__text {
@@ -10362,6 +10386,38 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg-2);
     }
 
+    .background-tasks-row__result {
+        margin: 0;
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--r-sm);
+        background: color-mix(in srgb, var(--success) 10%, var(--surface));
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--fg);
+        word-break: break-word;
+    }
+
+    .background-tasks-row--failed .background-tasks-row__result,
+    .background-tasks-row--cancelled .background-tasks-row__result {
+        background: var(--surface);
+        color: var(--fg-2);
+    }
+
+    .background-tasks-row__result-label {
+        display: inline-block;
+        margin-right: 6px;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--success);
+        text-transform: none;
+    }
+
+    .background-tasks-row--failed .background-tasks-row__result-label,
+    .background-tasks-row--cancelled .background-tasks-row__result-label {
+        color: var(--muted);
+    }
+
     .background-tasks-row__bar {
         height: 4px;
         border-radius: 999px;
@@ -10377,6 +10433,10 @@ button.omni-btn-tool[aria-pressed="true"] {
         transition: width 0.25s ease;
     }
 
+    .background-tasks-row__bar--done .background-tasks-row__bar-fill {
+        background: var(--success);
+    }
+
     .background-tasks-row__bar--indeterminate .background-tasks-row__bar-fill {
         width: 36% !important;
         animation: background-tasks-indeterminate 1.2s ease-in-out infinite;
@@ -10389,7 +10449,10 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .background-tasks-row__error {
         margin: 0;
-        padding: var(--sp-2) var(--sp-3);
+        display: flex;
+        align-items: flex-start;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
         border-radius: var(--r-sm);
         background: var(--danger-soft);
         font-size: 11px;
@@ -10397,9 +10460,58 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--danger);
     }
 
+    .background-tasks-row__error-text {
+        margin: 0;
+        min-width: 0;
+        flex: 1;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .background-tasks-row__error-copy {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        margin-top: -1px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--danger);
+        cursor: pointer;
+        opacity: 0.75;
+    }
+
+    .background-tasks-row__error-copy:hover {
+        background: color-mix(in srgb, var(--danger) 14%, transparent);
+        opacity: 1;
+    }
+
     .background-tasks-row__cancel {
         flex-shrink: 0;
         margin-top: 1px;
+    }
+
+    .background-tasks-row__dismiss {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        margin-top: 1px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+    }
+
+    .background-tasks-row__dismiss:hover {
+        background: var(--surface);
+        color: var(--fg);
     }
 
     /* 鈹€鈹€鈹€ Statusbar 宸ヤ綔鍖烘寜閽?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
@@ -13792,11 +13904,41 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .task-card__error {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
         font-size: 11px;
         color: var(--danger, #e44);
         padding: 4px 6px;
         background: color-mix(in oklch, var(--danger, #e44) 10%, transparent);
         border-radius: var(--radius-sm, 4px);
+    }
+
+    .task-card__error-text {
+        min-width: 0;
+        flex: 1;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .task-card__error-copy {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--danger, #e44);
+        cursor: pointer;
+        opacity: 0.75;
+    }
+
+    .task-card__error-copy:hover {
+        background: color-mix(in srgb, var(--danger, #e44) 14%, transparent);
+        opacity: 1;
     }
 
     .task-card__risk-reasons {
@@ -16921,6 +17063,69 @@ button.omni-btn-tool[aria-pressed="true"] {
         font-size: 12px;
     }
 
+    .app-installed-params {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 80px;
+    }
+
+    .app-installed-params__hint {
+        margin: 0;
+        font-size: 12px;
+        color: var(--fg-muted, #888);
+    }
+
+    .app-installed-params__section {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        overflow: hidden;
+    }
+
+    .app-installed-params__row {
+        display: grid;
+        grid-template-columns: minmax(96px, 140px) minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+    }
+
+    .app-installed-params__row:last-child {
+        border-bottom: none;
+    }
+
+    .app-installed-params__label {
+        color: var(--meta);
+        min-width: 0;
+        padding-top: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: text;
+    }
+
+    .app-installed-params__value {
+        color: var(--fg);
+        min-width: 0;
+        padding-top: 4px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-all;
+        font-variant-numeric: tabular-nums;
+        cursor: text;
+    }
+
+    .app-installed-params__actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
     .server-app-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -17159,10 +17364,10 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .monitor-overview-row {
         display: grid;
-        grid-template-columns: minmax(0, 5fr) minmax(0, 1fr);
-        gap: var(--sp-3);
-        margin-bottom: var(--sp-4);
-        align-items: stretch;
+        grid-template-columns: minmax(0, 5fr) minmax(220px, 1.2fr);
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-3);
+        align-items: start;
     }
 
     .monitor-realtime-card,
@@ -17170,8 +17375,15 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--r-md);
-        padding: var(--sp-3);
+        padding: var(--sp-2);
         min-width: 0;
+    }
+
+    .monitor-system-card {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: var(--sp-3);
+        row-gap: 0;
     }
 
     .monitor-realtime-card__title,
@@ -17182,15 +17394,28 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .monitor-realtime-card__title {
-        margin-bottom: var(--sp-2);
+        margin-bottom: var(--sp-1);
     }
 
     .monitor-system-card__header {
+        grid-column: 1 / -1;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: var(--sp-2);
-        margin-bottom: var(--sp-2);
+        margin-bottom: 2px;
+    }
+
+    .monitor-system-card .info-row {
+        padding: 4px 0;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    .monitor-system-card .info-row .value {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .monitor-system-card__detail-btn {
@@ -17206,11 +17431,11 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--r-md);
-        padding: var(--sp-3);
+        padding: var(--sp-2);
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: var(--sp-2);
+        gap: var(--sp-1);
     }
 
     .server-panel-monitor-dashboard {
@@ -17230,6 +17455,20 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .server-panel-monitor-dashboard .mon-metrics--no-gpu {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .server-panel-monitor-dashboard .mon-card {
+        padding: 8px 10px;
+        gap: 6px;
+    }
+
+    .server-panel-monitor-dashboard .mon-gauge {
+        width: 40px;
+        height: 40px;
+    }
+
+    .server-panel-monitor-dashboard .mon-gauge-val {
+        font-size: 10px;
     }
 
     @container server-panel-monitor (max-width: 640px) {

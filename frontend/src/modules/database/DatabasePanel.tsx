@@ -82,6 +82,7 @@ import {
   loadSchemaCache,
   loadSchemaFilters,
   loadSchemaTreeExpanded,
+  createDatabase,
   isMysqlConnectionInfoCapable,
   previewTable,
   saveConnection,
@@ -124,6 +125,8 @@ import {
   resolveMysqlExportDeployment,
   beginWatchMysqlExportTask,
   submitDbMysqlExport,
+  saveMysqlExportAs,
+  type MysqlExportDestination,
 } from "./mysqlExport";
 import {
   beginWatchMysqlImportTask,
@@ -131,6 +134,7 @@ import {
   type MysqlImportSource,
 } from "./mysqlImport";
 import { MysqlImportDialog } from "./workspace/MysqlImportDialog";
+import { MysqlExportDialog } from "./workspace/MysqlExportDialog";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
@@ -475,6 +479,11 @@ export function DatabasePanel() {
     databaseName: string;
   } | null>(null);
   const [importSubmitting, setImportSubmitting] = useState(false);
+  const [exportDialog, setExportDialog] = useState<{
+    connection: DbConnectionConfig;
+    databaseName: string;
+  } | null>(null);
+  const [exportSubmitting, setExportSubmitting] = useState(false);
   // 勿订阅 savedLayout：切 Tab 会频繁写 layout，订阅会拖垮整页（侧栏+面板）
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
@@ -1671,7 +1680,7 @@ export function DatabasePanel() {
       if (cachedNames.length > 0) {
         continue;
       }
-      void listDatabases(connection)
+      void listDatabases(connection, { quiet: true })
         .then((names) => {
           if (cancelled || names.length === 0) {
             return;
@@ -3628,12 +3637,19 @@ export function DatabasePanel() {
     t,
   ]);
 
-  const handleExportDatabase = useCallback(
-    async (connection: DbConnectionConfig, databaseName: string) => {
+  const handleOpenExportDatabase = useCallback(
+    (connection: DbConnectionConfig, databaseName: string) => {
       if (!isConnectionEnabled(connection)) {
         showToast(t("database.export.connectionDisabled"));
         return;
       }
+      setExportDialog({ connection, databaseName });
+    },
+    [t],
+  );
+
+  const resolveExportDeployment = useCallback(
+    async (connection: DbConnectionConfig) => {
       let deployment = readMysqlDeploymentCache(connection);
       if (!deployment || deployment.kind === "unknown") {
         try {
@@ -3642,37 +3658,168 @@ export function DatabasePanel() {
           deployment = deployment ?? null;
         }
       }
-      const exportDeployment = resolveMysqlExportDeployment(deployment);
-      const watch = await beginWatchMysqlExportTask(connection.id, (event) => {
-        if (event.eventType !== "failed") {
-          return;
-        }
-        const detail =
-          event.error?.trim() ||
-          event.export?.error?.trim() ||
-          "";
-        showToast(
-          detail
-            ? t("database.export.failedDetail", { error: detail })
-            : t("database.connectionInfo.exports.statusFailed"),
-        );
-      });
+      return resolveMysqlExportDeployment(deployment);
+    },
+    [sshConnections],
+  );
+
+  const handleExportDatabase = useCallback(
+    async (connection: DbConnectionConfig, databaseName: string) => {
+      handleOpenExportDatabase(connection, databaseName);
+    },
+    [handleOpenExportDatabase],
+  );
+
+  const handleConfirmExportDatabase = useCallback(
+    async (destination: MysqlExportDestination) => {
+      if (!exportDialog) {
+        return;
+      }
+      const { connection, databaseName } = exportDialog;
+      setExportSubmitting(true);
       try {
-        const taskId = await submitDbMysqlExport(connection, databaseName, exportDeployment);
-        watch.bindTaskId(taskId);
-        showToast(t("database.export.started", { database: databaseName }));
-        openConnectionInfoTabRef.current(connection.id, "permanent");
+        const sourceDeployment = await resolveExportDeployment(connection);
+        if (destination.kind === "clone") {
+          const existing = await listDatabases(destination.targetConnection, { quiet: true });
+          if (!existing.includes(destination.targetDatabase)) {
+            await createDatabase({
+              connection: destination.targetConnection,
+              name: destination.targetDatabase,
+            });
+          }
+        }
+        const watch = await beginWatchMysqlExportTask(connection.id, (event) => {
+          if (event.eventType === "failed") {
+            const detail =
+              event.error?.trim() ||
+              event.export?.error?.trim() ||
+              "";
+            showToast(
+              detail
+                ? t("database.export.failedDetail", { error: detail })
+                : t("database.connectionInfo.exports.statusFailed"),
+            );
+            return;
+          }
+          const exportRecord = event.export;
+          if (event.eventType !== "completed" || !exportRecord || !exportRecord.id) {
+            return;
+          }
+          if (destination.kind === "local") {
+            void saveMysqlExportAs(connection.id, exportRecord.id, destination.destPath)
+              .then(() => {
+                showToast(
+                  t("database.export.savedLocal", { path: destination.destPath }),
+                );
+              })
+              .catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                showToast(
+                  message
+                    ? t("database.export.failedDetail", { error: message })
+                    : t("database.connectionInfo.exports.downloadFailed"),
+                );
+              });
+            return;
+          }
+          void (async () => {
+            try {
+              const importDeployment = await resolveExportDeployment(destination.targetConnection);
+              showToast(
+                t("database.export.cloneImportStarted", {
+                  database: destination.targetDatabase,
+                }),
+              );
+              const importWatch = await beginWatchMysqlImportTask((task) => {
+                if (task.status === "completed") {
+                  showToast(
+                    t("database.import.completed", {
+                      database: destination.targetDatabase,
+                    }),
+                  );
+                  void submitSchemaCacheRefresh(
+                    [destination.targetConnection.id],
+                    schemaCacheReporter,
+                  ).catch((err) => {
+                    schemaCacheReporter.onError?.(String(err));
+                  });
+                  return;
+                }
+                if (task.status === "failed") {
+                  const detail = task.error?.trim() || "";
+                  showToast(
+                    detail
+                      ? t("database.import.failedDetail", { error: detail })
+                      : t("database.import.failed"),
+                  );
+                }
+              });
+              try {
+                const importTaskId = await submitDbMysqlImport(
+                  destination.targetConnection,
+                  destination.targetDatabase,
+                  importDeployment,
+                  exportRecord.filePath
+                    ? { kind: "file", filePath: exportRecord.filePath }
+                    : { kind: "export", exportId: exportRecord.id },
+                );
+                importWatch.bindTaskId(importTaskId);
+              } catch (error) {
+                importWatch.cancel();
+                const message = error instanceof Error ? error.message : String(error);
+                showToast(
+                  message
+                    ? t("database.import.failedDetail", { error: message })
+                    : t("database.import.failed"),
+                );
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              showToast(
+                message
+                  ? t("database.import.failedDetail", { error: message })
+                  : t("database.import.failed"),
+              );
+            }
+          })();
+        });
+        try {
+          const taskId = await submitDbMysqlExport(connection, databaseName, {
+            ...sourceDeployment,
+            includeCreateDatabase: destination.kind !== "clone",
+          });
+          watch.bindTaskId(taskId);
+          showToast(
+            destination.kind === "clone"
+              ? t("database.export.cloneStarted", {
+                  database: databaseName,
+                  target: destination.targetDatabase,
+                })
+              : t("database.export.started", { database: databaseName }),
+          );
+          openConnectionInfoTabRef.current(connection.id, "permanent");
+          setExportDialog(null);
+        } catch (error) {
+          watch.cancel();
+          const message = error instanceof Error ? error.message : String(error);
+          showToast(
+            message
+              ? t("database.export.failedDetail", { error: message })
+              : t("database.export.failed"),
+          );
+        }
       } catch (error) {
-        watch.cancel();
         const message = error instanceof Error ? error.message : String(error);
         showToast(
           message
-            ? t("database.export.failedDetail", { error: message })
+            ? t("database.export.createTargetFailed", { error: message })
             : t("database.export.failed"),
         );
+      } finally {
+        setExportSubmitting(false);
       }
     },
-    [sshConnections, t],
+    [exportDialog, resolveExportDeployment, schemaCacheReporter, t],
   );
 
   const handleOpenImportDatabase = useCallback(
@@ -6210,6 +6357,21 @@ export function DatabasePanel() {
           refreshConnDatabases(connId);
           setActiveConnId(connId);
         }
+      }}
+    />
+    <MysqlExportDialog
+      open={exportDialog !== null}
+      sourceConnection={exportDialog?.connection ?? null}
+      sourceDatabase={exportDialog?.databaseName ?? ""}
+      connections={connections}
+      submitting={exportSubmitting}
+      onClose={() => {
+        if (!exportSubmitting) {
+          setExportDialog(null);
+        }
+      }}
+      onConfirm={(destination) => {
+        void handleConfirmExportDatabase(destination);
       }}
     />
     <MysqlImportDialog
