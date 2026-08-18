@@ -2166,22 +2166,23 @@
         border-radius: var(--r-sm);
         background: var(--bg-deeper);
         border: 1px solid var(--border);
-        overflow-x: auto;
+        overflow: hidden;
         color: var(--fg);
         font-size: 12px;
         line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-all;
-        max-height: none;
+        white-space: nowrap;
+        word-break: normal;
+        text-overflow: ellipsis;
+        max-height: calc(1.5em + 16px);
     }
 
     .term-shell-agent-card__code code {
         font-family: inherit;
-        white-space: pre-wrap;
-        word-break: break-all;
+        white-space: nowrap;
+        word-break: normal;
         display: block;
-        -webkit-line-clamp: unset;
-        overflow: visible;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .term-shell-agent-card__edit {

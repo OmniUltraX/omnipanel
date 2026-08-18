@@ -887,6 +887,24 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       !pendingTool &&
       displayTools.length > 0;
     const measure = () => {
+      // 向上滚时底部卡片会被 xterm 视口裁切，此时测高拿到的是裁切后的矮高度，
+      // fit 会把占位永久压成 1 行。卡片未完全在视口内时跳过，滚回底部再测。
+      const term = getXterm(sessionId);
+      const geo = getShellAgentGeometry(sessionId);
+      if (term && geo && geo.mode === "inline" && geo.rows > 0) {
+        try {
+          const buf = term.buffer.active;
+          const viewTop = buf.viewportY;
+          const viewEnd = viewTop + (term.rows || 24);
+          const cardTop = geo.anchorLine;
+          const cardBottom = geo.anchorLine + geo.rows;
+          if (cardTop < viewTop || cardBottom > viewEnd) {
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
       const h = measureShellAgentCardHeight(container);
       if (h <= 0) return;
       // 思考卡固定矮占位：禁止按测高扩行。扩出去的 \r\n 冻结后缩不掉，空白会一张张累加。

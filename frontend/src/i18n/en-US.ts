@@ -3484,7 +3484,6 @@ export const enUS: TranslationDict = {
     shellAgent: {
       title: "Terminal Agent",
       cancel: "Cancel",
-      newSession: "New session",
       thinking: "Understanding intent…",
       thinkingDone: "Thinking complete",
       thinkingDetail: "Thinking",

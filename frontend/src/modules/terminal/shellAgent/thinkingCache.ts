@@ -604,7 +604,7 @@ export function buildAgreedCmdFrozenHtml(opts: {
     (description
       ? `<p class="term-shell-agent-card__desc">${escapeHtmlText(description)}</p>`
       : "") +
-    `<pre class="term-shell-agent-card__code"><code>${escapeHtmlText(command)}</code></pre>` +
+    `<pre class="term-shell-agent-card__code" title="${escapeHtmlAttr(command)}"><code>${escapeHtmlText(command)}</code></pre>` +
     `<div class="term-shell-agent-card__actions">` +
     `<button type="button" class="term-shell-agent-btn term-shell-agent-btn--primary" disabled>${escapeHtmlText(agreedLabel)}</button>` +
     `</div>` +
@@ -642,7 +642,7 @@ export function buildRejectedCmdFrozenHtml(opts: {
     (description
       ? `<p class="term-shell-agent-card__desc">${escapeHtmlText(description)}</p>`
       : "") +
-    `<pre class="term-shell-agent-card__code"><code>${escapeHtmlText(command)}</code></pre>` +
+    `<pre class="term-shell-agent-card__code" title="${escapeHtmlAttr(command)}"><code>${escapeHtmlText(command)}</code></pre>` +
     `<div class="term-shell-agent-card__actions">` +
     `<button type="button" class="term-shell-agent-btn term-shell-agent-btn--muted" disabled>${escapeHtmlText(rejectedLabel)}</button>` +
     `</div>` +
