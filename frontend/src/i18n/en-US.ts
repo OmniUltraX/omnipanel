@@ -3451,6 +3451,8 @@ export const enUS: TranslationDict = {
       thinkingDone: "Thinking complete",
       thinkingDetail: "Thinking",
       toolDetail: "Tool calls",
+      toolResult: "Result",
+      noToolResult: "No output",
       toolDone: "Done",
       toolCallName: "Tool: {name}",
       viewTool: "View",

@@ -46,6 +46,7 @@ import {
   clearShellAgentThinkingFull,
   getArchivedDisplayToolIds,
   appendLastFrozenThinkingFragment,
+  formatShellAgentToolResult,
 } from "./thinkingCache";
 import {
   assistantNoteForTool,
@@ -105,6 +106,8 @@ type DetailFloat =
       anchor: FloatAnchor;
       /** 冻结确认卡等无 thread 项时的命令兜底 */
       commandFallback?: string;
+      /** 冻结确认卡上的执行结果（同意时还没有，执行完再盖） */
+      resultFallback?: string;
     }
   | null;
 
@@ -360,7 +363,7 @@ function toolStatusLabel(
     case "running":
       return t("terminal.shellAgent.executing");
     case "completed":
-      return t("terminal.shellAgent.agreed");
+      return t("terminal.shellAgent.toolDone");
     case "rejected":
       return t("terminal.shellAgent.rejected");
     case "failed":
@@ -734,12 +737,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
         e.stopPropagation();
         const toolId = cmdCard.getAttribute("data-tool-id") || "";
         const command = cmdCard.getAttribute("data-tool-command") || "";
+        const result = cmdCard.getAttribute("data-tool-result") || "";
         setDetail((prev) =>
           toggleDetailFloat(prev, {
             kind: "tool",
             toolId: toolId || "__frozen_cmd__",
             anchor: readAnchorRect(cmdCard),
             commandFallback: command,
+            resultFallback: result,
           }),
         );
         return;
@@ -928,6 +933,24 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     agent?.pendingAskFormId,
     phase,
   ]);
+
+  const detailTool = useMemo(() => {
+    if (detail?.kind !== "tool") return null;
+    const fromBlocks = blocks.flatMap((b) =>
+      b.kind === "ai" ? getResolvedAiThread(b) : [],
+    );
+    const pools = [
+      ...collectDisplayToolCalls(fromBlocks),
+      ...collectInlineTerminalToolCalls(fromBlocks),
+      ...displayTools,
+      ...execTools,
+    ];
+    const byId = pools.find((tc) => tc.id === detail.toolId);
+    if (byId) return byId;
+    const command = detail.commandFallback?.trim();
+    if (!command) return null;
+    return pools.find((tc) => resolveToolCommand(tc) === command) ?? null;
+  }, [detail, blocks, displayTools, execTools]);
 
   if (!agent || agent.phase === "cancelled") return null;
   if (!showOverlay) return null;
@@ -1270,12 +1293,17 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     </div>
   ) : null;
 
-  const detailTool =
+  const detailCommand =
     detail?.kind === "tool"
-      ? displayTools.find((tc) => tc.id === detail.toolId) ??
-        execTools.find((tc) => tc.id === detail.toolId) ??
-        null
-      : null;
+      ? (detailTool ? resolveToolCommand(detailTool) || detailTool.toolName : "") ||
+        detail.commandFallback ||
+        ""
+      : "";
+  const detailResult =
+    detail?.kind === "tool"
+      ? formatShellAgentToolResult(detailTool?.result) ||
+        formatShellAgentToolResult(detail.resultFallback)
+      : "";
 
   const detailFloat =
     detail === null
@@ -1325,34 +1353,30 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
                   )}
                 </>
               ) : null}
-              {detail.kind === "tool" && detailTool ? (
+              {detail.kind === "tool" ? (
                 <div className="term-shell-agent-float__section">
                   <div className="term-shell-agent-float__label">
-                    {toolStatusLabel(detailTool.status, t)}
+                    {detailTool
+                      ? toolStatusLabel(detailTool.status, t)
+                      : t("terminal.shellAgent.agreed")}
                   </div>
-                  <pre>
-                    <code>{resolveToolCommand(detailTool) || detailTool.toolName}</code>
-                  </pre>
-                  {detailTool.args ? (
-                    <pre className="term-shell-agent-float__result">
-                      <code>{detailTool.args}</code>
+                  {detailCommand ? (
+                    <pre>
+                      <code>{detailCommand}</code>
                     </pre>
                   ) : null}
-                  {detailTool.result ? (
-                    <pre className="term-shell-agent-float__result">
-                      <code>{detailTool.result}</code>
-                    </pre>
-                  ) : null}
-                </div>
-              ) : null}
-              {detail.kind === "tool" && !detailTool && detail.commandFallback ? (
-                <div className="term-shell-agent-float__section">
                   <div className="term-shell-agent-float__label">
-                    {t("terminal.shellAgent.agreed")}
+                    {t("terminal.shellAgent.toolResult")}
                   </div>
-                  <pre>
-                    <code>{detail.commandFallback}</code>
-                  </pre>
+                  {detailResult ? (
+                    <pre className="term-shell-agent-float__result">
+                      <code>{detailResult}</code>
+                    </pre>
+                  ) : (
+                    <p className="term-shell-agent-float__empty">
+                      {t("terminal.shellAgent.noToolResult")}
+                    </p>
+                  )}
                 </div>
               ) : null}
             </div>

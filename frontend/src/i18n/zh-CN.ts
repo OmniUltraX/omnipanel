@@ -3437,6 +3437,8 @@ export const zhCN = {
       thinkingDone: "思考完成",
       thinkingDetail: "思考过程",
       toolDetail: "工具调用",
+      toolResult: "执行结果",
+      noToolResult: "暂无输出",
       toolDone: "已完成",
       toolCallName: "调用工具: {name}",
       viewTool: "查看",

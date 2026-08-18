@@ -25,13 +25,24 @@ import {
   notifyShellAgentRejected,
 } from "./shellAgent/loop";
 import { useShellAgentStore } from "./shellAgent/shellAgentStore";
-import { getShellAgentLastCmd, setShellAgentLastCmd } from "./shellAgent/thinkingCache";
+import {
+  getShellAgentLastCmd,
+  setShellAgentLastCmd,
+  stampFrozenCmdResultInRoot,
+} from "./shellAgent/thinkingCache";
+import { getXterm } from "./xtermRegistry";
 
 export interface InlineToolDecision {
   approved: boolean;
   result: string;
   shellBlockId?: string;
   exitCode?: number | null;
+}
+
+function stampInlineCmdResult(sessionId: string, toolId: string, result: string): void {
+  const root = getXterm(sessionId)?.element;
+  if (!root || !result.trim()) return;
+  stampFrozenCmdResultInRoot(root, sessionId, toolId, result);
 }
 
 interface PendingInlineTool {
@@ -314,6 +325,7 @@ async function approveStaleInlineToolCall(
           status: "failed",
           result: aiResult.outputJson,
         } as Partial<AiThreadToolCall>);
+        stampInlineCmdResult(sessionId, toolCallId, aiResult.outputJson);
       } else {
         const exitCode = aiResult.payload.exitCode;
         useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
@@ -322,6 +334,7 @@ async function approveStaleInlineToolCall(
           shellBlockId: aiResult.block?.id,
           actionId: aiResult.action?.id,
         } as Partial<AiThreadToolCall>);
+        stampInlineCmdResult(sessionId, toolCallId, aiResult.outputJson);
       }
     } catch (err) {
       useBlocksStore.getState().updateAiThreadItem(blockId, toolCallId, {
@@ -400,6 +413,7 @@ export async function approveInlineTerminalTool(
           status: "failed",
           result: aiResult.outputJson,
         } as Partial<AiThreadToolCall>);
+        stampInlineCmdResult(pending.sessionId, toolCallId, aiResult.outputJson);
         decision = { approved: false, result: aiResult.outputJson };
       } else {
         const exitCode = aiResult.payload.exitCode;
@@ -409,6 +423,7 @@ export async function approveInlineTerminalTool(
           shellBlockId: aiResult.block?.id,
           actionId: aiResult.action?.id,
         } as Partial<AiThreadToolCall>);
+        stampInlineCmdResult(pending.sessionId, toolCallId, aiResult.outputJson);
 
         decision = {
           approved: true,
@@ -423,6 +438,7 @@ export async function approveInlineTerminalTool(
         status: "failed",
         result: message,
       } as Partial<AiThreadToolCall>);
+      stampInlineCmdResult(pending.sessionId, toolCallId, message);
       decision = { approved: false, result: message };
     } finally {
       // 勿在此 idle：还要 deliverToolResult 让模型续写总结 / 下一轮工具

@@ -63,7 +63,16 @@ function collectToolCallsBy(
     if (!isAiThreadMessage(item) || item.role !== "assistant" || !item.parts?.length) continue;
     for (const part of item.parts) {
       if (part.type !== "tool-call") continue;
-      if (!include(part.name) || byId.has(part.id)) continue;
+      if (!include(part.name)) continue;
+      const partResult = typeof part.result === "string" ? part.result : undefined;
+      const existing = byId.get(part.id);
+      if (existing) {
+        // tool_call 条目先写入、part 后补 result：展开确认卡必须能读到输出
+        if (!existing.result?.trim() && partResult) {
+          byId.set(part.id, { ...existing, result: partResult });
+        }
+        continue;
+      }
       const args =
         typeof part.arguments === "string" ? part.arguments : JSON.stringify(part.arguments ?? {});
       byId.set(part.id, {
@@ -72,7 +81,7 @@ function collectToolCallsBy(
         toolName: part.name,
         args,
         status: toolStatusFromPart(part.status),
-        result: typeof part.result === "string" ? part.result : undefined,
+        result: partResult,
         timestamp: item.timestamp,
       });
     }

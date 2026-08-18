@@ -121,6 +121,40 @@ describe("collectInlineTerminalToolCalls", () => {
     expect(tools).toHaveLength(1);
     expect(tools[0]?.status).toBe("running");
   });
+
+  it("独立条目缺 result 时用 part 上的输出补齐", () => {
+    const thread: AiThreadItem[] = [
+      {
+        kind: "tool_call",
+        id: "same",
+        toolName: "omni_ssh_exec",
+        args: '{"command":"Get-Date"}',
+        command: "Get-Date",
+        status: "completed",
+        timestamp: 1,
+      },
+      {
+        kind: "message",
+        id: "a1",
+        role: "assistant",
+        content: "",
+        timestamp: 2,
+        parts: [
+          {
+            type: "tool-call",
+            id: "same",
+            name: "omni_ssh_exec",
+            arguments: '{"command":"Get-Date"}',
+            status: "completed",
+            result: '{"output":"2026-08-18 08:42:14 +08:00"}',
+          },
+        ],
+      },
+    ];
+    const tools = collectInlineTerminalToolCalls(thread);
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.result).toContain("2026-08-18");
+  });
 });
 
 describe("collectDisplayToolCalls", () => {

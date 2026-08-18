@@ -265,6 +265,42 @@ export function getShellAgentLastCmd(sessionId: string): ShellAgentLastCmd | nul
   return lastCmdBySession.get(sessionId) ?? null;
 }
 
+/** 把命令工具的 outputJson 收成可展示的执行结果 */
+export function formatShellAgentToolResult(raw: string | undefined): string {
+  const text = raw?.trim() ?? "";
+  if (!text) return "";
+  try {
+    const parsed = JSON.parse(text) as { output?: unknown };
+    if (parsed && typeof parsed === "object" && typeof parsed.output === "string") {
+      return parsed.output.trim();
+    }
+  } catch {
+    // 不是 payload JSON，原样展示
+  }
+  return text;
+}
+
+/** 执行结束后把结果写进已冻结的确认卡，展开不依赖当前轮 thread */
+export function stampFrozenCmdResultInRoot(
+  root: ParentNode,
+  sessionId: string,
+  toolId: string,
+  result: string,
+): void {
+  const trimmed = result.trim();
+  if (!trimmed) return;
+  const sid = sessionId.replace(/"/g, "");
+  const cards = root.querySelectorAll(
+    `.term-shell-agent-card[data-shell-agent-frozen-cmd="1"][data-session-id="${sid}"]`,
+  );
+  for (const card of cards) {
+    if (!(card instanceof HTMLElement)) continue;
+    const id = card.getAttribute("data-tool-id") || "";
+    if (toolId && id && id !== toolId) continue;
+    card.setAttribute("data-tool-result", trimmed);
+  }
+}
+
 export function clearShellAgentLastCmd(sessionId: string): void {
   lastCmdBySession.delete(sessionId);
   confirmFreezeIntent.delete(sessionId);
