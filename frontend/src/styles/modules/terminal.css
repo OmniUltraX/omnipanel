@@ -2037,10 +2037,10 @@
         display: flex;
         flex-direction: column;
         align-items: flex-start;
-        gap: 8px;
+        gap: 6px;
         width: 100%;
         max-width: min(720px, 100%);
-        padding: 10px 12px;
+        padding: 12px 14px;
         text-align: left;
         background: color-mix(in oklch, var(--surface) 78%, var(--bg-deeper));
         border: 1px solid var(--border);
@@ -2146,7 +2146,7 @@
     .term-shell-agent-card__interpret {
         color: var(--accent);
         font-size: 12.5px;
-        line-height: 1.65;
+        line-height: 1.55;
         width: 100%;
         min-height: 0;
         flex: 0 1 auto;

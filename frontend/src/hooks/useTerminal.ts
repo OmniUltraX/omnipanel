@@ -85,7 +85,7 @@ import {
   isMultilineTerminalCommand,
 } from "../modules/terminal/formatPtyCommandInput";
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
-import { setTerminalPaneRawWriter } from "../modules/terminal/terminalPaneSenders";
+import { setTerminalPaneRawWriter, writeTerminalRaw } from "../modules/terminal/terminalPaneSenders";
 import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
 import { hasFullTerminalSignal, hasFullTerminalExitSignal } from "../modules/terminal/fullTerminalSignals";
 import {
@@ -145,7 +145,11 @@ import {
   clearTerminalSessionRuntime,
 } from "../modules/terminal/terminalRunStateStore";
 import { triggerAiDrawerToggle } from "./useAiDrawerShortcut";
-import { copyTerminalSelectionOnContextMenu } from "../modules/terminal/terminalTextSelection";
+import {
+  copyTerminalSelectionOnContextMenu,
+  copyTerminalText,
+  getDomSelectionTextWithin,
+} from "../modules/terminal/terminalTextSelection";
 import {
   applyTerminalTheme,
   getTerminalTheme,
@@ -296,6 +300,38 @@ function bindTerminalInputMode(
     // 直通模式：Esc 取消 Agent；Enter 可能入环；其余键进 PTY
     term.attachCustomKeyEventHandler((e) => {
       if (triggerAiDrawerToggle(e)) return false;
+
+      // 复制粘贴：Ctrl/Cmd+C 有选中则复制，无选中放行 SIGINT；Ctrl/Cmd+V 粘贴
+      if (e.type === "keydown" && (e.ctrlKey || e.metaKey) && !e.altKey) {
+        const key = e.key.toLowerCase();
+        const isMacCopy = e.metaKey && !e.ctrlKey;
+
+        if (key === "c") {
+          // macOS Cmd+C / Ctrl+Shift+C：无条件复制选中
+          if (isMacCopy || e.shiftKey) {
+            const sel = term.getSelection() || getDomSelectionTextWithin(term.element ?? null);
+            if (sel) void copyTerminalText(sel);
+            return false;
+          }
+          // Ctrl+C：有选中复制，无选中发 SIGINT
+          if (term.hasSelection()) {
+            const sel = term.getSelection();
+            if (sel) void copyTerminalText(sel);
+            return false;
+          }
+          return true;
+        }
+
+        if (key === "v") {
+          e.preventDefault();
+          void navigator.clipboard.readText().then((text) => {
+            if (text) writeTerminalRaw(sessionId, text);
+          }).catch(() => {
+            // 剪贴板读取失败（权限/非安全上下文）：静默
+          });
+          return false;
+        }
+      }
 
       const isEnter =
         e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;

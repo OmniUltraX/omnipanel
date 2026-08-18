@@ -19,7 +19,6 @@ import { shouldHandleConfirmEnter } from "../passthroughAi/confirmEnterHotkey";
 import { getXterm } from "../xtermRegistry";
 import {
   cancelShellAgent,
-  newShellAgentSession,
   notifyShellAgentAfterDisplayTools,
   notifyShellAgentDisplayTool,
   notifyShellAgentPromoteToFinal,
@@ -887,18 +886,17 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       !pendingTool &&
       displayTools.length > 0;
     const measure = () => {
-      // 向上滚时底部卡片会被 xterm 视口裁切，此时测高拿到的是裁切后的矮高度，
-      // fit 会把占位永久压成 1 行。卡片未完全在视口内时跳过，滚回底部再测。
+      // 卡片顶部滚出视口上方时 xterm 会裁切 decoration，此时跳过避免测高异常。
+      // 但长卡底部超出视口不应跳过：测高用 portal 内 range/scrollHeight，
+      // 不受 xterm 视口影响，且需要 fit 缩掉流式峰值高度，否则卡内底部留白。
       const term = getXterm(sessionId);
       const geo = getShellAgentGeometry(sessionId);
       if (term && geo && geo.mode === "inline" && geo.rows > 0) {
         try {
           const buf = term.buffer.active;
           const viewTop = buf.viewportY;
-          const viewEnd = viewTop + (term.rows || 24);
           const cardTop = geo.anchorLine;
-          const cardBottom = geo.anchorLine + geo.rows;
-          if (cardTop < viewTop || cardBottom > viewEnd) {
+          if (cardTop < viewTop) {
             return;
           }
         } catch {
@@ -1297,17 +1295,6 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
           {t("terminal.shellAgent.thinking")}
         </div>
       )}
-      {phase === "idle" ? (
-        <div className="term-shell-agent-card__footer">
-          <button
-            type="button"
-            className="term-shell-agent-btn term-shell-agent-btn--ghost"
-            onClick={() => newShellAgentSession(sessionId)}
-          >
-            {t("terminal.shellAgent.newSession")}
-          </button>
-        </div>
-      ) : null}
     </div>
   ) : null;
 

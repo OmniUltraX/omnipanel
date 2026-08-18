@@ -116,10 +116,11 @@ export function contentHeightToCardRows(
     kind === "final"
       ? Math.ceil(Math.max(0, raw - 0.1))
       : Math.ceil(raw);
-  // ask / final：略留空行，避免 decoration 矮于卡片盖住下方回显。
+  // ask：略留空行，避免 decoration 矮于卡片盖住下方回显。
+  // final 不再 +1：footer 按钮已删，padRows=1 会留一整行空白。
   // cmd 工具条不要再 +2：会把 1 行 search 撑成大片空白，且 \r\n 写进 buffer 后缩 decoration 也清不掉。
   const pad =
-    opts?.padRows ?? (kind === "ask" || kind === "final" ? 1 : 0);
+    opts?.padRows ?? (kind === "ask" ? 1 : 0);
   const hardMax = maxCardRowsFor(sessionId, kind);
   const min =
     opts?.minRows ??
