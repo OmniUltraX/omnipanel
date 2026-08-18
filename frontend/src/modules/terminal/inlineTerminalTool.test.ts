@@ -23,7 +23,14 @@ vi.mock("./aiThreadBridge", () => ({ getResolvedAiThread: () => [] }));
 vi.mock("./inlineToolBridge", () => ({ getPendingInlineToolScope: () => ({}) }));
 vi.mock("./terminalApprovalPolicy", () => ({ shouldRequireTerminalApproval: () => true }));
 vi.mock("./terminalApprovalSettings", () => ({ resolveTerminalApprovalMode: () => "always" }));
-vi.mock("../../lib/ai/toolHost", () => ({ SSH_EXEC_TOOL_NAME: "omni_ssh_exec" }));
+vi.mock("../../lib/ai/toolHost", () => ({
+  SSH_EXEC_TOOL_NAME: "omni_ssh_exec",
+  TERMINAL_EXEC_TOOL_NAME: "omni_terminal_exec",
+  isTerminalPtyExecTool: (name: string) =>
+    name === "omni_terminal_exec" ||
+    name === "omni_terminal_run_terminal_command" ||
+    name === "run_terminal_command",
+}));
 vi.mock("../../hooks/useTerminal", () => ({ useTerminal: () => null }));
 
 import {
@@ -37,6 +44,19 @@ import {
 import type { AiThreadItem } from "../../stores/blocksStore";
 
 describe("collectInlineTerminalToolCalls", () => {
+  it("收集 omni_terminal_exec", () => {
+    const thread: AiThreadItem[] = [
+      {
+        kind: "tool_call",
+        id: "t-pty",
+        toolName: "omni_terminal_exec",
+        args: '{"command":"Get-Date"}',
+        status: "pending",
+        timestamp: 1,
+      },
+    ];
+    expect(collectInlineTerminalToolCalls(thread).map((t) => t.id)).toEqual(["t-pty"]);
+  });
   it("收集独立 tool_call 条目", () => {
     const thread: AiThreadItem[] = [
       {
@@ -190,6 +210,7 @@ describe("collectDisplayToolCalls", () => {
 
   it("跑命令不进工具条", () => {
     expect(isDisplayShellAgentToolName("omni_ssh_exec")).toBe(false);
+    expect(isDisplayShellAgentToolName("omni_terminal_exec")).toBe(false);
     expect(isDisplayShellAgentToolName("omni_web_search")).toBe(true);
     expect(isDisplayShellAgentToolName("omni_web_fetch")).toBe(true);
     expect(isDisplayShellAgentToolName("omni_ask_user")).toBe(false);

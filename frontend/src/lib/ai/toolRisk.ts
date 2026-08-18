@@ -82,6 +82,8 @@ export function evaluateToolRisk(
 
   if (typeof parsedArgs.command === "string") {
     command = parsedArgs.command;
+  } else if (typeof parsedArgs.cmd === "string") {
+    command = parsedArgs.cmd;
   } else if (
     toolName.includes("ssh_create_run_script") &&
     typeof parsedArgs.content === "string"

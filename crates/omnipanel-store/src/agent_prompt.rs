@@ -315,7 +315,7 @@ fn migrate_ask_user_prompt_guidance() -> OmniResult<()> {
         }
     }
 
-    // system-prompt：修正「本地用 omni_terminal_*」误导（实际终端执行工具为 omni_ssh_exec）
+    // system-prompt：修正「本地用 omni_terminal_*」误导（已拆回 omni_terminal_exec）
     {
         let path = prompts_root()?.join(files::SYSTEM_PROMPT);
         if path.exists() {
@@ -323,7 +323,24 @@ fn migrate_ask_user_prompt_guidance() -> OmniResult<()> {
                 let trimmed = current.trim();
                 if trimmed.starts_with("[System — OmniPanel Client Tool API]")
                     && trimmed.contains("omni_terminal_*")
-                    && !trimmed.contains("call `omni_ssh_exec` (bound terminal session")
+                    && !trimmed.contains("call `omni_terminal_exec`")
+                {
+                    fs::write(&path, DEFAULT_SYSTEM_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
+
+    // system-prompt：把「本地也用 omni_ssh_exec」的合并文案拆回 omni_terminal_exec
+    {
+        let path = prompts_root()?.join(files::SYSTEM_PROMPT);
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                let trimmed = current.trim();
+                if trimmed.starts_with("[System — OmniPanel Client Tool API]")
+                    && trimmed.contains("call `omni_ssh_exec` (bound terminal session")
+                    && !trimmed.contains("omni_terminal_exec")
                 {
                     fs::write(&path, DEFAULT_SYSTEM_PROMPT).map_err(map_io)?;
                     clear_prompt_cache();
@@ -335,7 +352,7 @@ fn migrate_ask_user_prompt_guidance() -> OmniResult<()> {
     Ok(())
 }
 
-/// 将提示词中已废弃的 `omni_terminal_*` 引用收敛到 `omni_ssh_*` / `omni_ssh_exec`。
+/// 将提示词中已废弃的 `omni_terminal_run_terminal_command` / 旧通配引用收敛到 `omni_terminal_exec`。
 /// 仅改官方默认结构文案；深度自定义若完全不像默认标题则跳过整篇替换，仍做安全字符串替换。
 fn migrate_omni_terminal_tool_rename() -> OmniResult<()> {
     // agents/terminal.md
@@ -343,15 +360,17 @@ fn migrate_omni_terminal_tool_rename() -> OmniResult<()> {
         let path = agent_prompt_path("terminal")?;
         if path.exists() {
             if let Ok(current) = fs::read_to_string(&path) {
-                if current.contains("omni_terminal_") {
-                    let looks_official = current.trim().starts_with("# OmniPanel · 终端");
-                    let next = if looks_official
-                        && current.contains("`omni_terminal_*`、`omni_ssh_*`")
-                    {
-                        DEFAULT_TERMINAL_AGENT_PROMPT.to_string()
-                    } else {
-                        rewrite_omni_terminal_refs(&current)
-                    };
+                let looks_official = current.trim().starts_with("# OmniPanel · 终端");
+                let needs_split = looks_official
+                    && current.contains("omni_ssh_exec 同时覆盖")
+                    && !current.contains("omni_terminal_exec");
+                if needs_split {
+                    fs::write(&path, DEFAULT_TERMINAL_AGENT_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                } else if current.contains("omni_terminal_run_terminal_command")
+                    || current.contains("`omni_terminal_*`")
+                {
+                    let next = rewrite_omni_terminal_refs(&current);
                     if next != current {
                         fs::write(&path, next).map_err(map_io)?;
                         clear_prompt_cache();
@@ -366,15 +385,17 @@ fn migrate_omni_terminal_tool_rename() -> OmniResult<()> {
         let path = agent_prompt_path("run")?;
         if path.exists() {
             if let Ok(current) = fs::read_to_string(&path) {
-                if current.contains("omni_terminal_") {
-                    let looks_official = current.trim().starts_with("# OmniPanel · 执行助手");
-                    let next = if looks_official
-                        && current.contains("`omni_terminal_*`、`omni_ssh_*`")
-                    {
-                        DEFAULT_RUN_AGENT_PROMPT.to_string()
-                    } else {
-                        rewrite_omni_terminal_refs(&current)
-                    };
+                let looks_official = current.trim().starts_with("# OmniPanel · 执行助手");
+                let needs_split = looks_official
+                    && current.contains("均用 `omni_ssh_exec`")
+                    && !current.contains("omni_terminal_exec");
+                if needs_split {
+                    fs::write(&path, DEFAULT_RUN_AGENT_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                } else if current.contains("omni_terminal_run_terminal_command")
+                    || current.contains("`omni_terminal_*`")
+                {
+                    let next = rewrite_omni_terminal_refs(&current);
                     if next != current {
                         fs::write(&path, next).map_err(map_io)?;
                         clear_prompt_cache();
@@ -384,12 +405,14 @@ fn migrate_omni_terminal_tool_rename() -> OmniResult<()> {
         }
     }
 
-    // agents/plan.md：禁止列表里去掉已不存在的 omni_terminal_*
+    // agents/plan.md：禁止列表里去掉已不存在的旧通配
     {
         let path = agent_prompt_path("plan")?;
         if path.exists() {
             if let Ok(current) = fs::read_to_string(&path) {
-                if current.contains("omni_terminal_") {
+                if current.contains("`omni_terminal_*`")
+                    || current.contains("omni_terminal_run_terminal_command")
+                {
                     let next = rewrite_omni_terminal_refs(&current);
                     if next != current {
                         fs::write(&path, next).map_err(map_io)?;
@@ -407,14 +430,13 @@ fn rewrite_omni_terminal_refs(src: &str) -> String {
     let mut next = src.to_string();
     next = next.replace(
         "`omni_terminal_*`、`omni_ssh_*`",
-        "`omni_ssh_*`（本地与 SSH 均用 `omni_ssh_exec`）",
+        "`omni_terminal_exec`、`omni_ssh_*`",
     );
     next = next.replace("`omni_ssh_*`、`omni_terminal_*`、", "`omni_ssh_*`、");
     next = next.replace("、`omni_terminal_*`", "");
-    next = next.replace("`omni_terminal_*`、", "");
-    next = next.replace("`omni_terminal_*`", "`omni_ssh_exec`");
-    next = next.replace("omni_terminal_run_terminal_command", "omni_ssh_exec");
-    next = next.replace("omni_terminal_*", "omni_ssh_*");
+    next = next.replace("`omni_terminal_*`、", "`omni_terminal_exec`、");
+    next = next.replace("`omni_terminal_*`", "`omni_terminal_exec`");
+    next = next.replace("omni_terminal_run_terminal_command", "omni_terminal_exec");
     next
 }
 
@@ -623,6 +645,7 @@ mod tests {
     fn defaults_are_non_empty() {
         assert!(!DEFAULT_SYSTEM_PROMPT.trim().is_empty());
         assert!(DEFAULT_SYSTEM_PROMPT.contains("OmniPanel Client Tool API"));
+        assert!(DEFAULT_SYSTEM_PROMPT.contains("omni_terminal_exec"));
         assert!(DEFAULT_SYSTEM_PROMPT.contains("omni_ssh_exec"));
         assert!(!DEFAULT_SYSTEM_PROMPT.contains("omni_terminal_*"));
         for id in AGENT_PROMPT_IDS {
@@ -639,17 +662,20 @@ mod tests {
         assert!(plan.contains("omni_knowledge_create_document"));
         assert!(!plan.contains("最终交付物必须是一份待办清单"));
         assert!(plan.contains("执行计划") || plan.contains("计划助手") || plan.contains("Plan"));
-        assert!(!plan.contains("omni_terminal_"));
+        assert!(plan.contains("omni_terminal_exec"));
+        assert!(!plan.contains("omni_terminal_run"));
         let terminal = default_agent_prompt("terminal");
         assert!(terminal.contains("服务与健康检查"));
         assert!(terminal.contains("资源占用"));
         assert!(terminal.contains("环境安装"));
+        assert!(terminal.contains("omni_terminal_exec"));
         assert!(terminal.contains("omni_ssh_exec"));
-        assert!(!terminal.contains("omni_terminal_"));
+        assert!(!terminal.contains("omni_terminal_run"));
         let run = default_agent_prompt("run");
         assert!(run.contains("执行助手") || run.contains("全部"));
-        assert!(run.contains("omni_ssh_") || run.contains("全部内置工具"));
-        assert!(!run.contains("omni_terminal_"));
+        assert!(run.contains("omni_terminal_exec"));
+        assert!(run.contains("omni_ssh_"));
+        assert!(!run.contains("omni_terminal_run"));
         let list = list_prompt_entries().expect("list");
         assert_eq!(list.len(), AGENT_PROMPT_IDS.len());
         assert!(list.iter().any(|e| e.id == "terminal"));
@@ -660,8 +686,10 @@ mod tests {
     fn rewrite_omni_terminal_refs_collapses_aliases() {
         let src = "可用：`omni_terminal_*`、`omni_ssh_*`；禁止：`omni_ssh_*`、`omni_terminal_*`、`omni_docker_*`；旧名 omni_terminal_run_terminal_command";
         let next = rewrite_omni_terminal_refs(src);
-        assert!(!next.contains("omni_terminal_"));
-        assert!(next.contains("omni_ssh_exec"));
+        assert!(next.contains("omni_terminal_exec"));
+        assert!(!next.contains("omni_terminal_run_terminal_command"));
+        assert!(!next.contains("`omni_terminal_*`"));
+        assert!(next.contains("omni_ssh_*"));
         assert!(next.contains("omni_docker_*"));
     }
 }

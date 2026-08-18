@@ -44,6 +44,7 @@ const UI_ONLY_TOOLS: &[&str] = &[
     "omni_plan_add_step",
     "omni_plan_update_step",
     "omni_ask_user",
+    "omni_terminal_exec",
     "omni_workspace_create",
     "omni_workspace_switch",
     "omni_workspace_list_resources",

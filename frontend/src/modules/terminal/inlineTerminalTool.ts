@@ -7,7 +7,11 @@ import {
   type TerminalBlock,
 } from "../../stores/blocksStore";
 import { isHiddenChatToolName } from "../../lib/ai/hiddenChatTools";
-import { SSH_EXEC_TOOL_NAME } from "../../lib/ai/toolHost";
+import {
+  isTerminalPtyExecTool,
+  SSH_EXEC_TOOL_NAME,
+  TERMINAL_EXEC_TOOL_NAME,
+} from "../../lib/ai/toolHost";
 import { getResolvedAiThread } from "./aiThreadBridge";
 import { getPendingInlineToolScope } from "./inlineToolBridge";
 import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
@@ -17,9 +21,10 @@ function resolveToolCallCommand(item: AiThreadToolCall): string {
   const direct = item.command?.trim();
   if (direct) return direct;
   try {
-    const parsed = JSON.parse(item.args) as { command?: string };
-    if (typeof parsed.command === "string" && parsed.command.trim()) {
-      return parsed.command.trim();
+    const parsed = JSON.parse(item.args) as { command?: string; cmd?: string };
+    const raw = parsed.command ?? parsed.cmd;
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim();
     }
   } catch {
     // ignore
@@ -27,15 +32,14 @@ function resolveToolCallCommand(item: AiThreadToolCall): string {
   return "";
 }
 
-/** 在终端会话内联展示 / 审批的「跑命令」类工具（含历史别名）。 */
+/** 在终端会话内联展示 / 审批的「跑命令」类工具（当前 Tab PTY + 历史别名；兼容未带 resource_id 的 omni_ssh_exec）。 */
 const INLINE_TERMINAL_TOOL_NAMES = new Set([
+  TERMINAL_EXEC_TOOL_NAME,
   SSH_EXEC_TOOL_NAME,
-  "omni_terminal_run_terminal_command",
-  "run_terminal_command",
 ]);
 
 export function isInlineTerminalToolName(toolName: string): boolean {
-  return INLINE_TERMINAL_TOOL_NAMES.has(toolName);
+  return isTerminalPtyExecTool(toolName) || INLINE_TERMINAL_TOOL_NAMES.has(toolName);
 }
 
 /**

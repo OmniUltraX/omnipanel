@@ -122,6 +122,10 @@ mod tests {
         );
         assert_eq!(
             omni_tool_module_key("omni_ssh_exec"),
+            Some("ssh")
+        );
+        assert_eq!(
+            omni_tool_module_key("omni_terminal_exec"),
             Some("terminal")
         );
         assert_eq!(omni_tool_module_key("other_tool"), None);
@@ -154,7 +158,8 @@ mod tests {
         let tools = vec![
             Tool::new("omni_plan_create", "plan", schema.clone()),
             Tool::new("omni_knowledge_save_todolist", "todo", schema.clone()),
-            Tool::new("omni_ssh_exec", "term", schema),
+            Tool::new("omni_ssh_exec", "term", schema.clone()),
+            Tool::new("omni_terminal_exec", "pty", schema),
         ];
         let filtered = filter_tools_for_request(
             tools,
@@ -164,6 +169,7 @@ mod tests {
         let names: Vec<_> = filtered.iter().map(|t| t.name.as_ref()).collect();
         assert!(names.contains(&"omni_plan_create"));
         assert!(names.contains(&"omni_ssh_exec"));
+        assert!(names.contains(&"omni_terminal_exec"));
         assert!(!names.contains(&"omni_knowledge_save_todolist"));
     }
 

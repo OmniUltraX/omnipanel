@@ -404,6 +404,7 @@ mod tests {
         let storage = Storage::open_in_memory().unwrap();
         let list = storage.builtin_tool_list().unwrap();
         assert!(list.iter().any(|t| t.tool_name == "omni_ssh_exec"));
+        assert!(list.iter().any(|t| t.tool_name == "omni_terminal_exec"));
 
         storage
             .builtin_tool_set_enabled("omni_ssh_exec", false)

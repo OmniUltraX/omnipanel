@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useShellAgentStore } from "./shellAgentStore";
+import { isLiveShellAgentForBlock, useShellAgentStore } from "./shellAgentStore";
 
 describe("shellAgentStore", () => {
   beforeEach(() => {
@@ -40,5 +40,28 @@ describe("shellAgentStore", () => {
     useShellAgentStore.getState().cancel("sess-1");
     expect(useShellAgentStore.getState().isBusy("sess-1")).toBe(false);
     expect(useShellAgentStore.getState().get("sess-1")?.phase).toBe("cancelled");
+  });
+
+  it("命令栏污染 isBusy 时不算直通绑定", () => {
+    useShellAgentStore.getState().setPhase("sess-1", "executing");
+    expect(useShellAgentStore.getState().isBusy("sess-1")).toBe(true);
+    expect(useShellAgentStore.getState().get("sess-1")?.blockId).toBeNull();
+    expect(isLiveShellAgentForBlock("sess-1", "ai-block-1")).toBe(false);
+  });
+
+  it("直通绑定匹配的 AI 卡片才算 live", () => {
+    useShellAgentStore.getState().ensure("sess-1");
+    useShellAgentStore.getState().setBlockId("sess-1", "ai-block-1");
+    useShellAgentStore.getState().setPhase("sess-1", "streaming");
+    expect(isLiveShellAgentForBlock("sess-1", "ai-block-1")).toBe(true);
+    expect(isLiveShellAgentForBlock("sess-1", "other-block")).toBe(false);
+  });
+
+  it("idle / cancelled 不算 live", () => {
+    useShellAgentStore.getState().ensure("sess-1");
+    useShellAgentStore.getState().setBlockId("sess-1", "ai-block-1");
+    expect(isLiveShellAgentForBlock("sess-1", "ai-block-1")).toBe(false);
+    useShellAgentStore.getState().setPhase("sess-1", "cancelled");
+    expect(isLiveShellAgentForBlock("sess-1", "ai-block-1")).toBe(false);
   });
 });
