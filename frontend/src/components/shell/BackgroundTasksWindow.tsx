@@ -81,9 +81,7 @@ function BackgroundTaskRow({
   const busy = isBackgroundTaskBusy(task.status);
   const progressPercent = task.status === "completed" ? 100 : taskProgressPercent(task);
   const showIndeterminate = busy && progressPercent == null;
-  const showBar = busy
-    ? progressPercent != null || showIndeterminate
-    : task.status === "completed" && progressPercent != null;
+  const showBar = busy && (progressPercent != null || showIndeterminate);
   const resultText = !busy && !task.error && task.progress ? task.progress : null;
 
   const handleCopyError = useCallback(async () => {

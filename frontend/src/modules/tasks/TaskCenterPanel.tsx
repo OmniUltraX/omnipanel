@@ -145,7 +145,7 @@ function AiTaskCard({
   const isFinished = task.status !== "running" && task.status !== "pending";
 
   return (
-    <div className={`task-card task-card--ai ${statusClass(task.status)}`}>
+    <div className="task-card task-card--ai">
       <div className="task-card__header">
         <strong className="task-card__title">{task.title}</strong>
         <span className={`task-card__status ${statusClass(task.status)}`}>
@@ -227,7 +227,7 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
   }, [task.id, t]);
 
   return (
-    <div className={`task-card task-card--bg ${statusClass(task.status)}`}>
+    <div className="task-card task-card--bg">
       <div className="task-card__header">
         <strong className="task-card__title">{task.title}</strong>
         <span className={`task-card__status ${statusClass(task.status)}`}>
@@ -254,7 +254,7 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
           </span>
         </div>
       )}
-      {task.progress && <div className="task-card__progress-text">{task.progress}</div>}
+      {task.progress ? <div className="task-card__message">{task.progress}</div> : null}
       {task.error ? (
         <div className="task-card__error">
           <span className="task-card__error-text">{task.error}</span>
@@ -274,13 +274,13 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
           </button>
         </div>
       ) : null}
-      <div className="task-card__actions">
-        {isJobRunning(task.status) && (
+      {isJobRunning(task.status) ? (
+        <div className="task-card__actions">
           <Button variant="ghost" size="sm" onClick={() => void handleCancel()} disabled={canceling}>
             {canceling ? t("taskCenter.actions.cancelling") : t("taskCenter.actions.cancel")}
           </Button>
-        )}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -288,7 +288,7 @@ function BgTaskCard({ task }: { task: BackgroundTaskInfo }) {
 function LoopRunCard({ item }: { item: TaskItem }) {
   const run = useLoopStore((s) => (item.runId ? s.runs[item.runId] : undefined));
   return (
-    <div className={`task-card task-card--ai ${statusClass(item.status)}`}>
+    <div className="task-card task-card--ai">
       <div className="task-card__header">
         <strong className="task-card__title">{item.title}</strong>
         <span className={`task-card__status ${statusClass(item.status)}`}>{item.status}</span>
@@ -377,7 +377,7 @@ function TaskItemDetail({ item }: { item: TaskItem }) {
 
 function HistoryJobCard({ item }: { item: TaskItem }) {
   return (
-    <div className={`task-card ${statusClass(item.status)}`}>
+    <div className="task-card">
       <div className="task-card__header">
         <strong className="task-card__title">{item.title}</strong>
         <span className={`task-card__status ${statusClass(item.status)}`}>{item.status}</span>
