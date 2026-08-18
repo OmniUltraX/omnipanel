@@ -62,11 +62,11 @@ AI Agent inspection report — structured health checks grounded in live contain
 
 | Area | Highlights |
 |------|------------|
+| **SQL editor** | Ctrl/Cmd+click a table name to open its data panel; Ctrl/Cmd+wheel to zoom font size |
+| **Database export** | Source connection/database shown; type or create the target database; Docker dump password fix |
+| **Custom panels** | Closing a custom dashboard tab no longer deletes it — reopen from the + menu |
 | **Account sync** | Login pulls a shared account-level cloud snapshot across devices |
 | **Panel · App install logs** | Live install progress and error details for BT / 1Panel apps |
-| **Teams · OSS sync** | Email member invite, team data preview, sync exclusions, panel sharing |
-| **SSH · Processes** | Live process polling; cached command-line in process details |
-| **Custom monitor panels** | Drag-and-drop grid panels with host / Docker / MySQL / Redis widgets |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md).
