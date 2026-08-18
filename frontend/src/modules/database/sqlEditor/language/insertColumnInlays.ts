@@ -1,11 +1,9 @@
 /**
- * INSERT ... (cols) VALUES (...) / SELECT ... 列名 inlay + 悬停高亮（DataGrip 风格）。
+ * INSERT ... (cols) VALUES (...) / SELECT ... 列名 inlay + 光标高亮（DataGrip 风格）。
  * 仅处理显式列清单；无列清单 / INSERT SET 暂不标注。
  */
 import {
   RangeSetBuilder,
-  StateEffect,
-  StateField,
   type Extension,
 } from "@codemirror/state";
 import {
@@ -24,7 +22,7 @@ export type InsertColumnInlay = {
   column: string;
 };
 
-/** value ↔ field 绑定（用于 inlay 与悬停高亮） */
+/** value ↔ field 绑定（用于 inlay 与光标高亮） */
 export type InsertColumnBinding = {
   column: string;
   fieldFrom: number;
@@ -564,7 +562,11 @@ export function collectInsertColumnInlays(doc: string): InsertColumnInlay[] {
   }));
 }
 
-/** 光标/鼠标落在某个 value 上时，返回对应绑定 */
+function posInInclusiveRange(pos: number, from: number, to: number): boolean {
+  return pos >= from && pos <= to;
+}
+
+/** 文本光标落在某个 value 上时，返回对应绑定 */
 export function findInsertBindingAtValue(
   bindings: InsertColumnBinding[],
   pos: number,
@@ -573,6 +575,24 @@ export function findInsertBindingAtValue(
     if (pos >= b.valueFrom && pos < b.valueTo) return b;
   }
   return null;
+}
+
+/**
+ * 文本光标落在 field 或 value 上时，返回应对齐高亮的绑定。
+ * 光标在列清单上时，多行 VALUES 会带上该列的全部 value。
+ */
+export function findInsertBindingsAtCursor(
+  bindings: InsertColumnBinding[],
+  pos: number,
+): InsertColumnBinding[] {
+  const valueHits = bindings.filter((b) => posInInclusiveRange(pos, b.valueFrom, b.valueTo));
+  if (valueHits.length > 0) return valueHits;
+
+  const fieldHit = bindings.find((b) => posInInclusiveRange(pos, b.fieldFrom, b.fieldTo));
+  if (!fieldHit) return [];
+  return bindings.filter(
+    (b) => b.fieldFrom === fieldHit.fieldFrom && b.fieldTo === fieldHit.fieldTo,
+  );
 }
 
 class InsertColumnTagWidget extends WidgetType {
@@ -620,30 +640,19 @@ function buildInsertColumnDecorations(doc: string): DecorationSet {
 const fieldHighlightMark = Decoration.mark({ class: "cm-sql-insert-field-highlight" });
 const valueHighlightMark = Decoration.mark({ class: "cm-sql-insert-value-highlight" });
 
-const setInsertHoverHighlight = StateEffect.define<DecorationSet>();
-
-const insertHoverHighlightField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(deco, tr) {
-    for (const effect of tr.effects) {
-      if (effect.is(setInsertHoverHighlight)) {
-        return effect.value;
-      }
+function buildCursorHighlightDecorations(bindings: InsertColumnBinding[]): DecorationSet {
+  if (bindings.length === 0) return Decoration.none;
+  const ranges = [];
+  const seenField = new Set<string>();
+  for (const binding of bindings) {
+    const fieldKey = `${binding.fieldFrom}:${binding.fieldTo}`;
+    if (!seenField.has(fieldKey)) {
+      seenField.add(fieldKey);
+      ranges.push(fieldHighlightMark.range(binding.fieldFrom, binding.fieldTo));
     }
-    if (tr.docChanged) {
-      return Decoration.none;
-    }
-    return deco.map(tr.changes);
-  },
-  provide: (field) => EditorView.decorations.from(field),
-});
-
-function buildHoverHighlightDecorations(binding: InsertColumnBinding | null): DecorationSet {
-  if (!binding) return Decoration.none;
-  const ranges = [
-    fieldHighlightMark.range(binding.fieldFrom, binding.fieldTo),
-    valueHighlightMark.range(binding.valueFrom, binding.valueTo),
-  ].sort((a, b) => a.from - b.from || a.to - b.to);
+    ranges.push(valueHighlightMark.range(binding.valueFrom, binding.valueTo));
+  }
+  ranges.sort((a, b) => a.from - b.from || a.to - b.to);
   return Decoration.set(ranges);
 }
 
@@ -696,60 +705,40 @@ export function createInsertColumnInlayPlugin(): ViewPlugin<{ decorations: Decor
   );
 }
 
-/** 鼠标移入 value 时高亮对应 field（及当前 value） */
-function createInsertColumnHoverPlugin() {
-  const plugin = ViewPlugin.fromClass(
+/** 文本光标落在 field/value 时高亮对应列与值（不跟鼠标走） */
+function createInsertColumnCursorHighlightPlugin() {
+  return ViewPlugin.fromClass(
     class {
       bindings: InsertColumnBinding[] = [];
-      activeKey: string | null = null;
+      decorations: DecorationSet = Decoration.none;
 
       constructor(view: EditorView) {
         this.bindings = collectInsertColumnBindings(view.state.doc.toString());
+        this.decorations = this.highlightAtCursor(view);
       }
 
       update(update: ViewUpdate) {
         if (update.docChanged) {
           this.bindings = collectInsertColumnBindings(update.state.doc.toString());
-          this.activeKey = null;
+        }
+        if (update.docChanged || update.selectionSet) {
+          this.decorations = this.highlightAtCursor(update.view);
         }
       }
 
-      setHover(view: EditorView, pos: number | null) {
-        const binding = pos == null ? null : findInsertBindingAtValue(this.bindings, pos);
-        const key = binding
-          ? `${binding.fieldFrom}:${binding.fieldTo}:${binding.valueFrom}:${binding.valueTo}`
-          : null;
-        if (key === this.activeKey) return;
-        this.activeKey = key;
-        view.dispatch({
-          effects: setInsertHoverHighlight.of(buildHoverHighlightDecorations(binding)),
-        });
+      highlightAtCursor(view: EditorView): DecorationSet {
+        const pos = view.state.selection.main.head;
+        return buildCursorHighlightDecorations(findInsertBindingsAtCursor(this.bindings, pos));
       }
     },
-    {
-      eventHandlers: {
-        mousemove(event, view) {
-          const inst = view.plugin(plugin);
-          if (!inst) return false;
-          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-          inst.setHover(view, pos);
-          return false;
-        },
-        mouseleave(_event, view) {
-          view.plugin(plugin)?.setHover(view, null);
-          return false;
-        },
-      },
-    },
+    { decorations: (plugin) => plugin.decorations },
   );
-  return plugin;
 }
 
 export function createInsertColumnInlayExtension(): Extension[] {
   return [
     createInsertColumnInlayPlugin(),
-    insertHoverHighlightField,
-    createInsertColumnHoverPlugin(),
+    createInsertColumnCursorHighlightPlugin(),
     insertColumnInlayTheme,
   ];
 }

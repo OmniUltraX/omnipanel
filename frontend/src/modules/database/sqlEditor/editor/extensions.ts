@@ -39,6 +39,7 @@ import { createSqlLintRunGutter } from "../language/runStatementGutter";
 import { createFunctionSignaturePlugin } from "../language/signature";
 import { createInsertColumnInlayExtension } from "../language/insertColumnInlays";
 import { createSqlSemanticHighlight } from "../language/semantic";
+import { createSqlGotoTableExtension, type SqlGotoTableTarget } from "../language/sqlGotoTable";
 import { resolveSqlToRun } from "../language/selection";
 import { createEditorSearchExtensions } from "../../../../components/ui/content/editorSearch";
 
@@ -51,6 +52,7 @@ export interface SqlEditorExtensionOptions {
   onCursorSync: (view: EditorView) => void;
   getOnRun?: () => ((sql: string) => void) | undefined;
   getOnSave?: () => (() => void) | undefined;
+  getOnOpenTable?: () => ((target: SqlGotoTableTarget) => void) | undefined;
   themeCompartment: Compartment;
   readOnlyCompartment: Compartment;
   languageCompartment: Compartment;
@@ -66,6 +68,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     onCursorSync,
     getOnRun,
     getOnSave,
+    getOnOpenTable,
     themeCompartment,
     readOnlyCompartment,
     languageCompartment,
@@ -117,6 +120,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
       },
     }),
     createSqlHoverTooltip(getSchemas, getDbType, getReadOnly),
+    createSqlGotoTableExtension(getSchemas, getDbType, () => getOnOpenTable?.()),
     createSqlSemanticHighlight(getSchemas, getDbType),
     autocompletion({
       activateOnTyping: true,

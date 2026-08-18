@@ -5,8 +5,12 @@ import { TerminalSessionsChromeProvider } from "./TerminalSessionsChromeContext"
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
-import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
-import { focusTerminalPaneInput, shouldFocusTerminalOnClick } from "./terminalClickFocus";
+import {
+  hasDomTextSelection,
+  isSimplePointerClick,
+  focusTerminalPaneInput,
+  shouldFocusTerminalOnClick,
+} from "./terminalTextSelection";
 import { getXterm } from "./xtermRegistry";
 
 export interface TerminalSessionsWorkspaceViewProps {

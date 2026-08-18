@@ -213,6 +213,20 @@ export function clampSqlEditorFontSize(value: number): SqlEditorFontSize {
   return DEFAULT_SQL_EDITOR_FONT_SIZE;
 }
 
+/** 按可选档位放大/缩小一档（Ctrl+滚轮）。已在边界则保持不变。 */
+export function stepSqlEditorFontSize(current: number, direction: 1 | -1): SqlEditorFontSize {
+  const opts = SQL_EDITOR_FONT_SIZE_OPTIONS;
+  let idx = opts.findIndex((n) => n === current);
+  if (idx < 0) {
+    idx = opts.reduce(
+      (best, n, i) => (Math.abs(n - current) < Math.abs(opts[best]! - current) ? i : best),
+      0,
+    );
+  }
+  const next = Math.max(0, Math.min(opts.length - 1, idx + direction));
+  return opts[next]!;
+}
+
 /** 表数据网格字号选项（与 SQL 编辑器一致，默认更紧凑 12） */
 export const DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS = SQL_EDITOR_FONT_SIZE_OPTIONS;
 export type DatabaseTableGridFontSize = (typeof DATABASE_TABLE_GRID_FONT_SIZE_OPTIONS)[number];

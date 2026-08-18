@@ -17,6 +17,7 @@ import {
   findStatementRangeAtOffset,
 } from "../language/selection";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../sql/sqlEditorTheme";
+import { attachSqlEditorWheelZoom } from "../../sql/sqlEditorZoom";
 import {
   clearSearchHighlight,
   findNextSearchMatch,
@@ -33,6 +34,7 @@ import { restoreDockWindowChromeAfterLayout } from "../../../../lib/restoreDockW
 import { createSqlEditorExtensions } from "./extensions";
 import { getShortcutKeys, matchesShortcut } from "../../../../stores/shortcutsStore";
 import { useSettingsStore } from "../../../../stores/settingsStore";
+import type { SqlGotoTableTarget } from "../language/sqlGotoTable";
 /** 打开方式：独立查询页（sql）或侧栏点表后的表数据预览（data）。 */
 export type SqlEditorOpenMode = "query" | "table";
 
@@ -71,6 +73,8 @@ interface SqlEditorProps {
   onRunAll?: () => void;
   /** 保存查询文件（阻止浏览器默认保存页行为）。快捷键 save-sql-file。 */
   onSave?: () => void;
+  /** Ctrl/Cmd+点击表名时打开对应表数据面板。 */
+  onOpenTable?: (target: SqlGotoTableTarget) => void;
   /** 光标 offset 变化（供无焦点时 ⌘+Enter 使用）。 */
   onCursorOffsetChange?: (offset: number) => void;
   /** 当前上下文中的库表结构（通常仅含当前选中的数据库）。 */
@@ -131,6 +135,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     onRunSelected,
     onRunAll,
     onSave,
+    onOpenTable,
     onCursorOffsetChange,
     schemas = [],
     readOnly = false,
@@ -151,6 +156,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const onRunSelectedRef = useRef(onRunSelected);
   const onRunAllRef = useRef(onRunAll);
   const onSaveRef = useRef(onSave);
+  const onOpenTableRef = useRef(onOpenTable);
   const onCursorOffsetChangeRef = useRef(onCursorOffsetChange);
   const readOnlyRef = useRef(readOnly);
   const schemasRef = useRef(schemas);
@@ -166,6 +172,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   onRunSelectedRef.current = onRunSelected;
   onRunAllRef.current = onRunAll;
   onSaveRef.current = onSave;
+  onOpenTableRef.current = onOpenTable;
   onCursorOffsetChangeRef.current = onCursorOffsetChange;
   readOnlyRef.current = readOnly;
   schemasRef.current = schemas;
@@ -276,6 +283,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       onCursorSync: syncCursorOffset,
       getOnRun: () => onRunRef.current,
       getOnSave: () => onSaveRef.current,
+      getOnOpenTable: () => onOpenTableRef.current,
       themeCompartment: themeCompartment.current,
       readOnlyCompartment: readOnlyCompartment.current,
       languageCompartment: languageCompartment.current,
@@ -291,11 +299,14 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     });
     viewRef.current = view;
 
+    const detachZoom = attachSqlEditorWheelZoom(containerRef.current);
+
     if (openMode === "query") {
       requestAnimationFrame(() => view.focus());
     }
 
     return () => {
+      detachZoom();
       view.destroy();
       viewRef.current = null;
     };

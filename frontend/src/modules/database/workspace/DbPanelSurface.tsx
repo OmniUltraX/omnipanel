@@ -61,6 +61,7 @@ interface DbPanelSqlEditorProps {
   onRunSelected: (selectedSql: string) => void;
   onRunAll: () => void;
   onSave: () => void;
+  onOpenTable: (target: { databaseName: string; tableName: string }) => void;
 }
 
 const DETAIL_DEFAULT_SIZE_PX: Record<DatabaseTableDetailPosition, number> = {
@@ -91,6 +92,7 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
   onRunSelected,
   onRunAll,
   onSave,
+  onOpenTable,
 }: DbPanelSqlEditorProps) {
   return (
     <SqlEditor
@@ -106,6 +108,7 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
       onRunSelected={onRunSelected}
       onRunAll={onRunAll}
       onSave={onSave}
+      onOpenTable={onOpenTable}
       schemas={scopedSchemas}
     />
   );
@@ -187,6 +190,18 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const handleSqlSave = useCallback(
     () => void ws.saveSqlTab(tab.id),
     [ws.saveSqlTab, tab.id],
+  );
+  const handleOpenTableFromSql = useCallback(
+    (target: { databaseName: string; tableName: string }) => {
+      if (!tabConn) return;
+      ws.selectTable({
+        connId: tabConn.id,
+        dbName: target.databaseName,
+        tableName: target.tableName,
+        connection: tabConn,
+      });
+    },
+    [tabConn, ws.selectTable],
   );
   const sqlEditorOpenMode = ws.tabModeToEditorOpenMode(_mode);
   const sqlEditorRef = useRef<SqlEditorHandle>(null);
@@ -582,6 +597,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onRunSelected={runSelectedSql}
           onRunAll={runAllSql}
           onSave={handleSqlSave}
+          onOpenTable={handleOpenTableFromSql}
         />
       </SqlEditorScopedSearch>
     </div>

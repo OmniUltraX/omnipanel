@@ -3,6 +3,7 @@ import {
   collectInsertColumnBindings,
   collectInsertColumnInlays,
   findInsertBindingAtValue,
+  findInsertBindingsAtCursor,
 } from "./insertColumnInlays";
 
 function labelsAt(doc: string): Array<{ column: string; snippet: string }> {
@@ -130,13 +131,34 @@ describe("insert column hover bindings", () => {
     expect(doc.slice(bindings[1]!.valueFrom, bindings[1]!.valueTo)).toBe("'alice'");
   });
 
-  it("findInsertBindingAtValue resolves hovered value", () => {
+  it("findInsertBindingAtValue resolves value at cursor", () => {
     const doc = "INSERT INTO t (id, name) VALUES (1, 'alice')";
     const bindings = collectInsertColumnBindings(doc);
     const nameValuePos = doc.indexOf("'alice'") + 2;
     const hit = findInsertBindingAtValue(bindings, nameValuePos);
     expect(hit?.column).toBe("name");
     expect(findInsertBindingAtValue(bindings, 0)).toBeNull();
+  });
+
+  it("findInsertBindingsAtCursor follows caret on value, field, and token end", () => {
+    const doc = "INSERT INTO t (id, name) VALUES (1, 'alice')";
+    const bindings = collectInsertColumnBindings(doc);
+    const nameField = bindings[1]!;
+
+    expect(findInsertBindingsAtCursor(bindings, doc.indexOf("'alice'") + 2).map((b) => b.column)).toEqual([
+      "name",
+    ]);
+    expect(findInsertBindingsAtCursor(bindings, nameField.fieldFrom).map((b) => b.column)).toEqual(["name"]);
+    expect(findInsertBindingsAtCursor(bindings, nameField.valueTo).map((b) => b.column)).toEqual(["name"]);
+    expect(findInsertBindingsAtCursor(bindings, 0)).toEqual([]);
+  });
+
+  it("findInsertBindingsAtCursor highlights every row when caret is on a field", () => {
+    const doc = "INSERT INTO t (a, b) VALUES (1, 2), (3, 4)";
+    const bindings = collectInsertColumnBindings(doc);
+    const fieldA = bindings[0]!;
+    const hits = findInsertBindingsAtCursor(bindings, fieldA.fieldFrom);
+    expect(hits.map((b) => doc.slice(b.valueFrom, b.valueTo))).toEqual(["1", "3"]);
   });
 
   it("works for INSERT SELECT seed style", () => {

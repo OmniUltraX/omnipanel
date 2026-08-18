@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { shouldFocusTerminalOnClick } from "./terminalClickFocus";
+import { shouldFocusTerminalOnClick } from "./terminalTextSelection";
 
 describe("shouldFocusTerminalOnClick", () => {
   afterEach(() => {

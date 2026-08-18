@@ -18,6 +18,7 @@ import { python } from "@codemirror/legacy-modes/mode/python";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
+import { attachSqlEditorWheelZoom } from "../../../modules/database/sql/sqlEditorZoom";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { restoreDockWindowChromeAfterLayout } from "../../../lib/restoreDockWindowChromeAfterLayout";
 import { createEditorSearchExtensions } from "./editorSearch";
@@ -170,7 +171,10 @@ export function CodeEditor({
     });
     viewRef.current = view;
 
+    const detachZoom = attachSqlEditorWheelZoom(containerRef.current);
+
     return () => {
+      detachZoom();
       view.destroy();
       viewRef.current = null;
     };

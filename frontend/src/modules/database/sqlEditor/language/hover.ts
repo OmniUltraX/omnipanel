@@ -10,32 +10,7 @@ import {
 } from "../parser/analyzer";
 import { resolveDerivedColumnInStatement, type DerivedColumn } from "../parser/derivedColumns";
 import { mountSqlHighlightBlock } from "./sqlHoverHighlight";
-
-function stripQuotes(name: string): string {
-  return name.replace(/^[`"]|[`"]$/g, "");
-}
-
-function identifierAtPos(line: string, offsetInLine: number): { word: string; from: number; to: number } | null {
-  const re = /[`"]?[\w$]+[`"]?/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(line))) {
-    const raw = match[0];
-    const start = match.index;
-    const end = start + raw.length;
-    if (offsetInLine >= start && offsetInLine <= end) {
-      const word = stripQuotes(raw);
-      return { word, from: start, to: end };
-    }
-  }
-  return null;
-}
-
-function qualifierBeforePos(line: string, identFrom: number): string | null {
-  const prefix = line.slice(0, identFrom);
-  const match = prefix.match(/([`"]?[\w$]+[`"]?)\.\s*$/);
-  if (!match) return null;
-  return stripQuotes(match[1]);
-}
+import { identifierAtPos, isPosInLineComment, qualifierBeforePos } from "./sqlIdentAtPos";
 
 function formatNullable(nullable: boolean | undefined): string {
   if (nullable === undefined) return "—";
@@ -491,17 +466,6 @@ function resolveHoverTarget(
   }
 
   return null;
-}
-
-function isPosInLineComment(lineText: string, offsetInLine: number): boolean {
-  const before = lineText.slice(0, Math.max(0, offsetInLine));
-  const commentStart = before.indexOf("--");
-  if (commentStart < 0) {
-    return false;
-  }
-  const beforeComment = before.slice(0, commentStart);
-  const singleQuotes = (beforeComment.match(/'/g) ?? []).length;
-  return singleQuotes % 2 === 0;
 }
 
 /** 表/列 Hover 提示（Metadata Catalog + 语句内别名解析）。 */

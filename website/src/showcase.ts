@@ -10,8 +10,9 @@ function poseClass(pose: Pose): string {
 
 export function setupShowcase() {
   const root = document.querySelector<HTMLElement>("[data-showcase]");
-  const stage = document.querySelector<HTMLElement>("[data-showcase-stage]");
-  if (!root || !stage) return;
+  const stageNode = document.querySelector<HTMLElement>("[data-showcase-stage]");
+  if (!root || !stageNode) return;
+  const stage: HTMLElement = stageNode;
 
   const shots = Array.from(stage.querySelectorAll<HTMLElement>("[data-shot]"));
   const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-shot-tab]"));

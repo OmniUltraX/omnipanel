@@ -44,8 +44,12 @@ import { useTerminalUiStore } from "./terminalUiStore";
 import { useTerminalRunStateStore } from "./terminalRunStateStore";
 import type { TerminalInputMode } from "../../hooks/useTerminal";
 import { Button } from "../../components/ui/primitives/Button";
-import { hasDomTextSelection, isSimplePointerClick } from "./terminalTextSelection";
-import { focusTerminalPaneInput, shouldFocusTerminalOnClick } from "./terminalClickFocus";
+import {
+  hasDomTextSelection,
+  isSimplePointerClick,
+  focusTerminalPaneInput,
+  shouldFocusTerminalOnClick,
+} from "./terminalTextSelection";
 import { getXterm } from "./xtermRegistry";
 import {
   clearAllSessionBlocks,
