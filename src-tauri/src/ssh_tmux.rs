@@ -253,6 +253,8 @@ impl TmuxManager {
             },
         };
 
+        host.controller.ensure_utf8_locale().await;
+
         // 优先 attach 回原 window（关 Tab 保留进程后重连），匹配不到则新建。
         // create_window 返回的 PaneEntry 必须回填，否则前端无法在关 Tab 后按 pane 恢复。
         let pane_id = if let Some(pid) = pane_id_override {

@@ -4,7 +4,7 @@
 //! 出站命令经 `cmd_tx` 交给外部循环写入 control channel。这样协议状态机可以脱离
 //! SSH 完整测试。
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -105,6 +105,8 @@ impl CommandQueue {
 struct ControllerState {
     registry: PaneRegistry,
     queue: CommandQueue,
+    /// 新建 window 已带 LC_CTYPE，不必再往 pane 里打 bind。
+    utf8_ready_panes: HashSet<u32>,
 }
 
 /// tmux control mode 控制器。
@@ -295,6 +297,7 @@ impl TmuxController {
 
         let mut state = self.state();
         state.registry.register(session_id, window, pane);
+        state.utf8_ready_panes.insert(pane.0);
         Ok(PaneEntry {
             session_id: session_id.to_string(),
             window,
@@ -361,9 +364,26 @@ impl TmuxController {
         Ok(None)
     }
 
+    /// 让后续 window 带上 UTF-8 locale。失败不阻断会话。
+    pub async fn ensure_utf8_locale(&self) {
+        for cmd in commands::ensure_utf8_env() {
+            let _ = self.run_command(&cmd).await;
+        }
+    }
+
     /// 写入按键/粘贴内容。
     pub fn write(&self, session_id: &str, data: &[u8]) -> OmniResult<()> {
         let entry = self.entry_of(session_id)?;
+        let need_fix = {
+            let state = self.state();
+            commands::looks_like_cjk_utf8(data) && !state.utf8_ready_panes.contains(&entry.pane.0)
+        };
+        if need_fix {
+            for cmd in commands::bootstrap_readline_utf8(entry.pane) {
+                self.fire_command(&cmd)?;
+            }
+            self.state().utf8_ready_panes.insert(entry.pane.0);
+        }
         for cmd in commands::send_keys_batches(entry.pane, data) {
             self.fire_command(&cmd)?;
         }
@@ -704,6 +724,28 @@ mod tests {
         h.controller.write("ssh-1", b"ls\r").unwrap();
 
         assert_eq!(h.sent_commands(), vec!["send-keys -t %3 -H 6c 73 0d"]);
+    }
+
+    #[test]
+    fn first_cjk_write_bootstraps_old_posix_pane() {
+        let mut h = Harness::new();
+        h.controller.adopt_window("ssh-1", WindowId(0), PaneId(3));
+        h.controller.write("ssh-1", "间".as_bytes()).unwrap();
+
+        let cmds = h.sent_commands();
+        assert!(
+            cmds[0].starts_with("send-keys -t %3 -H 15"),
+            "先 Ctrl+U 再 export/bind: {cmds:?}"
+        );
+        assert!(cmds[0].contains("62 69 6e 64"), "必须包含 bind: {cmds:?}");
+        assert_eq!(cmds.last().unwrap(), "send-keys -t %3 -H e9 97 b4");
+
+        h.controller.write("ssh-1", "间".as_bytes()).unwrap();
+        assert_eq!(
+            h.sent_commands(),
+            vec!["send-keys -t %3 -H e9 97 b4".to_string()],
+            "第二次不再注入 bind"
+        );
     }
 
     #[test]
