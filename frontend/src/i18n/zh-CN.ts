@@ -3446,6 +3446,7 @@ export const zhCN = {
       expand: "展开",
       closeFloat: "关闭",
       agreed: "已同意",
+      autoAgreed: "自动同意",
       agree: "同意并执行",
       enterToConfirm: "回车确认",
       enterKey: "Enter",

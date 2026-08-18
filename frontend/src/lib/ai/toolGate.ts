@@ -16,6 +16,8 @@ export interface ToolGateInput {
   args: Record<string, unknown> | string;
   resourceId?: string;
   channel?: ToolGateChannel;
+  /** 终端审批策略已判定需人工确认时强制走 Draft，避免 evaluateToolRisk 误放行 */
+  terminalApprovalRequired?: boolean;
 }
 
 export interface ToolGateResult {
@@ -130,6 +132,20 @@ export function decideToolInvocation(input: ToolGateInput): ToolGateResult {
   const kind = inferKind(toolName);
   const title = toolName.replace(/^omni_/, "").slice(0, 120);
   const preview = shortPreview(args);
+
+  if (input.terminalApprovalRequired) {
+    const risk = evaluateToolRisk(toolName, argsJson, resourceId);
+    return {
+      decision: "approve",
+      risk: risk.risk === "low" ? "medium" : risk.risk,
+      riskCheck: risk.riskCheck,
+      environment: risk.environment,
+      reason: "终端审批策略要求确认",
+      kind,
+      title: `${title}（需确认）`,
+      preview,
+    };
+  }
 
   // 1) 显式危险工具 → 必须审批
   if (mustApproveTool(toolName)) {

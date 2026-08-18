@@ -4,6 +4,7 @@ import {
   coalescePartsByToolSegments,
   coalescePartsForCoherentDisplay,
   coalesceToolsInThinkingPhases,
+  layoutAiMessagePartsForDisplay,
   deriveCompatFields,
   joinTextFragments,
   partsFromFlatFields,
@@ -164,7 +165,36 @@ describe("AiMessage ordered parts", () => {
     expect(joinTextFragments("hello ", "world")).toBe("hello world");
   });
 
-  it("coherent display：reasoning/tool 置顶折叠区，正文合并为一段", () => {
+  it("UI 展示：思考→工具→思考，不整轮捏合", () => {
+    const parts: AiMessagePart[] = [
+      { type: "reasoning", text: "先搜" },
+      {
+        type: "tool-call",
+        id: "s1",
+        name: "omni_web_search",
+        arguments: "{}",
+        status: "completed",
+      },
+      { type: "reasoning", text: "再抓取" },
+      {
+        type: "tool-call",
+        id: "f1",
+        name: "omni_web_fetch",
+        arguments: "{}",
+        status: "completed",
+      },
+      { type: "text", text: "结论" },
+    ];
+    expect(layoutAiMessagePartsForDisplay(parts).map((p) => p.type)).toEqual([
+      "reasoning",
+      "tool-call",
+      "reasoning",
+      "tool-call",
+      "text",
+    ]);
+  });
+
+  it("legacy coherent display：reasoning/tool 置顶（已不用于 UI）", () => {
     const parts: AiMessagePart[] = [
       { type: "text", text: "列出系统里各 Python 解释器与常见" },
       { type: "reasoning", text: "先查 which/pyenv" },

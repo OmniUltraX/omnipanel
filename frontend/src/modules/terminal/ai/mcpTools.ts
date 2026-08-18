@@ -10,6 +10,7 @@ import type { TerminalBlock } from "../../../stores/blocksStore";
 import { useTerminalStore, findTerminalPane } from "../../../stores/terminalStore";
 import { resolveResourceById } from "../../../stores/connectionStore";
 import { executeAiTerminalCommand } from "../executeAiTerminalCommand";
+import { decideInlineTerminalApproval } from "../terminalApprovalPolicy";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../paneResource";
 
 export interface TerminalCommandCoreArgs {
@@ -89,12 +90,17 @@ async function terminalExec(args: Record<string, unknown>): Promise<string> {
     return result.outputJson;
   };
 
+  if (tabId && !decideInlineTerminalApproval(command, tabId)) {
+    return run();
+  }
+
   return runWithToolGate(
     {
       toolName: TERMINAL_EXEC_TOOL_NAME,
       args,
       resourceId: pane?.resourceId ?? LOCAL_TERMINAL_RESOURCE_ID,
       channel: "ui-delegated",
+      terminalApprovalRequired: true,
     },
     run,
   );

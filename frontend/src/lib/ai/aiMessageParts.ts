@@ -283,6 +283,15 @@ export function coalescePartsByToolSegments(parts: AiMessagePart[]): AiMessagePa
 }
 
 /**
+ * 侧栏 / 命令栏 / 直通卡唯一展示布局。
+ * 只按 tool 分段合并双通道碎片，保留「思考 → 工具 → 思考」。
+ */
+export function layoutAiMessagePartsForDisplay(parts: AiMessagePart[]): AiMessagePart[] {
+  return coalescePartsByToolSegments(parts);
+}
+
+/**
+ * @deprecated 勿用于 UI。会把 reasoning 隔开的工具并成一组，破坏思考→工具→思考。
  * 同一「思考阶段」内的工具调用挪到一起，便于 UI 收成一个 ToolGroup。
  *
  * 思考阶段：从消息开头 / 上一段可见正文之后，到下一段 `text` 或 `user-question` 之前。
@@ -334,6 +343,7 @@ export function joinTextFragments(left: string, right: string): string {
 }
 
 /**
+ * @deprecated 勿用于 UI。整轮 reasoning/tool 置顶会丢掉时间线。
  * 展示层收敛：reasoning / tool（及 plan、cluster）收到前部折叠区，
  * 全部 text 合并为一段连贯正文，避免「半句话 + Reasoning/tool + 半句话」。
  *

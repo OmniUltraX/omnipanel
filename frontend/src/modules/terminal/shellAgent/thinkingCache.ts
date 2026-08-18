@@ -307,7 +307,7 @@ export function clearShellAgentLastCmd(sessionId: string): void {
 }
 
 /** 同意/拒绝后下一次 archive 必须冻成对应确认卡（勿被已切到工具条的 liveHtml 抢走） */
-type ConfirmFreezeKind = "agreed" | "rejected";
+type ConfirmFreezeKind = "agreed" | "auto-agreed" | "rejected";
 const confirmFreezeIntent = new Map<string, ConfirmFreezeKind>();
 
 export function markShellAgentConfirmFreeze(
@@ -343,6 +343,7 @@ export function consumeShellAgentAgreedFreeze(sessionId: string): boolean {
 
 export function agreedCmdCopy(): {
   agreedLabel: string;
+  autoAgreedLabel: string;
   viewLabel: string;
   willExecute: string;
 } {
@@ -351,12 +352,14 @@ export function agreedCmdCopy(): {
   if (lang.toLowerCase().startsWith("en")) {
     return {
       agreedLabel: "Agreed",
+      autoAgreedLabel: "Auto-approved",
       viewLabel: "View",
       willExecute: "Will run on host",
     };
   }
   return {
     agreedLabel: "已同意",
+    autoAgreedLabel: "自动同意",
     viewLabel: "查看",
     willExecute: "将在主机执行",
   };
@@ -454,6 +457,8 @@ function replaceConfirmStatusLabel(html: string, label: string): string {
     "High-risk action",
     "已同意",
     "Agreed",
+    "自动同意",
+    "Auto-approved",
     "已拒绝",
     "Rejected",
   ];
@@ -489,16 +494,17 @@ function stripSecondaryConfirmActions(html: string): string {
  */
 export function transformPendingConfirmToAgreedHtml(
   liveHtml: string,
-  opts: { sessionId: string; command?: string; toolId?: string },
+  opts: { sessionId: string; command?: string; toolId?: string; agreedLabel?: string },
 ): string | null {
   const copy = agreedCmdCopy();
+  const agreedLabel = opts.agreedLabel ?? copy.agreedLabel;
   let out = annotateFrozenConfirmRoot(liveHtml, {
     ...opts,
     stateClass: "is-agreed",
   });
   if (!out) return null;
 
-  out = replaceConfirmStatusLabel(out, copy.agreedLabel);
+  out = replaceConfirmStatusLabel(out, agreedLabel);
   out = out.replace(
     /term-shell-agent-card__status-label\s+(danger|accent)/g,
     "term-shell-agent-card__status-label accent",
@@ -517,7 +523,7 @@ export function transformPendingConfirmToAgreedHtml(
       new RegExp(
         `(class="[^"]*term-shell-agent-btn--(?:primary|danger)[^"]*"[^>]*>)\\s*${escapeRegExp(label)}${OPTIONAL_ENTER_KBD}\\s*(</button>)`,
       ),
-      `$1${copy.agreedLabel}$2`,
+      `$1${agreedLabel}$2`,
     );
   }
   out = stripSecondaryConfirmActions(out);

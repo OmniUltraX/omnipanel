@@ -61,6 +61,22 @@ describe("agreed confirm freeze", () => {
     expect(html).not.toContain("term-shell-agent-ico--check");
   });
 
+  it("自动同意沿用确认卡布局，仅文案改为自动同意", () => {
+    const html = buildAgreedCmdFrozenHtml({
+      sessionId: "s1",
+      command: "date",
+      toolId: "t1",
+      agreedLabel: "自动同意",
+    });
+    expect(html).toContain("term-shell-agent-card--cmd");
+    expect(html).toContain("is-agreed");
+    expect(html).toContain("自动同意");
+    expect(html).toContain("<code>date</code>");
+    expect(html).toContain("将在主机执行");
+    expect(html).toContain("term-shell-agent-btn--primary");
+    expect(html).not.toContain("已同意");
+  });
+
   it("transformPendingConfirmToAgreedHtml 只改顶部状态与主按钮", () => {
     const out = transformPendingConfirmToAgreedHtml(PENDING_LIVE, {
       sessionId: "s1",

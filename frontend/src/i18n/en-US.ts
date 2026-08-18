@@ -3460,6 +3460,7 @@ export const enUS: TranslationDict = {
       expand: "Expand",
       closeFloat: "Close",
       agreed: "Agreed",
+      autoAgreed: "Auto-approved",
       agree: "Agree & run",
       enterToConfirm: "Press Enter to confirm",
       enterKey: "Enter",

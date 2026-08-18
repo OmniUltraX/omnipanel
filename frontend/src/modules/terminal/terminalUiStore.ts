@@ -83,6 +83,9 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
         autoReturnToCommandBar,
       };
     });
+    void import("./inlineToolBridge").then(({ syncInlineApprovalUiForInputMode }) => {
+      syncInlineApprovalUiForInputMode(sessionId, mode);
+    });
   },
 
   getInputMode: (sessionId) =>
@@ -123,6 +126,9 @@ export const useTerminalUiStore = create<TerminalUiState>((set, get) => ({
         inputModes: { ...state.inputModes, [sessionId]: "external" },
         autoReturnToCommandBar,
       };
+    });
+    void import("./inlineToolBridge").then(({ syncInlineApprovalUiForInputMode }) => {
+      syncInlineApprovalUiForInputMode(sessionId, "external");
     });
   },
 

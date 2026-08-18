@@ -1,5 +1,5 @@
 import {
-  coalescePartsByToolSegments,
+  layoutAiMessagePartsForDisplay,
   type AiMessagePart,
 } from "../../../lib/ai/aiMessageParts";
 import type {
@@ -122,7 +122,7 @@ function currentTurnSegments(thread: AiThreadItem[]): TurnSeg[] {
                 ? ([{ type: "text", text: item.content }] as AiMessagePart[])
                 : []),
             ];
-      const parts = coalescePartsByToolSegments(rawParts);
+      const parts = layoutAiMessagePartsForDisplay(rawParts);
       for (const part of parts) {
         if (isReasoningPart(part)) pushReasoning(part.text);
         else if (isTextPart(part)) pushText(part.text);
@@ -157,7 +157,7 @@ function lastReasoningFromMessage(item: AiThreadMessage): string {
       : item.reasoning?.trim()
         ? ([{ type: "reasoning", text: item.reasoning }] as AiMessagePart[])
         : [];
-  const parts = coalescePartsByToolSegments(rawParts);
+  const parts = layoutAiMessagePartsForDisplay(rawParts);
   const joined = parts
     .filter(isReasoningPart)
     .map((p) => p.text)

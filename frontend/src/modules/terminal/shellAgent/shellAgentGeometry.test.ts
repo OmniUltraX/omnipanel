@@ -407,8 +407,8 @@ describe("shellAgentGeometry", () => {
     const secondMarkerLine = (term.markers[1] as FakeMarker).line;
     expect(geo.mode).toBe("inline");
     expect(secondMarkerLine).toBeGreaterThanOrEqual(firstMarkerLine + 1);
-    expect(term.decorations).toHaveLength(2);
-    expect(term.decorations[0].disposed).toBe(false);
+    const liveDecorations = term.decorations.filter((d) => !d.disposed);
+    expect(liveDecorations).toHaveLength(2);
   });
 
   it("贴底且当前行有命令时，先换行再钉卡，避免 decoration 盖住回显", () => {

@@ -72,6 +72,7 @@ export type {
 } from "../lib/ai/aiMessageParts";
 export {
   coalescePartsByToolSegments,
+  layoutAiMessagePartsForDisplay,
   coalescePartsForCoherentDisplay,
   coalesceToolsInThinkingPhases,
   deriveCompatFields,

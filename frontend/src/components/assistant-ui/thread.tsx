@@ -683,8 +683,8 @@ const TerminalAssistantMessage: FC = () => {
       >
         <MessagePrimitive.GroupedParts
           groupBy={groupPartByType({
-            reasoning: ["group-chainOfThought", "group-reasoning"],
-            "tool-call": ["group-chainOfThought", "group-tool"],
+            reasoning: ["group-reasoning"],
+            "tool-call": [],
             "standalone-tool-call": [],
           })}
         >
@@ -838,8 +838,8 @@ const AssistantMessage: FC = () => {
       >
         <MessagePrimitive.GroupedParts
           groupBy={groupPartByType({
-            reasoning: ["group-chainOfThought", "group-reasoning"],
-            "tool-call": ["group-chainOfThought", "group-tool"],
+            reasoning: ["group-reasoning"],
+            "tool-call": [],
             "standalone-tool-call": [],
           })}
         >

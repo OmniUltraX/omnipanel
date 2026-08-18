@@ -3,6 +3,7 @@ import { findTerminalPane } from "@/stores/terminalStore";
 import { lineLooksLikeShellPrompt } from "../passthroughAi/screenLine";
 import { getXterm } from "../xtermRegistry";
 import {
+  agreedCmdCopy,
   buildAgreedCmdFrozenHtml,
   buildRejectedCmdFrozenHtml,
   buildThinkingDoneFrozenHtml,
@@ -420,11 +421,14 @@ function resolveFrozenHtml(
     const last = getShellAgentLastCmd(sessionId);
     const freezeKind = consumeShellAgentConfirmFreeze(sessionId);
     // 仅在明确同意/拒绝意图下冻成终态；禁止把待确认/工具条误冻成「已同意」
-    if (freezeKind === "agreed") {
+    if (freezeKind === "agreed" || freezeKind === "auto-agreed") {
+      const { agreedLabel, autoAgreedLabel } = agreedCmdCopy();
+      const label = freezeKind === "auto-agreed" ? autoAgreedLabel : agreedLabel;
       const transformed = transformPendingConfirmToAgreedHtml(liveHtml, {
         sessionId,
         command: last?.command,
         toolId: last?.toolId,
+        agreedLabel: label,
       });
       if (transformed) return transformed;
       if (last?.command) {
@@ -433,6 +437,7 @@ function resolveFrozenHtml(
           command: last.command,
           toolId: last.toolId,
           description: last.description,
+          agreedLabel: label,
         });
       }
     }
@@ -616,6 +621,15 @@ function frozenPlaceholderRows(
   if (kind === "cmd" && liveHtml.includes("term-shell-agent-tool")) {
     const n = Math.max(1, collectDisplayToolIdsFromHtml(liveHtml).length);
     return Math.max(2, n);
+  }
+  // 已同意/自动同意/已拒绝：与待确认卡同高，不能压成 2 行矮条。
+  if (
+    kind === "cmd" &&
+    (!liveHtml ||
+      liveHtml.includes("is-agreed") ||
+      liveHtml.includes("is-rejected"))
+  ) {
+    return minCardRowsFor("cmd");
   }
   return Math.max(1, fallback);
 }

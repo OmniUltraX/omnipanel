@@ -13,7 +13,7 @@ import { cancelPendingInlineTools } from "../inlineToolBridge";
 import { collectDisplayToolCalls, isInlineTerminalToolName } from "../inlineTerminalTool";
 import { getEnterGateFlags, patchEnterGateFlags } from "../passthroughAi/enterGates";
 import { schedulePassthroughPromptHintSync } from "../passthroughAi/passthroughPromptHint";
-import { lineLooksLikeShellPrompt } from "../passthroughAi/screenLine";
+import { lineLooksLikeShellPrompt, splitPromptAndBody } from "../passthroughAi/screenLine";
 import { writeTerminalRaw } from "../terminalPaneSenders";
 import { markShellPromptReady } from "../terminalShellRecovery";
 import { getResolvedAiThread } from "../aiThreadBridge";
@@ -29,7 +29,6 @@ import {
   clearReanchorPtySync,
   consumeReanchorPtySync,
   cursorInsideAnyCard,
-  disposeShellAgentCard,
   ensureCursorBelowCards,
   getShellAgentGeometry,
   isShellAgentCursorPastPlaceholder,
@@ -157,9 +156,8 @@ export function clearRemoteInputLine(
     markShellPromptReady(sessionId);
     return;
   }
-  writeTerminalRaw(sessionId, "\x01");
-  writeTerminalRaw(sessionId, "\x0b");
-  writeTerminalRaw(sessionId, "\x15");
+  // 一次写完，避免 Ctrl+A 与命令注入交错成 `date现在的时间`
+  writeTerminalRaw(sessionId, "\x01\x0b\x15");
   markShellPromptReady(sessionId);
 }
 
@@ -254,6 +252,8 @@ function cursorInsideActiveCard(sessionId: string): boolean {
 
 /** 执行开始时卡片底线：final 必须钉在此行之下，避免结果卡插在 Get-Date 回显之上 */
 const execOutputFloor = new Map<string, number>();
+/** 内联工具已等到命令结束：settle 不必再等 SSH 空 prompt / 下一次击键 */
+const execOutputReady = new Set<string>();
 
 function snapshotExecOutputFloor(sessionId: string): void {
   try {
@@ -274,6 +274,7 @@ function snapshotExecOutputFloor(sessionId: string): void {
 
 function clearExecOutputFloor(sessionId: string): void {
   execOutputFloor.delete(sessionId);
+  execOutputReady.delete(sessionId);
 }
 
 function cursorPastExecOutputFloor(sessionId: string): boolean {
@@ -618,6 +619,11 @@ function execOutputLooksIncomplete(sessionId: string): boolean {
 /** 输出还在涨时禁止钉结果卡（CookedValue 标题刚出来、数值还在刷） */
 async function waitForExecOutputStable(sessionId: string, isPs: boolean): Promise<boolean> {
   if (isAgentBusyExecuting(sessionId)) return false;
+  // 工具链已收到命令结束：SSH 上不必再等空 prompt / 下一次击键才钉结果卡
+  if (execOutputReady.has(sessionId)) {
+    execOutputReady.delete(sessionId);
+    return true;
+  }
   const live = getShellAgentGeometry(sessionId);
   if (
     live?.cardKind === "thinking" &&
@@ -865,7 +871,7 @@ function awaitThoughtThenMaybeCmd(
     const thought = await waitForPostExecThought(
       sessionId,
       gen,
-      pendingCmd ? 4000 : 2500,
+      pendingCmd ? 4000 : execOutputFloor.has(sessionId) ? 400 : 2500,
     );
     if (finalSettleGen.get(sessionId) !== gen) return;
     if (shouldSwitchToCmdCard(sessionId)) {
@@ -1053,6 +1059,19 @@ async function abortPowerShellContinuationIfNeeded(sessionId: string): Promise<v
  * 2. 仅当用户有残留输入才清行，并等回显静默
  * 3. 画 prompt 前缀 → 注入命令（PowerShell 跳过本地假前缀）
  */
+function remoteInputLineHasLeftover(sessionId: string): boolean {
+  try {
+    const term = getXterm(sessionId);
+    if (!term?.buffer?.active) return true;
+    const buf = term.buffer.active;
+    const line = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
+    const { body } = splitPromptAndBody(line);
+    return body.trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
 export async function prepareShellAgentExecution(
   sessionId: string,
   command: string,
@@ -1061,12 +1080,22 @@ export async function prepareShellAgentExecution(
   const agentActive = Boolean(agent) && agent!.phase !== "cancelled";
   if (!agentActive) {
     clearRemoteInputLineBeforeExec(sessionId);
-    await sleep(60);
+    await waitForTerminalOutputIdle(sessionId, 50, 400);
     return;
   }
-  if (getEnterGateFlags(sessionId).userTyping) {
+  // 路由 AI 后 userTyping 已是 false，但 PTY 上常还留着「现在的时间」。
+  // 不在这里清行，注入 date 会变成 `date现在的时间`。
+  const mustClear =
+    !isPowerShellSession(sessionId) ||
+    getEnterGateFlags(sessionId).userTyping ||
+    remoteInputLineHasLeftover(sessionId);
+  if (mustClear) {
     clearRemoteInputLineBeforeExec(sessionId);
     await waitForTerminalOutputIdle(sessionId, 50, 500);
+    if (!isPowerShellSession(sessionId) && remoteInputLineHasLeftover(sessionId)) {
+      writeTerminalRaw(sessionId, "\x03");
+      await waitForTerminalOutputIdle(sessionId, 50, 400);
+    }
   }
   await abortPowerShellContinuationIfNeeded(sessionId);
   prepareShellAgentEcho(sessionId, command);
@@ -1392,14 +1421,17 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
     executing ? "executing" : "observing",
   );
   if (!executing) {
+    execOutputReady.add(sessionId);
     scheduleFinalCardAfterExec(sessionId);
     return;
   }
 
   abortFinalSettle(sessionId);
   const stray = getShellAgentGeometry(sessionId);
+  // 自动同意：思考卡归档为「思考完成」，再钉与手动确认卡同款的「自动同意」卡。
   if (stray?.cardKind === "thinking" && stray.decoration) {
-    disposeShellAgentCard(sessionId);
+    pinFrozenAgreedCmdCard(sessionId);
+    return;
   }
 
   // 同意后：把确认卡封成「已同意」留在 scrollback
@@ -1678,6 +1710,43 @@ function releaseShellAgentToPrompt(sessionId: string): void {
     });
 }
 
+function pinFrozenAgreedCmdCard(sessionId: string): void {
+  cmdAfterSettle.delete(sessionId);
+  markShellAgentConfirmFreeze(sessionId, "auto-agreed");
+
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.cardKind === "thinking" && geo.decoration) {
+    archiveActiveInlineCard(sessionId);
+  }
+
+  const live = getShellAgentGeometry(sessionId);
+  if (live?.mode === "inline" && live.cardKind === "cmd" && live.decoration) {
+    const html = live.decoration.element?.innerHTML ?? "";
+    if (html.includes("term-shell-agent-tool")) {
+      snapshotExecOutputFloor(sessionId);
+      return;
+    }
+    markShellAgentConfirmFreeze(sessionId, "auto-agreed");
+    archiveActiveInlineCard(sessionId);
+    snapshotExecOutputFloor(sessionId);
+    ensureCursorBelowCards(sessionId);
+    return;
+  }
+
+  if (!getShellAgentLastCmd(sessionId)?.command) {
+    snapshotExecOutputFloor(sessionId);
+    return;
+  }
+
+  // 与手动确认卡同高、同布局，只把状态文案改成「自动同意」
+  reanchorShellAgentCard(sessionId, "cmd", () => {
+    markShellAgentConfirmFreeze(sessionId, "auto-agreed");
+    archiveActiveInlineCard(sessionId);
+    snapshotExecOutputFloor(sessionId);
+    ensureCursorBelowCards(sessionId);
+  });
+}
+
 function clearPromptReleaseGuard(sessionId: string): void {
   promptReleasedForTurn.delete(sessionId);
   finalSettleGen.delete(sessionId);
@@ -1720,7 +1789,6 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
   }
 
   const geo = getShellAgentGeometry(sessionId);
-  const isPs = isPowerShellSession(sessionId);
 
   // 思考卡已在流内：本轮结束直接升结果 / 收官，勿再等 PTY settle（会卡住转圈）。
   if (geo?.decoration && geo.cardKind === "thinking") {
@@ -1754,13 +1822,12 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
     return;
   }
 
-  // 无 live decoration（reanchor 失败等）：勿直接 release，
-  // 否则会与 scheduleFinalCardAfterExec 抢跑，结果卡落点错乱。
+  // 无 live decoration（确认卡已冻、SSH 等）：勿直接 release，
+  // 否则会与 scheduleFinalCardAfterExec 抢跑，结果卡要等用户再敲一条才出现。
   if (
-    isPs &&
-    (cur.phase === "streaming" ||
-      cur.phase === "observing" ||
-      cur.phase === "executing")
+    cur.phase === "streaming" ||
+    cur.phase === "observing" ||
+    cur.phase === "executing"
   ) {
     scheduleFinalCardAfterExec(sessionId, () => scheduleTurnFinishFallback(sessionId));
     return;

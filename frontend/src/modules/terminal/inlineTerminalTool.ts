@@ -14,8 +14,7 @@ import {
 } from "../../lib/ai/toolHost";
 import { getResolvedAiThread } from "./aiThreadBridge";
 import { getPendingInlineToolScope } from "./inlineToolBridge";
-import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
-import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
+import { decideInlineTerminalApproval } from "./terminalApprovalPolicy";
 
 function resolveToolCallCommand(item: AiThreadToolCall): string {
   const direct = item.command?.trim();
@@ -161,8 +160,6 @@ export function findActiveInlineTerminalTool(
   blocks: TerminalBlock[],
   sessionId: string,
 ): ActiveInlineTerminalTool | null {
-  const mode = resolveTerminalApprovalMode(sessionId);
-
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
     if (block.kind !== "ai") continue;
@@ -179,10 +176,7 @@ export function findActiveInlineTerminalTool(
         const command = resolveToolCallCommand(entry);
         if (
           command &&
-          !shouldRequireTerminalApproval(command, mode, {
-            conversationId: scope.conversationId,
-            terminalSessionId: sessionId,
-          })
+          !decideInlineTerminalApproval(command, sessionId, scope.conversationId)
         ) {
           continue;
         }

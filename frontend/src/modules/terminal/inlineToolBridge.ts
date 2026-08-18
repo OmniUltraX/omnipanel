@@ -11,21 +11,21 @@ import {
 } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
 import { pushAssistantErrorMessage } from "./aiThreadBridge";
+import type { TerminalInputMode } from "../../hooks/useTerminal";
 import { findTerminalPane } from "../../stores/terminalStore";
 import { resolveResourceById } from "../../stores/connectionStore";
 import { cancelTerminalExecution } from "./executeTerminalCommand";
 import { executeAiTerminalCommand } from "./executeAiTerminalCommand";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "./paneResource";
 import { useTerminalUiStore } from "./terminalUiStore";
-import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
-import { shouldRequireTerminalApproval } from "./terminalApprovalPolicy";
+import { decideInlineTerminalApproval } from "./terminalApprovalPolicy";
 import { patchEnterGateFlags } from "./passthroughAi/enterGates";
 import {
   notifyShellAgentApprovalPending,
   notifyShellAgentExecuting,
   notifyShellAgentRejected,
 } from "./shellAgent/loop";
-import { isLiveShellAgentForBlock } from "./shellAgent/shellAgentStore";
+import { isLiveShellAgentForBlock, useShellAgentStore } from "./shellAgent/shellAgentStore";
 import {
   getShellAgentLastCmd,
   setShellAgentLastCmd,
@@ -176,6 +176,49 @@ export function dismissOrphanInlineToolCalls(blockId?: string): number {
   return count;
 }
 
+/** 直通模式或已绑 block 的 Shell Agent 用流内确认卡；命令栏用 ToolCallBar。 */
+function shouldUsePassthroughApprovalUi(sessionId: string, blockId: string): boolean {
+  const mode = useTerminalUiStore.getState().getInputMode(sessionId);
+  if (mode === "interactive") return true;
+  return isLiveShellAgentForBlock(sessionId, blockId);
+}
+
+/** 只绑 block，不改 phase。phase / 延后钉卡由 notifyShellAgentApprovalPending 负责。 */
+function bindShellAgentBlock(sessionId: string, blockId: string): void {
+  const store = useShellAgentStore.getState();
+  store.ensure(sessionId);
+  const agent = store.get(sessionId);
+  if (!agent?.blockId || agent.blockId !== blockId) {
+    store.setBlockId(sessionId, blockId);
+  }
+}
+
+/**
+ * 切换 inputMode 后把内存中的 pending 审批绑到当前展示皮：
+ * 直通 → 流内确认卡；命令栏 → ToolCallBar + 展开 AI 块。
+ */
+export function syncInlineApprovalUiForInputMode(
+  sessionId: string,
+  mode: TerminalInputMode,
+): void {
+  for (const [toolCallId, pending] of pendingByToolCallId.entries()) {
+    if (pending.sessionId !== sessionId) continue;
+    const item = findToolCallItem(pending.blockId, toolCallId);
+    if (!item || item.status !== "pending") continue;
+
+    if (mode === "interactive") {
+      if (!decideInlineTerminalApproval(pending.command, sessionId, pending.conversationId)) {
+        continue;
+      }
+      bindShellAgentBlock(sessionId, pending.blockId);
+      notifyShellAgentApprovalPending(sessionId);
+    } else if (mode === "external") {
+      useTerminalUiStore.getState().setExpandedAiBlock(sessionId, pending.blockId);
+    }
+    break;
+  }
+}
+
 export function createInlineTerminalToolCall(
   blockId: string,
   sessionId: string,
@@ -226,21 +269,20 @@ export function waitForInlineToolDecision(
       resolve,
     });
 
-    if (isLiveShellAgentForBlock(sessionId, blockId)) {
-      notifyShellAgentApprovalPending(sessionId);
-      // 直通必须露出可点的同意/拒绝；不走 view/loose 静默自动同意。
-      // 命令栏不得用 isBusy：第一次执行会把 store 标成 executing/streaming，
-      // 第二次只读命令会被误挂起且确认条不出现。
-      return;
+    const needsApproval = decideInlineTerminalApproval(command, sessionId, conversationId);
+    const passthroughUi = shouldUsePassthroughApprovalUi(sessionId, blockId);
+
+    if (passthroughUi) {
+      bindShellAgentBlock(sessionId, blockId);
+      // 需要人审：钉 6 行确认卡等点击。
+      // 自动同意：不要先钉大确认卡——下一拍就会归档，buffer 里会留下整片空白。
+      // 已同意矮卡由 approve → notifyShellAgentExecuting 钉上。
+      if (needsApproval) {
+        notifyShellAgentApprovalPending(sessionId);
+      }
     }
 
-    const mode = resolveTerminalApprovalMode(sessionId);
-    if (
-      !shouldRequireTerminalApproval(command, mode, {
-        conversationId,
-        terminalSessionId: sessionId,
-      })
-    ) {
+    if (!needsApproval) {
       queueMicrotask(() => {
         void approveInlineTerminalTool(blockId, toolCallId);
       });
@@ -385,7 +427,7 @@ export async function approveInlineTerminalTool(
       description: prevCmd?.description,
     });
 
-    const passthrough = isLiveShellAgentForBlock(pending.sessionId, blockId);
+    const passthrough = shouldUsePassthroughApprovalUi(pending.sessionId, blockId);
     if (passthrough) {
       notifyShellAgentExecuting(pending.sessionId, true);
     }
@@ -490,7 +532,7 @@ export function rejectInlineTerminalTool(blockId: string, toolCallId: string): v
   } as Partial<AiThreadToolCall>);
 
   // 先冻成「已拒绝」确认卡，避免 React 切到工具条矮卡
-  if (isLiveShellAgentForBlock(pending.sessionId, blockId)) {
+  if (shouldUsePassthroughApprovalUi(pending.sessionId, blockId)) {
     notifyShellAgentRejected(pending.sessionId);
   }
 

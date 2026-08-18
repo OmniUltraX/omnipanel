@@ -87,7 +87,7 @@ import {
   getShellAgentGeometry,
 } from "./shellAgentGeometry";
 import { useShellAgentStore } from "./shellAgentStore";
-import { setShellAgentThinkingFull } from "./thinkingCache";
+import { setShellAgentLastCmd, setShellAgentThinkingFull } from "./thinkingCache";
 import { writeTerminalRaw } from "../terminalPaneSenders";
 
 const SID = "loop-test-session";
@@ -224,7 +224,7 @@ describe("notifyShellAgentStreaming", () => {
     expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
   });
 
-  it("执行开始时撤掉误钉的思考卡", () => {
+  it("执行开始时把思考卡冻成已同意确认卡，不拆卡", () => {
     useShellAgentStore.getState().ensure(SID);
     beginShellAgentCard(SID, {
       kind: "thinking",
@@ -232,6 +232,7 @@ describe("notifyShellAgentStreaming", () => {
       promptPrefix: "$ ",
       query: "查磁盘",
     });
+    setShellAgentLastCmd(SID, { command: "date", toolId: "t-date" });
 
     notifyShellAgentExecuting(SID, true);
 
