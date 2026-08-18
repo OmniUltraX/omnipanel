@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
+use omnipanel_ai::{fetch_provider_models, FetchModelsError, RemoteModelInfo};
+use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{ai_provider_key_ref, Vault};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
+
+use crate::state::AppState;
 
 /// 接口 /models 返回的单条模型元数据。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, Default)]
@@ -109,7 +114,79 @@ pub fn resolve_ai_provider_api_key(provider_id: &str, request_key: &str) -> Stri
         .unwrap_or_default()
 }
 
-/// 前端在拉取 /models、ACP 同步等场景按需取回 Vault 中的 API Key。
+/// 接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchedProviderModel {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(type = Option<f64>)]
+    pub created: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_by: Option<String>,
+}
+
+impl From<RemoteModelInfo> for FetchedProviderModel {
+    fn from(model: RemoteModelInfo) -> Self {
+        Self {
+            id: model.id,
+            created: model.created,
+            owned_by: model.owned_by,
+        }
+    }
+}
+
+fn map_fetch_models_error(err: FetchModelsError) -> OmniError {
+    match err {
+        FetchModelsError::InvalidBaseUrl => OmniError::invalid_input("Base URL 无效"),
+        FetchModelsError::Http { status, body } => {
+            let message = if body.is_empty() {
+                format!("HTTP {status}")
+            } else {
+                format!("HTTP {status}: {body}")
+            };
+            let code = if matches!(status, 401 | 403) {
+                ErrorCode::Auth
+            } else {
+                ErrorCode::Connection
+            };
+            OmniError::new(code, message)
+        }
+        FetchModelsError::Network(message) => OmniError::connection(message),
+        FetchModelsError::Parse(cause) => {
+            OmniError::internal("模型列表响应无法解析").with_cause(cause)
+        }
+    }
+}
+
+/// 经 Rust HTTP 客户端拉取 `{baseUrl}/models`，避开 WebView CORS。
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_models_fetch_list(
+    state: State<'_, AppState>,
+    base_url: String,
+    api_key: String,
+    api_standard: Option<String>,
+) -> Result<Vec<FetchedProviderModel>, OmniError> {
+    let root = base_url.trim().trim_end_matches('/');
+    if root.is_empty() {
+        return Err(OmniError::invalid_input("Base URL 无效"));
+    }
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let client = crate::commands::proxy::build_http_client_for_url(
+        root,
+        &proxy_config,
+        Duration::from_secs(30),
+    )
+    .map_err(|e| OmniError::connection("创建 HTTP 客户端失败").with_cause(e))?;
+
+    let models = fetch_provider_models(&client, root, &api_key, api_standard.as_deref())
+        .await
+        .map_err(map_fetch_models_error)?;
+    Ok(models.into_iter().map(FetchedProviderModel::from).collect())
+}
+
+/// 前端在 ACP 同步等场景按需取回 Vault 中的 API Key。
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_models_resolve_api_key(provider_id: String) -> Result<String, String> {

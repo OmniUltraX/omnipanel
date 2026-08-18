@@ -13,6 +13,9 @@ pub use orchestrator::{
     InternalToolsMode, ToolExecutor,
 };
 pub use provider::{AiProvider, AiProviderRegistry, RenamedProvider};
+pub use providers::model_list::{
+    FetchModelsError, RemoteModelInfo, fetch_provider_models, parse_models_payload,
+};
 pub use routing::{parse_backend_id, BackendKind, ParsedBackendId};
 pub use types::{
     ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionDef, ModelInfo, Role, ToolCall,

@@ -1203,10 +1203,13 @@ pub fn builtin_tool_module_key(tool_name: &str) -> Option<&'static str> {
     builtin_tool_spec(tool_name).map(|s| s.module_key)
 }
 
-/// 跨模块工具（`omni_plan_*` / `omni_ask_user`）：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
+/// 跨模块工具：catalog 归属 `web`，但对任意模块 Agent 可见/可调用。
 ///
-/// 模块 Agent（terminal / docker / database…）需要会话级 todolist 与结构化澄清；
-/// 若严格按 `module_key` 隔离，这些工具永远不会注入，模型也就无法调用。
+/// - `omni_plan_*` / `omni_ask_user`：会话级进度与结构化澄清
+/// - `omni_web_search` / `omni_zhihu_search` / `omni_web_fetch`：公开信息检索/抓取
+///
+/// 模块 Agent（terminal / docker / database…）若严格按 `module_key` 隔离，
+/// 这些工具永远不会注入；系统提示又要求检索走 search/fetch，模型只能改用 curl。
 pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
     matches!(
         tool_name,
@@ -1214,6 +1217,9 @@ pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
             | "omni_plan_add_step"
             | "omni_plan_update_step"
             | "omni_ask_user"
+            | "omni_web_search"
+            | "omni_zhihu_search"
+            | "omni_web_fetch"
     )
 }
 
@@ -1306,6 +1312,11 @@ mod tests {
         }
         assert!(!builtin_tool_is_cross_module("omni_knowledge_save_todolist"));
         assert!(!builtin_tool_is_cross_module("load_skill"));
+        for name in ["omni_web_search", "omni_zhihu_search", "omni_web_fetch"] {
+            assert_eq!(builtin_tool_module_key(name), Some("web"), "{name}");
+            assert!(builtin_tool_is_cross_module(name), "{name}");
+            assert!(builtin_tool_is_native(name), "{name}");
+        }
     }
 
     #[test]

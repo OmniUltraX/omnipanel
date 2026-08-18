@@ -240,6 +240,7 @@ pub fn ensure_default_prompts() -> OmniResult<()> {
     let _ = migrate_plan_todolist_tool_rename();
     let _ = migrate_ask_user_prompt_guidance();
     let _ = migrate_omni_terminal_tool_rename();
+    let _ = migrate_terminal_web_search_guidance();
 
     Ok(())
 }
@@ -423,6 +424,26 @@ fn migrate_omni_terminal_tool_rename() -> OmniResult<()> {
         }
     }
 
+    Ok(())
+}
+
+/// 官方终端 Agent 提示词：补上联网检索工具，避免模型误以为只能 curl。
+fn migrate_terminal_web_search_guidance() -> OmniResult<()> {
+    let path = agent_prompt_path("terminal")?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let Ok(current) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let trimmed = current.trim();
+    if trimmed.starts_with("# OmniPanel · 终端 Agent")
+        && trimmed.contains("你只使用终端模块工具")
+        && !trimmed.contains("omni_web_search")
+    {
+        fs::write(&path, DEFAULT_TERMINAL_AGENT_PROMPT).map_err(map_io)?;
+        clear_prompt_cache();
+    }
     Ok(())
 }
 

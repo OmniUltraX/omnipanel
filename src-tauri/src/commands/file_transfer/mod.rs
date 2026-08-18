@@ -40,6 +40,7 @@ pub async fn file_transfer_upload_local_bytes(
     dest_dir: String,
     conflict_policy: FileTransferConflictPolicy,
 ) -> Result<String, OmniError> {
+    // 允许空文件（0 字节）上传；内容经临时文件入队。
     let temp_dir = local_temp_dir().map_err(|e| {
         OmniError::new(ErrorCode::Io, "获取临时目录失败").with_cause(e.to_string())
     })?;

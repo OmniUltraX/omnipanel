@@ -1445,6 +1445,12 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
                 .to_string();
             respond(crate::store_bridge::ai_models_resolve_api_key(provider_id).await)
         }
+        "ai_models_fetch_list" => {
+            let base_url = get_str(&args, "baseUrl").unwrap_or_default();
+            let api_key = get_str(&args, "apiKey").unwrap_or_default();
+            let api_standard = get_str(&args, "apiStandard");
+            respond(crate::store_bridge::ai_models_fetch_list(base_url, api_key, api_standard).await)
+        }
 
         /* ---------------- 启动热路径：连接 / 模块 / HTTP 协议库 / 隧道 / 本机监控 ---------------- */
         "conn_list" => respond_omni(crate::store_bridge::conn_list(state).await),

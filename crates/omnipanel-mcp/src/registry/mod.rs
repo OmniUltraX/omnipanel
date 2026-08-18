@@ -1,4 +1,4 @@
-﻿pub mod database_tools;
+pub mod database_tools;
 pub mod docker_tools;
 pub mod external;
 pub mod files_tools;
@@ -70,7 +70,7 @@ impl ToolRegistry {
         for record in records {
             if let Some(filter) = module_filter {
                 // master: 不过滤；其余按 module_key 隔离（Native / UiDelegated 一视同仁）。
-                // omni_plan_* 为跨模块会话进度工具：catalog 属 web，但对所有模块 Agent 注入。
+                // 跨模块工具（plan / ask_user / web search·fetch）：catalog 属 web，但对所有模块 Agent 注入。
                 if filter != "master"
                     && record.module_key != filter
                     && !omnipanel_store::builtin_tool_is_cross_module(&record.tool_name)
@@ -260,6 +260,14 @@ mod tests {
         // 会话级 plan 对模块 Agent 开放（跨模块），其余须为 terminal
         assert!(tools.iter().any(|t| t.name == "omni_plan_create"));
         assert!(tools.iter().any(|t| t.name == "omni_plan_update_step"));
+        assert!(
+            tools.iter().any(|t| t.name == "omni_web_search"),
+            "终端模块应注入联网搜索"
+        );
+        assert!(
+            tools.iter().any(|t| t.name == "omni_web_fetch"),
+            "终端模块应注入网页抓取"
+        );
         assert!(tools.iter().all(|t| {
             t.module_key == "terminal" || omnipanel_store::builtin_tool_is_cross_module(&t.name)
         }));
