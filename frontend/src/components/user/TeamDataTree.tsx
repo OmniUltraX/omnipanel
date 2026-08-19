@@ -247,7 +247,7 @@ export function TeamDataTree({
           <thead>
             <tr>
               <th>{t("userCenter.teams.dataPreviewColumnName")}</th>
-              <th>{t("userCenter.teams.dataPreviewColumnDetail")}</th>
+              <th>{t("userCenter.teams.dataPreviewColumnTags")}</th>
               <th className="data-sync-table__time">{t("userCenter.teams.dataPreviewColumnUpdated")}</th>
               <th className="user-center-team-data__actions-col">
                 {t("userCenter.teams.dataPreviewColumnActions")}
@@ -294,7 +294,19 @@ export function TeamDataTree({
                       ) : null}
                     </div>
                   </td>
-                  <td className="data-sync-table__detail">{item.detail || "—"}</td>
+                  <td className="data-sync-table__tags">
+                    {item.tags && item.tags.length > 0 ? (
+                      <div className="data-sync-table__tag-list">
+                        {item.tags.map((tag) => (
+                          <span key={tag} className="data-sync-table__tag" title={tag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="data-sync-table__tags-empty">—</span>
+                    )}
+                  </td>
                   <td className="data-sync-table__time">{formatUpdatedAt(item.updatedAt, locale)}</td>
                   <td className="user-center-team-data__actions-col">
                     {syncState.hasTargets ? (

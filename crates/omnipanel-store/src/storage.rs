@@ -663,6 +663,12 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_ftj_state ON file_transfer_jobs(state, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_ftj_batch ON file_transfer_jobs(batch_id);
     "#,
+    // v32 — HTTP 资源标签列（快照同步用：上传时若为空会自动补当前设备名）
+    r#"
+    ALTER TABLE http_requests ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE http_collections ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE http_environments ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

@@ -19,8 +19,8 @@ use tauri::State;
 use crate::commands::assistant::build_auth_context;
 use crate::commands::auth::{auth_device_identity, auth_get_me};
 use crate::commands::client_sync_modules::{
-    build_peek_from_bundle, collect_local_bundle, ClientSyncModulesBundle,
-    ClientSyncPeekItem, ClientSyncPushModulesRequest,
+    build_peek_from_bundle, collect_local_bundle, tag_bundle_with_device,
+    ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
 };
 use crate::state::AppState;
 
@@ -166,6 +166,9 @@ pub struct TeamSyncPeekItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_status: Option<TeamSyncPeekSyncStatus>,
     pub excluded: bool,
+    /// 资源标签列表（来自对应资源的 tags 字段）。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -405,16 +408,18 @@ fn align_peek_item(
     remote: Option<&ClientSyncPeekItem>,
 ) -> ClientSyncPeekItem {
     let parent_id = align_peek_parent_id(module_key, local, remote);
-    let (label, detail, updated_at) = match remote {
+    let (label, detail, updated_at, tags) = match remote {
         Some(remote_item) if remote_item.updated_at > local.updated_at => (
             remote_item.label.clone(),
             remote_item.detail.clone(),
             remote_item.updated_at,
+            remote_item.tags.clone(),
         ),
         _ => (
             local.label.clone(),
             local.detail.clone(),
             local.updated_at,
+            local.tags.clone(),
         ),
     };
     ClientSyncPeekItem {
@@ -424,6 +429,7 @@ fn align_peek_item(
         updated_at,
         parent_id,
         kind: local.kind.clone(),
+        tags,
     }
 }
 
@@ -466,6 +472,7 @@ fn to_team_peek_item(
         kind: item.kind.clone(),
         sync_status,
         excluded,
+        tags: item.tags.clone(),
     }
 }
 
@@ -520,6 +527,7 @@ fn ensure_structure_nodes(
                     kind: "folder".to_string(),
                     sync_status: None,
                     excluded: false,
+                    tags: Vec::new(),
                 });
                 added = true;
             }
@@ -758,6 +766,7 @@ fn nest_items_under_module(
         kind: "folder".to_string(),
         sync_status: None,
         excluded: false,
+        tags: Vec::new(),
     });
     for mut item in items {
         if item.id == module_id {
@@ -1087,7 +1096,12 @@ pub async fn team_sync_push_modules(
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
     };
-    let bundle = apply_team_sync_exclusions(bundle, &exclusions);
+    let mut bundle = apply_team_sync_exclusions(bundle, &exclusions);
+    // 与账号自动同步一致：上传前给 tags 为空的资源补当前设备名
+    let device_name = identity.device_name.trim().to_string();
+    if !device_name.is_empty() {
+        tag_bundle_with_device(&mut bundle, &device_name);
+    }
     let body = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
     })?;
@@ -1152,10 +1166,15 @@ pub async fn team_sync_peek_modules(
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_peek_modules_request(&request);
     let exclusions = exclusions_from_peek(&request);
-    let local = {
+    let mut local = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
     };
+    // peek 表格也展示设备名标签：与 push 一致，给本地 tags 为空的资源补当前设备名
+    let device_name = identity.device_name.trim().to_string();
+    if !device_name.is_empty() {
+        tag_bundle_with_device(&mut local, &device_name);
+    }
 
     let remote = if let Ok(Some((_, body))) =
         pull_team_sync_json(&auth, request.team_id, TEAM_MODULES_LATEST_LEAF).await

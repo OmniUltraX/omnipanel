@@ -26409,6 +26409,15 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     font-size: 11px;
 }
 
+.user-center-team-data__table .data-sync-table__tags {
+    font-size: 11px;
+}
+
+.user-center-team-data__table .data-sync-table__tag {
+    font-size: 10px;
+    line-height: 1.5;
+}
+
 .user-center-team-data__table .data-sync-tree-cell {
     gap: 3px;
 }
@@ -27328,7 +27337,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 }
 
 .data-sync-table__name {
-    max-width: 280px;
+    max-width: 180px;
     color: var(--fg);
 }
 
@@ -27338,6 +27347,36 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.data-sync-table__tags {
+    max-width: 320px;
+    color: var(--muted);
+}
+
+.data-sync-table__tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.data-sync-table__tag {
+    display: inline-flex;
+    align-items: center;
+    max-width: 160px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--fg);
+    font-size: 11px;
+    line-height: 1.6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.data-sync-table__tags-empty {
+    color: var(--muted);
 }
 
 .data-sync-table__time {

@@ -2250,6 +2250,8 @@ export type DbConnectionConfig = {
 	enabled?: boolean,
 	/**  钥匙串中是否已保存密码。 */
 	has_password?: boolean,
+	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	tags?: string[],
 };
 
 export type DbDataSyncSqlGenerateResult = {
@@ -3500,6 +3502,8 @@ export type HttpCollection = {
 	description: string,
 	createdAt: number | null,
 	updatedAt: number | null,
+	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	tags?: string[],
 };
 
 /**  HTTP 调试环境（基地址 + 可选默认认证）。 */
@@ -3512,6 +3516,8 @@ export type HttpEnvironment = {
 	authValue: string | null,
 	createdAt: number | null,
 	updatedAt: number | null,
+	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	tags?: string[],
 };
 
 /**  HTTP 请求历史记录。 */
@@ -4456,6 +4462,8 @@ export type SavedHttpRequest = {
 	queryParams?: string,
 	createdAt: number | null,
 	updatedAt: number | null,
+	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	tags?: string[],
 };
 
 export type SchemaCacheColumn = {
@@ -5462,6 +5470,8 @@ export type TeamSyncPeekItem = {
 	kind: string,
 	syncStatus?: TeamSyncPeekSyncStatus | null,
 	excluded: boolean,
+	/**  资源标签列表（来自对应资源的 tags 字段）。 */
+	tags?: string[],
 };
 
 export type TeamSyncPeekModule = {

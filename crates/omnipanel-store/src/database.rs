@@ -40,6 +40,9 @@ pub struct DbConnectionConfig {
     /// 钥匙串中是否已保存密码。
     #[serde(default)]
     pub has_password: bool,
+    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 fn default_enabled() -> bool {
@@ -265,6 +268,7 @@ fn sqlite_demo_connection(id: &str, name: &str, db_path: PathBuf) -> DbConnectio
         status: "unknown".into(),
         enabled: true,
         has_password: false,
+        tags: Vec::new(),
     }
 }
 

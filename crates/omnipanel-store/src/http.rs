@@ -20,6 +20,9 @@ pub struct HttpEnvironment {
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
+    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// 保存的 HTTP 请求。
@@ -44,6 +47,9 @@ pub struct SavedHttpRequest {
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
+    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 fn default_empty_json_array() -> String {
@@ -90,13 +96,16 @@ pub struct HttpCollection {
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
+    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl Storage {
     pub fn http_save_request(&self, req: &SavedHttpRequest) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![req.id, req.name, req.method, req.url, req.headers, req.body, req.auth_type, req.auth_value, req.collection_id, req.environment_id, req.path_params, req.query_params, req.created_at, req.updated_at],
+            "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at, tags) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![req.id, req.name, req.method, req.url, req.headers, req.body, req.auth_type, req.auth_value, req.collection_id, req.environment_id, req.path_params, req.query_params, req.created_at, req.updated_at, serde_json::to_string(&req.tags).unwrap_or_else(|_| "[]".to_string())],
         ).map_err(|e| OmniError::new(ErrorCode::Database, "保存 HTTP 请求失败").with_cause(e.to_string()))?;
         Ok(())
     }
@@ -107,9 +116,9 @@ impl Storage {
     ) -> OmniResult<Vec<SavedHttpRequest>> {
         let conn = self.conn();
         let mut stmt = if collection_id.is_some() {
-            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at FROM http_requests WHERE collection_id = ?1 ORDER BY name")
+            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at, tags FROM http_requests WHERE collection_id = ?1 ORDER BY name")
         } else {
-            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at FROM http_requests ORDER BY name")
+            conn.prepare("SELECT id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at, tags FROM http_requests ORDER BY name")
         }.map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = if let Some(cid) = collection_id {
             stmt.query_map(params![cid], map_request)
@@ -224,8 +233,8 @@ impl Storage {
 
     pub fn http_save_collection(&self, col: &HttpCollection) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT OR REPLACE INTO http_collections (id, name, description, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![col.id, col.name, col.description, col.created_at, col.updated_at],
+            "INSERT OR REPLACE INTO http_collections (id, name, description, created_at, updated_at, tags) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![col.id, col.name, col.description, col.created_at, col.updated_at, serde_json::to_string(&col.tags).unwrap_or_else(|_| "[]".to_string())],
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         Ok(())
     }
@@ -233,7 +242,7 @@ impl Storage {
     pub fn http_list_collections(&self) -> OmniResult<Vec<HttpCollection>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, created_at, updated_at FROM http_collections ORDER BY name"
+            "SELECT id, name, description, created_at, updated_at, tags FROM http_collections ORDER BY name"
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -243,6 +252,7 @@ impl Storage {
                     description: row.get(2)?,
                     created_at: row.get(3)?,
                     updated_at: row.get(4)?,
+                    tags: parse_tags_col(row.get::<_, Option<String>>(5)?),
                 })
             })
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
@@ -259,7 +269,7 @@ impl Storage {
 
     pub fn http_save_environment(&self, env: &HttpEnvironment) -> OmniResult<()> {
         self.conn().execute(
-            "INSERT OR REPLACE INTO http_environments (id, name, base_url, auth_type, auth_value, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO http_environments (id, name, base_url, auth_type, auth_value, created_at, updated_at, tags) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 env.id,
                 env.name,
@@ -267,7 +277,8 @@ impl Storage {
                 env.auth_type,
                 env.auth_value,
                 env.created_at,
-                env.updated_at
+                env.updated_at,
+                serde_json::to_string(&env.tags).unwrap_or_else(|_| "[]".to_string())
             ],
         ).map_err(|e| OmniError::new(ErrorCode::Database, "保存 HTTP 环境失败").with_cause(e.to_string()))?;
         Ok(())
@@ -276,7 +287,7 @@ impl Storage {
     pub fn http_list_environments(&self) -> OmniResult<Vec<HttpEnvironment>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, name, base_url, auth_type, auth_value, created_at, updated_at FROM http_environments ORDER BY name",
+            "SELECT id, name, base_url, auth_type, auth_value, created_at, updated_at, tags FROM http_environments ORDER BY name",
         ).map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -288,6 +299,7 @@ impl Storage {
                     auth_value: row.get(4)?,
                     created_at: row.get(5)?,
                     updated_at: row.get(6)?,
+                    tags: parse_tags_col(row.get::<_, Option<String>>(7)?),
                 })
             })
             .map_err(|e| OmniError::new(ErrorCode::Database, e.to_string()))?;
@@ -325,5 +337,15 @@ fn map_request(row: &rusqlite::Row) -> rusqlite::Result<SavedHttpRequest> {
         query_params: row.get(11).unwrap_or_else(|_| "[]".to_string()),
         created_at: row.get(12)?,
         updated_at: row.get(13)?,
+        tags: parse_tags_col(row.get::<_, Option<String>>(14)?),
     })
+}
+
+/// 解析 tags 列：NULL / 空 / 非法 JSON 均回退为空数组。
+fn parse_tags_col(raw: Option<String>) -> Vec<String> {
+    let Some(text) = raw else { return Vec::new(); };
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    serde_json::from_str(&text).unwrap_or_default()
 }

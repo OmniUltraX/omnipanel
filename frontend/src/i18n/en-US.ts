@@ -7385,7 +7385,7 @@ export const enUS: TranslationDict = {
       dataPreviewRemoteFound: "Team snapshot updated at {time}",
       dataPreviewRemoteMissing: "Team has not uploaded a module snapshot yet",
       dataPreviewColumnName: "Name",
-      dataPreviewColumnDetail: "Detail",
+      dataPreviewColumnTags: "Tags",
       dataPreviewColumnUpdated: "Updated",
       dataPreviewColumnActions: "Actions",
       syncedBadge: "Synced",

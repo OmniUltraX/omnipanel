@@ -85,6 +85,9 @@ pub struct ClientSyncWorkspaceInfo {
     pub window_form: Option<String>,
     #[serde(default)]
     pub updated_at: f64,
+    /// 资源标签列表；上传时若为空会自动补当前设备名。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -234,6 +237,39 @@ fn collect_local_bundle(
     })
 }
 
+/// 给 bundle 中尚未包含设备名的资源追加当前设备名标签（仅 push 上传时用）。
+///
+/// 已有其他标签（如 Connection 的 `os:Ubuntu` 资源探测标签）的资源也会补上设备名，
+/// 仅当 tags 中已存在相同设备名时跳过，避免重复。
+pub(crate) fn tag_bundle_with_device(bundle: &mut ClientSyncModulesBundle, device_name: &str) {
+    let push_if_absent = |tags: &mut Vec<String>| {
+        if !tags.iter().any(|t| t.trim() == device_name) {
+            tags.push(device_name.to_string());
+        }
+    };
+    for c in &mut bundle.connections {
+        push_if_absent(&mut c.connection.tags);
+    }
+    for d in &mut bundle.database_connections {
+        push_if_absent(&mut d.connection.tags);
+    }
+    for k in &mut bundle.knowledge {
+        push_if_absent(&mut k.tags);
+    }
+    for r in &mut bundle.http_requests {
+        push_if_absent(&mut r.tags);
+    }
+    for col in &mut bundle.http_collections {
+        push_if_absent(&mut col.tags);
+    }
+    for env in &mut bundle.http_environments {
+        push_if_absent(&mut env.tags);
+    }
+    for w in &mut bundle.workspaces {
+        push_if_absent(&mut w.tags);
+    }
+}
+
 /// 推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。
 pub async fn client_sync_push_modules(
     state: &crate::state::ServerState,
@@ -251,10 +287,15 @@ pub async fn client_sync_push_modules(
     let team_id = resolve_team_id(request.team_id, &me)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
-    let bundle = {
+    let mut bundle = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &request)?
     };
+    // 上传前给 tags 为空的资源补当前设备名，便于多设备快照区分来源
+    let device_name = identity.device_name.trim().to_string();
+    if !device_name.is_empty() {
+        tag_bundle_with_device(&mut bundle, &device_name);
+    }
 
     let body = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())

@@ -7305,7 +7305,7 @@ export const zhCN = {
       dataPreviewRemoteFound: "团队快照更新于 {time}",
       dataPreviewRemoteMissing: "团队尚未上传模块快照",
       dataPreviewColumnName: "名称",
-      dataPreviewColumnDetail: "详情",
+      dataPreviewColumnTags: "标签",
       dataPreviewColumnUpdated: "更新时间",
       dataPreviewColumnActions: "操作",
       syncedBadge: "已同步",

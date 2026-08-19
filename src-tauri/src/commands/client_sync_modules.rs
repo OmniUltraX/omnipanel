@@ -88,6 +88,9 @@ pub struct ClientSyncWorkspaceInfo {
     pub window_form: Option<String>,
     #[serde(default)]
     pub updated_at: f64,
+    /// 资源标签列表；上传时若为空会自动补当前设备名。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -237,6 +240,39 @@ pub(crate) fn collect_local_bundle(
     })
 }
 
+/// 给 bundle 中尚未包含设备名的资源追加当前设备名标签（仅 push 上传 / peek 展示时用）。
+///
+/// 已有其他标签（如 Connection 的 `os:Ubuntu` 资源探测标签）的资源也会补上设备名，
+/// 仅当 tags 中已存在相同设备名时跳过，避免重复。
+pub(crate) fn tag_bundle_with_device(bundle: &mut ClientSyncModulesBundle, device_name: &str) {
+    let push_if_absent = |tags: &mut Vec<String>| {
+        if !tags.iter().any(|t| t.trim() == device_name) {
+            tags.push(device_name.to_string());
+        }
+    };
+    for c in &mut bundle.connections {
+        push_if_absent(&mut c.connection.tags);
+    }
+    for d in &mut bundle.database_connections {
+        push_if_absent(&mut d.connection.tags);
+    }
+    for k in &mut bundle.knowledge {
+        push_if_absent(&mut k.tags);
+    }
+    for r in &mut bundle.http_requests {
+        push_if_absent(&mut r.tags);
+    }
+    for col in &mut bundle.http_collections {
+        push_if_absent(&mut col.tags);
+    }
+    for env in &mut bundle.http_environments {
+        push_if_absent(&mut env.tags);
+    }
+    for w in &mut bundle.workspaces {
+        push_if_absent(&mut w.tags);
+    }
+}
+
 /// 推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。
 #[tauri::command]
 #[specta::specta]
@@ -256,10 +292,15 @@ pub async fn client_sync_push_modules(
     let team_id = resolve_team_id(request.team_id, &me)?;
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
 
-    let bundle = {
+    let mut bundle = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &request)?
     };
+    // 上传前给 tags 为空的资源补当前设备名，便于多设备快照区分来源
+    let device_name = identity.device_name.trim().to_string();
+    if !device_name.is_empty() {
+        tag_bundle_with_device(&mut bundle, &device_name);
+    }
 
     let body = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
@@ -509,6 +550,9 @@ pub struct ClientSyncPeekItem {
     /// `folder` | `item`（空视为 item）
     #[serde(default)]
     pub kind: String,
+    /// 资源标签列表（来自对应资源的 tags 字段）。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 pub(crate) fn peek_item(
@@ -518,6 +562,7 @@ pub(crate) fn peek_item(
     updated_at: f64,
     parent_id: impl Into<String>,
     kind: &str,
+    tags: Vec<String>,
 ) -> ClientSyncPeekItem {
     ClientSyncPeekItem {
         id: id.into(),
@@ -526,6 +571,7 @@ pub(crate) fn peek_item(
         updated_at,
         parent_id: parent_id.into(),
         kind: kind.to_string(),
+        tags,
     }
 }
 
@@ -557,6 +603,7 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
                     0.0,
                     "",
                     "item",
+                    item.connection.tags.clone(),
                 )
             })
             .collect(),
@@ -576,6 +623,7 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
                     k.updated_at as f64,
                     k.parent_id.trim().to_string(),
                     kind,
+                    k.tags.clone(),
                 )
             })
             .collect(),
@@ -590,6 +638,7 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
                     c.updated_at as f64,
                     "",
                     "folder",
+                    c.tags.clone(),
                 )
             })
             .collect(),
@@ -604,6 +653,7 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
                     r.updated_at as f64,
                     r.collection_id.clone().unwrap_or_default(),
                     "item",
+                    r.tags.clone(),
                 )
             })
             .collect(),
@@ -618,6 +668,7 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
                     w.updated_at,
                     "",
                     "item",
+                    w.tags.clone(),
                 )
             })
             .collect(),
@@ -644,6 +695,7 @@ pub(crate) fn build_connection_peek_items(
             0.0,
             "",
             "folder",
+            Vec::new(),
         ));
     }
     for c in connections {
@@ -660,6 +712,7 @@ pub(crate) fn build_connection_peek_items(
             (c.connection.updated_at as f64) * 1000.0,
             parent,
             "item",
+            c.connection.tags.clone(),
         ));
     }
     out
