@@ -19,7 +19,6 @@ import { shouldHandleConfirmEnter } from "../passthroughAi/confirmEnterHotkey";
 import { getXterm } from "../xtermRegistry";
 import {
   cancelShellAgent,
-  newShellAgentSession,
   notifyShellAgentAfterDisplayTools,
   notifyShellAgentDisplayTool,
   notifyShellAgentPromoteToFinal,
@@ -887,6 +886,23 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       !pendingTool &&
       displayTools.length > 0;
     const measure = () => {
+      // 卡片顶部滚出视口上方时 xterm 会裁切 decoration，此时跳过避免测高异常。
+      // 但长卡底部超出视口不应跳过：测高用 portal 内 range/scrollHeight，
+      // 不受 xterm 视口影响，且需要 fit 缩掉流式峰值高度，否则卡内底部留白。
+      const term = getXterm(sessionId);
+      const geo = getShellAgentGeometry(sessionId);
+      if (term && geo && geo.mode === "inline" && geo.rows > 0) {
+        try {
+          const buf = term.buffer.active;
+          const viewTop = buf.viewportY;
+          const cardTop = geo.anchorLine;
+          if (cardTop < viewTop) {
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
       const h = measureShellAgentCardHeight(container);
       if (h <= 0) return;
       // 思考卡固定矮占位：禁止按测高扩行。扩出去的 \r\n 冻结后缩不掉，空白会一张张累加。
@@ -1279,17 +1295,6 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
           {t("terminal.shellAgent.thinking")}
         </div>
       )}
-      {phase === "idle" ? (
-        <div className="term-shell-agent-card__footer">
-          <button
-            type="button"
-            className="term-shell-agent-btn term-shell-agent-btn--ghost"
-            onClick={() => newShellAgentSession(sessionId)}
-          >
-            {t("terminal.shellAgent.newSession")}
-          </button>
-        </div>
-      ) : null}
     </div>
   ) : null;
 

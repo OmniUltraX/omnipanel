@@ -41,6 +41,27 @@ describe("shouldRouteInputToAi", () => {
     expect(shouldRouteInputToAi("/agent 查日志")).toBe(false);
     expect(shouldRouteInputToAi("!!")).toBe(false);
   });
+
+  it("交互式程序提示不进 AI", () => {
+    expect(shouldRouteInputToAi("Do you want to continue? [Y/n]")).toBe(false);
+    expect(shouldRouteInputToAi("Do you want to continue? [y/N]")).toBe(false);
+    expect(shouldRouteInputToAi("Continue? [yes/no]")).toBe(false);
+    expect(shouldRouteInputToAi("Press enter to continue")).toBe(false);
+    expect(shouldRouteInputToAi("Press Q to continue")).toBe(false);
+  });
+
+  it("命令 + 中文后缀混合输入进 AI", () => {
+    expect(shouldRouteInputToAi("ls -s -a 上面这个命令帮我执行一下")).toBe(true);
+    expect(shouldRouteInputToAi("docker ps 看看容器")).toBe(true);
+    expect(shouldRouteInputToAi("git status 帮我查一下")).toBe(true);
+    expect(shouldRouteInputToAi("ls 帮我看看")).toBe(true);
+  });
+
+  it("引号内中文不误判为 NL", () => {
+    expect(shouldRouteInputToAi('echo "你好"')).toBe(false);
+    expect(shouldRouteInputToAi('git commit -m "修复"')).toBe(false);
+    expect(shouldRouteInputToAi('printf "中文消息"')).toBe(false);
+  });
 });
 
 describe("looksLikeEnglishQuestionInput", () => {

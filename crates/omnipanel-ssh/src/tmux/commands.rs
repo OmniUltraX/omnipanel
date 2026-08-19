@@ -5,6 +5,7 @@
 
 use serde::Serialize;
 
+use crate::pty_utf8::SSH_UTF8_LOCALE;
 use super::parser::{PaneId, WindowId};
 
 /// 远端 tmux 会话概要，用于 `/server` 的会话治理视图。
@@ -134,8 +135,9 @@ fn tmux_quote(value: &str) -> String {
 /// 覆盖 snap 安装、源码编译安装、内置二进制安装三种场景。
 pub fn control_mode_command(session_name: &str, cols: u16, rows: u16) -> String {
     format!(
-        "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -CC new-session -A -D -s {} -x {cols} -y {rows}",
-        shell_quote(session_name)
+        "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -CC new-session -A -D -s {} -x {cols} -y {rows} -e LC_CTYPE={locale}",
+        shell_quote(session_name),
+        locale = SSH_UTF8_LOCALE
     )
 }
 
@@ -148,12 +150,35 @@ pub fn version_probe_command() -> String {
 
 /// 新建 window，并回显 `<window_id> <pane_id>` 便于登记映射。
 pub fn new_window(shell_command: Option<&str>) -> String {
-    let mut cmd = String::from("new-window -d -P -F \"#{window_id} #{pane_id}\"");
+    let mut cmd = format!(
+        "new-window -d -P -F \"#{{window_id}} #{{pane_id}}\" -e LC_CTYPE={SSH_UTF8_LOCALE}"
+    );
     if let Some(sh) = shell_command {
         cmd.push(' ');
         cmd.push_str(&tmux_quote(sh));
     }
     cmd
+}
+
+/// 让后续 new-window 继承 UTF-8。已存在的 pane 不会因此改掉正在跑的 bash。
+pub fn ensure_utf8_env() -> Vec<String> {
+    vec![
+        format!("set-environment -g LC_CTYPE {SSH_UTF8_LOCALE}"),
+        format!("set-environment LC_CTYPE {SSH_UTF8_LOCALE}"),
+    ]
+}
+
+/// 已在跑的 POSIX bash：关掉 convert-meta，否则汉字会变成 `(arg: N)`。
+pub fn bootstrap_readline_utf8(pane: PaneId) -> Vec<String> {
+    send_keys_batches(
+        pane,
+        format!("\x15export LC_CTYPE={SSH_UTF8_LOCALE}; bind 'set convert-meta off'\r")
+            .as_bytes(),
+    )
+}
+
+pub fn looks_like_cjk_utf8(data: &[u8]) -> bool {
+    data.iter().any(|&b| (0xE3..=0xE9).contains(&b))
 }
 
 /// 让指定 window 使用手动尺寸。
@@ -353,7 +378,7 @@ mod tests {
         let cmd = control_mode_command("omnipanel-ws", 120, 40);
         assert_eq!(
             cmd,
-            "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -CC new-session -A -D -s 'omnipanel-ws' -x 120 -y 40"
+            "PATH=\"$HOME/.omnipanel/bin:/snap/bin:/usr/local/bin:$PATH\" tmux -CC new-session -A -D -s 'omnipanel-ws' -x 120 -y 40 -e LC_CTYPE=C.UTF-8"
         );
         assert!(cmd.contains("-A"), "必须支持 attach-or-create");
     }
@@ -368,11 +393,11 @@ mod tests {
     fn new_window_reports_ids() {
         assert_eq!(
             new_window(None),
-            "new-window -d -P -F \"#{window_id} #{pane_id}\""
+            "new-window -d -P -F \"#{window_id} #{pane_id}\" -e LC_CTYPE=C.UTF-8"
         );
         assert_eq!(
             new_window(Some("bash -l")),
-            "new-window -d -P -F \"#{window_id} #{pane_id}\" \"bash -l\""
+            "new-window -d -P -F \"#{window_id} #{pane_id}\" -e LC_CTYPE=C.UTF-8 \"bash -l\""
         );
     }
 
@@ -404,5 +429,21 @@ mod tests {
         assert_eq!(info.pane_id, 5);
         assert_eq!(info.name, "bash");
         assert!(parse_window_info_line(b"garbage").is_none());
+    }
+
+    #[test]
+    fn utf8_env_does_not_touch_window_size() {
+        for cmd in ensure_utf8_env() {
+            assert!(cmd.starts_with("set-environment"));
+            assert!(!cmd.contains("window-size"));
+        }
+    }
+
+    #[test]
+    fn cjk_utf8_detection_matches_chinese() {
+        assert!(looks_like_cjk_utf8("现在的时间".as_bytes()));
+        assert!(looks_like_cjk_utf8("间".as_bytes()));
+        assert!(!looks_like_cjk_utf8(b"ls -la"));
+        assert!(!looks_like_cjk_utf8(b"x'z'd's'j"));
     }
 }

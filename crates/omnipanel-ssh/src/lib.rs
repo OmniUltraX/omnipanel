@@ -9,6 +9,7 @@ mod connection_config;
 mod gpu;
 mod openssh_config;
 mod process;
+mod pty_utf8;
 mod stats;
 pub mod capabilities;
 pub mod log_tail;
@@ -65,6 +66,8 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use russh::client::{self, KeyboardInteractiveAuthResponse};
 use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key, ssh_key};
 use russh::{Channel, ChannelMsg, Disconnect};
+
+use pty_utf8::{apply_ssh_utf8_env, ssh_utf8_pty_modes};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Semaphore, mpsc};
@@ -756,11 +759,20 @@ impl SshSession {
         let closed = Arc::new(AtomicBool::new(false));
         let mut channel = open_session_channel_retry(&session, CHANNEL_OPEN_ATTEMPTS, &closed).await?;
         channel
-            .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
+            .request_pty(
+                false,
+                "xterm-256color",
+                cols as u32,
+                rows as u32,
+                0,
+                0,
+                &ssh_utf8_pty_modes(),
+            )
             .await
             .map_err(|e| {
                 OmniError::new(ErrorCode::Ssh, "请求 PTY 失败").with_cause(e.to_string())
             })?;
+        apply_ssh_utf8_env(&channel).await;
         channel.request_shell(true).await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "请求 shell 失败").with_cause(e.to_string())
         })?;
@@ -1004,12 +1016,21 @@ impl SshSession {
             .await
             .map_err(|e| e.or_ssh_context("打开 SSH PTY 通道失败"))?;
         if let Err(e) = channel
-            .request_pty(true, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
+            .request_pty(
+                true,
+                "xterm-256color",
+                cols as u32,
+                rows as u32,
+                0,
+                0,
+                &ssh_utf8_pty_modes(),
+            )
             .await
         {
             close_exec_channel(&mut channel).await;
             return Err(OmniError::new(ErrorCode::Ssh, "请求 PTY 失败").with_cause(e.to_string()));
         }
+        apply_ssh_utf8_env(&channel).await;
         if let Err(e) = channel.exec(true, command).await {
             close_exec_channel(&mut channel).await;
             return Err(

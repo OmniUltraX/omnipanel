@@ -36,6 +36,7 @@ export function canInterceptEnterForAi(flags: EnterGateFlags): boolean {
   if (flags.reverseSearch) return false;
   if (flags.commandRunning) return false;
   if (flags.agentExecuting) return false;
+  if (flags.imeComposing) return false;
   return true;
 }
 

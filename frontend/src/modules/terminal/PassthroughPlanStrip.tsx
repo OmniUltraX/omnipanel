@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { PlanView } from "../../components/ai/PlanView";
@@ -42,6 +43,7 @@ function writeExpanded(sessionId: string, open: boolean): void {
 
 /**
  * 直通 pane 右下角 Plan：收起为窄条，展开为同体面板（状态按会话持久化）。
+ * 创建成功（plan 从无到有 / 换成新 id）后默认展开；会话切回时沿用 localStorage。
  */
 export function PassthroughPlanStrip({ sessionId }: PassthroughPlanStripProps) {
   const { t } = useI18n();
@@ -67,10 +69,26 @@ export function PassthroughPlanStrip({ sessionId }: PassthroughPlanStripProps) {
   }, [plan, t]);
 
   const [expanded, setExpanded] = useState(() => readExpanded(sessionId));
+  /** undefined = 尚未初始化；之后跟踪 plan.id，用于识别「刚创建」 */
+  const lastPlanIdRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     setExpanded(readExpanded(sessionId));
+    lastPlanIdRef.current = undefined;
   }, [sessionId]);
+
+  useEffect(() => {
+    const id = plan?.id ?? null;
+    if (lastPlanIdRef.current === undefined) {
+      lastPlanIdRef.current = id;
+      return;
+    }
+    if (id && id !== lastPlanIdRef.current) {
+      setExpanded(true);
+      writeExpanded(sessionId, true);
+    }
+    lastPlanIdRef.current = id;
+  }, [plan?.id, sessionId]);
 
   const toggle = useCallback(() => {
     setExpanded((v) => {

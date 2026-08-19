@@ -9,6 +9,7 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use russh::ChannelMsg;
 use tokio::sync::mpsc;
 
+use crate::pty_utf8::ssh_utf8_pty_modes;
 use super::commands;
 use super::controller::{ControllerEvent, TmuxController};
 use super::line::LineAssembler;
@@ -71,7 +72,15 @@ impl SshSession {
 
         // tmux 客户端要求有控制终端，没有 PTY 会直接以 "open terminal failed" 退出
         channel
-            .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
+            .request_pty(
+                false,
+                "xterm-256color",
+                cols as u32,
+                rows as u32,
+                0,
+                0,
+                &ssh_utf8_pty_modes(),
+            )
             .await
             .map_err(|e| {
                 OmniError::new(ErrorCode::Ssh, "为 tmux control 通道请求 PTY 失败")

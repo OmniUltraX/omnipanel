@@ -3288,20 +3288,20 @@ select,
     background: var(--meta);
 }
 
-.status-online,
-.status-running {
+.resource-status.status-online,
+.resource-status.status-running {
     background: var(--success);
 }
 
-.status-warning {
+.resource-status.status-warning {
     background: var(--warn);
 }
 
-.status-offline {
+.resource-status.status-offline {
     background: var(--danger);
 }
 
-.status-idle {
+.resource-status.status-idle {
     background: var(--meta);
 }
 
@@ -10360,13 +10360,14 @@ button.omni-btn-tool[aria-pressed="true"] {
     .background-tasks-list {
         list-style: none;
         margin: 0;
-        padding: 0 var(--sp-4) var(--sp-4);
+        padding: 8px 16px 24px;
         display: flex;
         flex-direction: column;
-        gap: var(--sp-2);
+        gap: 10px;
         overflow-y: auto;
         flex: 1;
         min-height: 0;
+        justify-content: flex-start;
     }
 
     .background-tasks-row {
@@ -10374,13 +10375,16 @@ button.omni-btn-tool[aria-pressed="true"] {
         display: flex;
         align-items: flex-start;
         gap: var(--sp-3);
-        padding: var(--sp-3);
-        padding-left: calc(var(--sp-3) + 3px);
+        padding: 12px 14px 12px 17px;
+        min-height: 52px;
+        flex: 0 0 auto;
+        width: 100%;
         border: 1px solid var(--border);
         border-radius: var(--r-md);
         background: var(--bg);
         overflow: hidden;
         transition: border-color 0.15s ease, background-color 0.15s ease;
+        box-sizing: border-box;
     }
 
     .background-tasks-row:hover {
@@ -10416,7 +10420,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 8px;
     }
 
     .background-tasks-row__header {
@@ -10429,13 +10433,12 @@ button.omni-btn-tool[aria-pressed="true"] {
     .background-tasks-row__title {
         min-width: 0;
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 500;
         color: var(--fg);
-        line-height: 1.35;
+        line-height: 1.4;
         overflow: hidden;
         text-overflow: ellipsis;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
+        white-space: nowrap;
     }
 
     .background-tasks-row__meta {
@@ -13841,6 +13844,10 @@ button.omni-btn-tool[aria-pressed="true"] {
         display: flex;
         flex-direction: column;
         gap: 6px;
+        flex: 0 0 auto;
+        width: 100%;
+        height: auto;
+        align-self: stretch;
     }
 
     .task-card__header {
@@ -13981,7 +13988,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         transition: width 0.2s ease;
     }
 
-    .task-card__progress-text {
+    .task-card__progress .task-card__progress-text {
         position: relative;
         display: flex;
         align-items: center;
@@ -13990,6 +13997,13 @@ button.omni-btn-tool[aria-pressed="true"] {
         font-size: 11px;
         font-weight: 500;
         color: var(--text-primary, #fff);
+    }
+
+    .task-card__message {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--fg-2, #888);
+        word-break: break-word;
     }
 
     .task-card__error {

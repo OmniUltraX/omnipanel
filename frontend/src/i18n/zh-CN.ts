@@ -3470,7 +3470,6 @@ export const zhCN = {
     shellAgent: {
       title: "终端 Agent",
       cancel: "取消",
-      newSession: "开启新会话",
       thinking: "正在理解意图…",
       thinkingDone: "思考完成",
       thinkingDetail: "思考过程",
