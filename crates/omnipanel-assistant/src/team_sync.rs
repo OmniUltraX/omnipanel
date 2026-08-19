@@ -16,6 +16,10 @@ use crate::sts::{AuthContext, OssStsCredentials};
 
 pub const TEAM_SYNC_SCHEMA_VERSION: u32 = 1;
 pub const TEAM_SHARE_INDEX_KEY: &str = "shares/custom-panels/index.json";
+/// 团队模块快照（账号自动同步与手动团队同步共用）。
+pub const TEAM_MODULES_LATEST_LEAF: &str = "modules/latest.json";
+/// 团队 AI 会话快照。
+pub const TEAM_CONVERSATIONS_LATEST_LEAF: &str = "ai-conversations/latest.json";
 
 #[derive(Debug, Deserialize)]
 struct StsApiEnvelope {

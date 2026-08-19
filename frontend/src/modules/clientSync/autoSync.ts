@@ -2,6 +2,7 @@ import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore } from "../../stores/aiStore";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { buildConversationsBundle } from "./payload";
 import { useClientSyncTombstoneStore } from "./tombstones";
 
@@ -20,7 +21,7 @@ export function cancelClientConversationSync(): void {
 }
 
 /**
- * 会话变更后立即推送到 `sync/{userId}/ai-conversations/latest.json`。
+ * 会话变更后立即推送到当前同步团队 OSS `ai-conversations/latest.json`。
  */
 export function scheduleClientConversationSync(): void {
   if (suppressPush) return;
@@ -54,6 +55,7 @@ async function runPush(): Promise<void> {
         commands.clientSyncPushConversations({
           token,
           bodyJson: JSON.stringify(bundle),
+          teamId: getCurrentSyncTeamId(),
         }),
         { quiet: true },
       );

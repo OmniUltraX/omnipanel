@@ -19,6 +19,9 @@ pub struct TeamSummary {
     pub id: i64,
     pub name: String,
     pub creator: String,
+    /// `personal` 默认个人团队；`custom` 协作团队。缺省为空以兼容旧接口。
+    #[serde(default)]
+    pub kind: String,
     pub role_code: String,
     pub user_team_name: String,
     pub team_oss_key: String,
@@ -71,6 +74,8 @@ struct ApiMyTeamItem {
     role_code: Option<String>,
     user_team_name: Option<String>,
     team_oss_key: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
 }
@@ -198,6 +203,7 @@ fn map_team_summary(item: ApiMyTeamItem) -> TeamSummary {
         id: item.id.unwrap_or(0),
         name: item.name.unwrap_or_default(),
         creator: item.creator.unwrap_or_default(),
+        kind: item.kind.unwrap_or_default(),
         role_code: item.role_code.unwrap_or_default(),
         user_team_name: item.user_team_name.unwrap_or_default(),
         team_oss_key: item.team_oss_key.unwrap_or_default(),

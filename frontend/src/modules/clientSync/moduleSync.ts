@@ -2,6 +2,7 @@ import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
 
 /** 模块同步落到本机后派发，供 Database / Protocol 等面板刷新 */
@@ -46,7 +47,7 @@ function deletedPayload() {
 }
 
 /**
- * 模块数据变更后立即推送到 `sync/{userId}/modules/latest.json`。
+ * 模块数据变更后立即推送到当前同步团队 OSS `modules/latest.json`。
  */
 export function scheduleClientModuleSync(): void {
   if (suppressPush) return;
@@ -73,6 +74,7 @@ async function runPush(): Promise<void> {
         commands.clientSyncPushModules({
           token,
           workspacesJson: collectWorkspacesJson(),
+          teamId: getCurrentSyncTeamId(),
           ...deleted,
         }),
         { quiet: true },

@@ -7,7 +7,7 @@ use chrono::Utc;
 use omnipanel_assistant::{
     load_team_share_index, notify_team_share_created, pull_team_sync_json, push_team_sync_json,
     save_team_share_index, team_share_item_key, validate_team_share_bundle_json, TeamShareIndexItem,
-    TEAM_SYNC_SCHEMA_VERSION,
+    TEAM_MODULES_LATEST_LEAF, TEAM_SYNC_SCHEMA_VERSION,
 };
 use omnipanel_assistant::validate_modules_bundle_json;
 use omnipanel_error::{ErrorCode, OmniError};
@@ -221,6 +221,7 @@ fn to_modules_push_request(request: &TeamSyncPushModulesRequest) -> ClientSyncPu
         deleted_http_collections: request.deleted_http_collections.clone(),
         deleted_http_environments: request.deleted_http_environments.clone(),
         deleted_workspaces: request.deleted_workspaces.clone(),
+        team_id: None,
     }
 }
 
@@ -235,6 +236,7 @@ fn to_peek_modules_request(request: &TeamSyncPeekModulesRequest) -> ClientSyncPu
         deleted_http_collections: Vec::new(),
         deleted_http_environments: Vec::new(),
         deleted_workspaces: Vec::new(),
+        team_id: None,
     }
 }
 
@@ -1091,7 +1093,7 @@ pub async fn team_sync_push_modules(
     })?;
     validate_modules_bundle_json(&body)?;
 
-    let uploaded = push_team_sync_json(&auth, request.team_id, "modules/latest.json", &body).await?;
+    let uploaded = push_team_sync_json(&auth, request.team_id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
     Ok(TeamSyncPushModulesResult {
         object_key: uploaded.object_key,
@@ -1115,7 +1117,7 @@ pub async fn team_sync_pull_modules(
 
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
-    let pulled = pull_team_sync_json(&auth, team_id, "modules/latest.json").await?;
+    let pulled = pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await?;
     let Some((object_key, body)) = pulled else {
         return Err(OmniError::new(
             ErrorCode::NotFound,
@@ -1156,7 +1158,7 @@ pub async fn team_sync_peek_modules(
     };
 
     let remote = if let Ok(Some((_, body))) =
-        pull_team_sync_json(&auth, request.team_id, "modules/latest.json").await
+        pull_team_sync_json(&auth, request.team_id, TEAM_MODULES_LATEST_LEAF).await
     {
         if validate_modules_bundle_json(&body).is_ok() {
             serde_json::from_slice::<ClientSyncModulesBundle>(&body).ok()

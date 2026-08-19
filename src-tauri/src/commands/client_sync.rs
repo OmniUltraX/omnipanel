@@ -1,16 +1,27 @@
-//! 客户端账号级 AI 会话快照推送/拉取。
+//! 客户端团队快照：AI 会话推送/拉取。
+//! 写入选定团队 OSS：`ai-conversations/latest.json`（`POST /api/teams/{id}/oss/sts`）。
+//! `team_id` 缺省时回退到 `/api/me.teams` 中 `kind=personal` 的默认团队。
 
 use omnipanel_assistant::{
-    pull_conversations_json, push_conversations_json, validate_conversations_bundle_json,
+    pull_team_sync_json, push_team_sync_json, validate_conversations_bundle_json,
+    TEAM_CONVERSATIONS_LATEST_LEAF,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
-use crate::commands::auth::{auth_device_identity, auth_get_me};
+use crate::commands::auth::{auth_device_identity, auth_get_me, require_personal_team_id};
 use crate::commands::assistant::build_auth_context;
 use crate::state::AppState;
+
+/// 解析请求里的可选 `team_id`：有效则用之，否则回退到默认个人团队。
+fn resolve_team_id(request_team_id: Option<i64>, me: &crate::commands::auth::AuthUserProfile) -> Result<i64, OmniError> {
+    match request_team_id {
+        Some(id) if id > 0 => Ok(id),
+        _ => require_personal_team_id(me),
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +29,9 @@ pub struct ClientSyncPushConversationsRequest {
     pub token: String,
     /// 前端组装的 bundle JSON（含 schemaVersion / conversations / deleted）。
     pub body_json: String,
+    /// 可选团队 ID；缺省回退到默认个人团队。
+    #[serde(default)]
+    pub team_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -32,6 +46,9 @@ pub struct ClientSyncPushConversationsResult {
 #[serde(rename_all = "camelCase")]
 pub struct ClientSyncPullConversationsRequest {
     pub token: String,
+    /// 可选团队 ID；缺省回退到默认个人团队。
+    #[serde(default)]
+    pub team_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -43,7 +60,7 @@ pub struct ClientSyncPullConversationsResult {
     pub bytes: f64,
 }
 
-/// 推送本机 AI 会话快照到 `sync/{userId}/ai-conversations/latest.json`。
+/// 推送本机 AI 会话快照到选定团队 OSS（`ai-conversations/latest.json`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn client_sync_push_conversations(
@@ -61,8 +78,9 @@ pub async fn client_sync_push_conversations(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(state.clone(), request.token.clone()).await?;
+    let team_id = resolve_team_id(request.team_id, &me)?;
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
-    let uploaded = push_conversations_json(&auth, &me.id.to_string(), body).await?;
+    let uploaded = push_team_sync_json(&auth, team_id, TEAM_CONVERSATIONS_LATEST_LEAF, body).await?;
 
     Ok(ClientSyncPushConversationsResult {
         object_key: uploaded.object_key,
@@ -71,7 +89,7 @@ pub async fn client_sync_push_conversations(
     })
 }
 
-/// 从云端拉取账号 AI 会话快照。
+/// 从选定团队 OSS 拉取 AI 会话快照。
 #[tauri::command]
 #[specta::specta]
 pub async fn client_sync_pull_conversations(
@@ -87,9 +105,11 @@ pub async fn client_sync_pull_conversations(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(state.clone(), request.token.clone()).await?;
+    let team_id = resolve_team_id(request.team_id, &me)?;
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
 
-    let Some((object_key, bytes)) = pull_conversations_json(&auth, &me.id.to_string()).await?
+    let Some((object_key, bytes)) =
+        pull_team_sync_json(&auth, team_id, TEAM_CONVERSATIONS_LATEST_LEAF).await?
     else {
         return Ok(ClientSyncPullConversationsResult {
             found: false,

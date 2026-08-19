@@ -14,6 +14,7 @@ import {
   cancelClientConversationSync,
   cancelClientModuleSync,
 } from "../modules/clientSync";
+import { useCurrentSyncTeamStore } from "./currentSyncTeamStore";
 
 interface AuthState {
   token: string | null;
@@ -43,6 +44,8 @@ export const useAuthStore = create<AuthState>()(
         cancelClientModuleSync();
         void stopAssistantChatInbox();
         void stopAssistantTerminalCmdInbox();
+        // 清空当前同步团队，避免下次登录串到上一个账号的团队
+        useCurrentSyncTeamStore.getState().resetCurrentSyncTeam();
         if (token && !opts?.skipRemote) {
           void logoutSession(token).catch(() => {
             /* 退出时网络失败可忽略，本地会话照样清掉 */

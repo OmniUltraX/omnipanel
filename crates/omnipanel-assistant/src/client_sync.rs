@@ -1,8 +1,6 @@
-//! 客户端账号级数据同步。
+//! 客户端账号级数据同步（遗留路径 `sync/{userId}/…`）。
 //!
-//! 与助手端快照（`assistant/{userId}/{deviceId}/…`）独立：
-//! 按账号写入 `sync/{userId}/…`，所有客户端共享同一份快照；
-//! 本地变更时立即上传，启动时从云端拉取最新快照。
+//! 现网写入已改为默认个人团队 OSS（见 `team_sync`），本模块仅保留校验与旧 key 辅助函数。
 
 use omnipanel_error::OmniResult;
 use reqwest::Client;

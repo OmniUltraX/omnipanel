@@ -1,12 +1,11 @@
-﻿//! 客户端账号级「各业务模块」同步。
-//! 路径：`sync/{userId}/modules/latest.json`
-//! 所有客户端共享同一份快照；本地变更时立即上传，启动时从云端拉取。
+﻿//! 客户端默认团队「各业务模块」同步。
+//! 路径：个人团队 OSS `modules/latest.json`（与手动团队同步共用）。
 
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_assistant::{
-    pull_modules_json, push_modules_json, validate_modules_bundle_json,
+    pull_team_sync_json, push_team_sync_json, validate_modules_bundle_json, TEAM_MODULES_LATEST_LEAF,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
@@ -15,7 +14,7 @@ use omnipanel_store::{
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
-use crate::auth_cmds::{auth_device_identity, auth_get_me};
+use crate::auth_cmds::{auth_device_identity, auth_get_me, require_personal_team_id};
 use crate::assistant_cmds::build_auth_context;
 
 const MODULES_KIND: &str = "workspace-modules";
@@ -144,6 +143,17 @@ pub struct ClientSyncPushModulesRequest {
     pub deleted_http_environments: Vec<ClientSyncTombstone>,
     #[serde(default)]
     pub deleted_workspaces: Vec<ClientSyncTombstone>,
+    /// 可选团队 ID；缺省回退到默认个人团队。
+    #[serde(default)]
+    pub team_id: Option<i64>,
+}
+
+/// 解析请求里的可选 `team_id`：有效则用之，否则回退到默认个人团队。
+fn resolve_team_id(request_team_id: Option<i64>, me: &crate::auth_cmds::AuthUserProfile) -> Result<i64, OmniError> {
+    match request_team_id {
+        Some(id) if id > 0 => Ok(id),
+        _ => require_personal_team_id(me),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -224,7 +234,7 @@ fn collect_local_bundle(
     })
 }
 
-/// 推送本机模块快照到 `sync/{userId}/modules/latest.json`。
+/// 推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。
 pub async fn client_sync_push_modules(
     state: &crate::state::ServerState,
     request: ClientSyncPushModulesRequest,
@@ -238,6 +248,7 @@ pub async fn client_sync_push_modules(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
+    let team_id = resolve_team_id(request.team_id, &me)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let bundle = {
@@ -249,7 +260,7 @@ pub async fn client_sync_push_modules(
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
     })?;
     validate_modules_bundle_json(&body)?;
-    let uploaded = push_modules_json(&auth, &me.id.to_string(), &body).await?;
+    let uploaded = push_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
     Ok(ClientSyncPushModulesResult {
         object_key: uploaded.object_key,
@@ -277,6 +288,9 @@ pub struct ClientSyncPullModulesResult {
 #[serde(rename_all = "camelCase")]
 pub struct ClientSyncPullModulesRequest {
     pub token: String,
+    /// 可选团队 ID；缺省回退到默认个人团队。
+    #[serde(default)]
+    pub team_id: Option<i64>,
 }
 
 fn tombstone_ids(list: &[ClientSyncTombstone]) -> HashSet<String> {
@@ -414,7 +428,7 @@ async fn apply_modules_bundle(
     ))
 }
 
-/// 从云端拉取账号模块快照并应用到本机。
+/// 从默认个人团队 OSS 拉取模块快照并应用到本机。
 pub async fn client_sync_pull_modules(
     state: &crate::state::ServerState,
     request: ClientSyncPullModulesRequest,
@@ -428,10 +442,12 @@ pub async fn client_sync_pull_modules(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
+    let team_id = resolve_team_id(request.team_id, &me)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
-    let user_id = me.id.to_string();
 
-    let Some((object_key, bytes)) = pull_modules_json(&auth, &user_id).await? else {
+    let Some((object_key, bytes)) =
+        pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await?
+    else {
         return Ok(ClientSyncPullModulesResult {
             found: false,
             object_key: None,

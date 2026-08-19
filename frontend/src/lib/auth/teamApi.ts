@@ -3,6 +3,10 @@ import { formatIpcError, unwrapCommand } from "../../ipc/result";
 
 export type { TeamCreated, TeamMember, TeamSummary };
 
+export function isPersonalTeam(team: { kind?: string } | null | undefined): boolean {
+  return (team?.kind ?? "").trim().toLowerCase() === "personal";
+}
+
 export async function fetchTeams(
   token: string,
   options?: { quiet?: boolean },

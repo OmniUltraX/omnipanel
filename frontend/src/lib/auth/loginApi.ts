@@ -431,6 +431,19 @@ export async function waitForBindings(
   }
 }
 
+export interface AuthTeamMembership {
+  id: number;
+  name: string;
+  creator: string;
+  /** `personal` 默认个人团队；`custom` 协作团队 */
+  kind: string;
+  teamOssKey: string;
+  createdAt: string;
+  updatedAt: string;
+  roleCode: string;
+  userTeamName: string;
+}
+
 export interface AuthUserProfile {
   id: number;
   openid: string;
@@ -440,6 +453,7 @@ export interface AuthUserProfile {
   githubId: string;
   /** /api/me 的 oss_path；非空时 AI 流式回复经 STS 上传到该 OSS 前缀 */
   ossPath: string;
+  teams: AuthTeamMembership[];
 }
 
 const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
@@ -454,6 +468,35 @@ export function resolveAvatarUrl(url: string | null | undefined): string {
   return `${AUTH_ASSET_BASE}/${trimmed}`;
 }
 
+function mapTeamMembership(raw: {
+  id?: number | null;
+  name?: string;
+  creator?: string;
+  kind?: string;
+  teamOssKey?: string;
+  team_oss_key?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  roleCode?: string;
+  role_code?: string;
+  userTeamName?: string;
+  user_team_name?: string;
+}): AuthTeamMembership {
+  return {
+    id: raw.id ?? 0,
+    name: raw.name ?? "",
+    creator: raw.creator ?? "",
+    kind: raw.kind ?? "",
+    teamOssKey: (raw.teamOssKey || raw.team_oss_key || "").trim(),
+    createdAt: raw.createdAt || raw.created_at || "",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
+    roleCode: raw.roleCode || raw.role_code || "",
+    userTeamName: raw.userTeamName || raw.user_team_name || "",
+  };
+}
+
 function mapUserProfile(data: {
   id: number | null;
   openid: string;
@@ -465,6 +508,7 @@ function mapUserProfile(data: {
   github_id?: string;
   ossPath?: string;
   oss_path?: string;
+  teams?: Array<Parameters<typeof mapTeamMembership>[0]>;
 }): AuthUserProfile {
   const rawAvatar =
     (typeof data.avatarUrl === "string" && data.avatarUrl) ||
@@ -478,6 +522,7 @@ function mapUserProfile(data: {
     (typeof data.ossPath === "string" && data.ossPath) ||
     (typeof data.oss_path === "string" && data.oss_path) ||
     "";
+  const teams = Array.isArray(data.teams) ? data.teams.map(mapTeamMembership) : [];
   return {
     id: data.id ?? 0,
     openid: data.openid ?? "",
@@ -486,6 +531,7 @@ function mapUserProfile(data: {
     email: data.email ?? "",
     githubId,
     ossPath: ossPath.trim(),
+    teams,
   };
 }
 

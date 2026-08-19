@@ -10,6 +10,7 @@ import {
   formatTeamError,
   removeTeamMember,
   updateTeamMember,
+  isPersonalTeam,
   type TeamMember,
   type TeamSummary,
 } from "../../lib/auth/teamApi";
@@ -244,7 +245,7 @@ export function UserCenterTeams() {
 
   const selectedRole = normalizeRole(selectedTeam?.roleCode);
   const canManage = canManageMembers(selectedRole);
-  const canDissolve = selectedRole === "creator";
+  const canDissolve = selectedRole === "creator" && !isPersonalTeam(selectedTeam);
 
   const memberRoleOptions = useMemo(
     () => [

@@ -7302,6 +7302,11 @@ export const enUS: TranslationDict = {
     guest: "Guest",
     openSettings: "Open full settings",
     logout: "Sign out",
+    switchTeam: "Switch Team",
+    switchTeamAria: "Switch data snapshot source team",
+    switchTeamCurrent: "Current",
+    switchTeamPersonal: "Personal",
+    switchTeamEmpty: "No teams available",
     nav: {
       account: "Profile",
       subscription: "Subscription",

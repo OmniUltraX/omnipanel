@@ -7155,6 +7155,95 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     flex-shrink: 0;
 }
 
+/* 切换团队：一级项 + 二级子菜单 */
+.sidebar-user-menu__item--submenu {
+    position: relative;
+}
+
+.sidebar-user-menu__chevron {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    flex-shrink: 0;
+}
+
+.sidebar-user-menu__submenu {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    min-width: 180px;
+    max-width: 260px;
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    z-index: var(--z-subwindow-popover, 1400);
+}
+
+.sidebar-user-menu__team {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.sidebar-user-menu__team:hover {
+    background: var(--bg-hover, color-mix(in srgb, var(--accent) 10%, transparent));
+}
+
+.sidebar-user-menu__team--active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--fg);
+}
+
+.sidebar-user-menu__team-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-user-menu__team-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.sidebar-user-menu__team-check {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--accent, var(--fg));
+}
+
+.sidebar-user-menu__team-empty {
+    padding: 10px 12px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
 .app-update-dialog {
     width: min(440px, calc(100vw - 32px));
     max-height: min(72vh, 640px);

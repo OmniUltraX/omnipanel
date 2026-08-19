@@ -155,6 +155,26 @@ pub struct AuthBindingsBound {
     pub bind_id: String,
 }
 
+/// `/api/me` 返回的团队成员身份（含默认个人团队 `kind=personal`）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthTeamMembership {
+    #[specta(type = f64)]
+    pub id: i64,
+    pub name: String,
+    pub creator: String,
+    /// `personal`：登录后默认个人团队；`custom`：用户创建的协作团队。
+    pub kind: String,
+    #[serde(rename = "teamOssKey")]
+    pub team_oss_key: String,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(rename = "roleCode")]
+    pub role_code: String,
+    #[serde(rename = "userTeamName")]
+    pub user_team_name: String,
+}
+
 /// 当前用户资料（GET/PATCH /api/me）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -173,6 +193,26 @@ pub struct AuthUserProfile {
     /// 对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。
     #[serde(default, rename = "ossPath")]
     pub oss_path: String,
+    /// 当前用户所属团队；快照同步写入 `kind=personal` 的默认团队。
+    #[serde(default)]
+    pub teams: Vec<AuthTeamMembership>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiMeTeamItem {
+    id: Option<i64>,
+    name: Option<String>,
+    creator: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default, alias = "teamOssKey")]
+    team_oss_key: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    #[serde(default, alias = "roleCode")]
+    role_code: Option<String>,
+    #[serde(default, alias = "userTeamName")]
+    user_team_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +227,8 @@ struct ApiUserResponse {
     github_id: Option<String>,
     #[serde(default, alias = "ossPath")]
     oss_path: Option<String>,
+    #[serde(default)]
+    teams: Option<Vec<ApiMeTeamItem>>,
     error: Option<String>,
 }
 
@@ -736,6 +778,20 @@ pub async fn auth_delete_device(
     Ok(())
 }
 
+fn map_api_team(item: ApiMeTeamItem) -> AuthTeamMembership {
+    AuthTeamMembership {
+        id: item.id.unwrap_or(0),
+        name: item.name.unwrap_or_default(),
+        creator: item.creator.unwrap_or_default(),
+        kind: item.kind.unwrap_or_default(),
+        team_oss_key: item.team_oss_key.unwrap_or_default(),
+        created_at: item.created_at.unwrap_or_default(),
+        updated_at: item.updated_at.unwrap_or_default(),
+        role_code: item.role_code.unwrap_or_default(),
+        user_team_name: item.user_team_name.unwrap_or_default(),
+    }
+}
+
 fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
     AuthUserProfile {
         id: parsed.id.unwrap_or(0),
@@ -745,7 +801,24 @@ fn map_api_user(parsed: ApiUserResponse) -> AuthUserProfile {
         email: parsed.email.unwrap_or_default(),
         github_id: parsed.github_id.unwrap_or_default(),
         oss_path: parsed.oss_path.unwrap_or_default(),
+        teams: parsed
+            .teams
+            .unwrap_or_default()
+            .into_iter()
+            .map(map_api_team)
+            .collect(),
     }
+}
+
+/// 快照同步目标：优先 `kind=personal` 的默认团队，否则取列表中第一个有效团队。
+pub(crate) fn require_personal_team_id(profile: &AuthUserProfile) -> Result<i64, OmniError> {
+    profile
+        .teams
+        .iter()
+        .find(|t| t.kind.eq_ignore_ascii_case("personal") && t.id > 0)
+        .or_else(|| profile.teams.iter().find(|t| t.id > 0))
+        .map(|t| t.id)
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "当前账号没有可用团队，无法同步快照"))
 }
 
 /// 将服务端会话失效类英文文案（如 `ticket not found`）规范为可读中文。

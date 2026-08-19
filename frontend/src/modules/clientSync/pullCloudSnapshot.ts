@@ -3,6 +3,7 @@ import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import {
   setClientConversationSyncSuppressed,
 } from "./autoSync";
@@ -104,16 +105,17 @@ async function refreshLocalModuleUi(): Promise<void> {
   window.dispatchEvent(new CustomEvent(CLIENT_SYNC_MODULES_APPLIED_EVENT));
 }
 
-/** 启动时从云端拉取账号级快照并应用到本机。 */
+/** 启动时从当前同步团队 OSS 拉取快照并应用到本机。 */
 export async function pullCloudSnapshot(): Promise<void> {
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return;
 
+  const teamId = getCurrentSyncTeamId();
   setClientModuleSyncSuppressed(true);
   setClientConversationSyncSuppressed(true);
   try {
     const modulesResult = await unwrapCommand(
-      commands.clientSyncPullModules({ token }),
+      commands.clientSyncPullModules({ token, teamId }),
       { quiet: true },
     );
     if (modulesResult.found) {
@@ -122,7 +124,7 @@ export async function pullCloudSnapshot(): Promise<void> {
     }
 
     const convResult = await unwrapCommand(
-      commands.clientSyncPullConversations({ token }),
+      commands.clientSyncPullConversations({ token, teamId }),
       { quiet: true },
     );
     if (convResult.found && convResult.bodyJson?.trim()) {

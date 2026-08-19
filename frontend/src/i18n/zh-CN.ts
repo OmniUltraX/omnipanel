@@ -7222,6 +7222,11 @@ export const zhCN = {
     guest: "访客",
     openSettings: "打开完整设置",
     logout: "退出登录",
+    switchTeam: "切换团队",
+    switchTeamAria: "切换数据快照来源团队",
+    switchTeamCurrent: "当前",
+    switchTeamPersonal: "个人",
+    switchTeamEmpty: "暂无可切换的团队",
     nav: {
       account: "资料",
       subscription: "订阅管理",

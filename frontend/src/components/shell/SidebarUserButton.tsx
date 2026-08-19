@@ -18,12 +18,25 @@ import {
 import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
-import { IconDownload, IconGlobe, IconSettings, IconUser } from "../ui/icons/Icons";
+import {
+  resolveCurrentSyncTeamId,
+  useCurrentSyncTeamStore,
+} from "../../stores/currentSyncTeamStore";
+import { pullCloudSnapshot } from "../../modules/clientSync/pullCloudSnapshot";
+import {
+  IconCheckCircle,
+  IconChevronRight,
+  IconDownload,
+  IconGlobe,
+  IconSettings,
+  IconUser,
+  IconUsers,
+} from "../ui/icons/Icons";
 import { AppUpdateDialog } from "./AppUpdateDialog";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = "account" | "settings" | "website" | "update";
+type MenuAction = "account" | "settings" | "website" | "update" | "switchTeam";
 
 function isMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -35,18 +48,26 @@ export function SidebarUserButton() {
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const avatarUrl = useUserProfileStore((s) => s.avatarUrl);
   const nickname = useUserProfileStore((s) => s.nickname);
+  const teams = useUserProfileStore((s) => s.teams);
   const openUserCenter = useUserCenterUiStore((s) => s.openUserCenter);
   const userCenterOpen = useUserCenterUiStore((s) => s.open);
   const openSettings = useSettingsUiStore((s) => s.openSettings);
   const settingsOpen = useSettingsUiStore((s) => s.open);
   const updateBadge = useAppUpdateStore(selectUpdateBadgeVisible);
   const openUpdateDialog = useAppUpdateStore((s) => s.openDialog);
+  const currentTeamId = useCurrentSyncTeamStore((s) => s.teamId);
+  const setSyncTeamId = useCurrentSyncTeamStore((s) => s.setTeamId);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [submenuOpen, setSubmenuOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
+  const [submenuStyle, setSubmenuStyle] = useState<CSSProperties>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const submenuItemRef = useRef<HTMLButtonElement | null>(null);
 
   const active = userCenterOpen || settingsOpen || menuOpen;
+
+  const effectiveTeamId = resolveCurrentSyncTeamId(currentTeamId, teams);
 
   const updatePosition = useCallback(() => {
     const btn = buttonRef.current;
@@ -67,10 +88,36 @@ export function SidebarUserButton() {
     });
   }, []);
 
+  const updateSubmenuPosition = useCallback(() => {
+    const item = submenuItemRef.current;
+    if (!item) return;
+    const rect = item.getBoundingClientRect();
+    const gap = 6;
+    const submenuWidth = 220;
+    const maxHeight = Math.max(160, window.innerHeight - 8 - rect.top);
+    let left = rect.right + gap;
+    if (left + submenuWidth > window.innerWidth - 8) {
+      left = Math.max(8, rect.left - submenuWidth - gap);
+    }
+    setSubmenuStyle({
+      position: "fixed",
+      left,
+      top: rect.top,
+      width: submenuWidth,
+      maxHeight,
+      zIndex: "var(--z-subwindow-popover, 1400)",
+    });
+  }, []);
+
   useLayoutEffect(() => {
     if (!menuOpen) return;
     updatePosition();
   }, [menuOpen, updatePosition]);
+
+  useLayoutEffect(() => {
+    if (!submenuOpen) return;
+    updateSubmenuPosition();
+  }, [submenuOpen, updateSubmenuPosition]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -80,9 +127,18 @@ export function SidebarUserButton() {
       setMenuOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      if (event.key === "Escape") {
+        if (submenuOpen) {
+          setSubmenuOpen(false);
+          return;
+        }
+        setMenuOpen(false);
+      }
     };
-    const onResize = () => updatePosition();
+    const onResize = () => {
+      updatePosition();
+      if (submenuOpen) updateSubmenuPosition();
+    };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", onResize);
@@ -91,10 +147,19 @@ export function SidebarUserButton() {
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", onResize);
     };
-  }, [menuOpen, updatePosition]);
+  }, [menuOpen, submenuOpen, updatePosition, updateSubmenuPosition]);
+
+  const closeAll = useCallback(() => {
+    setSubmenuOpen(false);
+    setMenuOpen(false);
+  }, []);
 
   const handleAction = (action: MenuAction) => {
-    setMenuOpen(false);
+    if (action === "switchTeam") {
+      setSubmenuOpen((open) => !open);
+      return;
+    }
+    closeAll();
     if (action === "settings") {
       openSettings();
       return;
@@ -110,12 +175,31 @@ export function SidebarUserButton() {
     openUserCenter("account");
   };
 
-  // 版本更新放在倒数第二（设置之前）
-  const items: { id: MenuAction; label: string; icon: ReactNode; badge?: boolean }[] = [
+  const handleSelectTeam = (teamId: number | null) => {
+    setSyncTeamId(teamId);
+    closeAll();
+    // 切换后立即从新团队拉取快照并应用到本机
+    void pullCloudSnapshot();
+  };
+
+  // 版本更新放在倒数第二（设置之前）；切换团队放在资料之后
+  const items: {
+    id: MenuAction;
+    label: string;
+    icon: ReactNode;
+    badge?: boolean;
+    hasSubmenu?: boolean;
+  }[] = [
     {
       id: "account",
       label: t("userCenter.title"),
       icon: <IconUser size={14} />,
+    },
+    {
+      id: "switchTeam",
+      label: t("userCenter.switchTeam"),
+      icon: <IconUsers size={14} />,
+      hasSubmenu: true,
     },
     {
       id: "website",
@@ -139,6 +223,18 @@ export function SidebarUserButton() {
     ? nickname.trim() || t("userCenter.title")
     : t("userCenter.login.signIn");
 
+  const renderTeamTag = (kind: string) => {
+    const normalized = (kind ?? "").trim().toLowerCase();
+    if (normalized === "personal") {
+      return (
+        <span className="sidebar-user-menu__team-tag">
+          {t("userCenter.switchTeamPersonal")}
+        </span>
+      );
+    }
+    return null;
+  };
+
   return (
     <>
       <button
@@ -149,7 +245,10 @@ export function SidebarUserButton() {
         aria-label={title}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((open) => !open)}
+        onClick={() => {
+          setMenuOpen((open) => !open);
+          setSubmenuOpen(false);
+        }}
       >
         {isLoggedIn && avatarUrl ? (
           <img src={avatarUrl} alt="" className="sidebar-user-btn__avatar" />
@@ -175,10 +274,22 @@ export function SidebarUserButton() {
               {items.map((item) => (
                 <button
                   key={item.id}
+                  ref={item.hasSubmenu ? submenuItemRef : undefined}
                   type="button"
                   role="menuitem"
-                  className="sidebar-user-menu__item"
+                  aria-haspopup={item.hasSubmenu ? "menu" : undefined}
+                  aria-expanded={item.hasSubmenu ? submenuOpen : undefined}
+                  className={`sidebar-user-menu__item${
+                    item.hasSubmenu ? " sidebar-user-menu__item--submenu" : ""
+                  }`}
                   onClick={() => handleAction(item.id)}
+                  onPointerEnter={() => {
+                    if (item.hasSubmenu) {
+                      setSubmenuOpen(true);
+                    } else {
+                      setSubmenuOpen(false);
+                    }
+                  }}
                 >
                   <span className="sidebar-user-menu__icon" aria-hidden>
                     {item.icon}
@@ -187,8 +298,60 @@ export function SidebarUserButton() {
                   {item.badge ? (
                     <span className="sidebar-user-menu__dot" aria-label={t("userCenter.update.badgeAria")} />
                   ) : null}
+                  {item.hasSubmenu ? (
+                    <span className="sidebar-user-menu__chevron" aria-hidden>
+                      <IconChevronRight size={14} />
+                    </span>
+                  ) : null}
                 </button>
               ))}
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {menuOpen && submenuOpen
+        ? createPortal(
+            <div
+              className="sidebar-user-menu__submenu"
+              style={submenuStyle}
+              role="menu"
+              aria-label={t("userCenter.switchTeamAria")}
+            >
+              {teams.length === 0 ? (
+                <div className="sidebar-user-menu__team-empty">
+                  {t("userCenter.switchTeamEmpty")}
+                </div>
+              ) : (
+                teams.map((team) => {
+                  const isActive =
+                    effectiveTeamId === team.id ||
+                    (!effectiveTeamId &&
+                      (team.kind ?? "").trim().toLowerCase() === "personal");
+                  return (
+                    <button
+                      key={team.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={isActive}
+                      className={`sidebar-user-menu__team${
+                        isActive ? " sidebar-user-menu__team--active" : ""
+                      }`}
+                      onClick={() => handleSelectTeam(team.id)}
+                    >
+                      <span className="sidebar-user-menu__team-name" title={team.name}>
+                        {team.name || `#${team.id}`}
+                      </span>
+                      {renderTeamTag(team.kind)}
+                      {isActive ? (
+                        <span className="sidebar-user-menu__team-check" aria-hidden>
+                          <IconCheckCircle size={14} />
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
             </div>,
             document.body,
           )

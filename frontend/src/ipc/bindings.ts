@@ -1185,13 +1185,13 @@ export const commands = {
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
 	/**  停止收件箱 SSE 循环。 */
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
-	/**  推送本机 AI 会话快照到 `sync/{userId}/ai-conversations/latest.json`。 */
+	/**  推送本机 AI 会话快照到默认个人团队 OSS（`ai-conversations/latest.json`）。 */
 	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
-	/**  从云端拉取账号 AI 会话快照。 */
+	/**  从默认个人团队 OSS 拉取 AI 会话快照。 */
 	clientSyncPullConversations: (request: ClientSyncPullConversationsRequest) => typedError<ClientSyncPullConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_conversations", { request })),
-	/**  推送本机模块快照到 `sync/{userId}/modules/latest.json`。 */
+	/**  推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。 */
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
-	/**  从云端拉取账号模块快照并应用到本机。 */
+	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
@@ -1704,6 +1704,20 @@ export type AuthPresenceResult = {
 		feedbackGroupUrl: string,
 	};
 
+/**  `/api/me` 返回的团队成员身份（含默认个人团队 `kind=personal`）。 */
+export type AuthTeamMembership = {
+	id: number,
+	name: string,
+	creator: string,
+	/**  `personal`：登录后默认个人团队；`custom`：用户创建的协作团队。 */
+	kind: string,
+	teamOssKey: string,
+	createdAt: string,
+	updatedAt: string,
+	roleCode: string,
+	userTeamName: string,
+}
+
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {
 	id: number | null,
@@ -1716,6 +1730,8 @@ export type AuthUserProfile = {
 	githubId: string,
 	/**  对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。 */
 	ossPath?: string,
+	/**  当前用户所属团队；快照同步写入 `kind=personal` 的默认团队。 */
+	teams: AuthTeamMembership[],
 };
 
 export type BackendInfo = {
@@ -1962,6 +1978,8 @@ export type CliProviderUpsertInput = {
 
 export type ClientSyncPullConversationsRequest = {
 	token: string,
+	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	teamId?: number | null,
 };
 
 export type ClientSyncPullConversationsResult = {
@@ -1973,6 +1991,8 @@ export type ClientSyncPullConversationsResult = {
 
 export type ClientSyncPullModulesRequest = {
 	token: string,
+	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	teamId?: number | null,
 };
 
 export type ClientSyncPullModulesResult = {
@@ -1991,6 +2011,8 @@ export type ClientSyncPushConversationsRequest = {
 	token: string,
 	/**  前端组装的 bundle JSON（含 schemaVersion / conversations / deleted）。 */
 	bodyJson: string,
+	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	teamId?: number | null,
 };
 
 export type ClientSyncPushConversationsResult = {
@@ -2009,6 +2031,8 @@ export type ClientSyncPushModulesRequest = {
 	deletedHttpCollections?: ClientSyncTombstone[],
 	deletedHttpEnvironments?: ClientSyncTombstone[],
 	deletedWorkspaces?: ClientSyncTombstone[],
+	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	teamId?: number | null,
 };
 
 export type ClientSyncPushModulesResult = {
@@ -5321,6 +5345,8 @@ export type TeamSummary = {
 	id: number,
 	name: string,
 	creator: string,
+	/**  `personal` 默认个人团队；`custom` 协作团队。缺省为空以兼容旧接口。 */
+	kind: string,
 	roleCode: string,
 	userTeamName: string,
 	teamOssKey: string,

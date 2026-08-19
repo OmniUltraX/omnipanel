@@ -1,6 +1,7 @@
 import { fetchMe, isAuthSessionError } from "./loginApi";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
+import { useCurrentSyncTeamStore } from "../../stores/currentSyncTeamStore";
 
 /** 合并并发的资料同步，避免 Bootstrap + AuthProfileSync 各打一次 /api/me。 */
 let inflight: Promise<void> | null = null;
@@ -30,7 +31,13 @@ export async function syncAuthProfile(): Promise<void> {
         email: me.email,
         githubId: me.githubId,
         ossPath: me.ossPath,
+        teams: me.teams,
       });
+      // 校验当前同步团队是否仍属于该账号；跨账号残留则回退到默认个人团队
+      const syncStore = useCurrentSyncTeamStore.getState();
+      if (syncStore.teamId && !me.teams.some((t) => t.id === syncStore.teamId)) {
+        syncStore.resetCurrentSyncTeam();
+      }
     } catch (error) {
       if (isAuthSessionError(error)) {
         useUserProfileStore.getState().clearProfile();

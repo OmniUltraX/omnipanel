@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { resolveAvatarUrl } from "../lib/auth/loginApi";
+import { resolveAvatarUrl, type AuthTeamMembership } from "../lib/auth/loginApi";
 
 export interface UserProfileState {
   nickname: string;
@@ -13,6 +13,8 @@ export interface UserProfileState {
    * /api/me 的 oss_path；非空时 AI 助手流式回复经 STS 上传到该 OSS 前缀。
    */
   ossPath: string;
+  /** /api/me 的 teams；快照写入 kind=personal 的默认团队。 */
+  teams: AuthTeamMembership[];
   setNickname: (nickname: string) => void;
   setAvatarUrl: (avatarUrl: string) => void;
   setProfile: (profile: {
@@ -22,6 +24,7 @@ export interface UserProfileState {
     email?: string;
     githubId?: string;
     ossPath?: string;
+    teams?: AuthTeamMembership[];
   }) => void;
   clearProfile: () => void;
 }
@@ -34,6 +37,7 @@ type PersistedProfileV1 = {
   email?: string;
   githubId?: string;
   ossPath?: string;
+  teams?: AuthTeamMembership[];
 };
 
 export const useUserProfileStore = create<UserProfileState>()(
@@ -45,6 +49,7 @@ export const useUserProfileStore = create<UserProfileState>()(
       email: "",
       githubId: "",
       ossPath: "",
+      teams: [],
       setNickname: (nickname) => set({ nickname }),
       setAvatarUrl: (avatarUrl) => set({ avatarUrl: resolveAvatarUrl(avatarUrl) }),
       setProfile: (profile) =>
@@ -58,6 +63,7 @@ export const useUserProfileStore = create<UserProfileState>()(
           email: profile.email !== undefined ? profile.email : state.email,
           githubId: profile.githubId !== undefined ? profile.githubId : state.githubId,
           ossPath: profile.ossPath !== undefined ? profile.ossPath : state.ossPath,
+          teams: profile.teams !== undefined ? profile.teams : state.teams,
         })),
       clearProfile: () =>
         set({
@@ -67,11 +73,12 @@ export const useUserProfileStore = create<UserProfileState>()(
           email: "",
           githubId: "",
           ossPath: "",
+          teams: [],
         }),
     }),
     {
       name: "omnipanel-user-profile.v1",
-      version: 4,
+      version: 5,
       migrate: (persisted, fromVersion) => {
         const raw = (persisted ?? {}) as PersistedProfileV1;
         if (fromVersion < 2) {
@@ -82,6 +89,7 @@ export const useUserProfileStore = create<UserProfileState>()(
             email: "",
             githubId: "",
             ossPath: "",
+            teams: [],
           };
         }
         return {
@@ -91,6 +99,7 @@ export const useUserProfileStore = create<UserProfileState>()(
           email: fromVersion < 3 ? "" : (raw.email ?? "").trim(),
           githubId: fromVersion < 3 ? "" : (raw.githubId ?? "").trim(),
           ossPath: fromVersion < 4 ? "" : (raw.ossPath ?? "").trim(),
+          teams: fromVersion < 5 ? [] : (raw.teams ?? []),
         };
       },
       partialize: (state) => ({
@@ -100,6 +109,7 @@ export const useUserProfileStore = create<UserProfileState>()(
         email: state.email,
         githubId: state.githubId,
         ossPath: state.ossPath,
+        teams: state.teams,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
