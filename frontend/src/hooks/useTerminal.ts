@@ -1828,6 +1828,13 @@ export function useTerminal(
                     `[Terminal ${sessionId}] WebGL context lost and re-init failed; falling back to DOM renderer`,
                   );
                 }
+                // 关相邻 Tab 时 WebView 可能共享丢上下文：新 renderer 需从 buffer 重绘，
+                // 否则直通模式屏幕会整片空白（命令栏模式仍有 React blocks，不易察觉）。
+                try {
+                  term.refresh(0, Math.max(term.rows - 1, 0));
+                } catch {
+                  /* ignore */
+                }
               });
             });
             term.loadAddon(addon);
