@@ -57,6 +57,14 @@ describe("shellAgentStore", () => {
     expect(isLiveShellAgentForBlock("sess-1", "other-block")).toBe(false);
   });
 
+  it("setPhase 同相位不更新，避免 Overlay 死循环", () => {
+    useShellAgentStore.getState().ensure("sess-1");
+    useShellAgentStore.getState().setPhase("sess-1", "observing");
+    const first = useShellAgentStore.getState().bySession;
+    useShellAgentStore.getState().setPhase("sess-1", "observing");
+    expect(useShellAgentStore.getState().bySession).toBe(first);
+  });
+
   it("idle / cancelled 不算 live", () => {
     useShellAgentStore.getState().ensure("sess-1");
     useShellAgentStore.getState().setBlockId("sess-1", "ai-block-1");

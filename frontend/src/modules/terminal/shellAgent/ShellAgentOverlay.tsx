@@ -44,6 +44,9 @@ import {
   setShellAgentThinkingFull,
   clearShellAgentThinkingFull,
   getArchivedDisplayToolIds,
+  getLastFrozenThinking,
+  getShellAgentThinkingFull,
+  isSameAsLastFrozenThinking,
   appendLastFrozenThinkingFragment,
   formatShellAgentToolResult,
 } from "./thinkingCache";
@@ -311,8 +314,11 @@ function measurePartHeight(el: HTMLElement): number {
     const cs = getComputedStyle(el);
     const padY =
       (Number.parseFloat(cs.paddingTop) || 0) + (Number.parseFloat(cs.paddingBottom) || 0);
+    const borderY =
+      (Number.parseFloat(cs.borderTopWidth) || 0) +
+      (Number.parseFloat(cs.borderBottomWidth) || 0);
     const gap = Number.parseFloat(cs.rowGap || cs.gap) || 0;
-    const extras = (footer ? footer.scrollHeight + gap : 0) + padY;
+    const extras = (footer ? footer.scrollHeight + gap : 0) + padY + borderY;
     if (md) {
       // scrollHeight 在 max-height:100% 下至少等于撑满的 decoration，
       // 解读变短后测高仍是旧占位，卡会留一块空白。按内容盒高。
@@ -390,9 +396,15 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const approveBtnRef = useRef<HTMLButtonElement | null>(null);
 
+  const geoSnapRef = useRef("");
   useEffect(() => {
     return subscribeShellAgentGeometry((sid) => {
-      if (sid === sessionId) setGeoVersion((v) => v + 1);
+      if (sid !== sessionId) return;
+      const g = getShellAgentGeometry(sessionId);
+      const snap = `${g?.version ?? ""}|${g?.cardKind ?? ""}|${g?.rows ?? ""}|${g?.anchorLine ?? ""}`;
+      if (geoSnapRef.current === snap) return;
+      geoSnapRef.current = snap;
+      setGeoVersion((v) => v + 1);
     });
   }, [sessionId]);
 
@@ -513,25 +525,38 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const phase = agent?.phase ?? "idle";
 
   const interpretRaw = useMemo(() => currentTurnResultText(turnThread), [turnThread]);
-  const latchKey = `${sessionId}\0${geometry?.query ?? ""}`;
-  const latchKeyRef = useRef(latchKey);
   const [latchedInterpret, setLatchedInterpret] = useState("");
   const [latchedThinking, setLatchedThinking] = useState("");
-  if (latchKeyRef.current !== latchKey) {
-    latchKeyRef.current = latchKey;
-    if (latchedInterpret) setLatchedInterpret("");
-    if (latchedThinking) setLatchedThinking("");
-  }
+  const pinSigRef = useRef("");
+  const afterToolsSigRef = useRef("");
+  const promotedSlotRef = useRef("");
+  const thinkingSlotKey = `${geometry?.cardKind ?? ""}:${geometry?.anchorLine ?? -1}`;
+  const thinkingSlotSeenRef = useRef(thinkingSlotKey);
 
   useEffect(() => {
+    pinSigRef.current = "";
+    afterToolsSigRef.current = "";
+    promotedSlotRef.current = "";
+    thinkingSlotSeenRef.current = "";
     setLatchedInterpret("");
     setLatchedThinking("");
     clearShellAgentThinkingFull(sessionId);
   }, [sessionId, geometry?.query]);
 
   useEffect(() => {
+    if (thinkingSlotSeenRef.current === thinkingSlotKey) return;
+    thinkingSlotSeenRef.current = thinkingSlotKey;
+    if (geometry?.cardKind === "thinking") {
+      setLatchedThinking((prev) => (prev ? "" : prev));
+    }
+  }, [thinkingSlotKey, geometry?.cardKind]);
+
+  useEffect(() => {
     if (!interpretRaw.trim()) return;
-    setLatchedInterpret((prev) => mergeThinkingText(prev, interpretRaw));
+    setLatchedInterpret((prev) => {
+      const next = mergeThinkingText(prev, interpretRaw);
+      return next === prev ? prev : next;
+    });
   }, [interpretRaw]);
 
   const interpretText = latchedInterpret.trim()
@@ -550,6 +575,20 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
 
   const showFinal = geometry?.cardKind === "final";
 
+  const displayToolIdsKey = useMemo(
+    () =>
+      displayTools
+        .filter((tc) => tc.status !== "rejected")
+        .map((tc) => `${tc.id}:${tc.status}`)
+        .join(","),
+    [displayTools],
+  );
+  const stripToolIdsKey = useMemo(
+    () => stripTools.map((t) => `${t.id}:${t.status}`).join(","),
+    [stripTools],
+  );
+  const thinkingFull = useMemo(() => currentTurnThinkingText(turnThread), [turnThread]);
+
   useEffect(() => {
     if (geometry?.cardKind !== "thinking") return;
     if (pendingTool) return;
@@ -560,6 +599,11 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     }
     // 只用本轮结果正文。上一轮 latch 会把空思考卡误升成「正在理解意图」结果卡。
     if (!interpretRaw.trim()) return;
+    const thinkingText =
+      mergeThinkingText(latchedThinking, thinkingFull).trim() ||
+      getShellAgentThinkingFull(sessionId).trim();
+    // 最后一轮必须先有思考正文再升结果，否则会把思考卡同槽换成结果卡
+    if (!thinkingText) return;
     if (
       phase !== "streaming" &&
       phase !== "observing" &&
@@ -567,6 +611,9 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     ) {
       return;
     }
+    if (promotedSlotRef.current === thinkingSlotKey) return;
+    promotedSlotRef.current = thinkingSlotKey;
+    setShellAgentThinkingFull(sessionId, thinkingText);
     notifyShellAgentPromoteToFinal(sessionId);
   }, [
     geometry?.cardKind,
@@ -575,10 +622,12 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     sessionId,
     pendingTool?.id,
     displayToolsBusy,
+    displayToolIdsKey,
+    thinkingSlotKey,
     displayTools,
+    thinkingFull,
+    latchedThinking,
   ]);
-
-  const thinkingFull = useMemo(() => currentTurnThinkingText(turnThread), [turnThread]);
   const leftoverFragment = useMemo(
     () => toolBoundaryLeftoverFragment(turnThread),
     [turnThread],
@@ -589,7 +638,10 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   useEffect(() => {
     if (geometry?.cardKind !== "thinking") return;
     if (!thinkingFull) return;
-    setLatchedThinking((prev) => mergeThinkingText(prev, thinkingFull));
+    setLatchedThinking((prev) => {
+      const next = mergeThinkingText(prev, thinkingFull);
+      return next === prev ? prev : next;
+    });
     setShellAgentThinkingFull(sessionId, thinkingFull);
   }, [sessionId, thinkingFull, geometry?.cardKind]);
 
@@ -597,14 +649,28 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     if (pendingTool) return;
     if (geometry?.cardKind === "ask") return;
     if (isPendingTurnThread(turnThread)) return;
+    const archived = getArchivedDisplayToolIds(sessionId);
     if (geometry?.cardKind !== "thinking" && geometry?.cardKind !== "final" && geometry?.cardKind !== "cmd") {
+      if (!hasUnshownDisplayTool(displayTools, archived)) return;
+      const incomingIds = displayTools
+        .filter((tc) => tc.status !== "rejected" && !archived.has(tc.id))
+        .map((tc) => tc.id)
+        .join(",");
+      const pinSig = `idle|${incomingIds}`;
+      if (pinSigRef.current === pinSig) return;
+      if (notifyShellAgentDisplayTool(sessionId)) pinSigRef.current = pinSig;
       return;
     }
-    const archived = getArchivedDisplayToolIds(sessionId);
+    const incomingIds = displayTools
+      .filter((tc) => tc.status !== "rejected" && !archived.has(tc.id))
+      .map((tc) => tc.id)
+      .join(",");
+    const pinSig = `${geometry.cardKind}|${incomingIds}|${stripToolIdsKey}`;
     const pin = () => {
+      if (pinSigRef.current === pinSig) return;
       const text = thinkingToFreezeRef.current;
       if (text.trim()) setShellAgentThinkingFull(sessionId, text);
-      notifyShellAgentDisplayTool(sessionId);
+      if (notifyShellAgentDisplayTool(sessionId)) pinSigRef.current = pinSig;
     };
     if (geometry?.cardKind === "thinking" || geometry?.cardKind === "final") {
       if (!hasUnshownDisplayTool(displayTools, archived)) return;
@@ -612,6 +678,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       // final 空占位（误升）同样等思考，不能直接钉 search。
       if (
         !thinkingToFreezeRef.current.trim() &&
+        !getLastFrozenThinking(sessionId) &&
         (geometry.cardKind === "thinking" || !interpretRaw.trim())
       ) {
         return;
@@ -629,11 +696,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       (t) => t.status === "pending" || t.status === "running",
     );
     if (shownBusy) return;
-    notifyShellAgentDisplayTool(sessionId);
+    if (pinSigRef.current === pinSig) return;
+    if (notifyShellAgentDisplayTool(sessionId)) pinSigRef.current = pinSig;
   }, [
     geometry?.cardKind,
     pendingTool?.id,
     displayToolsBusy,
+    displayToolIdsKey,
+    stripToolIdsKey,
     displayTools,
     stripTools,
     sessionId,
@@ -659,6 +729,14 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     if (hasUnshownDisplayTool(displayTools, getArchivedDisplayToolIds(sessionId), shownIds)) {
       return;
     }
+    const thinkingIsFresh =
+      Boolean(thinkingFull.trim()) &&
+      !isSameAsLastFrozenThinking(sessionId, thinkingFull);
+    const hasResult = Boolean(interpretText.trim());
+    // 用是否「有新思考/结果」而不是全文：token 变长不得反复钉卡
+    const sig = `${shownIds.size}|${displayToolIdsKey}|${thinkingIsFresh}|${hasResult}`;
+    if (afterToolsSigRef.current === sig) return;
+    afterToolsSigRef.current = sig;
     // 工具条一完成：有新思考/结果才离开；否则留在条上接下一条工具
     notifyShellAgentAfterDisplayTools(sessionId);
   }, [
@@ -666,6 +744,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     pendingTool?.id,
     displayTools.length,
     displayToolsBusy,
+    displayToolIdsKey,
+    stripToolIdsKey,
     displayTools,
     stripTools,
     thinkingFull,

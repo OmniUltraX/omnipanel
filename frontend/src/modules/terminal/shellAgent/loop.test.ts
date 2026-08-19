@@ -1,19 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { submitInlineFollowUp, submitInlineNaturalLanguage } = vi.hoisted(() => ({
+const { submitInlineFollowUp, submitInlineNaturalLanguage, findBlockById } = vi.hoisted(() => ({
   submitInlineFollowUp: vi.fn().mockResolvedValue(undefined),
   submitInlineNaturalLanguage: vi.fn().mockResolvedValue("block-new"),
+  findBlockById: vi.fn((id: string) =>
+    id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+  ),
 }));
 
-vi.mock("../../../stores/blocksStore", () => ({
-  useBlocksStore: {
-    getState: () => ({
-      findBlockById: (id: string) =>
-        id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
-    }),
-  },
-  isAiThreadToolCall: () => false,
-}));
+vi.mock("../../../stores/blocksStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../stores/blocksStore")>();
+  return {
+    ...actual,
+    useBlocksStore: {
+      getState: () => ({
+        findBlockById,
+      }),
+    },
+    isAiThreadToolCall: () => false,
+  };
+});
 vi.mock("../../../stores/settingsStore", () => ({
   useSettingsStore: {
     getState: () => ({
@@ -75,6 +81,7 @@ import {
   notifyShellAgentExecuting,
   notifyShellAgentAfterDisplayTools,
   notifyShellAgentDisplayTool,
+  notifyShellAgentPromoteToFinal,
   notifyShellAgentTurnFinished,
   newShellAgentSession,
   notifyShellAgentRejected,
@@ -87,7 +94,12 @@ import {
   getShellAgentGeometry,
 } from "./shellAgentGeometry";
 import { useShellAgentStore } from "./shellAgentStore";
-import { setShellAgentLastCmd, setShellAgentThinkingFull } from "./thinkingCache";
+import {
+  getLastFrozenThinking,
+  rememberFrozenThinking,
+  setShellAgentLastCmd,
+  setShellAgentThinkingFull,
+} from "./thinkingCache";
 import { writeTerminalRaw } from "../terminalPaneSenders";
 
 const SID = "loop-test-session";
@@ -154,6 +166,9 @@ describe("notifyShellAgentStreaming", () => {
     registerXterm(SID, createFakeTerm() as unknown as Terminal);
     submitInlineFollowUp.mockClear();
     submitInlineNaturalLanguage.mockClear();
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+    );
     findTerminalPane.mockReturnValue({ cwd: "/tmp", shellLabel: "bash" });
   });
 
@@ -250,6 +265,9 @@ describe("startOrContinueShellAgent busy follow-up", () => {
     registerXterm(SID, createFakeTerm() as unknown as Terminal);
     submitInlineFollowUp.mockClear();
     submitInlineNaturalLanguage.mockClear();
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+    );
   });
 
   it("忙时即使 autocontinue=false 也 follow-up，不丢输入", async () => {
@@ -315,6 +333,9 @@ describe("newShellAgentSession", () => {
     useShellAgentStore.setState({ bySession: {} });
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+    );
   });
 
   it("开新 thread 且保留已冻结卡 decoration", () => {
@@ -351,6 +372,9 @@ describe("notifyShellAgentApprovalPending", () => {
     useShellAgentStore.setState({ bySession: {} });
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+    );
   });
 
   it("从结果卡切到下一确认卡时归档另钉，不把结果卡同槽换肤", () => {
@@ -422,6 +446,9 @@ describe("notifyShellAgentRejected", () => {
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
     vi.mocked(writeTerminalRaw).mockClear();
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+    );
   });
 
   it("拒绝后 idle 并请求 PTY 拉新 prompt，不停留在 streaming", async () => {
@@ -457,6 +484,9 @@ describe("notifyShellAgentAfterDisplayTools", () => {
     clearShellAgentGeometry(SID);
     unregisterXterm(SID);
     registerXterm(SID, createFakeTerm() as unknown as Terminal);
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "running" } : null,
+    );
   });
 
   it("无新思考时留在工具条接下一条，不等 PTY settle", () => {
@@ -523,5 +553,236 @@ describe("notifyShellAgentAfterDisplayTools", () => {
     await vi.waitFor(() => {
       expect(useShellAgentStore.getState().get(SID)?.phase).toBe("idle");
     });
+  });
+
+  it("工具后仍是已冻旧思考时不重复钉思考卡", () => {
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy"
+        ? {
+            id,
+            kind: "ai",
+            status: "running",
+            aiThread: [
+              {
+                kind: "message",
+                id: "u1",
+                role: "user",
+                content: "历史上的今天",
+                timestamp: 1,
+              },
+              {
+                kind: "message",
+                id: "a1",
+                role: "assistant",
+                content: "",
+                timestamp: 1,
+                parts: [
+                  { type: "reasoning", text: "先查今天日期，再搜索" },
+                  {
+                    type: "tool-call",
+                    id: "t-search",
+                    name: "omni_web_search",
+                    arguments: "{}",
+                    status: "completed",
+                  },
+                  { type: "reasoning", text: "先查今天日期，再搜索" },
+                ],
+              },
+              {
+                kind: "tool_call",
+                id: "t-search",
+                toolName: "omni_web_search",
+                args: "{}",
+                status: "completed",
+                timestamp: 1,
+              },
+            ],
+          }
+        : null,
+    );
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setBlockId(SID, "block-busy");
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    rememberFrozenThinking(SID, "先查今天日期，再搜索");
+
+    notifyShellAgentAfterDisplayTools(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+  });
+
+  it("有新思考窗口时不把空思考槽就地改成工具条", () => {
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy"
+        ? {
+            id,
+            kind: "ai",
+            status: "running",
+            aiThread: [
+              {
+                kind: "message",
+                id: "u1",
+                role: "user",
+                content: "历史上的今天",
+                timestamp: 1,
+              },
+              {
+                kind: "message",
+                id: "a1",
+                role: "assistant",
+                content: "",
+                timestamp: 1,
+                parts: [
+                  { type: "reasoning", text: "搜索结果已经返回，接下来 fetch" },
+                ],
+              },
+            ],
+          }
+        : null,
+    );
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setBlockId(SID, "block-busy");
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    rememberFrozenThinking(SID, "先查今天日期，再搜索");
+
+    const pinned = notifyShellAgentDisplayTool(SID);
+
+    expect(pinned).toBe(false);
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+  });
+
+  it("已在思考卡上时 afterDisplayTools 不再重钉", () => {
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy"
+        ? {
+            id,
+            kind: "ai",
+            status: "running",
+            aiThread: [
+              {
+                kind: "message",
+                id: "u1",
+                role: "user",
+                content: "历史上的今天",
+                timestamp: 1,
+              },
+              {
+                kind: "message",
+                id: "a1",
+                role: "assistant",
+                content: "",
+                timestamp: 1,
+                parts: [
+                  { type: "reasoning", text: "搜索结果已经返回，接下来 fetch" },
+                ],
+              },
+            ],
+          }
+        : null,
+    );
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setBlockId(SID, "block-busy");
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    const before = getShellAgentGeometry(SID);
+
+    notifyShellAgentAfterDisplayTools(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+    expect(getShellAgentGeometry(SID)?.version).toBe(before?.version);
+  });
+
+  it("刚从工具条钉上思考卡时 displayTool 不得立刻改回工具条", () => {
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy"
+        ? {
+            id,
+            kind: "ai",
+            status: "running",
+            aiThread: [
+              {
+                kind: "message",
+                id: "u1",
+                role: "user",
+                content: "历史上的今天",
+                timestamp: 1,
+              },
+              {
+                kind: "message",
+                id: "a1",
+                role: "assistant",
+                content: "",
+                timestamp: 1,
+                parts: [
+                  { type: "reasoning", text: "搜索结果已经返回，接下来 fetch" },
+                ],
+              },
+            ],
+          }
+        : null,
+    );
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setBlockId(SID, "block-busy");
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    const deco = getShellAgentGeometry(SID)?.decoration as {
+      element?: { innerHTML: string; querySelector: () => null };
+    } | undefined;
+    if (deco) {
+      deco.element = {
+        innerHTML: '<div class="term-shell-agent-tool" data-tool-id="t-search"></div>',
+        querySelector: () => null,
+      };
+    }
+
+    notifyShellAgentAfterDisplayTools(SID);
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+
+    const flipped = notifyShellAgentDisplayTool(SID);
+    expect(flipped).toBe(false);
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+  });
+
+  it("最后一轮思考卡归档另钉结果卡，不同槽换肤", () => {
+    const term = createFakeTerm();
+    unregisterXterm(SID);
+    registerXterm(SID, term as unknown as Terminal);
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "streaming");
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的今天",
+    });
+    setShellAgentThinkingFull(SID, "搜索和抓取都齐了，开始写长文");
+
+    notifyShellAgentPromoteToFinal(SID);
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("final");
+    expect(getLastFrozenThinking(SID)).toBe("搜索和抓取都齐了，开始写长文");
+    expect(term.decorations.length).toBeGreaterThanOrEqual(2);
+    expect(term.decorations[0].disposed).toBe(false);
   });
 });
