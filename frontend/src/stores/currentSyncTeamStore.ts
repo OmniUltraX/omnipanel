@@ -7,8 +7,9 @@ import { useUserProfileStore } from "./userProfileStore";
  * 当前数据快照来源团队。
  *
  * - `teamId` 为 `null` 时回退到 `/api/me.teams` 中 `kind=personal` 的默认团队。
- * - 用户在头像菜单「切换团队」里选择某个团队后写入该团队 id，自动同步与手动拉取
- *   都会改写到该团队 OSS 前缀下。
+ * - 用户在侧栏头像上方的「切换团队」按钮中选择某个团队后写入该团队 id；
+ *   切换流程会先把本机数据推回旧团队，再从新团队拉取并替换本机数据源。
+ *   之后自动同步与手动拉取都会读写该团队 OSS 前缀。
  * - 账号切换 / 登出时由调用方 `resetCurrentSyncTeam` 清空，避免跨账号串数据。
  */
 export interface CurrentSyncTeamState {

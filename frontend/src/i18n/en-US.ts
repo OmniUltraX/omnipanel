@@ -7306,6 +7306,13 @@ export const enUS: TranslationDict = {
     switchTeamCurrent: "Current",
     switchTeamPersonal: "Personal",
     switchTeamEmpty: "No teams available",
+    switchTeamSuccess: "Switched to \"{name}\" and loaded its data",
+    switchTeamEmptySnapshot:
+      "Switched to \"{name}\" (no snapshot yet; keeping local data)",
+    switchTeamFailed: "Failed to switch team. Please try again.",
+    switchTeamLoading: "Switching team…",
+    switchTeamLoadingDetail: "Target: {name}",
+    switchTeamLoadingAria: "Switching data snapshot source team, please wait",
     nav: {
       account: "Profile",
       subscription: "Subscription",

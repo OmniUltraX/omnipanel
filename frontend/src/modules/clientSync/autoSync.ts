@@ -20,6 +20,25 @@ export function cancelClientConversationSync(): void {
   pendingAfterFlight = false;
 }
 
+async function pushConversationsOnce(teamId: number | null): Promise<void> {
+  const token = useAuthStore.getState().token;
+  if (!token?.trim()) return;
+  const tombstones = useClientSyncTombstoneStore.getState();
+  tombstones.pruneExpired();
+  const bundle = buildConversationsBundle({
+    conversations: useAiStore.getState().conversations,
+    deleted: tombstones.listConversationTombstones(),
+  });
+  await unwrapCommand(
+    commands.clientSyncPushConversations({
+      token,
+      bodyJson: JSON.stringify(bundle),
+      teamId,
+    }),
+    { quiet: true },
+  );
+}
+
 /**
  * 会话变更后立即推送到当前同步团队 OSS `ai-conversations/latest.json`。
  */
@@ -45,20 +64,7 @@ async function runPush(): Promise<void> {
 
   inFlight = (async () => {
     try {
-      const tombstones = useClientSyncTombstoneStore.getState();
-      tombstones.pruneExpired();
-      const bundle = buildConversationsBundle({
-        conversations: useAiStore.getState().conversations,
-        deleted: tombstones.listConversationTombstones(),
-      });
-      await unwrapCommand(
-        commands.clientSyncPushConversations({
-          token,
-          bodyJson: JSON.stringify(bundle),
-          teamId: getCurrentSyncTeamId(),
-        }),
-        { quiet: true },
-      );
+      await pushConversationsOnce(getCurrentSyncTeamId());
     } catch {
     } finally {
       inFlight = null;
@@ -70,4 +76,24 @@ async function runPush(): Promise<void> {
   })();
 
   await inFlight;
+}
+
+/**
+ * 强制等待当前推送结束后，再向指定团队推送一份会话快照。
+ * 切换团队前用来把本机会话写回旧团队；不受 suppress 影响。
+ */
+export async function flushClientConversationSync(
+  teamId?: number | null,
+): Promise<void> {
+  if (inFlight) {
+    try {
+      await inFlight;
+    } catch {
+    }
+  }
+  pendingAfterFlight = false;
+  try {
+    await pushConversationsOnce(teamId ?? getCurrentSyncTeamId());
+  } catch {
+  }
 }

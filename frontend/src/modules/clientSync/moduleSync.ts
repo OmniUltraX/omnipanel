@@ -46,6 +46,21 @@ function deletedPayload() {
   };
 }
 
+async function pushModulesOnce(teamId: number | null): Promise<void> {
+  const token = useAuthStore.getState().token;
+  if (!token?.trim()) return;
+  const deleted = deletedPayload();
+  await unwrapCommand(
+    commands.clientSyncPushModules({
+      token,
+      workspacesJson: collectWorkspacesJson(),
+      teamId,
+      ...deleted,
+    }),
+    { quiet: true },
+  );
+}
+
 /**
  * 模块数据变更后立即推送到当前同步团队 OSS `modules/latest.json`。
  */
@@ -69,16 +84,7 @@ async function runPush(): Promise<void> {
 
   inFlight = (async () => {
     try {
-      const deleted = deletedPayload();
-      await unwrapCommand(
-        commands.clientSyncPushModules({
-          token,
-          workspacesJson: collectWorkspacesJson(),
-          teamId: getCurrentSyncTeamId(),
-          ...deleted,
-        }),
-        { quiet: true },
-      );
+      await pushModulesOnce(getCurrentSyncTeamId());
     } catch {
     } finally {
       inFlight = null;
@@ -90,4 +96,24 @@ async function runPush(): Promise<void> {
   })();
 
   await inFlight;
+}
+
+/**
+ * 强制等待当前推送结束后，再向指定团队推送一份模块快照。
+ * 切换团队前用来把本机当前数据写回旧团队；不受 suppress 影响。
+ */
+export async function flushClientModuleSync(
+  teamId?: number | null,
+): Promise<void> {
+  if (inFlight) {
+    try {
+      await inFlight;
+    } catch {
+    }
+  }
+  pendingAfterFlight = false;
+  try {
+    await pushModulesOnce(teamId ?? getCurrentSyncTeamId());
+  } catch {
+  }
 }

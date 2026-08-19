@@ -7155,23 +7155,22 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     flex-shrink: 0;
 }
 
-/* 切换团队：一级项 + 二级子菜单 */
-.sidebar-user-menu__item--submenu {
+/* 侧栏底部：头像上方的切换团队按钮 + 弹出菜单 */
+.sidebar-team-switch-btn {
     position: relative;
 }
 
-.sidebar-user-menu__chevron {
-    display: inline-flex;
-    width: 14px;
-    height: 14px;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
-    flex-shrink: 0;
+.sidebar-team-switch-btn:disabled {
+    opacity: 0.55;
+    cursor: wait;
 }
 
-.sidebar-user-menu__submenu {
-    position: fixed;
+.sidebar-team-switch-menu__item:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+.sidebar-team-switch-menu {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -7187,7 +7186,7 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     z-index: var(--z-subwindow-popover, 1400);
 }
 
-.sidebar-user-menu__team {
+.sidebar-team-switch-menu__item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -7204,16 +7203,16 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     white-space: nowrap;
 }
 
-.sidebar-user-menu__team:hover {
+.sidebar-team-switch-menu__item:hover {
     background: var(--bg-hover, color-mix(in srgb, var(--accent) 10%, transparent));
 }
 
-.sidebar-user-menu__team--active {
+.sidebar-team-switch-menu__item--active {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     color: var(--fg);
 }
 
-.sidebar-user-menu__team-name {
+.sidebar-team-switch-menu__name {
     flex: 1 1 auto;
     min-width: 0;
     white-space: nowrap;
@@ -7221,7 +7220,7 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     text-overflow: ellipsis;
 }
 
-.sidebar-user-menu__team-tag {
+.sidebar-team-switch-menu__tag {
     flex-shrink: 0;
     padding: 1px 6px;
     border-radius: 999px;
@@ -7231,17 +7230,80 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     line-height: 1.4;
 }
 
-.sidebar-user-menu__team-check {
+.sidebar-team-switch-menu__check {
     flex-shrink: 0;
     width: 14px;
     height: 14px;
     color: var(--accent, var(--fg));
 }
 
-.sidebar-user-menu__team-empty {
+.sidebar-team-switch-menu__empty {
     padding: 10px 12px;
     color: var(--muted);
     font-size: 12px;
+}
+
+/* 切换团队：全屏阻塞加载 */
+.sidebar-team-switch-loading {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-dialog, 1400) + 20);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--bg, #0b0d10) 55%, rgba(0, 0, 0, 0.45));
+    backdrop-filter: blur(2px);
+    pointer-events: all;
+    cursor: wait;
+}
+
+.sidebar-team-switch-loading__card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    min-width: 220px;
+    max-width: min(360px, calc(100vw - 48px));
+    padding: 28px 32px 24px;
+    border-radius: var(--r-lg, 12px);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    color: var(--fg);
+    text-align: center;
+}
+
+.sidebar-team-switch-loading__spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: sidebar-team-switch-spin 0.7s linear infinite;
+}
+
+.sidebar-team-switch-loading__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.sidebar-team-switch-loading__detail {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@keyframes sidebar-team-switch-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .app-update-dialog {

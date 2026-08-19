@@ -7226,6 +7226,12 @@ export const zhCN = {
     switchTeamCurrent: "当前",
     switchTeamPersonal: "个人",
     switchTeamEmpty: "暂无可切换的团队",
+    switchTeamSuccess: "已切换到「{name}」，并加载该团队数据",
+    switchTeamEmptySnapshot: "已切换到「{name}」（目标团队暂无快照，保留本机数据）",
+    switchTeamFailed: "切换团队失败，请稍后重试",
+    switchTeamLoading: "正在切换团队…",
+    switchTeamLoadingDetail: "目标：{name}",
+    switchTeamLoadingAria: "正在切换数据快照来源团队，请稍候",
     nav: {
       account: "资料",
       subscription: "订阅管理",

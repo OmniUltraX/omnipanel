@@ -22,10 +22,10 @@ import {
   resolveCurrentSyncTeamId,
   useCurrentSyncTeamStore,
 } from "../../stores/currentSyncTeamStore";
-import { pullCloudSnapshot } from "../../modules/clientSync/pullCloudSnapshot";
+import { switchSyncTeam } from "../../modules/clientSync/switchSyncTeam";
+import { showToast } from "../../stores/toastStore";
 import {
   IconCheckCircle,
-  IconChevronRight,
   IconDownload,
   IconGlobe,
   IconSettings,
@@ -36,13 +36,19 @@ import { AppUpdateDialog } from "./AppUpdateDialog";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = "account" | "settings" | "website" | "update" | "switchTeam";
+type MenuAction = "account" | "settings" | "website" | "update";
 
-function isMenuNode(target: EventTarget | null): boolean {
+function isUserMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
 }
 
-/** 侧栏底部用户按钮：未登录默认图标，已登录头像；点击弹出菜单。 */
+function isTeamMenuNode(target: EventTarget | null): boolean {
+  return Boolean(
+    (target as Element | null)?.closest?.(".sidebar-team-switch-menu"),
+  );
+}
+
+/** 侧栏底部：切换团队按钮（头像上方）+ 用户头像菜单。 */
 export function SidebarUserButton() {
   const { t } = useI18n();
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
@@ -56,18 +62,22 @@ export function SidebarUserButton() {
   const updateBadge = useAppUpdateStore(selectUpdateBadgeVisible);
   const openUpdateDialog = useAppUpdateStore((s) => s.openDialog);
   const currentTeamId = useCurrentSyncTeamStore((s) => s.teamId);
-  const setSyncTeamId = useCurrentSyncTeamStore((s) => s.setTeamId);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [submenuOpen, setSubmenuOpen] = useState(false);
+  const [teamMenuOpen, setTeamMenuOpen] = useState(false);
+  const [switchingTeam, setSwitchingTeam] = useState(false);
+  const [switchingTeamName, setSwitchingTeamName] = useState("");
   const [style, setStyle] = useState<CSSProperties>({});
-  const [submenuStyle, setSubmenuStyle] = useState<CSSProperties>({});
+  const [teamMenuStyle, setTeamMenuStyle] = useState<CSSProperties>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const submenuItemRef = useRef<HTMLButtonElement | null>(null);
+  const teamButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const active = userCenterOpen || settingsOpen || menuOpen;
-
   const effectiveTeamId = resolveCurrentSyncTeamId(currentTeamId, teams);
+  const currentTeam =
+    teams.find((team) => team.id === effectiveTeamId) ??
+    teams.find((team) => (team.kind ?? "").trim().toLowerCase() === "personal") ??
+    null;
 
   const updatePosition = useCallback(() => {
     const btn = buttonRef.current;
@@ -88,22 +98,22 @@ export function SidebarUserButton() {
     });
   }, []);
 
-  const updateSubmenuPosition = useCallback(() => {
-    const item = submenuItemRef.current;
-    if (!item) return;
-    const rect = item.getBoundingClientRect();
-    const gap = 6;
-    const submenuWidth = 220;
+  const updateTeamMenuPosition = useCallback(() => {
+    const btn = teamButtonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const gap = 8;
+    const menuWidth = 220;
     const maxHeight = Math.max(160, window.innerHeight - 8 - rect.top);
     let left = rect.right + gap;
-    if (left + submenuWidth > window.innerWidth - 8) {
-      left = Math.max(8, rect.left - submenuWidth - gap);
+    if (left + menuWidth > window.innerWidth - 8) {
+      left = Math.max(8, rect.left - menuWidth - gap);
     }
-    setSubmenuStyle({
+    setTeamMenuStyle({
       position: "fixed",
       left,
-      top: rect.top,
-      width: submenuWidth,
+      bottom: Math.max(8, window.innerHeight - rect.bottom),
+      width: menuWidth,
       maxHeight,
       zIndex: "var(--z-subwindow-popover, 1400)",
     });
@@ -115,29 +125,28 @@ export function SidebarUserButton() {
   }, [menuOpen, updatePosition]);
 
   useLayoutEffect(() => {
-    if (!submenuOpen) return;
-    updateSubmenuPosition();
-  }, [submenuOpen, updateSubmenuPosition]);
+    if (!teamMenuOpen) return;
+    updateTeamMenuPosition();
+  }, [teamMenuOpen, updateTeamMenuPosition]);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !teamMenuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       if (buttonRef.current?.contains(event.target as Node)) return;
-      if (isMenuNode(event.target)) return;
+      if (teamButtonRef.current?.contains(event.target as Node)) return;
+      if (isUserMenuNode(event.target) || isTeamMenuNode(event.target)) return;
       setMenuOpen(false);
+      setTeamMenuOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (submenuOpen) {
-          setSubmenuOpen(false);
-          return;
-        }
+        setTeamMenuOpen(false);
         setMenuOpen(false);
       }
     };
     const onResize = () => {
-      updatePosition();
-      if (submenuOpen) updateSubmenuPosition();
+      if (menuOpen) updatePosition();
+      if (teamMenuOpen) updateTeamMenuPosition();
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown);
@@ -147,19 +156,11 @@ export function SidebarUserButton() {
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", onResize);
     };
-  }, [menuOpen, submenuOpen, updatePosition, updateSubmenuPosition]);
-
-  const closeAll = useCallback(() => {
-    setSubmenuOpen(false);
-    setMenuOpen(false);
-  }, []);
+  }, [menuOpen, teamMenuOpen, updatePosition, updateTeamMenuPosition]);
 
   const handleAction = (action: MenuAction) => {
-    if (action === "switchTeam") {
-      setSubmenuOpen((open) => !open);
-      return;
-    }
-    closeAll();
+    setMenuOpen(false);
+    setTeamMenuOpen(false);
     if (action === "settings") {
       openSettings();
       return;
@@ -175,31 +176,46 @@ export function SidebarUserButton() {
     openUserCenter("account");
   };
 
-  const handleSelectTeam = (teamId: number | null) => {
-    setSyncTeamId(teamId);
-    closeAll();
-    // 切换后立即从新团队拉取快照并应用到本机
-    void pullCloudSnapshot();
+  const handleSelectTeam = (teamId: number) => {
+    if (switchingTeam) return;
+    if (effectiveTeamId === teamId) {
+      setTeamMenuOpen(false);
+      return;
+    }
+    const teamName =
+      teams.find((team) => team.id === teamId)?.name?.trim() || `#${teamId}`;
+    setTeamMenuOpen(false);
+    setSwitchingTeamName(teamName);
+    setSwitchingTeam(true);
+    void (async () => {
+      try {
+        const result = await switchSyncTeam(teamId);
+        if (!result.switched) return;
+        if (result.pulledModules || result.pulledConversations) {
+          showToast(t("userCenter.switchTeamSuccess", { name: teamName }));
+        } else {
+          showToast(t("userCenter.switchTeamEmptySnapshot", { name: teamName }));
+        }
+      } catch {
+        showToast(t("userCenter.switchTeamFailed"));
+      } finally {
+        setSwitchingTeam(false);
+        setSwitchingTeamName("");
+      }
+    })();
   };
 
-  // 版本更新放在倒数第二（设置之前）；切换团队放在资料之后
+  // 版本更新放在倒数第二（设置之前）
   const items: {
     id: MenuAction;
     label: string;
     icon: ReactNode;
     badge?: boolean;
-    hasSubmenu?: boolean;
   }[] = [
     {
       id: "account",
       label: t("userCenter.title"),
       icon: <IconUser size={14} />,
-    },
-    {
-      id: "switchTeam",
-      label: t("userCenter.switchTeam"),
-      icon: <IconUsers size={14} />,
-      hasSubmenu: true,
     },
     {
       id: "website",
@@ -223,11 +239,15 @@ export function SidebarUserButton() {
     ? nickname.trim() || t("userCenter.title")
     : t("userCenter.login.signIn");
 
+  const teamButtonTitle = currentTeam
+    ? `${t("userCenter.switchTeam")}: ${currentTeam.name || `#${currentTeam.id}`}`
+    : t("userCenter.switchTeam");
+
   const renderTeamTag = (kind: string) => {
     const normalized = (kind ?? "").trim().toLowerCase();
     if (normalized === "personal") {
       return (
-        <span className="sidebar-user-menu__team-tag">
+        <span className="sidebar-team-switch-menu__tag">
           {t("userCenter.switchTeamPersonal")}
         </span>
       );
@@ -237,6 +257,28 @@ export function SidebarUserButton() {
 
   return (
     <>
+      {isLoggedIn ? (
+        <button
+          ref={teamButtonRef}
+          type="button"
+          className={`sidebar-item sidebar-team-switch-btn${
+            teamMenuOpen || switchingTeam ? " active" : ""
+          }`}
+          title={teamButtonTitle}
+          aria-label={t("userCenter.switchTeamAria")}
+          aria-haspopup="menu"
+          aria-expanded={teamMenuOpen}
+          disabled={switchingTeam}
+          onClick={() => {
+            if (switchingTeam) return;
+            setTeamMenuOpen((open) => !open);
+            setMenuOpen(false);
+          }}
+        >
+          <IconUsers size={20} />
+        </button>
+      ) : null}
+
       <button
         ref={buttonRef}
         type="button"
@@ -247,7 +289,7 @@ export function SidebarUserButton() {
         aria-expanded={menuOpen}
         onClick={() => {
           setMenuOpen((open) => !open);
-          setSubmenuOpen(false);
+          setTeamMenuOpen(false);
         }}
       >
         {isLoggedIn && avatarUrl ? (
@@ -274,22 +316,10 @@ export function SidebarUserButton() {
               {items.map((item) => (
                 <button
                   key={item.id}
-                  ref={item.hasSubmenu ? submenuItemRef : undefined}
                   type="button"
                   role="menuitem"
-                  aria-haspopup={item.hasSubmenu ? "menu" : undefined}
-                  aria-expanded={item.hasSubmenu ? submenuOpen : undefined}
-                  className={`sidebar-user-menu__item${
-                    item.hasSubmenu ? " sidebar-user-menu__item--submenu" : ""
-                  }`}
+                  className="sidebar-user-menu__item"
                   onClick={() => handleAction(item.id)}
-                  onPointerEnter={() => {
-                    if (item.hasSubmenu) {
-                      setSubmenuOpen(true);
-                    } else {
-                      setSubmenuOpen(false);
-                    }
-                  }}
                 >
                   <span className="sidebar-user-menu__icon" aria-hidden>
                     {item.icon}
@@ -298,11 +328,6 @@ export function SidebarUserButton() {
                   {item.badge ? (
                     <span className="sidebar-user-menu__dot" aria-label={t("userCenter.update.badgeAria")} />
                   ) : null}
-                  {item.hasSubmenu ? (
-                    <span className="sidebar-user-menu__chevron" aria-hidden>
-                      <IconChevronRight size={14} />
-                    </span>
-                  ) : null}
                 </button>
               ))}
             </div>,
@@ -310,16 +335,16 @@ export function SidebarUserButton() {
           )
         : null}
 
-      {menuOpen && submenuOpen
+      {teamMenuOpen
         ? createPortal(
             <div
-              className="sidebar-user-menu__submenu"
-              style={submenuStyle}
+              className="sidebar-team-switch-menu"
+              style={teamMenuStyle}
               role="menu"
               aria-label={t("userCenter.switchTeamAria")}
             >
               {teams.length === 0 ? (
-                <div className="sidebar-user-menu__team-empty">
+                <div className="sidebar-team-switch-menu__empty">
                   {t("userCenter.switchTeamEmpty")}
                 </div>
               ) : (
@@ -334,17 +359,18 @@ export function SidebarUserButton() {
                       type="button"
                       role="menuitemradio"
                       aria-checked={isActive}
-                      className={`sidebar-user-menu__team${
-                        isActive ? " sidebar-user-menu__team--active" : ""
+                      className={`sidebar-team-switch-menu__item${
+                        isActive ? " sidebar-team-switch-menu__item--active" : ""
                       }`}
+                      disabled={switchingTeam}
                       onClick={() => handleSelectTeam(team.id)}
                     >
-                      <span className="sidebar-user-menu__team-name" title={team.name}>
+                      <span className="sidebar-team-switch-menu__name" title={team.name}>
                         {team.name || `#${team.id}`}
                       </span>
                       {renderTeamTag(team.kind)}
                       {isActive ? (
-                        <span className="sidebar-user-menu__team-check" aria-hidden>
+                        <span className="sidebar-team-switch-menu__check" aria-hidden>
                           <IconCheckCircle size={14} />
                         </span>
                       ) : null}
@@ -352,6 +378,33 @@ export function SidebarUserButton() {
                   );
                 })
               )}
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {switchingTeam
+        ? createPortal(
+            <div
+              className="sidebar-team-switch-loading"
+              role="alertdialog"
+              aria-busy="true"
+              aria-live="assertive"
+              aria-label={t("userCenter.switchTeamLoadingAria")}
+            >
+              <div className="sidebar-team-switch-loading__card">
+                <div className="sidebar-team-switch-loading__spinner" aria-hidden />
+                <p className="sidebar-team-switch-loading__title">
+                  {t("userCenter.switchTeamLoading")}
+                </p>
+                {switchingTeamName ? (
+                  <p className="sidebar-team-switch-loading__detail">
+                    {t("userCenter.switchTeamLoadingDetail", {
+                      name: switchingTeamName,
+                    })}
+                  </p>
+                ) : null}
+              </div>
             </div>,
             document.body,
           )
