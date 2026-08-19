@@ -40,6 +40,15 @@ pub const AGENT_PROMPT_IDS: &[&str] = &[
 ];
 
 const DEFAULT_SYSTEM_PROMPT: &str = include_str!("../resources/prompts/system-prompt.md");
+const DEFAULT_ROUTING_POLICY: &str = include_str!("../resources/prompts/routing-policy.md");
+const DEFAULT_SERVER_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/server.md");
+const DEFAULT_KNOWLEDGE_AGENT_PROMPT: &str =
+    include_str!("../resources/prompts/agents/knowledge.md");
+const DEFAULT_PROTOCOL_AGENT_PROMPT: &str =
+    include_str!("../resources/prompts/agents/protocol.md");
+const DEFAULT_WORKFLOW_AGENT_PROMPT: &str =
+    include_str!("../resources/prompts/agents/workflow.md");
+const DEFAULT_TASKS_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/tasks.md");
 const DEFAULT_PLAN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/plan.md");
 const DEFAULT_RUN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/run.md");
 const DEFAULT_TERMINAL_AGENT_PROMPT: &str =
@@ -92,21 +101,11 @@ fn default_agent_prompt(id: &str) -> &'static str {
         "database" => DEFAULT_DATABASE_AGENT_PROMPT,
         "docker" => DEFAULT_DOCKER_AGENT_PROMPT,
         "files" => DEFAULT_FILES_AGENT_PROMPT,
-        "server" => {
-            "你是 OmniPanel 的「服务器」Agent，专注主机运维与监控；仅使用服务器相关工具。多步骤用 omni_plan_*；多主机并行用子会话集群（若可用）。"
-        }
-        "knowledge" => {
-            "你是 OmniPanel 的「知识库」Agent，专注文档与检索；仅使用知识库相关工具。多步骤检索/整理可用 omni_plan_*。"
-        }
-        "protocol" => {
-            "你是 OmniPanel 的「协议调试」Agent；仅使用协议相关工具。多步骤调试流程可用 omni_plan_*。"
-        }
-        "workflow" => {
-            "你是 OmniPanel 的「工作流」Agent；仅使用工作流相关工具。复杂流程可用 omni_plan_* 展示进度。"
-        }
-        "tasks" => {
-            "你是 OmniPanel 的「任务」Agent；仅使用任务相关工具。汇总与分诊可用 omni_plan_*。"
-        }
+        "server" => DEFAULT_SERVER_AGENT_PROMPT,
+        "knowledge" => DEFAULT_KNOWLEDGE_AGENT_PROMPT,
+        "protocol" => DEFAULT_PROTOCOL_AGENT_PROMPT,
+        "workflow" => DEFAULT_WORKFLOW_AGENT_PROMPT,
+        "tasks" => DEFAULT_TASKS_AGENT_PROMPT,
         _ => "你是 OmniPanel 的助手 Agent，请按用户意图协助完成任务。多步骤用 omni_plan_create；独立并行子任务用 omni_spawn_sub_conversations。",
     }
 }
@@ -344,6 +343,37 @@ fn migrate_ask_user_prompt_guidance() -> OmniResult<()> {
                     && !trimmed.contains("omni_terminal_exec")
                 {
                     fs::write(&path, DEFAULT_SYSTEM_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
+
+    // system-prompt：旧版把路由政策写进协议层 → 换成瘦身后的协议 + 独立 routing-policy
+    {
+        let path = prompts_root()?.join(files::SYSTEM_PROMPT);
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                let trimmed = current.trim();
+                if trimmed.starts_with("[System — OmniPanel Client Tool API]")
+                    && (trimmed.contains("Never claim you cannot run commands")
+                        || trimmed.contains("Current terminal tab (local PowerShell"))
+                {
+                    fs::write(&path, DEFAULT_SYSTEM_PROMPT).map_err(map_io)?;
+                    clear_prompt_cache();
+                }
+            }
+        }
+    }
+
+    {
+        let path = agent_prompt_path("terminal")?;
+        if path.exists() {
+            if let Ok(current) = fs::read_to_string(&path) {
+                if current.trim().starts_with("# OmniPanel · 终端")
+                    && current.contains("禁止凭记忆编造")
+                {
+                    fs::write(&path, DEFAULT_TERMINAL_AGENT_PROMPT).map_err(map_io)?;
                     clear_prompt_cache();
                 }
             }
@@ -648,6 +678,11 @@ pub fn agent_prompt(agent_id: &str) -> String {
     load_agent_prompt_file(id)
 }
 
+/// ACP / HTTP 共用的工具路由片段。
+pub fn routing_policy() -> &'static str {
+    DEFAULT_ROUTING_POLICY
+}
+
 /// ACP Client Tools 协议层提示词。
 pub fn system_prompt() -> String {
     load_system_prompt()
@@ -666,8 +701,8 @@ mod tests {
     fn defaults_are_non_empty() {
         assert!(!DEFAULT_SYSTEM_PROMPT.trim().is_empty());
         assert!(DEFAULT_SYSTEM_PROMPT.contains("OmniPanel Client Tool API"));
-        assert!(DEFAULT_SYSTEM_PROMPT.contains("omni_terminal_exec"));
-        assert!(DEFAULT_SYSTEM_PROMPT.contains("omni_ssh_exec"));
+        assert!(DEFAULT_ROUTING_POLICY.contains("omni_terminal_exec"));
+        assert!(DEFAULT_ROUTING_POLICY.contains("omni_ssh_exec"));
         assert!(!DEFAULT_SYSTEM_PROMPT.contains("omni_terminal_*"));
         for id in AGENT_PROMPT_IDS {
             assert!(!default_agent_prompt(id).trim().is_empty(), "{id}");

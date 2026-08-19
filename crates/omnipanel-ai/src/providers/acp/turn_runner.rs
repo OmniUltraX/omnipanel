@@ -13,6 +13,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 
 use crate::ir::{StopReason, StreamEvent};
+use crate::providers::acp::native_tools::NativeMapHints;
 use crate::providers::acp::{AcpManager, PromptOptions};
 
 /// Holds the ACP manager and session ID needed to run prompt rounds.
@@ -69,6 +70,27 @@ impl AcpRoundRunner {
         UnboundedReceiver<StreamEvent>,
         JoinHandle<Result<StopReason, String>>,
     ) {
+        self.start_round_with_hints(
+            prompt_text,
+            client_tools,
+            content_buffer,
+            suppress_all_native,
+            NativeMapHints::default(),
+        )
+    }
+
+    /// 与 [`start_round`](Self::start_round) 相同，并带上本轮 files/shell 映射提示。
+    pub fn start_round_with_hints(
+        &self,
+        prompt_text: &str,
+        client_tools: bool,
+        content_buffer: Option<Arc<StdMutex<String>>>,
+        suppress_all_native: bool,
+        map_hints: NativeMapHints,
+    ) -> (
+        UnboundedReceiver<StreamEvent>,
+        JoinHandle<Result<StopReason, String>>,
+    ) {
         let content_hold = content_buffer.is_some();
         let prompt_options = PromptOptions {
             client_tools,
@@ -76,6 +98,7 @@ impl AcpRoundRunner {
             content_hold,
             content_buffer,
             suppress_all_native,
+            native_map_hints: map_hints,
         };
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();

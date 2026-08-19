@@ -256,7 +256,10 @@ mod tests {
             .iter()
             .any(|t| t.name == "omni_terminal_exec"));
         assert!(!tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"));
-        assert!(!tools.iter().any(|t| t.name == "load_skill"));
+        assert!(
+            tools.iter().any(|t| t.name == "load_skill"),
+            "终端模块应注入 load_skill"
+        );
         // 会话级 plan 对模块 Agent 开放（跨模块），其余须为 terminal
         assert!(tools.iter().any(|t| t.name == "omni_plan_create"));
         assert!(tools.iter().any(|t| t.name == "omni_plan_update_step"));

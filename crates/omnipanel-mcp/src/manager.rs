@@ -135,13 +135,9 @@ impl McpManager {
                     .map(ToolRegistry::registered_to_tool_def),
             );
         }
-        // load_skill 已在 BUILTIN_TOOL_SPECS（module_key=web）；仅当无过滤或 web/master 时补一份兜底，避免重复。
+        // load_skill 为跨模块工具；registry 漏掉时再补一份。
         let already_has_load_skill = defs.iter().any(|d| d.function.name == "load_skill");
-        let allow_load_skill = match module_filter {
-            None | Some("master") | Some("web") => true,
-            Some(_) => false,
-        };
-        if allow_load_skill && !already_has_load_skill {
+        if !already_has_load_skill {
             defs.push(Self::load_skill_tool_def());
         }
         Ok(defs)

@@ -109,6 +109,8 @@ describe("ai harness", () => {
     expect(inv.activePlans[0]?.doneSteps).toBe(1);
     expect(inv.activeClusters[0]?.clusterId).toBe("cl-1");
     expect(inv.skillIds).toContain("ops-ssh");
+    expect(inv.toolFamilySummary).toContain("extmcp");
+    expect(inv.toolFamilySummary).toContain("load_skill");
   });
 
   it("inventory empty orchestration", () => {

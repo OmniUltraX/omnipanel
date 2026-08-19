@@ -263,18 +263,51 @@ pub fn list_enabled_skill_summaries() -> Result<Vec<(String, String, String)>, S
 
 /// 构建注入系统提示的 Skills 摘要段落。
 pub fn build_skills_system_append() -> Result<String, String> {
+    build_skills_system_append_filtered(true, &[])
+}
+
+/// 按本轮工具面裁剪 Skills 摘要：无 `load_skill` 时不承诺该工具；勾选中的 id 移出目录。
+pub fn build_skills_system_append_filtered(
+    load_skill_available: bool,
+    exclude_ids: &[String],
+) -> Result<String, String> {
     let skills = list_enabled_skill_summaries()?;
+    Ok(render_skills_catalog(&skills, load_skill_available, exclude_ids))
+}
+
+fn render_skills_catalog(
+    skills: &[(String, String, String)],
+    load_skill_available: bool,
+    exclude_ids: &[String],
+) -> String {
     if skills.is_empty() {
-        return Ok(String::new());
+        return String::new();
     }
-    let mut lines = vec![
-        "## Skills".to_string(),
-        "以下 Skill 可按需通过 load_skill 工具加载完整内容：".to_string(),
-    ];
+    let excluded: Vec<String> = exclude_ids
+        .iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut lines = vec!["## Skills".to_string()];
+    if load_skill_available {
+        lines.push("以下 Skill 可按需通过 load_skill 工具加载完整内容：".to_string());
+    } else {
+        lines.push("以下 Skill 已启用；完整正文仅在 Composer 勾选后注入。".to_string());
+    }
+    let mut listed = 0usize;
     for (id, name, desc) in skills {
+        let id_l = id.to_ascii_lowercase();
+        let name_l = name.to_ascii_lowercase();
+        if excluded.iter().any(|e| e == &id_l || e == &name_l) {
+            continue;
+        }
         lines.push(format!("- {name} (id: {id}): {desc}"));
+        listed += 1;
     }
-    Ok(lines.join("\n"))
+    if listed == 0 {
+        return String::new();
+    }
+    lines.join("\n")
 }
 
 /// 将用户在会话中选中的 Skill 正文注入系统提示（优先遵循）。
@@ -346,5 +379,21 @@ mod tests {
         assert!(sanitize_skill_id("").is_err());
         assert!(sanitize_skill_id("  ").is_err());
         assert!(sanitize_skill_id("valid-id").is_ok());
+    }
+
+    #[test]
+    fn catalog_omits_selected_ids_and_load_skill_when_unavailable() {
+        let skills = vec![
+            ("ops-ssh".into(), "SSH 运维".into(), "desc".into()),
+            ("git".into(), "Git".into(), "g".into()),
+        ];
+        let with_load = render_skills_catalog(&skills, true, &["ops-ssh".into()]);
+        assert!(with_load.contains("load_skill"));
+        assert!(!with_load.contains("ops-ssh"));
+        assert!(with_load.contains("git"));
+
+        let no_load = render_skills_catalog(&skills, false, &[]);
+        assert!(!no_load.contains("load_skill"));
+        assert!(no_load.contains("Composer 勾选"));
     }
 }

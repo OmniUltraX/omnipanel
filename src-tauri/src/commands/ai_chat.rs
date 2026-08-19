@@ -518,8 +518,18 @@ pub async fn ai_chat_stream(
             append_parts.push(format!("[Agent]\n{role}"));
         }
 
-        // 1. Skills 摘要（渐进式披露）
-        if let Ok(skills_text) = omnipanel_store::build_skills_system_append() {
+        let load_skill_available = match &internal.tools_mode {
+            InternalToolsMode::None => false,
+            InternalToolsMode::DirectInject { tool_allowlist, .. } => tool_allowlist
+                .as_ref()
+                .map(|list| list.iter().any(|n| n == "load_skill"))
+                .unwrap_or(true),
+        };
+        // 1. Skills 摘要（渐进式披露；勾选中的 Skill 只走 Active Skills）
+        if let Ok(skills_text) = omnipanel_store::build_skills_system_append_filtered(
+            load_skill_available,
+            &skill_ids,
+        ) {
             if !skills_text.is_empty() {
                 append_parts.push(skills_text);
             }
@@ -817,7 +827,10 @@ async fn run_acp_internal_turn(
     let client_tools = !client_tool_defs.is_empty();
 
     let is_first_user_prompt = if client_tools {
-        manager.mark_first_prompt_sent(conversation_id).await
+        let agent_key = internal.agent_id.as_deref().unwrap_or("");
+        manager
+            .mark_first_prompt_sent(conversation_id, agent_key)
+            .await
     } else {
         true
     };
@@ -882,12 +895,20 @@ async fn run_acp_internal_turn(
         // Native 工具（WebSearch/WebFetch）后端直执结果：(tool_name, result, approved)
         let mut native_tool_result: Option<(String, String, bool)> = None;
 
-        let (mut rx, prompt_handle) = runner.start_round(
+        let map_hints = omnipanel_ai::providers::acp::native_tools::NativeMapHints::from_tool_names(
+            client_tool_defs.iter().map(|d| d.function.name.as_str()),
+            omnipanel_ai::providers::acp::native_tools::NativeMapHints::powershell_from_terminal_context(
+                terminal_context,
+            ),
+        );
+        let (mut rx, prompt_handle) = runner.start_round_with_hints(
             &prompt_text,
             client_tools,
             content_buffer.clone(),
-            // 对齐 gateway：抑制 Cursor 原生工具，强制走注入的 omni_* tool_calls JSON
-            client_tools,
+            // 桌面路径映射 ACP 原生 Read/Write/Shell（按本轮 files / shell）；
+            // gateway 仍 suppress_all_native，因外部客户端无法执行 omni_*。
+            false,
+            map_hints,
         );
 
         while let Some(event) = rx.recv().await {

@@ -240,6 +240,7 @@ pub async fn ai_chat_stream(
         .clone()
         .ok_or_else(|| "缺少 onEvent（Channel 未序列化）".to_string())?;
 
+    let skill_ids = args.request.skill_ids.clone().unwrap_or_default();
     let mut internal = to_internal(args.request)?;
     let conversation_id = internal.conversation_id.clone();
 
@@ -270,9 +271,27 @@ pub async fn ai_chat_stream(
         {
             append_parts.push(format!("[Agent]\n{role}"));
         }
-        if let Ok(skills_text) = omnipanel_store::build_skills_system_append() {
+        let load_skill_available = match &internal.tools_mode {
+            InternalToolsMode::None => false,
+            InternalToolsMode::DirectInject { tool_allowlist, .. } => tool_allowlist
+                .as_ref()
+                .map(|list| list.iter().any(|n| n == "load_skill"))
+                .unwrap_or(true),
+        };
+        if let Ok(skills_text) = omnipanel_store::build_skills_system_append_filtered(
+            load_skill_available,
+            &skill_ids,
+        ) {
             if !skills_text.is_empty() {
                 append_parts.push(skills_text);
+            }
+        }
+        if !skill_ids.is_empty() {
+            if let Ok(selected) = omnipanel_store::build_selected_skills_bodies_append(&skill_ids)
+            {
+                if !selected.is_empty() {
+                    append_parts.push(selected);
+                }
             }
         }
         if !append_parts.is_empty() {

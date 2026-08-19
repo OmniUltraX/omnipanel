@@ -22,11 +22,13 @@ export function pathListingCacheKey(
 export function getCachedPathListing(key: string): CachedPathEntry[] | null {
   const hit = cache.get(key);
   if (!hit) return null;
-  if (Date.now() - hit.fetchedAt > TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
   return hit.entries;
+}
+
+export function isPathListingStale(key: string): boolean {
+  const hit = cache.get(key);
+  if (!hit) return true;
+  return Date.now() - hit.fetchedAt > TTL_MS;
 }
 
 export function setCachedPathListing(key: string, entries: CachedPathEntry[]): void {

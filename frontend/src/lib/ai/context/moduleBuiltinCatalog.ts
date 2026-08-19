@@ -30,6 +30,8 @@ export const CROSS_MODULE_BUILTIN_TOOL_NAMES = new Set([
   "omni_web_search",
   "omni_zhihu_search",
   "omni_web_fetch",
+  "load_skill",
+  "omni_skill_recall",
 ]);
 
 const MODULE_BUILTIN_CATALOG: Partial<Record<BuiltinCatalogModuleKey, BuiltinToolRegistration[]>> = {

@@ -111,9 +111,7 @@ export const TERMINAL_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: TERMINAL_EXEC_TOOL_NAME,
     description:
-      "在当前活动终端 Tab 的 PTY 中执行命令（本地 PowerShell/CMD/bash，或该 Tab 已打开的 SSH 壳），\
-继承 cwd/环境，并在终端中显示命令块。查时间/文件/进程等实时事实必须调用本工具，禁止凭记忆编造。\
-不要传 resource_id。不支持 TUI/流式（top/vim/tail -f）。指定其它 SSH 主机且不使用当前 Tab 时改用 omni_ssh_exec。",
+      "当前 Tab PTY 执行（handler）。模型侧描述以 Rust builtin_tool_spec 为准。",
     inputSchema: {
       type: "object",
       properties: {

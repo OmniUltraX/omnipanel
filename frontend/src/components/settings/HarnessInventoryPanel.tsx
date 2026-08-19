@@ -38,6 +38,7 @@ export function HarnessInventoryPanel() {
           <dt>{t("settings.agent.harness.toolsMode")}</dt>
           <dd>
             <code>{inventory.toolsModeSummary}</code>
+            <div className="setting-hint">{inventory.toolFamilySummary}</div>
           </dd>
         </div>
         <div>

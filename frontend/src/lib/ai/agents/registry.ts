@@ -35,8 +35,7 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDefinition> = {
     allowSkills: true,
     allowRag: true,
     // 完整提示词由后端 ~/.omnipd/prompts/agents/plan.md 注入；此处仅作回退摘要。
-    systemRole:
-      "你是 OmniPanel 的「计划助手」Agent（plan）。只能使用全局工具；禁止调用 SSH/终端/数据库/Docker 等模块工具。最终必须调用 omni_knowledge_create_document 将执行计划写入知识库 Plan 文档。",
+    systemRole: "OmniPanel 计划助手（plan）。完整角色见后端 agents/plan.md。",
   },
   run: {
     id: "run",
@@ -50,63 +49,61 @@ export const AGENT_REGISTRY: Record<AgentId, AgentDefinition> = {
     allowSkills: true,
     allowRag: true,
     // 完整提示词由后端 ~/.omnipd/prompts/agents/run.md 注入；此处仅作回退摘要。
-    systemRole:
-      "你是 OmniPanel 的「执行助手」Agent（run）。可使用全部可用工具直接完成运维与工程任务；高风险变更须先征得用户确认。",
+    systemRole: "OmniPanel 执行助手（run）。完整角色见后端 agents/run.md。",
   },
   terminal: moduleAgent(
     "terminal",
     "ai.agents.terminal.label",
     "ai.agents.terminal.description",
-    // 完整专业提示词由后端 ~/.omnipd/prompts/agents/terminal.md 注入；此处仅作回退摘要。
-    "你是 OmniPanel 的「终端」运维 Agent（本地终端 + SSH）。当前 Tab 的 PTY 执行必须用 omni_terminal_exec（不要传 resource_id）；指定其它 SSH 主机的独立 exec 用 omni_ssh_exec（必须带 resource_id）。主责：服务与健康检查、资源占用排查、环境安装与配置。公开信息查询用 omni_web_search / omni_web_fetch；信息不清时用 omni_ask_user 澄清；先只读探测再变更，结论基于命令输出，高风险操作需确认；多步骤任务用 omni_plan_* 展示进度。",
+    "OmniPanel 终端 Agent。完整角色见后端 agents/terminal.md。",
   ),
   database: moduleAgent(
     "database",
     "ai.agents.database.label",
     "ai.agents.database.description",
-    "你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。信息不清时用 omni_ask_user 澄清，禁止正文纯文本列选项。",
+    "OmniPanel 数据库 Agent。完整角色见后端 agents/database.md。",
   ),
   docker: moduleAgent(
     "docker",
     "ai.agents.docker.label",
     "ai.agents.docker.description",
-    "你是 OmniPanel 的「Docker」Agent，专注容器/镜像/Compose；仅使用 Docker 相关工具。",
+    "OmniPanel Docker Agent。完整角色见后端 agents/docker.md。",
   ),
   server: moduleAgent(
     "server",
     "ai.agents.server.label",
     "ai.agents.server.description",
-    "你是 OmniPanel 的「服务器」Agent，专注主机运维与监控；仅使用服务器相关工具。",
+    "OmniPanel 服务器 Agent。完整角色见后端 agents/server.md。",
   ),
   files: moduleAgent(
     "files",
     "ai.agents.files.label",
     "ai.agents.files.description",
-    "你是 OmniPanel 的「文件」Agent，专注文件浏览与读写；仅使用文件相关工具。",
+    "OmniPanel 文件 Agent。完整角色见后端 agents/files.md。",
   ),
   knowledge: moduleAgent(
     "knowledge",
     "ai.agents.knowledge.label",
     "ai.agents.knowledge.description",
-    "你是 OmniPanel 的「知识库」Agent，专注文档与检索；仅使用知识库相关工具。",
+    "OmniPanel 知识库 Agent。完整角色见后端 agents/knowledge.md。",
   ),
   protocol: moduleAgent(
     "protocol",
     "ai.agents.protocol.label",
     "ai.agents.protocol.description",
-    "你是 OmniPanel 的「协议调试」Agent；仅使用协议相关工具。",
+    "OmniPanel 协议 Agent。完整角色见后端 agents/protocol.md。",
   ),
   workflow: moduleAgent(
     "workflow",
     "ai.agents.workflow.label",
     "ai.agents.workflow.description",
-    "你是 OmniPanel 的「工作流」Agent；仅使用工作流相关工具。",
+    "OmniPanel 工作流 Agent。完整角色见后端 agents/workflow.md。",
   ),
   tasks: moduleAgent(
     "tasks",
     "ai.agents.tasks.label",
     "ai.agents.tasks.description",
-    "你是 OmniPanel 的「任务」Agent；仅使用任务相关工具。",
+    "OmniPanel 任务 Agent。完整角色见后端 agents/tasks.md。",
   ),
 };
 

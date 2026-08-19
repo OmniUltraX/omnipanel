@@ -1,43 +1,50 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   IBufferLine,
   ILink,
   ILinkProvider,
   Terminal,
 } from "@xterm/xterm";
-import { detectFilePathRanges, resolveDetectedFilePath } from "./terminalFileLinks";
 import {
-  resolvePreviewConnectionId,
-  tryOpenTerminalFilePreview,
-} from "./terminalFilePreviewStore";
+  buildPathLinkRange,
+  classifyLinePathLinks,
+  isTypicalDirectoryColor,
+  type ClassifiedPathLink,
+} from "./terminalFileLinks";
+import { activateClassifiedPathLink } from "./terminalPathLinkAction";
+import { isXtermMouseTrackingOn } from "./terminalFileLinks";
+import { getCwdPathListing, usePrefetchCwdPathListing, prefetchCwdPathListing } from "./cwdPathListing";
+import {
+  classifiedPathLinkAtPointer,
+  shouldHandlePathLinkPointer,
+} from "./pathLinkPointer";
 
 export interface UseTerminalFileLinkProviderParams {
-  /** 共享 term ref——useTerminal 内部异步创建 term 后写入此 ref */
   termRef: React.RefObject<Terminal | null>;
-  /** 当前 terminal pane id */
   paneId: string;
   sessionType: "local" | "remote";
   remoteHome: string | null;
   resourceId: string | null;
   cwd: string;
   enabled: boolean;
+  sendCommand?: (cmd: string) => void;
+  canSendCd?: () => boolean;
 }
 
 interface LinkContext {
+  sessionId: string;
   sessionType: "local" | "remote";
   resourceId: string | null;
   remoteHome: string | null;
   cwd: string;
 }
 
-/** 注册一个 xterm ILinkProvider：识别终端输出中的文件路径，点击时打开预览。
- *
- *  设计要点：
- *  - 不订阅 zustand（避免与 useTerminal 内部 zustand 订阅互相触发 re-render）
- *  - term 实例从 termRef 拿；useTerminal 在 initTerminal 完成后会写入 termRef
- *  - link provider 只在 term 第一次就绪时注册一次
- *  - ctxRef 内部更新 useEffect 依赖 cwd/resourceId/...：当 terminal 关联的 session
- *    信息变化时，激活回调拿到的就是最新 context（不需要重新注册 provider）
+const CLICK_SLOP_PX = 6;
+
+/**
+ * 直连 xterm：ILinkProvider 只负责 hover 下划线。
+ * 点击不走 Linkifier（关预览后 _currentLink 丢失就点不了），
+ * 改为 pointerup 直接命中 buffer 格子再分流 cd / 预览。
  */
 export function useTerminalFileLinkProvider({
   termRef,
@@ -47,9 +54,14 @@ export function useTerminalFileLinkProvider({
   resourceId,
   cwd,
   enabled,
+  sendCommand,
+  canSendCd,
 }: UseTerminalFileLinkProviderParams): void {
   const [term, setTerm] = useState<Terminal | null>(null);
-  // 单次轮询 termRef 直到拿到 term（不订阅 zustand，不订阅 term 自身 state）
+  const downRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+
+  usePrefetchCwdPathListing({ enabled, sessionType, resourceId, cwd });
+
   useEffect(() => {
     if (!enabled) return;
     if (term) return;
@@ -62,7 +74,7 @@ export function useTerminalFileLinkProvider({
         setTerm(t);
         return;
       }
-      if (++attempts > 200) return; // 10s timeout
+      if (++attempts > 200) return;
       setTimeout(tick, 50);
     };
     tick();
@@ -71,88 +83,149 @@ export function useTerminalFileLinkProvider({
     };
   }, [term, termRef, enabled]);
 
-  // ctxRef 内部更新 useEffect（避免 render 期副作用触发 re-render）
   const ctxRef = useRef<LinkContext>({
+    sessionId: paneId,
     sessionType,
     resourceId,
     remoteHome,
     cwd,
   });
   useEffect(() => {
-    ctxRef.current = { sessionType, resourceId, remoteHome, cwd };
-  }, [sessionType, resourceId, remoteHome, cwd]);
+    ctxRef.current = { sessionId: paneId, sessionType, resourceId, remoteHome, cwd };
+  }, [paneId, sessionType, resourceId, remoteHome, cwd]);
 
-  // 注册 link provider；只在 term 第一次就绪时跑一次
+  const sendCommandRef = useRef(sendCommand);
+  sendCommandRef.current = sendCommand;
+  const canSendCdRef = useRef(canSendCd);
+  canSendCdRef.current = canSendCd;
+
+  const provideForLine = useCallback(
+    (bufferLineNumber: number, line: IBufferLine, text: string): ILink[] | undefined => {
+      if (isXtermMouseTrackingOn(term)) return undefined;
+      const ctx = ctxRef.current;
+      const listing = getCwdPathListing(ctx.sessionType, ctx.resourceId, ctx.cwd);
+      const classified = classifyLinePathLinks({
+        line: text,
+        cwd: ctx.cwd || "/",
+        sessionType: ctx.sessionType,
+        remoteHome: ctx.remoteHome,
+        listing,
+        isDirectoryColor: (start, end) => lineSpanIsDirectoryColor(line, start, end),
+      });
+      if (classified.length === 0) return undefined;
+      return classified.map((item) => toHoverOnlyLink(item, bufferLineNumber));
+    },
+    [term],
+  );
+
   useEffect(() => {
     if (!term || !enabled) return;
     const provider: ILinkProvider = {
-      provideLinks(
-        bufferLineNumber: number,
-        callback: (links: ILink[] | undefined) => void,
-      ): void {
+      provideLinks(bufferLineNumber, callback) {
+        if (isXtermMouseTrackingOn(term)) {
+          callback(undefined);
+          return;
+        }
         const buffer = term.buffer.active;
         const line = buffer.getLine(bufferLineNumber - 1);
         if (!line) {
           callback(undefined);
           return;
         }
-        const text = lineToText(line);
-        const ranges = detectFilePathRanges(text);
-        if (ranges.length === 0) {
-          callback(undefined);
-          return;
-        }
-        const links = buildLinks(ranges, ctxRef.current);
-        callback(links);
+        callback(provideForLine(bufferLineNumber, line, line.translateToString(true)));
       },
     };
     const handle = term.registerLinkProvider(provider);
     return () => {
       handle.dispose();
     };
-  }, [term, enabled]);
+  }, [term, enabled, provideForLine]);
 
-  void paneId;
-}
-
-function lineToText(line: IBufferLine): string {
-  return line.translateToString(true);
-}
-
-function buildLinks(
-  ranges: Array<{ text: string; start: number; end: number }>,
-  ctx: LinkContext,
-): ILink[] | undefined {
-  const out: ILink[] = [];
-  for (const r of ranges) {
-    const resolved = resolveDetectedFilePath({
-      text: r.text,
-      cwd: ctx.cwd || "/",
-      sessionType: ctx.sessionType,
-      remoteHome: ctx.remoteHome,
-    });
-    if (!resolved) continue;
-    if (resolved.absolutePath.endsWith("/")) continue;
-    out.push({
-      range: {
-        start: { x: r.start + 1, y: 1 },
-        end: { x: r.end + 1, y: 1 },
-      },
-      text: r.text,
-      activate: (_event, _text) => {
-        const connectionId = resolvePreviewConnectionId(
-          ctx.sessionType,
-          ctx.resourceId,
-        );
-        tryOpenTerminalFilePreview({
-          connectionId,
-          absolutePath: resolved.absolutePath,
-          name: resolved.name,
-          resourceId: ctx.resourceId,
+  useEffect(() => {
+    if (!term || !enabled) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!shouldHandlePathLinkPointer(term, event)) {
+        downRef.current = null;
+        return;
+      }
+      downRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      const down = downRef.current;
+      downRef.current = null;
+      if (!down || down.pointerId !== event.pointerId) return;
+      if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > CLICK_SLOP_PX) return;
+      if (!shouldHandlePathLinkPointer(term, event)) return;
+      const ctx = ctxRef.current;
+      const clientX = event.clientX;
+      const clientY = event.clientY;
+      const tryActivate = (item: ReturnType<typeof classifiedPathLinkAtPointer>) => {
+        if (!item) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        activateClassifiedPathLink({
+          kind: item.kind,
+          absolutePath: item.absolutePath,
+          name: item.name,
           sessionType: ctx.sessionType,
+          resourceId: ctx.resourceId,
+          canSendCd: canSendCdRef.current?.() ?? false,
+          sendCommand: sendCommandRef.current,
+          sessionId: ctx.sessionId,
         });
-      },
-    });
+        return true;
+      };
+      const hit = classifiedPathLinkAtPointer({
+        term,
+        clientX,
+        clientY,
+        cwd: ctx.cwd,
+        sessionType: ctx.sessionType,
+        remoteHome: ctx.remoteHome,
+        resourceId: ctx.resourceId,
+      });
+      if (tryActivate(hit)) return;
+      void prefetchCwdPathListing(ctx.sessionType, ctx.resourceId, ctx.cwd).then(() => {
+        const retry = classifiedPathLinkAtPointer({
+          term,
+          clientX,
+          clientY,
+          cwd: ctx.cwd,
+          sessionType: ctx.sessionType,
+          remoteHome: ctx.remoteHome,
+          resourceId: ctx.resourceId,
+        });
+        tryActivate(retry);
+      });
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+    };
+  }, [term, enabled]);
+}
+
+function lineSpanIsDirectoryColor(line: IBufferLine, start: number, end: number): boolean {
+  let total = 0;
+  let dirish = 0;
+  const last = Math.min(end, line.length);
+  for (let x = start; x < last; x += 1) {
+    const cell = line.getCell(x);
+    if (!cell || cell.getWidth() === 0) continue;
+    total += 1;
+    if (isTypicalDirectoryColor(cell.getFgColor(), cell.isFgPalette())) dirish += 1;
   }
-  return out.length > 0 ? out : undefined;
+  return total > 0 && dirish === total;
+}
+
+function toHoverOnlyLink(item: ClassifiedPathLink, bufferLineNumber: number): ILink {
+  return {
+    range: buildPathLinkRange(item.start, item.end, bufferLineNumber),
+    text: item.text,
+    activate: () => {
+      /* 点击由 pointerup 处理，避免依赖 Linkifier hover 状态 */
+    },
+  };
 }

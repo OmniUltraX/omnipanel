@@ -62,14 +62,22 @@ function buildConnectionItemAppend(item: ComposerContextItem): string {
   return lines.join("\n");
 }
 
+export type ComposerAppendOptions = {
+  /** 活动会话已单独注入 Terminal Context 时，跳过同 id 芯片，避免双份。 */
+  skipTerminalSessionId?: string | null;
+};
+
 /** 将 Composer 显式芯片转为可注入 system/user 的上下文文本。 */
 export function buildComposerExplicitContextAppend(
   items: ComposerContextItem[] = getComposerContextItems(),
+  options?: ComposerAppendOptions,
 ): string | null {
   if (items.length === 0) return null;
+  const skipId = options?.skipTerminalSessionId?.trim() || null;
   const segments: string[] = [];
   for (const item of items) {
     if (item.kind === "terminal") {
+      if (skipId && item.id === skipId) continue;
       const text = buildTerminalAiContextAppend(item.id);
       if (text && text.trim()) {
         segments.push(text);

@@ -42,8 +42,8 @@ mod workflow;
 
 pub use agent_prompt::{
     agent_prompt, clear_prompt_cache, client_tools_preamble, ensure_default_prompts,
-    list_prompt_entries, reset_prompt, save_prompt, system_prompt, AgentPromptEntry,
-    AGENT_PROMPT_IDS,
+    list_prompt_entries, reset_prompt, routing_policy, save_prompt, system_prompt,
+    AgentPromptEntry, AGENT_PROMPT_IDS,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
 pub use bg_task_history::BgTaskHistoryRecord;
@@ -123,7 +123,8 @@ pub use schema_tree_expanded::{
     save_schema_tree_expanded,
 };
 pub use skill::{
-    build_selected_skills_bodies_append, build_skills_system_append, extract_skill_body,
+    build_selected_skills_bodies_append, build_skills_system_append,
+    build_skills_system_append_filtered, extract_skill_body,
     list_all_skill_records, list_enabled_skill_summaries, load_skill_body, load_skill_record,
     parse_skill_md, render_skill_md, sanitize_skill_id, skill_dir, skill_file_path, write_skill,
     ParsedSkill, SkillFrontmatter, SkillRecord, SKILL_MD_FILENAME,

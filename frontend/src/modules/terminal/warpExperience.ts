@@ -21,7 +21,7 @@ export function buildFixErrorPrompt(block: TerminalBlock): string {
 
 export function buildNaturalLanguagePrompt(
   query: string,
-  cwd?: string,
+  _cwd?: string,
   blockContext?: string,
 ): string {
   const parts: string[] = [];
@@ -29,10 +29,6 @@ export function buildNaturalLanguagePrompt(
     parts.push(blockContext.trim(), "");
   }
   parts.push(query);
-  if (cwd) parts.push(`\n当前目录：${cwd}`);
-  parts.push(
-    "\n\n必须调用 omni_terminal_exec 在当前终端执行命令获取事实后再回答（本地 PowerShell/CMD/bash 与当前 Tab 的 SSH 壳均适用）。不要凭记忆编造时间/输出，也不要只甩给用户手动粘贴的命令。不要传 resource_id。",
-  );
   return parts.join("\n");
 }
 

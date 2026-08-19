@@ -686,9 +686,8 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_terminal_exec",
         module_key: "terminal",
         description:
-            "在当前活动终端 Tab 的 PTY 中执行命令（本地 PowerShell/CMD/bash，或该 Tab 已打开的 SSH 壳），\
-             继承 cwd/环境，并在终端中显示命令块。查时间/文件/进程等实时事实必须调用本工具，禁止凭记忆编造。\
-             不要传 resource_id。不支持 TUI/流式命令。指定其它 SSH 主机且不使用当前 Tab 时改用 omni_ssh_exec。",
+            "MUST: current-tab PTY exec; args=command (+optional session_id); never pass resource_id. \
+             Live facts (time/files/process) use this tool. No TUI/streaming. Other SSH host → omni_ssh_exec.",
         input_schema: SCHEMA_TERMINAL_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: false,
@@ -697,9 +696,8 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_ssh_exec",
         module_key: "terminal",
         description:
-            "在指定 SSH 主机上通过独立 exec 通道执行非交互命令（不进入当前终端 Tab，不继承 Tab cwd）。\
-             必须提供 resource_id（可先用 omni_ssh_list_connections 查询）。不支持 TUI/流式命令。\
-             当前终端 Tab 内执行请用 omni_terminal_exec。",
+            "MUST: named SSH host via separate exec; required resource_id + command. \
+             Does not use the current tab. Current-tab work → omni_terminal_exec. No TUI/streaming.",
         input_schema: SCHEMA_SSH_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
@@ -1220,6 +1218,8 @@ pub fn builtin_tool_is_cross_module(tool_name: &str) -> bool {
             | "omni_web_search"
             | "omni_zhihu_search"
             | "omni_web_fetch"
+            | "load_skill"
+            | "omni_skill_recall"
     )
 }
 
@@ -1311,7 +1311,8 @@ mod tests {
             assert!(!builtin_tool_is_native(name), "{name}");
         }
         assert!(!builtin_tool_is_cross_module("omni_knowledge_save_todolist"));
-        assert!(!builtin_tool_is_cross_module("load_skill"));
+        assert!(builtin_tool_is_cross_module("load_skill"));
+        assert!(builtin_tool_is_cross_module("omni_skill_recall"));
         for name in ["omni_web_search", "omni_zhihu_search", "omni_web_fetch"] {
             assert_eq!(builtin_tool_module_key(name), Some("web"), "{name}");
             assert!(builtin_tool_is_cross_module(name), "{name}");
