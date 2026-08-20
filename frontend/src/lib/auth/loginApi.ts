@@ -47,6 +47,8 @@ export interface AuthDevice {
   loginStatus: string;
   /** Redis presence TTL 判定的实时在线状态 */
   online: boolean;
+  /** 是否已完成同步密钥认证 */
+  syncTrusted: boolean;
 }
 
 export interface BindingsQrcodeResponse {
@@ -341,7 +343,11 @@ export async function fetchDevices(
     quiet: options?.quiet,
     logLabel: "[auth]",
   });
-  return list.map((d) => ({ ...d, id: d.id ?? 0 }));
+  return list.map((d) => ({
+    ...d,
+    id: d.id ?? 0,
+    syncTrusted: Boolean(d.syncTrusted),
+  }));
 }
 
 /** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}?app_id=）。 */

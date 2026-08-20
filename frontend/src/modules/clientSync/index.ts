@@ -12,6 +12,11 @@ export {
   CLIENT_SYNC_MODULES_APPLIED_EVENT,
 } from "./moduleSync";
 export { pullCloudSnapshot } from "./pullCloudSnapshot";
+export {
+  scheduleSecretsVaultSync,
+  pullSecretsVaultOnce,
+  setSecretsVaultSyncSuppressed,
+} from "./secretsVaultSync";
 export { switchSyncTeam } from "./switchSyncTeam";
 export type { SwitchSyncTeamResult } from "./switchSyncTeam";
 export {

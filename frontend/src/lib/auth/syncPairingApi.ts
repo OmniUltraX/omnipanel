@@ -43,6 +43,28 @@ export async function trustSyncDevice(token: string, deviceId?: string): Promise
   }
 }
 
+/** 服务端重置设备同步认证状态：POST /api/sync/device/reset */
+export async function resetSyncDevice(token: string, deviceId?: string): Promise<void> {
+  const id = deviceId ?? (await resolveDeviceId());
+  const anyCommands = commands as Record<string, unknown>;
+  if (typeof anyCommands.authSyncDeviceReset === "function") {
+    await unwrapCommand(
+      (anyCommands.authSyncDeviceReset as (
+        t: string,
+      ) => Promise<CommandResult<unknown>>)(token),
+    );
+    return;
+  }
+  const res = await authFetch(token, "/api/sync/device/reset", {
+    method: "POST",
+    deviceId: id,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `reset failed: ${res.status}`);
+  }
+}
+
 async function resolveDeviceId(): Promise<string> {
   try {
     const identity = await unwrapCommand(commands.authDeviceIdentity());

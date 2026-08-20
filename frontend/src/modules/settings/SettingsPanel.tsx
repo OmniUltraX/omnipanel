@@ -57,6 +57,7 @@ import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
 import { AddModelDialog } from "../../components/settings/AddModelDialog";
 import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { DataBackupSection } from "../../components/settings/DataBackupSection";
+import { SyncDeviceResetSection } from "../../components/settings/SyncDeviceResetSection";
 import { ModulesSettingsSection } from "../../components/settings/ModulesSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
@@ -95,7 +96,7 @@ type Section =
   | "files"
   | "protocol"
   | "knowledge"
-  | "data"
+  | "protocol"
   | `agent:${AgentId}`;
 
 type NavGroupId = "general" | "ai" | "modules";
@@ -164,17 +165,6 @@ const NAV_GROUPS: NavGroup[] = [
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          </svg>
-        ),
-      },
-      {
-        id: "data",
-        label: "缓存",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-            <path d="M7 10l5 5 5-5" />
-            <path d="M12 15V3" />
           </svg>
         ),
       },
@@ -1528,6 +1518,9 @@ export function SettingsPanel() {
               <div className="settings-subsection-title">{t("settings.modules.label")}</div>
               <p className="setting-hint settings-subsection-desc">{t("settings.modules.desc")}</p>
               <ModulesSettingsSection />
+
+              <DataBackupSection />
+              <SyncDeviceResetSection />
             </div>
           </div>
         )}
@@ -2335,9 +2328,6 @@ export function SettingsPanel() {
             </div>
           </div>
         )}
-
-        {/* Data & Backup */}
-        {activeSection === "data" && <DataBackupSection />}
       </div>
     </SidebarWorkspace>
   );

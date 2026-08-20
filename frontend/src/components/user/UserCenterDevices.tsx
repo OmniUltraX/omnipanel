@@ -8,13 +8,14 @@ import {
   type AuthDevice,
 } from "../../lib/auth/loginApi";
 import { appConfirm } from "../../lib/appConfirm";
+import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { selectWechatBound, useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
 import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
-import { DeviceSecretsVaultPanel } from "./DeviceSecretsVaultPanel";
 import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 
@@ -47,6 +48,7 @@ function normalizeRole(role: string | undefined): "client" | "assistant" {
 function DeviceList({
   devices,
   localDeviceId,
+  localSyncAuthenticated,
   deletingId,
   onDelete,
   t,
@@ -54,6 +56,8 @@ function DeviceList({
 }: {
   devices: AuthDevice[];
   localDeviceId: string | null;
+  /** 本机是否已有 SyncMasterKey（与服务端 syncTrusted 互补） */
+  localSyncAuthenticated: boolean;
   deletingId: string | null;
   onDelete: (device: AuthDevice) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
@@ -67,6 +71,8 @@ function DeviceList({
     <ul className="user-center-device-grid">
       {devices.map((device) => {
         const isCurrent = Boolean(localDeviceId && device.deviceId === localDeviceId);
+        const isAuthenticated =
+          Boolean(device.syncTrusted) || (isCurrent && localSyncAuthenticated);
         const name = device.deviceName.trim() || device.deviceId || t("userCenter.devices.unnamed");
         const busy = deletingId === device.deviceId;
         return (
@@ -95,6 +101,11 @@ function DeviceList({
                   {isCurrent ? (
                     <span className="user-center-device-card__badge">
                       {t("userCenter.devices.current")}
+                    </span>
+                  ) : null}
+                  {isAuthenticated ? (
+                    <span className="user-center-device-card__badge user-center-device-card__badge--auth">
+                      {t("userCenter.devices.authenticated")}
                     </span>
                   ) : null}
                 </div>
@@ -157,6 +168,7 @@ export function UserCenterDevices() {
   const [loading, setLoading] = useState(true);
   const [devices, setDevices] = useState<AuthDevice[]>([]);
   const [localDeviceId, setLocalDeviceId] = useState<string | null>(null);
+  const [localSyncAuthenticated, setLocalSyncAuthenticated] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -199,12 +211,17 @@ export function UserCenterDevices() {
 
     void (async () => {
       try {
-        const [identity, list] = await Promise.all([
+        const [identity, list, keyStatus] = await Promise.all([
           fetchDeviceIdentity(),
           fetchDevices(token, { quiet: true }),
+          unwrapCommand(commands.syncMasterKeyStatus(), { quiet: true }).catch(() => ({
+            hasKey: false,
+            key: null,
+          })),
         ]);
         if (abort.signal.aborted) return;
         setLocalDeviceId(identity.deviceId);
+        setLocalSyncAuthenticated(Boolean(keyStatus.hasKey));
         setDevices(list);
       } catch (error) {
         if (abort.signal.aborted) return;
@@ -315,8 +332,6 @@ export function UserCenterDevices() {
 
   return (
     <div className="user-center-content">
-      <DeviceSecretsVaultPanel />
-
       <section className="user-center-section">
         <div className="user-center-devices__header">
           <div>
@@ -338,6 +353,7 @@ export function UserCenterDevices() {
           <DeviceList
             devices={clientDevices}
             localDeviceId={localDeviceId}
+            localSyncAuthenticated={localSyncAuthenticated}
             deletingId={deletingId}
             onDelete={(device) => void handleDelete(device)}
             t={t}
@@ -390,6 +406,7 @@ export function UserCenterDevices() {
           <DeviceList
             devices={assistantDevices}
             localDeviceId={localDeviceId}
+            localSyncAuthenticated={localSyncAuthenticated}
             deletingId={deletingId}
             onDelete={(device) => void handleDelete(device)}
             t={t}

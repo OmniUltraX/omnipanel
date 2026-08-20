@@ -141,6 +141,9 @@ pub struct AuthDevice {
     pub login_status: String,
     /// Redis presence TTL 判定的实时在线状态。
     pub online: bool,
+    /// 是否已完成同步密钥认证（服务端 `sync_trusted`）。
+    #[serde(default)]
+    pub sync_trusted: bool,
 }
 
 /// 绑定助手端：本地画码用的 payload（非微信小程序码）。
@@ -314,6 +317,8 @@ struct ApiDeviceView {
     login_status: Option<String>,
     #[serde(default)]
     online: Option<bool>,
+    #[serde(default)]
+    sync_trusted: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -669,6 +674,7 @@ fn map_api_device(item: ApiDeviceView) -> AuthDevice {
         platform: item.platform.unwrap_or_default(),
         login_status,
         online: item.online.unwrap_or(false),
+        sync_trusted: item.sync_trusted.unwrap_or(false),
     }
 }
 

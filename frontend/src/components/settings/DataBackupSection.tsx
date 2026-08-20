@@ -4,6 +4,9 @@ import { clearAppLayoutCache, clearAppUserData } from "../../lib/appDataReset";
 import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../ui/primitives/Button";
 
+/**
+ * 系统设置内的「用户数据」一项：合并原缓存页的清理能力，并提供清除缓存按钮。
+ */
 export function DataBackupSection() {
   const { t } = useI18n();
   const [clearingCache, setClearingCache] = useState(false);
@@ -42,16 +45,13 @@ export function DataBackupSection() {
   };
 
   return (
-    <div className="settings-panel active">
-      <div className="settings-section">
-        <h2>{t("settings.data.title")}</h2>
-        <p className="section-desc">{t("settings.data.description")}</p>
-
-        <div className="setting-row">
-          <div className="setting-label">
-            <h4>{t("settings.data.clearCacheLabel")}</h4>
-            <p>{t("settings.data.clearCacheDesc")}</p>
-          </div>
+    <>
+      <div className="setting-row">
+        <div className="setting-label">
+          <h4>{t("settings.data.userDataLabel")}</h4>
+          <p>{t("settings.data.userDataDesc")}</p>
+        </div>
+        <div className="setting-row-actions">
           <Button
             variant="danger"
             size="sm"
@@ -60,13 +60,6 @@ export function DataBackupSection() {
           >
             {clearingCache ? t("settings.data.clearing") : t("settings.data.clearCacheBtn")}
           </Button>
-        </div>
-
-        <div className="setting-row">
-          <div className="setting-label">
-            <h4>{t("settings.data.clearUserDataLabel")}</h4>
-            <p>{t("settings.data.clearUserDataDesc")}</p>
-          </div>
           <Button
             variant="danger"
             size="sm"
@@ -76,18 +69,18 @@ export function DataBackupSection() {
             {clearingUserData ? t("settings.data.clearing") : t("settings.data.clearUserDataBtn")}
           </Button>
         </div>
-
-        {notice && (
-          <p className="settings-data-notice" style={{ color: "var(--success)", marginTop: "var(--sp-3)" }}>
-            {notice}
-          </p>
-        )}
-        {error && (
-          <p className="settings-data-error" style={{ color: "var(--danger)", marginTop: "var(--sp-3)" }}>
-            {error}
-          </p>
-        )}
       </div>
-    </div>
+
+      {notice && (
+        <p className="settings-data-notice" style={{ color: "var(--success)", marginTop: "var(--sp-3)" }}>
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="settings-data-error" style={{ color: "var(--danger)", marginTop: "var(--sp-3)" }}>
+          {error}
+        </p>
+      )}
+    </>
   );
 }

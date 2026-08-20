@@ -1672,6 +1672,8 @@ export type AuthDevice = {
 	loginStatus: string,
 	/**  Redis presence TTL 判定的实时在线状态。 */
 	online: boolean,
+	/**  是否已完成同步密钥认证（服务端 sync_trusted）。 */
+	syncTrusted: boolean,
 };
 
 /**  本机设备身份（登录上报与「本机」标记共用）。 */

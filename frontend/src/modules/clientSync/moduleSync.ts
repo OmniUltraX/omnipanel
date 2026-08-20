@@ -4,6 +4,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
+import { scheduleSecretsVaultSync } from "./secretsVaultSync";
 
 /** 模块同步落到本机后派发，供 Database / Protocol 等面板刷新 */
 export const CLIENT_SYNC_MODULES_APPLIED_EVENT = "omnipanel:client-sync-modules-applied";
@@ -63,6 +64,7 @@ async function pushModulesOnce(teamId: number | null): Promise<void> {
 
 /**
  * 模块数据变更后立即推送到当前同步团队 OSS `modules/latest.json`。
+ * 同时调度密文库自动推送（有 SyncMasterKey 时生效）。
  */
 export function scheduleClientModuleSync(): void {
   if (suppressPush) return;
@@ -70,6 +72,7 @@ export function scheduleClientModuleSync(): void {
   if (!token?.trim()) return;
 
   void runPush();
+  scheduleSecretsVaultSync();
 }
 
 async function runPush(): Promise<void> {

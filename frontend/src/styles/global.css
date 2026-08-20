@@ -11891,6 +11891,34 @@ button.omni-btn-tool[aria-pressed="true"] {
         border-bottom: 1px solid var(--border-soft);
     }
 
+    .setting-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+        justify-content: flex-end;
+    }
+
+    .setting-label-with-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .setting-auth-tag {
+        display: inline-flex;
+        align-items: center;
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1;
+        padding: 3px 6px;
+        border-radius: 999px;
+        color: var(--accent, #3b82f6);
+        border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border));
+        background: color-mix(in srgb, var(--accent, #3b82f6) 12%, var(--bg));
+    }
+
     .setting-row:last-child {
         border-bottom: none;
     }
@@ -19046,6 +19074,34 @@ button.omni-btn-tool[aria-pressed="true"] {
         justify-content: space-between;
         padding: var(--sp-3) 0;
         border-bottom: 1px solid var(--border-soft);
+    }
+
+    .setting-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        flex-shrink: 0;
+        justify-content: flex-end;
+    }
+
+    .setting-label-with-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .setting-auth-tag {
+        display: inline-flex;
+        align-items: center;
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1;
+        padding: 3px 6px;
+        border-radius: 999px;
+        color: var(--accent, #3b82f6);
+        border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border));
+        background: color-mix(in srgb, var(--accent, #3b82f6) 12%, var(--bg));
     }
 
     .setting-row:last-child {
@@ -26995,6 +27051,71 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     margin-bottom: var(--sp-4);
 }
 
+.sync-device-auth-dialog {
+    width: min(380px, 92vw);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.sync-device-auth-dialog__header {
+    width: 100%;
+    text-align: center;
+}
+
+.sync-device-auth-dialog__header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.sync-device-auth-dialog__hint,
+.sync-device-auth-dialog__expire,
+.sync-device-auth-dialog__status,
+.sync-device-auth-dialog__code {
+    margin: 0;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.sync-device-auth-dialog__code strong {
+    color: var(--fg);
+    font-size: 18px;
+    letter-spacing: 0.08em;
+}
+
+.sync-device-auth-dialog__qr {
+    width: 220px;
+    height: 220px;
+    object-fit: contain;
+    border-radius: var(--r-md);
+    background: #fff;
+}
+
+.sync-device-auth-dialog__error {
+    margin: 0;
+    text-align: center;
+    font-size: 12px;
+    color: var(--danger, #e5484d);
+}
+
+.sync-device-auth-dialog__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    justify-content: center;
+    margin-top: var(--sp-1);
+}
+
 .user-center-vault__otp {
     display: flex;
     flex-wrap: nowrap;
@@ -27326,6 +27447,12 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 
 .user-center-device-card__badge--presence.is-offline {
     color: var(--muted);
+}
+
+.user-center-device-card__badge--auth {
+    color: var(--accent, #3b82f6);
+    border-color: color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent, #3b82f6) 12%, var(--bg));
 }
 
 .user-center-device-card__meta {

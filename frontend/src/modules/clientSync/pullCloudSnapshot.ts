@@ -12,6 +12,10 @@ import {
   CLIENT_SYNC_MODULES_APPLIED_EVENT,
   setClientModuleSyncSuppressed,
 } from "./moduleSync";
+import {
+  pullSecretsVaultOnce,
+  setSecretsVaultSyncSuppressed,
+} from "./secretsVaultSync";
 import { useClientSyncTombstoneStore } from "./tombstones";
 
 function mergeWorkspacesJson(raw: string | null | undefined): void {
@@ -113,6 +117,7 @@ export async function pullCloudSnapshot(): Promise<void> {
   const teamId = getCurrentSyncTeamId();
   setClientModuleSyncSuppressed(true);
   setClientConversationSyncSuppressed(true);
+  setSecretsVaultSyncSuppressed(true);
   try {
     const modulesResult = await unwrapCommand(
       commands.clientSyncPullModules({ token, teamId }),
@@ -130,9 +135,13 @@ export async function pullCloudSnapshot(): Promise<void> {
     if (convResult.found && convResult.bodyJson?.trim()) {
       applyConversationsBundle(convResult.bodyJson);
     }
+
+    // 模块快照不含密码；有 SyncMasterKey 时再拉密文库。
+    await pullSecretsVaultOnce();
   } catch {
   } finally {
     setClientModuleSyncSuppressed(false);
     setClientConversationSyncSuppressed(false);
+    setSecretsVaultSyncSuppressed(false);
   }
 }
