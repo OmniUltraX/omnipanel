@@ -165,6 +165,34 @@ fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
     }
 }
 
+/// 无任何资源且无删除墓碑的「空洞」快照（典型：新空设备误推）。
+fn bundle_is_vacuous_empty(bundle: &ClientSyncModulesBundle) -> bool {
+    bundle.connections.is_empty()
+        && bundle.database_connections.is_empty()
+        && bundle.knowledge.is_empty()
+        && bundle.http_collections.is_empty()
+        && bundle.http_environments.is_empty()
+        && bundle.http_requests.is_empty()
+        && bundle.workspaces.is_empty()
+        && bundle.deleted_connections.is_empty()
+        && bundle.deleted_databases.is_empty()
+        && bundle.deleted_knowledge.is_empty()
+        && bundle.deleted_http_requests.is_empty()
+        && bundle.deleted_http_collections.is_empty()
+        && bundle.deleted_http_environments.is_empty()
+        && bundle.deleted_workspaces.is_empty()
+}
+
+fn bundle_has_resources(bundle: &ClientSyncModulesBundle) -> bool {
+    !bundle.connections.is_empty()
+        || !bundle.database_connections.is_empty()
+        || !bundle.knowledge.is_empty()
+        || !bundle.http_collections.is_empty()
+        || !bundle.http_environments.is_empty()
+        || !bundle.http_requests.is_empty()
+        || !bundle.workspaces.is_empty()
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSyncPushModulesResult {
@@ -308,6 +336,27 @@ pub async fn client_sync_push_modules(
         tag_bundle_with_device(&mut bundle, &device_name);
     }
     strip_bundle_secrets(&mut bundle);
+
+    // 新空设备误推会覆盖云端真实快照；无资源且无墓碑时若远端仍有数据则跳过上传。
+    if bundle_is_vacuous_empty(&bundle) {
+        if let Some((object_key, bytes)) =
+            pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await?
+        {
+            if let Ok(plain) =
+                decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &bytes)
+            {
+                if let Ok(remote) = serde_json::from_slice::<ClientSyncModulesBundle>(&plain) {
+                    if bundle_has_resources(&remote) {
+                        return Ok(ClientSyncPushModulesResult {
+                            object_key,
+                            etag: None,
+                            bytes: bytes.len() as f64,
+                        });
+                    }
+                }
+            }
+        }
+    }
 
     let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
@@ -511,6 +560,21 @@ pub async fn client_sync_pull_modules(
     let bundle: ClientSyncModulesBundle = serde_json::from_slice(&plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析云端模块快照失败").with_cause(e.to_string())
     })?;
+
+    // 空洞快照（无资源无墓碑）视为无效，避免把本机已有数据整表清空。
+    if bundle_is_vacuous_empty(&bundle) {
+        return Ok(ClientSyncPullModulesResult {
+            found: false,
+            object_key: Some(object_key),
+            bytes: bytes.len() as f64,
+            applied_connections: 0.0,
+            applied_databases: 0.0,
+            applied_knowledge: 0.0,
+            applied_http_requests: 0.0,
+            applied_workspaces: 0.0,
+            workspaces_json: None,
+        });
+    }
 
     let (
         applied_connections,

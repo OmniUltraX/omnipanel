@@ -102,11 +102,26 @@ export function SyncDeviceAuthDialog() {
                 st.wrapped_key,
               ),
             );
-            // 密钥就绪后立刻拉全量云端快照（模块 + 会话 + 密文库），再调度上传合并
-            await pullCloudSnapshot();
-            scheduleClientModuleSync();
-            scheduleSecretsVaultSync();
-            showToast(t("syncDeviceAuth.success"));
+            // 密钥就绪后立刻拉全量云端快照；仅在确有模块数据时再推送（避免空设备覆盖云端）
+            const pulled = await pullCloudSnapshot();
+            if (pulled.ok) {
+              if (pulled.modulesFound) {
+                scheduleClientModuleSync();
+              }
+              scheduleSecretsVaultSync();
+              if (pulled.modulesFound || pulled.conversationsFound) {
+                showToast(
+                  t("syncDeviceAuth.successWithData", {
+                    connections: String(pulled.appliedConnections),
+                    databases: String(pulled.appliedDatabases),
+                  }),
+                );
+              } else {
+                showToast(t("syncDeviceAuth.successNoCloudData"));
+              }
+            } else {
+              showToast(t("syncDeviceAuth.pullFailed"));
+            }
             closeDialog();
             setSession(null);
             setWaitingKey(false);

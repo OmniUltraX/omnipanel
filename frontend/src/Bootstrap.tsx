@@ -129,6 +129,12 @@ export function Bootstrap() {
 
         await pushLog(t("app.splash.logs.cloudSync"));
         if (token) {
+          // 必须先等资料（teams / ossPath）就绪，再拉快照；否则密文库会因缺 ossPath 被跳过，
+          // 且残留 teamId 可能在 teams 校验前导致拉取失败。
+          try {
+            await profileSync;
+          } catch {
+          }
           try {
             const { pullCloudSnapshot } = await import("./modules/clientSync");
             await pullCloudSnapshot();
@@ -158,7 +164,7 @@ export function Bootstrap() {
           ),
         ]);
         await Promise.all([toolsChain, parallelInits]);
-        // profileSync 后台跑，不阻塞启动；网络不可达时 syncAuthProfile 内部已静默处理
+        // 无 token 时仍消化掉已启动的 profileSync（有 token 时上方已 await）
         void profileSync;
 
         advance(3);

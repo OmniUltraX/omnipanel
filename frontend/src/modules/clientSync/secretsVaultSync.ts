@@ -89,8 +89,22 @@ async function runPush(): Promise<void> {
 /** 启动 / 登录后：用本机 SyncMasterKey 从云端拉密文库写回钥匙串。 */
 export async function pullSecretsVaultOnce(): Promise<void> {
   const token = useAuthStore.getState().token?.trim();
-  const ossPath = useUserProfileStore.getState().ossPath?.trim();
-  if (!token || !ossPath) return;
+  if (!token) return;
+
+  let ossPath = useUserProfileStore.getState().ossPath?.trim();
+  if (!ossPath) {
+    // 资料尚未写入时补一次 /api/me，避免认证刚完成就跳过密文库
+    try {
+      const { syncAuthProfile } = await import("../../lib/auth/syncAuthProfile");
+      await syncAuthProfile();
+    } catch {
+    }
+    ossPath = useUserProfileStore.getState().ossPath?.trim();
+  }
+  if (!ossPath) {
+    console.warn("[client-sync] pullSecretsVaultOnce skipped: missing ossPath");
+    return;
+  }
   const password = await resolveMasterPassword();
   if (!password) return;
 

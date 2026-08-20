@@ -5882,6 +5882,14 @@ export const enUS: TranslationDict = {
       resetDeviceDoneLocalOnly:
         "Local key cleared, but server reset failed; the device list may still show Authenticated. Check the network and try again.",
       authenticatedTag: "Authenticated",
+      pullNowLabel: "Cloud data",
+      pullNowDesc:
+        "Pull connections, databases, conversations, and credential vault from the current sync team. If this device has data and the cloud is empty, it will try to republish.",
+      pullNowBtn: "Pull now",
+      pullNowDone: "Pulled: {connections} connections, {databases} databases",
+      pullNowEmpty:
+        "No valid cloud module snapshot. Open the app on a device that still has data to republish, then pull again.",
+      pullNowFailed: "Pull failed. Check the network and try again.",
     },
     update: {
       checkLabel: "Check for Updates",
@@ -7662,6 +7670,11 @@ export const enUS: TranslationDict = {
     refresh: "Refresh QR",
     later: "Later",
     success: "Device authenticated — credentials will sync automatically",
+    successWithData:
+      "Device authenticated — synced {connections} connections, {databases} databases",
+    successNoCloudData:
+      "Device authenticated, but no cloud module snapshot yet. Open OmniPanel on a device that still has data to republish, then tap Pull Now here.",
+    pullFailed: "Authenticated, but cloud pull failed. Retry with Pull Now in Settings.",
     timeout: "Timed out — refresh the QR and try again",
   },
   dataSync: {

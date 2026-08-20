@@ -5810,6 +5810,14 @@ export const zhCN = {
       resetDeviceDoneLocalOnly:
         "本机密钥已清除，但服务端重置失败；设备列表可能仍显示已认证，请检查网络后重试。",
       authenticatedTag: "已认证",
+      pullNowLabel: "云端数据",
+      pullNowDesc:
+        "从当前同步团队拉取连接、数据库、会话与密文凭据。若本机已有数据而云端为空，也会尝试回写云端。",
+      pullNowBtn: "立即拉取",
+      pullNowDone: "已拉取：连接 {connections} 个，数据库 {databases} 个",
+      pullNowEmpty:
+        "云端暂无有效模块快照。请在仍有数据的设备上打开应用以回写，然后再拉取。",
+      pullNowFailed: "拉取失败，请检查网络后重试",
     },
     update: {
       checkLabel: "检查更新",
@@ -7579,6 +7587,11 @@ export const zhCN = {
     refresh: "刷新二维码",
     later: "稍后",
     success: "设备认证成功，凭据将自动同步",
+    successWithData:
+      "设备认证成功，已同步连接 {connections} 个、数据库 {databases} 个",
+    successNoCloudData:
+      "设备认证成功，但云端暂无模块快照。请在仍有数据的设备上打开 OmniPanel 以回写云端，然后在本机点「立即拉取」。",
+    pullFailed: "认证成功，但云端数据拉取失败，请稍后在设置中点「立即拉取」重试",
     timeout: "等待超时，请刷新二维码后重试",
   },
   dataSync: {

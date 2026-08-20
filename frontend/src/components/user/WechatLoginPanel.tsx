@@ -82,6 +82,7 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
             email: me.email,
             githubId: me.githubId,
             ossPath: me.ossPath,
+            teams: me.teams,
           });
         } catch {
           const profile = useUserProfileStore.getState();

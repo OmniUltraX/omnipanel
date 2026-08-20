@@ -37,6 +37,7 @@ async function applyLoginSession(token: string, openid: string): Promise<void> {
       email: me.email,
       githubId: me.githubId,
       ossPath: me.ossPath,
+      teams: me.teams,
     });
   } catch {
     const profile = useUserProfileStore.getState();

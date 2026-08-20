@@ -1,7 +1,9 @@
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
+import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import {
@@ -109,21 +111,59 @@ async function refreshLocalModuleUi(): Promise<void> {
   window.dispatchEvent(new CustomEvent(CLIENT_SYNC_MODULES_APPLIED_EVENT));
 }
 
+/** 密文库需要 ossPath；团队校验需要 teams。缺一则先补齐 /api/me。 */
+async function ensureAuthProfileForPull(): Promise<void> {
+  const profile = useUserProfileStore.getState();
+  const needsProfile =
+    !profile.ossPath?.trim() || !Array.isArray(profile.teams) || profile.teams.length === 0;
+  if (!needsProfile) return;
+  await syncAuthProfile();
+}
+
+export type PullCloudSnapshotResult = {
+  ok: boolean;
+  modulesFound: boolean;
+  conversationsFound: boolean;
+  appliedConnections: number;
+  appliedDatabases: number;
+};
+
 /** 启动时从当前同步团队 OSS 拉取快照并应用到本机。 */
-export async function pullCloudSnapshot(): Promise<void> {
+export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
+  const empty: PullCloudSnapshotResult = {
+    ok: false,
+    modulesFound: false,
+    conversationsFound: false,
+    appliedConnections: 0,
+    appliedDatabases: 0,
+  };
   const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
+  if (!token?.trim()) return empty;
+
+  try {
+    await ensureAuthProfileForPull();
+  } catch (err) {
+    console.warn("[client-sync] ensureAuthProfileForPull failed:", err);
+  }
 
   const teamId = getCurrentSyncTeamId();
   setClientModuleSyncSuppressed(true);
   setClientConversationSyncSuppressed(true);
   setSecretsVaultSyncSuppressed(true);
+  let modulesFound = false;
+  let conversationsFound = false;
+  let appliedConnections = 0;
+  let appliedDatabases = 0;
+  let result: PullCloudSnapshotResult = empty;
   try {
     const modulesResult = await unwrapCommand(
       commands.clientSyncPullModules({ token, teamId }),
       { quiet: true },
     );
-    if (modulesResult.found) {
+    modulesFound = Boolean(modulesResult.found);
+    appliedConnections = Number(modulesResult.appliedConnections ?? 0);
+    appliedDatabases = Number(modulesResult.appliedDatabases ?? 0);
+    if (modulesFound) {
       mergeWorkspacesJson(modulesResult.workspacesJson);
       await refreshLocalModuleUi();
     }
@@ -132,16 +172,54 @@ export async function pullCloudSnapshot(): Promise<void> {
       commands.clientSyncPullConversations({ token, teamId }),
       { quiet: true },
     );
-    if (convResult.found && convResult.bodyJson?.trim()) {
+    conversationsFound = Boolean(convResult.found && convResult.bodyJson?.trim());
+    if (conversationsFound && convResult.bodyJson) {
       applyConversationsBundle(convResult.bodyJson);
     }
 
     // 模块快照不含密码；有 SyncMasterKey 时再拉密文库。
     await pullSecretsVaultOnce();
-  } catch {
+
+    result = {
+      ok: true,
+      modulesFound,
+      conversationsFound,
+      appliedConnections,
+      appliedDatabases,
+    };
+  } catch (err) {
+    console.warn("[client-sync] pullCloudSnapshot failed:", err);
+    result = {
+      ok: false,
+      modulesFound,
+      conversationsFound,
+      appliedConnections,
+      appliedDatabases,
+    };
   } finally {
     setClientModuleSyncSuppressed(false);
     setClientConversationSyncSuppressed(false);
     setSecretsVaultSyncSuppressed(false);
+  }
+
+  // suppress 解除后再考虑回写，否则 schedule 会被吞掉
+  await republishLocalModulesIfCloudEmpty(result);
+  return result;
+}
+
+/**
+ * 拉取结束后：若云端无有效模块快照但本机有连接，回写云端（修复空设备误覆盖后的恢复）。
+ */
+async function republishLocalModulesIfCloudEmpty(
+  pulled: PullCloudSnapshotResult,
+): Promise<void> {
+  if (!pulled.ok || pulled.modulesFound) return;
+  try {
+    const local = await unwrapCommand(commands.connList(), { quiet: true });
+    if (Array.isArray(local) && local.length > 0) {
+      const { scheduleClientModuleSync } = await import("./moduleSync");
+      scheduleClientModuleSync();
+    }
+  } catch {
   }
 }

@@ -125,9 +125,13 @@ export function DeviceSecretsVaultPanel() {
         if (status.hasKey) {
           setHasKey(true);
           void (async () => {
-            await pullCloudSnapshot();
-            scheduleClientModuleSync();
-            scheduleSecretsVaultSync();
+            const pulled = await pullCloudSnapshot();
+            if (pulled.ok) {
+              if (pulled.modulesFound) {
+                scheduleClientModuleSync();
+              }
+              scheduleSecretsVaultSync();
+            }
           })();
         }
         showToast(t("userCenter.devices.vault.pairingKeyReady"));

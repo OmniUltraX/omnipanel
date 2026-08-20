@@ -4,13 +4,15 @@ import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { resetSyncDevice } from "../../lib/auth/syncPairingApi";
+import { pullCloudSnapshot } from "../../modules/clientSync";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
+import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/primitives/Button";
 
 /**
  * 系统设置：「重置设备」——清除本机 SyncMasterKey，并调用服务端 reset，回到未认证状态。
- * 已同步密钥时显示「已认证」标签。
+ * 已同步密钥时显示「已认证」标签；并提供「立即拉取」以补拉云端快照。
  */
 export function SyncDeviceResetSection() {
   const { t } = useI18n();
@@ -18,6 +20,7 @@ export function SyncDeviceResetSection() {
   const [hasKey, setHasKey] = useState(false);
   const [ready, setReady] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +38,35 @@ export function SyncDeviceResetSection() {
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  const handlePullNow = async () => {
+    if (!token?.trim() || pulling) return;
+    setPulling(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const pulled = await pullCloudSnapshot();
+      if (!pulled.ok) {
+        setError(t("settings.data.pullNowFailed"));
+        return;
+      }
+      if (pulled.modulesFound || pulled.conversationsFound) {
+        const msg = t("settings.data.pullNowDone", {
+          connections: String(pulled.appliedConnections),
+          databases: String(pulled.appliedDatabases),
+        });
+        setNotice(msg);
+        showToast(msg);
+      } else {
+        setNotice(t("settings.data.pullNowEmpty"));
+        showToast(t("settings.data.pullNowEmpty"));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : formatIpcError(e));
+    } finally {
+      setPulling(false);
+    }
+  };
 
   const handleReset = async () => {
     if (!(await appConfirm(t("settings.data.resetDeviceConfirm")))) return;
@@ -63,7 +95,7 @@ export function SyncDeviceResetSection() {
       }
 
       // 再次确认本机已无密钥（防止并发路径重建）
-      const status = await unwrapCommand(commands.syncMasterKeyStatus(), { quiet: true });
+      const status = await unwrapCommand(commands.syncMasterKeyStatus());
       if (status.hasKey) {
         await unwrapCommand(commands.syncMasterKeyClear());
       }
@@ -89,11 +121,28 @@ export function SyncDeviceResetSection() {
       <div className="setting-row">
         <div className="setting-label">
           <h4 className="setting-label-with-tag">
-            {t("settings.data.resetDeviceLabel")}
+            {t("settings.data.pullNowLabel")}
             {ready && hasKey ? (
               <span className="setting-auth-tag">{t("settings.data.authenticatedTag")}</span>
             ) : null}
           </h4>
+          <p>{t("settings.data.pullNowDesc")}</p>
+        </div>
+        <div className="setting-row-actions">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={pulling || !token?.trim()}
+            onClick={() => void handlePullNow()}
+          >
+            {pulling ? t("settings.data.clearing") : t("settings.data.pullNowBtn")}
+          </Button>
+        </div>
+      </div>
+
+      <div className="setting-row">
+        <div className="setting-label">
+          <h4>{t("settings.data.resetDeviceLabel")}</h4>
           <p>{t("settings.data.resetDeviceDesc")}</p>
         </div>
         <div className="setting-row-actions">
