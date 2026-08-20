@@ -1144,6 +1144,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             previewSqlTitle={previewSql}
           />
           <TablePreviewQueryBar
+            historyKey={previewTableKey}
             dbType={previewConnection?.db_type ?? "mysql"}
             columnMeta={colMeta}
             filter={preview.filter}

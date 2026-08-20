@@ -14,6 +14,11 @@ import {
 } from "../grid/tablePreviewFilterSql";
 import { showToast } from "../../../stores/toastStore";
 import { TablePreviewQuerySqlInput } from "./TablePreviewQuerySqlInput";
+import {
+  listTablePreviewQueryHistory,
+  pushTablePreviewQueryHistory,
+  type TablePreviewQueryHistoryMode,
+} from "./tablePreviewQueryHistory";
 
 function QueryClearIcon() {
   return (
@@ -65,7 +70,23 @@ function writeWhereRatio(ratio: number) {
   }
 }
 
+interface FieldHistoryCursor {
+  /** -1 表示正在编辑当前草稿，未进入历史浏览 */
+  index: number;
+  /** 开始按 ↑ 时暂存的当前输入，↓ 回到最底时恢复 */
+  draft: string;
+  /** 防止历史写入触发 onChange 时把 index 清掉 */
+  applying: boolean;
+  entries: string[];
+}
+
+function createHistoryCursor(entries: string[]): FieldHistoryCursor {
+  return { index: -1, draft: "", applying: false, entries };
+}
+
 export interface TablePreviewQueryBarProps {
+  /** 表级历史键：`connId:dbName:tableName`；缺省则不记录历史 */
+  historyKey?: string | null;
   dbType: string;
   columnMeta?: DbColumnMeta[];
   filter: RuleGroupType | null;
@@ -78,6 +99,7 @@ export interface TablePreviewQueryBarProps {
 }
 
 export function TablePreviewQueryBar({
+  historyKey = null,
   dbType,
   columnMeta,
   filter,
@@ -103,6 +125,22 @@ export function TablePreviewQueryBar({
   const fieldsRef = useRef<HTMLDivElement>(null);
   const whereRatioRef = useRef(whereRatio);
   whereRatioRef.current = whereRatio;
+
+  const whereHistoryRef = useRef<FieldHistoryCursor>(
+    createHistoryCursor(listTablePreviewQueryHistory(historyKey, "where")),
+  );
+  const orderHistoryRef = useRef<FieldHistoryCursor>(
+    createHistoryCursor(listTablePreviewQueryHistory(historyKey, "order")),
+  );
+
+  useEffect(() => {
+    whereHistoryRef.current = createHistoryCursor(
+      listTablePreviewQueryHistory(historyKey, "where"),
+    );
+    orderHistoryRef.current = createHistoryCursor(
+      listTablePreviewQueryHistory(historyKey, "order"),
+    );
+  }, [historyKey]);
 
   useEffect(() => {
     if (!whereEditingRef.current) {
@@ -134,6 +172,77 @@ export function TablePreviewQueryBar({
     };
   }, [changeMenuOpen]);
 
+  const rememberHistory = useCallback(
+    (mode: TablePreviewQueryHistoryMode, text: string) => {
+      const next = pushTablePreviewQueryHistory(historyKey, mode, text);
+      const cursor = mode === "where" ? whereHistoryRef.current : orderHistoryRef.current;
+      cursor.entries = next;
+      cursor.index = -1;
+      cursor.draft = "";
+      cursor.applying = false;
+    },
+    [historyKey],
+  );
+
+  const navigateHistory = useCallback(
+    (
+      mode: TablePreviewQueryHistoryMode,
+      direction: "up" | "down",
+      current: string,
+    ): string | null => {
+      const cursor = mode === "where" ? whereHistoryRef.current : orderHistoryRef.current;
+      const { entries } = cursor;
+      if (entries.length === 0) return null;
+
+      if (direction === "up") {
+        if (cursor.index === -1) {
+          cursor.draft = current;
+        }
+        const nextIndex = Math.min(cursor.index + 1, entries.length - 1);
+        cursor.index = nextIndex;
+        cursor.applying = true;
+        queueMicrotask(() => {
+          cursor.applying = false;
+        });
+        return entries[nextIndex] ?? null;
+      }
+
+      if (cursor.index === -1) return null;
+      const nextIndex = cursor.index - 1;
+      cursor.applying = true;
+      queueMicrotask(() => {
+        cursor.applying = false;
+      });
+      if (nextIndex < 0) {
+        cursor.index = -1;
+        const draft = cursor.draft;
+        cursor.draft = "";
+        return draft;
+      }
+      cursor.index = nextIndex;
+      return entries[nextIndex] ?? null;
+    },
+    [],
+  );
+
+  const handleWhereChange = useCallback((text: string) => {
+    const cursor = whereHistoryRef.current;
+    if (!cursor.applying) {
+      cursor.index = -1;
+      cursor.draft = "";
+    }
+    setWhereDraft(text);
+  }, []);
+
+  const handleOrderChange = useCallback((text: string) => {
+    const cursor = orderHistoryRef.current;
+    if (!cursor.applying) {
+      cursor.index = -1;
+      cursor.draft = "";
+    }
+    setOrderDraft(text);
+  }, []);
+
   const commitWhere = useCallback(() => {
     whereEditingRef.current = false;
     const parsed = parseWhereClauseText(whereDraft, columnMeta);
@@ -143,8 +252,10 @@ export function TablePreviewQueryBar({
       return;
     }
     onFilterChange(parsed.filter);
-    setWhereDraft(buildWhereClauseText(parsed.filter, dbType, columnMeta));
-  }, [whereDraft, columnMeta, canonicalWhere, onFilterChange, dbType]);
+    const nextText = buildWhereClauseText(parsed.filter, dbType, columnMeta);
+    setWhereDraft(nextText);
+    rememberHistory("where", nextText);
+  }, [whereDraft, columnMeta, canonicalWhere, onFilterChange, dbType, rememberHistory]);
 
   const commitOrder = useCallback(() => {
     orderEditingRef.current = false;
@@ -155,27 +266,37 @@ export function TablePreviewQueryBar({
       return;
     }
     onSortChange(parsed.sort);
-    setOrderDraft(buildOrderByClauseText(parsed.sort));
-  }, [orderDraft, canonicalOrder, onSortChange]);
+    const nextText = buildOrderByClauseText(parsed.sort);
+    setOrderDraft(nextText);
+    rememberHistory("order", nextText);
+  }, [orderDraft, canonicalOrder, onSortChange, rememberHistory]);
 
   const cancelWhere = useCallback(() => {
     whereEditingRef.current = false;
+    whereHistoryRef.current.index = -1;
+    whereHistoryRef.current.draft = "";
     setWhereDraft(canonicalWhere);
   }, [canonicalWhere]);
 
   const cancelOrder = useCallback(() => {
     orderEditingRef.current = false;
+    orderHistoryRef.current.index = -1;
+    orderHistoryRef.current.draft = "";
     setOrderDraft(canonicalOrder);
   }, [canonicalOrder]);
 
   const clearWhere = useCallback(() => {
     whereEditingRef.current = false;
+    whereHistoryRef.current.index = -1;
+    whereHistoryRef.current.draft = "";
     setWhereDraft("");
     onFilterChange(null);
   }, [onFilterChange]);
 
   const clearOrder = useCallback(() => {
     orderEditingRef.current = false;
+    orderHistoryRef.current.index = -1;
+    orderHistoryRef.current.draft = "";
     setOrderDraft("");
     onSortChange(null);
   }, [onSortChange]);
@@ -293,10 +414,13 @@ export function TablePreviewQueryBar({
                 value={whereDraft}
                 placeholder={t("database.tableDetail.wherePlaceholder")}
                 aria-label="WHERE"
-                onChange={setWhereDraft}
+                onChange={handleWhereChange}
                 onFocusChange={(focused) => {
                   whereEditingRef.current = focused;
                 }}
+                onHistoryNavigate={(direction, current) =>
+                  navigateHistory("where", direction, current)
+                }
                 onCommit={commitWhere}
                 onCancel={cancelWhere}
               />
@@ -376,10 +500,13 @@ export function TablePreviewQueryBar({
             value={orderDraft}
             placeholder={t("database.tableDetail.orderPlaceholder")}
             aria-label="ORDER BY"
-            onChange={setOrderDraft}
+            onChange={handleOrderChange}
             onFocusChange={(focused) => {
               orderEditingRef.current = focused;
             }}
+            onHistoryNavigate={(direction, current) =>
+              navigateHistory("order", direction, current)
+            }
             onCommit={commitOrder}
             onCancel={cancelOrder}
           />

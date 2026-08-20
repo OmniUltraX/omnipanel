@@ -36,6 +36,11 @@ export interface TablePreviewQuerySqlInputProps {
   onCommit: () => void;
   onCancel: () => void;
   onFocusChange?: (focused: boolean) => void;
+  /**
+   * ↑/↓ 浏览输入历史。返回要填入的文本；返回 `null` 表示无可用条目（仍吞掉按键，避免单行光标乱跳）。
+   * 补全浮层激活时不调用，交给补全自己处理方向键。
+   */
+  onHistoryNavigate?: (direction: "up" | "down", current: string) => string | null;
   mode: TablePreviewQueryMode;
   columnMeta?: DbColumnMeta[];
   dbType: string;
@@ -55,6 +60,7 @@ export function TablePreviewQuerySqlInput({
   onCommit,
   onCancel,
   onFocusChange,
+  onHistoryNavigate,
   mode,
   columnMeta,
   dbType,
@@ -67,7 +73,13 @@ export function TablePreviewQuerySqlInput({
   const viewRef = useRef<EditorView | null>(null);
   const columnsRef = useRef(columnMeta);
   const modeRef = useRef(mode);
-  const callbacksRef = useRef({ onChange, onCommit, onCancel, onFocusChange });
+  const callbacksRef = useRef({
+    onChange,
+    onCommit,
+    onCancel,
+    onFocusChange,
+    onHistoryNavigate,
+  });
   const valueRef = useRef(value);
   const blurCommitTimerRef = useRef<number | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
@@ -83,7 +95,13 @@ export function TablePreviewQuerySqlInput({
   columnsRef.current = columnMeta;
   modeRef.current = mode;
   valueRef.current = value;
-  callbacksRef.current = { onChange, onCommit, onCancel, onFocusChange };
+  callbacksRef.current = {
+    onChange,
+    onCommit,
+    onCancel,
+    onFocusChange,
+    onHistoryNavigate,
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -183,11 +201,63 @@ export function TablePreviewQuerySqlInput({
                 return true;
               },
             },
+            {
+              key: "ArrowUp",
+              run: (v) => {
+                if (completionStatus(v.state) === "active") return false;
+                const navigate = callbacksRef.current.onHistoryNavigate;
+                if (!navigate) return false;
+                const next = navigate("up", v.state.doc.toString());
+                if (next == null) return true;
+                if (next === v.state.doc.toString()) {
+                  v.dispatch({
+                    selection: { anchor: next.length },
+                    scrollIntoView: true,
+                  });
+                  return true;
+                }
+                v.dispatch({
+                  changes: { from: 0, to: v.state.doc.length, insert: next },
+                  selection: { anchor: next.length },
+                  scrollIntoView: true,
+                });
+                return true;
+              },
+            },
+            {
+              key: "ArrowDown",
+              run: (v) => {
+                if (completionStatus(v.state) === "active") return false;
+                const navigate = callbacksRef.current.onHistoryNavigate;
+                if (!navigate) return false;
+                const next = navigate("down", v.state.doc.toString());
+                if (next == null) return true;
+                if (next === v.state.doc.toString()) {
+                  v.dispatch({
+                    selection: { anchor: next.length },
+                    scrollIntoView: true,
+                  });
+                  return true;
+                }
+                v.dispatch({
+                  changes: { from: 0, to: v.state.doc.length, insert: next },
+                  selection: { anchor: next.length },
+                  scrollIntoView: true,
+                });
+                return true;
+              },
+            },
             ...completionKeymap.filter(
               (b) => b.key !== "Enter" && b.key !== "Tab" && b.key !== "Escape",
             ),
             ...historyKeymap,
-            ...defaultKeymap.filter((b) => b.key !== "Enter" && b.key !== "Escape"),
+            ...defaultKeymap.filter(
+              (b) =>
+                b.key !== "Enter" &&
+                b.key !== "Escape" &&
+                b.key !== "ArrowUp" &&
+                b.key !== "ArrowDown",
+            ),
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
