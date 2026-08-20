@@ -3143,6 +3143,44 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             };
             respond_omni(crate::store_ext::secrets_vault_pull(state, request).await)
         }
+        "sync_master_key_status" => respond_omni(crate::store_ext::sync_master_key_status().await),
+        "sync_master_key_get_or_create" => {
+            respond_omni(crate::store_ext::sync_master_key_get_or_create().await)
+        }
+        "sync_master_key_import" => {
+            let key = get_str(&args, "key").unwrap_or_default();
+            respond_omni(crate::store_ext::sync_master_key_import(key).await)
+        }
+        "sync_master_key_clear" => respond_omni(crate::store_ext::sync_master_key_clear().await),
+        "sync_master_key_validate" => {
+            let key = get_str(&args, "key").unwrap_or_default();
+            respond_omni(crate::store_ext::sync_master_key_validate(key).await)
+        }
+        "sync_pairing_create_keypair" => {
+            let pairing_id = get_str(&args, "pairingId").unwrap_or_default();
+            respond_omni(crate::store_ext::sync_pairing_create_keypair(pairing_id).await)
+        }
+        "sync_pairing_wrap_key" => {
+            let request: crate::store_ext::WrapKeyRequest =
+                match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
+                    Ok(v) => v,
+                    Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
+                };
+            respond_omni(crate::store_ext::sync_pairing_wrap_key(request).await)
+        }
+        "sync_pairing_unwrap_and_store" => {
+            let pairing_id = get_str(&args, "pairingId").unwrap_or_default();
+            let requester_device_id = get_str(&args, "requesterDeviceId").unwrap_or_default();
+            let wrapped_key = get_str(&args, "wrappedKey").unwrap_or_default();
+            respond_omni(
+                crate::store_ext::sync_pairing_unwrap_and_store(
+                    pairing_id,
+                    requester_device_id,
+                    wrapped_key,
+                )
+                .await,
+            )
+        }
 
         /* ---------------- ACP ---------------- */
         "acp_connect" => {

@@ -92,13 +92,18 @@ fn now_ms() -> i64 {
 }
 
 fn normalize_device_code(raw: &str) -> Result<String, OmniError> {
+    // 新格式：SyncMasterKey（opsk1_…）
+    if raw.trim().to_ascii_lowercase().contains("opsk1") {
+        return omnipanel_store::normalize_sync_master_key(raw);
+    }
+    // 兼容旧 6 位设备识别码
     let code: String = raw
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
     if code.len() != DEVICE_CODE_LEN {
         return Err(OmniError::invalid_input(format!(
-            "设备识别码须为 {DEVICE_CODE_LEN} 位字母或数字"
+            "请输入 SyncMasterKey（opsk1_…）或旧版 {DEVICE_CODE_LEN} 位设备识别码"
         )));
     }
     Ok(code)

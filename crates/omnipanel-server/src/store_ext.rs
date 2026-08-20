@@ -135,13 +135,16 @@ fn now_ms() -> i64 {
 }
 
 fn normalize_device_code(raw: &str) -> Result<String, OmniError> {
+    if raw.trim().to_ascii_lowercase().contains("opsk1") {
+        return omnipanel_store::normalize_sync_master_key(raw);
+    }
     let code: String = raw
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
     if code.len() != DEVICE_CODE_LEN {
         return Err(OmniError::invalid_input(format!(
-            "设备识别码须为 {DEVICE_CODE_LEN} 位字母或数字"
+            "请输入 SyncMasterKey（opsk1_…）或旧版 {DEVICE_CODE_LEN} 位设备识别码"
         )));
     }
     Ok(code)
@@ -487,6 +490,150 @@ pub async fn secrets_vault_pull(
         skipped,
         secret_count: plain.entries.len() as u32,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMasterKeyStatus {
+    pub has_key: bool,
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMasterKeyGetOrCreateResult {
+    pub key: String,
+    pub created: bool,
+}
+
+pub async fn sync_master_key_status() -> Result<SyncMasterKeyStatus, OmniError> {
+    match omnipanel_store::load_stored_sync_master_key()? {
+        Some(key) => Ok(SyncMasterKeyStatus {
+            has_key: true,
+            key: Some(key),
+        }),
+        None => Ok(SyncMasterKeyStatus {
+            has_key: false,
+            key: None,
+        }),
+    }
+}
+
+pub async fn sync_master_key_get_or_create() -> Result<SyncMasterKeyGetOrCreateResult, OmniError> {
+    let (key, created) = omnipanel_store::get_or_create_sync_master_key()?;
+    Ok(SyncMasterKeyGetOrCreateResult { key, created })
+}
+
+pub async fn sync_master_key_import(key: String) -> Result<SyncMasterKeyStatus, OmniError> {
+    let stored = omnipanel_store::store_sync_master_key(&key)?;
+    Ok(SyncMasterKeyStatus {
+        has_key: true,
+        key: Some(stored),
+    })
+}
+
+pub async fn sync_master_key_clear() -> Result<(), OmniError> {
+    omnipanel_store::clear_stored_sync_master_key()
+}
+
+pub async fn sync_master_key_validate(key: String) -> Result<bool, OmniError> {
+    let Ok(norm) = omnipanel_store::normalize_sync_master_key(&key) else {
+        return Ok(false);
+    };
+    Ok(omnipanel_store::is_valid_sync_master_key(&norm))
+}
+
+struct EphemeralPairingKey {
+    secret: [u8; 32],
+    pubkey_b64: String,
+    pairing_id: String,
+}
+
+static EPH: std::sync::Mutex<Option<EphemeralPairingKey>> = std::sync::Mutex::new(None);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingKeypairResult {
+    pub pubkey_b64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WrapKeyRequest {
+    pub pairing_id: String,
+    pub requester_device_id: String,
+    pub requester_pubkey_b64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WrapKeyResult {
+    pub wrapped_key: String,
+    pub wrap_alg: String,
+}
+
+pub async fn sync_pairing_create_keypair(pairing_id: String) -> Result<PairingKeypairResult, OmniError> {
+    let mut guard = EPH
+        .lock()
+        .map_err(|_| OmniError::internal("pairing eph lock"))?;
+    if let Some(existing) = guard.as_mut() {
+        if !pairing_id.is_empty() {
+            existing.pairing_id = pairing_id;
+        }
+        return Ok(PairingKeypairResult {
+            pubkey_b64: existing.pubkey_b64.clone(),
+        });
+    }
+    let (secret, pubkey_b64) = omnipanel_store::generate_pairing_keypair()?;
+    *guard = Some(EphemeralPairingKey {
+        secret,
+        pubkey_b64: pubkey_b64.clone(),
+        pairing_id,
+    });
+    Ok(PairingKeypairResult { pubkey_b64 })
+}
+
+pub async fn sync_pairing_wrap_key(request: WrapKeyRequest) -> Result<WrapKeyResult, OmniError> {
+    let smk = omnipanel_store::load_stored_sync_master_key()?.ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::Auth,
+            "本机尚未解锁 SyncMasterKey，无法传钥",
+        )
+    })?;
+    let aad = format!("{}:{}", request.pairing_id, request.requester_device_id);
+    let wrapped_key =
+        omnipanel_store::wrap_sync_master_key(&smk, &request.requester_pubkey_b64, &aad)?;
+    Ok(WrapKeyResult {
+        wrapped_key,
+        wrap_alg: omnipanel_store::WRAP_ALG.to_string(),
+    })
+}
+
+pub async fn sync_pairing_unwrap_and_store(
+    pairing_id: String,
+    requester_device_id: String,
+    wrapped_key: String,
+) -> Result<(), OmniError> {
+    let eph = EPH
+        .lock()
+        .map_err(|_| OmniError::internal("pairing eph lock"))?
+        .take()
+        .ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::InvalidInput,
+                "无本地临时密钥，请重新发起配对",
+            )
+        })?;
+    if eph.pairing_id != pairing_id {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "pairing_id 与本地临时密钥不匹配",
+        ));
+    }
+    let aad = format!("{}:{}", pairing_id, requester_device_id);
+    let smk = omnipanel_store::unwrap_sync_master_key(&wrapped_key, &eph.secret, &aad)?;
+    omnipanel_store::store_sync_master_key(&smk)?;
+    Ok(())
 }
 
 pub async fn write_text_file(path: String, contents: String) -> Result<String, String> {

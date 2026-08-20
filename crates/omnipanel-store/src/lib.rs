@@ -37,6 +37,8 @@ mod vault;
 mod ssh_vault;
 mod secrets_crypto;
 mod sync_crypto;
+mod sync_master_key;
+mod sync_key_wrap;
 mod http_proxy;
 mod web_search;
 mod workflow;
@@ -147,6 +149,15 @@ pub use vault::Vault;
 pub use secrets_crypto::{
     decode_salt_b64, decrypt_vault, derive_master_key, encrypt_vault_with_salt, generate_salt,
     MasterKey, SecretsVaultEnvelope, SecretsVaultEntry, SecretsVaultPlaintext,
+};
+pub use sync_key_wrap::{
+    generate_pairing_keypair, unwrap_sync_master_key, wrap_sync_master_key, WRAP_ALG,
+};
+pub use sync_master_key::{
+    clear_stored_sync_master_key, decode_sync_master_key_bytes, generate_sync_master_key,
+    get_or_create_sync_master_key, is_valid_sync_master_key, load_stored_sync_master_key,
+    normalize_sync_master_key, store_sync_master_key, sync_master_key_to_password,
+    SYNC_MASTER_KEY_PREFIX,
 };
 pub use sync_crypto::{
     decode_sync_blob_or_legacy, decrypt_sync_blob, encrypt_sync_blob, looks_like_sync_blob_envelope,

@@ -34,6 +34,8 @@ pub struct SecretsVaultEnvelope {
     pub nonce_b64: String,
     pub ciphertext_b64: String,
     pub updated_at: i64,
+    /// 历史字段：旧版本可能含明文识别码；新信封留空且序列化时省略。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub device_code: String,
     pub secret_count: u32,
 }

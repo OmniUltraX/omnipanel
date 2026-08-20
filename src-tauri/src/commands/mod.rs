@@ -61,6 +61,8 @@ pub mod providers;
 pub mod skills;
 pub mod web_search;
 pub mod secrets_vault;
+pub mod sync_master_key;
+pub mod sync_pairing_crypto;
 pub mod third_party_account;
 pub mod workflow;
 pub mod workspace_window;

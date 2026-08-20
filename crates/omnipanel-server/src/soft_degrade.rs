@@ -394,6 +394,25 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "unlocked": false, "hasLocalSalt": false, "secretCount": 0 });
     }
 
+    if c == "sync_master_key_status" {
+        return serde_json::json!({ "hasKey": false, "key": null });
+    }
+    if c == "sync_master_key_get_or_create" {
+        return serde_json::json!({ "key": "", "created": false });
+    }
+    if c == "sync_master_key_import" {
+        return serde_json::json!({ "hasKey": false, "key": null });
+    }
+    if c == "sync_master_key_validate" {
+        return serde_json::json!(false);
+    }
+    if c == "sync_pairing_create_keypair" {
+        return serde_json::json!({ "pubkeyB64": "" });
+    }
+    if c == "sync_pairing_wrap_key" {
+        return serde_json::json!({ "wrappedKey": "", "wrapAlg": "" });
+    }
+
     if c == "sftp_probe_media" {
         // SftpMediaProbe arrays=[]
         return serde_json::json!({ "durationSecs": null, "size": null, "posterDataUrl": null });

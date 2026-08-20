@@ -57,6 +57,17 @@ export const commands = {
 	secretsVaultPush: (request: SecretsVaultPushRequest) => typedError<SecretsVaultPushResult, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_push", { request })),
 	/**  从 OSS 下载密文库，用设备识别码（主密码）解密后写回本机钥匙串。 */
 	secretsVaultPull: (request: SecretsVaultPullRequest) => typedError<SecretsVaultPullResult, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_pull", { request })),
+	/** SyncMasterKey 状态（本机是否已有长密钥）。 */
+	syncMasterKeyStatus: () => typedError<SyncMasterKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_status")),
+	/** 无则生成并持久化；created=true 时应弹出备份引导。 */
+	syncMasterKeyGetOrCreate: () => typedError<SyncMasterKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_get_or_create")),
+	/** 导入备份的 SyncMasterKey。 */
+	syncMasterKeyImport: (key: string) => typedError<SyncMasterKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_import", { key })),
+	syncMasterKeyClear: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_clear")),
+	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
+	syncPairingCreateKeypair: (pairingId: string) => typedError<PairingKeypairResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_create_keypair", { pairingId })),
+	syncPairingWrapKey: (request: WrapKeyRequest) => typedError<WrapKeyResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_wrap_key", { request })),
+	syncPairingUnwrapAndStore: (pairingId: string, requesterDeviceId: string, wrappedKey: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_unwrap_and_store", { pairingId, requesterDeviceId, wrappedKey })),
 	dbSaveConnection: (connection: DbConnectionConfig) => typedError<DbConnectionConfig, string>(__TAURI_INVOKE("db_save_connection", { connection })),
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
 	dbLoadSchemaFilters: () => typedError<SchemaFiltersSnapshot, string>(__TAURI_INVOKE("db_load_schema_filters")),
@@ -2206,6 +2217,31 @@ export type SecretsVaultStatus = {
 	unlocked: boolean,
 	hasLocalSalt: boolean,
 	secretCount: number,
+};
+
+export type SyncMasterKeyStatus = {
+	hasKey: boolean,
+	key: string | null,
+};
+
+export type SyncMasterKeyGetOrCreateResult = {
+	key: string,
+	created: boolean,
+};
+
+export type PairingKeypairResult = {
+	pubkeyB64: string,
+};
+
+export type WrapKeyRequest = {
+	pairingId: string,
+	requesterDeviceId: string,
+	requesterPubkeyB64: string,
+};
+
+export type WrapKeyResult = {
+	wrappedKey: string,
+	wrapAlg: string,
 };
 
 export type SecretsVaultPushRequest = {
