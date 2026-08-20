@@ -178,6 +178,26 @@ const NAV_GROUPS: NavGroup[] = [
           </svg>
         ),
       },
+      {
+        id: "keybindings",
+        label: "快捷键",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
+          </svg>
+        ),
+      },
+      {
+        id: "accounts",
+        label: "账户管理",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        ),
+      },
     ],
   },
   {
@@ -222,26 +242,6 @@ const NAV_GROUPS: NavGroup[] = [
     id: "modules",
     label: "模块",
     items: [
-      {
-        id: "keybindings",
-        label: "快捷键",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h8" />
-          </svg>
-        ),
-      },
-      {
-        id: "accounts",
-        label: "账户管理",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-        ),
-      },
       {
         id: "terminal",
         label: "终端",
@@ -886,9 +886,9 @@ export function SettingsPanel() {
   const [openGroups, setOpenGroups] = useState<Record<NavGroupId, boolean>>(() => ({
     general: true,
     ai: true,
-    modules: false,
+    modules: true,
   }));
-  const [agentsFolderOpen, setAgentsFolderOpen] = useState(true);
+  const [agentsFolderOpen, setAgentsFolderOpen] = useState(false);
 
   const agentNavChildren = useMemo(() => agentSettingsNavItems(t), [t]);
   const activeAgentId = parseAgentSectionId(activeSection);
