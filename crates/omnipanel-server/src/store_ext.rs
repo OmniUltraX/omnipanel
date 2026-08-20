@@ -103,7 +103,6 @@ pub async fn third_party_account_delete(state: &ServerState, id: String) -> Resu
 
 // ── Secrets Vault（本地解锁；push/pull 依赖 OSS 登录，Web 端跳过） ──
 
-const DEVICE_CODE_LEN: usize = 6;
 const META_FILE: &str = "meta.json";
 
 struct UnlockedSession {
@@ -135,19 +134,9 @@ fn now_ms() -> i64 {
 }
 
 fn normalize_device_code(raw: &str) -> Result<String, OmniError> {
-    if raw.trim().to_ascii_lowercase().contains("opsk1") {
-        return omnipanel_store::normalize_sync_master_key(raw);
-    }
-    let code: String = raw
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
-    if code.len() != DEVICE_CODE_LEN {
-        return Err(OmniError::invalid_input(format!(
-            "请输入 SyncMasterKey（opsk1_…）或旧版 {DEVICE_CODE_LEN} 位设备识别码"
-        )));
-    }
-    Ok(code)
+    omnipanel_store::normalize_sync_master_key(raw).map_err(|_| {
+        OmniError::invalid_input("请输入 SyncMasterKey（opsk1_…）".to_string())
+    })
 }
 
 fn vault_meta_dir() -> Result<PathBuf, OmniError> {
@@ -422,7 +411,7 @@ pub async fn secrets_vault_push(
             .map_err(|_| OmniError::internal("secrets vault session lock poisoned"))?;
         let session = guard
             .as_ref()
-            .ok_or_else(|| OmniError::new(ErrorCode::Auth, "请先用设备识别码解锁"))?;
+            .ok_or_else(|| OmniError::new(ErrorCode::Auth, "请先用 SyncMasterKey 解锁"))?;
         (session.key.clone(), session.salt.clone())
     };
     let entries = collect_secret_entries(state).await?;

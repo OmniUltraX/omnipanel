@@ -5813,6 +5813,8 @@ export const zhCN = {
       resetDeviceConfirm:
         "将删除本机同步密钥，并使该设备变为未认证状态。连接与其它用户数据不会删除。是否继续？",
       resetDeviceDone: "设备已重置为未认证状态。",
+      resetDeviceDoneLocalOnly:
+        "本机密钥已清除，但服务端重置失败；设备列表可能仍显示已认证，请检查网络后重试。",
       authenticatedTag: "已认证",
     },
     update: {
@@ -7529,18 +7531,12 @@ export const zhCN = {
       },
       vault: {
         title: "同步主密钥",
-        codeLabel: "设备识别码",
-        codeDigit: "第 {n} 位",
-        codeInvalid: "识别码须为 6 位字母或数字",
         smkDesc:
           "本机 SyncMasterKey 用于加密密文库，页面不展示明文。登录后凭据会自动加密封存到云端；新设备请用小程序动态码或扫码配对，由主电脑传钥。",
         setupHint:
           "本机尚无同步主密钥。若这是首台电脑请生成；若是新设备请扫码（路径 C）或输入小程序动态码（路径 B）。",
         generatePrimary: "我是首台 · 生成密钥",
         generateSuccess: "同步主密钥已生成",
-        migrateHint: "检测到旧版 6 位设备识别码。建议升级为 SyncMasterKey，并重新加密云端密文库。",
-        migrate: "升级同步密钥",
-        migrateSuccess: "已升级为 SyncMasterKey，请立即备份",
         backupHint:
           "请将同步主密钥复制到安全处备份（不会显示在页面上）。新设备入网请使用扫码或动态码。",
         backupDone: "我已备份",

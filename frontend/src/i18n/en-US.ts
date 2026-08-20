@@ -5885,6 +5885,8 @@ export const enUS: TranslationDict = {
       resetDeviceConfirm:
         "This deletes the local sync key and marks the device as unauthenticated. Connections and other user data are kept. Continue?",
       resetDeviceDone: "Device reset to unauthenticated.",
+      resetDeviceDoneLocalOnly:
+        "Local key cleared, but server reset failed; the device list may still show Authenticated. Check the network and try again.",
       authenticatedTag: "Authenticated",
     },
     update: {
@@ -7611,19 +7613,12 @@ export const enUS: TranslationDict = {
       },
       vault: {
         title: "Sync master key",
-        codeLabel: "Device code",
-        codeDigit: "Digit {n}",
-        codeInvalid: "Device code must be 6 alphanumeric characters",
         smkDesc:
           "This SyncMasterKey encrypts your secrets vault and is never shown on this page. After sign-in, credentials sync to the cloud automatically. On a new PC, pair via mini program code or QR so your primary PC can transfer the key.",
         setupHint:
           "No sync master key yet. Generate one on your first PC, or pair via QR (path C) / mini program code (path B).",
         generatePrimary: "This is my first PC · Generate key",
         generateSuccess: "Sync master key generated",
-        migrateHint:
-          "An old 6-character device code was found. Upgrade to SyncMasterKey and re-encrypt the cloud vault.",
-        migrate: "Upgrade sync key",
-        migrateSuccess: "Upgraded to SyncMasterKey — please back it up now",
         backupHint:
           "Copy the sync master key to a safe place (it will not appear on this page). New devices must use QR or code pairing.",
         backupDone: "I have backed it up",

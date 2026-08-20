@@ -3,7 +3,6 @@ import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
-import { ensureSyncDeviceAuth } from "../../lib/auth/ensureSyncDeviceAuth";
 import { resetSyncDevice } from "../../lib/auth/syncPairingApi";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
@@ -48,26 +47,40 @@ export function SyncDeviceResetSection() {
       } catch {
         /* 未解锁时忽略 */
       }
+
+      // 先阻断旧版静默迁移，再清密钥，避免并发 ensure 立刻重建
+      useSyncDeviceAuthStore.getState().markResetPendingAuth();
       await unwrapCommand(commands.syncMasterKeyClear());
-      useSyncDeviceAuthStore.getState().reset();
+
       const authToken = token?.trim();
+      let serverResetFailed: string | null = null;
       if (authToken) {
         try {
           await resetSyncDevice(authToken);
-        } catch {
-          /* 服务端失败时仍完成本地重置 */
+        } catch (e) {
+          serverResetFailed = e instanceof Error ? e.message : formatIpcError(e);
         }
       }
-      setHasKey(false);
-      setNotice(t("settings.data.resetDeviceDone"));
-      if (authToken) {
-        void ensureSyncDeviceAuth();
+
+      // 再次确认本机已无密钥（防止并发路径重建）
+      const status = await unwrapCommand(commands.syncMasterKeyStatus(), { quiet: true });
+      if (status.hasKey) {
+        await unwrapCommand(commands.syncMasterKeyClear());
       }
+
+      setHasKey(false);
+      if (serverResetFailed) {
+        setNotice(t("settings.data.resetDeviceDoneLocalOnly"));
+        setError(serverResetFailed);
+      } else {
+        setNotice(t("settings.data.resetDeviceDone"));
+      }
+      // 保持 markResetPendingAuth 打开的认证对话框；勿再走 ensureSyncDeviceAuth（会静默迁移）
     } catch (e) {
       setError(e instanceof Error ? e.message : formatIpcError(e));
     } finally {
       setResetting(false);
-      void refreshStatus();
+      await refreshStatus();
     }
   };
 

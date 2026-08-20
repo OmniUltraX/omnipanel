@@ -1,6 +1,6 @@
-//! 跨设备密文密钥库：设备识别码（即主密码）解锁 + OSS 上下传。
+//! 跨设备密文密钥库：SyncMasterKey（主密码）解锁 + OSS 上下传。
 //!
-//! 识别码经 Argon2id 派生 Master Key（仅内存）；OSS 对象路径按账号固定，不写入识别码。
+//! SyncMasterKey 经 Argon2id 派生 Master Key（仅内存）；OSS 对象路径按账号固定，不写入密钥。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -26,7 +26,6 @@ use crate::commands::assistant::build_auth_context;
 use crate::commands::auth::auth_device_identity;
 use crate::state::AppState;
 
-const DEVICE_CODE_LEN: usize = 6;
 const META_FILE: &str = "meta.json";
 
 struct UnlockedSession {
@@ -71,7 +70,7 @@ pub struct SecretsVaultPushResult {
 #[serde(rename_all = "camelCase")]
 pub struct SecretsVaultPullRequest {
     pub token: String,
-    /// 设备识别码（即主密码）：用于定位语义 + Argon2id 解密。
+    /// SyncMasterKey（主密码）：用于 Argon2id 解密密文库。
     pub device_code: String,
     pub oss_path: String,
 }
@@ -92,21 +91,9 @@ fn now_ms() -> i64 {
 }
 
 fn normalize_device_code(raw: &str) -> Result<String, OmniError> {
-    // 新格式：SyncMasterKey（opsk1_…）
-    if raw.trim().to_ascii_lowercase().contains("opsk1") {
-        return omnipanel_store::normalize_sync_master_key(raw);
-    }
-    // 兼容旧 6 位设备识别码
-    let code: String = raw
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
-    if code.len() != DEVICE_CODE_LEN {
-        return Err(OmniError::invalid_input(format!(
-            "请输入 SyncMasterKey（opsk1_…）或旧版 {DEVICE_CODE_LEN} 位设备识别码"
-        )));
-    }
-    Ok(code)
+    omnipanel_store::normalize_sync_master_key(raw).map_err(|_| {
+        OmniError::invalid_input("请输入 SyncMasterKey（opsk1_…）".to_string())
+    })
 }
 
 fn vault_meta_dir() -> Result<PathBuf, OmniError> {
@@ -153,7 +140,7 @@ fn save_local_meta(salt: &[u8]) -> Result<(), OmniError> {
 
 fn object_key_for(oss_path: &str) -> String {
     let base = oss_path.trim().trim_matches('/');
-    // 识别码即主密码：不得写入 object key，避免路径泄露。
+    // SyncMasterKey 即主密码：不得写入 object key，避免路径泄露。
     format!("{base}/secrets-vault/vault.v1.json")
 }
 
@@ -316,7 +303,7 @@ pub async fn secrets_vault_status(state: State<'_, AppState>) -> Result<SecretsV
 #[tauri::command]
 #[specta::specta]
 pub async fn secrets_vault_unlock(device_code: String) -> Result<SecretsVaultStatus, OmniError> {
-    // 设备识别码即主密码
+    // SyncMasterKey 即主密码
     let password = normalize_device_code(&device_code)?;
 
     let salt = if let Some(meta) = load_local_meta()? {
@@ -369,7 +356,7 @@ pub async fn secrets_vault_push(
             .map_err(|_| OmniError::internal("secrets vault session lock poisoned"))?;
         let session = guard
             .as_ref()
-            .ok_or_else(|| OmniError::new(ErrorCode::Auth, "请先用设备识别码解锁"))?;
+            .ok_or_else(|| OmniError::new(ErrorCode::Auth, "请先用 SyncMasterKey 解锁"))?;
         (session.key.clone(), session.salt.clone())
     };
 
@@ -412,7 +399,7 @@ pub async fn secrets_vault_pull(
     state: State<'_, AppState>,
     request: SecretsVaultPullRequest,
 ) -> Result<SecretsVaultPullResult, OmniError> {
-    // 设备识别码即主密码
+    // SyncMasterKey 即主密码
     let password = normalize_device_code(&request.device_code)?;
     if request.token.trim().is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "未登录，无法下载密文库"));

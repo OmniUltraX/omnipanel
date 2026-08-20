@@ -6,11 +6,6 @@ import { commands } from "../../ipc/bindings";
 import { unwrapCommand, formatIpcError } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
 import { useAuthStore } from "../../stores/authStore";
-import {
-  getDeviceSyncCode,
-  isValidDeviceCode,
-  useDeviceSyncCodeStore,
-} from "../../stores/deviceSyncCodeStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { scheduleSecretsVaultSync, pullSecretsVaultOnce } from "../../modules/clientSync";
 
@@ -38,7 +33,6 @@ export function DeviceSecretsVaultPanel() {
   const { t } = useI18n();
   const token = useAuthStore((s) => s.token);
   const ossPath = useUserProfileStore((s) => s.ossPath);
-  const legacyCode = useDeviceSyncCodeStore((s) => s.deviceCode);
 
   const [hasKey, setHasKey] = useState(false);
   const [pairingCode, setPairingCode] = useState("");
@@ -48,25 +42,12 @@ export function DeviceSecretsVaultPanel() {
   const [showBackupHint, setShowBackupHint] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
-  const [needsMigration, setNeedsMigration] = useState(false);
 
   const bootstrap = useCallback(async () => {
     try {
       const status = await unwrapCommand(commands.syncMasterKeyStatus());
-      if (status.hasKey) {
-        setHasKey(true);
-        setReady(true);
-        setNeedsMigration(false);
-        return;
-      }
-      setHasKey(false);
+      setHasKey(Boolean(status.hasKey));
       setReady(true);
-      try {
-        const vault = await unwrapCommand(commands.secretsVaultStatus());
-        setNeedsMigration(Boolean(vault.hasLocalSalt));
-      } catch {
-        setNeedsMigration(false);
-      }
     } catch (error) {
       showToast(formatIpcError(error));
       setReady(true);
@@ -123,17 +104,6 @@ export function DeviceSecretsVaultPanel() {
     }
   };
 
-  const tryPullWithPassword = async (password: string) => {
-    if (!token || !ossPath.trim()) return;
-    await unwrapCommand(
-      commands.secretsVaultPull({
-        token,
-        deviceCode: password,
-        ossPath: ossPath.trim(),
-      }),
-    );
-  };
-
   const waitForWrappedKey = async (pairingId: string, deviceId: string) => {
     const { pairingGet } = await import("../../lib/auth/syncPairingApi");
     for (let i = 0; i < 45; i++) {
@@ -150,7 +120,6 @@ export function DeviceSecretsVaultPanel() {
         const status = await unwrapCommand(commands.syncMasterKeyStatus());
         if (status.hasKey) {
           setHasKey(true);
-          setNeedsMigration(false);
           void (async () => {
             await pullSecretsVaultOnce();
             scheduleSecretsVaultSync();
@@ -170,50 +139,10 @@ export function DeviceSecretsVaultPanel() {
     try {
       const created = await unwrapCommand(commands.syncMasterKeyGetOrCreate());
       setHasKey(true);
-      setNeedsMigration(false);
       if (created.created) setShowBackupHint(true);
       if (token) await tryTrust(token);
       scheduleSecretsVaultSync();
       showToast(t("userCenter.devices.vault.generateSuccess"));
-    } catch (error) {
-      showToast(formatIpcError(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleMigrateFromLegacy = async () => {
-    if (busy) return;
-    const oldCode = isValidDeviceCode(legacyCode) ? legacyCode : getDeviceSyncCode();
-    if (!isValidDeviceCode(oldCode)) {
-      showToast(t("userCenter.devices.vault.codeInvalid"));
-      return;
-    }
-    setBusy(true);
-    try {
-      await unwrapCommand(commands.secretsVaultUnlock(oldCode));
-      try {
-        await tryPullWithPassword(oldCode);
-      } catch {
-        /* 云端无库时仅完成本地升级 */
-      }
-      const created = await unwrapCommand(commands.syncMasterKeyGetOrCreate());
-      await unwrapCommand(commands.secretsVaultUnlock(created.key));
-      if (token && ossPath.trim()) {
-        await unwrapCommand(
-          commands.secretsVaultPush({
-            token,
-            deviceCode: created.key,
-            ossPath: ossPath.trim(),
-          }),
-        );
-        await tryTrust(token);
-      }
-      setHasKey(true);
-      setNeedsMigration(false);
-      setShowBackupHint(true);
-      scheduleSecretsVaultSync();
-      showToast(t("userCenter.devices.vault.migrateSuccess"));
     } catch (error) {
       showToast(formatIpcError(error));
     } finally {
@@ -349,12 +278,11 @@ export function DeviceSecretsVaultPanel() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }, [qrCountdown]);
 
-  const showMigrate = needsMigration && !hasKey;
   const showSetup = !hasKey && ready;
   const showBackup = showBackupHint && hasKey;
   const showPairingInput = !hasKey;
   const showPending = pending.length > 0;
-  const showOssWarn = !ossPath.trim() && (showSetup || showMigrate || showPairingInput);
+  const showOssWarn = !ossPath.trim() && (showSetup || showPairingInput);
 
   // 已就绪且无交互待办时不占页面；密钥相关说明文案一律不展示。
   if (
@@ -362,8 +290,7 @@ export function DeviceSecretsVaultPanel() {
     hasKey &&
     !showBackup &&
     !qrSession &&
-    !showPending &&
-    !showMigrate
+    !showPending
   ) {
     return null;
   }
@@ -374,14 +301,6 @@ export function DeviceSecretsVaultPanel() {
 
   return (
     <section className="user-center-section user-center-vault" aria-label={t("userCenter.devices.vault.title")}>
-      {showMigrate ? (
-        <div className="user-center-vault__actions">
-          <Button type="button" size="sm" disabled={busy} onClick={() => void handleMigrateFromLegacy()}>
-            {t("userCenter.devices.vault.migrate")}
-          </Button>
-        </div>
-      ) : null}
-
       {showSetup ? (
         <div className="user-center-vault__actions">
           <Button type="button" size="sm" disabled={busy} onClick={() => void handleGeneratePrimary()}>

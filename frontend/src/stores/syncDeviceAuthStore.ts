@@ -7,6 +7,8 @@ interface SyncDeviceAuthState {
   openDialog: () => void;
   closeDialog: () => void;
   dismissForToken: (token: string) => void;
+  /** 重置设备后调用：清 dismiss 并打开认证对话框 */
+  markResetPendingAuth: () => void;
   reset: () => void;
 }
 
@@ -18,5 +20,11 @@ export const useSyncDeviceAuthStore = create<SyncDeviceAuthState>((set) => ({
   closeDialog: () => set({ open: false }),
   dismissForToken: (token) =>
     set({ open: false, dismissedToken: token.trim() || null }),
+  markResetPendingAuth: () =>
+    set({
+      open: true,
+      dismissedToken: null,
+    }),
   reset: () => set({ open: false, dismissedToken: null }),
 }));
+
