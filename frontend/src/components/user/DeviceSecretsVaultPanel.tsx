@@ -172,6 +172,7 @@ export function DeviceSecretsVaultPanel() {
       setKey(created.key);
       setNeedsMigration(false);
       if (created.created) setShowBackupHint(true);
+      if (token) await tryTrust(token);
       showToast(t("userCenter.devices.vault.generateSuccess"));
     } catch (error) {
       showToast(formatIpcError(error));

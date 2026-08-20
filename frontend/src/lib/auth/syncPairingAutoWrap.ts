@@ -4,15 +4,19 @@
  */
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
-import { pairingPending, pairingWrap } from "./syncPairingApi";
+import { pairingPending, pairingWrap, trustSyncDevice } from "./syncPairingApi";
 
 const INTERVAL_MS = 4_000;
+/** 失败 toast 节流 */
+const FAIL_TOAST_COOLDOWN_MS = 20_000;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let generation = 0;
 let getToken: (() => string | null) | null = null;
 /** 正在处理或刚成功的 pairing_id，避免并发重复 wrap */
 const inFlight = new Set<string>();
+let lastFailToastAt = 0;
+let ensuredTrust = false;
 
 async function hasLocalSyncMasterKey(): Promise<boolean> {
   try {
@@ -20,6 +24,32 @@ async function hasLocalSyncMasterKey(): Promise<boolean> {
     return Boolean(status.hasKey && status.key);
   } catch {
     return false;
+  }
+}
+
+function reportFail(message: string) {
+  const now = Date.now();
+  if (now - lastFailToastAt < FAIL_TOAST_COOLDOWN_MS) {
+    console.warn("[syncPairingAutoWrap]", message);
+    return;
+  }
+  lastFailToastAt = now;
+  console.warn("[syncPairingAutoWrap]", message);
+  void import("../../stores/toastStore")
+    .then(({ showToast }) => {
+      showToast(message.slice(0, 120));
+    })
+    .catch(() => undefined);
+}
+
+async function ensureSelfTrusted(token: string) {
+  if (ensuredTrust) return;
+  try {
+    await trustSyncDevice(token);
+    ensuredTrust = true;
+  } catch (e) {
+    // 非致命：服务端已放宽 pending/wrap 的 trust 门闸
+    console.warn("[syncPairingAutoWrap] trustSyncDevice failed", e);
   }
 }
 
@@ -47,8 +77,10 @@ async function wrapOne(
       wrapped_key: wrapped.wrappedKey,
       wrap_alg: wrapped.wrapAlg,
     });
+    void import("../../stores/toastStore")
+      .then(({ showToast }) => showToast("已自动向新设备传钥"))
+      .catch(() => undefined);
   } finally {
-    // 成功后保留一段时间，失败则稍后允许重试
     window.setTimeout(() => inFlight.delete(id), 30_000);
   }
 }
@@ -60,10 +92,18 @@ async function tick(gen: number) {
   if (!(await hasLocalSyncMasterKey())) return;
   if (gen !== generation) return;
 
+  await ensureSelfTrusted(token);
+  if (gen !== generation) return;
+
   let items: Awaited<ReturnType<typeof pairingPending>> = [];
   try {
     items = await pairingPending(token);
-  } catch {
+  } catch (e) {
+    reportFail(
+      e instanceof Error
+        ? `自动传钥：拉取待配对失败（${e.message}）`
+        : "自动传钥：拉取待配对失败",
+    );
     return;
   }
   if (gen !== generation || !items.length) return;
@@ -72,9 +112,13 @@ async function tick(gen: number) {
     if (gen !== generation) return;
     try {
       await wrapOne(token, item);
-    } catch {
-      /* 单条失败不阻断其它；下轮再试 */
+    } catch (e) {
       inFlight.delete(item.pairing_id);
+      reportFail(
+        e instanceof Error
+          ? `自动传钥失败：${e.message}`
+          : "自动传钥失败，请在设备页点「立即重试」",
+      );
     }
   }
 }
@@ -114,4 +158,5 @@ export function stopSyncPairingAutoWrap() {
   }
   getToken = null;
   inFlight.clear();
+  ensuredTrust = false;
 }
