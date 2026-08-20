@@ -98,6 +98,34 @@ export function collectPanelIds(layout: SerializedDockview): Set<string> {
 }
 
 /**
+ * 关 Tab / 仅删除 panel 时，目标面板都已挂在 api 上，禁止 fromJSON 整树重建。
+ * 终端直通模式内容活在 xterm buffer 里，fromJSON 会 dispose 其余 pane 导致清空。
+ */
+export function canApplyDockLayoutIncrementally(
+  apiPanelIds: Iterable<string>,
+  layoutPanelIds: Iterable<string>,
+  tabIds: Iterable<string>,
+): boolean {
+  const api = apiPanelIds instanceof Set ? apiPanelIds : new Set(apiPanelIds);
+  const layout = layoutPanelIds instanceof Set ? layoutPanelIds : new Set(layoutPanelIds);
+  const tabs = tabIds instanceof Set ? tabIds : new Set(tabIds);
+
+  if (layout.size === 0) return false;
+
+  for (const id of layout) {
+    if (!api.has(id)) return false;
+  }
+
+  for (const id of api) {
+    if (layout.has(id)) continue;
+    // API 多出来的 panel 必须已经不在 tabs 中（正在关掉），否则布局滞后
+    if (tabs.has(id)) return false;
+  }
+
+  return true;
+}
+
+/**
  * dockview 的 `fromJSON` 强制要求根节点 type='branch'（参见
  * `DockviewComponent.fromJSON` 的 "dockview: root must be of type branch" 校验）。
  * 单 group 场景需要用 branch 包一层 leaf。

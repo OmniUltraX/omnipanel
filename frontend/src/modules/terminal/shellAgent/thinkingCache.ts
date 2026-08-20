@@ -133,6 +133,33 @@ export function clearShellAgentThinkingFull(sessionId: string): void {
   thinkingFullBySession.delete(sessionId);
 }
 
+/** 最近一次冻成「思考完成」的正文，用来判断工具后是不是同一窗旧思考 */
+const lastFrozenThinkingBySession = new Map<string, string>();
+
+export function rememberFrozenThinking(sessionId: string, text: string): void {
+  const trimmed = text.trim();
+  if (trimmed) lastFrozenThinkingBySession.set(sessionId, trimmed);
+}
+
+export function getLastFrozenThinking(sessionId: string): string {
+  return lastFrozenThinkingBySession.get(sessionId) ?? "";
+}
+
+export function clearLastFrozenThinking(sessionId: string): void {
+  lastFrozenThinkingBySession.delete(sessionId);
+}
+
+/** 工具后刷进来的还是上一张已冻思考，不是新窗口 */
+export function isSameAsLastFrozenThinking(sessionId: string, text: string): boolean {
+  const a = getLastFrozenThinking(sessionId).trim();
+  const b = text.trim();
+  if (!b) return true;
+  if (!a) return false;
+  if (a === b) return true;
+  if (a.includes(b) && b.length >= 8) return true;
+  return false;
+}
+
 const archivedDisplayToolIds = new Map<string, Set<string>>();
 const EMPTY_ARCHIVED_TOOL_IDS: ReadonlySet<string> = new Set();
 

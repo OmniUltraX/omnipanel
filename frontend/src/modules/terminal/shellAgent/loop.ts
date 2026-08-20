@@ -43,19 +43,21 @@ import { useShellAgentStore } from "./shellAgentStore";
 import {
   clearShellAgentLastCmd,
   clearShellAgentThinkingFull,
+  clearLastFrozenThinking,
   clearArchivedDisplayToolIds,
   clearShellAgentConfirmFreeze,
   collectDisplayToolIdsFromHtml,
   getArchivedDisplayToolIds,
   getShellAgentLastCmd,
   getShellAgentThinkingFull,
+  getLastFrozenThinking,
+  isSameAsLastFrozenThinking,
   markShellAgentConfirmFreeze,
   setShellAgentThinkingFull,
 } from "./thinkingCache";
 import {
   currentTurnResultText,
   currentTurnThinkingText,
-  isNewPostToolThought,
   scopeThreadToQuery,
 } from "./threadTurnText";
 
@@ -70,11 +72,13 @@ export function teardownShellAgentUi(sessionId: string): void {
   clearShellAgentGeometry(sessionId);
   useShellAgentStore.getState().clear(sessionId);
   clearShellAgentThinkingFull(sessionId);
+  clearLastFrozenThinking(sessionId);
   clearArchivedDisplayToolIds(sessionId);
   clearShellAgentLastCmd(sessionId);
   clearPromptReleaseGuard(sessionId);
   pendingReanchorKind.delete(sessionId);
   pendingTurnFinish.delete(sessionId);
+  suppressStripPin.delete(sessionId);
   const timer = turnFinishFallbackTimers.get(sessionId);
   if (timer) {
     clearTimeout(timer);
@@ -712,6 +716,9 @@ const settleRetryCount = new Map<string, number>();
 /** 续轮已在确认位钉思考卡（区别于首轮思考→确认的立刻换肤） */
 const postExecThinking = new Set<string>();
 
+/** 刚钉上思考卡：禁止同一轮立刻改回工具条，否则 Overlay 思考↔工具条对打死循环 */
+const suppressStripPin = new Set<string>();
+
 function livePostExecCardIsStale(sessionId: string): boolean {
   const geo = getShellAgentGeometry(sessionId);
   if (!geo?.decoration) return false;
@@ -841,12 +848,45 @@ async function waitForPostExecThought(
   return seen ? "thinking" : "empty";
 }
 
+function freshPostToolThinking(sessionId: string): string {
+  const text = currentTurnThinkingText(scopedAiThread(sessionId)).trim();
+  if (!text) return "";
+  if (isSameAsLastFrozenThinking(sessionId, text)) return "";
+  return text;
+}
+
+function captureThinkingBeforeArchive(sessionId: string): void {
+  const text =
+    getShellAgentThinkingFull(sessionId).trim() ||
+    currentTurnThinkingText(scopedAiThread(sessionId)).trim();
+  if (text) setShellAgentThinkingFull(sessionId, text);
+}
+
 function placePostExecThinkingCard(sessionId: string, onReady?: () => void): void {
   if (isAgentBusyExecuting(sessionId)) return;
   if (bufferLooksLikePowerShellProgress(sessionId)) return;
+  const rawThought = currentTurnThinkingText(scopedAiThread(sessionId)).trim();
+  const incomingDisplay = collectDisplayToolCalls(scopedAiThread(sessionId)).filter(
+    (tc) =>
+      tc.status !== "rejected" &&
+      !getArchivedDisplayToolIds(sessionId).has(tc.id),
+  );
+  // 旧思考重放、或下一条已是 search/fetch：不要再钉一张空/重复思考卡。
+  if (
+    (rawThought && isSameAsLastFrozenThinking(sessionId, rawThought)) ||
+    (!rawThought && incomingDisplay.length > 0)
+  ) {
+    if (shouldSwitchToCmdCard(sessionId)) {
+      pinCmdAfterPostExec(sessionId, onReady);
+      return;
+    }
+    onReady?.();
+    return;
+  }
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.cardKind === "thinking" && geo.decoration) {
     if (livePostExecCardIsStale(sessionId)) {
+      captureThinkingBeforeArchive(sessionId);
       archiveActiveInlineCard(sessionId);
     } else {
       onReady?.();
@@ -854,6 +894,7 @@ function placePostExecThinkingCard(sessionId: string, onReady?: () => void): voi
     }
   }
   if (livePostExecCardIsStale(sessionId) || geo?.cardKind === "thinking") {
+    captureThinkingBeforeArchive(sessionId);
     archiveActiveInlineCard(sessionId);
   }
   postExecThinking.add(sessionId);
@@ -1132,6 +1173,7 @@ export async function startOrContinueShellAgent(
   if (!trimmed) return null;
 
   clearShellAgentThinkingFull(sessionId);
+  clearLastFrozenThinking(sessionId);
   clearArchivedDisplayToolIds(sessionId);
 
   const settings = useSettingsStore.getState();
@@ -1225,6 +1267,7 @@ export function newShellAgentSession(sessionId: string): void {
   archiveActiveInlineCard(sessionId);
   useShellAgentStore.getState().newAgentThread(sessionId);
   clearShellAgentThinkingFull(sessionId);
+  clearLastFrozenThinking(sessionId);
   clearArchivedDisplayToolIds(sessionId);
   clearPromptReleaseGuard(sessionId);
   pendingReanchorKind.delete(sessionId);
@@ -1460,23 +1503,49 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
  * 非跑命令工具（web_search / fetch / …）开始：归档思考卡，钉工具条槽。
  * 跑命令不走这里——确认卡已替代调用卡。
  */
-export function notifyShellAgentDisplayTool(sessionId: string): void {
+export function notifyShellAgentDisplayTool(sessionId: string): boolean {
   pushShellAgentDebugEvent("displayTool", "pin strip slot");
   const geo = getShellAgentGeometry(sessionId);
-  if (geo?.cardKind === "ask") return;
+  if (geo?.cardKind === "ask") return true;
+  if (suppressStripPin.has(sessionId) && geo?.cardKind === "thinking") {
+    if (!getShellAgentThinkingFull(sessionId).trim()) {
+      pushShellAgentDebugEvent("displayTool", "skip: thinking just pinned");
+      return false;
+    }
+    suppressStripPin.delete(sessionId);
+  }
   if (geo?.cardKind === "thinking" || geo?.cardKind === "final") {
+    const freshThought = freshPostToolThinking(sessionId);
+    // 刚钉上的思考卡：等 Overlay 把正文写入 cache，禁止立刻改回工具条对打
+    if (geo.cardKind === "thinking" && !getShellAgentThinkingFull(sessionId).trim() && freshThought) {
+      pushShellAgentDebugEvent("displayTool", "wait thinking paint");
+      return false;
+    }
+    captureThinkingBeforeArchive(sessionId);
     const thinking =
       currentTurnThinkingText(scopedAiThread(sessionId)) ||
       getShellAgentThinkingFull(sessionId);
     if (thinking) setShellAgentThinkingFull(sessionId, thinking);
+    // 上一张思考已冻成「思考完成」，当前空槽直接换工具条，禁止再写 \r\n 留空洞。
+    // 有新思考窗口时禁止走这条：否则 afterDisplayTools 会再钉思考卡，死循环。
+    if (
+      geo.cardKind === "thinking" &&
+      !getShellAgentThinkingFull(sessionId).trim() &&
+      getLastFrozenThinking(sessionId).trim() &&
+      !freshThought
+    ) {
+      setShellAgentCardKind(sessionId, "cmd");
+      return true;
+    }
     // 思考还没写上就冻卡，流里只会留下「正在理解意图」——正文等于丢了。
     // final 空占位同理：多半是新一轮被误升的结果卡，不能当工具条冻进去。
     if (
       (geo.cardKind === "thinking" || geo.cardKind === "final") &&
       !getShellAgentThinkingFull(sessionId).trim() &&
+      !getLastFrozenThinking(sessionId).trim() &&
       !currentTurnResultText(scopedAiThread(sessionId)).trim()
     ) {
-      return;
+      return false;
     }
   }
 
@@ -1487,20 +1556,22 @@ export function notifyShellAgentDisplayTool(sessionId: string): void {
   );
 
   if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
-    if (incoming.length === 0) return;
+    if (incoming.length === 0) return true;
     const liveHtml =
       geo.decoration.element?.innerHTML ??
       "";
     const shown = collectDisplayToolIdsFromHtml(liveHtml);
     // 刚钉的空槽等 React 画上，禁止连冻空卡
-    if (shown.length === 0) return;
+    if (shown.length === 0) return true;
     // 活条已在画这些工具：不重复钉 search
-    if (incoming.every((tc) => shown.includes(tc.id))) return;
+    if (incoming.every((tc) => shown.includes(tc.id))) return true;
   }
 
   abortFinalSettle(sessionId);
   postExecThinking.delete(sessionId);
+  suppressStripPin.delete(sessionId);
   reanchorShellAgentCard(sessionId, "cmd", undefined, 2);
+  return true;
 }
 
 /** Native 工具后续：立刻钉思考/结果槽，禁止等 PTY idle 再倒全文 */
@@ -1508,6 +1579,10 @@ function pinFollowupCardNow(sessionId: string, kind?: "thinking" | "final"): voi
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.cardKind === "ask") return;
   const want = kind ?? resolvePostExecCardKind(sessionId);
+  if (want === "thinking") {
+    const raw = currentTurnThinkingText(scopedAiThread(sessionId)).trim();
+    if (raw && isSameAsLastFrozenThinking(sessionId, raw)) return;
+  }
   if (
     geo?.decoration &&
     geo.cardKind === want &&
@@ -1530,43 +1605,65 @@ function pinFollowupCardNow(sessionId: string, kind?: "thinking" | "final"): voi
  */
 export function notifyShellAgentAfterDisplayTools(sessionId: string): void {
   patchEnterGateFlags(sessionId, { agentExecuting: false });
-  useShellAgentStore.getState().setPhase(sessionId, "observing");
+  const store = useShellAgentStore.getState();
+  if (store.get(sessionId)?.phase !== "observing") {
+    store.setPhase(sessionId, "observing");
+  }
   const incoming = collectDisplayToolCalls(scopedAiThread(sessionId)).filter(
     (tc) =>
       tc.status !== "rejected" &&
       !getArchivedDisplayToolIds(sessionId).has(tc.id),
   );
   const geo = getShellAgentGeometry(sessionId);
-  if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
-    const shown = collectDisplayToolIdsFromHtml(geo.decoration.element?.innerHTML ?? "");
-    if (shown.length > 0 && incoming.some((tc) => !shown.includes(tc.id))) {
-      pushShellAgentDebugEvent("afterDisplayTools", "pin next strip");
-      notifyShellAgentDisplayTool(sessionId);
+  const shown =
+    geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration
+      ? collectDisplayToolIdsFromHtml(geo.decoration.element?.innerHTML ?? "")
+      : [];
+  // 刚钉的空槽等 React 画上。空 HTML 再钉会复制一张工具条，中间留下 \r\n 空洞。
+  if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration && shown.length === 0) {
+    pushShellAgentDebugEvent("afterDisplayTools", "wait strip paint");
+    return;
+  }
+  const thinking = freshPostToolThinking(sessionId);
+  const result = currentTurnResultText(scopedAiThread(sessionId)).trim();
+  // 先钉新思考卡，再钉下一条。旧思考不是新窗口，禁止再开一张重复卡。
+  if (thinking) {
+    if (geo?.cardKind === "thinking" && geo.decoration) {
+      pushShellAgentDebugEvent("afterDisplayTools", "already thinking");
       return;
     }
+    pushShellAgentDebugEvent("afterDisplayTools", "pin thinking now");
+    abortFinalSettle(sessionId);
+    suppressStripPin.add(sessionId);
+    pinFollowupCardNow(sessionId, "thinking");
+    return;
   }
-  const thinking = currentTurnThinkingText(scopedAiThread(sessionId)).trim();
-  const result = currentTurnResultText(scopedAiThread(sessionId)).trim();
-  // 工具 part 后才到的同窗思考已经属于上一张卡，不是结果后的新思考。
-  // 还有未画的 search/fetch 时优先钉条，避免再开一张重复思考卡把 fetch 挤掉。
-  if (incoming.length > 0 && thinking && !isNewPostToolThought(thinking)) {
-    pushShellAgentDebugEvent("afterDisplayTools", "same-window thought, pin next strip");
+  if (shown.length > 0 && incoming.some((tc) => !shown.includes(tc.id))) {
+    pushShellAgentDebugEvent("afterDisplayTools", "pin next strip");
     notifyShellAgentDisplayTool(sessionId);
     return;
   }
-  if (!thinking && !result) {
-    // 连续工具之间没有新思考：留在当前工具条接下一条，避免空思考卡 + 把 search 再冻一次
-    pushShellAgentDebugEvent("afterDisplayTools", "stay on strip");
+  if (result) {
+    pushShellAgentDebugEvent("afterDisplayTools", "pin final now");
+    abortFinalSettle(sessionId);
+    pinFollowupCardNow(sessionId, "final");
     return;
   }
-  pushShellAgentDebugEvent("afterDisplayTools", thinking ? "pin thinking now" : "pin final now");
-  abortFinalSettle(sessionId);
-  pinFollowupCardNow(sessionId, thinking ? "thinking" : "final");
+  pushShellAgentDebugEvent("afterDisplayTools", "stay on strip");
 }
 
-/** 续写正文已到：思考卡同槽换成结果卡，并结束「等思考」闸门 */
+/** 续写正文已到：有思考则冻成「思考完成」再另钉结果卡，禁止最后一轮被结果卡换肤吃掉 */
 export function notifyShellAgentPromoteToFinal(sessionId: string): void {
   postExecThinking.delete(sessionId);
+  const geo = getShellAgentGeometry(sessionId);
+  if (geo?.cardKind === "thinking" && geo.decoration) {
+    captureThinkingBeforeArchive(sessionId);
+    if (getShellAgentThinkingFull(sessionId).trim()) {
+      pushShellAgentDebugEvent("promoteToFinal", "archive thinking + pin final");
+      reanchorShellAgentCard(sessionId, "final");
+      return;
+    }
+  }
   setShellAgentCardKind(sessionId, "final");
 }
 
@@ -1716,6 +1813,7 @@ function pinFrozenAgreedCmdCard(sessionId: string): void {
 
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.cardKind === "thinking" && geo.decoration) {
+    captureThinkingBeforeArchive(sessionId);
     archiveActiveInlineCard(sessionId);
   }
 
@@ -1797,8 +1895,7 @@ export function notifyShellAgentTurnFinished(sessionId: string): void {
       return;
     }
     if (resolvePostExecCardKind(sessionId) === "final") {
-      postExecThinking.delete(sessionId);
-      setShellAgentCardKind(sessionId, "final");
+      notifyShellAgentPromoteToFinal(sessionId);
     }
     scheduleTurnFinishFallback(sessionId);
     return;

@@ -11,7 +11,7 @@ import {
 
 /** AI 终端上下文提示行：告知模型必须按此 shell/OS 语法执行命令。 */
 export const TERMINAL_CONTEXT_IMPORTANT_LINE =
-  "- IMPORTANT: Live facts (time, files, processes, network, cwd) MUST be obtained via omni_terminal_exec in THIS terminal session — never invent from memory or only suggest copy-paste commands. Ignore any local Agent runtime/cache cwd; it is not the terminal working directory. Use shell syntax matching the OS/shell above (e.g. `date` on Linux/bash, `Get-Date` on Windows PowerShell only). Do not pass resource_id. Use omni_ssh_exec only when targeting a different SSH host than this tab.";
+  "- IMPORTANT: Live facts (time, files, processes, network, cwd) must use the terminal exec tool already listed for THIS tab; match the Shell/OS above.";
 
 /** 终端环境结构化提示——所有 AI 路径共享的单一真相源。 */
 export interface AiTerminalHints {

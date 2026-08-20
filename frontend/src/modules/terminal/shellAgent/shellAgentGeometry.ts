@@ -12,6 +12,7 @@ import {
   getShellAgentThinkingFull,
   clearShellAgentThinkingFull,
   extractThinkingFromLiveHtml,
+  rememberFrozenThinking,
   collectDisplayToolIdsFromHtml,
   markArchivedDisplayToolIds,
   transformPendingConfirmToAgreedHtml,
@@ -110,12 +111,8 @@ export function contentHeightToCardRows(
 ): number {
   const rowH = terminalRowHeightPx(sessionId);
   const raw = contentHeightPx / rowH;
-  // final：略减再 ceil，抵消测高偏大/亚像素，少占空行（多占的行缩 decoration 也清不掉 buffer）
-  // 不可减太多：overflow:visible 时内容会盖住下方命令/prompt → 卡片「重叠」
-  const rows =
-    kind === "final"
-      ? Math.ceil(Math.max(0, raw - 0.1))
-      : Math.ceil(raw);
+  // final 不再减 0.1：少 1px 就会被 overflow:hidden 裁掉底边框
+  const rows = Math.ceil(raw);
   // ask：略留空行，避免 decoration 矮于卡片盖住下方回显。
   // final 不再 +1：footer 按钮已删，padRows=1 会留一整行空白。
   // cmd 工具条不要再 +2：会把 1 行 search 撑成大片空白，且 \r\n 写进 buffer 后缩 decoration 也清不掉。
@@ -410,6 +407,7 @@ function resolveFrozenHtml(
       extractThinkingFromLiveHtml(liveHtml);
     clearShellAgentThinkingFull(sessionId);
     if (!full) return "";
+    rememberFrozenThinking(sessionId, full);
     return buildThinkingDoneFrozenHtml({
       sessionId,
       fullText: full,

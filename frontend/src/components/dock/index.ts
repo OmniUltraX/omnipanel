@@ -23,6 +23,7 @@ export type { DockPanelRefreshProps } from "./dockPanelRefresh";
 export type { SerializedDockview } from "dockview-core";
 export {
   collectPanelIds,
+  canApplyDockLayoutIncrementally,
   createDefaultLayout,
   mergePanelsIntoLayout,
   removePanelFromLayout,

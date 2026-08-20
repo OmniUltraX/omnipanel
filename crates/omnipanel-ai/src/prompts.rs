@@ -2,11 +2,23 @@
 //!
 //! 协议层提示词：`~/.omnipd/prompts/system-prompt.md` → `omnipanel_store::system_prompt()`。
 //! 各模块 Agent 角色提示词：`~/.omnipd/prompts/agents/{id}.md` → `omnipanel_store::agent_prompt(id)`。
-//! 以下为 HTTP DirectInject 路径的内置工具路由短句（不可配置文件）。
+//! 工具路由：`resources/prompts/routing-policy.md`（HTTP 与 ACP 共用）。
 
-/// HTTP DirectInject 等路径注入的通用工具路由策略（宽泛、按意图匹配）。
+/// HTTP DirectInject / ACP 共用的工具路由策略。
 pub fn tool_routing_policy() -> String {
-    TOOL_ROUTING_POLICY.to_string()
+    omnipanel_store::routing_policy().trim().to_string()
 }
 
-const TOOL_ROUTING_POLICY: &str = "Tool selection: use only tools present in this request's tool list; never invent or call tools that are not provided. Match intent to the most specific available capability. Public information search/lookup → omni_web_search (or omni_zhihu_search when fitting) when listed; reading a specific page/URL → omni_web_fetch when listed. Current terminal tab shell work → omni_terminal_exec when listed (current PTY: local PowerShell/CMD/bash or the SSH shell already open in that tab; do not pass resource_id). Named SSH host via a separate exec channel that must not use the current tab → omni_ssh_exec with resource_id when listed. Shell HTTP clients (curl, wget, Invoke-WebRequest, …) remain valid for ops, APIs, debugging, and explicit CLI workflows when a shell tool is available; they should not replace dedicated search/fetch tools when the user’s intent is retrieval. Clarification: when the user must choose among options, confirm a preference, or supply missing critical parameters (host/env/scope/next step), and omni_ask_user is listed, you MUST call omni_ask_user with structured questions — never ask those as plain chat text (no A/B/C or 1/2/3 option lists in the message body).";
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn http_routing_matches_store_ssot() {
+        let http = super::tool_routing_policy();
+        let store = omnipanel_store::routing_policy().trim();
+        assert_eq!(http, store);
+        assert!(http.contains("omni_terminal_exec"));
+        assert!(http.contains("omni_ssh_exec"));
+        assert!(http.contains("resource_id"));
+        assert!(http.contains("omni_ask_user"));
+    }
+}

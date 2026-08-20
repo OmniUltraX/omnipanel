@@ -238,9 +238,7 @@ export const SSH_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: "omni_ssh_exec",
     description:
-      "在指定 SSH 主机上通过独立 exec 通道执行非交互命令（不进入当前终端 Tab，不继承 Tab cwd）。\
-必须提供 resource_id。不支持 TUI/流式（top/vim/tail -f）；危险命令需确认。\
-当前终端 Tab 内执行请用 omni_terminal_exec。",
+      "指定 SSH 主机独立 exec（handler，必须 resource_id）。模型侧描述以 Rust builtin_tool_spec 为准。",
     inputSchema: {
       type: "object",
       properties: {

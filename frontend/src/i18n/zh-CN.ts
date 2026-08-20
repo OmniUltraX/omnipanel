@@ -3466,6 +3466,9 @@ export const zhCN = {
       switchToNative: "切换到原生直通模式（vim/top/ssh）",
       switchToCommandBar: "切换回 Command Bar",
     },
+    fileLink: {
+      cdBusy: "当前有命令在运行，无法切换目录",
+    },
     passthroughPromptHint: "输入自然语言或命令，AI将智能响应，直接开始体验吧",
     shellAgent: {
       title: "终端 Agent",
@@ -6105,7 +6108,7 @@ export const zhCN = {
       label: "外部 MCP 服务",
       externalTitle: "外部 MCP 服务",
       description:
-        "管理供内部 AI 使用的外部 MCP 服务。已启用且运行的服务会注册到内部编排工具集（extmcp:: 前缀），可在直连模型对话中调用。",
+        "管理供内部 AI 使用的外部 MCP 服务。已启用且运行的服务会注册到内部编排工具集（extmcp:: 前缀），仅在执行助手（Run）可用，不会注入终端等模块 Agent。",
       externalEmpty: "暂无外部 MCP 服务",
       externalEmptyDesc: "可添加 Filesystem、GitHub 等第三方 MCP 服务；内置 OmniMCP 请在「AI 服务」中配置。",
       builtinBadge: "内置",

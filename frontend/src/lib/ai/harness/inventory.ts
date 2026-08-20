@@ -29,11 +29,23 @@ export type HarnessInventory = {
   conversationId: string | null;
   agentId: AgentId | null;
   toolsModeSummary: string;
+  /** 本轮预期可见的工具族（对照提示词，避免提未注入的 MCP）。 */
+  toolFamilySummary: string;
   skillIds: string[];
   activePlans: HarnessPlanSummary[];
   activeClusters: HarnessClusterSummary[];
   writeEntryNote: string;
 };
+
+function summarizeToolFamilies(toolsModeSummary: string): string {
+  if (toolsModeSummary === "n/a") return "n/a";
+  if (toolsModeSummary === "none") return "no tools";
+  if (toolsModeSummary.includes("master")) {
+    return "builtin(all) + extmcp + load_skill";
+  }
+  const module = toolsModeSummary.replace("moduleFilter=", "");
+  return `builtin(${module}) + cross-module (plan/ask_user/web/load_skill); no extmcp`;
+}
 
 function summarizePlan(plan: PlanData): HarnessPlanSummary {
   const doneSteps = plan.steps.filter(
@@ -131,6 +143,7 @@ export function buildHarnessInventory(
     conversationId: convId,
     agentId,
     toolsModeSummary,
+    toolFamilySummary: summarizeToolFamilies(toolsModeSummary),
     skillIds: conversation?.selectedSkillIds ?? ai.currentSkillIds ?? [],
     activePlans: (convId ? scopedPlans.filter(isPlanActive) : scopedPlans).map(
       summarizePlan,

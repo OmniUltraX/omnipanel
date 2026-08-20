@@ -3479,6 +3479,9 @@ export const enUS: TranslationDict = {
       switchToNative: "Switch to native passthrough (vim/top/ssh)",
       switchToCommandBar: "Switch back to Command Bar",
     },
+    fileLink: {
+      cdBusy: "A command is running — cannot change directory",
+    },
     passthroughPromptHint:
       "Type natural language or a command — AI responds intelligently. Try saying hello.",
     shellAgent: {
@@ -6177,7 +6180,7 @@ export const enUS: TranslationDict = {
       label: "External MCP",
       externalTitle: "External MCP",
       description:
-        "Manage external MCP services for internal AI orchestration. Enabled running services register as extmcp:: tools in direct model conversations.",
+        "Manage external MCP services for internal AI orchestration. Enabled running services register as extmcp:: tools and are injected only for the Run assistant, not module agents (terminal, database, …).",
       externalEmpty: "No external MCP services",
       externalEmptyDesc:
         "Add third-party MCP servers such as Filesystem or GitHub. Configure built-in OmniMCP under AI Services.",

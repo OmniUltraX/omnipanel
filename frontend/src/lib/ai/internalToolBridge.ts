@@ -210,13 +210,20 @@ export async function dispatchPendingTool(options: {
   }
 
   // 终端内联：当前 Tab PTY 执行（omni_terminal_exec + 历史别名）。
-  // 兼容：内联里模型仍调 omni_ssh_exec 且未带 resource_id 时，同样走 PTY，避免嵌入 AI 块空转。
+  // 兼容（不鼓励）：无 resource_id 的 omni_ssh_exec 仍打进当前 Tab，避免空转。
+  const sshMissingResource =
+    toolName === SSH_EXEC_TOOL_NAME && !argsHaveResourceId(options.argsJson);
   const inlinePtyExec =
     Boolean(options.inline) &&
     (toolName === TERMINAL_EXEC_TOOL_NAME ||
       isTerminalPtyExecTool(options.toolName) ||
-      (toolName === SSH_EXEC_TOOL_NAME && !argsHaveResourceId(options.argsJson)));
+      sshMissingResource);
   if (inlinePtyExec && options.inline) {
+    if (sshMissingResource) {
+      console.warn(
+        "[ai] omni_ssh_exec without resource_id fell back to current-tab PTY; prefer omni_terminal_exec",
+      );
+    }
     const { dispatchInlineTerminalPendingTool } = await import(
       "../../modules/terminal/inlineToolBridge"
     );

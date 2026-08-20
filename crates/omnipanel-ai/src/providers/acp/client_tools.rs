@@ -95,7 +95,11 @@ pub fn build_client_tools_prompt(
     terminal_context: Option<&str>,
     tools: &[ToolDef],
 ) -> String {
+    let routing = omnipanel_store::routing_policy().trim();
     let mut preamble = omnipanel_store::client_tools_preamble();
+    if !preamble.contains("omni_terminal_exec") {
+        preamble = format!("{routing}\n\n{preamble}");
+    }
     if !preamble.ends_with('\n') {
         preamble.push('\n');
     }
@@ -410,6 +414,9 @@ mod tests {
         assert!(p.contains("[User]\n当前的时间"));
         assert!(p.contains("omni_terminal_exec"));
         assert!(p.contains("tool_calls"));
+        let routing = omnipanel_store::routing_policy();
+        assert!(p.contains("do not pass resource_id") || routing.contains("do not pass resource_id"));
+        assert!(p.contains(routing.trim()) || p.contains("omni_ssh_exec"));
     }
 
     #[test]
@@ -532,10 +539,11 @@ mod tests {
     fn build_client_tools_prompt_includes_routing_and_language_rules() {
         let tools = [terminal_tool_def()];
         let p = build_client_tools_prompt("现在几点", None, &tools);
-        assert!(p.contains("Choose by intent"));
+        let routing = omnipanel_store::routing_policy();
+        assert!(p.contains(routing.trim()));
         assert!(p.contains("omni_web_search"));
         assert!(p.contains("omni_web_fetch"));
-        assert!(p.contains("curl, wget"));
+        assert!(p.contains("do not pass resource_id"));
         assert!(p.contains("简体中文"));
     }
 

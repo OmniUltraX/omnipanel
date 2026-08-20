@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   commands,
@@ -128,6 +128,7 @@ import {
   waitForTerminalOutputIdle,
 } from "../modules/terminal/terminalOutputTap";
 import {
+  lineLooksLikeShellPrompt,
   measurePromptPrefixCols,
   readActiveTerminalLine,
   splitPromptAndBody,
@@ -1827,6 +1828,13 @@ export function useTerminal(
                     `[Terminal ${sessionId}] WebGL context lost and re-init failed; falling back to DOM renderer`,
                   );
                 }
+                // 关相邻 Tab 时 WebView 可能共享丢上下文：新 renderer 需从 buffer 重绘，
+                // 否则直通模式屏幕会整片空白（命令栏模式仍有 React blocks，不易察觉）。
+                try {
+                  term.refresh(0, Math.max(term.rows - 1, 0));
+                } catch {
+                  /* ignore */
+                }
               });
             });
             term.loadAddon(addon);
@@ -2231,9 +2239,17 @@ export function useTerminal(
     }
   }, [active, sendRef, sessionId, suspended]);
 
-  // 终端输出中的文件路径点击预览（xterm ILinkProvider）
-  // 注意：xterm ILinkProvider 是懒加载（仅在 hover 时触发），Command bar 模式不响应
-  // 待确认方案后启用
+  const sendFileLinkCommand = useCallback((cmd: string) => {
+    sendCommandRef.current?.(cmd);
+  }, []);
+
+  const canSendFileLinkCd = useCallback(() => {
+    const term = termRef.current;
+    if (!term) return false;
+    if (useTerminalRunStateStore.getState().isCommandBarBusy(sessionId)) return false;
+    return lineLooksLikeShellPrompt(readActiveTerminalLine(term));
+  }, [sessionId]);
+
   useTerminalFileLinkProvider({
     termRef,
     paneId: sessionId,
@@ -2241,7 +2257,9 @@ export function useTerminal(
     resourceId: fileLink?.resourceId ?? null,
     remoteHome: fileLink?.remoteHome ?? null,
     cwd: fileLink?.cwd ?? "/",
-    enabled: false, // 暂时禁用
+    enabled: inputMode === "interactive" && Boolean(fileLink),
+    sendCommand: sendFileLinkCommand,
+    canSendCd: canSendFileLinkCd,
   });
 
   // 监听 omnipanel-terminal-scroll 事件，执行 scrollToTop / scrollToBottom

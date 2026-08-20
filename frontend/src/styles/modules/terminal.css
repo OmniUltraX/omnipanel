@@ -1835,11 +1835,12 @@
     }
 
     .term-shell-agent-deco-card[data-card-kind="final"] {
-        height: auto;
+        height: 100%;
         max-height: 100%;
         min-height: 0;
         overflow: hidden;
-        align-self: flex-start;
+        align-self: stretch;
+        box-sizing: border-box;
     }
 
     .term-shell-agent-deco-card--frozen {
@@ -1887,12 +1888,15 @@
         height: 100%;
     }
     .term-shell-agent-deco-card .term-shell-agent-card--final {
+        /* 铺满 decoration：底边框画在占位内侧，避免 1px 被 overflow 裁掉 */
+        margin: 0;
+        height: 100%;
         max-height: 100%;
         min-height: 0;
         overflow: hidden;
-        flex: 0 0 auto;
-        align-self: flex-start;
-        height: auto;
+        flex: 1 1 auto;
+        align-self: stretch;
+        box-sizing: border-box;
     }
 
     .term-shell-agent-card {
@@ -2048,9 +2052,10 @@
         overflow: hidden;
         max-height: 100%;
         min-height: 0;
-        flex: 0 0 auto;
-        height: auto;
-        align-self: flex-start;
+        flex: 1 1 auto;
+        height: 100%;
+        align-self: stretch;
+        box-sizing: border-box;
     }
 
     .term-shell-agent-card__head {
@@ -2149,7 +2154,7 @@
         line-height: 1.55;
         width: 100%;
         min-height: 0;
-        flex: 0 1 auto;
+        flex: 1 1 auto;
         overflow-x: hidden;
         overflow-y: auto;
         overscroll-behavior: contain;

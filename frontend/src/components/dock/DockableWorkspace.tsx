@@ -24,6 +24,7 @@ import "dockview-react/dist/styles/dockview.css";
 import {
   mergePanelsIntoLayout,
   collectPanelIds,
+  canApplyDockLayoutIncrementally,
   normalizeDockLayout,
   enrichLayoutWithTabMeta,
   isLayoutUsable,
@@ -1614,6 +1615,7 @@ export function DockableWorkspace({
       }
       isSyncingRef.current = true;
       let layoutChanged = false;
+      let addedPanel = false;
       try {
         const desiredIds = new Set(currentTabs.map((t) => t.id));
         const scopePrefix = dockScopeRef.current ? `${dockScopeRef.current}:` : null;
@@ -1654,6 +1656,7 @@ export function DockableWorkspace({
             api.addPanel(options);
             syncPanelTabParams(api, tab);
             layoutChanged = true;
+            addedPanel = true;
           } else {
             syncPanelTabParams(api, tab);
           }
@@ -1662,7 +1665,12 @@ export function DockableWorkspace({
         const panelOrder = api.groups.flatMap((group) => group.panels.map((panel) => panel.id));
         const expectedOrder = tabIds.filter((id) => panelOrder.includes(id));
         const actualOrder = panelOrder.filter((id) => tabIds.includes(id));
-        if (actualOrder.join("\0") !== expectedOrder.join("\0")) {
+        // 仅新增 panel 时才用 fromJSON 对齐顺序。关 Tab 走增量 removePanel，
+        // 禁止整树重建——终端直通内容在 xterm buffer，fromJSON 会把其余 Tab 清空。
+        if (
+          addedPanel &&
+          actualOrder.join("\0") !== expectedOrder.join("\0")
+        ) {
           try {
             const raw = api.toJSON();
             const normalized = normalizeDockLayout(raw) ?? raw;
@@ -1958,6 +1966,19 @@ export function DockableWorkspace({
     const apiPanelIds = new Set(api.panels.map((p) => p.id));
     if (savedLayout && tabIds.some((id) => apiPanelIds.has(id) && !collectPanelIds(savedLayout).has(id))) {
       // store 布局滞后于 api（如跨实例拖入刚完成），跳过陈旧 fromJSON
+      return;
+    }
+
+    // 关 Tab 后 store 推入「少一个 panel」的新布局对象：引用不等会误走 fromJSON，
+    // 把仍打开的终端 pane 全部 dispose。目标面板已挂载时只做增量同步。
+    if (
+      savedLayout &&
+      canApplyDockLayoutIncrementally(apiPanelIds, collectPanelIds(savedLayout), tabIds)
+    ) {
+      lastWrittenLayoutRef.current = savedLayout;
+      prevSavedLayoutPropRef.current = savedLayout;
+      syncTabsToApi(api);
+      syncTabGroups(api);
       return;
     }
 

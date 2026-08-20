@@ -85,10 +85,13 @@ export const useShellAgentStore = create<ShellAgentStore>((set, get) => ({
   },
 
   setPhase: (sessionId, phase) => {
+    const cur = get().bySession[sessionId];
+    if (cur?.phase === phase) return;
     set((s) => {
-      const cur = s.bySession[sessionId] ?? freshSession(sessionId);
+      const next = s.bySession[sessionId] ?? freshSession(sessionId);
+      if (next.phase === phase && s.bySession[sessionId]) return s;
       return {
-        bySession: { ...s.bySession, [sessionId]: { ...cur, phase } },
+        bySession: { ...s.bySession, [sessionId]: { ...next, phase } },
       };
     });
   },

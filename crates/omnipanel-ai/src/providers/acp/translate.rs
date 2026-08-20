@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::ir::{StreamEvent, ToolStatus};
 use crate::providers::acp::native_tools::{
-    NativeToolKind, TERMINAL_CLIENT_TOOL, classify_native_tool, extract_native_shell_command,
-    is_native_shell_tool, map_native_shell_to_terminal_tool, map_native_tool_by_kind,
+    NativeMapHints, NativeToolKind, TERMINAL_CLIENT_TOOL, classify_native_tool,
+    extract_native_shell_command, is_native_shell_tool, map_native_shell_to_terminal_tool,
+    map_native_tool_by_kind_with_hints,
 };
 use crate::providers::acp::types::SessionUpdateNotification;
 
@@ -15,6 +16,8 @@ pub struct TranslateOptions {
     pub client_tools: bool,
     /// 抑制所有原生工具调用（不映射、不透传）。用于 gateway 路径。
     pub suppress_all_native: bool,
+    /// Read/Write/Find 映射策略（files vs 当前 Tab exec）。
+    pub map_hints: NativeMapHints,
     /// 已被映射为客户端工具的原生 toolCallId 集合。
     pub suppressed_native_ids: Arc<Mutex<HashSet<String>>>,
     /// shell 工具已识别但 rawInput 尚未含 command，等待 tool_call_update 补全。
@@ -25,9 +28,18 @@ pub struct TranslateOptions {
 
 impl TranslateOptions {
     pub fn new(client_tools: bool, suppress_all_native: bool) -> Self {
+        Self::with_hints(client_tools, suppress_all_native, NativeMapHints::default())
+    }
+
+    pub fn with_hints(
+        client_tools: bool,
+        suppress_all_native: bool,
+        map_hints: NativeMapHints,
+    ) -> Self {
         Self {
             client_tools,
             suppress_all_native,
+            map_hints,
             suppressed_native_ids: Arc::new(Mutex::new(HashSet::new())),
             deferred_shell_ids: Arc::new(Mutex::new(HashSet::new())),
             pending_native_raw: Arc::new(Mutex::new(HashMap::new())),
@@ -191,7 +203,9 @@ fn translate_tool_call(update: &serde_json::Value, options: &TranslateOptions) -
         // 非 shell 原生工具 → 按 NativeToolKind 分类映射
         let kind = classify_native_tool(&name, &title);
         if kind != NativeToolKind::Shell && kind != NativeToolKind::Other {
-            if let Some((tool_name, arguments)) = map_native_tool_by_kind(kind, &raw_input) {
+            if let Some((tool_name, arguments)) =
+                map_native_tool_by_kind_with_hints(kind, &raw_input, options.map_hints)
+            {
                 tracing::debug!(
                     "ACP native tool mapped: name={name:?} title={title:?} kind={kind:?} -> {tool_name} id={tool_call_id}"
                 );

@@ -273,8 +273,10 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
     focusModule && focusModule !== "terminal"
       ? getModuleAiContextText(focusModule)
       : null;
-  // Composer 显式多选芯片（发送时注入）。
-  const explicitAppend = buildComposerExplicitContextAppend(getComposerContextItems());
+  // Composer 显式多选芯片（发送时注入）；活动终端会话已走 terminalContextAppend，不再重复。
+  const explicitAppend = buildComposerExplicitContextAppend(getComposerContextItems(), {
+    skipTerminalSessionId: sessionId,
+  });
   const moduleContextAppend = mergeAiContextAppend(focusModuleAppend, explicitAppend);
 
   if (!sessionId) {

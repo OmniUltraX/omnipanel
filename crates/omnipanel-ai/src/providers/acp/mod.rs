@@ -6,7 +6,7 @@ pub mod turn_runner;
 pub mod types;
 
 use anyhow::{Result, bail};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex as StdMutex;
@@ -32,6 +32,8 @@ pub struct PromptOptions {
     /// 用于 gateway 路径：外部客户端（cline/aider）无法执行 OmniPanel 映射工具，
     /// 所以将 agent 原生工具全部静默丢弃，强制 agent 只使用 prompt 注入的客户端工具。
     pub suppress_all_native: bool,
+    /// Read/Write/Find 映射：有 files 工具则走 files，否则按当前 Tab shell 选命令。
+    pub native_map_hints: crate::providers::acp::native_tools::NativeMapHints,
 }
 
 impl Default for PromptOptions {
@@ -42,6 +44,7 @@ impl Default for PromptOptions {
             content_hold: false,
             content_buffer: None,
             suppress_all_native: false,
+            native_map_hints: crate::providers::acp::native_tools::NativeMapHints::default(),
         }
     }
 }
@@ -60,8 +63,8 @@ pub struct AcpManager {
     initialized: AtomicBool,
     agent_name: Mutex<Option<String>>,
     conversation_sessions: Mutex<HashMap<String, SessionCache>>,
-    /// 已发送过首轮完整 client-tools prompt 的 conversation_id。
-    prompted_conversations: Mutex<HashSet<String>>,
+    /// conversation_id → 上次注入完整 prompt 时的 agent_id（空串表示未知）。
+    prompted_conversations: Mutex<HashMap<String, String>>,
 }
 
 impl AcpManager {
@@ -81,7 +84,7 @@ impl AcpManager {
             initialized: AtomicBool::new(false),
             agent_name: Mutex::new(None),
             conversation_sessions: Mutex::new(HashMap::new()),
-            prompted_conversations: Mutex::new(HashSet::new()),
+            prompted_conversations: Mutex::new(HashMap::new()),
         }
     }
 
@@ -160,12 +163,16 @@ impl AcpManager {
         Ok(())
     }
 
-    /// 标记 conversation 已发送首轮完整 prompt；返回 `true` 表示本次为首次。
-    pub async fn mark_first_prompt_sent(&self, conversation_id: &str) -> bool {
-        self.prompted_conversations
-            .lock()
-            .await
-            .insert(conversation_id.to_string())
+    /// 标记 conversation 已发送首轮完整 prompt；返回 `true` 表示首次或 agent 已切换。
+    pub async fn mark_first_prompt_sent(&self, conversation_id: &str, agent_id: &str) -> bool {
+        let mut map = self.prompted_conversations.lock().await;
+        match map.get(conversation_id) {
+            Some(prev) if prev == agent_id => false,
+            _ => {
+                map.insert(conversation_id.to_string(), agent_id.to_string());
+                true
+            }
+        }
     }
 
     pub async fn ensure_session(
@@ -309,7 +316,11 @@ impl AcpManager {
         }];
 
         let client = self.client.clone();
-        let translate_options = TranslateOptions::new(options.client_tools, options.suppress_all_native);
+        let translate_options = TranslateOptions::with_hints(
+            options.client_tools,
+            options.suppress_all_native,
+            options.native_map_hints,
+        );
         let client_tools = options.client_tools;
         let content_hold = options.content_hold;
         let content_buffer = options.content_buffer.clone();

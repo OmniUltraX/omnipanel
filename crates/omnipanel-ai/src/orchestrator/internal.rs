@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use chrono::Local;
 use futures::StreamExt;
 
 use crate::ir::{StopReason, StreamEvent, ToolStatus};
@@ -245,12 +244,9 @@ fn build_messages(
     messages
 }
 
-fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) -> Option<ChatMessage> {
+pub(crate) fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) -> Option<ChatMessage> {
     let mut lines = Vec::new();
 
-    let now = Local::now();
-    lines.push(format!("Current local date-time: {}", now.format("%Y-%m-%d %H:%M %Z")));
-    lines.push(String::new());
     lines.push(tool_routing_policy());
 
     if let Some(ctx) = context
@@ -272,8 +268,15 @@ fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) 
         lines.push(module_ctx.to_string());
     }
 
-    if let Some(cwd) = context.cwd.as_deref().filter(|s| !s.trim().is_empty()) {
-        lines.push(format!("Current working directory: {cwd}"));
+    let terminal_ctx = context
+        .terminal_context_append
+        .as_deref()
+        .unwrap_or("");
+    let cwd_already_in_terminal = terminal_ctx.contains("Working directory:");
+    if !cwd_already_in_terminal {
+        if let Some(cwd) = context.cwd.as_deref().filter(|s| !s.trim().is_empty()) {
+            lines.push(format!("Current working directory: {cwd}"));
+        }
     }
     if let Some(env) = context.env_tag.as_deref().filter(|s| !s.trim().is_empty()) {
         lines.push(format!("Environment tag: {env}"));
@@ -292,12 +295,20 @@ fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) 
     {
         lines.push(format!("Workspace id: {workspace}"));
     }
-    if let Some(resource) = context
-        .resource_id
+    let is_remote = context
+        .terminal_session_type
         .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        lines.push(format!("Resource id: {resource}"));
+        .is_some_and(|t| t == "remote");
+    if is_remote {
+        if let Some(resource) = context
+            .resource_id
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            lines.push(format!(
+                "Active SSH connection id (omni_ssh_* only; never pass to omni_terminal_exec): {resource}"
+            ));
+        }
     }
 
     if let Some(extra) = system_append.filter(|s| !s.trim().is_empty()) {
@@ -334,5 +345,65 @@ fn resolve_thinking_options(
     match effort {
         "low" | "medium" | "high" => (Some(true), Some(effort.to_string())),
         _ => (None, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orchestrator::types::AiContextBundle;
+
+    fn empty_ctx() -> AiContextBundle {
+        AiContextBundle {
+            cwd: None,
+            workspace_id: None,
+            terminal_session_id: None,
+            terminal_session_type: None,
+            env_tag: None,
+            resource_id: None,
+            terminal_context_append: None,
+            module_context_append: None,
+        }
+    }
+
+    #[test]
+    fn system_message_has_no_local_datetime() {
+        let mut context = empty_ctx();
+        context.cwd = Some("/tmp".into());
+        let msg = build_system_message(&context, None).unwrap();
+        assert!(!msg.content.contains("Current local date-time"));
+        assert!(!msg.content.contains("date-time"));
+        assert!(msg.content.contains("omni_terminal_exec"));
+    }
+
+    #[test]
+    fn system_message_skips_cwd_when_terminal_context_has_it() {
+        let mut context = empty_ctx();
+        context.cwd = Some("C:\\\\Users\\\\me".into());
+        context.terminal_context_append = Some(
+            "[Terminal Context]\n- Working directory: /remote/app\n".into(),
+        );
+        let msg = build_system_message(&context, None).unwrap();
+        assert!(msg.content.contains("Working directory: /remote/app"));
+        assert!(!msg.content.contains("Current working directory"));
+    }
+
+    #[test]
+    fn system_message_labels_ssh_resource_only_when_remote() {
+        let mut local = empty_ctx();
+        local.resource_id = Some("ssh-1".into());
+        local.terminal_session_type = Some("local".into());
+        let local_msg = build_system_message(&local, None).unwrap();
+        assert!(!local_msg.content.contains("ssh-1"));
+
+        let mut remote = empty_ctx();
+        remote.resource_id = Some("ssh-1".into());
+        remote.terminal_session_type = Some("remote".into());
+        let remote_msg = build_system_message(&remote, None).unwrap();
+        assert!(remote_msg.content.contains("omni_ssh_* only"));
+        assert!(remote_msg.content.contains("ssh-1"));
+        assert!(remote_msg
+            .content
+            .contains("never pass to omni_terminal_exec"));
     }
 }

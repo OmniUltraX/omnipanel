@@ -37,18 +37,29 @@ export function getAdaptedAutoLsCommandForSession(sessionId: string): string {
   return adaptAutoLsCommandForShell(getTerminalAutoLsCommand(), shell);
 }
 
-/** cd 命令在 Block Feed 下拼接列表子命令（仅 warp + 开关开启） */
-export function maybeAppendAutoLsToCommand(
+/**
+ * 把单独 cd 拼上自动 ls。直连 PTY 与命令栏共用 buildCdWithAutoLs，
+ * 不受 warp 展示模式限制（Block Feed 仍走 maybeAppendAutoLsToCommand）。
+ */
+export function maybeAppendAutoLsToPtyCommand(
   command: string,
   sessionId?: string,
 ): string {
   if (!isTerminalAutoLsEnabled()) return command;
-  if (sessionId && !isWarpDisplay(sessionId)) return command;
   if (sessionId && isSilentHistorySync(sessionId)) return command;
   if (!isCdOnlyCommand(command)) return command;
 
   const shell = resolveShellFamilyForSession(sessionId);
   return buildCdWithAutoLs(command, getTerminalAutoLsCommand(), shell);
+}
+
+/** cd 命令在 Block Feed 下拼接列表子命令（仅 warp + 开关开启） */
+export function maybeAppendAutoLsToCommand(
+  command: string,
+  sessionId?: string,
+): string {
+  if (sessionId && !isWarpDisplay(sessionId)) return command;
+  return maybeAppendAutoLsToPtyCommand(command, sessionId);
 }
 
 export function unregisterTerminalAutoLsSession(_sessionId: string): void {

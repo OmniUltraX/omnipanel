@@ -5,7 +5,10 @@ import {
   buildThinkingDoneFrozenHtml,
   clearShellAgentLastCmd,
   clearShellAgentThinkingFull,
+  clearLastFrozenThinking,
   clearArchivedDisplayToolIds,
+  rememberFrozenThinking,
+  isSameAsLastFrozenThinking,
   collectDisplayToolIdsFromHtml,
   extractThinkingFromLiveHtml,
   getArchivedDisplayToolIds,
@@ -160,6 +163,7 @@ describe("lastCmd description", () => {
 describe("thinking full cache", () => {
   afterEach(() => {
     clearShellAgentThinkingFull("s1");
+    clearLastFrozenThinking("s1");
   });
 
   it("空文本不清除缓存，避免归档冻成正在理解意图", () => {
@@ -195,6 +199,15 @@ describe("thinking full cache", () => {
         "搜索结果已经返回了多个链接。",
       ),
     ).toBe("搜索结果已经返回了多个链接。");
+  });
+
+  it("已冻思考与同窗残片不算新思考", () => {
+    rememberFrozenThinking("s1", "先查今天日期，再搜索");
+    expect(isSameAsLastFrozenThinking("s1", "先查今天日期，再搜索")).toBe(true);
+    expect(isSameAsLastFrozenThinking("s1", "今天日期，再搜索")).toBe(true);
+    expect(isSameAsLastFrozenThinking("s1", "搜索结果已经返回，接下来 fetch")).toBe(
+      false,
+    );
   });
 
   it("从活卡 HTML 能捞回思考正文", () => {

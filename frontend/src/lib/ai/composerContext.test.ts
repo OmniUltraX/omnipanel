@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { mergeAiContextAppend } from "./composerContextAppend";
+vi.mock("../../modules/terminal/autoReconnectTerminalSsh", () => ({
+  scheduleAutoReconnectSsh: () => undefined,
+}));
+
+import {
+  buildComposerExplicitContextAppend,
+  mergeAiContextAppend,
+} from "./composerContextAppend";
 import { parseModuleContextChipLabel } from "./parseModuleContextChip";
 import { resolveFocusModuleKey } from "./resolveFocusModuleKey";
 
@@ -37,5 +44,28 @@ describe("mergeAiContextAppend", () => {
   it("joins non-empty parts", () => {
     expect(mergeAiContextAppend("a", null, "b")).toBe("a\n\n---\n\nb");
     expect(mergeAiContextAppend(null, "  ", undefined)).toBeNull();
+  });
+});
+
+describe("buildComposerExplicitContextAppend", () => {
+  it("skips the terminal chip already injected as session context", () => {
+    const text = buildComposerExplicitContextAppend(
+      [
+        { kind: "terminal", id: "sess-1", label: "PowerShell" },
+        { kind: "database", id: "db-1", label: "mysql" },
+      ],
+      { skipTerminalSessionId: "sess-1" },
+    );
+    expect(text).not.toContain("sess-1");
+    expect(text).toContain("db-1");
+  });
+
+  it("returns null when the only chip is the skipped terminal session", () => {
+    expect(
+      buildComposerExplicitContextAppend(
+        [{ kind: "terminal", id: "sess-1", label: "tab" }],
+        { skipTerminalSessionId: "sess-1" },
+      ),
+    ).toBeNull();
   });
 });
