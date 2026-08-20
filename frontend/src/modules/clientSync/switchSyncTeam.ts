@@ -17,6 +17,7 @@ import {
   flushClientModuleSync,
   setClientModuleSyncSuppressed,
 } from "./moduleSync";
+import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { useClientSyncTombstoneStore } from "./tombstones";
 
 export interface SwitchSyncTeamResult {
@@ -148,6 +149,16 @@ export async function switchSyncTeam(
     // 2) 切换指针；tombstone 按团队语义隔离，避免旧删除标记误伤新团队资源
     useCurrentSyncTeamStore.getState().setTeamId(teamId);
     useClientSyncTombstoneStore.getState().clearAll();
+
+    // 临时关闭云端拉取时：只切团队指针，不拉快照覆盖本机
+    if (CLOUD_PULL_DISABLED) {
+      console.warn("[client-sync] switchSyncTeam pull skipped (CLOUD_PULL_DISABLED)");
+      return {
+        switched: true,
+        pulledModules: false,
+        pulledConversations: false,
+      };
+    }
 
     // 3) 拉取并替换为目标数据源
     let pulledModules = false;

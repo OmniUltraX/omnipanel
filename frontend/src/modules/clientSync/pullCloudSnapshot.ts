@@ -18,6 +18,7 @@ import {
   pullSecretsVaultOnce,
   setSecretsVaultSyncSuppressed,
 } from "./secretsVaultSync";
+import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { useClientSyncTombstoneStore } from "./tombstones";
 
 function mergeWorkspacesJson(raw: string | null | undefined): void {
@@ -137,6 +138,16 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
     appliedConnections: 0,
     appliedDatabases: 0,
   };
+  if (CLOUD_PULL_DISABLED) {
+    console.warn("[client-sync] cloud pull temporarily disabled (CLOUD_PULL_DISABLED)");
+    return {
+      ok: true,
+      modulesFound: false,
+      conversationsFound: false,
+      appliedConnections: 0,
+      appliedDatabases: 0,
+    };
+  }
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return empty;
 

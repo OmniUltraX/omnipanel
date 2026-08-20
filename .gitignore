@@ -26,6 +26,10 @@ src-tauri/target/
 .DS_Store
 Thumbs.db
 
+# 本地下载的同步快照（可能含主机/Token，勿入库）
+/latest.json
+/*.modules.latest.json
+
 # CodeGraph (local index)
 .codegraph/
 

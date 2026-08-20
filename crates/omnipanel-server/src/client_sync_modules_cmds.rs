@@ -165,7 +165,8 @@ fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
     }
 }
 
-/// 无任何资源且无删除墓碑的「空洞」快照（典型：新空设备误推）。
+/// 无业务资源且无删除墓碑的「空洞」快照（典型：新空设备误推）。
+/// 仅有工作区不算有效业务快照，避免误判为可整表覆盖。
 fn bundle_is_vacuous_empty(bundle: &ClientSyncModulesBundle) -> bool {
     bundle.connections.is_empty()
         && bundle.database_connections.is_empty()
@@ -173,7 +174,6 @@ fn bundle_is_vacuous_empty(bundle: &ClientSyncModulesBundle) -> bool {
         && bundle.http_collections.is_empty()
         && bundle.http_environments.is_empty()
         && bundle.http_requests.is_empty()
-        && bundle.workspaces.is_empty()
         && bundle.deleted_connections.is_empty()
         && bundle.deleted_databases.is_empty()
         && bundle.deleted_knowledge.is_empty()
@@ -190,7 +190,6 @@ fn bundle_has_resources(bundle: &ClientSyncModulesBundle) -> bool {
         || !bundle.http_collections.is_empty()
         || !bundle.http_environments.is_empty()
         || !bundle.http_requests.is_empty()
-        || !bundle.workspaces.is_empty()
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -437,42 +436,88 @@ async fn apply_modules_bundle(
     let deleted_col = tombstone_ids(&bundle.deleted_http_collections);
     let deleted_env = tombstone_ids(&bundle.deleted_http_environments);
 
+    // 分类清理：仅当远端该分类有资源或有墓碑时才整表对齐删除。
+    // 避免「只有工作区 / 空连接列表」的快照把本机已有连接清光。
+    let replace_conn = !remote_conn_ids.is_empty() || !deleted_conn.is_empty();
+    let replace_db = !remote_db_ids.is_empty() || !deleted_db.is_empty();
+    let replace_kn = !remote_kn_ids.is_empty() || !deleted_kn.is_empty();
+    let replace_req = !remote_req_ids.is_empty() || !deleted_req.is_empty();
+    let replace_col = !remote_col_ids.is_empty() || !deleted_col.is_empty();
+    let replace_env = !remote_env_ids.is_empty() || !deleted_env.is_empty();
+
     {
         let storage = state.storage.lock().await;
-        for conn in storage.list_connections()? {
-            if deleted_conn.contains(&conn.id) || !remote_conn_ids.contains(&conn.id) {
-                storage.delete_connection(&conn.id)?;
-                if let Some(ref cred) = conn.credential_ref {
-                    let _ = Vault::delete(cred);
+        if replace_conn {
+            for conn in storage.list_connections()? {
+                if deleted_conn.contains(&conn.id) || !remote_conn_ids.contains(&conn.id) {
+                    storage.delete_connection(&conn.id)?;
+                    if let Some(ref cred) = conn.credential_ref {
+                        let _ = Vault::delete(cred);
+                    }
                 }
             }
-        }
-        for entry in storage.list_knowledge(None, None)? {
-            if deleted_kn.contains(&entry.id) || !remote_kn_ids.contains(&entry.id) {
-                storage.delete_knowledge(&entry.id)?;
+        } else {
+            for id in &deleted_conn {
+                storage.delete_connection(id)?;
             }
         }
-        for req in storage.http_list_requests(None)? {
-            if deleted_req.contains(&req.id) || !remote_req_ids.contains(&req.id) {
-                storage.http_delete_request(&req.id)?;
+        if replace_kn {
+            for entry in storage.list_knowledge(None, None)? {
+                if deleted_kn.contains(&entry.id) || !remote_kn_ids.contains(&entry.id) {
+                    storage.delete_knowledge(&entry.id)?;
+                }
+            }
+        } else {
+            for id in &deleted_kn {
+                storage.delete_knowledge(id)?;
             }
         }
-        for col in storage.http_list_collections()? {
-            if deleted_col.contains(&col.id) || !remote_col_ids.contains(&col.id) {
-                storage.http_delete_collection(&col.id)?;
+        if replace_req {
+            for req in storage.http_list_requests(None)? {
+                if deleted_req.contains(&req.id) || !remote_req_ids.contains(&req.id) {
+                    storage.http_delete_request(&req.id)?;
+                }
+            }
+        } else {
+            for id in &deleted_req {
+                storage.http_delete_request(id)?;
             }
         }
-        for env in storage.http_list_environments()? {
-            if deleted_env.contains(&env.id) || !remote_env_ids.contains(&env.id) {
-                storage.http_delete_environment(&env.id)?;
+        if replace_col {
+            for col in storage.http_list_collections()? {
+                if deleted_col.contains(&col.id) || !remote_col_ids.contains(&col.id) {
+                    storage.http_delete_collection(&col.id)?;
+                }
+            }
+        } else {
+            for id in &deleted_col {
+                storage.http_delete_collection(id)?;
+            }
+        }
+        if replace_env {
+            for env in storage.http_list_environments()? {
+                if deleted_env.contains(&env.id) || !remote_env_ids.contains(&env.id) {
+                    storage.http_delete_environment(&env.id)?;
+                }
+            }
+        } else {
+            for id in &deleted_env {
+                storage.http_delete_environment(id)?;
             }
         }
     }
 
-    for db in state.db_connections.list()? {
-        if deleted_db.contains(&db.id) || !remote_db_ids.contains(&db.id) {
-            state.db_connections.delete(&db.id)?;
-            let _ = Vault::delete(&db_password_ref(&db.id));
+    if replace_db {
+        for db in state.db_connections.list()? {
+            if deleted_db.contains(&db.id) || !remote_db_ids.contains(&db.id) {
+                state.db_connections.delete(&db.id)?;
+                let _ = Vault::delete(&db_password_ref(&db.id));
+            }
+        }
+    } else {
+        for id in &deleted_db {
+            let _ = state.db_connections.delete(id);
+            let _ = Vault::delete(&db_password_ref(id));
         }
     }
 

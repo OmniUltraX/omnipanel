@@ -9,6 +9,7 @@ import {
   type TeamSyncPushModulesResult,
 } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "../../modules/clientSync/tombstones";
 import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -85,6 +86,10 @@ export async function pullTeamModules(
   token: string,
   teamId: number,
 ): Promise<TeamSyncPullModulesResult> {
+  if (CLOUD_PULL_DISABLED) {
+    console.warn("[team-sync] pullTeamModules skipped (CLOUD_PULL_DISABLED)");
+    throw new Error("云端拉取已临时关闭，请稍后再试");
+  }
   return unwrapCommand(commands.teamSyncPullModules(token, teamId));
 }
 

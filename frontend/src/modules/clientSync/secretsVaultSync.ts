@@ -7,6 +7,7 @@ import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
+import { CLOUD_PULL_DISABLED } from "./syncFlags";
 
 let inFlight: Promise<void> | null = null;
 let pendingAfterFlight = false;
@@ -88,6 +89,10 @@ async function runPush(): Promise<void> {
 
 /** 启动 / 登录后：用本机 SyncMasterKey 从云端拉密文库写回钥匙串。 */
 export async function pullSecretsVaultOnce(): Promise<void> {
+  if (CLOUD_PULL_DISABLED) {
+    console.warn("[client-sync] secrets vault pull skipped (CLOUD_PULL_DISABLED)");
+    return;
+  }
   const token = useAuthStore.getState().token?.trim();
   if (!token) return;
 
