@@ -3,6 +3,7 @@ import { commands } from "../../../ipc/bindings";
 import type { DockerConnectionInfo, DockerScanResult } from "../../../ipc/bindings";
 import { asArray } from "../../../ipc/asArray";
 import { unwrapCommand } from "../../../ipc/result";
+import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../../clientSync/moduleSync";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { registerDockerOfflineHandler } from "../dockerConnectionOffline";
 
@@ -55,6 +56,14 @@ export function useDockerConnections() {
 
   useEffect(() => {
     void reloadConnections();
+  }, [reloadConnections]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void reloadConnections();
+    };
+    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
   }, [reloadConnections]);
 
   const scanSshDockerHosts = useCallback(

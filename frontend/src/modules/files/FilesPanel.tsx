@@ -28,6 +28,7 @@ import type { Connection, FileIndexStatus, FileLocalSystemInfo, FileManagerConne
 import type { FileIndexProgress } from "./fileApi";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useFileManagerStore } from "../../stores/fileManagerStore";
+import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../clientSync/moduleSync";
 import {
   useFilesFavoritesStore,
   type FileFavorite,
@@ -382,6 +383,15 @@ function FilesBrowserView() {
     void loadQuickPaths().then(setQuickPaths).catch(() => undefined);
     void loadLocalSystemInfo().then(setLocalSystemInfo).catch(() => undefined);
     void refreshConnections();
+  }, [loadConnections, refreshConnections]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void loadConnections();
+      void refreshConnections();
+    };
+    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
   }, [loadConnections, refreshConnections]);
 
   useEffect(() => {

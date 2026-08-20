@@ -1,5 +1,7 @@
 import { commands } from "../ipc/bindings";
 import { emptySchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
+import { recordModuleTombstones } from "../modules/clientSync/tombstones";
+import { useDbConnectionListStore } from "../stores/dbConnectionListStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useDbSchemaCacheStore } from "../stores/dbSchemaCacheStore";
 import { useDbSchemaFilterStore } from "../stores/dbSchemaFilterStore";
@@ -20,6 +22,10 @@ const EMPTY_SCHEMA_TREE_EXPANDED = { expandedNodeIds: [] as string[] };
 export async function clearDatabaseModuleData(): Promise<void> {
   const listRes = await commands.dbListConnections();
   if (listRes.status === "ok") {
+    const ids = listRes.data.map((conn) => conn.id);
+    if (ids.length > 0) {
+      recordModuleTombstones("database", ids);
+    }
     for (const conn of listRes.data) {
       await commands.dbDeleteConnection(conn.id).catch(() => undefined);
     }
@@ -56,6 +62,11 @@ export async function clearDatabaseModuleData(): Promise<void> {
   useDbSqlFileStore.setState({ nodes: [], dirtyFileIds: [] });
   useDbTreeChartFileStore.setState({ nodes: [], dirtyFileIds: [] });
   useDbDockLayoutStore.getState().reset();
+  useDbConnectionListStore.setState({
+    connections: [],
+    loaded: true,
+    loading: false,
+  });
 
   try {
     localStorage.removeItem(DB_SQL_FILES_CACHE_KEY);
