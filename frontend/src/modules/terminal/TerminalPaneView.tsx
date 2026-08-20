@@ -59,9 +59,13 @@ import {
 } from "./terminalBlockActions";
 import { interruptShell } from "./terminalShellRecovery";
 import { writeTerminalRaw } from "./terminalPaneSenders";
+import { cancelAutoReconnectSsh } from "./autoReconnectTerminalSsh";
+import { reconnectTerminalSession } from "./terminalReconnect";
+import { TerminalCommandBarControls } from "./TerminalCommandBarControls";
 import { shortcutTitle } from "../../lib/shortcutTitle";
 import { useShortcutsStore } from "../../stores/shortcutsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { IconUnplug } from "../../components/ui/Icons";
 
 export type TerminalPaneViewHandle = {
   focusInput: () => void;
@@ -256,6 +260,7 @@ function TerminalSessionHeader({
   connected,
   inputMode,
   onToggleInputMode,
+  onReconnect,
   onRunCommand,
   headerAccessory,
 }: {
@@ -265,6 +270,7 @@ function TerminalSessionHeader({
   connected: boolean;
   inputMode: TerminalInputMode;
   onToggleInputMode: () => void;
+  onReconnect: () => void;
   onRunCommand?: (command: string) => void;
   headerAccessory?: ReactNode;
 }) {
@@ -285,6 +291,7 @@ function TerminalSessionHeader({
   const collapseTitle = shortcutTitle(t("terminal.feed.collapseAll"), "collapse-terminal-blocks");
   const searchTitle = shortcutTitle(t("terminal.feed.search.placeholder"), "search-terminal");
   const clearTitle = shortcutTitle(t("terminal.feed.clearMenu"), "clear-terminal");
+  const reconnectTitle = t("terminal.reconnect.tooltip");
   const inputModeTitle = shortcutTitle(
     inputMode === "external"
       ? t("terminal.inputMode.switchToNative")
@@ -399,58 +406,71 @@ function TerminalSessionHeader({
     },
   ];
 
-  const blockActions =
-    inputMode === "external" ? (
-      <div className="term-session-header__actions" role="toolbar" aria-label={t("terminal.feed.actionsToolbar")}>
-        <button
-          type="button"
-          className="term-session-header__action-btn"
-          title={expandTitle}
-          aria-label={t("terminal.feed.expandAll")}
-          disabled={blockCount === 0}
-          onClick={() => expandAllShellBodies(paneId)}
-        >
-          <HeaderIconExpandAll />
-        </button>
-        <button
-          type="button"
-          className="term-session-header__action-btn"
-          title={collapseTitle}
-          aria-label={t("terminal.feed.collapseAll")}
-          disabled={blockCount === 0}
-          onClick={() => collapseAllShellBodies(paneId)}
-        >
-          <HeaderIconCollapseAll />
-        </button>
-        <button
-          type="button"
-          className="term-session-header__action-btn"
-          title={searchTitle}
-          aria-label={t("terminal.feed.search.placeholder")}
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent("omnipanel-terminal-search", {
-                detail: { sessionId: paneId, action: "open" },
-              }),
-            );
-          }}
-        >
-          <HeaderIconSearch />
-        </button>
-        <HeaderClearMenu
-          disabled={blockCount === 0}
-          label={t("terminal.feed.clearMenu")}
-          title={clearTitle}
-          items={clearMenuItems}
-        />
-      </div>
-    ) : null;
+  const headerActions = (
+    <div className="term-session-header__actions" role="toolbar" aria-label={t("terminal.feed.actionsToolbar")}>
+      <button
+        type="button"
+        className="term-session-header__action-btn"
+        title={reconnectTitle}
+        aria-label={t("terminal.reconnect.menu")}
+        onClick={onReconnect}
+      >
+        <IconUnplug size={14} />
+      </button>
+      {inputMode === "external" ? (
+        <>
+          <button
+            type="button"
+            className="term-session-header__action-btn"
+            title={expandTitle}
+            aria-label={t("terminal.feed.expandAll")}
+            disabled={blockCount === 0}
+            onClick={() => expandAllShellBodies(paneId)}
+          >
+            <HeaderIconExpandAll />
+          </button>
+          <button
+            type="button"
+            className="term-session-header__action-btn"
+            title={collapseTitle}
+            aria-label={t("terminal.feed.collapseAll")}
+            disabled={blockCount === 0}
+            onClick={() => collapseAllShellBodies(paneId)}
+          >
+            <HeaderIconCollapseAll />
+          </button>
+          <button
+            type="button"
+            className="term-session-header__action-btn"
+            title={searchTitle}
+            aria-label={t("terminal.feed.search.placeholder")}
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent("omnipanel-terminal-search", {
+                  detail: { sessionId: paneId, action: "open" },
+                }),
+              );
+            }}
+          >
+            <HeaderIconSearch />
+          </button>
+          <HeaderClearMenu
+            disabled={blockCount === 0}
+            label={t("terminal.feed.clearMenu")}
+            title={clearTitle}
+            items={clearMenuItems}
+          />
+        </>
+      ) : null}
+    </div>
+  );
 
   const rightMetaLine = [hostAddress, meta].filter(Boolean).join(" · ") || null;
 
   const headerRight = (
     <div className="term-session-header__right">
-      {blockActions}
+      {headerActions}
+      <TerminalCommandBarControls className="term-cmd-toolbar--header" />
       {session.type === "remote" ? <TerminalTransportBadge paneId={paneId} /> : null}
       {modeToggle}
       {rightMetaLine ? (
@@ -678,6 +698,11 @@ function PaneViewBody(
   }, [isActive, paneId]);
 
   const handleReconnect = useCallback(() => {
+    cancelAutoReconnectSsh(paneId);
+    reconnectTerminalSession(paneId);
+  }, [paneId]);
+
+  const handleBlockReconnect = useCallback(() => {
     setReconnectKey((value) => value + 1);
   }, []);
 
@@ -689,6 +714,7 @@ function PaneViewBody(
       connected={connected}
       inputMode={inputMode}
       onToggleInputMode={toggleInputMode}
+      onReconnect={handleReconnect}
       onRunCommand={onSendCommand}
       headerAccessory={headerAccessory}
     />
@@ -820,7 +846,7 @@ function PaneViewBody(
           position={blockMenu.position}
           onClose={() => setBlockMenu(null)}
           onRunCommand={onSendCommand}
-          onReconnect={handleReconnect}
+          onReconnect={handleBlockReconnect}
           sessionId={paneId}
         />
       ) : null}

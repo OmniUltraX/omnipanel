@@ -11,12 +11,14 @@ import { useTerminalApprovalMode } from "./terminalApprovalSettings";
 
 type TerminalCommandBarControlsProps = {
   disabled?: boolean;
+  className?: string;
 };
 
 const APPROVAL_MODES: TerminalApprovalMode[] = ["strict", "view", "loose"];
 
 export function TerminalCommandBarControls({
   disabled = false,
+  className,
 }: TerminalCommandBarControlsProps) {
   const { t } = useI18n();
   const providers = useAiModelsStore((s) => s.providers);
@@ -57,7 +59,7 @@ export function TerminalCommandBarControls({
         : modelOptions[0]?.value ?? "";
 
   return (
-    <div className="term-cmd-toolbar">
+    <div className={className ? `term-cmd-toolbar ${className}` : "term-cmd-toolbar"}>
       <Select
         value={approvalMode}
         onChange={(next) => setGlobalApprovalMode(next as TerminalApprovalMode)}

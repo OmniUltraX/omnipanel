@@ -878,10 +878,17 @@ export function disposeTabBackendSessions(tabId: string, knownBackendSessionId?:
 }
 
 /** 结束长期会话：释放后端并清理 detached 状态 */
-export function disposeSessionBackend(sessionId: string, knownBackendSessionId?: string | null) {
+export function disposeSessionBackend(
+  sessionId: string,
+  knownBackendSessionId?: string | null,
+  options?: { preserveInputMode?: boolean },
+) {
   disposeTabBackendSessions(sessionId, knownBackendSessionId);
   clearTerminalSessionRuntime(sessionId);
-  useTerminalUiStore.getState().returnToCommandBar(sessionId);
+  // 重连必须保留直通/命令栏；结束会话才回到命令栏
+  if (!options?.preserveInputMode) {
+    useTerminalUiStore.getState().returnToCommandBar(sessionId);
+  }
 }
 
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {

@@ -464,6 +464,21 @@
         text-overflow: ellipsis;
     }
 
+    .term-session-header .term-cmd-toolbar--header {
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    .term-session-header .term-cmd-toolbar--header .term-cmd-toolbar__model {
+        max-width: 148px;
+    }
+
+    .term-session-header .term-cmd-toolbar--header .omni-select-trigger {
+        height: 22px;
+        min-height: 22px;
+        font-size: 11px;
+    }
+
     .term-cmd-picker {
         position: absolute;
         left: 0;
