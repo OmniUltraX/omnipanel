@@ -10,6 +10,7 @@ import { canInterceptEnterForAi, getEnterGateFlags } from "./enterGates";
 import {
   lineLooksLikeShellPrompt,
   readActiveTerminalLine,
+  stripShellPromptPrefix,
 } from "./screenLine";
 
 type HintState = {
@@ -52,6 +53,12 @@ export function clearPassthroughPromptHint(sessionId: string): void {
     // ignore
   }
   bySession.delete(sessionId);
+}
+
+/** 当前屏幕行是否适合显示灰色占位（空提示符、尚无 PTY 回显正文） */
+export function passthroughPromptHintEligibleScreenLine(screenLine: string): boolean {
+  if (!lineLooksLikeShellPrompt(screenLine)) return false;
+  return stripShellPromptPrefix(screenLine).trim().length === 0;
 }
 
 function paintHint(sessionId: string, term: Terminal, text: string): void {
@@ -169,8 +176,8 @@ export function syncPassthroughPromptHint(
   }
 
   const screenLine = readActiveTerminalLine(term);
-  // 必须已有真实空提示符（如 root@host:~#）；# 后无空格也算
-  if (!lineLooksLikeShellPrompt(screenLine)) {
+  // 必须已有真实空提示符；路径点击 cd 等 PTY 回显后提示符后会有命令正文
+  if (!passthroughPromptHintEligibleScreenLine(screenLine)) {
     clearPassthroughPromptHint(sessionId);
     return;
   }

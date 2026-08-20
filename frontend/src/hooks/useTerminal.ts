@@ -1047,6 +1047,9 @@ export function useTerminal(
 
     function sendCommand(cmd: string) {
       recordTerminalSessionActivity(sessionId, Date.now(), { command: cmd });
+      if (inputModeRef.current === "interactive") {
+        clearPassthroughPromptHint(sessionId);
+      }
       const pane = findPaneById(sessionId);
       const shell = resolveTerminalShellFamily(pane?.type ?? "local", pane?.shellLabel, pane?.shellSpec);
       writeToBackend(formatPtyCommandInput(cmd, shell));

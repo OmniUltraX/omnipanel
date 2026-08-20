@@ -202,7 +202,62 @@ describe("classifyLinePathLinks", () => {
     expect(isXtermMouseTrackingOn({ modes: { mouseTrackingMode: "none" } })).toBe(false);
     expect(isXtermMouseTrackingOn({ modes: { mouseTrackingMode: "vt200" } })).toBe(true);
   });
+
+  it("直通输入行上的中文自然语言不应被识别为文件链接", () => {
+    const listing = [
+      { name: "deploy_id", isDir: false },
+      { name: "install_panel.sh", isDir: false },
+      { name: "logs", isDir: true },
+    ];
+    const line = "root@cszn:~# 现在的时间";
+    const links = classifyLinePathLinks({
+      ...BASE,
+      cwd: "/root",
+      line,
+      listing,
+      isDirectoryColor: (start) => start >= lineBodyStart(line),
+    });
+    expect(links.every((item) => item.text !== "现在的时间")).toBe(true);
+    expect(links.every((item) => item.start < lineBodyStart(line))).toBe(true);
+  });
+
+  it("直通输入行上的英文自然语言问句不应被识别为文件链接", () => {
+    const links = classifyLinePathLinks({
+      ...BASE,
+      line: "root@host:~# how do I check disk usage",
+      listing: null,
+    });
+    expect(links.every((item) => item.start < lineBodyStart("root@host:~# how do I check disk usage"))).toBe(
+      true,
+    );
+  });
+
+  it("直通输入行上的 shell 命令仍可识别路径", () => {
+    const links = classifyLinePathLinks({
+      ...BASE,
+      line: "root@localhost:~/cache# cat /etc/hosts",
+      listing: null,
+    });
+    expect(links.some((item) => item.text === "/etc/hosts" && item.kind === "file")).toBe(true);
+  });
+
+  it("ls 输出里的中文文件名仍可识别为链接", () => {
+    const links = classifyLinePathLinks({
+      ...BASE,
+      line: "说明.txt  备份目录",
+      listing: [
+        { name: "说明.txt", isDir: false },
+        { name: "备份目录", isDir: true },
+      ],
+    });
+    expect(links.map((item) => item.text)).toEqual(["说明.txt", "备份目录"]);
+  });
 });
+
+function lineBodyStart(line: string): number {
+  const idx = line.indexOf("# ");
+  return idx >= 0 ? idx + 2 : line.indexOf("$ ") + 2;
+}
 
 describe("buildPathLinkRange", () => {
   it("使用 buffer 行号而不是写死 1", () => {
