@@ -821,6 +821,52 @@ pub(crate) fn require_personal_team_id(profile: &AuthUserProfile) -> Result<i64,
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "当前账号没有可用团队，无法同步快照"))
 }
 
+/// 解析同步目标团队：缺省个人团队；显式 `team_id` 必须存在于 `me.teams`（成员校验）。
+pub(crate) fn resolve_sync_team<'a>(
+    request_team_id: Option<i64>,
+    me: &'a AuthUserProfile,
+) -> Result<&'a AuthTeamMembership, OmniError> {
+    let id = match request_team_id {
+        Some(id) if id > 0 => id,
+        _ => require_personal_team_id(me)?,
+    };
+    me.teams.iter().find(|t| t.id == id).ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::Auth,
+            "无权访问该团队同步数据：你不是该团队成员",
+        )
+    })
+}
+
+/// 同步 blob 端到端密钥材料（内存派生 AES 密钥；不落盘、不上传）。
+pub(crate) fn sync_blob_key_material(
+    me: &AuthUserProfile,
+    team: &AuthTeamMembership,
+) -> Result<String, OmniError> {
+    if team.kind.eq_ignore_ascii_case("personal") {
+        let openid = me.openid.trim();
+        if openid.is_empty() {
+            return Err(OmniError::new(
+                ErrorCode::Auth,
+                "账号缺少 openid，无法派生同步密钥",
+            ));
+        }
+        Ok(format!("omnipanel.sync.v1.personal:{openid}"))
+    } else {
+        let oss = team.team_oss_key.trim();
+        if oss.is_empty() {
+            return Err(OmniError::new(
+                ErrorCode::Auth,
+                "团队缺少 OSS 前缀，无法派生同步密钥",
+            ));
+        }
+        Ok(format!(
+            "omnipanel.sync.v1.team:{}:{}:omnipanel-client-sync-e2e-v1",
+            team.id, oss
+        ))
+    }
+}
+
 /// 将服务端会话失效类英文文案（如 `ticket not found`）规范为可读中文。
 fn normalize_session_error_message(message: &str, fallback: &str) -> String {
     let lower = message.trim().to_ascii_lowercase();

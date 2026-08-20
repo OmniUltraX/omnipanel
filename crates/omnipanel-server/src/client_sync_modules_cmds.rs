@@ -1,5 +1,5 @@
-﻿//! 客户端默认团队「各业务模块」同步。
-//! 路径：个人团队 OSS `modules/latest.json`（与手动团队同步共用）。
+﻿//! 客户端选定团队「各业务模块」同步。
+//! 路径：团队 OSS `modules/latest.json`；上传前端到端加密，密码不进快照（个人凭据走 secrets vault）。
 
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,12 +9,15 @@ use omnipanel_assistant::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    db_password_ref, load_database_connections, Connection, DbConnectionConfig, HttpCollection,
-    HttpEnvironment, KnowledgeEntry, SavedHttpRequest, Vault,
+    db_password_ref, decode_sync_blob_or_legacy, encrypt_sync_blob, load_database_connections,
+    Connection, DbConnectionConfig, HttpCollection, HttpEnvironment, KnowledgeEntry,
+    SavedHttpRequest, Vault, SYNC_KIND_MODULES,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
-use crate::auth_cmds::{auth_device_identity, auth_get_me, require_personal_team_id};
+use crate::auth_cmds::{
+    auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material,
+};
 use crate::assistant_cmds::build_auth_context;
 
 const MODULES_KIND: &str = "workspace-modules";
@@ -151,11 +154,14 @@ pub struct ClientSyncPushModulesRequest {
     pub team_id: Option<i64>,
 }
 
-/// 解析请求里的可选 `team_id`：有效则用之，否则回退到默认个人团队。
-fn resolve_team_id(request_team_id: Option<i64>, me: &crate::auth_cmds::AuthUserProfile) -> Result<i64, OmniError> {
-    match request_team_id {
-        Some(id) if id > 0 => Ok(id),
-        _ => require_personal_team_id(me),
+/// 上传前剥离连接/数据库明文密码：个人凭据走 secrets vault，协作团队不同步密码。
+fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
+    for item in &mut bundle.connections {
+        item.secret = None;
+    }
+    for item in &mut bundle.database_connections {
+        item.secret = None;
+        item.connection.password.clear();
     }
 }
 
@@ -187,12 +193,11 @@ fn collect_connection_items(
     let list = storage.list_connections()?;
     let mut out = Vec::with_capacity(list.len());
     for connection in list {
-        let secret = connection
-            .credential_ref
-            .as_deref()
-            .and_then(|r| Vault::get(r).ok())
-            .filter(|s| !s.is_empty());
-        out.push(ClientSyncConnectionItem { connection, secret });
+        // 密码不进 modules 快照；个人多设备凭据走 secrets vault。
+        out.push(ClientSyncConnectionItem {
+            connection,
+            secret: None,
+        });
     }
     Ok(out)
 }
@@ -201,13 +206,17 @@ fn collect_database_items() -> Result<Vec<ClientSyncDatabaseItem>, OmniError> {
     let list = load_database_connections()?;
     let mut out = Vec::with_capacity(list.len());
     for mut connection in list {
-        let secret = Vault::get(&db_password_ref(&connection.id))
+        let has_password = Vault::get(&db_password_ref(&connection.id))
             .ok()
-            .filter(|s| !s.is_empty());
-        // 密码只走 secret 字段，配置体不落明文
+            .filter(|s| !s.is_empty())
+            .is_some();
+        // 配置体与 secret 均不落明文；仅同步 has_password 元数据。
         connection.password.clear();
-        connection.has_password = secret.is_some();
-        out.push(ClientSyncDatabaseItem { connection, secret });
+        connection.has_password = has_password;
+        out.push(ClientSyncDatabaseItem {
+            connection,
+            secret: None,
+        });
     }
     Ok(out)
 }
@@ -284,7 +293,9 @@ pub async fn client_sync_push_modules(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
-    let team_id = resolve_team_id(request.team_id, &me)?;
+    let team = resolve_sync_team(request.team_id, &me)?;
+    let team_id = team.id;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let mut bundle = {
@@ -296,11 +307,13 @@ pub async fn client_sync_push_modules(
     if !device_name.is_empty() {
         tag_bundle_with_device(&mut bundle, &device_name);
     }
+    strip_bundle_secrets(&mut bundle);
 
-    let body = serde_json::to_vec(&bundle).map_err(|e| {
+    let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
     })?;
-    validate_modules_bundle_json(&body)?;
+    validate_modules_bundle_json(&plaintext)?;
+    let body = encrypt_sync_blob(&key_material, SYNC_KIND_MODULES, &plaintext)?;
     let uploaded = push_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
     Ok(ClientSyncPushModulesResult {
@@ -416,27 +429,16 @@ async fn apply_modules_bundle(
 
     for item in &bundle.database_connections {
         let mut c = item.connection.clone();
-        if let Some(secret) = item.secret.as_deref().filter(|s| !s.is_empty()) {
-            c.password = secret.to_string();
-        } else {
-            c.password.clear();
-        }
+        // 密码不从 modules 导入（含历史明文 secret）；个人凭据走 secrets vault。
+        c.password.clear();
         state.db_connections.save(c)?;
     }
 
     {
         let storage = state.storage.lock().await;
         for item in &bundle.connections {
-            let mut conn = item.connection.clone();
-            if let Some(secret) = item.secret.as_deref().filter(|s| !s.is_empty()) {
-                let cred_ref = conn
-                    .credential_ref
-                    .clone()
-                    .unwrap_or_else(|| format!("ssh-password-{}", conn.id));
-                Vault::store(&cred_ref, secret)?;
-                conn.credential_ref = Some(cred_ref);
-            }
-            storage.save_connection(&conn)?;
+            // 不从 modules 的 secret 写入本地 Vault。
+            storage.save_connection(&item.connection)?;
         }
         for entry in &bundle.knowledge {
             storage.save_knowledge(entry)?;
@@ -483,7 +485,9 @@ pub async fn client_sync_pull_modules(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
-    let team_id = resolve_team_id(request.team_id, &me)?;
+    let team = resolve_sync_team(request.team_id, &me)?;
+    let team_id = team.id;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let Some((object_key, bytes)) =
@@ -502,8 +506,9 @@ pub async fn client_sync_pull_modules(
         });
     };
 
-    validate_modules_bundle_json(&bytes)?;
-    let bundle: ClientSyncModulesBundle = serde_json::from_slice(&bytes).map_err(|e| {
+    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &bytes)?;
+    validate_modules_bundle_json(&plaintext)?;
+    let bundle: ClientSyncModulesBundle = serde_json::from_slice(&plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析云端模块快照失败").with_cause(e.to_string())
     })?;
 

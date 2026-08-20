@@ -7309,6 +7309,10 @@ export const enUS: TranslationDict = {
     switchTeamCurrent: "Current",
     switchTeamPersonal: "Personal",
     switchTeamEmpty: "No teams available",
+    switchTeamConfirmTitle: "Confirm team switch",
+    switchTeamConfirm:
+      "Switch data snapshot source from \"{from}\" to \"{to}\"? Current team data will be saved first, then the target team's data will be loaded.",
+    switchTeamConfirmOk: "Switch",
     switchTeamSuccess: "Switched to \"{name}\" and loaded its data",
     switchTeamEmptySnapshot:
       "Switched to \"{name}\" (no snapshot yet; keeping local data)",
@@ -7361,6 +7365,9 @@ export const enUS: TranslationDict = {
     },
     teams: {
       title: "Teams",
+      managementTitle: "Team Management",
+      manageTeam: "Manage team",
+      manageTeamAria: "Manage team \"{name}\"",
       desc: "Create or join a team to share workspaces and resources with members.",
       create: "Create team",
       createTitle: "Create team",

@@ -7229,6 +7229,10 @@ export const zhCN = {
     switchTeamCurrent: "当前",
     switchTeamPersonal: "个人",
     switchTeamEmpty: "暂无可切换的团队",
+    switchTeamConfirmTitle: "确认切换团队",
+    switchTeamConfirm:
+      "确定将数据快照来源从「{from}」切换到「{to}」？切换会先保存当前团队数据，再加载目标团队数据。",
+    switchTeamConfirmOk: "确认切换",
     switchTeamSuccess: "已切换到「{name}」，并加载该团队数据",
     switchTeamEmptySnapshot: "已切换到「{name}」（目标团队暂无快照，保留本机数据）",
     switchTeamFailed: "切换团队失败，请稍后重试",
@@ -7280,6 +7284,9 @@ export const zhCN = {
     },
     teams: {
       title: "团队",
+      managementTitle: "团队管理",
+      manageTeam: "管理团队",
+      manageTeamAria: "管理团队「{name}」",
       desc: "创建或加入团队，与成员共享工作区与资源。",
       create: "创建团队",
       createTitle: "创建团队",

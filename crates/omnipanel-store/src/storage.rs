@@ -1136,6 +1136,7 @@ mod tests {
             query_params: "[]".into(),
             created_at: 1,
             updated_at: 1,
+            tags: Vec::new(),
         };
         storage.http_save_request(&req).unwrap();
         assert_eq!(storage.http_list_requests(None).unwrap().len(), 1);

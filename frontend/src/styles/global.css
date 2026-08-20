@@ -7186,11 +7186,25 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     z-index: var(--z-subwindow-popover, 1400);
 }
 
+.sidebar-team-switch-menu__row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+    border-radius: var(--r-sm);
+}
+
+.sidebar-team-switch-menu__row--active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .sidebar-team-switch-menu__item {
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
     padding: 8px 10px;
     border: none;
     border-radius: var(--r-sm);
@@ -7207,9 +7221,47 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     background: var(--bg-hover, color-mix(in srgb, var(--accent) 10%, transparent));
 }
 
+.sidebar-team-switch-menu__row--active .sidebar-team-switch-menu__item,
+.sidebar-team-switch-menu__row--active .sidebar-team-switch-menu__item:hover,
 .sidebar-team-switch-menu__item--active {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    background: transparent;
     color: var(--fg);
+}
+
+.sidebar-team-switch-menu__edit {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+}
+
+.sidebar-team-switch-menu__edit:hover {
+    background: var(--bg-hover, color-mix(in srgb, var(--accent) 10%, transparent));
+    color: var(--fg);
+}
+
+.sidebar-team-switch-menu__edit--active,
+.sidebar-team-switch-menu__row--active .sidebar-team-switch-menu__edit {
+    color: var(--accent, var(--fg));
+}
+
+.sidebar-team-switch-menu__edit--active:hover,
+.sidebar-team-switch-menu__row--active .sidebar-team-switch-menu__edit:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent, var(--fg));
+}
+
+.sidebar-team-switch-menu__edit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .sidebar-team-switch-menu__name {
@@ -25703,6 +25755,21 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     min-height: 0;
     overflow: hidden;
     padding: 0;
+}
+
+/* Team Management（独立弹窗） */
+.team-management-subwindow .subwindow-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+}
+
+.team-management-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
 }
 
 /* 个人中心退出后：与登录页一致的多方式登录 */

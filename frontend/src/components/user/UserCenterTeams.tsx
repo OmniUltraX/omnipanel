@@ -71,7 +71,12 @@ function maskUnionId(value: string): string {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 }
 
-export function UserCenterTeams() {
+export function UserCenterTeams({
+  initialTeamId = null,
+}: {
+  /** 打开弹窗时自动进入该团队详情 */
+  initialTeamId?: number | null;
+} = {}) {
   const { t, locale } = useI18n();
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
@@ -224,6 +229,15 @@ export function UserCenterTeams() {
   useEffect(() => {
     void loadTeams();
   }, [loadTeams]);
+
+  // 从侧栏「编辑」带入的 teamId：列表加载后自动进入详情
+  useEffect(() => {
+    if (initialTeamId == null || initialTeamId <= 0 || teams.length === 0) return;
+    const team = teams.find((item) => item.id === initialTeamId);
+    if (team) {
+      setSelectedTeam(team);
+    }
+  }, [initialTeamId, teams]);
 
   useEffect(() => {
     if (!selectedTeam) {

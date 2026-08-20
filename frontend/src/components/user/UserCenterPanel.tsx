@@ -9,7 +9,6 @@ import {
   IconCheckCircle,
   IconMonitor,
   IconUser,
-  IconUsers,
 } from "../ui/icons/Icons";
 import {
   LOCALE_OPTIONS,
@@ -40,7 +39,6 @@ import {
 } from "../../lib/auth/avatarImage";
 import { AuthLoginMethods } from "./AuthLoginMethods";
 import { UserCenterDevices } from "./UserCenterDevices";
-import { UserCenterTeams } from "./UserCenterTeams";
 import {
   AccountLinkBindPanel,
   type AccountLinkKind,
@@ -246,7 +244,6 @@ const NAV_ITEMS: {
     labelKey: "userCenter.nav.subscription",
     icon: <IconCheckCircle size={14} />,
   },
-  { id: "team", labelKey: "userCenter.nav.team", icon: <IconUsers size={14} /> },
   { id: "devices", labelKey: "userCenter.nav.devices", icon: <IconMonitor size={14} /> },
 ];
 
@@ -537,8 +534,6 @@ export function UserCenterPanel() {
   let main: ReactNode;
   if (page === "subscription") {
     main = subscriptionPage;
-  } else if (page === "team") {
-    main = <UserCenterTeams />;
   } else if (page === "devices") {
     main = <UserCenterDevices />;
   } else {

@@ -382,6 +382,7 @@ mod tests {
             status: "unknown".into(),
             enabled: true,
             has_password: false,
+            tags: Vec::new(),
         }
     }
 

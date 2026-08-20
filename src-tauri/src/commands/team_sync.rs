@@ -17,12 +17,17 @@ use specta::Type;
 use tauri::State;
 
 use crate::commands::assistant::build_auth_context;
-use crate::commands::auth::{auth_device_identity, auth_get_me};
+use crate::commands::auth::{
+    auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material,
+};
 use crate::commands::client_sync_modules::{
-    build_peek_from_bundle, collect_local_bundle, tag_bundle_with_device,
+    build_peek_from_bundle, collect_local_bundle, strip_bundle_secrets, tag_bundle_with_device,
     ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
 };
 use crate::state::AppState;
+use omnipanel_store::{
+    decode_sync_blob_or_legacy, encrypt_sync_blob, SYNC_KIND_MODULES,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1089,6 +1094,9 @@ pub async fn team_sync_push_modules(
     }
 
     let identity = auth_device_identity().await?;
+    let me = auth_get_me(state.clone(), token.clone()).await?;
+    let team = resolve_sync_team(Some(request.team_id), &me)?;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_modules_push_request(&request);
     let exclusions = exclusions_from_push(&request);
@@ -1102,12 +1110,15 @@ pub async fn team_sync_push_modules(
     if !device_name.is_empty() {
         tag_bundle_with_device(&mut bundle, &device_name);
     }
-    let body = serde_json::to_vec(&bundle).map_err(|e| {
+    // 协作团队不同步密码；个人凭据走 vault —— modules JSON 一律不带明文 secret。
+    strip_bundle_secrets(&mut bundle);
+    let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
     })?;
-    validate_modules_bundle_json(&body)?;
+    validate_modules_bundle_json(&plaintext)?;
+    let body = encrypt_sync_blob(&key_material, SYNC_KIND_MODULES, &plaintext)?;
 
-    let uploaded = push_team_sync_json(&auth, request.team_id, TEAM_MODULES_LATEST_LEAF, &body).await?;
+    let uploaded = push_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
     Ok(TeamSyncPushModulesResult {
         object_key: uploaded.object_key,
@@ -1130,17 +1141,21 @@ pub async fn team_sync_pull_modules(
     }
 
     let identity = auth_device_identity().await?;
+    let me = auth_get_me(state.clone(), token.clone()).await?;
+    let team = resolve_sync_team(Some(team_id), &me)?;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
-    let pulled = pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await?;
+    let pulled = pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await?;
     let Some((object_key, body)) = pulled else {
         return Err(OmniError::new(
             ErrorCode::NotFound,
             "团队尚未上传模块同步数据",
         ));
     };
-    validate_modules_bundle_json(&body)?;
+    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &body)?;
+    validate_modules_bundle_json(&plaintext)?;
     let bytes = body.len() as f64;
-    let body_json = String::from_utf8(body).map_err(|e| {
+    let body_json = String::from_utf8(plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "团队模块同步内容编码无效").with_cause(e.to_string())
     })?;
     Ok(TeamSyncPullModulesResult {
@@ -1163,6 +1178,9 @@ pub async fn team_sync_peek_modules(
     }
 
     let identity = auth_device_identity().await?;
+    let me = auth_get_me(state.clone(), token.clone()).await?;
+    let team = resolve_sync_team(Some(request.team_id), &me)?;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_peek_modules_request(&request);
     let exclusions = exclusions_from_peek(&request);
@@ -1175,14 +1193,17 @@ pub async fn team_sync_peek_modules(
     if !device_name.is_empty() {
         tag_bundle_with_device(&mut local, &device_name);
     }
+    // peek 本地侧也不展示/对比明文密码
+    strip_bundle_secrets(&mut local);
 
     let remote = if let Ok(Some((_, body))) =
-        pull_team_sync_json(&auth, request.team_id, TEAM_MODULES_LATEST_LEAF).await
+        pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await
     {
-        if validate_modules_bundle_json(&body).is_ok() {
-            serde_json::from_slice::<ClientSyncModulesBundle>(&body).ok()
-        } else {
-            None
+        match decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &body) {
+            Ok(plaintext) if validate_modules_bundle_json(&plaintext).is_ok() => {
+                serde_json::from_slice::<ClientSyncModulesBundle>(&plaintext).ok()
+            }
+            _ => None,
         }
     } else {
         None

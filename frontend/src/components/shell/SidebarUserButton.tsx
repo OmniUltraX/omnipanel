@@ -23,11 +23,14 @@ import {
   useCurrentSyncTeamStore,
 } from "../../stores/currentSyncTeamStore";
 import { switchSyncTeam } from "../../modules/clientSync/switchSyncTeam";
+import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
+import { useTeamManagementUiStore } from "../../stores/teamManagementUiStore";
 import {
   IconCheckCircle,
   IconDownload,
   IconGlobe,
+  IconPencil,
   IconSettings,
   IconUser,
   IconUsers,
@@ -62,6 +65,7 @@ export function SidebarUserButton() {
   const updateBadge = useAppUpdateStore(selectUpdateBadgeVisible);
   const openUpdateDialog = useAppUpdateStore((s) => s.openDialog);
   const currentTeamId = useCurrentSyncTeamStore((s) => s.teamId);
+  const openTeamManagement = useTeamManagementUiStore((s) => s.openTeamManagement);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
@@ -103,7 +107,7 @@ export function SidebarUserButton() {
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const gap = 8;
-    const menuWidth = 220;
+    const menuWidth = 260;
     const maxHeight = Math.max(160, window.innerHeight - 8 - rect.top);
     let left = rect.right + gap;
     if (left + menuWidth > window.innerWidth - 8) {
@@ -176,6 +180,12 @@ export function SidebarUserButton() {
     openUserCenter("account");
   };
 
+  const handleManageTeam = (teamId: number) => {
+    setTeamMenuOpen(false);
+    setMenuOpen(false);
+    openTeamManagement(teamId);
+  };
+
   const handleSelectTeam = (teamId: number) => {
     if (switchingTeam) return;
     if (effectiveTeamId === teamId) {
@@ -184,10 +194,26 @@ export function SidebarUserButton() {
     }
     const teamName =
       teams.find((team) => team.id === teamId)?.name?.trim() || `#${teamId}`;
+    const currentName =
+      currentTeam?.name?.trim() ||
+      (effectiveTeamId ? `#${effectiveTeamId}` : t("userCenter.switchTeamPersonal"));
     setTeamMenuOpen(false);
-    setSwitchingTeamName(teamName);
-    setSwitchingTeam(true);
     void (async () => {
+      const confirmed = await appConfirm(
+        t("userCenter.switchTeamConfirm", {
+          from: currentName,
+          to: teamName,
+        }),
+        t("userCenter.switchTeamConfirmTitle"),
+        {
+          kind: "warning",
+          confirmLabel: t("userCenter.switchTeamConfirmOk"),
+        },
+      );
+      if (!confirmed) return;
+
+      setSwitchingTeamName(teamName);
+      setSwitchingTeam(true);
       try {
         const result = await switchSyncTeam(teamId);
         if (!result.switched) return;
@@ -354,27 +380,56 @@ export function SidebarUserButton() {
                     (!effectiveTeamId &&
                       (team.kind ?? "").trim().toLowerCase() === "personal");
                   return (
-                    <button
+                    <div
                       key={team.id}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={isActive}
-                      className={`sidebar-team-switch-menu__item${
-                        isActive ? " sidebar-team-switch-menu__item--active" : ""
+                      className={`sidebar-team-switch-menu__row${
+                        isActive ? " sidebar-team-switch-menu__row--active" : ""
                       }`}
-                      disabled={switchingTeam}
-                      onClick={() => handleSelectTeam(team.id)}
+                      role="none"
                     >
-                      <span className="sidebar-team-switch-menu__name" title={team.name}>
-                        {team.name || `#${team.id}`}
-                      </span>
-                      {renderTeamTag(team.kind)}
-                      {isActive ? (
-                        <span className="sidebar-team-switch-menu__check" aria-hidden>
-                          <IconCheckCircle size={14} />
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={isActive}
+                        className={`sidebar-team-switch-menu__item${
+                          isActive ? " sidebar-team-switch-menu__item--active" : ""
+                        }`}
+                        disabled={switchingTeam}
+                        onClick={() => handleSelectTeam(team.id)}
+                      >
+                        <span className="sidebar-team-switch-menu__name" title={team.name}>
+                          {team.name || `#${team.id}`}
                         </span>
-                      ) : null}
-                    </button>
+                        {renderTeamTag(team.kind)}
+                        {isActive ? (
+                          <span className="sidebar-team-switch-menu__check" aria-hidden>
+                            <IconCheckCircle size={14} />
+                          </span>
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className={`sidebar-team-switch-menu__edit${
+                          isActive ? " sidebar-team-switch-menu__edit--active" : ""
+                        }`}
+                        title={t("userCenter.teams.manageTeam")}
+                        aria-label={t("userCenter.teams.manageTeamAria", {
+                          name: team.name || `#${team.id}`,
+                        })}
+                        disabled={switchingTeam}
+                        onMouseDown={(event) => {
+                          // 避免触发菜单外点击关闭逻辑前丢失目标
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleManageTeam(team.id);
+                        }}
+                      >
+                        <IconPencil size={13} />
+                      </button>
+                    </div>
                   );
                 })
               )}

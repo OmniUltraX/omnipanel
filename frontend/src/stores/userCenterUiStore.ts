@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type UserCenterPage = "account" | "subscription" | "team" | "devices";
+export type UserCenterPage = "account" | "subscription" | "devices";
 
 interface UserCenterUiState {
   open: boolean;

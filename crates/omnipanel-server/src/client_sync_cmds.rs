@@ -1,25 +1,19 @@
 //! 客户端团队快照：AI 会话推送/拉取。
 //! 写入选定团队 OSS：`ai-conversations/latest.json`（`POST /api/teams/{id}/oss/sts`）。
 //! `team_id` 缺省时回退到 `/api/me.teams` 中 `kind=personal` 的默认团队。
+//! 上传前整包端到端加密；拉取时解密（兼容历史明文）。
 
 use omnipanel_assistant::{
     pull_team_sync_json, push_team_sync_json, validate_conversations_bundle_json,
     TEAM_CONVERSATIONS_LATEST_LEAF,
 };
 use omnipanel_error::{ErrorCode, OmniError};
+use omnipanel_store::{decode_sync_blob_or_legacy, encrypt_sync_blob, SYNC_KIND_CONVERSATIONS};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::auth_cmds::{auth_device_identity, auth_get_me, require_personal_team_id, AuthUserProfile};
+use crate::auth_cmds::{auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material};
 use crate::assistant_cmds::build_auth_context;
-
-/// 解析请求里的可选 `team_id`：有效则用之，否则回退到默认个人团队。
-fn resolve_team_id(request_team_id: Option<i64>, me: &AuthUserProfile) -> Result<i64, OmniError> {
-    match request_team_id {
-        Some(id) if id > 0 => Ok(id),
-        _ => require_personal_team_id(me),
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -69,14 +63,17 @@ pub async fn client_sync_push_conversations(
             "未登录，无法同步会话到云端",
         ));
     }
-    let body = request.body_json.as_bytes();
-    validate_conversations_bundle_json(body)?;
+    let plaintext = request.body_json.as_bytes();
+    validate_conversations_bundle_json(plaintext)?;
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
-    let team_id = resolve_team_id(request.team_id, &me)?;
+    let team = resolve_sync_team(request.team_id, &me)?;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
-    let uploaded = push_team_sync_json(&auth, team_id, TEAM_CONVERSATIONS_LATEST_LEAF, body).await?;
+    let body = encrypt_sync_blob(&key_material, SYNC_KIND_CONVERSATIONS, plaintext)?;
+    let uploaded =
+        push_team_sync_json(&auth, team.id, TEAM_CONVERSATIONS_LATEST_LEAF, &body).await?;
 
     Ok(ClientSyncPushConversationsResult {
         object_key: uploaded.object_key,
@@ -99,11 +96,12 @@ pub async fn client_sync_pull_conversations(
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
-    let team_id = resolve_team_id(request.team_id, &me)?;
+    let team = resolve_sync_team(request.team_id, &me)?;
+    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let Some((object_key, bytes)) =
-        pull_team_sync_json(&auth, team_id, TEAM_CONVERSATIONS_LATEST_LEAF).await?
+        pull_team_sync_json(&auth, team.id, TEAM_CONVERSATIONS_LATEST_LEAF).await?
     else {
         return Ok(ClientSyncPullConversationsResult {
             found: false,
@@ -113,8 +111,9 @@ pub async fn client_sync_pull_conversations(
         });
     };
 
-    validate_conversations_bundle_json(&bytes)?;
-    let body_json = String::from_utf8(bytes.clone()).map_err(|e| {
+    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_CONVERSATIONS, &bytes)?;
+    validate_conversations_bundle_json(&plaintext)?;
+    let body_json = String::from_utf8(plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "云端会话快照编码无效").with_cause(e.to_string())
     })?;
 

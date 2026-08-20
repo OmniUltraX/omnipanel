@@ -36,6 +36,7 @@ mod third_party_account;
 mod vault;
 mod ssh_vault;
 mod secrets_crypto;
+mod sync_crypto;
 mod http_proxy;
 mod web_search;
 mod workflow;
@@ -146,6 +147,10 @@ pub use vault::Vault;
 pub use secrets_crypto::{
     decode_salt_b64, decrypt_vault, derive_master_key, encrypt_vault_with_salt, generate_salt,
     MasterKey, SecretsVaultEnvelope, SecretsVaultEntry, SecretsVaultPlaintext,
+};
+pub use sync_crypto::{
+    decode_sync_blob_or_legacy, decrypt_sync_blob, encrypt_sync_blob, looks_like_sync_blob_envelope,
+    SyncBlobEnvelope, SYNC_BLOB_SCHEME, SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES,
 };
 pub use ssh_vault::{
     ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
