@@ -2,11 +2,13 @@ import { commands } from "../ipc/bindings";
 import { disposeTabBackendSessions } from "../hooks/useTerminal";
 import { DOCKER_LOCAL_CONNECTION_ID } from "../modules/docker/constants";
 import { LOCAL_CONNECTION_ID } from "../modules/files/utils";
+import { invalidatePathListingCache } from "../modules/terminal/commandBar/pathListingCache";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useAiStore } from "../stores/aiStore";
 import { useAiModelsStore } from "../stores/aiModelsStore";
 import { useAcpServicesStore, initAcpServicesStore } from "../stores/acpServicesStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
+import { useDockerSidebarCacheStore } from "../stores/dockerSidebarCacheStore";
 import { useFileManagerStore } from "../stores/fileManagerStore";
 import { useFilesClipboardStore } from "../stores/filesClipboardStore";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
@@ -45,9 +47,39 @@ export function clearAppLayoutCache(): void {
   useServerTabStore.setState({ byGroup: {} });
   useWorkspaceStore.setState({ selectedResourceByPath: {} });
   useSettingsStore.getState().setAiDockWidth(AI_DOCK_WIDTH_DEFAULT);
+  invalidatePathListingCache();
+  useDockerSidebarCacheStore.setState({
+    connections: {},
+    refreshingKeys: {},
+  });
 }
 
-/** 清除各模块用户创建的数据（连接、任务、工作流、终端会话等） */
+async function clearHttpProtocolData(): Promise<void> {
+  const collections = await commands.httpListCollections().catch(() => null);
+  if (collections && collections.status === "ok") {
+    for (const col of collections.data) {
+      await commands.httpDeleteCollection(col.id).catch(() => undefined);
+    }
+  }
+
+  const requests = await commands.httpListRequests(null).catch(() => null);
+  if (requests && requests.status === "ok") {
+    for (const req of requests.data) {
+      await commands.httpDeleteRequest(req.id).catch(() => undefined);
+    }
+  }
+
+  const environments = await commands.httpListEnvironments().catch(() => null);
+  if (environments && environments.status === "ok") {
+    for (const env of environments.data) {
+      await commands.httpDeleteEnvironment(env.id).catch(() => undefined);
+    }
+  }
+
+  await commands.httpClearHistory().catch(() => undefined);
+}
+
+/** 清除各模块用户创建的数据与资源（连接、任务、工作流、终端会话等） */
 export async function clearAppUserData(): Promise<void> {
   const connRes = await commands.connList();
   if (connRes.status === "ok") {
@@ -154,8 +186,9 @@ export async function clearAppUserData(): Promise<void> {
     error: null,
   });
 
-  await commands.httpClearHistory().catch(() => undefined);
+  await clearHttpProtocolData();
 
+  await commands.terminalHistoryClearAll().catch(() => undefined);
   const { clearTerminalHistoryData } = await import("../stores/terminalHistoryStore");
   clearTerminalHistoryData();
 
@@ -177,9 +210,19 @@ export async function clearAppUserData(): Promise<void> {
   }
   useWorkspaceStore.setState({
     workspace: DEFAULT_WORKSPACE,
+    workspaces: [DEFAULT_WORKSPACE],
     activeResourceId: "local-terminal",
     selectedResourceByPath: {},
   });
 
   useWorkspaceBottomDockStore.getState().resetAll();
+}
+
+/**
+ * 清除缓存（完整）：布局习惯 + 全部用户数据与资源。
+ * 内置本地 Docker / 文件连接会保留。
+ */
+export async function clearAppCache(): Promise<void> {
+  await clearAppUserData();
+  clearAppLayoutCache();
 }

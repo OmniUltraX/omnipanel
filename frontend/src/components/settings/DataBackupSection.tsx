@@ -1,46 +1,30 @@
 import { useState } from "react";
 import { useI18n } from "../../i18n";
-import { clearAppLayoutCache, clearAppUserData } from "../../lib/appDataReset";
+import { clearAppCache } from "../../lib/appDataReset";
 import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../ui/primitives/Button";
 
 /**
- * 系统设置内的「用户数据」一项：合并原缓存页的清理能力，并提供清除缓存按钮。
+ * 系统设置内的「用户数据」一项：一键清除缓存（含布局习惯与全部用户资源）。
  */
 export function DataBackupSection() {
   const { t } = useI18n();
-  const [clearingCache, setClearingCache] = useState(false);
-  const [clearingUserData, setClearingUserData] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleClearCache = async () => {
     if (!(await appConfirm(t("settings.data.clearCacheConfirm")))) return;
-    setClearingCache(true);
+    setClearing(true);
     setError(null);
     setNotice(null);
     try {
-      clearAppLayoutCache();
+      await clearAppCache();
       setNotice(t("settings.data.clearCacheDone"));
     } catch (e) {
       setError(String(e));
     } finally {
-      setClearingCache(false);
-    }
-  };
-
-  const handleClearUserData = async () => {
-    if (!(await appConfirm(t("settings.data.clearUserDataConfirm")))) return;
-    setClearingUserData(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await clearAppUserData();
-      setNotice(t("settings.data.clearUserDataDone"));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setClearingUserData(false);
+      setClearing(false);
     }
   };
 
@@ -55,32 +39,24 @@ export function DataBackupSection() {
           <Button
             variant="danger"
             size="sm"
-            disabled={clearingCache || clearingUserData}
+            disabled={clearing}
             onClick={() => void handleClearCache()}
           >
-            {clearingCache ? t("settings.data.clearing") : t("settings.data.clearCacheBtn")}
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            disabled={clearingCache || clearingUserData}
-            onClick={() => void handleClearUserData()}
-          >
-            {clearingUserData ? t("settings.data.clearing") : t("settings.data.clearUserDataBtn")}
+            {clearing ? t("settings.data.clearing") : t("settings.data.clearCacheBtn")}
           </Button>
         </div>
       </div>
 
-      {notice && (
+      {notice ? (
         <p className="settings-data-notice" style={{ color: "var(--success)", marginTop: "var(--sp-3)" }}>
           {notice}
         </p>
-      )}
-      {error && (
+      ) : null}
+      {error ? (
         <p className="settings-data-error" style={{ color: "var(--danger)", marginTop: "var(--sp-3)" }}>
           {error}
         </p>
-      )}
+      ) : null}
     </>
   );
 }

@@ -5794,17 +5794,11 @@ export const zhCN = {
       description: "管理本地缓存与用户创建的数据。",
       userDataLabel: "用户数据",
       userDataDesc:
-        "清除界面习惯缓存（Dock 分屏、模块 Tab、快捷键覆盖等），或删除连接、任务、工作流等用户创建的数据。",
-      clearCacheLabel: "清除应用缓存",
-      clearCacheDesc: "重置 Dock 分屏布局、模块 Tab 记忆、快捷键覆盖、侧栏选择记忆等界面习惯，不影响连接与设置。",
+        "清除布局习惯缓存，并删除连接、任务、工作流、终端会话、知识库、AI 配置、协议请求等全部用户资源。内置本地连接会保留。",
       clearCacheBtn: "清除缓存",
-      clearCacheConfirm: "将清除所有布局与界面习惯缓存（Dock 分屏、模块 Tab、快捷键覆盖等）。应用设置与连接数据不会删除。是否继续？",
-      clearCacheDone: "应用缓存已清除。部分界面将在切换模块后生效。",
-      clearUserDataLabel: "清除用户数据",
-      clearUserDataDesc: "删除各模块中您创建的数据：连接、终端会话、任务、工作流、知识库、AI 模型与对话、数据库连接与 SQL 文件等。此操作不可恢复。",
-      clearUserDataBtn: "清除用户数据",
-      clearUserDataConfirm: "将永久删除所有用户创建的数据（连接、任务、工作流、终端标签、AI 配置、数据库连接、Schema 缓存、SQL 文件与工作区标签等）。内置本地连接会保留。是否继续？",
-      clearUserDataDone: "用户数据已清除。",
+      clearCacheConfirm:
+        "将清除全部缓存与用户资源（布局习惯、连接、任务、工作流、终端会话、知识库、AI 配置、数据库连接、协议数据等）。内置本地连接会保留。此操作不可恢复，是否继续？",
+      clearCacheDone: "缓存与用户资源已全部清除。部分界面将在切换模块后生效。",
       clearing: "处理中…",
       resetDeviceLabel: "重置设备",
       resetDeviceDesc:

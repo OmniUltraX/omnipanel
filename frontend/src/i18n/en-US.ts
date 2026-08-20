@@ -5866,17 +5866,11 @@ export const enUS: TranslationDict = {
       description: "Manage local cache and user-created content.",
       userDataLabel: "User data",
       userDataDesc:
-        "Clear UI habit cache (dock splits, module tabs, shortcut overrides, etc.), or delete user-created data such as connections, tasks, and workflows.",
-      clearCacheLabel: "Clear App Cache",
-      clearCacheDesc: "Reset dock split layouts, module tab memory, shortcut overrides, and sidebar selection habits. Connections and settings are kept.",
+        "Clear layout habit cache and delete all user resources: connections, tasks, workflows, terminal sessions, knowledge, AI config, protocol requests, and more. Built-in local connections are kept.",
       clearCacheBtn: "Clear cache",
-      clearCacheConfirm: "This clears layout and UI habit cache (dock splits, module tabs, shortcut overrides, etc.). Settings and connections are not removed. Continue?",
-      clearCacheDone: "App cache cleared. Some UI changes apply after switching modules.",
-      clearUserDataLabel: "Clear User Data",
-      clearUserDataDesc: "Delete user-created data across modules: connections, terminal sessions, tasks, workflows, knowledge, AI models and chats, database connections and SQL files, etc. This cannot be undone.",
-      clearUserDataBtn: "Clear user data",
-      clearUserDataConfirm: "This permanently deletes all user-created data (connections, tasks, workflows, terminal tabs, AI config, database connections, schema cache, SQL files, workspace tabs, etc.). Built-in local connections are kept. Continue?",
-      clearUserDataDone: "User data cleared.",
+      clearCacheConfirm:
+        "This clears all cache and user resources (layout habits, connections, tasks, workflows, terminal sessions, knowledge, AI config, database connections, protocol data, etc.). Built-in local connections are kept. This cannot be undone. Continue?",
+      clearCacheDone: "Cache and user resources cleared. Some UI changes apply after switching modules.",
       clearing: "Working…",
       resetDeviceLabel: "Reset device",
       resetDeviceDesc:
