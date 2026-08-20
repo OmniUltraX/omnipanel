@@ -7,7 +7,11 @@ import { unwrapCommand, formatIpcError } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
-import { scheduleSecretsVaultSync, pullSecretsVaultOnce } from "../../modules/clientSync";
+import {
+  pullCloudSnapshot,
+  scheduleClientModuleSync,
+  scheduleSecretsVaultSync,
+} from "../../modules/clientSync";
 
 type PendingItem = {
   pairing_id: string;
@@ -121,7 +125,8 @@ export function DeviceSecretsVaultPanel() {
         if (status.hasKey) {
           setHasKey(true);
           void (async () => {
-            await pullSecretsVaultOnce();
+            await pullCloudSnapshot();
+            scheduleClientModuleSync();
             scheduleSecretsVaultSync();
           })();
         }

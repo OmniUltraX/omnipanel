@@ -9,7 +9,8 @@ import { showToast } from "../../stores/toastStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
 import {
-  pullSecretsVaultOnce,
+  pullCloudSnapshot,
+  scheduleClientModuleSync,
   scheduleSecretsVaultSync,
 } from "../../modules/clientSync";
 
@@ -101,7 +102,9 @@ export function SyncDeviceAuthDialog() {
                 st.wrapped_key,
               ),
             );
-            await pullSecretsVaultOnce();
+            // 密钥就绪后立刻拉全量云端快照（模块 + 会话 + 密文库），再调度上传合并
+            await pullCloudSnapshot();
+            scheduleClientModuleSync();
             scheduleSecretsVaultSync();
             showToast(t("syncDeviceAuth.success"));
             closeDialog();
