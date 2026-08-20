@@ -31,7 +31,7 @@ type QrSession = {
 
 /**
  * SyncMasterKey 密文库同步。
- * 首台生成并备份；新设备走路径 B（动态码）或路径 C（扫码）；主设备批准传钥。
+ * 首台生成并备份；新设备走路径 B（动态码）或路径 C（扫码）；主设备有密钥时自动传钥。
  * 路径 A（粘贴 SMK 入网）已移除。
  */
 export function DeviceSecretsVaultPanel() {
@@ -490,6 +490,7 @@ export function DeviceSecretsVaultPanel() {
       {pending.length > 0 ? (
         <div className="user-center-vault__pending">
           <h4 className="user-center-section__title">{t("userCenter.devices.vault.pendingTitle")}</h4>
+          <p className="user-center-section__desc">{t("userCenter.devices.vault.pendingAutoHint")}</p>
           {pending.map((item) => (
             <div key={item.pairing_id} className="user-center-vault__pending-row">
               <div className="user-center-vault__pending-meta">
@@ -499,9 +500,16 @@ export function DeviceSecretsVaultPanel() {
                     {t("userCenter.devices.vault.verificationCode")}: {item.verification_code}
                   </span>
                 ) : null}
+                <span>{t("userCenter.devices.vault.pendingAutoStatus")}</span>
               </div>
-              <Button type="button" size="sm" disabled={busy} onClick={() => void handleApprovePending(item)}>
-                {t("userCenter.devices.vault.approveTransfer")}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => void handleApprovePending(item)}
+              >
+                {t("userCenter.devices.vault.retryTransfer")}
               </Button>
             </div>
           ))}

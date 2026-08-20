@@ -5,6 +5,10 @@ import {
   stopPresenceHeartbeat,
 } from "../../lib/auth/presenceHeartbeat";
 import {
+  startSyncPairingAutoWrap,
+  stopSyncPairingAutoWrap,
+} from "../../lib/auth/syncPairingAutoWrap";
+import {
   scheduleAssistantSnapshotSync,
   startAssistantChatInbox,
   startAssistantTerminalCmdInbox,
@@ -42,6 +46,7 @@ export function AuthProfileSync() {
   useEffect(() => {
     if (!authHydrated || !token) {
       stopPresenceHeartbeat();
+      stopSyncPairingAutoWrap();
       return;
     }
     startPresenceHeartbeat({
@@ -51,7 +56,14 @@ export function AuthProfileSync() {
         useAuthStore.getState().logout({ skipRemote: true });
       },
     });
-    return () => stopPresenceHeartbeat();
+    // 本机已有 SyncMasterKey 时自动 wrap 待传钥配对（路径 B/C）
+    startSyncPairingAutoWrap({
+      getToken: () => useAuthStore.getState().token,
+    });
+    return () => {
+      stopPresenceHeartbeat();
+      stopSyncPairingAutoWrap();
+    };
   }, [authHydrated, token]);
 
   return null;
