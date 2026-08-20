@@ -878,10 +878,17 @@ export function disposeTabBackendSessions(tabId: string, knownBackendSessionId?:
 }
 
 /** 结束长期会话：释放后端并清理 detached 状态 */
-export function disposeSessionBackend(sessionId: string, knownBackendSessionId?: string | null) {
+export function disposeSessionBackend(
+  sessionId: string,
+  knownBackendSessionId?: string | null,
+  options?: { preserveInputMode?: boolean },
+) {
   disposeTabBackendSessions(sessionId, knownBackendSessionId);
   clearTerminalSessionRuntime(sessionId);
-  useTerminalUiStore.getState().returnToCommandBar(sessionId);
+  // 重连必须保留直通/命令栏；结束会话才回到命令栏
+  if (!options?.preserveInputMode) {
+    useTerminalUiStore.getState().returnToCommandBar(sessionId);
+  }
 }
 
 async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
@@ -1040,6 +1047,9 @@ export function useTerminal(
 
     function sendCommand(cmd: string) {
       recordTerminalSessionActivity(sessionId, Date.now(), { command: cmd });
+      if (inputModeRef.current === "interactive") {
+        clearPassthroughPromptHint(sessionId);
+      }
       const pane = findPaneById(sessionId);
       const shell = resolveTerminalShellFamily(pane?.type ?? "local", pane?.shellLabel, pane?.shellSpec);
       writeToBackend(formatPtyCommandInput(cmd, shell));

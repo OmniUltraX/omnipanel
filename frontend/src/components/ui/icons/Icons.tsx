@@ -217,6 +217,20 @@ export function IconRefresh({ size = 20, className }: IconProps) {
   );
 }
 
+/** 两根线缆插头相对：重连 / 断开后再接上 */
+export function IconUnplug({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width={size} height={size} className={className}>
+      <path d="m19 5 3-3" />
+      <path d="m2 22 3-3" />
+      <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z" />
+      <path d="M7.5 13.5 10 11" />
+      <path d="M10.5 16.5 13 14" />
+      <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.3-2.3a2.4 2.4 0 0 0-3.4 0Z" />
+    </svg>
+  );
+}
+
 export function IconTerminal2({ size = 20, className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>

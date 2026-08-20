@@ -1287,6 +1287,34 @@ export function TerminalBlockFeed({
     updateScrollUiState();
   }, [updateScrollUiState]);
 
+  const markProgrammaticSmoothScroll = useCallback((distancePx: number) => {
+    const durationMs = Math.min(900, Math.max(180, distancePx * 0.35));
+    programmaticScrollUntilRef.current = performance.now() + durationMs + 80;
+  }, []);
+
+  const scrollFeedSmoothly = useCallback(
+    (top: number) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      const target = Math.max(0, Math.min(top, max));
+      const distance = Math.abs(el.scrollTop - target);
+      if (distance <= 2) {
+        updateScrollUiState();
+        return;
+      }
+      markProgrammaticSmoothScroll(distance);
+      const behavior =
+        typeof window !== "undefined" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth";
+      el.scrollTo({ top: target, behavior });
+      lastFeedScrollHeightRef.current = el.scrollHeight;
+    },
+    [markProgrammaticSmoothScroll, updateScrollUiState],
+  );
+
   // scroll 事件处理：只更新派生状态 + 在用户主动滚动时更新 followRef
   const handleScroll = useCallback(() => {
     updateScrollUiState();
@@ -1411,20 +1439,18 @@ export function TerminalBlockFeed({
   }, [updateScrollUiState]);
 
   const scrollFeedToTop = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: 0, behavior: "smooth" });
     followOutputRef.current = false;
     setFeedPinnedToBottom(false);
-  }, []);
+    scrollFeedSmoothly(0);
+  }, [scrollFeedSmoothly]);
 
   const scrollFeedToBottomNow = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     followOutputRef.current = true;
     setFeedPinnedToBottom(true);
-    doScrollToEnd();
-  }, [doScrollToEnd]);
+    scrollFeedSmoothly(el.scrollHeight);
+  }, [scrollFeedSmoothly]);
 
   // MutationObserver + ResizeObserver 双重保险：
   // - ResizeObserver 捕获元素尺寸变化（最常见的内容增长场景）

@@ -43,7 +43,6 @@ import { submitInlineFollowUp, submitInlineNaturalLanguage } from "./warpInlineA
 import { useTerminalUiStore } from "./terminalUiStore";
 import { shouldRouteInputToAi } from "./commandInputRouting";
 import { TerminalToolCallDock } from "./TerminalToolCallDock";
-import { TerminalCommandBarControls } from "./TerminalCommandBarControls";
 import { useBlocksStore } from "../../stores/blocksStore";
 import { findTerminalPane, useTerminalStore } from "../../stores/terminalStore";
 import { blockContextLabel } from "./formatTerminalBlockForAiContext";
@@ -891,7 +890,6 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(
             >
               <IconCommandCompletion />
             </button>
-            <TerminalCommandBarControls disabled={disabled || commandBusy} />
             {lastError ? (
               <>
                 <Button

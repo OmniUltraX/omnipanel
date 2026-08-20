@@ -4,7 +4,8 @@
  */
 
 import type { TerminalSessionType } from "../../stores/terminalStore";
-import { promptPrefixEndIndex } from "./passthroughAi/screenLine";
+import { shouldRouteInputToAi } from "./commandInputRouting";
+import { promptPrefixEndIndex, stripShellPromptPrefix } from "./passthroughAi/screenLine";
 
 /** 带斜杠 / 盘符的路径 token。故意比裸文件名宽松一档，仍排除 URL。 */
 const FILE_PATH_RE =
@@ -388,14 +389,32 @@ export function detectPromptCwdSegmentLinks(input: ClassifyLinePathLinksInput): 
   return links;
 }
 
+/** 当前行是否为 shell 提示符输入行（含直通模式正在键入的正文） */
+export function lineHasShellPromptPrefix(line: string): boolean {
+  const trimmed = line.trimEnd();
+  if (!trimmed) return false;
+  if (/^PS\s+\S+>\s*/u.test(trimmed)) return true;
+  return /\S+@\S+.*[$#%]\s*/u.test(trimmed);
+}
+
+/** 直通 / 原生输入行上的自然语言正文不应被裸名启发式当成路径 */
+export function shouldSkipBodyPathLinksForNaturalLanguage(line: string): boolean {
+  if (!lineHasShellPromptPrefix(line)) return false;
+  const body = stripShellPromptPrefix(line);
+  if (!body) return false;
+  return shouldRouteInputToAi(body);
+}
+
 export function classifyLinePathLinks(input: ClassifyLinePathLinksInput): ClassifiedPathLink[] {
   const promptEnd = promptPrefixEndIndex(input.line);
+  const skipBodyLinks = shouldSkipBodyPathLinksForNaturalLanguage(input.line);
   const pathRanges = detectFilePathRanges(input.line);
   const bareRanges = detectBareNameRanges(input.line, pathRanges);
   const out: ClassifiedPathLink[] = [...detectPromptCwdSegmentLinks(input)];
 
   const consider = (range: { text: string; start: number; end: number }, pathLike: boolean) => {
     if (range.start < promptEnd) return;
+    if (skipBodyLinks) return;
     const link = classifyToken(range, pathLike, input);
     if (link) out.push(link);
   };

@@ -29,6 +29,7 @@ import { buildTerminalModuleContext } from "./ai/types";
 import { EMPTY_TERMINAL_BLOCKS, useBlocksStore } from "../../stores/blocksStore";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 import { cancelAutoReconnectSsh } from "./autoReconnectTerminalSsh";
+import { reconnectTerminalSession } from "./terminalReconnect";
 import {
   bootstrapTerminalHistory,
 } from "./terminalHistorySync";
@@ -43,6 +44,7 @@ import {
   removeTabFromTerminalLayout,
   useTerminalDockLayoutStore,
 } from "../../stores/terminalDockLayoutStore";
+import { IconUnplug } from "../../components/ui/Icons";
 import { ContextMenu } from "../../components/ui/menu/ContextMenu";
 import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import {
@@ -645,13 +647,8 @@ export function TerminalPanel() {
   );
 
   const reconnectSession = useCallback((sessionId: string) => {
-    clearTerminalPaneSender(sessionId);
-    clearPaneBackendPending(sessionId);
-    disposeSessionBackend(sessionId);
     cancelAutoReconnectSsh(sessionId);
-    useTerminalStore.getState().setBackendSessionId(sessionId, null);
-    useTerminalStore.getState().setStatus(sessionId, "connecting");
-    useTerminalStore.getState().bumpReconnect(sessionId);
+    reconnectTerminalSession(sessionId);
   }, []);
 
   const performMoveTabToWorkspace = useCallback(
@@ -904,14 +901,7 @@ export function TerminalPanel() {
           {
             id: "tab-reconnect",
             label: t("terminal.reconnect.menu"),
-            icon: (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 12a9 9 0 0115.5-6.36L21 8" />
-                <path d="M21 3v5h-5" />
-                <path d="M21 12a9 9 0 01-15.5 6.36L3 16" />
-                <path d="M3 21v-5h5" />
-              </svg>
-            ),
+            icon: <IconUnplug size={16} />,
             onClick: () => {
               const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
               if (sessionId) reconnectSession(sessionId);

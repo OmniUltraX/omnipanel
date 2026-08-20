@@ -1,11 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import {
-  clearPaneBackendPending,
-  disposeSessionBackend,
-} from "../../hooks/useTerminal";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTerminalStore } from "../../stores/terminalStore";
-import { clearTerminalPaneSender } from "./terminalPaneSenders";
+import { reconnectTerminalSession } from "./terminalReconnect";
 
 /** 最大重试次数（含首次），覆盖大部分短暂网络抖动而又不会对挂掉的服务器无限狂打。 */
 export const AUTO_RECONNECT_MAX_ATTEMPTS = 5;
@@ -40,15 +36,7 @@ function isSessionLive(sessionId: string): boolean {
 }
 
 function runReconnect(sessionId: string): void {
-  // 与手动「重新连接」流程一致：
-  // 清理发送器 → 清 pending backend → 释放 SSH 会话 → 清 store id → status: connecting → bumpReconnect
-  clearTerminalPaneSender(sessionId);
-  clearPaneBackendPending(sessionId);
-  disposeSessionBackend(sessionId);
-  const store = useTerminalStore.getState();
-  store.setBackendSessionId(sessionId, null);
-  store.setStatus(sessionId, "connecting");
-  store.bumpReconnect(sessionId);
+  reconnectTerminalSession(sessionId);
 }
 
 function scheduleNext(sessionId: string, callbacks: AutoReconnectCallbacks): void {

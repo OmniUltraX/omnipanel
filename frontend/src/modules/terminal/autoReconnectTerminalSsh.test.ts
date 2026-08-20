@@ -112,7 +112,9 @@ describe("autoReconnectTerminalSsh", () => {
     vi.advanceTimersByTime(1000);
     expect(clearTerminalPaneSenderMock).toHaveBeenCalledWith("s1");
     expect(clearPaneBackendPendingMock).toHaveBeenCalledWith("s1");
-    expect(disposeSessionBackendMock).toHaveBeenCalledWith("s1");
+    expect(disposeSessionBackendMock).toHaveBeenCalledWith("s1", undefined, {
+      preserveInputMode: true,
+    });
     expect(setBackendSessionIdMock).toHaveBeenCalledWith("s1", null);
     expect(setStatusMock).toHaveBeenCalledWith("s1", "connecting");
     expect(bumpReconnectMock).toHaveBeenCalledWith("s1");
