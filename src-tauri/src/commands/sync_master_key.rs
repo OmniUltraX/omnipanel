@@ -1,9 +1,9 @@
-//! SyncMasterKey IPC：本机生成 / 导入 / 状态。
+//! SyncMasterKey IPC：本机状态 / 主设备传钥时的内部 bootstrap。
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
     clear_stored_sync_master_key, get_or_create_sync_master_key, is_valid_sync_master_key,
-    load_stored_sync_master_key, normalize_sync_master_key, store_sync_master_key,
+    load_stored_sync_master_key, normalize_sync_master_key,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -45,16 +45,6 @@ pub fn sync_master_key_status() -> Result<SyncMasterKeyStatus, OmniError> {
 pub fn sync_master_key_get_or_create() -> Result<SyncMasterKeyGetOrCreateResult, OmniError> {
     let (key, created) = get_or_create_sync_master_key()?;
     Ok(SyncMasterKeyGetOrCreateResult { key, created })
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn sync_master_key_import(key: String) -> Result<SyncMasterKeyStatus, OmniError> {
-    let stored = store_sync_master_key(&key)?;
-    Ok(SyncMasterKeyStatus {
-        has_key: true,
-        key: Some(stored),
-    })
 }
 
 #[tauri::command]

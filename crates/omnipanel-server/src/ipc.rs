@@ -3147,10 +3147,6 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
         "sync_master_key_get_or_create" => {
             respond_omni(crate::store_ext::sync_master_key_get_or_create().await)
         }
-        "sync_master_key_import" => {
-            let key = get_str(&args, "key").unwrap_or_default();
-            respond_omni(crate::store_ext::sync_master_key_import(key).await)
-        }
         "sync_master_key_clear" => respond_omni(crate::store_ext::sync_master_key_clear().await),
         "sync_master_key_validate" => {
             let key = get_str(&args, "key").unwrap_or_default();

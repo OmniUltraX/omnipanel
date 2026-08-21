@@ -513,14 +513,6 @@ pub async fn sync_master_key_get_or_create() -> Result<SyncMasterKeyGetOrCreateR
     Ok(SyncMasterKeyGetOrCreateResult { key, created })
 }
 
-pub async fn sync_master_key_import(key: String) -> Result<SyncMasterKeyStatus, OmniError> {
-    let stored = omnipanel_store::store_sync_master_key(&key)?;
-    Ok(SyncMasterKeyStatus {
-        has_key: true,
-        key: Some(stored),
-    })
-}
-
 pub async fn sync_master_key_clear() -> Result<(), OmniError> {
     omnipanel_store::clear_stored_sync_master_key()
 }

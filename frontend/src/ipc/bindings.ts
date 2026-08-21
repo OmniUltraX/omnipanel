@@ -61,8 +61,6 @@ export const commands = {
 	syncMasterKeyStatus: () => typedError<SyncMasterKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_status")),
 	/** 无则生成并持久化；created=true 时应弹出备份引导。 */
 	syncMasterKeyGetOrCreate: () => typedError<SyncMasterKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_get_or_create")),
-	/** 导入备份的 SyncMasterKey。 */
-	syncMasterKeyImport: (key: string) => typedError<SyncMasterKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_import", { key })),
 	syncMasterKeyClear: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_clear")),
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
 	syncPairingCreateKeypair: (pairingId: string) => typedError<PairingKeypairResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_create_keypair", { pairingId })),

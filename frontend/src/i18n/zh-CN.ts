@@ -7605,27 +7605,13 @@ export const zhCN = {
       vault: {
         title: "同步主密钥",
         smkDesc:
-          "本机 SyncMasterKey 用于加密密文库，页面不展示明文。登录后凭据会自动加密封存到云端；新设备请用小程序动态码或扫码配对，由主电脑传钥。",
-        setupHint:
-          "本机尚无同步主密钥。若这是首台电脑请生成；若是新设备请扫码（路径 C）或输入小程序动态码（路径 B）。",
-        generatePrimary: "我是首台 · 生成密钥",
-        generateSuccess: "同步主密钥已生成",
-        backupHint:
-          "请将同步主密钥复制到安全处备份（不会显示在页面上）。新设备入网请使用扫码或动态码。",
-        backupDone: "我已备份",
-        copyKey: "复制密钥到剪贴板",
-        copied: "已复制到剪贴板",
-        copyFailed: "复制失败",
-        readyHint: "本机已就绪：密钥仅存本地，凭据将自动加密同步。",
+          "本机 SyncMasterKey 用于加密密文库，页面不展示明文。登录后凭据会自动加密封存到云端；新设备请用微信小程序扫码配对，由主电脑传钥。",
         qrStart: "生成配对二维码",
         qrHint: "请用已登录同一账号的微信小程序扫码，并核对验证码后确认。",
         qrWaiting: "已生成二维码，等待小程序确认与主设备传钥…",
         qrCancel: "取消配对",
         qrExpire: "剩余 {time}",
         verificationCode: "验证码",
-        pairingLabel: "小程序动态码（路径 B）",
-        pairingRedeem: "验证并配对",
-        pairingTrusted: "设备已批准，正在等待主电脑传钥…",
         pairingKeyReady: "已从主设备安全接收同步密钥",
         pairingWaitKey: "已批准，但未收到传钥。请确认已有密钥的主电脑在线（将自动传钥）。",
         pairingRejected: "配对已拒绝或过期",
@@ -7635,6 +7621,7 @@ export const zhCN = {
         approveTransfer: "批准并传钥",
         retryTransfer: "立即重试",
         pairingApproved: "已向新设备传钥",
+        wrapNeedKey: "传钥失败：本机尚未建立同步主密钥，请稍后重试",
         needOssPath: "当前账号尚无 OSS 路径，请重新登录后再同步。",
       },
       os: {

@@ -7688,27 +7688,13 @@ export const enUS: TranslationDict = {
       vault: {
         title: "Sync master key",
         smkDesc:
-          "This SyncMasterKey encrypts your secrets vault and is never shown on this page. After sign-in, credentials sync to the cloud automatically. On a new PC, pair via mini program code or QR so your primary PC can transfer the key.",
-        setupHint:
-          "No sync master key yet. Generate one on your first PC, or pair via QR (path C) / mini program code (path B).",
-        generatePrimary: "This is my first PC · Generate key",
-        generateSuccess: "Sync master key generated",
-        backupHint:
-          "Copy the sync master key to a safe place (it will not appear on this page). New devices must use QR or code pairing.",
-        backupDone: "I have backed it up",
-        copyKey: "Copy key to clipboard",
-        copied: "Copied to clipboard",
-        copyFailed: "Copy failed",
-        readyHint: "This device is ready. The key stays local; credentials sync encrypted automatically.",
+          "This SyncMasterKey encrypts your secrets vault and is never shown on this page. After sign-in, credentials sync to the cloud automatically. On a new PC, pair via WeChat mini program QR so your primary PC can transfer the key.",
         qrStart: "Show pairing QR",
         qrHint: "Scan with the WeChat mini program signed into the same account, then confirm the verification code.",
         qrWaiting: "QR ready. Waiting for mini program confirmation and key transfer…",
         qrCancel: "Cancel pairing",
         qrExpire: "Time left {time}",
         verificationCode: "Code",
-        pairingLabel: "Mini program code (path B)",
-        pairingRedeem: "Verify & pair",
-        pairingTrusted: "Device approved. Waiting for key transfer from your primary PC…",
         pairingKeyReady: "Sync key received securely from primary device",
         pairingWaitKey:
           "Approved, but no key yet. Keep a primary PC that already has the sync key online — it transfers automatically.",
@@ -7719,6 +7705,7 @@ export const enUS: TranslationDict = {
         approveTransfer: "Approve & transfer key",
         retryTransfer: "Retry now",
         pairingApproved: "Key transferred to the new device",
+        wrapNeedKey: "Key transfer failed: this PC has no sync master key yet. Try again shortly.",
         needOssPath: "No OSS path for this account yet. Sign in again before syncing.",
       },
       os: {

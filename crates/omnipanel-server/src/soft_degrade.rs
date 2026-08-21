@@ -400,9 +400,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
     if c == "sync_master_key_get_or_create" {
         return serde_json::json!({ "key": "", "created": false });
     }
-    if c == "sync_master_key_import" {
-        return serde_json::json!({ "hasKey": false, "key": null });
-    }
     if c == "sync_master_key_validate" {
         return serde_json::json!(false);
     }

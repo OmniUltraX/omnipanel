@@ -30,7 +30,7 @@ type QrSession = {
 };
 
 /**
- * SyncMasterKey 管理与新设备配对（无说明文案）。
+ * SyncMasterKey 管理与新设备扫码配对。
  * 已就绪且无待办时不渲染；密钥明文不展示。
  */
 export function DeviceSecretsVaultPanel() {
@@ -39,11 +39,9 @@ export function DeviceSecretsVaultPanel() {
   const ossPath = useUserProfileStore((s) => s.ossPath);
 
   const [hasKey, setHasKey] = useState(false);
-  const [pairingCode, setPairingCode] = useState("");
   const [qrSession, setQrSession] = useState<QrSession | null>(null);
   const [qrCountdown, setQrCountdown] = useState(0);
   const [pending, setPending] = useState<PendingItem[]>([]);
-  const [showBackupHint, setShowBackupHint] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -108,6 +106,19 @@ export function DeviceSecretsVaultPanel() {
     }
   };
 
+  const ensureLocalMasterKeyForWrap = async (): Promise<boolean> => {
+    try {
+      const status = await unwrapCommand(commands.syncMasterKeyStatus());
+      if (status.hasKey) return true;
+      await unwrapCommand(commands.syncMasterKeyGetOrCreate());
+      setHasKey(true);
+      scheduleSecretsVaultSync();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const waitForWrappedKey = async (pairingId: string, deviceId: string) => {
     const { pairingGet } = await import("../../lib/auth/syncPairingApi");
     for (let i = 0; i < 45; i++) {
@@ -142,27 +153,15 @@ export function DeviceSecretsVaultPanel() {
     return false;
   };
 
-  const handleGeneratePrimary = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const created = await unwrapCommand(commands.syncMasterKeyGetOrCreate());
-      setHasKey(true);
-      if (created.created) setShowBackupHint(true);
-      if (token) await tryTrust(token);
-      scheduleSecretsVaultSync();
-      showToast(t("userCenter.devices.vault.generateSuccess"));
-    } catch (error) {
-      showToast(formatIpcError(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleApprovePending = async (item: PendingItem) => {
     if (!token || busy) return;
     setBusy(true);
     try {
+      if (!(await ensureLocalMasterKeyForWrap())) {
+        showToast(t("userCenter.devices.vault.wrapNeedKey"));
+        return;
+      }
+      if (token) await tryTrust(token);
       const wrapped = await unwrapCommand(
         commands.syncPairingWrapKey({
           pairingId: item.pairing_id,
@@ -180,26 +179,6 @@ export function DeviceSecretsVaultPanel() {
       showToast(t("userCenter.devices.vault.pairingApproved"));
     } catch (error) {
       showToast(error instanceof Error ? error.message : formatIpcError(error as never));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** 仅写入剪贴板，不在页面渲染明文。 */
-  const handleCopyBackup = async () => {
-    if (!hasKey || busy) return;
-    setBusy(true);
-    try {
-      const status = await unwrapCommand(commands.syncMasterKeyStatus());
-      const secret = status.key?.trim();
-      if (!secret) {
-        showToast(t("userCenter.devices.vault.copyFailed"));
-        return;
-      }
-      await navigator.clipboard.writeText(secret);
-      showToast(t("userCenter.devices.vault.copied"));
-    } catch {
-      showToast(t("userCenter.devices.vault.copyFailed"));
     } finally {
       setBusy(false);
     }
@@ -252,55 +231,17 @@ export function DeviceSecretsVaultPanel() {
     setQrSession(null);
   };
 
-  const handlePairingRedeem = async () => {
-    if (!token || pairingCode.length < 6 || busy) return;
-    setBusy(true);
-    try {
-      const { pairingStart, pairingRedeem } = await import("../../lib/auth/syncPairingApi");
-      const identity = await unwrapCommand(commands.authDeviceIdentity());
-      const deviceId = identity.deviceId;
-      const kp = await unwrapCommand(commands.syncPairingCreateKeypair(""));
-      const started = await pairingStart(token, {
-        pubkey: kp.pubkeyB64,
-        client_nonce: crypto.randomUUID(),
-        device_name: deviceId,
-        platform: navigator.platform || "desktop",
-      });
-      await unwrapCommand(commands.syncPairingCreateKeypair(started.pairing_id));
-      await pairingRedeem(token, {
-        pairing_id: started.pairing_id,
-        code: pairingCode,
-      });
-      setPairingCode("");
-      showToast(t("userCenter.devices.vault.pairingTrusted"));
-      await waitForWrappedKey(started.pairing_id, deviceId);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : formatIpcError(error as never));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const qrExpireLabel = useMemo(() => {
     const m = Math.floor(qrCountdown / 60);
     const s = qrCountdown % 60;
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }, [qrCountdown]);
 
-  const showSetup = !hasKey && ready;
-  const showBackup = showBackupHint && hasKey;
-  const showPairingInput = !hasKey;
+  const showSetup = !hasKey && ready && !qrSession;
   const showPending = pending.length > 0;
-  const showOssWarn = !ossPath.trim() && (showSetup || showPairingInput);
+  const showOssWarn = !ossPath.trim() && !hasKey && ready;
 
-  // 已就绪且无交互待办时不占页面；密钥相关说明文案一律不展示。
-  if (
-    ready &&
-    hasKey &&
-    !showBackup &&
-    !qrSession &&
-    !showPending
-  ) {
+  if (ready && hasKey && !qrSession && !showPending) {
     return null;
   }
 
@@ -312,9 +253,6 @@ export function DeviceSecretsVaultPanel() {
     <section className="user-center-section user-center-vault" aria-label={t("userCenter.devices.vault.title")}>
       {showSetup ? (
         <div className="user-center-vault__actions">
-          <Button type="button" size="sm" disabled={busy} onClick={() => void handleGeneratePrimary()}>
-            {t("userCenter.devices.vault.generatePrimary")}
-          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -334,6 +272,7 @@ export function DeviceSecretsVaultPanel() {
             {t("userCenter.devices.vault.verificationCode")}:{" "}
             <strong>{qrSession.verificationCode}</strong>
           </p>
+          <p className="user-center-section__desc">{t("userCenter.devices.vault.qrHint")}</p>
           <p className="user-center-section__desc">
             {t("userCenter.devices.vault.qrExpire", { time: qrExpireLabel })}
           </p>
@@ -343,45 +282,6 @@ export function DeviceSecretsVaultPanel() {
             </Button>
           </div>
         </div>
-      ) : null}
-
-      {showBackup ? (
-        <div className="user-center-vault__actions">
-          <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void handleCopyBackup()}>
-            {t("userCenter.devices.vault.copyKey")}
-          </Button>
-          <Button type="button" size="sm" onClick={() => setShowBackupHint(false)}>
-            {t("userCenter.devices.vault.backupDone")}
-          </Button>
-        </div>
-      ) : null}
-
-      {showPairingInput ? (
-        <>
-          <label className="user-center-vault__import-label">
-            {t("userCenter.devices.vault.pairingLabel")}
-            <input
-              className="user-center-vault__import"
-              value={pairingCode}
-              disabled={busy}
-              maxLength={8}
-              inputMode="numeric"
-              placeholder="123456"
-              onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
-            />
-          </label>
-          <div className="user-center-vault__actions">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={busy || pairingCode.length < 6 || !token}
-              onClick={() => void handlePairingRedeem()}
-            >
-              {t("userCenter.devices.vault.pairingRedeem")}
-            </Button>
-          </div>
-        </>
       ) : null}
 
       {showOssWarn ? (

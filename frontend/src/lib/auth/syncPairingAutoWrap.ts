@@ -1,6 +1,6 @@
 /**
  * 主设备：本机已有 SyncMasterKey 时，自动对 pending 配对执行 wrap 传钥。
- * 小程序/动态码授权完成后无需再点「批准并传钥」。
+ * 小程序扫码授权完成后无需再点「批准并传钥」。
  */
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
@@ -17,15 +17,6 @@ let getToken: (() => string | null) | null = null;
 const inFlight = new Set<string>();
 let lastFailToastAt = 0;
 let ensuredTrust = false;
-
-async function hasLocalSyncMasterKey(): Promise<boolean> {
-  try {
-    const status = await unwrapCommand(commands.syncMasterKeyStatus());
-    return Boolean(status.hasKey && status.key);
-  } catch {
-    return false;
-  }
-}
 
 function reportFail(message: string) {
   const now = Date.now();
@@ -53,6 +44,20 @@ async function ensureSelfTrusted(token: string) {
   }
 }
 
+async function ensureLocalMasterKeyForWrap(): Promise<boolean> {
+  try {
+    const status = await unwrapCommand(commands.syncMasterKeyStatus());
+    if (status.hasKey) return true;
+    await unwrapCommand(commands.syncMasterKeyGetOrCreate());
+    void import("../../modules/clientSync")
+      .then(({ scheduleSecretsVaultSync }) => scheduleSecretsVaultSync())
+      .catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function wrapOne(
   token: string,
   item: {
@@ -65,6 +70,10 @@ async function wrapOne(
   if (!id || inFlight.has(id)) return;
   inFlight.add(id);
   try {
+    if (!(await ensureLocalMasterKeyForWrap())) {
+      reportFail("自动传钥失败：本机尚无同步主密钥");
+      return;
+    }
     const wrapped = await unwrapCommand(
       commands.syncPairingWrapKey({
         pairingId: item.pairing_id,
@@ -89,7 +98,6 @@ async function tick(gen: number) {
   if (gen !== generation) return;
   const token = getToken?.()?.trim() || null;
   if (!token) return;
-  if (!(await hasLocalSyncMasterKey())) return;
   if (gen !== generation) return;
 
   await ensureSelfTrusted(token);

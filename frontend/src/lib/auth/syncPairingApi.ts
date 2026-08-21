@@ -107,19 +107,6 @@ export async function pairingStart(
   return res.json();
 }
 
-export async function pairingRedeem(
-  token: string,
-  body: { pairing_id: string; code: string },
-): Promise<{ status: string; pairing_id: string }> {
-  const res = await authFetch(token, "/api/sync/pairing/redeem", {
-    method: "POST",
-    body: JSON.stringify(body),
-    deviceId: await resolveDeviceId(),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
 export async function pairingGet(
   token: string,
   pairingId: string,
@@ -138,19 +125,6 @@ export async function pairingGet(
   const res = await authFetch(token, `/api/sync/pairing/${encodeURIComponent(pairingId)}`, {
     deviceId: await resolveDeviceId(),
   });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-export async function pairingAuthorize(token: string, pairingId: string): Promise<{ status: string }> {
-  const res = await authFetch(
-    token,
-    `/api/sync/pairing/${encodeURIComponent(pairingId)}/authorize`,
-    {
-      method: "POST",
-      deviceId: await resolveDeviceId(),
-    },
-  );
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
