@@ -14,6 +14,7 @@ import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import type { ServerEntry } from "./serverConnection";
 import { BtCreateCronjobDialog } from "./BtCreateCronjobDialog";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 const CRONJOB_TYPES: OnePanelCronjobType[] = ["shell", "curl", "clean", "ntp"];
 const EXECUTORS = ["bash", "sh", "python", "python3"] as const;
@@ -72,7 +73,7 @@ export function CreateCronjobDialog({
   onClose,
   onCreated,
 }: CreateCronjobDialogProps) {
-  if (server.serviceType === "bt") {
+  if (isBtPanelService(server.serviceType)) {
     return (
       <BtCreateCronjobDialog
         open={open}
@@ -150,7 +151,7 @@ function OnePanelCreateCronjobDialog({
   };
 
   useEffect(() => {
-    if (!open || server.serviceType !== "1panel") return;
+    if (!open || !isOnePanelService(server.serviceType)) return;
     let cancelled = false;
     setOptionsLoading(true);
     void (async () => {
@@ -247,7 +248,7 @@ function OnePanelCreateCronjobDialog({
   };
 
   const handleSubmit = async () => {
-    if (server.serviceType !== "1panel") {
+    if (!isOnePanelService(server.serviceType)) {
       setError(t("server.create.onePanelOnly"));
       return;
     }

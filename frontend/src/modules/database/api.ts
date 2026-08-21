@@ -11,6 +11,12 @@ import { asArray } from "../../ipc/asArray";
 import { unwrapCommand } from "../../ipc/result";
 import { scheduleAssistantSnapshotSync } from "../assistant";
 import { scheduleClientModuleSync, recordModuleTombstones } from "../clientSync";
+import {
+  defaultPortForEngine,
+  getEngineWorkbench,
+  isRegisteredEngine,
+  resolveEngineKey,
+} from "./engineRegistry";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
 
@@ -42,7 +48,7 @@ export function isConnectionEnabled(connection: Pick<DbConnectionConfig, "enable
   return connection.enabled !== false;
 }
 
-const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
+const ENGINE_DEFAULT_PORTS: Record<string, number> = {
   postgresql: 5432,
   mysql: 3306,
   sqlite: 0,
@@ -50,6 +56,7 @@ const ENGINE_DEFAULT_PORTS: Record<ConnectionFormData["engine"], number> = {
   redis: 6379,
   mongodb: 27017,
   qdrant: 6333,
+  clickhouse: 8123,
 };
 
 export function normalizeConnectionGroup(group: string | null | undefined): string {
@@ -64,7 +71,7 @@ export function connectionMatchesGroup(connection: DbConnectionConfig, groupName
 }
 
 export interface ConnectionFormData {
-  engine: "postgresql" | "mysql" | "sqlite" | "sqlserver" | "redis" | "mongodb" | "qdrant";
+  engine: string;
   name: string;
   host: string;
   port: string;
@@ -83,9 +90,11 @@ function formText(value: string | null | undefined): string {
 export function formToConnection(form: ConnectionFormData, id = ""): DbConnectionConfig {
   const parsed = Number.parseInt(form.port, 10);
   const port =
-    Number.isFinite(parsed) && parsed > 0 ? parsed : ENGINE_DEFAULT_PORTS[form.engine];
+    Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : defaultPortForEngine(form.engine) || ENGINE_DEFAULT_PORTS[form.engine] || 0;
   let database = formText(form.database).trim();
-  if (form.engine === "qdrant" && !database) {
+  if ((form.engine === "qdrant" || form.engine === "clickhouse" || form.engine === "ch") && !database) {
     database = "default";
   }
   const host = formText(form.host).trim();
@@ -111,27 +120,12 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
 
 export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
   const rawType = formText(conn.db_type).toLowerCase();
-  let engine: ConnectionFormData["engine"];
-  if (rawType === "sqlite3") {
-    engine = "sqlite";
-  } else if (rawType === "mongo") {
-    engine = "mongodb";
-  } else if (rawType === "mariadb") {
-    engine = "mysql";
-  } else if (rawType === "postgres" || rawType === "pg") {
-    engine = "postgresql";
-  } else if (rawType === "mssql" || rawType === "sql server") {
-    engine = "sqlserver";
-  } else if (rawType in ENGINE_DEFAULT_PORTS) {
-    engine = rawType as ConnectionFormData["engine"];
-  } else {
-    engine = "mysql";
-  }
+  const engine = resolveEngineKey(rawType) ?? (rawType || "mysql");
   return {
     engine,
     name: formText(conn.name),
     host: formText(conn.host),
-    port: String(conn.port ?? ENGINE_DEFAULT_PORTS[engine] ?? ""),
+    port: String(conn.port ?? defaultPortForEngine(engine) ?? ENGINE_DEFAULT_PORTS[engine] ?? ""),
     database: formText(conn.database),
     username: formText(conn.user),
     password: formText(conn.password),
@@ -142,40 +136,21 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
 }
 
 export function isSupportedEngine(engine: ConnectionFormData["engine"]): boolean {
-  return (
-    engine === "mysql" ||
-    engine === "postgresql" ||
-    engine === "sqlite" ||
-    engine === "redis" ||
-    engine === "mongodb" ||
-    engine === "qdrant"
-  );
+  return isRegisteredEngine(engine);
 }
 
 /** Redis / MongoDB / Qdrant 等文档或 KV 引擎的「表」节点无传统字段/索引子树。 */
 export function connectionHasTableSchemaChildren(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  const engine = connection.db_type.toLowerCase();
-  return (
-    engine !== "redis" &&
-    engine !== "mongodb" &&
-    engine !== "mongo" &&
-    engine !== "qdrant"
-  );
+  return getEngineWorkbench(connection.db_type).tree === "schema";
 }
 
 /** 可在 SQL 编辑器中执行查询的连接（排除 Redis / MongoDB / Qdrant 等非 SQL 引擎）。 */
 export function isSqlCapableConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  const engine = connection.db_type.toLowerCase();
-  return (
-    engine !== "redis" &&
-    engine !== "mongodb" &&
-    engine !== "mongo" &&
-    engine !== "qdrant"
-  );
+  return getEngineWorkbench(connection.db_type).editor === "sql";
 }
 
 /** 数据传输工具箱支持的连接（关系型库；排除 Redis / MongoDB 等）。 */
@@ -222,22 +197,21 @@ export function isConnectionInfoCapable(
 export function isMongoConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  const engine = connection.db_type.toLowerCase();
-  return engine === "mongodb" || engine === "mongo";
+  return getEngineWorkbench(connection.db_type).tree === "documents";
 }
 
 /** Qdrant 连接（Collection / Points 预览）。 */
 export function isQdrantConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  return connection.db_type.toLowerCase() === "qdrant";
+  return getEngineWorkbench(connection.db_type).tree === "collections";
 }
 
 /** Redis 连接（键值查询面板）。 */
 export function isRedisConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  return connection.db_type.toLowerCase() === "redis";
+  return getEngineWorkbench(connection.db_type).tree === "kv";
 }
 
 export interface RedisKeyEntry {

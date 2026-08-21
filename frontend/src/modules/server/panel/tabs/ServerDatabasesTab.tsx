@@ -12,6 +12,7 @@ import { createBtPanelClient } from "../../../../lib/btpanel";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
+import { isOnePanelService, panelHasCapability } from "../panelPlugin";
 import { CreateDatabaseDialog } from "../CreateDatabaseDialog";
 
 interface Props {
@@ -72,14 +73,13 @@ export function ServerDatabasesTab({ server }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
 
-  const isBt = server.serviceType === "bt";
-  const canManage = isBt;
+  const canManage = panelHasCapability(server.serviceType, "databases");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      if (server.serviceType === "1panel") {
+      if (isOnePanelService(server.serviceType)) {
         const client = createOnePanelClient(server.address, server.key, server.id);
         const items = await client.searchDatabases();
         setRows(items as Record<string, unknown>[]);

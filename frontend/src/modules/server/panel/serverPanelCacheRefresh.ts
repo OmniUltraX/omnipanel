@@ -19,6 +19,7 @@ import type {
 } from "./serverPanelCache";
 import { emptyServerPanelResourceCache } from "./serverPanelCache";
 import { websiteRowGroup, websiteRowGroupId } from "./serverResourceLabels";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 function formatError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -147,7 +148,7 @@ export async function fetchServerPanelResources(
 ): Promise<ServerPanelResourceCache> {
   const entry = emptyServerPanelResourceCache();
   try {
-    if (server.serviceType === "1panel") {
+    if (isOnePanelService(server.serviceType)) {
       const client = createOnePanelClient(server.address, server.key, server.id);
       const [websitesResult, certificatesResult, groupsResult] = await Promise.allSettled([
         client.searchWebsites(),
@@ -179,7 +180,7 @@ export async function fetchServerPanelResources(
         throw new Error(errors.join("；"));
       }
       entry.error = errors.length > 0 ? errors.join("；") : null;
-    } else if (server.serviceType === "bt") {
+    } else if (isBtPanelService(server.serviceType)) {
       const client = createBtPanelClient(server.address, server.key, server.id);
       // 串行：任一鉴权/封禁失败立刻停，避免 Promise.all 并发把验证失败次数打满
       const errors: string[] = [];
@@ -241,7 +242,7 @@ export async function fetchServerPanelApps(
     appsError: null,
   };
 
-  if (server.serviceType === "1panel") {
+  if (isOnePanelService(server.serviceType)) {
     try {
       const client = createOnePanelClient(server.address, server.key, server.id);
       const [marketResult, installedResult] = await Promise.allSettled([
@@ -282,7 +283,7 @@ export async function fetchServerPanelApps(
     }
   }
 
-  if (server.serviceType === "bt") {
+  if (isBtPanelService(server.serviceType)) {
     try {
       const client = createBtPanelClient(server.address, server.key, server.id);
       // 串行：鉴权/封禁失败立刻停，避免 3 路并发打满宝塔验证计数

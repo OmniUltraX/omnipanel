@@ -1,0 +1,16 @@
+[package]
+name = "omnipanel-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plugin Runtime：清单、权限、注册表与 Host 网关"
+
+[dependencies]
+omnipanel-error = { path = "../omnipanel-error" }
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

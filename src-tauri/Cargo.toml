@@ -44,6 +44,8 @@ omnipanel-db-sync = { path = "../crates/omnipanel-db-sync" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
 omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
+omnipanel-plugin = { path = "../crates/omnipanel-plugin" }
+omnipanel-everything = { path = "../crates/omnipanel-everything" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
 omnipanel-transfer = { path = "../crates/omnipanel-transfer", features = ["specta"] }
 tokio.workspace = true

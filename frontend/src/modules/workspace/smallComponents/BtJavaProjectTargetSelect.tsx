@@ -10,6 +10,7 @@ import { useConnectionStore } from "../../../stores/connectionStore";
 import { connectionToServerEntry } from "../../server/panel/panelConnection";
 import { parsePanelConfig } from "../../server/panel/serverConnection";
 import type { HomeCustomPanelWidgetTarget } from "./types";
+import { isBtPanelService } from "../../server/panel/panelPlugin";
 
 export type BtJavaProjectTargetSelectProps = {
   connectionId: string | null;
@@ -50,7 +51,7 @@ export function BtJavaProjectTargetSelect({
 
   const isBt = useMemo(() => {
     if (!connection) return false;
-    return parsePanelConfig(connection).serviceType === "bt";
+    return isBtPanelService(parsePanelConfig(connection).serviceType);
   }, [connection]);
 
   useEffect(() => {

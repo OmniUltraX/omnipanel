@@ -59,6 +59,7 @@ import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { DataBackupSection } from "../../components/settings/DataBackupSection";
 import { SyncDeviceResetSection } from "../../components/settings/SyncDeviceResetSection";
 import { ModulesSettingsSection } from "../../components/settings/ModulesSettingsSection";
+import { PluginsSettingsSection } from "../../components/settings/PluginsSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
@@ -85,6 +86,7 @@ import { ALL_AGENT_IDS, type AgentId } from "../../lib/ai/agents";
 type Section =
   | "general"
   | "system"
+  | "plugins"
   | "appearance"
   | "keybindings"
   | "ai"
@@ -156,6 +158,16 @@ const NAV_GROUPS: NavGroup[] = [
             <path d="M12 2L2 7l10 5 10-5-10-5z" />
             <path d="M2 17l10 5 10-5" />
             <path d="M2 12l10 5 10-5" />
+          </svg>
+        ),
+      },
+      {
+        id: "plugins",
+        label: "插件",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+            <circle cx="12" cy="12" r="3" />
           </svg>
         ),
       },
@@ -1517,10 +1529,21 @@ export function SettingsPanel() {
 
               <div className="settings-subsection-title">{t("settings.modules.label")}</div>
               <p className="setting-hint settings-subsection-desc">{t("settings.modules.desc")}</p>
+              <p className="setting-hint settings-subsection-desc">{t("settings.modules.pluginDefaultClosedHint")}</p>
               <ModulesSettingsSection />
 
               <DataBackupSection />
               <SyncDeviceResetSection />
+            </div>
+          </div>
+        )}
+
+        {activeSection === "plugins" && (
+          <div className="settings-panel active">
+            <div className="settings-section">
+              <h2>{t("settings.plugins.label")}</h2>
+              <p className="section-desc">{t("settings.plugins.desc")}</p>
+              <PluginsSettingsSection />
             </div>
           </div>
         )}

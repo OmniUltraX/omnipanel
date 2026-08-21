@@ -1,0 +1,18 @@
+{
+  "id": "omni.panel.1panel",
+  "version": "0.1.0",
+  "kind": "panel",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "contributes": {
+    "ui": {
+      "panelTabs": [
+        { "id": "overview" },
+        { "id": "websites" },
+        { "id": "apps" },
+        { "id": "certificates" },
+        { "id": "cronjobs" }
+      ]
+    },
+    "discovery": [{ "probeId": "ssh-panel" }]
+  }
+}

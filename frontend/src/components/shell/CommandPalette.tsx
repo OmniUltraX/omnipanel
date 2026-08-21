@@ -4,6 +4,11 @@ import { useActionStore } from "../../stores/actionStore";
 import { goWorkspaceHome, navigateToFeature, navigateToSshManagement } from "../../lib/workspaceNavigation";
 import { MODULE_PATHS } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
+import {
+  isPluginActivated,
+  PLUGIN_ID_WARPGATE,
+  usePluginRuntimeStore,
+} from "../../stores/pluginRuntimeStore";
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
 import {
@@ -47,6 +52,7 @@ function useRegisterBuiltinCommands() {
       { id: "ssh", label: t("shell.commandPalette.commands.ssh"), shortcutLabel: "⌘4", category: nav, run: () => navigateToSshManagement(navigate), source: "builtin" },
       { id: "docker", label: t("shell.commandPalette.commands.docker"), shortcutLabel: "⌘5", category: nav, run: () => navigateToFeature(MODULE_PATHS.docker, navigate), source: "builtin" },
       { id: "server", label: t("shell.commandPalette.commands.server"), category: nav, run: () => navigateToFeature(MODULE_PATHS.server, navigate), source: "builtin" },
+      { id: "cloud", label: t("shell.nav.cloud"), category: nav, run: () => navigateToFeature(MODULE_PATHS.cloud, navigate), source: "builtin" },
       { id: "protocol", label: t("shell.commandPalette.commands.protocol"), category: nav, run: () => navigateToFeature(MODULE_PATHS.protocol, navigate), source: "builtin" },
       { id: "workflow", label: t("shell.commandPalette.commands.workflow"), category: nav, run: () => navigateToFeature(MODULE_PATHS.workflow, navigate), source: "builtin" },
       { id: "knowledge", label: t("shell.commandPalette.commands.knowledge"), category: nav, run: () => navigateToFeature(MODULE_PATHS.knowledge, navigate), source: "builtin" },
@@ -54,6 +60,15 @@ function useRegisterBuiltinCommands() {
       { id: "new-terminal", label: t("shell.commandPalette.commands.newTerminal"), shortcutId: "new-terminal", category: action, run: () => useNewTerminal(), source: "builtin" },
       { id: "new-ssh", label: t("shell.commandPalette.commands.newSsh"), shortcutId: "new-ssh", category: action, run: () => navigateToSshManagement(navigate), source: "builtin" },
       { id: "new-query", label: t("shell.commandPalette.commands.newQuery"), category: action, run: () => navigateToFeature(MODULE_PATHS.database, navigate), source: "builtin" },
+      {
+        id: "import-warpgate",
+        label: t("plugins.warpgate.title"),
+        category: action,
+        run: () => {
+          void import("../../modules/importer/WarpgateImportDialog").then((m) => m.openWarpgateImport());
+        },
+        source: "builtin",
+      },
       { id: "open-ai", label: t("shell.commandPalette.commands.openAi"), shortcutId: "toggle-ai", category: ai, run: () => useAiOpen(), source: "builtin" },
       { id: "new-ai-conv", label: t("shell.commandPalette.commands.newAiConv"), category: ai, run: () => useAiNewConv(), source: "builtin" },
       {
@@ -81,13 +96,18 @@ function useRegisterBuiltinCommands() {
     registerAll(commands);
   }, [registerAll, commands]);
 
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
+
   // 按模块开放状态过滤
   const visibleCommands = useMemo(() => {
     return commands.filter((cmd) => {
+      if (cmd.id === "import-warpgate") {
+        return isPluginActivated(PLUGIN_ID_WARPGATE);
+      }
       if (!(cmd.id in MODULE_PATHS)) return true;
       return isModuleOpen(cmd.id as keyof typeof MODULE_PATHS);
     });
-  }, [commands, modules]);
+  }, [commands, modules, pluginItems]);
 
   return { visibleCommands, recordUse };
 }

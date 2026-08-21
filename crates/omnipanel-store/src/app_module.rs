@@ -50,6 +50,7 @@ pub const DEFAULT_APP_MODULES: &[(&str, i32, AppModuleStatus)] = &[
     ("workflow", 7, AppModuleStatus::Disabled),
     ("knowledge", 8, AppModuleStatus::Open),
     ("web", 9, AppModuleStatus::Open),
+    ("cloud", 10, AppModuleStatus::Open),
 ];
 
 /// 持久化的模块配置条目。
@@ -88,6 +89,33 @@ impl Storage {
                 [],
             )
             .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    /// 插件模块补种：已存在行不覆盖用户状态。`kind=module` 默认 `closed`。
+    pub fn seed_app_module(
+        &self,
+        module_key: &str,
+        sort_order: i32,
+        status: AppModuleStatus,
+    ) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "INSERT OR IGNORE INTO app_modules (module_key, status, sort_order) VALUES (?1, ?2, ?3)",
+                params![module_key, status.as_str(), sort_order],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    pub fn repair_app_modules_with_plugins(
+        &self,
+        extras: &[(&str, i32, AppModuleStatus)],
+    ) -> OmniResult<()> {
+        self.repair_app_modules()?;
+        for (key, order, status) in extras {
+            self.seed_app_module(key, *order, *status)?;
+        }
         Ok(())
     }
 
@@ -196,5 +224,29 @@ mod tests {
         let again = storage.app_module_list().unwrap();
         let terminal = again.iter().find(|m| m.module_key == "terminal").unwrap();
         assert_eq!(terminal.status, AppModuleStatus::Closed);
+    }
+
+    #[test]
+    fn seeds_cloud_and_plugin_module_closed() {
+        let storage = Storage::open_in_memory().unwrap();
+        let modules = storage.app_module_list().unwrap();
+        let cloud = modules.iter().find(|m| m.module_key == "cloud").unwrap();
+        assert_eq!(cloud.status, AppModuleStatus::Open);
+
+        storage
+            .seed_app_module("nacos", 80, AppModuleStatus::Closed)
+            .unwrap();
+        let again = storage.app_module_list().unwrap();
+        let nacos = again.iter().find(|m| m.module_key == "nacos").unwrap();
+        assert_eq!(nacos.status, AppModuleStatus::Closed);
+
+        storage
+            .app_module_set_status("nacos", AppModuleStatus::Open)
+            .unwrap();
+        storage
+            .repair_app_modules_with_plugins(&[("nacos", 80, AppModuleStatus::Closed)])
+            .unwrap();
+        let kept = storage.app_module_get("nacos").unwrap();
+        assert_eq!(kept.status, AppModuleStatus::Open);
     }
 }

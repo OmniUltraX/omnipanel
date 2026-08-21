@@ -23,6 +23,7 @@ const MODULE_NAV_KEYS: Record<ModuleKey, string> = {
   workflow: "shell.nav.workflow",
   knowledge: "shell.nav.knowledge",
   tasks: "shell.nav.tasks",
+  cloud: "shell.nav.cloud",
 };
 
 export function moduleKeyFromPath(pathname: string): ModuleKey | null {

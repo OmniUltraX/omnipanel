@@ -18,6 +18,8 @@ members = [
     "crates/omnipanel-server",
     "crates/omnipanel-transfer",
     "crates/omnipanel-db-sync",
+    "crates/omnipanel-plugin",
+    "crates/omnipanel-everything",
 ]
 
 [workspace.package]

@@ -1,3 +1,4 @@
+import type { ExternalSource } from "@omnipanel/plugin-sdk";
 import type { Connection } from "../../../ipc/bindings";
 import type { FileConfigJson } from "../../files/FileConnectionDialog";
 import { defaultS3Endpoint, resolveS3Provider } from "../../files/s3Provider";
@@ -8,6 +9,8 @@ import { parseCloudConfig, type CloudAccount } from "./cloudForm";
 
 export type CloudLinkKind = "ecs" | "swas" | "oss";
 
+const ALIYUN_PLUGIN_ID = "omni.cloud.aliyun";
+
 /** 写入 SSH / S3 连接 config，用于反查「是否已加入」。 */
 export type CloudResourceSource = {
   accountId: string;
@@ -15,18 +18,48 @@ export type CloudResourceSource = {
   resourceId: string;
 };
 
-function parseSsh(conn: Connection): (SshConfigJson & { cloudSource?: CloudResourceSource }) | null {
+function toExternalSource(src: CloudResourceSource): ExternalSource {
+  return {
+    pluginId: ALIYUN_PLUGIN_ID,
+    accountId: src.accountId,
+    remoteId: src.resourceId,
+    remoteKind: src.kind,
+  };
+}
+
+function readLinkedSource(cfg: {
+  externalSource?: ExternalSource;
+  cloudSource?: CloudResourceSource;
+}): CloudResourceSource | null {
+  if (cfg.externalSource?.remoteId) {
+    return {
+      accountId: cfg.externalSource.accountId ?? "",
+      kind: cfg.externalSource.remoteKind as CloudLinkKind,
+      resourceId: cfg.externalSource.remoteId,
+    };
+  }
+  return cfg.cloudSource ?? null;
+}
+
+function parseSsh(conn: Connection): (SshConfigJson & {
+  cloudSource?: CloudResourceSource;
+  externalSource?: ExternalSource;
+}) | null {
   if (conn.kind !== "ssh") return null;
   try {
     return JSON.parse(conn.config || "{}") as SshConfigJson & {
       cloudSource?: CloudResourceSource;
+      externalSource?: ExternalSource;
     };
   } catch {
     return null;
   }
 }
 
-function parseFile(conn: Connection): (FileConfigJson & { cloudSource?: CloudResourceSource }) | null {
+function parseFile(conn: Connection): (FileConfigJson & {
+  cloudSource?: CloudResourceSource;
+  externalSource?: ExternalSource;
+}) | null {
   if (conn.kind !== "file") return null;
   try {
     return JSON.parse(conn.config || "{}") as FileConfigJson & {
@@ -65,7 +98,7 @@ export function findLinkedSshConnection(
     if (conn.kind !== "ssh") continue;
     const cfg = parseSsh(conn);
     if (!cfg) continue;
-    const src = cfg.cloudSource;
+    const src = readLinkedSource(cfg);
     if (
       src &&
       src.accountId === accountId &&
@@ -102,7 +135,7 @@ export function findLinkedOssFileConnection(
     if (conn.kind !== "file") continue;
     const cfg = parseFile(conn);
     if (!cfg || cfg.protocol !== "s3") continue;
-    const src = cfg.cloudSource;
+    const src = readLinkedSource(cfg);
     if (
       src &&
       src.accountId === accountId &&
@@ -148,13 +181,17 @@ export async function addCloudInstanceToSsh(
     resourceId: row.id,
   };
   const now = Math.floor(Date.now() / 1000);
-  const config: SshConfigJson & { cloudSource: CloudResourceSource } = {
+  const config: SshConfigJson & {
+    cloudSource: CloudResourceSource;
+    externalSource: ExternalSource;
+  } = {
     host,
     port: 22,
     user: "root",
     auth: { type: "password", password: "" },
     publicIp: normalizeIp(row.publicIp) || undefined,
     cloudSource,
+    externalSource: toExternalSource(cloudSource),
   };
   const draft: Connection = {
     id: "",
@@ -197,7 +234,10 @@ export async function addCloudOssToFile(
   };
 
   const now = Math.floor(Date.now() / 1000);
-  const cfg: FileConfigJson & { cloudSource: CloudResourceSource } = {
+  const cfg: FileConfigJson & {
+    cloudSource: CloudResourceSource;
+    externalSource: ExternalSource;
+  } = {
     protocol: "s3",
     provider,
     bucket,
@@ -208,6 +248,7 @@ export async function addCloudOssToFile(
     accessKey,
     rootPath: "/",
     cloudSource,
+    externalSource: toExternalSource(cloudSource),
   };
 
   // 复用云账户 Vault 中的 Secret：file_save 会复制到 file-cred-{id}

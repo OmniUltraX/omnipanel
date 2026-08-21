@@ -669,6 +669,14 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE http_collections ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
     ALTER TABLE http_environments ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
     "#,
+    // v33 — 第一方插件启用状态
+    r#"
+    CREATE TABLE IF NOT EXISTS plugin_settings (
+        plugin_id  TEXT PRIMARY KEY,
+        enabled    INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

@@ -8,6 +8,7 @@ mod builtin_tool;
 mod builtin_tool_spec;
 mod app_module;
 mod connection;
+mod external_source;
 mod database;
 mod file_index;
 mod file_index_storage;
@@ -20,6 +21,7 @@ mod todo;
 mod embedding_config;
 mod host_resolve_cache;
 mod paths;
+mod plugin_settings;
 mod resource_profile;
 mod skill;
 mod skill_db;
@@ -59,6 +61,10 @@ pub use builtin_tool_spec::{
 };
 pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES};
 pub use connection::{Connection, ConnectionKind};
+pub use external_source::{
+    migrate_cloud_source_in_config, parse_external_source, parse_external_source_value,
+    ExternalSource,
+};
 pub use file_index::{
     FileIndexBatchItem, FileIndexEntry, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,
 };

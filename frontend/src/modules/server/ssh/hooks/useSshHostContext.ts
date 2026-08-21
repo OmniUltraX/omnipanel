@@ -8,6 +8,7 @@ import { useTerminalStore } from "../../../../stores/terminalStore";
 import { findPanelForSsh, parsePanelConfig } from "../../panel/serverConnection";
 import { getProfile } from "../data/hostProfiles";
 import type { LaunchPreset } from "../types";
+import { isBtPanelService, isOnePanelService } from "../../panel/panelPlugin";
 
 export interface SshHostContext {
   connection: Connection | undefined;
@@ -80,7 +81,7 @@ export function useSshHostContext(
   const panelServiceLabel = useMemo(() => {
     if (!panelConnection) return null;
     const serviceType = parsePanelConfig(panelConnection).serviceType;
-    return serviceType === "1panel" ? "1Panel" : serviceType === "bt" ? "宝塔" : panelConnection.name;
+    return isOnePanelService(serviceType) ? "1Panel" : isBtPanelService(serviceType) ? "宝塔" : panelConnection.name;
   }, [panelConnection]);
 
   const dockerConnection = useMemo(

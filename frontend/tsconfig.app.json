@@ -9,7 +9,10 @@
     "skipLibCheck": true,
     "strict": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@omnipanel/plugin-sdk": ["../packages/plugin-sdk/src/index.ts"],
+      "@omnipanel/plugin-ui": ["../packages/plugin-ui/src/index.ts"],
+      "zod": ["./node_modules/zod"]
     },
 
     /* Bundler mode */
@@ -17,6 +20,7 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+    "resolveJsonModule": true,
     "noEmit": true,
     "jsx": "react-jsx",
 
@@ -26,5 +30,13 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "../packages/plugin-sdk/src",
+    "../packages/plugin-ui/src",
+    "../plugins/**/*.ts",
+    "../plugins/**/*.json",
+    "../plugins/**/*.d.ts"
+  ],
+  "exclude": ["../plugins/**/*.test.ts"]
 }

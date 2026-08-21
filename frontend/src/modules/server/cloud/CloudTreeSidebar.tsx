@@ -15,8 +15,14 @@ import {
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { usePersistedServerTreeExpanded } from "../panel/usePersistedServerTreeExpanded";
 import { ServerTreeIcon, serverTreeNodeClassName } from "../panel/serverTreeIcons";
-import { cloudRegionLabel, type CloudAccount } from "./cloudForm";
+import { type CloudAccount } from "./cloudForm";
 import { makeCloudTreeKey, type CloudSidebarNavigate } from "./cloudSidebarNav";
+import {
+  fallbackCloudRegions,
+  loadCloudAccountRegions,
+  cloudRegionRowLabel,
+} from "./cloudRegionDiscovery";
+import type { CloudRegion } from "../../../ipc/bindings";
 
 type CloudAccountBranchProps = {
   account: CloudAccount;
@@ -43,10 +49,31 @@ function CloudAccountBranch({
     sidebarTreeSearchMatches(searchQuery, account.name) ||
     sidebarTreeSearchMatches(searchQuery, providerLabel);
 
+  const [liveRegions, setLiveRegions] = useState<CloudRegion[] | null>(null);
+
+  useEffect(() => {
+    if (!accountExpanded) return;
+    let cancelled = false;
+    void loadCloudAccountRegions(account.id)
+      .then((list) => {
+        if (!cancelled && list.length > 0) setLiveRegions(list);
+      })
+      .catch(() => {
+        if (!cancelled) setLiveRegions(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account.id, accountExpanded]);
+
   const regions = useMemo(() => {
-    const all = account.regions.map((region) => ({
-      region,
-      label: cloudRegionLabel(region),
+    const source =
+      liveRegions && liveRegions.length > 0
+        ? liveRegions
+        : fallbackCloudRegions(account.regions);
+    const all = source.map((region) => ({
+      region: region.regionId,
+      label: cloudRegionRowLabel(region),
     }));
     if (!hasSidebarTreeSearch(searchQuery) || nameMatch) {
       return all;
@@ -56,7 +83,7 @@ function CloudAccountBranch({
         sidebarTreeSearchMatches(searchQuery, item.label) ||
         sidebarTreeSearchMatches(searchQuery, item.region),
     );
-  }, [account.regions, nameMatch, searchQuery]);
+  }, [account.regions, liveRegions, nameMatch, searchQuery]);
 
   useEffect(() => {
     if (!hasSidebarTreeSearch(searchQuery)) return;

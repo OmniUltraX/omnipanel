@@ -4784,9 +4784,11 @@ dependencies = [
  "omnipanel-db-sync",
  "omnipanel-docker",
  "omnipanel-error",
+ "omnipanel-everything",
  "omnipanel-exec",
  "omnipanel-gateway",
  "omnipanel-mcp",
+ "omnipanel-plugin",
  "omnipanel-ssh",
  "omnipanel-store",
  "omnipanel-transfer",
@@ -4962,6 +4964,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-everything"
+version = "0.0.5"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "omnipanel-exec"
 version = "0.0.5"
 dependencies = [
@@ -5021,6 +5032,17 @@ dependencies = [
  "tower-http",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "omnipanel-plugin"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-error",
+ "serde",
+ "serde_json",
+ "specta",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -23,6 +23,13 @@ function isIpcErrorLike(error: unknown): error is IpcErrorLike {
   return "message" in error || "cause" in error || "code" in error;
 }
 
+/** 从 OmniError / unwrap 后的 Error 上读取 specta ErrorCode。 */
+export function ipcErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code ? code : null;
+}
+
 /** 将 OmniError / string / 未知异常格式化为面向用户的完整提示（保留 cause）。 */
 export function formatIpcError(error: IpcErrorLike | unknown): string {
   if (!isIpcErrorLike(error)) {

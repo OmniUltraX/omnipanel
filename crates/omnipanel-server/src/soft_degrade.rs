@@ -536,6 +536,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
             | "cloud_list_domains"
             | "cloud_list_ecs"
             | "cloud_list_oss"
+            | "cloud_list_regions"
             | "cloud_list_swas"
             | "db_batch_table_ddl"
             | "db_list_character_sets"

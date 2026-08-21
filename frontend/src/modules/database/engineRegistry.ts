@@ -1,0 +1,213 @@
+import { qdrantEngineManifest } from "../../../../plugins/db-qdrant/src/index";
+import { clickhouseEngineManifest } from "../../../../plugins/db-clickhouse/src/index";
+import { redisEngineManifest } from "../../../../plugins/db-redis/src/index";
+import type { PluginManifest } from "@omnipanel/plugin-sdk";
+import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import {
+  DOCUMENT_WORKBENCH,
+  parseEngineWorkbench,
+  SQL_WORKBENCH,
+  UNAVAILABLE_WORKBENCH,
+  type EngineWorkbench,
+} from "./workbench/engineWorkbench";
+
+export type { EngineWorkbench } from "./workbench/engineWorkbench";
+
+export type EngineFormFieldType = "text" | "password" | "number" | "checkbox" | "path";
+
+export type EngineFormField = {
+  key: "host" | "port" | "database" | "username" | "password" | "ssl" | string;
+  type: EngineFormFieldType;
+  label?: string;
+  optional?: boolean;
+};
+
+export type EngineDescriptor = {
+  id: string;
+  pluginId?: string;
+  aliases: string[];
+  defaultPort: number;
+  icon: string;
+  /** 内置布局；未知引擎走 form.fields */
+  builtinLayout: boolean;
+  supported: boolean;
+  form: { fields: EngineFormField[] };
+  workbench: EngineWorkbench;
+};
+
+const NETWORK_FIELDS: EngineFormField[] = [
+  { key: "host", type: "text" },
+  { key: "port", type: "number" },
+  { key: "database", type: "text", optional: true },
+  { key: "username", type: "text" },
+  { key: "password", type: "password" },
+  { key: "ssl", type: "checkbox" },
+];
+
+const descriptors: EngineDescriptor[] = [
+  {
+    id: "mysql",
+    aliases: ["mysql", "mariadb"],
+    defaultPort: 3306,
+    icon: "MY",
+    builtinLayout: true,
+    supported: true,
+    form: { fields: NETWORK_FIELDS },
+    workbench: SQL_WORKBENCH,
+  },
+  {
+    id: "postgresql",
+    aliases: ["postgresql", "postgres", "pg"],
+    defaultPort: 5432,
+    icon: "PG",
+    builtinLayout: true,
+    supported: true,
+    form: { fields: NETWORK_FIELDS },
+    workbench: SQL_WORKBENCH,
+  },
+  {
+    id: "sqlite",
+    aliases: ["sqlite", "sqlite3"],
+    defaultPort: 0,
+    icon: "SL",
+    builtinLayout: true,
+    supported: true,
+    form: { fields: [{ key: "database", type: "path" }] },
+    workbench: SQL_WORKBENCH,
+  },
+  {
+    id: "mongodb",
+    aliases: ["mongodb", "mongo"],
+    defaultPort: 27017,
+    icon: "MG",
+    builtinLayout: true,
+    supported: true,
+    form: { fields: NETWORK_FIELDS },
+    workbench: DOCUMENT_WORKBENCH,
+  },
+  {
+    id: "sqlserver",
+    aliases: ["sqlserver", "mssql", "sql server"],
+    defaultPort: 1433,
+    icon: "MS",
+    builtinLayout: true,
+    supported: false,
+    form: { fields: NETWORK_FIELDS },
+    workbench: SQL_WORKBENCH,
+  },
+];
+
+type PluginConnectionForm = {
+  engineKey?: string;
+  aliases?: string[];
+  defaultPort?: number;
+  icon?: string;
+  fields?: EngineFormField[];
+  builtinLayout?: boolean;
+  workbench?: unknown;
+};
+
+function descriptorFromPlugin(
+  pluginId: string,
+  manifest: PluginManifest,
+): EngineDescriptor | null {
+  const form = manifest.contributes.ui?.connectionForm;
+  if (!form || typeof form !== "object") return null;
+  const parsed = form as PluginConnectionForm;
+  const id = (parsed.engineKey ?? "").trim().toLowerCase();
+  if (!id) return null;
+  const workbench =
+    parseEngineWorkbench(manifest.contributes.ui?.workbench) ??
+    parseEngineWorkbench(parsed.workbench) ??
+    SQL_WORKBENCH;
+  return {
+    id,
+    pluginId,
+    aliases: parsed.aliases?.length ? parsed.aliases.map((a) => a.toLowerCase()) : [id],
+    defaultPort: parsed.defaultPort ?? 0,
+    icon: parsed.icon ?? id.slice(0, 2).toUpperCase(),
+    builtinLayout: parsed.builtinLayout === true,
+    supported: true,
+    form: { fields: parsed.fields ?? [{ key: "host", type: "text" }, { key: "port", type: "number" }] },
+    workbench,
+  };
+}
+
+const ENGINE_PLUGIN_MANIFESTS: Array<{ pluginId: string; manifest: PluginManifest }> = [
+  { pluginId: "omni.engine.redis", manifest: redisEngineManifest },
+  { pluginId: "omni.engine.qdrant", manifest: qdrantEngineManifest },
+  { pluginId: "omni.engine.clickhouse", manifest: clickhouseEngineManifest },
+];
+
+function pluginEngineKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const { manifest } of ENGINE_PLUGIN_MANIFESTS) {
+    const form = manifest.contributes.ui?.connectionForm;
+    if (!form || typeof form !== "object") continue;
+    const parsed = form as PluginConnectionForm;
+    const id = (parsed.engineKey ?? "").trim().toLowerCase();
+    if (id) keys.add(id);
+    for (const alias of parsed.aliases ?? []) keys.add(alias.toLowerCase());
+  }
+  return keys;
+}
+
+function descriptorsFromEnginePlugins(): EngineDescriptor[] {
+  const hydrated = usePluginRuntimeStore.getState().hydrated;
+  const out: EngineDescriptor[] = [];
+  for (const { pluginId, manifest } of ENGINE_PLUGIN_MANIFESTS) {
+    if (hydrated && !isPluginActivated(pluginId)) continue;
+    const desc = descriptorFromPlugin(pluginId, manifest);
+    if (desc) out.push(desc);
+  }
+  return out;
+}
+
+const extraPlugins = new Map<string, EngineDescriptor>();
+
+export function registerEngineDescriptor(descriptor: EngineDescriptor): void {
+  extraPlugins.set(descriptor.id, descriptor);
+}
+
+export function listEngineDescriptors(): EngineDescriptor[] {
+  const merged = new Map<string, EngineDescriptor>();
+  for (const item of descriptors) merged.set(item.id, item);
+  for (const item of descriptorsFromEnginePlugins()) merged.set(item.id, item);
+  for (const item of extraPlugins.values()) merged.set(item.id, item);
+  return [...merged.values()];
+}
+
+export function resolveEngineKey(raw: string | null | undefined): string | null {
+  const normalized = (raw ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  for (const item of listEngineDescriptors()) {
+    if (item.id === normalized || item.aliases.includes(normalized)) {
+      return item.id;
+    }
+  }
+  return normalized;
+}
+
+export function getEngineDescriptor(raw: string | null | undefined): EngineDescriptor | null {
+  const key = resolveEngineKey(raw);
+  if (!key) return null;
+  return listEngineDescriptors().find((item) => item.id === key) ?? null;
+}
+
+/** Host 按贡献选择树/编辑器/预览。插件禁用后对应引擎返回 unavailable。 */
+export function getEngineWorkbench(raw: string | null | undefined): EngineWorkbench {
+  const desc = getEngineDescriptor(raw);
+  if (desc) return desc.workbench;
+  const key = (raw ?? "").trim().toLowerCase();
+  if (key && pluginEngineKeys().has(key)) return UNAVAILABLE_WORKBENCH;
+  return SQL_WORKBENCH;
+}
+
+export function defaultPortForEngine(engine: string): number {
+  return getEngineDescriptor(engine)?.defaultPort ?? 3306;
+}
+
+export function isRegisteredEngine(engine: string): boolean {
+  const desc = getEngineDescriptor(engine);
+  return Boolean(desc?.supported);
+}

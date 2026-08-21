@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 import { clampMenuPosition, computeSubmenuPosition, type Point } from "../../lib/contextMenuPosition";
 import { useI18n } from "../../i18n";
 import { useShareUiStore } from "../../stores/shareUiStore";
-import { withGlobalShareMenuItem } from "./menu/withGlobalShareMenuItem";
+import { mergeContributedMenuItems } from "../../lib/menuContributions";
 
 export interface ContextMenuItem {
   /** 菜单项唯一标识（用于 React key，避免嵌套菜单索引冲突） */
@@ -234,7 +234,7 @@ export function ContextMenu({ items, position, onClose, className }: ContextMenu
   const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const menuItems = useMemo(
     () =>
-      withGlobalShareMenuItem(items, {
+      mergeContributedMenuItems(items, {
         label: t("share.menu"),
         onClick: () => openShareDialog(),
       }),

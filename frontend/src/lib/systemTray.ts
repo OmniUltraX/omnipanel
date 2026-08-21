@@ -24,6 +24,7 @@ const TRAY_MODULE_ORDER: readonly ModuleKey[] = [
   "database",
   "docker",
   "server",
+  "cloud",
   "files",
   "protocol",
   "workflow",

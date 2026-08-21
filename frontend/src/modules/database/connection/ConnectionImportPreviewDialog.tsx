@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FormDialog } from "../../../components/ui/form/FormDialog";
 import { TextInput } from "../../../components/ui/form/TextInput";
-import { useResizableTableColumns } from "../../../components/ui/table/useResizableTableColumns";
+import { ImportPreview } from "../../../components/ui/ImportPreview";
 import { useI18n } from "../../../i18n";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import type { DbConnectionConfig } from "../api";
@@ -43,18 +43,6 @@ function issueLabel(
   }
 }
 
-const IMPORT_PREVIEW_COLUMNS = [
-  { id: "select", defaultWidth: 40, minWidth: 36, resizable: false as const },
-  { id: "name", defaultWidth: 180, minWidth: 120 },
-  { id: "engine", defaultWidth: 100, minWidth: 72 },
-  { id: "host", defaultWidth: 160, minWidth: 100 },
-  { id: "user", defaultWidth: 100, minWidth: 72 },
-  { id: "database", defaultWidth: 120, minWidth: 80 },
-  { id: "status", defaultWidth: 140, minWidth: 96 },
-] as const;
-
-const IMPORT_PREVIEW_COLUMN_STORAGE_KEY = "omnipanel-db-import-preview-col-widths";
-
 export function ConnectionImportPreviewDialog({
   open,
   fileName,
@@ -71,19 +59,9 @@ export function ConnectionImportPreviewDialog({
   const [status, setStatus] = useState<{ kind: "info" | "success" | "error"; message: string } | null>(
     null,
   );
-  const {
-    tableRef,
-    resizingColumnId,
-    getColumnStyle,
-    startColumnResize,
-    isColumnResizable,
-  } = useResizableTableColumns([...IMPORT_PREVIEW_COLUMNS], {
-    storageKey: IMPORT_PREVIEW_COLUMN_STORAGE_KEY,
-  });
 
   const columnLabels = useMemo(
     () => ({
-      select: t("database.connectionImport.columnSelect"),
       name: t("database.connectionImport.columnName"),
       engine: t("database.connectionImport.columnEngine"),
       host: t("database.connectionImport.columnHost"),
@@ -92,44 +70,6 @@ export function ConnectionImportPreviewDialog({
       status: t("database.connectionImport.columnStatus"),
     }),
     [t],
-  );
-
-  const renderHeaderCell = (columnId: (typeof IMPORT_PREVIEW_COLUMNS)[number]["id"]) => (
-    <th
-      key={columnId}
-      data-col-id={columnId}
-      style={getColumnStyle(columnId)}
-      className={resizingColumnId === columnId ? "db-import-preview-th--resizing" : undefined}
-      aria-label={columnId === "select" ? columnLabels.select : undefined}
-    >
-      {columnId === "select" ? null : columnLabels[columnId]}
-      {isColumnResizable(columnId) ? (
-        <div
-          className="db-import-preview-col-resize"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            startColumnResize(columnId, event.clientX);
-          }}
-        />
-      ) : null}
-    </th>
-  );
-
-  const renderBodyCell = (
-    columnId: (typeof IMPORT_PREVIEW_COLUMNS)[number]["id"],
-    content: ReactNode,
-    className?: string,
-  ) => (
-    <td
-      key={columnId}
-      data-col-id={columnId}
-      style={getColumnStyle(columnId)}
-      className={className}
-      title={typeof content === "string" ? content : undefined}
-    >
-      {content}
-    </td>
   );
 
   const rowStates = useMemo(() => {
@@ -273,103 +213,103 @@ export function ConnectionImportPreviewDialog({
         </label>
       </div>
 
-      <div
-        className={`db-import-preview-table-wrap${resizingColumnId ? " db-import-preview-table-wrap--col-resizing" : ""}`}
-      >
-        <table
-          ref={tableRef}
-          className={`db-import-preview-table${resizingColumnId ? " db-import-preview-table--resizing" : ""}`}
-        >
-          <colgroup>
-            {IMPORT_PREVIEW_COLUMNS.map((column) => (
-              <col key={column.id} data-col-id={column.id} style={getColumnStyle(column.id)} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr>
-              {IMPORT_PREVIEW_COLUMNS.map((column) => renderHeaderCell(column.id))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => {
-              const rowState = rowStates.get(item.id);
-              const importable = rowState?.importable ?? false;
-              const issues = rowState?.issues ?? item.issues;
+      <ImportPreview
+        items={items.map((item) => {
+          const rowState = rowStates.get(item.id);
+          return {
+            ...item,
+            disabled: !(rowState?.importable ?? false) || importing,
+          };
+        })}
+        selectedIds={selectedIds}
+        onToggle={(id, next) => toggleItem(id, next)}
+        columns={[
+          {
+            id: "name",
+            header: columnLabels.name,
+            width: 180,
+            render: (item) => (
+              <TextInput
+                className="db-import-preview-name-input input"
+                value={customNames[item.id] ?? item.raw.name}
+                placeholder={t("database.connectionImport.namePlaceholder")}
+                disabled={importing}
+                onChange={(value) => updateCustomName(item.id, value)}
+              />
+            ),
+          },
+          {
+            id: "engine",
+            header: columnLabels.engine,
+            width: 100,
+            render: (item) => {
               const iconUrl = item.engine
                 ? getEngineIconByType(item.engine, resolvedTheme)
                 : null;
-              const displayName = customNames[item.id] ?? item.raw.name;
-              const hostText = `${item.raw.host || "—"}${item.raw.port ? `:${item.raw.port}` : ""}`;
               return (
-                <tr
-                  key={item.id}
-                  className={`db-import-preview-row${importable ? "" : " db-import-preview-row--disabled"}`}
-                >
-                  {renderBodyCell(
-                    "select",
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(item.id)}
-                      disabled={!importable || importing}
-                      onChange={(event) => toggleItem(item.id, event.target.checked)}
-                    />,
-                    "db-import-preview-cell--select",
-                  )}
-                  {renderBodyCell(
-                    "name",
-                    <TextInput
-                      className="db-import-preview-name-input input"
-                      value={displayName}
-                      placeholder={t("database.connectionImport.namePlaceholder")}
-                      disabled={importing}
-                      onChange={(value) => updateCustomName(item.id, value)}
-                    />,
-                    "db-import-preview-name",
-                  )}
-                  {renderBodyCell(
-                    "engine",
-                    <span className="db-import-preview-engine">
-                      {iconUrl ? (
-                        <img
-                          src={iconUrl}
-                          alt=""
-                          className="db-import-preview-engine__icon"
-                          width={14}
-                          height={14}
-                        />
-                      ) : null}
-                      <span>{item.raw.connType || "—"}</span>
-                    </span>,
-                  )}
-                  {renderBodyCell("host", hostText)}
-                  {renderBodyCell("user", item.raw.user || "—")}
-                  {renderBodyCell("database", item.raw.database || "—")}
-                  {renderBodyCell(
-                    "status",
-                    issues.length === 0 ? (
-                      <span className="db-import-preview-status db-import-preview-status--ready">
-                        {t("database.connectionImport.statusReady")}
-                      </span>
-                    ) : (
-                      <div className="db-import-preview-issues">
-                        {issues.map((issue) => (
-                          <span
-                            key={issue}
-                            className="db-import-preview-status db-import-preview-status--warn"
-                          >
-                            {issueLabel(issue, t)}
-                          </span>
-                        ))}
-                      </div>
-                    ),
-                    "db-import-preview-cell--status",
-                  )}
-                </tr>
+                <span className="db-import-preview-engine">
+                  {iconUrl ? (
+                    <img
+                      src={iconUrl}
+                      alt=""
+                      className="db-import-preview-engine__icon"
+                      width={14}
+                      height={14}
+                    />
+                  ) : null}
+                  <span>{item.raw.connType || "—"}</span>
+                </span>
               );
-            })}
-          </tbody>
-        </table>
-      </div>
+            },
+          },
+          {
+            id: "host",
+            header: columnLabels.host,
+            width: 160,
+            render: (item) =>
+              `${item.raw.host || "—"}${item.raw.port ? `:${item.raw.port}` : ""}`,
+          },
+          {
+            id: "user",
+            header: columnLabels.user,
+            width: 100,
+            render: (item) => item.raw.user || "—",
+          },
+          {
+            id: "database",
+            header: columnLabels.database,
+            width: 120,
+            render: (item) => item.raw.database || "—",
+          },
+          {
+            id: "status",
+            header: columnLabels.status,
+            width: 140,
+            render: (item) => {
+              const issues = rowStates.get(item.id)?.issues ?? item.issues;
+              if (issues.length === 0) {
+                return (
+                  <span className="db-import-preview-status db-import-preview-status--ready">
+                    {t("database.connectionImport.statusReady")}
+                  </span>
+                );
+              }
+              return (
+                <div className="db-import-preview-issues">
+                  {issues.map((issue) => (
+                    <span
+                      key={issue}
+                      className="db-import-preview-status db-import-preview-status--warn"
+                    >
+                      {issueLabel(issue, t)}
+                    </span>
+                  ))}
+                </div>
+              );
+            },
+          },
+        ]}
+      />
     </FormDialog>
   );
 }

@@ -21,6 +21,7 @@ import { createBtPanelClient } from "../../../../lib/btpanel";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
+import { isBtPanelService, isOnePanelService, panelHasCapability } from "../panelPlugin";
 import {
   cronjobNumericId,
   cronjobRowId,
@@ -79,9 +80,8 @@ export function ServerCronjobsTab({ server }: Props) {
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const isOnePanel = server.serviceType === "1panel";
-  const isBt = server.serviceType === "bt";
-  const canManage = isOnePanel || isBt;
+  const isBt = isBtPanelService(server.serviceType);
+  const canManage = panelHasCapability(server.serviceType, "cronjobs");
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 280);
@@ -92,11 +92,11 @@ export function ServerCronjobsTab({ server }: Props) {
     if (!opts?.soft) setLoading(true);
     setError(null);
     try {
-      if (server.serviceType === "1panel") {
+      if (isOnePanelService(server.serviceType)) {
         const client = createOnePanelClient(server.address, server.key, server.id);
         const items = await client.searchCronjobs();
         setRows(items as Record<string, unknown>[]);
-      } else if (server.serviceType === "bt") {
+      } else if (isBtPanelService(server.serviceType)) {
         const client = createBtPanelClient(server.address, server.key, server.id);
         const result = await client.getCronList({ limit: 100 });
         setRows(result.data as unknown as Record<string, unknown>[]);

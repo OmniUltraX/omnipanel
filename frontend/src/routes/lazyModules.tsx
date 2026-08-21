@@ -66,6 +66,11 @@ export const LazyTaskCenterPanel = lazyNamedModule(
   "TaskCenterPanel",
 );
 
+export const LazyCloudPanel = lazyNamedModule(
+  () => import("../modules/cloud/CloudPanel"),
+  "CloudPanel",
+);
+
 export const LazyDashboardPage = lazyNamedModule(
   () => import("../modules/workspace/DashboardPage"),
   "DashboardPage",

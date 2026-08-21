@@ -1,6 +1,7 @@
 //! 阿里云 OpenAPI（RPC HMAC-SHA1）与 OSS ListBuckets 只读客户端。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -10,6 +11,7 @@ use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
 use sha1::Sha1;
+use tokio::sync::Semaphore;
 
 use omnipanel_error::{ErrorCode, OmniError};
 
@@ -75,6 +77,43 @@ pub struct CloudEcsInstance {
     pub os_name: String,
     pub creation_time: String,
 }
+
+#[derive(Debug, Clone, Serialize, specta::Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudRegion {
+    pub region_id: String,
+    pub local_name: String,
+    pub has_ecs: bool,
+    pub has_swas: bool,
+}
+
+/// DescribeRegions 失败时用于探测的常用地域（含用户未手选的地域）。
+const FALLBACK_REGION_IDS: &[&str] = &[
+    "cn-hangzhou",
+    "cn-shanghai",
+    "cn-qingdao",
+    "cn-beijing",
+    "cn-zhangjiakou",
+    "cn-huhehaote",
+    "cn-wulanchabu",
+    "cn-shenzhen",
+    "cn-heyuan",
+    "cn-guangzhou",
+    "cn-chengdu",
+    "cn-hongkong",
+    "cn-wuhan",
+    "cn-nanjing",
+    "cn-fuzhou",
+    "ap-southeast-1",
+    "ap-southeast-3",
+    "ap-southeast-5",
+    "ap-northeast-1",
+    "us-west-1",
+    "us-east-1",
+    "eu-central-1",
+    "eu-west-1",
+    "me-central-1",
+];
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -157,12 +196,35 @@ fn json_arr(v: &Value, keys: &[&str]) -> Vec<Value> {
                     return arr.clone();
                 }
                 if let Some(one) = obj.get(nested) {
+                    if one.is_null() {
+                        continue;
+                    }
+                    if one.as_object().is_some_and(|o| o.is_empty()) {
+                        continue;
+                    }
                     return vec![one.clone()];
                 }
             }
         }
     }
     Vec::new()
+}
+
+fn json_total_count(v: &Value) -> u64 {
+    for key in ["TotalCount", "totalCount"] {
+        if let Some(n) = v.get(key).and_then(|x| x.as_u64()) {
+            return n;
+        }
+        if let Some(n) = v.get(key).and_then(|x| x.as_i64()).filter(|n| *n >= 0) {
+            return n as u64;
+        }
+        if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+            if let Ok(n) = s.parse::<u64>() {
+                return n;
+            }
+        }
+    }
+    json_arr(v, &["Instances", "Instance"]).len() as u64
 }
 
 fn str_field(v: &Value, keys: &[&str]) -> String {
@@ -210,9 +272,146 @@ fn str_field(v: &Value, keys: &[&str]) -> String {
             if let Some(s) = obj.get("IpAddress").and_then(|x| x.as_str()) {
                 return s.to_string();
             }
+            if let Some(nested) = obj.get("PrivateIpAddress") {
+                let inner = str_field(nested, &["IpAddress"]);
+                if !inner.is_empty() {
+                    return inner;
+                }
+                if let Some(s) = nested.as_str() {
+                    return s.to_string();
+                }
+            }
         }
     }
     String::new()
+}
+
+fn instance_private_ip(item: &Value) -> String {
+    let direct = str_field(item, &["InnerIpAddress", "PrivateIpAddress"]);
+    if !direct.is_empty() {
+        return direct;
+    }
+    if let Some(vpc) = item.get("VpcAttributes") {
+        let ip = str_field(vpc, &["PrivateIpAddress", "InnerIpAddress"]);
+        if !ip.is_empty() {
+            return ip;
+        }
+    }
+    String::new()
+}
+
+fn parse_ecs_instance(item: &Value) -> CloudEcsInstance {
+    let public_ip = str_field(
+        item,
+        &["PublicIpAddress", "EipAddress", "PublicIpAddresses"],
+    );
+    let eip = item
+        .get("EipAddress")
+        .and_then(|e| e.get("IpAddress"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    CloudEcsInstance {
+        instance_id: str_field(item, &["InstanceId"]),
+        instance_name: str_field(item, &["InstanceName"]),
+        status: str_field(item, &["Status"]),
+        region_id: str_field(item, &["RegionId"]),
+        zone_id: str_field(item, &["ZoneId"]),
+        instance_type: str_field(item, &["InstanceType"]),
+        public_ip_address: if public_ip.is_empty() { eip } else { public_ip },
+        private_ip_address: instance_private_ip(item),
+        os_name: str_field(item, &["OSName", "OSNameEn"]),
+        creation_time: str_field(item, &["CreationTime"]),
+    }
+}
+
+fn parse_swas_instance(item: &Value) -> CloudSwasInstance {
+    CloudSwasInstance {
+        instance_id: str_field(item, &["InstanceId"]),
+        instance_name: str_field(item, &["InstanceName"]),
+        status: str_field(item, &["Status"]),
+        region_id: str_field(item, &["RegionId"]),
+        public_ip_address: str_field(item, &["PublicIpAddress", "PublicIpAddresses"]),
+        private_ip_address: str_field(item, &["PrivateIpAddress", "InnerIpAddress"]),
+        image_id: str_field(item, &["ImageId"]),
+        instance_plan: str_field(item, &["PlanId", "InstancePlan"]),
+        creation_time: str_field(item, &["CreationTime", "CreatedTime"]),
+    }
+}
+
+fn fallback_regions() -> Vec<CloudRegion> {
+    FALLBACK_REGION_IDS
+        .iter()
+        .map(|id| CloudRegion {
+            region_id: (*id).to_string(),
+            local_name: String::new(),
+            has_ecs: false,
+            has_swas: false,
+        })
+        .collect()
+}
+
+pub(crate) fn select_visible_cloud_regions(
+    mut described: Vec<CloudRegion>,
+    occupied_ecs: &HashSet<String>,
+    occupied_swas: &HashSet<String>,
+    configured: &[String],
+    probes_ok: usize,
+) -> Vec<CloudRegion> {
+    let configured_set: HashSet<String> = configured
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    for region in &mut described {
+        region.has_ecs = occupied_ecs.contains(&region.region_id);
+        region.has_swas = occupied_swas.contains(&region.region_id);
+    }
+
+    let described_ids: HashSet<String> = described.iter().map(|r| r.region_id.clone()).collect();
+    let found_any = !occupied_ecs.is_empty() || !occupied_swas.is_empty();
+    let show_all = probes_ok == 0 || !found_any;
+    let mut out: Vec<CloudRegion> = if show_all {
+        described
+    } else {
+        described
+            .into_iter()
+            .filter(|r| r.has_ecs || r.has_swas || configured_set.contains(&r.region_id))
+            .collect()
+    };
+
+    for id in configured {
+        let id = id.trim();
+        if id.is_empty() || described_ids.contains(id) {
+            continue;
+        }
+        if out.iter().any(|r| r.region_id == id) {
+            continue;
+        }
+        out.push(CloudRegion {
+            region_id: id.to_string(),
+            local_name: String::new(),
+            has_ecs: occupied_ecs.contains(id),
+            has_swas: occupied_swas.contains(id),
+        });
+    }
+
+    if out.is_empty() {
+        for id in configured {
+            let id = id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            out.push(CloudRegion {
+                region_id: id.to_string(),
+                local_name: String::new(),
+                has_ecs: false,
+                has_swas: false,
+            });
+        }
+    }
+    out
 }
 
 impl AliyunCredentials {
@@ -307,30 +506,27 @@ impl AliyunCredentials {
         if region.is_empty() {
             return Err(OmniError::invalid_input("请先配置默认 Region"));
         }
-        // 官方公网接入点为 swas.{region}.aliyuncs.com（不是 swas-open.*）
         let endpoint = format!("https://swas.{region}.aliyuncs.com/");
-        let mut params = BTreeMap::new();
-        params.insert("RegionId".into(), region.to_string());
-        params.insert("PageNumber".into(), "1".into());
-        params.insert("PageSize".into(), "50".into());
-        let body = self
-            .rpc_call(http, &endpoint, "2020-06-01", "ListInstances", params)
-            .await?;
-        let instances = json_arr(&body, &["Instances", "Instance"]);
-        Ok(instances
-            .iter()
-            .map(|item| CloudSwasInstance {
-                instance_id: str_field(item, &["InstanceId"]),
-                instance_name: str_field(item, &["InstanceName"]),
-                status: str_field(item, &["Status"]),
-                region_id: str_field(item, &["RegionId"]),
-                public_ip_address: str_field(item, &["PublicIpAddress", "PublicIpAddresses"]),
-                private_ip_address: str_field(item, &["PrivateIpAddress", "InnerIpAddress"]),
-                image_id: str_field(item, &["ImageId"]),
-                instance_plan: str_field(item, &["PlanId", "InstancePlan"]),
-                creation_time: str_field(item, &["CreationTime", "CreatedTime"]),
-            })
-            .collect())
+        let mut out = Vec::new();
+        let mut page: u32 = 1;
+        loop {
+            let mut params = BTreeMap::new();
+            params.insert("RegionId".into(), region.to_string());
+            params.insert("PageNumber".into(), page.to_string());
+            params.insert("PageSize".into(), "100".into());
+            let body = self
+                .rpc_call(http, &endpoint, "2020-06-01", "ListInstances", params)
+                .await?;
+            let instances = json_arr(&body, &["Instances", "Instance"]);
+            let count = instances.len();
+            out.extend(instances.iter().map(parse_swas_instance));
+            let total = json_total_count(&body);
+            if count == 0 || out.len() as u64 >= total || page >= 20 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(out)
     }
 
     pub async fn list_domains(&self, http: &Client) -> Result<Vec<CloudDomainItem>, OmniError> {
@@ -369,48 +565,128 @@ impl AliyunCredentials {
             return Err(OmniError::invalid_input("请先配置默认 Region"));
         }
         let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
+        let mut out = Vec::new();
+        let mut page: u32 = 1;
+        loop {
+            let mut params = BTreeMap::new();
+            params.insert("RegionId".into(), region.to_string());
+            params.insert("PageNumber".into(), page.to_string());
+            params.insert("PageSize".into(), "100".into());
+            let body = self
+                .rpc_call(http, &endpoint, "2014-05-26", "DescribeInstances", params)
+                .await?;
+            let instances = json_arr(&body, &["Instances", "Instance"]);
+            let count = instances.len();
+            out.extend(instances.iter().map(parse_ecs_instance));
+            let total = json_total_count(&body);
+            if count == 0 || out.len() as u64 >= total || page >= 20 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(out)
+    }
+
+    pub async fn list_regions(&self, http: &Client) -> Result<Vec<CloudRegion>, OmniError> {
+        let mut params = BTreeMap::new();
+        params.insert("AcceptLanguage".into(), "zh-CN".into());
+        let body = self
+            .rpc_call(
+                http,
+                "https://ecs.aliyuncs.com/",
+                "2014-05-26",
+                "DescribeRegions",
+                params,
+            )
+            .await?;
+        Ok(json_arr(&body, &["Regions", "Region"])
+            .iter()
+            .filter_map(|item| {
+                let region_id = str_field(item, &["RegionId"]);
+                if region_id.is_empty() {
+                    return None;
+                }
+                Some(CloudRegion {
+                    region_id,
+                    local_name: str_field(item, &["LocalName"]),
+                    has_ecs: false,
+                    has_swas: false,
+                })
+            })
+            .collect())
+    }
+
+    async fn ecs_total_count(&self, http: &Client, region: &str) -> Result<u64, OmniError> {
+        let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
         let mut params = BTreeMap::new();
         params.insert("RegionId".into(), region.to_string());
         params.insert("PageNumber".into(), "1".into());
-        params.insert("PageSize".into(), "50".into());
+        params.insert("PageSize".into(), "1".into());
         let body = self
             .rpc_call(http, &endpoint, "2014-05-26", "DescribeInstances", params)
             .await?;
-        let instances = json_arr(&body, &["Instances", "Instance"]);
-        Ok(instances
-            .iter()
-            .map(|item| {
-                let public_ip = str_field(
-                    item,
-                    &[
-                        "PublicIpAddress",
-                        "EipAddress",
-                        "PublicIpAddresses",
-                    ],
-                );
-                let eip = item
-                    .get("EipAddress")
-                    .and_then(|e| e.get("IpAddress"))
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                CloudEcsInstance {
-                    instance_id: str_field(item, &["InstanceId"]),
-                    instance_name: str_field(item, &["InstanceName"]),
-                    status: str_field(item, &["Status"]),
-                    region_id: str_field(item, &["RegionId"]),
-                    zone_id: str_field(item, &["ZoneId"]),
-                    instance_type: str_field(item, &["InstanceType"]),
-                    public_ip_address: if public_ip.is_empty() { eip } else { public_ip },
-                    private_ip_address: str_field(
-                        item,
-                        &["InnerIpAddress", "VpcAttributes", "PrivateIpAddress"],
-                    ),
-                    os_name: str_field(item, &["OSName", "OSNameEn"]),
-                    creation_time: str_field(item, &["CreationTime"]),
+        Ok(json_total_count(&body))
+    }
+
+    async fn swas_total_count(&self, http: &Client, region: &str) -> Result<u64, OmniError> {
+        let endpoint = format!("https://swas.{region}.aliyuncs.com/");
+        let mut params = BTreeMap::new();
+        params.insert("RegionId".into(), region.to_string());
+        params.insert("PageNumber".into(), "1".into());
+        params.insert("PageSize".into(), "1".into());
+        let body = self
+            .rpc_call(http, &endpoint, "2020-06-01", "ListInstances", params)
+            .await?;
+        Ok(json_total_count(&body))
+    }
+
+    pub async fn discover_regions(
+        &self,
+        http: &Client,
+        configured: &[String],
+    ) -> Result<Vec<CloudRegion>, OmniError> {
+        let described = match self.list_regions(http).await {
+            Ok(list) if !list.is_empty() => list,
+            _ => fallback_regions(),
+        };
+        let sem = Arc::new(Semaphore::new(8));
+        let probes = described.iter().map(|region| {
+            let id = region.region_id.clone();
+            let sem = sem.clone();
+            let creds = self.clone();
+            let http = http.clone();
+            async move {
+                let _permit = sem.acquire().await.ok();
+                let ecs = creds.ecs_total_count(&http, &id).await.ok();
+                let swas = creds.swas_total_count(&http, &id).await.ok();
+                (id, ecs, swas)
+            }
+        });
+        let results = futures::future::join_all(probes).await;
+        let mut occupied_ecs = HashSet::new();
+        let mut occupied_swas = HashSet::new();
+        let mut probes_ok = 0usize;
+        for (id, ecs, swas) in results {
+            if let Some(count) = ecs {
+                probes_ok += 1;
+                if count > 0 {
+                    occupied_ecs.insert(id.clone());
                 }
-            })
-            .collect())
+            }
+            if let Some(count) = swas {
+                probes_ok += 1;
+                if count > 0 {
+                    occupied_swas.insert(id);
+                }
+            }
+        }
+        Ok(select_visible_cloud_regions(
+            described,
+            &occupied_ecs,
+            &occupied_swas,
+            configured,
+            probes_ok,
+        ))
     }
 
     pub async fn list_certificates(

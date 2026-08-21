@@ -85,6 +85,18 @@ export default defineConfig(({ command }) => ({
     alias: [
       { find: "@repo-logo", replacement: path.resolve(frontendRoot, "../logo") },
       { find: "@/", replacement: `${path.resolve(frontendRoot, "src")}/` },
+      {
+        find: "@omnipanel/plugin-sdk",
+        replacement: path.resolve(frontendRoot, "../packages/plugin-sdk/src/index.ts"),
+      },
+      {
+        find: "@omnipanel/plugin-ui",
+        replacement: path.resolve(frontendRoot, "../packages/plugin-ui/src/index.ts"),
+      },
+      {
+        find: /^zod$/,
+        replacement: requireFromFrontend.resolve("zod"),
+      },
       // Web 模式：把 @tauri-apps/api 重定向到浏览器 shim（仅 OMNIPANEL_WEB=1 时生效）
       ...webAliases,
       {
@@ -123,6 +135,7 @@ export default defineConfig(({ command }) => ({
       "@assistant-ui/react",
       "@assistant-ui/react-markdown",
       "@assistant-ui/core",
+      "zod",
     ],
     exclude: [
       "node-ipc",
@@ -175,6 +188,11 @@ export default defineConfig(({ command }) => ({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "../plugins/**/*.test.ts",
+    ],
   },
 }));
 

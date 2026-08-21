@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { Connection } from "../ipc/bindings";
 import { connectionToServerEntry } from "../modules/server/panel/panelConnection";
+import { isOnePanelService } from "../modules/server/panel/panelPlugin";
 import {
   EMPTY_SERVER_PANEL_RESOURCE_CACHE,
   normalizeServerPanelResourceCache,
@@ -228,7 +229,7 @@ export const useServerPanelCacheStore = create<ServerPanelCacheState>()(
           await Promise.all(
             list.flatMap((server) => {
               const tasks: Promise<unknown>[] = [get().refreshServer(server)];
-              if (server.serviceType === "1panel") {
+              if (isOnePanelService(server.serviceType)) {
                 tasks.push(get().refreshServerApps(server));
               }
               return tasks;

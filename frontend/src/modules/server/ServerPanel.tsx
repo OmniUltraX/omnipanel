@@ -12,14 +12,7 @@ import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
 import { ServerPanelSidebar } from "./panel/ServerPanelSidebar";
-import { CloudConnectionDialog } from "./cloud/CloudConnectionDialog";
-import { CloudDockPanel } from "./cloud/CloudDockPanel";
-import { connectionToCloudAccount, type CloudAccount } from "./cloud/cloudForm";
 import { resolvePanelBrandIcon } from "./brandIcons";
-import {
-  makeCloudTreeKey,
-  type CloudSidebarNavTarget,
-} from "./cloud/cloudSidebarNav";
 import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import { ServerSidebarLinkageProvider } from "./panel/ServerSidebarLinkageContext";
@@ -56,16 +49,6 @@ export function ServerPanel() {
     () => panelServers.filter((s) => passTagFilter(tagAllowedIds, s.id)),
     [panelServers, tagAllowedIds],
   );
-  const cloudAccounts = useMemo(() => {
-    const list: CloudAccount[] = [];
-    for (const conn of connections) {
-      const account = connectionToCloudAccount(conn);
-      if (account && passTagFilter(tagAllowedIds, account.id)) {
-        list.push(account);
-      }
-    }
-    return list;
-  }, [connections, tagAllowedIds]);
   const syncPanelServersFromConnections = useServerPanelCacheStore(
     (s) => s.syncPanelServersFromConnections,
   );
@@ -81,7 +64,6 @@ export function ServerPanel() {
   const activeTabId = useServerPanelDockStore((s) => s.activeTabId);
   const dockLayout = useServerPanelDockStore((s) => s.dockLayout);
   const selectServer = useServerPanelDockStore((s) => s.selectServer);
-  const selectCloud = useServerPanelDockStore((s) => s.selectCloud);
   const selectServerResource = useServerPanelDockStore((s) => s.selectServerResource);
   const closeTab = useServerPanelDockStore((s) => s.closeTab);
   const setActiveTabId = useServerPanelDockStore((s) => s.setActiveTabId);
@@ -101,29 +83,20 @@ export function ServerPanel() {
         return true;
       }
       case "openConnection": {
-        const conn = useConnectionStore.getState().connections.find((c) => c.id === intent.resourceId);
-        if (conn?.kind === "cloud") {
-          selectCloud(intent.resourceId, "permanent");
-        } else {
-          selectServer(intent.resourceId, "permanent");
-        }
+        selectServer(intent.resourceId, "permanent");
         return true;
       }
       default:
         return false;
     }
-  }, [selectCloud, selectServer, selectServerResource]));
+  }, [selectServer, selectServerResource]));
 
   const activeServerId = useActiveServerPanelId();
 
   const [showDialog, setShowDialog] = useState(false);
   const [editPanelConnection, setEditPanelConnection] = useState<Connection | undefined>();
-  const [showCloudDialog, setShowCloudDialog] = useState(false);
-  const [editCloudConnection, setEditCloudConnection] = useState<Connection | undefined>();
   const [activeNavKey, setActiveNavKey] = useState<string | null>(null);
-  const [activeCloudNavKey, setActiveCloudNavKey] = useState<string | null>(null);
   const [navTarget, setNavTarget] = useState<ServerSidebarNavTarget | null>(null);
-  const [cloudNavTarget, setCloudNavTarget] = useState<CloudSidebarNavTarget | null>(null);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
     y: number;
@@ -139,19 +112,8 @@ export function ServerPanel() {
     return map;
   }, [panelServers]);
 
-  const cloudById = useMemo(() => {
-    const map = new Map<string, CloudAccount>();
-    for (const account of cloudAccounts) {
-      map.set(account.id, account);
-    }
-    return map;
-  }, [cloudAccounts]);
-
   useEffect(() => {
-    const validIds = new Set([
-      ...panelServers.map((server) => server.id),
-      ...cloudAccounts.map((account) => account.id),
-    ]);
+    const validIds = new Set(panelServers.map((server) => server.id));
     const staleServerIds = [
       ...new Set(
         useServerPanelDockStore
@@ -163,7 +125,7 @@ export function ServerPanel() {
     for (const serverId of staleServerIds) {
       removeServerTabs(serverId);
     }
-  }, [cloudAccounts, panelServers, removeServerTabs]);
+  }, [panelServers, removeServerTabs]);
 
   useEffect(() => {
     if (!isActiveRoute) {
@@ -190,38 +152,12 @@ export function ServerPanel() {
     [selectServer, selectServerResource],
   );
 
-  const handleNavigateCloud = useCallback(
-    (target: CloudSidebarNavTarget, mode: ServerPanelDockOpenMode = "preview") => {
-      openDockTabNow({
-        applyTabSync: () => {
-          selectCloud(target.accountId, mode);
-          setCloudNavTarget(target);
-          setActiveCloudNavKey(makeCloudTreeKey(target.accountId, target.region));
-        },
-      });
-    },
-    [selectCloud],
-  );
-
   useEffect(() => {
     const tab = dockTabs.find((item) => item.id === activeTabId);
-    if (!tab) {
+    if (!tab || isCloudOverviewTab(tab)) {
       setActiveNavKey(null);
-      setActiveCloudNavKey(null);
       return;
     }
-    if (isCloudOverviewTab(tab)) {
-      setActiveNavKey(null);
-      setActiveCloudNavKey((prev) => {
-        const accountKey = makeCloudTreeKey(tab.serverId);
-        if (prev === accountKey || prev?.startsWith(`${accountKey}:`)) {
-          return prev;
-        }
-        return accountKey;
-      });
-      return;
-    }
-    setActiveCloudNavKey(null);
     if (isServerResourceTab(tab)) {
       setActiveNavKey(makeServerTreeKey(tab.serverId, tab.kind));
       return;
@@ -285,55 +221,11 @@ export function ServerPanel() {
     [removeConn, removeServerCache, removeServerTabs, t],
   );
 
-  const handleCreateCloud = useCallback(() => {
-    setEditCloudConnection(undefined);
-    setShowCloudDialog(true);
-  }, []);
-
-  const handleEditCloud = useCallback(
-    (account: CloudAccount) => {
-      const conn = connections.find((c) => c.id === account.id);
-      setEditCloudConnection(conn);
-      setShowCloudDialog(true);
-    },
-    [connections],
-  );
-
-  const handleDeleteCloud = useCallback(
-    async (accountId: string | string[]) => {
-      const ids = Array.isArray(accountId) ? accountId : [accountId];
-      if (ids.length === 0) return;
-      const confirmed = await appConfirm(
-        ids.length === 1
-          ? t("server.cloud.sidebar.delete")
-          : t("sidebarTree.confirmDeleteSelected", { count: String(ids.length) }),
-      );
-      if (!confirmed) return;
-      for (const id of ids) {
-        removeServerTabs(id);
-        await removeConn(id);
-      }
-    },
-    [removeConn, removeServerTabs, t],
-  );
-
   const moduleDockTabs = useMemo(
     () =>
       dockTabs
         .map((tab) => {
-          if (isCloudOverviewTab(tab)) {
-            const account = cloudById.get(tab.serverId);
-            if (!account) return null;
-            return {
-              id: tab.id,
-              label: `${t("server.cloud.sidebar.title")}@${account.name}`,
-              panelType: "server-panel",
-              icon: (account.provider === "aliyun" ? "aliyun" : "server") as DockHeaderIconKind,
-              closable: true,
-              preview: tab.preview,
-              tooltip: `${account.regions.join(", ")} · ${account.accessKeyId}`,
-            };
-          }
+          if (isCloudOverviewTab(tab)) return null;
           const server = serverById.get(tab.serverId);
           if (!server) return null;
           const featureLabel =
@@ -364,7 +256,7 @@ export function ServerPanel() {
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
-    [cloudById, dockTabs, serverById, t],
+    [dockTabs, serverById, t],
   );
 
   const handleTabContextAction = useCallback(
@@ -412,17 +304,7 @@ export function ServerPanel() {
       }
       const isActive = activeTabId === tabId;
       if (isCloudOverviewTab(tab)) {
-        const account = cloudById.get(tab.serverId);
-        if (!account) {
-          return <div className="server-panel-tab-pane" aria-hidden />;
-        }
-        return (
-          <CloudDockPanel
-            account={account}
-            isActive={isActive && moduleLive}
-            navTarget={cloudNavTarget?.accountId === account.id ? cloudNavTarget : null}
-          />
-        );
+        return <div className="server-panel-tab-pane" aria-hidden />;
       }
       const server = serverById.get(tab.serverId);
       if (!server) {
@@ -453,7 +335,7 @@ export function ServerPanel() {
         </div>
       );
     },
-    [activeTabId, cloudById, cloudNavTarget, dockTabs, moduleLive, navTarget, serverById],
+    [activeTabId, dockTabs, moduleLive, navTarget, serverById],
   );
 
   const sidebarLinkageValue = useMemo(
@@ -464,11 +346,6 @@ export function ServerPanel() {
     }),
     [activeNavKey, activeServerId, handleNavigate],
   );
-
-  const activeCloudAccountId = useMemo(() => {
-    const tab = dockTabs.find((item) => item.id === activeTabId);
-    return tab && isCloudOverviewTab(tab) ? tab.serverId : null;
-  }, [activeTabId, dockTabs]);
 
   return (
     <>
@@ -482,16 +359,9 @@ export function ServerPanel() {
           leftSidebar={
             <ServerPanelSidebar
               servers={visiblePanelServers}
-              cloudAccounts={cloudAccounts}
               onCreateServer={handleCreateServer}
               onEditServer={handleEditServer}
               onDeleteServer={handleDeleteServer}
-              onCreateCloud={handleCreateCloud}
-              onEditCloud={handleEditCloud}
-              onDeleteCloud={handleDeleteCloud}
-              onNavigateCloud={handleNavigateCloud}
-              activeCloudAccountId={activeCloudAccountId}
-              activeCloudNavKey={activeCloudNavKey}
             />
           }
         >
@@ -543,12 +413,6 @@ export function ServerPanel() {
         onClose={() => setShowDialog(false)}
         onSaved={() => setShowDialog(false)}
         editPanelConnection={editPanelConnection}
-      />
-      <CloudConnectionDialog
-        open={showCloudDialog}
-        onClose={() => setShowCloudDialog(false)}
-        onSaved={() => setShowCloudDialog(false)}
-        editConnection={editCloudConnection}
       />
     </>
   );

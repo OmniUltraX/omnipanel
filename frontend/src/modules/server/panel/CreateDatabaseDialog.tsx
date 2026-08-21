@@ -5,6 +5,7 @@ import { TextInput } from "@/components/ui/form/TextInput";
 import { createBtPanelClient } from "@/lib/btpanel";
 import { showToast } from "@/stores/toastStore";
 import type { ServerEntry } from "./serverConnection";
+import { isBtPanelService } from "./panelPlugin";
 
 type Props = {
   open: boolean;
@@ -53,7 +54,7 @@ export function CreateDatabaseDialog({ open, server, onClose, onCreated }: Props
   );
 
   const handleSubmit = async () => {
-    if (server.serviceType !== "bt") {
+    if (!isBtPanelService(server.serviceType)) {
       setError(t("server.create.panelOnly"));
       return;
     }

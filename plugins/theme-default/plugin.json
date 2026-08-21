@@ -1,0 +1,14 @@
+{
+  "id": "omni.theme.default",
+  "version": "0.1.0",
+  "kind": "theme",
+  "permissions": [],
+  "contributes": {
+    "themes": {
+      "tokens": {
+        "id": "omni.theme.default",
+        "js": false
+      }
+    }
+  }
+}

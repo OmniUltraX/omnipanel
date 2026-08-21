@@ -47,6 +47,10 @@ export const MODULE_TAG_FILTER_SCOPE: Record<string, ModuleTagFilterScope> = {
     resourceKinds: [...CONNECTION],
     connectionKinds: ["panel"],
   },
+  cloud: {
+    resourceKinds: [...CONNECTION],
+    connectionKinds: ["cloud"],
+  },
   knowledge: {
     resourceKinds: [...KNOWLEDGE_TAG_KINDS],
   },

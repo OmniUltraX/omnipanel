@@ -15,6 +15,7 @@ const OVERLAY_CHUNK_LOADERS: Record<OverlayModuleKey, ModuleChunkLoader> = {
   workflow: () => import("../modules/workflow/WorkflowPanel"),
   knowledge: () => import("../modules/knowledge/KnowledgePanel"),
   tasks: () => import("../modules/tasks/TaskCenterPanel"),
+  cloud: () => import("../modules/cloud/CloudPanel"),
 };
 
 /** 空闲 Shell 预热顺序：终端优先，与 chunk 预热一致 */

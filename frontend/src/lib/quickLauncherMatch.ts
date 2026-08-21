@@ -10,8 +10,8 @@ import type { QuickLaunchRecentEntry } from "../stores/quickLauncherRecentStore"
  * - `prefix+filter`    → 按 filter 边输入边过滤
  * - `prefix filter`    → 同上（空格形式）
  */
-export const QUICK_LAUNCH_COMMAND_PREFIXES = ["ssh", "db"] as const;
-export type QuickLaunchCommandPrefix = (typeof QUICK_LAUNCH_COMMAND_PREFIXES)[number];
+export const QUICK_LAUNCH_COMMAND_PREFIXES = ["ssh", "db", "es"] as const;
+export type QuickLaunchCommandPrefix = string;
 
 /** 快捷启动查询归类 */
 export type QuickLaunchQueryKind = "plain" | QuickLaunchCommandPrefix;
@@ -23,11 +23,10 @@ export type ParsedQuickLaunchQuery =
       kind: "db";
       raw: string;
       filter: string;
-      /** filter 为 `库.xxx` 时的库名（进入表匹配模式） */
       databaseHint?: string;
-      /** `库.xxx` 中的表名过滤；空字符串表示该库下全部表 */
       tableHint?: string;
-    };
+    }
+  | { kind: "es"; raw: string; filter: string };
 
 /** 列表行（匹配结果） */
 export type QuickLaunchMatchRow =
@@ -65,6 +64,14 @@ export type QuickLaunchMatchRow =
       label: string;
       subtitle: string;
       score: number;
+    }
+  | {
+      type: "everything-path";
+      id: string;
+      path: string;
+      label: string;
+      subtitle: string;
+      score: number;
     };
 
 const MAX_RESULTS = 12;
@@ -92,14 +99,37 @@ export function matchQuickLaunchPrefix(
   return null;
 }
 
-/** 各前缀 → 结构化查询。新增前缀时在此登记即可。 */
-const PREFIX_QUERY_BUILDERS: Record<
-  QuickLaunchCommandPrefix,
-  (raw: string, filter: string) => ParsedQuickLaunchQuery
-> = {
-  ssh: (raw, filter) => ({ kind: "ssh", raw, filter }),
-  db: (raw, filter) => buildDbQuery(raw, filter),
+export type LauncherProvider = {
+  prefix: string;
+  parse: (raw: string, filter: string) => ParsedQuickLaunchQuery;
 };
+
+const launcherProviders: LauncherProvider[] = [];
+
+export function registerLauncherProvider(provider: LauncherProvider): void {
+  const idx = launcherProviders.findIndex((p) => p.prefix === provider.prefix);
+  if (idx >= 0) launcherProviders[idx] = provider;
+  else launcherProviders.push(provider);
+}
+
+export function listLauncherPrefixes(): string[] {
+  const fromProviders = launcherProviders.map((p) => p.prefix);
+  const merged = new Set<string>([...QUICK_LAUNCH_COMMAND_PREFIXES, ...fromProviders]);
+  return [...merged];
+}
+
+registerLauncherProvider({
+  prefix: "ssh",
+  parse: (raw, filter) => ({ kind: "ssh", raw, filter }),
+});
+registerLauncherProvider({
+  prefix: "db",
+  parse: (raw, filter) => buildDbQuery(raw, filter),
+});
+registerLauncherProvider({
+  prefix: "es",
+  parse: (raw, filter) => ({ kind: "es", raw, filter }),
+});
 
 /** 解析用户输入：先走统一前缀语法，未命中则为 plain（逻辑留空）。 */
 export function parseQuickLaunchQuery(rawInput: string): ParsedQuickLaunchQuery {
@@ -110,13 +140,12 @@ export function parseQuickLaunchQuery(rawInput: string): ParsedQuickLaunchQuery 
   }
 
   // 长前缀优先，避免未来短前缀误吃长前缀（如 dock vs docker）
-  const prefixes = [...QUICK_LAUNCH_COMMAND_PREFIXES].sort(
-    (a, b) => b.length - a.length,
-  );
+  const prefixes = listLauncherPrefixes().sort((a, b) => b.length - a.length);
   for (const prefix of prefixes) {
     const hit = matchQuickLaunchPrefix(trimmed, prefix);
     if (!hit) continue;
-    return PREFIX_QUERY_BUILDERS[prefix](raw, hit.filter);
+    const provider = launcherProviders.find((p) => p.prefix === prefix);
+    if (provider) return provider.parse(raw, hit.filter);
   }
 
   // 第一类：无规则字符串（逻辑留空）
@@ -251,8 +280,10 @@ export function mergeQuickLaunchConnections(
 /** 匹配行所属模块（展示用） */
 export function quickLaunchRowModule(
   row: Pick<QuickLaunchMatchRow, "type">,
-): "ssh" | "database" {
-  return row.type === "ssh-connection" ? "ssh" : "database";
+): "ssh" | "database" | "files" {
+  if (row.type === "ssh-connection") return "ssh";
+  if (row.type === "everything-path") return "files";
+  return "database";
 }
 
 /**
@@ -262,6 +293,10 @@ export function quickLaunchRowModule(
 export function rowToInsertQuery(row: QuickLaunchMatchRow, currentQuery: string): string {
   const trimmed = currentQuery.trim();
   const lower = trimmed.toLowerCase();
+
+  if (row.type === "everything-path") {
+    return `es ${row.path}`;
+  }
 
   if (row.type === "ssh-connection") {
     if (lower.startsWith("ssh+")) {
@@ -372,6 +407,10 @@ export function buildQuickLaunchMatches(options: {
 
   if (query.kind === "ssh") {
     return matchSshConnections(connections, query.filter);
+  }
+
+  if (query.kind === "es") {
+    return [];
   }
 
   return matchDbTargets(connections, schema, query);

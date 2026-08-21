@@ -20,6 +20,7 @@ export const APPEARANCE_REQUEST_EVENT = "omnipanel:appearance-request";
 
 export interface AppearanceSnapshot {
   theme: Theme;
+  themePackId?: string;
   accentColor: AccentColor;
   locale: Locale;
   uiScale: number;
@@ -35,6 +36,7 @@ function isAppearanceSnapshot(value: unknown): value is AppearanceSnapshot {
   const v = value as Record<string, unknown>;
   return (
     isTheme(v.theme) &&
+    (typeof v.themePackId === "string" || v.themePackId === undefined) &&
     typeof v.accentColor === "string" &&
     typeof v.locale === "string" &&
     typeof v.uiScale === "number" &&
@@ -46,6 +48,7 @@ export function collectAppearanceSnapshot(): AppearanceSnapshot {
   const s = useSettingsStore.getState();
   return {
     theme: s.theme,
+    themePackId: s.themePackId,
     accentColor: s.accentColor,
     locale: s.locale,
     uiScale: s.uiScale,
@@ -56,6 +59,9 @@ export function collectAppearanceSnapshot(): AppearanceSnapshot {
 export function applyAppearanceSnapshot(snapshot: AppearanceSnapshot): void {
   const store = useSettingsStore.getState();
   if (store.theme !== snapshot.theme) store.setTheme(snapshot.theme);
+  if (snapshot.themePackId && store.themePackId !== snapshot.themePackId) {
+    store.setThemePackId(snapshot.themePackId);
+  }
   if (store.accentColor !== snapshot.accentColor) {
     store.setAccentColor(snapshot.accentColor);
   }
@@ -97,6 +103,7 @@ export function initAppearanceSyncPublisher(): () => void {
   const unsubStore = useSettingsStore.subscribe((state, prev) => {
     if (
       state.theme === prev.theme &&
+      state.themePackId === prev.themePackId &&
       state.accentColor === prev.accentColor &&
       state.locale === prev.locale &&
       state.uiScale === prev.uiScale &&
@@ -106,6 +113,7 @@ export function initAppearanceSyncPublisher(): () => void {
     }
     void broadcastAppearance({
       theme: state.theme,
+      themePackId: state.themePackId,
       accentColor: state.accentColor,
       locale: state.locale,
       uiScale: state.uiScale,

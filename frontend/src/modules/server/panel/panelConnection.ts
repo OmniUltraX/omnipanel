@@ -5,7 +5,7 @@ import { parsePanelConfig } from "./serverConnection";
 export interface PanelConfig {
   address: string;
   key: string;
-  serviceType: "bt" | "1panel";
+  serviceType: string;
 }
 
 export function normalizeServerGroup(group: string | undefined): string {

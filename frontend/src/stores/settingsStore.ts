@@ -386,12 +386,15 @@ interface SettingsState {
   protocolLabTabs: Record<ControllableProtocolTabKey, "open" | "closed">;
   /** 点击窗口关闭按钮：询问 / 最小化到托盘 / 直接退出 */
   closeBehavior: CloseBehavior;
+  /** 主题包 id（v1 仅 CSS token，禁止 JS） */
+  themePackId: string;
   resolved: "light" | "dark";
   setLocale: (locale: Locale) => void;
   setCloseBehavior: (closeBehavior: CloseBehavior) => void;
   setUiDensity: (density: UiDensity) => void;
   setUiScale: (percent: number) => void;
   setTheme: (theme: Theme) => void;
+  setThemePackId: (themePackId: string) => void;
   setAccentColor: (color: AccentColor) => void;
   setProxy: (proxy: ProxyConfig) => void;
   setAiDisplayMode: (mode: AiDisplayMode) => void;
@@ -495,6 +498,7 @@ export const useSettingsStore = create<SettingsState>()(
       uiDensity: "standard",
       uiScale: UI_SCALE.default,
       theme: "system",
+      themePackId: "omni.theme.default",
       accentColor: "blue",
       proxy: { ...DEFAULT_PROXY },
       aiDisplayMode: "subwindow",
@@ -565,6 +569,7 @@ export const useSettingsStore = create<SettingsState>()(
         const resolved = applyDocumentTheme(theme);
         set({ theme, resolved });
       },
+      setThemePackId: (themePackId) => set({ themePackId }),
       setAccentColor: (accentColor) => {
         applyDocumentAccentColor(accentColor);
         set({ accentColor });
@@ -720,6 +725,7 @@ export const useSettingsStore = create<SettingsState>()(
         uiDensity: state.uiDensity,
         uiScale: state.uiScale,
         theme: state.theme,
+        themePackId: state.themePackId,
         accentColor: state.accentColor,
         proxy: state.proxy,
         aiDisplayMode: state.aiDisplayMode,

@@ -1,0 +1,9 @@
+{
+  "id": "omni.importer.warpgate",
+  "version": "0.1.0",
+  "kind": "importer",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "contributes": {
+    "importers": [{ "id": "warpgate", "entry": "commandPalette" }]
+  }
+}

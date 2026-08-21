@@ -1,4 +1,4 @@
-//! 数据库访问层：`DbDriver` trait + MySQL / PostgreSQL / SQLite / Redis / MongoDB / Qdrant 实现，按 `db_type` 分发。
+//! 数据库访问层：`DbDriver` trait + MySQL / PostgreSQL / SQLite / Redis / MongoDB / Qdrant / ClickHouse 实现，按 `db_type` 分发。
 //!
 //! 设计：远程网络数据库（MySQL/PostgreSQL）走 `sqlx` 异步连接池；本地 SQLite 走 `rusqlite`
 //! （与 `omnipanel-store` 共用同一 sqlite 后端，避免 `libsqlite3-sys` 版本冲突）。
@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 mod blob_value;
+pub(crate) mod clickhouse;
 mod introspect;
 mod json_value;
 mod mongodb;
@@ -18,6 +19,7 @@ mod postgres;
 mod qdrant;
 mod redis;
 mod redis_ops;
+mod registry;
 mod schema_refresh;
 mod sqlite;
 
@@ -43,6 +45,7 @@ pub use schema_refresh::{
 
 pub use mongodb::MongoDriver;
 
+pub use clickhouse::ClickHouseDriver;
 pub use mysql::mysql_connect_options;
 pub use postgres::postgres_connect_options;
 pub use qdrant::{QdrantCollectionInfo, QdrantDriver};
@@ -155,39 +158,23 @@ pub(crate) fn build_where_sql(where_clause: Option<&str>) -> OmniResult<String> 
     }
 }
 
-/// 按 `db_type` 建立连接并返回对应驱动实例。
+/// 按 `db_type` 建立连接并返回对应驱动实例（走驱动注册表）。
 pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
-    match params.db_type.to_lowercase().as_str() {
-        "mysql" | "mariadb" => Ok(Box::new(mysql::MySqlDriver::connect(params).await?)),
-        "postgres" | "postgresql" | "pg" => {
-            Ok(Box::new(postgres::PgDriver::connect(params).await?))
-        }
-        "sqlite" | "sqlite3" => Ok(Box::new(sqlite::SqliteDriver::connect(params).await?)),
-        "redis" => Ok(Box::new(redis::RedisDriver::connect(params).await?)),
-        "mongodb" | "mongo" => Ok(Box::new(mongodb::MongoDriver::connect(params).await?)),
-        "qdrant" => Ok(Box::new(qdrant::QdrantDriver::connect(params).await?)),
-        other => Err(OmniError::invalid_input(format!(
-            "不支持的数据库类型：{other}"
-        ))),
-    }
+    registry::connect_registered(params).await
 }
 
 /// 建立「独占连接」驱动（池大小 1），用于跨多次 execute 保持事务。
 /// 目前仅支持 MySQL / MariaDB / PostgreSQL。
 pub async fn connect_exclusive(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
-    match params.db_type.to_lowercase().as_str() {
-        "mysql" | "mariadb" => Ok(Box::new(mysql::MySqlDriver::connect_exclusive(params).await?)),
-        "postgres" | "postgresql" | "pg" => {
-            Ok(Box::new(postgres::PgDriver::connect_exclusive(params).await?))
-        }
-        other => Err(OmniError::invalid_input(format!(
-            "手动事务暂不支持该引擎：{other}"
-        ))),
-    }
+    registry::connect_exclusive_registered(params).await
 }
 
 pub async fn mongodb_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
     mongodb::MongoDriver::list_databases(params).await
+}
+
+pub async fn clickhouse_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
+    clickhouse::clickhouse_list_databases(params).await
 }
 
 /// Qdrant 虚拟库固定为 `default`（collections 作为「表」）。

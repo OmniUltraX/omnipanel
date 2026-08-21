@@ -52,6 +52,7 @@ const KIND_TO_TYPE: Record<ConnectionKind, ResourceType> = {
   panel: "server",
   cloud: "server",
   file: "file",
+  service: "server",
 };
 
 const VALID_ENV_TAGS: EnvironmentTag[] = ["prod", "staging", "dev", "local", "unknown"];

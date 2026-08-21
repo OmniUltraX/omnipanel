@@ -14,6 +14,12 @@ import {
 } from "@/stores/backgroundTaskStore";
 import { parseSshConfig } from "../server/panel/serverConnection";
 import { panelProbeReachableAddress } from "../server/panel/panelAddress";
+import type { DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog";
+import { createPluginHost, KERNEL_DOCKER_PLUGIN_ID } from "@/lib/pluginHost";
+import { isProdEnvTag } from "@/lib/envTag";
+import { isPluginActivated } from "@/stores/pluginRuntimeStore";
+import { PLUGIN_ID_PANEL_1PANEL } from "../../../../plugins/panel-1panel/src/mapProbe";
+import { PLUGIN_ID_PANEL_BT } from "../../../../plugins/panel-bt/src/mapProbe";
 
 export type ImportDockerFromSshProgress = {
   total: number;
@@ -401,5 +407,161 @@ export async function importDockerFromSshConnections(options: {
     unregisterCancel();
   }
 
+  return result;
+}
+
+function dockerRow(opts: {
+  ssh: Connection;
+  source: "onepanel" | "btpanel" | "ssh-engine";
+  pluginId: string;
+  dockerConfig: Record<string, unknown>;
+  host: string;
+  duplicate: boolean;
+  unsupported: boolean;
+}): DiscoveryPreviewRow {
+  const candidate = {
+    pluginId: opts.pluginId,
+    accountId: opts.ssh.id,
+    remoteId: `${opts.ssh.id}:docker:${opts.source}`,
+    remoteKind: "docker",
+    name: `Docker - ${opts.ssh.name || opts.ssh.id}`,
+    config: {
+      id: `docker-bound-${opts.ssh.id}`,
+      dockerConfig: opts.dockerConfig,
+    },
+  };
+  const status = opts.unsupported ? "unsupported" : opts.duplicate ? "duplicate" : "importable";
+  return {
+    id: candidate.remoteId,
+    candidate,
+    label: candidate.name,
+    kindLabel: opts.source,
+    host: opts.host,
+    status,
+    disabled: opts.unsupported,
+  };
+}
+
+/** 仅探测 Docker 候选，不写入。 */
+export async function probeDockerCandidatesFromSsh(options: {
+  connections: Connection[];
+  hostIds?: string[];
+  saveOnProbe?: boolean;
+  isCancelled?: () => boolean;
+}): Promise<{ probeId: string; rows: DiscoveryPreviewRow[]; errors: string[] }> {
+  const allowed = new Set(options.hostIds ?? []);
+  const sshList = options.connections.filter((c) => {
+    if (c.kind !== "ssh") return false;
+    if (allowed.size > 0) return allowed.has(c.id);
+    return !isProdEnvTag(c.envTag);
+  });
+  const rows: DiscoveryPreviewRow[] = [];
+  const errors: string[] = [];
+  for (const ssh of sshList) {
+    if (options.isCancelled?.()) break;
+    const hostLabel = ssh.name || ssh.id;
+    if (findDockerBoundToSsh(options.connections, ssh.id)) {
+      rows.push(
+        dockerRow({
+          ssh,
+          source: "ssh-engine",
+          pluginId: KERNEL_DOCKER_PLUGIN_ID,
+          dockerConfig: {},
+          host: hostLabel,
+          duplicate: true,
+          unsupported: false,
+        }),
+      );
+      continue;
+    }
+    try {
+      const probe = await unwrapCommand(commands.sshPoolProbePanels(ssh.id));
+      const panels = (Array.isArray(probe.panels) ? probe.panels : []).filter((p) => p?.installed);
+      const onePanel = panels.find((p) => p.kind === "1panel");
+      const btPanel = panels.find((p) => p.kind === "bt");
+      const dockerProbe = await unwrapCommand(commands.dockerProbeSshDocker(ssh.id));
+      if (!dockerProbe.available) {
+        continue;
+      }
+      const tryPanel = (
+        panel: NonNullable<typeof onePanel>,
+        source: "onepanel" | "btpanel",
+        pluginId: string,
+      ) => {
+        const addr = realPanelAddress(panel, ssh);
+        const draft = buildDockerDraft({
+          id: `docker-bound-${ssh.id}`,
+          name: `Docker - ${hostLabel}`,
+          source,
+          ssh,
+          panelBaseUrl: addr,
+          panelApiKey: panel.apiKey,
+          panelInsecure: true,
+        });
+        rows.push(
+          dockerRow({
+            ssh,
+            source,
+            pluginId,
+            dockerConfig: JSON.parse(draft.config || "{}") as Record<string, unknown>,
+            host: addr || hostLabel,
+            duplicate: false,
+            unsupported: !isPluginActivated(pluginId),
+          }),
+        );
+      };
+      if (onePanel && isPluginActivated(PLUGIN_ID_PANEL_1PANEL)) {
+        tryPanel(onePanel, "onepanel", PLUGIN_ID_PANEL_1PANEL);
+      } else if (btPanel && isPluginActivated(PLUGIN_ID_PANEL_BT)) {
+        tryPanel(btPanel, "btpanel", PLUGIN_ID_PANEL_BT);
+      } else {
+        const draft = buildDockerDraft({
+          id: `docker-bound-${ssh.id}`,
+          name: `Docker - ${hostLabel}`,
+          source: "ssh-engine",
+          ssh,
+        });
+        rows.push(
+          dockerRow({
+            ssh,
+            source: "ssh-engine",
+            pluginId: KERNEL_DOCKER_PLUGIN_ID,
+            dockerConfig: JSON.parse(draft.config || "{}") as Record<string, unknown>,
+            host: hostLabel,
+            duplicate: false,
+            unsupported: false,
+          }),
+        );
+      }
+    } catch (err) {
+      errors.push(`${hostLabel}: ${formatIpcError(err)}`);
+    } finally {
+      try {
+        await unwrapCommand(commands.sshPoolRelease(ssh.id));
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return { probeId: "ssh-docker", rows, errors };
+}
+
+export async function importDockerPreviewRows(
+  rows: DiscoveryPreviewRow[],
+): Promise<{ added: number; skipped: number; failed: number; errors: string[] }> {
+  const result = { added: 0, skipped: 0, failed: 0, errors: [] as string[] };
+  for (const row of rows) {
+    if (row.status !== "importable") {
+      result.skipped += 1;
+      continue;
+    }
+    try {
+      await createPluginHost(row.candidate.pluginId).connections.upsert(row.candidate);
+      result.added += 1;
+    } catch (err) {
+      result.failed += 1;
+      result.errors.push(`${row.label}: ${formatIpcError(err)}`);
+    }
+  }
   return result;
 }

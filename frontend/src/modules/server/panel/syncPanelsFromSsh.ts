@@ -1,22 +1,29 @@
-import { commands, type Connection, type PanelProbeItem } from "@/ipc/bindings";
+import { commands, type Connection } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
+import type { DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog";
+import { panelProbeToPreviewRow } from "@/lib/panelDiscovery";
+import { createPluginHost, findExistingCandidate } from "@/lib/pluginHost";
+import { isProdEnvTag } from "@/lib/envTag";
+import { useConnectionStore } from "@/stores/connectionStore";
 import {
   registerLocalBackgroundTaskCancel,
   upsertLocalBackgroundTask,
   useBackgroundTaskStore,
   type BackgroundTaskInfo,
 } from "@/stores/backgroundTaskStore";
-import {
-  buildPanelConnection,
-  parsePanelConfig,
-  parseSshConfig,
-} from "./serverConnection";
+import { parseSshConfig } from "./serverConnection";
 import { panelProbeReachableAddress } from "./panelAddress";
 
 export type SyncPanelsFromSshProgress = {
   total: number;
   current: number;
   hostName: string;
+};
+
+export type ProbePanelsFromSshResult = {
+  rows: DiscoveryPreviewRow[];
+  errors: string[];
+  taskId: string;
 };
 
 export type SyncPanelsFromSshResult = {
@@ -27,25 +34,6 @@ export type SyncPanelsFromSshResult = {
   errors: string[];
   taskId: string;
 };
-
-type SaveConn = (draft: Connection) => Promise<Connection | null | undefined>;
-
-function findPanelForSshAndType(
-  connections: Connection[],
-  sshId: string,
-  serviceType: "bt" | "1panel",
-): Connection | undefined {
-  return connections.find((c) => {
-    if (c.kind !== "panel") return false;
-    const cfg = parsePanelConfig(c);
-    return cfg.sshConnectionId === sshId && cfg.serviceType === serviceType;
-  });
-}
-
-/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1；API 地址不含安全入口。 */
-function realPanelAddress(panel: PanelProbeItem, ssh: Connection): string {
-  return panelProbeReachableAddress(panel, ssh);
-}
 
 function makeTask(
   partial: Partial<BackgroundTaskInfo> &
@@ -65,41 +53,44 @@ function makeTask(
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 /**
- * 遍历全部 SSH 主机，探测宝塔 / 1Panel，自动开启 API（如需）并写入面板连接。
- * 进度写入左下角后台任务（可取消）。
+ * 仅探测：SSH 扫面板 → Candidate。不开启 API、不写入。
  */
-export async function syncPanelsFromSshConnections(options: {
+export async function probePanelCandidatesFromSsh(options: {
   connections: Connection[];
-  saveConn: SaveConn;
+  hostIds?: string[];
   onProgress?: (progress: SyncPanelsFromSshProgress) => void;
-  enableApiIfNeeded?: boolean;
-}): Promise<SyncPanelsFromSshResult> {
-  const { connections, saveConn, onProgress, enableApiIfNeeded = true } = options;
-  const sshList = connections.filter((c) => c.kind === "ssh");
-  let latest = [...connections];
-  const result: SyncPanelsFromSshResult = {
-    added: 0,
-    updated: 0,
-    skipped: 0,
-    failed: 0,
+  isCancelled?: () => boolean;
+}): Promise<ProbePanelsFromSshResult> {
+  const allowed = new Set(options.hostIds ?? []);
+  const sshList = options.connections.filter((c) => {
+    if (c.kind !== "ssh") return false;
+    if (allowed.size > 0) return allowed.has(c.id);
+    return !isProdEnvTag(c.envTag);
+  });
+  const result: ProbePanelsFromSshResult = {
+    rows: [],
     errors: [],
     taskId: `sync-panels-ssh-${Date.now()}`,
   };
-
   const startedAt = Date.now();
   let cancelled = false;
   const unregisterCancel = registerLocalBackgroundTaskCancel(result.taskId, () => {
     cancelled = true;
   });
-
   useBackgroundTaskStore.getState().setTaskListOpen(true);
   upsertLocalBackgroundTask(
     makeTask({
       id: result.taskId,
-      title: "从 SSH 同步面板",
+      title: "从 SSH 探测面板",
       status: "running",
-      progress: sshList.length === 0 ? "无 SSH 主机" : `准备同步 ${sshList.length} 台主机…`,
+      progress: sshList.length === 0 ? "无 SSH 主机" : `准备探测 ${sshList.length} 台主机…`,
       index: 0,
       total: Math.max(sshList.length, 1),
       startedAt,
@@ -107,27 +98,14 @@ export async function syncPanelsFromSshConnections(options: {
   );
 
   try {
-    if (sshList.length === 0) {
-      upsertLocalBackgroundTask(
-        makeTask({
-          id: result.taskId,
-          title: "从 SSH 同步面板",
-          status: "completed",
-          progress: "暂无 SSH 连接",
-          index: 0,
-          total: 1,
-          startedAt,
-          finishedAt: Date.now(),
-        }),
-      );
-      return result;
-    }
-
     let index = 0;
     for (const ssh of sshList) {
-      if (cancelled) break;
+      if (cancelled || options.isCancelled?.()) {
+        cancelled = true;
+        break;
+      }
       index += 1;
-      onProgress?.({
+      options.onProgress?.({
         total: sshList.length,
         current: index,
         hostName: ssh.name || ssh.id,
@@ -135,7 +113,7 @@ export async function syncPanelsFromSshConnections(options: {
       upsertLocalBackgroundTask(
         makeTask({
           id: result.taskId,
-          title: "从 SSH 同步面板",
+          title: "从 SSH 探测面板",
           status: "running",
           progress: `正在探测：${ssh.name || ssh.id}`,
           index,
@@ -143,115 +121,30 @@ export async function syncPanelsFromSshConnections(options: {
           startedAt,
         }),
       );
-
       const cfg = parseSshConfig(ssh);
       const sshHost = (cfg?.publicIp || cfg?.host || "").trim();
       if (!sshHost) {
-        result.skipped += 1;
         result.errors.push(`${ssh.name || ssh.id}: 缺少主机地址`);
         continue;
       }
-
       try {
         const probe = await unwrapCommand(commands.sshPoolProbePanels(ssh.id));
-        if (cancelled) break;
-        const installed = (Array.isArray(probe.panels) ? probe.panels : []).filter(
-          (p) => p?.installed,
-        );
-        if (installed.length === 0) {
-          result.skipped += 1;
-          continue;
+        if (cancelled || options.isCancelled?.()) {
+          cancelled = true;
+          break;
         }
-
+        const installed = (Array.isArray(probe.panels) ? probe.panels : []).filter((p) => p?.installed);
         for (const panel of installed) {
-          if (cancelled) break;
-          let apiKey = (panel.apiKey || "").trim();
-          const apiEnabled = Boolean(panel.apiEnabled);
-
-          if ((!apiEnabled || !apiKey) && enableApiIfNeeded) {
-            upsertLocalBackgroundTask(
-              makeTask({
-                id: result.taskId,
-                title: "从 SSH 同步面板",
-                status: "running",
-                progress: `${ssh.name}：开启 ${panel.kind} API…`,
-                index,
-                total: sshList.length,
-                startedAt,
-              }),
-            );
-            try {
-              const enabled = await unwrapCommand(
-                commands.sshPoolEnablePanelApi(ssh.id, panel.kind, true),
-              );
-              if (enabled.apiKey?.trim()) {
-                apiKey = enabled.apiKey.trim();
-              }
-            } catch (err) {
-              result.errors.push(
-                `${ssh.name} · ${panel.kind}: 开启 API 失败 — ${formatIpcError(err)}`,
-              );
-            }
-          }
-
-          const serviceType = panel.kind === "bt" ? "bt" : "1panel";
-          const typeLabel = serviceType === "bt" ? "宝塔" : "1Panel";
-          let addr = realPanelAddress(panel, ssh);
-          if (!addr || panel.port === 0) {
-            result.failed += 1;
-            result.errors.push(
-              `${ssh.name} · ${typeLabel}: 无法解析面板地址/端口（请在主机执行 1pctl user-info 核对）`,
-            );
-            continue;
-          }
-          if (!apiKey) {
-            result.failed += 1;
-            result.errors.push(`${ssh.name} · ${typeLabel}: 未获取到 API Key，已跳过保存`);
-            continue;
-          }
-
-          const linkedSameType = findPanelForSshAndType(latest, ssh.id, serviceType);
-          const form = {
-            name:
-              ssh.name && ssh.name.trim()
-                ? `${ssh.name} · ${typeLabel}`
-                : `${sshHost} · ${typeLabel}`,
-            group: ssh.group || "默认",
-            host: sshHost,
-            port: String(cfg?.port ?? 22),
-            user: cfg?.user ?? "root",
-            authType: "password" as const,
-            password: "",
-            pem: "",
-            keyPath: "auto",
-            passphrase: "",
-            panelAddress: addr,
-            panelKey: apiKey,
-            serviceType: serviceType as "bt" | "1panel",
-            remark: "",
-          };
-
-          const draft = buildPanelConnection(
-            form,
-            ssh.group || "默认",
-            ssh.id,
-            linkedSameType?.id,
-            linkedSameType?.createdAt ?? undefined,
-          );
-
-          const saved = await saveConn(draft);
-          if (!saved?.id) {
-            result.failed += 1;
-            result.errors.push(`${ssh.name} · ${typeLabel}: 保存失败`);
-            continue;
-          }
-
-          latest = [...latest.filter((c) => c.id !== saved.id), saved];
-          if (linkedSameType) result.updated += 1;
-          else result.added += 1;
+          const address = panelProbeReachableAddress(panel, ssh);
+          const row = panelProbeToPreviewRow({
+            ssh,
+            panel,
+            address,
+            connections: options.connections,
+          });
+          if (row) result.rows.push(row);
         }
       } catch (err) {
-        result.failed += 1;
         result.errors.push(`${ssh.name || ssh.id}: ${formatIpcError(err)}`);
       } finally {
         try {
@@ -261,58 +154,81 @@ export async function syncPanelsFromSshConnections(options: {
         }
       }
     }
-
-    const finishedAt = Date.now();
-    if (cancelled) {
-      upsertLocalBackgroundTask(
-        makeTask({
-          id: result.taskId,
-          title: "从 SSH 同步面板",
-          status: "cancelled",
-          progress: `已取消 · 新增 ${result.added}，更新 ${result.updated}`,
-          index,
-          total: sshList.length,
-          startedAt,
-          finishedAt,
-        }),
-      );
-    } else {
-      const summary = `新增 ${result.added}，更新 ${result.updated}，跳过 ${result.skipped}，失败 ${result.failed}`;
-      upsertLocalBackgroundTask(
-        makeTask({
-          id: result.taskId,
-          title: "从 SSH 同步面板",
-          status: result.failed > 0 && result.added + result.updated === 0 ? "failed" : "completed",
-          progress: summary,
-          index: sshList.length,
-          total: sshList.length,
-          startedAt,
-          finishedAt,
-          error:
-            result.failed > 0 && result.added + result.updated === 0
-              ? result.errors.slice(0, 2).join("；")
-              : null,
-        }),
-      );
-    }
-  } catch (err) {
     upsertLocalBackgroundTask(
       makeTask({
         id: result.taskId,
-        title: "从 SSH 同步面板",
-        status: "failed",
-        progress: formatIpcError(err),
-        index: 0,
+        title: "从 SSH 探测面板",
+        status: cancelled ? "cancelled" : "completed",
+        progress: `发现 ${result.rows.length} 条候选`,
+        index: sshList.length,
         total: Math.max(sshList.length, 1),
         startedAt,
         finishedAt: Date.now(),
-        error: formatIpcError(err),
       }),
     );
-    throw err;
   } finally {
     unregisterCancel();
   }
+  return result;
+}
 
+/** 预览确认后：必要时开启 API，再经 Host API upsert。 */
+export async function importPanelPreviewRows(
+  rows: DiscoveryPreviewRow[],
+): Promise<SyncPanelsFromSshResult> {
+  const result: SyncPanelsFromSshResult = {
+    added: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+    taskId: `import-panels-${Date.now()}`,
+  };
+  for (const row of rows) {
+    if (row.status === "unsupported") {
+      result.skipped += 1;
+      continue;
+    }
+    if (row.status === "duplicate") {
+      result.skipped += 1;
+      continue;
+    }
+    const cfg = asRecord(row.candidate.config);
+    const sshId = typeof cfg.sshConnectionId === "string" ? cfg.sshConnectionId : row.candidate.accountId;
+    const probeKind = typeof cfg.probeKind === "string" ? cfg.probeKind : "";
+    let apiKey = typeof cfg.key === "string" ? cfg.key.trim() : "";
+    if (sshId && probeKind && !apiKey) {
+      try {
+        const enabled = await unwrapCommand(commands.sshPoolEnablePanelApi(sshId, probeKind, true));
+        if (enabled.apiKey?.trim()) apiKey = enabled.apiKey.trim();
+      } catch (err) {
+        result.failed += 1;
+        result.errors.push(`${row.label}: 开启 API 失败 — ${formatIpcError(err)}`);
+        continue;
+      }
+    }
+    if (!apiKey) {
+      result.failed += 1;
+      result.errors.push(`${row.label}: 未获取到 API Key`);
+      continue;
+    }
+    try {
+      const connections = useConnectionStore.getState().connections;
+      const existing = findExistingCandidate(connections, {
+        ...row.candidate,
+        config: { ...cfg, key: apiKey },
+      });
+      const host = createPluginHost(row.candidate.pluginId);
+      await host.connections.upsert({
+        ...row.candidate,
+        config: { ...cfg, key: apiKey },
+      });
+      if (existing) result.updated += 1;
+      else result.added += 1;
+    } catch (err) {
+      result.failed += 1;
+      result.errors.push(`${row.label}: ${formatIpcError(err)}`);
+    }
+  }
   return result;
 }

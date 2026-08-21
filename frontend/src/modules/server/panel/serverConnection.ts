@@ -1,19 +1,20 @@
 import type { Connection } from "../../../ipc/bindings";
 import { normalizeServerGroup } from "./panelConnection";
+import { panelServiceTypeToPluginId } from "./panelPlugin";
 
 export interface ServerEntry {
   id: string;
   name: string;
   address: string;
   key: string;
-  serviceType: "bt" | "1panel";
+  serviceType: string;
   createdAt: number;
 }
 
 export interface PanelConfigJson {
   address: string;
   key: string;
-  serviceType: "bt" | "1panel";
+  serviceType: string;
   sshConnectionId?: string;
 }
 
@@ -55,7 +56,7 @@ export interface UnifiedServerFormData {
   group: string;
   panelAddress: string;
   panelKey: string;
-  serviceType: "bt" | "1panel";
+  serviceType: string;
 }
 
 export const EMPTY_SERVER_FORM: UnifiedServerFormData = {
@@ -81,7 +82,10 @@ export function parsePanelConfig(connection: Connection): PanelConfigJson {
   } catch {
     // ignore
   }
-  return cfg;
+  return {
+    ...cfg,
+    serviceType: panelServiceTypeToPluginId(cfg.serviceType || "bt"),
+  };
 }
 
 export function parseSshConfig(connection: Connection): SshConfigJson | null {
@@ -229,7 +233,7 @@ export function buildPanelConnection(
   const config: PanelConfigJson = {
     address: form.panelAddress.trim(),
     key: form.panelKey.trim(),
-    serviceType: form.serviceType,
+    serviceType: panelServiceTypeToPluginId(form.serviceType),
     sshConnectionId,
   };
   const now = Date.now();

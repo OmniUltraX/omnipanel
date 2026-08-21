@@ -18,6 +18,7 @@ import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../../tags/tagKinds";
 import onePanelIcon from "../../../assets/icons/1Panel.svg";
 import baotaIcon from "../../../assets/icons/Baota.svg";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 interface ServerConnectionDialogProps {
   open: boolean;
@@ -125,7 +126,7 @@ export function ServerConnectionDialog({
       const connectionId = inlineKey ? undefined : editPanelConnection?.id;
       const address = form.panelAddress.trim();
       clearBtPanelLockout(address);
-      if (form.serviceType === "1panel") {
+      if (isOnePanelService(form.serviceType)) {
         const client = createOnePanelClient(address, inlineKey, connectionId);
         const info = await client.getDeviceBase();
         const hostname = info.hostname ?? address;
@@ -251,7 +252,7 @@ export function ServerConnectionDialog({
         <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <button
             type="button"
-            className={`engine-chip${form.serviceType === "bt" ? " engine-chip--active" : ""}`}
+            className={`engine-chip${isBtPanelService(form.serviceType) ? " engine-chip--active" : ""}`}
             onClick={() => update("serviceType", "bt")}
           >
             <span className="engine-chip-icon">
@@ -261,7 +262,7 @@ export function ServerConnectionDialog({
           </button>
           <button
             type="button"
-            className={`engine-chip${form.serviceType === "1panel" ? " engine-chip--active" : ""}`}
+            className={`engine-chip${isOnePanelService(form.serviceType) ? " engine-chip--active" : ""}`}
             onClick={() => update("serviceType", "1panel")}
           >
             <span className="engine-chip-icon">

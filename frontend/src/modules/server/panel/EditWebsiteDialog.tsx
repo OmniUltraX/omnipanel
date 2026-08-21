@@ -11,6 +11,7 @@ import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
 import { BtEditWebsiteDialog } from "./BtEditWebsiteDialog";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 type EditWebsiteDialogProps = {
   open: boolean;
@@ -52,7 +53,7 @@ export function EditWebsiteDialog({
   onClose,
   onUpdated,
 }: EditWebsiteDialogProps) {
-  if (server.serviceType === "bt") {
+  if (isBtPanelService(server.serviceType)) {
     return (
       <BtEditWebsiteDialog
         open={open}
@@ -116,7 +117,7 @@ function OnePanelEditWebsiteDialog({
   };
 
   useEffect(() => {
-    if (!open || websiteId == null || server.serviceType !== "1panel") return;
+    if (!open || websiteId == null || !isOnePanelService(server.serviceType)) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -162,7 +163,7 @@ function OnePanelEditWebsiteDialog({
   );
 
   const handleSubmit = async () => {
-    if (server.serviceType !== "1panel" || websiteId == null) {
+    if (!isOnePanelService(server.serviceType) || websiteId == null) {
       setError(t("server.create.onePanelOnly"));
       return;
     }

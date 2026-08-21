@@ -166,6 +166,14 @@ pub async fn docker_scan_ssh_docker_hosts(
         storage.list_connections_by_kind(omnipanel_store::ConnectionKind::Docker)?
     };
 
+    let ssh_connections: Vec<_> = ssh_connections
+        .into_iter()
+        .filter(|c| {
+            let tag = c.env_tag.trim().to_ascii_lowercase();
+            tag != "prod" && tag != "production" && !tag.starts_with("prod-")
+        })
+        .collect();
+
     let mut result = DockerScanResult {
         scanned: ssh_connections.len() as u32,
         created: 0,

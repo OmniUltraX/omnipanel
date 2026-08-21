@@ -80,6 +80,12 @@ export const ASSISTANT_CHAT_SET_MODEL = "assistant-chat-set-model" as const;
 export const ASSISTANT_TERMINAL_OPEN_OR_FOCUS =
   "assistant-terminal-open-or-focus" as const;
 
+/** 任一窗口切换插件启用状态后广播，各窗口 reload plugin_list */
+export const PLUGIN_CHANGED = "plugin://changed" as const;
+
+/** 发现任务在任务中心被取消 */
+export const PLUGIN_DISCOVERY_CANCELLED = "plugin://discovery-cancelled" as const;
+
 export type IpcEventName =
   | typeof TERMINAL_OUTPUT
   | typeof TERMINAL_EVENT
@@ -104,4 +110,6 @@ export type IpcEventName =
   | typeof UPDATE_DOWNLOAD_COMPLETE
   | typeof ASSISTANT_CHAT_INBOUND
   | typeof ASSISTANT_CHAT_SET_MODEL
-  | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS;
+  | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS
+  | typeof PLUGIN_CHANGED
+  | typeof PLUGIN_DISCOVERY_CANCELLED;

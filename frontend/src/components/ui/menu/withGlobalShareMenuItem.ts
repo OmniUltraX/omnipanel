@@ -10,8 +10,7 @@ export type GlobalShareMenuItemBase = {
 };
 
 /**
- * 在右键菜单末尾追加分隔线 +「分享」。
- * 若已含同 id 项则原样返回；空菜单则只加分享项。
+ * 兼容旧调用点。新路径请用 `mergeContributedMenuItems`（内核分享 addon）。
  */
 export function withGlobalShareMenuItem<T extends GlobalShareMenuItemBase>(
   items: T[],

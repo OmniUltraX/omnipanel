@@ -13,6 +13,7 @@ import { createBtPanelClient } from "../../../../lib/btpanel";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
+import { isBtPanelService, isOnePanelService, panelHasCapability } from "../panelPlugin";
 import { useServerCertificates } from "../useServerCertificates";
 import {
   certificateExpiryInfo,
@@ -83,9 +84,9 @@ export function ServerCertificatesTab({ server }: Props) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const isOnePanel = server.serviceType === "1panel";
-  const isBt = server.serviceType === "bt";
-  const canManage = isOnePanel || isBt;
+  const isOnePanel = isOnePanelService(server.serviceType);
+  const isBt = isBtPanelService(server.serviceType);
+  const canManage = panelHasCapability(server.serviceType, "certificates");
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 280);

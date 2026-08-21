@@ -9,6 +9,7 @@ import { parseSshConfig } from "../../../panel/serverConnection";
 import { panelProbeReachableAddress, panelProbeBrowserUrl } from "../../../panel/panelAddress";
 import { ServerConnectionDialog } from "../../../panel/ServerConnectionDialog";
 import type { PanelFormData } from "../../../panel/panelForm";
+import { PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT } from "../../../panel/panelPlugin";
 import { usePanelProbe } from "../../hooks/usePanelProbe";
 import { BrandIconImg } from "../../../brandIcons";
 
@@ -101,8 +102,8 @@ export function PanelProbeSection({ resourceId, connection, embedded = false }: 
   const handleQuickManage = useCallback(
     (panel: PanelProbeItem) => {
       if (!connection) return;
-      const serviceType = panel.kind === "bt" ? "bt" : "1panel";
-      const typeLabel = serviceType === "bt" ? "宝塔" : "1Panel";
+      const serviceType = panel.kind === "bt" ? PLUGIN_ID_PANEL_BT : PLUGIN_ID_PANEL_1PANEL;
+      const typeLabel = panel.kind === "bt" ? "宝塔" : "1Panel";
       const hostLabel = connection.name?.trim() || sshHost || "host";
       setManageDraft({
         sshId: connection.id,

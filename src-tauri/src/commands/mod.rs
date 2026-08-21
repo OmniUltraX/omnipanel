@@ -45,6 +45,7 @@ pub mod log;
 pub mod local_file_log;
 pub mod opencode;
 pub mod panel;
+pub mod plugin;
 pub mod pool;
 pub mod protocol;
 pub mod proxy;

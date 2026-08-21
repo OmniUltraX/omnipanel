@@ -1,0 +1,28 @@
+{
+  "id": "omni.engine.qdrant",
+  "version": "0.1.0",
+  "kind": "engine",
+  "permissions": ["net:connect"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "qdrant",
+        "aliases": ["qdrant"],
+        "defaultPort": 6333,
+        "icon": "QD",
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "password", "type": "password", "label": "apiKey" }
+        ],
+        "builtinLayout": true
+      },
+      "workbench": {
+        "tree": "collections",
+        "editor": "none",
+        "preview": "points",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

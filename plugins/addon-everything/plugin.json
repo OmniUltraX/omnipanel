@@ -1,0 +1,30 @@
+{
+  "id": "omni.addon.everything",
+  "version": "0.1.0",
+  "kind": "addon",
+  "platforms": ["windows"],
+  "permissions": ["ai:tools", "fs:read"],
+  "contributes": {
+    "launcher": { "prefix": "es" },
+    "ai": {
+      "tools": [
+        {
+          "name": "omni_everything_search",
+          "description": "用 Everything 搜索本机文件路径（仅元数据，不含文件内容）",
+          "execKind": "native",
+          "moduleKey": "files",
+          "crossModule": true,
+          "externalExposed": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string" },
+              "max_results": { "type": "integer", "default": 50 }
+            },
+            "required": ["query"]
+          }
+        }
+      ]
+    }
+  }
+}

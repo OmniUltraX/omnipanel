@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::cloud::aliyun::{
     AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
-    CloudSwasInstance,
+    CloudRegion, CloudSwasInstance,
 };
 use crate::http_client::{build_http_client_for_url, proxy_config};
 use crate::state::ServerState;
@@ -235,6 +235,24 @@ pub async fn cloud_list_ecs(
     let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
     let http = http_for_aliyun(&endpoint).await?;
     creds.list_ecs_instances(&http).await
+}
+
+pub async fn cloud_list_regions(
+    state: &ServerState,
+    connection_id: String,
+) -> Result<Vec<CloudRegion>, OmniError> {
+    let conn = load_connection(state, &connection_id).await?;
+    let creds = resolve_credentials(&conn, None)?;
+    let cfg: CloudConfig = serde_json::from_str(&conn.config).unwrap_or(CloudConfig {
+        provider: default_provider(),
+        region: String::new(),
+        regions: Vec::new(),
+        access_key_id: String::new(),
+        access_key_secret: String::new(),
+    });
+    let configured = normalize_regions(&cfg.regions, &cfg.region);
+    let http = http_for_aliyun("https://ecs.aliyuncs.com/").await?;
+    creds.discover_regions(&http, &configured).await
 }
 
 pub async fn cloud_list_certs(

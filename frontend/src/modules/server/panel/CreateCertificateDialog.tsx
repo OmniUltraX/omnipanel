@@ -15,6 +15,7 @@ import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
 import { BtCreateCertificateDialog } from "./BtCreateCertificateDialog";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 type CreateMode = "apply" | "upload";
 
@@ -82,7 +83,7 @@ export function CreateCertificateDialog({
   onClose,
   onCreated,
 }: CreateCertificateDialogProps) {
-  if (server.serviceType === "bt") {
+  if (isBtPanelService(server.serviceType)) {
     // 宝塔本轮仅支持上传部署；编辑走同一上传窗
     return (
       <BtCreateCertificateDialog
@@ -227,7 +228,7 @@ function OnePanelCreateCertificateDialog({
   );
 
   useEffect(() => {
-    if (!open || server.serviceType !== "1panel") return;
+    if (!open || !isOnePanelService(server.serviceType)) return;
     let cancelled = false;
     setOptionsLoading(true);
     void (async () => {
@@ -296,7 +297,7 @@ function OnePanelCreateCertificateDialog({
   ]);
 
   const handleSubmit = async () => {
-    if (server.serviceType !== "1panel") {
+    if (!isOnePanelService(server.serviceType)) {
       setError(t("server.create.onePanelOnly"));
       return;
     }

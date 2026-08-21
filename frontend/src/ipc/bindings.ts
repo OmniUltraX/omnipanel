@@ -273,6 +273,7 @@ export const commands = {
 	cloudListSwas: (connectionId: string, region: string | null) => typedError<CloudSwasInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_swas", { connectionId, region })),
 	cloudListDomains: (connectionId: string) => typedError<CloudDomainItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_domains", { connectionId })),
 	cloudListEcs: (connectionId: string, region: string | null) => typedError<CloudEcsInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_ecs", { connectionId, region })),
+	cloudListRegions: (connectionId: string) => typedError<CloudRegion[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_regions", { connectionId })),
 	cloudListCerts: (connectionId: string) => typedError<CloudCertificateItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_certs", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
@@ -992,6 +993,19 @@ export const commands = {
 	appModuleList: () => typedError<AppModule[], OmniError_Serialize>(__TAURI_INVOKE("app_module_list")),
 	/**  设置单个模块状态（open / closed；disabled 模块不可修改）。 */
 	appModuleSetStatus: (moduleKey: string, status: AppModuleStatus) => typedError<AppModule, OmniError_Serialize>(__TAURI_INVOKE("app_module_set_status", { moduleKey, status })),
+	/**  列出已编译的第一方插件（含未激活的平台不匹配项）。 */
+	pluginList: () => typedError<PluginListItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_list")),
+	/**  启用或禁用插件。禁用后卸除贡献点（含 AI 工具），连接数据保留。 */
+	pluginSetEnabled: (pluginId: string, enabled: boolean) => typedError<PluginListItem, OmniError_Serialize>(__TAURI_INVOKE("plugin_set_enabled", { pluginId, enabled })),
+	/**  第一方插件命令网关。未在编译期登记的 method 一律失败。 */
+	pluginInvoke: (pluginId: string, method: string, args: JsonValue) => typedError<JsonValue, OmniError_Serialize>(__TAURI_INVOKE("plugin_invoke", { pluginId, method, args })),
+	/**  缺权即失败。Host API 在 upsert 前必须先过此闸。 */
+	pluginRequirePermission: (pluginId: string, permission: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_require_permission", { pluginId, permission })),
+	/**
+	 *  发现总线骨架：进度进任务中心，可取消。
+	 *  prod 主机须走既有确认策略，本骨架不发起真实探测。
+	 */
+	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
 	/**  列出任务，可选按状态过滤。 */
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
 	/**  获取单个任务。 */
@@ -1479,6 +1493,22 @@ export type AppModule = {
 
 /**  模块运行状态。 */
 export type AppModuleStatus = "open" | "closed" | "disabled";
+
+export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon";
+
+export type PluginListItem = {
+	id: string,
+	version: string,
+	kind: PluginKind,
+	enabled: boolean,
+	activated: boolean,
+	unsupportedReason?: string | null,
+};
+
+export type DiscoveryScope = {
+	hostIds: string[],
+	envTag?: string | null,
+};
 
 /**  单个压缩包条目 */
 export type ArchiveEntry = {
@@ -2094,6 +2124,13 @@ export type CloudEcsInstance = {
 	creationTime: string,
 };
 
+export type CloudRegion = {
+	regionId: string,
+	localName: string,
+	hasEcs: boolean,
+	hasSwas: boolean,
+};
+
 export type CloudOssBucket = {
 	name: string,
 	location: string,
@@ -2138,7 +2175,7 @@ export type Connection = {
 /**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
 export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | 
 /**  云厂商账户（阿里云等），与面板并列挂在第三方服务模块。 */
-"cloud" | "protocol" | "file";
+"cloud" | "protocol" | "file" | "service";
 
 /**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
 export type CpuStats = CpuStats_Serialize | CpuStats_Deserialize;

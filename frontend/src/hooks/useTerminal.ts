@@ -21,6 +21,7 @@ import type { LocalShellSpec } from "../stores/terminalTypes";
 import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { setTerminalSelection } from "../lib/hostSelection";
 import { useTerminalBackendStateStore } from "../stores/terminalBackendStateStore";
 import { useTerminalTransportStore } from "../stores/terminalTransportStore";
 import { useSkillPromptStore } from "../stores/skillPromptStore";
@@ -1865,6 +1866,12 @@ export function useTerminal(
         fitAddon.fit();
         // open/WebGL 后再刷一次，对齐当前 data-theme（防水合竞态卡浅色底）
         applyTerminalTheme(term);
+
+        disposables.push(
+          term.onSelectionChange(() => {
+            setTerminalSelection(term?.getSelection() ?? "");
+          }),
+        );
 
         setupShellIntegration(term);
 

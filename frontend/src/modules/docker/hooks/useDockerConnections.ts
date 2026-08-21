@@ -5,6 +5,7 @@ import { asArray } from "../../../ipc/asArray";
 import { unwrapCommand } from "../../../ipc/result";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../../clientSync/moduleSync";
 import { useConnectionStore } from "../../../stores/connectionStore";
+import { isDiscoverySkip, runDiscoveryProbe, sshDiscoveryScope } from "../../../lib/discoveryBus";
 import { registerDockerOfflineHandler } from "../dockerConnectionOffline";
 
 const unwrap = unwrapCommand;
@@ -70,12 +71,22 @@ export function useDockerConnections() {
     async (autoSave = true): Promise<DockerScanResult | null> => {
       setScanning(true);
       try {
-        const result = await unwrap(commands.dockerScanSshDockerHosts(autoSave));
-        if (autoSave && (result.created > 0 || result.updated > 0)) {
+        const result = autoSave
+          ? await runDiscoveryProbe(
+              "ssh-docker",
+              sshDiscoveryScope(useConnectionStore.getState().connections).scope,
+            )
+          : await unwrap(commands.dockerScanSshDockerHosts(false));
+        if (isDiscoverySkip(result)) {
+          setError("生产环境 SSH 主机不会自动扫描 Docker");
+          return null;
+        }
+        const scan = result as DockerScanResult;
+        if (autoSave && (scan.created > 0 || scan.updated > 0)) {
           await useConnectionStore.getState().refresh();
           await reloadConnections();
         }
-        return result;
+        return scan;
       } catch (e) {
         setError(String(e));
         return null;

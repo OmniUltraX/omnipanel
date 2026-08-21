@@ -1,0 +1,30 @@
+{
+  "id": "omni.engine.redis",
+  "version": "0.1.0",
+  "kind": "engine",
+  "permissions": ["net:connect"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "redis",
+        "aliases": ["redis"],
+        "defaultPort": 6379,
+        "icon": "RE",
+        "builtinLayout": true,
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" }
+        ]
+      },
+      "workbench": {
+        "tree": "kv",
+        "editor": "redis",
+        "preview": "key",
+        "connectionInfo": "redis"
+      }
+    }
+  }
+}

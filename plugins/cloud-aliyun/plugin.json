@@ -1,0 +1,18 @@
+{
+  "id": "omni.cloud.aliyun",
+  "version": "0.1.0",
+  "kind": "cloud",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "contributes": {
+    "ui": {
+      "sidebar": true,
+      "panelTabs": [
+        { "id": "ecs" },
+        { "id": "swas" },
+        { "id": "oss" },
+        { "id": "domains" },
+        { "id": "certs" }
+      ]
+    }
+  }
+}

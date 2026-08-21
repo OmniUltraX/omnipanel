@@ -25,6 +25,7 @@ import {
 import { createBtPanelClient, fetchBtMergedWebsiteList } from "../../../../lib/btpanel";
 import { createOnePanelClient } from "../../../../lib/onepanel";
 import type { ServerEntry } from "../serverConnection";
+import { isBtPanelService, panelHasCapability } from "../panelPlugin";
 import { useServerWebsites } from "../useServerWebsites";
 import { useServerCertificates } from "../useServerCertificates";
 import {
@@ -152,9 +153,8 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
 
-  const isOnePanel = server.serviceType === "1panel";
-  const isBt = server.serviceType === "bt";
-  const canManage = isOnePanel || isBt;
+  const isBt = isBtPanelService(server.serviceType);
+  const canManage = panelHasCapability(server.serviceType, "websites");
 
   useEffect(() => {
     setGroupFilter("");

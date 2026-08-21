@@ -6,6 +6,7 @@ import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
 import { createBtPanelClient, isBtPanelAuthFailureMessage } from "../../../../lib/btpanel";
+import { isBtPanelService, isOnePanelService, panelHasCapability } from "../panelPlugin";
 import {
   createOnePanelClient,
   type OnePanelApp,
@@ -154,9 +155,9 @@ function appMatchesQuery(app: OnePanelApp, query: string): boolean {
 
 export function ServerAppsTab({ server }: Props) {
   const { t, locale } = useI18n();
-  const isOnePanel = server.serviceType === "1panel";
-  const isBt = server.serviceType === "bt";
-  const supportsApps = isOnePanel || isBt;
+  const isOnePanel = isOnePanelService(server.serviceType);
+  const isBt = isBtPanelService(server.serviceType);
+  const supportsApps = panelHasCapability(server.serviceType, "apps");
 
   const {
     apps,

@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use crate::{DbParams, MongoDriver, mongodb_list_databases, mysql_connect_options, qdrant_list_databases};
+use crate::{
+    clickhouse_list_databases, mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
+    DbParams, MongoDriver,
+};
 use omnipanel_error::OmniError;
 use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault};
 use serde::{Deserialize, Serialize};
@@ -980,6 +983,9 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
         "qdrant" => qdrant_list_databases(&to_params(&connection))
             .await
             .map_err(err_msg),
+        "clickhouse" | "ch" => clickhouse_list_databases(&to_params(&connection))
+            .await
+            .map_err(err_msg),
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
     }
@@ -1358,6 +1364,12 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 .map_err(|e| format!("创建数据库失败：{e}"))?;
             Ok(name)
         }
+        "clickhouse" | "ch" => {
+            let driver = crate::ClickHouseDriver::from_params(&to_params(&args.connection))
+                .map_err(err_msg)?;
+            driver.create_database(&name).await.map_err(err_msg)?;
+            Ok(name)
+        }
         _ => Err(format!(
             "暂不支持在 {} 引擎上创建数据库",
             args.connection.db_type
@@ -1433,6 +1445,9 @@ pub async fn db_introspect_table(
         "sqlite" | "sqlite3" => introspect_sqlite_table(&connection, table.trim()).await,
         "mongodb" | "mongo" => introspect_mongo_table(&connection, &db_name, table.trim()).await,
         "qdrant" => introspect_qdrant_collection(&connection, table.trim()).await,
+        "clickhouse" | "ch" => {
+            introspect_clickhouse_table(&connection, &db_name, table.trim()).await
+        }
         _ => Ok(DbTableSchema {
             name: table,
             columns: Vec::new(),
@@ -1461,6 +1476,7 @@ pub async fn db_table_ddl(
         "mysql" | "mariadb" => mysql_table_ddl(&connection, &db_name, table.trim()).await,
         "postgresql" | "postgres" => pg_table_ddl(&connection, &db_name, table.trim()).await,
         "sqlite" | "sqlite3" => sqlite_table_ddl(&connection, table.trim()),
+        "clickhouse" | "ch" => clickhouse_table_ddl(&connection, &db_name, table.trim()).await,
         _ => Err(format!("不支持的数据库类型: {}", connection.db_type)),
     }
 }
@@ -2702,6 +2718,50 @@ async fn introspect_mongo_table(
     })
 }
 
+async fn introspect_clickhouse_table(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table: &str,
+) -> Result<DbTableSchema, String> {
+    let mut params = to_params(connection);
+    params.database = db_name.to_string();
+    let driver = crate::ClickHouseDriver::from_params(&params).map_err(err_msg)?;
+    let columns = driver.describe_table(table).await.map_err(err_msg)?;
+    Ok(DbTableSchema {
+        name: table.to_string(),
+        columns: columns
+            .into_iter()
+            .map(|(name, column_type)| {
+                let nullable = column_type.to_ascii_uppercase().starts_with("NULLABLE(");
+                DbColumnMeta {
+                    name,
+                    column_type,
+                    is_pk: false,
+                    is_fk: false,
+                    nullable,
+                    is_auto_increment: false,
+                    comment: None,
+                    length: None,
+                    default_value: None,
+                }
+            })
+            .collect(),
+        indexes: Vec::new(),
+        comment: None,
+    })
+}
+
+async fn clickhouse_table_ddl(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table: &str,
+) -> Result<String, String> {
+    let mut params = to_params(connection);
+    params.database = db_name.to_string();
+    let driver = crate::ClickHouseDriver::from_params(&params).map_err(err_msg)?;
+    driver.show_create_table(table).await.map_err(err_msg)
+}
+
 async fn introspect_qdrant_collection(
     connection: &DbConnectionConfig,
     collection_name: &str,
@@ -2834,7 +2894,7 @@ pub async fn list_database_objects_shallow(
                 key_count: None,
             })
         }
-        "sqlite" | "sqlite3" | "mongodb" | "mongo" | "qdrant" => {
+        "sqlite" | "sqlite3" | "mongodb" | "mongo" | "qdrant" | "clickhouse" | "ch" => {
             let names = db_list_tables(connection.clone(), Some(db_name.to_string())).await?;
             let tables = names
                 .into_iter()

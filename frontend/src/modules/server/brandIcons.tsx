@@ -24,8 +24,8 @@ export function resolvePanelBrandIcon(
   serviceType: string | null | undefined,
 ): PanelBrandIconKind | null {
   const raw = (serviceType ?? "").trim().toLowerCase();
-  if (raw === "bt" || raw === "baota") return "bt";
-  if (raw === "1panel" || raw === "onepanel") return "1panel";
+  if (raw === "bt" || raw === "baota" || raw === "omni.panel.bt") return "bt";
+  if (raw === "1panel" || raw === "onepanel" || raw === "omni.panel.1panel") return "1panel";
   return null;
 }
 

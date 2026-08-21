@@ -2757,6 +2757,10 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let region = get_str(&args, "region");
             respond_omni(crate::cloud_cmds::cloud_list_ecs(state, connection_id, region).await)
         }
+        "cloud_list_regions" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            respond_omni(crate::cloud_cmds::cloud_list_regions(state, connection_id).await)
+        }
         "cloud_list_certs" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             respond_omni(crate::cloud_cmds::cloud_list_certs(state, connection_id).await)

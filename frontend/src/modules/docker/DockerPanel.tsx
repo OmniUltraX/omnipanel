@@ -18,8 +18,14 @@ import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmpty
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { importDockerFromSshConnections } from "./importDockerFromSsh";
-import { DockerImportFromSshDialog } from "./DockerImportFromSshDialog";
+import { importDockerPreviewRows } from "./importDockerFromSsh";
+import { DiscoveryImportDialog, type DiscoveryPreviewRow } from "../../components/ui/DiscoveryImportDialog";
+import {
+  isDiscoverySkip,
+  runDiscoveryProbe,
+  sshDiscoveryScope,
+  type DiscoveryCandidates,
+} from "../../lib/discoveryBus";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { usePoolConnectionRegistration } from "../../stores/connectionPoolStore";
@@ -125,8 +131,8 @@ export function DockerPanel() {
 
   const [refreshingAllCaches, setRefreshingAllCaches] = useState(false);
   const [importingFromSsh, setImportingFromSsh] = useState(false);
-  const [showImportFromSsh, setShowImportFromSsh] = useState(false);
-  const saveStoredConnection = useConnectionStore((s) => s.save);
+  const [dockerDiscoveryOpen, setDockerDiscoveryOpen] = useState(false);
+  const [dockerDiscoveryRows, setDockerDiscoveryRows] = useState<DiscoveryPreviewRow[]>([]);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
     y: number;
@@ -394,41 +400,68 @@ export function DockerPanel() {
     }
   }, [connectionById, connections, refreshingAllCaches, t]);
 
-  const handleImportFromSsh = useCallback(
-    async (sshConnectionIds: string[]) => {
-      if (importingFromSsh) return;
-      setImportingFromSsh(true);
-      try {
-        const latest = useConnectionStore.getState().connections;
-        const result = await importDockerFromSshConnections({
-          connections: latest,
-          saveConn: saveStoredConnection,
-          sshConnectionIds,
-        });
-        await reloadConnections();
-        if (result.added > 0) {
-          showToast(
-            t("docker.sidebar.importFromSshDone", {
-              added: String(result.added),
-              skipped: String(result.skipped),
-            }),
-          );
-        } else if (result.errors[0]) {
-          showToast(result.errors[0]);
-        } else {
-          showToast(t("docker.sidebar.importFromSshEmpty"));
-        }
-      } catch (error) {
-        showToast(
-          t("docker.sidebar.importFromSshFailed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
+  const handleImportFromSsh = useCallback(async () => {
+    if (importingFromSsh) return;
+    setImportingFromSsh(true);
+    try {
+      const { scope, skippedProdCount, prodHostIds } = sshDiscoveryScope(storedConnections);
+      let hostIds = [...scope.hostIds];
+      if (skippedProdCount > 0) {
+        const scanProd = await appConfirm(
+          t("docker.sidebar.importFromSshProdConfirm", { count: String(skippedProdCount) }),
+          t("docker.sidebar.importFromSshProdTitle"),
         );
-      } finally {
-        setImportingFromSsh(false);
+        if (scanProd) hostIds = [...hostIds, ...prodHostIds];
       }
+      const result = await runDiscoveryProbe("ssh-docker", { hostIds, envTag: null });
+      if (isDiscoverySkip(result)) {
+        showToast(t("server.sidebar.syncFromSshProdSkipped"));
+        return;
+      }
+      const probed = result as DiscoveryCandidates;
+      if (!probed.rows?.length) {
+        showToast(t("docker.sidebar.importFromSshEmpty"));
+        return;
+      }
+      setDockerDiscoveryRows(probed.rows);
+      setDockerDiscoveryOpen(true);
+    } catch (error) {
+      showToast(
+        t("docker.sidebar.importFromSshFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    } finally {
+      setImportingFromSsh(false);
+    }
+  }, [importingFromSsh, storedConnections, t]);
+
+  const handleConfirmDockerDiscovery = useCallback(
+    (selected: DiscoveryPreviewRow[]) => {
+      void (async () => {
+        setImportingFromSsh(true);
+        try {
+          const imported = await importDockerPreviewRows(selected);
+          await reloadConnections();
+          setDockerDiscoveryOpen(false);
+          if (imported.added > 0) {
+            showToast(
+              t("docker.sidebar.importFromSshDone", {
+                added: String(imported.added),
+                skipped: String(imported.skipped),
+              }),
+            );
+          } else if (imported.errors[0]) {
+            showToast(imported.errors[0]);
+          } else {
+            showToast(t("docker.sidebar.importFromSshEmpty"));
+          }
+        } finally {
+          setImportingFromSsh(false);
+        }
+      })();
     },
-    [importingFromSsh, reloadConnections, saveStoredConnection, t],
+    [reloadConnections, t],
   );
 
   const dockerDeepLinkHandledRef = useRef(false);
@@ -648,7 +681,7 @@ export function DockerPanel() {
                 setEditDockerConnection(undefined);
                 setShowAddConn(true);
               }}
-              onImportFromSsh={() => setShowImportFromSsh(true)}
+              onImportFromSsh={() => void handleImportFromSsh()}
               onRefreshAll={() => void handleRefreshAllCaches()}
               onEditConnection={handleEditDockerConnection}
               onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
@@ -720,14 +753,16 @@ export function DockerPanel() {
         </Suspense>
       ) : null}
 
-      <DockerImportFromSshDialog
-        open={showImportFromSsh}
-        connections={storedConnections}
-        onClose={() => setShowImportFromSsh(false)}
-        onConfirm={(ids) => void handleImportFromSsh(ids)}
-      />
-
       {toast ? <div className="docker-toast">{toast}</div> : null}
+      <DiscoveryImportDialog
+        open={dockerDiscoveryOpen}
+        title={t("plugins.discovery.dockerTitle")}
+        hint={t("plugins.discovery.dockerHint")}
+        rows={dockerDiscoveryRows}
+        busy={importingFromSsh}
+        onClose={() => setDockerDiscoveryOpen(false)}
+        onImport={handleConfirmDockerDiscovery}
+      />
     </>
   );
 }

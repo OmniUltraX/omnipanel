@@ -15,6 +15,8 @@ pub enum ConnectionKind {
     Cloud,
     Protocol,
     File,
+    /// 插件 `kind=module` 的服务实例（Nacos 等）。
+    Service,
 }
 
 impl ConnectionKind {
@@ -27,6 +29,7 @@ impl ConnectionKind {
             ConnectionKind::Cloud => "cloud",
             ConnectionKind::Protocol => "protocol",
             ConnectionKind::File => "file",
+            ConnectionKind::Service => "service",
         }
     }
 
@@ -39,6 +42,7 @@ impl ConnectionKind {
             "cloud" => Ok(ConnectionKind::Cloud),
             "protocol" => Ok(ConnectionKind::Protocol),
             "file" => Ok(ConnectionKind::File),
+            "service" => Ok(ConnectionKind::Service),
             other => Err(OmniError::new(
                 ErrorCode::InvalidInput,
                 format!("未知连接类型: {other}"),
@@ -181,7 +185,10 @@ impl Storage {
                 ConnectionKind::Database => "database",
                 ConnectionKind::Docker => "docker",
                 ConnectionKind::File => "files",
-                ConnectionKind::Panel | ConnectionKind::Cloud | ConnectionKind::Protocol => "ssh",
+                ConnectionKind::Panel
+                | ConnectionKind::Cloud
+                | ConnectionKind::Protocol
+                | ConnectionKind::Service => "ssh",
             };
             let _ = self.delete_resource_observations(rt, id);
         }
@@ -328,5 +335,20 @@ mod tests {
         assert!(storage.get_connection("d").unwrap().is_none());
         // 再删不存在的也成功
         storage.delete_connection("d").unwrap();
+    }
+
+    #[test]
+    fn service_kind_roundtrip() {
+        let storage = Storage::open_in_memory().unwrap();
+        storage
+            .save_connection(&sample("svc", ConnectionKind::Service))
+            .unwrap();
+        let got = storage.get_connection("svc").unwrap().unwrap();
+        assert_eq!(got.kind, ConnectionKind::Service);
+        assert_eq!(got.kind.as_str(), "service");
+        let json = serde_json::to_string(&got.kind).unwrap();
+        assert_eq!(json, "\"service\"");
+        let back: ConnectionKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ConnectionKind::Service);
     }
 }

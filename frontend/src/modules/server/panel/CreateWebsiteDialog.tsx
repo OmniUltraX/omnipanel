@@ -16,6 +16,7 @@ import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import { certificateRowLabel } from "./serverResourceLabels";
 import type { ServerEntry } from "./serverConnection";
 import { BtCreateWebsiteDialog } from "./BtCreateWebsiteDialog";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 const WEBSITE_TYPES: OnePanelWebsiteType[] = [
   "static",
@@ -69,7 +70,7 @@ export function CreateWebsiteDialog({
   onClose,
   onCreated,
 }: CreateWebsiteDialogProps) {
-  if (server.serviceType === "bt") {
+  if (isBtPanelService(server.serviceType)) {
     return (
       <BtCreateWebsiteDialog
         open={open}
@@ -186,7 +187,7 @@ function OnePanelCreateWebsiteDialog({
 
   // 打开时加载分组 / 证书 / 父站；类型切换时加载 runtime / app
   useEffect(() => {
-    if (!open || server.serviceType !== "1panel") return;
+    if (!open || !isOnePanelService(server.serviceType)) return;
     let cancelled = false;
     setOptionsLoading(true);
     void (async () => {
@@ -245,7 +246,7 @@ function OnePanelCreateWebsiteDialog({
   }, [open, server]);
 
   useEffect(() => {
-    if (!open || server.serviceType !== "1panel") return;
+    if (!open || !isOnePanelService(server.serviceType)) return;
     if (type !== "runtime") return;
     let cancelled = false;
     void (async () => {
@@ -273,7 +274,7 @@ function OnePanelCreateWebsiteDialog({
   }, [open, server, type, runtimeLang]);
 
   useEffect(() => {
-    if (!open || server.serviceType !== "1panel") return;
+    if (!open || !isOnePanelService(server.serviceType)) return;
     if (type !== "deployment") return;
     let cancelled = false;
     void (async () => {
@@ -344,7 +345,7 @@ function OnePanelCreateWebsiteDialog({
       setError(t("server.create.website.required"));
       return;
     }
-    if (server.serviceType !== "1panel") {
+    if (!isOnePanelService(server.serviceType)) {
       setError(t("server.create.onePanelOnly"));
       return;
     }

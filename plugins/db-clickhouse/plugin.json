@@ -1,0 +1,30 @@
+{
+  "id": "omni.engine.clickhouse",
+  "version": "0.1.0",
+  "kind": "engine",
+  "permissions": ["net:connect"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "clickhouse",
+        "aliases": ["clickhouse", "ch"],
+        "defaultPort": 8123,
+        "icon": "CH",
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" },
+          { "key": "ssl", "type": "checkbox" }
+        ]
+      },
+      "workbench": {
+        "tree": "schema",
+        "editor": "sql",
+        "preview": "grid",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

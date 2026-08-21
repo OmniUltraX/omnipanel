@@ -16,6 +16,7 @@ import {
   isPanelAppManagedByDatabase,
 } from "./importPanelAppToDatabase";
 import type { ServerEntry } from "./serverConnection";
+import { isOnePanelService } from "./panelPlugin";
 
 export type AppInstalledParamsDialogProps = {
   open: boolean;
@@ -132,7 +133,7 @@ export function AppInstalledParamsDialog({
   const canManage = isPanelAppManagedByDatabase({ key: appKey, name: appLabel, type: appType });
 
   useEffect(() => {
-    if (!open || installId == null || server.serviceType !== "1panel") {
+    if (!open || installId == null || !isOnePanelService(server.serviceType)) {
       return;
     }
     let cancelled = false;

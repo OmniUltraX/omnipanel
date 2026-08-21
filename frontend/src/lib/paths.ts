@@ -13,11 +13,16 @@ export const MODULE_PATHS = {
   knowledge: `${MODULE_PREFIX}/knowledge`,
   files: `${MODULE_PREFIX}/files`,
   tasks: `${MODULE_PREFIX}/tasks`,
+  cloud: `${MODULE_PREFIX}/cloud`,
 } as const;
 
 export type ModuleKey = keyof typeof MODULE_PATHS;
 
 export const ALL_MODULE_KEYS = Object.keys(MODULE_PATHS) as ModuleKey[];
+
+export function isKernelModuleKey(key: string): key is ModuleKey {
+  return key in MODULE_PATHS;
+}
 
 export function moduleKeyFromPath(path: string): ModuleKey | null {
   for (const [key, modulePath] of Object.entries(MODULE_PATHS) as [ModuleKey, string][]) {
@@ -26,6 +31,18 @@ export function moduleKeyFromPath(path: string): ModuleKey | null {
     }
   }
   return null;
+}
+
+/** `/module/{key}` 中非内核模块的 key（如 nacos）。 */
+export function pluginModuleKeyFromPath(pathname: string): string | null {
+  if (!pathname.startsWith(`${MODULE_PREFIX}/`)) return null;
+  const key = pathname.slice(MODULE_PREFIX.length + 1).split("/")[0] ?? "";
+  if (!key || isKernelModuleKey(key)) return null;
+  return key;
+}
+
+export function navModuleKeyFromPath(pathname: string): string | null {
+  return moduleKeyFromPath(pathname) ?? pluginModuleKeyFromPath(pathname);
 }
 
 export const WORKSPACE_PATHS = {

@@ -24,6 +24,7 @@ export const EMPTY_CLOUD_FORM: CloudFormData = {
 export const ALIYUN_REGION_OPTIONS: { value: string; label: string }[] = [
   { value: "cn-hangzhou", label: "华东1（杭州）" },
   { value: "cn-shanghai", label: "华东2（上海）" },
+  { value: "cn-qingdao", label: "华北1（青岛）" },
   { value: "cn-beijing", label: "华北2（北京）" },
   { value: "cn-zhangjiakou", label: "华北3（张家口）" },
   { value: "cn-huhehaote", label: "华北5（呼和浩特）" },
@@ -33,6 +34,9 @@ export const ALIYUN_REGION_OPTIONS: { value: string; label: string }[] = [
   { value: "cn-guangzhou", label: "华南3（广州）" },
   { value: "cn-chengdu", label: "西南1（成都）" },
   { value: "cn-hongkong", label: "中国香港" },
+  { value: "cn-wuhan", label: "华中1（武汉）" },
+  { value: "cn-nanjing", label: "华东5（南京）" },
+  { value: "cn-fuzhou", label: "华东6（福州）" },
   { value: "ap-southeast-1", label: "新加坡" },
   { value: "ap-southeast-3", label: "马来西亚（吉隆坡）" },
   { value: "ap-northeast-1", label: "日本（东京）" },
@@ -43,9 +47,11 @@ export const ALIYUN_REGION_OPTIONS: { value: string; label: string }[] = [
 
 const REGION_LABEL_MAP = new Map(ALIYUN_REGION_OPTIONS.map((r) => [r.value, r.label]));
 
-export function cloudRegionLabel(regionId: string): string {
+export function cloudRegionLabel(regionId: string, localName?: string): string {
   const id = regionId.trim();
   if (!id) return "—";
+  const apiName = localName?.trim();
+  if (apiName && apiName !== id) return `${apiName}（${id}）`;
   const label = REGION_LABEL_MAP.get(id);
   return label ? `${label}（${id}）` : id;
 }

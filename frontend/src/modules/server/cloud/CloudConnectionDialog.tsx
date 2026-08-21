@@ -17,6 +17,7 @@ import {
   cloudConnectionToForm,
   type CloudFormData,
 } from "./cloudForm";
+import { invalidateCloudAccountRegions } from "./cloudRegionDiscovery";
 import aliyunIcon from "../../../assets/icons/Aliyun.svg";
 
 interface CloudConnectionDialogProps {
@@ -116,6 +117,7 @@ export function CloudConnectionDialog({
       );
       const saved = await saveConn(draft);
       if (!saved?.id) throw new Error("Cloud save failed");
+      invalidateCloudAccountRegions(saved.id);
       onSaved?.();
       onClose();
     } catch (e) {
@@ -190,6 +192,7 @@ export function CloudConnectionDialog({
               : t("server.cloud.create.regionsSelected", { count: String(labels.length) })
           }
         />
+        <p className="form-hint">{t("server.cloud.create.regionsHint")}</p>
       </div>
 
       <div className="form-field">

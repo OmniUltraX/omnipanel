@@ -12,6 +12,7 @@ import {
 import { fetchBtJavaWebsiteLoad } from "./fetchLoad";
 import { BT_JAVA_WEBSITE_MONITOR_REFRESH_MS } from "./layout";
 import "./BtJavaWebsiteMonitorView.css";
+import { isBtPanelService } from "../../../server/panel/panelPlugin";
 
 type MonitorController = SmallComponentController & {
   subscribe: (listener: () => void) => () => void;
@@ -144,7 +145,7 @@ export function BtJavaWebsiteMonitorView({
   );
 
   const isBt = connection
-    ? parsePanelConfig(connection).serviceType === "bt"
+    ? isBtPanelService(parsePanelConfig(connection).serviceType)
     : false;
 
   const [loadInfo, setLoadInfo] = useState<BtJavaProjectLoadInfo | null>(null);

@@ -18,8 +18,11 @@ import {
 } from "@/components/ui/sidebar-tree";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
+import { isDiscoverySkip, runDiscoveryProbe, sshDiscoveryScope, type DiscoveryCandidates } from "@/lib/discoveryBus";
+import { DiscoveryImportDialog, type DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog";
+import { importPanelPreviewRows } from "./syncPanelsFromSsh";
 import type { ServerEntry } from "./serverConnection";
-import { syncPanelsFromSshConnections } from "./syncPanelsFromSsh";
+import { isBtPanelService, isOnePanelService, panelServiceTypeI18nKey } from "./panelPlugin";
 import { usePersistedServerTreeExpanded } from "./usePersistedServerTreeExpanded";
 import {
   makeServerTreeKey,
@@ -50,7 +53,7 @@ function ServerTreeBranch({
   onNavigate,
 }: ServerTreeBranchProps) {
   const { t } = useI18n();
-  const serviceTypeLabel = t(`server.serviceType.${server.serviceType}`);
+  const serviceTypeLabel = t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`);
   const serverNameMatch = serverEntryMatchesSearch(searchQuery, server, serviceTypeLabel);
 
   const categories = useMemo(() => {
@@ -151,7 +154,6 @@ export function ServerPanelTreeSidebar({
 }: ServerPanelTreeSidebarProps) {
   const { t } = useI18n();
   const refreshConnections = useConnectionStore((s) => s.refresh);
-  const saveConn = useConnectionStore((s) => s.save);
   const connectionsLoading = useConnectionStore((s) => s.loading);
   const syncPanelServersFromConnections = useServerPanelCacheStore(
     (s) => s.syncPanelServersFromConnections,
@@ -166,6 +168,8 @@ export function ServerPanelTreeSidebar({
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
   const [syncingFromSsh, setSyncingFromSsh] = useState(false);
+  const [discoveryRows, setDiscoveryRows] = useState<DiscoveryPreviewRow[]>([]);
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
@@ -185,7 +189,7 @@ export function ServerPanelTreeSidebar({
     (server: ServerEntry) => {
       void (async () => {
         await refreshServer(server);
-        if (server.serviceType === "1panel" || server.serviceType === "bt") {
+        if (isOnePanelService(server.serviceType) || isBtPanelService(server.serviceType)) {
           await refreshServerApps(server);
         }
       })();
@@ -216,38 +220,73 @@ export function ServerPanelTreeSidebar({
         }
 
         showToast(t("server.sidebar.syncFromSshStarted"));
-        const result = await syncPanelsFromSshConnections({
-          connections,
-          saveConn,
-        });
-
-        await refreshConnections();
-        const next = useConnectionStore.getState().connections;
-        syncPanelServersFromConnections(next);
-
-        showToast(
-          t("server.sidebar.syncFromSshDone", {
-            added: result.added,
-            updated: result.updated,
-            skipped: result.skipped,
-            failed: result.failed,
-          }),
-        );
-        if (result.errors.length > 0) {
-          const preview = result.errors.slice(0, 3).join("；");
-          showToast(
-            result.errors.length > 3
-              ? `${preview}… (+${result.errors.length - 3})`
-              : preview,
+        const { scope, skippedProdCount, prodHostIds } = sshDiscoveryScope(connections);
+        let hostIds = [...scope.hostIds];
+        if (skippedProdCount > 0) {
+          const scanProd = await appConfirm(
+            t("server.sidebar.syncFromSshProdConfirm", { count: String(skippedProdCount) }),
+            t("server.sidebar.syncFromSshProdTitle"),
+            { confirmLabel: t("server.sidebar.syncFromSshProdConfirmBtn"), kind: "warning" },
           );
+          if (scanProd) hostIds = [...hostIds, ...prodHostIds];
+          else showToast(t("server.sidebar.syncFromSshProdHostsSkipped", { count: String(skippedProdCount) }));
         }
+        if (hostIds.length === 0) {
+          showToast(t("server.sidebar.syncFromSshNoSsh"));
+          return;
+        }
+        const result = await runDiscoveryProbe("ssh-panel", { hostIds, envTag: null });
+        if (isDiscoverySkip(result)) {
+          showToast(t("server.sidebar.syncFromSshProdSkipped"));
+          return;
+        }
+        const probed = result as DiscoveryCandidates;
+        if (probed.errors?.length) {
+          showToast(probed.errors.slice(0, 2).join("；"));
+        }
+        if (!probed.rows?.length) {
+          showToast(t("plugins.discovery.empty"));
+          return;
+        }
+        setDiscoveryRows(probed.rows);
+        setDiscoveryOpen(true);
       } catch (err) {
         showToast(String(err));
       } finally {
         setSyncingFromSsh(false);
       }
     })();
-  }, [refreshConnections, saveConn, syncPanelServersFromConnections, t]);
+  }, [refreshConnections, t]);
+
+  const handleImportDiscovery = useCallback(
+    (selected: DiscoveryPreviewRow[]) => {
+      void (async () => {
+        setSyncingFromSsh(true);
+        try {
+          const syncResult = await importPanelPreviewRows(selected);
+          await refreshConnections();
+          syncPanelServersFromConnections(useConnectionStore.getState().connections);
+          setDiscoveryOpen(false);
+          showToast(
+            t("server.sidebar.syncFromSshDone", {
+              added: syncResult.added,
+              updated: syncResult.updated,
+              skipped: syncResult.skipped,
+              failed: syncResult.failed,
+            }),
+          );
+          if (syncResult.errors.length > 0) {
+            showToast(syncResult.errors.slice(0, 3).join("；"));
+          }
+        } catch (err) {
+          showToast(String(err));
+        } finally {
+          setSyncingFromSsh(false);
+        }
+      })();
+    },
+    [refreshConnections, syncPanelServersFromConnections, t],
+  );
 
   useEffect(() => {
     if (!activeServerId) return;
@@ -379,7 +418,7 @@ export function ServerPanelTreeSidebar({
                   icon={<ServerTreeIcon kind={iconKind} />}
                   className={serverTreeNodeClassName(
                     iconKind,
-                    server.serviceType === "bt"
+                    isBtPanelService(server.serviceType)
                       ? "server-tree-node--bt"
                       : "server-tree-node--onepanel",
                   )}
@@ -387,9 +426,9 @@ export function ServerPanelTreeSidebar({
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
                       <span
-                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${server.serviceType === "bt" ? "bt" : "onepanel"}`}
+                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${isBtPanelService(server.serviceType) ? "bt" : "onepanel"}`}
                       >
-                        {t(`server.serviceType.${server.serviceType}`)}
+                        {t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`)}
                       </span>
                     </span>
                   }
@@ -424,6 +463,15 @@ export function ServerPanelTreeSidebar({
       {ctxPos ? (
         <ContextMenu items={ctxItems} position={ctxPos} onClose={() => setCtxPos(null)} />
       ) : null}
+      <DiscoveryImportDialog
+        open={discoveryOpen}
+        title={t("plugins.discovery.panelTitle")}
+        hint={t("plugins.discovery.panelHint")}
+        rows={discoveryRows}
+        busy={syncingFromSsh}
+        onClose={() => setDiscoveryOpen(false)}
+        onImport={handleImportDiscovery}
+      />
     </>
   );
 

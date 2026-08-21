@@ -185,6 +185,7 @@ fn export_ipc_bindings() {
         commands::cloud::cloud_list_swas,
         commands::cloud::cloud_list_domains,
         commands::cloud::cloud_list_ecs,
+        commands::cloud::cloud_list_regions,
         commands::cloud::cloud_list_certs,
         commands::docker::docker_list_connections,
         commands::docker::docker_get_connection_secret,
@@ -458,6 +459,11 @@ fn export_ipc_bindings() {
         // App modules（模块启用配置）
         commands::app_module::app_module_list,
         commands::app_module::app_module_set_status,
+        commands::plugin::plugin_list,
+        commands::plugin::plugin_set_enabled,
+        commands::plugin::plugin_invoke,
+        commands::plugin::plugin_require_permission,
+        commands::plugin::discovery_run,
         // Task（任务）
         commands::task::task_list,
         commands::task::task_get,
@@ -1077,6 +1083,7 @@ fn build_and_run_tauri() {
             commands::cloud::cloud_list_swas,
             commands::cloud::cloud_list_domains,
             commands::cloud::cloud_list_ecs,
+            commands::cloud::cloud_list_regions,
             commands::cloud::cloud_list_certs,
             // Docker（容器工作区）
             commands::docker::docker_list_connections,
@@ -1360,6 +1367,11 @@ fn build_and_run_tauri() {
             // App modules（模块启用配置）
             commands::app_module::app_module_list,
             commands::app_module::app_module_set_status,
+            commands::plugin::plugin_list,
+            commands::plugin::plugin_set_enabled,
+            commands::plugin::plugin_invoke,
+            commands::plugin::plugin_require_permission,
+            commands::plugin::discovery_run,
             // Task（任务）
             commands::task::task_list,
             commands::task::task_get,

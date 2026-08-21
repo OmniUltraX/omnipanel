@@ -10,7 +10,12 @@ import {
   getNavVisibleModuleKeys,
   initAppModuleStore,
 } from "../../stores/appModuleStore";
-import { type ModuleKey } from "../../lib/paths";
+import {
+  initPluginRuntimeStore,
+  PLUGIN_ID_EVERYTHING,
+  usePluginRuntimeStore,
+} from "../../stores/pluginRuntimeStore";
+import { useDebouncedEsQuery } from "./useDebouncedEsQuery";
 import {
   emitQuickLauncherAction,
   hideQuickLauncher,
@@ -54,6 +59,7 @@ import {
   type SuggestedAction,
 } from "../../lib/quickLaunch/buildSuggestions";
 import { type EntityKind } from "../../lib/quickLaunch/detectText";
+import { isKernelModuleKey, type ModuleKey } from "../../lib/paths";
 import { useQuickLauncherActionStatsStore } from "../../stores/quickLauncherActionStatsStore";
 
 const CLIPBOARD_PREVIEW_H = 36;
@@ -189,6 +195,8 @@ function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
         database: row.database,
         table: row.table,
       };
+    case "everything-path":
+      return { kind: "open-path", path: row.path };
   }
 }
 
@@ -224,6 +232,8 @@ function rowToRecentTarget(row: QuickLaunchMatchRow): QuickLaunchRecentTarget {
         database: row.database,
         table: row.table,
       };
+    case "everything-path":
+      return { type: "ssh-connection", connectionId: "" };
   }
 }
 
@@ -248,13 +258,17 @@ function formatQuickLaunchLastUsed(
  * 托盘态快捷启动窗：顶部模块图标 + 单行搜索 + 底部匹配列表。
  * 独立于主窗口 Bootstrap，仅轻量初始化连接列表。
  */
+function kernelNavKeys(): ModuleKey[] {
+  return getNavVisibleModuleKeys().filter(isKernelModuleKey);
+}
+
 export function QuickLauncherRoot() {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [ready, setReady] = useState(false);
   const [visibleModuleKeys, setVisibleModuleKeys] = useState<ModuleKey[]>(() =>
-    getNavVisibleModuleKeys(),
+    kernelNavKeys(),
   );
   const [soloMode, setSoloMode] = useState(readSoloMode);
   /** 焦点窗内按住 Ctrl 时显示模块序号角标 */
@@ -318,6 +332,7 @@ export function QuickLauncherRoot() {
           initConnections(),
           reloadDbConnections(),
           initAppModuleStore().catch(() => {}),
+          initPluginRuntimeStore().catch(() => {}),
           useDbSchemaCacheStore.getState().hydrate().catch(() => {}),
           refreshClipboard(),
         ]);
@@ -325,7 +340,7 @@ export function QuickLauncherRoot() {
         console.warn("[quickLauncher] init failed", e);
       }
       if (!cancelled) {
-        setVisibleModuleKeys(getNavVisibleModuleKeys());
+        setVisibleModuleKeys(kernelNavKeys());
         setReady(true);
       }
     })();
@@ -348,7 +363,7 @@ export function QuickLauncherRoot() {
       setSelectedIndex(0);
       // Ctrl+Space 唤醒时 Ctrl 仍按着，直接显示角标；托盘等其它入口则不显示
       setCtrlHeld(payload.ctrlHeld === true);
-      setVisibleModuleKeys(getNavVisibleModuleKeys());
+      setVisibleModuleKeys(kernelNavKeys());
       // 每次显示时向主窗请求外观（独立 data_directory 无法读主窗 localStorage）
       void requestAppearanceSync();
       // 强制重载 schema / 数据库连接：主窗可能已变更
@@ -439,6 +454,17 @@ export function QuickLauncherRoot() {
     schemaRevision,
   ]);
 
+  const everythingEnabled = usePluginRuntimeStore((s) =>
+    s.items.some((item) => item.id === PLUGIN_ID_EVERYTHING && item.enabled && item.activated),
+  );
+  const esRows = useDebouncedEsQuery(
+    parsedQuery.kind === "es" ? parsedQuery.filter : "",
+    parsedQuery.kind === "es" && everythingEnabled,
+  );
+
+  const resolvedMatchRows =
+    parsedQuery.kind === "es" ? esRows : matchRows;
+
   const listItems = useMemo<ListItem[]>(() => {
     const items: ListItem[] = [];
     for (const s of suggestions) {
@@ -446,19 +472,19 @@ export function QuickLauncherRoot() {
     }
     // 空输入时：建议在上，最近在下；有前缀匹配时：匹配结果优先，建议次之
     if (isEmptyQuery || parsedQuery.kind === "plain") {
-      for (const row of matchRows) {
+      for (const row of resolvedMatchRows) {
         items.push({ kind: "match", id: row.id, row });
       }
     } else {
       // ssh/db 前缀：匹配结果优先
       const sugItems = items.splice(0, items.length);
-      for (const row of matchRows) {
+      for (const row of resolvedMatchRows) {
         items.push({ kind: "match", id: row.id, row });
       }
       items.push(...sugItems);
     }
     return items;
-  }, [suggestions, matchRows, isEmptyQuery, parsedQuery.kind]);
+  }, [suggestions, resolvedMatchRows, isEmptyQuery, parsedQuery.kind]);
 
   const clipboardEntityKind = useMemo(
     () => (clipboardText ? primaryEntityKind(clipboardText) : null),
@@ -492,6 +518,14 @@ export function QuickLauncherRoot() {
 
   const activateMatch = useCallback(
     async (row: QuickLaunchMatchRow) => {
+      if (row.type === "everything-path") {
+        try {
+          await emitQuickLauncherAction({ kind: "open-path", path: row.path });
+        } finally {
+          await hideQuickLauncher();
+        }
+        return;
+      }
       recordRecentOpen(rowToRecentTarget(row), row.label);
       const action = rowToAction(row);
       try {

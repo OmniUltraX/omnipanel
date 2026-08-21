@@ -12,7 +12,7 @@ use crate::state::AppState;
 
 pub use aliyun::{
     AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
-    CloudSwasInstance,
+    CloudRegion, CloudSwasInstance,
 };
 
 #[derive(Debug, Clone, Deserialize, specta::Type)]
@@ -252,6 +252,26 @@ pub async fn cloud_list_ecs(
     let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
     let http = http_for_aliyun(&state, &endpoint).await?;
     creds.list_ecs_instances(&http).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cloud_list_regions(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<CloudRegion>, OmniError> {
+    let conn = load_connection(&state, &connection_id).await?;
+    let creds = resolve_credentials(&conn, None)?;
+    let cfg: CloudConfig = serde_json::from_str(&conn.config).unwrap_or(CloudConfig {
+        provider: default_provider(),
+        region: String::new(),
+        regions: Vec::new(),
+        access_key_id: String::new(),
+        access_key_secret: String::new(),
+    });
+    let configured = normalize_regions(&cfg.regions, &cfg.region);
+    let http = http_for_aliyun(&state, "https://ecs.aliyuncs.com/").await?;
+    creds.discover_regions(&http, &configured).await
 }
 
 #[tauri::command]

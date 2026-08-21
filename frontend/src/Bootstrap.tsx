@@ -14,6 +14,7 @@ import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initBackgroundTasks } from "./stores/backgroundTaskStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
+import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
@@ -118,6 +119,7 @@ export function Bootstrap() {
         advance(2);
         await pushLog(t("app.splash.logs.modules"));
         await initAppModuleStore();
+        await initPluginRuntimeStore();
 
         await pushLog(t("app.splash.logs.builtinTools"));
         const toolsChain = initBuiltinToolStore().then(async () => {

@@ -64,7 +64,7 @@ const zh: Dict = {
   "mod.db.p": "SQL 编辑器、百万行虚拟滚动网格、ER 图、NL2SQL、结果预览与数据同步导出。",
   "mod.docker.p": "容器、镜像、Compose、网络、卷；本地 / 远程 Engine / SSH 宿主机 / 1Panel / 宝塔。",
   "mod.docker.tagLog": "日志流",
-  "mod.server.p": "系统监控、进程与远程文件；宝塔 / 1Panel 网站·应用·证书·计划任务；自定义监控面板与小组件；云厂商资源入口。",
+  "mod.server.p": "系统监控、进程与远程文件；宝塔 / 1Panel 网站·应用·证书·计划任务；自定义监控面板与小组件；云厂商自动发现有实例的地域。",
   "mod.server.tagMon": "监控",
   "mod.server.tagBt": "宝塔",
   "mod.server.tagCloud": "云厂商",
@@ -241,7 +241,7 @@ const en: Dict = {
     "Containers, images, Compose, networks, volumes — local / remote Engine / SSH host / 1Panel / BT Panel.",
   "mod.docker.tagLog": "Log stream",
   "mod.server.p":
-    "System metrics, processes, remote files; BT / 1Panel sites·apps·certs·cron; custom monitor panels & widgets; cloud vendor entry.",
+    "System metrics, processes, remote files; BT / 1Panel sites·apps·certs·cron; custom monitor panels & widgets; cloud vendors auto-discover regions with instances.",
   "mod.server.tagMon": "Metrics",
   "mod.server.tagBt": "BT Panel",
   "mod.server.tagCloud": "Cloud",

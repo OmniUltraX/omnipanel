@@ -7,26 +7,12 @@ import qdrantDark from "../../../assets/icons/qdrant-dark.svg";
 import qdrantLight from "../../../assets/icons/qdrant-light.svg";
 import redis from "../../../assets/icons/redis.svg";
 import sqlite from "../../../assets/icons/sqlite.svg";
+import { resolveEngineKey } from "../engineRegistry";
 
-export type DbEngine =
-  | "postgresql"
-  | "mysql"
-  | "sqlite"
-  | "sqlserver"
-  | "redis"
-  | "mongodb"
-  | "qdrant";
+/** 引擎 key 为开放字符串；下列为内置图标别名。 */
+export type DbEngine = string;
 
-/**
- * 每种数据源在 light / dark 主题下的 logo。
- *
- * - mysql / mongodb / qdrant：分别提供 light / dark 两套配色
- * - redis：只有一份 svg，light / dark 主题共用
- * - postgresql：单份 svg，light / dark 共用
- * - sqlserver：暂无 logo，调用方需自行回退
- * - sqlite：单份 svg，light / dark 共用
- */
-const ENGINE_ICONS: Record<DbEngine, { light: string; dark: string } | null> = {
+const ENGINE_ICONS: Record<string, { light: string; dark: string } | null> = {
   mysql: { light: mysqlLight, dark: mysqlDark },
   mongodb: { light: mongoLight, dark: mongoDark },
   qdrant: { light: qdrantLight, dark: qdrantDark },
@@ -40,27 +26,13 @@ export function getEngineIcon(
   engine: DbEngine,
   theme: "light" | "dark",
 ): string | null {
-  const entry = ENGINE_ICONS[engine];
+  const key = resolveEngineKey(engine) ?? engine.trim().toLowerCase();
+  const entry = ENGINE_ICONS[key];
   return entry ? entry[theme] : null;
 }
 
-const ENGINE_ALIASES: Record<string, DbEngine> = {
-  mysql: "mysql",
-  mariadb: "mysql",
-  postgresql: "postgresql",
-  postgres: "postgresql",
-  pg: "postgresql",
-  mongodb: "mongodb",
-  mongo: "mongodb",
-  qdrant: "qdrant",
-};
-
 export function resolveDbEngineType(dbType: string): DbEngine | null {
-  const normalized = dbType.trim().toLowerCase();
-  if (normalized in ENGINE_ICONS) {
-    return normalized as DbEngine;
-  }
-  return ENGINE_ALIASES[normalized] ?? null;
+  return resolveEngineKey(dbType);
 }
 
 export function getEngineIconByType(

@@ -6,6 +6,7 @@ export type FollowModuleKey =
   | "docker"
   | "files"
   | "server"
+  | "cloud"
   | "knowledge"
   | "tasks"
   | "protocol"

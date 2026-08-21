@@ -14,6 +14,7 @@ import { makeBtPanelSftpAdapter } from "./btPanelSftpAdapter";
 import { makeOnePanelSftpAdapter } from "./onePanelSftpAdapter";
 import type { ServerEntry } from "./serverConnection";
 import { certificateRowLabel } from "./serverResourceLabels";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 function formatValue(value: unknown): string {
   if (value == null || value === "") return "—";
@@ -94,7 +95,7 @@ export function WebsiteInfoSubWindow({
       setError(null);
       return;
     }
-    if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
+    if (!isOnePanelService(server.serviceType) && !isBtPanelService(server.serviceType)) {
       setData(null);
       setError(null);
       return;
@@ -104,7 +105,7 @@ export function WebsiteInfoSubWindow({
     setError(null);
     void (async () => {
       try {
-        if (server.serviceType === "bt") {
+        if (isBtPanelService(server.serviceType)) {
           if (!siteName) throw new Error(t("server.websites.missingSiteName"));
           const client = createBtPanelClient(server.address, server.key, server.id);
           // 串行：任一鉴权失败由 client 熔断，避免 4 路并发打满验证计数
@@ -202,8 +203,8 @@ export function WebsiteDirSubWindow({
 }) {
   const adapter = useMemo(() => {
     if (!open) return null;
-    if (server.serviceType === "1panel") return makeOnePanelSftpAdapter(server);
-    if (server.serviceType === "bt") return makeBtPanelSftpAdapter(server);
+    if (isOnePanelService(server.serviceType)) return makeOnePanelSftpAdapter(server);
+    if (isBtPanelService(server.serviceType)) return makeBtPanelSftpAdapter(server);
     return null;
   }, [open, server]);
   const cacheKey = `panel-website-dir:${server.serviceType}:${server.id}:${path}`;
@@ -251,7 +252,7 @@ export function WebsiteLogsSubWindow({
   const [text, setText] = useState("");
 
   const refresh = async (name = logName) => {
-    if (server.serviceType === "bt") {
+    if (isBtPanelService(server.serviceType)) {
       if (!siteName) return;
       setLoading(true);
       setError(null);
@@ -270,7 +271,7 @@ export function WebsiteLogsSubWindow({
       }
       return;
     }
-    if (websiteId == null || server.serviceType !== "1panel") return;
+    if (websiteId == null || !isOnePanelService(server.serviceType)) return;
     setLoading(true);
     setError(null);
     try {
@@ -356,7 +357,7 @@ export function CertificateLogsSubWindow({
   const [text, setText] = useState("");
 
   const refresh = async () => {
-    if (sslId == null || server.serviceType !== "1panel") return;
+    if (sslId == null || !isOnePanelService(server.serviceType)) return;
     setLoading(true);
     setError(null);
     try {
@@ -427,7 +428,7 @@ export function WebsiteConfigSubWindow({
 
   const io = useMemo<TextEditorIO | null>(() => {
     if (!open) return null;
-    if (server.serviceType === "bt") {
+    if (isBtPanelService(server.serviceType)) {
       if (!siteName) return null;
       const client = createBtPanelClient(server.address, server.key, server.id);
       return {
@@ -441,7 +442,7 @@ export function WebsiteConfigSubWindow({
         },
       };
     }
-    if (websiteId == null || server.serviceType !== "1panel") return null;
+    if (websiteId == null || !isOnePanelService(server.serviceType)) return null;
     const client = createOnePanelClient(server.address, server.key, server.id);
     return {
       async readText() {
@@ -493,7 +494,7 @@ export function WebsiteCertSubWindow({
   const [closingSsl, setClosingSsl] = useState(false);
 
   const reload = async () => {
-    if (server.serviceType === "bt") {
+    if (isBtPanelService(server.serviceType)) {
       if (!siteName) throw new Error(t("server.websites.missingSiteName"));
       const client = createBtPanelClient(server.address, server.key, server.id);
       const detail = (await client.getSiteSsl(siteName)) as Record<string, unknown>;
@@ -533,7 +534,7 @@ export function WebsiteCertSubWindow({
       setError(null);
       return;
     }
-    if (server.serviceType !== "1panel" && server.serviceType !== "bt") {
+    if (!isOnePanelService(server.serviceType) && !isBtPanelService(server.serviceType)) {
       setData(null);
       setError(null);
       return;
@@ -560,7 +561,7 @@ export function WebsiteCertSubWindow({
   }, [open, server, websiteId, siteName, sslId, t]);
 
   const handleCloseSsl = async () => {
-    if (server.serviceType !== "bt" || !siteName || closingSsl) return;
+    if (!isBtPanelService(server.serviceType) || !siteName || closingSsl) return;
     const confirmed = await appConfirm(
       t("server.certificates.btSslCloseConfirm", { name: siteName }),
       t("server.certificates.btSslClose"),
@@ -625,7 +626,7 @@ export function WebsiteCertSubWindow({
           {certificateRowLabel(data)}
         </div>
       ) : null}
-      {server.serviceType === "bt" && siteName && data ? (
+      {isBtPanelService(server.serviceType) && siteName && data ? (
         <div style={{ padding: "0 12px 12px", display: "flex", gap: 8 }}>
           <Button
             type="button"

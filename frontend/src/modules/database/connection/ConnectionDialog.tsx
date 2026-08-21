@@ -17,11 +17,17 @@ import {
 import { submitSchemaCacheRefresh } from "../schema/schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "../schema/schemaCacheStatusLog";
 import { getEngineIcon, type DbEngine } from "./engineIcons";
+import {
+  defaultPortForEngine,
+  getEngineDescriptor,
+  listEngineDescriptors,
+} from "../engineRegistry";
 import { commands } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
 import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
+import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
 
-const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
+const ENGINE_CHIP_FALLBACK: Record<string, { port: string; icon: string }> = {
   postgresql: { port: "5432", icon: "PG" },
   mysql: { port: "3306", icon: "MY" },
   sqlite: { port: "", icon: "SL" },
@@ -30,6 +36,17 @@ const ENGINE_DEFAULTS: Record<DbEngine, { port: string; icon: string }> = {
   mongodb: { port: "27017", icon: "MG" },
   qdrant: { port: "6333", icon: "QD" },
 };
+
+function engineChipMeta(engine: string): { port: string; icon: string } {
+  const desc = getEngineDescriptor(engine);
+  if (desc) {
+    return {
+      port: desc.defaultPort > 0 ? String(desc.defaultPort) : "",
+      icon: desc.icon,
+    };
+  }
+  return ENGINE_CHIP_FALLBACK[engine] ?? { port: "", icon: engine.slice(0, 2).toUpperCase() };
+}
 
 const EMPTY_FORM: ConnectionFormData = {
   engine: "mysql",
@@ -59,6 +76,11 @@ export function ConnectionDialog({
 }: ConnectionDialogProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
+  const engines = useMemo(
+    () => listEngineDescriptors().filter((item) => isSupportedEngine(item.id)),
+    [pluginItems],
+  );
   const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM });
   const [tags, setTags] = useState<string[]>([]);
   const [status, setStatus] = useState<{ kind: "info" | "success" | "error"; message: string } | null>(
@@ -134,7 +156,7 @@ export function ConnectionDialog({
     setForm((prev) => ({
       ...prev,
       engine,
-      port: ENGINE_DEFAULTS[engine].port,
+      port: String(defaultPortForEngine(engine) || engineChipMeta(engine).port),
     }));
   };
 
@@ -233,6 +255,8 @@ export function ConnectionDialog({
   };
 
   const isFileBased = form.engine === "sqlite";
+  const engineDesc = getEngineDescriptor(form.engine);
+  const useDeclarativeFields = Boolean(engineDesc && !engineDesc.builtinLayout);
   const busy = testing || saving;
 
   return (
@@ -259,10 +283,10 @@ export function ConnectionDialog({
     >
           <FormField label={t("database.dialog.engine")} description={t("database.dialog.engineDescription")}>
             <div className="engine-grid">
-              {(Object.keys(ENGINE_DEFAULTS) as DbEngine[])
-                .filter(isSupportedEngine)
-                .map((engine) => {
+              {engines.map((item) => {
+                const engine = item.id;
                 const iconUrl = getEngineIcon(engine, resolvedTheme);
+                const meta = engineChipMeta(engine);
                 return (
                   <button
                     key={engine}
@@ -278,7 +302,7 @@ export function ConnectionDialog({
                           draggable={false}
                         />
                       ) : (
-                        ENGINE_DEFAULTS[engine].icon
+                        meta.icon
                       )}
                     </span>
                     <span className="engine-chip-label">{engine}</span>
@@ -302,7 +326,61 @@ export function ConnectionDialog({
             />
           </FormField>
 
-          {!isFileBased && (
+          {useDeclarativeFields && engineDesc
+            ? engineDesc.form.fields.map((field) => {
+                const fieldId = `db-conn-${field.key}`;
+                if (field.type === "checkbox") {
+                  return (
+                    <FormField key={field.key} label={field.label ?? field.key}>
+                      <label className="form-check">
+                        <input
+                          type="checkbox"
+                          checked={field.key === "ssl" ? form.ssl : false}
+                          onChange={(e) => {
+                            if (field.key === "ssl") update("ssl", e.target.checked);
+                          }}
+                        />
+                        <span>{field.label ?? field.key}</span>
+                      </label>
+                    </FormField>
+                  );
+                }
+                const value =
+                  field.key === "host"
+                    ? form.host
+                    : field.key === "port"
+                      ? form.port
+                      : field.key === "database"
+                        ? form.database
+                        : field.key === "username"
+                          ? form.username
+                          : field.key === "password"
+                            ? form.password
+                            : "";
+                const onChange = (next: string) => {
+                  if (
+                    field.key === "host" ||
+                    field.key === "port" ||
+                    field.key === "database" ||
+                    field.key === "username" ||
+                    field.key === "password"
+                  ) {
+                    update(field.key, next);
+                  }
+                };
+                return (
+                  <FormField key={field.key} label={field.label ?? field.key} htmlFor={fieldId}>
+                    {field.type === "password" ? (
+                      <PasswordInput copyable value={value} onChange={onChange} />
+                    ) : (
+                      <TextInput id={fieldId} className="input" value={value} onChange={onChange} />
+                    )}
+                  </FormField>
+                );
+              })
+            : null}
+
+          {!useDeclarativeFields && !isFileBased ? (
             <div className="form-row">
               <div style={{ flex: 2 }}>
                 <FormField
@@ -328,16 +406,16 @@ export function ConnectionDialog({
                   <TextInput
                     id="db-conn-port"
                     className="input"
-                    placeholder={ENGINE_DEFAULTS[form.engine].port}
+                    placeholder={engineChipMeta(form.engine).port}
                     value={form.port}
                     onChange={(value) => update("port", value)}
                   />
                 </FormField>
               </div>
             </div>
-          )}
+          ) : null}
 
-          {form.engine !== "qdrant" ? (
+          {!useDeclarativeFields && form.engine !== "qdrant" ? (
           <FormField
             label={
               <>
@@ -380,7 +458,7 @@ export function ConnectionDialog({
           </FormField>
           ) : null}
 
-          {!isFileBased && (
+          {!useDeclarativeFields && !isFileBased ? (
             <div className="form-row">
               {form.engine !== "qdrant" ? (
                 <div style={{ flex: 1 }}>
@@ -426,9 +504,9 @@ export function ConnectionDialog({
                 </FormField>
               </div>
             </div>
-          )}
+          ) : null}
 
-          {!isFileBased && form.engine !== "redis" && (
+          {!useDeclarativeFields && !isFileBased && form.engine !== "redis" ? (
             <FormField
               label={t("database.dialog.ssl")}
               description={t("database.dialog.sslDescription")}
@@ -442,7 +520,7 @@ export function ConnectionDialog({
                 <span>{t("database.dialog.ssl")}</span>
               </label>
             </FormField>
-          )}
+          ) : null}
 
           <FormField label={t("resourceTags.section")}>
             <GlobalTagEditor

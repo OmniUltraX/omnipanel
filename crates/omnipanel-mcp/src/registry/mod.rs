@@ -4,12 +4,14 @@ pub mod external;
 pub mod files_tools;
 pub mod native;
 pub mod omnimcp_execute;
+pub mod plugin_tools;
 pub mod ssh_tools;
 pub mod web;
 pub mod web_tools;
 
 use std::sync::Arc;
 
+pub use plugin_tools::{global_plugin_tool_hub, PluginNativeTool, PluginToolHub};
 use omnipanel_ai::types::{FunctionDef, ToolDef};
 use omnipanel_store::{HttpProxyConfig, Storage};
 use serde_json::Value;
@@ -40,16 +42,32 @@ pub struct RegisteredTool {
 
 pub struct ToolRegistry {
     storage: Arc<Mutex<Storage>>,
+    plugin_tools: PluginToolHub,
 }
 
 impl ToolRegistry {
     pub fn new(storage: Arc<Mutex<Storage>>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            plugin_tools: global_plugin_tool_hub().clone(),
+        }
     }
 
-    /// 是否后端直执（Native）——取自 store 单一真相源。
+    pub fn plugin_tools(&self) -> &PluginToolHub {
+        &self.plugin_tools
+    }
+
+    pub fn register_plugin_native_tool(&self, tool: PluginNativeTool) {
+        self.plugin_tools.register(tool);
+    }
+
+    pub fn unregister_plugin_tools(&self, plugin_id: &str) {
+        self.plugin_tools.unregister_plugin(plugin_id);
+    }
+
+    /// 是否后端直执（Native）——内置 spec 或插件动态登记。
     pub fn is_native_tool(name: &str) -> bool {
-        omnipanel_store::builtin_tool_is_native(name)
+        omnipanel_store::builtin_tool_is_native(name) || global_plugin_tool_hub().is_native(name)
     }
 
     /// 克隆 storage 句柄用于隔离执行（不持有 `McpManager` 锁）。
@@ -74,6 +92,7 @@ impl ToolRegistry {
                 if filter != "master"
                     && record.module_key != filter
                     && !omnipanel_store::builtin_tool_is_cross_module(&record.tool_name)
+                    && !self.plugin_tools.is_cross_module(&record.tool_name)
                 {
                     continue;
                 }
@@ -97,6 +116,22 @@ impl ToolRegistry {
                 mcp_service_id: None,
                 mcp_tool_name: None,
             });
+        }
+        drop(storage);
+
+        for plugin_tool in self.plugin_tools.list() {
+            if tools.iter().any(|t| t.name == plugin_tool.name) {
+                continue;
+            }
+            if let Some(filter) = module_filter {
+                if filter != "master"
+                    && plugin_tool.module_key != filter
+                    && !plugin_tool.cross_module
+                {
+                    continue;
+                }
+            }
+            tools.push(plugin_tool.to_registered());
         }
         Ok(tools)
     }
@@ -132,6 +167,10 @@ impl ToolRegistry {
         arguments: Value,
         proxy: Option<HttpProxyConfig>,
     ) -> Result<(String, bool), String> {
+        if let Some(tool) = global_plugin_tool_hub().get(name) {
+            return (tool.executor)(name.to_string(), arguments).await;
+        }
+
         {
             let storage = storage.lock().await;
             if !storage.builtin_tool_is_available(name).unwrap_or(false) {
@@ -157,8 +196,9 @@ impl ToolRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+use super::*;
     use omnipanel_store::AppModuleStatus;
+    use plugin_tools::PluginNativeTool;
 
     fn registry_with_storage() -> (ToolRegistry, Arc<Mutex<Storage>>) {
         let storage = Arc::new(Mutex::new(Storage::open_in_memory().unwrap()));
@@ -240,8 +280,10 @@ mod tests {
             "web 过滤不得包含终端工具"
         );
         assert!(
-            tools.iter().all(|t| t.module_key == "web"),
-            "web 过滤结果必须全部为 module_key=web"
+            tools.iter().all(|t| t.module_key == "web"
+                || omnipanel_store::builtin_tool_is_cross_module(&t.name)
+                || global_plugin_tool_hub().is_cross_module(&t.name)),
+            "web 过滤结果必须全部为 module_key=web 或跨模块插件工具"
         );
     }
 
@@ -272,7 +314,60 @@ mod tests {
             "终端模块应注入网页抓取"
         );
         assert!(tools.iter().all(|t| {
-            t.module_key == "terminal" || omnipanel_store::builtin_tool_is_cross_module(&t.name)
+            t.module_key == "terminal"
+                || omnipanel_store::builtin_tool_is_cross_module(&t.name)
+                || global_plugin_tool_hub().is_cross_module(&t.name)
         }));
+    }
+
+    fn dummy_plugin_tool(name: &str, plugin_id: &str) -> PluginNativeTool {
+        PluginNativeTool {
+            plugin_id: plugin_id.into(),
+            name: name.into(),
+            module_key: "files".into(),
+            description: "plugin native".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": { "query": { "type": "string" } }
+            }),
+            kind: ToolExecutionKind::Native,
+            cross_module: true,
+            external_exposed: false,
+            executor: std::sync::Arc::new(|_name, args| {
+                Box::pin(async move { Ok((args.to_string(), false)) })
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn plugin_native_tool_register_and_unregister() {
+        let (registry, _s) = registry_with_storage();
+        registry.plugin_tools().clear();
+        registry.register_plugin_native_tool(dummy_plugin_tool(
+            "omni_test_plugin_search",
+            "omni.addon.test",
+        ));
+        let tools = registry.list_enabled(None).await.unwrap();
+        assert!(tools.iter().any(|t| t.name == "omni_test_plugin_search"));
+        let term = registry.list_enabled(Some("terminal")).await.unwrap();
+        assert!(
+            term.iter().any(|t| t.name == "omni_test_plugin_search"),
+            "cross_module 插件工具应对终端 Agent 可见"
+        );
+
+        let (text, _) = ToolRegistry::execute_isolated(
+            registry.storage_handle(),
+            "omni_test_plugin_search",
+            serde_json::json!({ "query": "foo" }),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(text.contains("foo"));
+
+        registry.unregister_plugin_tools("omni.addon.test");
+        let after = registry.list_enabled(None).await.unwrap();
+        assert!(!after.iter().any(|t| t.name == "omni_test_plugin_search"));
+        registry.plugin_tools().clear();
     }
 }

@@ -18,7 +18,7 @@ use omnipanel_core::terminal::Terminal;
 use omnipanel_docker::DockerExecSession;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_ssh::SshSession;
-use omnipanel_store::{DatabaseConnectionStore, FileIndexStorage, Storage};
+use omnipanel_store::{AppModuleStatus, DatabaseConnectionStore, FileIndexStorage, Storage};
 
 /// Proxy 配置，从前端设置同步到后端。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -41,6 +41,7 @@ use crate::media_stream::MediaStreamServer;
 use crate::output_buffer::{self, OutputBuffers};
 use crate::ssh_tmux::TmuxManager;
 use omnipanel_mcp::SharedMcpManager;
+use omnipanel_plugin::{InvokeGateway, PluginRegistry};
 
 /// Docker 容器交互终端会话条目（含归属，便于切换/重进时回收旧 PTY）。
 pub struct DockerExecSessionEntry {
@@ -144,6 +145,10 @@ pub struct AppState {
     pub log_tail_streams: Arc<Mutex<HashMap<String, omnipanel_ssh::SshStreamHandle>>>,
     /// 远端工具能力探测结果缓存（按 resource_id 索引，TTL 5 分钟）。
     pub capability_cache: Arc<CapabilityCache>,
+    /// 插件 Runtime（清单 / 启用 / 贡献点）。
+    pub plugin_registry: Arc<Mutex<PluginRegistry>>,
+    /// 第一方 `plugin_invoke` 白名单网关。
+    pub plugin_invoke: Arc<Mutex<InvokeGateway>>,
     /// 终端 tmux 模式偏好：auto / always / never，由前端设置同步。
     pub terminal_tmux_mode: Arc<std::sync::Mutex<String>>,
 }
@@ -179,6 +184,26 @@ impl AppState {
                 .await
                 .expect("启动媒体流代理失败"),
         );
+        let (plugin_registry, plugin_invoke) = {
+            let store = storage.lock().await;
+            crate::commands::plugin::seed_plugin_runtime(&store)
+        };
+        {
+            let extras = plugin_registry.module_seeds();
+            let pairs: Vec<(&str, i32, AppModuleStatus)> = extras
+                .iter()
+                .map(|(key, order)| (key.as_str(), *order, AppModuleStatus::Closed))
+                .collect();
+            let store = storage.lock().await;
+            let _ = store.repair_app_modules_with_plugins(&pairs);
+        }
+        {
+            let mcp = mcp_manager.lock().await;
+            crate::commands::plugin::sync_native_plugin_tools(
+                &plugin_registry,
+                &mcp.tool_registry,
+            );
+        }
 
         Self {
             serial_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -234,6 +259,8 @@ impl AppState {
             media_stream,
             log_tail_streams: Arc::new(Mutex::new(HashMap::new())),
             capability_cache: Arc::new(CapabilityCache::new()),
+            plugin_registry: Arc::new(Mutex::new(plugin_registry)),
+            plugin_invoke: Arc::new(Mutex::new(plugin_invoke)),
             terminal_tmux_mode: Arc::new(std::sync::Mutex::new("auto".to_string())),
         }
     }

@@ -32,6 +32,7 @@ import { initSettings, useSettingsStore } from "./stores/settingsStore";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
+import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
@@ -46,6 +47,7 @@ import {
   LazyTaskCenterPanel,
   LazyTerminalPanel,
   LazyWorkflowPanel,
+  LazyCloudPanel,
 } from "./routes/lazyModules";
 import { useI18n } from "./i18n";
 import { listenModuleWindowShown } from "./lib/moduleWindow";
@@ -88,6 +90,7 @@ const MODULE_WINDOW_PANELS: Record<ModuleKey, ComponentType> = {
   knowledge: LazyKnowledgePanel,
   files: LazyFilesPanel,
   tasks: LazyTaskCenterPanel,
+  cloud: LazyCloudPanel,
 };
 
 interface ModuleWindowRootProps {
@@ -210,6 +213,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
         // 关键路径并行；hydrate 超时缩短，避免空等
         await Promise.all([
           initAppModuleStore().catch(() => {}),
+          initPluginRuntimeStore().catch(() => {}),
           initConnections().catch(() => {}),
           import("./stores/settingsStore").then(({ useSettingsStore }) =>
             waitPersistHydrated(useSettingsStore, 400),

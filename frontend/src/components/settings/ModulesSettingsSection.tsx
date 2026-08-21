@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n";
 import { Select } from "../ui/form/Select";
-import type { ModuleKey } from "../../lib/paths";
+import { isKernelModuleKey, type ModuleKey } from "../../lib/paths";
+import { getPluginModule } from "../../lib/pluginModuleRegistry";
 import {
   type UserAppModuleStatus,
   useAppModuleStore,
@@ -18,6 +19,7 @@ const MODULE_LABEL_KEYS: Record<ModuleKey, string> = {
   workflow: "routes.workflow",
   knowledge: "routes.knowledge",
   tasks: "routes.tasks",
+  cloud: "routes.cloud",
 };
 
 const USER_STATUS_OPTIONS: UserAppModuleStatus[] = ["open", "closed"];
@@ -44,12 +46,12 @@ export function ModulesSettingsSection() {
   );
 
   const handleStatusChange = useCallback(
-    async (key: ModuleKey, status: UserAppModuleStatus) => {
+    async (key: string, status: UserAppModuleStatus) => {
       if (status === "closed") {
         const openCount = sorted.filter(
           (m) =>
             m.module_key !== key &&
-            getStatus(m.module_key as ModuleKey) === "open",
+            getStatus(m.module_key) === "open",
         ).length;
         if (openCount === 0) return;
       }
@@ -61,8 +63,11 @@ export function ModulesSettingsSection() {
   return (
     <>
       {sorted.map((mod) => {
-        const key = mod.module_key as ModuleKey;
-        const labelKey = MODULE_LABEL_KEYS[key];
+        const key = mod.module_key;
+        const plugin = getPluginModule(key);
+        const labelKey = isKernelModuleKey(key)
+          ? MODULE_LABEL_KEYS[key]
+          : plugin?.labelI18nKey;
         if (!labelKey) return null;
 
         const status = getStatus(key);
@@ -70,7 +75,7 @@ export function ModulesSettingsSection() {
         const openOthers = sorted.filter(
           (m) =>
             m.module_key !== key &&
-            getStatus(m.module_key as ModuleKey) === "open",
+            getStatus(m.module_key) === "open",
         ).length;
         const closeLocked = status === "open" && openOthers === 0;
 

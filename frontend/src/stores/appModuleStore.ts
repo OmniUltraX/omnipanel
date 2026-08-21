@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { commands, type AppModule, type AppModuleStatus } from "../ipc/bindings";
-import { ALL_MODULE_KEYS, moduleKeyFromPath, MODULE_PATHS, type ModuleKey } from "../lib/paths";
+import {
+  ALL_MODULE_KEYS,
+  isKernelModuleKey,
+  moduleKeyFromPath,
+  navModuleKeyFromPath,
+  type ModuleKey,
+} from "../lib/paths";
+import { listActivatedPluginModules } from "../lib/pluginModuleRegistry";
 
 /** 用户可在设置中切换的状态 */
 export type UserAppModuleStatus = Extract<AppModuleStatus, "open" | "closed">;
@@ -17,18 +24,15 @@ export const DEFAULT_MODULE_STATUS: Record<ModuleKey, AppModuleStatus> = {
   workflow: "disabled",
   knowledge: "open",
   tasks: "open",
+  cloud: "open",
 };
-
-function isModuleKey(key: string): key is ModuleKey {
-  return key in MODULE_PATHS;
-}
 
 interface AppModuleStore {
   modules: AppModule[];
   hydrated: boolean;
   hydrate: () => Promise<void>;
-  getStatus: (key: ModuleKey) => AppModuleStatus;
-  setStatus: (key: ModuleKey, status: UserAppModuleStatus) => Promise<void>;
+  getStatus: (key: string) => AppModuleStatus;
+  setStatus: (key: string, status: UserAppModuleStatus) => Promise<void>;
 }
 
 export const useAppModuleStore = create<AppModuleStore>((set, get) => ({
@@ -52,7 +56,8 @@ export const useAppModuleStore = create<AppModuleStore>((set, get) => ({
   getStatus: (key) => {
     const mod = get().modules.find((m) => m.module_key === key);
     if (mod) return mod.status;
-    return DEFAULT_MODULE_STATUS[key];
+    if (isKernelModuleKey(key)) return DEFAULT_MODULE_STATUS[key];
+    return "closed";
   },
 
   setStatus: async (key, status) => {
@@ -68,28 +73,31 @@ export const useAppModuleStore = create<AppModuleStore>((set, get) => ({
   },
 }));
 
-export function getModuleStatus(key: ModuleKey): AppModuleStatus {
+export function getModuleStatus(key: string): AppModuleStatus {
   return useAppModuleStore.getState().getStatus(key);
 }
 
 /** 模块是否处于「打开」状态（侧栏可见、可访问） */
-export function isModuleOpen(key: ModuleKey): boolean {
+export function isModuleOpen(key: string): boolean {
   return getModuleStatus(key) === "open";
 }
 
-export function getNavVisibleModuleKeys(): ModuleKey[] {
+export function getNavVisibleModuleKeys(): string[] {
   const { modules, hydrated } = useAppModuleStore.getState();
-  if (!hydrated || modules.length === 0) {
-    return ALL_MODULE_KEYS.filter((key) => DEFAULT_MODULE_STATUS[key] === "open");
-  }
-  return modules
-    .filter((m) => isModuleKey(m.module_key) && m.status === "open")
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((m) => m.module_key as ModuleKey);
+  const kernel = !hydrated || modules.length === 0
+    ? ALL_MODULE_KEYS.filter((key) => DEFAULT_MODULE_STATUS[key] === "open")
+    : modules
+        .filter((m) => isKernelModuleKey(m.module_key) && m.status === "open")
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((m) => m.module_key);
+  const plugin = listActivatedPluginModules()
+    .filter((item) => getModuleStatus(item.moduleKey) === "open")
+    .map((item) => item.moduleKey);
+  return [...kernel, ...plugin];
 }
 
 export function isModulePathEnabled(path: string): boolean {
-  const key = moduleKeyFromPath(path);
+  const key = navModuleKeyFromPath(path);
   if (!key) return true;
   return isModuleOpen(key);
 }

@@ -1,6 +1,7 @@
 import { isPidInfoPresent } from "../../../lib/btpanel";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerDetailTab } from "./serverSidebarNav";
+import { isBtPanelService, isOnePanelService } from "./panelPlugin";
 
 export function websiteRowId(row: Record<string, unknown>, index: number): string {
   return String(row.id ?? row.webname ?? row.domain ?? index);
@@ -557,5 +558,5 @@ export function makeServerTreeKey(
 }
 
 export function serverSupportsResources(server: ServerEntry): boolean {
-  return server.serviceType === "1panel" || server.serviceType === "bt";
+  return isOnePanelService(server.serviceType) || isBtPanelService(server.serviceType);
 }

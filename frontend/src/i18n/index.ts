@@ -72,6 +72,8 @@ export function getRouteTitle(path: string, locale?: Locale) {
     "/knowledge": "routes.knowledge",
     "/files": "routes.files",
     "/settings": "routes.settings",
+    "/cloud": "routes.cloud",
+    "/nacos": "routes.nacos",
   };
   if (map[path]) return t(map[path], undefined, locale);
   if (path.startsWith("/module/")) {

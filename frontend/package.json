@@ -84,7 +84,9 @@
         "tw-shimmer": "^0.4.11",
         "vscode-languageserver-types": "^3.17.5",
         "zod": "^4.4.3",
-        "zustand": "^5.0.13"
+        "zustand": "^5.0.13",
+        "@omnipanel/plugin-sdk": "file:../packages/plugin-sdk",
+        "@omnipanel/plugin-ui": "file:../packages/plugin-ui"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",

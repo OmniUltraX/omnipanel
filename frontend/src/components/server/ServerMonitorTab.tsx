@@ -21,6 +21,7 @@ import type { HostSystemStats } from "@/stores/sshStatsStore";
 import { MonMetricCards } from "@/modules/server/ssh/components/monitoring/MonMetricCards";
 import { computeByteRate } from "@/modules/server/ssh/components/monitoring/monitoringUtils";
 import { useMonitorSparklines } from "@/modules/server/ssh/components/monitoring/useMonitorSparklines";
+import { isBtPanelService, isOnePanelService } from "@/modules/server/panel/panelPlugin";
 
 interface Props {
   server: ServerEntry;
@@ -95,7 +96,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
   const refreshDashboardCurrent = useCallback(
     async (options?: { silent?: boolean }): Promise<"ok" | "auth" | "error"> => {
       try {
-        if (server.serviceType === "1panel") {
+        if (isOnePanelService(server.serviceType)) {
           const op = createOnePanelClient(server.address, server.key, server.id);
           const current = await op.getDashboardCurrent();
           setDashboard((prev) =>
@@ -146,7 +147,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
       } catch (e) {
         const msg = String(e);
         const auth =
-          server.serviceType === "bt" && isBtPanelAuthFailureMessage(msg);
+          isBtPanelService(server.serviceType) && isBtPanelAuthFailureMessage(msg);
         // 鉴权/封禁始终展示，避免静默轮询把状态藏起来
         if (!options?.silent || auth) {
           setError(msg);
@@ -164,7 +165,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
       setLoading(true);
       setError(null);
       try {
-        if (server.serviceType === "1panel") {
+        if (isOnePanelService(server.serviceType)) {
           const op = createOnePanelClient(server.address, server.key, server.id);
           const [base, current] = await Promise.all([
             op.getDashboardBase(),

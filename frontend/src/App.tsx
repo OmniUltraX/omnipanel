@@ -18,8 +18,10 @@ import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
+import { WarpgateImportDialog } from "./modules/importer/WarpgateImportDialog";
 import { TeamShareDialogConnected } from "./components/share/TeamShareDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
+import { PluginOverlayHost } from "./components/ui/overlay/PluginOverlayHost";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
@@ -77,8 +79,10 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
+import { usePluginRuntimeStore } from "./stores/pluginRuntimeStore";
+import { PluginModuleHost } from "./modules/plugin-module/PluginModuleHost";
 import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
 import {
   bootstrapTerminalHistory,
@@ -100,6 +104,7 @@ import {
   LazyTerminalPanel,
   LazyUserWorkspace,
   LazyWorkflowPanel,
+  LazyCloudPanel,
   preloadModuleChunks,
 } from "./routes/lazyModules";
 
@@ -287,6 +292,7 @@ function AppShell() {
         knowledge: t("shell.nav.knowledge"),
         tasks: t("shell.nav.tasks"),
         ssh: t("shell.nav.ssh"),
+        cloud: t("shell.nav.cloud"),
       },
     });
     getCurrentWindow()
@@ -438,6 +444,8 @@ function AppShell() {
   const isWorkflow = location.pathname === MODULE_PATHS.workflow;
   const isKnowledge = location.pathname === MODULE_PATHS.knowledge;
   const isTasks = location.pathname === MODULE_PATHS.tasks;
+  const isCloud = location.pathname === MODULE_PATHS.cloud;
+  const pluginModuleKey = pluginModuleKeyFromPath(location.pathname);
   const isShellRoute = isShellRoutePath(location.pathname) && !isDashboard;
 
   // 叠层模块按需挂载：启动时不全量挂载，避免首页主线程被终端/数据库等重型面板堵死
@@ -489,6 +497,7 @@ function AppShell() {
   const workspaceActivePath = useWorkspaceStore((state) => state.activePath);
   const appModules = useAppModuleStore((s) => s.modules);
   const appModulesHydrated = useAppModuleStore((s) => s.hydrated);
+  usePluginRuntimeStore((s) => s.items);
 
   useEffect(() => {
     if (location.pathname !== "/settings") return;
@@ -502,11 +511,11 @@ function AppShell() {
 
   useEffect(() => {
     if (!appModulesHydrated) return;
-    const key = moduleKeyFromPath(location.pathname);
+    const key = navModuleKeyFromPath(location.pathname);
     if (!key || isModuleOpen(key)) return;
     const visible = getNavVisibleModuleKeys();
     const fallback =
-      visible.length > 0 ? MODULE_PATHS[visible[0]] : DASHBOARD_PATH;
+      visible.length > 0 ? modulePathForType(visible[0]) : DASHBOARD_PATH;
     navigate(fallback, { replace: true });
   }, [location.pathname, navigate, appModules, appModulesHydrated]);
 
@@ -652,6 +661,19 @@ function AppShell() {
       >
         <LazyTaskCenterPanel />
       </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={isCloud}
+        mounted={overlayMounted.cloud}
+        keepLayout
+      >
+        <LazyCloudPanel />
+      </OverlayModuleRoutePanel>
+      <OverlayModuleRoutePanel
+        active={Boolean(pluginModuleKey)}
+        mounted={Boolean(pluginModuleKey)}
+      >
+        {pluginModuleKey ? <PluginModuleHost moduleKey={pluginModuleKey} /> : null}
+      </OverlayModuleRoutePanel>
       <div className={`route-panel${isShellRoute ? " route-panel--active" : ""}`}>
         <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />
@@ -675,6 +697,8 @@ function AppShell() {
             <Route path={MODULE_PATHS.knowledge} element={null} />
             <Route path={MODULE_PATHS.files} element={null} />
             <Route path={MODULE_PATHS.tasks} element={null} />
+            <Route path={MODULE_PATHS.cloud} element={null} />
+            <Route path={`${MODULE_PREFIX}/:moduleKey`} element={null} />
             <Route path="*" element={<Navigate to={DASHBOARD_PATH} replace />} />
           </Routes>
       </div>
@@ -701,6 +725,7 @@ function AppShell() {
       <QuickInputHost />
       {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
       <AppDialogHost />
+      <PluginOverlayHost />
       <CloseBehaviorDialogHost />
       <ToastHost />
       <SkillEvolutionPrompt />
@@ -713,6 +738,7 @@ function AppShell() {
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
       <ApprovalDialog />
+      <WarpgateImportDialog />
       <TeamShareDialogConnected />
       </div>
     </AiRuntimeProvider>

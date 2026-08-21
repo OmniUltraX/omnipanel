@@ -5,6 +5,7 @@ import type { Connection } from "../../../ipc/bindings";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../../stores/dbConnectionListStore";
 import { parsePanelConfig } from "../../server/panel/serverConnection";
+import { canonicalPanelPluginId } from "../../server/panel/panelPlugin";
 import type { SmallComponentDataSourceKind } from "./types";
 
 function connectionSubtitle(conn: Connection): string {
@@ -85,7 +86,11 @@ export function useDataSourceOptions(
         if (c.kind !== kind) return false;
         if (kind !== "panel" || allowPanel.length === 0) return true;
         try {
-          return allowPanel.includes(parsePanelConfig(c).serviceType);
+          return allowPanel.some(
+            (allowed) =>
+              canonicalPanelPluginId(allowed) ===
+              canonicalPanelPluginId(parsePanelConfig(c).serviceType),
+          );
         } catch {
           return false;
         }

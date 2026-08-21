@@ -22,11 +22,10 @@ import {
   resolveDatabaseModuleContext,
 } from "./ai";
 import { DatabaseTablesPanel } from "./workspace/DatabaseTablesPanel";
-import { DatabaseConnectionInfoPanel } from "./workspace/DatabaseConnectionInfoPanel";
-import { RedisConnectionInfoPanel } from "./workspace/RedisConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./workspace/DatabaseSlowQueryLogPanel";
 import { DatabaseBinlogPanel } from "./workspace/DatabaseBinlogPanel";
 import { RedisQueryPanel } from "./redis/RedisQueryPanel";
+import { ConnectionInfoSlot } from "./workbench/ConnectionInfoSlot";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
 import { useDbMysqlLogNavStore } from "./stores/dbMysqlLogNavStore";
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
@@ -53,6 +52,7 @@ import { useDbSchemaTreeExpandedStore } from "../../stores/dbSchemaTreeExpandedS
 import { useDbSchemaCacheStore } from "../../stores/dbSchemaCacheStore";
 import { usePoolConnectionRegistration, type PoolKind } from "../../stores/connectionPoolStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { getVisibleNames, makeTableFilterKey, mergeFilter } from "./schema/DatabaseFilterDialog";
 import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
@@ -363,6 +363,7 @@ function parseQdrantPointId(raw: string): string | number | null {
 
 export function DatabasePanel() {
   const { t } = useI18n();
+  usePluginRuntimeStore((s) => s.items);
   const schemaCacheReporter = useMemo(() => createSchemaCacheRefreshReporter(t), [t]);
   const { isActiveRoute, moduleLive } = useModuleRouteActive("database");
   const [moduleTab, setModuleTab] = usePersistedModuleTab(
@@ -5946,13 +5947,9 @@ export function DatabasePanel() {
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane">
                 <DbDockTabActive tabId={tab.id}>
-                  {(active) =>
-                    isRedisConnection(connection) ? (
-                      <RedisConnectionInfoPanel connection={connection} active={active} />
-                    ) : (
-                      <DatabaseConnectionInfoPanel connection={connection} active={active} />
-                    )
-                  }
+                  {(active) => (
+                    <ConnectionInfoSlot connection={connection} active={active} />
+                  )}
                 </DbDockTabActive>
               </div>
             )}

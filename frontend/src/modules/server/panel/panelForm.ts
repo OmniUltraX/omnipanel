@@ -1,12 +1,13 @@
 import type { Connection } from "../../../ipc/bindings";
 import { normalizeServerGroup } from "./panelConnection";
 import { parsePanelConfig, type PanelConfigJson } from "./serverConnection";
+import { panelServiceTypeToPluginId } from "./panelPlugin";
 
 export interface PanelFormData {
   name: string;
   panelAddress: string;
   panelKey: string;
-  serviceType: "bt" | "1panel";
+  serviceType: string;
   remark: string;
 }
 
@@ -48,7 +49,7 @@ export function buildPanelOnlyConnection(
   const config: PanelConfigJson & { remark?: string } = {
     address: form.panelAddress.trim(),
     key: form.panelKey.trim(),
-    serviceType: form.serviceType,
+    serviceType: panelServiceTypeToPluginId(form.serviceType),
     remark: form.remark.trim() || undefined,
   };
   // 表单不再管理 SSH 关联，编辑时保留已有绑定

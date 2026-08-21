@@ -1,0 +1,12 @@
+{
+  "id": "omni.module.nacos",
+  "version": "0.1.0",
+  "kind": "module",
+  "permissions": ["ui:sidebar"],
+  "contributes": {
+    "ui": {
+      "sidebar": true,
+      "moduleKey": "nacos"
+    }
+  }
+}

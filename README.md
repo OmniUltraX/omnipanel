@@ -52,7 +52,7 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **Files** | Local / remote browsing, favorites, **cross-connection transfer** |
 | **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools, multi-engine support |
 | **Docker** | Local / remote Engine / SSH host / 1Panel / **BT Panel** — containers, images, Compose, networks, volumes |
-| **Server** | Host monitor; **BT Panel / 1Panel** (sites, apps, certs, cron); **cloud vendors** |
+| **Server** | Host monitor; **BT Panel / 1Panel** (sites, apps, certs, cron); **cloud vendors** (Aliyun auto-discovers regions with instances) |
 | **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |
 | **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |
 | **Workflow / Tasks** | Templates, runbooks, task center, Quick Launcher, auditable execution |
@@ -62,6 +62,7 @@ AI Agent inspection report — structured health checks grounded in live contain
 
 | Area | Highlights |
 |------|------------|
+| **Cloud vendors** | Expanding an Aliyun account auto-discovers regions that have ECS / SWAS instances |
 | **Team sync** | Switch sync team from the sidebar; end-to-end encrypted snapshots; passwords stay in the vault, not modules |
 | **Table preview** | Per-table WHERE / ORDER BY history with ↑/↓ recall |
 | **Terminal** | Clickable paths in output; thinking-card / IME / close-tab stability fixes |

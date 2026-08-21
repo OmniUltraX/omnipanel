@@ -9,6 +9,7 @@ import {
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
 import type { ServerPanelDockOpenMode } from "../../modules/server/panel/serverPanelWorkspaceTabs";
 import { BrandIconImg, resolvePanelBrandIcon } from "../../modules/server/brandIcons";
+import { isBtPanelService, panelServiceTypeI18nKey } from "../../modules/server/panel/panelPlugin";
 
 interface ServerSidebarProps {
   servers: ServerEntry[];
@@ -99,14 +100,14 @@ export function ServerSidebar({
                       kind={brand}
                       size={14}
                       className="server-item__brand-icon"
-                      title={t(`server.serviceType.${server.serviceType}`)}
+                      title={t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`)}
                     />
                   ) : null}
                   <span className="server-item__name">{server.name}</span>
                   <span
-                    className={`badge badge-muted server-item__type-tag server-item__type-tag--${server.serviceType === "bt" ? "bt" : "onepanel"}`}
+                    className={`badge badge-muted server-item__type-tag server-item__type-tag--${isBtPanelService(server.serviceType) ? "bt" : "onepanel"}`}
                   >
-                    {t(`server.serviceType.${server.serviceType}`)}
+                    {t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`)}
                   </span>
                 </div>
                 <div className="server-item__address">{server.address}</div>
