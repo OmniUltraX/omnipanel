@@ -820,8 +820,7 @@ fn build_and_run_tauri() {
             }
             commands::quick_launcher::register_global_shortcut(app.handle());
 
-            // 模块独立窗：延迟预创建并隐藏，首次「在新窗口打开」走热复用
-            commands::module_window::schedule_prewarm_module_windows(app.handle());
+            // 模块独立窗：按需创建（用户首次「在新窗口打开」时再建隐藏窗并复用）
 
             // Try to auto-register Ollama provider (silent skip if unavailable)
             tauri::async_runtime::spawn(async move {

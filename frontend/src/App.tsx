@@ -59,7 +59,6 @@ import { initMainWindowWorkspaceSync } from "./lib/workspaceWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "./lib/isTauriRuntime";
 import { ensureSystemTray } from "./lib/systemTray";
-import { scheduleIdleModuleWindowPrewarm } from "./lib/moduleWindow";
 import { initQuickLauncherActionListener } from "./lib/quickLauncherActions";
 import { handleWindowCloseRequested } from "./lib/windowCloseBehavior";
 import { useCrossWindowDragInit } from "./lib/useCrossWindowDragInit";
@@ -299,13 +298,6 @@ function AppShell() {
       });
     return () => unlisten?.();
   }, [t]);
-
-  // 主窗就绪后错峰补预热各模块独立窗（与 Rust 后台预热互补）
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-    if (getCurrentWindow().label !== "main") return;
-    return scheduleIdleModuleWindowPrewarm();
-  }, []);
 
   // 托盘快捷启动窗 → 主窗动作分发
   useEffect(() => {

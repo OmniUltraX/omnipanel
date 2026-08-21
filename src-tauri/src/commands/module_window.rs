@@ -1,28 +1,12 @@
 //! 模块独立 WebView 窗口（如数据库模块弹出）。
 //!
-//! 策略对齐快捷启动窗：启动后错峰预创建并隐藏，关闭改为隐藏以复用热 WebView。
+//! 策略：用户首次「在新窗口打开」时再创建隐藏 WebView；关闭改为隐藏以复用热 WebView。
 //! Windows 配置了 `additionalBrowserArgs` 时必须独立 `data_directory`（与 workspace 子窗相同），
-//! 无法与主窗共用；预热 + 常驻隐藏可抵消冷 profile 成本。
-
-use std::time::Duration;
+//! 无法与主窗共用。
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const MODULE_WINDOW_PREFIX: &str = "module-";
-
-/// 启动后错峰预热的模块（与前端 `SUPPORTED_MODULE_KEYS` / 侧栏顺序对齐）。
-const PREWARM_MODULE_KEYS: &[&str] = &[
-    "database",
-    "terminal",
-    "docker",
-    "server",
-    "files",
-    "protocol",
-    "workflow",
-    "knowledge",
-    "tasks",
-    "ssh",
-];
 
 fn module_window_label(module_key: &str) -> String {
     let safe = module_key
@@ -97,7 +81,7 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
         .decorations(false)
         .focused(false)
         .visible(false)
-        // 预热隐藏时不占任务栏；show 时再恢复
+        // 按需创建时保持隐藏且不占任务栏；show 时再恢复
         .skip_taskbar(true)
         .center()
         .background_color(tauri::window::Color(26, 23, 23, 255))
@@ -158,29 +142,7 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
     Ok(label)
 }
 
-/// 启动后错峰预热各模块窗（不阻断主窗首屏；逐个建窗避免 WebView2 尖峰）。
-pub fn schedule_prewarm_module_windows(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        // 让主窗 / 快捷启动窗先占住启动带宽
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-        for (index, key) in PREWARM_MODULE_KEYS.iter().enumerate() {
-            if index > 0 {
-                tokio::time::sleep(Duration::from_millis(750)).await;
-            }
-            if app.get_webview_window(&module_window_label(key)).is_some() {
-                continue;
-            }
-            if let Err(e) = ensure_module_window(&app, key) {
-                tracing::warn!("预创建模块窗「{key}」失败: {e}");
-            } else {
-                tracing::info!("模块窗已预热（隐藏）: {key}");
-            }
-        }
-    });
-}
-
-/// 仅确保模块窗已预创建（保持隐藏）。供前端悬停 / 空闲补预热。
+/// 按需确保模块窗已创建（保持隐藏）。供前端首次「在新窗口打开」时调用。
 #[tauri::command]
 pub async fn ensure_module_window_prewarm(
     app: AppHandle,

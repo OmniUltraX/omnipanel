@@ -17,7 +17,6 @@ import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import {
   isModuleWindowSupported,
   openModuleWindow,
-  scheduleModuleWindowHoverPrewarm,
 } from "../../lib/moduleWindow";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { usesMacTrafficLights } from "../../lib/platform";
@@ -150,7 +149,6 @@ export function Sidebar() {
     : t("shell.workspacePanel.fullscreen");
   useAppModuleStore((s) => s.modules);
   const hoverWarmCancelRef = useRef<(() => void) | null>(null);
-  const moduleWindowHoverCancelRef = useRef<(() => void) | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -184,15 +182,11 @@ export function Sidebar() {
   const handleNavHoverStart = (path: string) => {
     hoverWarmCancelRef.current?.();
     hoverWarmCancelRef.current = scheduleNavHoverWarm(path);
-    moduleWindowHoverCancelRef.current?.();
-    moduleWindowHoverCancelRef.current = scheduleModuleWindowHoverPrewarm(path);
   };
 
   const handleNavHoverEnd = () => {
     hoverWarmCancelRef.current?.();
     hoverWarmCancelRef.current = null;
-    moduleWindowHoverCancelRef.current?.();
-    moduleWindowHoverCancelRef.current = null;
   };
 
   const handleOpenInNewWindow = useCallback(
