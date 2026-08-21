@@ -126,6 +126,14 @@ export function findPanelForSsh(connections: Connection[], sshId: string): Conne
   });
 }
 
+/** 绑定到指定 SSH 的全部面板连接（一台主机可同时有宝塔与 1Panel）。 */
+export function findPanelsForSsh(connections: Connection[], sshId: string): Connection[] {
+  return connections.filter((c) => {
+    if (c.kind !== "panel") return false;
+    return parsePanelConfig(c).sshConnectionId === sshId;
+  });
+}
+
 export function findSshForPanel(connections: Connection[], panelId: string): Connection | undefined {
   const panel = connections.find((c) => c.id === panelId);
   if (!panel) return undefined;

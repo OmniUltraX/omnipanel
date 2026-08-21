@@ -56,6 +56,23 @@ function useRegisterBuiltinCommands() {
       { id: "new-query", label: t("shell.commandPalette.commands.newQuery"), category: action, run: () => navigateToFeature(MODULE_PATHS.database, navigate), source: "builtin" },
       { id: "open-ai", label: t("shell.commandPalette.commands.openAi"), shortcutId: "toggle-ai", category: ai, run: () => useAiOpen(), source: "builtin" },
       { id: "new-ai-conv", label: t("shell.commandPalette.commands.newAiConv"), category: ai, run: () => useAiNewConv(), source: "builtin" },
+      {
+        id: "sync-cloud-data",
+        label: t("shell.commandPalette.commands.syncCloudData"),
+        keywords: [
+          "sync",
+          "cloud",
+          "pull",
+          "同步",
+          "云端",
+          "组织",
+          "拉取",
+          t("shell.commandPalette.commands.syncCloudDataHint"),
+        ],
+        category: action,
+        run: () => useSyncCloudData(),
+        source: "builtin",
+      },
     ] satisfies CommandItem[];
   }, [t, navigate]);
 
@@ -99,6 +116,42 @@ function useAiNewConv() {
     useAiStore.getState().createConversation();
     useAiStore.getState().openDrawer();
   });
+}
+
+/** 将当前组织云端快照拉取到本机（模块 / 会话 / 密文库）。 */
+function useSyncCloudData() {
+  void (async () => {
+    const [{ t }, { useAuthStore }, { showToast }, { pullCloudSnapshot }] =
+      await Promise.all([
+        import("../../i18n"),
+        import("../../stores/authStore"),
+        import("../../stores/toastStore"),
+        import("../../modules/clientSync"),
+      ]);
+    if (!useAuthStore.getState().token?.trim()) {
+      showToast(t("dataSync.needLogin"));
+      return;
+    }
+    try {
+      const pulled = await pullCloudSnapshot();
+      if (!pulled.ok) {
+        showToast(t("settings.data.pullNowFailed"));
+        return;
+      }
+      if (pulled.modulesFound || pulled.conversationsFound) {
+        showToast(
+          t("settings.data.pullNowDone", {
+            connections: String(pulled.appliedConnections),
+            databases: String(pulled.appliedDatabases),
+          }),
+        );
+      } else {
+        showToast(t("settings.data.pullNowEmpty"));
+      }
+    } catch {
+      showToast(t("settings.data.pullNowFailed"));
+    }
+  })();
 }
 
 export function CommandPalette() {

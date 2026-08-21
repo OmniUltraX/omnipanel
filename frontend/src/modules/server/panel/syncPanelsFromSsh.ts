@@ -42,7 +42,7 @@ function findPanelForSshAndType(
   });
 }
 
-/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1，并拼入安全入口。 */
+/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1；API 地址不含安全入口。 */
 function realPanelAddress(panel: PanelProbeItem, ssh: Connection): string {
   return panelProbeReachableAddress(panel, ssh);
 }

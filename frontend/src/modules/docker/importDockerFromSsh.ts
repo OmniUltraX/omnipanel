@@ -1,7 +1,8 @@
 /**
- * 从全部 SSH 主机一键导入 Docker：
+ * 从 SSH 主机一键导入 Docker：
  * 优先级 1Panel > 宝塔 > 裸 Docker Engine；同一 SSH 只导入一种；
  * 任一面板存在但无 Docker 时不回退裸 Engine；已绑定该 SSH 的 Docker 连接则跳过。
+ * 可通过 `sshConnectionIds` 限定扫描范围（未传则扫描全部 SSH）。
  */
 import { commands, type Connection, type PanelProbeItem } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
@@ -31,7 +32,7 @@ export type ImportDockerFromSshResult = {
 
 type SaveConn = (draft: Connection) => Promise<Connection | null | undefined>;
 
-function findDockerBoundToSsh(connections: Connection[], sshId: string): Connection | undefined {
+export function findDockerBoundToSsh(connections: Connection[], sshId: string): Connection | undefined {
   return connections.find((c) => {
     if (c.kind !== "docker") return false;
     try {
@@ -43,7 +44,7 @@ function findDockerBoundToSsh(connections: Connection[], sshId: string): Connect
   });
 }
 
-/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1，并拼入安全入口。 */
+/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1；API 地址不含安全入口。 */
 function realPanelAddress(panel: PanelProbeItem, ssh: Connection): string {
   return panelProbeReachableAddress(panel, ssh);
 }
@@ -66,7 +67,7 @@ function makeTask(
   };
 }
 
-function buildDockerDraft(opts: {
+export function buildDockerDraft(opts: {
   id: string;
   name: string;
   source: "onepanel" | "btpanel" | "ssh-engine";
@@ -152,7 +153,7 @@ async function resolvePanelApiKey(
 }
 
 /**
- * 遍历全部 SSH 主机，按 1Panel → 宝塔 → 裸 Docker 优先级导入。
+ * 遍历 SSH 主机，按 1Panel → 宝塔 → 裸 Docker 优先级导入。
  * 进度写入左下角后台任务（可取消）。
  */
 export async function importDockerFromSshConnections(options: {
@@ -160,9 +161,16 @@ export async function importDockerFromSshConnections(options: {
   saveConn: SaveConn;
   onProgress?: (progress: ImportDockerFromSshProgress) => void;
   enableApiIfNeeded?: boolean;
+  /** 仅扫描这些 SSH 连接；未传则扫描全部 SSH */
+  sshConnectionIds?: string[];
 }): Promise<ImportDockerFromSshResult> {
-  const { connections, saveConn, onProgress, enableApiIfNeeded = true } = options;
-  const sshList = connections.filter((c) => c.kind === "ssh");
+  const { connections, saveConn, onProgress, enableApiIfNeeded = true, sshConnectionIds } = options;
+  const idSet = sshConnectionIds ? new Set(sshConnectionIds) : null;
+  const sshList = connections.filter((c) => {
+    if (c.kind !== "ssh") return false;
+    if (idSet && !idSet.has(c.id)) return false;
+    return true;
+  });
   let latest = [...connections];
   const result: ImportDockerFromSshResult = {
     added: 0,

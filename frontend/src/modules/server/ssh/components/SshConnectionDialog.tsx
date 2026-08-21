@@ -12,7 +12,6 @@ import {
   type SshConfigEntry,
   type SshKeyInfo,
 } from "../../../../ipc/bindings";
-import { collectSshGroupSuggestions } from "../../../../lib/sshGroups";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import {
   buildSshConnection,
@@ -24,10 +23,9 @@ import {
 interface SshConnectionDialogProps {
   open: boolean;
   onClose: () => void;
-  onSaved?: () => void;
+  /** 保存成功后回调；传入新建/更新后的连接 id */
+  onSaved?: (connectionId?: string) => void;
   editConnection?: Connection;
-  /** 新建模式下预填的分组名（来自分组右键「新建主机」）。 */
-  presetGroup?: string;
 }
 
 type CreateSource = "manual" | "config";
@@ -56,11 +54,9 @@ export function SshConnectionDialog({
   onClose,
   onSaved,
   editConnection,
-  presetGroup,
 }: SshConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
-  const connections = useConnectionStore((s) => s.connections);
   const [form, setForm] = useState<UnifiedServerFormData>(EMPTY_SERVER_FORM);
   const [keys, setKeys] = useState<SshKeyInfo[]>([]);
   const [tags, setTags] = useState<string[]>([]);
@@ -72,10 +68,6 @@ export function SshConnectionDialog({
   const [selectedConfigAlias, setSelectedConfigAlias] = useState("");
 
   const isEdit = !!editConnection?.id;
-  const groupSuggestions = useMemo(
-    () => collectSshGroupSuggestions(connections, form.group),
-    [connections, form.group],
-  );
 
   const configHostOptions = useMemo(
     () =>
@@ -117,9 +109,6 @@ export function SshConnectionDialog({
   useEffect(() => {
     if (!open) return;
     const base = connectionsToForm(editConnection);
-    if (!editConnection?.id && presetGroup) {
-      base.group = presetGroup;
-    }
     setForm(base);
     setTags(userConnectionTags(editConnection?.tags));
     setError(null);
@@ -133,7 +122,7 @@ export function SshConnectionDialog({
         setKeys(res.data);
       }
     })();
-  }, [open, editConnection, presetGroup]);
+  }, [open, editConnection]);
 
   useEffect(() => {
     if (!open || isEdit || createSource !== "config") return;
@@ -171,7 +160,7 @@ export function SshConnectionDialog({
       setSelectedConfigAlias("");
       setForm((prev) => ({
         ...EMPTY_SERVER_FORM,
-        group: prev.group || presetGroup || EMPTY_SERVER_FORM.group,
+        group: prev.group || EMPTY_SERVER_FORM.group,
       }));
     }
   };
@@ -219,7 +208,7 @@ export function SshConnectionDialog({
         ),
       );
       if (!saved) throw new Error("SSH save failed");
-      onSaved?.();
+      onSaved?.(saved.id);
       onClose();
     } catch (e) {
       setError(String(e));
@@ -383,22 +372,6 @@ export function SshConnectionDialog({
               </div>
             </>
           )}
-
-          <div className="form-field">
-            <label className="form-label">{t("ssh.dialog.group")}</label>
-            <TextInput
-              list="ssh-group-suggestions"
-              placeholder={t("ssh.dialog.groupPlaceholder")}
-              value={form.group}
-              onChange={(value) => update("group", value)}
-            />
-            <datalist id="ssh-group-suggestions">
-              {groupSuggestions.map((g) => (
-                <option key={g} value={g} />
-              ))}
-            </datalist>
-            <p className="form-hint">{t("ssh.dialog.groupHint")}</p>
-          </div>
 
           <div className="form-section-title">{t("resourceTags.section")}</div>
           <GlobalTagEditor

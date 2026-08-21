@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createIndexedDBStorage } from "@/lib/indexedDbStorage";
+import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
 
 export type DockerSidebarFolder = {
   id: string;
@@ -62,6 +63,10 @@ function parentStorageKey(parentId: string | null): string {
   return parentId ?? ROOT_KEY;
 }
 
+function notifyDockerSidebarTreeChanged(): void {
+  scheduleClientModuleSync();
+}
+
 function isDescendantFolder(
   folders: DockerSidebarFolder[],
   folderId: string,
@@ -104,6 +109,7 @@ export const useDockerSidebarTreeStore = create<DockerSidebarTreeState>()(
             },
           };
         });
+        notifyDockerSidebarTreeChanged();
         return id;
       },
 
@@ -115,6 +121,7 @@ export const useDockerSidebarTreeStore = create<DockerSidebarTreeState>()(
             f.id === folderId ? { ...f, name: trimmed } : f,
           ),
         }));
+        notifyDockerSidebarTreeChanged();
       },
 
       deleteFolder: (folderId) => {
@@ -151,6 +158,7 @@ export const useDockerSidebarTreeStore = create<DockerSidebarTreeState>()(
 
           return { folders, connectionFolderId, orderByParent };
         });
+        notifyDockerSidebarTreeChanged();
       },
 
       moveNode: ({ nodeKey, targetParentId, beforeKey = null }) => {
@@ -197,6 +205,7 @@ export const useDockerSidebarTreeStore = create<DockerSidebarTreeState>()(
             orderByParent,
           };
         });
+        notifyDockerSidebarTreeChanged();
       },
 
       ensureConnectionListed: (connectionId) => {
@@ -216,6 +225,7 @@ export const useDockerSidebarTreeStore = create<DockerSidebarTreeState>()(
           orderByParent[parentKey] = dest;
           return { orderByParent };
         });
+        notifyDockerSidebarTreeChanged();
       },
 
       pruneMissingConnections: (activeConnectionIds) => {
@@ -342,4 +352,104 @@ export function collectAllDockerSidebarTreeKeys(
 
 export function parseDockerSidebarFolderTreeKey(key: string): string | null {
   return key.startsWith("docker-folder:") ? key.slice("docker-folder:".length) : null;
+}
+
+export type DockerSidebarTreeSnapshot = {
+  folders: DockerSidebarFolder[];
+  connectionFolderId: Record<string, string>;
+  orderByParent: Record<string, string[]>;
+};
+
+export function serializeDockerSidebarTree(): DockerSidebarTreeSnapshot {
+  const { folders, connectionFolderId, orderByParent } =
+    useDockerSidebarTreeStore.getState();
+  return { folders, connectionFolderId, orderByParent };
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v === "string" && v.trim()) out[k] = v;
+  }
+  return out;
+}
+
+function asOrderByParent(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { [ROOT_KEY]: [] };
+  }
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (!Array.isArray(v)) continue;
+    out[k] = v.filter((item): item is string => typeof item === "string");
+  }
+  if (!out[ROOT_KEY]) out[ROOT_KEY] = [];
+  return out;
+}
+
+function parseDockerSidebarTreeSnapshot(data: unknown): DockerSidebarTreeSnapshot | null {
+  let obj = data;
+  if (typeof data === "string") {
+    try {
+      obj = JSON.parse(data) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const raw = obj as {
+    folders?: unknown;
+    connectionFolderId?: unknown;
+    orderByParent?: unknown;
+  };
+  if (!Array.isArray(raw.folders)) return null;
+  const folders: DockerSidebarFolder[] = [];
+  for (const item of raw.folders) {
+    if (!item || typeof item !== "object") continue;
+    const folder = item as { id?: unknown; name?: unknown; parentId?: unknown };
+    if (typeof folder.id !== "string" || !folder.id.trim()) continue;
+    if (typeof folder.name !== "string") continue;
+    folders.push({
+      id: folder.id,
+      name: folder.name,
+      parentId:
+        typeof folder.parentId === "string" && folder.parentId.trim()
+          ? folder.parentId
+          : null,
+    });
+  }
+  return {
+    folders,
+    connectionFolderId: asStringRecord(raw.connectionFolderId),
+    orderByParent: asOrderByParent(raw.orderByParent),
+  };
+}
+
+const EMPTY_DOCKER_SIDEBAR_TREE: DockerSidebarTreeSnapshot = {
+  folders: [],
+  connectionFolderId: {},
+  orderByParent: { [ROOT_KEY]: [] },
+};
+
+/**
+ * 云端拉取后写入本机。
+ * merge：旧快照无此字段时保留本机；replace：切换团队时缺字段则清空，避免串数据。
+ */
+export function applyDockerSidebarTree(
+  data: unknown | null | undefined,
+  mode: "merge" | "replace" = "merge",
+): void {
+  const parsed = parseDockerSidebarTreeSnapshot(data);
+  if (!parsed) {
+    if (mode === "replace") {
+      useDockerSidebarTreeStore.setState(EMPTY_DOCKER_SIDEBAR_TREE);
+    }
+    return;
+  }
+  useDockerSidebarTreeStore.setState({
+    folders: parsed.folders,
+    connectionFolderId: parsed.connectionFolderId,
+    orderByParent: parsed.orderByParent,
+  });
 }

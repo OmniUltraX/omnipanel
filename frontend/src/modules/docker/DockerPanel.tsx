@@ -19,6 +19,7 @@ import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { importDockerFromSshConnections } from "./importDockerFromSsh";
+import { DockerImportFromSshDialog } from "./DockerImportFromSshDialog";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { usePoolConnectionRegistration } from "../../stores/connectionPoolStore";
@@ -124,6 +125,7 @@ export function DockerPanel() {
 
   const [refreshingAllCaches, setRefreshingAllCaches] = useState(false);
   const [importingFromSsh, setImportingFromSsh] = useState(false);
+  const [showImportFromSsh, setShowImportFromSsh] = useState(false);
   const saveStoredConnection = useConnectionStore((s) => s.save);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
@@ -392,37 +394,42 @@ export function DockerPanel() {
     }
   }, [connectionById, connections, refreshingAllCaches, t]);
 
-  const handleImportFromSsh = useCallback(async () => {
-    if (importingFromSsh) return;
-    setImportingFromSsh(true);
-    try {
-      const result = await importDockerFromSshConnections({
-        connections: storedConnections,
-        saveConn: saveStoredConnection,
-      });
-      await reloadConnections();
-      if (result.added > 0) {
+  const handleImportFromSsh = useCallback(
+    async (sshConnectionIds: string[]) => {
+      if (importingFromSsh) return;
+      setImportingFromSsh(true);
+      try {
+        const latest = useConnectionStore.getState().connections;
+        const result = await importDockerFromSshConnections({
+          connections: latest,
+          saveConn: saveStoredConnection,
+          sshConnectionIds,
+        });
+        await reloadConnections();
+        if (result.added > 0) {
+          showToast(
+            t("docker.sidebar.importFromSshDone", {
+              added: String(result.added),
+              skipped: String(result.skipped),
+            }),
+          );
+        } else if (result.errors[0]) {
+          showToast(result.errors[0]);
+        } else {
+          showToast(t("docker.sidebar.importFromSshEmpty"));
+        }
+      } catch (error) {
         showToast(
-          t("docker.sidebar.importFromSshDone", {
-            added: String(result.added),
-            skipped: String(result.skipped),
+          t("docker.sidebar.importFromSshFailed", {
+            message: error instanceof Error ? error.message : String(error),
           }),
         );
-      } else if (result.errors[0]) {
-        showToast(result.errors[0]);
-      } else {
-        showToast(t("docker.sidebar.importFromSshEmpty"));
+      } finally {
+        setImportingFromSsh(false);
       }
-    } catch (error) {
-      showToast(
-        t("docker.sidebar.importFromSshFailed", {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    } finally {
-      setImportingFromSsh(false);
-    }
-  }, [importingFromSsh, reloadConnections, saveStoredConnection, storedConnections, t]);
+    },
+    [importingFromSsh, reloadConnections, saveStoredConnection, t],
+  );
 
   const dockerDeepLinkHandledRef = useRef(false);
   useEffect(() => {
@@ -641,7 +648,7 @@ export function DockerPanel() {
                 setEditDockerConnection(undefined);
                 setShowAddConn(true);
               }}
-              onImportFromSsh={() => void handleImportFromSsh()}
+              onImportFromSsh={() => setShowImportFromSsh(true)}
               onRefreshAll={() => void handleRefreshAllCaches()}
               onEditConnection={handleEditDockerConnection}
               onDeleteConnection={(id) => void handleDeleteDockerConnection(id)}
@@ -712,6 +719,13 @@ export function DockerPanel() {
           />
         </Suspense>
       ) : null}
+
+      <DockerImportFromSshDialog
+        open={showImportFromSsh}
+        connections={storedConnections}
+        onClose={() => setShowImportFromSsh(false)}
+        onConfirm={(ids) => void handleImportFromSsh(ids)}
+      />
 
       {toast ? <div className="docker-toast">{toast}</div> : null}
     </>

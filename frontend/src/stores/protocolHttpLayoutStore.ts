@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
 
 export type ProtocolHttpFolder = {
   id: string;
@@ -146,6 +147,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             expandedFolderIds,
           };
         });
+        scheduleClientModuleSync();
         return folder;
       },
 
@@ -158,6 +160,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         set((state) => ({
           folders: state.folders.map((f) => (f.id === folderId ? { ...f, name: nextName } : f)),
         }));
+        scheduleClientModuleSync();
         return true;
       },
 
@@ -204,6 +207,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             expandedFolderIds: state.expandedFolderIds.filter((id) => !descendantIds.has(id)),
           };
         });
+        scheduleClientModuleSync();
       },
 
       moveFolder: (folderId, newParentId) => {
@@ -217,6 +221,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             f.id === folderId ? { ...f, parentId: newParentId } : f,
           ),
         }));
+        scheduleClientModuleSync();
         return true;
       },
 
@@ -224,18 +229,21 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         set((state) => ({
           collectionParents: { ...state.collectionParents, [collectionId]: parentId },
         }));
+        scheduleClientModuleSync();
       },
 
       setRequestParent: (requestId, parentId) => {
         set((state) => ({
           requestParents: { ...state.requestParents, [requestId]: parentId },
         }));
+        scheduleClientModuleSync();
       },
 
       setEntryParent: (entryId, parentId) => {
         set((state) => ({
           entryParents: { ...state.entryParents, [entryId]: parentId },
         }));
+        scheduleClientModuleSync();
       },
 
       reorderSibling: (sourceKey, target, beforeKey = null) => {
@@ -259,6 +267,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
           nextOrder[key] = siblings;
           return { siblingOrder: nextOrder };
         });
+        scheduleClientModuleSync();
       },
 
       moveNode: (sourceKey, target) => get().placeNode(sourceKey, target, null),
@@ -353,3 +362,151 @@ export function protocolNodeKey(
 }
 
 export { parentKey as protocolParentKey, collectDescendantFolderIds };
+
+export type ProtocolHttpLayoutSnapshot = {
+  folders: ProtocolHttpFolder[];
+  collectionParents: Record<string, string | null>;
+  requestParents: Record<string, string | null>;
+  entryParents: Record<string, string | null>;
+  siblingOrder: Record<string, ProtocolTreeNodeKey[]>;
+  expandedFolderIds: string[];
+  expandedCollectionIds: string[];
+};
+
+export function serializeProtocolHttpLayout(): ProtocolHttpLayoutSnapshot {
+  const {
+    folders,
+    collectionParents,
+    requestParents,
+    entryParents,
+    siblingOrder,
+    expandedFolderIds,
+    expandedCollectionIds,
+  } = useProtocolHttpLayoutStore.getState();
+  return {
+    folders,
+    collectionParents,
+    requestParents,
+    entryParents,
+    siblingOrder,
+    expandedFolderIds,
+    expandedCollectionIds,
+  };
+}
+
+function asNullableStringRecord(value: unknown): Record<string, string | null> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (v == null) {
+      out[k] = null;
+    } else if (typeof v === "string") {
+      out[k] = v.trim() ? v : null;
+    }
+  }
+  return out;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function asSiblingOrder(value: unknown): Record<string, ProtocolTreeNodeKey[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, ProtocolTreeNodeKey[]> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (!Array.isArray(v)) continue;
+    out[k] = v.filter(
+      (item): item is ProtocolTreeNodeKey => typeof item === "string",
+    );
+  }
+  return out;
+}
+
+function parseProtocolFolders(value: unknown): ProtocolHttpFolder[] {
+  if (!Array.isArray(value)) return [];
+  const folders: ProtocolHttpFolder[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const folder = item as { id?: unknown; name?: unknown; parentId?: unknown };
+    if (typeof folder.id !== "string" || !folder.id.trim()) continue;
+    if (typeof folder.name !== "string") continue;
+    folders.push({
+      id: folder.id,
+      name: folder.name,
+      parentId:
+        typeof folder.parentId === "string" && folder.parentId.trim()
+          ? folder.parentId
+          : null,
+    });
+  }
+  return folders;
+}
+
+function parseProtocolHttpLayoutSnapshot(data: unknown): ProtocolHttpLayoutSnapshot | null {
+  let obj = data;
+  if (typeof data === "string") {
+    try {
+      obj = JSON.parse(data) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const raw = obj as {
+    folders?: unknown;
+    collectionParents?: unknown;
+    requestParents?: unknown;
+    entryParents?: unknown;
+    siblingOrder?: unknown;
+    expandedFolderIds?: unknown;
+    expandedCollectionIds?: unknown;
+  };
+  if (!Array.isArray(raw.folders)) return null;
+  return {
+    folders: parseProtocolFolders(raw.folders),
+    collectionParents: asNullableStringRecord(raw.collectionParents),
+    requestParents: asNullableStringRecord(raw.requestParents),
+    entryParents: asNullableStringRecord(raw.entryParents),
+    siblingOrder: asSiblingOrder(raw.siblingOrder),
+    expandedFolderIds: asStringArray(raw.expandedFolderIds),
+    expandedCollectionIds: asStringArray(raw.expandedCollectionIds),
+  };
+}
+
+const EMPTY_PROTOCOL_HTTP_LAYOUT: ProtocolHttpLayoutSnapshot = {
+  folders: [],
+  collectionParents: {},
+  requestParents: {},
+  entryParents: {},
+  siblingOrder: {},
+  expandedFolderIds: [],
+  expandedCollectionIds: [],
+};
+
+/**
+ * 云端拉取后写入本机。
+ * merge：旧快照无此字段时保留本机；replace：切换团队时缺字段则清空，避免串数据。
+ */
+export function applyProtocolHttpLayout(
+  data: unknown | null | undefined,
+  mode: "merge" | "replace" = "merge",
+): void {
+  const parsed = parseProtocolHttpLayoutSnapshot(data);
+  if (!parsed) {
+    if (mode === "replace") {
+      useProtocolHttpLayoutStore.setState(EMPTY_PROTOCOL_HTTP_LAYOUT);
+    }
+    return;
+  }
+  useProtocolHttpLayoutStore.setState({
+    folders: parsed.folders,
+    collectionParents: parsed.collectionParents,
+    requestParents: parsed.requestParents,
+    entryParents: parsed.entryParents,
+    siblingOrder: parsed.siblingOrder,
+    expandedFolderIds: parsed.expandedFolderIds,
+    expandedCollectionIds: parsed.expandedCollectionIds,
+  });
+}

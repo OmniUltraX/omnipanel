@@ -381,6 +381,28 @@ pub static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| vec![
         },
         related_modules: &["docker"],
     },
+    ToolSpec {
+        id: "nginx",
+        label_key: "nginx",
+        category: ToolCategory::System,
+        min_version: None,
+        min_version_label: None,
+        install: InstallMethod::PackageManager {
+            packages: [
+                ("apt", "nginx"),
+                ("dnf", "nginx"),
+                ("yum", "nginx"),
+                ("apk", "nginx"),
+                ("pacman", "nginx"),
+                ("zypper", "nginx"),
+            ]
+            .iter()
+            .cloned()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        },
+        related_modules: &[],
+    },
     // mysqldump / mysql / psql 已移除：
     // - MySQL/PostgreSQL 的 CLI tab 是客户端 sqlx 直连模拟提示符，不依赖远端 CLI
     // - 导入导出未来改造为客户端直连（纯 SQL / LOAD DATA），不依赖 mysqldump
@@ -678,6 +700,22 @@ echo "@END:tmux""#
 docker version --format '{{{{.Server.Version}}}}' 2>/dev/null || command -v docker >/dev/null 2>&1 && echo "found:$(command -v docker)" || echo "missing"
 echo "@END:docker""#
             ),
+            "nginx" => format!(
+                r#"echo "@TOOL:nginx"
+if command -v openresty >/dev/null 2>&1; then
+    echo "found:$(command -v openresty)"
+    openresty -v 2>&1 | head -1 || true
+elif [ -x /usr/local/openresty/nginx/sbin/nginx ]; then
+    echo "found:/usr/local/openresty/nginx/sbin/nginx"
+    /usr/local/openresty/nginx/sbin/nginx -v 2>&1 | head -1 || true
+elif command -v nginx >/dev/null 2>&1; then
+    echo "found:$(command -v nginx)"
+    nginx -v 2>&1 | head -1 || true
+else
+    echo "missing"
+fi
+echo "@END:nginx""#
+            ),
             "my2sql" => format!(
                 r#"echo "@TOOL:my2sql"
 if [ -x "$HOME/.omnipanel/bin/my2sql" ]; then echo "found:$HOME/.omnipanel/bin/my2sql"
@@ -765,6 +803,13 @@ fn parse_tool_state(spec: &ToolSpec, raw: &str) -> ToolState {
     let parsed_version = version.as_deref().and_then(|v| {
         if spec.id == "tmux" {
             v.strip_prefix("tmux ").map(|s| s.trim().to_string())
+        } else if spec.id == "nginx" {
+            Some(
+                v.strip_prefix("nginx version:")
+                    .unwrap_or(v)
+                    .trim()
+                    .to_string(),
+            )
         } else {
             Some(v.to_string())
         }
@@ -1166,8 +1211,8 @@ async fn install_via_shell_script(
 
 /// 单个面板的探测结果。
 ///
-/// `api_key` 字段仅当面板 API 已开启且能从配置文件读到时才非空。
-/// 该字段属于敏感凭据，前端拿到后应直接写入 Vault，不应日志输出或传给 AI。
+/// 探测安装状态、访问地址、安全入口；`api_key` 仅供「一键管理」表单预填，卡片不展示。
+/// 开启 API 仍走独立命令 `ssh_pool_enable_panel_api`（例如从 SSH 导入 Docker 时）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelProbeItem {
@@ -1175,16 +1220,15 @@ pub struct PanelProbeItem {
     pub kind: String,
     /// 是否已安装
     pub installed: bool,
-    /// 面板访问地址（含协议和端口，如 http://192.168.1.10:8888）；未安装时为空
+    /// 面板 API origin（含协议和端口，如 http://192.168.1.10:8888，不含安全入口）；未安装时为空
     pub address: String,
     /// 面板端口；未安装时为 0
     pub port: u16,
-    /// 1Panel 安全入口（如 /abc123）；宝塔无此概念时为空
+    /// 安全入口路径（宝塔 admin_path / 1Panel SecurityEntrance），如 /baota
     pub entrance: String,
-    /// API 是否已开启
+    /// API 是否已开启（探测自配置文件；卡片不展示）
     pub api_enabled: bool,
-    /// 从面板配置文件读到的 API Key（仅当 api_enabled=true 且能读到时）；
-    /// 读不到时为空字符串。敏感字段，前端不得传给 AI 或日志输出。
+    /// 从面板配置读到的 API Key（表单预填用）；卡片不展示。敏感字段，前端不得传给 AI 或日志输出。
     pub api_key: String,
     /// 额外提示信息（如版本号、读取失败原因等）
     pub note: String,
@@ -1221,8 +1265,8 @@ pub struct PanelProbeResult {
 /// - 一次 RTT 同时探测两类面板，降低延迟
 /// - 宝塔：`/www/server/panel` + `config/api.json`（含 open/key）+ `data/admin_path.pl`
 /// - 1Panel：优先 `1pctl user-info` 解析真实端口/入口（例：`http://$LOCAL_IP:7777/777777`）
-/// - 1Panel 次要：core.db ApiKey / SSL；v1 回退 app.yaml；禁止静默默认 10086
-/// - api_key 有则读取（即使 API 未开启也带回，便于预填）；api_enabled 反映面板侧开关
+/// - 1Panel 次要：core.db 端口 / 入口 / SSL / 版本 / ApiKey；v1 回退 app.yaml；禁止静默默认 10086
+/// - api_key 有则读取，供「一键管理」表单预填；卡片不展示
 /// - 非 root 可能读不到配置：installed 仍可为 true，api_key 为空
 fn build_panel_probe_script() -> String {
     r#"#!/bin/bash
@@ -1383,7 +1427,7 @@ probe_1panel() {
         fi
     fi
 
-    # 次要：core.db / 1panel.db（仅补 api_key / ssl / 版本；端口以 user-info 为准，避免脏默认值覆盖）
+    # 次要：core.db / 1panel.db（补端口 / 入口 / ssl / 版本 / api_key；端口以 user-info 为准）
     db_candidates=""
     for ctl in /usr/bin/1pctl /usr/local/bin/1pctl "$(command -v 1pctl 2>/dev/null)"; do
         [ -n "$ctl" ] && [ -f "$ctl" ] || continue
@@ -1520,14 +1564,7 @@ EOF
         fi
     fi
 
-    addr_path=""
-    if [ -n "$entrance" ]; then
-        case "$entrance" in
-            /*) addr_path="$entrance" ;;
-            *) addr_path="/$entrance" ;;
-        esac
-    fi
-    echo "address:${proto}://127.0.0.1:${port}${addr_path}"
+    echo "address:${proto}://127.0.0.1:${port}"
     if [ -n "$entrance" ]; then
         case "$entrance" in
             /*) echo "entrance:$entrance" ;;
@@ -1573,23 +1610,12 @@ fn scrub_probe_text(s: &str) -> String {
     out.trim().to_string()
 }
 
-/// 将安全入口路径拼入面板 origin（若尚未包含）。
-fn merge_panel_entrance_into_address(address: &str, entrance: &str) -> String {
+/// 去掉路径，只保留 scheme://host:port（API 不含安全入口）。
+fn panel_address_origin(address: &str) -> String {
     let address = address.trim();
     if address.is_empty() {
         return String::new();
     }
-    let entrance = entrance.trim();
-    if entrance.is_empty() {
-        return address.trim_end_matches('/').to_string();
-    }
-    let path = if entrance.starts_with('/') {
-        entrance.to_string()
-    } else {
-        format!("/{entrance}")
-    };
-    let path_norm = path.trim_end_matches('/');
-
     let lower = address.to_ascii_lowercase();
     let path_start = if let Some(idx) = lower.find("://") {
         address[idx + 3..]
@@ -1599,14 +1625,7 @@ fn merge_panel_entrance_into_address(address: &str, entrance: &str) -> String {
     } else {
         address.find('/').unwrap_or(address.len())
     };
-    let current_path = address[path_start..].trim_end_matches('/');
-    if current_path == path_norm || current_path.ends_with(path_norm) {
-        return address.trim_end_matches('/').to_string();
-    }
-    if current_path.is_empty() {
-        return format!("{}{}", address.trim_end_matches('/'), path_norm);
-    }
-    address.trim_end_matches('/').to_string()
+    address[..path_start].trim_end_matches('/').to_string()
 }
 
 /// 解析面板探测输出。
@@ -1636,7 +1655,7 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
                         .get("address")
                         .map(|v| scrub_probe_text(v))
                         .unwrap_or_default();
-                    let address = merge_panel_entrance_into_address(&raw_address, &entrance);
+                    let address = panel_address_origin(&raw_address);
                     let api_enabled = fields
                         .get("api_enabled")
                         .map(|v| v.trim() == "1")
@@ -2231,7 +2250,7 @@ note:v2.2.3
             r#"@PANEL:1panel
 installed:1
 port:7777
-address:http://127.0.0.1:7777
+address:http://127.0.0.1:7777/777777
 entrance:/777777
 api_enabled:1
 api_key:{key_b64}
@@ -2243,7 +2262,8 @@ note:v2
         assert_eq!(panels.len(), 1);
         assert_eq!(panels[0].port, 7777);
         assert_eq!(panels[0].entrance, "/777777");
-        assert_eq!(panels[0].address, "http://127.0.0.1:7777/777777");
+        // API 地址不含安全入口路径
+        assert_eq!(panels[0].address, "http://127.0.0.1:7777");
     }
 }
 

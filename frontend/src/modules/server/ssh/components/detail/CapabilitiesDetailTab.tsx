@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { appConfirm } from "@/lib/appConfirm";
 import { useI18n } from "@/i18n";
@@ -6,28 +6,42 @@ import { asArray } from "@/ipc/asArray";
 import type { WorkspaceResource } from "@/lib/resourceRegistry";
 import { showToast } from "@/stores/toastStore";
 import { useConnectionStore } from "@/stores/connectionStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { getEngineIcon } from "@/modules/database/connection/engineIcons";
 import type {
+  Connection,
   InstallMethod,
   RemoteToolCapability,
-  ToolCategory,
   ToolState,
 } from "@/ipc/bindings";
 
+import { BrandIconImg } from "../../../brandIcons";
+import nginxIcon from "@/assets/icons/nginx.svg";
+
 import { selectCapabilities, useCapabilitiesStore } from "../../stores/capabilitiesStore";
+import { DockerConnectionDialog } from "@/modules/docker/DockerConnectionDialog";
 import { PanelProbeSection } from "./PanelProbeSection";
 
 type Props = {
   activeResource: WorkspaceResource | null;
 };
 
-/** 工具分类的展示顺序。 */
-const CATEGORY_ORDER: ToolCategory[] = [
-  "terminal",
-  "database",
-  "archive",
-  "transfer",
-  "monitoring",
-  "system",
+/** 前端展示分组（与后端 ToolCategory 解耦）。 */
+type UiGroupId = "ops" | "storage" | "basic";
+
+const UI_GROUPS: ReadonlyArray<{ id: UiGroupId; toolIds: readonly string[] }> = [
+  {
+    id: "ops",
+    toolIds: ["docker", "nginx"],
+  },
+  {
+    id: "storage",
+    toolIds: ["my2sql", "redis-cli"],
+  },
+  {
+    id: "basic",
+    toolIds: ["tmux", "unzip", "tar", "7z", "unrar", "zstd", "rsync"],
+  },
 ];
 
 /** 探测耗时阈值：超过则标黄提示。 */
@@ -38,7 +52,6 @@ function formatProbedAt(ts: number): string {
   return new Date(ts).toLocaleTimeString();
 }
 
-/** 状态徽章的样式类与文案 key。 */
 function stateBadge(state: ToolState): { className: string; key: string } {
   switch (state.kind) {
     case "ready":
@@ -52,7 +65,18 @@ function stateBadge(state: ToolState): { className: string; key: string } {
   }
 }
 
-/** 判断某工具是否可一键安装（包管理器 / 二进制下载 / 远端脚本编译）。 */
+function cardTone(state: ToolState): string {
+  switch (state.kind) {
+    case "ready":
+      return "capabilities__card--ready";
+    case "needInstall":
+    case "tooOld":
+      return "capabilities__card--warn";
+    case "unsupported":
+      return "capabilities__card--muted";
+  }
+}
+
 function isAutoInstallable(method: InstallMethod): boolean {
   return (
     method.kind === "packageManager" ||
@@ -61,17 +85,80 @@ function isAutoInstallable(method: InstallMethod): boolean {
   );
 }
 
-/** 手动安装指引文案。 */
 function manualInstructions(method: InstallMethod): string | null {
   return method.kind === "manual" ? method.instructions : null;
+}
+
+function installButtonLabel(
+  method: InstallMethod,
+  installing: boolean,
+  t: (key: string) => string,
+): string {
+  if (installing) return t("common.loading");
+  if (method.kind === "downloadBinary") return t("ssh.toolCapabilities.download");
+  if (method.kind === "shellScript") return t("ssh.toolCapabilities.build");
+  return t("ssh.toolCapabilities.install");
+}
+
+function readyVersion(state: ToolState): string | null {
+  if (state.kind !== "ready") return null;
+  return state.version?.trim() || null;
+}
+
+function CapabilityBrandIcon({ toolId }: { toolId: string }) {
+  const theme = useSettingsStore((s) => s.resolved);
+  if (toolId === "docker") {
+    return <BrandIconImg kind="docker" size={16} className="capabilities__card-icon" />;
+  }
+  if (toolId === "nginx") {
+    return (
+      <img
+        src={nginxIcon}
+        alt=""
+        width={16}
+        height={16}
+        className="capabilities__card-icon"
+        draggable={false}
+        aria-hidden
+      />
+    );
+  }
+  if (toolId === "my2sql") {
+    const src = getEngineIcon("mysql", theme);
+    return src ? (
+      <img
+        src={src}
+        alt=""
+        width={16}
+        height={16}
+        className="capabilities__card-icon"
+        draggable={false}
+        aria-hidden
+      />
+    ) : null;
+  }
+  if (toolId === "redis-cli") {
+    const src = getEngineIcon("redis", theme);
+    return src ? (
+      <img
+        src={src}
+        alt=""
+        width={16}
+        height={16}
+        className="capabilities__card-icon"
+        draggable={false}
+        aria-hidden
+      />
+    ) : null;
+  }
+  return null;
 }
 
 /**
  * 远端工具能力统一治理视图。
  *
- * 一次批量探测（1 RTT）覆盖所有轻量命令工具，重型工具走懒探测。结果按主机缓存
- * 5 分钟（后端 TTL），前端 store 再做一层跨 Tab 共享。安装后原地更新单工具状态，
- * 无需全量重探。手动安装工具提供「复制命令」按钮。
+ * 按运维 / 存储 / 基础三类展示；运维组卡片与面板探测同一行横向排列。
+ * 批量探测缓存 5 分钟，安装后原地更新单工具状态。
  */
 export function CapabilitiesDetailTab({ activeResource }: Props) {
   const { t } = useI18n();
@@ -81,6 +168,8 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
     () => (resourceId ? connections.find((c) => c.id === resourceId) ?? null : null),
     [connections, resourceId],
   );
+  const [dockerDialogOpen, setDockerDialogOpen] = useState(false);
+  const [dockerBindSsh, setDockerBindSsh] = useState<Connection | null>(null);
 
   const entry = useCapabilitiesStore((s) => selectCapabilities(s, resourceId));
   const probe = useCapabilitiesStore((s) => s.probe);
@@ -94,36 +183,32 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
     [resourceId, probe],
   );
 
-  // 首次进入或切换主机时自动探测（后端有缓存，不会重复打远端）
   useEffect(() => {
     if (resourceId && !entry.result && !entry.loading) {
       void probe(resourceId, false);
     }
   }, [resourceId, entry.result, entry.loading, probe]);
 
-  const tools = useMemo(
-    () => asArray<RemoteToolCapability>(entry.result?.tools),
-    [entry.result],
-  );
+  const toolsById = useMemo(() => {
+    const map = new Map<string, RemoteToolCapability>();
+    for (const tool of asArray<RemoteToolCapability>(entry.result?.tools)) {
+      map.set(tool.id, tool);
+    }
+    return map;
+  }, [entry.result]);
 
   const grouped = useMemo(() => {
-    if (!entry.result) return [] as { category: ToolCategory; tools: RemoteToolCapability[] }[];
-    const map = new Map<ToolCategory, RemoteToolCapability[]>();
-    for (const tool of tools) {
-      const list = map.get(tool.category) ?? [];
-      list.push(tool);
-      map.set(tool.category, list);
-    }
-    return CATEGORY_ORDER.filter((c) => map.has(c)).map((category) => ({
-      category,
-      tools: map.get(category)!,
-    }));
-  }, [entry.result, tools]);
+    return UI_GROUPS.map((group) => ({
+      id: group.id,
+      tools: group.toolIds
+        .map((id) => toolsById.get(id))
+        .filter((tool): tool is RemoteToolCapability => Boolean(tool)),
+    })).filter((g) => g.id === "ops" || g.tools.length > 0);
+  }, [toolsById]);
 
   const handleInstall = useCallback(
     async (tool: RemoteToolCapability) => {
       if (!resourceId) return;
-      // 源码编译安装耗时较长（数分钟）且会装编译依赖，先确认
       if (tool.installMethod.kind === "shellScript") {
         const ok = await appConfirm(
           t("ssh.toolCapabilities.buildConfirmMsg", { name: tool.id }),
@@ -155,11 +240,12 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
 
   const result = entry.result;
   const isSlow = result != null && result.elapsedMs > SLOW_PROBE_MS;
+  const visibleToolCount = grouped.reduce((n, g) => n + g.tools.length, 0);
 
   return (
+    <>
     <div className="capabilities">
       <div className="capabilities__header">
-        <div className="capabilities__intro">{t("ssh.toolCapabilities.intro")}</div>
         <div className="capabilities__header-actions">
           <button
             type="button"
@@ -182,7 +268,7 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
             {t("ssh.toolCapabilities.probedAt", { time: formatProbedAt(result.probedAt) })}
           </span>
           <span className="cap-meta cap-meta--count">
-            {t("ssh.toolCapabilities.toolCount", { count: tools.length })}
+            {t("ssh.toolCapabilities.toolCount", { count: visibleToolCount })}
           </span>
         </div>
       ) : null}
@@ -193,117 +279,207 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
         <div className="capabilities__empty">{t("common.loading")}</div>
       ) : null}
 
-      {!entry.loading && !entry.error && grouped.length === 0 ? (
+      {!entry.loading && !entry.error && !result ? (
         <div className="capabilities__empty">{t("ssh.toolCapabilities.empty")}</div>
       ) : null}
 
-      {grouped.map(({ category, tools: groupTools }) => (
-        <section key={category} className="capabilities__group">
+      {grouped.map((group) => (
+        <section key={group.id} className="capabilities__group">
           <h4 className="capabilities__group-title">
-            {t(`ssh.toolCapabilities.categories.${category}`)}
-            <span className="capabilities__group-count">{groupTools.length}</span>
+            {t(`ssh.toolCapabilities.uiCategories.${group.id}`)}
+            <span className="capabilities__group-count">{group.tools.length}</span>
           </h4>
           <div className="capabilities__list">
-            {groupTools.map((tool) => {
-              const badge = stateBadge(tool.state);
-              const installing = entry.installing[tool.id] === true;
-              const autoInstall = isAutoInstallable(tool.installMethod);
-              const manual = manualInstructions(tool.installMethod);
-              return (
-                <div key={tool.id} className="capabilities__tool">
-                  <div className="capabilities__tool-head">
-                    <span className="capabilities__tool-name">{tool.id}</span>
-                    <span className={badge.className}>{t(badge.key)}</span>
-                  </div>
-                  <div className="capabilities__tool-detail">
-                    <ToolStateText state={tool.state} t={t} />
-                  </div>
-                  <div className="capabilities__tool-actions">
-                    {autoInstall ? (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => void handleInstall(tool)}
-                        disabled={installing || tool.state.kind === "ready"}
-                        title={
-                          tool.installMethod.kind === "downloadBinary"
-                            ? t("ssh.toolCapabilities.downloadHint")
-                            : tool.installMethod.kind === "shellScript"
-                              ? t("ssh.toolCapabilities.buildHint")
-                              : t("ssh.toolCapabilities.installHint")
-                        }
-                      >
-                        {installing
-                          ? t("common.loading")
-                          : tool.installMethod.kind === "downloadBinary"
-                            ? t("ssh.toolCapabilities.download")
-                            : tool.installMethod.kind === "shellScript"
-                              ? t("ssh.toolCapabilities.build")
-                              : t("ssh.toolCapabilities.install")}
-                      </button>
-                    ) : null}
-                    {manual ? (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => void handleCopyManual(manual)}
-                        title={t("ssh.toolCapabilities.copyHint")}
-                      >
-                        {t("ssh.toolCapabilities.copyCommand")}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
+            {group.tools.map((tool) => (
+              <ToolCapabilityCard
+                key={tool.id}
+                tool={tool}
+                installing={entry.installing[tool.id] === true}
+                onInstall={() => void handleInstall(tool)}
+                onCopyManual={(text) => void handleCopyManual(text)}
+                extraActions={
+                  tool.id === "docker" && tool.state.kind === "ready" && connection ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setDockerBindSsh(connection);
+                        setDockerDialogOpen(true);
+                      }}
+                      title={t("ssh.toolCapabilities.quickManageDockerHint")}
+                    >
+                      {t("ssh.toolCapabilities.quickManage")}
+                    </button>
+                  ) : null
+                }
+                t={t}
+              />
+            ))}
+            {group.id === "ops" && resourceId ? (
+              <PanelProbeSection
+                resourceId={resourceId}
+                connection={connection}
+                embedded
+              />
+            ) : null}
           </div>
         </section>
       ))}
-
-      {resourceId ? (
-        <PanelProbeSection resourceId={resourceId} connection={connection} />
-      ) : null}
     </div>
+      <DockerConnectionDialog
+        open={dockerDialogOpen}
+        onClose={() => {
+          setDockerDialogOpen(false);
+          setDockerBindSsh(null);
+        }}
+        bindSshConnection={dockerBindSsh ?? undefined}
+        onSaved={() => {
+          setDockerDialogOpen(false);
+          setDockerBindSsh(null);
+        }}
+      />
+    </>
   );
 }
 
-/** 工具状态的可读描述。 */
-function ToolStateText({
-  state,
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+function ToolCapabilityCard({
+  tool,
+  installing,
+  onInstall,
+  onCopyManual,
+  extraActions,
   t,
 }: {
-  state: ToolState;
-  t: (key: string, params?: Record<string, string | number>) => string;
+  tool: RemoteToolCapability;
+  installing: boolean;
+  onInstall: () => void;
+  onCopyManual: (instructions: string) => void;
+  extraActions?: ReactNode;
+  t: Translate;
 }) {
+  const badge = stateBadge(tool.state);
+  const version = readyVersion(tool.state);
+  const autoInstall = isAutoInstallable(tool.installMethod);
+  const manual = manualInstructions(tool.installMethod);
+  const canInstall =
+    autoInstall && (tool.state.kind === "needInstall" || tool.state.kind === "tooOld");
+  const displayName = (() => {
+    if (tool.id === "nginx" && tool.state.kind === "ready") {
+      const hay = `${tool.state.version ?? ""} ${tool.state.path ?? ""}`.toLowerCase();
+      if (hay.includes("openresty")) return "OpenResty";
+      return "Nginx";
+    }
+    const key = `ssh.toolCapabilities.tools.${tool.id}`;
+    const label = t(key);
+    return label === key ? tool.id : label;
+  })();
+
+  return (
+    <article className={`capabilities__card ${cardTone(tool.state)}`}>
+      <div className="capabilities__card-top">
+        <div className="capabilities__card-title">
+          <span className="capabilities__card-name">
+            <CapabilityBrandIcon toolId={tool.id} />
+            {displayName}
+          </span>
+          <span className="capabilities__card-id">{tool.id}</span>
+        </div>
+        <span className={badge.className}>{t(badge.key)}</span>
+      </div>
+
+      <div className="capabilities__card-body">
+        {tool.state.kind === "ready" ? (
+          <>
+            <div className="capabilities__card-version">
+              {version ? (
+                <>
+                  <span className="capabilities__card-version-label">
+                    {t("ssh.toolCapabilities.versionLabel")}
+                  </span>
+                  <span className="capabilities__card-version-value">{version}</span>
+                </>
+              ) : (
+                <span className="capabilities__card-version-value capabilities__card-version-value--muted">
+                  {t("ssh.toolCapabilities.states.readyNoVersion")}
+                </span>
+              )}
+            </div>
+            {tool.state.path ? (
+              <div className="capabilities__card-path" title={tool.state.path}>
+                {tool.state.path}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <ToolStateDetail state={tool.state} t={t} />
+        )}
+      </div>
+
+      <div className="capabilities__card-actions">
+        {canInstall ? (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={onInstall}
+            disabled={installing}
+            title={
+              tool.installMethod.kind === "downloadBinary"
+                ? t("ssh.toolCapabilities.downloadHint")
+                : tool.installMethod.kind === "shellScript"
+                  ? t("ssh.toolCapabilities.buildHint")
+                  : t("ssh.toolCapabilities.installHint")
+            }
+          >
+            {installButtonLabel(tool.installMethod, installing, t)}
+          </button>
+        ) : null}
+        {manual && tool.state.kind !== "ready" ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => onCopyManual(manual)}
+            title={t("ssh.toolCapabilities.copyHint")}
+          >
+            {t("ssh.toolCapabilities.copyCommand")}
+          </button>
+        ) : null}
+        {tool.state.kind === "ready" ? (
+          <span className="capabilities__card-installed">
+            {t("ssh.toolCapabilities.installed")}
+          </span>
+        ) : null}
+        {extraActions}
+      </div>
+    </article>
+  );
+}
+
+function ToolStateDetail({ state, t }: { state: ToolState; t: Translate }) {
   switch (state.kind) {
     case "ready":
-      if (state.version && state.path) {
-        return (
-          <>
-            <span className="cap-detail">{state.version}</span>
-            <span className="cap-detail cap-detail--path">{state.path}</span>
-          </>
-        );
-      }
-      if (state.version) return <span className="cap-detail">{state.version}</span>;
-      if (state.path) return <span className="cap-detail cap-detail--path">{state.path}</span>;
-      return <span className="cap-detail cap-detail--muted">{t("ssh.toolCapabilities.states.readyNoVersion")}</span>;
+      return null;
     case "needInstall":
-      return <span className="cap-detail cap-detail--muted">{t("ssh.toolCapabilities.states.needInstallDesc")}</span>;
+      return (
+        <p className="capabilities__card-desc">
+          {t("ssh.toolCapabilities.states.needInstallDesc")}
+        </p>
+      );
     case "tooOld":
       return (
-        <span className="cap-detail cap-detail--warn">
+        <p className="capabilities__card-desc capabilities__card-desc--warn">
           {t("ssh.toolCapabilities.states.tooOldDesc", {
             version: state.version,
             required: state.required,
           })}
-        </span>
+        </p>
       );
     case "unsupported":
       return (
-        <span className="cap-detail cap-detail--muted">
+        <p className="capabilities__card-desc">
           {t("ssh.toolCapabilities.states.unsupportedDesc")}
-        </span>
+        </p>
       );
   }
 }

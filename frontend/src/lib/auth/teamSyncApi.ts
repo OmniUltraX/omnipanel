@@ -13,6 +13,8 @@ import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "../../modules/clientSync/tombstones";
 import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { serializeSshSidebarTree } from "../../stores/sshSidebarTreeStore";
+import { collectFolderTreesJson } from "../../modules/clientSync/folderTrees";
 
 export type {
   TeamSharePushResult,
@@ -76,6 +78,8 @@ export async function pushTeamModules(
       token,
       teamId,
       workspacesJson: collectWorkspacesJson(),
+      sshSidebarTreeJson: serializeSshSidebarTree(),
+      folderTreesJson: collectFolderTreesJson(),
       ...deletedPayload(),
       ...teamSyncExclusionsForIpc(teamId),
     }),
@@ -96,13 +100,17 @@ export async function pullTeamModules(
 export async function peekTeamModules(
   token: string,
   teamId: number,
+  options?: { afterUpload?: boolean },
 ): Promise<TeamSyncPeekResult> {
   return unwrapCommand(
     commands.teamSyncPeekModules({
       token,
       teamId,
       workspacesJson: collectWorkspacesJson(),
+      sshSidebarTreeJson: serializeSshSidebarTree(),
+      folderTreesJson: collectFolderTreesJson(),
       ...teamSyncExclusionsForIpc(teamId),
+      afterUpload: options?.afterUpload ?? false,
     }),
     { quiet: true, logLabel: "[team-sync:peek]" },
   );

@@ -27,6 +27,10 @@ function isVirtualNode(item: TeamSyncPeekItem): boolean {
 function isSyncManageable(item: PeekItem): boolean {
   if (item.syncStatus === "remote") return false;
   if (item.id.startsWith("__module__:") || item.id.startsWith("__group__:")) return false;
+  if (item.detail === "layout-folder") return false;
+  if (item.kind === "folder" && item.moduleKey !== "http" && item.moduleKey !== "knowledge") {
+    return false;
+  }
   return true;
 }
 

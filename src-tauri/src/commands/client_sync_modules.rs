@@ -1,7 +1,7 @@
 //! 客户端选定团队「各业务模块」同步。
 //! 路径：团队 OSS `modules/latest.json`；上传前端到端加密，密码不进快照（个人凭据走 secrets vault）。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_assistant::{
@@ -130,6 +130,12 @@ pub struct ClientSyncModulesBundle {
     pub workspaces: Vec<ClientSyncWorkspaceInfo>,
     #[serde(default)]
     pub deleted_workspaces: Vec<ClientSyncTombstone>,
+    /// SSH 侧栏文件夹布局（前端 IndexedDB 快照 JSON）。旧快照缺此字段则为空。
+    #[serde(default)]
+    pub ssh_sidebar_tree_json: Option<String>,
+    /// 其他模块侧栏文件夹布局 JSON：`{ docker, database, protocol }`。旧快照缺此字段则为空。
+    #[serde(default)]
+    pub folder_trees_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -138,6 +144,12 @@ pub struct ClientSyncPushModulesRequest {
     pub token: String,
     #[serde(default)]
     pub workspaces_json: Option<String>,
+    /// SSH 侧栏文件夹布局 JSON；由前端从 sshSidebarTreeStore 序列化。
+    #[serde(default)]
+    pub ssh_sidebar_tree_json: Option<String>,
+    /// 其他模块侧栏文件夹布局 JSON；由前端从 Docker/数据库/协议 store 序列化。
+    #[serde(default)]
+    pub folder_trees_json: Option<String>,
     #[serde(default)]
     pub deleted_connections: Vec<ClientSyncTombstone>,
     #[serde(default)]
@@ -188,6 +200,14 @@ fn parse_workspaces(raw: Option<&str>) -> Vec<ClientSyncWorkspaceInfo> {
         return Vec::new();
     };
     serde_json::from_str(text).unwrap_or_default()
+}
+
+fn parse_json_object_string(raw: Option<&str>) -> Option<String> {
+    let text = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Object(_)) => Some(text.to_string()),
+        _ => None,
+    }
 }
 
 fn collect_connection_items(
@@ -246,6 +266,8 @@ pub(crate) fn collect_local_bundle(
         deleted_http_environments: request.deleted_http_environments.clone(),
         workspaces: parse_workspaces(request.workspaces_json.as_deref()),
         deleted_workspaces: request.deleted_workspaces.clone(),
+        ssh_sidebar_tree_json: parse_json_object_string(request.ssh_sidebar_tree_json.as_deref()),
+        folder_trees_json: parse_json_object_string(request.folder_trees_json.as_deref()),
     })
 }
 
@@ -341,6 +363,10 @@ pub struct ClientSyncPullModulesResult {
     pub applied_workspaces: f64,
     /// 工作区 JSON，由前端写入 workspaceStore。
     pub workspaces_json: Option<String>,
+    /// SSH 侧栏文件夹布局 JSON，由前端写入 sshSidebarTreeStore。
+    pub ssh_sidebar_tree_json: Option<String>,
+    /// 其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据库/协议 store。
+    pub folder_trees_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -362,7 +388,7 @@ fn tombstone_ids(list: &[ClientSyncTombstone]) -> HashSet<String> {
 pub(crate) async fn apply_modules_bundle(
     state: &AppState,
     bundle: &ClientSyncModulesBundle,
-) -> Result<(usize, usize, usize, usize, usize, Option<String>), OmniError> {
+) -> Result<(usize, usize, usize, usize, usize, Option<String>, Option<String>, Option<String>), OmniError> {
     let remote_conn_ids: HashSet<String> = bundle
         .connections
         .iter()
@@ -511,6 +537,8 @@ pub(crate) async fn apply_modules_bundle(
     let applied_http_requests = bundle.http_requests.len();
     let applied_workspaces = bundle.workspaces.len();
     let workspaces_json = serde_json::to_string(&bundle.workspaces).ok();
+    let ssh_sidebar_tree_json = bundle.ssh_sidebar_tree_json.clone();
+    let folder_trees_json = bundle.folder_trees_json.clone();
 
     Ok((
         applied_connections,
@@ -519,6 +547,8 @@ pub(crate) async fn apply_modules_bundle(
         applied_http_requests,
         applied_workspaces,
         workspaces_json,
+        ssh_sidebar_tree_json,
+        folder_trees_json,
     ))
 }
 
@@ -556,6 +586,8 @@ pub async fn client_sync_pull_modules(
             applied_http_requests: 0.0,
             applied_workspaces: 0.0,
             workspaces_json: None,
+            ssh_sidebar_tree_json: None,
+            folder_trees_json: None,
         });
     };
 
@@ -572,6 +604,8 @@ pub async fn client_sync_pull_modules(
         applied_http_requests,
         applied_workspaces,
         workspaces_json,
+        ssh_sidebar_tree_json,
+        folder_trees_json,
     ) = apply_modules_bundle(&state, &bundle).await?;
 
     Ok(ClientSyncPullModulesResult {
@@ -584,6 +618,8 @@ pub async fn client_sync_pull_modules(
         applied_http_requests: applied_http_requests as f64,
         applied_workspaces: applied_workspaces as f64,
         workspaces_json,
+        ssh_sidebar_tree_json,
+        folder_trees_json,
     })
 }
 
@@ -640,24 +676,132 @@ pub(crate) struct ModulesBundlePeek {
     pub workspaces: Vec<ClientSyncPeekItem>,
 }
 
+#[derive(Clone, Default)]
+struct SidebarTreePeek {
+    folders: Vec<(String, String, String)>, // id, name, parent_id
+    connection_folder_id: HashMap<String, String>,
+}
+
+fn json_parent_id(value: &serde_json::Value) -> String {
+    value
+        .get("parentId")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn parse_sidebar_tree_object(value: &serde_json::Value) -> SidebarTreePeek {
+    let mut out = SidebarTreePeek::default();
+    let Some(obj) = value.as_object() else {
+        return out;
+    };
+    if let Some(folders) = obj.get("folders").and_then(|v| v.as_array()) {
+        for folder in folders {
+            let id = folder
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let Some(id) = id else {
+                continue;
+            };
+            let name = folder
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            out.folders
+                .push((id.to_string(), name, json_parent_id(folder)));
+        }
+    }
+    let map = obj
+        .get("connectionFolderId")
+        .or_else(|| obj.get("connectionParents"))
+        .and_then(|v| v.as_object());
+    if let Some(map) = map {
+        for (conn_id, folder_id) in map {
+            let Some(folder_id) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            out.connection_folder_id
+                .insert(conn_id.clone(), folder_id.to_string());
+        }
+    }
+    out
+}
+
+fn parse_sidebar_tree_json(raw: Option<&str>) -> Option<SidebarTreePeek> {
+    let text = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    let value = serde_json::from_str::<serde_json::Value>(text).ok()?;
+    Some(parse_sidebar_tree_object(&value))
+}
+
+fn parse_folder_trees_json(raw: Option<&str>) -> serde_json::Map<String, serde_json::Value> {
+    let Some(text) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return serde_json::Map::new();
+    };
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default()
+}
+
+fn parse_protocol_layout_object(value: &serde_json::Value) -> SidebarTreePeek {
+    let mut out = parse_sidebar_tree_object(value);
+    let Some(obj) = value.as_object() else {
+        return out;
+    };
+    for key in ["collectionParents", "requestParents", "entryParents"] {
+        let Some(map) = obj.get(key).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for (id, folder_id) in map {
+            let Some(folder_id) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            out.connection_folder_id
+                .insert(id.clone(), folder_id.to_string());
+        }
+    }
+    out
+}
+
+fn emit_tree_folders(tree: &SidebarTreePeek, detail: &str, out: &mut Vec<ClientSyncPeekItem>) {
+    for (id, name, parent) in &tree.folders {
+        out.push(peek_item(
+            id.clone(),
+            name.clone(),
+            detail,
+            0.0,
+            parent.clone(),
+            "folder",
+            Vec::new(),
+        ));
+    }
+}
+
 pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> ModulesBundlePeek {
+    let folder_trees = parse_folder_trees_json(bundle.folder_trees_json.as_deref());
+    let ssh_tree = parse_sidebar_tree_json(bundle.ssh_sidebar_tree_json.as_deref());
+    let docker_tree = folder_trees
+        .get("docker")
+        .map(parse_sidebar_tree_object);
+    let database_tree = folder_trees
+        .get("database")
+        .map(parse_sidebar_tree_object);
+    let protocol_tree = folder_trees
+        .get("protocol")
+        .map(parse_protocol_layout_object);
+
     ModulesBundlePeek {
-        connections: build_connection_peek_items(&bundle.connections),
-        databases: bundle
-            .database_connections
-            .iter()
-            .map(|item| {
-                peek_item(
-                    item.connection.id.clone(),
-                    item.connection.name.clone(),
-                    item.connection.db_type.clone(),
-                    0.0,
-                    "",
-                    "item",
-                    item.connection.tags.clone(),
-                )
-            })
-            .collect(),
+        connections: build_connection_peek_items(
+            &bundle.connections,
+            ssh_tree.as_ref(),
+            docker_tree.as_ref(),
+        ),
+        databases: build_database_peek_items(&bundle.database_connections, database_tree.as_ref()),
         knowledge: bundle
             .knowledge
             .iter()
@@ -678,36 +822,11 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
                 )
             })
             .collect(),
-        http_collections: bundle
-            .http_collections
-            .iter()
-            .map(|c| {
-                peek_item(
-                    c.id.clone(),
-                    c.name.clone(),
-                    c.description.clone(),
-                    c.updated_at as f64,
-                    "",
-                    "folder",
-                    c.tags.clone(),
-                )
-            })
-            .collect(),
-        http_requests: bundle
-            .http_requests
-            .iter()
-            .map(|r| {
-                peek_item(
-                    r.id.clone(),
-                    r.name.clone(),
-                    format!("{} {}", r.method, r.url),
-                    r.updated_at as f64,
-                    r.collection_id.clone().unwrap_or_default(),
-                    "item",
-                    r.tags.clone(),
-                )
-            })
-            .collect(),
+        http_collections: build_http_collection_peek_items(
+            &bundle.http_collections,
+            protocol_tree.as_ref(),
+        ),
+        http_requests: build_http_request_peek_items(&bundle.http_requests, protocol_tree.as_ref()),
         workspaces: bundle
             .workspaces
             .iter()
@@ -726,18 +845,115 @@ pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> Module
     }
 }
 
-pub(crate) fn build_connection_peek_items(
-    connections: &[ClientSyncConnectionItem],
+fn build_http_collection_peek_items(
+    collections: &[HttpCollection],
+    protocol_tree: Option<&SidebarTreePeek>,
 ) -> Vec<ClientSyncPeekItem> {
-    let mut groups: Vec<String> = connections
-        .iter()
-        .map(|c| c.connection.group.trim().to_string())
-        .filter(|g| !g.is_empty())
-        .collect();
-    groups.sort();
-    groups.dedup();
+    let mut out = Vec::with_capacity(collections.len() + protocol_tree.map(|t| t.folders.len()).unwrap_or(0));
+    if let Some(tree) = protocol_tree {
+        emit_tree_folders(tree, "layout-folder", &mut out);
+    }
+    for c in collections {
+        let parent = protocol_tree
+            .and_then(|tree| tree.connection_folder_id.get(&c.id))
+            .cloned()
+            .unwrap_or_default();
+        out.push(peek_item(
+            c.id.clone(),
+            c.name.clone(),
+            c.description.clone(),
+            c.updated_at as f64,
+            parent,
+            "folder",
+            c.tags.clone(),
+        ));
+    }
+    out
+}
 
-    let mut out = Vec::with_capacity(connections.len() + groups.len());
+fn build_http_request_peek_items(
+    requests: &[SavedHttpRequest],
+    protocol_tree: Option<&SidebarTreePeek>,
+) -> Vec<ClientSyncPeekItem> {
+    requests
+        .iter()
+        .map(|r| {
+            let parent = protocol_tree
+                .and_then(|tree| tree.connection_folder_id.get(&r.id))
+                .cloned()
+                .or_else(|| r.collection_id.clone())
+                .unwrap_or_default();
+            peek_item(
+                r.id.clone(),
+                r.name.clone(),
+                format!("{} {}", r.method, r.url),
+                r.updated_at as f64,
+                parent,
+                "item",
+                r.tags.clone(),
+            )
+        })
+        .collect()
+}
+
+fn build_database_peek_items(
+    databases: &[ClientSyncDatabaseItem],
+    tree: Option<&SidebarTreePeek>,
+) -> Vec<ClientSyncPeekItem> {
+    let mut out = Vec::with_capacity(databases.len() + tree.map(|t| t.folders.len()).unwrap_or(0));
+    if let Some(tree) = tree {
+        emit_tree_folders(tree, "folder", &mut out);
+    }
+    for item in databases {
+        let parent = tree
+            .and_then(|t| t.connection_folder_id.get(&item.connection.id))
+            .cloned()
+            .unwrap_or_default();
+        out.push(peek_item(
+            item.connection.id.clone(),
+            item.connection.name.clone(),
+            item.connection.db_type.clone(),
+            0.0,
+            parent,
+            "item",
+            item.connection.tags.clone(),
+        ));
+    }
+    out
+}
+
+fn build_connection_peek_items(
+    connections: &[ClientSyncConnectionItem],
+    ssh_tree: Option<&SidebarTreePeek>,
+    docker_tree: Option<&SidebarTreePeek>,
+) -> Vec<ClientSyncPeekItem> {
+    let mut out = Vec::with_capacity(connections.len() + 8);
+    if let Some(tree) = ssh_tree {
+        emit_tree_folders(tree, "folder", &mut out);
+    }
+    if let Some(tree) = docker_tree {
+        emit_tree_folders(tree, "folder", &mut out);
+    }
+
+    let mut used_groups: HashSet<String> = HashSet::new();
+    for c in connections {
+        let kind = c.connection.kind.as_str();
+        let tree_parent = match kind {
+            "ssh" => ssh_tree.and_then(|t| t.connection_folder_id.get(&c.connection.id)),
+            "docker" => docker_tree.and_then(|t| t.connection_folder_id.get(&c.connection.id)),
+            _ => None,
+        };
+        if tree_parent.is_some() || ((kind == "ssh" && ssh_tree.is_some()) || (kind == "docker" && docker_tree.is_some()))
+        {
+            continue;
+        }
+        let group = c.connection.group.trim();
+        if !group.is_empty() {
+            used_groups.insert(group.to_string());
+        }
+    }
+    let mut groups: Vec<String> = used_groups.into_iter().collect();
+    groups.sort();
     for group in &groups {
         out.push(peek_item(
             connection_group_folder_id(group),
@@ -749,17 +965,29 @@ pub(crate) fn build_connection_peek_items(
             Vec::new(),
         ));
     }
+
     for c in connections {
-        let group = c.connection.group.trim();
-        let parent = if group.is_empty() {
-            String::new()
-        } else {
-            connection_group_folder_id(group)
+        let kind = c.connection.kind.as_str();
+        let parent = match kind {
+            "ssh" => ssh_tree
+                .and_then(|t| t.connection_folder_id.get(&c.connection.id).cloned())
+                .unwrap_or_default(),
+            "docker" => docker_tree
+                .and_then(|t| t.connection_folder_id.get(&c.connection.id).cloned())
+                .unwrap_or_default(),
+            _ => {
+                let group = c.connection.group.trim();
+                if group.is_empty() {
+                    String::new()
+                } else {
+                    connection_group_folder_id(group)
+                }
+            }
         };
         out.push(peek_item(
             c.connection.id.clone(),
             c.connection.name.clone(),
-            c.connection.kind.as_str(),
+            kind,
             (c.connection.updated_at as f64) * 1000.0,
             parent,
             "item",

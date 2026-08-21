@@ -334,15 +334,27 @@ impl BtPanelAdapter {
     }
 }
 
+fn origin_only(url: &str) -> String {
+    let s = url.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    let rest_start = s.find("://").map(|i| i + 3).unwrap_or(0);
+    match s[rest_start..].find('/') {
+        Some(i) => s[..rest_start + i].trim_end_matches('/').to_string(),
+        None => s.trim_end_matches('/').to_string(),
+    }
+}
+
 fn normalize_base_url(host: &str) -> String {
-    let mut normalized = host.trim().trim_end_matches('/').to_string();
+    let mut normalized = host.trim().to_string();
     if !normalized.is_empty()
         && !normalized.starts_with("http://")
         && !normalized.starts_with("https://")
     {
         normalized = format!("http://{normalized}");
     }
-    normalized
+    origin_only(&normalized)
 }
 
 fn value_to_form_string(value: &Value) -> Option<String> {

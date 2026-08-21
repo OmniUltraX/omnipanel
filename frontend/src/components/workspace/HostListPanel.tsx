@@ -1,27 +1,28 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
 import { CONNECTION_TAG_KINDS } from "../../modules/tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../../modules/tags/useModuleTagFilter";
 import { Button } from "../ui/Button";
+import { IconDownload } from "../ui/icons/Icons";
 import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
-import {
-  collectSshGroupSuggestions,
-  loadManualEmptyGroups,
-  mergeGroupsWithManual,
-  normalizeSshGroup,
-  saveManualEmptyGroups,
-  sanitizeSshGroupInput,
-  sortSshGroups,
-  sshGroupLabel,
-} from "../../lib/sshGroups";
+import { OPENSSH_CONFIG_GROUP, sshGroupLabel } from "../../lib/sshGroups";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { quickInput } from "../../lib/quickInput";
 import { ScopedSearch } from "../ui/ScopedSearch";
-import { ResourceTags } from "../ui/ResourceTags";
 import {
   syncFromOpenSshConfig,
   useConnectionStore,
@@ -29,15 +30,17 @@ import {
 import { HostStatusIndicator } from "../../modules/server/ssh/components/HostStatusIndicator";
 import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
 import { useSshHostStore } from "../../stores/sshHostStore";
+import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
 import { SshConnectionDialog } from "../../modules/server/ssh/components/SshConnectionDialog";
+import { SshConfigImportDialog } from "../../modules/server/ssh/components/SshConfigImportDialog";
 import {
-  findPanelForSsh,
+  findPanelsForSsh,
   getLinkedConnectionIds,
   parsePanelConfig,
 } from "../../modules/server/panel/serverConnection";
-import { BrandIconImg, resolvePanelBrandIcon } from "../../modules/server/brandIcons";
+import { BrandIconImg, resolvePanelBrandIcon, type PanelBrandIconKind } from "../../modules/server/brandIcons";
 import {
   jumpSshDocker,
   jumpSshPanel,
@@ -47,7 +50,27 @@ import {
 } from "../../modules/server/ssh/sshHostQuickJumps";
 import { SSH_PATH } from "../../modules/server/ssh/constants";
 import type { Connection } from "../../ipc/bindings";
-
+import {
+  SidebarTreeEmpty,
+  SidebarTreeNode,
+  SidebarTreeRoot,
+  SidebarTreeSelectionProvider,
+  useSidebarTreeSelection,
+  type TreeRowMouseEvent,
+} from "../ui/sidebar-tree";
+import { usePersistedSshTreeExpanded } from "../../modules/server/ssh/usePersistedSshTreeExpanded";
+import {
+  collectAllSshSidebarTreeKeys,
+  getSshHostFolderLabel,
+  listSshSidebarChildren,
+  makeSshHostTreeKey,
+  parseSshSidebarFolderTreeKey,
+  sshSidebarConnectionNodeKey,
+  sshSidebarFolderNodeKey,
+  useSshSidebarTreeStore,
+  type SshSidebarFolder,
+} from "../../stores/sshSidebarTreeStore";
+import { showToast } from "../../stores/toastStore";
 interface HostListPanelProps {
   resources: WorkspaceResource[];
   /** 当前高亮主机（Dock 活跃 Tab 对应的主机） */
@@ -66,34 +89,219 @@ interface HostListPanelProps {
   tagModuleKey?: string;
 }
 
-function HostPanelBadge({ sshId }: { sshId: string }) {
-  const { t } = useI18n();
-  const connections = useConnectionStore((s) => s.connections);
-  const panel = findPanelForSsh(connections, sshId);
-  if (!panel) return null;
-  const serviceType = parsePanelConfig(panel).serviceType;
-  const brand = resolvePanelBrandIcon(serviceType);
-  const label =
-    serviceType === "1panel"
-      ? t("server.serviceType.1panel")
-      : t("server.serviceType.bt");
-  const typeClass = serviceType === "bt" ? "bt" : "onepanel";
+const DND_MIME = "text/omnipanel-ssh-sidebar";
+
+function parseSshHostTreeKey(key: string): string | null {
+  return key.startsWith("ssh:") ? key.slice("ssh:".length) : null;
+}
+
+function nodeKeyToTreeKey(nodeKey: string): string | null {
+  if (nodeKey.startsWith("c:")) return makeSshHostTreeKey(nodeKey.slice(2));
+  if (nodeKey.startsWith("f:")) return `ssh-folder:${nodeKey.slice(2)}`;
+  return null;
+}
+
+function parseDragNodeKeys(raw: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((k) => typeof k === "string")) {
+      return parsed as string[];
+    }
+  } catch {
+    /* 单节点旧格式 */
+  }
+  return [raw];
+}
+
+/**
+ * 多选拖拽：拖的是已选集合中的一项时，移动整组；
+ * 已选文件夹的子孙（子文件夹 / 其下主机）不再单独移动。
+ */
+function resolveMultiMoveNodeKeys(
+  draggedNodeKey: string,
+  selectedTreeKeys: ReadonlySet<string>,
+  folders: SshSidebarFolder[],
+  connectionFolderId: Record<string, string>,
+  orderedTreeKeys?: readonly string[],
+): string[] {
+  const draggedTreeKey = nodeKeyToTreeKey(draggedNodeKey);
+  if (
+    !draggedTreeKey ||
+    selectedTreeKeys.size <= 1 ||
+    !selectedTreeKeys.has(draggedTreeKey)
+  ) {
+    return [draggedNodeKey];
+  }
+
+  const folderById = new Map(folders.map((f) => [f.id, f]));
+  const selectedFolderIds = new Set(
+    [...selectedTreeKeys]
+      .map(parseSshSidebarFolderTreeKey)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const hasSelectedAncestorFolder = (folderId: string | null): boolean => {
+    let cur = folderId;
+    while (cur) {
+      if (selectedFolderIds.has(cur)) return true;
+      cur = folderById.get(cur)?.parentId ?? null;
+    }
+    return false;
+  };
+
+  const iteration =
+    orderedTreeKeys && orderedTreeKeys.length > 0
+      ? orderedTreeKeys.filter((k) => selectedTreeKeys.has(k))
+      : [...selectedTreeKeys];
+
+  const nodeKeys: string[] = [];
+  for (const treeKey of iteration) {
+    const folderId = parseSshSidebarFolderTreeKey(treeKey);
+    if (folderId) {
+      const parentId = folderById.get(folderId)?.parentId ?? null;
+      if (hasSelectedAncestorFolder(parentId)) continue;
+      nodeKeys.push(sshSidebarFolderNodeKey(folderId));
+      continue;
+    }
+    const hostId = parseSshHostTreeKey(treeKey);
+    if (!hostId) continue;
+    const parentId = connectionFolderId[hostId] ?? null;
+    if (hasSelectedAncestorFolder(parentId)) continue;
+    nodeKeys.push(sshSidebarConnectionNodeKey(hostId));
+  }
+
+  return nodeKeys.length > 0 ? nodeKeys : [draggedNodeKey];
+}
+
+function isDropTargetBlockedByMovingFolders(
+  targetParentId: string | null,
+  movingNodeKeys: string[],
+  folders: SshSidebarFolder[],
+): boolean {
+  if (!targetParentId) return false;
+  const movingFolderIds = new Set(
+    movingNodeKeys
+      .filter((k) => k.startsWith("f:"))
+      .map((k) => k.slice(2)),
+  );
+  if (movingFolderIds.has(targetParentId)) return true;
+  const folderById = new Map(folders.map((f) => [f.id, f]));
+  let cur: string | null = targetParentId;
+  while (cur) {
+    if (movingFolderIds.has(cur)) return true;
+    cur = folderById.get(cur)?.parentId ?? null;
+  }
+  return false;
+}
+
+/** Ctrl+A 全选 / Delete 删除（仅侧栏指针激活时响应）。 */
+function SshTreeHotkeys({
+  allKeys,
+  armedRef,
+  onDeleteSelected,
+}: {
+  allKeys: readonly string[];
+  armedRef: MutableRefObject<boolean>;
+  onDeleteSelected: (selected: ReadonlySet<string>) => boolean | Promise<boolean>;
+}) {
+  const selection = useSidebarTreeSelection();
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!armedRef.current) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
+        )
+      ) {
+        return;
+      }
+
+      const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key.toLowerCase() === "a") {
+        if (allKeys.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        selectionRef.current?.setSelectedIds(allKeys);
+        return;
+      }
+
+      if (event.key === "Delete") {
+        const selected = selectionRef.current?.selectedIds;
+        if (!selected || selected.size === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void Promise.resolve(onDeleteSelected(selected)).then((deleted) => {
+          if (deleted) selectionRef.current?.clearSelection();
+        });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [allKeys, armedRef, onDeleteSelected]);
+
+  return null;
+}
+
+/** 在 Provider 内捕获多选 API，供主机行 onSelect 调用。 */
+function SshSelectionApiCapture({
+  apiRef,
+}: {
+  apiRef: MutableRefObject<ReturnType<typeof useSidebarTreeSelection>>;
+}) {
+  apiRef.current = useSidebarTreeSelection();
+  return null;
+}
+
+function FolderIcon() {
   return (
-    <span
-      className={`resource-tag host-panel-tag host-panel-tag--${typeClass}`}
-      title={t("server.hostList.panelConfigured")}
-    >
-      {brand ? <BrandIconImg kind={brand} size={11} className="host-panel-tag-icon" /> : null}
-      {label}
-    </span>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
   );
 }
 
-function HostResourceTags({ resourceId }: { resourceId: string }) {
-  const tags = useConnectionStore(
-    (s) => s.connections.find((c) => c.id === resourceId)?.tags,
+const PANEL_ICON_ORDER: PanelBrandIconKind[] = ["bt", "1panel"];
+
+function HostPanelIcons({ sshId }: { sshId: string }) {
+  const { t } = useI18n();
+  const connections = useConnectionStore((s) => s.connections);
+  const probed = usePanelProbeStore((s) => s.results[sshId]);
+  const kinds = new Set<PanelBrandIconKind>();
+  if (probed) {
+    for (const panel of probed.panels) {
+      if (!panel.installed) continue;
+      const brand = resolvePanelBrandIcon(panel.kind);
+      if (brand) kinds.add(brand);
+    }
+  }
+  for (const panel of findPanelsForSsh(connections, sshId)) {
+    const brand = resolvePanelBrandIcon(parsePanelConfig(panel).serviceType);
+    if (brand) kinds.add(brand);
+  }
+  if (kinds.size === 0) return null;
+  return (
+    <span className="host-panel-icons">
+      {PANEL_ICON_ORDER.filter((kind) => kinds.has(kind)).map((kind) => (
+        <BrandIconImg
+          key={kind}
+          kind={kind}
+          size={14}
+          className="host-panel-icon"
+          title={
+            kind === "1panel"
+              ? t("server.serviceType.1panel")
+              : t("server.serviceType.bt")
+          }
+        />
+      ))}
+    </span>
   );
-  return <ResourceTags tags={tags} keys={["os"]} variant="compact" />;
 }
 
 function HostMonitoringBadge({ resourceId }: { resourceId: string }) {
@@ -107,45 +315,15 @@ function HostMonitoringBadge({ resourceId }: { resourceId: string }) {
   );
 }
 
-type HostGroupSectionProps = {
-  groupKey: string;
-  label: string;
-  count: number;
-  expanded: boolean;
-  onToggle: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-  children: React.ReactNode;
-};
-
-function HostGroupSection({
-  label,
-  count,
-  expanded,
-  onToggle,
-  onContextMenu,
-  children,
-}: HostGroupSectionProps) {
-  return (
-    <div className={`host-group${expanded ? " host-group--open" : ""}`}>
-      <button
-        type="button"
-        className="host-group-header"
-        onClick={onToggle}
-        onContextMenu={onContextMenu}
-        aria-expanded={expanded}
-      >
-        <span className={`host-group-chevron${expanded ? " host-group-chevron--open" : ""}`}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </span>
-        <span className="host-group-title">{label}</span>
-        <span className="badge badge-muted host-group-count">{count}</span>
-      </button>
-      {expanded && <div className="host-group-body">{children}</div>}
-    </div>
-  );
+function folderDisplayName(name: string, t: (key: string) => string): string {
+  if (name === OPENSSH_CONFIG_GROUP) return sshGroupLabel(name, t);
+  return name;
 }
+
+type CtxTarget =
+  | { kind: "blank" }
+  | { kind: "folder"; folder: SshSidebarFolder }
+  | { kind: "host"; host: WorkspaceResource };
 
 export function HostListPanel({
   resources,
@@ -165,49 +343,92 @@ export function HostListPanel({
   const selectResource = useWorkspaceStore((s) => s.selectResource);
   const setActivePath = useWorkspaceStore((s) => s.setActivePath);
   const connections = useConnectionStore((s) => s.connections);
-  const saveConn = useConnectionStore((s) => s.save);
-  const moveSshConnectionsToGroup = useConnectionStore((s) => s.moveSshConnectionsToGroup);
   const removeConn = useConnectionStore((s) => s.remove);
   const activeHostId = activeHostIdProp ?? selectedResourceByPath[SSH_PATH];
+  const { isExpanded, toggle, ensureExpanded } = usePersistedSshTreeExpanded();
+
+  const folders = useSshSidebarTreeStore((s) => s.folders);
+  const connectionFolderId = useSshSidebarTreeStore((s) => s.connectionFolderId);
+  const orderByParent = useSshSidebarTreeStore((s) => s.orderByParent);
+  const createFolder = useSshSidebarTreeStore((s) => s.createFolder);
+  const renameFolder = useSshSidebarTreeStore((s) => s.renameFolder);
+  const deleteFolder = useSshSidebarTreeStore((s) => s.deleteFolder);
+  const moveNode = useSshSidebarTreeStore((s) => s.moveNode);
+  const pruneMissingConnections = useSshSidebarTreeStore((s) => s.pruneMissingConnections);
+  const migrateFromConnectionGroups = useSshSidebarTreeStore((s) => s.migrateFromConnectionGroups);
+  const adoptOpenSshSyncedHosts = useSshSidebarTreeStore((s) => s.adoptOpenSshSyncedHosts);
+
+  const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
+  const [ctxTarget, setCtxTarget] = useState<CtxTarget | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [showDialog, setShowDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importTargetFolderId, setImportTargetFolderId] = useState<string | null>(null);
+  const [editConnection, setEditConnection] = useState<Connection | undefined>(undefined);
+  const [presetFolderId, setPresetFolderId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const tagAllowedIds = useModuleTagFilter(tagModuleKey, CONNECTION_TAG_KINDS);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const presetFolderIdRef = useRef<string | null>(null);
+  presetFolderIdRef.current = presetFolderId;
+  const importTargetFolderIdRef = useRef<string | null>(null);
+  importTargetFolderIdRef.current = importTargetFolderId;
+  const treeSelectedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const sidebarHotkeysArmedRef = useRef(false);
+  const selectionApiRef = useRef<ReturnType<typeof useSidebarTreeSelection>>(null);
+  const handleTreeSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
+    treeSelectedIdsRef.current = ids;
+  }, []);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      sidebarHotkeysArmedRef.current = Boolean(rootRef.current?.contains(event.target as Node));
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
 
   useEffect(() => {
     void loadSshPoolStatuses();
   }, []);
 
-  type HostListCtxMenu =
-    | { kind: "host"; x: number; y: number; host: WorkspaceResource }
-    | { kind: "group"; x: number; y: number; groupKey: string };
-
-  const [listCtxMenu, setListCtxMenu] = useState<HostListCtxMenu | null>(null);
-  const [showDialog, setShowDialog] = useState(false);
-  const [editConnection, setEditConnection] = useState<Connection | undefined>(undefined);
-  const [presetGroupForNew, setPresetGroupForNew] = useState<string | undefined>(undefined);
-  const [deleting, setDeleting] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const [syncing, setSyncing] = useState(false);
-  const [manualGroups, setManualGroups] = useState<string[]>(() => loadManualEmptyGroups());
-  const tagAllowedIds = useModuleTagFilter(tagModuleKey, CONNECTION_TAG_KINDS);
-
-  // 当某手动分组下出现真实连接时，自动从手动列表清理（转正）
   useEffect(() => {
-    const connGroups = resources.map((r) => normalizeSshGroup(r.group));
-    const connSet = new Set(connGroups);
-    const stale = manualGroups.filter((g) => connSet.has(normalizeSshGroup(g)));
-    if (stale.length > 0) {
-      const next = manualGroups.filter((g) => !connSet.has(normalizeSshGroup(g)));
-      setManualGroups(next);
-      saveManualEmptyGroups(next);
+    const run = () => {
+      const hosts = resources.map((r) => ({ id: r.id, group: r.group }));
+      migrateFromConnectionGroups(hosts);
+      pruneMissingConnections(resources.map((r) => r.id));
+      adoptOpenSshSyncedHosts(hosts);
+    };
+    if (useSshSidebarTreeStore.persist.hasHydrated()) {
+      run();
+      return;
     }
-  }, [resources, manualGroups]);
+    return useSshSidebarTreeStore.persist.onFinishHydration(run);
+  }, [resources, migrateFromConnectionGroups, pruneMissingConnections, adoptOpenSshSyncedHosts]);
 
-  const grouped = useMemo(() => {
+  useEffect(() => {
+    if (!activeHostId) return;
+    ensureExpanded(makeSshHostTreeKey(activeHostId));
+    const folderId = connectionFolderId[activeHostId];
+    if (folderId) ensureExpanded(`ssh-folder:${folderId}`);
+  }, [activeHostId, connectionFolderId, ensureExpanded]);
+
+  const hostById = useMemo(() => {
+    const map = new Map<string, WorkspaceResource>();
+    for (const r of resources) map.set(r.id, r);
+    return map;
+  }, [resources]);
+
+  const filteredHosts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = resources.filter((r) => {
+    return resources.filter((r) => {
       if (!passTagFilter(tagAllowedIds, r.id)) return false;
       if (!q) return true;
       if (r.name.toLowerCase().includes(q)) return true;
       if (r.subtitle.toLowerCase().includes(q)) return true;
-      if (normalizeSshGroup(r.group).toLowerCase().includes(q)) return true;
+      const folderName = getSshHostFolderLabel(r.id);
+      if (folderName?.toLowerCase().includes(q)) return true;
       return (r.tags ?? []).some((tag) => {
         const { key, value } = parseResourceTag(tag);
         return (
@@ -217,47 +438,35 @@ export function HostListPanel({
         );
       });
     });
-    const map = new Map<string, WorkspaceResource[]>();
-    for (const host of filtered) {
-      const key = normalizeSshGroup(host.group);
-      const list = map.get(key) ?? [];
-      list.push(host);
-      map.set(key, list);
+  }, [resources, query, tagAllowedIds]);
+
+  const searching = query.trim().length > 0;
+  const hostIds = useMemo(() => resources.map((r) => r.id), [resources]);
+  const filteredHostIds = useMemo(() => filteredHosts.map((r) => r.id), [filteredHosts]);
+
+  const allTreeKeys = useMemo(() => {
+    if (searching) {
+      return filteredHosts.map((h) => makeSshHostTreeKey(h.id));
     }
-    for (const list of map.values()) {
-      list.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-    }
-    // 合并手动空分组（搜索时仅在名称匹配时展示）
-    const connKeys = [...map.keys()];
-    const { groups: mergedKeys } = mergeGroupsWithManual(connKeys, manualGroups);
-    const visibleKeys = q
-      ? mergedKeys.filter((g) => g.toLowerCase().includes(q) || map.has(g))
-      : mergedKeys;
-    return sortSshGroups(visibleKeys).map((groupKey) => ({
-      groupKey,
-      label: sshGroupLabel(groupKey, t),
-      items: map.get(groupKey) ?? [],
-    }));
-  }, [resources, query, t, manualGroups, tagAllowedIds]);
+    return collectAllSshSidebarTreeKeys(
+      { folders, orderByParent, connectionFolderId },
+      hostIds,
+      makeSshHostTreeKey,
+    );
+  }, [connectionFolderId, filteredHosts, folders, hostIds, orderByParent, searching]);
 
   useEffect(() => {
-    if (!query.trim()) return;
-    setExpandedGroups((prev) => {
-      const next = { ...prev };
-      for (const g of grouped) {
-        next[g.groupKey] = true;
-      }
-      return next;
-    });
-  }, [query, grouped]);
+    if (!searching) return;
+    for (const host of filteredHosts) {
+      ensureExpanded(makeSshHostTreeKey(host.id));
+    }
+  }, [ensureExpanded, filteredHosts, searching]);
 
-  const isGroupExpanded = (groupKey: string) => expandedGroups[groupKey] !== false;
-
-  const toggleGroup = (groupKey: string) => {
-    setExpandedGroups((prev) => ({
-      ...prev,
-      [groupKey]: !isGroupExpanded(groupKey),
-    }));
+  const openCtx = (event: React.MouseEvent, target: CtxTarget) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setCtxPos({ x: event.clientX, y: event.clientY });
+    setCtxTarget(target);
   };
 
   const selectHost = (resource: WorkspaceResource) => {
@@ -286,164 +495,203 @@ export function HostListPanel({
     selectHost(host);
   };
 
-  const handleContextMenu = (e: React.MouseEvent, host: WorkspaceResource) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setListCtxMenu({ kind: "host", x: e.clientX, y: e.clientY, host });
+  const performSyncConfig = useCallback(
+    async (aliases: string[]) => {
+      if (syncing || aliases.length === 0) return;
+      setSyncing(true);
+      try {
+        const aliasSet = new Set(aliases);
+        const beforeIds = new Set(
+          useConnectionStore
+            .getState()
+            .connections.filter((c) => c.kind === "ssh")
+            .map((c) => c.id),
+        );
+        const result = await syncFromOpenSshConfig(aliases);
+        if (!result) {
+          const msg = t("ssh.sidebar.importConfigFailed");
+          showToast(msg);
+          throw new Error(msg);
+        }
+        const hosts = useConnectionStore
+          .getState()
+          .connections.filter((c) => c.kind === "ssh")
+          .map((c) => ({ id: c.id, group: c.group, name: c.name }));
+        const targetFolderId = importTargetFolderIdRef.current;
+        if (targetFolderId) {
+          const folderIds = useSshSidebarTreeStore.getState().connectionFolderId;
+          for (const host of hosts) {
+            if (!aliasSet.has(host.name)) continue;
+            const isNew = !beforeIds.has(host.id);
+            const unassigned = !folderIds[host.id];
+            if (!isNew && !unassigned) continue;
+            moveNode({
+              nodeKey: sshSidebarConnectionNodeKey(host.id),
+              targetParentId: targetFolderId,
+            });
+          }
+          ensureExpanded(`ssh-folder:${targetFolderId}`);
+        } else {
+          adoptOpenSshSyncedHosts(hosts);
+        }
+        pruneMissingConnections(hosts.map((h) => h.id));
+        showToast(
+          t("ssh.sidebar.syncResult", {
+            added: String(result.added),
+            updated: String(result.updated),
+            skipped: String(result.skipped),
+          }),
+        );
+        if (result.failures.length > 0) {
+          showToast(
+            t("ssh.sidebar.syncFailures", { count: String(result.failures.length) }),
+          );
+        }
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [adoptOpenSshSyncedHosts, ensureExpanded, moveNode, pruneMissingConnections, syncing, t],
+  );
+
+  const openImportDialog = useCallback((folderId: string | null = null) => {
+    setImportTargetFolderId(folderId);
+    setShowImportDialog(true);
+  }, []);
+
+  const handleCreateFolder = useCallback(
+    (parentId: string | null) => {
+      void (async () => {
+        const name = await quickInput({
+          title: t("ssh.sidebar.newFolder"),
+          subtitle: t("ssh.sidebar.newFolderPrompt"),
+          placeholder: t("ssh.sidebar.newFolderDefault"),
+          defaultValue: t("ssh.sidebar.newFolderDefault"),
+          validate: (value) => (value.trim() ? null : t("quickInput.required")),
+        });
+        if (name == null) return;
+        const id = createFolder(name, parentId);
+        ensureExpanded(`ssh-folder:${id}`);
+      })();
+    },
+    [createFolder, ensureExpanded, t],
+  );
+
+  const handleRenameFolder = (folder: SshSidebarFolder) => {
+    void (async () => {
+      const name = await quickInput({
+        title: t("ssh.sidebar.renameFolder"),
+        subtitle: t("ssh.sidebar.renameFolderPrompt"),
+        placeholder: folder.name,
+        defaultValue: folder.name,
+        validate: (value) => (value.trim() ? null : t("quickInput.required")),
+      });
+      if (name == null) return;
+      renameFolder(folder.id, name);
+    })();
   };
 
-  const handleGroupContextMenu = (e: React.MouseEvent, groupKey: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setListCtxMenu({ kind: "group", x: e.clientX, y: e.clientY, groupKey });
-  };
-
-  const sshConnectionsInGroup = (groupKey: string) =>
-    connections.filter(
-      (c) => c.kind === "ssh" && normalizeSshGroup(c.group) === groupKey,
-    );
-
-  const remapExpandedGroupKey = (fromKey: string, toKey: string) => {
-    if (fromKey === toKey) return;
-    setExpandedGroups((prev) => {
-      if (!(fromKey in prev)) return prev;
-      const next = { ...prev };
-      next[toKey] = prev[fromKey];
-      delete next[fromKey];
-      return next;
-    });
-  };
-
-  const performSyncConfig = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      await syncFromOpenSshConfig();
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (listCtxMenu?.kind !== "host" || deleting) return;
-    const host = listCtxMenu.host;
-    setListCtxMenu(null);
-    const selectedSet = new Set(selectedIds);
-    const hostIds =
-      selectedSet.size > 1 && selectedSet.has(host.id)
-        ? Array.from(selectedSet)
-        : [host.id];
+  const handleDeleteFolder = async (folder: SshSidebarFolder) => {
     const confirmed = await appConfirm(
-      hostIds.length === 1
+      t("ssh.sidebar.deleteFolderConfirm", { name: folderDisplayName(folder.name, t) }),
+      t("ssh.sidebar.deleteFolder"),
+      { confirmLabel: t("common.continue"), cancelLabel: t("common.cancel") },
+    );
+    if (!confirmed) return;
+    deleteFolder(folder.id);
+  };
+
+  const handleAdd = () => {
+    setEditConnection(undefined);
+    setPresetFolderId(null);
+    setShowDialog(true);
+  };
+
+  const handleNewHostInFolder = (folderId: string) => {
+    setEditConnection(undefined);
+    setPresetFolderId(folderId);
+    setShowDialog(true);
+  };
+
+  const handleDeleteHost = async (host: WorkspaceResource) => {
+    if (deleting) return;
+    const treeSelected = treeSelectedIdsRef.current;
+    const hostIdsFromTree = [...treeSelected]
+      .map(parseSshHostTreeKey)
+      .filter((id): id is string => Boolean(id));
+    const selectedSet = new Set(selectedIds);
+    let hostIdsToDelete: string[];
+    if (hostIdsFromTree.length > 1 && hostIdsFromTree.includes(host.id)) {
+      hostIdsToDelete = hostIdsFromTree;
+    } else if (selectedSet.size > 1 && selectedSet.has(host.id)) {
+      hostIdsToDelete = Array.from(selectedSet);
+    } else {
+      hostIdsToDelete = [host.id];
+    }
+    const confirmed = await appConfirm(
+      hostIdsToDelete.length === 1
         ? t("ssh.dialog.confirmDelete", { name: host.name })
-        : t("sidebarTree.confirmDeleteSelected", { count: String(hostIds.length) }),
+        : t("sidebarTree.confirmDeleteSelected", { count: String(hostIdsToDelete.length) }),
     );
     if (!confirmed) return;
     setDeleting(true);
     try {
-      for (const hostId of hostIds) {
+      for (const hostId of hostIdsToDelete) {
         const ids = getLinkedConnectionIds(connections, hostId);
         for (const id of ids) {
           await removeConn(id);
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setDeleting(false);
   };
 
-  const handleEdit = () => {
-    if (listCtxMenu?.kind !== "host") return;
-    const host = listCtxMenu.host;
-    setListCtxMenu(null);
-    const conn = connections.find((c) => c.id === host.id);
-    if (conn) {
-      setEditConnection(conn);
-      setShowDialog(true);
-    }
-  };
+  const handleHotkeyDelete = useCallback(
+    async (selected: ReadonlySet<string>) => {
+      const keys = Array.from(selected);
+      if (keys.length === 0) return false;
 
-  const handleAdd = () => {
-    setEditConnection(undefined);
-    setPresetGroupForNew(undefined);
-    setShowDialog(true);
-  };
+      const folderIds = keys
+        .map((key) => parseSshSidebarFolderTreeKey(key))
+        .filter((id): id is string => Boolean(id));
+      const hostIdsToDelete = keys
+        .map(parseSshHostTreeKey)
+        .filter((id): id is string => Boolean(id));
 
-  const handleNewHostInGroup = () => {
-    if (listCtxMenu?.kind !== "group") return;
-    const { groupKey } = listCtxMenu;
-    setListCtxMenu(null);
-    setEditConnection(undefined);
-    setPresetGroupForNew(groupKey);
-    setShowDialog(true);
-  };
-
-  const handleAddGroup = async () => {
-    const input = await quickInput({
-      title: t("ssh.context.newGroup"),
-      subtitle: t("ssh.context.newGroupPrompt"),
-      validate: (value) => {
-        const norm = sanitizeSshGroupInput(value);
-        if (!norm) return t("ssh.context.renameGroupEmpty");
-        return null;
-      },
-    });
-    if (input == null) return;
-    const norm = sanitizeSshGroupInput(input);
-    setManualGroups((prev) => {
-      if (prev.some((g) => normalizeSshGroup(g) === norm)) return prev;
-      const next = [...prev, norm];
-      saveManualEmptyGroups(next);
-      return next;
-    });
-    setExpandedGroups((prev) => ({ ...prev, [norm]: true }));
-  };
-
-  const handleDeleteGroup = async () => {
-    if (listCtxMenu?.kind !== "group") return;
-    const { groupKey } = listCtxMenu;
-    setListCtxMenu(null);
-    const conns = sshConnectionsInGroup(groupKey);
-    if (conns.length === 0) {
-      // 空分组：仅从手动列表移除
-      setManualGroups((prev) => {
-        const next = prev.filter((g) => normalizeSshGroup(g) !== groupKey);
-        saveManualEmptyGroups(next);
-        return next;
-      });
-      setExpandedGroups((prev) => {
-        if (!(groupKey in prev)) return prev;
-        const next = { ...prev };
-        delete next[groupKey];
-        return next;
-      });
-      return;
-    }
-    const confirmed = await appConfirm(
-      t("ssh.context.deleteGroupConfirm", { name: sshGroupLabel(groupKey, t), count: String(conns.length) }),
-      t("ssh.context.deleteGroup"),
-      { confirmLabel: t("common.continue"), cancelLabel: t("common.cancel") },
-    );
-    if (!confirmed) return;
-    await moveSshConnectionsToGroup(conns.map((c) => c.id), "默认");
-    setManualGroups((prev) => {
-      const next = prev.filter((g) => normalizeSshGroup(g) !== groupKey);
-      saveManualEmptyGroups(next);
-      return next;
-    });
-    setExpandedGroups((prev) => {
-      if (!(groupKey in prev)) return prev;
-      const next = { ...prev };
-      delete next[groupKey];
-      return next;
-    });
-  };
+      if (hostIdsToDelete.length > 0) {
+        const confirmed = await appConfirm(
+          hostIdsToDelete.length === 1
+            ? t("ssh.dialog.confirmDelete", {
+                name: hostById.get(hostIdsToDelete[0]!)?.name ?? hostIdsToDelete[0]!,
+              })
+            : t("sidebarTree.confirmDeleteSelected", {
+                count: String(hostIdsToDelete.length),
+              }),
+        );
+        if (!confirmed) return false;
+        for (const hostId of hostIdsToDelete) {
+          const ids = getLinkedConnectionIds(
+            useConnectionStore.getState().connections,
+            hostId,
+          );
+          for (const id of ids) {
+            await useConnectionStore.getState().remove(id);
+          }
+        }
+      }
+      for (const folderId of folderIds) {
+        deleteFolder(folderId);
+      }
+      return hostIdsToDelete.length > 0 || folderIds.length > 0;
+    },
+    [deleteFolder, hostById, t],
+  );
 
   const openProfile = useResourceProfileNavStore((s) => s.openProfile);
 
-  const handleConnect = (mode: HostDockOpenMode) => {
-    if (listCtxMenu?.kind !== "host") return;
-    const host = listCtxMenu.host;
-    setListCtxMenu(null);
+  const handleConnect = (host: WorkspaceResource, mode: HostDockOpenMode) => {
     if (onSelectHost) {
       onSelectHost(host.id, mode);
       return;
@@ -451,26 +699,20 @@ export function HostListPanel({
     selectHost(host);
   };
 
-  const handleDuplicateHost = () => {
-    if (listCtxMenu?.kind !== "host") return;
-    const host = listCtxMenu.host;
-    setListCtxMenu(null);
+  const handleDuplicateHost = (host: WorkspaceResource) => {
     const conn = connections.find((c) => c.id === host.id);
     if (!conn) return;
     const dup: Connection = {
       ...conn,
-      id: "", // 让后端生成新 id
+      id: "",
       name: `${conn.name} ${t("ssh.context.duplicateSuffix")}`,
     };
     setEditConnection(dup);
-    setPresetGroupForNew(undefined);
+    setPresetFolderId(connectionFolderId[host.id] ?? null);
     setShowDialog(true);
   };
 
-  const handleCopySshCommand = async () => {
-    if (listCtxMenu?.kind !== "host") return;
-    const host = listCtxMenu.host;
-    setListCtxMenu(null);
+  const handleCopySshCommand = async (host: WorkspaceResource) => {
     const conn = connections.find((c) => c.id === host.id);
     if (!conn || conn.kind !== "ssh") return;
     let user = "root";
@@ -482,7 +724,7 @@ export function HostListPanel({
       if (typeof cfg.port === "number" && Number.isFinite(cfg.port)) port = cfg.port;
       if (typeof cfg.host === "string") sshHost = cfg.host;
     } catch {
-      /* ignore invalid config */
+      /* ignore */
     }
     if (!sshHost) return;
     const cmd = port === 22 ? `ssh ${user}@${sshHost}` : `ssh ${user}@${sshHost} -p ${port}`;
@@ -493,170 +735,335 @@ export function HostListPanel({
     }
   };
 
-  const handleMoveToGroup = async (targetGroup: string) => {
-    if (listCtxMenu?.kind !== "host") return;
-    const host = listCtxMenu.host;
-    const conn = connections.find((c) => c.id === host.id);
-    if (!conn) return;
-    const group = sanitizeSshGroupInput(targetGroup);
-    if (normalizeSshGroup(conn.group) === group) {
-      setListCtxMenu(null);
-      return;
-    }
-    setListCtxMenu(null);
-    await saveConn({ ...conn, group });
-  };
-
-  const handleRenameGroup = () => {
-    if (listCtxMenu?.kind !== "group") return;
-    const { groupKey } = listCtxMenu;
-    setListCtxMenu(null);
-    void (async () => {
-      const input = await quickInput({
-        title: t("ssh.context.editGroup"),
-        subtitle: t("ssh.context.renameGroupPrompt", { name: sshGroupLabel(groupKey, t) }),
-        defaultValue: groupKey,
-        validate: (value) => (value.trim() ? null : t("ssh.context.renameGroupEmpty")),
-      });
-      if (input == null) return;
-      const newKey = sanitizeSshGroupInput(input);
-      if (newKey === groupKey) return;
-      const conns = sshConnectionsInGroup(groupKey);
-      for (const conn of conns) {
-        await saveConn({ ...conn, group: newKey });
-      }
-      remapExpandedGroupKey(groupKey, newKey);
-    })();
-  };
-
-  const handleMoveAllToGroup = async (targetGroup: string) => {
-    if (listCtxMenu?.kind !== "group") return;
-    const { groupKey } = listCtxMenu;
-    const group = sanitizeSshGroupInput(targetGroup);
-    if (group === groupKey) {
-      setListCtxMenu(null);
-      return;
-    }
-    setListCtxMenu(null);
-    const ids = sshConnectionsInGroup(groupKey).map((c) => c.id);
-    await moveSshConnectionsToGroup(ids, group);
-    remapExpandedGroupKey(groupKey, group);
-  };
-
-  const buildMoveTargetChildren = (
-    prefix: string,
-    targetGroups: string[],
-    onPick: (group: string) => void,
-  ): ContextMenuItem[] =>
-    targetGroups.map((g, index) => ({
-      id: `${prefix}-target-${index}-${g}`,
-      label: sshGroupLabel(g, t),
-      onClick: () => void onPick(g),
-    }));
-
-  const buildGroupCtxItems = (groupKey: string): ContextMenuItem[] => {
-    const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== groupKey);
+  const buildMoveFolderChildren = (host: WorkspaceResource): ContextMenuItem[] => {
+    const current = connectionFolderId[host.id] ?? null;
     const items: ContextMenuItem[] = [
-      { id: "group-new-host", label: t("ssh.context.newHostHere"), onClick: handleNewHostInGroup },
-      { id: "group-sep-1", separator: true, label: "" },
-      { id: "group-edit", label: t("ssh.context.editGroup"), onClick: handleRenameGroup },
+      {
+        id: "move-root",
+        label: t("ssh.sidebar.moveToRoot"),
+        disabled: current == null,
+        onClick: () => {
+          moveNode({
+            nodeKey: sshSidebarConnectionNodeKey(host.id),
+            targetParentId: null,
+          });
+        },
+      },
     ];
-    if (targetGroups.length > 0) {
+    for (const folder of folders) {
       items.push({
-        id: "group-move-all",
-        label: t("ssh.context.moveAllTo"),
-        children: buildMoveTargetChildren("group-move-all", targetGroups, handleMoveAllToGroup),
-      });
-    } else {
-      items.push({
-        id: "group-move-all",
-        label: t("ssh.context.moveAllTo"),
-        disabled: true,
+        id: `move-${folder.id}`,
+        label: folderDisplayName(folder.name, t),
+        disabled: current === folder.id,
+        onClick: () => {
+          moveNode({
+            nodeKey: sshSidebarConnectionNodeKey(host.id),
+            targetParentId: folder.id,
+          });
+          ensureExpanded(`ssh-folder:${folder.id}`);
+        },
       });
     }
-    items.push({ id: "group-sep-2", separator: true, label: "" });
-    items.push({
-      id: "group-delete",
-      label: t("ssh.context.deleteGroup"),
-      onClick: handleDeleteGroup,
-      danger: true,
-    });
     return items;
   };
 
   const buildHostCtxItems = (host: WorkspaceResource): ContextMenuItem[] => {
-    const currentGroup = normalizeSshGroup(host.group);
-    const targetGroups = collectSshGroupSuggestions(connections).filter((g) => g !== currentGroup);
     const hasPanel = sshHasPanel(host.id);
-    const items: ContextMenuItem[] = [
-      { id: "host-connect", label: t("ssh.context.connect"), onClick: () => handleConnect("preview") },
-      { id: "host-open-workspace", label: t("ssh.context.openInWorkspace"), onClick: () => handleConnect("permanent") },
+    return [
+      {
+        id: "host-connect",
+        label: t("ssh.context.connect"),
+        onClick: () => handleConnect(host, "preview"),
+      },
+      {
+        id: "host-open-workspace",
+        label: t("ssh.context.openInWorkspace"),
+        onClick: () => handleConnect(host, "permanent"),
+      },
       { id: "host-sep-jump", separator: true, label: "" },
       {
         id: "host-open-terminal",
         label: t("ssh.actions.openTerminal"),
-        onClick: () => {
-          setListCtxMenu(null);
-          jumpSshTerminal(host.id, host.name);
-        },
+        onClick: () => jumpSshTerminal(host.id, host.name),
       },
       {
         id: "host-open-sftp",
         label: t("ssh.actions.openSftp"),
-        onClick: () => {
-          setListCtxMenu(null);
-          jumpSshSftp(host.id, { hostName: host.name, navigate });
-        },
+        onClick: () => jumpSshSftp(host.id, { hostName: host.name, navigate }),
       },
       {
         id: "host-open-docker",
         label: t("ssh.quickActions.docker"),
-        onClick: () => {
-          setListCtxMenu(null);
-          void jumpSshDocker(host.id, t("ssh.quickActions.dockerMissing"));
-        },
+        onClick: () => void jumpSshDocker(host.id, t("ssh.quickActions.dockerMissing")),
       },
       {
         id: "host-open-panel",
         label: t("ssh.quickActions.panel"),
         disabled: !hasPanel,
         disabledReason: hasPanel ? undefined : t("ssh.quickActions.panelMissing"),
-        onClick: () => {
-          setListCtxMenu(null);
-          jumpSshPanel(host.id, t("ssh.quickActions.panelMissing"));
-        },
+        onClick: () => jumpSshPanel(host.id, t("ssh.quickActions.panelMissing")),
       },
       { id: "host-sep-1", separator: true, label: "" },
-      { id: "host-edit", label: t("ssh.dialog.edit"), onClick: handleEdit },
-      { id: "host-duplicate", label: t("ssh.context.duplicate"), onClick: handleDuplicateHost },
-      { id: "host-copy-cmd", label: t("ssh.context.copySshCommand"), onClick: () => void handleCopySshCommand() },
-      { id: "host-view-profile", label: t("resource.profile.viewProfile"), onClick: () => openProfile({ resourceType: "ssh", resourceId: host.id, displayName: host.name }) },
+      {
+        id: "host-edit",
+        label: t("ssh.dialog.edit"),
+        onClick: () => {
+          const conn = connections.find((c) => c.id === host.id);
+          if (conn) {
+            setEditConnection(conn);
+            setPresetFolderId(null);
+            setShowDialog(true);
+          }
+        },
+      },
+      {
+        id: "host-duplicate",
+        label: t("ssh.context.duplicate"),
+        onClick: () => handleDuplicateHost(host),
+      },
+      {
+        id: "host-copy-cmd",
+        label: t("ssh.context.copySshCommand"),
+        onClick: () => void handleCopySshCommand(host),
+      },
+      {
+        id: "host-view-profile",
+        label: t("resource.profile.viewProfile"),
+        onClick: () =>
+          openProfile({ resourceType: "ssh", resourceId: host.id, displayName: host.name }),
+      },
       { id: "host-sep-2", separator: true, label: "" },
+      {
+        id: "host-move",
+        label: t("ssh.context.moveTo"),
+        children: buildMoveFolderChildren(host),
+      },
+      { id: "host-sep-3", separator: true, label: "" },
+      {
+        id: "host-delete",
+        label: t("ssh.dialog.delete"),
+        onClick: () => void handleDeleteHost(host),
+        danger: true,
+      },
     ];
-    if (targetGroups.length > 0) {
-      items.push({
-        id: "host-move",
-        label: t("ssh.context.moveTo"),
-        children: buildMoveTargetChildren("host-move", targetGroups, handleMoveToGroup),
-      });
-    } else {
-      items.push({
-        id: "host-move",
-        label: t("ssh.context.moveTo"),
-        disabled: true,
-      });
-    }
-    items.push({ id: "host-sep-3", separator: true, label: "" });
-    items.push({ id: "host-delete", label: t("ssh.dialog.delete"), onClick: handleDelete, danger: true });
-    return items;
   };
 
-  const buildListCtxItems = (): ContextMenuItem[] => {
-    if (!listCtxMenu) return [];
-    if (listCtxMenu.kind === "group") {
-      return buildGroupCtxItems(listCtxMenu.groupKey);
+  const ctxItems: ContextMenuItem[] = (() => {
+    if (!ctxTarget) return [];
+    if (ctxTarget.kind === "blank") {
+      return [
+        {
+          id: "new-folder",
+          label: t("ssh.sidebar.newFolder"),
+          onClick: () => handleCreateFolder(null),
+        },
+        {
+          id: "new-host",
+          label: t("ssh.dialog.addTitle"),
+          onClick: handleAdd,
+        },
+      ];
     }
-    return buildHostCtxItems(listCtxMenu.host);
+    if (ctxTarget.kind === "folder") {
+      return [
+        {
+          id: "new-host-here",
+          label: t("ssh.context.newHostHere"),
+          onClick: () => handleNewHostInFolder(ctxTarget.folder.id),
+        },
+        {
+          id: "import-config-here",
+          label: t("ssh.context.importConfigHere"),
+          onClick: () => openImportDialog(ctxTarget.folder.id),
+        },
+        {
+          id: "new-folder",
+          label: t("ssh.sidebar.newFolder"),
+          onClick: () => handleCreateFolder(ctxTarget.folder.id),
+        },
+        {
+          id: "rename-folder",
+          label: t("ssh.sidebar.renameFolder"),
+          onClick: () => handleRenameFolder(ctxTarget.folder),
+        },
+        {
+          id: "delete-folder",
+          label: t("ssh.sidebar.deleteFolder"),
+          danger: true,
+          onClick: () => void handleDeleteFolder(ctxTarget.folder),
+        },
+      ];
+    }
+    return buildHostCtxItems(ctxTarget.host);
+  })();
+
+  const onDragStartNode = (event: DragEvent, nodeKey: string) => {
+    const keys = resolveMultiMoveNodeKeys(
+      nodeKey,
+      treeSelectedIdsRef.current,
+      folders,
+      connectionFolderId,
+      allTreeKeys,
+    );
+    event.dataTransfer.setData(DND_MIME, JSON.stringify(keys));
+    event.dataTransfer.effectAllowed = "move";
+  };
+
+  const onDragOverNode = (event: DragEvent, dropKey: string) => {
+    if (![...event.dataTransfer.types].includes(DND_MIME)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverKey(dropKey);
+  };
+
+  const onDropOnFolder = (event: DragEvent, folderId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOverKey(null);
+    const keys = parseDragNodeKeys(event.dataTransfer.getData(DND_MIME)).filter(
+      (k) => k !== sshSidebarFolderNodeKey(folderId),
+    );
+    if (keys.length === 0) return;
+    if (isDropTargetBlockedByMovingFolders(folderId, keys, folders)) return;
+    for (const nodeKey of keys) {
+      moveNode({ nodeKey, targetParentId: folderId });
+    }
+    ensureExpanded(`ssh-folder:${folderId}`);
+  };
+
+  const onDropBefore = (event: DragEvent, parentId: string | null, beforeKey: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOverKey(null);
+    const keys = parseDragNodeKeys(event.dataTransfer.getData(DND_MIME)).filter(
+      (k) => k && k !== beforeKey,
+    );
+    if (keys.length === 0) return;
+    if (isDropTargetBlockedByMovingFolders(parentId, keys, folders)) return;
+    // 连续 insert before 同一锚点会倒序，故反向写入以保持选中顺序
+    for (const nodeKey of [...keys].reverse()) {
+      moveNode({ nodeKey, targetParentId: parentId, beforeKey });
+    }
+  };
+
+  const renderHost = (host: WorkspaceResource, depth: number) => {
+    const treeKey = makeSshHostTreeKey(host.id);
+    const dragKey = sshSidebarConnectionNodeKey(host.id);
+    const selected = selectedIds.includes(host.id);
+    return (
+      <div key={host.id} className="ssh-tree-host">
+        <SidebarTreeNode
+          depth={depth}
+          module="ssh"
+          nodeType="host"
+          treeKey={treeKey}
+          className={`${dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}${selected ? " selected" : ""}`}
+          prefix={
+            selectionMode ? (
+              <input
+                type="checkbox"
+                className="host-item-select"
+                checked={selected}
+                onChange={() => onToggleSelect?.(host.id)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={host.name}
+              />
+            ) : (
+              <HostStatusIndicator resourceId={host.id} />
+            )
+          }
+          label={
+            <span className="host-info ssh-tree-host-label">
+              <span className="host-row-1">
+                <span className="host-name">{host.name}</span>
+                <span className="host-row-1-meta">
+                  <HostMonitoringBadge resourceId={host.id} />
+                </span>
+              </span>
+              <span className="host-row-2">{host.subtitle}</span>
+            </span>
+          }
+          trailing={<HostPanelIcons sshId={host.id} />}
+          hasChildren={false}
+          expanded={false}
+          active={activeHostId === host.id}
+          onToggle={() => undefined}
+          draggable={!selectionMode}
+          onDragStart={(e) => onDragStartNode(e, dragKey)}
+          onDragOver={(e) => onDragOverNode(e, dragKey)}
+          onDragLeave={() => setDragOverKey((k) => (k === dragKey ? null : k))}
+          onDrop={(e) => {
+            const parentId = connectionFolderId[host.id] ?? null;
+            onDropBefore(e, parentId, dragKey);
+          }}
+          onDragEnd={() => setDragOverKey(null)}
+          onSelect={(event: TreeRowMouseEvent) => {
+            selectionApiRef.current?.handleSelect(treeKey, event);
+            if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+            handleHostClick(host);
+          }}
+          onActivate={() => handleHostDoubleClick(host)}
+          onContextMenu={(event) => openCtx(event, { kind: "host", host })}
+        />
+      </div>
+    );
+  };
+
+  const renderFolderTree = (parentId: string | null, depth: number): ReactNode => {
+    const items = listSshSidebarChildren(
+      { folders, orderByParent, connectionFolderId },
+      parentId,
+      searching ? filteredHostIds : hostIds,
+    );
+    return items.map((item) => {
+      if (item.kind === "connection") {
+        const host = hostById.get(item.connectionId);
+        if (!host) return null;
+        if (searching && !filteredHostIds.includes(host.id)) return null;
+        return renderHost(host, depth);
+      }
+      const folder = item.folder;
+      if (searching) {
+        const childKeys = collectAllSshSidebarTreeKeys(
+          { folders, orderByParent, connectionFolderId },
+          filteredHostIds,
+          makeSshHostTreeKey,
+          folder.id,
+        );
+        if (childKeys.length === 0) return null;
+      }
+      const folderTreeKey = `ssh-folder:${folder.id}`;
+      const folderExpanded = searching || isExpanded(folderTreeKey);
+      const dropKey = sshSidebarFolderNodeKey(folder.id);
+      return (
+        <div key={folder.id} className="ssh-tree-folder">
+          <SidebarTreeNode
+            depth={depth}
+            module="ssh"
+            nodeType="folder"
+            treeKey={folderTreeKey}
+            icon={<FolderIcon />}
+            className={dragOverKey === dropKey ? "ssh-tree-drop-target" : ""}
+            label={folderDisplayName(folder.name, t)}
+            hasChildren
+            expanded={folderExpanded}
+            draggable
+            onDragStart={(e) => onDragStartNode(e, dropKey)}
+            onDragOver={(e) => onDragOverNode(e, dropKey)}
+            onDragLeave={() => setDragOverKey((k) => (k === dropKey ? null : k))}
+            onDrop={(e) => onDropOnFolder(e, folder.id)}
+            onDragEnd={() => setDragOverKey(null)}
+            onToggle={() => toggle(folderTreeKey)}
+            onContextMenu={(event) => openCtx(event, { kind: "folder", folder })}
+            onRename={() => handleRenameFolder(folder)}
+            onDelete={() => void handleDeleteFolder(folder)}
+            renameLabel={t("ssh.sidebar.renameFolder")}
+            deleteLabel={t("ssh.sidebar.deleteFolder")}
+          />
+          {folderExpanded ? renderFolderTree(folder.id, depth + 1) : null}
+        </div>
+      );
+    });
   };
 
   const toolbar = useMemo(
@@ -666,46 +1073,30 @@ export function HostListPanel({
           variant="icon"
           title={t("ssh.sidebar.syncConfig")}
           disabled={syncing}
-          onClick={() => {
-            void (async () => {
-              if (
-                await appConfirm(
-                  t("ssh.sidebar.syncConfigConfirmMessage"),
-                  t("ssh.sidebar.syncConfigConfirmTitle"),
-                  { confirmLabel: t("common.continue"), cancelLabel: t("common.cancel") },
-                )
-              ) {
-                await performSyncConfig();
-              }
-            })();
-          }}
+          onClick={() => openImportDialog(null)}
         >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            width="14"
-            height="14"
-            className={syncing ? "icon-spin" : undefined}
-          >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
-          </svg>
+          <IconDownload size={14} className={syncing ? "icon-spin" : undefined} />
         </Button>
-        <Button variant="icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-        </Button>
-        <Button variant="icon" title={t("ssh.context.newGroup")} onClick={() => void handleAddGroup()}>
+        <Button
+          variant="icon"
+          title={t("ssh.sidebar.newFolder")}
+          onClick={() => handleCreateFolder(null)}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             <line x1="12" y1="11" x2="12" y2="17" />
             <line x1="9" y1="14" x2="15" y2="14" />
           </svg>
         </Button>
+        <Button variant="icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </Button>
       </div>
     ),
-    [syncing, t],
+    [handleCreateFolder, openImportDialog, syncing, t],
   );
 
   useLayoutEffect(() => {
@@ -715,8 +1106,10 @@ export function HostListPanel({
     onHeaderMetaChange({ count: resources.length, actions: toolbar });
   }, [embedded, onHeaderMetaChange, resources.length, toolbar]);
 
-  const panelBody = (
-    <div className="host-list-panel">
+  const empty = filteredHosts.length === 0 && (searching || folders.length === 0);
+
+  return (
+    <div className="host-list-panel" ref={rootRef}>
       {!embedded ? (
         <div className="host-list-header window-drag-surface" data-tauri-drag-region>
           <h3>{t("ssh.sidebar.title")}</h3>
@@ -725,80 +1118,80 @@ export function HostListPanel({
         </div>
       ) : null}
       <ScopedSearch value={query} onChange={setQuery} placeholder={t("ssh.sidebar.search")}>
-        <div className="host-list">
-          {grouped.length === 0 ? (
-            <div className="empty-state compact">{t("common.noResources")}</div>
-          ) : (
-            grouped.map((group) => (
-              <HostGroupSection
-                key={group.groupKey}
-                groupKey={group.groupKey}
-                label={group.label}
-                count={group.items.length}
-                expanded={isGroupExpanded(group.groupKey)}
-                onToggle={() => toggleGroup(group.groupKey)}
-                onContextMenu={(e) => handleGroupContextMenu(e, group.groupKey)}
-              >
-                {group.items.map((host) => (
-                  <div
-                    key={`${group.groupKey}::${host.id}`}
-                    className={`host-item-row${activeHostId === host.id ? " active" : ""}${selectedIds.includes(host.id) ? " selected" : ""}`}
-                    onContextMenu={(e) => handleContextMenu(e, host)}
-                  >
-                    {selectionMode && (
-                      <input
-                        type="checkbox"
-                        className="host-item-select"
-                        checked={selectedIds.includes(host.id)}
-                        onChange={() => onToggleSelect?.(host.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={host.name}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      className="host-item"
-                      onClick={() => handleHostClick(host)}
-                      onDoubleClick={() => handleHostDoubleClick(host)}
-                    >
-                      <HostStatusIndicator resourceId={host.id} />
-                      <div className="host-info">
-                        <div className="host-row-1">
-                          <span className="host-name">{host.name}</span>
-                          <div className="host-row-1-meta">
-                            <HostResourceTags resourceId={host.id} />
-                            <HostPanelBadge sshId={host.id} />
-                            <HostMonitoringBadge resourceId={host.id} />
-                          </div>
-                        </div>
-                        <div className="host-row-2">{host.subtitle}</div>
-                      </div>
-                    </button>
-                  </div>
-                ))}
-              </HostGroupSection>
-            ))
-          )}
-        </div>
+        <SidebarTreeSelectionProvider
+          orderedKeys={allTreeKeys}
+          onSelectedIdsChange={handleTreeSelectedIdsChange}
+        >
+          <SshSelectionApiCapture apiRef={selectionApiRef} />
+          <SshTreeHotkeys
+            allKeys={allTreeKeys}
+            armedRef={sidebarHotkeysArmedRef}
+            onDeleteSelected={handleHotkeyDelete}
+          />
+          <div
+            className="host-list ssh-sidebar-tree-wrap"
+            onContextMenu={(event) => {
+              if ((event.target as HTMLElement).closest(".sidebar-tree-node, .tree-node")) return;
+              openCtx(event, { kind: "blank" });
+            }}
+          >
+            <SidebarTreeRoot className="ssh-sidebar-tree">
+              {empty ? (
+                <SidebarTreeEmpty>
+                  {searching ? t("ssh.sidebar.searchNoResults") : t("common.noResources")}
+                </SidebarTreeEmpty>
+              ) : searching ? (
+                filteredHosts.map((host) => renderHost(host, 0))
+              ) : (
+                renderFolderTree(null, 0)
+              )}
+            </SidebarTreeRoot>
+          </div>
+        </SidebarTreeSelectionProvider>
       </ScopedSearch>
 
-      {listCtxMenu && (
+      {ctxPos ? (
         <ContextMenu
-          items={buildListCtxItems()}
-          position={{ x: listCtxMenu.x, y: listCtxMenu.y }}
-          onClose={() => setListCtxMenu(null)}
+          items={ctxItems}
+          position={ctxPos}
+          onClose={() => {
+            setCtxPos(null);
+            setCtxTarget(null);
+          }}
         />
-      )}
+      ) : null}
 
       <SshConnectionDialog
         open={showDialog}
-        onClose={() => { setShowDialog(false); setEditConnection(undefined); setPresetGroupForNew(undefined); }}
-        onSaved={() => useConnectionStore.getState().refresh()}
+        onClose={() => {
+          setShowDialog(false);
+          setEditConnection(undefined);
+          setPresetFolderId(null);
+        }}
+        onSaved={(savedId) => {
+          void useConnectionStore.getState().refresh();
+          const folderId = presetFolderIdRef.current;
+          if (savedId && folderId) {
+            moveNode({
+              nodeKey: sshSidebarConnectionNodeKey(savedId),
+              targetParentId: folderId,
+            });
+            ensureExpanded(`ssh-folder:${folderId}`);
+          } else if (savedId) {
+            useSshSidebarTreeStore.getState().ensureConnectionListed(savedId);
+          }
+        }}
         editConnection={editConnection}
-        presetGroup={presetGroupForNew}
+      />
+
+      <SshConfigImportDialog
+        open={showImportDialog}
+        onClose={() => {
+          setShowImportDialog(false);
+          setImportTargetFolderId(null);
+        }}
+        onConfirm={performSyncConfig}
       />
     </div>
   );
-
-  return panelBody;
 }

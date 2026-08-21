@@ -198,7 +198,7 @@ export function UserCenterTeams({
   );
 
   const loadTeamDataPeek = useCallback(
-    async (team: TeamSummary, options?: { silent?: boolean }) => {
+    async (team: TeamSummary, options?: { silent?: boolean; afterUpload?: boolean }) => {
       if (!token) return;
       const silent = options?.silent === true;
       if (!silent) {
@@ -206,7 +206,9 @@ export function UserCenterTeams({
       }
       setDataPeekError(null);
       try {
-        const result = await peekTeamModules(token, team.id);
+        const result = await peekTeamModules(token, team.id, {
+          afterUpload: options?.afterUpload === true,
+        });
         setDataPeek(result);
       } catch (e) {
         if (isAuthSessionError(e)) {
@@ -465,7 +467,7 @@ export function UserCenterTeams({
           size: Math.max(1, Math.round(result.bytes / 1024)),
         }),
       );
-      await loadTeamDataPeek(selectedTeam);
+      await loadTeamDataPeek(selectedTeam, { afterUpload: true });
     } catch (e) {
       if (isAuthSessionError(e)) {
         handleSessionExpired();

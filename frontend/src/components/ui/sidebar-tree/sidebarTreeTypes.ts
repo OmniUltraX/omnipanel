@@ -2,6 +2,7 @@
 export type SidebarTreeModule =
   | "docker"
   | "server"
+  | "ssh"
   | "database"
   | "database-sql"
   | "knowledge"

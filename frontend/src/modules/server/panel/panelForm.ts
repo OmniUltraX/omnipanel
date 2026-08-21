@@ -32,7 +32,7 @@ export function panelConnectionToForm(connection: Connection): PanelFormData {
   return {
     name: connection.name,
     panelAddress: panel.address,
-    // API Key 在 Vault，编辑不回显；留空保存表示保留原密钥
+    // API Key 在 Vault；打开表单时由 ServerConnectionDialog 从 Vault 回显
     panelKey: "",
     serviceType: panel.serviceType,
     remark,
@@ -43,6 +43,7 @@ export function buildPanelOnlyConnection(
   form: PanelFormData,
   existing?: Connection,
   tags: string[] = [],
+  bindSshConnectionId?: string,
 ): Connection {
   const config: PanelConfigJson & { remark?: string } = {
     address: form.panelAddress.trim(),
@@ -56,6 +57,9 @@ export function buildPanelOnlyConnection(
     if (prev.sshConnectionId) {
       config.sshConnectionId = prev.sshConnectionId;
     }
+  } else if (bindSshConnectionId?.trim()) {
+    // 从 SSH 概览「一键管理」打开时绑定当前主机
+    config.sshConnectionId = bindSshConnectionId.trim();
   }
   const now = Date.now();
   return {

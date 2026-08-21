@@ -21,6 +21,8 @@ interface DockerConnectionDialogProps {
   editConnection?: Connection;
   /** 打开编辑表单时的提示（如缺少绑定 SSH），展示在表单顶部 info 区 */
   statusHint?: string | null;
+  /** 新建时预填并绑定该 SSH 主机（SSH 概览「一键管理」） */
+  bindSshConnection?: Connection;
 }
 
 type Source = "ssh-engine" | "onepanel" | "btpanel";
@@ -244,6 +246,7 @@ export function DockerConnectionDialog({
   onSaved,
   editConnection,
   statusHint = null,
+  bindSshConnection,
 }: DockerConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
@@ -303,6 +306,11 @@ export function DockerConnectionDialog({
             /* Vault 无密钥或读取失败：保持空，由用户填写 */
           });
       }
+    } else if (bindSshConnection) {
+      setForm(applyBoundSshToForm({ ...EMPTY, source: "ssh-engine" }, bindSshConnection));
+      setSshManualMode(false);
+      setLegacySourceNotice(null);
+      setTags([]);
     } else {
       setForm(EMPTY);
       setSshManualMode(false);
@@ -314,7 +322,7 @@ export function DockerConnectionDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, editConnection]);
+  }, [open, editConnection, bindSshConnection]);
 
   if (!open) return null;
 

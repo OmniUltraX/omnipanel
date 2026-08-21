@@ -161,8 +161,17 @@ fn is_retryable_onepanel_envelope(message: &str) -> bool {
 
 impl OnePanelClient {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, insecure: bool) -> Self {
+        let mut url = base_url.into().trim().to_string();
+        if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
+            url = format!("http://{url}");
+        }
+        let rest_start = url.find("://").map(|i| i + 3).unwrap_or(0);
+        let origin = match url[rest_start..].find('/') {
+            Some(i) => url[..rest_start + i].trim_end_matches('/').to_string(),
+            None => url.trim_end_matches('/').to_string(),
+        };
         Self {
-            base_url: base_url.into().trim_end_matches('/').to_string(),
+            base_url: origin,
             api_key: api_key.into(),
             insecure,
         }

@@ -22,7 +22,7 @@ export function useSshManager() {
   const setTerminalTab = useTerminalStore((s) => s.setActiveTab);
   const terminalTabs = useTerminalStore((s) => s.tabs);
 
-  const [detailTab, setDetailTab] = usePersistedModuleTab("ssh-detail", "overview", DETAIL_TABS);
+  const [detailTab, setDetailTab] = usePersistedModuleTab("ssh-detail-v2", "capabilities", DETAIL_TABS);
 
   const sshResources = useSshHostResources();
   const activeResource = useMemo(() => {

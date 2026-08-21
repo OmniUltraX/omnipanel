@@ -6,7 +6,8 @@ import { TextInput } from "../../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { createBtPanelClient, BtPanelApiError, clearBtPanelLockout } from "../../../lib/btpanel";
 import { createOnePanelClient } from "../../../lib/onepanel";
-import type { Connection } from "../../../ipc/bindings";
+import { commands, type Connection } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 import {
   buildPanelOnlyConnection,
   EMPTY_PANEL_FORM,
@@ -23,6 +24,10 @@ interface ServerConnectionDialogProps {
   onClose: () => void;
   onSaved?: () => void;
   editPanelConnection?: Connection;
+  /** 新建时预填（SSH 概览「一键管理」） */
+  initialForm?: Partial<PanelFormData>;
+  /** 新建时绑定到该 SSH 主机 */
+  bindSshConnectionId?: string;
 }
 
 export function ServerConnectionDialog({
@@ -30,6 +35,8 @@ export function ServerConnectionDialog({
   onClose,
   onSaved,
   editPanelConnection,
+  initialForm,
+  bindSshConnectionId,
 }: ServerConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
@@ -47,14 +54,39 @@ export function ServerConnectionDialog({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
 
-    setForm(editPanelConnection ? panelConnectionToForm(editPanelConnection) : EMPTY_PANEL_FORM);
+    setForm(
+      editPanelConnection
+        ? panelConnectionToForm(editPanelConnection)
+        : { ...EMPTY_PANEL_FORM, ...initialForm },
+    );
     setTags(userConnectionTags(editPanelConnection?.tags));
     setError(null);
     setPanelStatus(null);
     setSaving(false);
     setTestingPanel(false);
-  }, [open, editPanelConnection]);
+
+    // 编辑：从 Vault 回显 API Key（config 永不存明文）
+    if (editPanelConnection?.id) {
+      void unwrapCommand(commands.panelResolveApiKey(editPanelConnection.id), {
+        quiet: true,
+      })
+        .then((key) => {
+          if (cancelled || !key.trim()) return;
+          setForm((prev) =>
+            prev.panelKey.trim() ? prev : { ...prev, panelKey: key.trim() },
+          );
+        })
+        .catch(() => {
+          /* Vault 无密钥：保持空，由用户填写；留空保存仍保留原密钥 */
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editPanelConnection, initialForm]);
 
   const update = <K extends keyof PanelFormData>(key: K, value: PanelFormData[K]) => {
     setError(null);
@@ -139,6 +171,7 @@ export function ServerConnectionDialog({
         form,
         editPanelConnection,
         mergeConnectionTags(tags, editPanelConnection?.tags),
+        bindSshConnectionId,
       );
       const saved = await saveConn(draft);
       if (!saved?.id) throw new Error("Panel save failed");

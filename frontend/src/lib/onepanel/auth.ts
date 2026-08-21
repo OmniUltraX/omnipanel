@@ -21,14 +21,19 @@ export function buildOnePanelAuthHeaders(
   };
 }
 
-/** 规范化面板地址为 origin（无尾部斜杠）。未带协议时默认 http。 */
+/** 规范化面板地址为 origin（scheme://host:port，无安全入口路径）。未带协议时默认 http。 */
 export function normalizeOnePanelBaseUrl(host: string): string {
-  let normalized = host.trim().replace(/\/+$/, "");
+  let normalized = host.trim();
   if (!normalized) {
     throw new Error("1Panel 地址不能为空");
   }
   if (!/^https?:\/\//i.test(normalized)) {
     normalized = `http://${normalized}`;
   }
-  return normalized;
+  try {
+    const u = new URL(normalized);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return normalized.replace(/\/+$/, "");
+  }
 }

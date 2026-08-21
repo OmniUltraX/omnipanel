@@ -25,8 +25,8 @@ type Props = {
 export function HostDetailPanel({ hostId }: Props) {
   const { t } = useI18n();
   const [detailTab, setDetailTab] = usePersistedModuleTab(
-    `ssh-detail-${hostId}`,
-    "overview",
+    `ssh-detail-v2-${hostId}`,
+    "capabilities",
     DETAIL_TABS,
   );
   const sshResources = useSshHostResources();

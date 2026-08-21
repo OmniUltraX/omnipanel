@@ -1,7 +1,8 @@
 import { useI18n } from "../../../../i18n";
 import { ResourceTags } from "../../../../components/ui/tags/ResourceTags";
 import { useConnectionStore } from "../../../../stores/connectionStore";
-import { normalizeSshGroup, sshGroupLabel } from "../../../../lib/sshGroups";
+import { useSshSidebarTreeStore } from "../../../../stores/sshSidebarTreeStore";
+import { OPENSSH_CONFIG_GROUP, sshGroupLabel } from "../../../../lib/sshGroups";
 import { DETAIL_TABS } from "../constants";
 import type { DetailTab } from "../types";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
@@ -104,6 +105,17 @@ export function HostDetailToolbar({
   overviewRefresh,
 }: Props) {
   const { t } = useI18n();
+  const folderName = useSshSidebarTreeStore((s) => {
+    const folderId = s.connectionFolderId[resource.id];
+    if (!folderId) return null;
+    return s.folders.find((f) => f.id === folderId)?.name ?? null;
+  });
+  const folderLabel =
+    folderName == null
+      ? null
+      : folderName === OPENSSH_CONFIG_GROUP
+        ? sshGroupLabel(folderName, t)
+        : folderName;
 
   const metaParts = [
     context.osInfo,
@@ -148,9 +160,9 @@ export function HostDetailToolbar({
               <span className="ssh-detail-toolbar__name">{resource.name}</span>
               <HostDetailTags resourceId={resource.id} />
               <HostStatusIndicator resourceId={resource.id} showLabel />
-              <span className="badge badge-muted">
-                {sshGroupLabel(normalizeSshGroup(resource.group), t)}
-              </span>
+              {folderLabel ? (
+                <span className="badge badge-muted">{folderLabel}</span>
+              ) : null}
             </div>
             <div className="ssh-detail-toolbar__meta">
               <span className="ssh-detail-toolbar__meta-primary">

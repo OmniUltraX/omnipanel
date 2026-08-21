@@ -2,6 +2,8 @@ import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { serializeSshSidebarTree } from "../../stores/sshSidebarTreeStore";
+import { collectFolderTreesJson } from "./folderTrees";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
 import { scheduleSecretsVaultSync } from "./secretsVaultSync";
@@ -55,6 +57,8 @@ async function pushModulesOnce(teamId: number | null): Promise<void> {
     commands.clientSyncPushModules({
       token,
       workspacesJson: collectWorkspacesJson(),
+      sshSidebarTreeJson: serializeSshSidebarTree(),
+      folderTreesJson: collectFolderTreesJson(),
       teamId,
       ...deleted,
     }),

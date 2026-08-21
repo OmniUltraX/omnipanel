@@ -119,16 +119,21 @@ pub fn build_request_token(api_sk: &str, request_time: i64) -> String {
     format!("{:x}", md5::compute(payload))
 }
 
-/// 规范化面板地址为 origin（无尾部斜杠）。未带协议时默认 http。
+/// 规范化面板地址为 origin（scheme://host:port，无安全入口路径）。未带协议时默认 http。
 pub fn normalize_base_url(host: &str) -> Result<String, OmniError> {
-    let mut normalized = host.trim().trim_end_matches('/').to_string();
+    let mut normalized = host.trim().to_string();
     if normalized.is_empty() {
         return Err(OmniError::invalid_input("宝塔面板地址不能为空"));
     }
     if !normalized.starts_with("http://") && !normalized.starts_with("https://") {
         normalized = format!("http://{normalized}");
     }
-    Ok(normalized)
+    let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
+    let origin = match normalized[rest_start..].find('/') {
+        Some(i) => normalized[..rest_start + i].trim_end_matches('/').to_string(),
+        None => normalized.trim_end_matches('/').to_string(),
+    };
+    Ok(origin)
 }
 
 fn current_timestamp() -> i64 {

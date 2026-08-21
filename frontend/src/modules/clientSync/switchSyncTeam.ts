@@ -3,6 +3,8 @@ import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
+import { applySshSidebarTreeJson } from "../../stores/sshSidebarTreeStore";
+import { applyFolderTreesJson } from "./folderTrees";
 import {
   getCurrentSyncTeamId,
   useCurrentSyncTeamStore,
@@ -171,6 +173,8 @@ export async function switchSyncTeam(
     if (modulesResult.found) {
       // 后端 apply 已按快照整表替换连接/库/知识库/HTTP；前端补工作区与 UI 刷新
       replaceWorkspacesJson(modulesResult.workspacesJson);
+      applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
+      applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
       await refreshLocalModuleUi();
       pulledModules = true;
     }

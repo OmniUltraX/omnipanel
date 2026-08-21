@@ -597,8 +597,8 @@ export const commands = {
 	sshPoolDownloadInstallBinary: (resourceId: string, url: string, remotePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_download_install_binary", { resourceId, url, remotePath })),
 	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */
 	sshListConfigHosts: () => typedError<SshConfigEntry[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_config_hosts")),
-	/**  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。 */
-	sshSyncConfigHosts: () => typedError<SshConfigSyncResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_sync_config_hosts")),
+	/**  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新；可指定别名）。 */
+	sshSyncConfigHosts: (aliases: string[] | null) => typedError<SshConfigSyncResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_sync_config_hosts", { aliases })),
 	/**  按 `~/.ssh/config` 中的 Host 别名建立连接（使用 IdentityFile 等配置）。 */
 	sshConnectConfigHost: (alias: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_config_host", { alias, cols, rows })),
 	/**  列出远程进程列表。 */
@@ -2018,6 +2018,8 @@ export type ClientSyncPullModulesResult = {
 	appliedHttpRequests: number | null,
 	appliedWorkspaces: number | null,
 	workspacesJson: string | null,
+	sshSidebarTreeJson: string | null,
+	folderTreesJson: string | null,
 };
 
 export type ClientSyncPushConversationsRequest = {
@@ -2037,6 +2039,8 @@ export type ClientSyncPushConversationsResult = {
 export type ClientSyncPushModulesRequest = {
 	token: string,
 	workspacesJson?: string | null,
+	sshSidebarTreeJson?: string | null,
+	folderTreesJson?: string | null,
 	deletedConnections?: ClientSyncTombstone[],
 	deletedDatabases?: ClientSyncTombstone[],
 	deletedKnowledge?: ClientSyncTombstone[],
@@ -5458,6 +5462,8 @@ export type TeamSyncPushModulesRequest = {
 	token: string,
 	teamId: number,
 	workspacesJson?: string | null,
+	sshSidebarTreeJson?: string | null,
+	folderTreesJson?: string | null,
 	deletedConnections?: ClientSyncTombstone[],
 	deletedDatabases?: ClientSyncTombstone[],
 	deletedKnowledge?: ClientSyncTombstone[],
@@ -5489,12 +5495,16 @@ export type TeamSyncPeekModulesRequest = {
 	token: string,
 	teamId: number,
 	workspacesJson?: string | null,
+	sshSidebarTreeJson?: string | null,
+	folderTreesJson?: string | null,
 	excludedConnections?: string[],
 	excludedDatabases?: string[],
 	excludedKnowledge?: string[],
 	excludedHttpRequests?: string[],
 	excludedHttpCollections?: string[],
 	excludedWorkspaces?: string[],
+	/**  上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。 */
+	afterUpload?: boolean,
 };
 
 export type TeamSyncPeekSyncStatus = "synced" | "local" | "remote";

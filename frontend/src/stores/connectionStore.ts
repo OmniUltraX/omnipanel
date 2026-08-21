@@ -278,10 +278,17 @@ export async function initConnections(): Promise<void> {
   await useConnectionStore.getState().refresh();
 }
 
-/** 将 `~/.ssh/config` 同步到本地持久化存储，并刷新连接列表。 */
-export async function syncFromOpenSshConfig(): Promise<SshConfigSyncResult | null> {
+/** 将 `~/.ssh/config` 同步到本地持久化存储，并刷新连接列表。
+ * - 不传 `aliases`：同步全部
+ * - 传入别名数组：仅同步这些 Host（空数组则不同步）
+ */
+export async function syncFromOpenSshConfig(
+  aliases?: string[],
+): Promise<SshConfigSyncResult | null> {
   try {
-    const res = await commands.sshSyncConfigHosts();
+    const res = await commands.sshSyncConfigHosts(
+      aliases === undefined ? null : aliases,
+    );
     if (res.status === "ok") {
       await useConnectionStore.getState().refresh();
       scheduleAssistantSnapshotSync();

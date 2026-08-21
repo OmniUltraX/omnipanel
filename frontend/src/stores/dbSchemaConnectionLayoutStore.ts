@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
 
 export type SchemaConnectionFolder = {
   id: string;
@@ -92,6 +93,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
           parentId,
         };
         set((state) => ({ folders: [...state.folders, folder] }));
+        scheduleClientModuleSync();
         return folder;
       },
 
@@ -108,6 +110,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
         set((state) => ({
           folders: state.folders.map((f) => (f.id === folderId ? { ...f, name: nextName } : f)),
         }));
+        scheduleClientModuleSync();
         return true;
       },
 
@@ -123,6 +126,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
           }
           return { folders, connectionParents };
         });
+        scheduleClientModuleSync();
       },
 
       moveFolder: (folderId, newParentId) => {
@@ -138,6 +142,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
             f.id === folderId ? { ...f, parentId: newParentId } : f,
           ),
         }));
+        scheduleClientModuleSync();
         return true;
       },
 
@@ -145,6 +150,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
         set((state) => ({
           connectionParents: { ...state.connectionParents, [connId]: parentId },
         }));
+        scheduleClientModuleSync();
       },
     }),
     {
@@ -163,4 +169,86 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
 
 export function schemaConnectionFolderNodeId(folderId: string): string {
   return folderId.startsWith("conn-folder:") ? folderId : `conn-folder:${folderId}`;
+}
+
+export type DatabaseSidebarTreeSnapshot = {
+  folders: SchemaConnectionFolder[];
+  connectionParents: Record<string, string | null>;
+};
+
+export function serializeDatabaseSidebarTree(): DatabaseSidebarTreeSnapshot {
+  const { folders, connectionParents } = useDbSchemaConnectionLayoutStore.getState();
+  return { folders, connectionParents };
+}
+
+function asNullableStringRecord(value: unknown): Record<string, string | null> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (v == null) {
+      out[k] = null;
+    } else if (typeof v === "string") {
+      out[k] = v.trim() ? v : null;
+    }
+  }
+  return out;
+}
+
+function parseDatabaseSidebarTreeSnapshot(data: unknown): DatabaseSidebarTreeSnapshot | null {
+  let obj = data;
+  if (typeof data === "string") {
+    try {
+      obj = JSON.parse(data) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const raw = obj as { folders?: unknown; connectionParents?: unknown };
+  if (!Array.isArray(raw.folders)) return null;
+  const folders: SchemaConnectionFolder[] = [];
+  for (const item of raw.folders) {
+    if (!item || typeof item !== "object") continue;
+    const folder = item as { id?: unknown; name?: unknown; parentId?: unknown };
+    if (typeof folder.id !== "string" || !folder.id.trim()) continue;
+    if (typeof folder.name !== "string") continue;
+    folders.push({
+      id: folder.id,
+      name: folder.name,
+      parentId:
+        typeof folder.parentId === "string" && folder.parentId.trim()
+          ? folder.parentId
+          : null,
+    });
+  }
+  return {
+    folders,
+    connectionParents: asNullableStringRecord(raw.connectionParents),
+  };
+}
+
+const EMPTY_DATABASE_SIDEBAR_TREE: DatabaseSidebarTreeSnapshot = {
+  folders: [],
+  connectionParents: {},
+};
+
+/**
+ * 云端拉取后写入本机。
+ * merge：旧快照无此字段时保留本机；replace：切换团队时缺字段则清空，避免串数据。
+ */
+export function applyDatabaseSidebarTree(
+  data: unknown | null | undefined,
+  mode: "merge" | "replace" = "merge",
+): void {
+  const parsed = parseDatabaseSidebarTreeSnapshot(data);
+  if (!parsed) {
+    if (mode === "replace") {
+      useDbSchemaConnectionLayoutStore.setState(EMPTY_DATABASE_SIDEBAR_TREE);
+    }
+    return;
+  }
+  useDbSchemaConnectionLayoutStore.setState({
+    folders: parsed.folders,
+    connectionParents: parsed.connectionParents,
+  });
 }

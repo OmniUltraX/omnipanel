@@ -1670,12 +1670,16 @@ pub struct SshConfigSyncResult {
 }
 
 /// 将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。
+/// `aliases` 非空时仅同步列出的别名；为 `None` 时同步全部。
 #[tauri::command]
 #[specta::specta]
 pub async fn ssh_sync_config_hosts(
     state: State<'_, AppState>,
+    aliases: Option<Vec<String>>,
 ) -> Result<SshConfigSyncResult, OmniError> {
     let hosts = load_ssh_config_hosts()?;
+    let alias_filter: Option<std::collections::HashSet<String>> =
+        aliases.map(|list| list.into_iter().collect());
     let now = conn_now_secs();
     let mut added = 0u32;
     let mut updated = 0u32;
@@ -1687,6 +1691,11 @@ pub async fn ssh_sync_config_hosts(
         let existing = storage.list_connections_by_kind(ConnectionKind::Ssh)?;
 
         for host in hosts {
+            if let Some(ref filter) = alias_filter {
+                if !filter.contains(&host.alias) {
+                    continue;
+                }
+            }
             let ssh_config = match ssh_config_to_connect_config(&host) {
                 Ok(c) => c,
                 Err(e) => {

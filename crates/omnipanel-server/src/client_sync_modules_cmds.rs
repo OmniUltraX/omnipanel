@@ -127,6 +127,12 @@ pub struct ClientSyncModulesBundle {
     pub workspaces: Vec<ClientSyncWorkspaceInfo>,
     #[serde(default)]
     pub deleted_workspaces: Vec<ClientSyncTombstone>,
+    /// SSH 侧栏文件夹布局（前端 IndexedDB 快照 JSON）。旧快照缺此字段则为空。
+    #[serde(default)]
+    pub ssh_sidebar_tree_json: Option<String>,
+    /// 其他模块侧栏文件夹布局 JSON：`{ docker, database, protocol }`。旧快照缺此字段则为空。
+    #[serde(default)]
+    pub folder_trees_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -135,6 +141,12 @@ pub struct ClientSyncPushModulesRequest {
     pub token: String,
     #[serde(default)]
     pub workspaces_json: Option<String>,
+    /// SSH 侧栏文件夹布局 JSON；由前端从 sshSidebarTreeStore 序列化。
+    #[serde(default)]
+    pub ssh_sidebar_tree_json: Option<String>,
+    /// 其他模块侧栏文件夹布局 JSON；由前端从 Docker/数据库/协议 store 序列化。
+    #[serde(default)]
+    pub folder_trees_json: Option<String>,
     #[serde(default)]
     pub deleted_connections: Vec<ClientSyncTombstone>,
     #[serde(default)]
@@ -214,6 +226,14 @@ fn parse_workspaces(raw: Option<&str>) -> Vec<ClientSyncWorkspaceInfo> {
     serde_json::from_str(text).unwrap_or_default()
 }
 
+fn parse_json_object_string(raw: Option<&str>) -> Option<String> {
+    let text = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(serde_json::Value::Object(_)) => Some(text.to_string()),
+        _ => None,
+    }
+}
+
 fn collect_connection_items(
     storage: &omnipanel_store::Storage,
 ) -> Result<Vec<ClientSyncConnectionItem>, OmniError> {
@@ -270,6 +290,8 @@ fn collect_local_bundle(
         deleted_http_environments: request.deleted_http_environments.clone(),
         workspaces: parse_workspaces(request.workspaces_json.as_deref()),
         deleted_workspaces: request.deleted_workspaces.clone(),
+        ssh_sidebar_tree_json: parse_json_object_string(request.ssh_sidebar_tree_json.as_deref()),
+        folder_trees_json: parse_json_object_string(request.folder_trees_json.as_deref()),
     })
 }
 
@@ -384,6 +406,10 @@ pub struct ClientSyncPullModulesResult {
     pub applied_workspaces: f64,
     /// 工作区 JSON，由前端写入 workspaceStore。
     pub workspaces_json: Option<String>,
+    /// SSH 侧栏文件夹布局 JSON，由前端写入 sshSidebarTreeStore。
+    pub ssh_sidebar_tree_json: Option<String>,
+    /// 其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据库/协议 store。
+    pub folder_trees_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -405,7 +431,7 @@ fn tombstone_ids(list: &[ClientSyncTombstone]) -> HashSet<String> {
 async fn apply_modules_bundle(
     state: &crate::state::ServerState,
     bundle: &ClientSyncModulesBundle,
-) -> Result<(usize, usize, usize, usize, usize, Option<String>), OmniError> {
+) -> Result<(usize, usize, usize, usize, usize, Option<String>, Option<String>, Option<String>), OmniError> {
     let remote_conn_ids: HashSet<String> = bundle
         .connections
         .iter()
@@ -554,6 +580,8 @@ async fn apply_modules_bundle(
     let applied_http_requests = bundle.http_requests.len();
     let applied_workspaces = bundle.workspaces.len();
     let workspaces_json = serde_json::to_string(&bundle.workspaces).ok();
+    let ssh_sidebar_tree_json = bundle.ssh_sidebar_tree_json.clone();
+    let folder_trees_json = bundle.folder_trees_json.clone();
 
     Ok((
         applied_connections,
@@ -562,6 +590,8 @@ async fn apply_modules_bundle(
         applied_http_requests,
         applied_workspaces,
         workspaces_json,
+        ssh_sidebar_tree_json,
+        folder_trees_json,
     ))
 }
 
@@ -597,6 +627,8 @@ pub async fn client_sync_pull_modules(
             applied_http_requests: 0.0,
             applied_workspaces: 0.0,
             workspaces_json: None,
+            ssh_sidebar_tree_json: None,
+            folder_trees_json: None,
         });
     };
 
@@ -618,6 +650,8 @@ pub async fn client_sync_pull_modules(
             applied_http_requests: 0.0,
             applied_workspaces: 0.0,
             workspaces_json: None,
+            ssh_sidebar_tree_json: None,
+            folder_trees_json: None,
         });
     }
 
@@ -628,6 +662,8 @@ pub async fn client_sync_pull_modules(
         applied_http_requests,
         applied_workspaces,
         workspaces_json,
+        ssh_sidebar_tree_json,
+        folder_trees_json,
     ) = apply_modules_bundle(state, &bundle).await?;
 
     Ok(ClientSyncPullModulesResult {
@@ -640,5 +676,7 @@ pub async fn client_sync_pull_modules(
         applied_http_requests: applied_http_requests as f64,
         applied_workspaces: applied_workspaces as f64,
         workspaces_json,
+        ssh_sidebar_tree_json,
+        folder_trees_json,
     })
 }

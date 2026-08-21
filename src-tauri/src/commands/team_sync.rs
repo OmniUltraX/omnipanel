@@ -76,6 +76,10 @@ pub struct TeamSyncPushModulesRequest {
     #[serde(default)]
     pub workspaces_json: Option<String>,
     #[serde(default)]
+    pub ssh_sidebar_tree_json: Option<String>,
+    #[serde(default)]
+    pub folder_trees_json: Option<String>,
+    #[serde(default)]
     pub deleted_connections: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
     #[serde(default)]
     pub deleted_databases: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
@@ -135,6 +139,10 @@ pub struct TeamSyncPeekModulesRequest {
     #[serde(default)]
     pub workspaces_json: Option<String>,
     #[serde(default)]
+    pub ssh_sidebar_tree_json: Option<String>,
+    #[serde(default)]
+    pub folder_trees_json: Option<String>,
+    #[serde(default)]
     pub excluded_connections: Vec<String>,
     #[serde(default)]
     pub excluded_databases: Vec<String>,
@@ -146,6 +154,9 @@ pub struct TeamSyncPeekModulesRequest {
     pub excluded_http_collections: Vec<String>,
     #[serde(default)]
     pub excluded_workspaces: Vec<String>,
+    /// 上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。
+    #[serde(default)]
+    pub after_upload: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -222,6 +233,8 @@ fn to_modules_push_request(request: &TeamSyncPushModulesRequest) -> ClientSyncPu
     ClientSyncPushModulesRequest {
         token: request.token.clone(),
         workspaces_json: request.workspaces_json.clone(),
+        ssh_sidebar_tree_json: request.ssh_sidebar_tree_json.clone(),
+        folder_trees_json: request.folder_trees_json.clone(),
         deleted_connections: request.deleted_connections.clone(),
         deleted_databases: request.deleted_databases.clone(),
         deleted_knowledge: request.deleted_knowledge.clone(),
@@ -237,6 +250,8 @@ fn to_peek_modules_request(request: &TeamSyncPeekModulesRequest) -> ClientSyncPu
     ClientSyncPushModulesRequest {
         token: request.token.clone(),
         workspaces_json: request.workspaces_json.clone(),
+        ssh_sidebar_tree_json: request.ssh_sidebar_tree_json.clone(),
+        folder_trees_json: request.folder_trees_json.clone(),
         deleted_connections: Vec::new(),
         deleted_databases: Vec::new(),
         deleted_knowledge: Vec::new(),
@@ -363,6 +378,9 @@ fn is_peek_sync_leaf(module_key: &str, item: &ClientSyncPeekItem) -> bool {
     if item.id.starts_with("__module__:") || item.id.starts_with("__group__:") {
         return false;
     }
+    if item.detail == "layout-folder" {
+        return false;
+    }
     match module_key {
         "knowledge" | "http" => true,
         _ => item.kind != "folder",
@@ -381,17 +399,7 @@ fn align_peek_parent_id(
     let local_parent = local.parent_id.trim();
     let remote_parent = remote.map(|item| item.parent_id.trim()).unwrap_or("");
     match module_key {
-        "connections" => {
-            if local_parent.starts_with("__group__:") {
-                return local.parent_id.clone();
-            }
-            if remote_parent.starts_with("__group__:") {
-                return remote
-                    .map(|item| item.parent_id.clone())
-                    .unwrap_or_default();
-            }
-            local.parent_id.clone()
-        }
+        "connections" => local.parent_id.clone(),
         "knowledge" | "http" => {
             if !local_parent.is_empty() {
                 return local.parent_id.clone();
@@ -641,7 +649,7 @@ fn apply_structure_sync_status(items: &mut [TeamSyncPeekItem]) {
 
     let mut structure_ids: Vec<String> = items
         .iter()
-        .filter(|item| item.id.starts_with("__group__:"))
+        .filter(|item| is_peek_structure_node(item) && !item.id.starts_with("__module__:"))
         .map(|item| item.id.clone())
         .collect();
     structure_ids.sort_by_key(|id| std::cmp::Reverse(item_depth(items, id)));
@@ -1196,7 +1204,11 @@ pub async fn team_sync_peek_modules(
     // peek 本地侧也不展示/对比明文密码
     strip_bundle_secrets(&mut local);
 
-    let remote = if let Ok(Some((_, body))) =
+    let remote = if request.after_upload {
+        let mut uploaded = local.clone();
+        uploaded = apply_team_sync_exclusions(uploaded, &exclusions);
+        Some(uploaded)
+    } else if let Ok(Some((_, body))) =
         pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await
     {
         match decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &body) {
