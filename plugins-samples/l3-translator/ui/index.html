@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>L3 翻译样板（demo）</title>
+  <style>
+    body { font: 13px/1.6 system-ui, sans-serif; padding: 12px; color: var(--color-text, #ddd); }
+    button { padding: 4px 12px; cursor: pointer; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 72px; margin: 8px 0; }
+    .hint { opacity: 0.7; font-size: 12px; }
+    .out { white-space: pre-wrap; border-top: 1px dashed #666; padding-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="hint">
+    L3 沙箱演示：读取宿主当前选区 → 本地伪翻译（倒序）。不访问网络。
+  </div>
+  <button id="pick">读取选区并翻译</button>
+  <textarea id="src" placeholder="或在此粘贴文本…"></textarea>
+  <button id="go">翻译输入框内容</button>
+  <div class="out" id="out">（结果）</div>
+
+  <script>
+    // 本地伪翻译：倒序字符。仅演示沙箱桥与选区总线，非真实翻译产品。
+    function pseudoTranslate(text) {
+      return Array.from(text).reverse().join("");
+    }
+
+    async function translate(text) {
+      if (!text.trim()) {
+        document.getElementById("out").textContent = "（无文本）";
+        return;
+      }
+      document.getElementById("out").textContent = pseudoTranslate(text);
+    }
+
+    document.getElementById("pick").addEventListener("click", async () => {
+      try {
+        const selection = await host.selectionGet();
+        await translate(selection && selection.text ? selection.text : "");
+      } catch (e) {
+        document.getElementById("out").textContent = "读取选区失败: " + e.message;
+      }
+    });
+
+    document.getElementById("go").addEventListener("click", () => {
+      void translate(document.getElementById("src").value);
+    });
+  </script>
+</body>
+</html>

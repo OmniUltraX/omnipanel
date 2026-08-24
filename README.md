@@ -58,6 +58,19 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **Workflow / Tasks** | Templates, runbooks, task center, Quick Launcher, auditable execution |
 | **Workspace** | **Custom monitor panels** and pluggable small widgets (host / Docker / MySQL / Redis) |
 
+### Plugin platform
+
+OmniPanel is extensible via a signed plugin system with three openness levels:
+
+| Level | What third parties get | Sandbox |
+|-------|------------------------|---------|
+| **L1 declarative** | DB engine forms, theme tokens, menus, AI tool metadata, overlay panels — a plugin.json alone | None needed |
+| **L2 logic** | logic.js (QuickJS) or logic.wasm packages calling capability-gated host APIs (
+etFetch / sRead / connectionUpsert) | Memory/stack/instruction limits, permission checks, prod-host confirmation, audit log |
+| **L3 sandbox UI** | Overlay panels rendered as HTML in an opaque-origin iframe with CSP default-src 'none' | postMessage whitelist bridge |
+
+Install from disk (.omni-plugin, ed25519-signed), enable/disable per plugin,
+state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 ### Recent highlights (v0.8.x)
 
 | Area | Highlights |

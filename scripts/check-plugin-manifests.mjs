@@ -127,7 +127,9 @@ for (const dir of dirs) {
       }
     }
   }
-  if (raw.kind === "theme") {
+  if (raw.minHostApi != null && (!Number.isInteger(raw.minHostApi) || raw.minHostApi < 1)) {
+    errors.push("minHostApi must be a positive integer");
+  }  if (raw.kind === "theme") {
     const js = raw.contributes?.themes?.tokens?.js ?? raw.contributes?.themes?.js;
     if (js === true) errors.push("theme packs must not ship JS (js: true)");
   }

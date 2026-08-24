@@ -1,0 +1,12 @@
+{
+  "id": "omni.addon.translator",
+  "version": "0.1.0",
+  "kind": "addon",
+  "platforms": ["windows", "macos", "linux"],
+  "permissions": ["ui:selection"],
+  "contributes": {
+    "overlays": [
+      { "id": "translator", "title": "plugins.names.translator", "entry": "ui/index.html" }
+    ]
+  }
+}

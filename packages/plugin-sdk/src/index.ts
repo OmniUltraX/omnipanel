@@ -68,6 +68,8 @@ export const pluginManifestSchema = z.object({
   permissions: z.array(pluginPermissionSchema).default([]),
   methods: z.array(pluginMethodSchema).optional(),
   entry: pluginEntrySchema,
+  /** 所需最低宿主 API 版本；超过宿主当前版本时拒绝装载。 */
+  minHostApi: z.number().int().positive().optional(),
   platforms: z.array(pluginPlatformSchema).optional(),
   contributes: z
     .object({

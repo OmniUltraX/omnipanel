@@ -10,6 +10,8 @@ import {
   PLUGIN_ID_WARPGATE,
   usePluginRuntimeStore,
 } from "../../stores/pluginRuntimeStore";
+import { getPluginManifest } from "../../lib/pluginManifests";
+import { usePluginOverlayStore } from "../../stores/pluginOverlayStore";
 
 const PLUGIN_NAME_KEYS: Record<string, string> = {
   [PLUGIN_ID_EVERYTHING]: "plugins.names.everything",
@@ -22,6 +24,7 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.panel.1panel": "plugins.names.onepanel",
   "omni.panel.bt": "plugins.names.bt",
   "omni.theme.default": "plugins.names.themeDefault",
+  "omni.addon.translator": "plugins.names.translator",
 };
 
 const UNSUPPORTED_REASON_KEYS: Record<string, string> = {
@@ -75,6 +78,26 @@ export function PluginsSettingsSection() {
     }
   };
 
+  const openPluginOverlay = async (item: PluginListItem) => {
+    try {
+      const manifest = getPluginManifest(item.id);
+      const overlay = manifest?.contributes.overlays?.[0] as
+        | { id?: string; title?: string; entry?: string }
+        | undefined;
+      const entry = overlay?.entry ?? "ui/index.html";
+      const html = await unwrapCommand(commands.pluginReadAsset(item.id, entry));
+      usePluginOverlayStore.getState().show({
+        id: `${item.id}:overlay`,
+        pluginId: item.id,
+        title: overlay?.title ? t(overlay.title) : item.id,
+        body: "",
+        sandboxHtml: html,
+      });
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const installFromFile = async () => {
     setInstalling(true);
     try {
@@ -120,6 +143,20 @@ export function PluginsSettingsSection() {
             </p>
           </div>
           <div className="settings-plugins-actions">
+            {item.source === "installed" &&
+            (getPluginManifest(item.id)?.contributes.overlays?.length ?? 0) > 0 &&
+            item.enabled &&
+            item.activated ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                disabled={busyId === item.id}
+                onClick={() => void openPluginOverlay(item)}
+              >
+                {t("plugins.openOverlay")}
+              </Button>
+            ) : null}
             {item.source === "installed" ? (
               <Button
                 type="button"

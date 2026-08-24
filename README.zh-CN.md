@@ -58,6 +58,18 @@ AI Agent 服务巡检：基于真实容器与主机上下文生成结构化健�
 | **工作流 / 任务** | 模板、排障手册、任务中心、快捷启动，可审计执行 |
 | **工作区** | **自定义监控面板**与可插拔小组件（主机 / Docker / MySQL / Redis） |
 
+### 插件平台
+
+OmniPanel 通过签名插件体系向第三方开放三级扩展能力：
+
+| 级别 | 第三方能做什么 | 沙箱保障 |
+|------|----------------|----------|
+| **L1 声明式** | 数据库引擎表单、主题 token、菜单、AI 工具元数据、Overlay 面板——一个 plugin.json 即可 | 无需（零代码） |
+| **L2 逻辑包** | logic.js（QuickJS）或 logic.wasm，调用受权限闸保护的宿主能力（netFetch / fsRead / connectionUpsert） | 内存/栈/超时三重护栏、逐次权限校验、生产目标弹窗确认、审计日志 |
+| **L3 沙箱 UI** | Overlay 面板以 HTML 渲染于不透明 origin iframe（CSP 默认拒外联） | postMessage 白名单桥 |
+
+从磁盘安装 .omni-plugin（ed25519 签名），按插件启用/禁用，重启保持。
+详见[插件开发指南](./docs/plugins/README.md)。
 ### 近期亮点（v0.8.x）
 
 | 类别 | 说明 |

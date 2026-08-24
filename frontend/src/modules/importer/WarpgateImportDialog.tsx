@@ -2,11 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { ImportCandidate } from "@omnipanel/plugin-sdk";
 import { FormDialog } from "@omnipanel/plugin-ui";
 import { PasswordInput } from "../../components/ui/form/PasswordInput";
+import { TextInput } from "@omnipanel/plugin-ui";
 import { ImportPreview } from "@omnipanel/plugin-ui";
 import { useI18n } from "../../i18n";
 import { createPluginHost } from "../../lib/pluginHost";
 import { upsertImportCandidates } from "../../lib/importCandidates";
 import { getImporterContribution } from "../../lib/importerContributionRegistry";
+import { isPluginActivated, PLUGIN_ID_WARPGATE } from "../../stores/pluginRuntimeStore";
+import { getPluginManifest } from "../../lib/pluginManifests";
+import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 
 let openHandler: (() => void) | null = null;
 
@@ -21,6 +26,7 @@ export function registerWarpgateImportOpener(fn: (() => void) | null): void {
 export function WarpgateImportDialog() {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -34,13 +40,43 @@ export function WarpgateImportDialog() {
     return () => registerWarpgateImportOpener(null);
   }, []);
 
-  const loadCandidates = useCallback(() => {
+  const loadCandidates = useCallback(async () => {
     const contribution = getImporterContribution("warpgate");
     if (!contribution) {
       setStatus({
         kind: "error",
         message: t("plugins.warpgate.contributionMissing"),
       });
+      return;
+    }
+    const manifest = getPluginManifest(PLUGIN_ID_WARPGATE);
+    const logicReady =
+      manifest?.entry?.logic != null && isPluginActivated(PLUGIN_ID_WARPGATE);
+    if (logicReady) {
+      // L2 逻辑包可用：走 Warpgate HTTP API 真实拉取（prod 闸由后端桥强制）
+      if (!/^https?:\/\//.test(baseUrl.trim())) {
+        setStatus({ kind: "error", message: t("plugins.warpgate.baseUrlRequired") });
+        return;
+      }
+      try {
+        setBusy(true);
+        const result = await unwrapCommand(
+          commands.pluginInvoke(PLUGIN_ID_WARPGATE, "fetchTargets", {
+            baseUrl: baseUrl.trim(),
+            token,
+          } as never),
+        );
+        const targetsRaw =
+          (result as { targets?: ImportCandidate[] }).targets ?? [];
+        const mapped = upsertImportCandidates([], targetsRaw);
+        setCandidates(mapped);
+        setSelectedIds(new Set(mapped.map((item) => item.remoteId)));
+        setStatus({ kind: "success", message: t("plugins.warpgate.loadedRemote") });
+      } catch (err) {
+        setStatus({ kind: "error", message: String(err) });
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     const mapped = contribution.getPreviewCandidates(token);
@@ -88,6 +124,11 @@ export function WarpgateImportDialog() {
       }}
     >
       <p className="setting-hint">{t("plugins.warpgate.hint")}</p>
+      <TextInput
+        value={baseUrl}
+        onChange={setBaseUrl}
+        placeholder={t("plugins.warpgate.baseUrlPlaceholder")}
+      />
       <PasswordInput
         value={token}
         onChange={setToken}

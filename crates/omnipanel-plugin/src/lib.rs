@@ -34,7 +34,7 @@ pub use first_party::{
 pub use installed::{load_installed, InstalledPlugin};
 pub use invoke::{InvokeFuture, InvokeGateway, InvokeHandler};
 pub use kind::PluginKind;
-pub use manifest::{PluginEntryDecl, PluginManifest, PluginMethodDecl};
+pub use manifest::{PluginEntryDecl, PluginManifest, PluginMethodDecl, HOST_API_VERSION};
 pub use permission::PluginPermission;
 pub use platform::PluginPlatform;
 pub use registry::{

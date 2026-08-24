@@ -1077,6 +1077,7 @@ export const zhCN = {
       onepanel: "1Panel",
       bt: "宝塔面板",
       themeDefault: "默认主题",
+      translator: "翻译样板（L3）",
     },
     moduleShell: {
       hint: "{name} 控制台由模块插件贡献。本期仅保留宿主壳，完整产品能力后续接入。",
@@ -1115,6 +1116,9 @@ export const zhCN = {
       loadedMock: "已加载示例数据",
       loadedRemote: "已加载目标列表",
       contributionMissing: "导入器插件未启用或未加载",
+      baseUrl: "Warpgate 地址",
+      baseUrlPlaceholder: "https://warpgate.example.com",
+      baseUrlRequired: "请填写 Warpgate 地址（http(s):// 开头）",
       imported: "已写入连接草稿",
       colName: "名称",
       colKind: "类型",
@@ -1124,6 +1128,7 @@ export const zhCN = {
       installed: "已安装",
     },
     uninstall: "卸载",
+    openOverlay: "打开面板",
     confirm: {
       title: "生产环境访问确认",
       message: "插件 {{plugin}} 请求{{action}}生产目标 {{target}}，是否放行？",

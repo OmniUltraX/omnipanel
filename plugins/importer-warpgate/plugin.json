@@ -1,8 +1,17 @@
 {
   "id": "omni.importer.warpgate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "importer",
   "permissions": ["connections:write", "net:connect", "vault:read"],
+  "entry": {
+    "logic": "logic.js"
+  },
+  "methods": [
+    {
+      "name": "fetchTargets",
+      "permissions": ["net:connect"]
+    }
+  ],
   "contributes": {
     "importers": [{ "id": "warpgate", "entry": "commandPalette" }]
   }

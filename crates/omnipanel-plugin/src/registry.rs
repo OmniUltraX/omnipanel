@@ -301,6 +301,7 @@ mod tests {
             permissions: vec![PluginPermission::AiTools, PluginPermission::FsRead],
             methods: Vec::new(),
             entry: None,
+            min_host_api: None,
             platforms,
         }
     }
@@ -388,6 +389,7 @@ mod tests {
             permissions: vec![PluginPermission::NetConnect],
             methods: Vec::new(),
             entry: None,
+            min_host_api: None,
             platforms: None,
         };
         assert!(manifest.validate().is_err());

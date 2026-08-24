@@ -1016,6 +1016,10 @@ export const commands = {
 	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
 	/**  prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。 */
 	pluginConfirmResolve: (requestId: string, allow: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow })),
+	/**  读取已安装插件的文本资产（L3 沙箱 UI 用）。仅限包目录内、文本类扩展、≤512KB。 */
+	pluginReadAsset: (pluginId: string, relPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_read_asset", { pluginId, relPath })),
+	/**  沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。 */
+	pluginSandboxNetFetch: (pluginId: string, specJson: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_sandbox_net_fetch", { pluginId, specJson })),
 	/**
 	 *  从本地 `.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
 	 *  dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。

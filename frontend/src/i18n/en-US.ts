@@ -1081,6 +1081,7 @@ export const enUS: TranslationDict = {
       onepanel: "1Panel",
       bt: "BT Panel",
       themeDefault: "Default theme",
+      translator: "Translator sample (L3)",
     },
     moduleShell: {
       hint: "{name} console is contributed by a module plugin. This release only ships the host shell.",
@@ -1119,6 +1120,9 @@ export const enUS: TranslationDict = {
       loadedMock: "Loaded sample data",
       loadedRemote: "Loaded target list",
       contributionMissing: "Importer plugin is disabled or not loaded",
+      baseUrl: "Warpgate URL",
+      baseUrlPlaceholder: "https://warpgate.example.com",
+      baseUrlRequired: "Enter a Warpgate URL starting with http(s)://",
       imported: "Draft connections saved",
       colName: "Name",
       colKind: "Kind",
@@ -1128,6 +1132,7 @@ export const enUS: TranslationDict = {
       installed: "Installed",
     },
     uninstall: "Uninstall",
+    openOverlay: "Open panel",
     confirm: {
       title: "Production access confirmation",
       message: "Plugin {{plugin}} requests to {{action}} production target {{target}}. Allow?",

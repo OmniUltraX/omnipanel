@@ -705,3 +705,69 @@ pub async fn plugin_confirm_resolve(
         ))),
     }
 }
+/// 读取已安装插件的文本资产（L3 沙箱 UI 用）。仅限包目录内、文本类扩展、≤512KB。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_read_asset(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    rel_path: String,
+) -> Result<String, OmniError> {
+    let root = state
+        .plugin_packages_dir
+        .clone()
+        .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
+    let base = root.join(&plugin_id);
+    let target = base.join(&rel_path);
+    let lower = rel_path.to_ascii_lowercase();
+    let allowed_ext = ["html", "htm", "css", "txt", "json"];
+    if !lower.rsplit('.').next().map_or(false, |ext| allowed_ext.contains(&ext)) {
+        return Err(OmniError::invalid_input(format!("不支持的资产类型: {rel_path}")));
+    }
+    if !target.starts_with(&base) {
+        return Err(OmniError::invalid_input("路径越界"));
+    }
+    let meta = tokio::fs::metadata(&target)
+        .await
+        .map_err(|_| OmniError::not_found(format!("资产不存在: {rel_path}")))?;
+    if meta.len() > 512 * 1024 {
+        return Err(OmniError::invalid_input("资产超过 512KB 上限"));
+    }
+    let text = tokio::fs::read_to_string(&target)
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    Ok(text)
+}
+
+/// 沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_sandbox_net_fetch(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    spec_json: String,
+) -> Result<String, OmniError> {
+    // 权限前置：net:connect
+    {
+        let registry = state.plugin_registry.lock().await;
+        registry.require_permission(&plugin_id, omnipanel_plugin::PluginPermission::NetConnect)?;
+    }
+    let bridge = crate::commands::plugin_bridge::PluginBridge {
+        plugin_id,
+        registry: Arc::clone(&state.plugin_registry),
+        storage: Arc::clone(&state.storage),
+        gateway: Arc::clone(&state.plugin_invoke),
+        fs_root: None,
+        http: state.plugin_http.clone(),
+        confirmer: Arc::new(crate::commands::plugin_bridge::TauriProdConfirmer {
+            app: state.app_handle.clone(),
+            pending: Arc::clone(&state.plugin_pending_confirms),
+        }),
+    };
+    // 同步桥放阻塞任务（经 PluginHostBridge trait 调用）
+    use omnipanel_plugin::PluginHostBridge as _;
+    tokio::task::spawn_blocking(move || bridge.net_fetch(&spec_json))
+        .await
+        .map_err(|e: tokio::task::JoinError| OmniError::internal(e.to_string()))?
+        .map_err(OmniError::invalid_input)
+}

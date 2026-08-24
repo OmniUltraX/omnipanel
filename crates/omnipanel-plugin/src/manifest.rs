@@ -7,6 +7,9 @@ use crate::kind::PluginKind;
 use crate::permission::PluginPermission;
 use crate::platform::PluginPlatform;
 
+/// 宿主插件 API 版本（破坏性变更时递增）。
+pub const HOST_API_VERSION: u32 = 1;
+
 /// 插件方法声明：`plugin_invoke` 网关白名单 + 权限注解（缺权即拒绝）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +64,9 @@ pub struct PluginManifest {
     /// L2/L3 入口声明；缺省为纯声明式插件。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<PluginEntryDecl>,
+    /// 所需最低宿主 API 版本；超过宿主当前版本时拒绝装载。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_host_api: Option<u32>,
     /// 缺省 = 全平台；当前 OS 不在列表中则不 activate。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platforms: Option<Vec<PluginPlatform>>,
@@ -109,6 +115,13 @@ impl PluginManifest {
         }
         if let Some(entry) = &self.entry {
             entry.validate_logic()?;
+        }
+        if let Some(min_api) = self.min_host_api {
+            if min_api > HOST_API_VERSION {
+                return Err(PluginError::InvalidManifest(format!(
+                    "minHostApi {min_api} 高于宿主当前版本 {HOST_API_VERSION}"
+                )));
+            }
         }
         Ok(())
     }

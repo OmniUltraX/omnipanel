@@ -5,6 +5,8 @@ export type PluginOverlayEntry = {
   pluginId: string;
   title: string;
   body: string;
+  /** L3：以沙箱 iframe 渲染的插件 HTML（优先于 body 文本） */
+  sandboxHtml?: string;
 };
 
 interface PluginOverlayState {

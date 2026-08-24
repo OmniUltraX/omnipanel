@@ -466,6 +466,8 @@ fn export_ipc_bindings() {
         commands::plugin::plugin_require_permission,
         commands::plugin::discovery_run,
         commands::plugin::plugin_confirm_resolve,
+        commands::plugin::plugin_read_asset,
+        commands::plugin::plugin_sandbox_net_fetch,
         commands::plugin::plugin_install_from_file,
         commands::plugin::plugin_uninstall,
         // Task（任务）
@@ -1378,6 +1380,10 @@ fn build_and_run_tauri() {
             commands::plugin::plugin_require_permission,
             commands::plugin::discovery_run,
             commands::plugin::plugin_confirm_resolve,
+            commands::plugin::plugin_read_asset,
+            commands::plugin::plugin_sandbox_net_fetch,
+        commands::plugin::plugin_read_asset,
+        commands::plugin::plugin_sandbox_net_fetch,
         commands::plugin::plugin_install_from_file,
             commands::plugin::plugin_uninstall,
             // Task（任务）
