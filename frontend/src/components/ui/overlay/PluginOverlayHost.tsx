@@ -12,21 +12,23 @@ export function PluginOverlayHost() {
   const entries = usePluginOverlayStore((s) => s.entries);
   const hide = usePluginOverlayStore((s) => s.hide);
   const top = entries[entries.length - 1];
+  const pluginId = top?.pluginId;
 
   const handleInvoke = useCallback(
     async (kind: "invoke" | "netFetch", args: unknown) => {
+      if (!pluginId) throw new Error("overlay closed");
       if (kind === "netFetch") {
         return unwrapCommand(
-          commands.pluginSandboxNetFetch(top.pluginId, JSON.stringify(args ?? {})),
+          commands.pluginSandboxNetFetch(pluginId, JSON.stringify(args ?? {})),
         );
       }
       const payload = (args ?? {}) as { method?: string; args?: unknown };
       if (typeof payload.method !== "string") throw new Error("invoke 需要 method");
       return unwrapCommand(
-        commands.pluginInvoke(top.pluginId, payload.method, (payload.args ?? null) as never),
+        commands.pluginInvoke(pluginId, payload.method, (payload.args ?? null) as never),
       );
     },
-    [top.pluginId],
+    [pluginId],
   );
 
   if (!top) return null;

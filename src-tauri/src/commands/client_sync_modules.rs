@@ -10,7 +10,7 @@ use omnipanel_assistant::{
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     db_password_ref, decode_sync_blob_or_legacy, encrypt_sync_blob, load_database_connections,
-    Connection, DbConnectionConfig, HttpCollection, HttpEnvironment, KnowledgeEntry,
+    Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment, KnowledgeEntry,
     SavedHttpRequest, Vault, SYNC_KIND_MODULES,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -539,6 +539,19 @@ pub(crate) async fn apply_modules_bundle(
     let workspaces_json = serde_json::to_string(&bundle.workspaces).ok();
     let ssh_sidebar_tree_json = bundle.ssh_sidebar_tree_json.clone();
     let folder_trees_json = bundle.folder_trees_json.clone();
+
+    let ssh_touched = replace_conn
+        || !deleted_conn.is_empty()
+        || bundle
+            .connections
+            .iter()
+            .any(|item| item.connection.kind == ConnectionKind::Ssh);
+    if ssh_touched {
+        state
+            .ssh_pool
+            .reload_hosts(state.storage.clone(), state.app_handle.clone(), false)
+            .await;
+    }
 
     Ok((
         applied_connections,

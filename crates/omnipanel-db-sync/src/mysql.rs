@@ -1292,6 +1292,7 @@ mod tests {
             status: "connected".into(),
             enabled: true,
             has_password: !password.is_empty(),
+            tags: Vec::new(),
         }
     }
 

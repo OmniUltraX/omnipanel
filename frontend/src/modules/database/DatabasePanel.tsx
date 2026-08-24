@@ -120,7 +120,11 @@ import { CsvExportDialog } from "./workspace/CsvExportDialog";
 import {
   probeMysqlDeployment,
 } from "./mysqlDeploymentDetect";
-import { readMysqlDeploymentCache } from "./mysqlDeploymentCache";
+import {
+  readMysqlDeploymentCache,
+  isMysqlDeploymentCacheUsable,
+} from "./mysqlDeploymentCache";
+import { ensureSshExecReady } from "./mysqlSlowQueryLog";
 import {
   resolveMysqlExportDeployment,
   beginWatchMysqlExportTask,
@@ -3652,16 +3656,35 @@ export function DatabasePanel() {
   const resolveExportDeployment = useCallback(
     async (connection: DbConnectionConfig) => {
       let deployment = readMysqlDeploymentCache(connection);
-      if (!deployment || deployment.kind === "unknown") {
+      const cacheUsable = isMysqlDeploymentCacheUsable(deployment);
+      const cacheSshStale =
+        cacheUsable &&
+        deployment?.sshConnectionId != null &&
+        !sshConnections.some((c) => c.id === deployment?.sshConnectionId);
+      if (!cacheUsable || cacheSshStale) {
         try {
           deployment = await probeMysqlDeployment(connection, sshConnections);
         } catch {
           deployment = deployment ?? null;
         }
       }
-      return resolveMysqlExportDeployment(deployment);
+      const resolved = resolveMysqlExportDeployment(deployment);
+      if (
+        resolved.sshConnectionId &&
+        (resolved.kind === "host" || resolved.kind === "docker")
+      ) {
+        const ready = await ensureSshExecReady(
+          resolved.sshConnectionId,
+          connection,
+          sshConnections,
+        );
+        if (!ready) {
+          throw new Error(t("database.contextMenu.slowQueryLogDisabled.sshNotConnected"));
+        }
+      }
+      return resolved;
     },
-    [sshConnections],
+    [sshConnections, t],
   );
 
   const handleExportDatabase = useCallback(

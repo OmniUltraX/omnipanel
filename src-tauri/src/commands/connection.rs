@@ -353,6 +353,9 @@ pub async fn conn_save(
 pub async fn conn_delete(state: State<'_, AppState>, id: String) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
     let existing = storage.get_connection(&id)?;
+    let is_ssh = existing
+        .as_ref()
+        .is_some_and(|conn| conn.kind == ConnectionKind::Ssh);
     storage.delete_connection(&id)?;
     drop(storage);
     if let Some(conn) = existing {
@@ -366,6 +369,12 @@ pub async fn conn_delete(state: State<'_, AppState>, id: String) -> Result<(), O
         let _ = Vault::delete(&format!("docker-ssh-passphrase-{}", conn.id));
         let _ = Vault::delete(&format!("panel-key-{}", conn.id));
         let _ = Vault::delete(&crate::commands::cloud::cloud_secret_ref(&conn.id));
+    }
+    if is_ssh {
+        state
+            .ssh_pool
+            .reload_hosts(state.storage.clone(), state.app_handle.clone(), false)
+            .await;
     }
     Ok(())
 }

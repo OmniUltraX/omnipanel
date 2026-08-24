@@ -1227,17 +1227,62 @@ impl SshPool {
     }
 
     async fn resolve_connect_config(&self, resource_id: &str) -> OmniResult<(String, SshConfig)> {
-        let entries = self.entries.lock().await;
-        let entry = entries.get(resource_id).ok_or_else(|| {
+        {
+            let entries = self.entries.lock().await;
+            if let Some(entry) = entries.get(resource_id) {
+                if entry.config.host.trim().is_empty() {
+                    return Err(OmniError::new(ErrorCode::InvalidInput, "主机地址未配置"));
+                }
+                return Ok((entry.host_name.clone(), entry.config.clone()));
+            }
+        }
+
+        // 连接池可能滞后于 Storage（如团队同步拉取后未 reload）；按需从持久化加载。
+        let conn = {
+            let storage = self.storage.lock().await;
+            storage.get_connection(resource_id)?
+        };
+        let conn = conn.ok_or_else(|| {
             OmniError::new(
                 ErrorCode::NotFound,
                 format!("未知 SSH 资源 `{resource_id}`"),
             )
         })?;
-        if entry.config.host.trim().is_empty() {
+        if conn.kind != ConnectionKind::Ssh {
+            return Err(OmniError::new(
+                ErrorCode::NotFound,
+                format!("未知 SSH 资源 `{resource_id}`"),
+            ));
+        }
+
+        let (specs, parse_errors) = Self::specs_from_connections(&[conn]);
+        if let Some((_, name, err)) = parse_errors.into_iter().next() {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("{name} 配置解析失败: {err}"),
+            ));
+        }
+        let Some(spec) = specs.into_iter().next() else {
+            return Err(OmniError::new(ErrorCode::InvalidInput, "SSH 配置无效"));
+        };
+        if spec.config.host.trim().is_empty() {
             return Err(OmniError::new(ErrorCode::InvalidInput, "主机地址未配置"));
         }
-        Ok((entry.host_name.clone(), entry.config.clone()))
+
+        {
+            let mut entries = self.entries.lock().await;
+            entries.insert(
+                resource_id.to_string(),
+                PoolEntry {
+                    status: "idle".into(),
+                    error: None,
+                    host_name: spec.name.clone(),
+                    config: spec.config.clone(),
+                },
+            );
+        }
+
+        Ok((spec.name, spec.config))
     }
 
     async fn collect_stats(
