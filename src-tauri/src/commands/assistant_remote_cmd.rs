@@ -67,8 +67,9 @@ pub struct AssistantTerminalOpenOrFocusEvent {
 pub struct AssistantTerminalCmdReplyRequest {
     pub request_id: String,
     pub ok: bool,
+    /// 任意 JSON 结果；以字符串传输规避 specta 对 Value 的递归内联展开。
     #[serde(default)]
-    pub result: Option<Value>,
+    pub result_json: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
 }
@@ -93,7 +94,15 @@ pub async fn assistant_terminal_cmd_reply(
         return Ok(());
     };
     let payload = if req.ok {
-        Ok(req.result.unwrap_or(json!({})))
+        let parsed = match req.result_json.as_deref() {
+            None | Some("") => Ok(json!({})),
+            Some(text) => serde_json::from_str::<Value>(text)
+                .map_err(|e| OmniError::new(ErrorCode::InvalidInput, format!("resultJson 非法: {e}"))),
+        };
+        match parsed {
+            Ok(value) => Ok(value),
+            Err(err) => return Err(err),
+        }
     } else {
         Err(req
             .error

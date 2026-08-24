@@ -4,13 +4,10 @@ import type { SchemaCacheSnapshot } from "../modules/database/schema/schemaCache
 import type { QuickLaunchRecentEntry } from "../stores/quickLauncherRecentStore";
 
 /**
- * 已注册的命令前缀。
- * 统一语法（与 ssh 对齐，后续前缀照抄）：
- * - `prefix`           → 列出该类全部目标
- * - `prefix+filter`    → 按 filter 边输入边过滤
- * - `prefix filter`    → 同上（空格形式）
+ * 内核保留前缀。其余前缀由 activated 插件经 Runtime Loader 登记
+ * （如 addon-everything 的 `es`），列表随启用状态实时增减。
  */
-export const QUICK_LAUNCH_COMMAND_PREFIXES = ["ssh", "db", "es"] as const;
+export const QUICK_LAUNCH_COMMAND_PREFIXES = ["ssh", "db"] as const;
 export type QuickLaunchCommandPrefix = string;
 
 /** 快捷启动查询归类 */
@@ -112,6 +109,12 @@ export function registerLauncherProvider(provider: LauncherProvider): void {
   else launcherProviders.push(provider);
 }
 
+/** deactivate 时卸除插件前缀；内核 ssh/db 不受影响。 */
+export function unregisterLauncherProvider(prefix: string): void {
+  const idx = launcherProviders.findIndex((p) => p.prefix === prefix);
+  if (idx >= 0) launcherProviders.splice(idx, 1);
+}
+
 export function listLauncherPrefixes(): string[] {
   const fromProviders = launcherProviders.map((p) => p.prefix);
   const merged = new Set<string>([...QUICK_LAUNCH_COMMAND_PREFIXES, ...fromProviders]);
@@ -125,10 +128,6 @@ registerLauncherProvider({
 registerLauncherProvider({
   prefix: "db",
   parse: (raw, filter) => buildDbQuery(raw, filter),
-});
-registerLauncherProvider({
-  prefix: "es",
-  parse: (raw, filter) => ({ kind: "es", raw, filter }),
 });
 
 /** 解析用户输入：先走统一前缀语法，未命中则为 plain（逻辑留空）。 */

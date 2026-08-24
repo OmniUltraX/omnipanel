@@ -85,6 +85,8 @@ export const PLUGIN_CHANGED = "plugin://changed" as const;
 
 /** 发现任务在任务中心被取消 */
 export const PLUGIN_DISCOVERY_CANCELLED = "plugin://discovery-cancelled" as const;
+/** prod 目标命中：请求用户交互确认（requestId → pluginConfirmResolve 回传） */
+export const PLUGIN_CONFIRM_REQUEST = "plugin://confirm-request" as const;
 
 export type IpcEventName =
   | typeof TERMINAL_OUTPUT
@@ -112,4 +114,5 @@ export type IpcEventName =
   | typeof ASSISTANT_CHAT_SET_MODEL
   | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS
   | typeof PLUGIN_CHANGED
-  | typeof PLUGIN_DISCOVERY_CANCELLED;
+  | typeof PLUGIN_DISCOVERY_CANCELLED
+  | typeof PLUGIN_CONFIRM_REQUEST;

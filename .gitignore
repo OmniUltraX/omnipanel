@@ -60,3 +60,6 @@ frontend/tauri-signing.key.pub
 
 # local bindings diagnostic build dir
 target-bindings-diag/
+
+# 第三方本地插件脚手架产物
+plugins-custom/

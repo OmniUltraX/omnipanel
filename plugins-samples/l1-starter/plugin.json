@@ -1,0 +1,49 @@
+{
+  "id": "omni.engine.l1-starter",
+  "version": "0.1.0",
+  "kind": "engine",
+  "permissions": ["net:connect", "ai:tools"],
+  "methods": [
+    {
+      "name": "l1_starter_ping",
+      "permissions": ["ai:tools"]
+    }
+  ],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "l1-starter",
+        "aliases": ["l1starter"],
+        "defaultPort": 8080,
+        "icon": "L1",
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "apiKey", "type": "password" }
+        ]
+      },
+      "workbench": {
+        "tree": "none",
+        "editor": "none",
+        "preview": "none",
+        "connectionInfo": "sql"
+      }
+    },
+    "ai": {
+      "tools": [
+        {
+          "name": "l1_starter_ping",
+          "description": "L1 样板：声明式工具元数据。未携带逻辑包时调用返回 UnknownMethod。",
+          "execKind": "native",
+          "moduleKey": "",
+          "crossModule": false,
+          "externalExposed": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      ]
+    }
+  }
+}

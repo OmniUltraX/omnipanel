@@ -53,8 +53,12 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
     try {
       const teams = await fetchTeams(token, { quiet: true });
       const rows: ShareMemberRow[] = [];
+      // 团队 id 缺失（null）时无法分享，直接跳过
+      const shareable = teams.filter(
+        (team): team is typeof team & { id: number } => typeof team.id === "number",
+      );
       await Promise.all(
-        teams.map(async (team) => {
+        shareable.map(async (team) => {
           const teamMembers = await fetchTeamMembers(token, team.id, { quiet: true });
           for (const member of teamMembers) {
             const email = member.email.trim();

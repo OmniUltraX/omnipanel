@@ -1,32 +1,11 @@
 import type { Connection, PanelProbeItem } from "../ipc/bindings";
 import type { DiscoveryPreviewRow } from "../components/ui/DiscoveryImportDialog";
 import { isPluginActivated } from "../stores/pluginRuntimeStore";
-import {
-  claimsOnePanelKind,
-  toOnePanelCandidate,
-  PLUGIN_ID_PANEL_1PANEL,
-} from "../../../plugins/panel-1panel/src/mapProbe";
-import {
-  claimsBtPanelKind,
-  toBtPanelCandidate,
-  PLUGIN_ID_PANEL_BT,
-} from "../../../plugins/panel-bt/src/mapProbe";
+import { findPanelProbeMapper } from "./panelProbeRegistry";
 import { panelCandidateMatches } from "../modules/server/panel/panelPlugin";
 
 function mapperForKind(kind: string) {
-  if (claimsOnePanelKind(kind)) {
-    return {
-      pluginId: PLUGIN_ID_PANEL_1PANEL,
-      toCandidate: toOnePanelCandidate,
-    };
-  }
-  if (claimsBtPanelKind(kind)) {
-    return {
-      pluginId: PLUGIN_ID_PANEL_BT,
-      toCandidate: toBtPanelCandidate,
-    };
-  }
-  return null;
+  return findPanelProbeMapper(kind);
 }
 
 function existingPanel(

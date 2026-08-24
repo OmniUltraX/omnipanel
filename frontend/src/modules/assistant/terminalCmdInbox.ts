@@ -63,11 +63,14 @@ async function replyTerminalCmd(payload: {
   error?: string;
 }): Promise<void> {
   try {
+    // result 以 JSON 字符串传输（后端 AssistantTerminalCmdReplyRequest.resultJson）
+    const resultJson =
+      payload.result === undefined ? null : JSON.stringify(payload.result);
     await invoke("assistant_terminal_cmd_reply", {
       req: {
         requestId: payload.requestId,
         ok: payload.ok,
-        result: payload.result ?? null,
+        resultJson,
         error: payload.error ?? null,
       },
     });

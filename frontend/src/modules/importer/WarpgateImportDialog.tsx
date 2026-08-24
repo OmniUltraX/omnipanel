@@ -6,11 +6,7 @@ import { ImportPreview } from "@omnipanel/plugin-ui";
 import { useI18n } from "../../i18n";
 import { createPluginHost } from "../../lib/pluginHost";
 import { upsertImportCandidates } from "../../lib/importCandidates";
-import {
-  MOCK_WARPGATE_TARGETS,
-  targetsToCandidates,
-  WARPGATE_PLUGIN_ID,
-} from "../../../../plugins/importer-warpgate/src/index";
+import { getImporterContribution } from "../../lib/importerContributionRegistry";
 
 let openHandler: (() => void) | null = null;
 
@@ -39,21 +35,34 @@ export function WarpgateImportDialog() {
   }, []);
 
   const loadCandidates = useCallback(() => {
-    const mapped = targetsToCandidates("warpgate-mock", MOCK_WARPGATE_TARGETS);
+    const contribution = getImporterContribution("warpgate");
+    if (!contribution) {
+      setStatus({
+        kind: "error",
+        message: t("plugins.warpgate.contributionMissing"),
+      });
+      return;
+    }
+    const mapped = contribution.getPreviewCandidates(token);
     setCandidates(upsertImportCandidates([], mapped));
     setSelectedIds(new Set(mapped.map((item) => item.remoteId)));
     setStatus({
       kind: "info",
       message: t("plugins.warpgate.loadedMock"),
     });
-  }, [t]);
+  }, [t, token]);
 
   const handleImport = useCallback(async () => {
     const chosen = candidates.filter((item) => selectedIds.has(item.remoteId));
     if (chosen.length === 0) return;
+    const contribution = getImporterContribution("warpgate");
+    if (!contribution) {
+      setStatus({ kind: "error", message: t("plugins.warpgate.contributionMissing") });
+      return;
+    }
     setBusy(true);
     try {
-      const host = createPluginHost(WARPGATE_PLUGIN_ID);
+      const host = createPluginHost(contribution.pluginId);
       for (const item of chosen) {
         await host.connections.upsert(item);
       }

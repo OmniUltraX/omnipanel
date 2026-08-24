@@ -93,6 +93,40 @@ for (const dir of dirs) {
       }
     }
   }
+  if (raw.methods != null) {
+    if (!Array.isArray(raw.methods)) errors.push("methods must be an array");
+    else {
+      const seen = new Set();
+      for (const m of raw.methods) {
+        if (!m || typeof m !== "object") errors.push("methods[] entries must be objects");
+        else {
+          if (typeof m.name !== "string" || !m.name.trim()) errors.push("methods[].name required");
+          else if (seen.has(m.name)) errors.push(`duplicate method ${m.name}`);
+          else seen.add(m.name);
+          if (m.permissions != null && !Array.isArray(m.permissions))
+            errors.push("methods[].permissions must be an array");
+          else
+            for (const p of m.permissions ?? []) {
+              if (!PERMISSIONS.has(p)) errors.push(`unknown permission ${p}`);
+            }
+        }
+      }
+    }
+  }
+  if (raw.entry != null) {
+    if (typeof raw.entry !== "object") errors.push("entry must be an object");
+    else {
+      const logic = raw.entry.logic;
+      if (logic != null) {
+        if (typeof logic !== "string" || !logic.trim()) errors.push("entry.logic required");
+        else {
+          if (!/\.(wasm|js)$/i.test(logic)) errors.push("entry.logic must be .wasm or .js");
+          if (logic.startsWith("/") || logic.split(/[\\/]/).includes(".."))
+            errors.push("entry.logic must be relative without '..'");
+        }
+      }
+    }
+  }
   if (raw.kind === "theme") {
     const js = raw.contributes?.themes?.tokens?.js ?? raw.contributes?.themes?.js;
     if (js === true) errors.push("theme packs must not ship JS (js: true)");
@@ -109,7 +143,66 @@ if (missingIds.length > 0) {
   failed += 1;
 }
 
+// 前端单源目录必须与 plugins/ 目录一一对应（防手写数组漂移）。
+const catalogPath = path.join(root, "frontend", "src", "lib", "pluginManifests.ts");
+const catalogSrc = fs.readFileSync(catalogPath, "utf8");
+const catalogDirs = [...catalogSrc.matchAll(/\/plugins\/([^/\s"']+?)\/plugin\.json"/g)].map(
+  (m) => m[1],
+);
+const catalogDirSet = new Set(catalogDirs);
+if (catalogDirSet.size !== catalogDirs.length) {
+  console.error("[plugin-manifest] 前端 pluginManifests.ts 存在重复的 plugin.json import");
+  failed += 1;
+}
+for (const dir of jsonDirs) {
+  if (!catalogDirSet.has(dir)) {
+    console.error(`[plugin-manifest] plugins/${dir} 未在前端 pluginManifests.ts 登记`);
+    failed += 1;
+  }
+}
+for (const dir of catalogDirSet) {
+  if (!jsonDirs.includes(dir)) {
+    console.error(`[plugin-manifest] 前端 pluginManifests.ts 引用不存在的 plugins/${dir}`);
+    failed += 1;
+  }
+}
+// 唯一合法桥接：清单单源目录 + Runtime Loader（阶段 A 静态登记；阶段 B 换磁盘/WASM 装载时仅替换其实现）。
+const hostBridgeAllowlist = new Set([
+  catalogPath,
+  path.join(root, "frontend", "src", "lib", "pluginRuntimeLoader.ts"),
+]);
+const hostDirectImports = [];
+const scanTs = (dirPath) => {
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const full = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      scanTs(full);
+    } else if (
+      /\.tsx?$/.test(entry.name) &&
+      !entry.name.endsWith(".test.ts") &&
+      !hostBridgeAllowlist.has(full)
+    ) {
+      const src = fs.readFileSync(full, "utf8");
+      if (
+        /from\s+"[^"]*\/plugins\/[^/]+\/src/.test(src) ||
+        /from\s+"[^"]*plugins\/[^/]+\/plugin\.json"/.test(src)
+      ) {
+        hostDirectImports.push(path.relative(root, full));
+      }
+    }
+  }
+};
+scanTs(path.join(root, "frontend", "src"));
+for (const offender of hostDirectImports) {
+  console.error(
+    `[plugin-manifest] 宿主禁止直接 import 插件源码（走 lib/pluginManifests 单源）: ${offender}`,
+  );
+  failed += 1;
+}
+
 if (failed > 0) {
   process.exit(1);
 }
-console.log(`plugin manifests ok (${dirs.length}; rust dirs ${rustDirSet.size})`);
+console.log(
+  `plugin manifests ok (${dirs.length}; rust dirs ${rustDirSet.size}; frontend catalog ${catalogDirSet.size})`,
+);

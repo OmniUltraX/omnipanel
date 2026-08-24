@@ -1114,10 +1114,25 @@ export const zhCN = {
       open: "打开导入向导",
       loadedMock: "已加载示例数据",
       loadedRemote: "已加载目标列表",
+      contributionMissing: "导入器插件未启用或未加载",
       imported: "已写入连接草稿",
       colName: "名称",
       colKind: "类型",
       colHost: "入口主机",
+    },
+    source: {
+      installed: "已安装",
+    },
+    uninstall: "卸载",
+    confirm: {
+      title: "生产环境访问确认",
+      message: "插件 {{plugin}} 请求{{action}}生产目标 {{target}}，是否放行？",
+      allow: "本次放行",
+    },
+    install: {
+      title: "安装本地插件",
+      hint: "选择 .omni-plugin 包文件；正式版仅接受官方签名，开发构建允许未签名包。",
+      action: "选择包文件…",
     },
   },
   taskCenter: {

@@ -221,7 +221,7 @@ export function ServerPanelTreeSidebar({
 
         showToast(t("server.sidebar.syncFromSshStarted"));
         const { scope, skippedProdCount, prodHostIds } = sshDiscoveryScope(connections);
-        let hostIds = [...scope.hostIds];
+        let hostIds = [...(scope.hostIds ?? [])];
         if (skippedProdCount > 0) {
           const scanProd = await appConfirm(
             t("server.sidebar.syncFromSshProdConfirm", { count: String(skippedProdCount) }),

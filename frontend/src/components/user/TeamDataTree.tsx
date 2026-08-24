@@ -102,7 +102,8 @@ function flattenVisible(
 
 function collectSyncTargets(node: TreeNode): PeekItem[] {
   const targets: PeekItem[] = [];
-  if (isSyncManageable(node.item)) {
+  // 无 id 的条目无法参与团队同步排除，直接跳过
+  if (isSyncManageable(node.item) && typeof node.item.id === "string") {
     targets.push(node.item);
   }
   for (const child of node.children) {
@@ -125,7 +126,7 @@ function nodeSyncState(node: TreeNode): {
   };
 }
 
-function formatUpdatedAt(value: number, locale: string): string {
+function formatUpdatedAt(value: number | null | undefined, locale: string): string {
   if (!value || value <= 0) return "—";
   const ms = value < 1e12 ? value * 1000 : value;
   const date = new Date(ms);
@@ -216,9 +217,9 @@ export function TeamDataTree({
     const targets = collectSyncTargets(node);
     for (const target of targets) {
       if (excluded) {
-        markTeamSyncExcluded(teamId, target.moduleKey, target.id, target.kind);
+        markTeamSyncExcluded(teamId, target.moduleKey, target.id as string, target.kind as string);
       } else {
-        clearTeamSyncExcluded(teamId, target.moduleKey, target.id, target.kind);
+        clearTeamSyncExcluded(teamId, target.moduleKey, target.id as string, target.kind as string);
       }
     }
     showToast(

@@ -1,14 +1,18 @@
-use omnipanel_error::OmniError;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_everything::EverythingError;
 use omnipanel_mcp::plugin_tools::PluginNativeTool;
 use omnipanel_mcp::{ToolExecutionKind, ToolRegistry};
 use omnipanel_plugin::{
-    first_party_manifests, InvokeGateway, PluginListItem, PluginPermission, PluginPlatform,
-    PluginRegistry, PLUGIN_ID_ADDON_EVERYTHING,
+    load_installed, InvokeGateway, LogicPackage, PluginListItem, PluginLogicExecutor, PluginMethodDecl, PluginPermission, PluginPlatform, PluginRegistry,
+    PluginSource,
 };
-use omnipanel_store::Storage;
+use omnipanel_store::{AuditEntry, Storage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use specta::Type;
 use tauri::{Emitter, State};
 
@@ -29,55 +33,6 @@ pub struct PluginChangedPayload {
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryCancelledPayload {
     pub task_id: String,
-}
-
-pub fn seed_plugin_runtime(storage: &Storage) -> (PluginRegistry, InvokeGateway) {
-    let mut registry = PluginRegistry::new();
-    for manifest in first_party_manifests() {
-        let _ = registry.register(manifest);
-    }
-    if let Ok(saved) = storage.plugin_enabled_list() {
-        for (id, enabled) in saved {
-            let _ = registry.set_enabled(&id, enabled);
-        }
-    }
-    registry.activate_enabled(PluginPlatform::current());
-    (registry, InvokeGateway::new())
-}
-
-pub fn sync_native_plugin_tools(registry: &PluginRegistry, tools: &ToolRegistry) {
-    tools.unregister_plugin_tools(PLUGIN_ID_ADDON_EVERYTHING);
-    let Some(entry) = registry.get(PLUGIN_ID_ADDON_EVERYTHING) else {
-        return;
-    };
-    if !entry.activated {
-        return;
-    }
-    tools.register_plugin_native_tool(PluginNativeTool {
-        plugin_id: PLUGIN_ID_ADDON_EVERYTHING.into(),
-        name: "omni_everything_search".into(),
-        module_key: "files".into(),
-        description: "用 Everything 搜索本机文件路径（仅元数据，不含文件内容）".into(),
-        input_schema: serde_json::json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string" },
-                "max_results": { "type": "integer", "default": 50 }
-            },
-            "required": ["query"]
-        }),
-        kind: ToolExecutionKind::Native,
-        cross_module: true,
-        external_exposed: false,
-        executor: std::sync::Arc::new(|_name, args| {
-            Box::pin(async move {
-                let value = run_everything_search(args)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                Ok((value.to_string(), false))
-            })
-        }),
-    });
 }
 
 fn everything_err_to_omni(err: EverythingError) -> OmniError {
@@ -107,12 +62,413 @@ async fn run_everything_search(args: Value) -> Result<Value, OmniError> {
     serde_json::to_value(hits).map_err(|e| OmniError::internal(e.to_string()))
 }
 
+/// 编译期内置网关 handler 登记。新增第一方插件方法在此追加，
+/// 禁止在 `plugin_invoke` 命令里按插件 ID 特判。
+fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
+    gateway.register(
+        omnipanel_plugin::PLUGIN_ID_ADDON_EVERYTHING,
+        "omni_everything_search",
+        Arc::new(|args| {
+            Box::pin(async move {
+                run_everything_search(args)
+                    .await
+                    .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
+            })
+        }),
+    );
+}
+
+/// L2 执行器工厂：`plugin-wasm` feature 关闭时返回 None（L1/L3 不受影响）。
+pub fn make_logic_executor() -> Option<Arc<dyn PluginLogicExecutor>> {
+    #[cfg(feature = "plugin-wasm")]
+    let wasm: Option<Arc<dyn PluginLogicExecutor>> =
+        Some(Arc::new(omnipanel_plugin_wasm::WasmExecutor::new()));
+    #[cfg(not(feature = "plugin-wasm"))]
+    let wasm: Option<Arc<dyn PluginLogicExecutor>> = None;
+
+    #[cfg(feature = "plugin-js")]
+    let js: Option<Arc<dyn PluginLogicExecutor>> =
+        Some(Arc::new(omnipanel_plugin_js::JsExecutor::new()));
+    #[cfg(not(feature = "plugin-js"))]
+    let js: Option<Arc<dyn PluginLogicExecutor>> = None;
+
+    if wasm.is_none() && js.is_none() {
+        None
+    } else {
+        Some(Arc::new(omnipanel_plugin::RouterExecutor::new(wasm, js)))
+    }
+}
+pub fn seed_plugin_runtime(
+    storage: &Storage,
+    plugins_root: Option<&Path>,
+) -> (PluginRegistry, Arc<InvokeGateway>) {
+    let mut registry = build_registry(plugins_root);
+    if let Ok(saved) = storage.plugin_enabled_list() {
+        for (id, enabled) in saved {
+            let _ = registry.set_enabled(&id, enabled);
+        }
+    }
+    registry.activate_enabled(PluginPlatform::current());
+    let mut gateway = InvokeGateway::new();
+    register_builtin_invoke_handlers(&mut gateway);
+    (registry, Arc::new(gateway))
+}
+
+/// 内置 + 磁盘安装两来源合并构建（不含启用状态回放）。
+fn build_registry(plugins_root: Option<&Path>) -> PluginRegistry {
+    let mut registry = PluginRegistry::new();
+    for manifest in omnipanel_plugin::first_party_manifests() {
+        let _ = registry.register(manifest);
+    }
+    if let Some(root) = plugins_root {
+        for installed in load_installed(root) {
+            let _ = registry.register_installed(installed.manifest);
+        }
+    }
+    registry
+}
+
+/// 安装/卸载后整体重建：清单来源 → 启用状态回放 → activate → 工具同步 → 事件。
+async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), OmniError> {
+    let mut new_registry = build_registry(state.plugin_packages_dir.as_deref());
+    {
+        let store = state.storage.lock().await;
+        if let Ok(saved) = store.plugin_enabled_list() {
+            for (id, enabled) in saved {
+                let _ = new_registry.set_enabled(&id, enabled);
+            }
+        }
+    }
+    new_registry.activate_enabled(PluginPlatform::current());
+    {
+        let mut guard = state.plugin_registry.lock().await;
+        *guard = new_registry;
+    }
+    sync_native_plugin_tools_with_state(state).await;
+    sync_plugin_logic(state).await;
+    let _ = state.app_handle.emit(
+        PLUGIN_CHANGED_EVENT,
+        PluginChangedPayload {
+            plugin_id: "__all__".into(),
+            enabled: true,
+            activated: true,
+        },
+    );
+    Ok(())
+}
+
+/// L2 逻辑执行体生命周期：activated 且声明 entry.logic 的插件实例化，
+/// 不再 activated 的执行体 shutdown 移除。feature 未启用时仅做清理。
+pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
+    // 1. 收集当前应存活的 (plugin_id → logic 相对路径)
+    let wanted: Vec<(String, String)> = {
+        let registry = state.plugin_registry.lock().await;
+        registry
+            .list()
+            .into_iter()
+            .filter(|item| item.enabled && item.activated)
+            .filter_map(|item| {
+                let entry = registry.get(&item.id)?;
+                entry.manifest.logic_entry().map(|p| (item.id, p.to_string()))
+            })
+            .collect()
+    };
+    let wanted_ids: std::collections::HashSet<String> =
+        wanted.iter().map(|(id, _)| id.clone()).collect();
+
+    // 2. 卸除不再存活的执行体
+    {
+        let mut instances = state.plugin_logic_instances.lock().unwrap();
+        let stale: Vec<String> = instances
+            .keys()
+            .filter(|id| !wanted_ids.contains(*id))
+            .cloned()
+            .collect();
+        for id in stale {
+            if let Some(inst) = instances.remove(&id) {
+                inst.lock().unwrap().shutdown();
+            }
+        }
+    }
+
+    // 3. 实例化新增执行体（读安装目录内的逻辑包字节）
+    for (plugin_id, logic_rel) in wanted {
+        {
+            let instances = state.plugin_logic_instances.lock().unwrap();
+            if instances.contains_key(&plugin_id) {
+                continue;
+            }
+        }
+        let Some(executor) = state.plugin_logic_executor.as_ref() else {
+            continue; // feature 未启用：静默跳过（L2 调用时给出可读错误）
+        };
+        let Some(root) = state.plugin_packages_dir.clone() else {
+            continue;
+        };
+        let path = root.join(&plugin_id).join(&logic_rel);
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("[plugin-logic] 读取逻辑包失败 {}: {err}", path.display());
+                continue;
+            }
+        };
+        let executor = Arc::clone(executor);
+        let pid = plugin_id.clone();
+        let bridge = Arc::new(crate::commands::plugin_bridge::PluginBridge {
+            plugin_id: plugin_id.clone(),
+            registry: Arc::clone(&state.plugin_registry),
+            storage: Arc::clone(&state.storage),
+            gateway: Arc::clone(&state.plugin_invoke),
+            fs_root: state
+                .plugin_packages_dir
+                .as_ref()
+                .map(|root| root.join(&plugin_id)),
+            http: state.plugin_http.clone(),
+            confirmer: Arc::new(crate::commands::plugin_bridge::TauriProdConfirmer {
+                app: state.app_handle.clone(),
+                pending: Arc::clone(&state.plugin_pending_confirms),
+            }),
+        });
+        let package = omnipanel_plugin::LogicPackage::from_entry_bytes(&logic_rel, bytes);
+        let result = tokio::task::spawn_blocking(move || executor.instantiate(&pid, &package, bridge)).await;
+        match result {
+            Ok(Ok(instance)) => {
+                state
+                    .plugin_logic_instances
+                    .lock()
+                    .unwrap()
+                    .insert(plugin_id, Arc::new(std::sync::Mutex::new(instance)));
+            }
+            Ok(Err(err)) => eprintln!("[plugin-logic] 实例化失败 {plugin_id}: {err}"),
+            Err(err) => eprintln!("[plugin-logic] 实例化任务失败 {plugin_id}: {err}"),
+        }
+    }
+}
+async fn sync_native_plugin_tools_with_state(state: &State<'_, AppState>) {
+    let registry = state.plugin_registry.lock().await;
+    let mcp = state.mcp_manager.lock().await;
+    sync_native_plugin_tools(&registry, &mcp.tool_registry, &state.plugin_invoke);
+}
+
+fn pkg_err_to_omni(err: omnipanel_plugin_pkg::PkgError) -> OmniError {
+    use omnipanel_plugin_pkg::PkgError as E;
+    match err {
+        E::BadSignature | E::UnsignedRejected => {
+            OmniError::new(ErrorCode::Permission, err.to_string())
+        }
+        other => OmniError::invalid_input(other.to_string()),
+    }
+}
+
+/// 从本地 `.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
+/// dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_install_from_file(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PluginListItem, OmniError> {
+    let pkg_path = PathBuf::from(&path);
+    let manifest =
+        tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::verify_file_dev(&pkg_path))
+            .await
+            .map_err(|e| OmniError::internal(e.to_string()))?
+            .map_err(pkg_err_to_omni)?;
+    let plugin_id = manifest.id.clone();
+    let pkg_path = PathBuf::from(&path);
+
+    {
+        let registry = state.plugin_registry.lock().await;
+        if !registry.is_installed(&plugin_id) && registry.get(&plugin_id).is_some() {
+            return Err(OmniError::invalid_input(format!(
+                "插件 id 与内置插件冲突: {plugin_id}"
+            )));
+        }
+    }
+
+    let dest_root = state
+        .plugin_packages_dir
+        .clone()
+        .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
+    let target = dest_root.join(&plugin_id);
+    tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::extract_to(&pkg_path, &target))
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?
+        .map_err(pkg_err_to_omni)?;
+    rebuild_and_sync(&state).await?;
+    audit_plugin_action(
+        &state,
+        "plugin.install",
+        &plugin_id,
+        "success",
+        format!("v{}", manifest.version),
+    );
+
+    let registry = state.plugin_registry.lock().await;
+    let entry = registry
+        .get(&plugin_id)
+        .ok_or_else(|| OmniError::not_found(format!("未知插件: {plugin_id}")))?;
+    Ok(PluginListItem {
+        id: entry.manifest.id.clone(),
+        version: entry.manifest.version.clone(),
+        kind: entry.manifest.kind,
+        enabled: entry.enabled,
+        activated: entry.activated,
+        source: entry.source,
+        unsupported_reason: entry.unsupported_reason.clone(),
+    })
+}
+
+/// 卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_uninstall(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<(), OmniError> {
+    {
+        let registry = state.plugin_registry.lock().await;
+        if !registry.is_installed(&plugin_id) {
+            return Err(OmniError::invalid_input(format!(
+                "内置插件不可卸载，仅可禁用: {plugin_id}"
+            )));
+        }
+    }
+    if let Some(dest_root) = state.plugin_packages_dir.clone() {
+        let target = dest_root.join(&plugin_id);
+        tokio::task::spawn_blocking(move || {
+            if target.exists() {
+                std::fs::remove_dir_all(&target)
+            } else {
+                Ok(())
+            }
+        })
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    }
+    {
+        let store = state.storage.lock().await;
+        store.plugin_enabled_delete(&plugin_id)?;
+    }
+    audit_plugin_action(&state, "plugin.uninstall", &plugin_id, "success", String::new());
+    rebuild_and_sync(&state).await?;
+    Ok(())
+}
+
+/// AI Native 工具泛化同步：以 activated manifests 的 `contributes.ai.tools`
+/// 为唯一事实源全量重建；executor 统一经 `(plugin_id, tool.name)` 网关分发。
+pub fn sync_native_plugin_tools(
+    registry: &PluginRegistry,
+    tools: &ToolRegistry,
+    gateway: &Arc<InvokeGateway>,
+) {
+    omnipanel_mcp::plugin_tools::global_plugin_tool_hub().clear();
+    for (plugin_id, tool) in &registry.contributions().ai_tools {
+        let method_name = tool.name.clone();
+        let gw = Arc::clone(gateway);
+        let pid = plugin_id.clone();
+        tools.register_plugin_native_tool(PluginNativeTool {
+            plugin_id: plugin_id.clone(),
+            name: tool.name.clone(),
+            module_key: tool.module_key.clone(),
+            description: tool.description.clone(),
+            input_schema: tool.input_schema.clone(),
+            kind: ToolExecutionKind::Native,
+            cross_module: tool.cross_module,
+            external_exposed: tool.external_exposed,
+            executor: Arc::new(move |_name, args| {
+                let gw = Arc::clone(&gw);
+                let pid = pid.clone();
+                let method = method_name.clone();
+                Box::pin(async move {
+                    gw.invoke(&pid, &method, args)
+                        .await
+                        .map(|value| (value.to_string(), false))
+                        .map_err(|e| e.to_string())
+                })
+            }),
+        });
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// args 只存摘要（sha256 + 长度），不落原文，避免密钥入审计库。
+fn args_digest(args: &Value) -> String {
+    let serialized = serde_json::to_string(args).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(serialized.as_bytes());
+    format!("sha256:{:x} len={}", hasher.finalize(), serialized.len())
+}
+
+fn audit_plugin_action(state: &AppState, action: &str, target: &str, status: &str, detail: String) {
+    let entry = AuditEntry {
+        ts: now_ms(),
+        action: action.to_string(),
+        target: target.to_string(),
+        env_tag: "-".into(),
+        risk: "medium".into(),
+        status: status.to_string(),
+        detail: detail.chars().take(200).collect(),
+    };
+    if let Ok(store) = state.storage.try_lock() {
+        let _ = store.append_audit(&entry);
+    }
+}
+
 /// 列出已编译的第一方插件（含未激活的平台不匹配项）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_list(state: State<'_, AppState>) -> Result<Vec<PluginListItem>, OmniError> {
     let registry = state.plugin_registry.lock().await;
     Ok(registry.list())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginManifestDto {
+    pub id: String,
+    pub version: String,
+    pub kind: omnipanel_plugin::PluginKind,
+    pub enabled: bool,
+    pub activated: bool,
+    pub source: PluginSource,
+    /// 清单原文（JSON 字符串）：规避 specta 对内嵌 Value 的递归内联展开；
+    /// 前端以 plugin-sdk Zod schema 解析，保持清单合同单源。
+    pub manifest_json: String,
+}
+
+/// 全量清单（内置 + 已安装）：前端 PluginCatalog 单源合并用。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_manifests(
+    state: State<'_, AppState>,
+) -> Result<Vec<PluginManifestDto>, OmniError> {
+    let registry = state.plugin_registry.lock().await;
+    Ok(registry
+        .list()
+        .into_iter()
+        .filter_map(|item| {
+            let entry = registry.get(&item.id)?;
+            Some(PluginManifestDto {
+                manifest_json: serde_json::to_string(&entry.manifest)
+                    .unwrap_or_else(|_| "{}".into()),
+                id: item.id,
+                version: item.version,
+                kind: item.kind,
+                enabled: item.enabled,
+                activated: item.activated,
+                source: item.source,
+            })
+        })
+        .collect())
 }
 
 /// 启用或禁用插件。禁用后卸除贡献点（含 AI 工具），连接数据保留。
@@ -140,21 +496,23 @@ pub async fn plugin_set_enabled(
     {
         let registry = state.plugin_registry.lock().await;
         let mcp = state.mcp_manager.lock().await;
-        sync_native_plugin_tools(&registry, &mcp.tool_registry);
+        sync_native_plugin_tools(&registry, &mcp.tool_registry, &state.plugin_invoke);
     }
+    sync_plugin_logic(&state).await;
     let item = {
         let registry = state.plugin_registry.lock().await;
-        registry
+        let entry = registry
             .get(&plugin_id)
-            .map(|e| PluginListItem {
-                id: e.manifest.id.clone(),
-                version: e.manifest.version.clone(),
-                kind: e.manifest.kind,
-                enabled: e.enabled,
-                activated: e.activated,
-                unsupported_reason: e.unsupported_reason.clone(),
-            })
-            .ok_or_else(|| OmniError::not_found(format!("未知插件: {plugin_id}")))?
+            .ok_or_else(|| OmniError::not_found(format!("未知插件: {plugin_id}")))?;
+        PluginListItem {
+            id: entry.manifest.id.clone(),
+            version: entry.manifest.version.clone(),
+            kind: entry.manifest.kind,
+            enabled: entry.enabled,
+            activated: entry.activated,
+            source: entry.source,
+            unsupported_reason: entry.unsupported_reason.clone(),
+        }
     };
     let _ = state.app_handle.emit(
         PLUGIN_CHANGED_EVENT,
@@ -167,7 +525,7 @@ pub async fn plugin_set_enabled(
     Ok(item)
 }
 
-/// 第一方插件命令网关。未在编译期登记的 method 一律失败。
+/// 第一方/第三方统一命令网关：清单 `methods[]` 白名单 + 权限注解强制 + 审计。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_invoke(
@@ -176,19 +534,66 @@ pub async fn plugin_invoke(
     method: String,
     args: Value,
 ) -> Result<Value, OmniError> {
-    if plugin_id == PLUGIN_ID_ADDON_EVERYTHING && method == "search" {
-        {
-            let registry = state.plugin_registry.lock().await;
-            registry.require_permission(&plugin_id, PluginPermission::AiTools)?;
-            registry.require_permission(&plugin_id, PluginPermission::FsRead)?;
+    // 1. 白名单：未声明 method 一律拒绝（含未激活插件）
+    let decl: PluginMethodDecl = {
+        let registry = state.plugin_registry.lock().await;
+        registry.declared_method(&plugin_id, &method)?
+    };
+    // 2. 权限：逐项强制，缺权即失败
+    {
+        let registry = state.plugin_registry.lock().await;
+        for permission in &decl.permissions {
+            registry.require_permission(&plugin_id, *permission)?;
         }
-        return run_everything_search(args).await;
     }
-    let gateway = state.plugin_invoke.lock().await;
-    Ok(gateway.invoke(&plugin_id, &method, args)?)
+    // 3a. 原生网关优先
+    let native = state
+        .plugin_invoke
+        .invoke(&plugin_id, &method, args.clone())
+        .await;
+    // 3b. 原生未登记 → L2 逻辑执行体兜底（权限已在步骤 2 强制）
+    let result = match native {
+        Err(omnipanel_plugin::PluginError::UnknownMethod { .. }) => {
+            let instance = {
+                let instances = state.plugin_logic_instances.lock().unwrap();
+                instances.get(&plugin_id).cloned()
+            };
+            match instance {
+                Some(instance) => {
+                    let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
+                    let method = method.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let mut guard = instance.lock().unwrap();
+                        let rt = tokio::runtime::Handle::current();
+                        rt.block_on(guard.call(&method, &args_json))
+                    })
+                    .await
+                    .map_err(|e| OmniError::internal(e.to_string()))?
+                    .and_then(|text| {
+                        serde_json::from_str::<Value>(&text).map_err(|e| {
+                            omnipanel_plugin::PluginError::Invoke(format!("L2 结果非 JSON: {e}"))
+                        })
+                    })
+                }
+                None => Err(omnipanel_plugin::PluginError::UnknownMethod {
+                    plugin_id: plugin_id.clone(),
+                    method: method.clone(),
+                }),
+            }
+        }
+        other => other,
+    };
+    let status = if result.is_ok() { "success" } else { "failed" };
+    let detail = match &result {
+        Ok(_) => format!("{method} {}", args_digest(&args)),
+        Err(err) => format!("{method} {} err={err}", args_digest(&args)),
+    };
+    audit_plugin_action(&state, "plugin.invoke", &plugin_id, status, detail);
+    result.map_err(Into::into)
 }
 
-/// 缺权即失败。前端 Host API 在 upsert / 选区 / SSH 探测前必须先过此闸。
+/// 缺权即失败。前端 Host API 在 upsert / 选区 / SSH 探测前必须先过此闸；
+/// 拒绝写入审计（action=plugin.permission，status=blocked）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_require_permission(
@@ -197,8 +602,20 @@ pub async fn plugin_require_permission(
     permission: String,
 ) -> Result<(), OmniError> {
     let perm = PluginPermission::parse(&permission)?;
-    let registry = state.plugin_registry.lock().await;
-    Ok(registry.require_permission(&plugin_id, perm)?)
+    let outcome = {
+        let registry = state.plugin_registry.lock().await;
+        registry.require_permission(&plugin_id, perm)
+    };
+    if let Err(err) = &outcome {
+        audit_plugin_action(
+            &state,
+            "plugin.permission",
+            &plugin_id,
+            "blocked",
+            format!("{permission}: {err}"),
+        );
+    }
+    outcome.map_err(Into::into)
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
@@ -267,4 +684,24 @@ pub async fn discovery_run(
         },
     )
     .await
+}
+
+/// prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_confirm_resolve(
+    state: State<'_, AppState>,
+    request_id: String,
+    allow: bool,
+) -> Result<(), OmniError> {
+    let sender = state.plugin_pending_confirms.lock().await.remove(&request_id);
+    match sender {
+        Some(tx) => {
+            let _ = tx.send(allow);
+            Ok(())
+        }
+        None => Err(OmniError::not_found(format!(
+            "确认请求不存在或已超时: {request_id}"
+        ))),
+    }
 }

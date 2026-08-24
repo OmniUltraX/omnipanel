@@ -1,0 +1,16 @@
+[package]
+name = "omnipanel-plugin-js"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PluginLogicExecutor 的 QuickJS 实现（L2 胶水逻辑，TS/JS 友好）"
+
+[dependencies]
+omnipanel-plugin = { path = "../omnipanel-plugin" }
+serde_json.workspace = true
+thiserror.workspace = true
+rquickjs = { version = "0.9", features = ["parallel"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }

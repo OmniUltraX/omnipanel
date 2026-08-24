@@ -25,6 +25,13 @@ export function registerMenuContribution(item: MenuContribution): void {
   else contributions.push(item);
 }
 
+/** deactivate 时按 pluginId 卸除登记。 */
+export function unregisterMenuContributions(pluginId: string): void {
+  for (let i = contributions.length - 1; i >= 0; i -= 1) {
+    if (contributions[i].pluginId === pluginId) contributions.splice(i, 1);
+  }
+}
+
 export function visibleMenuContributions(): MenuContribution[] {
   const selection = getHostSelection();
   const hasSelection = Boolean(selection?.text);
@@ -34,7 +41,10 @@ export function visibleMenuContributions(): MenuContribution[] {
   });
 }
 
-/** 内核分享 addon：合并到右键菜单末尾。 */
+/**
+ * 内核分享 addon：登记到贡献表末尾，与其它贡献一起泛化合并。
+ * share 的 label/onClick 由调用方按当前选区注入（每次渲染绑定）。
+ */
 export function mergeContributedMenuItems(
   items: ContextMenuItem[],
   share: { label: string; onClick: () => void },
@@ -45,16 +55,14 @@ export function mergeContributedMenuItems(
     label: share.label,
     onClick: () => share.onClick(),
   });
+  const extras = visibleMenuContributions().map((c) => ({
+    id: c.id,
+    label: c.label,
+    onClick: () => c.onClick({ selectionText: getHostSelection()?.text ?? "" }),
+  }));
   if (items.some((item) => item.id === GLOBAL_SHARE_MENU_ID)) {
     return items;
   }
-  const extras = visibleMenuContributions()
-    .filter((c) => c.id === GLOBAL_SHARE_MENU_ID)
-    .map((c) => ({
-      id: c.id,
-      label: share.label,
-      onClick: share.onClick,
-    }));
   if (extras.length === 0) return items;
   if (items.length === 0) return extras;
   const last = items[items.length - 1];

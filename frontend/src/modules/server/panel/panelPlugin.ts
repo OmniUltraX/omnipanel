@@ -1,9 +1,8 @@
-import {
-  PANEL_1PANEL_CAPS,
-  PANEL_1PANEL_ALIASES,
-} from "../../../../../plugins/panel-1panel/src/index";
-import { PANEL_BT_CAPS } from "../../../../../plugins/panel-bt/src/index";
 import { isPluginActivated, usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
+import {
+  listPluginManifests,
+  manifestPanelTabIds,
+} from "../../../lib/pluginManifests";
 
 export const PLUGIN_ID_PANEL_1PANEL = "omni.panel.1panel";
 export const PLUGIN_ID_PANEL_BT = "omni.panel.bt";
@@ -25,14 +24,13 @@ const ALIASES: Record<string, string> = {
   [PLUGIN_ID_PANEL_1PANEL]: PLUGIN_ID_PANEL_1PANEL,
 };
 
-for (const alias of PANEL_1PANEL_ALIASES) {
-  ALIASES[alias] = PLUGIN_ID_PANEL_1PANEL;
-}
-
-const CAPS: Record<string, readonly PanelCapability[]> = {
-  [PLUGIN_ID_PANEL_1PANEL]: PANEL_1PANEL_CAPS,
-  [PLUGIN_ID_PANEL_BT]: PANEL_BT_CAPS,
-};
+/** 面板能力来自 manifest `contributes.ui.panelTabs`（单源）。 */
+const CAPS: Record<string, readonly PanelCapability[]> = Object.fromEntries(
+  listPluginManifests("panel").map((manifest) => [
+    manifest.id,
+    manifestPanelTabIds(manifest) as PanelCapability[],
+  ]),
+);
 
 export function canonicalPanelPluginId(serviceType: string | null | undefined): string {
   const raw = (serviceType ?? "").trim().toLowerCase();

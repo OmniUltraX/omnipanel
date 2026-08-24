@@ -39,11 +39,35 @@ export const aiToolContributionSchema = z.object({
   inputSchema: z.record(z.string(), z.unknown()).default({ type: "object", properties: {} }),
 });
 
+/** 网关白名单：`plugin_invoke` 只放行声明过的 method，缺权即拒绝。 */
+export const pluginMethodSchema = z.object({
+  name: z.string().min(1),
+  permissions: z.array(pluginPermissionSchema).default([]),
+});
+
+export type PluginMethod = z.infer<typeof pluginMethodSchema>;
+
+/** L2/L3 入口声明；缺省为纯声明式（L1）插件。 */
+export const pluginEntrySchema = z
+  .object({
+    /** 逻辑包相对路径（安装目录内），当前仅支持 .wasm。 */
+    logic: z
+      .string()
+      .regex(/^[^/\\][^:]*\.(wasm|js)$/i)
+      .refine((p) => !p.split(/[\\/]/).includes(".."))
+      .optional(),
+  })
+  .optional();
+
+export type PluginEntry = z.infer<typeof pluginEntrySchema>;
+
 export const pluginManifestSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
   kind: pluginKindSchema,
   permissions: z.array(pluginPermissionSchema).default([]),
+  methods: z.array(pluginMethodSchema).optional(),
+  entry: pluginEntrySchema,
   platforms: z.array(pluginPlatformSchema).optional(),
   contributes: z
     .object({
@@ -112,6 +136,25 @@ export type PluginHost = {
     };
   };
 };
+
+/** activate 注入：Host API + 已解析清单。插件 MUST 只经 Host API 干活。 */
+export type PluginActivateContext = {
+  host: PluginHost;
+  manifest: PluginManifest;
+};
+
+/**
+ * 插件模块合同。deactivate MUST 卸载本次 activate 登记的一切贡献点。
+ * 第一方与未来第三方走同一合同；装载器可替换，合同不变。
+ */
+export type PluginModule = {
+  activate: (ctx: PluginActivateContext) => void | Promise<void>;
+  deactivate?: () => void;
+};
+
+export function definePlugin(module: PluginModule): PluginModule {
+  return module;
+}
 
 export function parsePluginManifest(raw: unknown): PluginManifest {
   return pluginManifestSchema.parse(raw);

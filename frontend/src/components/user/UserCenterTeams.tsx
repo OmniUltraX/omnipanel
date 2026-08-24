@@ -43,6 +43,11 @@ import { TeamDataTree } from "./TeamDataTree";
 type TeamRoleCode = "creator" | "manager" | "user";
 type TeamDetailTab = "members" | "data";
 
+/** 团队 id 缺失（null）时无法执行任何团队操作。 */
+function numericTeamId(team: TeamSummary | null | undefined): number | null {
+  return team && typeof team.id === "number" ? team.id : null;
+}
+
 function normalizeRole(role: string | undefined): TeamRoleCode {
   const key = role?.trim().toLowerCase();
   if (key === "creator" || key === "manager") return key;
@@ -157,11 +162,12 @@ export function UserCenterTeams({
 
   const loadMembers = useCallback(
     async (team: TeamSummary) => {
-      if (!token) return;
+      const teamId = numericTeamId(team);
+      if (!token || teamId === null) return;
       setMembersLoading(true);
       setMembersError(null);
       try {
-        const list = await fetchTeamMembers(token, team.id);
+        const list = await fetchTeamMembers(token, teamId);
         setMembers(list);
       } catch (e) {
         if (isAuthSessionError(e)) {
@@ -178,11 +184,12 @@ export function UserCenterTeams({
 
   const loadTeamShares = useCallback(
     async (team: TeamSummary) => {
-      if (!token) return;
+      const teamId = numericTeamId(team);
+      if (!token || teamId === null) return;
       setSharesLoading(true);
       setSharesError(null);
       try {
-        const list = await listTeamShares(token, team.id);
+        const list = await listTeamShares(token, teamId);
         setTeamShares(list);
       } catch (e) {
         if (isAuthSessionError(e)) {
@@ -199,14 +206,15 @@ export function UserCenterTeams({
 
   const loadTeamDataPeek = useCallback(
     async (team: TeamSummary, options?: { silent?: boolean; afterUpload?: boolean }) => {
-      if (!token) return;
+      const teamId = numericTeamId(team);
+      if (!token || teamId === null) return;
       const silent = options?.silent === true;
       if (!silent) {
         setDataPeekLoading(true);
       }
       setDataPeekError(null);
       try {
-        const result = await peekTeamModules(token, team.id, {
+        const result = await peekTeamModules(token, teamId, {
           afterUpload: options?.afterUpload === true,
         });
         setDataPeek(result);
@@ -352,10 +360,11 @@ export function UserCenterTeams({
   };
 
   const handleSelectMemberCandidate = async (email: string) => {
-    if (!token || !selectedTeam || addingMember) return;
+    const teamId = numericTeamId(selectedTeam);
+    if (!token || !selectedTeam || teamId === null || addingMember) return;
     setAddingMember(true);
     try {
-      await addTeamMember(token, selectedTeam.id, {
+      await addTeamMember(token, teamId, {
         email,
         roleCode: "user",
       });
@@ -375,7 +384,8 @@ export function UserCenterTeams({
   };
 
   const handleDissolveTeam = async () => {
-    if (!token || !selectedTeam || dissolving) return;
+    const teamId = numericTeamId(selectedTeam);
+    if (!token || !selectedTeam || teamId === null || dissolving) return;
     const confirmed = await appConfirm(
       t("userCenter.teams.dissolveConfirm", { name: selectedTeam.name }),
       t("userCenter.teams.dissolveTitle"),
@@ -385,7 +395,7 @@ export function UserCenterTeams({
 
     setDissolving(true);
     try {
-      await dissolveTeam(token, selectedTeam.id);
+      await dissolveTeam(token, teamId);
       showToast(t("userCenter.teams.dissolveSuccess"));
       setSelectedTeam(null);
       await loadTeams();
@@ -407,10 +417,11 @@ export function UserCenterTeams({
   };
 
   const handleSaveMember = async () => {
-    if (!token || !selectedTeam || !editMember || savingMember) return;
+    const teamId = numericTeamId(selectedTeam);
+    if (!token || !selectedTeam || teamId === null || !editMember || savingMember) return;
     setSavingMember(true);
     try {
-      await updateTeamMember(token, selectedTeam.id, editMember.email, {
+      await updateTeamMember(token, teamId, editMember.email, {
         roleCode: editRole,
         userTeamName: editDisplayName.trim() || null,
       });
@@ -443,7 +454,9 @@ export function UserCenterTeams({
 
     setBusyMemberEmail(member.email);
     try {
-      await removeTeamMember(token, selectedTeam.id, member.email);
+      const teamId = numericTeamId(selectedTeam);
+      if (teamId === null) return;
+      await removeTeamMember(token, teamId, member.email);
       showToast(t("userCenter.teams.removeMemberSuccess"));
       await loadMembers(selectedTeam);
     } catch (e) {
@@ -458,16 +471,20 @@ export function UserCenterTeams({
   };
 
   const handlePushTeamModules = async () => {
-    if (!token || !selectedTeam || syncModulesPushing) return;
+    if (!token || numericTeamId(selectedTeam) === null || syncModulesPushing) return;
     setSyncModulesPushing(true);
     try {
-      const result = await pushTeamModules(token, selectedTeam.id);
+      const teamId = numericTeamId(selectedTeam);
+      if (teamId === null) return;
+      const result = await pushTeamModules(token, teamId);
       showToast(
         t("userCenter.teams.syncModulesPushSuccess", {
-          size: Math.max(1, Math.round(result.bytes / 1024)),
+          size: Math.max(1, Math.round((result.bytes ?? 0) / 1024)),
         }),
       );
-      await loadTeamDataPeek(selectedTeam, { afterUpload: true });
+      if (selectedTeam) {
+        await loadTeamDataPeek(selectedTeam, { afterUpload: true });
+      }
     } catch (e) {
       if (isAuthSessionError(e)) {
         handleSessionExpired();
@@ -480,10 +497,12 @@ export function UserCenterTeams({
   };
 
   const handlePullTeamModules = async () => {
-    if (!token || !selectedTeam || syncModulesPulling) return;
+    if (!token || numericTeamId(selectedTeam) === null || syncModulesPulling) return;
     setSyncModulesPulling(true);
     try {
-      const result = await pullTeamModules(token, selectedTeam.id);
+      const teamId = numericTeamId(selectedTeam);
+      if (teamId === null) return;
+      const result = await pullTeamModules(token, teamId);
       let detail = "";
       try {
         const parsed = JSON.parse(result.bodyJson) as {
@@ -496,11 +515,13 @@ export function UserCenterTeams({
         });
       } catch {
         detail = t("userCenter.teams.syncModulesPullSize", {
-          size: Math.max(1, Math.round(result.bytes / 1024)),
+          size: Math.max(1, Math.round((result.bytes ?? 0) / 1024)),
         });
       }
       showToast(t("userCenter.teams.syncModulesPullSuccess", { detail }));
-      await loadTeamDataPeek(selectedTeam);
+      if (selectedTeam) {
+        await loadTeamDataPeek(selectedTeam);
+      }
     } catch (e) {
       if (isAuthSessionError(e)) {
         handleSessionExpired();
@@ -513,10 +534,12 @@ export function UserCenterTeams({
   };
 
   const handleImportTeamShare = async (share: TeamShareSummary) => {
-    if (!token || !selectedTeam || importingShareId) return;
+    if (!token || numericTeamId(selectedTeam) === null || importingShareId) return;
     setImportingShareId(share.shareId);
     try {
-      const fetched = await fetchTeamShare(token, selectedTeam.id, share.shareId);
+      const teamId = numericTeamId(selectedTeam);
+      if (teamId === null) return;
+      const fetched = await fetchTeamShare(token, teamId, share.shareId);
       const envelope = JSON.parse(fetched.bodyJson) as {
         snapshot?: CustomPanelShareSnapshot;
       };
@@ -827,7 +850,7 @@ export function UserCenterTeams({
               </div>
 
               <TeamDataTree
-                teamId={selectedTeam.id}
+                teamId={numericTeamId(selectedTeam) ?? 0}
                 peek={dataPeek}
                 loading={dataPeekLoading}
                 error={dataPeekError}

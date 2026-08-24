@@ -47,6 +47,17 @@ impl Storage {
             .map_err(map_sqlite)?;
         Ok(())
     }
+
+    /// 卸载时清除启用记录（回到编译期默认）。
+    pub fn plugin_enabled_delete(&self, plugin_id: &str) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "DELETE FROM plugin_settings WHERE plugin_id = ?1",
+                params![plugin_id],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -92,5 +103,21 @@ mod tests {
             .unwrap();
         let again = storage.app_module_list().unwrap();
         assert_eq!(again.len(), DEFAULT_APP_MODULES.len());
+    }
+
+    #[test]
+    fn plugin_enabled_delete_removes_record() {
+        let storage = Storage::open_in_memory().unwrap();
+        storage
+            .plugin_enabled_set("omni.addon.demo", false)
+            .unwrap();
+        storage
+            .plugin_enabled_set("omni.addon.keep", true)
+            .unwrap();
+        storage.plugin_enabled_delete("omni.addon.demo").unwrap();
+        // 重复删除幂等
+        storage.plugin_enabled_delete("omni.addon.demo").unwrap();
+        let listed = storage.plugin_enabled_list().unwrap();
+        assert_eq!(listed, vec![("omni.addon.keep".into(), true)]);
     }
 }

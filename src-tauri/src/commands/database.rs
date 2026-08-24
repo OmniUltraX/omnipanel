@@ -3,11 +3,14 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use omnipanel_db::{
-    DbParams, MongoDriver, QueryResult, RedisAclUser, RedisInfoResult, RedisKeyDetail,
-    RedisMemoryStats, RedisSearchKeysResult, RedisSlowLogEntry, RedisStreamConsumer,
-    RedisStreamConsumerCleanupResult, RedisStreamGroup, RedisStreamMonitorSnapshot,
-    RedisStreamPendingEntry, RedisStreamRangeResult, mongodb_list_databases, mysql_connect_options,
-    qdrant_list_databases, redis_stream_cleanup_inactive_consumers,
+    CreateDatabaseArgs, DbCharsetMeta, DbColumnMeta, DbDatabaseMeta, DbIndexMeta,
+    DbIntrospectResult, DbNamedTableDetails, DbParams, DbRoutineMeta, DbTableDetails,
+    DbTableSchema, DbUserMeta, MongoDriver, QueryResult, RedisAclUser, RedisInfoResult,
+    RedisKeyDetail, RedisMemoryStats, RedisSearchKeysResult, RedisSlowLogEntry,
+    RedisStreamConsumer, RedisStreamConsumerCleanupResult, RedisStreamGroup,
+    RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
+    mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
+    redis_stream_cleanup_inactive_consumers,
 };
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
@@ -595,28 +598,6 @@ fn to_db_query_result(result: QueryResult) -> DbQueryResult {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbColumnMeta {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub column_type: String,
-    pub is_pk: bool,
-    pub is_fk: bool,
-    #[serde(default)]
-    pub nullable: bool,
-    #[serde(default)]
-    pub is_auto_increment: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,
-    /// 列长度（来自 information_schema）：MySQL CHARACTER_MAXIMUM_LENGTH / NUMERIC_PRECISION；PG character_maximum_length / numeric_precision
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub length: Option<i32>,
-    /// 列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"）
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_value: Option<String>,
-}
-
 fn mysql_extra_is_auto_increment(extra: &str) -> bool {
     extra.to_ascii_lowercase().contains("auto_increment")
 }
@@ -624,96 +605,6 @@ fn mysql_extra_is_auto_increment(extra: &str) -> bool {
 fn type_implies_auto_increment(column_type: &str) -> bool {
     let t = column_type.to_ascii_lowercase();
     t.contains("auto_increment") || t.contains("serial") || t.contains("identity")
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbIndexMeta {
-    pub name: String,
-    pub columns: Vec<String>,
-    pub unique: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbRoutineMeta {
-    pub name: String,
-    pub routine_type: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbUserMeta {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    /// 是否可登录（MySQL 默认 true；PG 对应 rolcanlogin）
-    #[serde(default)]
-    pub can_login: bool,
-    /// 是否超级用户 / SUPER 权限
-    #[serde(default)]
-    pub is_superuser: bool,
-    /// 是否可创建数据库
-    #[serde(default)]
-    pub can_create_db: bool,
-    /// PostgreSQL 中无 LOGIN 的角色；MySQL 恒为 false
-    #[serde(default)]
-    pub is_role: bool,
-    /// MySQL account_locked；PG 无此概念
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account_locked: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct DbTableSchema {
-    pub name: String,
-    pub columns: Vec<DbColumnMeta>,
-    #[serde(default)]
-    pub indexes: Vec<DbIndexMeta>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbTableDetails {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[specta(type = Option<f64>)]
-    pub row_count: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[specta(type = Option<f64>)]
-    pub data_length: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub row_format: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub engine: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub create_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub update_time: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub collation: Option<String>,
-}
-
-/// 库内多表详情（一次查询回填表列表，避免 N 次建连）。
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbNamedTableDetails {
-    pub name: String,
-    pub details: DbTableDetails,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbIntrospectResult {
-    pub database: String,
-    pub tables: Vec<DbTableSchema>,
-    #[serde(default)]
-    pub views: Vec<DbTableSchema>,
-    #[serde(default)]
-    pub routines: Vec<DbRoutineMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -1352,32 +1243,6 @@ pub async fn db_list_databases_with_stats(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbCharsetMeta {
-    pub charset: String,
-    pub description: String,
-    pub default_collation: String,
-}
-
-/// 数据库元信息（库列表 tab 展示用）
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DbDatabaseMeta {
-    /// 库名
-    pub name: String,
-    /// 默认字符集
-    pub charset: Option<String>,
-    /// 默认排序规则
-    pub collation: Option<String>,
-    /// 表数量（含视图）
-    pub table_count: Option<i32>,
-    /// 数据 + 索引总大小（字节）；f64 避免 u64 被 Specta 禁止导出
-    pub size_bytes: Option<f64>,
-    /// 估算总行数
-    pub rows_estimate: Option<f64>,
-}
-
 async fn mysql_list_character_sets(
     connection: &DbConnectionConfig,
 ) -> Result<Vec<DbCharsetMeta>, String> {
@@ -1450,17 +1315,6 @@ pub async fn db_list_character_sets(
         ]),
         _ => Ok(Vec::new()),
     }
-}
-
-/// 创建数据库参数。name 必填；charset 可选，留空时使用服务器默认。
-#[derive(Debug, Deserialize, specta::Type)]
-pub struct CreateDatabaseArgs {
-    pub connection: DbConnectionConfig,
-    pub name: String,
-    #[serde(default)]
-    pub charset: Option<String>,
-    #[serde(default)]
-    pub collation: Option<String>,
 }
 
 /// 校验数据库名：仅允许 ASCII 字母/数字/下划线/$/连字符 `-`，且首字符不能为数字，长度 1..=64。

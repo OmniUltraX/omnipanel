@@ -1,0 +1,17 @@
+[package]
+name = "omnipanel-plugin-pkg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = ".omni-plugin 包格式：打包、规范化字节流、ed25519 验签"
+
+[dependencies]
+omnipanel-plugin = { path = "../omnipanel-plugin" }
+serde_json.workspace = true
+thiserror.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,22 +1,22 @@
-import type { PluginManifest } from "@omnipanel/plugin-sdk";
-import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import { parsePluginManifest, definePlugin, type PluginManifest } from "@omnipanel/plugin-sdk";
 import raw from "../plugin.json";
+import {
+  registerPanelProbeMapper,
+  unregisterPanelProbeMappers,
+} from "../../../frontend/src/lib/panelProbeRegistry";
+import { claimsOnePanelKind, PLUGIN_ID_PANEL_1PANEL, toOnePanelCandidate } from "./mapProbe";
 
 export const panel1PanelManifest: PluginManifest = parsePluginManifest(raw);
 
-export const PANEL_1PANEL_ALIASES = ["1panel", "omni.panel.1panel"] as const;
-
-export const PANEL_1PANEL_CAPS = [
-  "overview",
-  "websites",
-  "apps",
-  "certificates",
-  "cronjobs",
-] as const;
-
-export {
-  claimsOnePanelKind,
-  PANEL_PROBE_KIND_1PANEL,
-  PLUGIN_ID_PANEL_1PANEL,
-  toOnePanelCandidate,
-} from "./mapProbe";
+export default definePlugin({
+  activate() {
+    registerPanelProbeMapper({
+      pluginId: PLUGIN_ID_PANEL_1PANEL,
+      claims: claimsOnePanelKind,
+      toCandidate: toOnePanelCandidate,
+    });
+  },
+  deactivate() {
+    unregisterPanelProbeMappers(PLUGIN_ID_PANEL_1PANEL);
+  },
+});

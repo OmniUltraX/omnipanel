@@ -1,8 +1,6 @@
-import { qdrantEngineManifest } from "../../../../plugins/db-qdrant/src/index";
-import { clickhouseEngineManifest } from "../../../../plugins/db-clickhouse/src/index";
-import { redisEngineManifest } from "../../../../plugins/db-redis/src/index";
 import type { PluginManifest } from "@omnipanel/plugin-sdk";
 import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { listPluginManifests } from "../../lib/pluginManifests";
 import {
   DOCUMENT_WORKBENCH,
   parseEngineWorkbench,
@@ -133,15 +131,9 @@ function descriptorFromPlugin(
   };
 }
 
-const ENGINE_PLUGIN_MANIFESTS: Array<{ pluginId: string; manifest: PluginManifest }> = [
-  { pluginId: "omni.engine.redis", manifest: redisEngineManifest },
-  { pluginId: "omni.engine.qdrant", manifest: qdrantEngineManifest },
-  { pluginId: "omni.engine.clickhouse", manifest: clickhouseEngineManifest },
-];
-
 function pluginEngineKeys(): Set<string> {
   const keys = new Set<string>();
-  for (const { manifest } of ENGINE_PLUGIN_MANIFESTS) {
+  for (const manifest of listPluginManifests("engine")) {
     const form = manifest.contributes.ui?.connectionForm;
     if (!form || typeof form !== "object") continue;
     const parsed = form as PluginConnectionForm;
@@ -155,9 +147,9 @@ function pluginEngineKeys(): Set<string> {
 function descriptorsFromEnginePlugins(): EngineDescriptor[] {
   const hydrated = usePluginRuntimeStore.getState().hydrated;
   const out: EngineDescriptor[] = [];
-  for (const { pluginId, manifest } of ENGINE_PLUGIN_MANIFESTS) {
-    if (hydrated && !isPluginActivated(pluginId)) continue;
-    const desc = descriptorFromPlugin(pluginId, manifest);
+  for (const manifest of listPluginManifests("engine")) {
+    if (hydrated && !isPluginActivated(manifest.id)) continue;
+    const desc = descriptorFromPlugin(manifest.id, manifest);
     if (desc) out.push(desc);
   }
   return out;

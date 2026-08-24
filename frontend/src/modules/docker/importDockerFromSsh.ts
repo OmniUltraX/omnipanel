@@ -18,8 +18,7 @@ import type { DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog"
 import { createPluginHost, KERNEL_DOCKER_PLUGIN_ID } from "@/lib/pluginHost";
 import { isProdEnvTag } from "@/lib/envTag";
 import { isPluginActivated } from "@/stores/pluginRuntimeStore";
-import { PLUGIN_ID_PANEL_1PANEL } from "../../../../plugins/panel-1panel/src/mapProbe";
-import { PLUGIN_ID_PANEL_BT } from "../../../../plugins/panel-bt/src/mapProbe";
+import { PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT } from "../server/panel/panelPlugin";
 
 export type ImportDockerFromSshProgress = {
   total: number;

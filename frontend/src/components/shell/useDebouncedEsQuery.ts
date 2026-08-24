@@ -31,7 +31,7 @@ export function useDebouncedEsQuery(
         commands.pluginInvoke(PLUGIN_ID_EVERYTHING, "search", {
           query: filter || "*",
           max_results: 12,
-        }),
+        } as never),
       )
         .then((value) => {
           if (seq !== seqRef.current) return;

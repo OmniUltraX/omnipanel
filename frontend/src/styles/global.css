@@ -28258,3 +28258,22 @@ body.quick-launcher-body {
 }
 
 
+
+
+/* 插件设置：来源标签与操作列 */
+.settings-plugins-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  vertical-align: middle;
+  background: var(--color-accent-soft, rgba(59, 130, 246, 0.15));
+  color: var(--color-accent, #3b82f6);
+}
+
+.settings-plugins-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

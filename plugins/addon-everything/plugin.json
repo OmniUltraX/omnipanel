@@ -4,6 +4,12 @@
   "kind": "addon",
   "platforms": ["windows"],
   "permissions": ["ai:tools", "fs:read"],
+  "methods": [
+    {
+      "name": "omni_everything_search",
+      "permissions": ["ai:tools", "fs:read"]
+    }
+  ],
   "contributes": {
     "launcher": { "prefix": "es" },
     "ai": {

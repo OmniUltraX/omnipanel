@@ -7,7 +7,7 @@
  * CI / SKIP_GEN_BINDINGS=1 时直接跳过（使用仓库内已提交的 bindings.ts）。
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +41,15 @@ if (result.status !== 0) {
 if (!existsSync(bindingsPath)) {
   console.error(`::error::未生成 bindings 文件: ${bindingsPath}`);
   process.exit(1);
+}
+
+// 后处理：serde_json::Value 嵌套在命名结构内时，specta 会内联展开递归枚举并
+// 引用未声明的 `Value` 标识符。统一改写为已声明的 `JsonValue`（= any）。
+const before = readFileSync(bindingsPath, "utf8");
+const after = before.replace(/\bValue\b/g, "JsonValue");
+if (after !== before) {
+  writeFileSync(bindingsPath, after);
+  console.log("[gen:bindings] 已将内联 Value 引用归一为 JsonValue");
 }
 
 const afterMtime = statSync(bindingsPath).mtimeMs;

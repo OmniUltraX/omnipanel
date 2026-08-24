@@ -8,6 +8,8 @@ name = "omnipanel_lib"
 crate-type = ["lib"]
 
 [features]
+plugin-wasm = ["dep:omnipanel-plugin-wasm"]
+plugin-js = ["dep:omnipanel-plugin-js"]
 default = []
 # 仅用于排查打包问题；正式发布勿启用（macOS 使用私有 API，无法上架 App Store）。
 debug-inspector = ["tauri/devtools"]
@@ -45,6 +47,9 @@ omnipanel-docker = { path = "../crates/omnipanel-docker" }
 omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 omnipanel-plugin = { path = "../crates/omnipanel-plugin" }
+omnipanel-plugin-pkg = { path = "../crates/omnipanel-plugin-pkg" }
+omnipanel-plugin-wasm = { path = "../crates/omnipanel-plugin-wasm", optional = true }
+omnipanel-plugin-js = { path = "../crates/omnipanel-plugin-js", optional = true }
 omnipanel-everything = { path = "../crates/omnipanel-everything" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
 omnipanel-transfer = { path = "../crates/omnipanel-transfer", features = ["specta"] }

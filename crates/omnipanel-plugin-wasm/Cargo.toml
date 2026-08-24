@@ -1,0 +1,18 @@
+[package]
+name = "omnipanel-plugin-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PluginLogicExecutor 的 wasmtime 实现（L2 逻辑执行）"
+
+[dependencies]
+tokio = { version = "1", features = ["rt"] }
+omnipanel-plugin = { path = "../omnipanel-plugin" }
+serde_json.workspace = true
+thiserror.workspace = true
+wasmtime = { version = "29", default-features = true }
+
+[dev-dependencies]
+tempfile = "3"
+wat = "1"
+tokio = { version = "1", features = ["rt", "macros"] }

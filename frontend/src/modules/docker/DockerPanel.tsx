@@ -405,7 +405,7 @@ export function DockerPanel() {
     setImportingFromSsh(true);
     try {
       const { scope, skippedProdCount, prodHostIds } = sshDiscoveryScope(storedConnections);
-      let hostIds = [...scope.hostIds];
+      let hostIds = [...(scope.hostIds ?? [])];
       if (skippedProdCount > 0) {
         const scanProd = await appConfirm(
           t("docker.sidebar.importFromSshProdConfirm", { count: String(skippedProdCount) }),

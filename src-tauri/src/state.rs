@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
-
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
 use crate::agent::AgentRegistry;
@@ -147,8 +147,18 @@ pub struct AppState {
     pub capability_cache: Arc<CapabilityCache>,
     /// 插件 Runtime（清单 / 启用 / 贡献点）。
     pub plugin_registry: Arc<Mutex<PluginRegistry>>,
-    /// 第一方 `plugin_invoke` 白名单网关。
-    pub plugin_invoke: Arc<Mutex<InvokeGateway>>,
+    /// 第一方 `plugin_invoke` 白名单网关（编译期登记，运行期只读共享）。
+    pub plugin_invoke: Arc<InvokeGateway>,
+    /// 磁盘安装插件根目录（`app_data/plugins/`）；定位失败为 None（仅内置可用）。
+    pub plugin_packages_dir: Option<PathBuf>,
+    /// L2 逻辑执行器；构建未启用 `plugin-wasm` feature 时为 None。
+    pub plugin_logic_executor: Option<Arc<dyn omnipanel_plugin::PluginLogicExecutor>>,
+    /// prod 确认等待表（request_id → 回传通道）。
+    pub plugin_pending_confirms: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    /// L2 桥共享 HTTP 客户端（复用代理配置）。
+    pub plugin_http: reqwest::Client,
+    /// 已实例化的 L2 逻辑执行体（plugin_id → instance）。
+    pub plugin_logic_instances: Arc<std::sync::Mutex<HashMap<String, std::sync::Arc<std::sync::Mutex<Box<dyn omnipanel_plugin::PluginLogicInstance>>>>>>,
     /// 终端 tmux 模式偏好：auto / always / never，由前端设置同步。
     pub terminal_tmux_mode: Arc<std::sync::Mutex<String>>,
 }
@@ -184,9 +194,17 @@ impl AppState {
                 .await
                 .expect("启动媒体流代理失败"),
         );
+        let plugin_packages_dir = app_handle
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|dir| dir.join("plugins"));
         let (plugin_registry, plugin_invoke) = {
             let store = storage.lock().await;
-            crate::commands::plugin::seed_plugin_runtime(&store)
+            crate::commands::plugin::seed_plugin_runtime(
+                &store,
+                plugin_packages_dir.as_deref(),
+            )
         };
         {
             let extras = plugin_registry.module_seeds();
@@ -202,6 +220,7 @@ impl AppState {
             crate::commands::plugin::sync_native_plugin_tools(
                 &plugin_registry,
                 &mcp.tool_registry,
+                &plugin_invoke,
             );
         }
 
@@ -260,7 +279,14 @@ impl AppState {
             log_tail_streams: Arc::new(Mutex::new(HashMap::new())),
             capability_cache: Arc::new(CapabilityCache::new()),
             plugin_registry: Arc::new(Mutex::new(plugin_registry)),
-            plugin_invoke: Arc::new(Mutex::new(plugin_invoke)),
+            plugin_invoke,
+            plugin_packages_dir,
+            plugin_pending_confirms: Arc::new(Mutex::new(HashMap::new())),
+            plugin_http: reqwest::Client::builder()
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+            plugin_logic_executor: crate::commands::plugin::make_logic_executor(),
+            plugin_logic_instances: Arc::new(std::sync::Mutex::new(HashMap::new())),
             terminal_tmux_mode: Arc::new(std::sync::Mutex::new("auto".to_string())),
         }
     }

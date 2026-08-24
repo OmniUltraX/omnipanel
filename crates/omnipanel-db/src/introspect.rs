@@ -636,13 +636,15 @@ pub struct DbTableSchema {
     pub comment: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbTableDetails {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub row_count: Option<i64>,
+    #[specta(type = Option<f64>)]
+    pub row_count: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub data_length: Option<i64>,
+    #[specta(type = Option<f64>)]
+    pub data_length: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -658,14 +660,14 @@ pub struct DbTableDetails {
 }
 
 /// 库内多表详情（一次查询回填表列表，避免 N 次建连）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbNamedTableDetails {
     pub name: String,
     pub details: DbTableDetails,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbIntrospectResult {
     pub database: String,
@@ -1152,7 +1154,7 @@ pub async fn db_list_databases_with_stats(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbCharsetMeta {
     pub charset: String,
@@ -1161,7 +1163,7 @@ pub struct DbCharsetMeta {
 }
 
 /// 数据库元信息（库列表 tab 展示用）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbDatabaseMeta {
     /// 库名
@@ -1251,7 +1253,7 @@ pub async fn db_list_character_sets(
 }
 
 /// 创建数据库参数。name 必填；charset 可选，留空时使用服务器默认。
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct CreateDatabaseArgs {
     pub connection: DbConnectionConfig,
     pub name: String,

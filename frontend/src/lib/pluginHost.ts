@@ -207,7 +207,8 @@ export function createPluginHost(pluginId: string): PluginHost {
         await upsertCandidateConnection(candidate);
       },
     },
-    invoke: async (method, args) => unwrapCommand(commands.pluginInvoke(pluginId, method, args ?? null)),
+    invoke: async (method, args) =>
+      unwrapCommand(commands.pluginInvoke(pluginId, method, (args ?? null) as never)),
     ui: {
       overlay: {
         show: ({ id, title, body }) =>

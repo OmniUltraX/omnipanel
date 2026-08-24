@@ -1,7 +1,7 @@
-import { nacosModuleManifest } from "../../../plugins/module-nacos/src/index";
 import type { PluginManifest } from "@omnipanel/plugin-sdk";
 import { MODULE_PREFIX } from "./paths";
 import { isPluginActivated, usePluginRuntimeStore } from "../stores/pluginRuntimeStore";
+import { listPluginManifests } from "./pluginManifests";
 
 export type PluginModuleDescriptor = {
   pluginId: string;
@@ -11,10 +11,6 @@ export type PluginModuleDescriptor = {
   sortOrder: number;
 };
 
-const MODULE_PLUGIN_MANIFESTS: Array<{ pluginId: string; manifest: PluginManifest }> = [
-  { pluginId: "omni.module.nacos", manifest: nacosModuleManifest },
-];
-
 function moduleKeyFromManifest(manifest: PluginManifest): string | null {
   const key = manifest.contributes.ui?.moduleKey?.trim();
   return key || null;
@@ -22,11 +18,11 @@ function moduleKeyFromManifest(manifest: PluginManifest): string | null {
 
 export function listPluginModuleCatalog(): PluginModuleDescriptor[] {
   const out: PluginModuleDescriptor[] = [];
-  for (const { pluginId, manifest } of MODULE_PLUGIN_MANIFESTS) {
+  for (const manifest of listPluginManifests("module")) {
     const moduleKey = moduleKeyFromManifest(manifest);
     if (!moduleKey) continue;
     out.push({
-      pluginId,
+      pluginId: manifest.id,
       moduleKey,
       labelI18nKey: `shell.nav.${moduleKey}`,
       group: "primary",

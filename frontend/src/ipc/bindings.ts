@@ -47,24 +47,20 @@ export const commands = {
 	decryptNavicatPasswords: (ciphertexts: string[]) => __TAURI_INVOKE<string[]>("decrypt_navicat_passwords", { ciphertexts }),
 	/**  编辑连接表单：从 Vault 取回明文密码（列表接口永不返回明文）。 */
 	dbGetConnectionSecret: (id: string) => typedError<string, string>(__TAURI_INVOKE("db_get_connection_secret", { id })),
-	/**  密文密钥库状态（是否已解锁、本机可导出条数）。 */
 	secretsVaultStatus: () => typedError<SecretsVaultStatus, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_status")),
-	/**  用主密码解锁：Argon2id 派生 Master Key，仅存内存。 */
 	secretsVaultUnlock: (deviceCode: string) => typedError<SecretsVaultStatus, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_unlock", { deviceCode })),
-	/**  清除内存中的 Master Key。 */
 	secretsVaultLock: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_lock")),
-	/**  导出本机钥匙串凭据，AES-GCM 加密后上传 OSS。 */
 	secretsVaultPush: (request: SecretsVaultPushRequest) => typedError<SecretsVaultPushResult, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_push", { request })),
-	/**  从 OSS 下载密文库，用设备识别码（主密码）解密后写回本机钥匙串。 */
 	secretsVaultPull: (request: SecretsVaultPullRequest) => typedError<SecretsVaultPullResult, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_pull", { request })),
-	/** SyncMasterKey 状态（本机是否已有长密钥）。 */
 	syncMasterKeyStatus: () => typedError<SyncMasterKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_status")),
-	/** 无则生成并持久化；created=true 时应弹出备份引导。 */
 	syncMasterKeyGetOrCreate: () => typedError<SyncMasterKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_get_or_create")),
 	syncMasterKeyClear: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_clear")),
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
+	/**  新设备：生成临时密钥对并缓存私钥。pairing_id 可先空，redeem 前再调用一次写入 id。 */
 	syncPairingCreateKeypair: (pairingId: string) => typedError<PairingKeypairResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_create_keypair", { pairingId })),
+	/**  主设备：用本机 SMK 封装给 requester。 */
 	syncPairingWrapKey: (request: WrapKeyRequest) => typedError<WrapKeyResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_wrap_key", { request })),
+	/**  新设备：解包并写入本机 SMK。 */
 	syncPairingUnwrapAndStore: (pairingId: string, requesterDeviceId: string, wrappedKey: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_unwrap_and_store", { pairingId, requesterDeviceId, wrappedKey })),
 	dbSaveConnection: (connection: DbConnectionConfig) => typedError<DbConnectionConfig, string>(__TAURI_INVOKE("db_save_connection", { connection })),
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
@@ -105,6 +101,17 @@ export const commands = {
 	dbExecuteQuery: (connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query", { connection, sql, runId, limit, offset })),
 	/**  中断正在执行的 SQL 查询（按 run_id，与 db_execute_query 配对）。 */
 	dbCancelQuery: (runId: string) => typedError<null, string>(__TAURI_INVOKE("db_cancel_query", { runId })),
+	/**
+	 *  在手动事务会话中执行 SQL（session_id 通常为 SQL Tab id）。
+	 *  首次执行时自动 BEGIN；失败不自动 ROLLBACK。
+	 */
+	dbExecuteQueryInSession: (sessionId: string, connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query_in_session", { sessionId, connection, sql, runId, limit, offset })),
+	/**  提交手动事务会话。 */
+	dbQuerySessionCommit: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_commit", { sessionId })),
+	/**  回滚手动事务会话。 */
+	dbQuerySessionRollback: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_rollback", { sessionId })),
+	/**  关闭手动事务会话（若仍在事务中则先 ROLLBACK）。 */
+	dbQuerySessionClose: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_close", { sessionId })),
 	/**  Redis `CONFIG GET *`：返回 parameter / value 两列表格。 */
 	dbRedisConfigGet: (connection: DbConnectionConfig) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_redis_config_get", { connection })),
 	/**  Redis `CONFIG GET` 单键或多键。 */
@@ -125,38 +132,70 @@ export const commands = {
 	dbRedisDeleteKey: (connection: DbConnectionConfig, key: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_delete_key", { connection, key })),
 	/**  Redis 慢日志。 */
 	dbRedisSlowlog: (connection: DbConnectionConfig, count: number | null) => typedError<RedisSlowLogEntry_Serialize[], string>(__TAURI_INVOKE("db_redis_slowlog", { connection, count })),
-	dbRedisInfo: (connection: DbConnectionConfig, section: string | null) => typedError<RedisInfoResult_Serialize, string>(__TAURI_INVOKE("db_redis_info", { connection, section })),
-	dbRedisMemoryStats: (connection: DbConnectionConfig) => typedError<RedisMemoryStats_Serialize, string>(__TAURI_INVOKE("db_redis_memory_stats", { connection })),
+	/**  Redis `INFO`。 */
+	dbRedisInfo: (connection: DbConnectionConfig, section: string | null) => typedError<RedisInfoResult, string>(__TAURI_INVOKE("db_redis_info", { connection, section })),
+	/**  Redis `MEMORY STATS`。 */
+	dbRedisMemoryStats: (connection: DbConnectionConfig) => typedError<RedisMemoryStats, string>(__TAURI_INVOKE("db_redis_memory_stats", { connection })),
+	/**  Redis `MEMORY DOCTOR`。 */
 	dbRedisMemoryDoctor: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_redis_memory_doctor", { connection })),
+	/**  Redis `MEMORY PURGE`。 */
 	dbRedisMemoryPurge: (connection: DbConnectionConfig) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_memory_purge", { connection })),
+	/**  Redis `CONFIG SET`。 */
 	dbRedisConfigSet: (connection: DbConnectionConfig, parameter: string, value: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_set", { connection, parameter, value })),
+	/**  Redis `CONFIG REWRITE`。 */
 	dbRedisConfigRewrite: (connection: DbConnectionConfig) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_rewrite", { connection })),
+	/**  Redis `FLUSHDB`。 */
 	dbRedisFlushDb: (connection: DbConnectionConfig, async: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_db", { connection, async })),
+	/**  Redis `FLUSHALL`。 */
 	dbRedisFlushAll: (connection: DbConnectionConfig, async: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_all", { connection, async })),
-	dbRedisStreamRange: (connection: DbConnectionConfig, key: string, start: string | null, end: string | null, count: number | null, reverse: boolean | null) => typedError<RedisStreamRangeResult_Serialize, string>(__TAURI_INVOKE("db_redis_stream_range", { connection, key, start, end, count, reverse })),
+	/**  Redis Stream 范围查询。 */
+	dbRedisStreamRange: (connection: DbConnectionConfig, key: string, start: string | null, end: string | null, count: number | null, reverse: boolean | null) => typedError<RedisStreamRangeResult, string>(__TAURI_INVOKE("db_redis_stream_range", { connection, key, start, end, count, reverse })),
+	/**  Redis `XINFO GROUPS`。 */
 	dbRedisStreamGroups: (connection: DbConnectionConfig, key: string) => typedError<RedisStreamGroup_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_groups", { connection, key })),
+	/**  Redis `XINFO CONSUMERS`。 */
 	dbRedisStreamConsumers: (connection: DbConnectionConfig, key: string, group: string) => typedError<RedisStreamConsumer_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_consumers", { connection, key, group })),
-	dbRedisStreamPending: (connection: DbConnectionConfig, key: string, group: string, start: string | null, end: string | null, count: number | null) => typedError<RedisStreamPendingEntry_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_pending", { connection, key, group, start, end, count })),
+	/**  Redis `XPENDING`。 */
+	dbRedisStreamPending: (connection: DbConnectionConfig, key: string, group: string, start: string | null, end: string | null, count: number | null) => typedError<RedisStreamPendingEntry[], string>(__TAURI_INVOKE("db_redis_stream_pending", { connection, key, group, start, end, count })),
+	/**  Redis Stream 监控快照。 */
 	dbRedisStreamMonitor: (connection: DbConnectionConfig, key: string, group: string | null) => typedError<RedisStreamMonitorSnapshot_Serialize, string>(__TAURI_INVOKE("db_redis_stream_monitor", { connection, key, group })),
+	/**  Redis `XACK`。 */
 	dbRedisStreamAck: (connection: DbConnectionConfig, key: string, group: string, ids: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_ack", { connection, key, group, ids })),
-	dbRedisStreamClaim: (connection: DbConnectionConfig, key: string, group: string, consumer: string, minIdleMs: number, startId: string, count: number | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_claim", { connection, key, group, consumer, minIdleMs, startId, count })),
+	/**  Redis `XAUTOCLAIM`。 */
+	dbRedisStreamClaim: (connection: DbConnectionConfig, key: string, group: string, consumer: string, minIdleMs: number | null, startId: string, count: number | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_claim", { connection, key, group, consumer, minIdleMs, startId, count })),
+	/**  Redis `XGROUP CREATE`。 */
 	dbRedisStreamGroupCreate: (connection: DbConnectionConfig, key: string, group: string, id: string, mkstream: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_create", { connection, key, group, id, mkstream })),
+	/**  Redis `XGROUP DESTROY`。 */
 	dbRedisStreamGroupDestroy: (connection: DbConnectionConfig, key: string, group: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_destroy", { connection, key, group })),
-	dbRedisStreamTrim: (connection: DbConnectionConfig, key: string, maxlen: number, approximate: boolean | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_trim", { connection, key, maxlen, approximate })),
-	dbRedisStreamCleanupInactiveConsumers: (connection: DbConnectionConfig, key: string, group: string, idleThresholdMs: number, targetConsumer: string | null) => typedError<RedisStreamConsumerCleanupResult_Serialize, string>(__TAURI_INVOKE("db_redis_stream_cleanup_inactive_consumers", { connection, key, group, idleThresholdMs, targetConsumer })),
-	dbRedisAclList: (connection: DbConnectionConfig) => typedError<RedisAclUser_Serialize[], string>(__TAURI_INVOKE("db_redis_acl_list", { connection })),
-	dbRedisAclGetuser: (connection: DbConnectionConfig, username: string) => typedError<RedisAclUser_Serialize, string>(__TAURI_INVOKE("db_redis_acl_getuser", { connection, username })),
+	/**  Redis `XTRIM`。 */
+	dbRedisStreamTrim: (connection: DbConnectionConfig, key: string, maxlen: number | null, approximate: boolean | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_trim", { connection, key, maxlen, approximate })),
+	/**  Redis 清理非活跃 Stream 消费者（转移 Pending + DELCONSUMER）。 */
+	dbRedisStreamCleanupInactiveConsumers: (connection: DbConnectionConfig, key: string, group: string, idleThresholdMs: number | null, targetConsumer: string | null) => typedError<RedisStreamConsumerCleanupResult, string>(__TAURI_INVOKE("db_redis_stream_cleanup_inactive_consumers", { connection, key, group, idleThresholdMs, targetConsumer })),
+	/**  Redis `ACL LIST`。 */
+	dbRedisAclList: (connection: DbConnectionConfig) => typedError<RedisAclUser[], string>(__TAURI_INVOKE("db_redis_acl_list", { connection })),
+	/**  Redis `ACL GETUSER`。 */
+	dbRedisAclGetuser: (connection: DbConnectionConfig, username: string) => typedError<RedisAclUser, string>(__TAURI_INVOKE("db_redis_acl_getuser", { connection, username })),
+	/**  Redis `ACL SETUSER`。 */
 	dbRedisAclSetuser: (connection: DbConnectionConfig, username: string, rule: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_acl_setuser", { connection, username, rule })),
+	/**  Redis `ACL DELUSER`。 */
 	dbRedisAclDeluser: (connection: DbConnectionConfig, username: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_acl_deluser", { connection, username })),
+	/**  Redis `HSET`。 */
 	dbRedisHashSetField: (connection: DbConnectionConfig, key: string, field: string, value: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_hash_set_field", { connection, key, field, value })),
+	/**  Redis `HDEL`。 */
 	dbRedisHashDelFields: (connection: DbConnectionConfig, key: string, fields: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_hash_del_fields", { connection, key, fields })),
+	/**  Redis `LPUSH` / `RPUSH`。 */
 	dbRedisListPush: (connection: DbConnectionConfig, key: string, side: string, values: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_push", { connection, key, side, values })),
-	dbRedisListRemove: (connection: DbConnectionConfig, key: string, count: number, value: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_remove", { connection, key, count, value })),
+	/**  Redis `LREM`。 */
+	dbRedisListRemove: (connection: DbConnectionConfig, key: string, count: number | null, value: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_remove", { connection, key, count, value })),
+	/**  Redis `SADD`。 */
 	dbRedisSetAdd: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_set_add", { connection, key, members })),
+	/**  Redis `SREM`。 */
 	dbRedisSetRemove: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_set_remove", { connection, key, members })),
-	dbRedisZsetAdd: (connection: DbConnectionConfig, key: string, member: string, score: number) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_add", { connection, key, member, score })),
+	/**  Redis `ZADD`。 */
+	dbRedisZsetAdd: (connection: DbConnectionConfig, key: string, member: string, score: number | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_add", { connection, key, member, score })),
+	/**  Redis `ZREM`。 */
 	dbRedisZsetRemove: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_remove", { connection, key, members })),
-	dbRedisExpireKey: (connection: DbConnectionConfig, key: string, seconds: number) => typedError<boolean, string>(__TAURI_INVOKE("db_redis_expire_key", { connection, key, seconds })),
+	/**  Redis `EXPIRE`。 */
+	dbRedisExpireKey: (connection: DbConnectionConfig, key: string, seconds: number | null) => typedError<boolean, string>(__TAURI_INVOKE("db_redis_expire_key", { connection, key, seconds })),
 	/**  Qdrant 按 point id 批量删除。 */
 	dbQdrantDeletePoints: (args: QdrantDeletePointsArgs) => typedError<number | null, string>(__TAURI_INVOKE("db_qdrant_delete_points", { args })),
 	/**  按 Schema 树节点类型刷新缓存片段（连接 / 库 / 表 / 用户等）。 */
@@ -550,17 +589,12 @@ export const commands = {
 	maxResults: number | null,
 	contextBefore: number | null,
 	contextAfter: number | null,
-	/**  从后往前搜（大日志默认建议 true） */
 	reverse: boolean | null,
-	/**  仅搜该行之前（向上续搜，作结果过滤；大文件请配合 skip_matches） */
 	beforeLine: number | null,
-	/**  仅搜该行之后（向下续搜） */
 	afterLine: number | null,
-	/**  反搜从 EOF 起步时用于还原真实行号 */
 	totalLinesHint: number | null,
-	/**  从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页 */
 	skipMatches: number | null,
-} | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, options })),
+} | null) => typedError<LogSearchHit_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, options })),
 	/**
 	 *  开始实时跟踪（tail -F，支持文件轮转）。
 	 *  输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端。
@@ -570,13 +604,9 @@ export const commands = {
 	sftpLogTailStart: (id: string, path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_start", { id, path, linesAfter })),
 	/**  停止实时跟踪。 */
 	sftpLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_stop", { token })),
-	/**  打开本地日志会话：探测文件大小与总行数。 */
 	localLogOpen: (path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("local_log_open", { path })),
-	/**  按行号范围读取本地日志（1-based）。 */
 	localLogReadLines: (path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("local_log_read_lines", { path, startLine, endLine })),
-	/**  读取本地日志末尾 N 行。 */
 	localLogTailInitial: (path: string, nLines: number, totalLinesHint: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_initial", { path, nLines, totalLinesHint })),
-	/**  搜索本地日志。 */
 	localLogSearch: (path: string, pattern: string, options: {
 	isRegex: boolean | null,
 	maxResults: number | null,
@@ -587,16 +617,17 @@ export const commands = {
 	afterLine: number | null,
 	totalLinesHint: number | null,
 	skipMatches: number | null,
-} | null) => typedError<LogSearchHit[], OmniError_Serialize>(__TAURI_INVOKE("local_log_search", { path, pattern, options })),
-	/**  开始本地日志跟踪（轮询追加）；事件 `local-log-tail-{token}`。 */
+} | null) => typedError<LogSearchHit_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("local_log_search", { path, pattern, options })),
 	localLogTailStart: (path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_start", { path, linesAfter })),
-	/**  停止本地日志跟踪。 */
 	localLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_stop", { token })),
 	/**  本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。 */
 	sshPoolDownloadInstallBinary: (resourceId: string, url: string, remotePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_download_install_binary", { resourceId, url, remotePath })),
 	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */
 	sshListConfigHosts: () => typedError<SshConfigEntry[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_config_hosts")),
-	/**  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新；可指定别名）。 */
+	/**
+	 *  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。
+	 *  `aliases` 非空时仅同步列出的别名；为 `None` 时同步全部。
+	 */
 	sshSyncConfigHosts: (aliases: string[] | null) => typedError<SshConfigSyncResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_sync_config_hosts", { aliases })),
 	/**  按 `~/.ssh/config` 中的 Host 别名建立连接（使用 IdentityFile 等配置）。 */
 	sshConnectConfigHost: (alias: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_config_host", { alias, cols, rows })),
@@ -637,39 +668,15 @@ export const commands = {
 	 *  失败回退无 sudo 直接安装（root 用户或免密场景）。
 	 */
 	sshPoolInstallArchiveTool: (resourceId: string, tool: string) => typedError<ArchiveToolInstallResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_archive_tool", { resourceId, tool })),
-	/**
-	 *  探测远端主机的能力（批量脚本 + 懒探测标记）。
-	 * 
-	 *  返回缓存（若未过期），否则执行批量探测脚本。
-	 *  `force` 为 true 时跳过缓存。
-	 */
+	/**  探测远端主机的能力（批量脚本 + 懒探测标记）。 */
 	sshPoolProbeCapabilities: (resourceId: string, force: boolean | null) => typedError<CapabilityProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_capabilities", { resourceId, force })),
 	/**  失效某主机的能力缓存（安装后或手动触发时调用）。 */
 	sshPoolInvalidateCapabilities: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_invalidate_capabilities", { resourceId })),
-	/**
-	 *  统一安装远端工具。
-	 * 
-	 *  按 manifest 声明的 install_method 分发：
-	 *  - `PackageManager`：检测包管理器后调 `ssh_pool_install_archive_tool` 的内部逻辑
-	 *  - `DownloadBinary`：调 `ssh_pool_download_install_binary` 的内部逻辑
-	 *  - `Manual`：返回安装指引文本
-	 *  - `None`：不支持安装
-	 */
+	/**  统一安装远端工具。 */
 	sshPoolInstallTool: (resourceId: string, toolId: string) => typedError<InstallToolResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_tool", { resourceId, toolId })),
-	/**
-	 *  探测远端主机上已安装的面板（宝塔 / 1Panel）。
-	 * 
-	 *  返回每个面板的安装状态、访问地址、端口、安全入口、API 开启状态及（如能读到的）API Key。
-	 *  API Key 属敏感凭据，前端应直接写入 Vault，不得传给 AI 或日志输出。
-	 */
+	/**  探测远端主机上已安装的面板（宝塔 / 1Panel）。 */
 	sshPoolProbePanels: (resourceId: string) => typedError<PanelProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_panels", { resourceId })),
-	/**
-	 *  通过 SSH 在远端开启宝塔 / 1Panel 的 API 接口。
-	 * 
-	 *  - 宝塔：改写 `config/api.json` 的 `open`/`key`/`limit_addr`（每次请求热读，一般无需重启）
-	 *  - 1Panel：更新 `core.db` settings，并尝试重启 core 以刷新内存缓存
-	 *  - `allow_all=true`：白名单放行全部（宝塔 `*` / 1Panel `0.0.0.0/0`）；需前端二次确认
-	 */
+	/**  通过 SSH 在远端开启宝塔 / 1Panel 的 API 接口。 */
 	sshPoolEnablePanelApi: (resourceId: string, kind: string, allowAll: boolean) => typedError<EnablePanelApiResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_enable_panel_api", { resourceId, kind, allowAll })),
 	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
 	setTerminalTmuxMode: (mode: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("set_terminal_tmux_mode", { mode })),
@@ -740,13 +747,7 @@ export const commands = {
 	fileDownloadFile: (connectionId: string, remotePath: string, localPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_download_file", { connectionId, remotePath, localPath })),
 	fileTransferPlan: (request: FileTransferPlanRequest) => typedError<FileTransferPlanResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_plan", { request })),
 	fileTransferEnqueue: (request: FileTransferEnqueueRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_enqueue", { request })),
-	/**
-	 *  上传浏览器拖拽/粘贴的本地文件字节到目标连接。
-	 * 
-	 *  用于 SftpPanel/终端拖拽 File 对象（无绝对路径）的场景：
-	 *  后端先把 bytes 写入本地临时文件，再入队传输引擎（自动获得进度/取消/断点续传）。
-	 *  返回 batch_id，前端可通过 `files-transfer-progress` 事件监听进度。
-	 */
+	/**  上传浏览器拖拽/粘贴的本地文件字节到目标连接。 */
 	fileTransferUploadLocalBytes: (fileName: string, data: number[], destConnectionId: string, destDir: string, conflictPolicy: FileTransferConflictPolicy) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_upload_local_bytes", { fileName, data, destConnectionId, destDir, conflictPolicy })),
 	fileTransferList: () => typedError<FileTransferListResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_list")),
 	fileTransferCancel: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_cancel", { jobId })),
@@ -994,18 +995,34 @@ export const commands = {
 	/**  设置单个模块状态（open / closed；disabled 模块不可修改）。 */
 	appModuleSetStatus: (moduleKey: string, status: AppModuleStatus) => typedError<AppModule, OmniError_Serialize>(__TAURI_INVOKE("app_module_set_status", { moduleKey, status })),
 	/**  列出已编译的第一方插件（含未激活的平台不匹配项）。 */
-	pluginList: () => typedError<PluginListItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_list")),
+	pluginList: () => typedError<PluginListItem_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_list")),
+	/**  全量清单（内置 + 已安装）：前端 PluginCatalog 单源合并用。 */
+	pluginManifests: () => typedError<PluginManifestDto[], OmniError_Serialize>(__TAURI_INVOKE("plugin_manifests")),
 	/**  启用或禁用插件。禁用后卸除贡献点（含 AI 工具），连接数据保留。 */
-	pluginSetEnabled: (pluginId: string, enabled: boolean) => typedError<PluginListItem, OmniError_Serialize>(__TAURI_INVOKE("plugin_set_enabled", { pluginId, enabled })),
-	/**  第一方插件命令网关。未在编译期登记的 method 一律失败。 */
-	pluginInvoke: (pluginId: string, method: string, args: JsonValue) => typedError<JsonValue, OmniError_Serialize>(__TAURI_INVOKE("plugin_invoke", { pluginId, method, args })),
-	/**  缺权即失败。Host API 在 upsert 前必须先过此闸。 */
+	pluginSetEnabled: (pluginId: string, enabled: boolean) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_set_enabled", { pluginId, enabled })),
+	/**  第一方/第三方统一命令网关：清单 `methods[]` 白名单 + 权限注解强制 + 审计。 */
+	pluginInvoke: (pluginId: string, method: string, args: "Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: JsonValue[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: JsonValue } }) & { Array?: never; Bool?: never; Number?: never; String?: never }) => typedError<"Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: JsonValue[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: JsonValue } }) & { Array?: never; Bool?: never; Number?: never; String?: never }, OmniError_Serialize>(__TAURI_INVOKE("plugin_invoke", { pluginId, method, args })),
+	/**
+	 *  缺权即失败。前端 Host API 在 upsert / 选区 / SSH 探测前必须先过此闸；
+	 *  拒绝写入审计（action=plugin.permission，status=blocked）。
+	 */
 	pluginRequirePermission: (pluginId: string, permission: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_require_permission", { pluginId, permission })),
 	/**
-	 *  发现总线骨架：进度进任务中心，可取消。
-	 *  prod 主机须走既有确认策略，本骨架不发起真实探测。
+	 *  发现总线：任务中心登记、进度与取消令牌。真实 probe 在前端执行。
+	 * 
+	 *  内核 probe：`ssh-docker`（SSH 扫 Docker）、`ssh-panel`（SSH 扫面板）。
+	 *  prod 主机过滤在前端 `sshDiscoveryScope`；本命令不因 `env_tag` 走占位分支。
 	 */
 	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
+	/**  prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。 */
+	pluginConfirmResolve: (requestId: string, allow: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow })),
+	/**
+	 *  从本地 `.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
+	 *  dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。
+	 */
+	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
+	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
+	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
 	/**  列出任务，可选按状态过滤。 */
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
 	/**  获取单个任务。 */
@@ -1070,10 +1087,10 @@ export const commands = {
 	aiModelsLoad: () => typedError<AiModelsFile_Serialize, string>(__TAURI_INVOKE("ai_models_load")),
 	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
 	aiModelsSave: (file: AiModelsFile_Deserialize) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
-	/**  按需从钥匙串取回提供商 API Key（ACP 同步等场景）。 */
+	/**  前端在 ACP 同步等场景按需取回 Vault 中的 API Key。 */
 	aiModelsResolveApiKey: (providerId: string) => typedError<string, string>(__TAURI_INVOKE("ai_models_resolve_api_key", { providerId })),
 	/**  经 Rust HTTP 客户端拉取 `{baseUrl}/models`，避开 WebView CORS。 */
-	aiModelsFetchList: (baseUrl: string, apiKey: string, apiStandard: string | null) => typedError<FetchedProviderModel[], OmniError_Serialize>(__TAURI_INVOKE("ai_models_fetch_list", { baseUrl, apiKey, apiStandard })),
+	aiModelsFetchList: (baseUrl: string, apiKey: string, apiStandard: string | null) => typedError<FetchedProviderModel_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ai_models_fetch_list", { baseUrl, apiKey, apiStandard })),
 	/**  检测本机是否已安装 OpenCode CLI。 */
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
 	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
@@ -1082,6 +1099,7 @@ export const commands = {
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
 	dbTreeChartFilesLoad: () => typedError<DbTreeChartFilesFile, string>(__TAURI_INVOKE("db_tree_chart_files_load")),
 	dbTreeChartFilesSave: (file: DbTreeChartFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_tree_chart_files_save", { file })),
+	/**  分页读取行级差异缓存（`AppHandle` 参数保留 IPC 签名兼容，逻辑在共享 crate）。 */
 	dbSyncRowDiffPage: (cacheId: string, offset: number, limit: number, kinds: string[] | null) => typedError<RowDiffPageResult_Serialize, string>(__TAURI_INVOKE("db_sync_row_diff_page", { cacheId, offset, limit, kinds })),
 	/**  列出全部内置工具配置。 */
 	builtinToolList: () => typedError<BuiltinToolRecord[], OmniError_Serialize>(__TAURI_INVOKE("builtin_tool_list")),
@@ -1165,7 +1183,7 @@ export const commands = {
 	teamList: (token: string) => typedError<TeamSummary[], OmniError_Serialize>(__TAURI_INVOKE("team_list", { token })),
 	/**  创建团队（POST /api/teams）。 */
 	teamCreate: (token: string, name: string) => typedError<TeamCreated, OmniError_Serialize>(__TAURI_INVOKE("team_create", { token, name })),
-	/**  解散团队（DELETE /api/teams/{team_id}）。 */
+	/**  解散团队（DELETE /api/teams/{team_id}，仅 creator）。 */
 	teamDissolve: (token: string, teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_dissolve", { token, teamId })),
 	/**  团队成员列表（GET /api/teams/{team_id}/members）。 */
 	teamListMembers: (token: string, teamId: number) => typedError<TeamMember[], OmniError_Serialize>(__TAURI_INVOKE("team_list_members", { token, teamId })),
@@ -1175,18 +1193,18 @@ export const commands = {
 	teamUpdateMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, email, roleCode, userTeamName })),
 	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）。 */
 	teamRemoveMember: (token: string, teamId: number, email: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, email })),
-	/**  将自定义面板分享给团队成员（写入团队 OSS）。 */
+	/**  将自定义面板分享给团队成员（写入团队 OSS + 更新索引 + 通知）。 */
 	teamSharePush: (request: TeamSharePushRequest) => typedError<TeamSharePushResult, OmniError_Serialize>(__TAURI_INVOKE("team_share_push", { request })),
-	/**  列出团队 OSS 中的自定义面板分享。 */
+	/**  列出团队 OSS 中的自定义面板分享索引。 */
 	teamSyncListShares: (token: string, teamId: number) => typedError<TeamShareSummary[], OmniError_Serialize>(__TAURI_INVOKE("team_sync_list_shares", { token, teamId })),
 	/**  拉取团队 OSS 中指定分享的完整 JSON。 */
 	teamSyncFetchShare: (token: string, teamId: number, shareId: string) => typedError<TeamSyncFetchShareResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_fetch_share", { token, teamId, shareId })),
-	/**  推送本机模块快照到团队 OSS。 */
+	/**  推送本机模块快照到团队 OSS（`modules/latest.json`）。 */
 	teamSyncPushModules: (request: TeamSyncPushModulesRequest) => typedError<TeamSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_push_modules", { request })),
-	/**  从团队 OSS 拉取模块快照。 */
+	/**  从团队 OSS 拉取模块快照（`modules/latest.json`）。 */
 	teamSyncPullModules: (token: string, teamId: number) => typedError<TeamSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_pull_modules", { token, teamId })),
-	/**  预览本机模块与团队 OSS 快照对比。 */
-	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
+	/**  预览本机模块数据与团队 OSS 快照的对比（树形结构 + 已同步标记）。 */
+	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult_Serialize, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
@@ -1203,14 +1221,15 @@ export const commands = {
 	publishedAt: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_latest", { token })),
 	/**  按 object key 拉取 OSS 正文并解析为可展示文本。 */
-	assistantChatFetchObject: (token: string, objectKey: string) => typedError<AssistantChatInboundEvent, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_fetch_object", { token, objectKey })),
+	assistantChatFetchObject: (token: string, objectKey: string) => typedError<AssistantChatInboundEvent_Serialize, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_fetch_object", { token, objectKey })),
 	/**  启动收件箱：先拉 latest，再挂 SSE `/api/assistant/chat/wait`；新消息经 App Event 推送。 */
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
 	/**  停止收件箱 SSE 循环。 */
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
-	/**  推送本机 AI 会话快照到默认个人团队 OSS（`ai-conversations/latest.json`）。 */
+	assistantTerminalCmdReply: (req: AssistantTerminalCmdReplyRequest) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_terminal_cmd_reply", { req })),
+	/**  推送本机 AI 会话快照到选定团队 OSS（`ai-conversations/latest.json`）。 */
 	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
-	/**  从默认个人团队 OSS 拉取 AI 会话快照。 */
+	/**  从选定团队 OSS 拉取 AI 会话快照。 */
 	clientSyncPullConversations: (request: ClientSyncPullConversationsRequest) => typedError<ClientSyncPullConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_conversations", { request })),
 	/**  推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。 */
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
@@ -1477,13 +1496,6 @@ export type ApiModelMeta_Serialize = {
 	ownedBy?: string | null,
 };
 
-/**  接口 /models 拉取到的单条模型（与前端 ApiModelInfo 对齐）。 */
-export type FetchedProviderModel = {
-	id: string,
-	created?: number | null,
-	ownedBy?: string | null,
-};
-
 /**  持久化的模块配置条目。 */
 export type AppModule = {
 	module_key: string,
@@ -1493,22 +1505,6 @@ export type AppModule = {
 
 /**  模块运行状态。 */
 export type AppModuleStatus = "open" | "closed" | "disabled";
-
-export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon";
-
-export type PluginListItem = {
-	id: string,
-	version: string,
-	kind: PluginKind,
-	enabled: boolean,
-	activated: boolean,
-	unsupportedReason?: string | null,
-};
-
-export type DiscoveryScope = {
-	hostIds: string[],
-	envTag?: string | null,
-};
 
 /**  单个压缩包条目 */
 export type ArchiveEntry = {
@@ -1542,6 +1538,17 @@ export type ArchiveToolInstallResult = {
 	message: string,
 };
 
+export type AssistantAiModelSnapshotItem = {
+	/**  providerId::modelName */
+	id: string,
+	providerId: string,
+	providerName: string,
+	modelName: string,
+	apiStandard: string,
+	enabled: boolean,
+};
+
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
 export type AssistantChatAskUserAnswer = {
 	formId: string,
 	toolCallId: string,
@@ -1551,6 +1558,7 @@ export type AssistantChatAskUserAnswer = {
 	answersJson: string,
 };
 
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
 export type AssistantChatContextItem = {
 	kind: string,
 	id: string,
@@ -1558,7 +1566,10 @@ export type AssistantChatContextItem = {
 };
 
 /**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
-export type AssistantChatInboundEvent = {
+export type AssistantChatInboundEvent = AssistantChatInboundEvent_Serialize | AssistantChatInboundEvent_Deserialize;
+
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+export type AssistantChatInboundEvent_Deserialize = {
 	messageId: string,
 	objectKey: string,
 	createdAt: string,
@@ -1567,6 +1578,20 @@ export type AssistantChatInboundEvent = {
 	sessionId?: string,
 	/**  助手端选中的询问对象（注入 Composer 上下文）。 */
 	contexts?: AssistantChatContextItem[],
+	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送。 */
+	askUser?: AssistantChatAskUserAnswer | null,
+};
+
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+export type AssistantChatInboundEvent_Serialize = {
+	messageId: string,
+	objectKey: string,
+	createdAt: string,
+	text: string,
+	/**  助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。 */
+	sessionId: string,
+	/**  助手端选中的询问对象（注入 Composer 上下文）。 */
+	contexts: AssistantChatContextItem[],
 	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送。 */
 	askUser?: AssistantChatAskUserAnswer | null,
 };
@@ -1587,29 +1612,6 @@ export type AssistantConversationSnapshotItem = {
 	linkedTerminalSessionId?: string | null,
 };
 
-export type AssistantTerminalSessionSnapshotItem = {
-	id: string,
-	title: string,
-	sessionType: string,
-	resourceId: string,
-	shellLabel?: string,
-	cwd?: string,
-	lifecycle?: string,
-	status?: string,
-	createdAt: number | null,
-	updatedAt: number | null,
-};
-
-export type AssistantAiModelSnapshotItem = {
-	/** providerId::modelName */
-	id: string,
-	providerId: string,
-	providerName: string,
-	modelName: string,
-	apiStandard: string,
-	enabled: boolean,
-};
-
 export type AssistantPushRequest = {
 	token: string,
 	dryRun?: boolean,
@@ -1620,6 +1622,31 @@ export type AssistantPushRequest = {
 	terminalSessions?: AssistantTerminalSessionSnapshotItem[],
 	/**  前端注入的 AI 模型目录（不含 API Key）。 */
 	aiModels?: AssistantAiModelSnapshotItem[],
+};
+
+/**  前端打开终端后回传同步结果。 */
+export type AssistantTerminalCmdReplyRequest = {
+	requestId: string,
+	ok: boolean,
+	/**  任意 JSON 结果；以字符串传输规避 specta 对 JsonValue 的递归内联展开。 */
+	resultJson?: string | null,
+	error?: string | null,
+};
+
+export type AssistantTerminalSessionSnapshotItem = {
+	id: string,
+	title: string,
+	/**  local | remote */
+	sessionType: string,
+	resourceId: string,
+	shellLabel?: string,
+	cwd?: string,
+	/**  active | suspended | ended */
+	lifecycle?: string,
+	/**  connected | connecting | disconnected | error 等 */
+	status?: string,
+	createdAt: number | null,
+	updatedAt: number | null,
 };
 
 export type AssistantUploadTextRequest = {
@@ -1700,8 +1727,8 @@ export type AuthDevice = {
 	loginStatus: string,
 	/**  Redis presence TTL 判定的实时在线状态。 */
 	online: boolean,
-	/**  是否已完成同步密钥认证（服务端 sync_trusted）。 */
-	syncTrusted: boolean,
+	/**  是否已完成同步密钥认证（服务端 `sync_trusted`）。 */
+	syncTrusted?: boolean,
 };
 
 /**  本机设备身份（登录上报与「本机」标记共用）。 */
@@ -1738,16 +1765,16 @@ export type AuthPresenceResult = {
 	ttlSec: number | null,
 };
 
-	/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
-	export type AuthPublicQrcodes = {
-		miniappUrl: string,
-		h5Url: string,
-		feedbackGroupUrl: string,
-	};
+/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
+export type AuthPublicQrcodes = {
+	miniappUrl: string,
+	h5Url: string,
+	feedbackGroupUrl: string,
+};
 
 /**  `/api/me` 返回的团队成员身份（含默认个人团队 `kind=personal`）。 */
 export type AuthTeamMembership = {
-	id: number,
+	id: number | null,
 	name: string,
 	creator: string,
 	/**  `personal`：登录后默认个人团队；`custom`：用户创建的协作团队。 */
@@ -1757,7 +1784,7 @@ export type AuthTeamMembership = {
 	updatedAt: string,
 	roleCode: string,
 	userTeamName: string,
-}
+};
 
 /**  当前用户资料（GET/PATCH /api/me）。 */
 export type AuthUserProfile = {
@@ -1772,7 +1799,7 @@ export type AuthUserProfile = {
 	/**  对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。 */
 	ossPath?: string,
 	/**  当前用户所属团队；快照同步写入 `kind=personal` 的默认团队。 */
-	teams: AuthTeamMembership[],
+	teams?: AuthTeamMembership[],
 };
 
 export type BackendInfo = {
@@ -2045,8 +2072,11 @@ export type ClientSyncPullModulesResult = {
 	appliedKnowledge: number | null,
 	appliedHttpRequests: number | null,
 	appliedWorkspaces: number | null,
+	/**  工作区 JSON，由前端写入 workspaceStore。 */
 	workspacesJson: string | null,
+	/**  SSH 侧栏文件夹布局 JSON，由前端写入 sshSidebarTreeStore。 */
 	sshSidebarTreeJson: string | null,
+	/**  其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据库/协议 store。 */
 	folderTreesJson: string | null,
 };
 
@@ -2067,7 +2097,9 @@ export type ClientSyncPushConversationsResult = {
 export type ClientSyncPushModulesRequest = {
 	token: string,
 	workspacesJson?: string | null,
+	/**  SSH 侧栏文件夹布局 JSON；由前端从 sshSidebarTreeStore 序列化。 */
 	sshSidebarTreeJson?: string | null,
+	/**  其他模块侧栏文件夹布局 JSON；由前端从 Docker/数据库/协议 store 序列化。 */
 	folderTreesJson?: string | null,
 	deletedConnections?: ClientSyncTombstone[],
 	deletedDatabases?: ClientSyncTombstone[],
@@ -2124,13 +2156,6 @@ export type CloudEcsInstance = {
 	creationTime: string,
 };
 
-export type CloudRegion = {
-	regionId: string,
-	localName: string,
-	hasEcs: boolean,
-	hasSwas: boolean,
-};
-
 export type CloudOssBucket = {
 	name: string,
 	location: string,
@@ -2139,6 +2164,13 @@ export type CloudOssBucket = {
 	extranetEndpoint: string,
 	intranetEndpoint: string,
 	region: string,
+};
+
+export type CloudRegion = {
+	regionId: string,
+	localName: string,
+	hasEcs: boolean,
+	hasSwas: boolean,
 };
 
 export type CloudSwasInstance = {
@@ -2175,7 +2207,9 @@ export type Connection = {
 /**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
 export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | 
 /**  云厂商账户（阿里云等），与面板并列挂在第三方服务模块。 */
-"cloud" | "protocol" | "file" | "service";
+"cloud" | "protocol" | "file" | 
+/**  插件 `kind=module` 的服务实例（Nacos 等）。 */
+"service";
 
 /**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
 export type CpuStats = CpuStats_Serialize | CpuStats_Deserialize;
@@ -2252,61 +2286,6 @@ export type DbColumnMeta_Serialize = {
 	length?: number | null,
 	/**  列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"） */
 	defaultValue?: string | null,
-};
-
-export type SecretsVaultStatus = {
-	unlocked: boolean,
-	hasLocalSalt: boolean,
-	secretCount: number,
-};
-
-export type SyncMasterKeyStatus = {
-	hasKey: boolean,
-	key: string | null,
-};
-
-export type SyncMasterKeyGetOrCreateResult = {
-	key: string,
-	created: boolean,
-};
-
-export type PairingKeypairResult = {
-	pubkeyB64: string,
-};
-
-export type WrapKeyRequest = {
-	pairingId: string,
-	requesterDeviceId: string,
-	requesterPubkeyB64: string,
-};
-
-export type WrapKeyResult = {
-	wrappedKey: string,
-	wrapAlg: string,
-};
-
-export type SecretsVaultPushRequest = {
-	token: string,
-	deviceCode: string,
-	ossPath: string,
-};
-
-export type SecretsVaultPushResult = {
-	objectKey: string,
-	secretCount: number,
-	bytes: number,
-};
-
-export type SecretsVaultPullRequest = {
-	token: string,
-	deviceCode: string,
-	ossPath: string,
-};
-
-export type SecretsVaultPullResult = {
-	imported: number,
-	skipped: number,
-	secretCount: number,
 };
 
 /**  数据库连接配置（与前端 `DbConnectionConfig` / Tauri IPC 一致）。 */
@@ -2544,6 +2523,11 @@ export type DbUserMeta_Serialize = {
 	accountLocked?: boolean | null,
 };
 
+export type DiscoveryScope = {
+	hostIds?: string[],
+	envTag?: string | null,
+};
+
 /**  单个磁盘 / 挂载点。 */
 export type DiskDeviceStats = {
 	name: string,
@@ -2715,7 +2699,7 @@ export type DockerConnectionSource =
 "ssh-engine" | 
 /**  通过 1Panel 面板 API 适配。 */
 "one-panel" | 
-/**  预留：宝塔 / Portainer 等其他面板 API。 */
+/**  宝塔（BT Panel）面板 API 适配。 */
 "panel-adapter";
 
 /**  连接状态。 */
@@ -2777,7 +2761,10 @@ export type DockerContainerSummary = {
 	composeProject?: string | null,
 	/**  Compose 服务名（`com.docker.compose.service`）。 */
 	composeService?: string | null,
-	/**  Compose 工作目录（`com.docker.compose.project.working_dir`）。 */
+	/**
+	 *  Compose 工作目录（`com.docker.compose.project.working_dir`）。
+	 *  侧栏已拉过容器列表时可直接打开配置，避免再跑一次全量 `list_compose_projects`。
+	 */
 	composeWorkingDir?: string | null,
 	/**  Compose 配置文件路径（`com.docker.compose.project.config_files`）。 */
 	composeConfigFiles?: string | null,
@@ -3294,6 +3281,23 @@ export type FetchConfigDto = {
 	jina: JinaOptsDto,
 };
 
+/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。 */
+export type FetchedProviderModel = FetchedProviderModel_Serialize | FetchedProviderModel_Deserialize;
+
+/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。 */
+export type FetchedProviderModel_Deserialize = {
+	id: string,
+	created?: number | null,
+	ownedBy?: string | null,
+};
+
+/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。 */
+export type FetchedProviderModel_Serialize = {
+	id: string,
+	created?: number | null,
+	ownedBy?: string | null,
+};
+
 /**  文件条目（统一模型）。 */
 export type FileEntry = {
 	name: string,
@@ -3400,7 +3404,6 @@ export type FileTransferEnqueueRequest = {
 	op: FileTransferOp,
 	conflictPolicy: FileTransferConflictPolicy,
 	forceRoute?: FileTransferRoute | null,
-	/**  ask | always | never */
 	remoteDirectPolicy?: string,
 };
 
@@ -3426,9 +3429,7 @@ export type FileTransferJob = {
 	speedBps: number | null,
 	error: string | null,
 	progress: number | null,
-	/**  源指纹 size+mtime / sftp size，用于断点续传校验 */
 	sourceFingerprint?: string | null,
-	/**  本地 partial 路径（目标侧） */
 	partialPath?: string | null,
 };
 
@@ -3663,7 +3664,7 @@ export type JinaOptsDto = {
 };
 
 /**
- *  IPC 用 JSON 任意值：裸 `serde_json::Value` 会被 specta 展开成递归枚举，
+ *  IPC 用 JSON 任意值：裸 `serde_json::JsonValue` 会被 specta 展开成递归枚举，
  *  再经 PhasesFormat 分裂后会在 `gen:bindings` 时把堆内存撑爆。
  */
 export type JsonValue = any;
@@ -3899,49 +3900,45 @@ export type LocalRuntimeProbeResult = {
 /**  运行时状态。 */
 export type LocalRuntimeStatus = "not_installed" | "installed_not_running" | "running";
 
-/**  一行日志（带绝对行号，1-based）。 */
 export type LogLine = {
 	lineNo: number | null,
 	text: string,
 };
 
-/**  grep 命中（带行号与命中片段）。 */
-export type LogSearchHit = {
+export type LogSearchHit = LogSearchHit_Serialize | LogSearchHit_Deserialize;
+
+export type LogSearchHit_Deserialize = {
 	lineNo: number | null,
 	content: string,
-	/**  命中在 content 中的起止列（None 表示未提供精确列）。 */
-	matchStart: number | null,
-	matchEnd: number | null,
+	matchStart?: number | null,
+	matchEnd?: number | null,
 };
 
-/**  日志搜索选项（合并参数以符合 specta 参数个数上限）。 */
+export type LogSearchHit_Serialize = {
+	lineNo: number | null,
+	content: string,
+	matchStart?: number | null,
+	matchEnd?: number | null,
+};
+
 export type LogSearchOptions = {
 	isRegex: boolean | null,
 	maxResults: number | null,
 	contextBefore: number | null,
 	contextAfter: number | null,
-	/**  从后往前搜（大日志默认建议 true） */
 	reverse: boolean | null,
-	/**  仅搜该行之前（向上续搜，作结果过滤；大文件请配合 skip_matches） */
 	beforeLine: number | null,
-	/**  仅搜该行之后（向下续搜） */
 	afterLine: number | null,
-	/**  反搜从 EOF 起步时用于还原真实行号 */
 	totalLinesHint: number | null,
-	/**  从文件末尾（反搜）或文件头（正搜）已跳过的命中数，用于持续搜索下一页 */
 	skipMatches: number | null,
 };
 
-/**  日志会话元信息（打开时探测一次）。 */
 export type LogSessionInfo = {
 	sizeBytes: number | null,
-	/**  总行数（精确 wc -l，或采样估算）。 */
 	totalLines: number | null,
-	/**  true = total_lines 来自采样估算（wc -l 超时/失败），前端应走末尾窗口模式。 */
 	linesEstimated: boolean,
 };
 
-/**  跟踪句柄（返回 token 用于后续停止）。 */
 export type LogTailHandle = {
 	token: string,
 };
@@ -4023,6 +4020,10 @@ export type MysqlExportDeployment_Deserialize = {
 	containerId?: string | null,
 	/**  Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。 */
 	mysqlPort?: number | null,
+	/**
+	 *  为 true 时使用 `--databases`（SQL 含 CREATE DATABASE / USE）。
+	 *  导出到其它库时应为 false，以便导入到用户指定的目标库名。
+	 */
 	includeCreateDatabase?: boolean,
 };
 
@@ -4032,7 +4033,11 @@ export type MysqlExportDeployment_Serialize = {
 	containerId?: string | null,
 	/**  Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。 */
 	mysqlPort?: number | null,
-	includeCreateDatabase?: boolean,
+	/**
+	 *  为 true 时使用 `--databases`（SQL 含 CREATE DATABASE / USE）。
+	 *  导出到其它库时应为 false，以便导入到用户指定的目标库名。
+	 */
+	includeCreateDatabase: boolean,
 };
 
 export type MysqlExportRecord = MysqlExportRecord_Serialize | MysqlExportRecord_Deserialize;
@@ -4163,29 +4168,30 @@ export type OpenCodeInstallStatus = {
 	version: string | null,
 };
 
+export type PairingKeypairResult = {
+	pubkeyB64: string,
+};
+
 /**
  *  单个面板的探测结果。
  * 
- *  `api_key` 字段仅当面板 API 已开启且能从配置文件读到时才非空。
- *  该字段属于敏感凭据，前端拿到后应直接写入 Vault，不应日志输出或传给 AI。
+ *  探测安装状态、访问地址、安全入口；`api_key` 仅供「一键管理」表单预填，卡片不展示。
+ *  开启 API 仍走独立命令 `ssh_pool_enable_panel_api`（例如从 SSH 导入 Docker 时）。
  */
 export type PanelProbeItem = {
 	/**  面板类型：bt（宝塔） / 1panel */
 	kind: string,
 	/**  是否已安装 */
 	installed: boolean,
-	/**  面板访问地址（含协议和端口，如 http://192.168.1.10:8888）；未安装时为空 */
+	/**  面板 API origin（含协议和端口，如 http://192.168.1.10:8888，不含安全入口）；未安装时为空 */
 	address: string,
 	/**  面板端口；未安装时为 0 */
 	port: number,
-	/**  1Panel 安全入口（如 /abc123）；宝塔无此概念时为空 */
+	/**  安全入口路径（宝塔 admin_path / 1Panel SecurityEntrance），如 /baota */
 	entrance: string,
-	/**  API 是否已开启 */
+	/**  API 是否已开启（探测自配置文件；卡片不展示） */
 	apiEnabled: boolean,
-	/**
-	 *  从面板配置文件读到的 API Key（仅当 api_enabled=true 且能读到时）；
-	 *  读不到时为空字符串。敏感字段，前端不得传给 AI 或日志输出。
-	 */
+	/**  从面板配置读到的 API Key（表单预填用）；卡片不展示。敏感字段，前端不得传给 AI 或日志输出。 */
 	apiKey: string,
 	/**  额外提示信息（如版本号、读取失败原因等） */
 	note: string,
@@ -4200,6 +4206,51 @@ export type PanelProbeResult = {
 	/**  探测时间戳（Unix 毫秒） */
 	probedAt: number,
 };
+
+/**  插件身份。七种锁死，不为单一产品新增第八种。 */
+export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon";
+
+/**  前端 / IPC 列表项。 */
+export type PluginListItem = PluginListItem_Serialize | PluginListItem_Deserialize;
+
+/**  前端 / IPC 列表项。 */
+export type PluginListItem_Deserialize = {
+	id: string,
+	version: string,
+	kind: PluginKind,
+	enabled: boolean,
+	activated: boolean,
+	source: PluginSource,
+	unsupportedReason: string | null,
+};
+
+/**  前端 / IPC 列表项。 */
+export type PluginListItem_Serialize = {
+	id: string,
+	version: string,
+	kind: PluginKind,
+	enabled: boolean,
+	activated: boolean,
+	source: PluginSource,
+	unsupportedReason?: string | null,
+};
+
+export type PluginManifestDto = {
+	id: string,
+	version: string,
+	kind: PluginKind,
+	enabled: boolean,
+	activated: boolean,
+	source: PluginSource,
+	/**
+	 *  清单原文（JSON 字符串）：规避 specta 对内嵌 JsonValue 的递归内联展开；
+	 *  前端以 plugin-sdk Zod schema 解析，保持清单合同单源。
+	 */
+	manifestJson: string,
+};
+
+/**  插件来源：编译期内置（不可卸载）vs 磁盘安装（可卸载/升级）。 */
+export type PluginSource = "builtin" | "installed";
 
 /**  单类连接的活跃 / 空闲统计。 */
 export type PoolCategorySummary = {
@@ -4270,6 +4321,21 @@ export type RecommendedModel = {
 	fromLibrary: boolean,
 };
 
+/**  ACL 用户行。 */
+export type RedisAclUser = {
+	username: string,
+	flags: string,
+	commands: string,
+	keys: string,
+	channels: string,
+	raw: string,
+};
+
+/**  `INFO` 解析结果：section -> key -> value（均为字符串）。 */
+export type RedisInfoResult = {
+	sections: { [key in string]: { [key in string]: string } },
+};
+
 /**  单个 key 的详情（类型 / TTL / 大小 / 值预览）。 */
 export type RedisKeyDetail = RedisKeyDetail_Serialize | RedisKeyDetail_Deserialize;
 
@@ -4304,6 +4370,11 @@ export type RedisKeyEntry = {
 	key: string,
 	keyType: string,
 	value: string,
+};
+
+/**  `MEMORY STATS` 键值对。 */
+export type RedisMemoryStats = {
+	entries: { [key in string]: string },
 };
 
 export type RedisSearchKeysArgs = {
@@ -4361,14 +4432,53 @@ export type RedisSlowLogEntry_Serialize = {
 	clientName?: string | null,
 };
 
-export type RedisInfoResult_Serialize = {
-	sections: Record<string, Record<string, string>>,
+/**  Stream 消费者。 */
+export type RedisStreamConsumer = RedisStreamConsumer_Serialize | RedisStreamConsumer_Deserialize;
+
+/**  清理非活跃消费者结果。 */
+export type RedisStreamConsumerCleanupResult = {
+	removedConsumers: string[],
+	claimedPending: number | null,
+	failed: string[],
 };
 
-export type RedisMemoryStats_Serialize = {
-	entries: Record<string, string>,
+/**  Stream 消费者。 */
+export type RedisStreamConsumer_Deserialize = {
+	name: string,
+	pending?: number | null,
+	idleMs?: number | null,
+	active: boolean,
 };
 
+/**  Stream 消费者。 */
+export type RedisStreamConsumer_Serialize = {
+	name: string,
+	pending?: number | null,
+	idleMs?: number | null,
+	active: boolean,
+};
+
+/**  Stream 条目。 */
+export type RedisStreamEntry = {
+	id: string,
+	fields: { [key in string]: string },
+};
+
+/**  Stream 消费组摘要。 */
+export type RedisStreamGroup = RedisStreamGroup_Serialize | RedisStreamGroup_Deserialize;
+
+/**  Stream 消费组摘要。 */
+export type RedisStreamGroup_Deserialize = {
+	name: string,
+	consumers?: number | null,
+	pending?: number | null,
+	lag?: number | null,
+	entriesRead?: number | null,
+	lastDeliveredId?: string | null,
+	behindSeconds?: number | null,
+};
+
+/**  Stream 消费组摘要。 */
 export type RedisStreamGroup_Serialize = {
 	name: string,
 	consumers?: number | null,
@@ -4379,52 +4489,41 @@ export type RedisStreamGroup_Serialize = {
 	behindSeconds?: number | null,
 };
 
-export type RedisStreamConsumer_Serialize = {
-	name: string,
-	pending?: number | null,
-	idleMs?: number | null,
-	active: boolean,
+/**  Stream 监控快照（对齐运维脚本指标）。 */
+export type RedisStreamMonitorSnapshot = RedisStreamMonitorSnapshot_Serialize | RedisStreamMonitorSnapshot_Deserialize;
+
+/**  Stream 监控快照（对齐运维脚本指标）。 */
+export type RedisStreamMonitorSnapshot_Deserialize = {
+	key: string,
+	newestId: string | null,
+	newestTsMs?: number | null,
+	groups: RedisStreamGroup_Deserialize[],
+	consumers?: RedisStreamConsumer_Deserialize[],
+	sampledAt: number | null,
 };
 
-export type RedisStreamPendingEntry_Serialize = {
-	id: string,
-	consumer: string,
-	idleMs: number | null,
-	deliveryCount: number | null,
-};
-
-export type RedisStreamEntry_Serialize = {
-	id: string,
-	fields: Record<string, string>,
-};
-
-export type RedisStreamRangeResult_Serialize = {
-	entries: RedisStreamEntry_Serialize[],
-	reverse: boolean,
-};
-
+/**  Stream 监控快照（对齐运维脚本指标）。 */
 export type RedisStreamMonitorSnapshot_Serialize = {
 	key: string,
-	newestId?: string | null,
+	newestId: string | null,
 	newestTsMs?: number | null,
 	groups: RedisStreamGroup_Serialize[],
 	consumers?: RedisStreamConsumer_Serialize[],
 	sampledAt: number | null,
 };
 
-export type RedisStreamConsumerCleanupResult_Serialize = {
-	removedConsumers: string[],
-	claimedPending: number | null,
-	failed: string[],
+/**  XPENDING 明细行。 */
+export type RedisStreamPendingEntry = {
+	id: string,
+	consumer: string,
+	idleMs: number | null,
+	deliveryCount: number | null,
 };
 
-export type RedisAclUser_Serialize = {
-	username: string,
-	flags: string,
-	commands: string,
-	keys: string,
-	channels: string,
-	raw: string,
+/**  Stream 范围查询结果。 */
+export type RedisStreamRangeResult = {
+	entries: RedisStreamEntry[],
+	reverse: boolean,
 };
 
 /**  批量探测后单个工具的结果。 */
@@ -4758,6 +4857,37 @@ export type SearchEverywhereHit = {
 	score: number,
 };
 
+export type SecretsVaultPullRequest = {
+	token: string,
+	/**  SyncMasterKey（主密码）：用于 Argon2id 解密密文库。 */
+	deviceCode: string,
+	ossPath: string,
+};
+
+export type SecretsVaultPullResult = {
+	imported: number,
+	skipped: number,
+	secretCount: number,
+};
+
+export type SecretsVaultPushRequest = {
+	token: string,
+	deviceCode: string,
+	ossPath: string,
+};
+
+export type SecretsVaultPushResult = {
+	objectKey: string,
+	secretCount: number,
+	bytes: number | null,
+};
+
+export type SecretsVaultStatus = {
+	unlocked: boolean,
+	hasLocalSalt: boolean,
+	secretCount: number,
+};
+
 /**  SFTP 目录项。 */
 export type SftpEntry = {
 	name: string,
@@ -4775,7 +4905,7 @@ export type SftpMediaProbe = {
 	posterDataUrl: string | null,
 };
 
-/**  打开边下边播流后的句柄。 */
+/**  打开边下边播流后的句柄元数据。 */
 export type SftpMediaStream = {
 	url: string,
 	token: string,
@@ -5142,9 +5272,22 @@ export type StepStatus = "ready" | "pending" | "running" | "passed" | "failed" |
 
 export type StepType = "shell" | "sql" | "docker" | "workflow";
 
+export type SyncMasterKeyGetOrCreateResult = {
+	key: string,
+	/**  true = 本次新生成，应弹出备份引导 */
+	created: boolean,
+};
+
+export type SyncMasterKeyStatus = {
+	/**  本机是否已有 SyncMasterKey */
+	hasKey: boolean,
+	/**  若有 key，返回展示串（设置页查看/备份用） */
+	key: string | null,
+};
+
 export type TableInfo = {
 	name: string,
-	/**  `serde_json::Value` 含 i64 Number，specta 需标成 Any 才能导出。 */
+	/**  `serde_json::JsonValue` 含 i64 Number，specta 需标成 Any 才能导出。 */
 	rows: { [key in string]: any }[],
 	columns: string[],
 };
@@ -5237,6 +5380,178 @@ export type TaskSource = "user" | "ai" | "system";
 export type TaskStatus = "draft" | "blocked" | "confirmed" | "running" | "completed" | "failed" | "cancelled";
 
 export type TaskType = "terminal" | "sql" | "docker" | "server" | "ssh" | "ai" | "workflow";
+
+export type TeamCreated = {
+	id: number | null,
+	name: string,
+	creator: string,
+	teamOssKey: string,
+	createdAt: string,
+	updatedAt: string,
+};
+
+export type TeamMember = {
+	id: number | null,
+	teamId: number | null,
+	email: string,
+	roleCode: string,
+	userTeamName: string,
+	createdAt: string,
+	updatedAt: string,
+};
+
+export type TeamSharePushRequest = {
+	token: string,
+	snapshotJson: string,
+	targets: TeamShareTarget[],
+};
+
+export type TeamSharePushResult = {
+	shareCount: number | null,
+	objectKeys: string[],
+};
+
+export type TeamShareSummary = {
+	shareId: string,
+	objectKey: string,
+	teamId: number | null,
+	fromUnionId: string,
+	fromDisplayName: string,
+	panelLabel: string,
+	createdAt: string,
+	recipientUnionIds: string[],
+};
+
+export type TeamShareTarget = {
+	teamId: number | null,
+	unionId: string,
+	displayName: string,
+};
+
+export type TeamSummary = {
+	id: number | null,
+	name: string,
+	creator: string,
+	/**  `personal` 默认个人团队；`custom` 协作团队。缺省为空以兼容旧接口。 */
+	kind?: string,
+	roleCode: string,
+	userTeamName: string,
+	teamOssKey: string,
+	createdAt: string,
+	updatedAt: string,
+};
+
+export type TeamSyncFetchShareResult = {
+	objectKey: string,
+	bodyJson: string,
+};
+
+export type TeamSyncPeekItem = TeamSyncPeekItem_Serialize | TeamSyncPeekItem_Deserialize;
+
+export type TeamSyncPeekItem_Deserialize = {
+	id: string,
+	label: string,
+	detail?: string,
+	updatedAt: number | null,
+	parentId?: string,
+	kind?: string,
+	syncStatus?: TeamSyncPeekSyncStatus | null,
+	excluded: boolean,
+	/**  资源标签列表（来自对应资源的 tags 字段）。 */
+	tags?: string[],
+};
+
+export type TeamSyncPeekItem_Serialize = {
+	id: string,
+	label: string,
+	detail: string,
+	updatedAt: number | null,
+	parentId: string,
+	kind: string,
+	syncStatus?: TeamSyncPeekSyncStatus | null,
+	excluded: boolean,
+	/**  资源标签列表（来自对应资源的 tags 字段）。 */
+	tags: string[],
+};
+
+export type TeamSyncPeekModule = TeamSyncPeekModule_Serialize | TeamSyncPeekModule_Deserialize;
+
+export type TeamSyncPeekModule_Deserialize = {
+	key: string,
+	items: TeamSyncPeekItem_Deserialize[],
+};
+
+export type TeamSyncPeekModule_Serialize = {
+	key: string,
+	items: TeamSyncPeekItem_Serialize[],
+};
+
+export type TeamSyncPeekModulesRequest = {
+	token: string,
+	teamId: number | null,
+	workspacesJson?: string | null,
+	sshSidebarTreeJson?: string | null,
+	folderTreesJson?: string | null,
+	excludedConnections?: string[],
+	excludedDatabases?: string[],
+	excludedKnowledge?: string[],
+	excludedHttpRequests?: string[],
+	excludedHttpCollections?: string[],
+	excludedWorkspaces?: string[],
+	/**  上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。 */
+	afterUpload?: boolean,
+};
+
+export type TeamSyncPeekResult = TeamSyncPeekResult_Serialize | TeamSyncPeekResult_Deserialize;
+
+export type TeamSyncPeekResult_Deserialize = {
+	remoteFound: boolean,
+	localUpdatedAt: number | null,
+	remoteUpdatedAt: number | null,
+	modules: TeamSyncPeekModule_Deserialize[],
+};
+
+export type TeamSyncPeekResult_Serialize = {
+	remoteFound: boolean,
+	localUpdatedAt: number | null,
+	remoteUpdatedAt: number | null,
+	modules: TeamSyncPeekModule_Serialize[],
+};
+
+export type TeamSyncPeekSyncStatus = "synced" | "local" | "remote";
+
+export type TeamSyncPullModulesResult = {
+	objectKey: string,
+	bodyJson: string,
+	bytes: number | null,
+};
+
+export type TeamSyncPushModulesRequest = {
+	token: string,
+	teamId: number | null,
+	workspacesJson?: string | null,
+	sshSidebarTreeJson?: string | null,
+	folderTreesJson?: string | null,
+	deletedConnections?: ClientSyncTombstone[],
+	deletedDatabases?: ClientSyncTombstone[],
+	deletedKnowledge?: ClientSyncTombstone[],
+	deletedHttpRequests?: ClientSyncTombstone[],
+	deletedHttpCollections?: ClientSyncTombstone[],
+	deletedHttpEnvironments?: ClientSyncTombstone[],
+	deletedWorkspaces?: ClientSyncTombstone[],
+	excludedConnections?: string[],
+	excludedDatabases?: string[],
+	excludedKnowledge?: string[],
+	excludedHttpRequests?: string[],
+	excludedHttpCollections?: string[],
+	excludedWorkspaces?: string[],
+};
+
+export type TeamSyncPushModulesResult = {
+	objectKey: string,
+	etag: string | null,
+	bytes: number | null,
+};
 
 /**  持久化块记录（payload 为 JSON：output / reasoning / aiThread 等）。 */
 export type TerminalHistoryBlockRecord = {
@@ -5425,150 +5740,6 @@ export type ToolState =
 /**  隧道类型。 */
 export type TunnelType = "local" | "remote" | "dynamic";
 
-/** 当前用户加入的团队摘要。 */
-export type TeamSummary = {
-	id: number,
-	name: string,
-	creator: string,
-	/**  `personal` 默认个人团队；`custom` 协作团队。缺省为空以兼容旧接口。 */
-	kind: string,
-	roleCode: string,
-	userTeamName: string,
-	teamOssKey: string,
-	createdAt: string,
-	updatedAt: string,
-};
-
-/** 新创建的团队。 */
-export type TeamCreated = {
-	id: number,
-	name: string,
-	creator: string,
-	teamOssKey: string,
-	createdAt: string,
-	updatedAt: string,
-};
-
-/** 团队成员。 */
-export type TeamMember = {
-	id: number,
-	teamId: number,
-	email: string,
-	roleCode: string,
-	userTeamName: string,
-	createdAt: string,
-	updatedAt: string,
-};
-
-export type TeamShareTarget = {
-	teamId: number,
-	unionId: string,
-	displayName: string,
-};
-
-export type TeamSharePushRequest = {
-	token: string,
-	snapshotJson: string,
-	targets: TeamShareTarget[],
-};
-
-export type TeamSharePushResult = {
-	shareCount: number,
-	objectKeys: string[],
-};
-
-export type TeamShareSummary = {
-	shareId: string,
-	objectKey: string,
-	teamId: number,
-	fromUnionId: string,
-	fromDisplayName: string,
-	panelLabel: string,
-	createdAt: string,
-	recipientUnionIds: string[],
-};
-
-export type TeamSyncFetchShareResult = {
-	objectKey: string,
-	bodyJson: string,
-};
-
-export type TeamSyncPushModulesRequest = {
-	token: string,
-	teamId: number,
-	workspacesJson?: string | null,
-	sshSidebarTreeJson?: string | null,
-	folderTreesJson?: string | null,
-	deletedConnections?: ClientSyncTombstone[],
-	deletedDatabases?: ClientSyncTombstone[],
-	deletedKnowledge?: ClientSyncTombstone[],
-	deletedHttpRequests?: ClientSyncTombstone[],
-	deletedHttpCollections?: ClientSyncTombstone[],
-	deletedHttpEnvironments?: ClientSyncTombstone[],
-	deletedWorkspaces?: ClientSyncTombstone[],
-	excludedConnections?: string[],
-	excludedDatabases?: string[],
-	excludedKnowledge?: string[],
-	excludedHttpRequests?: string[],
-	excludedHttpCollections?: string[],
-	excludedWorkspaces?: string[],
-};
-
-export type TeamSyncPushModulesResult = {
-	objectKey: string,
-	etag: string | null,
-	bytes: number,
-};
-
-export type TeamSyncPullModulesResult = {
-	objectKey: string,
-	bodyJson: string,
-	bytes: number,
-};
-
-export type TeamSyncPeekModulesRequest = {
-	token: string,
-	teamId: number,
-	workspacesJson?: string | null,
-	sshSidebarTreeJson?: string | null,
-	folderTreesJson?: string | null,
-	excludedConnections?: string[],
-	excludedDatabases?: string[],
-	excludedKnowledge?: string[],
-	excludedHttpRequests?: string[],
-	excludedHttpCollections?: string[],
-	excludedWorkspaces?: string[],
-	/**  上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。 */
-	afterUpload?: boolean,
-};
-
-export type TeamSyncPeekSyncStatus = "synced" | "local" | "remote";
-
-export type TeamSyncPeekItem = {
-	id: string,
-	label: string,
-	detail: string,
-	updatedAt: number,
-	parentId: string,
-	kind: string,
-	syncStatus?: TeamSyncPeekSyncStatus | null,
-	excluded: boolean,
-	/**  资源标签列表（来自对应资源的 tags 字段）。 */
-	tags?: string[],
-};
-
-export type TeamSyncPeekModule = {
-	key: string,
-	items: TeamSyncPeekItem[],
-};
-
-export type TeamSyncPeekResult = {
-	remoteFound: boolean,
-	localUpdatedAt: number,
-	remoteUpdatedAt: number,
-	modules: TeamSyncPeekModule[],
-};
-
 export type UpdateInfo = {
 	available: boolean,
 	version: string,
@@ -5682,6 +5853,17 @@ export type WorkflowStep = {
 };
 
 export type WorkflowType = "script" | "template" | "deploy" | "patrol" | "data_flow";
+
+export type WrapKeyRequest = {
+	pairingId: string,
+	requesterDeviceId: string,
+	requesterPubkeyB64: string,
+};
+
+export type WrapKeyResult = {
+	wrappedKey: string,
+	wrapAlg: string,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

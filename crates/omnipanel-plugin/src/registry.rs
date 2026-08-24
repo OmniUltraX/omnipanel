@@ -7,6 +7,7 @@ use crate::kind::PluginKind;
 use crate::manifest::PluginManifest;
 use crate::permission::PluginPermission;
 use crate::platform::PluginPlatform;
+use crate::source::PluginSource;
 
 /// 平台不匹配时写入 `unsupported_reason` 的稳定错误码。
 pub const UNSUPPORTED_REASON_PLATFORM: &str = "platform.unsupported";
@@ -20,6 +21,7 @@ pub struct PluginListItem {
     pub kind: PluginKind,
     pub enabled: bool,
     pub activated: bool,
+    pub source: PluginSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsupported_reason: Option<String>,
 }
@@ -29,6 +31,7 @@ pub struct PluginEntry {
     pub manifest: PluginManifest,
     pub enabled: bool,
     pub activated: bool,
+    pub source: PluginSource,
     pub unsupported_reason: Option<String>,
 }
 
@@ -53,12 +56,26 @@ impl PluginRegistry {
     }
 
     pub fn register(&mut self, manifest: PluginManifest) -> Result<(), PluginError> {
+        self.register_with_source(manifest, PluginSource::Builtin)
+    }
+
+    /// 磁盘安装包登记（可卸载）。
+    pub fn register_installed(&mut self, manifest: PluginManifest) -> Result<(), PluginError> {
+        self.register_with_source(manifest, PluginSource::Installed)
+    }
+
+    pub fn register_with_source(
+        &mut self,
+        manifest: PluginManifest,
+        source: PluginSource,
+    ) -> Result<(), PluginError> {
         manifest.validate()?;
         let id = manifest.id.clone();
         self.plugins.entry(id).or_insert(PluginEntry {
             manifest,
             enabled: true,
             activated: false,
+            source,
             unsupported_reason: None,
         });
         Ok(())
@@ -73,9 +90,17 @@ impl PluginRegistry {
                 kind: e.manifest.kind,
                 enabled: e.enabled,
                 activated: e.activated,
+                source: e.source,
                 unsupported_reason: e.unsupported_reason.clone(),
             })
             .collect()
+    }
+
+    /// 是否为磁盘安装来源（决定设置页能否卸载）。
+    pub fn is_installed(&self, id: &str) -> bool {
+        self.plugins
+            .get(id)
+            .is_some_and(|e| e.source == PluginSource::Installed)
     }
 
     pub fn get(&self, id: &str) -> Option<&PluginEntry> {
@@ -110,6 +135,32 @@ impl PluginRegistry {
     /// 宿主连接写入闸：缺 `connections:write` 则失败，不写库。
     pub fn authorize_connection_write(&self, plugin_id: &str) -> Result<(), PluginError> {
         self.require_permission(plugin_id, PluginPermission::ConnectionsWrite)
+    }
+
+    /// 网关白名单查询：插件存在且已 activate 才返回方法声明，否则 `UnknownMethod`。
+    pub fn declared_method(
+        &self,
+        plugin_id: &str,
+        method: &str,
+    ) -> Result<crate::manifest::PluginMethodDecl, PluginError> {
+        let entry = self
+            .plugins
+            .get(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
+        if !entry.activated {
+            return Err(PluginError::UnknownMethod {
+                plugin_id: plugin_id.to_string(),
+                method: method.to_string(),
+            });
+        }
+        entry
+            .manifest
+            .declared_method(method)
+            .cloned()
+            .ok_or_else(|| PluginError::UnknownMethod {
+                plugin_id: plugin_id.to_string(),
+                method: method.to_string(),
+            })
     }
 
     pub fn activate(&mut self, id: &str) -> Result<(), PluginError> {
@@ -248,6 +299,8 @@ mod tests {
                 ..Default::default()
             },
             permissions: vec![PluginPermission::AiTools, PluginPermission::FsRead],
+            methods: Vec::new(),
+            entry: None,
             platforms,
         }
     }
@@ -333,6 +386,8 @@ mod tests {
             kind: PluginKind::Theme,
             contributes: PluginContributes::default(),
             permissions: vec![PluginPermission::NetConnect],
+            methods: Vec::new(),
+            entry: None,
             platforms: None,
         };
         assert!(manifest.validate().is_err());
@@ -344,5 +399,62 @@ mod tests {
         reg.register(crate::first_party::module_nacos()).unwrap();
         let seeds = reg.module_seeds();
         assert_eq!(seeds, vec![("nacos".to_string(), 80)]);
+    }
+
+    fn method_manifest(id: &str, activated: bool) -> PluginManifest {
+        let mut manifest = addon_manifest(id, None);
+        manifest.methods = vec![crate::manifest::PluginMethodDecl {
+            name: "search".into(),
+            permissions: vec![PluginPermission::AiTools, PluginPermission::FsRead],
+        }];
+        if !activated {
+            manifest.permissions = vec![];
+            manifest.contributes.ai = None;
+            manifest.contributes.launcher = None;
+        }
+        manifest
+    }
+
+    #[test]
+    fn declared_method_requires_activation_and_declaration() {
+        let mut reg = PluginRegistry::new();
+        reg.register(method_manifest("omni.addon.demo", false)).unwrap();
+
+        // 未激活：即使清单声明了 method 也按 UnknownMethod 拒绝
+        let err = reg
+            .declared_method("omni.addon.demo", "search")
+            .unwrap_err();
+        assert!(matches!(err, PluginError::UnknownMethod { .. }));
+
+        // 激活后命中声明并带出权限注解
+        reg.activate("omni.addon.demo").unwrap();
+        let decl = reg
+            .declared_method("omni.addon.demo", "search")
+            .unwrap();
+        assert_eq!(decl.permissions.len(), 2);
+
+        // 未声明的 method 一律 UnknownMethod
+        let err = reg
+            .declared_method("omni.addon.demo", "nope")
+            .unwrap_err();
+        assert!(matches!(err, PluginError::UnknownMethod { .. }));
+
+        // 未知插件 NotFound
+        let err = reg.declared_method("omni.unknown", "x").unwrap_err();
+        assert!(matches!(err, PluginError::NotFound(_)));
+    }
+
+    #[test]
+    fn manifest_rejects_duplicate_or_empty_methods() {
+        let mut manifest = method_manifest("omni.addon.dup", true);
+        manifest.methods.push(crate::manifest::PluginMethodDecl {
+            name: "search".into(),
+            permissions: vec![],
+        });
+        assert!(manifest.validate().is_err());
+
+        let mut empty = method_manifest("omni.addon.empty", true);
+        empty.methods[0].name = "  ".into();
+        assert!(empty.validate().is_err());
     }
 }

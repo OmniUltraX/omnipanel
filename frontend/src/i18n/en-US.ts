@@ -1118,10 +1118,25 @@ export const enUS: TranslationDict = {
       open: "Open import wizard",
       loadedMock: "Loaded sample data",
       loadedRemote: "Loaded target list",
+      contributionMissing: "Importer plugin is disabled or not loaded",
       imported: "Draft connections saved",
       colName: "Name",
       colKind: "Kind",
       colHost: "Entry host",
+    },
+    source: {
+      installed: "Installed",
+    },
+    uninstall: "Uninstall",
+    confirm: {
+      title: "Production access confirmation",
+      message: "Plugin {{plugin}} requests to {{action}} production target {{target}}. Allow?",
+      allow: "Allow once",
+    },
+    install: {
+      title: "Install local plugin",
+      hint: "Pick a .omni-plugin package. Release builds accept officially signed packages only; dev builds allow unsigned ones.",
+      action: "Choose package file…",
     },
   },
   taskCenter: {
