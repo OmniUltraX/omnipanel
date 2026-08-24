@@ -75,12 +75,12 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 
 | Area | Highlights |
 |------|------------|
-| **Cloud vendors** | Expanding an Aliyun account auto-discovers regions that have ECS / SWAS instances |
-| **Team sync** | Switch sync team from the sidebar; end-to-end encrypted snapshots; passwords stay in the vault, not modules |
-| **Table preview** | Per-table WHERE / ORDER BY history with ↑/↓ recall |
-| **Terminal** | Clickable paths in output; thinking-card / IME / close-tab stability fixes |
-| **SQL editor** | Ctrl/Cmd+click a table name to open its data panel; Ctrl/Cmd+wheel to zoom font size |
-| **Custom panels** | Closing a custom dashboard tab no longer deletes it — reopen from the + menu |
+| **Plugin platform** | Signed `.omni-plugin` install; L1 declarative / L2 logic / L3 sandbox overlay; Host SDK & docs |
+| **Cloud vendors** | Expanding an Aliyun account auto-discovers regions with ECS / SWAS instances |
+| **Sync security** | New devices pair via WeChat mini-program scan; primary PC auto key transfer; scan-only path |
+| **Team sync** | Module folder trees in push/pull; post-upload peek matches local snapshot |
+| **Database** | Remote export SSH pool lag fixed; readiness check before export |
+| **Performance** | No module-window prewarm at startup — lower idle memory |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md).
