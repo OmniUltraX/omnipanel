@@ -58,6 +58,7 @@ import { AddModelDialog } from "../../components/settings/AddModelDialog";
 import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { DataBackupSection } from "../../components/settings/DataBackupSection";
 import { SyncDeviceResetSection } from "../../components/settings/SyncDeviceResetSection";
+import { SyncTeamKeySection } from "../../components/settings/SyncTeamKeySection";
 import { ModulesSettingsSection } from "../../components/settings/ModulesSettingsSection";
 import { PluginsSettingsSection } from "../../components/settings/PluginsSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
@@ -1533,6 +1534,7 @@ export function SettingsPanel() {
               <ModulesSettingsSection />
 
               <DataBackupSection />
+              <SyncTeamKeySection />
               <SyncDeviceResetSection />
             </div>
           </div>

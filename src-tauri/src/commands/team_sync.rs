@@ -18,7 +18,8 @@ use tauri::State;
 
 use crate::commands::assistant::build_auth_context;
 use crate::commands::auth::{
-    auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material,
+    auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
+    resolve_sync_team,
 };
 use crate::commands::client_sync_modules::{
     build_peek_from_bundle, collect_local_bundle, strip_bundle_secrets, tag_bundle_with_device,
@@ -26,7 +27,7 @@ use crate::commands::client_sync_modules::{
 };
 use crate::state::AppState;
 use omnipanel_store::{
-    decode_sync_blob_or_legacy, encrypt_sync_blob, SYNC_KIND_MODULES,
+    SYNC_KIND_MODULES,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -1104,7 +1105,7 @@ pub async fn team_sync_push_modules(
     let identity = auth_device_identity().await?;
     let me = auth_get_me(state.clone(), token.clone()).await?;
     let team = resolve_sync_team(Some(request.team_id), &me)?;
-    let key_material = sync_blob_key_material(&me, team)?;
+    let team_id = team.id;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_modules_push_request(&request);
     let exclusions = exclusions_from_push(&request);
@@ -1124,7 +1125,7 @@ pub async fn team_sync_push_modules(
         OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
     })?;
     validate_modules_bundle_json(&plaintext)?;
-    let body = encrypt_sync_blob(&key_material, SYNC_KIND_MODULES, &plaintext)?;
+    let body = encrypt_sync_team_payload(team_id, SYNC_KIND_MODULES, &plaintext)?;
 
     let uploaded = push_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
@@ -1151,7 +1152,6 @@ pub async fn team_sync_pull_modules(
     let identity = auth_device_identity().await?;
     let me = auth_get_me(state.clone(), token.clone()).await?;
     let team = resolve_sync_team(Some(team_id), &me)?;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let pulled = pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await?;
     let Some((object_key, body)) = pulled else {
@@ -1160,7 +1160,7 @@ pub async fn team_sync_pull_modules(
             "团队尚未上传模块同步数据",
         ));
     };
-    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &body)?;
+    let plaintext = decode_sync_team_payload(&me, team, SYNC_KIND_MODULES, &body)?;
     validate_modules_bundle_json(&plaintext)?;
     let bytes = body.len() as f64;
     let body_json = String::from_utf8(plaintext).map_err(|e| {
@@ -1188,7 +1188,6 @@ pub async fn team_sync_peek_modules(
     let identity = auth_device_identity().await?;
     let me = auth_get_me(state.clone(), token.clone()).await?;
     let team = resolve_sync_team(Some(request.team_id), &me)?;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_peek_modules_request(&request);
     let exclusions = exclusions_from_peek(&request);
@@ -1211,7 +1210,7 @@ pub async fn team_sync_peek_modules(
     } else if let Ok(Some((_, body))) =
         pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await
     {
-        match decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &body) {
+        match decode_sync_team_payload(&me, team, SYNC_KIND_MODULES, &body) {
             Ok(plaintext) if validate_modules_bundle_json(&plaintext).is_ok() => {
                 serde_json::from_slice::<ClientSyncModulesBundle>(&plaintext).ok()
             }

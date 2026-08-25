@@ -6,9 +6,9 @@ import {
   stopPresenceHeartbeat,
 } from "../../lib/auth/presenceHeartbeat";
 import {
-  startSyncPairingAutoWrap,
-  stopSyncPairingAutoWrap,
-} from "../../lib/auth/syncPairingAutoWrap";
+  startSyncKeyRelayAutoWrap,
+  stopSyncKeyRelayAutoWrap,
+} from "../../lib/auth/syncKeyRelayAutoWrap";
 import {
   scheduleAssistantSnapshotSync,
   startAssistantChatInbox,
@@ -18,7 +18,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
 
-/** 已登录时同步用户资料、云端快照，并在无同步密钥时弹出小程序认证。 */
+/** 已登录时同步用户资料、云端快照，并在无团队同步密钥时弹出引导对话框。 */
 export function AuthProfileSync() {
   const token = useAuthStore((s) => s.token);
   const [authHydrated, setAuthHydrated] = useState(() => useAuthStore.persist.hasHydrated());
@@ -58,7 +58,7 @@ export function AuthProfileSync() {
   useEffect(() => {
     if (!authHydrated || !token) {
       stopPresenceHeartbeat();
-      stopSyncPairingAutoWrap();
+      stopSyncKeyRelayAutoWrap();
       return;
     }
     startPresenceHeartbeat({
@@ -68,13 +68,13 @@ export function AuthProfileSync() {
         useAuthStore.getState().logout({ skipRemote: true });
       },
     });
-    // 本机已有 SyncMasterKey 时自动 wrap 待传钥配对（路径 B/C）
-    startSyncPairingAutoWrap({
+    // 本机已有团队同步密钥时，自动中继 pending 传钥请求
+    startSyncKeyRelayAutoWrap({
       getToken: () => useAuthStore.getState().token,
     });
     return () => {
       stopPresenceHeartbeat();
-      stopSyncPairingAutoWrap();
+      stopSyncKeyRelayAutoWrap();
     };
   }, [authHydrated, token]);
 

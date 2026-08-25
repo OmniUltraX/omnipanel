@@ -18,6 +18,7 @@ import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
 import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 
 function formatDeviceTime(value: string, locale: string): string {
   const trimmed = value.trim();
@@ -211,13 +212,16 @@ export function UserCenterDevices() {
 
     void (async () => {
       try {
+        const teamId = getCurrentSyncTeamId();
         const [identity, list, keyStatus] = await Promise.all([
           fetchDeviceIdentity(),
           fetchDevices(token, { quiet: true }),
-          unwrapCommand(commands.syncMasterKeyStatus(), { quiet: true }).catch(() => ({
-            hasKey: false,
-            key: null,
-          })),
+          teamId
+            ? unwrapCommand(commands.syncTeamKeyStatus(teamId), { quiet: true }).catch(() => ({
+                hasKey: false,
+                fingerprint: null,
+              }))
+            : Promise.resolve({ hasKey: false, fingerprint: null }),
         ]);
         if (abort.signal.aborted) return;
         setLocalDeviceId(identity.deviceId);

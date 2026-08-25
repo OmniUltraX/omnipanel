@@ -1,10 +1,11 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
-    fetch_oss_sts, push_snapshot, sanitize_ai_model_meta, sanitize_assistant_conversation_meta,
-    sanitize_connection_meta, sanitize_db_connection_meta, sanitize_http_request_meta,
-    sanitize_knowledge_meta, sanitize_task_meta, sanitize_terminal_session_meta, upload_object_bytes,
-    AuthContext, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
+    assemble_modules, default_collectors, fetch_oss_sts, push_snapshot, sanitize_ai_model_meta,
+    sanitize_assistant_conversation_meta, sanitize_connection_meta, sanitize_db_connection_meta,
+    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta,
+    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json, AuthContext,
+    CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{load_database_connections, ConnectionKind};
@@ -166,15 +167,69 @@ pub async fn assistant_push_snapshot(
 
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
 
-    push_snapshot(
-        ctx,
+    let result = push_snapshot(
+        ctx.clone(),
         Some(&auth),
         PushOptions {
             dry_run: false,
             object_key_override: None,
         },
     )
-    .await
+    .await?;
+
+    if let Err(e) = upload_encrypted_assistant_payload_if_bound(&ctx, &auth).await {
+        tracing::warn!("assistant encrypted payload upload skipped: {e}");
+    }
+
+    Ok(result)
+}
+
+async fn upload_encrypted_assistant_payload_if_bound(
+    ctx: &CollectContext,
+    auth: &AuthContext,
+) -> Result<(), OmniError> {
+    let Some(bind_id) = ctx.bind_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+    let Some(pk) = omnipanel_store::load_assistant_binding_pubkey(bind_id)? else {
+        return Ok(());
+    };
+    let collectors = default_collectors();
+    let modules = assemble_modules(&collectors, ctx);
+    let modules_json = serde_json::to_value(&modules).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "助手摘要序列化失败").with_cause(e.to_string())
+    })?;
+    let envelope = omnipanel_store::build_assistant_payload_envelope(
+        modules_json,
+        &ctx.client_device_id,
+        bind_id,
+        &pk,
+    )?;
+    let user_seg = sanitize_assistant_path_segment(ctx.user_id.as_deref().unwrap_or("user"));
+    let device_seg = sanitize_assistant_path_segment(&ctx.client_device_id);
+    let rel_key = format!("assistant/{user_seg}/{device_seg}/latest/assistant-payload.json");
+    let sts = fetch_oss_sts(auth).await?;
+    let object_key = sts
+        .object_key_prefix
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|prefix| format!("{}/{}", prefix.trim_matches('/'), rel_key))
+        .unwrap_or(rel_key);
+    upload_snapshot_json(&auth.http, &sts, &object_key, &envelope).await?;
+    Ok(())
+}
+
+fn sanitize_assistant_path_segment(raw: &str) -> String {
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// 使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。

@@ -56,6 +56,16 @@ export const commands = {
 	syncMasterKeyGetOrCreate: () => typedError<SyncMasterKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_get_or_create")),
 	syncMasterKeyClear: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_clear")),
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
+	syncTeamKeyStatus: (teamId: number) => typedError<SyncTeamKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_status", { teamId })),
+	syncTeamKeyGetOrCreate: (teamId: number) => typedError<SyncTeamKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_get_or_create", { teamId })),
+	syncTeamKeyClear: (teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_clear", { teamId })),
+	syncTeamKeyExportFile: (teamId: number, path: string, passphrase: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_file", { teamId, path, passphrase })),
+	syncTeamKeyImportFile: (teamId: number, path: string, passphrase: string | null) => typedError<SyncTeamKeyImportResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_import_file", { teamId, path, passphrase })),
+	syncTeamKeyGenerateEphemeralKeypair: () => typedError<SyncTeamKeyEphemeralKeypair, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_generate_ephemeral_keypair")),
+	/**  用本机团队密钥 + 对方临时公钥封装 wrapped key（在线设备中继响应）。 */
+	syncTeamKeyWrapForRelay: (teamId: number, recipientPubkeyB64: string, requestId: string, requesterDeviceId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_wrap_for_relay", { teamId, recipientPubkeyB64, requestId, requesterDeviceId })),
+	/**  新设备解包中继返回的 wrapped key 并写入本机。 */
+	syncTeamKeyUnwrapFromRelay: (teamId: number, wrappedB64: string, ephemeralSecretB64: string, requestId: string, requesterDeviceId: string) => typedError<SyncTeamKeyImportResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_unwrap_from_relay", { teamId, wrappedB64, ephemeralSecretB64, requestId, requesterDeviceId })),
 	/**  新设备：生成临时密钥对并缓存私钥。pairing_id 可先空，redeem 前再调用一次写入 id。 */
 	syncPairingCreateKeypair: (pairingId: string) => typedError<PairingKeypairResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_create_keypair", { pairingId })),
 	/**  主设备：用本机 SMK 封装给 requester。 */
@@ -5287,6 +5297,28 @@ export type SyncMasterKeyStatus = {
 	hasKey: boolean,
 	/**  若有 key，返回展示串（设置页查看/备份用） */
 	key: string | null,
+};
+
+/**  中继传钥：生成临时密钥对（供后续 omniserver `/api/sync/key/*` 使用）。 */
+export type SyncTeamKeyEphemeralKeypair = {
+	secretKeyB64: string,
+	publicKeyB64: string,
+	wrapAlg: string,
+};
+
+export type SyncTeamKeyGetOrCreateResult = {
+	fingerprint: string,
+	/**  true = 本次新生成，应提示备份 */
+	created: boolean,
+};
+
+export type SyncTeamKeyImportResult = {
+	fingerprint: string,
+};
+
+export type SyncTeamKeyStatus = {
+	hasKey: boolean,
+	fingerprint: string | null,
 };
 
 export type TableInfo = {

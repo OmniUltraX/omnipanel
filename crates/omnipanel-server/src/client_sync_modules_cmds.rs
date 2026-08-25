@@ -9,14 +9,15 @@ use omnipanel_assistant::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    db_password_ref, decode_sync_blob_or_legacy, encrypt_sync_blob, load_database_connections,
+    db_password_ref, load_database_connections,
     Connection, DbConnectionConfig, HttpCollection, HttpEnvironment, KnowledgeEntry,
     SavedHttpRequest, Vault, SYNC_KIND_MODULES,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use crate::auth_cmds::{
-    auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material,
+    auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
+    resolve_sync_team,
 };
 use crate::assistant_cmds::build_auth_context;
 
@@ -344,7 +345,6 @@ pub async fn client_sync_push_modules(
     let me = auth_get_me(request.token.clone()).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let mut bundle = {
@@ -363,9 +363,7 @@ pub async fn client_sync_push_modules(
         if let Some((object_key, bytes)) =
             pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await?
         {
-            if let Ok(plain) =
-                decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &bytes)
-            {
+            if let Ok(plain) = decode_sync_team_payload(&me, team, SYNC_KIND_MODULES, &bytes) {
                 if let Ok(remote) = serde_json::from_slice::<ClientSyncModulesBundle>(&plain) {
                     if bundle_has_resources(&remote) {
                         return Ok(ClientSyncPushModulesResult {
@@ -383,7 +381,7 @@ pub async fn client_sync_push_modules(
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
     })?;
     validate_modules_bundle_json(&plaintext)?;
-    let body = encrypt_sync_blob(&key_material, SYNC_KIND_MODULES, &plaintext)?;
+    let body = encrypt_sync_team_payload(team_id, SYNC_KIND_MODULES, &plaintext)?;
     let uploaded = push_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
     Ok(ClientSyncPushModulesResult {
@@ -611,7 +609,6 @@ pub async fn client_sync_pull_modules(
     let me = auth_get_me(request.token.clone()).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let Some((object_key, bytes)) =
@@ -632,7 +629,7 @@ pub async fn client_sync_pull_modules(
         });
     };
 
-    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &bytes)?;
+    let plaintext = decode_sync_team_payload(&me, team, SYNC_KIND_MODULES, &bytes)?;
     validate_modules_bundle_json(&plaintext)?;
     let bundle: ClientSyncModulesBundle = serde_json::from_slice(&plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析云端模块快照失败").with_cause(e.to_string())

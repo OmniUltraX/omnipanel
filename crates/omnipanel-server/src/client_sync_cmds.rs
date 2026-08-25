@@ -8,11 +8,14 @@ use omnipanel_assistant::{
     TEAM_CONVERSATIONS_LATEST_LEAF,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{decode_sync_blob_or_legacy, encrypt_sync_blob, SYNC_KIND_CONVERSATIONS};
+use omnipanel_store::SYNC_KIND_CONVERSATIONS;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::auth_cmds::{auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material};
+use crate::auth_cmds::{
+    auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
+    resolve_sync_team,
+};
 use crate::assistant_cmds::build_auth_context;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -69,9 +72,9 @@ pub async fn client_sync_push_conversations(
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
-    let key_material = sync_blob_key_material(&me, team)?;
+    let team_id = team.id;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
-    let body = encrypt_sync_blob(&key_material, SYNC_KIND_CONVERSATIONS, plaintext)?;
+    let body = encrypt_sync_team_payload(team_id, SYNC_KIND_CONVERSATIONS, plaintext)?;
     let uploaded =
         push_team_sync_json(&auth, team.id, TEAM_CONVERSATIONS_LATEST_LEAF, &body).await?;
 
@@ -97,7 +100,6 @@ pub async fn client_sync_pull_conversations(
     let identity = auth_device_identity().await?;
     let me = auth_get_me(request.token.clone()).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
     let Some((object_key, bytes)) =
@@ -111,7 +113,7 @@ pub async fn client_sync_pull_conversations(
         });
     };
 
-    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_CONVERSATIONS, &bytes)?;
+    let plaintext = decode_sync_team_payload(&me, team, SYNC_KIND_CONVERSATIONS, &bytes)?;
     validate_conversations_bundle_json(&plaintext)?;
     let body_json = String::from_utf8(plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "云端会话快照编码无效").with_cause(e.to_string())

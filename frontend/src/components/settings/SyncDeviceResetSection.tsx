@@ -7,12 +7,12 @@ import { resetSyncDevice } from "../../lib/auth/syncPairingApi";
 import { pullCloudSnapshot } from "../../modules/clientSync";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/primitives/Button";
 
 /**
- * 系统设置：「重置设备」——清除本机 SyncMasterKey，并调用服务端 reset，回到未认证状态。
- * 已同步密钥时显示「已认证」标签；并提供「立即拉取」以补拉云端快照。
+ * 系统设置：「重置设备」——清除本机团队同步密钥，并调用服务端 reset。
  */
 export function SyncDeviceResetSection() {
   const { t } = useI18n();
@@ -25,8 +25,14 @@ export function SyncDeviceResetSection() {
   const [error, setError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
+    const teamId = getCurrentSyncTeamId();
+    if (!teamId) {
+      setHasKey(false);
+      setReady(true);
+      return;
+    }
     try {
-      const status = await unwrapCommand(commands.syncMasterKeyStatus(), { quiet: true });
+      const status = await unwrapCommand(commands.syncTeamKeyStatus(teamId), { quiet: true });
       setHasKey(Boolean(status.hasKey));
     } catch {
       setHasKey(false);
@@ -82,7 +88,11 @@ export function SyncDeviceResetSection() {
 
       // 先阻断旧版静默迁移，再清密钥，避免并发 ensure 立刻重建
       useSyncDeviceAuthStore.getState().markResetPendingAuth();
-      await unwrapCommand(commands.syncMasterKeyClear());
+      const teamId = getCurrentSyncTeamId();
+      if (teamId) {
+        await unwrapCommand(commands.syncTeamKeyClear(teamId));
+      }
+      await unwrapCommand(commands.syncMasterKeyClear(), { quiet: true });
 
       const authToken = token?.trim();
       let serverResetFailed: string | null = null;
@@ -94,10 +104,11 @@ export function SyncDeviceResetSection() {
         }
       }
 
-      // 再次确认本机已无密钥（防止并发路径重建）
-      const status = await unwrapCommand(commands.syncMasterKeyStatus());
-      if (status.hasKey) {
-        await unwrapCommand(commands.syncMasterKeyClear());
+      if (teamId) {
+        const teamStatus = await unwrapCommand(commands.syncTeamKeyStatus(teamId), { quiet: true });
+        if (teamStatus.hasKey) {
+          await unwrapCommand(commands.syncTeamKeyClear(teamId));
+        }
       }
 
       setHasKey(false);

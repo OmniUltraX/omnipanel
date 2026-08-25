@@ -40,6 +40,9 @@ mod ssh_vault;
 mod secrets_crypto;
 mod sync_crypto;
 mod sync_master_key;
+mod sync_team_key;
+mod assistant_binding_key;
+mod assistant_payload;
 mod sync_key_wrap;
 mod http_proxy;
 mod web_search;
@@ -153,11 +156,17 @@ pub use third_party_account::{
 };
 pub use vault::Vault;
 pub use secrets_crypto::{
-    decode_salt_b64, decrypt_vault, derive_master_key, encrypt_vault_with_salt, generate_salt,
-    MasterKey, SecretsVaultEnvelope, SecretsVaultEntry, SecretsVaultPlaintext,
+    decode_salt_b64, decrypt_bind_token_wrap, decrypt_vault, decrypt_with_passphrase,
+    derive_master_key, encrypt_bind_token_wrap, encrypt_vault_with_salt, encrypt_with_passphrase,
+    generate_salt, MasterKey, SecretsVaultEnvelope, SecretsVaultEntry, SecretsVaultPlaintext,
+};
+pub use assistant_payload::{
+    build_assistant_payload_envelope, AssistantPayloadEnvelope, ASSISTANT_PAYLOAD_KIND,
 };
 pub use sync_key_wrap::{
-    generate_pairing_keypair, unwrap_sync_master_key, wrap_sync_master_key, WRAP_ALG,
+    decrypt_assistant_payload, encrypt_assistant_payload, generate_pairing_keypair,
+    unwrap_sync_master_key, unwrap_sync_team_key, wrap_sync_master_key, wrap_sync_team_key,
+    WRAP_ALG,
 };
 pub use sync_master_key::{
     clear_stored_sync_master_key, decode_sync_master_key_bytes, generate_sync_master_key,
@@ -166,8 +175,19 @@ pub use sync_master_key::{
     SYNC_MASTER_KEY_PREFIX,
 };
 pub use sync_crypto::{
-    decode_sync_blob_or_legacy, decrypt_sync_blob, encrypt_sync_blob, looks_like_sync_blob_envelope,
-    SyncBlobEnvelope, SYNC_BLOB_SCHEME, SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES,
+    decode_sync_blob_or_legacy, decode_sync_blob_with_sources, decrypt_sync_blob,
+    derive_sync_blob_key_material_v2, encrypt_sync_blob, encrypt_sync_team_blob,
+    looks_like_sync_blob_envelope, SyncBlobEnvelope, SYNC_BLOB_SCHEME, SYNC_BLOB_SCHEME_V2,
+    SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES,
+};
+pub use assistant_binding_key::{
+    clear_assistant_binding_pubkey, load_assistant_binding_pubkey, store_assistant_binding_pubkey,
+};
+pub use sync_team_key::{
+    clear_sync_team_key, export_sync_team_key_json, generate_sync_team_key,
+    get_or_create_sync_team_key, import_sync_team_key_json, load_sync_team_key,
+    store_sync_team_key, sync_team_key_fingerprint, SyncTeamKeyExportFile,
+    SYNC_TEAM_KEY_BYTES, SYNC_TEAM_KEY_EXPORT_VERSION, SYNC_TEAM_KEY_FILE_EXT,
 };
 pub use ssh_vault::{
     ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
