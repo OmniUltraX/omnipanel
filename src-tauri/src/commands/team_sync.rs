@@ -22,7 +22,8 @@ use crate::commands::auth::{
     resolve_sync_team,
 };
 use crate::commands::client_sync_modules::{
-    build_peek_from_bundle, collect_local_bundle, finalize_modules_bundle_for_upload,
+    build_peek_from_bundle, collect_local_bundle, dismissed_ssh_folder_names_from_bundle,
+    filter_dismissed_ssh_layout_folders, finalize_modules_bundle_for_upload,
     ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
 };
 use crate::state::AppState;
@@ -797,19 +798,23 @@ fn build_team_peek_modules(
         .chain(local_peek.http_requests)
         .collect();
 
+    let dismissed_ssh = dismissed_ssh_folder_names_from_bundle(local);
+    let mut local_connections = local_peek.connections;
+    let mut remote_connections_filtered = remote_connections;
+    filter_dismissed_ssh_layout_folders(&mut local_connections, &dismissed_ssh);
+    filter_dismissed_ssh_layout_folders(&mut remote_connections_filtered, &dismissed_ssh);
+    let merged_connections = merge_peek_items(
+        "connections",
+        local_connections,
+        remote_connections_filtered,
+        ex,
+        &knowledge_excluded,
+    );
+
     let modules = vec![
         TeamSyncPeekModule {
             key: "connections".to_string(),
-            items: nest_items_under_module(
-                "connections",
-                merge_peek_items(
-                    "connections",
-                    local_peek.connections,
-                    remote_connections,
-                    ex,
-                    &knowledge_excluded,
-                ),
-            ),
+            items: nest_items_under_module("connections", merged_connections),
         },
         TeamSyncPeekModule {
             key: "databases".to_string(),

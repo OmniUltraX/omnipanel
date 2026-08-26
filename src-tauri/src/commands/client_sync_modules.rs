@@ -181,6 +181,8 @@ pub(crate) fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
 }
 
 const SIDEBAR_TREE_ROOT_KEY: &str = "__root__";
+/// OpenSSH 配置导入主机的分组标识；侧栏树为唯一布局来源，预览不再用 legacy group 文件夹表示。
+const OPENSSH_CONFIG_GROUP: &str = "~/.ssh/config";
 
 fn rewrite_json_option(raw: &mut Option<String>, mutator: impl FnOnce(&mut serde_json::Value)) {
     let Some(text) = raw.as_mut() else {
@@ -203,6 +205,67 @@ fn normalize_sidebar_tree_json(tree: &mut serde_json::Value, valid_ids: &HashSet
     let Some(obj) = tree.as_object_mut() else {
         return;
     };
+
+    let dismissed: HashSet<String> = obj
+        .get("dismissedAutoFolders")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !dismissed.is_empty() {
+        let mut removed_folder_ids: HashSet<String> = HashSet::new();
+        if let Some(folders) = obj.get_mut("folders").and_then(|v| v.as_array_mut()) {
+            folders.retain(|folder| {
+                let name = folder
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if dismissed.contains(name) {
+                    if let Some(id) = folder.get("id").and_then(|v| v.as_str()) {
+                        removed_folder_ids.insert(id.to_string());
+                    }
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        if !removed_folder_ids.is_empty() {
+            for key in ["connectionFolderId", "connectionParents"] {
+                if let Some(map) = obj.get_mut(key).and_then(|v| v.as_object_mut()) {
+                    map.retain(|_, folder_id| {
+                        folder_id
+                            .as_str()
+                            .map(|id| !removed_folder_ids.contains(id))
+                            .unwrap_or(true)
+                    });
+                }
+            }
+            if let Some(order) = obj.get_mut("orderByParent").and_then(|v| v.as_object_mut()) {
+                for (_, arr) in order.iter_mut() {
+                    if let Some(items) = arr.as_array_mut() {
+                        items.retain(|item| {
+                            let Some(key) = item.as_str() else {
+                                return false;
+                            };
+                            if let Some(id) = key.strip_prefix("f:") {
+                                return !removed_folder_ids.contains(id);
+                            }
+                            true
+                        });
+                    }
+                }
+                for folder_id in &removed_folder_ids {
+                    order.remove(folder_id);
+                }
+            }
+        }
+    }
 
     for key in ["connectionFolderId", "connectionParents"] {
         if let Some(map) = obj.get_mut(key).and_then(|v| v.as_object_mut()) {
@@ -848,6 +911,40 @@ pub(crate) struct ModulesBundlePeek {
 struct SidebarTreePeek {
     folders: Vec<(String, String, String)>, // id, name, parent_id
     connection_folder_id: HashMap<String, String>,
+    dismissed_folder_names: HashSet<String>,
+}
+
+fn parse_dismissed_folder_names(value: &serde_json::Value) -> HashSet<String> {
+    value
+        .get("dismissedAutoFolders")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn prune_dismissed_sidebar_folders(tree: &mut SidebarTreePeek) {
+    if tree.dismissed_folder_names.is_empty() {
+        return;
+    }
+    let mut removed_ids: HashSet<String> = HashSet::new();
+    tree.folders.retain(|(id, name, _)| {
+        if tree.dismissed_folder_names.contains(name.as_str()) {
+            removed_ids.insert(id.clone());
+            false
+        } else {
+            true
+        }
+    });
+    if removed_ids.is_empty() {
+        return;
+    }
+    tree.connection_folder_id
+        .retain(|_, folder_id| !removed_ids.contains(folder_id));
 }
 
 fn json_parent_id(value: &serde_json::Value) -> String {
@@ -897,6 +994,8 @@ fn parse_sidebar_tree_object(value: &serde_json::Value) -> SidebarTreePeek {
                 .insert(conn_id.clone(), folder_id.to_string());
         }
     }
+    out.dismissed_folder_names = parse_dismissed_folder_names(value);
+    prune_dismissed_sidebar_folders(&mut out);
     out
 }
 
@@ -938,6 +1037,9 @@ fn parse_protocol_layout_object(value: &serde_json::Value) -> SidebarTreePeek {
 
 fn emit_tree_folders(tree: &SidebarTreePeek, detail: &str, out: &mut Vec<ClientSyncPeekItem>) {
     for (id, name, parent) in &tree.folders {
+        if tree.dismissed_folder_names.contains(name.as_str()) {
+            continue;
+        }
         out.push(peek_item(
             id.clone(),
             name.clone(),
@@ -947,6 +1049,54 @@ fn emit_tree_folders(tree: &SidebarTreePeek, detail: &str, out: &mut Vec<ClientS
             "folder",
             Vec::new(),
         ));
+    }
+}
+
+pub(crate) fn dismissed_ssh_folder_names_from_bundle(
+    bundle: &ClientSyncModulesBundle,
+) -> HashSet<String> {
+    let Some(text) = bundle
+        .ssh_sidebar_tree_json
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return HashSet::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return HashSet::new();
+    };
+    parse_dismissed_folder_names(&value)
+}
+
+/// 本机已 dismiss 的 SSH 侧栏文件夹，不再出现在团队数据预览（含云端残留项）。
+pub(crate) fn filter_dismissed_ssh_layout_folders(
+    items: &mut Vec<ClientSyncPeekItem>,
+    dismissed: &HashSet<String>,
+) {
+    if dismissed.is_empty() {
+        return;
+    }
+    let removed_ids: HashSet<String> = items
+        .iter()
+        .filter(|item| item.kind == "folder" && dismissed.contains(item.label.as_str()))
+        .map(|item| item.id.clone())
+        .collect();
+    items.retain(|item| {
+        if item.kind == "folder" && dismissed.contains(item.label.as_str()) {
+            return false;
+        }
+        if let Some(group) = item.id.strip_prefix("__group__:") {
+            if dismissed.contains(group) {
+                return false;
+            }
+        }
+        true
+    });
+    for item in items.iter_mut() {
+        if removed_ids.contains(item.parent_id.as_str()) {
+            item.parent_id.clear();
+        }
     }
 }
 
@@ -1123,6 +1273,9 @@ fn build_connection_peek_items(
     let mut groups: Vec<String> = used_groups.into_iter().collect();
     groups.sort();
     for group in &groups {
+        if group == OPENSSH_CONFIG_GROUP {
+            continue;
+        }
         out.push(peek_item(
             connection_group_folder_id(group),
             group.clone(),
@@ -1145,7 +1298,7 @@ fn build_connection_peek_items(
                 .unwrap_or_default(),
             _ => {
                 let group = c.connection.group.trim();
-                if group.is_empty() {
+                if group.is_empty() || group == OPENSSH_CONFIG_GROUP {
                     String::new()
                 } else {
                     connection_group_folder_id(group)
