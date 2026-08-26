@@ -7443,6 +7443,7 @@ export const zhCN = {
     switchTeamSuccess: "已切换到「{name}」，并加载该团队数据",
     switchTeamEmptySnapshot: "已切换到「{name}」（目标团队暂无快照，保留本机数据）",
     switchTeamFailed: "切换团队失败，请稍后重试",
+    switchTeamKeyRequired: "需要先导入或获取该组织的同步密钥，才能加载团队数据",
     switchTeamLoading: "正在切换团队…",
     switchTeamLoadingDetail: "目标：{name}",
     switchTeamLoadingAria: "正在切换数据快照来源团队，请稍候",
@@ -7756,6 +7757,8 @@ export const zhCN = {
   syncTeamKeySetup: {
     title: "需要团队同步密钥",
     hint: "本机尚未配置团队同步密钥，无法解密云端模块与会话快照。",
+    forcedHint: "已切换到新组织，但本机尚无该组织的同步密钥。请从组织内其他成员导入密钥文件，或等待在线设备自动传递。",
+    forcedImportRequired: "未能从在线设备获取密钥，请导入密钥文件后继续。",
     requesting: "正在向组织内在线设备请求同步密钥…",
     waiting: "等待组织内其他在线设备自动传递密钥…",
     importHint: "若无组织内其他在线设备，可从已有成员处导入密钥文件，或在确认后创建新密钥（团队已有云端数据时，新密钥将无法解密旧快照）。",

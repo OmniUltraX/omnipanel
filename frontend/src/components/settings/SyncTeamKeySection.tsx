@@ -20,7 +20,6 @@ export function SyncTeamKeySection() {
   const [hasKey, setHasKey] = useState(false);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -63,10 +62,7 @@ export function SyncTeamKeySection() {
     setBusy(true);
     setError(null);
     try {
-      await exportSyncTeamKeyFile(path, {
-        teamId,
-        passphrase: passphrase.trim() || null,
-      });
+      await exportSyncTeamKeyFile(path, { teamId });
       showToast(t("settings.syncTeamKey.exportDone"));
       await refreshStatus();
     } catch (e) {
@@ -92,10 +88,7 @@ export function SyncTeamKeySection() {
     setBusy(true);
     setError(null);
     try {
-      const result = await importSyncTeamKeyFile(path, {
-        teamId,
-        passphrase: passphrase.trim() || null,
-      });
+      const result = await importSyncTeamKeyFile(path, { teamId });
       setFingerprint(result.fingerprint);
       setHasKey(true);
       showToast(t("settings.syncTeamKey.importDone", { fingerprint: result.fingerprint }));
@@ -122,30 +115,19 @@ export function SyncTeamKeySection() {
               : t("settings.syncTeamKey.statusMissing")}
           </p>
         </div>
-      </div>
-
-      <div className="setting-row">
-        <div className="setting-label">
-          <h4>{t("settings.syncTeamKey.passphraseLabel")}</h4>
-          <p className="setting-hint">{t("settings.syncTeamKey.passphraseHint")}</p>
+        <div className="setting-row-actions">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy || !hasKey}
+            onClick={() => void handleExport()}
+          >
+            {t("settings.syncTeamKey.exportBtn")}
+          </Button>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => void handleImport()}>
+            {t("settings.syncTeamKey.importBtn")}
+          </Button>
         </div>
-        <input
-          type="password"
-          className="setting-input"
-          value={passphrase}
-          onChange={(e) => setPassphrase(e.target.value)}
-          placeholder={t("settings.syncTeamKey.passphrasePlaceholder")}
-          autoComplete="new-password"
-        />
-      </div>
-
-      <div className="setting-row setting-row-actions">
-        <Button variant="secondary" disabled={busy || !hasKey} onClick={() => void handleExport()}>
-          {t("settings.syncTeamKey.exportBtn")}
-        </Button>
-        <Button variant="secondary" disabled={busy} onClick={() => void handleImport()}>
-          {t("settings.syncTeamKey.importBtn")}
-        </Button>
       </div>
 
       {error ? <p className="setting-error">{error}</p> : null}

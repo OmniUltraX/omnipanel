@@ -15,6 +15,10 @@ import {
   requestTeamSyncKeyFromRelay,
   SyncKeyRelayError,
 } from "../../lib/auth/syncKeyRelayApi";
+import {
+  resolveTeamSyncKeyWait,
+  shouldSkipPullAfterTeamKey,
+} from "../../lib/auth/ensureTeamSyncKey";
 import { ensureSyncTeamKey } from "../../lib/auth/syncTeamKeyApi";
 import {
   pullCloudSnapshot,
@@ -31,6 +35,8 @@ export function SyncTeamKeySetupDialog() {
   const { t } = useI18n();
   const token = useAuthStore((s) => s.token);
   const open = useSyncDeviceAuthStore((s) => s.open);
+  const forced = useSyncDeviceAuthStore((s) => s.forced);
+  const forcedTeamId = useSyncDeviceAuthStore((s) => s.forcedTeamId);
   const closeDialog = useSyncDeviceAuthStore((s) => s.closeDialog);
   const dismissForToken = useSyncDeviceAuthStore((s) => s.dismissForToken);
 
@@ -41,27 +47,33 @@ export function SyncTeamKeySetupDialog() {
   const runGenRef = useRef(0);
 
   const afterKeyReady = useCallback(async () => {
-    const pulled = await pullCloudSnapshot();
-    if (pulled.ok) {
-      if (pulled.modulesFound) {
-        scheduleClientModuleSync();
-      }
-      scheduleSecretsVaultSync();
-      if (pulled.modulesFound || pulled.conversationsFound) {
-        showToast(
-          t("syncTeamKeySetup.successWithData", {
-            connections: String(pulled.appliedConnections),
-            databases: String(pulled.appliedDatabases),
-          }),
-        );
+    const teamId = forcedTeamId ?? getCurrentSyncTeamId();
+    if (!shouldSkipPullAfterTeamKey()) {
+      const pulled = await pullCloudSnapshot();
+      if (pulled.ok) {
+        if (pulled.modulesFound) {
+          scheduleClientModuleSync();
+        }
+        scheduleSecretsVaultSync();
+        if (pulled.modulesFound || pulled.conversationsFound) {
+          showToast(
+            t("syncTeamKeySetup.successWithData", {
+              connections: String(pulled.appliedConnections),
+              databases: String(pulled.appliedDatabases),
+            }),
+          );
+        } else {
+          showToast(t("syncTeamKeySetup.successNoCloudData"));
+        }
       } else {
-        showToast(t("syncTeamKeySetup.successNoCloudData"));
+        showToast(t("syncTeamKeySetup.pullFailed"));
       }
-    } else {
-      showToast(t("syncTeamKeySetup.pullFailed"));
+    }
+    if (teamId) {
+      resolveTeamSyncKeyWait(teamId);
     }
     closeDialog();
-  }, [closeDialog, t]);
+  }, [closeDialog, forcedTeamId, t]);
 
   const startRelayRequest = useCallback(async () => {
     const authToken = useAuthStore.getState().token?.trim();
@@ -111,11 +123,16 @@ export function SyncTeamKeySetupDialog() {
 
   useEffect(() => {
     if (!open || !token?.trim()) return;
+    if (forced) {
+      setPhase("import");
+      setError(t("syncTeamKeySetup.forcedImportRequired"));
+      return;
+    }
     void startRelayRequest();
     return () => {
       runGenRef.current += 1;
     };
-  }, [open, token, startRelayRequest]);
+  }, [forced, open, token, startRelayRequest, t]);
 
   const handleCreateNewKey = async () => {
     const teamId = getCurrentSyncTeamId();
@@ -176,6 +193,7 @@ export function SyncTeamKeySetupDialog() {
   };
 
   const handleLater = () => {
+    if (forced) return;
     runGenRef.current += 1;
     const tok = useAuthStore.getState().token?.trim();
     if (tok) dismissForToken(tok);
@@ -183,10 +201,14 @@ export function SyncTeamKeySetupDialog() {
     setError(null);
   };
 
+  const handleModalClose = () => {
+    if (!forced) handleLater();
+  };
+
   if (!open) return null;
 
   return (
-    <Modal open={open} onClose={handleLater}>
+    <Modal open={open} onClose={handleModalClose}>
       <div
         className="sync-device-auth-dialog"
         role="dialog"
@@ -197,7 +219,9 @@ export function SyncTeamKeySetupDialog() {
         <div className="sync-device-auth-dialog__header">
           <h3 id="sync-team-key-setup-title">{t("syncTeamKeySetup.title")}</h3>
         </div>
-        <p className="sync-device-auth-dialog__hint">{t("syncTeamKeySetup.hint")}</p>
+        <p className="sync-device-auth-dialog__hint">
+          {forced ? t("syncTeamKeySetup.forcedHint") : t("syncTeamKeySetup.hint")}
+        </p>
 
         {phase === "requesting" || phase === "waiting" ? (
           <p className="sync-device-auth-dialog__status">
@@ -249,7 +273,7 @@ export function SyncTeamKeySetupDialog() {
           >
             {t("syncTeamKeySetup.importBtn")}
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={handleLater}>
+          <Button type="button" size="sm" variant="ghost" onClick={handleLater} disabled={forced}>
             {t("syncTeamKeySetup.later")}
           </Button>
         </div>

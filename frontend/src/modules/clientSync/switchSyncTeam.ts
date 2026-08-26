@@ -21,10 +21,20 @@ import {
 } from "./moduleSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { useClientSyncTombstoneStore } from "./tombstones";
+import {
+  ensureTeamSyncKeyForTeam,
+  setSkipPullAfterTeamKey,
+  TeamSyncKeyRequiredError,
+} from "../../lib/auth/ensureTeamSyncKey";
+import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
+
+export { TeamSyncKeyRequiredError };
 
 export interface SwitchSyncTeamResult {
   /** 是否真正切换了团队（同团队重复点击为 false） */
   switched: boolean;
+  /** 目标团队是否已具备本机同步密钥 */
+  keyReady: boolean;
   /** 目标团队是否存在模块快照并已替换到本机 */
   pulledModules: boolean;
   /** 目标团队是否存在会话快照并已替换到本机 */
@@ -128,6 +138,7 @@ export async function switchSyncTeam(
 ): Promise<SwitchSyncTeamResult> {
   const empty: SwitchSyncTeamResult = {
     switched: false,
+    keyReady: false,
     pulledModules: false,
     pulledConversations: false,
   };
@@ -151,18 +162,35 @@ export async function switchSyncTeam(
     // 2) 切换指针；tombstone 按团队语义隔离，避免旧删除标记误伤新团队资源
     useCurrentSyncTeamStore.getState().setTeamId(teamId);
     useClientSyncTombstoneStore.getState().clearAll();
+    useSyncDeviceAuthStore.getState().clearDismissed();
+
+    // 3) 确保目标团队同步密钥：先向组织内在线设备中继，失败则强制引导导入
+    setSkipPullAfterTeamKey(true);
+    let keyReady = false;
+    try {
+      keyReady = await ensureTeamSyncKeyForTeam(teamId, {
+        force: true,
+        relayTimeoutMs: 60_000,
+      });
+    } finally {
+      setSkipPullAfterTeamKey(false);
+    }
+    if (!keyReady) {
+      throw new TeamSyncKeyRequiredError();
+    }
 
     // 临时关闭云端拉取时：只切团队指针，不拉快照覆盖本机
     if (CLOUD_PULL_DISABLED) {
       console.warn("[client-sync] switchSyncTeam pull skipped (CLOUD_PULL_DISABLED)");
       return {
         switched: true,
+        keyReady: true,
         pulledModules: false,
         pulledConversations: false,
       };
     }
 
-    // 3) 拉取并替换为目标数据源
+    // 4) 拉取并替换为目标数据源
     let pulledModules = false;
     let pulledConversations = false;
 
@@ -190,6 +218,7 @@ export async function switchSyncTeam(
 
     return {
       switched: true,
+      keyReady: true,
       pulledModules,
       pulledConversations,
     };

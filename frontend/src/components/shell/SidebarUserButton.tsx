@@ -22,7 +22,7 @@ import {
   resolveCurrentSyncTeamId,
   useCurrentSyncTeamStore,
 } from "../../stores/currentSyncTeamStore";
-import { switchSyncTeam } from "../../modules/clientSync/switchSyncTeam";
+import { switchSyncTeam, TeamSyncKeyRequiredError } from "../../modules/clientSync/switchSyncTeam";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useTeamManagementUiStore } from "../../stores/teamManagementUiStore";
@@ -226,8 +226,12 @@ export function SidebarUserButton() {
         } else {
           showToast(t("userCenter.switchTeamEmptySnapshot", { name: teamName }));
         }
-      } catch {
-        showToast(t("userCenter.switchTeamFailed"));
+      } catch (e) {
+        if (e instanceof TeamSyncKeyRequiredError) {
+          showToast(t("userCenter.switchTeamKeyRequired"));
+        } else {
+          showToast(t("userCenter.switchTeamFailed"));
+        }
       } finally {
         setSwitchingTeam(false);
         setSwitchingTeamName("");

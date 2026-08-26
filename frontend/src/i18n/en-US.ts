@@ -7528,6 +7528,8 @@ export const enUS: TranslationDict = {
     switchTeamEmptySnapshot:
       "Switched to \"{name}\" (no snapshot yet; keeping local data)",
     switchTeamFailed: "Failed to switch team. Please try again.",
+    switchTeamKeyRequired:
+      "Import or obtain this team's sync key before cloud data can be loaded.",
     switchTeamLoading: "Switching team…",
     switchTeamLoadingDetail: "Target: {name}",
     switchTeamLoadingAria: "Switching data snapshot source team, please wait",
@@ -7843,6 +7845,10 @@ export const enUS: TranslationDict = {
   syncTeamKeySetup: {
     title: "Team sync key required",
     hint: "This device has no team sync key yet and cannot decrypt cloud module or conversation snapshots.",
+    forcedHint:
+      "You switched to a new team, but this device does not have its sync key yet. Import a key file from a teammate, or wait for an online device to relay it.",
+    forcedImportRequired:
+      "Could not obtain the key from an online device. Import a key file to continue.",
     requesting: "Requesting sync key from online devices in this team…",
     waiting: "Waiting for another online device in this team to relay the key…",
     importHint:

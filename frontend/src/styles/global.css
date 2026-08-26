@@ -11550,6 +11550,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .setting-row--stack .setting-control,
     .setting-row--stack .input,
+    .setting-row--stack .setting-input,
     .setting-row--stack .settings-textarea {
         width: 100%;
     }
