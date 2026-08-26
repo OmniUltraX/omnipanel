@@ -87,24 +87,23 @@ export function SshConnectionDialog({
         subtitle: t("ssh.dialog.keyAutoHint"),
       },
       ...keys.map((key) => ({
-        value: key.path,
+        value: key.id,
         label: key.name,
         subtitle: [key.keyType, key.fingerprint].filter(Boolean).join(" · "),
       })),
     ];
     if (
-      form.keyPath &&
-      form.keyPath !== "auto" &&
-      !keys.some((key) => key.path === form.keyPath)
+      form.keyId &&
+      !keys.some((key) => key.id === form.keyId)
     ) {
       options.push({
-        value: form.keyPath,
-        label: form.keyPath,
+        value: form.keyId,
+        label: form.keyId,
         subtitle: t("ssh.dialog.keyMissingHint"),
       });
     }
     return options;
-  }, [form.keyPath, keys, t]);
+  }, [form.keyId, keys, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -183,7 +182,7 @@ export function SshConnectionDialog({
     if (form.authType === "password" && !form.password.trim() && !isEdit) {
       return t("ssh.dialog.passwordRequired");
     }
-    if (form.authType === "privateKey" && !form.keyPath.trim() && !form.pem.trim()) {
+    if (form.authType === "privateKey" && !form.keyId.trim() && !form.keyPath.trim() && !form.pem.trim()) {
       return t("ssh.dialog.keyRequired");
     }
     return null;
@@ -353,8 +352,22 @@ export function SshConnectionDialog({
               <div className="form-field">
                 <label className="form-label">{t("ssh.dialog.keyPath")}</label>
                 <Select
-                  value={form.keyPath || "auto"}
-                  onChange={(value) => update("keyPath", value)}
+                  value={form.keyId || form.keyPath || "auto"}
+                  onChange={(value) => {
+                    if (value === "auto") {
+                      update("keyId", "");
+                      update("keyPath", "auto");
+                      return;
+                    }
+                    const matched = keys.find((key) => key.id === value);
+                    if (matched) {
+                      update("keyId", matched.id);
+                      update("keyPath", "auto");
+                      return;
+                    }
+                    update("keyId", "");
+                    update("keyPath", value);
+                  }}
                   options={keyOptions}
                   searchable
                   placeholder={t("ssh.dialog.keySelectPlaceholder")}

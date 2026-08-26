@@ -677,6 +677,36 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     );
     "#,
+    // v34 — SSH 密钥库（元数据；私钥存 Vault `ssh-key-priv-*`）
+    r#"
+    CREATE TABLE IF NOT EXISTS ssh_keys (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        key_type TEXT NOT NULL DEFAULT '',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        comment TEXT NOT NULL DEFAULT '',
+        public_key TEXT NOT NULL DEFAULT '',
+        source_path TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ssh_keys_name ON ssh_keys(name);
+    CREATE INDEX IF NOT EXISTS idx_ssh_keys_fingerprint ON ssh_keys(fingerprint);
+    "#,
+    // v35 — 侧栏模块顺序：终端 → SSH → 数据库 → Docker → 第三方服务 → 文件 → 云
+    r#"
+    UPDATE app_modules SET sort_order = 0 WHERE module_key = 'terminal';
+    UPDATE app_modules SET sort_order = 1 WHERE module_key = 'ssh';
+    UPDATE app_modules SET sort_order = 2 WHERE module_key = 'database';
+    UPDATE app_modules SET sort_order = 3 WHERE module_key = 'docker';
+    UPDATE app_modules SET sort_order = 4 WHERE module_key = 'server';
+    UPDATE app_modules SET sort_order = 5 WHERE module_key = 'files';
+    UPDATE app_modules SET sort_order = 6 WHERE module_key = 'protocol';
+    UPDATE app_modules SET sort_order = 7 WHERE module_key = 'workflow';
+    UPDATE app_modules SET sort_order = 8 WHERE module_key = 'knowledge';
+    UPDATE app_modules SET sort_order = 9 WHERE module_key = 'web';
+    UPDATE app_modules SET sort_order = 10 WHERE module_key = 'cloud';
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

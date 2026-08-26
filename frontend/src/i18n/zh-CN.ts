@@ -3978,6 +3978,7 @@ export const zhCN = {
       keyType: "密钥类型",
       typeEd25519: "ED25519（推荐）",
       typeRsa: "RSA",
+      typeUnknown: "其他",
       bits: "位数",
       comment: "注释",
       passphrase: "密码（可选）",

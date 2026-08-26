@@ -21,7 +21,10 @@ function writeExpanded(next: Record<string, boolean>) {
 export function usePersistedSshTreeExpanded() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>(readExpanded);
 
-  const isExpanded = useCallback((key: string) => expanded[key] ?? false, [expanded]);
+  const isExpanded = useCallback(
+    (key: string, defaultExpanded = false) => expanded[key] ?? defaultExpanded,
+    [expanded],
+  );
 
   const toggle = useCallback((key: string) => {
     setExpanded((prev) => {

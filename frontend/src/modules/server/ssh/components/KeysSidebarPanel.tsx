@@ -5,10 +5,62 @@ import type { SshKeyInfo } from "../../../../ipc/bindings";
 import { Select } from "../../../../components/ui/Select";
 import { PasswordInput } from "../../../../components/ui/PasswordInput";
 import { TextInput } from "../../../../components/ui/TextInput";
+import type { ContextMenuItem } from "../../../../components/ui/ContextMenu";
+import {
+  SidebarTreeNode,
+  SidebarTreeRoot,
+} from "../../../../components/ui/sidebar-tree";
 import { useI18n } from "../../../../i18n";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
+import { usePersistedSshTreeExpanded } from "../usePersistedSshTreeExpanded";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
 import { formatOmniError } from "../utils/formatOmniError";
+
+function sshKeyTypeTreeKey(keyType: string) {
+  return `ssh-key-type:${keyType.toLowerCase()}`;
+}
+
+function sshKeyTreeKey(name: string) {
+  return `ssh-key:${name}`;
+}
+
+function keyTypeLabel(keyType: string, t: (key: string) => string): string {
+  const normalized = keyType.toLowerCase();
+  if (normalized === "ed25519") return t("ssh.keys.typeEd25519");
+  if (normalized === "rsa") return t("ssh.keys.typeRsa");
+  if (normalized === "unknown") return t("ssh.keys.typeUnknown");
+  return keyType.toUpperCase();
+}
+
+function groupKeysByType(keys: SshKeyInfo[]): [string, SshKeyInfo[]][] {
+  const map = new Map<string, SshKeyInfo[]>();
+  for (const key of keys) {
+    const type = key.keyType?.trim().toLowerCase() || "unknown";
+    const bucket = map.get(type) ?? [];
+    bucket.push(key);
+    map.set(type, bucket);
+  }
+  for (const bucket of map.values()) {
+    bucket.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+function FolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
+      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+    </svg>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
+      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  );
+}
 
 type Props = {
   onCountChange?: (count: number) => void;
@@ -44,6 +96,16 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
 
   const activeKeyName = useSshWorkspaceNavStore((s) => s.activeKeyName);
   const selectKey = useSshWorkspaceNavStore((s) => s.selectKey);
+  const { isExpanded, toggle, ensureExpanded } = usePersistedSshTreeExpanded();
+
+  const keyGroups = useMemo(() => groupKeysByType(keys), [keys]);
+
+  const expandKeyType = useCallback(
+    (keyType: string) => {
+      ensureExpanded(sshKeyTypeTreeKey(keyType));
+    },
+    [ensureExpanded],
+  );
 
   const loadKeys = useCallback(async () => {
     setLoading(true);
@@ -139,6 +201,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         setGenComment("");
         setGenPassphrase("");
         selectKey(res.data.name);
+        expandKeyType(res.data.keyType);
         setSuccess(t("ssh.keys.generateSuccess", { name: res.data.name }));
         await loadKeys();
       } else {
@@ -166,6 +229,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         setImportName("");
         setImportKey("");
         selectKey(res.data.name);
+        expandKeyType(res.data.keyType);
         setSuccess(t("ssh.keys.importSuccess", { name: res.data.name }));
         await loadKeys();
       } else {
@@ -443,86 +507,91 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
       ) : keys.length === 0 ? (
         <div className="ssh-sidebar-list-panel__empty">{t("ssh.keys.empty")}</div>
       ) : (
-        <ul className="ssh-sidebar-list">
-          {keys.map((key) => {
-            const selected = activeKeyName === key.name;
-            return (
-              <li
-                key={key.name}
-                className={`ssh-sidebar-list__row${selected ? " ssh-sidebar-list__row--active" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="ssh-sidebar-list__item"
-                  onClick={() => selectKey(key.name)}
-                >
-                  <span className="ssh-sidebar-list__name">{key.name}</span>
-                  <span className="ssh-sidebar-list__meta">
-                    <span>{key.keyType.toUpperCase()}</span>
-                  </span>
-                </button>
-                <div className="ssh-sidebar-list__aside">
-                  {key.fingerprint ? (
-                    <span className="ssh-sidebar-list__preview-idle" title={key.fingerprint}>
-                      {key.fingerprint.slice(0, 12)}…
-                    </span>
-                  ) : null}
-                  <div className="ssh-sidebar-list__aside-hover">
-                    <div className="ssh-sidebar-list__row-actions">
-                      <button
-                        type="button"
-                        className="ssh-sidebar-list__action-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleViewPublic(key.name);
-                        }}
-                      >
-                        {t("ssh.keys.viewPublic")}
-                      </button>
-                      <button
-                        type="button"
-                        className="ssh-sidebar-list__action-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleViewPrivate(key.name);
-                        }}
-                      >
-                        {t("ssh.keys.viewPrivate")}
-                      </button>
-                      {key.path ? (
-                        <button
-                          type="button"
-                          className="ssh-sidebar-list__action-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleCopyPath(key.path);
-                          }}
-                        >
-                          {t("ssh.keys.copyPath")}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="ssh-sidebar-list__action-btn ssh-sidebar-list__action-btn--danger"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDelete(key.name);
-                        }}
-                      >
-                        {t("ssh.keys.delete")}
-                      </button>
-                    </div>
-                    {key.fingerprint ? (
-                      <span className="ssh-sidebar-list__preview" title={key.fingerprint}>
-                        {key.fingerprint.slice(0, 12)}…
-                      </span>
-                    ) : null}
-                  </div>
+        <div className="ssh-sidebar-tree-wrap">
+          <SidebarTreeRoot className="ssh-sidebar-tree">
+            {keyGroups.map(([keyType, typeKeys]) => {
+              const typeTreeKey = sshKeyTypeTreeKey(keyType);
+              const typeExpanded = isExpanded(typeTreeKey, true);
+              return (
+                <div key={keyType} className="ssh-tree-folder">
+                  <SidebarTreeNode
+                    depth={0}
+                    module="ssh"
+                    nodeType="key-type"
+                    treeKey={typeTreeKey}
+                    icon={<FolderIcon />}
+                    label={`${keyTypeLabel(keyType, t)} (${typeKeys.length})`}
+                    hasChildren
+                    expanded={typeExpanded}
+                    onToggle={() => toggle(typeTreeKey)}
+                  />
+                  {typeExpanded
+                    ? typeKeys.map((key) => {
+                        const treeKey = sshKeyTreeKey(key.name);
+                        const selected = activeKeyName === key.name;
+                        const contextMenuItems: ContextMenuItem[] = [
+                          {
+                            id: "ssh-key-view-public",
+                            label: t("ssh.keys.viewPublic"),
+                            onClick: () => void handleViewPublic(key.name),
+                          },
+                          {
+                            id: "ssh-key-view-private",
+                            label: t("ssh.keys.viewPrivate"),
+                            onClick: () => void handleViewPrivate(key.name),
+                          },
+                        ];
+                        if (key.path) {
+                          contextMenuItems.push({
+                            id: "ssh-key-copy-path",
+                            label: t("ssh.keys.copyPath"),
+                            onClick: () => void handleCopyPath(key.path),
+                          });
+                        }
+                        const meta = key.fingerprint || key.comment || key.path;
+                        return (
+                          <div key={key.name} className="ssh-tree-key">
+                            <SidebarTreeNode
+                              depth={1}
+                              module="ssh"
+                              nodeType="key"
+                              treeKey={treeKey}
+                              icon={<KeyIcon />}
+                              className={selected ? "selected" : ""}
+                              active={selected}
+                              label={
+                                <span className="host-info ssh-tree-host-label">
+                                  <span className="host-row-1">
+                                    <span className="host-name">{key.name}</span>
+                                  </span>
+                                  {meta ? <span className="host-row-2">{meta}</span> : null}
+                                </span>
+                              }
+                              trailing={
+                                key.fingerprint ? (
+                                  <span className="ssh-sidebar-list__preview" title={key.fingerprint}>
+                                    {key.fingerprint.slice(0, 12)}…
+                                  </span>
+                                ) : null
+                              }
+                              hasChildren={false}
+                              expanded={false}
+                              onToggle={() => undefined}
+                              onSelect={() => selectKey(key.name)}
+                              onActivate={() => selectKey(key.name)}
+                              contextMenuItems={contextMenuItems}
+                              onDelete={() => setConfirmDelete(key.name)}
+                              deleteLabel={t("ssh.keys.delete")}
+                            />
+                          </div>
+                        );
+                      })
+                    : null}
                 </div>
-              </li>
-            );
-          })}
-        </ul>
+              );
+            })}
+          </SidebarTreeRoot>
+        </div>
       )}
     </div>
   );

@@ -15,16 +15,16 @@ export type UserAppModuleStatus = Extract<AppModuleStatus, "open" | "closed">;
 /** 模块未加载 DB 前的默认状态（与迁移种子一致） */
 export const DEFAULT_MODULE_STATUS: Record<ModuleKey, AppModuleStatus> = {
   terminal: "open",
-  database: "open",
   ssh: "open",
+  database: "open",
   docker: "open",
   server: "open",
   files: "open",
+  cloud: "open",
   protocol: "open",
   workflow: "disabled",
   knowledge: "open",
   tasks: "open",
-  cloud: "open",
 };
 
 interface AppModuleStore {

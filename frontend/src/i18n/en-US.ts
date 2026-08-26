@@ -3997,6 +3997,7 @@ export const enUS: TranslationDict = {
       keyType: "Key Type",
       typeEd25519: "ED25519 (recommended)",
       typeRsa: "RSA",
+      typeUnknown: "Other",
       bits: "Bits",
       comment: "Comment",
       passphrase: "Passphrase (optional)",

@@ -177,6 +177,7 @@ fn resolve_ssh_config_for_file(
         omnipanel_ssh::SshAuth::PrivateKey {
             pem: None,
             key_path: Some("auto".into()),
+            key_id: None,
             passphrase: None,
         }
     };

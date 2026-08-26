@@ -62,6 +62,7 @@ export type HostProfile = {
 };
 
 export type SshKeyInfo = {
+  id: string;
   name: string;
   meta: string;
   usage: string;

@@ -1,5 +1,5 @@
 //! 客户端选定团队「各业务模块」同步。
-//! 路径：团队 OSS `modules/latest.json`；上传前端到端加密，密码不进快照（个人凭据走 secrets vault）。
+//! 路径：团队 OSS `modules/latest.json`；上传前端到端加密（sync_key_v2），凭据随快照一并同步。
 
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,8 +9,10 @@ use omnipanel_assistant::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    db_password_ref, load_database_connections, Connection, ConnectionKind, DbConnectionConfig,
-    HttpCollection, HttpEnvironment, KnowledgeEntry, SavedHttpRequest, Vault, SYNC_KIND_MODULES,
+    db_password_ref, load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref,
+    ssh_passphrase_ref, ssh_pem_ref, ssh_password_ref, Connection, ConnectionKind, DbConnectionConfig,
+    HttpCollection, HttpEnvironment, KnowledgeEntry, SavedHttpRequest, SshKeyRecord, Vault,
+    SYNC_KIND_MODULES,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -21,6 +23,7 @@ use crate::commands::auth::{
     resolve_sync_team,
 };
 use crate::commands::assistant::build_auth_context;
+use crate::commands::ssh::materialize_ssh_connection_keys_for_sync;
 use crate::state::AppState;
 
 const MODULES_KIND: &str = "workspace-modules";
@@ -40,6 +43,13 @@ pub struct ClientSyncConnectionItem {
     /// 同账号多设备恢复用（SSH 密码等 Vault 明文）；仅账号级 sync 前缀。
     #[serde(default)]
     pub secret: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSyncVaultSecret {
+    pub reference: String,
+    pub value: String,
 }
 
 /// 数据库连接同步项：配置 + Vault 密码明文（同账号设备间恢复）。
@@ -136,6 +146,12 @@ pub struct ClientSyncModulesBundle {
     /// 其他模块侧栏文件夹布局 JSON：`{ docker, database, protocol }`。旧快照缺此字段则为空。
     #[serde(default)]
     pub folder_trees_json: Option<String>,
+    /// 连接相关 Vault 凭据（团队 sync_key_v2 加密后随快照同步）。
+    #[serde(default)]
+    pub vault_secrets: Vec<ClientSyncVaultSecret>,
+    /// SSH 密钥库元数据（私钥在 vault_secrets 中同步）。
+    #[serde(default)]
+    pub ssh_keys: Vec<SshKeyRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -167,17 +183,6 @@ pub struct ClientSyncPushModulesRequest {
     /// 可选团队 ID；缺省回退到默认个人团队。
     #[serde(default)]
     pub team_id: Option<i64>,
-}
-
-/// 上传前剥离连接/数据库明文密码：个人凭据走 secrets vault，协作团队不同步密码。
-pub(crate) fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
-    for item in &mut bundle.connections {
-        item.secret = None;
-    }
-    for item in &mut bundle.database_connections {
-        item.secret = None;
-        item.connection.password.clear();
-    }
 }
 
 const SIDEBAR_TREE_ROOT_KEY: &str = "__root__";
@@ -392,7 +397,7 @@ pub(crate) fn normalize_modules_bundle_layouts(bundle: &mut ClientSyncModulesBun
     });
 }
 
-/// 上传/预览对齐：修剪布局 → 补设备标签 → 剥离明文密码。
+/// 上传/预览对齐：修剪布局 → 补设备标签。
 pub(crate) fn finalize_modules_bundle_for_upload(
     bundle: &mut ClientSyncModulesBundle,
     device_name: &str,
@@ -401,7 +406,6 @@ pub(crate) fn finalize_modules_bundle_for_upload(
     if !device_name.is_empty() {
         tag_bundle_with_device(bundle, device_name);
     }
-    strip_bundle_secrets(bundle);
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -434,17 +438,88 @@ fn parse_json_object_string(raw: Option<&str>) -> Option<String> {
     }
 }
 
+fn push_vault_secret(out: &mut Vec<ClientSyncVaultSecret>, reference: String) {
+    if out.iter().any(|entry| entry.reference == reference) {
+        return;
+    }
+    if let Ok(value) = Vault::get(&reference) {
+        if value.is_empty() {
+            return;
+        }
+        out.push(ClientSyncVaultSecret { reference, value });
+    }
+}
+
+fn collect_connection_vault_secrets(conn: &Connection, out: &mut Vec<ClientSyncVaultSecret>) {
+    match conn.kind {
+        ConnectionKind::Ssh => {
+            push_vault_secret(out, ssh_password_ref(&conn.id));
+            push_vault_secret(out, ssh_pem_ref(&conn.id));
+            push_vault_secret(out, ssh_passphrase_ref(&conn.id));
+        }
+        ConnectionKind::File => {
+            push_vault_secret(out, format!("file-cred-{}", conn.id));
+        }
+        ConnectionKind::Panel => {
+            push_vault_secret(out, format!("panel-key-{}", conn.id));
+            if let Some(r) = conn.credential_ref.as_deref() {
+                if !r.is_empty() {
+                    push_vault_secret(out, r.to_string());
+                }
+            }
+        }
+        ConnectionKind::Cloud => {
+            if let Some(r) = conn.credential_ref.as_deref() {
+                if !r.is_empty() {
+                    push_vault_secret(out, r.to_string());
+                }
+            }
+        }
+        ConnectionKind::Docker => {
+            push_vault_secret(out, format!("docker-ssh-password-{}", conn.id));
+            push_vault_secret(out, format!("docker-ssh-pem-{}", conn.id));
+            push_vault_secret(out, format!("docker-onepanel-{}", conn.id));
+            push_vault_secret(out, format!("docker-btpanel-{}", conn.id));
+            push_vault_secret(out, format!("docker-btpanel-session-{}", conn.id));
+        }
+        _ => {}
+    }
+}
+
+fn collect_bundle_vault_secrets(
+    connections: &[ClientSyncConnectionItem],
+    ssh_keys: &[SshKeyRecord],
+) -> Vec<ClientSyncVaultSecret> {
+    let mut out = Vec::new();
+    for item in connections {
+        collect_connection_vault_secrets(&item.connection, &mut out);
+    }
+    for key in ssh_keys {
+        push_vault_secret(&mut out, ssh_key_private_ref(&key.id));
+        push_vault_secret(&mut out, ssh_key_passphrase_ref(&key.id));
+    }
+    out
+}
+
+fn restore_vault_secret(reference: &str, value: &str) {
+    let reference = reference.trim();
+    let value = value.trim();
+    if reference.is_empty() || value.is_empty() {
+        return;
+    }
+    let _ = Vault::store(reference, value);
+}
+
 fn collect_connection_items(
     storage: &omnipanel_store::Storage,
 ) -> Result<Vec<ClientSyncConnectionItem>, OmniError> {
     let list = storage.list_connections()?;
     let mut out = Vec::with_capacity(list.len());
     for connection in list {
-        // 密码不进 modules 快照；个人多设备凭据走 secrets vault。
-        out.push(ClientSyncConnectionItem {
-            connection,
-            secret: None,
-        });
+        let secret = Vault::get(&ssh_password_ref(&connection.id))
+            .ok()
+            .filter(|s| !s.is_empty());
+        out.push(ClientSyncConnectionItem { connection, secret });
     }
     Ok(out)
 }
@@ -453,17 +528,12 @@ fn collect_database_items() -> Result<Vec<ClientSyncDatabaseItem>, OmniError> {
     let list = load_database_connections()?;
     let mut out = Vec::with_capacity(list.len());
     for mut connection in list {
-        let has_password = Vault::get(&db_password_ref(&connection.id))
+        let secret = Vault::get(&db_password_ref(&connection.id))
             .ok()
-            .filter(|s| !s.is_empty())
-            .is_some();
-        // 配置体与 secret 均不落明文；仅同步 has_password 元数据。
+            .filter(|s| !s.is_empty());
         connection.password.clear();
-        connection.has_password = has_password;
-        out.push(ClientSyncDatabaseItem {
-            connection,
-            secret: None,
-        });
+        connection.has_password = secret.is_some();
+        out.push(ClientSyncDatabaseItem { connection, secret });
     }
     Ok(out)
 }
@@ -472,13 +542,18 @@ pub(crate) fn collect_local_bundle(
     storage: &omnipanel_store::Storage,
     request: &ClientSyncPushModulesRequest,
 ) -> Result<ClientSyncModulesBundle, OmniError> {
+    let _ = materialize_ssh_connection_keys_for_sync(storage);
+    let connections = collect_connection_items(storage)?;
+    let database_connections = collect_database_items()?;
+    let ssh_keys = storage.list_ssh_keys()?;
+    let vault_secrets = collect_bundle_vault_secrets(&connections, &ssh_keys);
     Ok(ClientSyncModulesBundle {
         schema_version: SCHEMA_VERSION,
         kind: MODULES_KIND.to_string(),
         updated_at: now_ms(),
-        connections: collect_connection_items(storage)?,
+        connections,
         deleted_connections: request.deleted_connections.clone(),
-        database_connections: collect_database_items()?,
+        database_connections,
         deleted_databases: request.deleted_databases.clone(),
         knowledge: storage.list_knowledge(None, None)?,
         deleted_knowledge: request.deleted_knowledge.clone(),
@@ -492,6 +567,8 @@ pub(crate) fn collect_local_bundle(
         deleted_workspaces: request.deleted_workspaces.clone(),
         ssh_sidebar_tree_json: parse_json_object_string(request.ssh_sidebar_tree_json.as_deref()),
         folder_trees_json: parse_json_object_string(request.folder_trees_json.as_deref()),
+        vault_secrets,
+        ssh_keys,
     })
 }
 
@@ -725,16 +802,21 @@ pub(crate) async fn apply_modules_bundle(
 
     for item in &bundle.database_connections {
         let mut c = item.connection.clone();
-        // 密码不从 modules 导入（含历史明文 secret）；个人凭据走 secrets vault。
         c.password.clear();
+        if let Some(pw) = item.secret.as_deref().filter(|s| !s.is_empty()) {
+            restore_vault_secret(&db_password_ref(&c.id), pw);
+            c.has_password = true;
+        }
         state.db_connections.save(c)?;
     }
 
     {
         let storage = state.storage.lock().await;
         for item in &bundle.connections {
-            // 不从 modules 的 secret 写入本地 Vault。
             storage.save_connection(&item.connection)?;
+            if let Some(pw) = item.secret.as_deref().filter(|s| !s.is_empty()) {
+                restore_vault_secret(&ssh_password_ref(&item.connection.id), pw);
+            }
         }
         for entry in &bundle.knowledge {
             storage.save_knowledge(entry)?;
@@ -747,6 +829,17 @@ pub(crate) async fn apply_modules_bundle(
         }
         for req in &bundle.http_requests {
             storage.http_save_request(req)?;
+        }
+    }
+
+    for entry in &bundle.vault_secrets {
+        restore_vault_secret(&entry.reference, &entry.value);
+    }
+
+    {
+        let storage = state.storage.lock().await;
+        for key in &bundle.ssh_keys {
+            storage.save_ssh_key_record(key)?;
         }
     }
 

@@ -25,6 +25,7 @@ export interface SshAuthJson {
   password?: string;
   pem?: string;
   keyPath?: string;
+  keyId?: string;
   passphrase?: string | null;
 }
 
@@ -52,6 +53,7 @@ export interface UnifiedServerFormData {
   password: string;
   pem: string;
   keyPath: string;
+  keyId: string;
   passphrase: string;
   group: string;
   panelAddress: string;
@@ -68,6 +70,7 @@ export const EMPTY_SERVER_FORM: UnifiedServerFormData = {
   password: "",
   pem: "",
   keyPath: "auto",
+  keyId: "",
   passphrase: "",
   group: "默认",
   panelAddress: "",
@@ -104,7 +107,7 @@ export function parseSshConfig(connection: Connection): SshConfigJson | null {
     } else if (!auth.type) {
       if (typeof auth.password === "string" && auth.password) {
         auth = { ...auth, type: "password" };
-      } else if (auth.keyPath || auth.pem) {
+      } else if (auth.keyPath || auth.pem || auth.keyId) {
         auth = { ...auth, type: "privateKey" };
       } else {
         auth = { ...auth, type: "password" };
@@ -163,7 +166,8 @@ export function connectionsToForm(
         form.authType = "privateKey";
         // pem / passphrase 在 Vault，编辑时不回显
         form.pem = "";
-        form.keyPath = cfg.auth.keyPath ?? "auto";
+        form.keyId = cfg.auth.keyId ?? "";
+        form.keyPath = cfg.auth.keyId ? "auto" : (cfg.auth.keyPath ?? "auto");
         form.passphrase = "";
       } else {
         form.authType = "password";
@@ -197,12 +201,18 @@ export function buildSshConnection(
   const auth =
     form.authType === "password"
       ? { type: "password" as const, password: form.password }
-      : {
-          type: "privateKey" as const,
-          ...(form.pem.trim() ? { pem: form.pem } : {}),
-          keyPath: form.keyPath || "auto",
-          passphrase: form.passphrase || null,
-        };
+      : form.keyId.trim()
+        ? {
+            type: "privateKey" as const,
+            keyId: form.keyId.trim(),
+            ...(form.passphrase ? { passphrase: form.passphrase } : { passphrase: null }),
+          }
+        : {
+            type: "privateKey" as const,
+            ...(form.pem.trim() ? { pem: form.pem } : {}),
+            keyPath: form.keyPath || "auto",
+            passphrase: form.passphrase || null,
+          };
   const config: SshConfigJson = {
     host: form.host.trim(),
     port: parseInt(form.port, 10) || 22,

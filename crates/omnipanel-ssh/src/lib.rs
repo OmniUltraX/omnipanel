@@ -84,6 +84,8 @@ pub enum SshAuth {
         pem: Option<String>,
         #[serde(default, rename = "keyPath", alias = "key_path")]
         key_path: Option<String>,
+        #[serde(default, rename = "keyId", alias = "key_id")]
+        key_id: Option<String>,
         passphrase: Option<String>,
     },
 }
@@ -746,6 +748,7 @@ impl SshSession {
             SshAuth::PrivateKey {
                 pem,
                 key_path,
+                key_id: _,
                 passphrase,
             } => {
                 if !authenticate_private_key(&mut session, &config.user, pem, key_path, passphrase)
@@ -852,6 +855,7 @@ impl SshSession {
             SshAuth::PrivateKey {
                 pem,
                 key_path,
+                key_id: _,
                 passphrase,
             } => {
                 if !authenticate_private_key(&mut session, &config.user, pem, key_path, passphrase)

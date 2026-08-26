@@ -3,6 +3,7 @@
 use serde_json::Value;
 
 use crate::vault::Vault;
+use crate::ssh_keys::{ssh_key_passphrase_ref, ssh_key_private_ref};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 
 pub fn ssh_password_ref(connection_id: &str) -> String {
@@ -55,13 +56,24 @@ pub fn inject_ssh_vault_into_config(
             .unwrap_or("")
             .to_string();
         if auth_type == "privateKey" || auth_type == "private_key" {
+            let key_id = auth
+                .get("keyId")
+                .or_else(|| auth.get("key_id"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
             let pem_empty = auth
                 .get("pem")
                 .and_then(|v| v.as_str())
                 .map(|s| s.is_empty())
                 .unwrap_or(true);
             if pem_empty {
-                if let Ok(pem) = Vault::get(&ssh_pem_ref(connection_id)) {
+                if let Some(key_id) = key_id.as_deref() {
+                    if let Ok(pem) = Vault::get(&ssh_key_private_ref(key_id)) {
+                        auth.insert("pem".into(), Value::String(pem));
+                    }
+                } else if let Ok(pem) = Vault::get(&ssh_pem_ref(connection_id)) {
                     auth.insert("pem".into(), Value::String(pem));
                 }
             }
@@ -71,7 +83,11 @@ pub fn inject_ssh_vault_into_config(
                 .map(|s| s.is_empty())
                 .unwrap_or(true);
             if pass_empty {
-                if let Ok(pp) = Vault::get(&ssh_passphrase_ref(connection_id)) {
+                if let Some(key_id) = key_id.as_deref() {
+                    if let Ok(pp) = Vault::get(&ssh_key_passphrase_ref(key_id)) {
+                        auth.insert("passphrase".into(), Value::String(pp));
+                    }
+                } else if let Ok(pp) = Vault::get(&ssh_passphrase_ref(connection_id)) {
                     auth.insert("passphrase".into(), Value::String(pp));
                 }
             }

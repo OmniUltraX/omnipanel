@@ -37,6 +37,7 @@ mod terminal_history;
 mod third_party_account;
 mod vault;
 mod ssh_vault;
+mod ssh_keys;
 mod secrets_crypto;
 mod sync_crypto;
 mod sync_master_key;
@@ -188,6 +189,9 @@ pub use sync_team_key::{
     get_or_create_sync_team_key, import_sync_team_key_json, load_sync_team_key,
     store_sync_team_key, sync_team_key_fingerprint, SyncTeamKeyExportFile,
     SYNC_TEAM_KEY_BYTES, SYNC_TEAM_KEY_EXPORT_VERSION, SYNC_TEAM_KEY_FILE_EXT,
+};
+pub use ssh_keys::{
+    gen_ssh_key_id, ssh_key_passphrase_ref, ssh_key_private_ref, SshKeyRecord,
 };
 pub use ssh_vault::{
     ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,

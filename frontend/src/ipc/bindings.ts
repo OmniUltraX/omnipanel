@@ -715,17 +715,17 @@ export const commands = {
 	sshCloseTunnel: (tunnelId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_close_tunnel", { tunnelId })),
 	/**  列出活跃隧道。 */
 	sshListTunnels: () => typedError<SshTunnelInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_tunnels")),
-	/**  列出本地 ~/.ssh/ 下的密钥。 */
+	/**  列出 OmniPanel 密钥库中的 SSH 密钥。 */
 	sshListKeys: () => typedError<SshKeyInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_keys")),
-	/**  生成 SSH 密钥对。 */
+	/**  生成 SSH 密钥对并写入 OmniPanel 密钥库。 */
 	sshGenerateKey: (keyType: string, bits: number | null, comment: string, passphrase: string, name: string | null) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_generate_key", { keyType, bits, comment, passphrase, name })),
-	/**  导入 SSH 私钥（写入 ~/.ssh/ 目录）。 */
+	/**  导入 SSH 私钥到 OmniPanel 密钥库。 */
 	sshImportKey: (name: string, privateKey: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_import_key", { name, privateKey })),
-	/**  删除 SSH 密钥。 */
+	/**  删除 OmniPanel 密钥库中的 SSH 密钥。 */
 	sshDeleteKey: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_delete_key", { name })),
-	/**  读取密钥对应的公钥文件内容（`~/.ssh/{name}.pub`）。 */
+	/**  读取密钥库中公钥内容。 */
 	sshReadKeyPublic: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_public", { name })),
-	/**  读取私钥文件内容（`~/.ssh/{name}`）。 */
+	/**  读取密钥库中私钥内容。 */
 	sshReadKeyPrivate: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_private", { name })),
 	/**
 	 *  将文本写入用户通过 `plugin-dialog::save` 选择的任意路径。
@@ -5078,10 +5078,12 @@ export type SshAuth_Deserialize = ({ password: {
 	passphrase: string | null,
 } & {
 	keyPath?: string | null,
+} & {
+	keyId?: string | null,
 } }) & { password?: never };
 
 /**  SSH 认证方式。 */
-export type SshAuth_Serialize = ({ type: "password"; password: string }) & { keyPath?: never; passphrase?: never; pem?: never } | ({ type: "privateKey"; pem: string | null; keyPath: string | null; passphrase: string | null }) & { password?: never };
+export type SshAuth_Serialize = ({ type: "password"; password: string }) & { keyId?: never; keyPath?: never; passphrase?: never; pem?: never } | ({ type: "privateKey"; pem: string | null; keyPath: string | null; keyId: string | null; passphrase: string | null }) & { password?: never };
 
 /**  SSH 连接配置。 */
 export type SshConfig = SshConfig_Serialize | SshConfig_Deserialize;
@@ -5166,6 +5168,7 @@ export type SshHostOverview_Serialize = {
 
 /**  SSH 密钥信息。 */
 export type SshKeyInfo = {
+	id: string,
 	name: string,
 	keyType: string,
 	path: string,

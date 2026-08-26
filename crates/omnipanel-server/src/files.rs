@@ -507,6 +507,7 @@ pub(crate) async fn ssh_config_from_file_conn(
         SshAuth::PrivateKey {
             pem: None,
             key_path: Some("auto".into()),
+            key_id: None,
             passphrase: None,
         }
     };

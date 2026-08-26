@@ -384,6 +384,7 @@ pub fn ssh_config_to_connect_config(entry: &SshConfigEntry) -> OmniResult<crate:
     let auth = SshAuth::PrivateKey {
         pem: None,
         key_path,
+        key_id: None,
         passphrase: None,
     };
 

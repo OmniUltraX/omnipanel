@@ -10,12 +10,12 @@ use base64::engine::general_purpose::STANDARD;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{
     SftpEntry, StreamChunk, SshAuth, SshConfig, SshConfigEntry, SshEvent, SshProcessDetail,
-    SshProcessInfo, SshSession, SshSink, default_ssh_dir, find_ssh_config_entry,
-    is_private_key_pem_content, list_ssh_private_key_paths, load_ssh_config_hosts,
-    ssh_config_from_json, ssh_config_to_connect_config, ssh_public_key_meta,
+    SshProcessInfo, SshSession, SshSink, default_ssh_dir, discover_ssh_identity_file,
+    find_ssh_config_entry, is_private_key_pem_content, list_ssh_private_key_paths_in,
+    load_ssh_config_hosts, ssh_config_from_json, ssh_config_to_connect_config, ssh_public_key_meta,
 };
 use omnipanel_store::{
-    inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, Vault,
+    inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, SshKeyRecord, Vault,
 };
 use serde::Serialize;
 use specta::Type;
@@ -1696,7 +1696,7 @@ pub async fn ssh_sync_config_hosts(
                     continue;
                 }
             }
-            let ssh_config = match ssh_config_to_connect_config(&host) {
+            let mut ssh_config = match ssh_config_to_connect_config(&host) {
                 Ok(c) => c,
                 Err(e) => {
                     failures.push(SshConfigSyncFailure {
@@ -1707,6 +1707,14 @@ pub async fn ssh_sync_config_hosts(
                     continue;
                 }
             };
+            if let Err(e) = bind_ssh_identity_to_key_store(&storage, &mut ssh_config) {
+                failures.push(SshConfigSyncFailure {
+                    alias: host.alias.clone(),
+                    reason: e.to_string(),
+                });
+                skipped += 1;
+                continue;
+            }
             if let Some(existing_conn) = existing.iter().find(|c| c.name == host.alias) {
                 let mut conn = existing_conn.clone();
                 let mut merged_config = ssh_config;
@@ -1969,11 +1977,161 @@ pub async fn ssh_list_tunnels(state: State<'_, AppState>) -> Result<Vec<SshTunne
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SshKeyInfo {
+    pub id: String,
     pub name: String,
     pub key_type: String,
     pub path: String,
     pub fingerprint: String,
     pub comment: String,
+}
+
+fn ssh_key_record_to_info(record: &SshKeyRecord) -> SshKeyInfo {
+    SshKeyInfo {
+        id: record.id.clone(),
+        name: record.name.clone(),
+        key_type: record.key_type.clone(),
+        path: record.source_path.clone(),
+        fingerprint: record.fingerprint.clone(),
+        comment: record.comment.clone(),
+    }
+}
+
+fn load_private_pem_for_auth(auth: &SshAuth) -> Option<(String, Option<PathBuf>)> {
+    match auth {
+        SshAuth::PrivateKey {
+            pem,
+            key_path,
+            key_id,
+            ..
+        } => {
+            if key_id.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+                return None;
+            }
+            if let Some(value) = pem.as_deref().filter(|s| !s.is_empty()) {
+                return Some((value.to_string(), None));
+            }
+            match key_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some("auto") | None => {
+                    let path = discover_ssh_identity_file()?;
+                    let pem = std::fs::read_to_string(&path).ok()?;
+                    Some((pem, Some(path)))
+                }
+                Some(path) => {
+                    let path_buf = PathBuf::from(path);
+                    let pem = std::fs::read_to_string(&path_buf).ok()?;
+                    Some((pem, Some(path_buf)))
+                }
+            }
+        }
+        _ => None,
+    }
+}
+
+fn bind_ssh_identity_to_key_store(
+    storage: &omnipanel_store::Storage,
+    config: &mut SshConfig,
+) -> Result<(), OmniError> {
+    let Some((private_pem, source_path)) = load_private_pem_for_auth(&config.auth) else {
+        return Ok(());
+    };
+    let SshAuth::PrivateKey {
+        pem,
+        key_path,
+        key_id,
+        passphrase,
+    } = &mut config.auth
+    else {
+        return Ok(());
+    };
+    if key_id.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+        return Ok(());
+    }
+    if !is_private_key_pem_content(&private_pem) {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "SSH 私钥内容无效",
+        ));
+    }
+    let name = source_path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("imported-key");
+    let public_key = source_path
+        .as_ref()
+        .and_then(|p| {
+            let pub_path = p.with_extension("pub");
+            if pub_path.is_file() {
+                std::fs::read_to_string(pub_path).ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    let (fingerprint, comment) = ssh_public_key_meta(&public_key);
+    let key_type = detect_private_key_type(name, &private_pem);
+    let record = storage
+        .upsert_ssh_key_from_private_pem(
+            name,
+            &private_pem,
+            &key_type,
+            &fingerprint,
+            &comment,
+            &public_key,
+            source_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default()
+                .as_str(),
+            passphrase.as_deref(),
+        )
+        .map_err(|e| OmniError::new(ErrorCode::Storage, "写入 SSH 密钥库失败").with_cause(e.to_string()))?;
+    *key_id = Some(record.id);
+    *key_path = None;
+    *pem = None;
+    Ok(())
+}
+
+fn bootstrap_ssh_keys_from_ssh_dir(storage: &omnipanel_store::Storage) -> Result<(), OmniError> {
+    if !storage.list_ssh_keys()?.is_empty() {
+        return Ok(());
+    }
+    let Some(ssh_dir) = default_ssh_dir() else {
+        return Ok(());
+    };
+    for path in list_ssh_private_key_paths_in(&ssh_dir) {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("imported-key");
+        let Ok(private_pem) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !is_private_key_pem_content(&private_pem) {
+            continue;
+        }
+        let public_key = {
+            let pub_path = path.with_extension("pub");
+            if pub_path.is_file() {
+                std::fs::read_to_string(pub_path).unwrap_or_default()
+            } else {
+                String::new()
+            }
+        };
+        let (fingerprint, comment) = ssh_public_key_meta(&public_key);
+        let key_type = detect_private_key_type(name, &private_pem);
+        let _ = storage.upsert_ssh_key_from_private_pem(
+            name,
+            &private_pem,
+            &key_type,
+            &fingerprint,
+            &comment,
+            &public_key,
+            &path.to_string_lossy(),
+            None,
+        );
+    }
+    Ok(())
 }
 
 fn detect_private_key_type(name: &str, pem: &str) -> String {
@@ -2042,14 +2200,14 @@ fn sanitize_ssh_key_name(raw: &str) -> Result<String, OmniError> {
     Ok(name)
 }
 
-fn allocate_ssh_key_filename(
-    ssh_dir: &std::path::Path,
+fn allocate_ssh_key_name(
+    storage: &omnipanel_store::Storage,
     algo: &str,
     preferred: Option<&str>,
 ) -> Result<String, OmniError> {
     if let Some(name) = preferred.map(str::trim).filter(|n| !n.is_empty()) {
         let safe = sanitize_ssh_key_name(name)?;
-        if ssh_dir.join(&safe).exists() {
+        if storage.get_ssh_key_by_name(&safe)?.is_some() {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
                 format!("密钥 `{safe}` 已存在"),
@@ -2059,12 +2217,12 @@ fn allocate_ssh_key_filename(
     }
 
     let base = format!("id_{algo}");
-    if !ssh_dir.join(&base).exists() {
+    if storage.get_ssh_key_by_name(&base)?.is_none() {
         return Ok(base);
     }
     for i in 2..100 {
         let candidate = format!("{base}_{i}");
-        if !ssh_dir.join(&candidate).exists() {
+        if storage.get_ssh_key_by_name(&candidate)?.is_none() {
             return Ok(candidate);
         }
     }
@@ -2075,94 +2233,74 @@ fn allocate_ssh_key_filename(
     Ok(format!("id_{algo}_{millis}"))
 }
 
-fn ssh_key_info_from_path(path: &std::path::Path) -> Option<SshKeyInfo> {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let pem = std::fs::read_to_string(path).ok()?;
-    let key_type = detect_private_key_type(&name, &pem);
-    let pub_path = path.with_extension("pub");
-    let (fingerprint, comment) = if pub_path.is_file() {
-        std::fs::read_to_string(&pub_path)
-            .map(|content| ssh_public_key_meta(&content))
-            .unwrap_or((String::new(), String::new()))
-    } else {
-        (String::new(), String::new())
-    };
-    Some(SshKeyInfo {
-        name,
-        key_type,
-        path: path.to_string_lossy().to_string(),
-        fingerprint,
-        comment,
-    })
-}
-
-/// 列出本地 ~/.ssh/ 下的密钥。
+/// 列出 OmniPanel 密钥库中的 SSH 密钥。
 #[tauri::command]
 #[specta::specta]
-pub async fn ssh_list_keys() -> Result<Vec<SshKeyInfo>, OmniError> {
-    let paths = list_ssh_private_key_paths();
-    Ok(paths
+pub async fn ssh_list_keys(state: State<'_, AppState>) -> Result<Vec<SshKeyInfo>, OmniError> {
+    let storage = state.storage.lock().await;
+    bootstrap_ssh_keys_from_ssh_dir(&storage)?;
+    Ok(storage
+        .list_ssh_keys()?
         .iter()
-        .filter_map(|path| ssh_key_info_from_path(path))
+        .map(ssh_key_record_to_info)
         .collect())
 }
 
-/// 读取密钥对应的公钥文件内容（`~/.ssh/{name}.pub`）。
+/// 读取密钥库中公钥内容。
 #[tauri::command]
 #[specta::specta]
-pub async fn ssh_read_key_public(name: String) -> Result<Option<String>, OmniError> {
-    let ssh_dir = default_ssh_dir()
-        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "无法定位用户主目录"))?;
-    let pub_path = ssh_dir.join(format!("{name}.pub"));
-    if !pub_path.is_file() {
+pub async fn ssh_read_key_public(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Option<String>, OmniError> {
+    let name = sanitize_ssh_key_name(&name)?;
+    let storage = state.storage.lock().await;
+    let Some(record) = storage.get_ssh_key_by_name(&name)? else {
+        return Ok(None);
+    };
+    if record.public_key.trim().is_empty() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(&pub_path)
-        .map_err(|e| OmniError::new(ErrorCode::Io, "读取公钥文件失败").with_cause(e.to_string()))?;
-    Ok(Some(content))
+    Ok(Some(record.public_key))
 }
 
-/// 读取私钥文件内容（`~/.ssh/{name}`）。
+/// 读取密钥库中私钥内容。
 #[tauri::command]
 #[specta::specta]
-pub async fn ssh_read_key_private(name: String) -> Result<Option<String>, OmniError> {
+pub async fn ssh_read_key_private(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Option<String>, OmniError> {
+    use omnipanel_store::ssh_key_private_ref;
+
     let name = sanitize_ssh_key_name(&name)?;
-    let ssh_dir = default_ssh_dir()
-        .ok_or_else(|| OmniError::new(ErrorCode::Internal, "无法定位用户主目录"))?;
-    let key_path = ssh_dir.join(&name);
-    if !key_path.is_file() {
+    let storage = state.storage.lock().await;
+    let Some(record) = storage.get_ssh_key_by_name(&name)? else {
         return Ok(None);
-    }
-    let content = std::fs::read_to_string(&key_path)
-        .map_err(|e| OmniError::new(ErrorCode::Io, "读取私钥文件失败").with_cause(e.to_string()))?;
+    };
+    let content = Vault::get(&ssh_key_private_ref(&record.id)).map_err(|e| {
+        OmniError::new(ErrorCode::Storage, "读取 SSH 私钥失败").with_cause(e.to_string())
+    })?;
     if !is_private_key_pem_content(&content) {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
-            "文件不是有效的 OpenSSH / PEM 私钥",
+            "密钥库中的私钥格式无效",
         ));
     }
     Ok(Some(content))
 }
 
-/// 生成 SSH 密钥对。
+/// 生成 SSH 密钥对并写入 OmniPanel 密钥库。
 #[tauri::command]
 #[specta::specta]
 pub async fn ssh_generate_key(
+    state: State<'_, AppState>,
     key_type: String,
     bits: Option<u32>,
     comment: String,
     passphrase: String,
     name: Option<String>,
 ) -> Result<SshKeyInfo, OmniError> {
-    let home = home_dir()?;
-    let ssh_dir = home.join(".ssh");
-    std::fs::create_dir_all(&ssh_dir).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "创建 .ssh 目录失败").with_cause(e.to_string())
-    })?;
-
     let algo = match key_type.as_str() {
         "ed25519" => "ed25519",
         "rsa" => "rsa",
@@ -2175,8 +2313,18 @@ pub async fn ssh_generate_key(
         }
     };
 
-    let filename = allocate_ssh_key_filename(&ssh_dir, algo, name.as_deref())?;
-    let key_path = ssh_dir.join(&filename);
+    let storage = state.storage.lock().await;
+    let filename = allocate_ssh_key_name(&storage, algo, name.as_deref())?;
+    drop(storage);
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "omnipanel-ssh-gen-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&temp_dir).map_err(|e| {
+        OmniError::new(ErrorCode::Io, "创建临时目录失败").with_cause(e.to_string())
+    })?;
+    let key_path = temp_dir.join(&filename);
 
     let mut cmd = ssh_keygen_command();
     cmd.arg("-t").arg(algo);
@@ -2198,6 +2346,7 @@ pub async fn ssh_generate_key(
     })?;
 
     if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(OmniError::new(ErrorCode::Ssh, "ssh-keygen 执行失败")
             .with_cause(if stderr.is_empty() {
@@ -2207,18 +2356,43 @@ pub async fn ssh_generate_key(
             }));
     }
 
-    ssh_key_info_from_path(&key_path).ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::Internal,
-            format!("密钥已生成但无法读取: {filename}"),
-        )
-    })
+    let private_pem = std::fs::read_to_string(&key_path).map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取生成的私钥失败").with_cause(e.to_string())
+    })?;
+    let public_key = std::fs::read_to_string(key_path.with_extension("pub")).unwrap_or_default();
+    let (fingerprint, parsed_comment) = ssh_public_key_meta(&public_key);
+    let key_type_name = detect_private_key_type(&filename, &private_pem);
+    let storage = state.storage.lock().await;
+    let record = storage.upsert_ssh_key_from_private_pem(
+        &filename,
+        &private_pem,
+        &key_type_name,
+        &fingerprint,
+        if comment.trim().is_empty() {
+            &parsed_comment
+        } else {
+            comment.trim()
+        },
+        &public_key,
+        "",
+        if passphrase.is_empty() {
+            None
+        } else {
+            Some(passphrase.as_str())
+        },
+    )?;
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(ssh_key_record_to_info(&record))
 }
 
-/// 导入 SSH 私钥（写入 ~/.ssh/ 目录）。
+/// 导入 SSH 私钥到 OmniPanel 密钥库。
 #[tauri::command]
 #[specta::specta]
-pub async fn ssh_import_key(name: String, private_key: String) -> Result<SshKeyInfo, OmniError> {
+pub async fn ssh_import_key(
+    state: State<'_, AppState>,
+    name: String,
+    private_key: String,
+) -> Result<SshKeyInfo, OmniError> {
     let trimmed_key = private_key.trim();
     if !is_private_key_pem_content(trimmed_key) {
         return Err(OmniError::new(
@@ -2228,57 +2402,63 @@ pub async fn ssh_import_key(name: String, private_key: String) -> Result<SshKeyI
     }
 
     let name = sanitize_ssh_key_name(&name)?;
-    let home = home_dir()?;
-    let ssh_dir = home.join(".ssh");
-    std::fs::create_dir_all(&ssh_dir).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "创建 .ssh 目录失败").with_cause(e.to_string())
-    })?;
-
-    let key_path = ssh_dir.join(&name);
-    if key_path.exists() {
+    let key_type = detect_private_key_type(&name, trimmed_key);
+    let storage = state.storage.lock().await;
+    if storage.get_ssh_key_by_name(&name)?.is_some() {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
             format!("密钥 `{name}` 已存在"),
         ));
     }
-
-    std::fs::write(&key_path, format!("{trimmed_key}\n")).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "写入密钥文件失败").with_cause(e.to_string())
-    })?;
-
-    // Set permissions to 0600 on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
-    }
-
-    ssh_key_info_from_path(&key_path).ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::Internal,
-            format!("密钥已写入但无法解析: {name}"),
-        )
-    })
+    let record = storage.upsert_ssh_key_from_private_pem(
+        &name,
+        trimmed_key,
+        &key_type,
+        "",
+        "",
+        "",
+        "",
+        None,
+    )?;
+    Ok(ssh_key_record_to_info(&record))
 }
 
-/// 删除 SSH 密钥。
+/// 删除 OmniPanel 密钥库中的 SSH 密钥。
 #[tauri::command]
 #[specta::specta]
-pub async fn ssh_delete_key(name: String) -> Result<(), OmniError> {
-    let home = home_dir()?;
-    let ssh_dir = home.join(".ssh");
-    let key_path = ssh_dir.join(&name);
-    let pub_path = ssh_dir.join(format!("{name}.pub"));
-
-    if key_path.exists() {
-        std::fs::remove_file(&key_path)
-            .map_err(|e| OmniError::new(ErrorCode::Io, "删除私钥失败").with_cause(e.to_string()))?;
+pub async fn ssh_delete_key(state: State<'_, AppState>, name: String) -> Result<(), OmniError> {
+    let name = sanitize_ssh_key_name(&name)?;
+    let storage = state.storage.lock().await;
+    if !storage.delete_ssh_key_by_name(&name)? {
+        return Err(OmniError::new(
+            ErrorCode::NotFound,
+            format!("密钥 `{name}` 不存在"),
+        ));
     }
-    if pub_path.exists() {
-        std::fs::remove_file(&pub_path)
-            .map_err(|e| OmniError::new(ErrorCode::Io, "删除公钥失败").with_cause(e.to_string()))?;
-    }
+    Ok(())
+}
 
+/// 上传快照前：将仍引用本机绝对路径的 SSH 私钥绑定到密钥库，并改写为 `keyId`。
+pub(crate) fn materialize_ssh_connection_keys_for_sync(
+    storage: &omnipanel_store::Storage,
+) -> Result<(), OmniError> {
+    for conn in storage.list_connections_by_kind(ConnectionKind::Ssh)? {
+        let Ok(mut cfg) = ssh_config_from_json(&conn.config, None) else {
+            continue;
+        };
+        if bind_ssh_identity_to_key_store(storage, &mut cfg).is_err() {
+            continue;
+        }
+        let Ok(config_json) = serde_json::to_string(&cfg) else {
+            continue;
+        };
+        if config_json == conn.config {
+            continue;
+        }
+        let mut updated = conn;
+        updated.config = config_json;
+        storage.save_connection(&updated)?;
+    }
     Ok(())
 }
 

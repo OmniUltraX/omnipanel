@@ -89,6 +89,15 @@ export const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
     ),
   },
   {
+    key: "files",
+    path: MODULE_PATHS.files,
+    i18nKey: "shell.nav.files",
+    group: "primary",
+    icon: strokeIcon(
+      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />,
+    ),
+  },
+  {
     key: "cloud",
     path: MODULE_PATHS.cloud,
     i18nKey: "shell.nav.cloud",
@@ -97,15 +106,6 @@ export const SIDEBAR_NAV_ITEMS: SidebarNavItem[] = [
       <>
         <path d="M7 18h10a4 4 0 000-8 5.5 5.5 0 00-10.6-1.5A3.5 3.5 0 007 18z" />
       </>,
-    ),
-  },
-  {
-    key: "files",
-    path: MODULE_PATHS.files,
-    i18nKey: "shell.nav.files",
-    group: "primary",
-    icon: strokeIcon(
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />,
     ),
   },
   {

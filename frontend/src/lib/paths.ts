@@ -4,16 +4,16 @@ export const DASHBOARD_PATH = "/dashboard";
 
 export const MODULE_PATHS = {
   terminal: `${MODULE_PREFIX}/terminal`,
+  ssh: `${MODULE_PREFIX}/ssh`,
   database: `${MODULE_PREFIX}/database`,
   docker: `${MODULE_PREFIX}/docker`,
-  ssh: `${MODULE_PREFIX}/ssh`,
   server: `${MODULE_PREFIX}/server`,
+  files: `${MODULE_PREFIX}/files`,
+  cloud: `${MODULE_PREFIX}/cloud`,
   protocol: `${MODULE_PREFIX}/protocol`,
   workflow: `${MODULE_PREFIX}/workflow`,
   knowledge: `${MODULE_PREFIX}/knowledge`,
-  files: `${MODULE_PREFIX}/files`,
   tasks: `${MODULE_PREFIX}/tasks`,
-  cloud: `${MODULE_PREFIX}/cloud`,
 } as const;
 
 export type ModuleKey = keyof typeof MODULE_PATHS;
