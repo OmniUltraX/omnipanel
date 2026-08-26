@@ -9,11 +9,13 @@ import { showToast } from "../../stores/toastStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
+import { appConfirm } from "../../lib/appConfirm";
 import {
   importSyncTeamKeyFile,
   requestTeamSyncKeyFromRelay,
   SyncKeyRelayError,
 } from "../../lib/auth/syncKeyRelayApi";
+import { ensureSyncTeamKey } from "../../lib/auth/syncTeamKeyApi";
 import {
   pullCloudSnapshot,
   scheduleClientModuleSync,
@@ -115,6 +117,35 @@ export function SyncTeamKeySetupDialog() {
     };
   }, [open, token, startRelayRequest]);
 
+  const handleCreateNewKey = async () => {
+    const teamId = getCurrentSyncTeamId();
+    if (!teamId) {
+      setError(t("syncTeamKeySetup.noTeam"));
+      return;
+    }
+    const confirmed = await appConfirm(
+      t("syncTeamKeySetup.createConfirm"),
+      t("syncTeamKeySetup.createConfirmTitle"),
+      { kind: "warning", confirmLabel: t("syncTeamKeySetup.createBtn") },
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await ensureSyncTeamKey(teamId);
+      showToast(
+        t("syncTeamKeySetup.createDone", { fingerprint: result.fingerprint }),
+      );
+      await afterKeyReady();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : formatIpcError(e));
+      setPhase("error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleImport = async () => {
     const authToken = useAuthStore.getState().token?.trim();
     const teamId = getCurrentSyncTeamId();
@@ -201,6 +232,14 @@ export function SyncTeamKeySetupDialog() {
             onClick={() => void startRelayRequest()}
           >
             {t("syncTeamKeySetup.retryRelay")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => void handleCreateNewKey()}
+          >
+            {t("syncTeamKeySetup.createBtn")}
           </Button>
           <Button
             type="button"

@@ -5,7 +5,9 @@ export type UserCenterPage = "account" | "subscription" | "devices";
 interface UserCenterUiState {
   open: boolean;
   page: UserCenterPage;
-  openUserCenter: (page?: UserCenterPage) => void;
+  /** 设备页仅展示客户端设备（从侧栏手机菜单进入）。 */
+  devicesClientOnly: boolean;
+  openUserCenter: (page?: UserCenterPage, opts?: { devicesClientOnly?: boolean }) => void;
   closeUserCenter: () => void;
   setPage: (page: UserCenterPage) => void;
 }
@@ -13,7 +15,13 @@ interface UserCenterUiState {
 export const useUserCenterUiStore = create<UserCenterUiState>((set) => ({
   open: false,
   page: "account",
-  openUserCenter: (page = "account") => set({ open: true, page }),
-  closeUserCenter: () => set({ open: false }),
-  setPage: (page) => set({ page }),
+  devicesClientOnly: false,
+  openUserCenter: (page = "account", opts) =>
+    set({
+      open: true,
+      page,
+      devicesClientOnly: opts?.devicesClientOnly ?? false,
+    }),
+  closeUserCenter: () => set({ open: false, devicesClientOnly: false }),
+  setPage: (page) => set({ page, devicesClientOnly: false }),
 }));

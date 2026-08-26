@@ -159,7 +159,7 @@ function DeviceList({
   );
 }
 
-export function UserCenterDevices() {
+export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean }) {
   const { t, locale } = useI18n();
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
@@ -365,6 +365,7 @@ export function UserCenterDevices() {
           />
         </div>
 
+        {!clientOnly ? (
         <div className="user-center-devices__group">
           <div className="user-center-devices__group-header">
             <h4 className="user-center-devices__group-title">
@@ -417,6 +418,7 @@ export function UserCenterDevices() {
             locale={locale}
           />
         </div>
+        ) : null}
       </section>
     </div>
   );

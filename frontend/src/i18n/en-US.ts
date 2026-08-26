@@ -733,6 +733,9 @@ export const enUS: TranslationDict = {
     miniapp: {
       title: "WeChat Mini Program",
       hint: "Scan with WeChat to open the OmniPanel mini program",
+      menuLabel: "Assistant & devices",
+      menuAssistant: "Bind Assistant",
+      menuClient: "Device Management",
       qrAlt: "WeChat mini program QR code",
       h5Title: "H5 Page",
       h5Hint: "Scan with WeChat to open the OmniPanel H5 page",
@@ -7842,8 +7845,14 @@ export const enUS: TranslationDict = {
     hint: "This device has no team sync key yet and cannot decrypt cloud module or conversation snapshots.",
     requesting: "Requesting sync key from online devices…",
     waiting: "Waiting for another signed-in device to relay the key…",
-    importHint: "If no peer is online, export `.omnipanel-sync.key` from a device that already has data and import it here.",
+    importHint:
+      "If no peer is online, import a key from another device, or create a new key after confirming (you will not be able to decrypt existing cloud snapshots encrypted with the previous key).",
     importBtn: "Import key file",
+    createBtn: "Create new key",
+    createConfirmTitle: "Create a new sync key?",
+    createConfirm:
+      "This generates a sync key for the current team on this device. If the team already has cloud snapshots encrypted with another key, you will not be able to decrypt them. Use only on the first device or when you are sure old data is not needed.",
+    createDone: "Sync key created, fingerprint {fingerprint}",
     retryRelay: "Retry request",
     later: "Later",
     noTeam: "Sign in and select a sync team first",

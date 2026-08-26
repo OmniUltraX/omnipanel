@@ -1,6 +1,12 @@
 /**
  * omniserver 团队同步密钥中继（§4.2）。
+ * WebRTC P2P 传钥 ICE 配置见 `syncKeyP2p.ts`（信令接入后优先走 P2P，失败再回落本模块）。
  */
+export {
+  createSyncKeyPeerConnection,
+  getSyncKeyP2pIceServers,
+  isSyncKeyP2pSupported,
+} from "./syncKeyP2p";
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";

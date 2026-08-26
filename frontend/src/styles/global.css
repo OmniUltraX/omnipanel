@@ -25879,6 +25879,11 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     box-sizing: border-box;
 }
 
+.user-center-panel--single .user-center-main {
+    flex: 1;
+    min-width: 0;
+}
+
 .user-center-panel--page {
     flex-direction: column;
 }

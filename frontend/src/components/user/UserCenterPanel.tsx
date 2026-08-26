@@ -6,8 +6,6 @@ import { Button } from "../ui/Button";
 import { TextInput } from "../ui/form/TextInput";
 import { Select } from "../ui/form/Select";
 import {
-  IconCheckCircle,
-  IconMonitor,
   IconUser,
 } from "../ui/icons/Icons";
 import {
@@ -239,17 +237,12 @@ const NAV_ITEMS: {
   icon: ReactNode;
 }[] = [
   { id: "account", labelKey: "userCenter.nav.account", icon: <IconUser size={14} /> },
-  {
-    id: "subscription",
-    labelKey: "userCenter.nav.subscription",
-    icon: <IconCheckCircle size={14} />,
-  },
-  { id: "devices", labelKey: "userCenter.nav.devices", icon: <IconMonitor size={14} /> },
 ];
 
 export function UserCenterPanel() {
   const { t } = useI18n();
   const page = useUserCenterUiStore((s) => s.page);
+  const devicesClientOnly = useUserCenterUiStore((s) => s.devicesClientOnly);
   const setPage = useUserCenterUiStore((s) => s.setPage);
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const token = useAuthStore((s) => s.token);
@@ -535,26 +528,28 @@ export function UserCenterPanel() {
   if (page === "subscription") {
     main = subscriptionPage;
   } else if (page === "devices") {
-    main = <UserCenterDevices />;
+    main = <UserCenterDevices clientOnly={devicesClientOnly} />;
   } else {
     main = accountPage;
   }
 
   return (
-    <div className="user-center-panel">
-      <nav className="user-center-nav" aria-label={t("userCenter.title")}>
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`user-center-nav-item${page === item.id ? " active" : ""}`}
-            onClick={() => setPage(item.id)}
-          >
-            {item.icon}
-            <span>{t(item.labelKey)}</span>
-          </button>
-        ))}
-      </nav>
+    <div className={`user-center-panel${NAV_ITEMS.length <= 1 ? " user-center-panel--single" : ""}`}>
+      {NAV_ITEMS.length > 1 ? (
+        <nav className="user-center-nav" aria-label={t("userCenter.title")}>
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`user-center-nav-item${page === item.id ? " active" : ""}`}
+              onClick={() => setPage(item.id)}
+            >
+              {item.icon}
+              <span>{t(item.labelKey)}</span>
+            </button>
+          ))}
+        </nav>
+      ) : null}
       <div className="user-center-main">{main}</div>
     </div>
   );

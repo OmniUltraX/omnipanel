@@ -39,7 +39,7 @@ import { AppUpdateDialog } from "./AppUpdateDialog";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = "account" | "settings" | "website" | "update";
+type MenuAction = "account" | "subscription" | "settings" | "website" | "update";
 
 function isUserMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -177,6 +177,10 @@ export function SidebarUserButton() {
       openUpdateDialog();
       return;
     }
+    if (action === "subscription") {
+      openUserCenter("subscription");
+      return;
+    }
     openUserCenter("account");
   };
 
@@ -242,6 +246,11 @@ export function SidebarUserButton() {
       id: "account",
       label: t("userCenter.title"),
       icon: <IconUser size={14} />,
+    },
+    {
+      id: "subscription",
+      label: t("userCenter.nav.subscription"),
+      icon: <IconCheckCircle size={14} />,
     },
     {
       id: "website",
