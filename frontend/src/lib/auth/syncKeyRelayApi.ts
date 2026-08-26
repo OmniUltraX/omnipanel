@@ -51,6 +51,15 @@ export type OnlineSyncPeer = {
   syncTrusted?: boolean;
 };
 
+async function resolveDeviceId(): Promise<string> {
+  try {
+    const identity = await unwrapCommand(commands.authDeviceIdentity(), { quiet: true });
+    return identity.deviceId.trim();
+  } catch {
+    return "";
+  }
+}
+
 async function authFetch(
   token: string,
   path: string,
@@ -59,11 +68,13 @@ async function authFetch(
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${token}`);
   headers.set("X-App-Id", "omni-client");
-  if (init?.deviceId) headers.set("X-Device-Id", init.deviceId);
+  const deviceId = (init?.deviceId ?? (await resolveDeviceId())).trim();
+  if (deviceId) headers.set("X-Device-Id", deviceId);
   if (init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  return fetch(`${AUTH_ASSET_BASE}${path}`, { ...init, headers });
+  const { deviceId: _deviceId, ...rest } = init ?? {};
+  return fetch(`${AUTH_ASSET_BASE}${path}`, { ...rest, headers });
 }
 
 export async function listPendingKeyRelays(token: string): Promise<PendingKeyRelayItem[]> {

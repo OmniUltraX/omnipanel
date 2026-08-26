@@ -22,7 +22,7 @@ use crate::commands::auth::{
     resolve_sync_team,
 };
 use crate::commands::client_sync_modules::{
-    build_peek_from_bundle, collect_local_bundle, strip_bundle_secrets, tag_bundle_with_device,
+    build_peek_from_bundle, collect_local_bundle, finalize_modules_bundle_for_upload,
     ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
 };
 use crate::state::AppState;
@@ -299,17 +299,6 @@ fn parse_exclusions(
     }
 }
 
-fn exclusions_from_push(request: &TeamSyncPushModulesRequest) -> TeamSyncExclusionSets {
-    parse_exclusions(
-        &request.excluded_connections,
-        &request.excluded_databases,
-        &request.excluded_knowledge,
-        &request.excluded_http_requests,
-        &request.excluded_http_collections,
-        &request.excluded_workspaces,
-    )
-}
-
 fn exclusions_from_peek(request: &TeamSyncPeekModulesRequest) -> TeamSyncExclusionSets {
     parse_exclusions(
         &request.excluded_connections,
@@ -343,36 +332,6 @@ fn knowledge_excluded_ids(
         }
     }
     out
-}
-
-fn apply_team_sync_exclusions(
-    mut bundle: ClientSyncModulesBundle,
-    ex: &TeamSyncExclusionSets,
-) -> ClientSyncModulesBundle {
-    bundle
-        .connections
-        .retain(|c| !ex.connections.contains(&c.connection.id));
-    bundle
-        .database_connections
-        .retain(|c| !ex.databases.contains(&c.connection.id));
-    bundle.workspaces.retain(|w| !ex.workspaces.contains(&w.id));
-
-    bundle
-        .http_collections
-        .retain(|c| !ex.http_collections.contains(&c.id));
-    bundle.http_requests.retain(|r| {
-        !ex.http_requests.contains(&r.id)
-            && !r
-                .collection_id
-                .as_ref()
-                .map(|id| ex.http_collections.contains(id))
-                .unwrap_or(false)
-    });
-
-    let kn_excluded = knowledge_excluded_ids(&bundle, &ex.knowledge);
-    bundle.knowledge.retain(|k| !kn_excluded.contains(&k.id));
-
-    bundle
 }
 
 fn is_peek_sync_leaf(module_key: &str, item: &ClientSyncPeekItem) -> bool {
@@ -1108,19 +1067,13 @@ pub async fn team_sync_push_modules(
     let team_id = team.id;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let modules_request = to_modules_push_request(&request);
-    let exclusions = exclusions_from_push(&request);
     let bundle = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
     };
-    let mut bundle = apply_team_sync_exclusions(bundle, &exclusions);
-    // 与账号自动同步一致：上传前给 tags 为空的资源补当前设备名
+    let mut bundle = bundle;
     let device_name = identity.device_name.trim().to_string();
-    if !device_name.is_empty() {
-        tag_bundle_with_device(&mut bundle, &device_name);
-    }
-    // 协作团队不同步密码；个人凭据走 vault —— modules JSON 一律不带明文 secret。
-    strip_bundle_secrets(&mut bundle);
+    finalize_modules_bundle_for_upload(&mut bundle, &device_name);
     let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
     })?;
@@ -1195,18 +1148,11 @@ pub async fn team_sync_peek_modules(
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
     };
-    // peek 表格也展示设备名标签：与 push 一致，给本地 tags 为空的资源补当前设备名
     let device_name = identity.device_name.trim().to_string();
-    if !device_name.is_empty() {
-        tag_bundle_with_device(&mut local, &device_name);
-    }
-    // peek 本地侧也不展示/对比明文密码
-    strip_bundle_secrets(&mut local);
+    finalize_modules_bundle_for_upload(&mut local, &device_name);
 
     let remote = if request.after_upload {
-        let mut uploaded = local.clone();
-        uploaded = apply_team_sync_exclusions(uploaded, &exclusions);
-        Some(uploaded)
+        Some(local.clone())
     } else if let Ok(Some((_, body))) =
         pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await
     {

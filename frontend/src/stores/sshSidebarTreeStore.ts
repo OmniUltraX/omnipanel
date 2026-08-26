@@ -494,11 +494,33 @@ export type SshSidebarTreeItem =
   | { kind: "folder"; folder: SshSidebarFolder }
   | { kind: "connection"; connectionId: string };
 
+function sshSidebarTreeItemLabel(
+  item: SshSidebarTreeItem,
+  getConnectionName: (id: string) => string,
+): string {
+  return item.kind === "folder" ? item.folder.name : getConnectionName(item.connectionId);
+}
+
+function compareSshSidebarTreeItems(
+  a: SshSidebarTreeItem,
+  b: SshSidebarTreeItem,
+  getConnectionName: (id: string) => string,
+): number {
+  const folderFirst = Number(b.kind === "folder") - Number(a.kind === "folder");
+  if (folderFirst !== 0) return folderFirst;
+  return sshSidebarTreeItemLabel(a, getConnectionName).localeCompare(
+    sshSidebarTreeItemLabel(b, getConnectionName),
+    undefined,
+    { sensitivity: "base", numeric: true },
+  );
+}
+
 /** 列出某父级下的有序子节点（仅一层）。 */
 export function listSshSidebarChildren(
   state: Pick<SshSidebarTreeState, "folders" | "orderByParent" | "connectionFolderId">,
   parentId: string | null,
   connectionIds: string[],
+  getConnectionName?: (id: string) => string,
 ): SshSidebarTreeItem[] {
   const parentKey = parentStorageKey(parentId);
   const active = new Set(connectionIds);
@@ -537,6 +559,10 @@ export function listSshSidebarChildren(
     items.push({ kind: "connection", connectionId: id });
   }
 
+  if (getConnectionName) {
+    items.sort((a, b) => compareSshSidebarTreeItems(a, b, getConnectionName));
+  }
+
   return items;
 }
 
@@ -545,8 +571,14 @@ export function collectAllSshSidebarTreeKeys(
   connectionIds: string[],
   connectionTreeKey: (connectionId: string) => string,
   parentId: string | null = null,
+  getConnectionName?: (id: string) => string,
 ): string[] {
-  const children = listSshSidebarChildren(state, parentId, connectionIds);
+  const children = listSshSidebarChildren(
+    state,
+    parentId,
+    connectionIds,
+    getConnectionName,
+  );
   const keys: string[] = [];
   for (const item of children) {
     if (item.kind === "folder") {
@@ -557,6 +589,7 @@ export function collectAllSshSidebarTreeKeys(
           connectionIds,
           connectionTreeKey,
           item.folder.id,
+          getConnectionName,
         ),
       );
     } else {

@@ -180,6 +180,167 @@ pub(crate) fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
     }
 }
 
+const SIDEBAR_TREE_ROOT_KEY: &str = "__root__";
+
+fn rewrite_json_option(raw: &mut Option<String>, mutator: impl FnOnce(&mut serde_json::Value)) {
+    let Some(text) = raw.as_mut() else {
+        return;
+    };
+    if text.trim().is_empty() {
+        return;
+    }
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return;
+    };
+    mutator(&mut value);
+    if let Ok(next) = serde_json::to_string(&value) {
+        *text = next;
+    }
+}
+
+/// 修剪侧栏布局 JSON 中已删除资源的引用，并补齐仍存在的连接节点。
+fn normalize_sidebar_tree_json(tree: &mut serde_json::Value, valid_ids: &HashSet<String>) {
+    let Some(obj) = tree.as_object_mut() else {
+        return;
+    };
+
+    for key in ["connectionFolderId", "connectionParents"] {
+        if let Some(map) = obj.get_mut(key).and_then(|v| v.as_object_mut()) {
+            map.retain(|conn_id, _| valid_ids.contains(conn_id));
+        }
+    }
+
+    let mut folder_for_conn: HashMap<String, String> = HashMap::new();
+    if let Some(map) = obj
+        .get("connectionFolderId")
+        .or_else(|| obj.get("connectionParents"))
+        .and_then(|v| v.as_object())
+    {
+        for (conn_id, folder_id) in map {
+            if let Some(fid) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                if valid_ids.contains(conn_id) {
+                    folder_for_conn.insert(conn_id.clone(), fid.to_string());
+                }
+            }
+        }
+    }
+
+    if !obj.contains_key("orderByParent") {
+        obj.insert(
+            "orderByParent".to_string(),
+            serde_json::json!({ SIDEBAR_TREE_ROOT_KEY: [] }),
+        );
+    }
+    if let Some(order) = obj.get_mut("orderByParent").and_then(|v| v.as_object_mut()) {
+        for (_, arr) in order.iter_mut() {
+            if let Some(items) = arr.as_array_mut() {
+                items.retain(|item| {
+                    let Some(key) = item.as_str() else {
+                        return false;
+                    };
+                    if let Some(id) = key.strip_prefix("c:") {
+                        return valid_ids.contains(id);
+                    }
+                    true
+                });
+            }
+        }
+
+        for conn_id in valid_ids {
+            let conn_key = format!("c:{conn_id}");
+            let parent_key = folder_for_conn
+                .get(conn_id.as_str())
+                .map(|s| s.as_str())
+                .unwrap_or(SIDEBAR_TREE_ROOT_KEY);
+            let parent_arr = order
+                .entry(parent_key.to_string())
+                .or_insert_with(|| serde_json::json!([]));
+            let Some(items) = parent_arr.as_array_mut() else {
+                continue;
+            };
+            if !items.iter().any(|item| item.as_str() == Some(conn_key.as_str())) {
+                items.push(serde_json::Value::String(conn_key));
+            }
+        }
+    }
+}
+
+fn normalize_protocol_layout_json(
+    tree: &mut serde_json::Value,
+    valid_collection_ids: &HashSet<String>,
+    valid_request_ids: &HashSet<String>,
+) {
+    normalize_sidebar_tree_json(tree, valid_collection_ids);
+    let Some(obj) = tree.as_object_mut() else {
+        return;
+    };
+    if let Some(map) = obj.get_mut("collectionParents").and_then(|v| v.as_object_mut()) {
+        map.retain(|id, _| valid_collection_ids.contains(id));
+    }
+    if let Some(map) = obj.get_mut("requestParents").and_then(|v| v.as_object_mut()) {
+        map.retain(|id, _| valid_request_ids.contains(id));
+    }
+    if let Some(map) = obj.get_mut("entryParents").and_then(|v| v.as_object_mut()) {
+        map.retain(|id, _| valid_request_ids.contains(id));
+    }
+}
+
+/// 上传前对齐各模块侧栏布局与 bundle 内资源 ID，避免 OSS 快照与本机 UI 不一致。
+pub(crate) fn normalize_modules_bundle_layouts(bundle: &mut ClientSyncModulesBundle) {
+    let ssh_ids: HashSet<String> = bundle
+        .connections
+        .iter()
+        .filter(|c| c.connection.kind == ConnectionKind::Ssh)
+        .map(|c| c.connection.id.clone())
+        .collect();
+    let docker_ids: HashSet<String> = bundle
+        .connections
+        .iter()
+        .filter(|c| c.connection.kind == ConnectionKind::Docker)
+        .map(|c| c.connection.id.clone())
+        .collect();
+    let db_ids: HashSet<String> = bundle
+        .database_connections
+        .iter()
+        .map(|d| d.connection.id.clone())
+        .collect();
+    let http_collection_ids: HashSet<String> =
+        bundle.http_collections.iter().map(|c| c.id.clone()).collect();
+    let http_request_ids: HashSet<String> =
+        bundle.http_requests.iter().map(|r| r.id.clone()).collect();
+
+    rewrite_json_option(&mut bundle.ssh_sidebar_tree_json, |tree| {
+        normalize_sidebar_tree_json(tree, &ssh_ids);
+    });
+
+    rewrite_json_option(&mut bundle.folder_trees_json, |folder_trees| {
+        let Some(map) = folder_trees.as_object_mut() else {
+            return;
+        };
+        if let Some(docker) = map.get_mut("docker") {
+            normalize_sidebar_tree_json(docker, &docker_ids);
+        }
+        if let Some(database) = map.get_mut("database") {
+            normalize_sidebar_tree_json(database, &db_ids);
+        }
+        if let Some(protocol) = map.get_mut("protocol") {
+            normalize_protocol_layout_json(protocol, &http_collection_ids, &http_request_ids);
+        }
+    });
+}
+
+/// 上传/预览对齐：修剪布局 → 补设备标签 → 剥离明文密码。
+pub(crate) fn finalize_modules_bundle_for_upload(
+    bundle: &mut ClientSyncModulesBundle,
+    device_name: &str,
+) {
+    normalize_modules_bundle_layouts(bundle);
+    if !device_name.is_empty() {
+        tag_bundle_with_device(bundle, device_name);
+    }
+    strip_bundle_secrets(bundle);
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSyncPushModulesResult {
@@ -328,12 +489,8 @@ pub async fn client_sync_push_modules(
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &request)?
     };
-    // 上传前给 tags 为空的资源补当前设备名，便于多设备快照区分来源
     let device_name = identity.device_name.trim().to_string();
-    if !device_name.is_empty() {
-        tag_bundle_with_device(&mut bundle, &device_name);
-    }
-    strip_bundle_secrets(&mut bundle);
+    finalize_modules_bundle_for_upload(&mut bundle, &device_name);
 
     let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
