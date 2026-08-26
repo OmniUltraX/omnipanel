@@ -9,16 +9,16 @@ use omnipanel_assistant::{
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    db_password_ref, decode_sync_blob_or_legacy, encrypt_sync_blob, load_database_connections,
-    Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment, KnowledgeEntry,
-    SavedHttpRequest, Vault, SYNC_KIND_MODULES,
+    db_password_ref, load_database_connections, Connection, ConnectionKind, DbConnectionConfig,
+    HttpCollection, HttpEnvironment, KnowledgeEntry, SavedHttpRequest, Vault, SYNC_KIND_MODULES,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use tauri::State;
 
 use crate::commands::auth::{
-    auth_device_identity, auth_get_me, resolve_sync_team, sync_blob_key_material,
+    auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
+    resolve_sync_team,
 };
 use crate::commands::assistant::build_auth_context;
 use crate::state::AppState;
@@ -180,6 +180,230 @@ pub(crate) fn strip_bundle_secrets(bundle: &mut ClientSyncModulesBundle) {
     }
 }
 
+const SIDEBAR_TREE_ROOT_KEY: &str = "__root__";
+/// OpenSSH 配置导入主机的分组标识；侧栏树为唯一布局来源，预览不再用 legacy group 文件夹表示。
+const OPENSSH_CONFIG_GROUP: &str = "~/.ssh/config";
+
+fn rewrite_json_option(raw: &mut Option<String>, mutator: impl FnOnce(&mut serde_json::Value)) {
+    let Some(text) = raw.as_mut() else {
+        return;
+    };
+    if text.trim().is_empty() {
+        return;
+    }
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return;
+    };
+    mutator(&mut value);
+    if let Ok(next) = serde_json::to_string(&value) {
+        *text = next;
+    }
+}
+
+/// 修剪侧栏布局 JSON 中已删除资源的引用，并补齐仍存在的连接节点。
+fn normalize_sidebar_tree_json(tree: &mut serde_json::Value, valid_ids: &HashSet<String>) {
+    let Some(obj) = tree.as_object_mut() else {
+        return;
+    };
+
+    let dismissed: HashSet<String> = obj
+        .get("dismissedAutoFolders")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !dismissed.is_empty() {
+        let mut removed_folder_ids: HashSet<String> = HashSet::new();
+        if let Some(folders) = obj.get_mut("folders").and_then(|v| v.as_array_mut()) {
+            folders.retain(|folder| {
+                let name = folder
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if dismissed.contains(name) {
+                    if let Some(id) = folder.get("id").and_then(|v| v.as_str()) {
+                        removed_folder_ids.insert(id.to_string());
+                    }
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        if !removed_folder_ids.is_empty() {
+            for key in ["connectionFolderId", "connectionParents"] {
+                if let Some(map) = obj.get_mut(key).and_then(|v| v.as_object_mut()) {
+                    map.retain(|_, folder_id| {
+                        folder_id
+                            .as_str()
+                            .map(|id| !removed_folder_ids.contains(id))
+                            .unwrap_or(true)
+                    });
+                }
+            }
+            if let Some(order) = obj.get_mut("orderByParent").and_then(|v| v.as_object_mut()) {
+                for (_, arr) in order.iter_mut() {
+                    if let Some(items) = arr.as_array_mut() {
+                        items.retain(|item| {
+                            let Some(key) = item.as_str() else {
+                                return false;
+                            };
+                            if let Some(id) = key.strip_prefix("f:") {
+                                return !removed_folder_ids.contains(id);
+                            }
+                            true
+                        });
+                    }
+                }
+                for folder_id in &removed_folder_ids {
+                    order.remove(folder_id);
+                }
+            }
+        }
+    }
+
+    for key in ["connectionFolderId", "connectionParents"] {
+        if let Some(map) = obj.get_mut(key).and_then(|v| v.as_object_mut()) {
+            map.retain(|conn_id, _| valid_ids.contains(conn_id));
+        }
+    }
+
+    let mut folder_for_conn: HashMap<String, String> = HashMap::new();
+    if let Some(map) = obj
+        .get("connectionFolderId")
+        .or_else(|| obj.get("connectionParents"))
+        .and_then(|v| v.as_object())
+    {
+        for (conn_id, folder_id) in map {
+            if let Some(fid) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                if valid_ids.contains(conn_id) {
+                    folder_for_conn.insert(conn_id.clone(), fid.to_string());
+                }
+            }
+        }
+    }
+
+    if !obj.contains_key("orderByParent") {
+        obj.insert(
+            "orderByParent".to_string(),
+            serde_json::json!({ SIDEBAR_TREE_ROOT_KEY: [] }),
+        );
+    }
+    if let Some(order) = obj.get_mut("orderByParent").and_then(|v| v.as_object_mut()) {
+        for (_, arr) in order.iter_mut() {
+            if let Some(items) = arr.as_array_mut() {
+                items.retain(|item| {
+                    let Some(key) = item.as_str() else {
+                        return false;
+                    };
+                    if let Some(id) = key.strip_prefix("c:") {
+                        return valid_ids.contains(id);
+                    }
+                    true
+                });
+            }
+        }
+
+        for conn_id in valid_ids {
+            let conn_key = format!("c:{conn_id}");
+            let parent_key = folder_for_conn
+                .get(conn_id.as_str())
+                .map(|s| s.as_str())
+                .unwrap_or(SIDEBAR_TREE_ROOT_KEY);
+            let parent_arr = order
+                .entry(parent_key.to_string())
+                .or_insert_with(|| serde_json::json!([]));
+            let Some(items) = parent_arr.as_array_mut() else {
+                continue;
+            };
+            if !items.iter().any(|item| item.as_str() == Some(conn_key.as_str())) {
+                items.push(serde_json::Value::String(conn_key));
+            }
+        }
+    }
+}
+
+fn normalize_protocol_layout_json(
+    tree: &mut serde_json::Value,
+    valid_collection_ids: &HashSet<String>,
+    valid_request_ids: &HashSet<String>,
+) {
+    normalize_sidebar_tree_json(tree, valid_collection_ids);
+    let Some(obj) = tree.as_object_mut() else {
+        return;
+    };
+    if let Some(map) = obj.get_mut("collectionParents").and_then(|v| v.as_object_mut()) {
+        map.retain(|id, _| valid_collection_ids.contains(id));
+    }
+    if let Some(map) = obj.get_mut("requestParents").and_then(|v| v.as_object_mut()) {
+        map.retain(|id, _| valid_request_ids.contains(id));
+    }
+    if let Some(map) = obj.get_mut("entryParents").and_then(|v| v.as_object_mut()) {
+        map.retain(|id, _| valid_request_ids.contains(id));
+    }
+}
+
+/// 上传前对齐各模块侧栏布局与 bundle 内资源 ID，避免 OSS 快照与本机 UI 不一致。
+pub(crate) fn normalize_modules_bundle_layouts(bundle: &mut ClientSyncModulesBundle) {
+    let ssh_ids: HashSet<String> = bundle
+        .connections
+        .iter()
+        .filter(|c| c.connection.kind == ConnectionKind::Ssh)
+        .map(|c| c.connection.id.clone())
+        .collect();
+    let docker_ids: HashSet<String> = bundle
+        .connections
+        .iter()
+        .filter(|c| c.connection.kind == ConnectionKind::Docker)
+        .map(|c| c.connection.id.clone())
+        .collect();
+    let db_ids: HashSet<String> = bundle
+        .database_connections
+        .iter()
+        .map(|d| d.connection.id.clone())
+        .collect();
+    let http_collection_ids: HashSet<String> =
+        bundle.http_collections.iter().map(|c| c.id.clone()).collect();
+    let http_request_ids: HashSet<String> =
+        bundle.http_requests.iter().map(|r| r.id.clone()).collect();
+
+    rewrite_json_option(&mut bundle.ssh_sidebar_tree_json, |tree| {
+        normalize_sidebar_tree_json(tree, &ssh_ids);
+    });
+
+    rewrite_json_option(&mut bundle.folder_trees_json, |folder_trees| {
+        let Some(map) = folder_trees.as_object_mut() else {
+            return;
+        };
+        if let Some(docker) = map.get_mut("docker") {
+            normalize_sidebar_tree_json(docker, &docker_ids);
+        }
+        if let Some(database) = map.get_mut("database") {
+            normalize_sidebar_tree_json(database, &db_ids);
+        }
+        if let Some(protocol) = map.get_mut("protocol") {
+            normalize_protocol_layout_json(protocol, &http_collection_ids, &http_request_ids);
+        }
+    });
+}
+
+/// 上传/预览对齐：修剪布局 → 补设备标签 → 剥离明文密码。
+pub(crate) fn finalize_modules_bundle_for_upload(
+    bundle: &mut ClientSyncModulesBundle,
+    device_name: &str,
+) {
+    normalize_modules_bundle_layouts(bundle);
+    if !device_name.is_empty() {
+        tag_bundle_with_device(bundle, device_name);
+    }
+    strip_bundle_secrets(bundle);
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSyncPushModulesResult {
@@ -322,25 +546,20 @@ pub async fn client_sync_push_modules(
     let me = auth_get_me(state.clone(), request.token.clone()).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
 
     let mut bundle = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &request)?
     };
-    // 上传前给 tags 为空的资源补当前设备名，便于多设备快照区分来源
     let device_name = identity.device_name.trim().to_string();
-    if !device_name.is_empty() {
-        tag_bundle_with_device(&mut bundle, &device_name);
-    }
-    strip_bundle_secrets(&mut bundle);
+    finalize_modules_bundle_for_upload(&mut bundle, &device_name);
 
     let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
     })?;
     validate_modules_bundle_json(&plaintext)?;
-    let body = encrypt_sync_blob(&key_material, SYNC_KIND_MODULES, &plaintext)?;
+    let body = encrypt_sync_team_payload(team_id, SYNC_KIND_MODULES, &plaintext)?;
     let uploaded = push_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF, &body).await?;
 
     Ok(ClientSyncPushModulesResult {
@@ -583,7 +802,6 @@ pub async fn client_sync_pull_modules(
     let me = auth_get_me(state.clone(), request.token.clone()).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
-    let key_material = sync_blob_key_material(&me, team)?;
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
 
     let Some((object_key, bytes)) =
@@ -604,7 +822,7 @@ pub async fn client_sync_pull_modules(
         });
     };
 
-    let plaintext = decode_sync_blob_or_legacy(&key_material, SYNC_KIND_MODULES, &bytes)?;
+    let plaintext = decode_sync_team_payload(&me, team, SYNC_KIND_MODULES, &bytes)?;
     validate_modules_bundle_json(&plaintext)?;
     let bundle: ClientSyncModulesBundle = serde_json::from_slice(&plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析云端模块快照失败").with_cause(e.to_string())
@@ -693,6 +911,40 @@ pub(crate) struct ModulesBundlePeek {
 struct SidebarTreePeek {
     folders: Vec<(String, String, String)>, // id, name, parent_id
     connection_folder_id: HashMap<String, String>,
+    dismissed_folder_names: HashSet<String>,
+}
+
+fn parse_dismissed_folder_names(value: &serde_json::Value) -> HashSet<String> {
+    value
+        .get("dismissedAutoFolders")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn prune_dismissed_sidebar_folders(tree: &mut SidebarTreePeek) {
+    if tree.dismissed_folder_names.is_empty() {
+        return;
+    }
+    let mut removed_ids: HashSet<String> = HashSet::new();
+    tree.folders.retain(|(id, name, _)| {
+        if tree.dismissed_folder_names.contains(name.as_str()) {
+            removed_ids.insert(id.clone());
+            false
+        } else {
+            true
+        }
+    });
+    if removed_ids.is_empty() {
+        return;
+    }
+    tree.connection_folder_id
+        .retain(|_, folder_id| !removed_ids.contains(folder_id));
 }
 
 fn json_parent_id(value: &serde_json::Value) -> String {
@@ -742,6 +994,8 @@ fn parse_sidebar_tree_object(value: &serde_json::Value) -> SidebarTreePeek {
                 .insert(conn_id.clone(), folder_id.to_string());
         }
     }
+    out.dismissed_folder_names = parse_dismissed_folder_names(value);
+    prune_dismissed_sidebar_folders(&mut out);
     out
 }
 
@@ -783,6 +1037,9 @@ fn parse_protocol_layout_object(value: &serde_json::Value) -> SidebarTreePeek {
 
 fn emit_tree_folders(tree: &SidebarTreePeek, detail: &str, out: &mut Vec<ClientSyncPeekItem>) {
     for (id, name, parent) in &tree.folders {
+        if tree.dismissed_folder_names.contains(name.as_str()) {
+            continue;
+        }
         out.push(peek_item(
             id.clone(),
             name.clone(),
@@ -792,6 +1049,54 @@ fn emit_tree_folders(tree: &SidebarTreePeek, detail: &str, out: &mut Vec<ClientS
             "folder",
             Vec::new(),
         ));
+    }
+}
+
+pub(crate) fn dismissed_ssh_folder_names_from_bundle(
+    bundle: &ClientSyncModulesBundle,
+) -> HashSet<String> {
+    let Some(text) = bundle
+        .ssh_sidebar_tree_json
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return HashSet::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return HashSet::new();
+    };
+    parse_dismissed_folder_names(&value)
+}
+
+/// 本机已 dismiss 的 SSH 侧栏文件夹，不再出现在团队数据预览（含云端残留项）。
+pub(crate) fn filter_dismissed_ssh_layout_folders(
+    items: &mut Vec<ClientSyncPeekItem>,
+    dismissed: &HashSet<String>,
+) {
+    if dismissed.is_empty() {
+        return;
+    }
+    let removed_ids: HashSet<String> = items
+        .iter()
+        .filter(|item| item.kind == "folder" && dismissed.contains(item.label.as_str()))
+        .map(|item| item.id.clone())
+        .collect();
+    items.retain(|item| {
+        if item.kind == "folder" && dismissed.contains(item.label.as_str()) {
+            return false;
+        }
+        if let Some(group) = item.id.strip_prefix("__group__:") {
+            if dismissed.contains(group) {
+                return false;
+            }
+        }
+        true
+    });
+    for item in items.iter_mut() {
+        if removed_ids.contains(item.parent_id.as_str()) {
+            item.parent_id.clear();
+        }
     }
 }
 
@@ -968,6 +1273,9 @@ fn build_connection_peek_items(
     let mut groups: Vec<String> = used_groups.into_iter().collect();
     groups.sort();
     for group in &groups {
+        if group == OPENSSH_CONFIG_GROUP {
+            continue;
+        }
         out.push(peek_item(
             connection_group_folder_id(group),
             group.clone(),
@@ -990,7 +1298,7 @@ fn build_connection_peek_items(
                 .unwrap_or_default(),
             _ => {
                 let group = c.connection.group.trim();
-                if group.is_empty() {
+                if group.is_empty() || group == OPENSSH_CONFIG_GROUP {
                     String::new()
                 } else {
                     connection_group_folder_id(group)

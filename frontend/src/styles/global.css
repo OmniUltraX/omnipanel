@@ -11550,6 +11550,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .setting-row--stack .setting-control,
     .setting-row--stack .input,
+    .setting-row--stack .setting-input,
     .setting-row--stack .settings-textarea {
         width: 100%;
     }
@@ -25877,6 +25878,11 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     height: 100%;
     overflow: hidden;
     box-sizing: border-box;
+}
+
+.user-center-panel--single .user-center-main {
+    flex: 1;
+    min-width: 0;
 }
 
 .user-center-panel--page {

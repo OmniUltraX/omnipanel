@@ -1,11 +1,8 @@
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { serializeSshSidebarTree } from "../../stores/sshSidebarTreeStore";
-import { collectFolderTreesJson } from "./folderTrees";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
-import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
+import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
 import { scheduleSecretsVaultSync } from "./secretsVaultSync";
 
 /** 模块同步落到本机后派发，供 Database / Protocol 等面板刷新 */
@@ -23,44 +20,14 @@ export function cancelClientModuleSync(): void {
   pendingAfterFlight = false;
 }
 
-function collectWorkspacesJson(): string {
-  const list = useWorkspaceStore.getState().workspaces;
-  const payload = list.map((w) => ({
-    id: w.id,
-    name: w.name,
-    description: w.description ?? "",
-    windowForm: w.windowForm ?? null,
-    updatedAt: Date.now(),
-  }));
-  return JSON.stringify(payload);
-}
-
-function deletedPayload() {
-  const store = useClientSyncTombstoneStore.getState();
-  store.pruneExpired();
-  return {
-    deletedConnections: toIpcTombstones(store.listByKind("connection")),
-    deletedDatabases: toIpcTombstones(store.listByKind("database")),
-    deletedKnowledge: toIpcTombstones(store.listByKind("knowledge")),
-    deletedHttpRequests: toIpcTombstones(store.listByKind("httpRequest")),
-    deletedHttpCollections: toIpcTombstones(store.listByKind("httpCollection")),
-    deletedHttpEnvironments: toIpcTombstones(store.listByKind("httpEnvironment")),
-    deletedWorkspaces: toIpcTombstones(store.listByKind("workspace")),
-  };
-}
-
 async function pushModulesOnce(teamId: number | null): Promise<void> {
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return;
-  const deleted = deletedPayload();
   await unwrapCommand(
     commands.clientSyncPushModules({
       token,
-      workspacesJson: collectWorkspacesJson(),
-      sshSidebarTreeJson: serializeSshSidebarTree(),
-      folderTreesJson: collectFolderTreesJson(),
       teamId,
-      ...deleted,
+      ...collectModulesSyncPayload(),
     }),
     { quiet: true },
   );

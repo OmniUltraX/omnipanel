@@ -18,6 +18,7 @@ import { IconMonitor } from "../ui/icons/Icons";
 import { BindAssistantPanel } from "./BindAssistantPanel";
 import { scheduleAssistantSnapshotSync } from "../../modules/assistant";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 
 function formatDeviceTime(value: string, locale: string): string {
   const trimmed = value.trim();
@@ -158,7 +159,7 @@ function DeviceList({
   );
 }
 
-export function UserCenterDevices() {
+export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean }) {
   const { t, locale } = useI18n();
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
@@ -211,13 +212,16 @@ export function UserCenterDevices() {
 
     void (async () => {
       try {
+        const teamId = getCurrentSyncTeamId();
         const [identity, list, keyStatus] = await Promise.all([
           fetchDeviceIdentity(),
           fetchDevices(token, { quiet: true }),
-          unwrapCommand(commands.syncMasterKeyStatus(), { quiet: true }).catch(() => ({
-            hasKey: false,
-            key: null,
-          })),
+          teamId
+            ? unwrapCommand(commands.syncTeamKeyStatus(teamId), { quiet: true }).catch(() => ({
+                hasKey: false,
+                fingerprint: null,
+              }))
+            : Promise.resolve({ hasKey: false, fingerprint: null }),
         ]);
         if (abort.signal.aborted) return;
         setLocalDeviceId(identity.deviceId);
@@ -361,6 +365,7 @@ export function UserCenterDevices() {
           />
         </div>
 
+        {!clientOnly ? (
         <div className="user-center-devices__group">
           <div className="user-center-devices__group-header">
             <h4 className="user-center-devices__group-title">
@@ -413,6 +418,7 @@ export function UserCenterDevices() {
             locale={locale}
           />
         </div>
+        ) : null}
       </section>
     </div>
   );

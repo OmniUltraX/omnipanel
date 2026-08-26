@@ -10,11 +10,7 @@ import {
 } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
-import { toIpcTombstones, useClientSyncTombstoneStore } from "../../modules/clientSync/tombstones";
-import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { serializeSshSidebarTree } from "../../stores/sshSidebarTreeStore";
-import { collectFolderTreesJson } from "../../modules/clientSync/folderTrees";
+import { collectModulesSyncPayload } from "../../modules/clientSync/prepareModulesSyncPayload";
 
 export type {
   TeamSharePushResult,
@@ -24,32 +20,6 @@ export type {
   TeamSyncPullModulesResult,
   TeamSyncPushModulesResult,
 };
-
-function collectWorkspacesJson(): string {
-  const list = useWorkspaceStore.getState().workspaces;
-  const payload = list.map((w) => ({
-    id: w.id,
-    name: w.name,
-    description: w.description ?? "",
-    windowForm: w.windowForm ?? null,
-    updatedAt: Date.now(),
-  }));
-  return JSON.stringify(payload);
-}
-
-function deletedPayload() {
-  const store = useClientSyncTombstoneStore.getState();
-  store.pruneExpired();
-  return {
-    deletedConnections: toIpcTombstones(store.listByKind("connection")),
-    deletedDatabases: toIpcTombstones(store.listByKind("database")),
-    deletedKnowledge: toIpcTombstones(store.listByKind("knowledge")),
-    deletedHttpRequests: toIpcTombstones(store.listByKind("httpRequest")),
-    deletedHttpCollections: toIpcTombstones(store.listByKind("httpCollection")),
-    deletedHttpEnvironments: toIpcTombstones(store.listByKind("httpEnvironment")),
-    deletedWorkspaces: toIpcTombstones(store.listByKind("workspace")),
-  };
-}
 
 export async function listTeamShares(
   token: string,
@@ -69,6 +39,7 @@ export async function fetchTeamShare(
   return unwrapCommand(commands.teamSyncFetchShare(token, teamId, shareId));
 }
 
+/** 将本机模块快照完整上传至团队 OSS（不过滤「取消同步」项）。 */
 export async function pushTeamModules(
   token: string,
   teamId: number,
@@ -77,11 +48,7 @@ export async function pushTeamModules(
     commands.teamSyncPushModules({
       token,
       teamId,
-      workspacesJson: collectWorkspacesJson(),
-      sshSidebarTreeJson: serializeSshSidebarTree(),
-      folderTreesJson: collectFolderTreesJson(),
-      ...deletedPayload(),
-      ...teamSyncExclusionsForIpc(teamId),
+      ...collectModulesSyncPayload(),
     }),
   );
 }
@@ -106,10 +73,7 @@ export async function peekTeamModules(
     commands.teamSyncPeekModules({
       token,
       teamId,
-      workspacesJson: collectWorkspacesJson(),
-      sshSidebarTreeJson: serializeSshSidebarTree(),
-      folderTreesJson: collectFolderTreesJson(),
-      ...teamSyncExclusionsForIpc(teamId),
+      ...collectModulesSyncPayload(),
       afterUpload: options?.afterUpload ?? false,
     }),
     { quiet: true, logLabel: "[team-sync:peek]" },

@@ -15,10 +15,13 @@ tracing.workspace = true
 omnipanel-error = { path = "../omnipanel-error" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+hex = "0.4"
 getrandom = "0.2"
 argon2 = "0.5"
 aes-gcm = "0.10"
 base64 = { version = "0.22", features = ["std"] }
+hmac = "0.12"
+sha2 = "0.10"
 zeroize = { version = "1", features = ["derive"] }
 x25519-dalek = { version = "2", features = ["static_secrets", "getrandom"] }
 

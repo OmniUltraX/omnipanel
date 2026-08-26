@@ -8,6 +8,7 @@ export function UserCenterWindow() {
   const { t } = useI18n();
   const open = useUserCenterUiStore((s) => s.open);
   const page = useUserCenterUiStore((s) => s.page);
+  const devicesClientOnly = useUserCenterUiStore((s) => s.devicesClientOnly);
   const closeUserCenter = useUserCenterUiStore((s) => s.closeUserCenter);
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
 
@@ -16,7 +17,9 @@ export function UserCenterWindow() {
     : page === "subscription"
       ? t("userCenter.nav.subscription")
       : page === "devices"
-        ? t("userCenter.nav.devices")
+        ? devicesClientOnly
+          ? t("userCenter.devices.role.client")
+          : t("userCenter.nav.devices")
         : t("userCenter.nav.account");
 
   return (

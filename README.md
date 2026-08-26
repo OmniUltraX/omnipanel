@@ -77,8 +77,8 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 |------|------------|
 | **Plugin platform** | Signed `.omni-plugin` install; L1 declarative / L2 logic / L3 sandbox overlay; Host SDK & docs |
 | **Cloud vendors** | Expanding an Aliyun account auto-discovers regions with ECS / SWAS instances |
-| **Sync security** | New devices pair via WeChat mini-program scan; primary PC auto key transfer; scan-only path |
-| **Team sync** | Module folder trees in push/pull; post-upload peek matches local snapshot |
+| **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
+| **Team sync** | Module snapshots use v2 key derivation; folder trees; post-upload peek matches local |
 | **Database** | Remote export SSH pool lag fixed; readiness check before export |
 | **Performance** | No module-window prewarm at startup — lower idle memory |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |

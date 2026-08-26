@@ -9,10 +9,15 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use hmac::{Hmac, Mac};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 
 use crate::secrets_crypto::{generate_nonce, generate_salt};
+use crate::sync_team_key::SYNC_TEAM_KEY_BYTES;
+
+type HmacSha256 = Hmac<Sha256>;
 
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
@@ -23,8 +28,33 @@ const ARGON2_T: u32 = 2;
 const ARGON2_P: u32 = 1;
 
 pub const SYNC_BLOB_SCHEME: &str = "omnipanel-sync-e2e-v1";
+pub const SYNC_BLOB_SCHEME_V2: &str = "omnipanel-sync-e2e-v2";
 pub const SYNC_KIND_MODULES: &str = "modules";
 pub const SYNC_KIND_CONVERSATIONS: &str = "ai-conversations";
+
+/// v2：HMAC-SHA256(sync_key, "omnipanel.sync.v2.blob:{team_id}:{kind}") → base64 作为 key_material。
+pub fn derive_sync_blob_key_material_v2(
+    team_key: &[u8; SYNC_TEAM_KEY_BYTES],
+    team_id: i64,
+    kind: &str,
+) -> OmniResult<String> {
+    let kind = kind.trim();
+    if kind.is_empty() {
+        return Err(OmniError::invalid_input("同步 kind 不能为空"));
+    }
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(team_key).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "初始化 HMAC 失败").with_cause(e.to_string())
+    })?;
+    mac.update(format!("omnipanel.sync.v2.blob:{team_id}:{kind}").as_bytes());
+    Ok(B64.encode(mac.finalize().into_bytes()))
+}
+
+fn envelope_scheme(body: &[u8]) -> Option<String> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return None;
+    };
+    v.get("scheme").and_then(|s| s.as_str()).map(str::to_string)
+}
 
 /// 上传到 OSS 的同步信封（无明文）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,17 +104,34 @@ fn now_ms() -> i64 {
 
 /// 判断 body 是否为端到端加密信封（用于兼容历史明文快照）。
 pub fn looks_like_sync_blob_envelope(body: &[u8]) -> bool {
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return false;
-    };
-    v.get("scheme")
-        .and_then(|s| s.as_str())
-        .map(|s| s == SYNC_BLOB_SCHEME)
-        .unwrap_or(false)
+    matches!(
+        envelope_scheme(body).as_deref(),
+        Some(SYNC_BLOB_SCHEME) | Some(SYNC_BLOB_SCHEME_V2)
+    )
 }
 
-/// 加密同步明文 → JSON 信封字节。
+/// 加密同步明文 → JSON 信封字节（v1 legacy key_material）。
 pub fn encrypt_sync_blob(key_material: &str, kind: &str, plaintext: &[u8]) -> OmniResult<Vec<u8>> {
+    encrypt_sync_blob_with_scheme(key_material, kind, plaintext, SYNC_BLOB_SCHEME)
+}
+
+/// 使用团队同步密钥加密快照（v2）。
+pub fn encrypt_sync_team_blob(
+    team_key: &[u8; SYNC_TEAM_KEY_BYTES],
+    team_id: i64,
+    kind: &str,
+    plaintext: &[u8],
+) -> OmniResult<Vec<u8>> {
+    let key_material = derive_sync_blob_key_material_v2(team_key, team_id, kind)?;
+    encrypt_sync_blob_with_scheme(&key_material, kind, plaintext, SYNC_BLOB_SCHEME_V2)
+}
+
+fn encrypt_sync_blob_with_scheme(
+    key_material: &str,
+    kind: &str,
+    plaintext: &[u8],
+    scheme: &str,
+) -> OmniResult<Vec<u8>> {
     let kind = kind.trim();
     if kind.is_empty() {
         return Err(OmniError::invalid_input("同步 kind 不能为空"));
@@ -101,7 +148,7 @@ pub fn encrypt_sync_blob(key_material: &str, kind: &str, plaintext: &[u8]) -> Om
     })?;
     let envelope = SyncBlobEnvelope {
         version: 1,
-        scheme: SYNC_BLOB_SCHEME.to_string(),
+        scheme: scheme.to_string(),
         kdf: "argon2id".into(),
         salt_b64: B64.encode(salt),
         nonce_b64: B64.encode(nonce_bytes),
@@ -123,7 +170,7 @@ pub fn decrypt_sync_blob(
     let envelope: SyncBlobEnvelope = serde_json::from_slice(body).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "同步信封格式无效").with_cause(e.to_string())
     })?;
-    if envelope.scheme != SYNC_BLOB_SCHEME {
+    if envelope.scheme != SYNC_BLOB_SCHEME && envelope.scheme != SYNC_BLOB_SCHEME_V2 {
         return Err(OmniError::invalid_input("不支持的同步加密 scheme"));
     }
     let expected = expected_kind.trim();
@@ -168,6 +215,37 @@ pub fn decode_sync_blob_or_legacy(
     }
 }
 
+/// pull 解密：v2 信封优先团队密钥，v1 信封用 legacy key_material；明文直通。
+pub fn decode_sync_blob_with_sources(
+    team_key: Option<&[u8; SYNC_TEAM_KEY_BYTES]>,
+    team_id: i64,
+    legacy_key_material: Option<&str>,
+    expected_kind: &str,
+    body: &[u8],
+) -> OmniResult<Vec<u8>> {
+    if !looks_like_sync_blob_envelope(body) {
+        return Ok(body.to_vec());
+    }
+    let scheme = envelope_scheme(body).unwrap_or_default();
+    if scheme == SYNC_BLOB_SCHEME_V2 {
+        let team_key = team_key.ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::Auth,
+                "本机缺少团队同步密钥，无法解密 v2 快照；请从其他设备获取或导入密钥文件",
+            )
+        })?;
+        let material = derive_sync_blob_key_material_v2(team_key, team_id, expected_kind)?;
+        return decrypt_sync_blob(&material, expected_kind, body);
+    }
+    let legacy = legacy_key_material.ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::Auth,
+            "无法解密历史同步快照：缺少 legacy 密钥材料",
+        )
+    })?;
+    decrypt_sync_blob(legacy, expected_kind, body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +272,48 @@ mod tests {
         let legacy = br#"{"schemaVersion":1,"kind":"x"}"#;
         let out = decode_sync_blob_or_legacy("any", SYNC_KIND_MODULES, legacy).unwrap();
         assert_eq!(out, legacy);
+    }
+
+    #[test]
+    fn v2_team_key_roundtrip() {
+        let team_key = [9u8; SYNC_TEAM_KEY_BYTES];
+        let team_id = 1001_i64;
+        let plain = br#"{"schemaVersion":1}"#;
+        let body =
+            encrypt_sync_team_blob(&team_key, team_id, SYNC_KIND_MODULES, plain).unwrap();
+        let scheme = envelope_scheme(&body).unwrap();
+        assert_eq!(scheme, SYNC_BLOB_SCHEME_V2);
+        let material = derive_sync_blob_key_material_v2(&team_key, team_id, SYNC_KIND_MODULES).unwrap();
+        let out = decrypt_sync_blob(&material, SYNC_KIND_MODULES, &body).unwrap();
+        assert_eq!(out, plain);
+    }
+
+    #[test]
+    fn decode_with_sources_v2_then_legacy() {
+        let team_key = [3u8; SYNC_TEAM_KEY_BYTES];
+        let team_id = 7_i64;
+        let plain = b"v2-data";
+        let v2_body = encrypt_sync_team_blob(&team_key, team_id, SYNC_KIND_MODULES, plain).unwrap();
+        let out = decode_sync_blob_with_sources(
+            Some(&team_key),
+            team_id,
+            None,
+            SYNC_KIND_MODULES,
+            &v2_body,
+        )
+        .unwrap();
+        assert_eq!(out, plain);
+
+        let legacy_mat = "omnipanel.sync.v1.personal:openid-x";
+        let v1_body = encrypt_sync_blob(legacy_mat, SYNC_KIND_MODULES, b"legacy").unwrap();
+        let out2 = decode_sync_blob_with_sources(
+            None,
+            team_id,
+            Some(legacy_mat),
+            SYNC_KIND_MODULES,
+            &v1_body,
+        )
+        .unwrap();
+        assert_eq!(out2, b"legacy");
     }
 }

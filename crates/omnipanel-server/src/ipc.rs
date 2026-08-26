@@ -3156,6 +3156,44 @@ pub async fn dispatch(state: &std::sync::Arc<ServerState>, req: InvokeRequest) -
             let key = get_str(&args, "key").unwrap_or_default();
             respond_omni(crate::store_ext::sync_master_key_validate(key).await)
         }
+        "sync_team_key_status" => {
+            let team_id = get_str(&args, "teamId")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            respond_omni(crate::store_ext::sync_team_key_status(team_id).await)
+        }
+        "sync_team_key_get_or_create" => {
+            let team_id = get_str(&args, "teamId")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            respond_omni(crate::store_ext::sync_team_key_get_or_create(team_id).await)
+        }
+        "sync_team_key_clear" => {
+            let team_id = get_str(&args, "teamId")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            respond_omni(crate::store_ext::sync_team_key_clear(team_id).await)
+        }
+        "sync_team_key_export_file" => {
+            let team_id = get_str(&args, "teamId")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let path = get_str(&args, "path").unwrap_or_default();
+            let passphrase = get_str(&args, "passphrase");
+            respond_omni(
+                crate::store_ext::sync_team_key_export_file(team_id, path, passphrase).await,
+            )
+        }
+        "sync_team_key_import_file" => {
+            let team_id = get_str(&args, "teamId")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let path = get_str(&args, "path").unwrap_or_default();
+            let passphrase = get_str(&args, "passphrase");
+            respond_omni(
+                crate::store_ext::sync_team_key_import_file(team_id, path, passphrase).await,
+            )
+        }
         "sync_pairing_create_keypair" => {
             let pairing_id = get_str(&args, "pairingId").unwrap_or_default();
             respond_omni(crate::store_ext::sync_pairing_create_keypair(pairing_id).await)

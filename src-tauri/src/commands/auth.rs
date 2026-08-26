@@ -326,6 +326,7 @@ struct ApiBindingsQrcodeResponse {
     bind_id: Option<String>,
     qr_payload: Option<String>,
     expire_in_sec: Option<u32>,
+    wrap_token: Option<String>,
     error: Option<String>,
 }
 
@@ -960,6 +961,35 @@ pub(crate) fn sync_blob_key_material(
             team.id, oss
         ))
     }
+}
+
+/// push：获取或创建团队同步密钥并加密快照（v2）。
+pub(crate) fn encrypt_sync_team_payload(
+    team_id: i64,
+    kind: &str,
+    plaintext: &[u8],
+) -> Result<Vec<u8>, OmniError> {
+    let (team_key, _) = omnipanel_store::get_or_create_sync_team_key(team_id)?;
+    omnipanel_store::encrypt_sync_team_blob(&team_key, team_id, kind, plaintext).map_err(Into::into)
+}
+
+/// pull：v2 优先团队密钥，兼容 v1 openid/team 派生；明文直通。
+pub(crate) fn decode_sync_team_payload(
+    me: &AuthUserProfile,
+    team: &AuthTeamMembership,
+    kind: &str,
+    body: &[u8],
+) -> Result<Vec<u8>, OmniError> {
+    let team_key = omnipanel_store::load_sync_team_key(team.id)?;
+    let legacy = sync_blob_key_material(me, team).ok();
+    omnipanel_store::decode_sync_blob_with_sources(
+        team_key.as_ref(),
+        team.id,
+        legacy.as_deref(),
+        kind,
+        body,
+    )
+    .map_err(Into::into)
 }
 
 /// 将服务端会话失效类英文文案（如 `ticket not found`）规范为可读中文。
@@ -2413,6 +2443,7 @@ pub async fn auth_bindings_qrcode(
     }
 
     let identity = load_or_create_device_identity()?;
+    let (assistant_sk, assistant_pk) = omnipanel_store::generate_pairing_keypair()?;
     let proxy_config = state.proxy_config.lock().await.clone();
     let url = auth_url("/api/bindings/qrcode");
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
@@ -2423,11 +2454,16 @@ pub async fn auth_bindings_qrcode(
     // 优先用设备列表里本机实际 app_id；并兼容 ticket not found / client device not found 等文案后换下一个候选重试。
     let app_ids = resolve_binding_app_id_candidates(&client, &token, &identity).await;
     let mut last_not_found: Option<String> = None;
+    let request_body = serde_json::json!({
+        "assistantPubkey": assistant_pk,
+    });
     for app_id in app_ids {
         let resp = apply_client_identity_headers_with_app(
             client
                 .post(&url)
-                .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .json(&request_body),
             &identity,
             &app_id,
         )
@@ -2476,10 +2512,22 @@ pub async fn auth_bindings_qrcode(
             .bind_id
             .filter(|s| !s.is_empty())
             .ok_or_else(|| OmniError::new(ErrorCode::Internal, "绑定二维码响应缺少 bind_id"))?;
-        let qr_payload = parsed
+        let wrap_token = parsed.wrap_token.filter(|s| !s.is_empty());
+        let mut qr_payload = parsed
             .qr_payload
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| bind_id.clone());
+        if let Some(wrap_token) = wrap_token.as_deref() {
+            let (nonce_b64, enc_sk) =
+                omnipanel_store::encrypt_bind_token_wrap(wrap_token, assistant_sk.as_slice())?;
+            qr_payload = format!(
+                "omni://assistant-bind?v=2&bind_id={}&enc_sk={}&nonce_b64={}",
+                urlencoding::encode(&bind_id),
+                urlencoding::encode(&enc_sk),
+                urlencoding::encode(&nonce_b64),
+            );
+            let _ = omnipanel_store::store_assistant_binding_pubkey(&bind_id, &assistant_pk);
+        }
 
         remember_binding_app_id(&bind_id, &app_id);
         return Ok(AuthBindingsQrcode {

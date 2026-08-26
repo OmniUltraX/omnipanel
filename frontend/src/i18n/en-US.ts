@@ -733,6 +733,9 @@ export const enUS: TranslationDict = {
     miniapp: {
       title: "WeChat Mini Program",
       hint: "Scan with WeChat to open the OmniPanel mini program",
+      menuLabel: "Assistant & devices",
+      menuAssistant: "Bind Assistant",
+      menuClient: "Device Management",
       qrAlt: "WeChat mini program QR code",
       h5Title: "H5 Page",
       h5Hint: "Scan with WeChat to open the OmniPanel H5 page",
@@ -6113,6 +6116,21 @@ export const enUS: TranslationDict = {
         "No valid cloud module snapshot. Open the app on a device that still has data to republish, then pull again.",
       pullNowFailed: "Pull failed. Check the network and try again.",
     },
+    syncTeamKey: {
+      label: "Team sync key",
+      desc: "Encrypts cloud module and conversation snapshots (v2). The first device generates a key on push; new devices can receive it from an online peer in the same team or import a `.omnipanel-sync.key` file.",
+      statusLabel: "Key status",
+      statusHasKey: "Configured, fingerprint {fingerprint}",
+      statusMissing: "Not configured yet; a key is created on push or you can import from another device",
+      passphraseLabel: "Export/import passphrase (optional)",
+      passphraseHint: "Leave empty for plaintext JSON export. If you set a passphrase when exporting, use the same one when importing.",
+      passphrasePlaceholder: "Optional",
+      exportBtn: "Export key file",
+      importBtn: "Import key file",
+      exportDone: "Sync key exported",
+      importDone: "Sync key imported, fingerprint {fingerprint}",
+      noTeam: "Sign in and select a sync team first",
+    },
     update: {
       checkLabel: "Check for Updates",
       checkDesc: "Automatically check for new versions on startup",
@@ -7554,6 +7572,8 @@ export const enUS: TranslationDict = {
     switchTeamEmptySnapshot:
       "Switched to \"{name}\" (no snapshot yet; keeping local data)",
     switchTeamFailed: "Failed to switch team. Please try again.",
+    switchTeamKeyRequired:
+      "Import or obtain this team's sync key before cloud data can be loaded.",
     switchTeamLoading: "Switching team…",
     switchTeamLoadingDetail: "Target: {name}",
     switchTeamLoadingAria: "Switching data snapshot source team, please wait",
@@ -7865,6 +7885,33 @@ export const enUS: TranslationDict = {
         unknown: "Unknown OS",
       },
     },
+  },
+  syncTeamKeySetup: {
+    title: "Team sync key required",
+    hint: "This device has no team sync key yet and cannot decrypt cloud module or conversation snapshots.",
+    forcedHint:
+      "You switched to a new team, but this device does not have its sync key yet. Import a key file from a teammate, or wait for an online device to relay it.",
+    forcedImportRequired:
+      "Could not obtain the key from an online device. Import a key file to continue.",
+    requesting: "Requesting sync key from online devices in this team…",
+    waiting: "Waiting for another online device in this team to relay the key…",
+    importHint:
+      "If no peer in this team is online, import a key from another member, or create a new key after confirming (you will not be able to decrypt existing cloud snapshots encrypted with the previous key).",
+    importBtn: "Import key file",
+    createBtn: "Create new key",
+    createConfirmTitle: "Create a new sync key?",
+    createConfirm:
+      "This generates a sync key for the current team on this device. If the team already has cloud snapshots encrypted with another key, you will not be able to decrypt them. Use only on the first device or when you are sure old data is not needed.",
+    createDone: "Sync key created, fingerprint {fingerprint}",
+    retryRelay: "Retry request",
+    later: "Later",
+    noTeam: "Sign in and select a sync team first",
+    timeout: "Timed out waiting for a relay. Import a key file or try again later.",
+    keyReceived: "Sync key received, fingerprint {fingerprint}",
+    importDone: "Sync key imported, fingerprint {fingerprint}",
+    successWithData: "Sync key ready. Pulled {connections} connections and {databases} databases.",
+    successNoCloudData: "Sync key ready, but the cloud has no module snapshot yet.",
+    pullFailed: "Key is ready, but cloud pull failed. Use Pull now in Settings later.",
   },
   syncDeviceAuth: {
     title: "Device authentication required",

@@ -162,6 +162,107 @@ pub fn decode_salt_b64(salt_b64: &str) -> OmniResult<Vec<u8>> {
     })
 }
 
+/// 绑定一次性 token（hex）直接作为 AES-256 密钥包装助手私钥（无 Argon2，便于小程序解密）。
+pub fn encrypt_bind_token_wrap(
+    wrap_token_hex: &str,
+    plaintext: &[u8],
+) -> OmniResult<(String, String)> {
+    let key = decode_wrap_token_key(wrap_token_hex)?;
+    let nonce_bytes = generate_nonce()?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
+    })?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher.encrypt(nonce, plaintext).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "绑定密钥包装失败").with_cause(e.to_string())
+    })?;
+    Ok((
+        B64.encode(nonce_bytes),
+        B64.encode(ciphertext),
+    ))
+}
+
+pub fn decrypt_bind_token_wrap(
+    wrap_token_hex: &str,
+    nonce_b64: &str,
+    ciphertext_b64: &str,
+) -> OmniResult<Vec<u8>> {
+    let key = decode_wrap_token_key(wrap_token_hex)?;
+    let nonce_bytes = B64.decode(nonce_b64.trim()).map_err(|e| {
+        OmniError::new(ErrorCode::InvalidInput, "解析 nonce 失败").with_cause(e.to_string())
+    })?;
+    let ciphertext = B64.decode(ciphertext_b64.trim()).map_err(|e| {
+        OmniError::new(ErrorCode::InvalidInput, "解析密文失败").with_cause(e.to_string())
+    })?;
+    if nonce_bytes.len() != NONCE_LEN {
+        return Err(OmniError::invalid_input("nonce 长度无效"));
+    }
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
+    })?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
+        OmniError::new(ErrorCode::Auth, "绑定密钥解包失败")
+    })
+}
+
+fn decode_wrap_token_key(wrap_token_hex: &str) -> OmniResult<[u8; KEY_LEN]> {
+    let bytes = hex::decode(wrap_token_hex.trim()).map_err(|e| {
+        OmniError::new(ErrorCode::InvalidInput, "wrap_token 格式无效").with_cause(e.to_string())
+    })?;
+    if bytes.len() != KEY_LEN {
+        return Err(OmniError::invalid_input("wrap_token 长度无效"));
+    }
+    let mut arr = [0u8; KEY_LEN];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
+/// 口令 + 明文 → (salt, nonce, ciphertext)，用于 `.omnipanel-sync.key` 导出。
+pub fn encrypt_with_passphrase(
+    passphrase: &str,
+    plaintext: &[u8],
+) -> OmniResult<([u8; SALT_LEN], [u8; NONCE_LEN], Vec<u8>)> {
+    let salt = generate_salt()?;
+    let key = derive_master_key(passphrase, &salt)?;
+    let nonce_bytes = generate_nonce()?;
+    let cipher = Aes256Gcm::new_from_slice(&key.0).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
+    })?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher.encrypt(nonce, plaintext).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "口令加密失败").with_cause(e.to_string())
+    })?;
+    Ok((salt, nonce_bytes, ciphertext))
+}
+
+/// 口令解密 `encrypt_with_passphrase` 产物。
+pub fn decrypt_with_passphrase(
+    passphrase: &str,
+    salt_b64: &str,
+    nonce_b64: &str,
+    ciphertext_b64: &str,
+) -> OmniResult<Vec<u8>> {
+    let salt = decode_salt_b64(salt_b64)?;
+    let nonce_bytes = B64.decode(nonce_b64.trim()).map_err(|e| {
+        OmniError::new(ErrorCode::InvalidInput, "解析 nonce 失败").with_cause(e.to_string())
+    })?;
+    let ciphertext = B64.decode(ciphertext_b64.trim()).map_err(|e| {
+        OmniError::new(ErrorCode::InvalidInput, "解析密文失败").with_cause(e.to_string())
+    })?;
+    if nonce_bytes.len() != NONCE_LEN {
+        return Err(OmniError::invalid_input("nonce 长度无效"));
+    }
+    let key = derive_master_key(passphrase, &salt)?;
+    let cipher = Aes256Gcm::new_from_slice(&key.0).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
+    })?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
+        OmniError::new(ErrorCode::Auth, "解密失败：口令不正确或数据已损坏")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

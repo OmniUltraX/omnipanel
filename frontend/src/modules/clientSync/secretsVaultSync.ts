@@ -1,6 +1,5 @@
 /**
- * 密文凭据库自动同步：登录后拉取、模块变更后推送。
- * 依赖本机已有 SyncMasterKey；无密钥时静默跳过（由扫码认证对话框 / 主设备传钥完成）。
+    // 密文库仍使用 SyncMasterKey；同步认证状态改查团队 sync_key_v2。
  */
 
 import { commands } from "../../ipc/bindings";

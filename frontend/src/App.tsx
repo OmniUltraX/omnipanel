@@ -45,7 +45,7 @@ import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { UserCenterWindow } from "./components/user/UserCenterWindow";
 import { TeamManagementWindow } from "./components/user/TeamManagementWindow";
 import { AuthProfileSync } from "./components/user/AuthProfileSync";
-import { SyncDeviceAuthDialog } from "./components/user/SyncDeviceAuthDialog";
+import { SyncTeamKeySetupDialog } from "./components/user/SyncTeamKeySetupDialog";
 import { SubWindowMinimizedStack } from "./components/ui/window/SubWindowMinimizedStack";
 import { ResourceProfileSubWindow } from "./lib/resource/ResourceProfileSubWindow";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
@@ -734,7 +734,7 @@ function AppShell() {
       <UserCenterWindow />
       <TeamManagementWindow />
       <AuthProfileSync />
-      <SyncDeviceAuthDialog />
+      <SyncTeamKeySetupDialog />
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
       <ApprovalDialog />

@@ -34,9 +34,44 @@ pub fn generate_pairing_keypair() -> OmniResult<([u8; 32], String)> {
     Ok((*secret.as_bytes(), B64.encode(public.as_bytes())))
 }
 
+/// 用接收方公钥封装 32 字节团队同步密钥。
+pub fn wrap_sync_team_key(
+    team_key: &[u8; 32],
+    recipient_pubkey_b64: &str,
+    aad: &str,
+) -> OmniResult<String> {
+    wrap_secret_bytes(team_key, recipient_pubkey_b64, aad)
+}
+
+/// 用助手公钥加密任意 JSON 载荷（PC → 小程序摘要通道）。
+pub fn encrypt_assistant_payload(
+    payload: &[u8],
+    assistant_pubkey_b64: &str,
+    aad: &str,
+) -> OmniResult<String> {
+    wrap_secret_bytes(payload, assistant_pubkey_b64, aad)
+}
+
+/// 助手端用绑定私钥解密 PC 上传的摘要载荷。
+pub fn decrypt_assistant_payload(
+    wrapped_b64: &str,
+    assistant_secret: &[u8; 32],
+    aad: &str,
+) -> OmniResult<Vec<u8>> {
+    unwrap_secret_bytes(wrapped_b64, assistant_secret, aad)
+}
+
 /// 用接收方公钥封装 SyncMasterKey 展示串。
 pub fn wrap_sync_master_key(
     sync_master_key: &str,
+    recipient_pubkey_b64: &str,
+    aad: &str,
+) -> OmniResult<String> {
+    wrap_secret_bytes(sync_master_key.as_bytes(), recipient_pubkey_b64, aad)
+}
+
+fn wrap_secret_bytes(
+    secret: &[u8],
     recipient_pubkey_b64: &str,
     aad: &str,
 ) -> OmniResult<String> {
@@ -59,7 +94,7 @@ pub fn wrap_sync_master_key(
         .encrypt(
             Nonce::from_slice(&nonce),
             Payload {
-                msg: sync_master_key.as_bytes(),
+                msg: secret,
                 aad: aad.as_bytes(),
             },
         )
@@ -76,12 +111,37 @@ pub fn wrap_sync_master_key(
     Ok(B64.encode(json))
 }
 
+/// 用本机临时私钥解包 32 字节团队同步密钥。
+pub fn unwrap_sync_team_key(
+    wrapped_b64: &str,
+    ephemeral_secret: &[u8; 32],
+    aad: &str,
+) -> OmniResult<[u8; 32]> {
+    let bytes = unwrap_secret_bytes(wrapped_b64, ephemeral_secret, aad)?;
+    if bytes.len() != 32 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "team key length"));
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
 /// 用本机临时私钥解包 SyncMasterKey。
 pub fn unwrap_sync_master_key(
     wrapped_b64: &str,
     ephemeral_secret: &[u8; 32],
     aad: &str,
 ) -> OmniResult<String> {
+    let plain = unwrap_secret_bytes(wrapped_b64, ephemeral_secret, aad)?;
+    String::from_utf8(plain)
+        .map_err(|_| OmniError::new(ErrorCode::InvalidInput, "unwrap utf8"))
+}
+
+fn unwrap_secret_bytes(
+    wrapped_b64: &str,
+    ephemeral_secret: &[u8; 32],
+    aad: &str,
+) -> OmniResult<Vec<u8>> {
     let json = B64.decode(wrapped_b64.trim()).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, format!("wrap b64: {e}"))
     })?;
@@ -115,8 +175,7 @@ pub fn unwrap_sync_master_key(
             },
         )
         .map_err(|_| OmniError::new(ErrorCode::Auth, "unwrap failed"))?;
-    String::from_utf8(plain)
-        .map_err(|_| OmniError::new(ErrorCode::InvalidInput, "unwrap utf8"))
+    Ok(plain)
 }
 
 fn decode_pubkey(b64: &str) -> OmniResult<PublicKey> {
@@ -157,5 +216,25 @@ mod tests {
         let out = unwrap_sync_master_key(&wrapped, &sk, aad).unwrap();
         assert_eq!(out, smk);
         assert!(unwrap_sync_master_key(&wrapped, &sk, "bad").is_err());
+    }
+
+    #[test]
+    fn wrap_unwrap_team_key_roundtrip() {
+        let (sk, pk) = generate_pairing_keypair().unwrap();
+        let team_key = [11u8; 32];
+        let aad = "req1:team42:device-b";
+        let wrapped = wrap_sync_team_key(&team_key, &pk, aad).unwrap();
+        let out = unwrap_sync_team_key(&wrapped, &sk, aad).unwrap();
+        assert_eq!(out, team_key);
+    }
+
+    #[test]
+    fn assistant_payload_roundtrip() {
+        let (sk, pk) = generate_pairing_keypair().unwrap();
+        let payload = br#"{"hello":"world"}"#;
+        let aad = "assistant-payload:bind1:dev1";
+        let wrapped = encrypt_assistant_payload(payload, &pk, aad).unwrap();
+        let out = decrypt_assistant_payload(&wrapped, &sk, aad).unwrap();
+        assert_eq!(out, payload);
     }
 }

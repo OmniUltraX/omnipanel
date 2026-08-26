@@ -524,6 +524,94 @@ pub async fn sync_master_key_validate(key: String) -> Result<bool, OmniError> {
     Ok(omnipanel_store::is_valid_sync_master_key(&norm))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncTeamKeyStatus {
+    pub has_key: bool,
+    pub fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncTeamKeyGetOrCreateResult {
+    pub fingerprint: String,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncTeamKeyImportResult {
+    pub fingerprint: String,
+}
+
+pub async fn sync_team_key_status(team_id: i64) -> Result<SyncTeamKeyStatus, OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    match omnipanel_store::load_sync_team_key(team_id)? {
+        Some(key) => Ok(SyncTeamKeyStatus {
+            has_key: true,
+            fingerprint: Some(omnipanel_store::sync_team_key_fingerprint(&key)),
+        }),
+        None => Ok(SyncTeamKeyStatus {
+            has_key: false,
+            fingerprint: None,
+        }),
+    }
+}
+
+pub async fn sync_team_key_get_or_create(
+    team_id: i64,
+) -> Result<SyncTeamKeyGetOrCreateResult, OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    let (key, created) = omnipanel_store::get_or_create_sync_team_key(team_id)?;
+    Ok(SyncTeamKeyGetOrCreateResult {
+        fingerprint: omnipanel_store::sync_team_key_fingerprint(&key),
+        created,
+    })
+}
+
+pub async fn sync_team_key_clear(team_id: i64) -> Result<(), OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    omnipanel_store::clear_sync_team_key(team_id)
+}
+
+pub async fn sync_team_key_export_file(
+    team_id: i64,
+    path: String,
+    passphrase: Option<String>,
+) -> Result<(), OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    let key = omnipanel_store::load_sync_team_key(team_id)?.ok_or_else(|| {
+        OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥，无法导出")
+    })?;
+    let json = omnipanel_store::export_sync_team_key_json(team_id, &key, passphrase.as_deref())?;
+    std::fs::write(path.trim(), json).map_err(|e| {
+        OmniError::new(ErrorCode::Storage, "写入同步密钥文件失败").with_cause(e.to_string())
+    })
+}
+
+pub async fn sync_team_key_import_file(
+    team_id: i64,
+    path: String,
+    passphrase: Option<String>,
+) -> Result<SyncTeamKeyImportResult, OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    let bytes = std::fs::read(path.trim()).map_err(|e| {
+        OmniError::new(ErrorCode::Storage, "读取同步密钥文件失败").with_cause(e.to_string())
+    })?;
+    let fp = omnipanel_store::import_sync_team_key_json(team_id, &bytes, passphrase.as_deref())?;
+    Ok(SyncTeamKeyImportResult { fingerprint: fp })
+}
+
 struct EphemeralPairingKey {
     secret: [u8; 32],
     pubkey_b64: String,

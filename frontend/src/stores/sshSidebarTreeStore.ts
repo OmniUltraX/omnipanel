@@ -23,6 +23,11 @@ type SshSidebarTreeState = {
   orderByParent: Record<string, string[]>;
   /** 是否已完成 Connection.group → 文件夹 的一次性迁移 */
   groupsMigrated: boolean;
+  /**
+   * 用户主动删除、不再自动创建的侧栏文件夹名（如 ~/.ssh/config）。
+   * 会写入团队快照，避免其他设备或云端拉取后再次自动建回。
+   */
+  dismissedAutoFolders: string[];
   createFolder: (name: string, parentId?: string | null) => string;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
@@ -111,6 +116,22 @@ function clearLegacyManualGroups(): void {
   }
 }
 
+function dismissAutoFolderName(names: string[], folderName: string): string[] {
+  const trimmed = folderName.trim();
+  if (!trimmed) return names;
+  return names.includes(trimmed) ? names : [...names, trimmed];
+}
+
+function restoreAutoFolderName(names: string[], folderName: string): string[] {
+  const trimmed = folderName.trim();
+  if (!trimmed) return names;
+  return names.filter((name) => name !== trimmed);
+}
+
+function isAutoFolderDismissed(names: string[], folderName: string): boolean {
+  return names.includes(folderName.trim());
+}
+
 export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
   persist(
     (set, get) => ({
@@ -118,6 +139,7 @@ export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
       connectionFolderId: {},
       orderByParent: { [ROOT_KEY]: [] },
       groupsMigrated: false,
+      dismissedAutoFolders: [],
 
       createFolder: (name, parentId = null) => {
         const id = genFolderId();
@@ -127,8 +149,13 @@ export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
           const order = [...(state.orderByParent[parentKey] ?? [])];
           const key = folderKey(id);
           if (!order.includes(key)) order.push(key);
+          const dismissedAutoFolders =
+            trimmed === OPENSSH_CONFIG_GROUP
+              ? restoreAutoFolderName(state.dismissedAutoFolders, OPENSSH_CONFIG_GROUP)
+              : state.dismissedAutoFolders;
           return {
             folders: [...state.folders, { id, name: trimmed, parentId }],
+            dismissedAutoFolders,
             orderByParent: {
               ...state.orderByParent,
               [parentKey]: order,
@@ -182,7 +209,12 @@ export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
           delete orderByParent[folderId];
           orderByParent[parentKey] = parentOrder;
 
-          return { folders, connectionFolderId, orderByParent };
+          const dismissedAutoFolders =
+            folder.name === OPENSSH_CONFIG_GROUP
+              ? dismissAutoFolderName(state.dismissedAutoFolders, OPENSSH_CONFIG_GROUP)
+              : state.dismissedAutoFolders;
+
+          return { folders, connectionFolderId, orderByParent, dismissedAutoFolders };
         });
         notifySshSidebarTreeChanged();
       },
@@ -318,6 +350,12 @@ export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
           for (const host of hosts) {
             const group = normalizeSshGroup(host.group);
             if (group === "默认") continue;
+            if (
+              group === OPENSSH_CONFIG_GROUP &&
+              isAutoFolderDismissed(state.dismissedAutoFolders, OPENSSH_CONFIG_GROUP)
+            ) {
+              continue;
+            }
             const folderId = ensureRootFolder(group);
             connectionFolderId[host.id] = folderId;
             const ck = connectionKey(host.id);
@@ -348,6 +386,9 @@ export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
       },
 
       adoptOpenSshSyncedHosts: (hosts) => {
+        if (isAutoFolderDismissed(get().dismissedAutoFolders, OPENSSH_CONFIG_GROUP)) {
+          return;
+        }
         const toAdopt = hosts.filter((h) => {
           const g = normalizeSshGroup(h.group);
           return g === OPENSSH_CONFIG_GROUP && !get().connectionFolderId[h.id];
@@ -370,14 +411,22 @@ export const useSshSidebarTreeStore = create<SshSidebarTreeState>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(createIndexedDBStorage),
       partialize: (state) => ({
         folders: state.folders,
         connectionFolderId: state.connectionFolderId,
         orderByParent: state.orderByParent,
         groupsMigrated: state.groupsMigrated,
+        dismissedAutoFolders: state.dismissedAutoFolders,
       }),
+      migrate: (persisted, version) => {
+        const state = persisted as Partial<SshSidebarTreeState>;
+        if (version < 2) {
+          state.dismissedAutoFolders = state.dismissedAutoFolders ?? [];
+        }
+        return state as SshSidebarTreeState;
+      },
     },
   ),
 );
@@ -387,16 +436,23 @@ export type SshSidebarTreeSnapshot = {
   connectionFolderId: Record<string, string>;
   orderByParent: Record<string, string[]>;
   groupsMigrated: boolean;
+  dismissedAutoFolders?: string[];
 };
 
 export function serializeSshSidebarTree(): string {
-  const { folders, connectionFolderId, orderByParent, groupsMigrated } =
-    useSshSidebarTreeStore.getState();
+  const {
+    folders,
+    connectionFolderId,
+    orderByParent,
+    groupsMigrated,
+    dismissedAutoFolders,
+  } = useSshSidebarTreeStore.getState();
   return JSON.stringify({
     folders,
     connectionFolderId,
     orderByParent,
     groupsMigrated,
+    dismissedAutoFolders,
   });
 }
 
@@ -422,6 +478,11 @@ function asOrderByParent(value: unknown): Record<string, string[]> {
   return out;
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
 function parseSshSidebarTreeSnapshot(
   raw: string | null | undefined,
 ): SshSidebarTreeSnapshot | null {
@@ -432,6 +493,7 @@ function parseSshSidebarTreeSnapshot(
       connectionFolderId?: unknown;
       orderByParent?: unknown;
       groupsMigrated?: unknown;
+      dismissedAutoFolders?: unknown;
     };
     if (!data || !Array.isArray(data.folders)) return null;
     const folders: SshSidebarFolder[] = [];
@@ -449,12 +511,16 @@ function parseSshSidebarTreeSnapshot(
             : null,
       });
     }
-    return {
+    const snapshot: SshSidebarTreeSnapshot = {
       folders,
       connectionFolderId: asStringRecord(data.connectionFolderId),
       orderByParent: asOrderByParent(data.orderByParent),
       groupsMigrated: Boolean(data.groupsMigrated),
     };
+    if (data.dismissedAutoFolders !== undefined) {
+      snapshot.dismissedAutoFolders = asStringArray(data.dismissedAutoFolders);
+    }
+    return snapshot;
   } catch {
     return null;
   }
@@ -465,6 +531,7 @@ const EMPTY_SSH_SIDEBAR_TREE: SshSidebarTreeSnapshot = {
   connectionFolderId: {},
   orderByParent: { [ROOT_KEY]: [] },
   groupsMigrated: true,
+  dismissedAutoFolders: [],
 };
 
 /**
@@ -482,11 +549,15 @@ export function applySshSidebarTreeJson(
     }
     return;
   }
+  const current = useSshSidebarTreeStore.getState();
   useSshSidebarTreeStore.setState({
     folders: parsed.folders,
     connectionFolderId: parsed.connectionFolderId,
     orderByParent: parsed.orderByParent,
     groupsMigrated: true,
+    dismissedAutoFolders:
+      parsed.dismissedAutoFolders ??
+      (mode === "replace" ? [] : current.dismissedAutoFolders),
   });
 }
 
@@ -494,11 +565,33 @@ export type SshSidebarTreeItem =
   | { kind: "folder"; folder: SshSidebarFolder }
   | { kind: "connection"; connectionId: string };
 
+function sshSidebarTreeItemLabel(
+  item: SshSidebarTreeItem,
+  getConnectionName: (id: string) => string,
+): string {
+  return item.kind === "folder" ? item.folder.name : getConnectionName(item.connectionId);
+}
+
+function compareSshSidebarTreeItems(
+  a: SshSidebarTreeItem,
+  b: SshSidebarTreeItem,
+  getConnectionName: (id: string) => string,
+): number {
+  const folderFirst = Number(b.kind === "folder") - Number(a.kind === "folder");
+  if (folderFirst !== 0) return folderFirst;
+  return sshSidebarTreeItemLabel(a, getConnectionName).localeCompare(
+    sshSidebarTreeItemLabel(b, getConnectionName),
+    undefined,
+    { sensitivity: "base", numeric: true },
+  );
+}
+
 /** 列出某父级下的有序子节点（仅一层）。 */
 export function listSshSidebarChildren(
   state: Pick<SshSidebarTreeState, "folders" | "orderByParent" | "connectionFolderId">,
   parentId: string | null,
   connectionIds: string[],
+  getConnectionName?: (id: string) => string,
 ): SshSidebarTreeItem[] {
   const parentKey = parentStorageKey(parentId);
   const active = new Set(connectionIds);
@@ -537,6 +630,10 @@ export function listSshSidebarChildren(
     items.push({ kind: "connection", connectionId: id });
   }
 
+  if (getConnectionName) {
+    items.sort((a, b) => compareSshSidebarTreeItems(a, b, getConnectionName));
+  }
+
   return items;
 }
 
@@ -545,8 +642,14 @@ export function collectAllSshSidebarTreeKeys(
   connectionIds: string[],
   connectionTreeKey: (connectionId: string) => string,
   parentId: string | null = null,
+  getConnectionName?: (id: string) => string,
 ): string[] {
-  const children = listSshSidebarChildren(state, parentId, connectionIds);
+  const children = listSshSidebarChildren(
+    state,
+    parentId,
+    connectionIds,
+    getConnectionName,
+  );
   const keys: string[] = [];
   for (const item of children) {
     if (item.kind === "folder") {
@@ -557,6 +660,7 @@ export function collectAllSshSidebarTreeKeys(
           connectionIds,
           connectionTreeKey,
           item.folder.id,
+          getConnectionName,
         ),
       );
     } else {
