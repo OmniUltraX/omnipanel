@@ -16,7 +16,11 @@ pub use provider::{AiProvider, AiProviderRegistry, RenamedProvider};
 pub use providers::model_list::{
     FetchModelsError, RemoteModelInfo, fetch_provider_models, parse_models_payload,
 };
-pub use routing::{parse_backend_id, BackendKind, ParsedBackendId};
+pub use routing::{
+    parse_backend_id, BackendKind, HttpInferenceApi, ParsedBackendId,
+    model_requires_anthropic_messages_api, resolve_anthropic_messages_base_url,
+    resolve_http_inference_api,
+};
 pub use types::{
     ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionDef, ModelInfo, Role, ToolCall,
     ToolDef, Usage,

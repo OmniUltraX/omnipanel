@@ -2561,6 +2561,32 @@
         resize: vertical;
     }
 
+    .ssh-key-detail-dialog {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+    }
+
+    .ssh-key-detail-field__head {
+        width: 100%;
+        justify-content: space-between;
+        gap: var(--sp-2);
+    }
+
+    .ssh-key-detail-field__head .form-label {
+        margin: 0;
+    }
+
+    .ssh-key-detail-field__copy {
+        flex-shrink: 0;
+    }
+
+    .ssh-key-detail-field__textarea {
+        width: 100%;
+        font-family: monospace;
+        resize: vertical;
+    }
+
     .ssh-host-sidebar .vsplit-sidebar-section__actions .schema-toolbar--inline {
         display: flex;
         align-items: center;

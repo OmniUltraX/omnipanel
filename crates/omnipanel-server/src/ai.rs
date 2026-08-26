@@ -181,6 +181,7 @@ fn to_internal(req: InternalChatRequestDto) -> Result<InternalChatRequest, Strin
 /// 构造 HTTP Provider（复用 `omnipanel-ai` 的 OpenAI / Anthropic 实现）。
 fn build_http_provider(
     snapshot: &HttpProviderSnapshot,
+    model_id: &str,
 ) -> Result<Box<dyn omnipanel_ai::AiProvider>, String> {
     let provider_id = snapshot.provider_id.trim();
     if provider_id.is_empty() {
@@ -202,31 +203,35 @@ fn build_http_provider(
         api_key
     };
 
-    let standard = snapshot.api_standard.to_lowercase();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 
-    if standard == "anthropic" {
-        let inner = omnipanel_ai::providers::anthropic::AnthropicProvider::with_client(
-            &api_key,
-            Some(base_url),
-            Vec::new(),
-            Some(client),
-        );
-        Ok(Box::new(RenamedProvider::new(provider_id, inner)))
-    } else {
-        Ok(Box::new(
-            omnipanel_ai::providers::openai::OpenAiProvider::with_client(
-                provider_id,
+    match omnipanel_ai::routing::resolve_http_inference_api(&snapshot.api_standard, model_id) {
+        omnipanel_ai::routing::HttpInferenceApi::AnthropicMessages => {
+            let anthropic_base =
+                omnipanel_ai::routing::resolve_anthropic_messages_base_url(base_url);
+            let inner = omnipanel_ai::providers::anthropic::AnthropicProvider::with_client(
                 &api_key,
-                base_url,
+                Some(&anthropic_base),
                 Vec::new(),
                 Some(client),
-            ),
-        ))
+            );
+            Ok(Box::new(RenamedProvider::new(provider_id, inner)))
+        }
+        omnipanel_ai::routing::HttpInferenceApi::OpenAiChatCompletions => {
+            Ok(Box::new(
+                omnipanel_ai::providers::openai::OpenAiProvider::with_client(
+                    provider_id,
+                    &api_key,
+                    base_url,
+                    Vec::new(),
+                    Some(client),
+                ),
+            ))
+        }
     }
 }
 
@@ -258,7 +263,7 @@ pub async fn ai_chat_stream(
         .as_ref()
         .ok_or_else(|| "缺少 http_provider，无法发起 HTTP 推理".to_string())?;
     let (_provider_id, model_id) = InternalOrchestrator::resolve_http_model(&internal.backend_id)?;
-    let provider = build_http_provider(snapshot)?;
+    let provider = build_http_provider(snapshot, &model_id)?;
 
     // 非 pure_text 时的 Skills / Agent 角色注入
     if !internal.pure_text {

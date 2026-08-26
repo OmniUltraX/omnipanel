@@ -6,12 +6,19 @@ import { Select } from "../../../../components/ui/Select";
 import { PasswordInput } from "../../../../components/ui/PasswordInput";
 import { TextInput } from "../../../../components/ui/TextInput";
 import type { ContextMenuItem } from "../../../../components/ui/ContextMenu";
+import { FormDialog } from "../../../../components/ui/form/FormDialog";
+import { IconCopy } from "../../../../components/ui/icons/Icons";
+import { Button } from "../../../../components/ui/primitives/Button";
 import {
   SidebarTreeNode,
   SidebarTreeRoot,
 } from "../../../../components/ui/sidebar-tree";
 import { useI18n } from "../../../../i18n";
+import { quickInput } from "../../../../lib/quickInput";
+import { showToast } from "../../../../stores/toastStore";
+import { useConnectionStore } from "../../../../stores/connectionStore";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
+import { buildSshKeyUsageCounts } from "../utils/sshKeyUsage";
 import { usePersistedSshTreeExpanded } from "../usePersistedSshTreeExpanded";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
 import { formatOmniError } from "../utils/formatOmniError";
@@ -20,8 +27,16 @@ function sshKeyTypeTreeKey(keyType: string) {
   return `ssh-key-type:${keyType.toLowerCase()}`;
 }
 
-function sshKeyTreeKey(name: string) {
-  return `ssh-key:${name}`;
+function sshKeyTreeKey(id: string) {
+  return `ssh-key:${id}`;
+}
+
+function keySubtitle(key: SshKeyInfo): string | null {
+  const comment = key.comment?.trim();
+  if (comment) return comment;
+  const fingerprint = key.fingerprint?.trim();
+  if (fingerprint) return fingerprint;
+  return null;
 }
 
 function keyTypeLabel(keyType: string, t: (key: string) => string): string {
@@ -62,6 +77,50 @@ function KeyIcon() {
   );
 }
 
+function KeyDetailReadonlyField({
+  label,
+  copyTitle,
+  value,
+  rows,
+  emptyHint,
+  onCopy,
+}: {
+  label: string;
+  copyTitle: string;
+  value: string | null;
+  rows: number;
+  emptyHint: string;
+  onCopy: (text: string) => void;
+}) {
+  return (
+    <div className="form-field ssh-key-detail-field">
+      <div className="form-label-row ssh-key-detail-field__head">
+        <label className="form-label">{label}</label>
+        {value ? (
+          <Button
+            type="button"
+            variant="icon"
+            size="icon-sm"
+            className="ssh-key-detail-field__copy"
+            title={copyTitle}
+            aria-label={copyTitle}
+            onClick={() => onCopy(value)}
+          >
+            <IconCopy size={14} />
+          </Button>
+        ) : null}
+      </div>
+      <div className="form-field__control">
+        {value ? (
+          <textarea className="input ssh-key-detail-field__textarea" readOnly rows={rows} value={value} />
+        ) : (
+          <p className="form-field-hint">{emptyHint}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type Props = {
   onCountChange?: (count: number) => void;
   onHeaderMetaChange?: (meta: { count: number; actions: ReactNode }) => void;
@@ -78,10 +137,12 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState<SidebarForm>("none");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [publicKeyName, setPublicKeyName] = useState<string | null>(null);
-  const [publicKeyContent, setPublicKeyContent] = useState<string | null>(null);
-  const [privateKeyName, setPrivateKeyName] = useState<string | null>(null);
-  const [privateKeyContent, setPrivateKeyContent] = useState<string | null>(null);
+  const [keyDetail, setKeyDetail] = useState<{
+    name: string;
+    publicKey: string | null;
+    privateKey: string | null;
+  } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const [genKeyType, setGenKeyType] = useState<"ed25519" | "rsa">("ed25519");
   const [genKeyName, setGenKeyName] = useState("");
@@ -96,7 +157,13 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
 
   const activeKeyName = useSshWorkspaceNavStore((s) => s.activeKeyName);
   const selectKey = useSshWorkspaceNavStore((s) => s.selectKey);
+  const connections = useConnectionStore((s) => s.connections);
   const { isExpanded, toggle, ensureExpanded } = usePersistedSshTreeExpanded();
+
+  const keyUsageCounts = useMemo(
+    () => buildSshKeyUsageCounts(keys, connections),
+    [keys, connections],
+  );
 
   const keyGroups = useMemo(() => groupKeysByType(keys), [keys]);
 
@@ -128,6 +195,13 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
   useEffect(() => {
     void loadKeys();
   }, [loadKeys]);
+
+  useEffect(() => {
+    const store = useConnectionStore.getState();
+    if (!store.loaded && !store.loading) {
+      void store.refresh();
+    }
+  }, []);
 
   useEffect(() => {
     onCountChange?.(keys.length);
@@ -261,49 +335,78 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
     }
   };
 
-  const handleViewPublic = async (name: string) => {
-    setError(null);
-    try {
-      const res = await commands.sshReadKeyPublic(name);
-      if (res.status === "ok") {
-        if (!res.data) {
-          setError(t("ssh.keys.noPublicKey"));
-          return;
+  const handleRenameKey = useCallback(
+    (key: SshKeyInfo) => {
+      void (async () => {
+        const nextName = await quickInput({
+          title: t("ssh.keys.renameTitle"),
+          subtitle: t("ssh.keys.renamePrompt"),
+          placeholder: key.name,
+          defaultValue: key.name,
+          validate: (value) => (value.trim() ? null : t("quickInput.required")),
+        });
+        if (nextName == null) return;
+        const trimmed = nextName.trim();
+        if (!trimmed || trimmed === key.name) return;
+        setError(null);
+        setSuccess(null);
+        try {
+          const res = await commands.sshRenameKey(key.name, trimmed);
+          if (res.status === "ok") {
+            if (activeKeyName === key.name) {
+              selectKey(res.data.name);
+            }
+            setSuccess(t("ssh.keys.renameSuccess", { name: res.data.name }));
+            await loadKeys();
+          } else {
+            setError(formatOmniError(res.error));
+          }
+        } catch (e) {
+          setError(String(e));
         }
-        setPublicKeyName(name);
-        setPublicKeyContent(res.data);
-      } else {
-        setError(formatOmniError(res.error));
-      }
-    } catch (e) {
-      setError(String(e));
-    }
-  };
+      })();
+    },
+    [activeKeyName, loadKeys, selectKey, t],
+  );
 
-  const handleViewPrivate = async (name: string) => {
-    setError(null);
+  const handleCopyText = async (text: string) => {
     try {
-      const res = await commands.sshReadKeyPrivate(name);
-      if (res.status === "ok") {
-        if (!res.data) {
-          setError(t("ssh.keys.noPrivateKey"));
-          return;
-        }
-        setPrivateKeyName(name);
-        setPrivateKeyContent(res.data);
-      } else {
-        setError(formatOmniError(res.error));
-      }
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const handleCopyPath = async (path: string) => {
-    try {
-      await navigator.clipboard.writeText(path);
+      await navigator.clipboard.writeText(text);
+      showToast(t("common.copied"));
     } catch {
       setError(t("ssh.keys.copyFailed"));
+    }
+  };
+
+  const handleViewDetails = async (name: string) => {
+    setError(null);
+    setDetailLoading(true);
+    try {
+      const [publicRes, privateRes] = await Promise.all([
+        commands.sshReadKeyPublic(name),
+        commands.sshReadKeyPrivate(name),
+      ]);
+      if (publicRes.status !== "ok") {
+        setError(formatOmniError(publicRes.error));
+        return;
+      }
+      if (privateRes.status !== "ok") {
+        setError(formatOmniError(privateRes.error));
+        return;
+      }
+      if (!publicRes.data && !privateRes.data) {
+        setError(t("ssh.keys.noKeyMaterial"));
+        return;
+      }
+      setKeyDetail({
+        name,
+        publicKey: publicRes.data,
+        privateKey: privateRes.data,
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -331,81 +434,36 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         <p className="text-sm">{confirmDelete ? t("ssh.keys.deleteConfirm", { name: confirmDelete }) : null}</p>
       </SshSidebarModal>
 
-      <SshSidebarModal
-        open={Boolean(publicKeyName && publicKeyContent)}
-        onClose={() => {
-          setPublicKeyName(null);
-          setPublicKeyContent(null);
-        }}
-        title={`${t("ssh.keys.publicKeyTitle")} — ${publicKeyName ?? ""}`}
-        maxWidth={560}
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => publicKeyContent && void navigator.clipboard.writeText(publicKeyContent)}
-            >
-              {t("ssh.keys.copyPublic")}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                setPublicKeyName(null);
-                setPublicKeyContent(null);
-              }}
-            >
-              {t("ssh.keys.close")}
-            </button>
-          </>
-        }
+      <FormDialog
+        open={Boolean(keyDetail)}
+        onClose={() => setKeyDetail(null)}
+        title={t("ssh.keys.detailsTitle")}
+        subtitle={keyDetail?.name}
+        size="lg"
+        cancelLabel={t("ssh.keys.close")}
+        bodyClassName="ssh-key-detail-dialog"
       >
-        <textarea
-          className="input ssh-sidebar-modal__textarea"
-          readOnly
-          rows={4}
-          value={publicKeyContent ?? ""}
-        />
-      </SshSidebarModal>
-
-      <SshSidebarModal
-        open={Boolean(privateKeyName && privateKeyContent)}
-        onClose={() => {
-          setPrivateKeyName(null);
-          setPrivateKeyContent(null);
-        }}
-        title={`${t("ssh.keys.privateKeyTitle")} — ${privateKeyName ?? ""}`}
-        maxWidth={560}
-        footer={
+        {keyDetail ? (
           <>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => privateKeyContent && void navigator.clipboard.writeText(privateKeyContent)}
-            >
-              {t("ssh.keys.copyPrivate")}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                setPrivateKeyName(null);
-                setPrivateKeyContent(null);
-              }}
-            >
-              {t("ssh.keys.close")}
-            </button>
+            <KeyDetailReadonlyField
+              label={t("ssh.keys.publicKeyTitle")}
+              copyTitle={t("ssh.keys.copyPublic")}
+              value={keyDetail.publicKey}
+              rows={3}
+              emptyHint={t("ssh.keys.noPublicKey")}
+              onCopy={(text) => void handleCopyText(text)}
+            />
+            <KeyDetailReadonlyField
+              label={t("ssh.keys.privateKeyTitle")}
+              copyTitle={t("ssh.keys.copyPrivate")}
+              value={keyDetail.privateKey}
+              rows={8}
+              emptyHint={t("ssh.keys.noPrivateKey")}
+              onCopy={(text) => void handleCopyText(text)}
+            />
           </>
-        }
-      >
-        <textarea
-          className="input ssh-sidebar-modal__textarea"
-          readOnly
-          rows={8}
-          value={privateKeyContent ?? ""}
-        />
-      </SshSidebarModal>
+        ) : null}
+      </FormDialog>
     </>
   );
 
@@ -527,30 +585,27 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                   />
                   {typeExpanded
                     ? typeKeys.map((key) => {
-                        const treeKey = sshKeyTreeKey(key.name);
+                        const treeKey = sshKeyTreeKey(key.id);
                         const selected = activeKeyName === key.name;
+                        const subtitle = keySubtitle(key);
+                        const hostUsageCount = keyUsageCounts.get(key.id) ?? 0;
                         const contextMenuItems: ContextMenuItem[] = [
                           {
-                            id: "ssh-key-view-public",
-                            label: t("ssh.keys.viewPublic"),
-                            onClick: () => void handleViewPublic(key.name),
-                          },
-                          {
-                            id: "ssh-key-view-private",
-                            label: t("ssh.keys.viewPrivate"),
-                            onClick: () => void handleViewPrivate(key.name),
+                            id: "ssh-key-details",
+                            label: t("ssh.keys.details"),
+                            disabled: detailLoading,
+                            onClick: () => void handleViewDetails(key.name),
                           },
                         ];
                         if (key.path) {
                           contextMenuItems.push({
                             id: "ssh-key-copy-path",
                             label: t("ssh.keys.copyPath"),
-                            onClick: () => void handleCopyPath(key.path),
+                            onClick: () => void handleCopyText(key.path),
                           });
                         }
-                        const meta = key.fingerprint || key.comment || key.path;
                         return (
-                          <div key={key.name} className="ssh-tree-key">
+                          <div key={key.id} className="ssh-tree-key">
                             <SidebarTreeNode
                               depth={1}
                               module="ssh"
@@ -562,9 +617,25 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                               label={
                                 <span className="host-info ssh-tree-host-label">
                                   <span className="host-row-1">
-                                    <span className="host-name">{key.name}</span>
+                                    <span className="host-name" title={key.name}>
+                                      {key.name}
+                                    </span>
+                                    {hostUsageCount > 0 ? (
+                                      <span className="host-row-1-meta">
+                                        <span
+                                          className="badge badge-muted ssh-key-usage-tag"
+                                          title={t("ssh.keys.hostUsage", { count: hostUsageCount })}
+                                        >
+                                          {t("ssh.keys.hostUsageTag", { count: hostUsageCount })}
+                                        </span>
+                                      </span>
+                                    ) : null}
                                   </span>
-                                  {meta ? <span className="host-row-2">{meta}</span> : null}
+                                  {subtitle ? (
+                                    <span className="host-row-2" title={subtitle}>
+                                      {subtitle}
+                                    </span>
+                                  ) : null}
                                 </span>
                               }
                               trailing={
@@ -578,7 +649,9 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                               expanded={false}
                               onToggle={() => undefined}
                               onSelect={() => selectKey(key.name)}
-                              onActivate={() => selectKey(key.name)}
+                              onActivate={() => void handleViewDetails(key.name)}
+                              onRename={() => handleRenameKey(key)}
+                              renameLabel={t("ssh.keys.rename")}
                               contextMenuItems={contextMenuItems}
                               onDelete={() => setConfirmDelete(key.name)}
                               deleteLabel={t("ssh.keys.delete")}

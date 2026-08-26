@@ -420,6 +420,7 @@ fn truncate_content(s: &str, max_chars: usize) -> String {
 async fn build_http_provider(
     state: &AppState,
     snapshot: &HttpProviderSnapshot,
+    model_id: &str,
 ) -> Result<Box<dyn AiProvider>, String> {
     let proxy_config = state.proxy_config.lock().await.clone();
     let provider_id = snapshot.provider_id.trim();
@@ -448,29 +449,34 @@ async fn build_http_provider(
         api_key
     };
 
-    let standard = snapshot.api_standard.to_lowercase();
-    if standard == "anthropic" {
-        let inner = AnthropicProvider::with_client(
-            &api_key,
-            Some(snapshot.base_url.as_str()),
-            Vec::new(),
-            Some(client),
-        );
-        Ok(Box::new(RenamedProvider::new(provider_id, inner)))
-    } else {
-        Ok(Box::new(OpenAiProvider::with_client(
-            provider_id,
-            &api_key,
-            &snapshot.base_url,
-            Vec::new(),
-            Some(client),
-        )))
+    match omnipanel_ai::routing::resolve_http_inference_api(&snapshot.api_standard, model_id) {
+        omnipanel_ai::routing::HttpInferenceApi::AnthropicMessages => {
+            let anthropic_base =
+                omnipanel_ai::routing::resolve_anthropic_messages_base_url(base_url);
+            let inner = AnthropicProvider::with_client(
+                &api_key,
+                Some(&anthropic_base),
+                Vec::new(),
+                Some(client),
+            );
+            Ok(Box::new(RenamedProvider::new(provider_id, inner)))
+        }
+        omnipanel_ai::routing::HttpInferenceApi::OpenAiChatCompletions => {
+            Ok(Box::new(OpenAiProvider::with_client(
+                provider_id,
+                &api_key,
+                base_url,
+                Vec::new(),
+                Some(client),
+            )))
+        }
     }
 }
 
 async fn ensure_http_provider_registered(
     state: &AppState,
     snapshot: &HttpProviderSnapshot,
+    model_id: &str,
 ) -> Result<(), String> {
     let provider_id = snapshot.provider_id.trim();
     {
@@ -479,7 +485,7 @@ async fn ensure_http_provider_registered(
             return Ok(());
         }
     }
-    let provider = build_http_provider(state, snapshot).await?;
+    let provider = build_http_provider(state, snapshot, model_id).await?;
     state.ai_registry.lock().await.register(provider);
     Ok(())
 }
@@ -602,10 +608,10 @@ pub async fn ai_chat_stream(
         .http_provider
         .as_ref()
         .ok_or_else(|| "缺少 http_provider，无法发起 HTTP 推理".to_string())?;
-    ensure_http_provider_registered(&state, snapshot).await?;
-
     let (_provider_id, model_id) = InternalOrchestrator::resolve_http_model(&internal.backend_id)?;
-    let provider = build_http_provider(&state, snapshot).await?;
+    ensure_http_provider_registered(&state, snapshot, &model_id).await?;
+
+    let provider = build_http_provider(&state, snapshot, &model_id).await?;
 
     let (tools, _) = match &internal.tools_mode {
         InternalToolsMode::DirectInject {

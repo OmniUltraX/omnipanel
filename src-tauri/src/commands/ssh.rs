@@ -2438,6 +2438,21 @@ pub async fn ssh_delete_key(state: State<'_, AppState>, name: String) -> Result<
     Ok(())
 }
 
+/// 重命名 OmniPanel 密钥库中的 SSH 密钥（仅改显示名称，不影响 keyId 与 Vault 引用）。
+#[tauri::command]
+#[specta::specta]
+pub async fn ssh_rename_key(
+    state: State<'_, AppState>,
+    name: String,
+    new_name: String,
+) -> Result<SshKeyInfo, OmniError> {
+    let name = sanitize_ssh_key_name(&name)?;
+    let new_name = sanitize_ssh_key_name(&new_name)?;
+    let storage = state.storage.lock().await;
+    let record = storage.rename_ssh_key_by_name(&name, &new_name)?;
+    Ok(ssh_key_record_to_info(&record))
+}
+
 /// 上传快照前：将仍引用本机绝对路径的 SSH 私钥绑定到密钥库，并改写为 `keyId`。
 pub(crate) fn materialize_ssh_connection_keys_for_sync(
     storage: &omnipanel_store::Storage,
