@@ -1,6 +1,7 @@
 /**
  * omniserver 团队同步密钥中继（§4.2）。
- * WebRTC P2P 传钥 ICE 配置见 `syncKeyP2p.ts`（信令接入后优先走 P2P，失败再回落本模块）。
+ * 同组织（team_id）成员设备可互相中继；不限同一登录账号。
+ * WebRTC P2P 传钥 ICE 配置见 `syncKeyP2p.ts`。
  */
 export {
   createSyncKeyPeerConnection,
@@ -118,8 +119,13 @@ export async function cancelKeyRelayRequest(
   }
 }
 
-export async function listOnlineSyncPeers(token: string): Promise<OnlineSyncPeer[]> {
-  const res = await authFetch(token, "/api/sync/peers/online", { method: "GET" });
+export async function listOnlineSyncPeers(
+  token: string,
+  teamId?: number | null,
+): Promise<OnlineSyncPeer[]> {
+  const id = teamId ?? getCurrentSyncTeamId();
+  const query = id && id > 0 ? `?teamId=${encodeURIComponent(String(id))}` : "";
+  const res = await authFetch(token, `/api/sync/peers/online${query}`, { method: "GET" });
   if (!res.ok) {
     return [];
   }
@@ -134,7 +140,7 @@ export async function listOnlineSyncPeers(token: string): Promise<OnlineSyncPeer
 }
 
 /**
- * 新设备向 omniserver 请求团队同步密钥；在线设备中继成功后写入本机 Vault。
+ * 新设备向 omniserver 请求团队同步密钥；同组织在线成员设备中继成功后写入本机 Vault。
  */
 export async function requestTeamSyncKeyFromRelay(
   opts: RequestTeamSyncKeyOptions,
@@ -168,7 +174,7 @@ export async function requestTeamSyncKeyFromRelay(
     if (code === "no_online_peer" || res.status === 409) {
       throw new SyncKeyRelayError(
         "no_online_peer",
-        "当前无其他在线设备可传递同步密钥，请导入 `.omnipanel-sync.key` 文件",
+        "当前组织无其他在线成员设备可传递同步密钥，请导入 `.omnipanel-sync.key` 文件",
       );
     }
     if (res.status === 404 || res.status === 501) {
@@ -226,7 +232,7 @@ export async function requestTeamSyncKeyFromRelay(
     }
   }
 
-  throw new SyncKeyRelayError("timeout", "等待其他设备传递同步密钥超时");
+  throw new SyncKeyRelayError("timeout", "等待组织内其他设备传递同步密钥超时");
 }
 
 async function unwrapFromRelay(args: {

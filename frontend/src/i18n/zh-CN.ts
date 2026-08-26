@@ -5998,7 +5998,7 @@ export const zhCN = {
     },
     syncTeamKey: {
       label: "团队同步密钥",
-      desc: "用于加密云端模块与会话快照（v2）。首台设备在推送时自动生成；新设备可从其他在线设备获取密钥，或导入 `.omnipanel-sync.key` 文件。",
+      desc: "用于加密云端模块与会话快照（v2）。首台设备在推送时自动生成；新设备可从同组织其他在线成员设备获取密钥，或导入 `.omnipanel-sync.key` 文件。",
       statusLabel: "密钥状态",
       statusHasKey: "已配置，指纹 {fingerprint}",
       statusMissing: "尚未配置；推送时将自动生成，或从其他设备导入",
@@ -7756,9 +7756,9 @@ export const zhCN = {
   syncTeamKeySetup: {
     title: "需要团队同步密钥",
     hint: "本机尚未配置团队同步密钥，无法解密云端模块与会话快照。",
-    requesting: "正在向在线设备请求同步密钥…",
-    waiting: "等待其他已登录设备自动传递密钥…",
-    importHint: "若无其他在线设备，可从已有设备导入密钥文件，或在确认后创建新密钥（团队已有云端数据时，新密钥将无法解密旧快照）。",
+    requesting: "正在向组织内在线设备请求同步密钥…",
+    waiting: "等待组织内其他在线设备自动传递密钥…",
+    importHint: "若无组织内其他在线设备，可从已有成员处导入密钥文件，或在确认后创建新密钥（团队已有云端数据时，新密钥将无法解密旧快照）。",
     importBtn: "导入密钥文件",
     createBtn: "创建新密钥",
     createConfirmTitle: "创建新的同步密钥？",

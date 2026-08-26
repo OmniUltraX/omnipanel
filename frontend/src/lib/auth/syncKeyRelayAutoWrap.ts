@@ -77,7 +77,7 @@ async function relayOne(token: string, item: PendingKeyRelayItem): Promise<void>
       wrapAlg: item.wrapAlg,
     });
     void import("../../stores/toastStore")
-      .then(({ showToast }) => showToast("已自动向新设备传递团队同步密钥"))
+      .then(({ showToast }) => showToast("已自动向组织内新设备传递团队同步密钥"))
       .catch(() => undefined);
   } finally {
     window.setTimeout(() => inFlight.delete(id), 30_000);

@@ -6074,7 +6074,7 @@ export const enUS: TranslationDict = {
     },
     syncTeamKey: {
       label: "Team sync key",
-      desc: "Encrypts cloud module and conversation snapshots (v2). The first device generates a key on push; new devices can receive it from an online peer or import a `.omnipanel-sync.key` file.",
+      desc: "Encrypts cloud module and conversation snapshots (v2). The first device generates a key on push; new devices can receive it from an online peer in the same team or import a `.omnipanel-sync.key` file.",
       statusLabel: "Key status",
       statusHasKey: "Configured, fingerprint {fingerprint}",
       statusMissing: "Not configured yet; a key is created on push or you can import from another device",
@@ -7843,10 +7843,10 @@ export const enUS: TranslationDict = {
   syncTeamKeySetup: {
     title: "Team sync key required",
     hint: "This device has no team sync key yet and cannot decrypt cloud module or conversation snapshots.",
-    requesting: "Requesting sync key from online devices…",
-    waiting: "Waiting for another signed-in device to relay the key…",
+    requesting: "Requesting sync key from online devices in this team…",
+    waiting: "Waiting for another online device in this team to relay the key…",
     importHint:
-      "If no peer is online, import a key from another device, or create a new key after confirming (you will not be able to decrypt existing cloud snapshots encrypted with the previous key).",
+      "If no peer in this team is online, import a key from another member, or create a new key after confirming (you will not be able to decrypt existing cloud snapshots encrypted with the previous key).",
     importBtn: "Import key file",
     createBtn: "Create new key",
     createConfirmTitle: "Create a new sync key?",
