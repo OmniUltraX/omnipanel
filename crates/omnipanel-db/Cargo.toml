@@ -3,18 +3,50 @@ name = "omnipanel-db"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["host"]
+host = [
+    "sidecar-host",
+    "dep:omnipanel-store",
+    "mysql",
+    "postgres",
+    "sqlite",
+    "sqlserver",
+    "qdrant",
+    "redis",
+    "mongodb",
+]
+sidecar-host = []
+sidecar-serve = []
+mysql = ["dep:sqlx", "sqlx/mysql"]
+postgres = ["dep:sqlx", "sqlx/postgres"]
+sqlite = ["dep:rusqlite"]
+qdrant = ["dep:reqwest"]
+redis = ["dep:redis"]
+mongodb = ["dep:mongodb"]
+sqlserver = ["dep:tiberius", "dep:tokio-util", "dep:rustls"]
+clickhouse-http = ["dep:reqwest"]
+engine-clickhouse = ["sidecar-serve", "clickhouse-http"]
+engine-mongodb = ["sidecar-serve", "mongodb"]
+engine-redis = ["sidecar-serve", "redis"]
+engine-mysql = ["sidecar-serve", "mysql"]
+engine-postgres = ["sidecar-serve", "postgres"]
+
 [dependencies]
 omnipanel-error = { path = "../omnipanel-error" }
-omnipanel-store = { path = "../omnipanel-store" }
+omnipanel-store = { path = "../omnipanel-store", optional = true }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
-sqlx = { workspace = true }
-redis = { workspace = true }
-mongodb = { workspace = true }
-reqwest = { workspace = true }
-rusqlite = { version = "0.32", features = ["bundled"] }
 tracing = { workspace = true }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "json", "chrono"], optional = true }
+redis = { workspace = true, optional = true }
+mongodb = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+tiberius = { version = "0.12", default-features = false, features = ["chrono", "tds73", "rustls", "tokio"], optional = true }
+tokio-util = { version = "0.7", features = ["compat"], optional = true }
+rustls = { workspace = true, optional = true }

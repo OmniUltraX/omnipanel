@@ -16,26 +16,24 @@ import {
 } from "../api";
 import { submitSchemaCacheRefresh } from "../schema/schemaCacheBackgroundTasks";
 import { createSchemaCacheRefreshReporter } from "../schema/schemaCacheStatusLog";
-import { getEngineIcon, type DbEngine } from "./engineIcons";
+import { type DbEngine } from "./engineIcons";
+import { ConnectionEnginePicker } from "./ConnectionEnginePicker";
+import {
+  buildEnginePickerItems,
+  categoryForEngine,
+  type EnginePickerCategoryKey,
+  type EnginePickerItem,
+} from "./enginePicker";
 import {
   defaultPortForEngine,
   getEngineDescriptor,
   listEngineDescriptors,
 } from "../engineRegistry";
 import { commands } from "../../../ipc/bindings";
-import { unwrapCommand } from "../../../ipc/result";
+import { formatIpcError, unwrapCommand } from "../../../ipc/result";
 import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
-
-const ENGINE_CHIP_FALLBACK: Record<string, { port: string; icon: string }> = {
-  postgresql: { port: "5432", icon: "PG" },
-  mysql: { port: "3306", icon: "MY" },
-  sqlite: { port: "", icon: "SL" },
-  sqlserver: { port: "1433", icon: "MS" },
-  redis: { port: "6379", icon: "RE" },
-  mongodb: { port: "27017", icon: "MG" },
-  qdrant: { port: "6333", icon: "QD" },
-};
+import { useDbxCatalogStore } from "../../../stores/dbxCatalogStore";
 
 function engineChipMeta(engine: string): { port: string; icon: string } {
   const desc = getEngineDescriptor(engine);
@@ -45,7 +43,7 @@ function engineChipMeta(engine: string): { port: string; icon: string } {
       icon: desc.icon,
     };
   }
-  return ENGINE_CHIP_FALLBACK[engine] ?? { port: "", icon: engine.slice(0, 2).toUpperCase() };
+  return { port: "", icon: engine.slice(0, 2).toUpperCase() };
 }
 
 const EMPTY_FORM: ConnectionFormData = {
@@ -57,6 +55,8 @@ const EMPTY_FORM: ConnectionFormData = {
   username: "",
   password: "",
   ssl: false,
+  sid: "",
+  sysdba: false,
   group: "默认",
 };
 
@@ -77,9 +77,11 @@ export function ConnectionDialog({
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
   const pluginItems = usePluginRuntimeStore((s) => s.items);
-  const engines = useMemo(
-    () => listEngineDescriptors().filter((item) => isSupportedEngine(item.id)),
-    [pluginItems],
+  const reloadPlugins = usePluginRuntimeStore((s) => s.reload);
+  const catalog = useDbxCatalogStore((s) => s.drivers);
+  const pickerItems = useMemo(
+    () => buildEnginePickerItems(listEngineDescriptors(), catalog),
+    [pluginItems, catalog],
   );
   const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM });
   const [tags, setTags] = useState<string[]>([]);
@@ -88,6 +90,9 @@ export function ConnectionDialog({
   );
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pickerCategory, setPickerCategory] = useState<EnginePickerCategoryKey>("sql");
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [installingKey, setInstallingKey] = useState<string | null>(null);
 
   const isEditMode = Boolean(initialConnection);
 
@@ -97,16 +102,19 @@ export function ConnectionDialog({
     if (!open) {
       return;
     }
-    setForm(
-      initialConnection
-        ? connectionToForm(initialConnection)
-        : { ...EMPTY_FORM }
-    );
+    const nextForm = initialConnection
+      ? connectionToForm(initialConnection)
+      : { ...EMPTY_FORM };
+    setForm(nextForm);
+    setPickerCategory(categoryForEngine(nextForm.engine));
+    setPickerSearch("");
+    setInstallingKey(null);
     setStatus(null);
     setTesting(false);
     setSaving(false);
 
     let cancelled = false;
+    void useDbxCatalogStore.getState().refresh();
 
     // 列表接口不回传明文密码；编辑时从 Vault 拉取，才能显示/复制
     if (initialConnection?.id) {
@@ -153,11 +161,59 @@ export function ConnectionDialog({
 
   const handleEngineChange = (engine: DbEngine) => {
     setStatus(null);
+    setPickerCategory(categoryForEngine(engine));
     setForm((prev) => ({
       ...prev,
       engine,
       port: String(defaultPortForEngine(engine) || engineChipMeta(engine).port),
     }));
+  };
+
+  const handleInstallEngine = async (item: EnginePickerItem) => {
+    if (!item.catalogKey) return;
+    setInstallingKey(item.catalogKey);
+    setStatus({ kind: "info", message: t("database.dialog.engineInstallingNamed", { name: item.label }) });
+    try {
+      await unwrapCommand(commands.pluginDbxInstall(item.catalogKey));
+      await reloadPlugins();
+      await useDbxCatalogStore.getState().refresh();
+      handleEngineChange(item.id);
+      setStatus({
+        kind: "success",
+        message: t("database.dialog.engineInstalled", { name: item.label }),
+      });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: t("database.dialog.engineInstallFailed", { error: formatIpcError(error) }),
+      });
+    } finally {
+      setInstallingKey(null);
+    }
+  };
+
+  const handleUninstallEngine = async (item: EnginePickerItem) => {
+    if (!item.pluginId) return;
+    setInstallingKey(item.catalogKey ?? item.pluginId);
+    try {
+      await unwrapCommand(commands.pluginUninstall(item.pluginId));
+      await reloadPlugins();
+      await useDbxCatalogStore.getState().refresh();
+      if (form.engine === item.id) {
+        handleEngineChange("mysql");
+      }
+      setStatus({
+        kind: "success",
+        message: t("database.dialog.engineUninstalled", { name: item.label }),
+      });
+    } catch (error) {
+      setStatus({
+        kind: "error",
+        message: t("database.dialog.engineUninstallFailed", { error: formatIpcError(error) }),
+      });
+    } finally {
+      setInstallingKey(null);
+    }
   };
 
   const validateForm = (): string | null => {
@@ -254,15 +310,23 @@ export function ConnectionDialog({
     }
   };
 
-  const isFileBased = form.engine === "sqlite";
   const engineDesc = getEngineDescriptor(form.engine);
+  const isOracle = form.engine === "oracle" || form.engine === "orcl";
+  const isDameng = form.engine === "dameng" || form.engine === "dm";
+  const isFileBased =
+    engineDesc?.form.fields.some((field) => field.type === "path") === true ||
+    form.engine === "sqlite";
   const useDeclarativeFields = Boolean(engineDesc && !engineDesc.builtinLayout);
+  const hasDeclarativeSid = Boolean(
+    engineDesc?.form.fields.some((field) => field.key === "sid"),
+  );
   const busy = testing || saving;
 
   return (
     <FormDialog
       open={open}
       onClose={onClose}
+      size="xl"
       title={t(isEditMode ? "database.dialog.editTitle" : "database.dialog.title")}
       onCancel={onClose}
       cancelDisabled={busy}
@@ -281,35 +345,25 @@ export function ConnectionDialog({
         onClick: () => void handleSave(),
       }}
     >
-          <FormField label={t("database.dialog.engine")} description={t("database.dialog.engineDescription")}>
-            <div className="engine-grid">
-              {engines.map((item) => {
-                const engine = item.id;
-                const iconUrl = getEngineIcon(engine, resolvedTheme);
-                const meta = engineChipMeta(engine);
-                return (
-                  <button
-                    key={engine}
-                    className={`engine-chip${form.engine === engine ? " engine-chip--active" : ""}`}
-                    onClick={() => handleEngineChange(engine)}
-                  >
-                    <span className="engine-chip-icon">
-                      {iconUrl ? (
-                        <img
-                          src={iconUrl}
-                          alt=""
-                          className="engine-chip-logo"
-                          draggable={false}
-                        />
-                      ) : (
-                        meta.icon
-                      )}
-                    </span>
-                    <span className="engine-chip-label">{engine}</span>
-                  </button>
-                );
-              })}
-            </div>
+          <FormField
+            className="form-field--engine-picker"
+            label={t("database.dialog.engine")}
+            description={t("database.dialog.engineDescription")}
+          >
+            <ConnectionEnginePicker
+              items={pickerItems}
+              selectedId={form.engine}
+              category={pickerCategory}
+              search={pickerSearch}
+              installingKey={installingKey}
+              theme={resolvedTheme}
+              onCategoryChange={setPickerCategory}
+              onSearchChange={setPickerSearch}
+              onSelect={handleEngineChange}
+              onInstall={(item) => void handleInstallEngine(item)}
+              onUpgrade={(item) => void handleInstallEngine(item)}
+              onUninstall={(item) => void handleUninstallEngine(item)}
+            />
           </FormField>
 
           <FormField
@@ -335,9 +389,16 @@ export function ConnectionDialog({
                       <label className="form-check">
                         <input
                           type="checkbox"
-                          checked={field.key === "ssl" ? form.ssl : false}
+                          checked={
+                            field.key === "ssl"
+                              ? form.ssl
+                              : field.key === "sysdba"
+                                ? form.sysdba
+                                : false
+                          }
                           onChange={(e) => {
                             if (field.key === "ssl") update("ssl", e.target.checked);
+                            if (field.key === "sysdba") update("sysdba", e.target.checked);
                           }}
                         />
                         <span>{field.label ?? field.key}</span>
@@ -356,14 +417,17 @@ export function ConnectionDialog({
                           ? form.username
                           : field.key === "password"
                             ? form.password
-                            : "";
+                            : field.key === "sid"
+                              ? form.sid
+                              : "";
                 const onChange = (next: string) => {
                   if (
                     field.key === "host" ||
                     field.key === "port" ||
                     field.key === "database" ||
                     field.key === "username" ||
-                    field.key === "password"
+                    field.key === "password" ||
+                    field.key === "sid"
                   ) {
                     update(field.key, next);
                   }
@@ -419,7 +483,9 @@ export function ConnectionDialog({
           <FormField
             label={
               <>
-                {t("database.dialog.database")}
+                {form.engine === "oracle" || form.engine === "orcl"
+                  ? t("database.dialog.oracleServiceName")
+                  : t("database.dialog.database")}
                 {!isFileBased && form.engine !== "redis" && (
                   <span style={{ marginLeft: 6, fontWeight: 400, opacity: 0.6 }}>
                     ({t("database.dialog.optional")})
@@ -428,7 +494,11 @@ export function ConnectionDialog({
               </>
             }
             htmlFor="db-conn-database"
-            description={t("database.dialog.databaseDescription")}
+            description={
+              form.engine === "oracle" || form.engine === "orcl"
+                ? t("database.dialog.oracleServiceNameDescription")
+                : t("database.dialog.databaseDescription")
+            }
           >
             <div className={isFileBased ? "form-row form-row--align-end" : undefined}>
               <TextInput
@@ -458,6 +528,37 @@ export function ConnectionDialog({
           </FormField>
           ) : null}
 
+          {isOracle && !(useDeclarativeFields && hasDeclarativeSid) && (
+            <>
+              <FormField
+                label={t("database.dialog.oracleSid")}
+                htmlFor="db-conn-sid"
+                description={t("database.dialog.oracleSidDescription")}
+              >
+                <TextInput
+                  id="db-conn-sid"
+                  className="input"
+                  placeholder="ORCL"
+                  value={form.sid}
+                  onChange={(value) => update("sid", value)}
+                />
+              </FormField>
+              <FormField
+                label={t("database.dialog.sysdba")}
+                description={t("database.dialog.sysdbaDescription")}
+              >
+                <label className="form-check">
+                  <input
+                    type="checkbox"
+                    checked={form.sysdba}
+                    onChange={(e) => update("sysdba", e.target.checked)}
+                  />
+                  <span>{t("database.dialog.sysdba")}</span>
+                </label>
+              </FormField>
+            </>
+          )}
+
           {!useDeclarativeFields && !isFileBased ? (
             <div className="form-row">
               {form.engine !== "qdrant" ? (
@@ -470,7 +571,15 @@ export function ConnectionDialog({
                     <TextInput
                       id="db-conn-username"
                       className="input"
-                      placeholder={form.engine === "redis" ? "default" : "postgres"}
+                      placeholder={
+                        form.engine === "redis"
+                          ? "default"
+                          : isDameng
+                            ? "SYSDBA"
+                            : isOracle
+                              ? "system"
+                              : "postgres"
+                      }
                       value={form.username}
                       onChange={(value) => update("username", value)}
                     />

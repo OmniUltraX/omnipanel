@@ -19,28 +19,61 @@ pub struct PluginMethodDecl {
     pub permissions: Vec<PluginPermission>,
 }
 
-/// 插件逻辑/UI 入口声明（L2/L3）。缺省 = 纯 L1 声明式插件。
+/// 插件逻辑 / sidecar 入口声明。缺省 = 纯 L1 声明式插件。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginEntryDecl {
     /// 逻辑包相对路径（如 `logic.wasm`）；位于安装目录内。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logic: Option<String>,
+    /// T1 sidecar 可执行文件相对路径（如 `bin/omnipanel-engine-clickhouse`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
+}
+
+/// 引擎驱动运行时。缺省 = 宿主进程内（T0）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginRuntime {
+    Inproc,
+    Sidecar,
+    Http,
 }
 
 impl PluginEntryDecl {
-    /// 合法性：相对路径、禁止 `..`、必须指向 .wasm（当前唯一支持的逻辑形态）。
+    fn relative_ok(path: &str) -> bool {
+        let path = path.trim();
+        !path.is_empty()
+            && !path.starts_with('/')
+            && !path.starts_with('\\')
+            && !path.split(['/', '\\']).any(|seg| seg == "..")
+    }
+
+    /// 合法性：相对路径、禁止 `..`、必须指向 .wasm / .js。
     pub fn validate_logic(&self) -> Result<(), PluginError> {
         let Some(path) = self.logic.as_deref().map(str::trim) else {
             return Ok(());
         };
-        if path.is_empty()
-            || path.starts_with('/')
-            || path.split(['/', '\\']).any(|seg| seg == "..")
-            || !{ let p = path.to_ascii_lowercase(); p.ends_with(".wasm") || p.ends_with(".js") }
+        if !Self::relative_ok(path)
+            || !{
+                let p = path.to_ascii_lowercase();
+                p.ends_with(".wasm") || p.ends_with(".js")
+            }
         {
             return Err(PluginError::InvalidManifest(format!(
                 "entry.logic 非法: {path}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_driver(&self) -> Result<(), PluginError> {
+        let Some(path) = self.driver.as_deref().map(str::trim) else {
+            return Ok(());
+        };
+        if !Self::relative_ok(path) {
+            return Err(PluginError::InvalidManifest(format!(
+                "entry.driver 非法: {path}"
             )));
         }
         Ok(())
@@ -61,9 +94,12 @@ pub struct PluginManifest {
     /// 网关白名单；未声明 method 一律 `UnknownMethod`。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub methods: Vec<PluginMethodDecl>,
-    /// L2/L3 入口声明；缺省为纯声明式插件。
+    /// L2/L3/T1 入口声明；缺省为纯声明式插件。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<PluginEntryDecl>,
+    /// 引擎驱动运行时；缺省视为宿主进程内。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<PluginRuntime>,
     /// 所需最低宿主 API 版本；超过宿主当前版本时拒绝装载。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_host_api: Option<u32>,
@@ -115,6 +151,15 @@ impl PluginManifest {
         }
         if let Some(entry) = &self.entry {
             entry.validate_logic()?;
+            entry.validate_driver()?;
+        }
+        if self.runtime == Some(PluginRuntime::Sidecar) {
+            let driver = self.driver_entry();
+            if driver.is_none() {
+                return Err(PluginError::InvalidManifest(
+                    "runtime=sidecar 必须声明 entry.driver".into(),
+                ));
+            }
         }
         if let Some(min_api) = self.min_host_api {
             if min_api > HOST_API_VERSION {
@@ -131,6 +176,15 @@ impl PluginManifest {
         self.entry
             .as_ref()
             .and_then(|e| e.logic.as_deref())
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+    }
+
+    /// T1 sidecar 可执行文件相对路径（未声明则 None）。
+    pub fn driver_entry(&self) -> Option<&str> {
+        self.entry
+            .as_ref()
+            .and_then(|e| e.driver.as_deref())
             .map(str::trim)
             .filter(|p| !p.is_empty())
     }

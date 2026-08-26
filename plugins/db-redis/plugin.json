@@ -2,7 +2,11 @@
   "id": "omni.engine.redis",
   "version": "0.1.0",
   "kind": "engine",
+  "runtime": "sidecar",
   "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-engine-redis"
+  },
   "contributes": {
     "ui": {
       "connectionForm": {
@@ -10,6 +14,7 @@
         "aliases": ["redis"],
         "defaultPort": 6379,
         "icon": "RE",
+        "order": 40,
         "builtinLayout": true,
         "fields": [
           { "key": "host", "type": "text" },

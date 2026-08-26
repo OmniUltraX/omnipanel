@@ -1,0 +1,34 @@
+{
+  "id": "omni.engine.sqlserver",
+  "version": "0.1.0",
+  "kind": "engine",
+  "runtime": "inproc",
+  "permissions": ["net:connect"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "sqlserver",
+        "aliases": ["sqlserver", "mssql", "sql server"],
+        "defaultPort": 1433,
+        "icon": "MS",
+        "order": 35,
+        "builtinLayout": true,
+        "supported": true,
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" },
+          { "key": "ssl", "type": "checkbox" }
+        ]
+      },
+      "workbench": {
+        "tree": "schema",
+        "editor": "sql",
+        "preview": "grid",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

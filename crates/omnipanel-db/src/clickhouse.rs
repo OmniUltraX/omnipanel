@@ -1,4 +1,4 @@
-//! ClickHouse HTTP 驱动（默认 8123）。插件 `omni.engine.clickhouse` 声明引擎 key / 表单。
+//! ClickHouse HTTP 驱动（默认 8123）。由 sidecar 进程持有；宿主经 EngineSession JSON-RPC 调用。
 
 use std::time::Duration;
 
@@ -99,11 +99,23 @@ impl ClickHouseDriver {
     }
 
     async fn post_sql(&self, sql: &str) -> OmniResult<(String, Option<String>)> {
-        let url = format!(
+        self.post_sql_with_format(sql, None).await
+    }
+
+    async fn post_sql_with_format(
+        &self,
+        sql: &str,
+        default_format: Option<&str>,
+    ) -> OmniResult<(String, Option<String>)> {
+        let mut url = format!(
             "{}?database={}",
             self.base_url,
             urlencoding_lite(&self.database)
         );
+        if let Some(fmt) = default_format {
+            url.push_str("&default_format=");
+            url.push_str(&urlencoding_lite(fmt));
+        }
         let resp = self
             .client
             .post(&url)
@@ -130,8 +142,12 @@ impl ClickHouseDriver {
     }
 
     async fn query_json(&self, sql: &str) -> OmniResult<QueryResult> {
+        // HTTP `default_format` + 换行后再追加 FORMAT：避免 SQL 末尾 `--` 行注释把 FORMAT 吃掉，
+        // 导致 ClickHouse 返回 TSV 数字、解析 JSONCompact 失败。
         let formatted = with_json_format(sql);
-        let (body, _) = self.post_sql(&formatted).await?;
+        let (body, _) = self
+            .post_sql_with_format(&formatted, Some("JSONCompact"))
+            .await?;
         let parsed: JsonCompactResponse = serde_json::from_str(&body).map_err(|e| {
             OmniError::database("解析 ClickHouse JSONCompact 失败")
                 .with_cause(e.to_string())
@@ -288,11 +304,6 @@ impl DbDriver for ClickHouseDriver {
     }
 }
 
-pub async fn clickhouse_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
-    let driver = ClickHouseDriver::from_params(params)?;
-    driver.list_databases().await
-}
-
 fn qualify_table(database: &str, table: &str) -> OmniResult<String> {
     let table = table.trim();
     if table.is_empty() {
@@ -317,7 +328,7 @@ fn with_json_format(sql: &str) -> String {
     if upper.contains(" FORMAT ") {
         trimmed.to_string()
     } else {
-        format!("{trimmed} FORMAT JSONCompact")
+        format!("{trimmed}\nFORMAT JSONCompact")
     }
 }
 
@@ -389,11 +400,16 @@ mod tests {
     fn appends_json_compact_once() {
         assert_eq!(
             with_json_format("SELECT 1;"),
-            "SELECT 1 FORMAT JSONCompact"
+            "SELECT 1\nFORMAT JSONCompact"
         );
         assert_eq!(
             with_json_format("SELECT 1 FORMAT JSONCompact"),
             "SELECT 1 FORMAT JSONCompact"
+        );
+        // 行注释不得把下一行的 FORMAT 吃掉
+        assert_eq!(
+            with_json_format("SELECT 1 -- note"),
+            "SELECT 1 -- note\nFORMAT JSONCompact"
         );
     }
 

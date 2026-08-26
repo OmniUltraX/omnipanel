@@ -1,0 +1,13 @@
+[package]
+name = "omnipanel-engine-clickhouse"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "omnipanel-engine-clickhouse"
+path = "src/main.rs"
+
+[dependencies]
+omnipanel-db = { path = "../omnipanel-db", default-features = false, features = ["engine-clickhouse"] }
+tokio = { workspace = true }

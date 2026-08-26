@@ -2,6 +2,7 @@
   "id": "omni.engine.qdrant",
   "version": "0.1.0",
   "kind": "engine",
+  "runtime": "inproc",
   "permissions": ["net:connect"],
   "contributes": {
     "ui": {
@@ -10,6 +11,7 @@
         "aliases": ["qdrant"],
         "defaultPort": 6333,
         "icon": "QD",
+        "order": 60,
         "fields": [
           { "key": "host", "type": "text" },
           { "key": "port", "type": "number" },

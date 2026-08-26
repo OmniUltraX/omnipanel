@@ -17,6 +17,7 @@ pub struct MongoDriver {
     database: String,
 }
 
+#[cfg_attr(not(feature = "sidecar-serve"), allow(dead_code))]
 impl MongoDriver {
     pub async fn connect(params: &DbParams) -> OmniResult<Self> {
         let options = build_client_options(params)?;
@@ -39,11 +40,21 @@ impl MongoDriver {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
         let options = build_client_options(params)?;
         let client = Client::with_options(options)
             .map_err(|e| OmniError::connection("MongoDB 连接失败").with_cause(e.to_string()))?;
         let names = client
+            .list_database_names()
+            .await
+            .map_err(map_mongo_err)?;
+        Ok(names.into_iter().filter(|name| !name.is_empty()).collect())
+    }
+
+    pub async fn list_database_names(&self) -> OmniResult<Vec<String>> {
+        let names = self
+            .client
             .list_database_names()
             .await
             .map_err(map_mongo_err)?;

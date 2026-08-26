@@ -35,6 +35,13 @@ pub struct PluginEntry {
     pub unsupported_reason: Option<String>,
 }
 
+impl PluginEntry {
+    /// 第一方引擎插件始终启用：结构与其它引擎相同，但不能关闭。
+    pub fn always_on(&self) -> bool {
+        self.source == PluginSource::Builtin && self.manifest.kind == PluginKind::Engine
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ContributionIndex {
     pub launcher: Vec<(String, LauncherContribution)>,
@@ -196,6 +203,14 @@ impl PluginRegistry {
     }
 
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), PluginError> {
+        let always_on = self
+            .plugins
+            .get(id)
+            .ok_or_else(|| PluginError::NotFound(id.to_string()))?
+            .always_on();
+        if !enabled && always_on {
+            return Err(PluginError::AlwaysOn(id.to_string()));
+        }
         {
             let entry = self
                 .plugins
@@ -301,6 +316,7 @@ mod tests {
             permissions: vec![PluginPermission::AiTools, PluginPermission::FsRead],
             methods: Vec::new(),
             entry: None,
+            runtime: None,
             min_host_api: None,
             platforms,
         }
@@ -389,6 +405,7 @@ mod tests {
             permissions: vec![PluginPermission::NetConnect],
             methods: Vec::new(),
             entry: None,
+            runtime: None,
             min_host_api: None,
             platforms: None,
         };
@@ -458,5 +475,27 @@ mod tests {
         let mut empty = method_manifest("omni.addon.empty", true);
         empty.methods[0].name = "  ".into();
         assert!(empty.validate().is_err());
+    }
+
+    #[test]
+    fn builtin_engine_cannot_be_disabled() {
+        let mut reg = PluginRegistry::new();
+        reg.register(crate::engine_mysql()).unwrap();
+        let err = reg
+            .set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, false)
+            .unwrap_err();
+        assert!(matches!(err, PluginError::AlwaysOn(_)));
+        assert!(reg.get(crate::PLUGIN_ID_ENGINE_MYSQL).unwrap().enabled);
+        assert!(reg.get(crate::PLUGIN_ID_ENGINE_MYSQL).unwrap().always_on());
+        reg.set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, true).unwrap();
+    }
+
+    #[test]
+    fn installed_engine_can_still_be_disabled() {
+        let mut reg = PluginRegistry::new();
+        let manifest = crate::engine_mysql();
+        reg.register_installed(manifest).unwrap();
+        reg.set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, false).unwrap();
+        assert!(!reg.get(crate::PLUGIN_ID_ENGINE_MYSQL).unwrap().enabled);
     }
 }

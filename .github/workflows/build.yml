@@ -263,6 +263,11 @@ jobs:
           console.log('updater endpoints:', conf.plugins.updater.endpoints);
           EOF
 
+      - name: Build and stage DB engine sidecars
+        env:
+          OMNIPANEL_TARGET_TRIPLE: ${{ matrix.target }}
+        run: node scripts/stage-db-engines.mjs --release --target ${{ matrix.target }} --patch-tauri-conf
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:

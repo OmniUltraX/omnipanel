@@ -1,0 +1,26 @@
+{
+  "id": "omni.engine.sqlite",
+  "version": "0.1.0",
+  "kind": "engine",
+  "runtime": "inproc",
+  "permissions": ["fs:read"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "sqlite",
+        "aliases": ["sqlite", "sqlite3"],
+        "defaultPort": 0,
+        "icon": "SL",
+        "order": 30,
+        "builtinLayout": true,
+        "fields": [{ "key": "database", "type": "path" }]
+      },
+      "workbench": {
+        "tree": "schema",
+        "editor": "sql",
+        "preview": "grid",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

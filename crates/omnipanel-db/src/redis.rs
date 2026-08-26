@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use redis::{AsyncCommands, Client, aio::MultiplexedConnection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{DbDriver, DbParams, QueryResult};
@@ -11,7 +11,7 @@ use crate::redis_ops::{
 };
 
 /// Redis 键搜索结果（供查询面板展示）。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisKeyEntry {
     pub key: String,
@@ -20,7 +20,7 @@ pub struct RedisKeyEntry {
 }
 
 /// 分页 SCAN 搜索结果。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisSearchKeysResult {
     pub entries: Vec<RedisKeyEntry>,
@@ -34,7 +34,7 @@ pub struct RedisSearchKeysResult {
 }
 
 /// 逻辑库名 + key 条数（`INFO keyspace`）。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisDatabaseInfo {
     pub name: String,
@@ -43,7 +43,7 @@ pub struct RedisDatabaseInfo {
 }
 
 /// 单个 key 的详情（类型 / TTL / 大小 / 值预览）。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisKeyDetail {
     pub key: String,
@@ -61,7 +61,7 @@ pub struct RedisKeyDetail {
 }
 
 /// 慢日志条目。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisSlowLogEntry {
     #[specta(type = f64)]
@@ -95,6 +95,7 @@ pub struct RedisDriver {
     conn: MultiplexedConnection,
 }
 
+#[cfg_attr(not(feature = "sidecar-serve"), allow(dead_code))]
 impl RedisDriver {
     pub async fn connect(params: &DbParams) -> OmniResult<Self> {
         let port = if params.port == 0 {

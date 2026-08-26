@@ -1,0 +1,33 @@
+{
+  "id": "omni.engine.mysql",
+  "version": "0.1.0",
+  "kind": "engine",
+  "runtime": "inproc",
+  "permissions": ["net:connect"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "mysql",
+        "aliases": ["mysql", "mariadb"],
+        "defaultPort": 3306,
+        "icon": "MY",
+        "order": 10,
+        "builtinLayout": true,
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" },
+          { "key": "ssl", "type": "checkbox" }
+        ]
+      },
+      "workbench": {
+        "tree": "schema",
+        "editor": "sql",
+        "preview": "grid",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "omni.engine.mongodb",
+  "version": "0.1.0",
+  "kind": "engine",
+  "runtime": "sidecar",
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-engine-mongodb"
+  },
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "mongodb",
+        "aliases": ["mongodb", "mongo"],
+        "defaultPort": 27017,
+        "icon": "MG",
+        "order": 50,
+        "builtinLayout": true,
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" },
+          { "key": "ssl", "type": "checkbox" }
+        ]
+      },
+      "workbench": {
+        "tree": "documents",
+        "editor": "none",
+        "preview": "document",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

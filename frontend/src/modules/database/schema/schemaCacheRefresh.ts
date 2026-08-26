@@ -8,6 +8,7 @@ import {
   listDatabases,
   listDatabasesWithStats,
 } from "../api";
+import { connectionSupportsUsers } from "../users/userEngine";
 import type {
   SchemaCacheConnectionEntry,
   SchemaCacheDatabaseEntry,
@@ -115,10 +116,12 @@ export async function fetchConnectionSchemaCache(
     }
 
     let users: Awaited<ReturnType<typeof listConnectionUsers>> = [];
-    try {
-      users = await listConnectionUsers(connection, { quiet: true });
-    } catch {
-      users = [];
+    if (connectionSupportsUsers(connection)) {
+      try {
+        users = await listConnectionUsers(connection, { quiet: true });
+      } catch {
+        users = [];
+      }
     }
 
     return { databases, users, refreshedAt };

@@ -3,6 +3,8 @@ import {
   formatMysqlUserHost,
   mysqlQuoteId,
   mysqlQuoteLiteral,
+  oracleQuoteId,
+  oracleQuoteLiteral,
   pgQuoteId,
   pgQuoteLiteral,
   resolveUserEngine,
@@ -21,6 +23,9 @@ export function buildCreateUserSql(
   if (engine === "mysql") {
     return `CREATE USER ${formatMysqlUserHost(n, host)} IDENTIFIED BY ${mysqlQuoteLiteral(password)}`;
   }
+  if (engine === "oracle") {
+    return `CREATE USER ${oracleQuoteId(n)} IDENTIFIED BY ${oracleQuoteLiteral(password)}`;
+  }
   return `CREATE ROLE ${pgQuoteId(n)} WITH LOGIN PASSWORD ${pgQuoteLiteral(password)}`;
 }
 
@@ -35,6 +40,9 @@ export function buildChangePasswordSql(
   if (!engine || !n) return null;
   if (engine === "mysql") {
     return `ALTER USER ${formatMysqlUserHost(n, host)} IDENTIFIED BY ${mysqlQuoteLiteral(password)}`;
+  }
+  if (engine === "oracle") {
+    return `ALTER USER ${oracleQuoteId(n)} IDENTIFIED BY ${oracleQuoteLiteral(password)}`;
   }
   return `ALTER ROLE ${pgQuoteId(n)} PASSWORD ${pgQuoteLiteral(password)}`;
 }
@@ -51,6 +59,9 @@ export function buildSetLoginEnabledSql(
   if (engine === "mysql") {
     const lock = enabled ? "ACCOUNT UNLOCK" : "ACCOUNT LOCK";
     return `ALTER USER ${formatMysqlUserHost(n, host)} ${lock}`;
+  }
+  if (engine === "oracle") {
+    return `ALTER USER ${oracleQuoteId(n)} ACCOUNT ${enabled ? "UNLOCK" : "LOCK"}`;
   }
   return `ALTER ROLE ${pgQuoteId(n)} ${enabled ? "LOGIN" : "NOLOGIN"}`;
 }
@@ -90,6 +101,17 @@ export function buildGrantSql(
     return `GRANT ${privList} ON ${scope} TO ${target}${grantOpt}`;
   }
 
+  if (engine === "oracle") {
+    const user = oracleQuoteId(opts.name);
+    if (opts.scopeKind === "table") {
+      const owner = opts.database?.trim() || opts.schema?.trim();
+      const table = opts.table?.trim();
+      if (!owner || !table) return null;
+      return `GRANT ${privList} ON ${oracleQuoteId(owner)}.${oracleQuoteId(table)} TO ${user}${grantOpt}`;
+    }
+    return `GRANT ${privList} TO ${user}${grantOpt}`;
+  }
+
   const role = pgQuoteId(opts.name);
   if (opts.scopeKind === "database") {
     const db = opts.database?.trim();
@@ -121,10 +143,19 @@ export function buildRevokeSql(
 ): string | null {
   const privs = opts.privileges.trim();
   const scope = opts.scopeSql.trim();
-  if (!privs || !scope) return null;
+  if (!privs) return null;
   if (engine === "mysql") {
+    if (!scope) return null;
     return `REVOKE ${privs} ON ${scope} FROM ${formatMysqlUserHost(opts.name, opts.host)}`;
   }
+  if (engine === "oracle") {
+    const user = oracleQuoteId(opts.name);
+    if (!scope || scope === "*") {
+      return `REVOKE ${privs} FROM ${user}`;
+    }
+    return `REVOKE ${privs} ON ${scope} FROM ${user}`;
+  }
+  if (!scope) return null;
   return `REVOKE ${privs} ON ${scope} FROM ${pgQuoteId(opts.name)}`;
 }
 

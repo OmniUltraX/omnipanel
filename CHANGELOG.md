@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **数据库 · sidecar 引擎**：ClickHouse / MongoDB / Redis / SQL Server 走独立 sidecar；DBX 插件（Oracle、达梦、Hive 等）可装即用
+- **数据库 · 方言家族工作台**：Oracle 系 / PG 系 / MySQL 系 / Hive 系补齐库列表统计、表详情、用户与表设计，不再因「不支持的数据库类型」残缺工作区
+
 ## [0.8.8] - 2026-08-25
 
 ### 新增

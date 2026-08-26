@@ -1,0 +1,13 @@
+[package]
+name = "omnipanel-engine-mongodb"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "omnipanel-engine-mongodb"
+path = "src/main.rs"
+
+[dependencies]
+omnipanel-db = { path = "../omnipanel-db", default-features = false, features = ["engine-mongodb"] }
+tokio = { workspace = true }

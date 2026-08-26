@@ -305,6 +305,12 @@ export function mergeColumnFilter(
 
 function quoteSqlIdentifier(name: string, dbType: string): string {
   const normalized = dbType.toLowerCase();
+  if (normalized.includes("sqlserver") || normalized.includes("mssql")) {
+    return name
+      .split(".")
+      .map((part) => `[${part.replaceAll("]", "]]")}]`)
+      .join(".");
+  }
   const safe = normalized === "mysql" || normalized === "mariadb"
     ? name.replace(/`/g, "")
     : name.replace(/"/g, "");
@@ -312,6 +318,32 @@ function quoteSqlIdentifier(name: string, dbType: string): string {
     return `\`${safe}\``;
   }
   return `"${safe}"`;
+}
+
+function previewPaginationSql(
+  dbType: string,
+  limit: number,
+  offset: number,
+  hasOrder: boolean,
+): { extraOrder: string; suffix: string } {
+  const engine = dbType.trim().toLowerCase();
+  if (engine === "cassandra") {
+    return { extraOrder: "", suffix: ` LIMIT ${limit}` };
+  }
+  if (
+    engine.includes("sqlserver") ||
+    engine.includes("mssql") ||
+    engine === "oracle" ||
+    engine === "db2"
+  ) {
+    const extraOrder =
+      hasOrder || engine === "oracle" || engine === "db2" ? "" : " ORDER BY (SELECT NULL)";
+    return {
+      extraOrder,
+      suffix: ` OFFSET ${offset} ROWS FETCH NEXT ${limit} ROWS ONLY`,
+    };
+  }
+  return { extraOrder: "", suffix: ` LIMIT ${limit} OFFSET ${offset}` };
 }
 
 export interface TablePreviewSqlContext {
@@ -339,21 +371,38 @@ export function buildTablePreviewSql({
   selectColumns,
   columnMeta,
 }: TablePreviewSqlContext): string {
-  const tableRef = quoteSqlIdentifier(tableName, dbType);
+  const engine = dbType.trim().toLowerCase();
   const whereClause = formatFilterWhere(filter, dbType, columnMeta);
-  const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
-  const orderSql = sort ? ` ORDER BY ${buildOrderByClause(sort, dbType)}` : "";
   const limit = Math.max(0, pageSize);
   const offset = Math.max(0, page) * limit;
+  if (engine === "neo4j") {
+    const label = /^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)
+      ? tableName
+      : `\`${tableName.replaceAll("`", "``")}\``;
+    const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
+    return `MATCH (n:${label})${whereSql} RETURN n SKIP ${offset} LIMIT ${limit}`;
+  }
+  const tableRef = quoteSqlIdentifier(tableName, dbType);
+  const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
+  const hasOrder = Boolean(sort);
+  const orderSql = sort ? ` ORDER BY ${buildOrderByClause(sort, dbType)}` : "";
   const selectSql =
     selectColumns && selectColumns.length > 0
       ? selectColumns.map((col) => quoteSqlIdentifier(col, dbType)).join(", ")
       : "*";
-  return `SELECT ${selectSql} FROM ${tableRef}${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
+  const paging = previewPaginationSql(dbType, limit, offset, hasOrder);
+  return `SELECT ${selectSql} FROM ${tableRef}${whereSql}${orderSql}${paging.extraOrder}${paging.suffix}`;
 }
 
 /** 为当前表生成简单的 SELECT * 语句（SQL 查询 Tab 预填用） */
 export function buildSelectAllFromTableSql(dbType: string, tableName: string): string {
+  const engine = dbType.trim().toLowerCase();
+  if (engine === "neo4j") {
+    const label = /^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)
+      ? tableName
+      : `\`${tableName.replaceAll("`", "``")}\``;
+    return `MATCH (n:${label}) RETURN n LIMIT 50;`;
+  }
   const tableRef = quoteSqlIdentifier(tableName, dbType);
   return `SELECT * FROM ${tableRef};`;
 }

@@ -21,6 +21,8 @@ import {
   type DbConnectionConfig,
   type DbDatabaseMeta,
 } from "../api";
+import { hostCapabilities } from "../hostCapabilities";
+import { getEngineWorkbench } from "../engineRegistry";
 import {
   probeMysqlDeployment,
   type MysqlDeploymentInfo,
@@ -49,6 +51,7 @@ import { useDbMysqlLogNavStore } from "../stores/dbMysqlLogNavStore";
 import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
 import { ConnectionUsersTabPanel } from "./ConnectionUsersTabPanel";
 import { useDbConnectionInfoNavStore } from "../stores/dbConnectionInfoNavStore";
+import { resolveUserEngine } from "../users/userEngine";
 
 const MYSQL_PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
 const MYSQL_VARIABLES_SQL = "SHOW VARIABLES;";
@@ -313,8 +316,11 @@ export function DatabaseConnectionInfoPanel({
   const { t } = useI18n();
   const isMysql = isMysqlConnectionInfoCapable(connection);
   const isPostgres = isPostgresConnectionInfoCapable(connection);
-  /** 连接信息面板是否支持该连接（MySQL/MariaDB 或 PostgreSQL） */
-  const capable = isMysql || isPostgres;
+  const caps = hostCapabilities(connection.db_type);
+  const extra = caps.connectionInfoExtra;
+  const canCreateDb = caps.createDatabase;
+  const showPanel =
+    extra || getEngineWorkbench(connection.db_type).connectionInfo === "sql";
   const sshConnections = useConnectionStore(
     useShallow((state) => state.connections.filter((conn) => conn.kind === "ssh")),
   );
@@ -343,7 +349,7 @@ export function DatabaseConnectionInfoPanel({
   const [variablesLoading, setVariablesLoading] = useState(false);
   const [deploymentLoading, setDeploymentLoading] = useState(false);
   const [deployment, setDeployment] = useState<MysqlDeploymentInfo | null>(() =>
-    capable ? readMysqlDeploymentCache(connection) : null,
+    extra ? readMysqlDeploymentCache(connection) : null,
   );
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [variablesError, setVariablesError] = useState<string | null>(null);
@@ -381,7 +387,10 @@ export function DatabaseConnectionInfoPanel({
   const cachedUsers = useDbSchemaCacheStore(
     (s) => s.snapshot.connections?.[connection.id]?.users,
   );
-  const usersAvailable = cachedUsers === undefined || cachedUsers.length > 0;
+  const userEngine = resolveUserEngine(connection.db_type);
+  const usersAvailable =
+    Boolean(userEngine) &&
+    (userEngine !== "mysql" || cachedUsers === undefined || cachedUsers.length > 0);
 
   const connectionLabel = useMemo(() => {
     const name = connection.name?.trim();
@@ -451,7 +460,7 @@ export function DatabaseConnectionInfoPanel({
   }, [connection]);
 
   const refreshConnections = useCallback(async (options?: { silent?: boolean }) => {
-    if (!capable) {
+    if (!extra) {
       return;
     }
 
@@ -474,10 +483,10 @@ export function DatabaseConnectionInfoPanel({
         setConnectionsLoading(false);
       }
     }
-  }, [capable, connection, isPostgres]);
+  }, [extra, connection, isPostgres]);
 
   const refreshVariables = useCallback(async (options?: { silent?: boolean }) => {
-    if (!capable) {
+    if (!extra) {
       return;
     }
 
@@ -501,7 +510,7 @@ export function DatabaseConnectionInfoPanel({
         setVariablesLoading(false);
       }
     }
-  }, [capable, connection, isPostgres]);
+  }, [extra, connection, isPostgres]);
 
   const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
     // 部署探测目前仅支持 MySQL；PG 跳过
@@ -648,7 +657,7 @@ export function DatabaseConnectionInfoPanel({
 
   // 连接 tab：首次切到时拉取 processlist；后续重新进入时静默刷新（保留旧数据可见）
   useEffect(() => {
-    if (!active || !capable || subTab !== "connections") {
+    if (!active || !extra || subTab !== "connections") {
       connectionsTabEnteredRef.current = false;
       return;
     }
@@ -664,7 +673,7 @@ export function DatabaseConnectionInfoPanel({
       // 重新进入：有旧数据，静默刷新
       void refreshConnections({ silent: true });
     }
-  }, [active, capable, subTab, connectionsResult, connectionsLoading, connectionsError, refreshConnections]);
+  }, [active, extra, subTab, connectionsResult, connectionsLoading, connectionsError, refreshConnections]);
 
   /** 面板激活时探测部署（顶部标签常驻）；已有结果（含 unknown）不重复，SSH 就绪由下方 effect 强制重试 */
   useEffect(() => {
@@ -716,7 +725,7 @@ export function DatabaseConnectionInfoPanel({
   ]);
 
   useEffect(() => {
-    if (!active || !capable || subTab !== "status") {
+    if (!active || !extra || subTab !== "status") {
       return;
     }
     if (variablesResult == null && !variablesLoading && variablesError == null) {
@@ -724,7 +733,7 @@ export function DatabaseConnectionInfoPanel({
     }
   }, [
     active,
-    capable,
+    extra,
     subTab,
     variablesResult,
     variablesLoading,
@@ -1241,7 +1250,7 @@ export function DatabaseConnectionInfoPanel({
   const renderPanelMainContent = () => (
     <>
       {/* 保持挂载以保留命令行会话；仅用 visible/panelActive 控制展示与焦点 */}
-      {capable ? renderCliSession() : null}
+      {extra ? renderCliSession() : null}
       {subTab === "databases"
         ? renderDatabasesList()
         : subTab === "users"
@@ -1270,9 +1279,9 @@ export function DatabaseConnectionInfoPanel({
                 ? t("database.connectionInfo.variablesSearch")
                 : ""
       }
-      enabled={capable && subTab !== "cli" && subTab !== "users"}
+      enabled={showPanel && subTab !== "cli" && subTab !== "users"}
     >
-      {capable ? (
+      {showPanel ? (
         <div className="db-tables-panel-header db-connection-info-header">
           <span className="db-tables-panel-header-label">
             {t("database.connectionInfo.headerLabel")}
@@ -1377,7 +1386,7 @@ export function DatabaseConnectionInfoPanel({
           </div>
         </div>
       ) : null}
-      {capable ? (
+      {showPanel ? (
         <div className="db-connection-info-tabs" role="tablist">
           <button
             type="button"
@@ -1405,6 +1414,8 @@ export function DatabaseConnectionInfoPanel({
               {t("database.connectionInfo.tabs.users")}
             </button>
           ) : null}
+          {extra ? (
+            <>
           <button
             type="button"
             role="tab"
@@ -1441,6 +1452,8 @@ export function DatabaseConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.cli")}
           </button>
+            </>
+          ) : null}
         </div>
       ) : null}
       <div
@@ -1469,9 +1482,9 @@ export function DatabaseConnectionInfoPanel({
           onClick={() => {
             void refreshActiveTab();
           }}
-          disabled={tabLoading || !capable}
+          disabled={tabLoading || !showPanel}
         />
-        {subTab === "databases" && capable ? (
+        {subTab === "databases" && canCreateDb ? (
           <div className="db-tables-panel-meta-actions">
             <Button
               variant="ghost"
@@ -1497,7 +1510,7 @@ export function DatabaseConnectionInfoPanel({
     </ScopedSearch>
   );
 
-  if (!capable) {
+  if (!showPanel) {
     return (
       <>
         {panelBody(

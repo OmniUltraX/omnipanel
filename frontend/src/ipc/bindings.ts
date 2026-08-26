@@ -1037,6 +1037,10 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
+	/**  列出当前平台可安装的 DBX SQL / CQL / Cypher agent（不含第一方引擎 / DuckDB worker / 队列）。 */
+	pluginDbxCatalog: () => typedError<DbxCatalogDriver[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_catalog")),
+	/**  从 DBX 官方目录下载 native 或 JDBC agent，写入 `app_data/plugins/omni.engine.<key>/`。 */
+	pluginDbxInstall: (key: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install", { key })),
 	/**  列出任务，可选按状态过滤。 */
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
 	/**  获取单个任务。 */
@@ -2313,8 +2317,12 @@ export type DbConnectionConfig = {
 	/**  明文仅提交时存在；持久化与列表返回为空，用 `has_password` 表示钥匙串是否有密码。 */
 	password?: string,
 	database: string,
-	/**  是否启用 SSL（MySQL 等）。 */
+	/**  是否启用 SSL（MySQL 等）。SQL Server 表示加密传输。 */
 	ssl?: boolean,
+	/**  Oracle SID；空则使用 database 作为服务名。 */
+	sid?: string,
+	/**  Oracle 以 SYSDBA 登录。 */
+	sysdba?: boolean,
 	status?: string,
 	/**  是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。 */
 	enabled?: boolean,
@@ -4265,6 +4273,18 @@ export type PluginManifestDto = {
 
 /**  插件来源：编译期内置（不可卸载）vs 磁盘安装（可卸载/升级）。 */
 export type PluginSource = "builtin" | "installed";
+
+export type DbxCatalogDriver = {
+	key: string
+	pluginId: string
+	label: string
+	version: string
+	defaultPort: number
+	size: number
+	artifactKind: string
+	installed: boolean
+	installedVersion: string | null
+}
 
 /**  单类连接的活跃 / 空闲统计。 */
 export type PoolCategorySummary = {

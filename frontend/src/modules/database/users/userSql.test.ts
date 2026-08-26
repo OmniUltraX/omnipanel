@@ -34,6 +34,18 @@ describe("userSql", () => {
     );
   });
 
+  it("builds oracle / dameng create / password / lock", () => {
+    expect(buildCreateUserSql("dameng", "APP", "s3cret")).toBe(
+      'CREATE USER "APP" IDENTIFIED BY \'s3cret\'',
+    );
+    expect(buildChangePasswordSql("oracle", "APP", "n")).toBe(
+      'ALTER USER "APP" IDENTIFIED BY \'n\'',
+    );
+    expect(buildSetLoginEnabledSql("dameng", "APP", false)).toBe(
+      'ALTER USER "APP" ACCOUNT LOCK',
+    );
+  });
+
   it("builds grant sql per engine", () => {
     expect(
       buildGrantSql("mysql", {
@@ -54,5 +66,15 @@ describe("userSql", () => {
         database: "postgres",
       }),
     ).toBe('GRANT CONNECT, TEMPORARY ON DATABASE "postgres" TO "app"');
+
+    expect(
+      buildGrantSql("oracle", {
+        name: "APP",
+        privileges: ["SELECT"],
+        scopeKind: "table",
+        database: "SYSDBA",
+        table: "EMP",
+      }),
+    ).toBe('GRANT SELECT ON "SYSDBA"."EMP" TO "APP"');
   });
 });

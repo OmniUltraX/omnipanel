@@ -1,8 +1,12 @@
 {
   "id": "omni.engine.clickhouse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "engine",
+  "runtime": "sidecar",
   "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-engine-clickhouse"
+  },
   "contributes": {
     "ui": {
       "connectionForm": {
@@ -10,6 +14,7 @@
         "aliases": ["clickhouse", "ch"],
         "defaultPort": 8123,
         "icon": "CH",
+        "order": 70,
         "fields": [
           { "key": "host", "type": "text" },
           { "key": "port", "type": "number" },

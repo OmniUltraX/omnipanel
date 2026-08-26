@@ -1,0 +1,33 @@
+{
+  "id": "omni.engine.postgres",
+  "version": "0.1.0",
+  "kind": "engine",
+  "runtime": "inproc",
+  "permissions": ["net:connect"],
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "postgresql",
+        "aliases": ["postgresql", "postgres", "pg"],
+        "defaultPort": 5432,
+        "icon": "PG",
+        "order": 20,
+        "builtinLayout": true,
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" },
+          { "key": "ssl", "type": "checkbox" }
+        ]
+      },
+      "workbench": {
+        "tree": "schema",
+        "editor": "sql",
+        "preview": "grid",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

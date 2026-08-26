@@ -19,6 +19,25 @@ describe("parseEngineWorkbench", () => {
     });
   });
 
+  it("reads neo4j cypher and cassandra cql slots", () => {
+    expect(
+      parseEngineWorkbench({
+        tree: "schema",
+        editor: "cypher",
+        preview: "grid",
+        connectionInfo: "sql",
+      })?.editor,
+    ).toBe("cypher");
+    expect(
+      parseEngineWorkbench({
+        tree: "schema",
+        editor: "cql",
+        preview: "grid",
+        connectionInfo: "sql",
+      })?.editor,
+    ).toBe("cql");
+  });
+
   it("returns null for empty object", () => {
     expect(parseEngineWorkbench({})).toBeNull();
   });

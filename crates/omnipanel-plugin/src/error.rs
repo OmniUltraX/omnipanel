@@ -18,6 +18,8 @@ pub enum PluginError {
     },
     #[error("插件 {plugin_id} 未声明方法 {method}")]
     UnknownMethod { plugin_id: String, method: String },
+    #[error("内置数据库引擎不可关闭: {0}")]
+    AlwaysOn(String),
     #[error("插件 {0} 在当前平台不可用")]
     UnsupportedPlatform(String),
     #[error("{0}")]
@@ -41,7 +43,8 @@ impl From<PluginError> for OmniError {
             PluginError::UnknownKind(_)
             | PluginError::InvalidManifest(_)
             | PluginError::UnknownMethod { .. }
-            | PluginError::UnsupportedPlatform(_) => ErrorCode::InvalidInput,
+            | PluginError::UnsupportedPlatform(_)
+            | PluginError::AlwaysOn(_) => ErrorCode::InvalidInput,
             PluginError::Invoke(_) => ErrorCode::Internal,
         };
         OmniError::new(code, err.to_string())

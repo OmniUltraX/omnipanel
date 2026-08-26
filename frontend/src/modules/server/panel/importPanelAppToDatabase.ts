@@ -255,6 +255,8 @@ export function buildDbFormFromPanelApp(options: {
     username: pickUsername(options.engine, map),
     password: pickPassword(map),
     ssl: false,
+    sid: "",
+    sysdba: false,
     group: options.server.name.trim() || "默认",
   };
 }

@@ -1,0 +1,36 @@
+{
+  "id": "omni.engine.oracle",
+  "version": "0.1.0",
+  "kind": "engine",
+  "runtime": "sidecar",
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/agent.mjs"
+  },
+  "contributes": {
+    "ui": {
+      "connectionForm": {
+        "engineKey": "oracle",
+        "aliases": ["oracle", "orcl"],
+        "defaultPort": 1521,
+        "icon": "OR",
+        "order": 90,
+        "builtinLayout": true,
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "database", "type": "text", "optional": true },
+          { "key": "username", "type": "text" },
+          { "key": "password", "type": "password" },
+          { "key": "ssl", "type": "checkbox" }
+        ]
+      },
+      "workbench": {
+        "tree": "schema",
+        "editor": "sql",
+        "preview": "grid",
+        "connectionInfo": "sql"
+      }
+    }
+  }
+}

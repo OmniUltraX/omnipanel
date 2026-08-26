@@ -42,7 +42,7 @@ const APPDATA = process.env.APPDATA + "\\com.omnipanel.app\\plugins";
 
 async function run() {
   const baseline = await rawInvoke("plugin_list");
-  ok("A 基线 plugin_list = 10 内置", Array.isArray(baseline) && baseline.length === 10, `got ${baseline?.length}`);
+  ok("A 基线 plugin_list = 15 内置", Array.isArray(baseline) && baseline.length === 15, `got ${baseline?.length}`);
 
   const inst = await tryInvoke("plugin_install_from_file", { path: process.env.TEMP + "\\opencode\\l1-starter.omni-plugin" });
   ok("B 安装 l1-starter", inst.__ok && inst.r?.source === "installed" && inst.r?.activated === true, JSON.stringify(inst.r ?? inst.err).slice(0, 120));
@@ -74,7 +74,7 @@ async function run() {
   const unl3 = await tryInvoke("plugin_uninstall", { pluginId: "omni.addon.translator" });
   ok("H1 卸载 l1+l3 成功", unl1.__ok && unl3.__ok);
   const after = await rawInvoke("plugin_list");
-  ok("H2 列表回到 10 内置", Array.isArray(after) && after.length === 10, `got ${after?.length}`);
+  ok("H2 列表回到 15 内置", Array.isArray(after) && after.length === 15, `got ${after?.length}`);
   ok("H3 磁盘目录已清理", !fs.existsSync(APPDATA + "\\omni.engine.l1-starter") && !fs.existsSync(APPDATA + "\\omni.addon.translator"));
 
   const noUn = await tryInvoke("plugin_uninstall", { pluginId: "omni.engine.redis" });
