@@ -47,14 +47,24 @@ export const pluginMethodSchema = z.object({
 
 export type PluginMethod = z.infer<typeof pluginMethodSchema>;
 
+export const pluginRuntimeSchema = z.enum(["inproc", "sidecar", "http"]);
+
+export type PluginRuntime = z.infer<typeof pluginRuntimeSchema>;
+
 /** L2/L3 入口声明；缺省为纯声明式（L1）插件。 */
 export const pluginEntrySchema = z
   .object({
-    /** 逻辑包相对路径（安装目录内），当前仅支持 .wasm。 */
+    /** 逻辑包相对路径（安装目录内），当前仅支持 .wasm / .js。 */
     logic: z
       .string()
       .regex(/^[^/\\][^:]*\.(wasm|js)$/i)
       .refine((p) => !p.split(/[\\/]/).includes(".."))
+      .optional(),
+    /** T1 sidecar 可执行文件相对路径（安装目录内或与主程序同名二进制）。 */
+    driver: z
+      .string()
+      .min(1)
+      .refine((p) => !p.startsWith("/") && !p.startsWith("\\") && !p.split(/[\\/]/).includes(".."))
       .optional(),
   })
   .optional();
@@ -68,6 +78,7 @@ export const pluginManifestSchema = z.object({
   permissions: z.array(pluginPermissionSchema).default([]),
   methods: z.array(pluginMethodSchema).optional(),
   entry: pluginEntrySchema,
+  runtime: pluginRuntimeSchema.optional(),
   /** 所需最低宿主 API 版本；超过宿主当前版本时拒绝装载。 */
   minHostApi: z.number().int().positive().optional(),
   platforms: z.array(pluginPlatformSchema).optional(),
@@ -76,14 +87,14 @@ export const pluginManifestSchema = z.object({
       ui: z
         .object({
           sidebar: z.boolean().optional(),
-          moduleKey: z.string().min(1).optional(),
+          moduleKey: z.string().optional(),
           connectionForm: z.unknown().optional(),
           panelTabs: z.array(z.unknown()).optional(),
           commands: z.array(z.unknown()).optional(),
           workbench: z
             .object({
               tree: z.enum(["schema", "kv", "collections", "documents", "none"]).optional(),
-              editor: z.enum(["sql", "redis", "none"]).optional(),
+              editor: z.enum(["sql", "cypher", "cql", "redis", "none"]).optional(),
               preview: z.enum(["grid", "key", "points", "document", "none"]).optional(),
               connectionInfo: z.enum(["sql", "redis", "none"]).optional(),
             })
@@ -92,14 +103,23 @@ export const pluginManifestSchema = z.object({
         .optional(),
       menus: z.array(z.unknown()).optional(),
       overlays: z.array(z.unknown()).optional(),
-      launcher: z.object({ prefix: z.string().min(1) }).optional(),
+      launcher: z.object({ prefix: z.string().min(1) }).nullable().optional(),
       discovery: z.array(z.object({ probeId: z.string() })).optional(),
       importers: z.array(z.unknown()).optional(),
-      themes: z.object({ tokens: z.unknown().optional() }).optional(),
-      ai: z.object({ tools: z.array(aiToolContributionSchema).optional() }).optional(),
-      workspace: z.unknown().optional(),
+      themes: z.object({ tokens: z.unknown().optional() }).nullable().optional(),
+      ai: z.object({ tools: z.array(aiToolContributionSchema).optional() }).nullable().optional(),
+      workspace: z.unknown().nullable().optional(),
     })
     .default({}),
+})
+.superRefine((val, ctx) => {
+  if (val.runtime === "sidecar" && !val.entry?.driver) {
+    ctx.addIssue({
+      code: "custom",
+      message: "runtime=sidecar 必须声明 entry.driver",
+      path: ["entry", "driver"],
+    });
+  }
 });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;

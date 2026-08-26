@@ -46,6 +46,7 @@ pub mod local_file_log;
 pub mod opencode;
 pub mod panel;
 pub mod plugin;
+pub mod dbx_catalog;
 pub mod pool;
 pub mod protocol;
 pub mod proxy;

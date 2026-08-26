@@ -351,6 +351,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "asynchronous-codec"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4057f2c32adbb2fc158e22fb38433c8e9bbf76b75a4732c7c0cbaf695fb65568"
+dependencies = [
+ "bytes",
+ "futures-sink",
+ "futures-util",
+ "memchr",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1037,6 +1050,12 @@ checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
 ]
+
+[[package]]
+name = "connection-string"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "510ca239cf13b7f8d16a2b48f263de7b4f8c566f0af58d901031473c76afb1e3"
 
 [[package]]
 name = "const-oid"
@@ -5123,6 +5142,7 @@ dependencies = [
  "sqlx",
  "suppaftp",
  "sysinfo",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -5146,6 +5166,7 @@ dependencies = [
  "urlencoding",
  "webview2-com",
  "windows 0.61.3",
+ "zstd",
 ]
 
 [[package]]
@@ -5208,11 +5229,14 @@ dependencies = [
  "redis",
  "reqwest 0.12.28",
  "rusqlite",
+ "rustls 0.23.40",
  "serde",
  "serde_json",
  "specta",
  "sqlx",
+ "tiberius",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -5258,6 +5282,46 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "omnipanel-engine-clickhouse"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-db",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-engine-mongodb"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-db",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-engine-mysql"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-db",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-engine-postgres"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-db",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-engine-redis"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-db",
+ "tokio",
 ]
 
 [[package]]
@@ -6155,6 +6219,12 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "pretty-hex"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6fa0831dd7cc608c38a5e323422a0077678fa5744aa2be4ad91c4ece8eec8d5"
 
 [[package]]
 name = "prettyplease"
@@ -9238,6 +9308,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "tiberius"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1446cb4198848d1562301a3340424b4f425ef79f35ef9ee034769a9dd92c10d"
+dependencies = [
+ "async-trait",
+ "asynchronous-codec",
+ "byteorder",
+ "bytes",
+ "chrono",
+ "connection-string",
+ "encoding_rs",
+ "enumflags2",
+ "futures-util",
+ "num-traits",
+ "once_cell",
+ "pin-project-lite",
+ "pretty-hex",
+ "rustls-native-certs 0.6.3",
+ "rustls-pemfile 1.0.4",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-rustls 0.24.1",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

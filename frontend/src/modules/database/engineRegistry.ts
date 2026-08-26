@@ -1,8 +1,7 @@
 import type { PluginManifest } from "@omnipanel/plugin-sdk";
 import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
-import { listPluginManifests } from "../../lib/pluginManifests";
+import { FIRST_PARTY_PLUGIN_MANIFESTS, listPluginManifests } from "../../lib/pluginManifests";
 import {
-  DOCUMENT_WORKBENCH,
   parseEngineWorkbench,
   SQL_WORKBENCH,
   UNAVAILABLE_WORKBENCH,
@@ -29,71 +28,11 @@ export type EngineDescriptor = {
   /** 内置布局；未知引擎走 form.fields */
   builtinLayout: boolean;
   supported: boolean;
+  /** 连接对话框芯片顺序，越小越靠前 */
+  order: number;
   form: { fields: EngineFormField[] };
   workbench: EngineWorkbench;
 };
-
-const NETWORK_FIELDS: EngineFormField[] = [
-  { key: "host", type: "text" },
-  { key: "port", type: "number" },
-  { key: "database", type: "text", optional: true },
-  { key: "username", type: "text" },
-  { key: "password", type: "password" },
-  { key: "ssl", type: "checkbox" },
-];
-
-const descriptors: EngineDescriptor[] = [
-  {
-    id: "mysql",
-    aliases: ["mysql", "mariadb"],
-    defaultPort: 3306,
-    icon: "MY",
-    builtinLayout: true,
-    supported: true,
-    form: { fields: NETWORK_FIELDS },
-    workbench: SQL_WORKBENCH,
-  },
-  {
-    id: "postgresql",
-    aliases: ["postgresql", "postgres", "pg"],
-    defaultPort: 5432,
-    icon: "PG",
-    builtinLayout: true,
-    supported: true,
-    form: { fields: NETWORK_FIELDS },
-    workbench: SQL_WORKBENCH,
-  },
-  {
-    id: "sqlite",
-    aliases: ["sqlite", "sqlite3"],
-    defaultPort: 0,
-    icon: "SL",
-    builtinLayout: true,
-    supported: true,
-    form: { fields: [{ key: "database", type: "path" }] },
-    workbench: SQL_WORKBENCH,
-  },
-  {
-    id: "mongodb",
-    aliases: ["mongodb", "mongo"],
-    defaultPort: 27017,
-    icon: "MG",
-    builtinLayout: true,
-    supported: true,
-    form: { fields: NETWORK_FIELDS },
-    workbench: DOCUMENT_WORKBENCH,
-  },
-  {
-    id: "sqlserver",
-    aliases: ["sqlserver", "mssql", "sql server"],
-    defaultPort: 1433,
-    icon: "MS",
-    builtinLayout: true,
-    supported: false,
-    form: { fields: NETWORK_FIELDS },
-    workbench: SQL_WORKBENCH,
-  },
-];
 
 type PluginConnectionForm = {
   engineKey?: string;
@@ -102,6 +41,8 @@ type PluginConnectionForm = {
   icon?: string;
   fields?: EngineFormField[];
   builtinLayout?: boolean;
+  supported?: boolean;
+  order?: number;
   workbench?: unknown;
 };
 
@@ -125,7 +66,8 @@ function descriptorFromPlugin(
     defaultPort: parsed.defaultPort ?? 0,
     icon: parsed.icon ?? id.slice(0, 2).toUpperCase(),
     builtinLayout: parsed.builtinLayout === true,
-    supported: true,
+    supported: parsed.supported !== false,
+    order: typeof parsed.order === "number" ? parsed.order : 1000,
     form: { fields: parsed.fields ?? [{ key: "host", type: "text" }, { key: "port", type: "number" }] },
     workbench,
   };
@@ -144,11 +86,21 @@ function pluginEngineKeys(): Set<string> {
   return keys;
 }
 
+const FIRST_PARTY_ENGINE_IDS = new Set(
+  FIRST_PARTY_PLUGIN_MANIFESTS.filter((m) => m.kind === "engine").map((m) => m.id),
+);
+
 function descriptorsFromEnginePlugins(): EngineDescriptor[] {
   const hydrated = usePluginRuntimeStore.getState().hydrated;
   const out: EngineDescriptor[] = [];
   for (const manifest of listPluginManifests("engine")) {
-    if (hydrated && !isPluginActivated(manifest.id)) continue;
+    if (
+      hydrated &&
+      !isPluginActivated(manifest.id) &&
+      !FIRST_PARTY_ENGINE_IDS.has(manifest.id)
+    ) {
+      continue;
+    }
     const desc = descriptorFromPlugin(manifest.id, manifest);
     if (desc) out.push(desc);
   }
@@ -163,10 +115,12 @@ export function registerEngineDescriptor(descriptor: EngineDescriptor): void {
 
 export function listEngineDescriptors(): EngineDescriptor[] {
   const merged = new Map<string, EngineDescriptor>();
-  for (const item of descriptors) merged.set(item.id, item);
   for (const item of descriptorsFromEnginePlugins()) merged.set(item.id, item);
   for (const item of extraPlugins.values()) merged.set(item.id, item);
-  return [...merged.values()];
+  return [...merged.values()].sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 export function resolveEngineKey(raw: string | null | undefined): string | null {

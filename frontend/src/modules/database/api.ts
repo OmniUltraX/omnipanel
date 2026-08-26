@@ -35,6 +35,8 @@ export interface DbConnectionConfig {
   password: string;
   database: string;
   ssl: boolean;
+  sid?: string;
+  sysdba?: boolean;
   group: string;
   status: string;
   /** 是否启用；`false` 时连接在侧栏显示为已关闭且不可展开查询 */
@@ -47,17 +49,6 @@ export interface DbConnectionConfig {
 export function isConnectionEnabled(connection: Pick<DbConnectionConfig, "enabled">): boolean {
   return connection.enabled !== false;
 }
-
-const ENGINE_DEFAULT_PORTS: Record<string, number> = {
-  postgresql: 5432,
-  mysql: 3306,
-  sqlite: 0,
-  sqlserver: 1433,
-  redis: 6379,
-  mongodb: 27017,
-  qdrant: 6333,
-  clickhouse: 8123,
-};
 
 export function normalizeConnectionGroup(group: string | null | undefined): string {
   if (!group || !group.trim() || group === "default") {
@@ -79,6 +70,8 @@ export interface ConnectionFormData {
   username: string;
   password: string;
   ssl: boolean;
+  sid: string;
+  sysdba: boolean;
   group: string;
 }
 
@@ -92,7 +85,7 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
   const port =
     Number.isFinite(parsed) && parsed > 0
       ? parsed
-      : defaultPortForEngine(form.engine) || ENGINE_DEFAULT_PORTS[form.engine] || 0;
+      : defaultPortForEngine(form.engine) || 0;
   let database = formText(form.database).trim();
   if ((form.engine === "qdrant" || form.engine === "clickhouse" || form.engine === "ch") && !database) {
     database = "default";
@@ -112,6 +105,8 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     password: formText(form.password),
     database,
     ssl: Boolean(form.ssl),
+    sid: form.engine === "oracle" || form.engine === "orcl" ? formText(form.sid).trim() : "",
+    sysdba: (form.engine === "oracle" || form.engine === "orcl") && Boolean(form.sysdba),
     group: normalizeConnectionGroup(form.group),
     status: "unknown",
     enabled: true,
@@ -125,11 +120,13 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
     engine,
     name: formText(conn.name),
     host: formText(conn.host),
-    port: String(conn.port ?? defaultPortForEngine(engine) ?? ENGINE_DEFAULT_PORTS[engine] ?? ""),
+    port: String(conn.port ?? defaultPortForEngine(engine) ?? ""),
     database: formText(conn.database),
     username: formText(conn.user),
     password: formText(conn.password),
     ssl: Boolean(conn.ssl),
+    sid: formText(conn.sid),
+    sysdba: Boolean(conn.sysdba),
     // 后端 connections.json 暂无 group 字段，编辑回显时需兜底
     group: normalizeConnectionGroup(conn.group),
   };
@@ -150,7 +147,11 @@ export function connectionHasTableSchemaChildren(
 export function isSqlCapableConnection(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  return getEngineWorkbench(connection.db_type).editor === "sql";
+  return (
+    getEngineWorkbench(connection.db_type).editor === "sql" ||
+    getEngineWorkbench(connection.db_type).editor === "cypher" ||
+    getEngineWorkbench(connection.db_type).editor === "cql"
+  );
 }
 
 /** 数据传输工具箱支持的连接（关系型库；排除 Redis / MongoDB 等）。 */

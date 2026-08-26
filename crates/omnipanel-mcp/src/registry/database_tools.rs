@@ -55,6 +55,8 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
         password: c.password.clone(),
         database: c.database.clone(),
         ssl: c.ssl,
+        sid: c.sid.clone(),
+        sysdba: c.sysdba,
     }
 }
 
@@ -210,7 +212,7 @@ pub async fn execute_sql(args: Value) -> Result<String, String> {
     let sql = require_str(&args, "sql")?;
     let conn = resolve_connection(&connection_name).await?;
     let params = with_database(&conn, &database_name);
-    let wrapped = omnipanel_db::wrap_select_with_limit(&sql, 500, 0);
+    let wrapped = omnipanel_db::wrap_editor_query(&conn.db_type, &sql, 500, 0);
     let driver = connect(&params).await.map_err(|e| e.user_message())?;
     let result = driver.execute(&wrapped).await.map_err(|e| e.user_message())?;
     Ok(format_query_result(&result))

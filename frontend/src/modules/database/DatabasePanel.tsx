@@ -95,6 +95,7 @@ import {
   type DbColumnMeta,
   type DbConnectionConfig,
 } from "./api";
+import { hostCapabilities } from "./hostCapabilities";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./sqlEditor/language/completionItems";
 import { formatSql } from "./sqlIntel/sqlFormat";
 import {
@@ -4021,37 +4022,38 @@ export function DatabasePanel() {
       if (item.type === "table" && context.tableSelection) {
         const selection = context.tableSelection;
         const canDesign = supportsTableDesign(selection.connection);
-        return [
-          {
+        const items: ContextMenuItem[] = [];
+        if (canDesign) {
+          items.push({
             id: "design-table",
             label: t("database.contextMenu.designTable"),
             icon: designIcon,
-            disabled: !canDesign,
             onClick: () => handleDesignTable(selection),
-          },
-          {
-            id: "copy",
-            label: t("database.contextMenu.copy"),
-            icon: copyIcon,
-            children: [
-              {
-                id: "copy-name",
-                label: t("database.contextMenu.copyName"),
-                onClick: () => copyNameForTable(selection),
-              },
-              {
-                id: "copy-ddl",
-                label: t("database.contextMenu.copyDdl"),
-                onClick: () => copyDdlForTable(selection),
-              },
-              {
-                id: "copy-data",
-                label: t("database.contextMenu.copyData"),
-                disabled: true,
-              },
-            ],
-          },
-        ];
+          });
+        }
+        items.push({
+          id: "copy",
+          label: t("database.contextMenu.copy"),
+          icon: copyIcon,
+          children: [
+            {
+              id: "copy-name",
+              label: t("database.contextMenu.copyName"),
+              onClick: () => copyNameForTable(selection),
+            },
+            {
+              id: "copy-ddl",
+              label: t("database.contextMenu.copyDdl"),
+              onClick: () => copyDdlForTable(selection),
+            },
+            {
+              id: "copy-data",
+              label: t("database.contextMenu.copyData"),
+              disabled: true,
+            },
+          ],
+        });
+        return items;
       }
 
       if (item.type === "connection" && context.connection) {
@@ -4119,13 +4121,17 @@ export function DatabasePanel() {
               setDialogOpen(true);
             },
           },
-          {
-            id: "create-database",
-            label: t("database.contextMenu.createDatabase"),
-            icon: plusIcon,
-            disabled: !connEnabled,
-            onClick: () => setCreateDbDialog({ connId: connection.id }),
-          },
+          ...(hostCapabilities(connection.db_type).createDatabase
+            ? [
+                {
+                  id: "create-database",
+                  label: t("database.contextMenu.createDatabase"),
+                  icon: plusIcon,
+                  disabled: !connEnabled,
+                  onClick: () => setCreateDbDialog({ connId: connection.id }),
+                },
+              ]
+            : []),
           {
             id: "view-profile",
             label: t("resource.profile.viewProfile"),

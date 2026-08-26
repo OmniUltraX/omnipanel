@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../../i18n";
-import { commands, type PluginListItem } from "../../ipc/bindings";
+import { commands, type DbxCatalogDriver, type PluginListItem } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { Button } from "../ui/primitives/Button";
 import { openWarpgateImport } from "../../modules/importer/WarpgateImportDialog";
@@ -12,12 +12,18 @@ import {
 } from "../../stores/pluginRuntimeStore";
 import { getPluginManifest } from "../../lib/pluginManifests";
 import { usePluginOverlayStore } from "../../stores/pluginOverlayStore";
+import { useDbxCatalogStore } from "../../stores/dbxCatalogStore";
 
 const PLUGIN_NAME_KEYS: Record<string, string> = {
   [PLUGIN_ID_EVERYTHING]: "plugins.names.everything",
   "omni.cloud.aliyun": "plugins.names.aliyun",
   "omni.engine.qdrant": "plugins.names.qdrant",
   "omni.engine.clickhouse": "plugins.names.clickhouse",
+  "omni.engine.mongodb": "plugins.names.mongodb",
+  "omni.engine.mysql": "plugins.names.mysql",
+  "omni.engine.postgres": "plugins.names.postgres",
+  "omni.engine.sqlite": "plugins.names.sqlite",
+  "omni.engine.sqlserver": "plugins.names.sqlserver",
   "omni.engine.redis": "plugins.names.redis",
   "omni.module.nacos": "plugins.names.nacos",
   [PLUGIN_ID_WARPGATE]: "plugins.names.warpgate",
@@ -31,12 +37,27 @@ const UNSUPPORTED_REASON_KEYS: Record<string, string> = {
   "platform.unsupported": "plugins.unsupported.platform",
 };
 
+function formatCatalogSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function isAlwaysOnEngine(item: PluginListItem): boolean {
+  return item.source === "builtin" && item.kind === "engine";
+}
+
 export function PluginsSettingsSection() {
   const { t } = useI18n();
   const [items, setItems] = useState<PluginListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const catalog = useDbxCatalogStore((s) => s.drivers);
+  const catalogRefreshing = useDbxCatalogStore((s) => s.refreshing);
+  const refreshCatalog = useDbxCatalogStore((s) => s.refresh);
+  const catalogLoading = catalogRefreshing && catalog.length === 0;
+  const [installingKey, setInstallingKey] = useState<string | null>(null);
   const syncRuntime = usePluginRuntimeStore((s) => s.reload);
 
   const reload = useCallback(async () => {
@@ -50,9 +71,18 @@ export function PluginsSettingsSection() {
     }
   }, [syncRuntime]);
 
+  const loadCatalog = useCallback(async () => {
+    try {
+      await refreshCatalog();
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [refreshCatalog]);
+
   useEffect(() => {
     void reload();
-  }, [reload]);
+    void loadCatalog();
+  }, [reload, loadCatalog]);
 
   const toggle = async (item: PluginListItem, enabled: boolean) => {
     setBusyId(item.id);
@@ -98,6 +128,20 @@ export function PluginsSettingsSection() {
     }
   };
 
+  const installDbxDriver = async (driver: DbxCatalogDriver) => {
+    setInstallingKey(driver.key);
+    try {
+      await unwrapCommand(commands.pluginDbxInstall(driver.key));
+      await reload();
+      await loadCatalog();
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setInstallingKey(null);
+    }
+  };
+
   const installFromFile = async () => {
     setInstalling(true);
     try {
@@ -130,6 +174,8 @@ export function PluginsSettingsSection() {
               {PLUGIN_NAME_KEYS[item.id] ? t(PLUGIN_NAME_KEYS[item.id]) : item.id}
               {item.source === "installed" ? (
                 <span className="settings-plugins-tag">{t("plugins.source.installed")}</span>
+              ) : isAlwaysOnEngine(item) ? (
+                <span className="settings-plugins-tag">{t("plugins.source.alwaysOn")}</span>
               ) : null}
             </h4>
             <p>
@@ -172,7 +218,11 @@ export function PluginsSettingsSection() {
               <input
                 type="checkbox"
                 checked={item.enabled}
-                disabled={busyId === item.id || Boolean(item.unsupportedReason)}
+                disabled={
+                  busyId === item.id ||
+                  Boolean(item.unsupportedReason) ||
+                  isAlwaysOnEngine(item)
+                }
                 onChange={(event) => void toggle(item, event.target.checked)}
               />
               <span>
@@ -182,6 +232,66 @@ export function PluginsSettingsSection() {
           </div>
         </div>
       ))}
+      <div className="setting-row">
+        <div className="setting-label">
+          <h4>{t("plugins.catalog.title")}</h4>
+          <p>{t("plugins.catalog.hint")}</p>
+          <div className="settings-plugins-catalog">
+            {catalog.length === 0 && !catalogLoading ? (
+              <p className="settings-plugins-catalog-meta">{t("plugins.catalog.empty")}</p>
+            ) : null}
+            {catalog.map((driver) => {
+              const needsUpdate =
+                driver.installed &&
+                driver.installedVersion != null &&
+                driver.installedVersion !== driver.version;
+              return (
+                <div key={driver.key} className="settings-plugins-catalog-item">
+                  <div>
+                    <strong>{driver.label}</strong>
+                    <div className="settings-plugins-catalog-meta">
+                      {driver.pluginId} · v{driver.version}
+                      {` · ${driver.artifactKind === "jar" ? t("plugins.catalog.jar") : t("plugins.catalog.native")}`}
+                      {driver.size > 0 ? ` · ${formatCatalogSize(driver.size)}` : ""}
+                      {driver.installed
+                        ? ` · ${t("plugins.catalog.installed")}${
+                            driver.installedVersion ? ` v${driver.installedVersion}` : ""
+                          }`
+                        : ""}
+                    </div>
+                  </div>
+                  {driver.installed && !needsUpdate ? (
+                    <span className="settings-plugins-catalog-meta">
+                      {t("plugins.catalog.installed")}
+                    </span>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={installingKey === driver.key}
+                      onClick={() => void installDbxDriver(driver)}
+                    >
+                      {installingKey === driver.key
+                        ? t("plugins.catalog.installing")
+                        : needsUpdate
+                          ? t("plugins.catalog.update")
+                          : t("plugins.catalog.install")}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          disabled={catalogRefreshing || installingKey !== null}
+          onClick={() => void loadCatalog()}
+        >
+          {t("plugins.catalog.refresh")}
+        </Button>
+      </div>
       <div className="setting-row">
         <div className="setting-label">
           <h4>{t("plugins.install.title")}</h4>

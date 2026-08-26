@@ -4,8 +4,10 @@ import type { TableSchema } from "../types";
 import {
   buildFilterFields,
   buildPreviewFilterFields,
+  buildSelectAllFromTableSql,
   buildTablePreviewCountSqlWithRelations,
   buildTablePreviewDataSqlWithRelations,
+  buildTablePreviewSql,
   formatFilterWhere,
   shouldUseRelationJoinPreview,
 } from "./tablePreviewFilter";
@@ -101,5 +103,37 @@ describe("tablePreviewFilter relation columns", () => {
     expect(countSql).toContain("SELECT COUNT(*)");
     expect(countSql).toContain("LEFT JOIN `users` AS `rel_0`");
     expect(countSql.toLowerCase()).toContain("`rel_0`.`name` like '%alice%'");
+  });
+});
+
+describe("buildTablePreviewSql dialects", () => {
+  it("uses FETCH for SQL Server and Cypher for Neo4j", () => {
+    expect(
+      buildTablePreviewSql({
+        dbType: "sqlserver",
+        tableName: "dbo.t",
+        page: 0,
+        pageSize: 20,
+      }),
+    ).toBe("SELECT * FROM [dbo].[t] ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 20 ROWS ONLY");
+    expect(
+      buildTablePreviewSql({
+        dbType: "neo4j",
+        tableName: "Person",
+        page: 1,
+        pageSize: 20,
+      }),
+    ).toBe("MATCH (n:Person) RETURN n SKIP 20 LIMIT 20");
+    expect(
+      buildTablePreviewSql({
+        dbType: "cassandra",
+        tableName: "ks.t",
+        page: 2,
+        pageSize: 50,
+      }),
+    ).toBe('SELECT * FROM "ks.t" LIMIT 50');
+    expect(buildSelectAllFromTableSql("neo4j", "Person")).toBe(
+      "MATCH (n:Person) RETURN n LIMIT 50;",
+    );
   });
 });

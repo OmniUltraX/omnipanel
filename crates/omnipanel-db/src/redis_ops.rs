@@ -2,7 +2,7 @@
 
 use omnipanel_error::{OmniError, OmniResult};
 use redis::aio::MultiplexedConnection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::QueryResult;
@@ -11,14 +11,14 @@ const STREAM_RANGE_DEFAULT: usize = 50;
 const STREAM_RANGE_MAX: usize = 200;
 
 /// `INFO` 解析结果：section -> key -> value（均为字符串）。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisInfoResult {
     pub sections: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
 
 /// Stream 消费组摘要。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamGroup {
     pub name: String,
@@ -42,7 +42,7 @@ pub struct RedisStreamGroup {
 }
 
 /// Stream 消费者。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamConsumer {
     pub name: String,
@@ -56,7 +56,7 @@ pub struct RedisStreamConsumer {
 }
 
 /// XPENDING 明细行。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamPendingEntry {
     pub id: String,
@@ -68,7 +68,7 @@ pub struct RedisStreamPendingEntry {
 }
 
 /// Stream 监控快照（对齐运维脚本指标）。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamMonitorSnapshot {
     pub key: String,
@@ -84,7 +84,7 @@ pub struct RedisStreamMonitorSnapshot {
 }
 
 /// 清理非活跃消费者结果。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamConsumerCleanupResult {
     pub removed_consumers: Vec<String>,
@@ -94,7 +94,7 @@ pub struct RedisStreamConsumerCleanupResult {
 }
 
 /// Stream 条目。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamEntry {
     pub id: String,
@@ -102,7 +102,7 @@ pub struct RedisStreamEntry {
 }
 
 /// Stream 范围查询结果。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisStreamRangeResult {
     pub entries: Vec<RedisStreamEntry>,
@@ -110,14 +110,14 @@ pub struct RedisStreamRangeResult {
 }
 
 /// `MEMORY STATS` 键值对。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisMemoryStats {
     pub entries: std::collections::HashMap<String, String>,
 }
 
 /// ACL 用户行。
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisAclUser {
     pub username: String,

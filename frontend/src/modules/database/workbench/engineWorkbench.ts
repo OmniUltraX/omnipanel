@@ -1,7 +1,7 @@
 /** Database Host L2 工作台插槽。引擎插件声明形状，Host 按此选树/编辑器/预览，而不是 `db_type === "redis"`。 */
 
 export type EngineTreeKind = "schema" | "kv" | "collections" | "documents" | "none";
-export type EngineEditorKind = "sql" | "redis" | "none";
+export type EngineEditorKind = "sql" | "cypher" | "cql" | "redis" | "none";
 export type EnginePreviewKind = "grid" | "key" | "points" | "document" | "none";
 export type EngineConnectionInfoKind = "sql" | "redis" | "none";
 
@@ -48,7 +48,7 @@ export const UNAVAILABLE_WORKBENCH: EngineWorkbench = {
 };
 
 const TREES = new Set<EngineTreeKind>(["schema", "kv", "collections", "documents", "none"]);
-const EDITORS = new Set<EngineEditorKind>(["sql", "redis", "none"]);
+const EDITORS = new Set<EngineEditorKind>(["sql", "cypher", "cql", "redis", "none"]);
 const PREVIEWS = new Set<EnginePreviewKind>(["grid", "key", "points", "document", "none"]);
 const INFOS = new Set<EngineConnectionInfoKind>(["sql", "redis", "none"]);
 

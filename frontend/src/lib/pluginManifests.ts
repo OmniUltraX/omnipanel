@@ -6,8 +6,13 @@ import {
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
 import cloudAliyunJson from "../../../plugins/cloud-aliyun/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
+import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
+import dbMysqlJson from "../../../plugins/db-mysql/plugin.json";
+import dbPostgresJson from "../../../plugins/db-postgres/plugin.json";
 import dbQdrantJson from "../../../plugins/db-qdrant/plugin.json";
 import dbRedisJson from "../../../plugins/db-redis/plugin.json";
+import dbSqliteJson from "../../../plugins/db-sqlite/plugin.json";
+import dbSqlserverJson from "../../../plugins/db-sqlserver/plugin.json";
 import importerWarpgateJson from "../../../plugins/importer-warpgate/plugin.json";
 import moduleNacosJson from "../../../plugins/module-nacos/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
@@ -23,8 +28,13 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
   parsePluginManifest(cloudAliyunJson),
   parsePluginManifest(dbClickhouseJson),
+  parsePluginManifest(dbMongodbJson),
+  parsePluginManifest(dbMysqlJson),
+  parsePluginManifest(dbPostgresJson),
   parsePluginManifest(dbQdrantJson),
   parsePluginManifest(dbRedisJson),
+  parsePluginManifest(dbSqliteJson),
+  parsePluginManifest(dbSqlserverJson),
   parsePluginManifest(importerWarpgateJson),
   parsePluginManifest(moduleNacosJson),
   parsePluginManifest(panel1panelJson),

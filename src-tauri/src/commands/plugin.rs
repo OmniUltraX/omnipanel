@@ -6,8 +6,8 @@ use omnipanel_everything::EverythingError;
 use omnipanel_mcp::plugin_tools::PluginNativeTool;
 use omnipanel_mcp::{ToolExecutionKind, ToolRegistry};
 use omnipanel_plugin::{
-    load_installed, InvokeGateway, LogicPackage, PluginListItem, PluginLogicExecutor, PluginMethodDecl, PluginPermission, PluginPlatform, PluginRegistry,
-    PluginSource,
+    load_installed, InvokeGateway, LogicPackage, PluginKind, PluginListItem, PluginLogicExecutor,
+    PluginMethodDecl, PluginPermission, PluginPlatform, PluginRegistry, PluginSource,
 };
 use omnipanel_store::{AuditEntry, Storage};
 use serde::{Deserialize, Serialize};
@@ -109,9 +109,49 @@ pub fn seed_plugin_runtime(
         }
     }
     registry.activate_enabled(PluginPlatform::current());
+    sync_engine_plugin_gate(&registry);
+    sync_plugin_engine_launches(&registry, plugins_root);
     let mut gateway = InvokeGateway::new();
     register_builtin_invoke_handlers(&mut gateway);
     (registry, Arc::new(gateway))
+}
+
+fn sync_engine_plugin_gate(registry: &PluginRegistry) {
+    let disabled: Vec<String> = registry
+        .list()
+        .into_iter()
+        .filter(|item| {
+            item.kind == PluginKind::Engine
+                && item.source != PluginSource::Builtin
+                && (!item.enabled || !item.activated)
+        })
+        .map(|item| item.id)
+        .collect();
+    omnipanel_db::sidecar::set_disabled_engine_plugins(disabled);
+}
+
+/// 已安装 sidecar 引擎：把 `entry.driver` 登记进建连启动表（第一方引擎不走这条路径）。
+fn sync_plugin_engine_launches(registry: &PluginRegistry, plugins_root: Option<&Path>) {
+    let mut launches = Vec::new();
+    if let Some(root) = plugins_root {
+        for spec in omnipanel_plugin::collect_activated_installed_engine_drivers(registry, root) {
+            match omnipanel_db::sidecar::launch_from_driver_file_result(&spec.driver_path) {
+                Ok(launch) => {
+                    for alias in spec.aliases {
+                        if omnipanel_db::FirstPartyEngine::from_db_type(&alias).is_some() {
+                            continue;
+                        }
+                        launches.push((alias, launch.clone()));
+                    }
+                }
+                Err(err) => eprintln!(
+                    "[plugin-engine] 跳过无法启动的 sidecar {}: {err}",
+                    spec.plugin_id
+                ),
+            }
+        }
+    }
+    omnipanel_db::sidecar::set_plugin_engine_launches(launches);
 }
 
 /// 内置 + 磁盘安装两来源合并构建（不含启用状态回放）。
@@ -121,6 +161,7 @@ fn build_registry(plugins_root: Option<&Path>) -> PluginRegistry {
         let _ = registry.register(manifest);
     }
     if let Some(root) = plugins_root {
+        crate::commands::dbx_catalog::migrate_installed_engine_manifests(root);
         for installed in load_installed(root) {
             let _ = registry.register_installed(installed.manifest);
         }
@@ -129,7 +170,7 @@ fn build_registry(plugins_root: Option<&Path>) -> PluginRegistry {
 }
 
 /// 安装/卸载后整体重建：清单来源 → 启用状态回放 → activate → 工具同步 → 事件。
-async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), OmniError> {
+pub(crate) async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), OmniError> {
     let mut new_registry = build_registry(state.plugin_packages_dir.as_deref());
     {
         let store = state.storage.lock().await;
@@ -140,6 +181,16 @@ async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), OmniError> 
         }
     }
     new_registry.activate_enabled(PluginPlatform::current());
+    sync_engine_plugin_gate(&new_registry);
+    sync_plugin_engine_launches(&new_registry, state.plugin_packages_dir.as_deref());
+    for item in new_registry.list() {
+        if item.kind != PluginKind::Engine || (item.enabled && item.activated) {
+            continue;
+        }
+        if let Some(kind) = omnipanel_db::sidecar::EngineKind::from_plugin_id(&item.id) {
+            omnipanel_db::sidecar::evict_all_of_kind(kind).await;
+        }
+    }
     {
         let mut guard = state.plugin_registry.lock().await;
         *guard = new_registry;
@@ -354,6 +405,7 @@ pub async fn plugin_uninstall(
     }
     audit_plugin_action(&state, "plugin.uninstall", &plugin_id, "success", String::new());
     rebuild_and_sync(&state).await?;
+    omnipanel_db::sidecar::evict_all_external_launches().await;
     Ok(())
 }
 
@@ -481,8 +533,13 @@ pub async fn plugin_set_enabled(
 ) -> Result<PluginListItem, OmniError> {
     {
         let registry = state.plugin_registry.lock().await;
-        if registry.get(&plugin_id).is_none() {
+        let Some(entry) = registry.get(&plugin_id) else {
             return Err(OmniError::not_found(format!("未知插件: {plugin_id}")));
+        };
+        if !enabled && entry.always_on() {
+            return Err(OmniError::invalid_input(format!(
+                "内置数据库引擎不可关闭: {plugin_id}"
+            )));
         }
     }
     {
@@ -492,6 +549,13 @@ pub async fn plugin_set_enabled(
     {
         let mut registry = state.plugin_registry.lock().await;
         registry.set_enabled(&plugin_id, enabled)?;
+        sync_engine_plugin_gate(&registry);
+        sync_plugin_engine_launches(&registry, state.plugin_packages_dir.as_deref());
+    }
+    if !enabled {
+        if let Some(kind) = omnipanel_db::sidecar::EngineKind::from_plugin_id(&plugin_id) {
+            omnipanel_db::sidecar::evict_all_of_kind(kind).await;
+        }
     }
     {
         let registry = state.plugin_registry.lock().await;

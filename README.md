@@ -50,7 +50,7 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **Terminal** | Multi-tab & split panes, Blocks output grouping, VT100/VT220 compatibility |
 | **SSH / SFTP** | Connection manager, SFTP, tunnels, jump hosts; **tmux** remote session governance |
 | **Files** | Local / remote browsing, favorites, **cross-connection transfer** |
-| **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools, multi-engine support |
+| **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools; first-party engines plus sidecar/DBX (Oracle, Dameng, Hive, and more) |
 | **Docker** | Local / remote Engine / SSH host / 1Panel / **BT Panel** — containers, images, Compose, networks, volumes |
 | **Server** | Host monitor; **BT Panel / 1Panel** (sites, apps, certs, cron); **cloud vendors** (Aliyun auto-discovers regions with instances) |
 | **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |

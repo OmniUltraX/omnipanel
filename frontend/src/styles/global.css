@@ -28277,3 +28277,22 @@ body.quick-launcher-body {
   align-items: center;
   gap: 12px;
 }
+
+.settings-plugins-catalog {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-plugins-catalog-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-plugins-catalog-meta {
+  color: var(--color-text-muted, #888);
+  font-size: 12px;
+}

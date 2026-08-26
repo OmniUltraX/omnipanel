@@ -7,6 +7,7 @@ import {
 } from "../api";
 import type { CachedConnection, CachedTable } from "./schemaCacheMerge";
 import { getEngineIconByType } from "../connection/engineIcons";
+import { connectionSupportsUsers } from "../users/userEngine";
 import {
   buildColumnTreeItem,
   buildConnectionTreeItem,
@@ -1038,7 +1039,7 @@ function appendConnectionSchemaRows(
       }
     }
 
-    if (!isRedisConnection(conn.config)) {
+    if (!isRedisConnection(conn.config) && connectionSupportsUsers(conn.config)) {
       const usersFolderId = connectionUsersFolderId(conn.config.id);
       const usersExpanded = expandedNodeIds.has(usersFolderId);
       const usersFolderRefreshing = Boolean(refreshingNodeIds[usersFolderId]);

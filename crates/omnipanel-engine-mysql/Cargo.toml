@@ -1,0 +1,13 @@
+[package]
+name = "omnipanel-engine-mysql"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "omnipanel-engine-mysql"
+path = "src/main.rs"
+
+[dependencies]
+omnipanel-db = { path = "../omnipanel-db", default-features = false, features = ["engine-mysql"] }
+tokio = { workspace = true }

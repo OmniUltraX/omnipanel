@@ -57,6 +57,7 @@ for (const dir of rustDirSet) {
 }
 
 const jsonIds = [];
+const engineKeys = [];
 for (const dir of dirs) {
   const file = path.join(pluginsDir, dir.name, "plugin.json");
   if (!fs.existsSync(file)) {
@@ -113,6 +114,23 @@ for (const dir of dirs) {
       }
     }
   }
+  if (raw.runtime != null) {
+    if (!["inproc", "sidecar", "http"].includes(raw.runtime)) {
+      errors.push("runtime must be inproc | sidecar | http");
+    }
+    if (raw.runtime === "sidecar" && !raw.entry?.driver) {
+      errors.push("runtime=sidecar 必须声明 entry.driver");
+    }
+  }
+  if (raw.kind === "engine") {
+    if (!raw.runtime) errors.push("engine 插件必须声明 runtime");
+    const engineKey = raw.contributes?.ui?.connectionForm?.engineKey;
+    if (typeof engineKey !== "string" || !engineKey.trim()) {
+      errors.push("engine 插件必须声明 contributes.ui.connectionForm.engineKey");
+    } else {
+      engineKeys.push({ dir: dir.name, key: engineKey.trim().toLowerCase() });
+    }
+  }
   if (raw.entry != null) {
     if (typeof raw.entry !== "object") errors.push("entry must be an object");
     else {
@@ -125,6 +143,12 @@ for (const dir of dirs) {
             errors.push("entry.logic must be relative without '..'");
         }
       }
+      const driver = raw.entry.driver;
+      if (driver != null) {
+        if (typeof driver !== "string" || !driver.trim()) errors.push("entry.driver required");
+        else if (driver.startsWith("/") || driver.split(/[\\/]/).includes(".."))
+          errors.push("entry.driver must be relative without '..'");
+      }
     }
   }
   if (raw.minHostApi != null && (!Number.isInteger(raw.minHostApi) || raw.minHostApi < 1)) {
@@ -136,6 +160,18 @@ for (const dir of dirs) {
   if (errors.length > 0) {
     console.error(`[plugin-manifest] ${dir.name}:\n  - ${errors.join("\n  - ")}`);
     failed += 1;
+  }
+}
+
+const seenEngineKeys = new Map();
+for (const { dir, key } of engineKeys) {
+  if (seenEngineKeys.has(key)) {
+    console.error(
+      `[plugin-manifest] 重复的 engineKey "${key}": ${seenEngineKeys.get(key)} 与 ${dir}`,
+    );
+    failed += 1;
+  } else {
+    seenEngineKeys.set(key, dir);
   }
 }
 

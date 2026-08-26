@@ -1289,6 +1289,8 @@ mod tests {
             password: password.into(),
             database: "app".into(),
             ssl: false,
+            sid: String::new(),
+            sysdba: false,
             status: "connected".into(),
             enabled: true,
             has_password: !password.is_empty(),

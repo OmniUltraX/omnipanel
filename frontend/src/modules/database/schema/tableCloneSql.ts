@@ -1,5 +1,7 @@
 /** 生成克隆表结构 SQL（不含数据）。 */
 
+import { catalogFamily, canonicalHostEngine, hostCapabilities } from "../hostCapabilities";
+
 function mysqlQuoteId(name: string): string {
   return `\`${name.replace(/`/g, "``")}\``;
 }
@@ -12,16 +14,24 @@ function sqliteQuoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function normalizeEngine(dbType: string): "mysql" | "postgres" | "sqlite" | "other" {
-  const engine = dbType.toLowerCase();
-  if (engine === "mysql" || engine === "mariadb") return "mysql";
-  if (engine === "postgresql" || engine === "postgres") return "postgres";
-  if (engine === "sqlite" || engine === "sqlite3") return "sqlite";
+type CloneEngine = "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "generic" | "other";
+
+function normalizeEngine(dbType: string): CloneEngine {
+  const engine = canonicalHostEngine(dbType);
+  if (engine === "mysql") return "mysql";
+  if (engine === "postgres") return "postgres";
+  if (engine === "sqlite") return "sqlite";
+  const family = catalogFamily(engine);
+  if (family === "mysqlLike") return "mysql";
+  if (family === "postgresLike") return "postgres";
+  if (family === "oracleLike") return "oracle";
+  if (family === "hiveLike") return "hive";
+  if (family === "genericSql") return "generic";
   return "other";
 }
 
 export function isCloneTableSqlSupported(dbType: string): boolean {
-  return normalizeEngine(dbType) !== "other";
+  return hostCapabilities(dbType).cloneTable;
 }
 
 /** 在已有表名集合中分配不冲突的克隆名：foo_copy / foo_copy_2 … */
@@ -58,12 +68,18 @@ export function buildCloneTableSql(
     return `CREATE TABLE ${db}.${mysqlQuoteId(target)} LIKE ${db}.${mysqlQuoteId(source)}`;
   }
   if (engine === "postgres") {
-    // public schema；LIKE … INCLUDING ALL 复制约束/索引定义（仍无数据）
     return `CREATE TABLE ${pgQuoteId(target)} (LIKE ${pgQuoteId(source)} INCLUDING ALL)`;
   }
-  if (engine === "sqlite") {
-    // 仅结构：LIMIT 0 不拷贝行
+  if (engine === "sqlite" || engine === "generic") {
     return `CREATE TABLE ${sqliteQuoteId(target)} AS SELECT * FROM ${sqliteQuoteId(source)} WHERE 0`;
+  }
+  if (engine === "oracle") {
+    const schema = pgQuoteId(dbName.trim());
+    return `CREATE TABLE ${schema}.${pgQuoteId(target)} AS SELECT * FROM ${schema}.${pgQuoteId(source)} WHERE 1=0`;
+  }
+  if (engine === "hive") {
+    const db = mysqlQuoteId(dbName.trim());
+    return `CREATE TABLE ${db}.${mysqlQuoteId(target)} AS SELECT * FROM ${db}.${mysqlQuoteId(source)} WHERE 1=0`;
   }
   return null;
 }

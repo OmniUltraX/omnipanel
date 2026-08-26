@@ -33,6 +33,7 @@ import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
 import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
+import { warmDbxCatalogCache } from "./stores/dbxCatalogStore";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
@@ -219,6 +220,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
             waitPersistHydrated(useSettingsStore, 400),
           ),
         ]);
+        warmDbxCatalogCache();
 
         if (cancelled) return;
 

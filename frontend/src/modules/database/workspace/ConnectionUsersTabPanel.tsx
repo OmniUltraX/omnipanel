@@ -153,7 +153,7 @@ export function ConnectionUsersTabPanel({
     if (!engine) return;
     setScopeKind(defaultScopeKind(engine));
     setSelectedPrivs(
-      engine === "postgres" ? ["CONNECT"] : ["SELECT"],
+      engine === "postgres" ? ["CONNECT"] : engine === "oracle" ? ["CREATE SESSION"] : ["SELECT"],
     );
     setWithGrantOption(false);
     setEditorStatus(null);

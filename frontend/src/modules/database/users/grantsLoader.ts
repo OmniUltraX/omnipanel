@@ -4,6 +4,7 @@ import { makeQueryRunId } from "../sql/queryRun";
 import type { QueryResult } from "../workspace/dbWorkspaceState";
 import {
   formatMysqlUserHost,
+  oracleQuoteLiteral,
   pgQuoteId,
   resolveUserEngine,
   type UserEngine,
@@ -258,6 +259,93 @@ async function loadPgGrants(
   return lines;
 }
 
+async function loadOracleGrants(
+  connection: DbConnectionConfig,
+  user: DbUserMeta,
+): Promise<GrantSummaryLine[]> {
+  const grantee = oracleQuoteLiteral(user.name.toUpperCase());
+  const lines: GrantSummaryLine[] = [];
+  const attrs: string[] = [];
+  if (user.isSuperuser) attrs.push("SYSDBA");
+  if (user.accountLocked) attrs.push("LOCKED");
+  if (attrs.length > 0) {
+    lines.push({
+      id: "attrs",
+      kind: "attributes",
+      label: "Attributes",
+      detail: attrs.join(", "),
+    });
+  }
+
+  try {
+    const roles = await executeSql(
+      connection,
+      `SELECT GRANTED_ROLE FROM DBA_ROLE_PRIVS WHERE GRANTEE = ${grantee} ORDER BY GRANTED_ROLE`,
+    );
+    for (let i = 0; i < roles.rows.length; i++) {
+      const role = cellStr(roles.rows[i]!, 0);
+      if (!role) continue;
+      lines.push({
+        id: `role-${i}`,
+        kind: "role",
+        label: "Role",
+        detail: role,
+        revokePrivileges: role,
+        revokeScope: "*",
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const sys = await executeSql(
+      connection,
+      `SELECT PRIVILEGE FROM DBA_SYS_PRIVS WHERE GRANTEE = ${grantee} ORDER BY PRIVILEGE`,
+    );
+    for (let i = 0; i < sys.rows.length; i++) {
+      const priv = cellStr(sys.rows[i]!, 0);
+      if (!priv) continue;
+      lines.push({
+        id: `sys-${i}`,
+        kind: "other",
+        label: "System",
+        detail: priv,
+        revokePrivileges: priv,
+        revokeScope: "*",
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const tabs = await executeSql(
+      connection,
+      `SELECT PRIVILEGE, OWNER, TABLE_NAME FROM ALL_TAB_PRIVS WHERE GRANTEE = ${grantee} ORDER BY OWNER, TABLE_NAME, PRIVILEGE`,
+    );
+    for (let i = 0; i < tabs.rows.length; i++) {
+      const priv = cellStr(tabs.rows[i]!, 0);
+      const owner = cellStr(tabs.rows[i]!, 1);
+      const table = cellStr(tabs.rows[i]!, 2);
+      if (!priv || !owner || !table) continue;
+      const scope = `"${owner.replace(/"/g, '""')}"."${table.replace(/"/g, '""')}"`;
+      lines.push({
+        id: `tab-${i}`,
+        kind: "table",
+        label: "Table",
+        detail: `${priv} ON ${owner}.${table}`,
+        revokePrivileges: priv,
+        revokeScope: scope,
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  return lines;
+}
+
 function pgQuoteLiteralSafe(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
@@ -272,6 +360,9 @@ export async function loadGrantSummary(
   }
   if (engine === "mysql") {
     return { engine, lines: await loadMysqlGrants(connection, user) };
+  }
+  if (engine === "oracle") {
+    return { engine, lines: await loadOracleGrants(connection, user) };
   }
   return { engine, lines: await loadPgGrants(connection, user) };
 }

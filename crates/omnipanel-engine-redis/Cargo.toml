@@ -1,0 +1,13 @@
+[package]
+name = "omnipanel-engine-redis"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "omnipanel-engine-redis"
+path = "src/main.rs"
+
+[dependencies]
+omnipanel-db = { path = "../omnipanel-db", default-features = false, features = ["engine-redis"] }
+tokio = { workspace = true }

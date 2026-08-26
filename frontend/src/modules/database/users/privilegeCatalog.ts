@@ -60,11 +60,38 @@ const PG_TABLE_PRIVS: PrivilegeChip[] = [
   { id: "ALL PRIVILEGES", label: "ALL" },
 ];
 
+const ORACLE_SYS_PRIVS: PrivilegeChip[] = [
+  { id: "CREATE SESSION", label: "CREATE SESSION" },
+  { id: "CREATE TABLE", label: "CREATE TABLE" },
+  { id: "CREATE VIEW", label: "CREATE VIEW" },
+  { id: "CREATE SEQUENCE", label: "CREATE SEQUENCE" },
+  { id: "RESOURCE", label: "RESOURCE" },
+  { id: "DBA", label: "DBA" },
+  { id: "SELECT ANY TABLE", label: "SELECT ANY TABLE" },
+];
+
+const ORACLE_TABLE_PRIVS: PrivilegeChip[] = [
+  { id: "SELECT", label: "SELECT" },
+  { id: "INSERT", label: "INSERT" },
+  { id: "UPDATE", label: "UPDATE" },
+  { id: "DELETE", label: "DELETE" },
+  { id: "ALTER", label: "ALTER" },
+  { id: "INDEX", label: "INDEX" },
+  { id: "REFERENCES", label: "REFERENCES" },
+  { id: "ALL PRIVILEGES", label: "ALL" },
+];
+
 export function scopeOptionsForEngine(engine: UserEngine): ScopeOption[] {
   if (engine === "mysql") {
     return [
       { id: "global", labelKey: "scopeGlobal" },
       { id: "database", labelKey: "scopeDatabase" },
+      { id: "table", labelKey: "scopeTable" },
+    ];
+  }
+  if (engine === "oracle") {
+    return [
+      { id: "schema", labelKey: "scopeSchema" },
       { id: "table", labelKey: "scopeTable" },
     ];
   }
@@ -82,11 +109,15 @@ export function privilegeChipsFor(
   if (engine === "mysql") {
     return scopeKind === "global" ? MYSQL_GLOBAL_PRIVS : MYSQL_DB_PRIVS;
   }
+  if (engine === "oracle") {
+    return scopeKind === "table" ? ORACLE_TABLE_PRIVS : ORACLE_SYS_PRIVS;
+  }
   if (scopeKind === "database") return PG_DB_PRIVS;
   if (scopeKind === "schema") return PG_SCHEMA_PRIVS;
   return PG_TABLE_PRIVS;
 }
 
 export function defaultScopeKind(engine: UserEngine): GrantScopeKind {
-  return engine === "mysql" ? "database" : "database";
+  if (engine === "oracle") return "schema";
+  return "database";
 }

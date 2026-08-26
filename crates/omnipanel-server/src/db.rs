@@ -70,6 +70,8 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
         password: c.password.clone(),
         database: c.database.clone(),
         ssl: c.ssl,
+        sid: c.sid.clone(),
+        sysdba: c.sysdba,
     }
 }
 
@@ -316,7 +318,8 @@ pub async fn db_execute_query(
     offset: Option<u32>,
 ) -> Result<DbQueryResult, String> {
     let wrapped = match limit {
-        Some(n) if n > 0 => omnipanel_db::wrap_select_with_limit(
+        Some(n) if n > 0 => omnipanel_db::wrap_editor_query(
+            &connection.db_type,
             &sql,
             n as i64,
             offset.unwrap_or(0) as i64,

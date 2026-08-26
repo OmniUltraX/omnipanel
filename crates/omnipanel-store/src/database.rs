@@ -29,9 +29,15 @@ pub struct DbConnectionConfig {
     #[serde(default)]
     pub password: String,
     pub database: String,
-    /// 是否启用 SSL（MySQL 等）。
+    /// 是否启用 SSL（MySQL 等）。SQL Server 表示加密传输。
     #[serde(default)]
     pub ssl: bool,
+    /// Oracle SID；空则使用 `database` 作为服务名。
+    #[serde(default)]
+    pub sid: String,
+    /// Oracle 以 SYSDBA 登录。
+    #[serde(default)]
+    pub sysdba: bool,
     #[serde(default)]
     pub status: String,
     /// 是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。
@@ -265,6 +271,8 @@ fn sqlite_demo_connection(id: &str, name: &str, db_path: PathBuf) -> DbConnectio
         password: String::new(),
         database: db_path.to_string_lossy().into_owned(),
         ssl: false,
+        sid: String::new(),
+        sysdba: false,
         status: "unknown".into(),
         enabled: true,
         has_password: false,
@@ -379,6 +387,8 @@ mod tests {
             password: "secret".into(),
             database: "app".into(),
             ssl: false,
+            sid: String::new(),
+            sysdba: false,
             status: "unknown".into(),
             enabled: true,
             has_password: false,

@@ -2,14 +2,16 @@
 target/
 # 独立 CARGO_TARGET_DIR（如 gen:bindings 避开 app 占用）
 target-gen-bindings/
+target-sidecar-verify/
 **/*.rs.bk
 
 # Node
 node_modules/
 dist/
 
-# Tauri
-src-tauri/target/
+# 本地 stage 的 sidecar 二进制（.gitkeep 保留目录）
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
 
 # IDE
 .idea/

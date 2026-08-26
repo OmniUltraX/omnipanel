@@ -1,4 +1,4 @@
-export { resolveUserEngine, userDisplayLabel, type UserEngine } from "./userEngine";
+export { resolveUserEngine, connectionSupportsUsers, userDisplayLabel, type UserEngine } from "./userEngine";
 export {
   buildChangePasswordSql,
   buildCreateUserSql,

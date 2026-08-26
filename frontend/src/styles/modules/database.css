@@ -4071,10 +4071,100 @@
     }
 
     /* Engine selector */
+    .form-field--engine-picker .form-field__control {
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .engine-picker {
+        display: grid;
+        grid-template-columns: 148px minmax(0, 1fr);
+        gap: var(--sp-3);
+        height: 268px;
+        max-height: 268px;
+        min-height: 0;
+        overflow: hidden;
+        isolation: isolate;
+    }
+
+    .engine-picker-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 2px;
+        border-right: 1px solid var(--border);
+    }
+
+    .engine-picker-nav-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        width: 100%;
+        padding: 7px 8px;
+        border: 0;
+        border-radius: var(--r-sm);
+        background: transparent;
+        color: var(--fg-2);
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+        flex: none;
+    }
+
+    .engine-picker-nav-item:hover {
+        background: var(--surface);
+        color: var(--fg);
+    }
+
+    .engine-picker-nav-item--active {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 600;
+    }
+
+    .engine-picker-nav-count {
+        font-size: 11px;
+        opacity: 0.7;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .engine-picker-main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        gap: var(--sp-2);
+    }
+
+    .engine-picker-search {
+        flex: none;
+    }
+
+    .engine-picker-empty {
+        font-size: 12px;
+        color: var(--meta);
+        padding: var(--sp-4) 0;
+    }
+
     .engine-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: var(--sp-2);
+    }
+
+    .engine-grid--picker {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-right: 2px;
+        flex: 1 1 0;
+        min-height: 0;
+        align-content: start;
+        scrollbar-gutter: stable;
     }
 
     .engine-chip {
@@ -4082,12 +4172,14 @@
         flex-direction: column;
         align-items: center;
         gap: var(--sp-1);
-        padding: var(--sp-3) var(--sp-2);
+        padding: 14px 8px 8px;
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--r-md);
         cursor: pointer;
-        transition: border-color 0.12s, background 0.12s;
+        transition: border-color 0.12s, background 0.12s, opacity 0.12s;
+        min-width: 0;
+        position: relative;
     }
 
     .engine-chip:hover {
@@ -4158,7 +4250,59 @@
     .engine-chip-label {
         font-size: 10px;
         color: var(--meta);
-        text-transform: capitalize;
+        text-align: center;
+        line-height: 1.25;
+        word-break: break-word;
+    }
+
+    .engine-chip--disabled {
+        opacity: 0.72;
+        cursor: pointer;
+    }
+
+    .engine-chip--disabled .engine-chip-icon,
+    .engine-chip--disabled .engine-chip-label {
+        filter: grayscale(1);
+        opacity: 0.55;
+    }
+
+    .engine-chip--disabled:hover {
+        border-color: var(--muted);
+        opacity: 0.9;
+    }
+
+    .engine-chip-badge {
+        font-size: 9px;
+        color: var(--meta);
+        line-height: 1;
+    }
+
+    .engine-chip-actions {
+        display: flex;
+        gap: 6px;
+        min-height: 10px;
+    }
+
+    .engine-chip-badge--action {
+        color: var(--accent);
+        cursor: pointer;
+        pointer-events: auto;
+    }
+
+    .engine-chip-source {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        z-index: 1;
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        line-height: 1.2;
+        pointer-events: none;
     }
 
     .db-workspace {

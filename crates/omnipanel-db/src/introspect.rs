@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::{
     clickhouse_list_databases, mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
-    DbParams, MongoDriver,
+    DbDriver, DbParams, QueryResult,
 };
 use omnipanel_error::OmniError;
 use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault};
@@ -688,8 +688,273 @@ fn to_params(c: &DbConnectionConfig) -> DbParams {
         password: c.password.clone(),
         database: c.database.clone(),
         ssl: c.ssl,
+        sid: c.sid.clone(),
+        sysdba: c.sysdba,
     }
 }
+
+async fn connect_sidecar(
+    connection: &DbConnectionConfig,
+    database: Option<&str>,
+) -> Result<crate::sidecar::SidecarDriver, String> {
+    let mut params = to_params(connection);
+    if let Some(db) = database.map(str::trim).filter(|name| !name.is_empty()) {
+        params.database = db.to_string();
+    }
+    let launch = crate::sidecar::launch_for_params(&params).ok_or_else(|| {
+        format!("不支持的数据库类型: {}", connection.db_type)
+    })?;
+    crate::sidecar::connect_launch(&launch, &params)
+        .await
+        .map_err(err_msg)
+}
+
+fn sidecar_available(connection: &DbConnectionConfig) -> bool {
+    crate::sidecar::launch_for_params(&to_params(connection)).is_some()
+}
+
+fn empty_table_details() -> DbTableDetails {
+    DbTableDetails {
+        row_count: None,
+        data_length: None,
+        row_format: None,
+        engine: None,
+        create_time: None,
+        update_time: None,
+        comment: None,
+        collation: None,
+    }
+}
+
+fn names_only_databases(names: Vec<String>) -> Vec<DbDatabaseMeta> {
+    names
+        .into_iter()
+        .map(|name| DbDatabaseMeta {
+            name,
+            charset: None,
+            collation: None,
+            table_count: None,
+            size_bytes: None,
+            rows_estimate: None,
+        })
+        .collect()
+}
+
+async fn sidecar_execute_first(
+    connection: &DbConnectionConfig,
+    database: Option<&str>,
+    sqls: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Option<crate::QueryResult> {
+    let driver = connect_sidecar(connection, database).await.ok()?;
+    for sql in sqls {
+        let sql = sql.as_ref().trim();
+        if sql.is_empty() {
+            continue;
+        }
+        if let Ok(result) = driver.execute(sql).await {
+            if !result.columns.is_empty() || !result.rows.is_empty() {
+                return Some(result);
+            }
+        }
+    }
+    None
+}
+
+async fn sidecar_list_databases_with_stats(
+    connection: DbConnectionConfig,
+) -> Result<Vec<DbDatabaseMeta>, String> {
+    use crate::sidecar_catalog::{
+        catalog_family, charset_sqls, collation_sqls, merge_schema_sizes, parse_name_size_map,
+        parse_scalar, parse_schema_stats, schema_size_sql, schema_stats_sqls, CatalogFamily,
+    };
+
+    let family = catalog_family(&connection.db_type);
+    let names_only = names_only_databases(db_list_databases(connection.clone()).await.unwrap_or_default());
+
+    if family == CatalogFamily::NonSql {
+        return Ok(names_only);
+    }
+
+    let mut rows = if let Some(result) =
+        sidecar_execute_first(&connection, None, schema_stats_sqls(family)).await
+    {
+        parse_schema_stats(&result)
+    } else {
+        Vec::new()
+    };
+    if rows.is_empty() {
+        rows = names_only
+            .iter()
+            .map(|item| crate::sidecar_catalog::CatalogDatabaseRow {
+                name: item.name.clone(),
+                ..Default::default()
+            })
+            .collect();
+    }
+
+    if let Some(sql) = schema_size_sql(family) {
+        if let Some(result) = sidecar_execute_first(&connection, None, [sql]).await {
+            merge_schema_sizes(&mut rows, &parse_name_size_map(&result));
+        }
+    }
+    if let Some(charset) = sidecar_execute_first(&connection, None, charset_sqls(family))
+        .await
+        .as_ref()
+        .and_then(parse_scalar)
+    {
+        for row in &mut rows {
+            if row.charset.is_none() {
+                row.charset = Some(charset.clone());
+            }
+        }
+    }
+    if let Some(collation) = sidecar_execute_first(&connection, None, collation_sqls(family))
+        .await
+        .as_ref()
+        .and_then(parse_scalar)
+    {
+        for row in &mut rows {
+            if row.collation.is_none() {
+                row.collation = Some(collation.clone());
+            }
+        }
+    }
+
+    if family != CatalogFamily::NonSql {
+        for row in rows.iter_mut().take(24) {
+            if row.table_count.is_some() {
+                continue;
+            }
+            if let Ok(driver) = connect_sidecar(&connection, Some(&row.name)).await {
+                if let Ok(tables) = driver.list_tables().await {
+                    row.table_count = Some(tables.len() as i32);
+                }
+            }
+        }
+    }
+
+    Ok(rows
+        .into_iter()
+        .map(|row| DbDatabaseMeta {
+            name: row.name,
+            charset: row.charset,
+            collation: row.collation,
+            table_count: row.table_count,
+            size_bytes: row.size_bytes,
+            rows_estimate: row.rows_estimate,
+        })
+        .collect())
+}
+
+async fn sidecar_list_table_details(
+    connection: &DbConnectionConfig,
+    schema: &str,
+) -> Result<Vec<DbNamedTableDetails>, String> {
+    use crate::sidecar_catalog::{
+        catalog_family, merge_table_sizes, parse_name_size_map, parse_table_details,
+        table_details_sqls, table_size_sql, CatalogFamily,
+    };
+
+    let family = catalog_family(&connection.db_type);
+    let mut tables = if family != CatalogFamily::NonSql {
+        if let Some(result) =
+            sidecar_execute_first(connection, Some(schema), table_details_sqls(family, schema)).await
+        {
+            parse_table_details(&result)
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    if let Some(sql) = table_size_sql(family, schema) {
+        if let Some(result) = sidecar_execute_first(connection, Some(schema), [sql]).await {
+            merge_table_sizes(&mut tables, &parse_name_size_map(&result));
+        }
+    }
+
+    if tables.is_empty() {
+        if let Ok(driver) = connect_sidecar(connection, Some(schema)).await {
+            if let Ok(names) = driver.list_tables().await {
+                tables = names
+                    .into_iter()
+                    .map(|name| crate::sidecar_catalog::CatalogTableRow {
+                        name,
+                        ..Default::default()
+                    })
+                    .collect();
+            }
+        }
+    }
+
+    Ok(tables
+        .into_iter()
+        .map(|row| DbNamedTableDetails {
+            name: row.name,
+            details: DbTableDetails {
+                row_count: row.row_count,
+                data_length: row.data_length,
+                row_format: None,
+                engine: row.engine,
+                create_time: None,
+                update_time: row.update_time,
+                comment: row.comment,
+                collation: row.collation,
+            },
+        })
+        .collect())
+}
+
+async fn sidecar_table_ddl(
+    connection: &DbConnectionConfig,
+    schema: &str,
+    table: &str,
+) -> Result<String, String> {
+    let driver = connect_sidecar(connection, Some(schema)).await?;
+    if let Ok(ddl) = driver.show_create_table(table).await {
+        if !ddl.trim().is_empty() {
+            return Ok(ddl);
+        }
+    }
+    let columns = driver.describe_table(table).await.map_err(err_msg)?;
+    if columns.is_empty() {
+        return Err(format!("无法读取表 {table} 的列信息"));
+    }
+    let lines: Vec<String> = columns
+        .iter()
+        .map(|(name, ty)| format!("  {name} {ty}"))
+        .collect();
+    Ok(format!("CREATE TABLE {table} (\n{}\n)", lines.join(",\n")))
+}
+
+async fn sidecar_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
+    use crate::sidecar_catalog::{catalog_family, parse_users, users_sqls, CatalogFamily};
+
+    let family = catalog_family(&connection.db_type);
+    if matches!(
+        family,
+        CatalogFamily::GenericSql | CatalogFamily::HiveLike | CatalogFamily::NonSql
+    ) {
+        return Ok(Vec::new());
+    }
+    let Some(result) = sidecar_execute_first(connection, None, users_sqls(family)).await else {
+        return Ok(Vec::new());
+    };
+    Ok(parse_users(&result, family)
+        .into_iter()
+        .map(|row| DbUserMeta {
+            name: row.name,
+            host: row.host,
+            can_login: row.can_login,
+            is_superuser: row.is_superuser,
+            can_create_db: row.can_create_db,
+            is_role: row.is_role,
+            account_locked: row.account_locked,
+        })
+        .collect())
+}
+
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
     let key = connection.id.clone();
     let fingerprint = mysql_pool_fingerprint(connection);
@@ -988,6 +1253,15 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
         "clickhouse" | "ch" => clickhouse_list_databases(&to_params(&connection))
             .await
             .map_err(err_msg),
+        "sqlserver" | "mssql" | "sql server" => {
+            crate::sqlserver::SqlServerDriver::list_databases(&to_params(&connection))
+                .await
+                .map_err(err_msg)
+        }
+        _ if crate::sidecar::launch_for_params(&to_params(&connection)).is_some() => {
+            let driver = connect_sidecar(&connection, None).await?;
+            driver.list_databases().await.map_err(err_msg)
+        }
         _ if !connection.database.trim().is_empty() => Ok(vec![connection.database.clone()]),
         _ => Ok(vec![]),
     }
@@ -1136,21 +1410,12 @@ pub async fn db_list_databases_with_stats(
                 rows_estimate: Some(points_estimate),
             }])
         }
-        // 非 MySQL/PG/Redis/Qdrant 引擎退化为仅库名
-        _ => {
-            let names = db_list_databases(connection).await?;
-            Ok(names
-                .into_iter()
-                .map(|name| DbDatabaseMeta {
-                    name,
-                    charset: None,
-                    collation: None,
-                    table_count: None,
-                    size_bytes: None,
-                    rows_estimate: None,
-                })
-                .collect())
+        _ if sidecar_available(&connection) => {
+            sidecar_list_databases_with_stats(connection).await
         }
+        _ => Ok(names_only_databases(
+            db_list_databases(connection).await.unwrap_or_default(),
+        )),
     }
 }
 
@@ -1367,7 +1632,8 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
             Ok(name)
         }
         "clickhouse" | "ch" => {
-            let driver = crate::ClickHouseDriver::from_params(&to_params(&args.connection))
+            let driver = crate::sidecar::connect_clickhouse(&to_params(&args.connection))
+                .await
                 .map_err(err_msg)?;
             driver.create_database(&name).await.map_err(err_msg)?;
             Ok(name)
@@ -1394,6 +1660,7 @@ pub async fn db_introspect_schema(
         "mysql" | "mariadb" => introspect_mysql_schema(&connection, &db_name).await,
         "postgresql" | "postgres" => introspect_pg_schema(&connection, &db_name).await,
         "sqlite" | "sqlite3" => introspect_sqlite_schema(&connection).await,
+        "clickhouse" | "ch" => introspect_clickhouse_schema(&connection, &db_name).await,
         _ => {
             let params = with_schema(&connection, Some(db_name.clone()));
             let driver = crate::connect(&params).await.map_err(err_msg)?;
@@ -1422,6 +1689,7 @@ pub async fn db_list_connection_users(
     match connection.db_type.to_lowercase().as_str() {
         "mysql" | "mariadb" => mysql_list_users(&connection).await,
         "postgresql" | "postgres" => pg_list_users(&connection).await,
+        _ if sidecar_available(&connection) => sidecar_list_users(&connection).await,
         _ => Ok(Vec::new()),
     }
 }
@@ -1449,6 +1717,37 @@ pub async fn db_introspect_table(
         "qdrant" => introspect_qdrant_collection(&connection, table.trim()).await,
         "clickhouse" | "ch" => {
             introspect_clickhouse_table(&connection, &db_name, table.trim()).await
+        }
+        _ if crate::sidecar::launch_for_params(&with_schema(
+            &connection,
+            Some(db_name.clone()),
+        ))
+        .is_some() =>
+        {
+            let driver = connect_sidecar(&connection, Some(&db_name)).await?;
+            let columns = driver
+                .describe_table(table.trim())
+                .await
+                .map_err(err_msg)?
+                .into_iter()
+                .map(|(name, column_type)| DbColumnMeta {
+                    name,
+                    column_type,
+                    is_pk: false,
+                    is_fk: false,
+                    nullable: true,
+                    is_auto_increment: false,
+                    comment: None,
+                    length: None,
+                    default_value: None,
+                })
+                .collect();
+            Ok(DbTableSchema {
+                name: table,
+                columns,
+                indexes: Vec::new(),
+                comment: None,
+            })
         }
         _ => Ok(DbTableSchema {
             name: table,
@@ -1479,7 +1778,10 @@ pub async fn db_table_ddl(
         "postgresql" | "postgres" => pg_table_ddl(&connection, &db_name, table.trim()).await,
         "sqlite" | "sqlite3" => sqlite_table_ddl(&connection, table.trim()),
         "clickhouse" | "ch" => clickhouse_table_ddl(&connection, &db_name, table.trim()).await,
-        _ => Err(format!("不支持的数据库类型: {}", connection.db_type)),
+        _ if sidecar_available(&connection) => {
+            sidecar_table_ddl(&connection, &db_name, table.trim()).await
+        }
+        _ => Ok(String::new()),
     }
 }
 
@@ -1502,7 +1804,17 @@ pub async fn db_get_table_details(
         "mysql" | "mariadb" => mysql_table_details(&connection, &db_name, table.trim()).await,
         "postgresql" | "postgres" => pg_table_details(&connection, &db_name, table.trim()).await,
         "sqlite" | "sqlite3" => sqlite_table_details(&connection, table.trim()).await,
-        _ => Err(format!("不支持的数据库类型: {}", connection.db_type)),
+        "clickhouse" | "ch" => clickhouse_table_details(&connection, &db_name, table.trim()).await,
+        _ if sidecar_available(&connection) => {
+            let table = table.trim();
+            let list = sidecar_list_table_details(&connection, &db_name).await?;
+            Ok(list
+                .into_iter()
+                .find(|item| item.name.eq_ignore_ascii_case(table))
+                .map(|item| item.details)
+                .unwrap_or_else(empty_table_details))
+        }
+        _ => Ok(empty_table_details()),
     }
 }
 
@@ -1522,7 +1834,11 @@ pub async fn db_list_table_details(
         "mysql" | "mariadb" => mysql_list_table_details(&connection, &db_name).await,
         "postgresql" | "postgres" => pg_list_table_details(&connection, &db_name).await,
         "sqlite" | "sqlite3" => sqlite_list_table_details(&connection).await,
-        _ => Err(format!("不支持的数据库类型: {}", connection.db_type)),
+        "clickhouse" | "ch" => clickhouse_list_table_details(&connection, &db_name).await,
+        _ if sidecar_available(&connection) => {
+            sidecar_list_table_details(&connection, &db_name).await
+        }
+        _ => Ok(Vec::new()),
     }
 }
 fn mysql_row_opt_i64(row: &MySqlRow, index: usize) -> Option<i64> {
@@ -2694,25 +3010,24 @@ async fn introspect_mongo_table(
     table_name: &str,
 ) -> Result<DbTableSchema, String> {
     let params = with_schema(connection, Some(db_name.to_string()));
-    let driver = MongoDriver::connect(&params).await.map_err(err_msg)?;
-    let column_names = driver
-        .infer_column_names(table_name, 100)
+    let driver = crate::sidecar::connect_engine(crate::sidecar::EngineKind::MongoDb, &params)
         .await
         .map_err(err_msg)?;
+    let columns = driver.describe_table(table_name).await.map_err(err_msg)?;
     Ok(DbTableSchema {
         name: table_name.to_string(),
-        columns: column_names
+        columns: columns
             .into_iter()
-            .map(|name| DbColumnMeta {
-                name: name.clone(),
-                column_type: "mixed".to_string(),
+            .map(|(name, column_type)| DbColumnMeta {
                 is_pk: name == "_id",
                 is_fk: false,
-                nullable: true,
+                nullable: name != "_id",
                 is_auto_increment: false,
                 comment: None,
                 length: None,
                 default_value: None,
+                name,
+                column_type,
             })
             .collect(),
         indexes: Vec::new(),
@@ -2720,16 +3035,8 @@ async fn introspect_mongo_table(
     })
 }
 
-async fn introspect_clickhouse_table(
-    connection: &DbConnectionConfig,
-    db_name: &str,
-    table: &str,
-) -> Result<DbTableSchema, String> {
-    let mut params = to_params(connection);
-    params.database = db_name.to_string();
-    let driver = crate::ClickHouseDriver::from_params(&params).map_err(err_msg)?;
-    let columns = driver.describe_table(table).await.map_err(err_msg)?;
-    Ok(DbTableSchema {
+fn clickhouse_columns_to_schema(table: &str, columns: Vec<(String, String)>) -> DbTableSchema {
+    DbTableSchema {
         name: table.to_string(),
         columns: columns
             .into_iter()
@@ -2750,7 +3057,77 @@ async fn introspect_clickhouse_table(
             .collect(),
         indexes: Vec::new(),
         comment: None,
+    }
+}
+
+async fn introspect_clickhouse_schema(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+) -> Result<DbIntrospectResult, String> {
+    let mut params = to_params(connection);
+    params.database = db_name.to_string();
+    let driver = crate::sidecar::connect_clickhouse(&params)
+        .await
+        .map_err(err_msg)?;
+    let listed = driver
+        .execute(&format!(
+            "SELECT name, engine FROM system.tables WHERE database = {} AND is_temporary = 0 ORDER BY name",
+            clickhouse_sql_string(db_name)
+        ))
+        .await
+        .map_err(err_msg)?;
+
+    let mut tables = Vec::new();
+    let mut views = Vec::new();
+    for row in listed.rows {
+        let name = row
+            .first()
+            .and_then(json_cell_string)
+            .filter(|s| !s.is_empty());
+        let Some(name) = name else {
+            continue;
+        };
+        let engine = row
+            .get(1)
+            .and_then(json_cell_string)
+            .unwrap_or_default();
+        let columns = driver.describe_table(&name).await.map_err(err_msg)?;
+        if columns.is_empty() {
+            return Err(format!("无法读取表 `{name}` 的列信息"));
+        }
+        let schema = clickhouse_columns_to_schema(&name, columns);
+        let is_view = engine.eq_ignore_ascii_case("View")
+            || engine.eq_ignore_ascii_case("MaterializedView")
+            || engine.to_ascii_lowercase().contains("view");
+        if is_view {
+            views.push(schema);
+        } else {
+            tables.push(schema);
+        }
+    }
+    Ok(DbIntrospectResult {
+        database: db_name.to_string(),
+        tables,
+        views,
+        routines: Vec::new(),
     })
+}
+
+async fn introspect_clickhouse_table(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table: &str,
+) -> Result<DbTableSchema, String> {
+    let mut params = to_params(connection);
+    params.database = db_name.to_string();
+    let driver = crate::sidecar::connect_clickhouse(&params)
+        .await
+        .map_err(err_msg)?;
+    let columns = driver.describe_table(table).await.map_err(err_msg)?;
+    if columns.is_empty() {
+        return Err(format!("无法读取表 `{table}` 的列信息"));
+    }
+    Ok(clickhouse_columns_to_schema(table, columns))
 }
 
 async fn clickhouse_table_ddl(
@@ -2760,8 +3137,105 @@ async fn clickhouse_table_ddl(
 ) -> Result<String, String> {
     let mut params = to_params(connection);
     params.database = db_name.to_string();
-    let driver = crate::ClickHouseDriver::from_params(&params).map_err(err_msg)?;
+    let driver = crate::sidecar::connect_clickhouse(&params)
+        .await
+        .map_err(err_msg)?;
     driver.show_create_table(table).await.map_err(err_msg)
+}
+
+fn clickhouse_sql_string(raw: &str) -> String {
+    format!("'{}'", raw.replace('\\', "\\\\").replace('\'', "\\'"))
+}
+
+fn json_cell_i64(value: &serde_json::Value) -> Option<i64> {
+    match value {
+        serde_json::Value::Number(n) => n
+            .as_i64()
+            .or_else(|| n.as_u64().map(|v| v as i64))
+            .or_else(|| n.as_f64().map(|v| v as i64)),
+        serde_json::Value::String(s) => s.parse().ok(),
+        _ => None,
+    }
+}
+
+fn json_cell_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+fn clickhouse_details_from_row(row: &[serde_json::Value], name_offset: usize) -> DbTableDetails {
+    let rows_idx = name_offset;
+    DbTableDetails {
+        row_count: row.get(rows_idx).and_then(json_cell_i64),
+        data_length: row.get(rows_idx + 1).and_then(json_cell_i64),
+        engine: row.get(rows_idx + 2).and_then(json_cell_string),
+        comment: row.get(rows_idx + 3).and_then(json_cell_string),
+        row_format: None,
+        create_time: None,
+        update_time: None,
+        collation: None,
+    }
+}
+
+async fn clickhouse_query(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    sql: &str,
+) -> Result<QueryResult, String> {
+    let mut params = to_params(connection);
+    params.database = db_name.to_string();
+    let driver = crate::sidecar::connect_clickhouse(&params)
+        .await
+        .map_err(err_msg)?;
+    driver.execute(sql).await.map_err(err_msg)
+}
+
+async fn clickhouse_table_details(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table: &str,
+) -> Result<DbTableDetails, String> {
+    let sql = format!(
+        "SELECT total_rows, total_bytes, engine, comment \
+         FROM system.tables \
+         WHERE database = {db} AND name = {table} \
+         LIMIT 1",
+        db = clickhouse_sql_string(db_name),
+        table = clickhouse_sql_string(table),
+    );
+    let result = clickhouse_query(connection, db_name, &sql).await?;
+    let Some(row) = result.rows.first() else {
+        return Err(format!("表 {table} 不存在"));
+    };
+    Ok(clickhouse_details_from_row(row, 0))
+}
+
+async fn clickhouse_list_table_details(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+) -> Result<Vec<DbNamedTableDetails>, String> {
+    let sql = format!(
+        "SELECT name, total_rows, total_bytes, engine, comment \
+         FROM system.tables \
+         WHERE database = {db} \
+         ORDER BY name",
+        db = clickhouse_sql_string(db_name),
+    );
+    let result = clickhouse_query(connection, db_name, &sql).await?;
+    Ok(result
+        .rows
+        .into_iter()
+        .filter_map(|row| {
+            let name = row.first().and_then(json_cell_string)?;
+            Some(DbNamedTableDetails {
+                details: clickhouse_details_from_row(&row, 1),
+                name,
+            })
+        })
+        .collect())
 }
 
 async fn introspect_qdrant_collection(
@@ -2896,7 +3370,8 @@ pub async fn list_database_objects_shallow(
                 key_count: None,
             })
         }
-        "sqlite" | "sqlite3" | "mongodb" | "mongo" | "qdrant" | "clickhouse" | "ch" => {
+        "sqlite" | "sqlite3" | "mongodb" | "mongo" | "qdrant" | "clickhouse" | "ch"
+        | "sqlserver" | "mssql" | "sql server" => {
             let names = db_list_tables(connection.clone(), Some(db_name.to_string())).await?;
             let tables = names
                 .into_iter()
@@ -2917,6 +3392,33 @@ pub async fn list_database_objects_shallow(
                 key_count: None,
             })
         }
-        other => Err(format!("Unsupported database type for shallow list: {other}")),
+        _ => {
+            let mut params = to_params(connection);
+            if !db_name.trim().is_empty() {
+                params.database = db_name.to_string();
+            }
+            let driver = crate::connect(&params).await.map_err(err_msg)?;
+            let tables = driver
+                .list_tables()
+                .await
+                .map_err(err_msg)?
+                .into_iter()
+                .map(|name| DbTableSchema {
+                    name,
+                    columns: Vec::new(),
+                    indexes: Vec::new(),
+                    comment: None,
+                })
+                .collect();
+            Ok(SchemaCacheDatabasePayload {
+                name: db_name.to_string(),
+                tables,
+                views: Vec::new(),
+                routines: Vec::new(),
+                load_error: None,
+                objects_loaded: true,
+                key_count: None,
+            })
+        }
     }
 }

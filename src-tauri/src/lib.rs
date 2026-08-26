@@ -470,6 +470,8 @@ fn export_ipc_bindings() {
         commands::plugin::plugin_sandbox_net_fetch,
         commands::plugin::plugin_install_from_file,
         commands::plugin::plugin_uninstall,
+        commands::dbx_catalog::plugin_dbx_catalog,
+        commands::dbx_catalog::plugin_dbx_install,
         // Task（任务）
         commands::task::task_list,
         commands::task::task_get,
@@ -1386,6 +1388,8 @@ fn build_and_run_tauri() {
         commands::plugin::plugin_sandbox_net_fetch,
         commands::plugin::plugin_install_from_file,
             commands::plugin::plugin_uninstall,
+            commands::dbx_catalog::plugin_dbx_catalog,
+            commands::dbx_catalog::plugin_dbx_install,
             // Task（任务）
             commands::task::task_list,
             commands::task::task_get,

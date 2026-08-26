@@ -41,6 +41,8 @@ fn to_db_params(c: &DbConnectionConfig) -> DbParams {
         password: c.password.clone(),
         database: c.database.clone(),
         ssl: c.ssl,
+        sid: c.sid.clone(),
+        sysdba: c.sysdba,
     }
 }
 

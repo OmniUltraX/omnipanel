@@ -12,17 +12,17 @@ pub struct PluginContributes {
     pub menus: Vec<Value>,
     #[serde(default)]
     pub overlays: Vec<Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launcher: Option<LauncherContribution>,
     #[serde(default)]
     pub discovery: Vec<DiscoveryContribution>,
     #[serde(default)]
     pub importers: Vec<Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub themes: Option<ThemeContribution>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai: Option<AiContributes>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<Value>,
 }
 
@@ -32,7 +32,7 @@ pub struct UiContributes {
     #[serde(default)]
     pub sidebar: bool,
     /// `kind: module` 的 AppModule key；空则不补种侧栏模块。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub module_key: String,
     #[serde(default)]
     pub connection_form: Option<Value>,

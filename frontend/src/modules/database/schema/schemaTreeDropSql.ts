@@ -1,3 +1,5 @@
+import { catalogFamily, canonicalHostEngine, hostCapabilities } from "../hostCapabilities";
+
 function mysqlQuoteId(name: string): string {
   return `\`${name.replace(/`/g, "``")}\``;
 }
@@ -6,26 +8,28 @@ function pgQuoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function normalizeEngine(dbType: string): "mysql" | "postgres" | "sqlite" | "other" {
-  const engine = dbType.toLowerCase();
-  if (engine === "mysql" || engine === "mariadb") {
-    return "mysql";
-  }
-  if (engine === "postgresql" || engine === "postgres") {
-    return "postgres";
-  }
-  if (engine === "sqlite" || engine === "sqlite3") {
-    return "sqlite";
-  }
-  return "other";
-}
-
 function sqliteQuoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+type DropEngine = "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "generic" | "other";
+
+function normalizeEngine(dbType: string): DropEngine {
+  const engine = canonicalHostEngine(dbType);
+  if (engine === "mysql") return "mysql";
+  if (engine === "postgres") return "postgres";
+  if (engine === "sqlite") return "sqlite";
+  const family = catalogFamily(engine);
+  if (family === "mysqlLike") return "mysql";
+  if (family === "postgresLike") return "postgres";
+  if (family === "oracleLike") return "oracle";
+  if (family === "hiveLike") return "hive";
+  if (family === "genericSql") return "generic";
+  return "other";
+}
+
 export function isSchemaDropSqlSupported(dbType: string): boolean {
-  return normalizeEngine(dbType) !== "other";
+  return hostCapabilities(dbType).dropTable;
 }
 
 export function buildDropColumnSql(
@@ -35,18 +39,28 @@ export function buildDropColumnSql(
   columnName: string,
 ): string | null {
   const engine = normalizeEngine(dbType);
+  const column = columnName.trim();
   if (engine === "mysql") {
     const tableRef = `${mysqlQuoteId(dbName.trim())}.${mysqlQuoteId(tableName.trim())}`;
-    return `ALTER TABLE ${tableRef} DROP COLUMN ${mysqlQuoteId(columnName.trim())}`;
+    return `ALTER TABLE ${tableRef} DROP COLUMN ${mysqlQuoteId(column)}`;
   }
   if (engine === "postgres") {
     const schema = "public";
     const tableRef = `${pgQuoteId(schema)}.${pgQuoteId(tableName.trim())}`;
-    return `ALTER TABLE ${tableRef} DROP COLUMN ${pgQuoteId(columnName.trim())}`;
+    return `ALTER TABLE ${tableRef} DROP COLUMN ${pgQuoteId(column)}`;
   }
   if (engine === "sqlite") {
     const tableRef = sqliteQuoteId(tableName.trim());
-    return `ALTER TABLE ${tableRef} DROP COLUMN ${sqliteQuoteId(columnName.trim())}`;
+    return `ALTER TABLE ${tableRef} DROP COLUMN ${sqliteQuoteId(column)}`;
+  }
+  if (engine === "oracle") {
+    return `ALTER TABLE ${pgQuoteId(dbName.trim())}.${pgQuoteId(tableName.trim())} DROP COLUMN ${pgQuoteId(column)}`;
+  }
+  if (engine === "hive") {
+    return `ALTER TABLE ${mysqlQuoteId(dbName.trim())}.${mysqlQuoteId(tableName.trim())} DROP COLUMN ${mysqlQuoteId(column)}`;
+  }
+  if (engine === "generic") {
+    return `ALTER TABLE ${sqliteQuoteId(tableName.trim())} DROP COLUMN ${sqliteQuoteId(column)}`;
   }
   return null;
 }
@@ -67,8 +81,14 @@ export function buildDropIndexSql(
     const schema = "public";
     return `DROP INDEX IF EXISTS ${pgQuoteId(schema)}.${pgQuoteId(name)}`;
   }
-  if (engine === "sqlite") {
+  if (engine === "sqlite" || engine === "generic") {
     return `DROP INDEX IF EXISTS ${sqliteQuoteId(name)}`;
+  }
+  if (engine === "oracle") {
+    return `DROP INDEX ${pgQuoteId(dbName.trim())}.${pgQuoteId(name)}`;
+  }
+  if (engine === "hive") {
+    return `DROP INDEX ${mysqlQuoteId(name)} ON ${mysqlQuoteId(dbName.trim())}.${mysqlQuoteId(tableName.trim())}`;
   }
   return null;
 }
@@ -91,7 +111,7 @@ export function isSchemaNodeDropSupported(dbType: string, nodeType: string): boo
     case "database":
       return engine === "mysql" || engine === "postgres";
     case "user":
-      return engine === "mysql" || engine === "postgres";
+      return engine === "mysql" || engine === "postgres" || engine === "oracle";
     default:
       return false;
   }
@@ -124,8 +144,14 @@ export function buildDropTableSql(
     const schema = "public";
     return `DROP TABLE ${pgQuoteId(schema)}.${pgQuoteId(table)}`;
   }
-  if (engine === "sqlite") {
+  if (engine === "sqlite" || engine === "generic") {
     return `DROP TABLE ${sqliteQuoteId(table)}`;
+  }
+  if (engine === "oracle") {
+    return `DROP TABLE ${pgQuoteId(dbName.trim())}.${pgQuoteId(table)}`;
+  }
+  if (engine === "hive") {
+    return `DROP TABLE ${mysqlQuoteId(dbName.trim())}.${mysqlQuoteId(table)}`;
   }
   return null;
 }
@@ -145,8 +171,14 @@ export function buildDropViewSql(
     const schema = "public";
     return `DROP VIEW ${pgQuoteId(schema)}.${pgQuoteId(view)}`;
   }
-  if (engine === "sqlite") {
+  if (engine === "sqlite" || engine === "generic") {
     return `DROP VIEW ${sqliteQuoteId(view)}`;
+  }
+  if (engine === "oracle") {
+    return `DROP VIEW ${pgQuoteId(dbName.trim())}.${pgQuoteId(view)}`;
+  }
+  if (engine === "hive") {
+    return `DROP VIEW ${mysqlQuoteId(dbName.trim())}.${mysqlQuoteId(view)}`;
   }
   return null;
 }
@@ -167,6 +199,9 @@ export function buildDropUserSql(
   }
   if (engine === "postgres") {
     return `DROP ROLE IF EXISTS ${pgQuoteId(name)}`;
+  }
+  if (engine === "oracle") {
+    return `DROP USER ${pgQuoteId(name)}`;
   }
   return null;
 }

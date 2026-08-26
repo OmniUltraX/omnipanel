@@ -1,63 +1,110 @@
-//! 数据库访问层：`DbDriver` trait + MySQL / PostgreSQL / SQLite / Redis / MongoDB / Qdrant / ClickHouse 实现，按 `db_type` 分发。
+//! 数据库访问层：`DbDriver` trait + 按引擎隔离的进程内 / sidecar 实现。
 //!
-//! 设计：远程网络数据库（MySQL/PostgreSQL）走 `sqlx` 异步连接池；本地 SQLite 走 `rusqlite`
-//! （与 `omnipanel-store` 共用同一 sqlite 后端，避免 `libsqlite3-sys` 版本冲突）。
+//! 第一方引擎身份见 [`engine_contract::FirstPartyEngine`]（与 `plugins/db-*/plugin.json` 对齐）。
+//! 运行时：
+//! - SQLite / Qdrant / SQL Server / 默认 MySQL·PG：进程内（T0）
+//! - ClickHouse / MongoDB / Redis：常驻 sidecar（T1）
+//! - MySQL / PG：`OMNIPANEL_SQL_SIDECAR=1` 时可切 sidecar
+//! - 未知引擎：已安装 sidecar 插件的 `entry.driver`，或 `OMNIPANEL_ENGINE_SIDECAR_{TYPE}` / `OMNIPANEL_DBX_CMD`
+//!
 //! 所有驱动统一返回领域错误 [`OmniError`]，命令层零散字符串错误就此收敛。
 
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod blob_value;
+mod engine_contract;
+#[cfg(feature = "clickhouse-http")]
 pub(crate) mod clickhouse;
+#[cfg(feature = "host")]
 mod introspect;
+#[cfg(feature = "host")]
+mod sidecar_catalog;
 mod json_value;
+#[cfg(feature = "mongodb")]
 mod mongodb;
+#[cfg(feature = "mysql")]
 mod mysql;
+#[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "qdrant")]
 mod qdrant;
+#[cfg(feature = "redis")]
 mod redis;
+#[cfg(feature = "redis")]
+#[cfg_attr(not(feature = "sidecar-serve"), allow(dead_code))]
 mod redis_ops;
+#[cfg(feature = "host")]
+mod redis_host;
+#[cfg(feature = "host")]
 mod registry;
+#[cfg(feature = "host")]
 mod schema_refresh;
+#[cfg(any(feature = "sidecar-host", feature = "sidecar-serve"))]
+pub mod sidecar;
+#[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "sqlserver")]
+mod sqlserver;
 
-pub(crate) use json_value::{
-    decode_text_as_json_or_string, safe_int_to_value, sanitize_json_value_for_js,
-};
+#[cfg(any(
+    feature = "mysql",
+    feature = "postgres",
+    feature = "mongodb",
+    feature = "sqlite",
+    feature = "sqlserver"
+))]
+pub(crate) use json_value::{decode_text_as_json_or_string, safe_int_to_value};
+pub(crate) use json_value::sanitize_json_value_for_js;
 
 pub use blob_value::encode_blob_value;
+pub use engine_contract::{FirstPartyEngine, FirstPartyRuntime};
 
+#[cfg(feature = "host")]
 pub use introspect::{
     db_create_database, db_get_table_details, db_introspect_schema, db_introspect_table,
-    db_list_character_sets, db_list_connection_users, db_list_databases_with_stats,
+    db_list_character_sets, db_list_connection_users, db_list_databases,
+    db_list_databases_with_stats,
     db_list_table_details, db_table_ddl, CreateDatabaseArgs, DbCharsetMeta, DbColumnMeta,
     DbDatabaseMeta, DbIndexMeta, DbIntrospectResult, DbNamedTableDetails, DbRoutineMeta,
     DbTableDetails, DbTableSchema, DbUserMeta,
 };
 
+#[cfg(feature = "host")]
 pub use schema_refresh::{
     db_refresh_schema_node, refresh_connection_payload, SchemaCacheDatabasePayload,
     SchemaConnectionRefreshPayload, SchemaNodeRefreshArgs, SchemaNodeRefreshResult,
     SchemaTableRefreshPayload,
 };
 
+#[cfg(feature = "mongodb")]
 pub use mongodb::MongoDriver;
 
+#[cfg(feature = "clickhouse-http")]
 pub use clickhouse::ClickHouseDriver;
+#[cfg(feature = "mysql")]
 pub use mysql::mysql_connect_options;
+#[cfg(feature = "postgres")]
 pub use postgres::postgres_connect_options;
+#[cfg(feature = "sqlserver")]
+pub use sqlserver::SqlServerDriver;
+#[cfg(feature = "qdrant")]
 pub use qdrant::{QdrantCollectionInfo, QdrantDriver};
+#[cfg(feature = "redis")]
 pub use redis::{
     RedisDatabaseInfo, RedisDriver, RedisKeyDetail, RedisKeyEntry, RedisSearchKeysResult,
     RedisSlowLogEntry,
 };
+#[cfg(feature = "redis")]
 pub use redis_ops::{
     RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer,
     RedisStreamConsumerCleanupResult, RedisStreamEntry, RedisStreamGroup,
     RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
 };
+#[cfg(feature = "host")]
+pub use redis_host::*;
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
 #[derive(Debug, Clone)]
@@ -69,12 +116,16 @@ pub struct DbParams {
     pub password: String,
     /// 网络数据库为库名；SQLite 为文件路径。
     pub database: String,
-    /// 是否启用 SSL（MySQL / PostgreSQL）。
+    /// 是否启用 SSL（MySQL / PostgreSQL）。SQL Server 表示加密传输。
     pub ssl: bool,
+    /// Oracle SID；空则使用 `database` 作为服务名。
+    pub sid: String,
+    /// Oracle SYSDBA。
+    pub sysdba: bool,
 }
 
 /// 查询结果：列名 + 行（每行按列顺序的 JSON 值）+ 影响行数（DML）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult {
     pub columns: Vec<String>,
@@ -159,380 +210,54 @@ pub(crate) fn build_where_sql(where_clause: Option<&str>) -> OmniResult<String> 
 }
 
 /// 按 `db_type` 建立连接并返回对应驱动实例（走驱动注册表）。
+#[cfg(feature = "host")]
 pub async fn connect(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
     registry::connect_registered(params).await
 }
 
 /// 建立「独占连接」驱动（池大小 1），用于跨多次 execute 保持事务。
 /// 目前仅支持 MySQL / MariaDB / PostgreSQL。
+#[cfg(feature = "host")]
 pub async fn connect_exclusive(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
     registry::connect_exclusive_registered(params).await
 }
 
+#[cfg(feature = "host")]
 pub async fn mongodb_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
-    mongodb::MongoDriver::list_databases(params).await
+    let mut params = params.clone();
+    if params.database.trim().is_empty() {
+        params.database = "admin".to_string();
+    }
+    let driver = sidecar::connect_engine(sidecar::EngineKind::MongoDb, &params).await?;
+    driver.list_databases().await
 }
 
+#[cfg(feature = "host")]
 pub async fn clickhouse_list_databases(params: &DbParams) -> OmniResult<Vec<String>> {
-    clickhouse::clickhouse_list_databases(params).await
+    let driver = sidecar::connect_clickhouse(params).await?;
+    driver.list_databases().await
 }
 
 /// Qdrant 虚拟库固定为 `default`（collections 作为「表」）。
+#[cfg(feature = "qdrant")]
 pub async fn qdrant_list_databases(_params: &DbParams) -> OmniResult<Vec<String>> {
     Ok(vec!["default".to_string()])
 }
 
+#[cfg(feature = "qdrant")]
 pub async fn qdrant_list_collection_infos(
     params: &DbParams,
 ) -> OmniResult<Vec<QdrantCollectionInfo>> {
     qdrant::qdrant_list_collection_infos(params).await
 }
 
+#[cfg(feature = "qdrant")]
 pub async fn qdrant_delete_points(
     params: &DbParams,
     collection: &str,
     point_ids: &[Value],
 ) -> OmniResult<u64> {
     qdrant::qdrant_delete_points(params, collection, point_ids).await
-}
-
-/// Redis `CONFIG GET *`（两列：parameter / value）。
-pub async fn redis_config_get_all(params: &DbParams) -> OmniResult<QueryResult> {
-    let driver = redis::RedisDriver::connect(params).await?;
-    driver.config_get_all().await
-}
-
-/// Redis `CONFIG GET` 单键或多键，返回键值对列表。
-pub async fn redis_config_get(params: &DbParams, pattern: &str) -> OmniResult<Vec<(String, String)>> {
-    let driver = redis::RedisDriver::connect(params).await?;
-    driver.config_get(pattern).await
-}
-
-/// Redis `CLIENT LIST`：每行一个客户端连接。
-pub async fn redis_client_list(params: &DbParams) -> OmniResult<QueryResult> {
-    let driver = redis::RedisDriver::connect(params).await?;
-    driver.client_list().await
-}
-
-/// Redis 键搜索（SCAN + TYPE；值预览可选）。
-pub async fn redis_search_keys(
-    params: &DbParams,
-    pattern: &str,
-    types: &[String],
-    limit: usize,
-    cursor: u64,
-    include_value_preview: bool,
-) -> OmniResult<RedisSearchKeysResult> {
-    let driver = RedisDriver::connect(params).await?;
-    driver
-        .search_keys(pattern, types, limit, cursor, include_value_preview)
-        .await
-}
-
-/// Redis 逻辑库名列表。
-pub async fn redis_list_databases(
-    params: &DbParams,
-    preset_database: &str,
-) -> OmniResult<Vec<String>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.list_databases(preset_database).await
-}
-
-/// Redis 逻辑库 + key 条数。
-pub async fn redis_list_databases_with_key_counts(
-    params: &DbParams,
-    preset_database: &str,
-) -> OmniResult<Vec<RedisDatabaseInfo>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver
-        .list_databases_with_key_counts(preset_database)
-        .await
-}
-
-/// Redis `DBSIZE`。
-pub async fn redis_dbsize(params: &DbParams) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.dbsize().await
-}
-
-/// Redis key 详情。
-pub async fn redis_key_detail(params: &DbParams, key: &str) -> OmniResult<RedisKeyDetail> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.key_detail(key).await
-}
-
-/// Redis 新建 string key。
-pub async fn redis_set_key(
-    params: &DbParams,
-    key: &str,
-    value: &str,
-    key_type: &str,
-) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.set_key(key, value, key_type).await
-}
-
-/// Redis 删除 key。
-pub async fn redis_delete_key(params: &DbParams, key: &str) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.delete_key(key).await
-}
-
-/// Redis 慢日志。
-pub async fn redis_slowlog(params: &DbParams, count: usize) -> OmniResult<Vec<RedisSlowLogEntry>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.slowlog(count).await
-}
-
-/// Redis `CLIENT KILL ADDR <ip:port>`，返回被杀掉的客户端数量。
-pub async fn redis_client_kill_addr(params: &DbParams, addr: &str) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.client_kill_addr(addr).await
-}
-
-/// Redis `INFO`。
-pub async fn redis_info(params: &DbParams, section: Option<&str>) -> OmniResult<RedisInfoResult> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.info(section).await
-}
-
-pub async fn redis_memory_stats(params: &DbParams) -> OmniResult<RedisMemoryStats> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.memory_stats().await
-}
-
-pub async fn redis_memory_doctor(params: &DbParams) -> OmniResult<String> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.memory_doctor().await
-}
-
-pub async fn redis_memory_purge(params: &DbParams) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.memory_purge().await
-}
-
-pub async fn redis_config_set(params: &DbParams, parameter: &str, value: &str) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.config_set(parameter, value).await
-}
-
-pub async fn redis_config_rewrite(params: &DbParams) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.config_rewrite().await
-}
-
-pub async fn redis_flush_db(params: &DbParams, r#async: bool) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.flush_db(r#async).await
-}
-
-pub async fn redis_flush_all(params: &DbParams, r#async: bool) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.flush_all(r#async).await
-}
-
-pub async fn redis_stream_range(
-    params: &DbParams,
-    key: &str,
-    start: Option<&str>,
-    end: Option<&str>,
-    count: Option<usize>,
-    reverse: bool,
-) -> OmniResult<RedisStreamRangeResult> {
-    let driver = RedisDriver::connect(params).await?;
-    driver
-        .stream_range(key, start, end, count, reverse)
-        .await
-}
-
-pub async fn redis_stream_groups(params: &DbParams, key: &str) -> OmniResult<Vec<RedisStreamGroup>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_groups(key).await
-}
-
-pub async fn redis_stream_consumers(
-    params: &DbParams,
-    key: &str,
-    group: &str,
-) -> OmniResult<Vec<RedisStreamConsumer>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_consumers(key, group).await
-}
-
-pub async fn redis_stream_pending(
-    params: &DbParams,
-    key: &str,
-    group: &str,
-    start: Option<&str>,
-    end: Option<&str>,
-    count: Option<usize>,
-) -> OmniResult<Vec<RedisStreamPendingEntry>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver
-        .stream_pending(key, group, start, end, count)
-        .await
-}
-
-pub async fn redis_stream_monitor(
-    params: &DbParams,
-    key: &str,
-    group: Option<&str>,
-) -> OmniResult<RedisStreamMonitorSnapshot> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_monitor(key, group).await
-}
-
-pub async fn redis_stream_ack(
-    params: &DbParams,
-    key: &str,
-    group: &str,
-    ids: &[String],
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_ack(key, group, ids).await
-}
-
-pub async fn redis_stream_claim(
-    params: &DbParams,
-    key: &str,
-    group: &str,
-    consumer: &str,
-    min_idle_ms: u64,
-    start_id: &str,
-    count: Option<u64>,
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver
-        .stream_claim(key, group, consumer, min_idle_ms, start_id, count)
-        .await
-}
-
-pub async fn redis_stream_group_create(
-    params: &DbParams,
-    key: &str,
-    group: &str,
-    id: &str,
-    mkstream: bool,
-) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_group_create(key, group, id, mkstream).await
-}
-
-pub async fn redis_stream_group_destroy(params: &DbParams, key: &str, group: &str) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_group_destroy(key, group).await
-}
-
-pub async fn redis_stream_trim(
-    params: &DbParams,
-    key: &str,
-    maxlen: u64,
-    approximate: bool,
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.stream_trim(key, maxlen, approximate).await
-}
-
-pub async fn redis_stream_cleanup_inactive_consumers(
-    params: &DbParams,
-    key: &str,
-    group: &str,
-    idle_threshold_ms: u64,
-    target_consumer: Option<&str>,
-) -> OmniResult<RedisStreamConsumerCleanupResult> {
-    let driver = RedisDriver::connect(params).await?;
-    driver
-        .stream_cleanup_inactive_consumers(key, group, idle_threshold_ms, target_consumer)
-        .await
-}
-
-pub async fn redis_acl_list(params: &DbParams) -> OmniResult<Vec<RedisAclUser>> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.acl_list().await
-}
-
-pub async fn redis_acl_getuser(params: &DbParams, username: &str) -> OmniResult<RedisAclUser> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.acl_getuser(username).await
-}
-
-pub async fn redis_acl_setuser(params: &DbParams, username: &str, rule: &str) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.acl_setuser(username, rule).await
-}
-
-pub async fn redis_acl_deluser(params: &DbParams, username: &str) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.acl_deluser(username).await
-}
-
-pub async fn redis_hash_set_field(
-    params: &DbParams,
-    key: &str,
-    field: &str,
-    value: &str,
-) -> OmniResult<()> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.hash_set_field(key, field, value).await
-}
-
-pub async fn redis_hash_del_fields(
-    params: &DbParams,
-    key: &str,
-    fields: &[String],
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.hash_del_fields(key, fields).await
-}
-
-pub async fn redis_list_push(
-    params: &DbParams,
-    key: &str,
-    side: &str,
-    values: &[String],
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.list_push(key, side, values).await
-}
-
-pub async fn redis_list_remove(
-    params: &DbParams,
-    key: &str,
-    count: i64,
-    value: &str,
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.list_remove(key, count, value).await
-}
-
-pub async fn redis_set_add(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.set_add(key, members).await
-}
-
-pub async fn redis_set_remove(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.set_remove(key, members).await
-}
-
-pub async fn redis_zset_add(
-    params: &DbParams,
-    key: &str,
-    member: &str,
-    score: f64,
-) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.zset_add(key, member, score).await
-}
-
-pub async fn redis_zset_remove(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.zset_remove(key, members).await
-}
-
-pub async fn redis_expire_key(params: &DbParams, key: &str, seconds: i64) -> OmniResult<bool> {
-    let driver = RedisDriver::connect(params).await?;
-    driver.expire_key(key, seconds).await
 }
 
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。
@@ -702,6 +427,7 @@ fn is_comment_only(stmt: &str) -> bool {
 }
 
 /// sqlx 错误统一映射为数据库领域错误。
+#[cfg(any(feature = "mysql", feature = "postgres"))]
 pub(crate) fn map_sqlx_err(err: sqlx::Error) -> OmniError {
     OmniError::database("数据库操作失败").with_cause(err.to_string())
 }
@@ -745,9 +471,116 @@ pub fn wrap_select_with_limit(sql: &str, limit: i64, offset: i64) -> String {
     wrapped.join("; ")
 }
 
+/// 按引擎包装编辑器查询：普通 SQL 走子查询 LIMIT；Oracle/达梦/DB2 走 FETCH；
+/// SQL Server 额外补 ORDER BY；Hive/Spark 只追加 LIMIT；Firebird 走 ROWS；
+/// CQL 只追加 LIMIT；Cypher 不改写。未知 OLAP 默认 LIMIT 追加而非子查询包裹。
+pub fn wrap_editor_query(db_type: &str, sql: &str, limit: i64, offset: i64) -> String {
+    if limit <= 0 {
+        return sql.to_string();
+    }
+    match db_type.to_ascii_lowercase().as_str() {
+        "neo4j" => sql.to_string(),
+        "cassandra" => wrap_cql_limit(sql, limit),
+        "hive" | "spark" => wrap_append_limit(sql, limit, None),
+        "firebird" => wrap_firebird_rows(sql, limit, offset),
+        "oracle" | "orcl" | "db2" | "dameng" | "dm" => {
+            wrap_select_with_fetch(sql, limit, offset, false)
+        }
+        "sqlserver" | "mssql" | "sql server" => wrap_select_with_fetch(sql, limit, offset, true),
+        "ignite" | "ignite3" | "spanner" | "trino" | "presto" | "databend" | "databricks"
+        | "kylin" | "snowflake" | "vertica" | "exasol" | "saphana" | "teradata" => {
+            wrap_append_limit(sql, limit, Some(offset.max(0)))
+        }
+        _ => wrap_select_with_limit(sql, limit, offset),
+    }
+}
+
+/// Oracle 12c+ / 达梦 / DB2：`SELECT * FROM (stmt) alias OFFSET n ROWS FETCH NEXT m ROWS ONLY`。
+/// SQL Server 的 OFFSET/FETCH 必须带 ORDER BY，用 `(SELECT NULL)` 占位。
+fn wrap_select_with_fetch(sql: &str, limit: i64, offset: i64, require_order: bool) -> String {
+    if limit <= 0 {
+        return sql.to_string();
+    }
+    let statements = split_statements(sql);
+    if statements.is_empty() {
+        return sql.to_string();
+    }
+    let off = offset.max(0);
+    statements
+        .iter()
+        .map(|stmt| {
+            if is_wrappable_select(stmt) {
+                let order = if require_order {
+                    " ORDER BY (SELECT NULL)"
+                } else {
+                    ""
+                };
+                format!(
+                    "SELECT * FROM ({stmt}) __omnipanel_wrap__{order} OFFSET {off} ROWS FETCH NEXT {limit} ROWS ONLY"
+                )
+            } else {
+                stmt.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn wrap_cql_limit(sql: &str, limit: i64) -> String {
+    wrap_append_limit(sql, limit, None)
+}
+
+/// Hive / Spark / 未知 OLAP：只追加 LIMIT，不套 `__omnipanel_wrap__` 子查询。
+fn wrap_append_limit(sql: &str, limit: i64, offset: Option<i64>) -> String {
+    let statements = split_statements(sql);
+    if statements.is_empty() {
+        return sql.to_string();
+    }
+    statements
+        .into_iter()
+        .map(|stmt| {
+            let lower = stmt.to_ascii_lowercase();
+            if !is_wrappable_select(&stmt) || lower.contains(" limit ") || lower.contains(" rows ") {
+                return stmt;
+            }
+            let trimmed = stmt.trim_end().trim_end_matches(';');
+            match offset {
+                Some(off) if off > 0 => format!("{trimmed} LIMIT {limit} OFFSET {off}"),
+                _ => format!("{trimmed} LIMIT {limit}"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Firebird：`ROWS m TO n`（1-based 闭区间），与预览方言对齐。
+fn wrap_firebird_rows(sql: &str, limit: i64, offset: i64) -> String {
+    let statements = split_statements(sql);
+    if statements.is_empty() {
+        return sql.to_string();
+    }
+    let start = offset.max(0) + 1;
+    let end = start + limit - 1;
+    statements
+        .into_iter()
+        .map(|stmt| {
+            let lower = stmt.to_ascii_lowercase();
+            if !is_wrappable_select(&stmt)
+                || lower.contains(" rows ")
+                || lower.contains(" fetch ")
+            {
+                return stmt;
+            }
+            let trimmed = stmt.trim_end().trim_end_matches(';');
+            format!("{trimmed} ROWS {start} TO {end}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_query, split_statements, wrap_select_with_limit};
+    use super::{is_query, split_statements, wrap_editor_query, wrap_select_with_limit};
 
     #[test]
     fn classifies_select_as_query() {
@@ -871,5 +704,56 @@ mod tests {
     fn wrap_select_noop_when_limit_zero() {
         let out = wrap_select_with_limit("SELECT * FROM t", 0, 0);
         assert_eq!(out, "SELECT * FROM t");
+    }
+
+    #[test]
+    fn wrap_editor_skips_cypher_and_appends_cql_limit() {
+        assert_eq!(
+            wrap_editor_query("neo4j", "MATCH (n:Person) RETURN n", 50, 10),
+            "MATCH (n:Person) RETURN n"
+        );
+        assert_eq!(
+            wrap_editor_query("cassandra", "SELECT * FROM person", 20, 99),
+            "SELECT * FROM person LIMIT 20"
+        );
+        assert_eq!(
+            wrap_editor_query("cassandra", "SELECT * FROM person LIMIT 5", 20, 0),
+            "SELECT * FROM person LIMIT 5"
+        );
+        let mysql = wrap_editor_query("mysql", "SELECT * FROM t", 10, 0);
+        assert!(mysql.contains("__omnipanel_wrap__"));
+        assert!(mysql.contains("LIMIT 10 OFFSET 0"));
+    }
+
+    #[test]
+    fn wrap_editor_oracle_dameng_use_fetch() {
+        let oracle = wrap_editor_query("oracle", "SELECT * FROM EMP", 50, 10);
+        assert!(oracle.contains("OFFSET 10 ROWS FETCH NEXT 50 ROWS ONLY"));
+        assert!(!oracle.to_ascii_lowercase().contains(" limit "));
+        let dameng = wrap_editor_query("dameng", "SELECT * FROM SYSDBA.T", 20, 0);
+        assert!(dameng.contains("OFFSET 0 ROWS FETCH NEXT 20 ROWS ONLY"));
+        let mssql = wrap_editor_query("sqlserver", "SELECT * FROM dbo.t", 5, 0);
+        assert!(mssql.contains("ORDER BY (SELECT NULL)"));
+        assert!(mssql.contains("FETCH NEXT 5 ROWS ONLY"));
+    }
+
+    #[test]
+    fn wrap_editor_hive_spark_append_limit_without_subquery() {
+        let hive = wrap_editor_query("hive", "SELECT * FROM logs", 50, 10);
+        assert_eq!(hive, "SELECT * FROM logs LIMIT 50");
+        assert!(!hive.contains("__omnipanel_wrap__"));
+        let spark = wrap_editor_query("spark", "SELECT a FROM t LIMIT 3", 20, 0);
+        assert_eq!(spark, "SELECT a FROM t LIMIT 3");
+        let ignite = wrap_editor_query("ignite", "SELECT * FROM cache", 10, 2);
+        assert_eq!(ignite, "SELECT * FROM cache LIMIT 10 OFFSET 2");
+        assert!(!ignite.contains("__omnipanel_wrap__"));
+    }
+
+    #[test]
+    fn wrap_editor_firebird_uses_rows() {
+        let sql = wrap_editor_query("firebird", "SELECT * FROM EMPLOYEE", 20, 10);
+        assert_eq!(sql, "SELECT * FROM EMPLOYEE ROWS 11 TO 30");
+        assert!(!sql.contains("__omnipanel_wrap__"));
+        assert!(!sql.to_ascii_lowercase().contains(" limit "));
     }
 }

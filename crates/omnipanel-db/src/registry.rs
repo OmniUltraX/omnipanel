@@ -7,7 +7,8 @@ use std::sync::OnceLock;
 
 use omnipanel_error::{OmniError, OmniResult};
 
-use crate::{clickhouse, mongodb, mysql, postgres, qdrant, redis, sqlite, DbDriver, DbParams};
+use crate::engine_contract::FirstPartyEngine;
+use crate::{mysql, postgres, qdrant, sqlite, sqlserver, DbDriver, DbParams};
 
 type ConnectFuture = Pin<Box<dyn Future<Output = OmniResult<Box<dyn DbDriver>>> + Send>>;
 type ConnectFn = Box<dyn Fn(DbParams) -> ConnectFuture + Send + Sync>;
@@ -33,7 +34,6 @@ impl DriverRegistry {
         self.entries.push(registration);
     }
 
-    #[allow(dead_code)]
     pub fn contains(&self, db_type: &str) -> bool {
         self.by_key.contains_key(&db_type.to_ascii_lowercase())
     }
@@ -74,12 +74,24 @@ fn seed_builtin_drivers() -> DriverRegistry {
     let mut registry = DriverRegistry::default();
 
     registry.register(DriverRegistration {
-        keys: vec!["mysql", "mariadb"],
+        keys: FirstPartyEngine::MySql.keys().to_vec(),
         connect: Box::new(|params| {
-            Box::pin(async move { Ok(boxed_driver(mysql::MySqlDriver::connect(&params).await?)) })
+            Box::pin(async move {
+                if let Some(launch) = crate::sidecar::launch_for_params(&params) {
+                    return Ok(boxed_driver(
+                        crate::sidecar::connect_launch(&launch, &params).await?,
+                    ));
+                }
+                Ok(boxed_driver(mysql::MySqlDriver::connect(&params).await?))
+            })
         }),
         connect_exclusive: Some(Box::new(|params| {
             Box::pin(async move {
+                if let Some(launch) = crate::sidecar::launch_for_params(&params) {
+                    return Ok(boxed_driver(
+                        crate::sidecar::connect_launch(&launch, &params).await?,
+                    ));
+                }
                 Ok(boxed_driver(
                     mysql::MySqlDriver::connect_exclusive(&params).await?,
                 ))
@@ -88,12 +100,24 @@ fn seed_builtin_drivers() -> DriverRegistry {
     });
 
     registry.register(DriverRegistration {
-        keys: vec!["postgres", "postgresql", "pg"],
+        keys: FirstPartyEngine::Postgres.keys().to_vec(),
         connect: Box::new(|params| {
-            Box::pin(async move { Ok(boxed_driver(postgres::PgDriver::connect(&params).await?)) })
+            Box::pin(async move {
+                if let Some(launch) = crate::sidecar::launch_for_params(&params) {
+                    return Ok(boxed_driver(
+                        crate::sidecar::connect_launch(&launch, &params).await?,
+                    ));
+                }
+                Ok(boxed_driver(postgres::PgDriver::connect(&params).await?))
+            })
         }),
         connect_exclusive: Some(Box::new(|params| {
             Box::pin(async move {
+                if let Some(launch) = crate::sidecar::launch_for_params(&params) {
+                    return Ok(boxed_driver(
+                        crate::sidecar::connect_launch(&launch, &params).await?,
+                    ));
+                }
                 Ok(boxed_driver(
                     postgres::PgDriver::connect_exclusive(&params).await?,
                 ))
@@ -102,7 +126,7 @@ fn seed_builtin_drivers() -> DriverRegistry {
     });
 
     registry.register(DriverRegistration {
-        keys: vec!["sqlite", "sqlite3"],
+        keys: FirstPartyEngine::Sqlite.keys().to_vec(),
         connect: Box::new(|params| {
             Box::pin(async move { Ok(boxed_driver(sqlite::SqliteDriver::connect(&params).await?)) })
         }),
@@ -110,39 +134,63 @@ fn seed_builtin_drivers() -> DriverRegistry {
     });
 
     registry.register(DriverRegistration {
-        keys: vec!["redis"],
+        keys: FirstPartyEngine::SqlServer.keys().to_vec(),
         connect: Box::new(|params| {
-            Box::pin(async move { Ok(boxed_driver(redis::RedisDriver::connect(&params).await?)) })
+            Box::pin(async move {
+                Ok(boxed_driver(sqlserver::SqlServerDriver::connect(&params).await?))
+            })
+        }),
+        connect_exclusive: Some(Box::new(|params| {
+            Box::pin(async move {
+                Ok(boxed_driver(sqlserver::SqlServerDriver::connect(&params).await?))
+            })
+        })),
+    });
+
+    registry.register(DriverRegistration {
+        keys: FirstPartyEngine::Redis.keys().to_vec(),
+        connect: Box::new(|params| {
+            Box::pin(async move {
+                Ok(boxed_driver(
+                    crate::sidecar::connect_engine(crate::sidecar::EngineKind::Redis, &params)
+                        .await?,
+                ))
+            })
         }),
         connect_exclusive: None,
     });
 
     registry.register(DriverRegistration {
-        keys: vec!["mongodb", "mongo"],
+        keys: FirstPartyEngine::MongoDb.keys().to_vec(),
         connect: Box::new(|params| {
-            Box::pin(async move { Ok(boxed_driver(mongodb::MongoDriver::connect(&params).await?)) })
+            Box::pin(async move {
+                let mut params = params;
+                if params.database.trim().is_empty() {
+                    params.database = "admin".to_string();
+                }
+                Ok(boxed_driver(
+                    crate::sidecar::connect_engine(crate::sidecar::EngineKind::MongoDb, &params)
+                        .await?,
+                ))
+            })
         }),
         connect_exclusive: None,
     });
 
-    // Qdrant 实现仍在本 crate；插件 `omni.engine.qdrant` 只声明引擎 key / 表单。
+    // Qdrant 实现仍在本 crate；插件只声明引擎 key / 表单 / inproc。
     registry.register(DriverRegistration {
-        keys: vec!["qdrant"],
+        keys: FirstPartyEngine::Qdrant.keys().to_vec(),
         connect: Box::new(|params| {
             Box::pin(async move { Ok(boxed_driver(qdrant::QdrantDriver::connect(&params).await?)) })
         }),
         connect_exclusive: None,
     });
 
-    // ClickHouse 实现仍在本 crate；插件 `omni.engine.clickhouse` 只声明引擎 key / 表单。
+    // ClickHouse 走 T1 sidecar（omnipanel-engine-clickhouse）；本 crate 只保留 HTTP 实现给 sidecar 进程用。
     registry.register(DriverRegistration {
-        keys: vec!["clickhouse", "ch"],
+        keys: FirstPartyEngine::ClickHouse.keys().to_vec(),
         connect: Box::new(|params| {
-            Box::pin(async move {
-                Ok(boxed_driver(
-                    clickhouse::ClickHouseDriver::connect(&params).await?,
-                ))
-            })
+            Box::pin(async move { Ok(boxed_driver(crate::sidecar::connect_clickhouse(&params).await?)) })
         }),
         connect_exclusive: None,
     });
@@ -157,7 +205,19 @@ pub fn global_driver_registry() -> &'static DriverRegistry {
 }
 
 pub async fn connect_registered(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
-    global_driver_registry().connect(params).await
+    let registry = global_driver_registry();
+    if registry.contains(&params.db_type) {
+        return registry.connect(params).await;
+    }
+    if let Some(launch) = crate::sidecar::launch_for_params(params) {
+        return crate::sidecar::connect_launch(&launch, params)
+            .await
+            .map(boxed_driver);
+    }
+    Err(OmniError::invalid_input(format!(
+        "不支持的数据库类型：{}",
+        params.db_type
+    )))
 }
 
 pub async fn connect_exclusive_registered(params: &DbParams) -> OmniResult<Box<dyn DbDriver>> {
@@ -177,6 +237,8 @@ mod tests {
             "postgres",
             "postgresql",
             "sqlite",
+            "sqlserver",
+            "mssql",
             "redis",
             "mongodb",
             "qdrant",
@@ -188,5 +250,13 @@ mod tests {
         }
         assert!(!guard.contains("oracle"));
         assert!(guard.aliases().iter().any(|k| k == "qdrant"));
+        for engine in crate::FirstPartyEngine::ALL {
+            for key in engine.keys() {
+                assert!(
+                    guard.contains(key),
+                    "DriverRegistry 缺少 FirstPartyEngine alias {key}"
+                );
+            }
+        }
     }
 }
