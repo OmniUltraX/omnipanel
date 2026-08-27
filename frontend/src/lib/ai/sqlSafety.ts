@@ -125,7 +125,10 @@ export function isSafeDatabaseToolPermission(
     title.includes("get_tables") ||
     title.includes("get_table_info") ||
     title.includes("show_processlist") ||
-    title.includes("slow_log")
+    title.includes("slow_log") ||
+    title.includes("list_users") ||
+    title.includes("list_character_sets") ||
+    title.includes("preview_table")
   ) {
     return true;
   }

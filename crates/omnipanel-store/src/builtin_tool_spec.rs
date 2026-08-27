@@ -111,6 +111,49 @@ const SCHEMA_DB_SLOW_LOG_SUMMARY: &str = r#"{
   "required": ["connection_name"]
 }"#;
 
+const SCHEMA_DB_CREATE_DATABASE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "connection_name": { "type": "string", "description": "数据库连接名称（与侧栏连接名一致，也可传连接 id）" },
+    "database_name": { "type": "string", "description": "要创建的数据库名（也可传 name）" },
+    "name": { "type": "string", "description": "database_name 的别名，与工作台建库对话框字段一致" },
+    "charset": { "type": "string", "description": "可选。MySQL 为 CHARACTER SET，PostgreSQL 为 ENCODING；留空用服务器默认" },
+    "collation": { "type": "string", "description": "可选。MySQL 为 COLLATE，PostgreSQL 为 LC_COLLATE" }
+  },
+  "required": ["connection_name", "database_name"]
+}"#;
+
+const SCHEMA_DB_LIST_USERS: &str = r#"{
+  "type": "object",
+  "properties": {
+    "connection_name": { "type": "string", "description": "数据库连接名称（与侧栏连接名一致，也可传连接 id）" },
+    "keyword": { "type": "string", "description": "可选，按用户名或 host 模糊过滤（忽略大小写）" }
+  },
+  "required": ["connection_name"]
+}"#;
+
+const SCHEMA_DB_PREVIEW_TABLE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "connection_name": { "type": "string", "description": "数据库连接名称（与侧栏连接名一致，也可传连接 id）" },
+    "database_name": { "type": "string", "description": "数据库名" },
+    "table_name": { "type": "string", "description": "表名" },
+    "limit": { "type": "integer", "description": "返回行数，默认 200，范围 1~500", "default": 200, "minimum": 1, "maximum": 500 },
+    "offset": { "type": "integer", "description": "偏移量，默认 0", "default": 0, "minimum": 0 },
+    "order_by": { "type": "string", "description": "可选，不含 ORDER BY 关键字的排序子句（与工作台预览一致）" },
+    "where_clause": { "type": "string", "description": "可选，不含 WHERE 关键字的过滤条件（与工作台预览一致，禁止注入关键字）" }
+  },
+  "required": ["connection_name", "database_name", "table_name"]
+}"#;
+
+const SCHEMA_DB_LIST_CHARACTER_SETS: &str = r#"{
+  "type": "object",
+  "properties": {
+    "connection_name": { "type": "string", "description": "数据库连接名称（与侧栏连接名一致，也可传连接 id）" }
+  },
+  "required": ["connection_name"]
+}"#;
+
 const SCHEMA_RESOURCE_GET_PROFILE: &str = r#"{
   "type": "object",
   "properties": {
@@ -907,6 +950,38 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         omnimcp_backend: true,
     },
     BuiltinToolSpec {
+        tool_name: "omni_database_create_database",
+        module_key: "database",
+        description: "按工作台建库对话框创建数据库（同路径 db_create_database）。可选 charset/collation；危险操作需用户确认。",
+        input_schema: SCHEMA_DB_CREATE_DATABASE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_database_list_users",
+        module_key: "database",
+        description: "列出连接上的数据库用户（与工作台「用户」页签同一路径 db_list_connection_users）。可选 keyword 过滤。",
+        input_schema: SCHEMA_DB_LIST_USERS,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_database_preview_table",
+        module_key: "database",
+        description: "预览表数据（与工作台表预览同一路径 driver.preview）。支持 limit/offset/order_by/where_clause；行返回列名到值的对象。",
+        input_schema: SCHEMA_DB_PREVIEW_TABLE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_database_list_character_sets",
+        module_key: "database",
+        description: "列出连接可用字符集/编码（与工作台建库对话框同一路径），供创建数据库时选择 charset。",
+        input_schema: SCHEMA_DB_LIST_CHARACTER_SETS,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
         tool_name: "omni_resource_get_profile",
         module_key: "web",
         description: "获取资源档案：返回指定资源（SSH 主机 / 数据库连接等）的最新观测快照（hardware / services / overview / schema_summary 等各类最新一条）。供 AI 在处理新问题时快速了解资源历史状态。",
@@ -1498,6 +1573,10 @@ mod tests {
             "omni_database_kill_query",
             "omni_database_slow_log_summary",
             "omni_database_create_run_sql",
+            "omni_database_create_database",
+            "omni_database_list_users",
+            "omni_database_preview_table",
+            "omni_database_list_character_sets",
         ] {
             let spec = builtin_tool_spec(name).unwrap_or_else(|| panic!("{name} 未注册"));
             assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated, "{name}");
@@ -1561,6 +1640,48 @@ mod tests {
         );
         assert!(!required.iter().any(|x| x.as_str() == Some("count")));
         assert_eq!(v["properties"]["count"]["default"].as_i64(), Some(10));
+    }
+
+    #[test]
+    fn database_create_database_schema_requires_connection_and_name() {
+        let spec = builtin_tool_spec("omni_database_create_database").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        for key in ["connection_name", "database_name"] {
+            assert!(
+                required.iter().any(|x| x.as_str() == Some(key)),
+                "缺少 required: {key}"
+            );
+        }
+        assert!(!required.iter().any(|x| x.as_str() == Some("charset")));
+    }
+
+    #[test]
+    fn database_preview_table_schema_matches_workbench() {
+        let spec = builtin_tool_spec("omni_database_preview_table").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        for key in ["connection_name", "database_name", "table_name"] {
+            assert!(
+                required.iter().any(|x| x.as_str() == Some(key)),
+                "缺少 required: {key}"
+            );
+        }
+        assert_eq!(v["properties"]["limit"]["default"].as_i64(), Some(200));
+        assert!(!required.iter().any(|x| x.as_str() == Some("where_clause")));
+    }
+
+    #[test]
+    fn database_list_users_schema_requires_only_connection_name() {
+        let spec = builtin_tool_spec("omni_database_list_users").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        assert!(
+            required
+                .iter()
+                .any(|x| x.as_str() == Some("connection_name"))
+        );
+        assert!(!required.iter().any(|x| x.as_str() == Some("keyword")));
     }
 
     #[test]

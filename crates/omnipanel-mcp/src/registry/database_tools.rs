@@ -1,7 +1,8 @@
 //! 数据库 MCP 工具 — OmniMCP / 内部 Native 路径共用。
 
 use omnipanel_db::{
-    DbParams, QueryResult, connect, db_introspect_table, db_list_databases, mysql_connect_options,
+    CreateDatabaseArgs, DbParams, QueryResult, connect, db_create_database, db_introspect_table,
+    db_list_character_sets, db_list_connection_users, db_list_databases, mysql_connect_options,
 };
 use omnipanel_store::{DbConnectionConfig, load_database_connections};
 use serde_json::Value;
@@ -100,6 +101,43 @@ fn format_query_result(result: &QueryResult) -> String {
         })
     };
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn optional_u32(args: &Value, key: &str, default: u32) -> u32 {
+    args.get(key)
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_i64().and_then(|n| u64::try_from(n).ok()))
+                .or_else(|| v.as_str()?.trim().parse::<u64>().ok())
+        })
+        .map(|n| n.min(u64::from(u32::MAX)) as u32)
+        .unwrap_or(default)
+}
+
+fn require_database_name(args: &Value) -> Result<String, String> {
+    optional_str(args, "database_name")
+        .or_else(|| optional_str(args, "name"))
+        .ok_or_else(|| "缺少必填参数: database_name".to_string())
+}
+
+/// 工作台预览同形：行是列名 → 值的对象，而不是列数组。
+fn format_table_preview(name: &str, result: &QueryResult) -> Value {
+    let rows: Vec<Value> = result
+        .rows
+        .iter()
+        .map(|record| {
+            let mut obj = serde_json::Map::new();
+            for (col, val) in result.columns.iter().zip(record.iter()) {
+                obj.insert(col.clone(), val.clone());
+            }
+            Value::Object(obj)
+        })
+        .collect();
+    serde_json::json!({
+        "name": name,
+        "columns": result.columns,
+        "rows": rows,
+    })
 }
 
 pub async fn get_databases_from_connection(args: Value) -> Result<String, String> {
@@ -475,6 +513,111 @@ pub async fn slow_log_summary(args: Value) -> Result<String, String> {
     }
 }
 
+/// 创建数据库：与工作台建库对话框走同一条 `db_create_database`。
+pub async fn create_database(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let name = require_database_name(&args)?;
+    let charset = optional_str(&args, "charset");
+    let collation = optional_str(&args, "collation");
+    let conn = resolve_connection_any(&connection_name).await?;
+    let created = db_create_database(CreateDatabaseArgs {
+        connection: conn.clone(),
+        name,
+        charset,
+        collation,
+    })
+    .await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "database": created,
+        "created": true,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 列出连接用户：与工作台「用户」页签走同一条 `db_list_connection_users`。
+pub async fn list_users(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let keyword = optional_str(&args, "keyword");
+    let conn = resolve_connection_any(&connection_name).await?;
+    let users = db_list_connection_users(conn.clone()).await?;
+    let filtered: Vec<_> = match keyword.as_deref() {
+        Some(kw) => {
+            let lower = kw.to_ascii_lowercase();
+            users
+                .into_iter()
+                .filter(|u| {
+                    u.name.to_ascii_lowercase().contains(&lower)
+                        || u.host
+                            .as_deref()
+                            .is_some_and(|h| h.to_ascii_lowercase().contains(&lower))
+                })
+                .collect()
+        }
+        None => users,
+    };
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "users": filtered,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 预览表：与工作台表预览走同一条 `driver.preview`。
+pub async fn preview_table(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let database_name = require_str(&args, "database_name")?;
+    let table_name = assert_sql_identifier(&require_str(&args, "table_name")?, "表名")?;
+    let limit = optional_u32(&args, "limit", 200).clamp(1, 500);
+    let offset = optional_u32(&args, "offset", 0);
+    let order_by = optional_str(&args, "order_by");
+    let where_clause = optional_str(&args, "where_clause");
+    let conn = resolve_connection_any(&connection_name).await?;
+    let params = with_database(&conn, &database_name);
+    if params.database.trim().is_empty() {
+        return Err("未指定数据库".to_string());
+    }
+    let driver = connect(&params).await.map_err(|e| e.user_message())?;
+    let result = driver
+        .preview(
+            &table_name,
+            i64::from(limit),
+            i64::from(offset),
+            order_by.as_deref(),
+            where_clause.as_deref(),
+        )
+        .await
+        .map_err(|e| e.user_message())?;
+    let preview = format_table_preview(&table_name, &result);
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "database": database_name,
+        "table": table_name,
+        "limit": limit,
+        "offset": offset,
+        "name": preview.get("name"),
+        "columns": preview.get("columns"),
+        "rows": preview.get("rows"),
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 列出字符集：与工作台建库对话框走同一条 `db_list_character_sets`。
+pub async fn list_character_sets(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let conn = resolve_connection_any(&connection_name).await?;
+    let charsets = db_list_character_sets(conn.clone()).await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "charsets": charsets,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,5 +735,68 @@ mod tests {
         // query_id 缺失，应先报参数错误（而不是去查连接）
         let err = kill_query(args).await.unwrap_err();
         assert!(err.contains("缺少必填参数"));
+    }
+
+    #[test]
+    fn require_database_name_accepts_name_alias() {
+        let args = json!({ "name": "  shop  " });
+        assert_eq!(require_database_name(&args).unwrap(), "shop");
+        let args = json!({ "database_name": "omni" });
+        assert_eq!(require_database_name(&args).unwrap(), "omni");
+        let args = json!({});
+        assert!(
+            require_database_name(&args)
+                .unwrap_err()
+                .contains("database_name")
+        );
+    }
+
+    #[test]
+    fn optional_u32_defaults_and_parses_string() {
+        let args = json!({});
+        assert_eq!(optional_u32(&args, "limit", 200), 200);
+        let args = json!({ "limit": 50 });
+        assert_eq!(optional_u32(&args, "limit", 200), 50);
+        let args = json!({ "limit": "12" });
+        assert_eq!(optional_u32(&args, "limit", 200), 12);
+    }
+
+    #[test]
+    fn format_table_preview_maps_rows_to_objects() {
+        let preview = format_table_preview(
+            "users",
+            &QueryResult {
+                columns: vec!["id".into(), "name".into()],
+                rows: vec![vec![json!(1), json!("alice")]],
+                rows_affected: 0,
+            },
+        );
+        assert_eq!(preview["name"], "users");
+        assert_eq!(preview["rows"][0]["id"], 1);
+        assert_eq!(preview["rows"][0]["name"], "alice");
+    }
+
+    #[tokio::test]
+    async fn create_database_missing_name_returns_param_error() {
+        let args = json!({ "connection_name": "__nonexistent_conn__" });
+        let err = create_database(args).await.unwrap_err();
+        assert!(err.contains("缺少必填参数"));
+    }
+
+    #[tokio::test]
+    async fn preview_table_missing_table_returns_param_error() {
+        let args = json!({
+            "connection_name": "__nonexistent_conn__",
+            "database_name": "omni",
+        });
+        let err = preview_table(args).await.unwrap_err();
+        assert!(err.contains("缺少必填参数"));
+    }
+
+    #[tokio::test]
+    async fn list_users_unknown_connection_returns_friendly_error() {
+        let args = json!({ "connection_name": "__nonexistent_conn__" });
+        let err = list_users(args).await.unwrap_err();
+        assert!(err.contains("连接不存在"));
     }
 }

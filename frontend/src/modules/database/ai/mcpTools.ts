@@ -2,14 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { errorToString } from "../../../lib/errorToString";
-import { optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
+import { optionalNumber, optionalString, requireString } from "../../../lib/ai/mcpToolArgs";
 import {
+  createDatabase,
   introspectTable,
   isConnectionEnabled,
   isSqlCapableConnection,
+  listCharacterSets,
+  listConnectionUsers,
   listConnections,
   listDatabases,
   listTables,
+  previewTable,
   type DbConnectionConfig,
 } from "../api";
 import { connectionWithDatabase } from "../toolbox/types";
@@ -20,7 +24,7 @@ import { useDbSqlFileStore } from "../../../stores/dbSqlFileStore";
 
 function assertSqlIdentifier(name: string, label: string): string {
   const trimmed = name.trim();
-  if (!/^[A-Za-z0-9_$]+$/.test(trimmed)) {
+  if (!/^[A-Za-z0-9_$-]+$/.test(trimmed)) {
     throw new Error(`${label} 含非法字符：${name}`);
   }
   return trimmed;
@@ -32,15 +36,22 @@ function filterByKeyword(items: string[], keyword?: string): string[] {
   return items.filter((item) => item.toLowerCase().includes(lower));
 }
 
-async function resolveConnectionByName(connectionName: string): Promise<DbConnectionConfig> {
+async function resolveEnabledConnection(connectionName: string): Promise<DbConnectionConfig> {
   const connections = await listConnections();
-  const conn = connections.find((item) => item.name === connectionName);
+  const conn = connections.find(
+    (item) => item.name === connectionName || item.id === connectionName,
+  );
   if (!conn) {
     throw new Error(`连接不存在：${connectionName}`);
   }
   if (!isConnectionEnabled(conn)) {
     throw new Error(`连接已禁用：${connectionName}`);
   }
+  return conn;
+}
+
+async function resolveConnectionByName(connectionName: string): Promise<DbConnectionConfig> {
+  const conn = await resolveEnabledConnection(connectionName);
   if (!isSqlCapableConnection(conn)) {
     throw new Error(`连接 ${connectionName} 不支持 SQL 操作`);
   }
@@ -513,6 +524,107 @@ async function slowLogSummary(args: Record<string, unknown>): Promise<string> {
   }
 }
 
+async function createDatabaseTool(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const databaseName =
+    optionalString(args, "database_name") ?? optionalString(args, "name");
+  if (!databaseName) {
+    throw new Error("缺少必填参数：database_name");
+  }
+  const charset = optionalString(args, "charset") ?? null;
+  const collation = optionalString(args, "collation") ?? null;
+  const conn = await resolveEnabledConnection(connectionName);
+
+  return runWithToolGate(
+    {
+      toolName: "omni_database_create_database",
+      args,
+      resourceId: connectionName,
+      channel: "ui-delegated",
+    },
+    async () => {
+      const created = await createDatabase({
+        connection: conn,
+        name: databaseName,
+        charset,
+        collation,
+      });
+      return JSON.stringify(
+        {
+          connection: connectionName,
+          connectionId: conn.id,
+          database: created,
+          created: true,
+        },
+        null,
+        2,
+      );
+    },
+  );
+}
+
+async function listUsersTool(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const keyword = optionalString(args, "keyword");
+  const conn = await resolveEnabledConnection(connectionName);
+  const users = await listConnectionUsers(conn, { quiet: true });
+  const filtered = keyword
+    ? users.filter((u) => {
+        const q = keyword.toLowerCase();
+        return (
+          u.name.toLowerCase().includes(q) ||
+          (u.host ?? "").toLowerCase().includes(q)
+        );
+      })
+    : users;
+  return JSON.stringify(
+    { connection: connectionName, connectionId: conn.id, users: filtered },
+    null,
+    2,
+  );
+}
+
+async function previewTableTool(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const databaseName = requireString(args, "database_name");
+  const tableName = assertSqlIdentifier(requireString(args, "table_name"), "表名");
+  const limit = Math.min(500, Math.max(1, Math.floor(optionalNumber(args, "limit", 200))));
+  const offset = Math.max(0, Math.floor(optionalNumber(args, "offset", 0)));
+  const orderBy = optionalString(args, "order_by");
+  const whereClause = optionalString(args, "where_clause");
+  const conn = connectionWithDatabase(
+    await resolveEnabledConnection(connectionName),
+    databaseName,
+  );
+  const preview = await previewTable(conn, tableName, limit, offset, orderBy, whereClause);
+  return JSON.stringify(
+    {
+      connection: connectionName,
+      connectionId: conn.id,
+      database: databaseName,
+      table: tableName,
+      limit,
+      offset,
+      name: preview.name,
+      columns: preview.columns,
+      rows: preview.rows,
+    },
+    (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+    2,
+  );
+}
+
+async function listCharacterSetsTool(args: Record<string, unknown>): Promise<string> {
+  const connectionName = requireString(args, "connection_name");
+  const conn = await resolveEnabledConnection(connectionName);
+  const charsets = await listCharacterSets(conn);
+  return JSON.stringify(
+    { connection: connectionName, connectionId: conn.id, charsets },
+    null,
+    2,
+  );
+}
+
 const connectionNameSchema = {
   type: "string",
   description: "数据库连接名称（与侧栏连接名一致）",
@@ -676,5 +788,100 @@ export const DATABASE_MODULE_TOOLS: BuiltinToolRegistration[] = [
       required: ["connection_name"],
     },
     handler: slowLogSummary,
+  },
+  {
+    name: "omni_database_create_database",
+    description:
+      "按工作台建库对话框创建数据库（同路径 db_create_database）。可选 charset/collation；危险操作需用户确认。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        database_name: {
+          type: "string",
+          description: "要创建的数据库名（也可传 name）",
+        },
+        name: {
+          type: "string",
+          description: "database_name 的别名，与工作台建库对话框字段一致",
+        },
+        charset: {
+          type: "string",
+          description: "可选。MySQL 为 CHARACTER SET，PostgreSQL 为 ENCODING",
+        },
+        collation: {
+          type: "string",
+          description: "可选。MySQL 为 COLLATE，PostgreSQL 为 LC_COLLATE",
+        },
+      },
+      required: ["connection_name", "database_name"],
+    },
+    handler: createDatabaseTool,
+  },
+  {
+    name: "omni_database_list_users",
+    description:
+      "列出连接上的数据库用户（与工作台「用户」页签同一路径）。可选 keyword 过滤。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        keyword: keywordSchema,
+      },
+      required: ["connection_name"],
+    },
+    handler: listUsersTool,
+  },
+  {
+    name: "omni_database_preview_table",
+    description:
+      "预览表数据（与工作台表预览同一路径）。支持 limit/offset/order_by/where_clause；行返回列名到值的对象。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+        database_name: databaseNameSchema,
+        table_name: {
+          type: "string",
+          description: "表名",
+        },
+        limit: {
+          type: "integer",
+          description: "返回行数，默认 200，范围 1~500",
+          default: 200,
+          minimum: 1,
+          maximum: 500,
+        },
+        offset: {
+          type: "integer",
+          description: "偏移量，默认 0",
+          default: 0,
+          minimum: 0,
+        },
+        order_by: {
+          type: "string",
+          description: "可选，不含 ORDER BY 关键字的排序子句",
+        },
+        where_clause: {
+          type: "string",
+          description: "可选，不含 WHERE 关键字的过滤条件",
+        },
+      },
+      required: ["connection_name", "database_name", "table_name"],
+    },
+    handler: previewTableTool,
+  },
+  {
+    name: "omni_database_list_character_sets",
+    description:
+      "列出连接可用字符集/编码（与工作台建库对话框同一路径），供创建数据库时选择 charset。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connection_name: connectionNameSchema,
+      },
+      required: ["connection_name"],
+    },
+    handler: listCharacterSetsTool,
   },
 ];

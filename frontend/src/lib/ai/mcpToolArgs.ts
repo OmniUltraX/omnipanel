@@ -15,3 +15,18 @@ export function optionalString(args: Record<string, unknown>, key: string): stri
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
+
+export function optionalNumber(
+  args: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number {
+  const value = args[key];
+  if (value == null || value === "") return fallback;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  throw new Error(`参数 ${key} 必须是数字`);
+}

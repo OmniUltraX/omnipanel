@@ -43,6 +43,9 @@ describe("isSafeDatabaseToolPermission", () => {
     expect(isSafeDatabaseToolPermission("omni_database_get_tables_from_database", "{}")).toBe(
       true,
     );
+    expect(isSafeDatabaseToolPermission("omni_database_preview_table", "{}")).toBe(true);
+    expect(isSafeDatabaseToolPermission("omni_database_list_users", "{}")).toBe(true);
+    expect(isSafeDatabaseToolPermission("omni_database_create_database", "{}")).toBe(false);
     expect(
       isSafeDatabaseToolPermission(
         "omni_database_execute_sql",

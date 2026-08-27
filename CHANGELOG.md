@@ -15,6 +15,7 @@
 - **数据库 · Neo4j / Cassandra**：树分别为 graph / keyspace，编辑器接 Cypher / CQL
 - **数据库 · 目录引擎**：可安装金仓 / Vastbase / UXDB；OceanBase 走目录实有 key（`oceanbase-oracle`）；GaussDB / TiDB 目录无包则跳过
 - **数据库 · Docker 本地种子**：幂等写入本机 9 条测试连接（密码进 Vault，列表不落明文）
+- **数据库 · MCP 工作台对齐**：建库 / 用户列表 / 表预览 / 字符集与工作台同一后端路径（`create_database` / `list_users` / `preview_table` / `list_character_sets`）
 
 ### 修复
 
