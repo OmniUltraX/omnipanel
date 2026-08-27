@@ -77,9 +77,7 @@ function resolveOneShotBackend(): ResolvedBackend | null {
 
 function buildChatCompletionsUrl(baseUrl: string): string {
   const clean = baseUrl.replace(/\/+$/, "");
-  return clean.includes("/v1")
-    ? `${clean}/chat/completions`
-    : `${clean}/v1/chat/completions`;
+  return `${clean}/chat/completions`;
 }
 
 /** 剥离推理模型嵌入在 content 里的 <think>...</think> 思考链。 */

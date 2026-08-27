@@ -1991,6 +1991,17 @@ select,
     overflow: visible;
 }
 
+.sc-docker-mon--compose[data-cols="2"] .sc-docker-mon__list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    align-content: start;
+}
+
+.sc-docker-mon--compose[data-cols="2"] .sc-docker-mon__row {
+    min-width: 0;
+}
+
 .sc-docker-mon__row-actions {
     display: flex;
     align-items: center;
@@ -20625,6 +20636,20 @@ button.omni-btn-tool[aria-pressed="true"] {
     .add-model-body {
         gap: var(--sp-3);
         padding: var(--sp-5);
+    }
+
+    .add-model-body .form-check {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        font-size: 12px;
+        color: var(--fg);
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .add-model-body .form-check input[type="checkbox"] {
+        accent-color: var(--accent);
     }
 
     .form-field-hint {

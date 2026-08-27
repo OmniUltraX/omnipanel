@@ -1,0 +1,157 @@
+.sc-sba {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 6px;
+  gap: 6px;
+}
+
+.sc-sba--empty {
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12px;
+}
+
+.sc-sba__empty-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.sc-sba__empty-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.sc-sba[data-loading="1"] {
+  opacity: 0.94;
+}
+
+.sc-sba__charts {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 6px;
+}
+
+.sc-sba[data-layout="row"] .sc-sba__charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.sc-sba[data-layout="col"] .sc-sba__charts {
+  flex-direction: column;
+}
+
+.sc-sba__card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 9px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-deeper);
+}
+
+.sc-sba__card-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.sc-sba__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.sc-sba__stats {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 42%;
+}
+
+.sc-sba__stat {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sc-sba__stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.sc-sba__stat-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sc-sba__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.sc-sba__swatch--empty {
+  background: transparent;
+}
+
+.sc-sba__chart {
+  flex: 1;
+  min-width: 0;
+  min-height: 64px;
+}
+
+.sc-sba__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 64px;
+}
+
+.sc-sba__grid {
+  stroke: color-mix(in srgb, var(--border) 80%, transparent);
+  stroke-width: 1;
+}
+
+.sc-sba__tick {
+  fill: var(--muted);
+  font-size: 9px;
+  text-anchor: end;
+}
+
+.sc-sba-target {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sc-sba-target__hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--danger, #e05a5a);
+  line-height: 1.35;
+}

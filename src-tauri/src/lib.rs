@@ -361,6 +361,8 @@ fn export_ipc_bindings() {
         commands::ssh::ssh_read_key_public,
         commands::ssh::ssh_read_key_private,
         commands::fileio::write_text_file,
+        commands::spring_boot_admin::spring_boot_admin_list_instances,
+        commands::spring_boot_admin::spring_boot_admin_jvm_snapshot,
         commands::file_manager::file_list_connections,
         commands::file_manager::file_save_connection,
         commands::file_manager::file_test_connection,
@@ -1303,6 +1305,8 @@ fn build_and_run_tauri() {
             commands::log::get_backend_logs,
             // 通用文件 I/O（用户通过 dialog 授权路径后写入）
             commands::fileio::write_text_file,
+            commands::spring_boot_admin::spring_boot_admin_list_instances,
+            commands::spring_boot_admin::spring_boot_admin_jvm_snapshot,
             commands::file_manager::file_list_connections,
             commands::file_manager::file_save_connection,
             commands::file_manager::file_test_connection,

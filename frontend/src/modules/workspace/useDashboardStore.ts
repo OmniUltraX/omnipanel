@@ -19,8 +19,10 @@ import {
 } from "./smallComponents/redisOverview/layout";
 import {
   DOCKER_COMPOSE_MONITOR_TYPE,
+  migrateComposeMonitorSizeId,
 } from "./smallComponents/dockerMonitorShared/sizes";
 import {
+  applyComposeRglPosition,
   COMPOSE_MONITOR_MAX_GRID_H,
 } from "./smallComponents/dockerMonitorShared/composeMonitorLayout";
 import {
@@ -111,6 +113,18 @@ function sanitizeWidgetTarget(raw: unknown): HomeCustomPanelWidgetTarget | undef
     const projectName = rec.projectName.trim();
     if (projectName) return { kind: "bt-java-project", projectName };
   }
+  if (rec.kind === "spring-boot-admin" && typeof rec.adminUrl === "string") {
+    const adminUrl = rec.adminUrl.trim();
+    if (!adminUrl) return undefined;
+    return {
+      kind: "spring-boot-admin",
+      adminUrl,
+      instanceId:
+        typeof rec.instanceId === "string" ? rec.instanceId.trim() : "",
+      application:
+        typeof rec.application === "string" ? rec.application.trim() : "",
+    };
+  }
   return undefined;
 }
 
@@ -155,7 +169,8 @@ function layoutFromSizeScale(
     return withDefinitionResizeBounds(type, {
       ...layout,
       w: scaled.w,
-      h: Math.max(scaled.h, layout.h),
+      // 列数随 w 变，不能留下一列时的自动高度，否则两列底部会空一截
+      h: scaled.w === layout.w ? Math.max(scaled.h, layout.h) : scaled.h,
     });
   }
   return withDefinitionResizeBounds(type, {
@@ -195,6 +210,11 @@ function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
       }
     }
 
+    // Compose 监控：旧 3x3 并入 4x4
+    if (rec.type === DOCKER_COMPOSE_MONITOR_TYPE) {
+      sizeId = migrateComposeMonitorSizeId(sizeId);
+    }
+
     // MySQL 概览：统一固定为 4×3 基座
     if (rec.type === MYSQL_OVERVIEW_TYPE) {
       const preset = MYSQL_OVERVIEW_SIZES[0];
@@ -227,6 +247,11 @@ function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
       sizeId = base.id ?? `${base.h}x${base.w}`;
     }
 
+    const nextH =
+      rec.type === DOCKER_COMPOSE_MONITOR_TYPE
+        ? Math.max(scaled.h, Math.max(1, Math.floor(h)))
+        : scaled.h;
+
     next.push({
       id: rec.id,
       type: rec.type,
@@ -241,7 +266,7 @@ function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
         x: Math.max(0, Math.floor(x)),
         y: Math.max(0, Math.floor(y)),
         w: scaled.w,
-        h: scaled.h,
+        h: nextH,
       }),
     });
   }
@@ -495,13 +520,10 @@ export const useDashboardStore = create<DashboardState>()(
               widget.scale ?? DEFAULT_WIDGET_SCALE,
             );
             if (widget.type === DOCKER_COMPOSE_MONITOR_TYPE) {
-              const nextLayout = withDefinitionResizeBounds(widget.type, {
-                ...widget.layout,
-                x: item.x,
-                y: item.y,
-                w: item.w,
-                h: item.h,
-              });
+              const nextLayout = withDefinitionResizeBounds(
+                widget.type,
+                applyComposeRglPosition(widget.layout, item),
+              );
               if (layoutsEqual(widget.layout, nextLayout)) {
                 return widget;
               }
@@ -726,7 +748,12 @@ export const useDashboardStore = create<DashboardState>()(
               prev.target.database === nextTarget.database) ||
             (prev.target?.kind === "bt-java-project" &&
               nextTarget?.kind === "bt-java-project" &&
-              prev.target.projectName === nextTarget.projectName);
+              prev.target.projectName === nextTarget.projectName) ||
+            (prev.target?.kind === "spring-boot-admin" &&
+              nextTarget?.kind === "spring-boot-admin" &&
+              prev.target.adminUrl === nextTarget.adminUrl &&
+              prev.target.instanceId === nextTarget.instanceId &&
+              prev.target.application === nextTarget.application);
           if (same) return state;
           const widgets = panel.widgets.slice();
           widgets[idx] = { ...prev, target: nextTarget };

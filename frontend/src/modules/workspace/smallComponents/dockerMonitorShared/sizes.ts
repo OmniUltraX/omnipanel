@@ -25,12 +25,12 @@ export const DOCKER_MONITOR_SIZES: readonly SmallComponentSize[] = [
   },
 ];
 
-/** Compose 监控：行高随容器数量自动扩展，上限 24 行 */
+/** Compose 监控：行高随容器数量自动扩展，上限 24 行；2x2 一列、4x4 两列 */
 export const DOCKER_COMPOSE_MONITOR_SIZES: readonly SmallComponentSize[] = [
   {
-    id: "3x3",
-    w: 3,
-    h: 3,
+    id: "2x2",
+    w: 2,
+    h: 2,
     minW: 2,
     minH: 2,
     maxW: 12,
@@ -46,3 +46,18 @@ export const DOCKER_COMPOSE_MONITOR_SIZES: readonly SmallComponentSize[] = [
     maxH: 24,
   },
 ];
+
+/** 旧 3x3 并入 4x4（现仅 2x2 一列 / 4x4 两列） */
+export function migrateComposeMonitorSizeId(
+  sizeId: string | undefined,
+): string | undefined {
+  if (sizeId === "3x3") return "4x4";
+  return sizeId;
+}
+
+/** 2x2 → 一列；4x4 → 两列 */
+export function composeMonitorColumnCount(
+  sizeId: string | undefined,
+): 1 | 2 {
+  return migrateComposeMonitorSizeId(sizeId) === "4x4" ? 2 : 1;
+}

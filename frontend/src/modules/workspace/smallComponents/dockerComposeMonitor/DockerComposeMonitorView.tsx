@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { Button } from "../../../../components/ui/Button";
 import { useI18n } from "../../../../i18n";
 import { appConfirm } from "../../../../lib/appConfirm";
@@ -13,15 +13,21 @@ import { RestartIcon } from "../../../docker/icons";
 import { useDashboardStore, type HomeCustomPanelId } from "../../useDashboardStore";
 import type { SmallComponentRenderProps } from "../types";
 import {
+  COMPOSE_MONITOR_MAX_GRID_H,
   composeMonitorFallbackGridHeight,
   gridHeightFromContentPx,
+  measureComposeContentPx,
+  measureComposeMonitorChromePx,
 } from "../dockerMonitorShared/composeMonitorLayout";
 import {
   clampPercent,
   DockerMetricBar,
   memoryUsageHint,
 } from "../dockerMonitorShared/metrics";
-import { DOCKER_COMPOSE_MONITOR_SIZES } from "../dockerMonitorShared/sizes";
+import {
+  composeMonitorColumnCount,
+  DOCKER_COMPOSE_MONITOR_SIZES,
+} from "../dockerMonitorShared/sizes";
 import { resolveBaseSizePreset } from "../widgetScale";
 
 export function DockerComposeMonitorView({
@@ -52,11 +58,13 @@ export function DockerComposeMonitorView({
   const [pendingRestarts, setPendingRestarts] = useState<Record<string, true>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const runningCount = items.filter((i) => i.container.running).length;
+  const sizeId = widget?.sizeId;
+  const columns = composeMonitorColumnCount(sizeId);
   const minBaseH =
-    resolveBaseSizePreset(DOCKER_COMPOSE_MONITOR_SIZES, widget?.sizeId)?.h ?? 3;
+    resolveBaseSizePreset(DOCKER_COMPOSE_MONITOR_SIZES, sizeId)?.h ?? 2;
   const contentRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled) return;
     if (items.length === 0) {
       setCustomPanelWidgetLayoutHeight(
@@ -71,8 +79,14 @@ export function DockerComposeMonitorView({
     if (!node) return;
 
     const syncHeight = () => {
-      const contentPx = node.scrollHeight;
-      const nextH = gridHeightFromContentPx(contentPx, minBaseH);
+      const contentPx = measureComposeContentPx(node);
+      const chromePx = measureComposeMonitorChromePx(node);
+      const nextH = gridHeightFromContentPx(
+        contentPx,
+        minBaseH,
+        COMPOSE_MONITOR_MAX_GRID_H,
+        chromePx,
+      );
       setCustomPanelWidgetLayoutHeight(
         panelId as HomeCustomPanelId,
         instanceId,
@@ -81,11 +95,19 @@ export function DockerComposeMonitorView({
     };
 
     syncHeight();
-    const observer = new ResizeObserver(syncHeight);
+    // 只跟宽度：高度是我们自己写回 RGL 的，再监听高度会和 onLayoutChange 互踢
+    let lastWidth = node.getBoundingClientRect().width;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      if (Math.abs(width - lastWidth) < 1) return;
+      lastWidth = width;
+      syncHeight();
+    });
     observer.observe(node);
     return () => observer.disconnect();
   }, [
     actionError,
+    columns,
     enabled,
     error,
     instanceId,
@@ -183,7 +205,11 @@ export function DockerComposeMonitorView({
   const displayError = actionError ?? error;
 
   return (
-    <div className="sc-docker-mon sc-docker-mon--compose" ref={contentRef}>
+    <div
+      className="sc-docker-mon sc-docker-mon--compose"
+      data-cols={columns}
+      ref={contentRef}
+    >
       <div className="sc-docker-mon__head">
         <span className="sc-docker-mon__name" title={composeProject}>
           {composeProject}

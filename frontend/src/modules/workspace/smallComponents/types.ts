@@ -60,12 +60,19 @@ export interface SmallComponentRenderProps extends SmallComponentInstanceContext
  * - docker-compose：Compose 项目
  * - database-schema：具体业务库（磁盘占用等按库统计）
  * - bt-java-project：宝塔 Java 项目（get_load_info）
+ * - spring-boot-admin：Spring Boot Admin 地址 + Java 实例
  */
 export type HomeCustomPanelWidgetTarget =
   | { kind: "docker-container"; containerId: string }
   | { kind: "docker-compose"; composeProject: string }
   | { kind: "database-schema"; database: string }
-  | { kind: "bt-java-project"; projectName: string };
+  | { kind: "bt-java-project"; projectName: string }
+  | {
+      kind: "spring-boot-admin";
+      adminUrl: string;
+      instanceId: string;
+      application: string;
+    };
 
 /** 定义侧声明的二级目标类型（驱动编辑表单） */
 export type SmallComponentTargetKind =

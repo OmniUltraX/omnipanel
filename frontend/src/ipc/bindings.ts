@@ -736,6 +736,10 @@ export const commands = {
 	 *  绕开范围限制，调用方必须已通过 save dialog 拿到用户明确授权的路径。
 	 */
 	writeTextFile: (path: string, contents: string) => typedError<string, string>(__TAURI_INVOKE("write_text_file", { path, contents })),
+	/**  列出 Spring Boot Admin 中的应用实例。 */
+	springBootAdminListInstances: (adminUrl: string) => typedError<SbaInstanceInfo[], OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_list_instances", { adminUrl })),
+	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值。 */
+	springBootAdminJvmSnapshot: (adminUrl: string, instanceId: string) => typedError<SbaJvmSnapshot, OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_jvm_snapshot", { adminUrl, instanceId })),
 	/**  列出文件管理器可用连接（含内置本机）。 */
 	fileListConnections: () => typedError<FileManagerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("file_list_connections")),
 	/**
@@ -1436,6 +1440,8 @@ export type AiModelProvider_Deserialize = {
 	excludedModelNames?: string[],
 	disabledModelNames?: string[],
 	apiModelMeta?: { [key in string]: ApiModelMeta_Deserialize },
+	/**  请求时是否自动补 /v1。 */
+	appendV1?: boolean,
 	createdAt: number | null,
 };
 
@@ -1456,6 +1462,7 @@ export type AiModelProvider_Serialize = {
 	excludedModelNames: string[],
 	disabledModelNames: string[],
 	apiModelMeta: { [key in string]: ApiModelMeta_Serialize },
+	appendV1: boolean,
 	createdAt: number | null,
 };
 
@@ -4677,6 +4684,25 @@ export type SavedHttpRequest = {
 	updatedAt: number | null,
 	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
 	tags?: string[],
+};
+
+export type SbaInstanceInfo = {
+	id: string,
+	application: string,
+	status: string,
+};
+
+export type SbaJvmSnapshot = {
+	threadsLive: number | null,
+	threadsDaemon: number | null,
+	threadsPeak: number | null,
+	heapUsed: number | null,
+	heapCommitted: number | null,
+	heapMax: number | null,
+	nonHeapUsed: number | null,
+	nonHeapCommitted: number | null,
+	nonHeapMax: number | null,
+	nonHeapInit: number | null,
 };
 
 export type SchemaCacheColumn = {

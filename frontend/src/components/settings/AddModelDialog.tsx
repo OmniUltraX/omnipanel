@@ -32,6 +32,7 @@ interface FormState {
   modelNames: string;
   apiStandard: ApiStandard;
   baseUrl: string;
+  appendV1: boolean;
   apiKey: string;
   baseUrlTouched: boolean;
 }
@@ -41,6 +42,7 @@ const EMPTY_FORM: FormState = {
   modelNames: "",
   apiStandard: "openai",
   baseUrl: "",
+  appendV1: true,
   apiKey: "",
   baseUrlTouched: false,
 };
@@ -54,6 +56,7 @@ async function resolveModelCatalog(
   baseUrl: string,
   apiKey: string,
   apiStandard: ApiStandard,
+  appendV1: boolean,
   manualInput: string,
   t: (key: string, params?: Record<string, string | number>) => string,
 ): Promise<
@@ -72,7 +75,7 @@ async function resolveModelCatalog(
   }
 
   const manualModelNames = parsed.names;
-  const fetchResult = await fetchProviderModelList(baseUrl, apiKey, apiStandard);
+  const fetchResult = await fetchProviderModelList(baseUrl, apiKey, apiStandard, appendV1);
   if (fetchResult.ok) {
     const modelNames = mergeModelCatalog(manualModelNames, fetchResult.models);
     if (modelNames.length === 0) {
@@ -118,6 +121,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
         modelNames: (editProvider.manualModelNames ?? []).join(", "),
         apiStandard: editProvider.apiStandard,
         baseUrl: editProvider.baseUrl,
+        appendV1: editProvider.appendV1 !== false,
         apiKey: "",
         baseUrlTouched: true,
       });
@@ -170,7 +174,14 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
       // 编辑时留空表示保留原密钥：从 Vault 取回，避免空 Bearer 导致 401
       const effectiveKey = apiKey || (await resolveProviderApiKey(editProvider));
 
-      const catalog = await resolveModelCatalog(baseUrl, effectiveKey, form.apiStandard, form.modelNames, t);
+      const catalog = await resolveModelCatalog(
+        baseUrl,
+        effectiveKey,
+        form.apiStandard,
+        form.appendV1,
+        form.modelNames,
+        t,
+      );
       setSaving(false);
       if (!catalog.ok) {
         setError(catalog.error);
@@ -184,6 +195,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
         apiModelMeta: catalog.apiModelMeta,
         apiStandard: form.apiStandard,
         baseUrl,
+        appendV1: form.appendV1,
         ...(apiKey ? { apiKey, hasApiKey: true } : {}),
         disabledModelNames: (editProvider.disabledModelNames ?? []).filter((name) =>
           catalog.modelNames.includes(name),
@@ -198,7 +210,14 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
     setError(null);
     setInfo(t("settings.aiModels.fetch.loading"));
 
-    const catalog = await resolveModelCatalog(baseUrl, apiKey, form.apiStandard, form.modelNames, t);
+    const catalog = await resolveModelCatalog(
+      baseUrl,
+      apiKey,
+      form.apiStandard,
+      form.appendV1,
+      form.modelNames,
+      t,
+    );
     setSaving(false);
     if (!catalog.ok) {
       setError(catalog.error);
@@ -212,6 +231,7 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
       apiModelMeta: catalog.apiModelMeta,
       apiStandard: form.apiStandard,
       baseUrl,
+      appendV1: form.appendV1,
       apiKey,
       hasApiKey: Boolean(apiKey),
       disabledModelNames: [],
@@ -322,6 +342,19 @@ export function AddModelDialog({ open, onClose, editProvider, onSaved }: AddMode
             }
           }}
         />
+      </div>
+
+      <div className="form-field">
+        <label className="form-check">
+          <input
+            type="checkbox"
+            checked={form.appendV1}
+            disabled={saving}
+            onChange={(e) => updateField("appendV1", e.target.checked)}
+          />
+          <span>{t("settings.aiModels.fields.appendV1")}</span>
+        </label>
+        <div className="form-field-hint">{t("settings.aiModels.fields.appendV1Hint")}</div>
       </div>
 
       <div className="form-field">

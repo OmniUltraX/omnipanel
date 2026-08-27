@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
+import { resolveApiBaseUrl } from "../lib/ai/resolveApiBaseUrl";
 import { canUseAiBackend } from "../lib/isTauriRuntime";
 import { fetchProviderModelList, mergeModelCatalog, buildApiModelMeta } from "../lib/fetchProviderModels";
 import type { ApiModelMeta } from "../lib/fetchProviderModels";
@@ -16,8 +17,13 @@ export interface AiModelProvider {
   providerName: string;
   /** API 标准：决定请求体格式与默认 BaseURL */
   apiStandard: ApiStandard;
-  /** 接口 Base URL（去掉末尾斜杠后保存） */
+  /** 接口 Base URL（去掉末尾斜杠后保存；是否补 /v1 见 appendV1） */
   baseUrl: string;
+  /**
+   * 请求时是否自动补上 `/v1`（地址已以 /v1 结尾则不会重复）。
+   * 缺省视为 true，兼容旧配置。
+   */
+  appendV1?: boolean;
   /** API Key（在 UI 中掩码显示；磁盘仅存 hasApiKey，明文在钥匙串） */
   apiKey: string;
   /** 钥匙串中是否已配置 API Key */
@@ -91,9 +97,20 @@ function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
+function normalizeAppendV1(value: boolean | undefined): boolean {
+  return value !== false;
+}
+
 /** 供外部模块构建 /models 请求 URL */
 export function normalizeBaseUrlForFetch(url: string): string {
   return normalizeBaseUrl(url);
+}
+
+/** 提供商实际 API 根路径（含可选自动 /v1） */
+export function providerApiBaseUrl(
+  provider: Pick<AiModelProvider, "baseUrl" | "appendV1">,
+): string {
+  return resolveApiBaseUrl(provider.baseUrl, normalizeAppendV1(provider.appendV1));
 }
 
 function normalizeDisabledModelNames(names: string[] | undefined): string[] {
@@ -226,6 +243,7 @@ function migrateLegacyModels(models: PersistedLegacyAiModelConfig[]): AiModelPro
     apiStandard: group.apiStandard,
     baseUrl: group.baseUrl,
     apiKey: group.apiKey,
+    appendV1: true,
     modelNames: group.modelNames,
     createdAt: group.createdAt,
   }));
@@ -290,6 +308,7 @@ interface LooseProvider {
   apiStandard: string;
   baseUrl: string;
   apiKey: string;
+  appendV1?: boolean;
   hasApiKey?: boolean;
   modelNames: string[];
   manualModelNames?: string[];
@@ -311,6 +330,7 @@ function toStrictProvider(p: LooseProvider): AiModelProvider {
     apiStandard: std,
     baseUrl: p.baseUrl,
     apiKey: p.apiKey,
+    appendV1: normalizeAppendV1(p.appendV1),
     hasApiKey: Boolean(p.hasApiKey) || Boolean(p.apiKey?.trim()),
     modelNames: Array.isArray(p.modelNames) ? p.modelNames : [],
     manualModelNames: normalizeManualModelNames(
@@ -339,6 +359,7 @@ function serializeProviderForDisk(provider: AiModelProvider) {
     providerName: provider.providerName,
     apiStandard: provider.apiStandard,
     baseUrl: provider.baseUrl,
+    appendV1: normalizeAppendV1(provider.appendV1),
     // 仅在用户新填时提交明文；留空表示保留 Vault
     apiKey: provider.apiKey,
     hasApiKey: provider.hasApiKey ?? Boolean(provider.apiKey.trim()),
@@ -434,6 +455,7 @@ export const useAiModelsStore = create<AiModelsState>()(
       providerName: normalizeProviderName(input.providerName),
       apiStandard: input.apiStandard,
       baseUrl: normalizeBaseUrl(input.baseUrl),
+      appendV1: normalizeAppendV1(input.appendV1),
       apiKey,
       hasApiKey: Boolean(apiKey) || Boolean(input.hasApiKey),
       modelNames: normalizeModelNames(input.modelNames),
@@ -455,6 +477,9 @@ export const useAiModelsStore = create<AiModelsState>()(
       providerName: normalizeProviderName(input.providerName),
       apiStandard: input.apiStandard,
       baseUrl: normalizeBaseUrl(input.baseUrl),
+      appendV1: normalizeAppendV1(
+        input.appendV1 !== undefined ? input.appendV1 : existing?.appendV1,
+      ),
       apiKey,
       hasApiKey: Boolean(apiKey) || Boolean(input.hasApiKey) || Boolean(existing?.hasApiKey),
       modelNames: normalizeModelNames(input.modelNames),
@@ -657,7 +682,12 @@ export const useAiModelsStore = create<AiModelsState>()(
     if (!apiKey && provider.hasApiKey) {
       return { ok: false, error: "no_api_key" };
     }
-    const fetched = await fetchProviderModelList(provider.baseUrl, apiKey, provider.apiStandard);
+    const fetched = await fetchProviderModelList(
+      provider.baseUrl,
+      apiKey,
+      provider.apiStandard,
+      provider.appendV1,
+    );
     if (!fetched.ok) {
       return { ok: false, error: fetched.error };
     }
@@ -896,7 +926,7 @@ export function resolveModelSelection(
   return {
     apiStandard: provider.apiStandard,
     name: parsed.modelName,
-    baseUrl: provider.baseUrl,
+    baseUrl: providerApiBaseUrl(provider),
     apiKey: provider.apiKey.trim(),
   };
 }

@@ -54,6 +54,7 @@ pub mod resource_profile;
 pub(crate) mod s3_list_compat;
 pub mod secrets_vault;
 pub mod skills;
+pub mod spring_boot_admin;
 pub mod ssh;
 pub mod ssh_capabilities;
 pub mod sync_master_key;
