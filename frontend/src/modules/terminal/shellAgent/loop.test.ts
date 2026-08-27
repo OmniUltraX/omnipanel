@@ -762,6 +762,11 @@ describe("notifyShellAgentAfterDisplayTools", () => {
     const flipped = notifyShellAgentDisplayTool(SID);
     expect(flipped).toBe(false);
     expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
+
+    setShellAgentThinkingFull(SID, "搜索结果已经返回，接下来 fetch");
+    const flippedAfterPaint = notifyShellAgentDisplayTool(SID);
+    expect(flippedAfterPaint).toBe(false);
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("thinking");
   });
 
   it("最后一轮思考卡归档另钉结果卡，不同槽换肤", () => {

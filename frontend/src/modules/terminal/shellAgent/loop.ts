@@ -1508,7 +1508,13 @@ export function notifyShellAgentDisplayTool(sessionId: string): boolean {
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.cardKind === "ask") return true;
   if (suppressStripPin.has(sessionId) && geo?.cardKind === "thinking") {
-    if (!getShellAgentThinkingFull(sessionId).trim()) {
+    const incomingBusy = collectDisplayToolCalls(scopedAiThread(sessionId)).some(
+      (tc) =>
+        (tc.status === "pending" || tc.status === "running") &&
+        !getArchivedDisplayToolIds(sessionId).has(tc.id),
+    );
+    // Overlay 会马上写入 thinking cache；有正文就拆 suppress 会立刻改回工具条，对打死循环
+    if (!incomingBusy) {
       pushShellAgentDebugEvent("displayTool", "skip: thinking just pinned");
       return false;
     }
