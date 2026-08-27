@@ -6,8 +6,8 @@ use omnipanel_everything::EverythingError;
 use omnipanel_mcp::plugin_tools::PluginNativeTool;
 use omnipanel_mcp::{ToolExecutionKind, ToolRegistry};
 use omnipanel_plugin::{
-    load_installed, InvokeGateway, LogicPackage, PluginKind, PluginListItem, PluginLogicExecutor,
-    PluginMethodDecl, PluginPermission, PluginPlatform, PluginRegistry, PluginSource,
+    InvokeGateway, LogicPackage, PluginKind, PluginListItem, PluginLogicExecutor, PluginMethodDecl,
+    PluginPermission, PluginPlatform, PluginRegistry, PluginSource, load_installed,
 };
 use omnipanel_store::{AuditEntry, Storage};
 use serde::{Deserialize, Serialize};
@@ -133,6 +133,7 @@ fn sync_engine_plugin_gate(registry: &PluginRegistry) {
 /// 已安装 sidecar 引擎：把 `entry.driver` 登记进建连启动表（第一方引擎不走这条路径）。
 fn sync_plugin_engine_launches(registry: &PluginRegistry, plugins_root: Option<&Path>) {
     let mut launches = Vec::new();
+    let mut claims = Vec::new();
     if let Some(root) = plugins_root {
         for spec in omnipanel_plugin::collect_activated_installed_engine_drivers(registry, root) {
             match omnipanel_db::sidecar::launch_from_driver_file_result(&spec.driver_path) {
@@ -141,17 +142,54 @@ fn sync_plugin_engine_launches(registry: &PluginRegistry, plugins_root: Option<&
                         if omnipanel_db::FirstPartyEngine::from_db_type(&alias).is_some() {
                             continue;
                         }
+                        claims.push((alias.clone(), None));
                         launches.push((alias, launch.clone()));
                     }
                 }
-                Err(err) => eprintln!(
-                    "[plugin-engine] 跳过无法启动的 sidecar {}: {err}",
-                    spec.plugin_id
-                ),
+                Err(err) => {
+                    tracing::warn!(
+                        plugin_id = %spec.plugin_id,
+                        "跳过无法启动的 sidecar: {err}"
+                    );
+                    for alias in spec.aliases {
+                        if omnipanel_db::FirstPartyEngine::from_db_type(&alias).is_some() {
+                            continue;
+                        }
+                        claims.push((alias, Some(err.clone())));
+                    }
+                }
             }
         }
     }
     omnipanel_db::sidecar::set_plugin_engine_launches(launches);
+    omnipanel_db::sidecar::set_plugin_engine_claims(claims);
+}
+
+pub(crate) fn remap_highgo_identity_connections(
+    store: &omnipanel_store::DatabaseConnectionStore,
+    registry: &PluginRegistry,
+) {
+    let activated = registry
+        .list()
+        .iter()
+        .any(|item| item.id == "omni.engine.highgo" && item.enabled && item.activated);
+    if !activated {
+        return;
+    }
+    let Ok(list) = store.list() else {
+        return;
+    };
+    for conn in list {
+        if conn.name != "ys-highgo4.5" || conn.db_type.eq_ignore_ascii_case("highgo") {
+            continue;
+        }
+        let mut next = conn;
+        next.db_type = "highgo".into();
+        next.password.clear();
+        if let Err(err) = store.save(next) {
+            tracing::warn!("纠正瀚高连接身份失败: {err}");
+        }
+    }
 }
 
 /// 内置 + 磁盘安装两来源合并构建（不含启用状态回放）。
@@ -183,6 +221,7 @@ pub(crate) async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), 
     new_registry.activate_enabled(PluginPlatform::current());
     sync_engine_plugin_gate(&new_registry);
     sync_plugin_engine_launches(&new_registry, state.plugin_packages_dir.as_deref());
+    remap_highgo_identity_connections(&state.db_connections, &new_registry);
     for item in new_registry.list() {
         if item.kind != PluginKind::Engine || (item.enabled && item.activated) {
             continue;
@@ -220,7 +259,10 @@ pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
             .filter(|item| item.enabled && item.activated)
             .filter_map(|item| {
                 let entry = registry.get(&item.id)?;
-                entry.manifest.logic_entry().map(|p| (item.id, p.to_string()))
+                entry
+                    .manifest
+                    .logic_entry()
+                    .map(|p| (item.id, p.to_string()))
             })
             .collect()
     };
@@ -282,7 +324,8 @@ pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
             }),
         });
         let package = omnipanel_plugin::LogicPackage::from_entry_bytes(&logic_rel, bytes);
-        let result = tokio::task::spawn_blocking(move || executor.instantiate(&pid, &package, bridge)).await;
+        let result =
+            tokio::task::spawn_blocking(move || executor.instantiate(&pid, &package, bridge)).await;
         match result {
             Ok(Ok(instance)) => {
                 state
@@ -403,7 +446,13 @@ pub async fn plugin_uninstall(
         let store = state.storage.lock().await;
         store.plugin_enabled_delete(&plugin_id)?;
     }
-    audit_plugin_action(&state, "plugin.uninstall", &plugin_id, "success", String::new());
+    audit_plugin_action(
+        &state,
+        "plugin.uninstall",
+        &plugin_id,
+        "success",
+        String::new(),
+    );
     rebuild_and_sync(&state).await?;
     omnipanel_db::sidecar::evict_all_external_launches().await;
     Ok(())
@@ -758,7 +807,11 @@ pub async fn plugin_confirm_resolve(
     request_id: String,
     allow: bool,
 ) -> Result<(), OmniError> {
-    let sender = state.plugin_pending_confirms.lock().await.remove(&request_id);
+    let sender = state
+        .plugin_pending_confirms
+        .lock()
+        .await
+        .remove(&request_id);
     match sender {
         Some(tx) => {
             let _ = tx.send(allow);
@@ -785,8 +838,14 @@ pub async fn plugin_read_asset(
     let target = base.join(&rel_path);
     let lower = rel_path.to_ascii_lowercase();
     let allowed_ext = ["html", "htm", "css", "txt", "json"];
-    if !lower.rsplit('.').next().map_or(false, |ext| allowed_ext.contains(&ext)) {
-        return Err(OmniError::invalid_input(format!("不支持的资产类型: {rel_path}")));
+    if !lower
+        .rsplit('.')
+        .next()
+        .map_or(false, |ext| allowed_ext.contains(&ext))
+    {
+        return Err(OmniError::invalid_input(format!(
+            "不支持的资产类型: {rel_path}"
+        )));
     }
     if !target.starts_with(&base) {
         return Err(OmniError::invalid_input("路径越界"));

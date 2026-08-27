@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getEngineWorkbench } from "../engineRegistry";
-import { parseEngineWorkbench } from "./engineWorkbench";
+import { parseEngineWorkbench, isSchemaLikeTree } from "./engineWorkbench";
 
 describe("parseEngineWorkbench", () => {
   it("reads redis kv slot", () => {
@@ -22,24 +22,42 @@ describe("parseEngineWorkbench", () => {
   it("reads neo4j cypher and cassandra cql slots", () => {
     expect(
       parseEngineWorkbench({
-        tree: "schema",
+        tree: "graph",
         editor: "cypher",
         preview: "grid",
         connectionInfo: "sql",
-      })?.editor,
-    ).toBe("cypher");
+      }),
+    ).toEqual({
+      tree: "graph",
+      editor: "cypher",
+      preview: "grid",
+      connectionInfo: "sql",
+    });
     expect(
       parseEngineWorkbench({
-        tree: "schema",
+        tree: "keyspace",
         editor: "cql",
         preview: "grid",
         connectionInfo: "sql",
-      })?.editor,
-    ).toBe("cql");
+      }),
+    ).toEqual({
+      tree: "keyspace",
+      editor: "cql",
+      preview: "grid",
+      connectionInfo: "sql",
+    });
   });
 
   it("returns null for empty object", () => {
     expect(parseEngineWorkbench({})).toBeNull();
+  });
+
+  it("treats graph and keyspace as schema-like trees", () => {
+    expect(isSchemaLikeTree("schema")).toBe(true);
+    expect(isSchemaLikeTree("graph")).toBe(true);
+    expect(isSchemaLikeTree("keyspace")).toBe(true);
+    expect(isSchemaLikeTree("documents")).toBe(false);
+    expect(isSchemaLikeTree("kv")).toBe(false);
   });
 });
 

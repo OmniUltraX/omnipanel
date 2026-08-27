@@ -2,12 +2,13 @@
 
 import { canonicalHostEngine, catalogFamily } from "../hostCapabilities";
 
-export type UserEngine = "mysql" | "postgres" | "oracle";
+export type UserEngine = "mysql" | "postgres" | "oracle" | "mssql";
 
 export function resolveUserEngine(dbType: string): UserEngine | null {
   const engine = canonicalHostEngine(dbType);
   if (engine === "mysql") return "mysql";
   if (engine === "postgres") return "postgres";
+  if (engine === "sqlserver") return "mssql";
   const family = catalogFamily(engine);
   if (family === "mysqlLike") return "mysql";
   if (family === "postgresLike") return "postgres";
@@ -43,6 +44,14 @@ export function oracleQuoteId(name: string): string {
 }
 
 export function oracleQuoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+export function mssqlQuoteId(name: string): string {
+  return `[${name.replace(/]/g, "]]")}]`;
+}
+
+export function mssqlQuoteLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 

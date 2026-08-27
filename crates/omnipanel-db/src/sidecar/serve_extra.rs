@@ -1,13 +1,11 @@
 //! 各引擎在 JSON-RPC 上的扩展方法（describe / redis_ops / list_databases 等）。
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::sidecar::protocol::{
-    ColumnInfo, ConnectParams, CreateDatabaseParams, TableParams,
-};
 #[cfg(feature = "engine-redis")]
 use crate::sidecar::protocol::encode_query_result;
+use crate::sidecar::protocol::{ColumnInfo, ConnectParams, CreateDatabaseParams, TableParams};
 use crate::{DbDriver, DbParams};
 
 #[async_trait]
@@ -64,43 +62,43 @@ fn default_database(params: &DbParams) -> String {
 async fn connect_ready(params: DbParams) -> Result<Box<dyn EngineSession>, String> {
     #[allow(unreachable_code)]
     {
-    #[cfg(feature = "engine-clickhouse")]
-    {
-        let driver = crate::clickhouse::ClickHouseDriver::connect(&params)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(Box::new(driver));
-    }
-    #[cfg(feature = "engine-mongodb")]
-    {
-        let driver = crate::mongodb::MongoDriver::connect(&params)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(Box::new(driver));
-    }
-    #[cfg(feature = "engine-redis")]
-    {
-        let driver = crate::redis::RedisDriver::connect(&params)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(Box::new(driver));
-    }
-    #[cfg(feature = "engine-mysql")]
-    {
-        let driver = crate::mysql::MySqlDriver::connect(&params)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(Box::new(driver));
-    }
-    #[cfg(feature = "engine-postgres")]
-    {
-        let driver = crate::postgres::PgDriver::connect(&params)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(Box::new(driver));
-    }
-    let _ = params;
-    Err("sidecar 未启用任何 engine-* feature".into())
+        #[cfg(feature = "engine-clickhouse")]
+        {
+            let driver = crate::clickhouse::ClickHouseDriver::connect(&params)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(Box::new(driver));
+        }
+        #[cfg(feature = "engine-mongodb")]
+        {
+            let driver = crate::mongodb::MongoDriver::connect(&params)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(Box::new(driver));
+        }
+        #[cfg(feature = "engine-redis")]
+        {
+            let driver = crate::redis::RedisDriver::connect(&params)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(Box::new(driver));
+        }
+        #[cfg(feature = "engine-mysql")]
+        {
+            let driver = crate::mysql::MySqlDriver::connect(&params)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(Box::new(driver));
+        }
+        #[cfg(feature = "engine-postgres")]
+        {
+            let driver = crate::postgres::PgDriver::connect(&params)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(Box::new(driver));
+        }
+        let _ = params;
+        Err("sidecar 未启用任何 engine-* feature".into())
     }
 }
 
@@ -133,7 +131,9 @@ fn columns_from_query(result: crate::QueryResult) -> Vec<ColumnInfo> {
 impl EngineSession for crate::clickhouse::ClickHouseDriver {
     async fn handle_extra(&self, method: &str, params: Value) -> Result<Value, String> {
         match method {
-            "list_databases" => Ok(json!(self.list_databases().await.map_err(|e| e.to_string())?)),
+            "list_databases" => Ok(json!(
+                self.list_databases().await.map_err(|e| e.to_string())?
+            )),
             "list_schemas" => {
                 let result = self
                     .execute("SELECT currentDatabase()")
@@ -190,7 +190,9 @@ impl EngineSession for crate::mongodb::MongoDriver {
     async fn handle_extra(&self, method: &str, params: Value) -> Result<Value, String> {
         match method {
             "list_databases" => Ok(json!(
-                self.list_database_names().await.map_err(|e| e.to_string())?
+                self.list_database_names()
+                    .await
+                    .map_err(|e| e.to_string())?
             )),
             "list_schemas" => Ok(json!(self.list_tables().await.map_err(|e| e.to_string())?)),
             "describe_table" => {
@@ -422,7 +424,11 @@ async fn redis_handle_extra(
         .unwrap_or(Value::Null)),
         "redis_set_key" => {
             driver
-                .set_key(&s(&params, "key")?, &s(&params, "value")?, &s(&params, "keyType")?)
+                .set_key(
+                    &s(&params, "key")?,
+                    &s(&params, "value")?,
+                    &s(&params, "keyType")?,
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
@@ -457,12 +463,12 @@ async fn redis_handle_extra(
             driver.memory_stats().await.map_err(|e| e.to_string())?,
         )
         .unwrap_or(Value::Null)),
-        "redis_memory_doctor" => {
-            Ok(json!(driver.memory_doctor().await.map_err(|e| e.to_string())?))
-        }
-        "redis_memory_purge" => {
-            Ok(json!(driver.memory_purge().await.map_err(|e| e.to_string())?))
-        }
+        "redis_memory_doctor" => Ok(json!(
+            driver.memory_doctor().await.map_err(|e| e.to_string())?
+        )),
+        "redis_memory_purge" => Ok(json!(
+            driver.memory_purge().await.map_err(|e| e.to_string())?
+        )),
         "redis_config_set" => {
             driver
                 .config_set(&s(&params, "parameter")?, &s(&params, "value")?)
@@ -476,14 +482,24 @@ async fn redis_handle_extra(
         }
         "redis_flush_db" => {
             driver
-                .flush_db(params.get("async").and_then(Value::as_bool).unwrap_or(false))
+                .flush_db(
+                    params
+                        .get("async")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
         }
         "redis_flush_all" => {
             driver
-                .flush_all(params.get("async").and_then(Value::as_bool).unwrap_or(false))
+                .flush_all(
+                    params
+                        .get("async")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
@@ -498,7 +514,10 @@ async fn redis_handle_extra(
                         .get("count")
                         .and_then(Value::as_u64)
                         .map(|n| n as usize),
-                    params.get("reverse").and_then(Value::as_bool).unwrap_or(false),
+                    params
+                        .get("reverse")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                 )
                 .await
                 .map_err(|e| e.to_string())?,
@@ -543,7 +562,11 @@ async fn redis_handle_extra(
         .unwrap_or(Value::Null)),
         "redis_stream_ack" => Ok(json!(
             driver
-                .stream_ack(&s(&params, "key")?, &s(&params, "group")?, &strings(&params, "ids"))
+                .stream_ack(
+                    &s(&params, "key")?,
+                    &s(&params, "group")?,
+                    &strings(&params, "ids")
+                )
                 .await
                 .map_err(|e| e.to_string())?
         )),
@@ -566,7 +589,10 @@ async fn redis_handle_extra(
                     &s(&params, "key")?,
                     &s(&params, "group")?,
                     &s(&params, "id")?,
-                    params.get("mkstream").and_then(Value::as_bool).unwrap_or(false),
+                    params
+                        .get("mkstream")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                 )
                 .await
                 .map_err(|e| e.to_string())?;
@@ -633,7 +659,11 @@ async fn redis_handle_extra(
         )),
         "redis_hash_set_field" => {
             driver
-                .hash_set_field(&s(&params, "key")?, &s(&params, "field")?, &s(&params, "value")?)
+                .hash_set_field(
+                    &s(&params, "key")?,
+                    &s(&params, "field")?,
+                    &s(&params, "value")?,
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
@@ -646,7 +676,11 @@ async fn redis_handle_extra(
         )),
         "redis_list_push" => Ok(json!(
             driver
-                .list_push(&s(&params, "key")?, &s(&params, "side")?, &strings(&params, "values"))
+                .list_push(
+                    &s(&params, "key")?,
+                    &s(&params, "side")?,
+                    &strings(&params, "values")
+                )
                 .await
                 .map_err(|e| e.to_string())?
         )),

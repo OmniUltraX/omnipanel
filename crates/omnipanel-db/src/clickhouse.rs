@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
-    build_where_sql, is_query, sanitize_json_value_for_js, DbDriver, DbParams, QueryResult,
+    DbDriver, DbParams, QueryResult, build_where_sql, is_query, sanitize_json_value_for_js,
 };
 
 const DEFAULT_CLICKHOUSE_PORT: u16 = 8123;
@@ -149,8 +149,7 @@ impl ClickHouseDriver {
             .post_sql_with_format(&formatted, Some("JSONCompact"))
             .await?;
         let parsed: JsonCompactResponse = serde_json::from_str(&body).map_err(|e| {
-            OmniError::database("解析 ClickHouse JSONCompact 失败")
-                .with_cause(e.to_string())
+            OmniError::database("解析 ClickHouse JSONCompact 失败").with_cause(e.to_string())
         })?;
         let columns: Vec<String> = parsed.meta.into_iter().map(|m| m.name).collect();
         let rows = parsed
@@ -183,9 +182,7 @@ impl ClickHouseDriver {
 
     pub async fn describe_table(&self, table: &str) -> OmniResult<Vec<(String, String)>> {
         let ident = qualify_table(&self.database, table)?;
-        let result = self
-            .query_json(&format!("DESCRIBE TABLE {ident}"))
-            .await?;
+        let result = self.query_json(&format!("DESCRIBE TABLE {ident}")).await?;
         Ok(result
             .rows
             .into_iter()
@@ -237,9 +234,7 @@ impl DbDriver for ClickHouseDriver {
 
     async fn list_tables(&self) -> OmniResult<Vec<String>> {
         let db = quote_ident(&self.database);
-        let result = self
-            .query_json(&format!("SHOW TABLES FROM {db}"))
-            .await?;
+        let result = self.query_json(&format!("SHOW TABLES FROM {db}")).await?;
         let mut names: Vec<String> = result
             .rows
             .into_iter()
@@ -283,9 +278,8 @@ impl DbDriver for ClickHouseDriver {
         };
         let limit = limit.clamp(1, 10_000);
         let offset = offset.max(0);
-        let sql = format!(
-            "SELECT * FROM {ident}{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}"
-        );
+        let sql =
+            format!("SELECT * FROM {ident}{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}");
         self.query_json(&sql).await
     }
 

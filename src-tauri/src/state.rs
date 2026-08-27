@@ -13,8 +13,8 @@ use crate::protocol::serial::SerialSession;
 use crate::protocol::sniffer::SnifferSession;
 use crate::protocol::sse::SseSession;
 use crate::protocol::ws::WsSession;
-use omnipanel_db::DbDriver;
 use omnipanel_core::terminal::Terminal;
+use omnipanel_db::DbDriver;
 use omnipanel_docker::DockerExecSession;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_ssh::SshSession;
@@ -33,7 +33,7 @@ pub struct ProxyConfig {
 
 use omnipanel_ai::provider::AiProviderRegistry;
 
-use crate::background::{BackgroundWorkerPool, default_worker_count, SshPool};
+use crate::background::{BackgroundWorkerPool, SshPool, default_worker_count};
 use crate::commands::ssh::SshTunnelInfo;
 use crate::commands::ssh_capabilities::CapabilityCache;
 use crate::log_store::LogStore;
@@ -154,11 +154,19 @@ pub struct AppState {
     /// L2 逻辑执行器；构建未启用 `plugin-wasm` feature 时为 None。
     pub plugin_logic_executor: Option<Arc<dyn omnipanel_plugin::PluginLogicExecutor>>,
     /// prod 确认等待表（request_id → 回传通道）。
-    pub plugin_pending_confirms: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub plugin_pending_confirms:
+        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
     /// L2 桥共享 HTTP 客户端（复用代理配置）。
     pub plugin_http: reqwest::Client,
     /// 已实例化的 L2 逻辑执行体（plugin_id → instance）。
-    pub plugin_logic_instances: Arc<std::sync::Mutex<HashMap<String, std::sync::Arc<std::sync::Mutex<Box<dyn omnipanel_plugin::PluginLogicInstance>>>>>>,
+    pub plugin_logic_instances: Arc<
+        std::sync::Mutex<
+            HashMap<
+                String,
+                std::sync::Arc<std::sync::Mutex<Box<dyn omnipanel_plugin::PluginLogicInstance>>>,
+            >,
+        >,
+    >,
     /// 终端 tmux 模式偏好：auto / always / never，由前端设置同步。
     pub terminal_tmux_mode: Arc<std::sync::Mutex<String>>,
 }
@@ -201,10 +209,7 @@ impl AppState {
             .map(|dir| dir.join("plugins"));
         let (plugin_registry, plugin_invoke) = {
             let store = storage.lock().await;
-            crate::commands::plugin::seed_plugin_runtime(
-                &store,
-                plugin_packages_dir.as_deref(),
-            )
+            crate::commands::plugin::seed_plugin_runtime(&store, plugin_packages_dir.as_deref())
         };
         {
             let extras = plugin_registry.module_seeds();
@@ -223,6 +228,11 @@ impl AppState {
                 &plugin_invoke,
             );
         }
+        crate::commands::plugin::remap_highgo_identity_connections(
+            &db_connections,
+            &plugin_registry,
+        );
+        let _ = db_connections.seed_local_docker_connections();
 
         Self {
             serial_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -268,10 +278,7 @@ impl AppState {
             acp_state: Arc::new(Mutex::new(crate::commands::acp::AcpState::default())),
             internal_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
             agent_registry: Arc::new(AgentRegistry::default()),
-            worker_pool: Arc::new(BackgroundWorkerPool::new(
-                default_worker_count(),
-                storage,
-            )),
+            worker_pool: Arc::new(BackgroundWorkerPool::new(default_worker_count(), storage)),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             gateway_handle: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),

@@ -1,7 +1,7 @@
 //! BLOB / BYTEA 结果编码：嗅探可预览类型，小体积内联 base64 供前端预览窗展示。
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use serde_json::{json, Map, Value};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use serde_json::{Map, Value, json};
 
 /// 可内联到查询结果中的最大字节数（图片 / 音频 / 文本）。
 pub const BLOB_INLINE_MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -64,12 +64,7 @@ fn sniff_blob(bytes: &[u8]) -> (BlobPreviewKind, Option<&'static str>) {
     let head = &bytes[..bytes.len().min(16)];
 
     // PNG
-    if head.len() >= 8
-        && head[0] == 0x89
-        && head[1] == 0x50
-        && head[2] == 0x4e
-        && head[3] == 0x47
-    {
+    if head.len() >= 8 && head[0] == 0x89 && head[1] == 0x50 && head[2] == 0x4e && head[3] == 0x47 {
         return (BlobPreviewKind::Image, Some("image/png"));
     }
     // JPEG
@@ -77,12 +72,7 @@ fn sniff_blob(bytes: &[u8]) -> (BlobPreviewKind, Option<&'static str>) {
         return (BlobPreviewKind::Image, Some("image/jpeg"));
     }
     // GIF
-    if head.len() >= 4
-        && head[0] == 0x47
-        && head[1] == 0x49
-        && head[2] == 0x46
-        && head[3] == 0x38
-    {
+    if head.len() >= 4 && head[0] == 0x47 && head[1] == 0x49 && head[2] == 0x46 && head[3] == 0x38 {
         return (BlobPreviewKind::Image, Some("image/gif"));
     }
     // WebP
@@ -116,21 +106,11 @@ fn sniff_blob(bytes: &[u8]) -> (BlobPreviewKind, Option<&'static str>) {
         return (BlobPreviewKind::Audio, Some("audio/wav"));
     }
     // OGG
-    if head.len() >= 4
-        && head[0] == 0x4f
-        && head[1] == 0x67
-        && head[2] == 0x67
-        && head[3] == 0x53
-    {
+    if head.len() >= 4 && head[0] == 0x4f && head[1] == 0x67 && head[2] == 0x67 && head[3] == 0x53 {
         return (BlobPreviewKind::Audio, Some("audio/ogg"));
     }
     // FLAC
-    if head.len() >= 4
-        && head[0] == 0x66
-        && head[1] == 0x4c
-        && head[2] == 0x61
-        && head[3] == 0x43
-    {
+    if head.len() >= 4 && head[0] == 0x66 && head[1] == 0x4c && head[2] == 0x61 && head[3] == 0x43 {
         return (BlobPreviewKind::Audio, Some("audio/flac"));
     }
     // MP3 (ID3 or frame sync)
@@ -140,8 +120,7 @@ fn sniff_blob(bytes: &[u8]) -> (BlobPreviewKind, Option<&'static str>) {
         return (BlobPreviewKind::Audio, Some("audio/mpeg"));
     }
     // MP4 / M4A container
-    if head.len() >= 8 && head[4] == 0x66 && head[5] == 0x74 && head[6] == 0x79 && head[7] == 0x70
-    {
+    if head.len() >= 8 && head[4] == 0x66 && head[5] == 0x74 && head[6] == 0x79 && head[7] == 0x70 {
         return (BlobPreviewKind::Audio, Some("audio/mp4"));
     }
 

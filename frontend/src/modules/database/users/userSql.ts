@@ -5,6 +5,8 @@ import {
   mysqlQuoteLiteral,
   oracleQuoteId,
   oracleQuoteLiteral,
+  mssqlQuoteId,
+  mssqlQuoteLiteral,
   pgQuoteId,
   pgQuoteLiteral,
   resolveUserEngine,
@@ -26,6 +28,10 @@ export function buildCreateUserSql(
   if (engine === "oracle") {
     return `CREATE USER ${oracleQuoteId(n)} IDENTIFIED BY ${oracleQuoteLiteral(password)}`;
   }
+  if (engine === "mssql") {
+    const id = mssqlQuoteId(n);
+    return `CREATE LOGIN ${id} WITH PASSWORD = ${mssqlQuoteLiteral(password)}; CREATE USER ${id} FOR LOGIN ${id}`;
+  }
   return `CREATE ROLE ${pgQuoteId(n)} WITH LOGIN PASSWORD ${pgQuoteLiteral(password)}`;
 }
 
@@ -43,6 +49,9 @@ export function buildChangePasswordSql(
   }
   if (engine === "oracle") {
     return `ALTER USER ${oracleQuoteId(n)} IDENTIFIED BY ${oracleQuoteLiteral(password)}`;
+  }
+  if (engine === "mssql") {
+    return `ALTER LOGIN ${mssqlQuoteId(n)} WITH PASSWORD = ${mssqlQuoteLiteral(password)}`;
   }
   return `ALTER ROLE ${pgQuoteId(n)} PASSWORD ${pgQuoteLiteral(password)}`;
 }
@@ -62,6 +71,9 @@ export function buildSetLoginEnabledSql(
   }
   if (engine === "oracle") {
     return `ALTER USER ${oracleQuoteId(n)} ACCOUNT ${enabled ? "UNLOCK" : "LOCK"}`;
+  }
+  if (engine === "mssql") {
+    return `ALTER LOGIN ${mssqlQuoteId(n)} ${enabled ? "ENABLE" : "DISABLE"}`;
   }
   return `ALTER ROLE ${pgQuoteId(n)} ${enabled ? "LOGIN" : "NOLOGIN"}`;
 }
@@ -112,6 +124,17 @@ export function buildGrantSql(
     return `GRANT ${privList} TO ${user}${grantOpt}`;
   }
 
+  if (engine === "mssql") {
+    const user = mssqlQuoteId(opts.name);
+    if (opts.scopeKind === "table") {
+      const table = opts.table?.trim();
+      if (!table) return null;
+      const schema = opts.schema?.trim() || "dbo";
+      return `GRANT ${privList} ON OBJECT::${mssqlQuoteId(schema)}.${mssqlQuoteId(table)} TO ${user}${grantOpt}`;
+    }
+    return `GRANT ${privList} TO ${user}${grantOpt}`;
+  }
+
   const role = pgQuoteId(opts.name);
   if (opts.scopeKind === "database") {
     const db = opts.database?.trim();
@@ -151,6 +174,13 @@ export function buildRevokeSql(
   if (engine === "oracle") {
     const user = oracleQuoteId(opts.name);
     if (!scope || scope === "*") {
+      return `REVOKE ${privs} FROM ${user}`;
+    }
+    return `REVOKE ${privs} ON ${scope} FROM ${user}`;
+  }
+  if (engine === "mssql") {
+    const user = mssqlQuoteId(opts.name);
+    if (!scope) {
       return `REVOKE ${privs} FROM ${user}`;
     }
     return `REVOKE ${privs} ON ${scope} FROM ${user}`;

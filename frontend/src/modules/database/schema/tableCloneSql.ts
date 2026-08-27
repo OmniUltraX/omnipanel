@@ -14,13 +14,30 @@ function sqliteQuoteId(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-type CloneEngine = "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "generic" | "other";
+function mssqlQuoteId(name: string): string {
+  return `[${name.replace(/]/g, "]]")}]`;
+}
+
+function mssqlTableRef(tableName: string): string {
+  const table = tableName.trim();
+  if (table.includes(".")) {
+    return table
+      .split(".")
+      .filter(Boolean)
+      .map((part) => mssqlQuoteId(part))
+      .join(".");
+  }
+  return `${mssqlQuoteId("dbo")}.${mssqlQuoteId(table)}`;
+}
+
+type CloneEngine = "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "mssql" | "generic" | "other";
 
 function normalizeEngine(dbType: string): CloneEngine {
   const engine = canonicalHostEngine(dbType);
   if (engine === "mysql") return "mysql";
   if (engine === "postgres") return "postgres";
   if (engine === "sqlite") return "sqlite";
+  if (engine === "sqlserver") return "mssql";
   const family = catalogFamily(engine);
   if (family === "mysqlLike") return "mysql";
   if (family === "postgresLike") return "postgres";
@@ -72,6 +89,9 @@ export function buildCloneTableSql(
   }
   if (engine === "sqlite" || engine === "generic") {
     return `CREATE TABLE ${sqliteQuoteId(target)} AS SELECT * FROM ${sqliteQuoteId(source)} WHERE 0`;
+  }
+  if (engine === "mssql") {
+    return `SELECT * INTO ${mssqlTableRef(target)} FROM ${mssqlTableRef(source)} WHERE 1=0`;
   }
   if (engine === "oracle") {
     const schema = pgQuoteId(dbName.trim());

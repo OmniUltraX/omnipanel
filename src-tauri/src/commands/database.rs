@@ -8,7 +8,7 @@ use omnipanel_db::{
     RedisInfoResult, RedisKeyDetail, RedisMemoryStats, RedisSearchKeysResult, RedisSlowLogEntry,
     RedisStreamConsumer, RedisStreamConsumerCleanupResult, RedisStreamGroup,
     RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
-    mysql_connect_options, redis_stream_cleanup_inactive_consumers,
+    mysql_connect_options, postgres_connect_options, redis_stream_cleanup_inactive_consumers,
 };
 use omnipanel_error::OmniError;
 pub use omnipanel_store::{
@@ -245,12 +245,7 @@ async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
     }
 
     let p = to_params(connection);
-    let opts = sqlx::postgres::PgConnectOptions::new()
-        .host(&p.host)
-        .port(p.port)
-        .username(&p.user)
-        .password(&p.password)
-        .database(&p.database);
+    let opts = postgres_connect_options(&p);
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(30))
@@ -297,6 +292,7 @@ async fn evict_sidecar_agent(connection: &DbConnectionConfig) {
 pub async fn db_list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbConnectionConfig>, String> {
+    let _ = state.db_connections.seed_local_docker_connections();
     state.db_connections.list().map_err(|e| e.to_string())
 }
 
@@ -439,9 +435,7 @@ pub async fn db_test_connection(mut connection: DbConnectionConfig) -> Result<St
     if db_type == "qdrant" && params.database.trim().is_empty() {
         params.database = "default".to_string();
     }
-    let driver = omnipanel_db::connect(&params)
-        .await
-        .map_err(err_msg)?;
+    let driver = omnipanel_db::connect(&params).await.map_err(err_msg)?;
     driver.version().await.map_err(err_msg)
 }
 
@@ -855,9 +849,7 @@ pub async fn db_redis_config_get_entries(
 /// Redis `CONFIG GET *`：返回 parameter / value 两列表格。
 #[tauri::command]
 #[specta::specta]
-pub async fn db_redis_config_get(
-    connection: DbConnectionConfig,
-) -> Result<DbQueryResult, String> {
+pub async fn db_redis_config_get(connection: DbConnectionConfig) -> Result<DbQueryResult, String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CONFIG GET".to_string());
     }
@@ -870,9 +862,7 @@ pub async fn db_redis_config_get(
 /// Redis `CLIENT LIST`：返回客户端连接列表。
 #[tauri::command]
 #[specta::specta]
-pub async fn db_redis_client_list(
-    connection: DbConnectionConfig,
-) -> Result<DbQueryResult, String> {
+pub async fn db_redis_client_list(connection: DbConnectionConfig) -> Result<DbQueryResult, String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CLIENT LIST".to_string());
     }
@@ -972,7 +962,10 @@ pub async fn db_redis_set_key(
 /// Redis 删除 key。
 #[tauri::command]
 #[specta::specta]
-pub async fn db_redis_delete_key(connection: DbConnectionConfig, key: String) -> Result<f64, String> {
+pub async fn db_redis_delete_key(
+    connection: DbConnectionConfig,
+    key: String,
+) -> Result<f64, String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持删除 key".to_string());
     }
@@ -1007,12 +1000,9 @@ pub async fn db_redis_info(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 INFO".to_string());
     }
-    omnipanel_db::redis_info(
-        &to_params(&connection),
-        section.as_deref(),
-    )
-    .await
-    .map_err(err_msg)
+    omnipanel_db::redis_info(&to_params(&connection), section.as_deref())
+        .await
+        .map_err(err_msg)
 }
 
 /// Redis `MEMORY STATS`。
@@ -1592,8 +1582,8 @@ pub async fn db_qdrant_delete_points(args: QdrantDeletePointsArgs) -> Result<f64
 }
 
 pub use omnipanel_db::{
-    refresh_connection_payload, SchemaConnectionRefreshPayload, SchemaNodeRefreshArgs,
-    SchemaNodeRefreshResult,
+    SchemaConnectionRefreshPayload, SchemaNodeRefreshArgs, SchemaNodeRefreshResult,
+    refresh_connection_payload,
 };
 
 fn schema_cache_now_ms() -> i64 {

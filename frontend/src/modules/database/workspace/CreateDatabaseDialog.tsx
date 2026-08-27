@@ -7,11 +7,11 @@ import { useI18n } from "../../../i18n";
 import {
   createDatabase,
   isMysqlConnectionInfoCapable,
-  isPostgresConnectionInfoCapable,
   listCharacterSets,
   type DbCharsetMeta,
   type DbConnectionConfig,
 } from "../api";
+import { canonicalHostEngine } from "../hostCapabilities";
 
 export interface CreateDatabaseDialogProps {
   open: boolean;
@@ -39,7 +39,8 @@ export function CreateDatabaseDialog({
   const [error, setError] = useState<string | null>(null);
 
   const isMysql = connection ? isMysqlConnectionInfoCapable(connection) : false;
-  const isPostgres = connection ? isPostgresConnectionInfoCapable(connection) : false;
+  const engine = connection ? canonicalHostEngine(connection.db_type) : "";
+  const isPostgres = engine === "postgres";
   /** MySQL/PG 均支持选择字符集/编码（MySQL=CHARACTER SET，PG=ENCODING） */
   const supportsCharsetSelect = isMysql || isPostgres;
 

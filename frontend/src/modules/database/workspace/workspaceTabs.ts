@@ -72,8 +72,9 @@ export type SlowQueryLogWorkspaceTab = {
   kind: "slow-query";
   label: string;
   connId: string;
-  sshConnectionId: string;
-  logFilePath: string;
+  sshConnectionId?: string;
+  logFilePath?: string;
+  dialect?: boolean;
   deploymentKind?: "host" | "docker";
   containerId?: string;
   workspaceOnly?: boolean;

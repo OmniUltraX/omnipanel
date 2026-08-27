@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use async_trait::async_trait;
-use mongodb::bson::{doc, Bson, Document};
+use mongodb::bson::{Bson, Document, doc};
 use mongodb::options::{ClientOptions, ServerAddress};
 use mongodb::{Client, Collection};
 use omnipanel_error::{OmniError, OmniResult};
@@ -45,10 +45,7 @@ impl MongoDriver {
         let options = build_client_options(params)?;
         let client = Client::with_options(options)
             .map_err(|e| OmniError::connection("MongoDB 连接失败").with_cause(e.to_string()))?;
-        let names = client
-            .list_database_names()
-            .await
-            .map_err(map_mongo_err)?;
+        let names = client.list_database_names().await.map_err(map_mongo_err)?;
         Ok(names.into_iter().filter(|name| !name.is_empty()).collect())
     }
 
@@ -61,7 +58,11 @@ impl MongoDriver {
         Ok(names.into_iter().filter(|name| !name.is_empty()).collect())
     }
 
-    pub async fn infer_column_names(&self, collection: &str, sample_limit: i64) -> OmniResult<Vec<String>> {
+    pub async fn infer_column_names(
+        &self,
+        collection: &str,
+        sample_limit: i64,
+    ) -> OmniResult<Vec<String>> {
         let limit = sample_limit.clamp(1, DEFAULT_SAMPLE_LIMIT);
         let result = self.preview(collection, limit, 0, None, None).await?;
         Ok(result.columns)
@@ -88,10 +89,7 @@ impl DbDriver for MongoDriver {
 
     async fn list_tables(&self) -> OmniResult<Vec<String>> {
         let db = self.client.database(&self.database);
-        let mut names = db
-            .list_collection_names()
-            .await
-            .map_err(map_mongo_err)?;
+        let mut names = db.list_collection_names().await.map_err(map_mongo_err)?;
         names.sort_by(|a, b| a.cmp(b));
         Ok(names)
     }

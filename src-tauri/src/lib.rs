@@ -375,6 +375,7 @@ fn export_ipc_bindings() {
         commands::file_transfer::file_transfer_cancel,
         commands::file_transfer::file_transfer_retry,
         commands::file_transfer::file_transfer_clear_finished,
+        commands::file_transfer::file_transfer_dismiss,
         commands::file_transfer::file_transfer_set_concurrency,
         commands::file_transfer::file_transfer_set_rate_limit,
         commands::file_manager::file_mkdir,
@@ -480,6 +481,7 @@ fn export_ipc_bindings() {
         commands::plugin::plugin_uninstall,
         commands::dbx_catalog::plugin_dbx_catalog,
         commands::dbx_catalog::plugin_dbx_install,
+        commands::dbx_catalog::plugin_dbx_install_catalog_engines,
         // Task（任务）
         commands::task::task_list,
         commands::task::task_get,
@@ -667,7 +669,6 @@ fn export_ipc_bindings() {
         commands::ai_chat::audit_log_append,
         commands::ai_chat::ai_gateway_configure,
         commands::ai_chat::ai_services_probe,
-        
         commands::third_party_account::third_party_account_list,
         commands::third_party_account::third_party_account_upsert,
         commands::third_party_account::third_party_account_delete,
@@ -794,8 +795,7 @@ fn build_and_run_tauri() {
             let _ = omnipanel_store::FileIndexStorage::import_from_meta_storage_if_empty(&storage)
                 .expect("迁移旧版文件索引失败");
             let file_index_storage = Arc::new(Mutex::new(
-                omnipanel_store::FileIndexStorage::open_at_dir("")
-                    .expect("打开文件索引存储失败"),
+                omnipanel_store::FileIndexStorage::open_at_dir("").expect("打开文件索引存储失败"),
             ));
             let storage = Arc::new(Mutex::new(storage));
             let db_connections =
@@ -805,10 +805,9 @@ fn build_and_run_tauri() {
                 "应用数据目录已就绪"
             );
 
-            let mcp_manager = tauri::async_runtime::block_on(
-                commands::mcp::init_mcp_manager(storage.clone()),
-            )
-            .expect("启动 MCP 管理器失败");
+            let mcp_manager =
+                tauri::async_runtime::block_on(commands::mcp::init_mcp_manager(storage.clone()))
+                    .expect("启动 MCP 管理器失败");
 
             let app_state = tauri::async_runtime::block_on(AppState::new(
                 app.handle().clone(),
@@ -823,9 +822,28 @@ fn build_and_run_tauri() {
             let ai_registry = app_state.ai_registry.clone();
             app.manage(app_state);
 
+            let catalog_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let Some(state) = catalog_handle.try_state::<crate::state::AppState>() else {
+                    return;
+                };
+                match commands::dbx_catalog::plugin_dbx_install_catalog_engines(state).await {
+                    Ok(results) => {
+                        for item in results {
+                            if item.ok {
+                                tracing::info!(key = %item.key, "{}", item.message);
+                            } else {
+                                tracing::warn!(key = %item.key, "安装 DBX 失败: {}", item.message);
+                            }
+                        }
+                    }
+                    Err(err) => tracing::warn!("安装目录引擎失败: {err}"),
+                }
+            });
+
             // 主窗 create:false：按记忆几何创建；State 已就绪后再 show/加载 HTML。
-            commands::workspace_window::create_main_window(app.handle())
-                .expect("创建主窗口失败");
+            commands::workspace_window::create_main_window(app.handle()).expect("创建主窗口失败");
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(windows)]
                 webview_dpi::hook_window(&window);
@@ -900,9 +918,9 @@ fn build_and_run_tauri() {
             commands::protocol::http_add_history,
             commands::protocol::http_list_history,
             commands::protocol::http_clear_history,
-        commands::protocol::http_delete_history,
-        commands::protocol::http_rename_history,
-        commands::protocol::http_clear_history_for_request,
+            commands::protocol::http_delete_history,
+            commands::protocol::http_rename_history,
+            commands::protocol::http_clear_history_for_request,
             commands::protocol::http_save_collection,
             commands::protocol::http_list_collections,
             commands::protocol::http_delete_collection,
@@ -953,7 +971,7 @@ fn build_and_run_tauri() {
             commands::terminal::resize_terminal,
             commands::terminal::close_terminal,
             commands::terminal::terminal_snapshot,
-        commands::terminal::list_shells,
+            commands::terminal::list_shells,
             // Terminal history（SQLite checkpoint）
             commands::terminal_history::terminal_history_load_session,
             commands::terminal_history::terminal_history_upsert_blocks,
@@ -963,8 +981,8 @@ fn build_and_run_tauri() {
             commands::terminal_history::terminal_history_counts,
             // Database
             commands::database::db_list_connections,
-        commands::navicat::decrypt_navicat_password,
-        commands::navicat::decrypt_navicat_passwords,
+            commands::navicat::decrypt_navicat_password,
+            commands::navicat::decrypt_navicat_passwords,
             commands::database::db_get_connection_secret,
             commands::secrets_vault::secrets_vault_status,
             commands::secrets_vault::secrets_vault_unlock,
@@ -1005,7 +1023,7 @@ fn build_and_run_tauri() {
             commands::database::db_introspect_table,
             commands::database::db_list_tables,
             commands::database::db_table_ddl,
-        commands::database::db_get_table_details,
+            commands::database::db_get_table_details,
             commands::database::db_list_table_details,
             commands::database::db_preview_table,
             commands::database::db_count_table,
@@ -1067,29 +1085,29 @@ fn build_and_run_tauri() {
             commands::connection::conn_test,
             commands::connection::resolve_host,
             commands::pool::pool_get_summary,
-        commands::bg_task::bg_task_list,
-        commands::bg_task::bg_task_history_list,
-        commands::bg_task::task_events_list,
-        commands::bg_task::bg_task_cancel,
-        commands::bg_task::bg_task_submit_db_data_sync,
-        commands::bg_task::bg_task_submit_db_schema_sync,
-        commands::bg_task::bg_task_submit_db_data_sync_execute,
-        commands::bg_task::db_data_sync_generate_sql,
-        commands::bg_task::db_schema_sync_preview_sql,
-        commands::bg_task::db_batch_table_ddl,
-        commands::bg_task::db_data_sync_read_sql_file,
-        commands::bg_task::db_data_sync_write_sql_file,
-        commands::bg_task::bg_task_submit_db_data_sync_sql_execute,
-        commands::bg_task::bg_task_submit_db_schema_sync_execute,
-        commands::bg_task::bg_task_submit_db_schema_cache_refresh,
-        commands::bg_task::bg_task_submit_knowledge_vectorize,
-        commands::bg_task::bg_task_submit_ollama_install,
-        commands::bg_task::bg_task_submit_ollama_pull,
-        commands::db_mysql_export::db_mysql_export_list,
-        commands::db_mysql_export::db_mysql_export_save_as,
-        commands::db_mysql_export::db_mysql_export_delete,
-        commands::db_mysql_export::bg_task_submit_db_mysql_export,
-        commands::db_mysql_export::bg_task_submit_db_mysql_import,
+            commands::bg_task::bg_task_list,
+            commands::bg_task::bg_task_history_list,
+            commands::bg_task::task_events_list,
+            commands::bg_task::bg_task_cancel,
+            commands::bg_task::bg_task_submit_db_data_sync,
+            commands::bg_task::bg_task_submit_db_schema_sync,
+            commands::bg_task::bg_task_submit_db_data_sync_execute,
+            commands::bg_task::db_data_sync_generate_sql,
+            commands::bg_task::db_schema_sync_preview_sql,
+            commands::bg_task::db_batch_table_ddl,
+            commands::bg_task::db_data_sync_read_sql_file,
+            commands::bg_task::db_data_sync_write_sql_file,
+            commands::bg_task::bg_task_submit_db_data_sync_sql_execute,
+            commands::bg_task::bg_task_submit_db_schema_sync_execute,
+            commands::bg_task::bg_task_submit_db_schema_cache_refresh,
+            commands::bg_task::bg_task_submit_knowledge_vectorize,
+            commands::bg_task::bg_task_submit_ollama_install,
+            commands::bg_task::bg_task_submit_ollama_pull,
+            commands::db_mysql_export::db_mysql_export_list,
+            commands::db_mysql_export::db_mysql_export_save_as,
+            commands::db_mysql_export::db_mysql_export_delete,
+            commands::db_mysql_export::bg_task_submit_db_mysql_export,
+            commands::db_mysql_export::bg_task_submit_db_mysql_import,
             // 面板 API
             commands::panel::panel_resolve_api_key,
             commands::panel::panel_1panel_request,
@@ -1117,9 +1135,9 @@ fn build_and_run_tauri() {
             commands::docker::docker_get_local_engine_status,
             commands::docker::docker_start_local_engine,
             commands::docker::docker_get_overview,
-        commands::docker::docker_read_daemon_config,
-        commands::docker::docker_write_daemon_config,
-        commands::docker::docker_restart_daemon,
+            commands::docker::docker_read_daemon_config,
+            commands::docker::docker_write_daemon_config,
+            commands::docker::docker_restart_daemon,
             commands::docker::docker_get_system_disk_usage,
             commands::docker::docker_list_containers,
             commands::docker::docker_list_container_stats,
@@ -1258,18 +1276,18 @@ fn build_and_run_tauri() {
             commands::ssh::ssh_pool_load_processes,
             commands::ssh::ssh_pool_process_detail,
             commands::ssh::ssh_pool_kill_process,
-        commands::ssh::ssh_pool_exec_command,
-        commands::ssh::ssh_pool_create_run_script,
-        commands::ssh::ssh_pool_probe_all,
-        commands::ssh::ssh_pool_list_archive_entries,
-        commands::ssh::ssh_pool_install_archive_tool,
-        commands::ssh_capabilities::ssh_pool_probe_capabilities,
-        commands::ssh_capabilities::ssh_pool_invalidate_capabilities,
-        commands::ssh_capabilities::ssh_pool_install_tool,
-        commands::ssh_capabilities::ssh_pool_probe_panels,
-        commands::ssh_capabilities::ssh_pool_enable_panel_api,
-        commands::ssh::set_terminal_tmux_mode,
-        commands::ssh::invalidate_tmux_cache,
+            commands::ssh::ssh_pool_exec_command,
+            commands::ssh::ssh_pool_create_run_script,
+            commands::ssh::ssh_pool_probe_all,
+            commands::ssh::ssh_pool_list_archive_entries,
+            commands::ssh::ssh_pool_install_archive_tool,
+            commands::ssh_capabilities::ssh_pool_probe_capabilities,
+            commands::ssh_capabilities::ssh_pool_invalidate_capabilities,
+            commands::ssh_capabilities::ssh_pool_install_tool,
+            commands::ssh_capabilities::ssh_pool_probe_panels,
+            commands::ssh_capabilities::ssh_pool_enable_panel_api,
+            commands::ssh::set_terminal_tmux_mode,
+            commands::ssh::invalidate_tmux_cache,
             // Local system monitor
             commands::system::local_fetch_stats,
             commands::system::local_list_processes,
@@ -1291,28 +1309,29 @@ fn build_and_run_tauri() {
             commands::file_manager::file_read_file,
             commands::file_manager::file_upload_file,
             commands::file_manager::file_download_file,
-        commands::file_transfer::file_transfer_plan,
-        commands::file_transfer::file_transfer_enqueue,
-        commands::file_transfer::file_transfer_upload_local_bytes,
-        commands::file_transfer::file_transfer_list,
-        commands::file_transfer::file_transfer_cancel,
-        commands::file_transfer::file_transfer_retry,
-        commands::file_transfer::file_transfer_clear_finished,
-        commands::file_transfer::file_transfer_set_concurrency,
-        commands::file_transfer::file_transfer_set_rate_limit,
+            commands::file_transfer::file_transfer_plan,
+            commands::file_transfer::file_transfer_enqueue,
+            commands::file_transfer::file_transfer_upload_local_bytes,
+            commands::file_transfer::file_transfer_list,
+            commands::file_transfer::file_transfer_cancel,
+            commands::file_transfer::file_transfer_retry,
+            commands::file_transfer::file_transfer_clear_finished,
+            commands::file_transfer::file_transfer_dismiss,
+            commands::file_transfer::file_transfer_set_concurrency,
+            commands::file_transfer::file_transfer_set_rate_limit,
             commands::file_manager::file_mkdir,
             commands::file_manager::file_rename,
             commands::file_manager::file_delete,
             commands::file_manager::file_local_quick_paths,
-        commands::file_manager::file_local_system_info,
-        commands::file_manager::file_local_temp_dir,
-        commands::file_index::file_index_build,
-        commands::file_index::file_index_search,
-        commands::file_index::file_index_status,
-        commands::file_index::file_index_clear,
-        commands::file_index::file_index_cancel,
-        commands::file_index::file_index_storage_info,
-        commands::file_index::set_file_index_storage_dir,
+            commands::file_manager::file_local_system_info,
+            commands::file_manager::file_local_temp_dir,
+            commands::file_index::file_index_build,
+            commands::file_index::file_index_search,
+            commands::file_index::file_index_status,
+            commands::file_index::file_index_clear,
+            commands::file_index::file_index_cancel,
+            commands::file_index::file_index_storage_info,
+            commands::file_index::set_file_index_storage_dir,
             commands::log::clear_backend_logs,
             // Knowledge（知识库）
             commands::knowledge::knowledge_list,
@@ -1334,11 +1353,11 @@ fn build_and_run_tauri() {
             commands::todo::todo_task_delete,
             commands::todo::todo_step_save,
             commands::todo::todo_step_delete,
-        commands::knowledge::knowledge_import_pdf,
-        commands::knowledge::knowledge_list_revisions,
-        commands::knowledge::knowledge_restore_revision,
-        commands::knowledge::knowledge_save_asset,
-        commands::knowledge::knowledge_asset_path,
+            commands::knowledge::knowledge_import_pdf,
+            commands::knowledge::knowledge_list_revisions,
+            commands::knowledge::knowledge_restore_revision,
+            commands::knowledge::knowledge_save_asset,
+            commands::knowledge::knowledge_asset_path,
             commands::tag::tag_list_tree,
             commands::tag::tag_list_used_by,
             commands::tag::tag_create,
@@ -1366,9 +1385,9 @@ fn build_and_run_tauri() {
             commands::knowledge_vector::knowledge_vectorize,
             commands::knowledge_vector::knowledge_vector_status,
             commands::knowledge_vector::knowledge_list_chunks,
-        commands::knowledge_vector::knowledge_delete_chunks,
-        commands::knowledge_vector::knowledge_recall_test,
-        commands::knowledge_vector::knowledge_query_document,
+            commands::knowledge_vector::knowledge_delete_chunks,
+            commands::knowledge_vector::knowledge_recall_test,
+            commands::knowledge_vector::knowledge_query_document,
             commands::knowledge_vector::embedding_provider_sync,
             commands::knowledge_vector::embedding_provider_get,
             commands::local_runtime::local_runtime_probe,
@@ -1400,12 +1419,13 @@ fn build_and_run_tauri() {
             commands::plugin::plugin_confirm_resolve,
             commands::plugin::plugin_read_asset,
             commands::plugin::plugin_sandbox_net_fetch,
-        commands::plugin::plugin_read_asset,
-        commands::plugin::plugin_sandbox_net_fetch,
-        commands::plugin::plugin_install_from_file,
+            commands::plugin::plugin_read_asset,
+            commands::plugin::plugin_sandbox_net_fetch,
+            commands::plugin::plugin_install_from_file,
             commands::plugin::plugin_uninstall,
             commands::dbx_catalog::plugin_dbx_catalog,
             commands::dbx_catalog::plugin_dbx_install,
+            commands::dbx_catalog::plugin_dbx_install_catalog_engines,
             // Task（任务）
             commands::task::task_list,
             commands::task::task_get,
@@ -1461,7 +1481,7 @@ fn build_and_run_tauri() {
             commands::ai_models::ai_models_resolve_api_key,
             commands::ai_models::ai_models_fetch_list,
             commands::opencode::detect_opencode_install,
-        commands::agents::detect_all_agents,
+            commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
             commands::db_tree_chart_files::db_tree_chart_files_load,
@@ -1472,16 +1492,16 @@ fn build_and_run_tauri() {
             commands::builtin_tool::builtin_tool_set_internal_enabled,
             commands::builtin_tool::builtin_tool_set_external_exposed,
             commands::builtin_tool::builtin_tool_sync_catalog,
-        commands::web_search::web_search_get_config,
-        commands::web_search::web_search_set_config,
-        commands::web_search::web_search_set_exa_key,
-        commands::web_search::web_search_exa_key_configured,
-        commands::web_search::web_search_set_zhihu_secret,
-        commands::web_search::web_search_zhihu_secret_configured,
-        commands::web_search::web_search_set_jina_key,
-        commands::web_search::web_search_jina_key_configured,
-        commands::web_search::web_search_test_backend,
-        commands::web_search::web_search_test_fetch,
+            commands::web_search::web_search_get_config,
+            commands::web_search::web_search_set_config,
+            commands::web_search::web_search_set_exa_key,
+            commands::web_search::web_search_exa_key_configured,
+            commands::web_search::web_search_set_zhihu_secret,
+            commands::web_search::web_search_zhihu_secret_configured,
+            commands::web_search::web_search_set_jina_key,
+            commands::web_search::web_search_jina_key_configured,
+            commands::web_search::web_search_test_backend,
+            commands::web_search::web_search_test_fetch,
             // Auth (WeChat QR login)
             commands::auth::auth_device_identity,
             commands::auth::auth_list_devices,
@@ -1546,7 +1566,7 @@ fn build_and_run_tauri() {
             commands::mcp::mcp_call_tool,
             // Skills
             commands::skills::skill_list,
-        commands::skills::skill_get,
+            commands::skills::skill_get,
             commands::skills::skill_create,
             commands::skills::skill_update,
             commands::skills::skill_remove,

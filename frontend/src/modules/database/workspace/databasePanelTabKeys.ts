@@ -83,8 +83,9 @@ export function buildDatabasePanelContentKeysByTab(params: {
       keys[tab.id] = [
         connectionsFingerprint,
         tab.connId,
-        tab.sshConnectionId,
-        tab.logFilePath,
+        tab.sshConnectionId ?? "",
+        tab.logFilePath ?? "",
+        tab.dialect ? "dialect" : "",
         tab.deploymentKind ?? "",
         tab.containerId ?? "",
       ].join(":");

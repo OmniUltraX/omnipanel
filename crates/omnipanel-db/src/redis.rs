@@ -4,11 +4,11 @@ use redis::{AsyncCommands, Client, aio::MultiplexedConnection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{DbDriver, DbParams, QueryResult};
 use crate::redis_ops::{
-    self, RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer,
-    RedisStreamGroup, RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
+    self, RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer, RedisStreamGroup,
+    RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
 };
+use crate::{DbDriver, DbParams, QueryResult};
 
 /// Redis 键搜索结果（供查询面板展示）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -117,26 +117,7 @@ impl RedisDriver {
             })
             .unwrap_or(0);
 
-        let url = if params.password.is_empty() {
-            format!("redis://{}:{}/{}", params.host, port, db)
-        } else if params.user.is_empty() {
-            format!(
-                "redis://:{}@{}:{}/{}",
-                percent_encode(&params.password),
-                params.host,
-                port,
-                db
-            )
-        } else {
-            format!(
-                "redis://{}:{}@{}:{}/{}",
-                percent_encode(&params.user),
-                percent_encode(&params.password),
-                params.host,
-                port,
-                db
-            )
-        };
+        let url = redis_connection_url(params, port, db);
 
         let client = Client::open(url)
             .map_err(|e| OmniError::connection("Redis 连接参数无效").with_cause(e.to_string()))?;
@@ -211,11 +192,7 @@ impl RedisDriver {
     ) -> OmniResult<RedisSearchKeysResult> {
         let pattern = {
             let trimmed = pattern.trim();
-            if trimmed.is_empty() {
-                "*"
-            } else {
-                trimmed
-            }
+            if trimmed.is_empty() { "*" } else { trimmed }
         };
         let limit = limit.clamp(1, 2000);
         let type_filter: std::collections::HashSet<String> =
@@ -308,7 +285,10 @@ impl RedisDriver {
         if !preset.is_empty() {
             return Ok(vec![preset.to_string()]);
         }
-        let count = self.database_count().await.unwrap_or(DEFAULT_DATABASE_COUNT);
+        let count = self
+            .database_count()
+            .await
+            .unwrap_or(DEFAULT_DATABASE_COUNT);
         Ok((0..count).map(|n| n.to_string()).collect())
     }
 
@@ -541,8 +521,7 @@ impl RedisDriver {
         count: Option<usize>,
     ) -> OmniResult<Vec<RedisStreamPendingEntry>> {
         let mut conn = self.conn.clone();
-        redis_ops::stream_pending(&mut conn, key, group, start, end, count)
-            .await
+        redis_ops::stream_pending(&mut conn, key, group, start, end, count).await
     }
 
     pub async fn stream_monitor(
@@ -589,8 +568,7 @@ impl RedisDriver {
         mkstream: bool,
     ) -> OmniResult<()> {
         let mut conn = self.conn.clone();
-        redis_ops::stream_group_create(&mut conn, key, group, id, mkstream)
-            .await
+        redis_ops::stream_group_create(&mut conn, key, group, id, mkstream).await
     }
 
     pub async fn stream_group_destroy(&self, key: &str, group: &str) -> OmniResult<()> {
@@ -758,10 +736,7 @@ async fn read_key_value(
                     })
                 })
                 .collect();
-            Ok((
-                Value::Array(rows),
-                card as usize > KEY_DETAIL_PREVIEW_LIMIT,
-            ))
+            Ok((Value::Array(rows), card as usize > KEY_DETAIL_PREVIEW_LIMIT))
         }
         "hash" => {
             let map: std::collections::HashMap<Vec<u8>, Vec<u8>> =
@@ -806,10 +781,7 @@ async fn read_key_value(
                 len as usize > KEY_DETAIL_PREVIEW_LIMIT,
             ))
         }
-        other => Ok((
-            serde_json::json!({ "unsupportedType": other }),
-            false,
-        )),
+        other => Ok((serde_json::json!({ "unsupportedType": other }), false)),
     }
 }
 
@@ -857,15 +829,45 @@ fn parse_keyspace_counts(info: &str) -> std::collections::HashMap<u64, u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_keyspace_counts;
+    use super::{parse_keyspace_counts, redis_connection_url};
+    use crate::DbParams;
+
+    fn redis_params(user: &str, password: &str) -> DbParams {
+        DbParams {
+            db_type: "redis".into(),
+            host: "10.0.0.1".into(),
+            port: 6379,
+            user: user.into(),
+            password: password.into(),
+            database: "0".into(),
+            ssl: false,
+            sid: String::new(),
+            sysdba: false,
+        }
+    }
 
     #[test]
     fn parses_keyspace_lines() {
-        let info = "# Keyspace\ndb0:keys=3461,expires=12,avg_ttl=100\ndb1:keys=861,expires=0,avg_ttl=0\n";
+        let info =
+            "# Keyspace\ndb0:keys=3461,expires=12,avg_ttl=100\ndb1:keys=861,expires=0,avg_ttl=0\n";
         let map = parse_keyspace_counts(info);
         assert_eq!(map.get(&0), Some(&3461));
         assert_eq!(map.get(&1), Some(&861));
         assert_eq!(map.get(&2), None);
+    }
+
+    #[test]
+    fn default_username_uses_requirepass_url() {
+        let url = redis_connection_url(&redis_params("default", "s3cret"), 6379, 0);
+        assert_eq!(url, "redis://:s3cret@10.0.0.1:6379/0");
+        let url = redis_connection_url(&redis_params("", "s3cret"), 6379, 0);
+        assert_eq!(url, "redis://:s3cret@10.0.0.1:6379/0");
+    }
+
+    #[test]
+    fn acl_username_kept_in_url() {
+        let url = redis_connection_url(&redis_params("app", "s3cret"), 6379, 2);
+        assert_eq!(url, "redis://app:s3cret@10.0.0.1:6379/2");
     }
 }
 
@@ -874,8 +876,9 @@ fn parse_slowlog_response(value: redis::Value) -> OmniResult<Vec<RedisSlowLogEnt
         redis::Value::Array(items) => items,
         redis::Value::Nil => return Ok(Vec::new()),
         other => {
-            return Err(OmniError::database("SLOWLOG 响应格式无效")
-                .with_cause(format!("{other:?}")));
+            return Err(
+                OmniError::database("SLOWLOG 响应格式无效").with_cause(format!("{other:?}"))
+            );
         }
     };
     let mut entries = Vec::with_capacity(items.len());
@@ -914,9 +917,7 @@ fn parse_slowlog_response(value: redis::Value) -> OmniResult<Vec<RedisSlowLogEnt
 fn redis_value_to_u64(value: &redis::Value) -> u64 {
     match value {
         redis::Value::Int(n) => *n as u64,
-        redis::Value::BulkString(bytes) => String::from_utf8_lossy(bytes)
-            .parse()
-            .unwrap_or(0),
+        redis::Value::BulkString(bytes) => String::from_utf8_lossy(bytes).parse().unwrap_or(0),
         redis::Value::SimpleString(s) => s.parse().unwrap_or(0),
         redis::Value::BigNumber(n) => n.to_string().parse().unwrap_or(0),
         _ => 0,
@@ -1017,7 +1018,9 @@ impl DbDriver for RedisDriver {
                     rows: values
                         .into_iter()
                         .enumerate()
-                        .map(|(i, v)| vec![Value::Number(i.into()), Value::String(bytes_to_display(&v))])
+                        .map(|(i, v)| {
+                            vec![Value::Number(i.into()), Value::String(bytes_to_display(&v))]
+                        })
                         .collect(),
                     rows_affected: 0,
                 })
@@ -1042,7 +1045,9 @@ impl DbDriver for RedisDriver {
                     columns: vec!["member".to_string(), "score".to_string()],
                     rows: values
                         .into_iter()
-                        .map(|(m, s)| vec![Value::String(bytes_to_display(&m)), serde_json::json!(s)])
+                        .map(|(m, s)| {
+                            vec![Value::String(bytes_to_display(&m)), serde_json::json!(s)]
+                        })
                         .collect(),
                     rows_affected: 0,
                 })
@@ -1134,7 +1139,11 @@ async fn preview_redis_value(
             let preview_fields: Vec<Vec<u8>> = field_names.into_iter().take(2).collect();
             let mut preview_parts = Vec::new();
             for field in &preview_fields {
-                if let Some(value) = conn.hget::<_, _, Option<Vec<u8>>>(key, field).await.map_err(map_redis_err)? {
+                if let Some(value) = conn
+                    .hget::<_, _, Option<Vec<u8>>>(key, field)
+                    .await
+                    .map_err(map_redis_err)?
+                {
                     preview_parts.push(format!(
                         "{}={}",
                         bytes_to_display(field),
@@ -1205,13 +1214,35 @@ fn parse_config_get_response(value: redis::Value) -> OmniResult<Vec<(String, Str
             }
             Ok(pairs)
         }
-        other => Err(OmniError::database("CONFIG GET 返回格式不支持").with_cause(format!("{other:?}"))),
+        other => {
+            Err(OmniError::database("CONFIG GET 返回格式不支持").with_cause(format!("{other:?}")))
+        }
     }
 }
 
 const CLIENT_LIST_COLUMN_ORDER: &[&str] = &[
-    "id", "addr", "laddr", "fd", "name", "age", "idle", "flags", "db", "sub", "psub", "multi",
-    "qbuf", "qbuf-free", "obl", "oll", "omem", "events", "cmd", "user", "redir", "resp",
+    "id",
+    "addr",
+    "laddr",
+    "fd",
+    "name",
+    "age",
+    "idle",
+    "flags",
+    "db",
+    "sub",
+    "psub",
+    "multi",
+    "qbuf",
+    "qbuf-free",
+    "obl",
+    "oll",
+    "omem",
+    "events",
+    "cmd",
+    "user",
+    "redir",
+    "resp",
 ];
 
 fn parse_client_line(line: &str) -> std::collections::HashMap<String, String> {
@@ -1240,7 +1271,11 @@ fn parse_client_entry(item: redis::Value) -> Option<std::collections::HashMap<St
             for (key, value) in map {
                 parsed.insert(redis_value_to_string(key), redis_value_to_string(value));
             }
-            if parsed.is_empty() { None } else { Some(parsed) }
+            if parsed.is_empty() {
+                None
+            } else {
+                Some(parsed)
+            }
         }
         _ => None,
     }
@@ -1285,7 +1320,7 @@ fn parse_client_list_response(value: redis::Value) -> OmniResult<QueryResult> {
             .collect(),
         other => {
             return Err(
-                OmniError::database("CLIENT LIST 返回格式不支持").with_cause(format!("{other:?}")),
+                OmniError::database("CLIENT LIST 返回格式不支持").with_cause(format!("{other:?}"))
             );
         }
     };
@@ -1326,8 +1361,42 @@ fn parse_client_list_response(value: redis::Value) -> OmniResult<QueryResult> {
     })
 }
 
+/// Redis 6+ 的 `default` 用户应走单参数 AUTH（requirepass），不要写进 URL 用户名。
+/// 连接表单常把用户名填成 `default`，redis-rs 会改发 ACL AUTH，老实例直接 NOAUTH。
+fn redis_acl_username(user: &str) -> Option<&str> {
+    let user = user.trim();
+    if user.is_empty() || user.eq_ignore_ascii_case("default") {
+        None
+    } else {
+        Some(user)
+    }
+}
+
+fn redis_connection_url(params: &DbParams, port: u16, db: i64) -> String {
+    if params.password.is_empty() {
+        format!("redis://{}:{}/{}", params.host, port, db)
+    } else if let Some(user) = redis_acl_username(&params.user) {
+        format!(
+            "redis://{}:{}@{}:{}/{}",
+            percent_encode(user),
+            percent_encode(&params.password),
+            params.host,
+            port,
+            db
+        )
+    } else {
+        format!(
+            "redis://:{}@{}:{}/{}",
+            percent_encode(&params.password),
+            params.host,
+            port,
+            db
+        )
+    }
+}
+
 fn percent_encode(s: &str) -> String {
-    // 只处理 URL 中需要转义的特殊字符；空格转成 %20，:@ 保留在 userinfo 中语义正确。
+    // userinfo 必须转义 `@` / `:`，否则密码里的 `@` 会把 host 解析错，表现为 NOAUTH。
     s.chars()
         .map(|c| match c {
             ' ' => "%20".to_string(),
@@ -1337,6 +1406,8 @@ fn percent_encode(s: &str) -> String {
             '#' => "%23".to_string(),
             '[' => "%5B".to_string(),
             ']' => "%5D".to_string(),
+            '@' => "%40".to_string(),
+            ':' => "%3A".to_string(),
             _ => c.to_string(),
         })
         .collect()

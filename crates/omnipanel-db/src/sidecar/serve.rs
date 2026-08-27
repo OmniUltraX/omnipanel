@@ -1,13 +1,13 @@
 //! Sidecar 服务端：读 stdin 一行 JSON-RPC，调本进程内的引擎驱动。
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::sidecar::protocol::{
-    canonical_rpc_method, encode_query_result, CountParams, CreateDatabaseParams, ExecuteParams,
-    HandshakeResult, PreviewParams, RpcRequest, RpcResponse, PROTOCOL_VERSION,
+    CountParams, CreateDatabaseParams, ExecuteParams, HandshakeResult, PROTOCOL_VERSION,
+    PreviewParams, RpcRequest, RpcResponse, canonical_rpc_method, encode_query_result,
 };
-use crate::sidecar::serve_extra::{engine_connect, engine_name, EngineSession};
+use crate::sidecar::serve_extra::{EngineSession, engine_connect, engine_name};
 
 pub async fn serve_stdio() {
     let stdin = tokio::io::stdin();
@@ -60,10 +60,7 @@ where
     Ok(())
 }
 
-async fn dispatch(
-    driver: &mut Option<Box<dyn EngineSession>>,
-    request: RpcRequest,
-) -> RpcResponse {
+async fn dispatch(driver: &mut Option<Box<dyn EngineSession>>, request: RpcRequest) -> RpcResponse {
     let id = request.id;
     match handle(driver, &request.method, request.params).await {
         Ok(result) => RpcResponse::ok(id, result),
@@ -105,7 +102,9 @@ async fn handle(
             };
             match other {
                 "version" => Ok(json!(active.version().await.map_err(|e| e.to_string())?)),
-                "list_tables" => Ok(json!(active.list_tables().await.map_err(|e| e.to_string())?)),
+                "list_tables" => Ok(json!(
+                    active.list_tables().await.map_err(|e| e.to_string())?
+                )),
                 "execute" => {
                     let spec: ExecuteParams = serde_json::from_value(params)
                         .map_err(|e| format!("execute 参数非法: {e}"))?;

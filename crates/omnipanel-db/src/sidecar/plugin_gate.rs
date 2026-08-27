@@ -85,7 +85,10 @@ mod tests {
         assert_eq!(gated_plugin_id("mongodb"), Some("omni.engine.mongodb"));
         assert_eq!(gated_plugin_id("mongo"), Some("omni.engine.mongodb"));
         assert_eq!(gated_plugin_id("redis"), Some("omni.engine.redis"));
-        assert_eq!(gated_plugin_id("clickhouse"), Some("omni.engine.clickhouse"));
+        assert_eq!(
+            gated_plugin_id("clickhouse"),
+            Some("omni.engine.clickhouse")
+        );
         assert_eq!(gated_plugin_id("qdrant"), Some("omni.engine.qdrant"));
         assert_eq!(gated_plugin_id("mysql"), Some("omni.engine.mysql"));
         assert_eq!(gated_plugin_id("mariadb"), Some("omni.engine.mysql"));

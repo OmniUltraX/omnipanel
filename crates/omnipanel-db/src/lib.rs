@@ -2,8 +2,8 @@
 //!
 //! 第一方引擎身份见 [`engine_contract::FirstPartyEngine`]（与 `plugins/db-*/plugin.json` 对齐）。
 //! 运行时：
-//! - SQLite / Qdrant / SQL Server / 默认 MySQL·PG：进程内（T0）
-//! - ClickHouse / MongoDB / Redis：常驻 sidecar（T1）
+//! - SQLite / Qdrant / SQL Server / Redis / 默认 MySQL·PG：进程内（T0）
+//! - ClickHouse / MongoDB：常驻 sidecar（T1）
 //! - MySQL / PG：`OMNIPANEL_SQL_SIDECAR=1` 时可切 sidecar
 //! - 未知引擎：已安装 sidecar 插件的 `entry.driver`，或 `OMNIPANEL_ENGINE_SIDECAR_{TYPE}` / `OMNIPANEL_DBX_CMD`
 //!
@@ -15,13 +15,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod blob_value;
-mod engine_contract;
 #[cfg(feature = "clickhouse-http")]
 pub(crate) mod clickhouse;
+mod engine_contract;
 #[cfg(feature = "host")]
 mod introspect;
-#[cfg(feature = "host")]
-mod sidecar_catalog;
 mod json_value;
 #[cfg(feature = "mongodb")]
 mod mongodb;
@@ -33,22 +31,25 @@ mod postgres;
 mod qdrant;
 #[cfg(feature = "redis")]
 mod redis;
+#[cfg(feature = "host")]
+mod redis_host;
 #[cfg(feature = "redis")]
 #[cfg_attr(not(feature = "sidecar-serve"), allow(dead_code))]
 mod redis_ops;
-#[cfg(feature = "host")]
-mod redis_host;
 #[cfg(feature = "host")]
 mod registry;
 #[cfg(feature = "host")]
 mod schema_refresh;
 #[cfg(any(feature = "sidecar-host", feature = "sidecar-serve"))]
 pub mod sidecar;
+#[cfg(feature = "host")]
+mod sidecar_catalog;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 #[cfg(feature = "sqlserver")]
 mod sqlserver;
 
+pub(crate) use json_value::sanitize_json_value_for_js;
 #[cfg(any(
     feature = "mysql",
     feature = "postgres",
@@ -57,26 +58,24 @@ mod sqlserver;
     feature = "sqlserver"
 ))]
 pub(crate) use json_value::{decode_text_as_json_or_string, safe_int_to_value};
-pub(crate) use json_value::sanitize_json_value_for_js;
 
 pub use blob_value::encode_blob_value;
 pub use engine_contract::{FirstPartyEngine, FirstPartyRuntime};
 
 #[cfg(feature = "host")]
 pub use introspect::{
-    db_create_database, db_get_table_details, db_introspect_schema, db_introspect_table,
-    db_list_character_sets, db_list_connection_users, db_list_databases,
-    db_list_databases_with_stats,
-    db_list_table_details, db_table_ddl, CreateDatabaseArgs, DbCharsetMeta, DbColumnMeta,
-    DbDatabaseMeta, DbIndexMeta, DbIntrospectResult, DbNamedTableDetails, DbRoutineMeta,
-    DbTableDetails, DbTableSchema, DbUserMeta,
+    CreateDatabaseArgs, DbCharsetMeta, DbColumnMeta, DbDatabaseMeta, DbIndexMeta,
+    DbIntrospectResult, DbNamedTableDetails, DbRoutineMeta, DbTableDetails, DbTableSchema,
+    DbUserMeta, db_create_database, db_get_table_details, db_introspect_schema,
+    db_introspect_table, db_list_character_sets, db_list_connection_users, db_list_databases,
+    db_list_databases_with_stats, db_list_table_details, db_table_ddl,
 };
 
 #[cfg(feature = "host")]
 pub use schema_refresh::{
-    db_refresh_schema_node, refresh_connection_payload, SchemaCacheDatabasePayload,
-    SchemaConnectionRefreshPayload, SchemaNodeRefreshArgs, SchemaNodeRefreshResult,
-    SchemaTableRefreshPayload,
+    SchemaCacheDatabasePayload, SchemaConnectionRefreshPayload, SchemaNodeRefreshArgs,
+    SchemaNodeRefreshResult, SchemaTableRefreshPayload, db_refresh_schema_node,
+    refresh_connection_payload,
 };
 
 #[cfg(feature = "mongodb")]
@@ -88,8 +87,6 @@ pub use clickhouse::ClickHouseDriver;
 pub use mysql::mysql_connect_options;
 #[cfg(feature = "postgres")]
 pub use postgres::postgres_connect_options;
-#[cfg(feature = "sqlserver")]
-pub use sqlserver::SqlServerDriver;
 #[cfg(feature = "qdrant")]
 pub use qdrant::{QdrantCollectionInfo, QdrantDriver};
 #[cfg(feature = "redis")]
@@ -97,14 +94,16 @@ pub use redis::{
     RedisDatabaseInfo, RedisDriver, RedisKeyDetail, RedisKeyEntry, RedisSearchKeysResult,
     RedisSlowLogEntry,
 };
+#[cfg(feature = "host")]
+pub use redis_host::*;
 #[cfg(feature = "redis")]
 pub use redis_ops::{
     RedisAclUser, RedisInfoResult, RedisMemoryStats, RedisStreamConsumer,
     RedisStreamConsumerCleanupResult, RedisStreamEntry, RedisStreamGroup,
     RedisStreamMonitorSnapshot, RedisStreamPendingEntry, RedisStreamRangeResult,
 };
-#[cfg(feature = "host")]
-pub use redis_host::*;
+#[cfg(feature = "sqlserver")]
+pub use sqlserver::SqlServerDriver;
 
 /// 连接参数（领域内部用，不直接进 IPC；由命令层从连接模型转换而来）。
 #[derive(Debug, Clone)]
@@ -540,7 +539,8 @@ fn wrap_append_limit(sql: &str, limit: i64, offset: Option<i64>) -> String {
         .into_iter()
         .map(|stmt| {
             let lower = stmt.to_ascii_lowercase();
-            if !is_wrappable_select(&stmt) || lower.contains(" limit ") || lower.contains(" rows ") {
+            if !is_wrappable_select(&stmt) || lower.contains(" limit ") || lower.contains(" rows ")
+            {
                 return stmt;
             }
             let trimmed = stmt.trim_end().trim_end_matches(';');
@@ -565,9 +565,7 @@ fn wrap_firebird_rows(sql: &str, limit: i64, offset: i64) -> String {
         .into_iter()
         .map(|stmt| {
             let lower = stmt.to_ascii_lowercase();
-            if !is_wrappable_select(&stmt)
-                || lower.contains(" rows ")
-                || lower.contains(" fetch ")
+            if !is_wrappable_select(&stmt) || lower.contains(" rows ") || lower.contains(" fetch ")
             {
                 return stmt;
             }

@@ -128,7 +128,7 @@ export function hostCapabilities(dbType: string): HostCapabilities {
       tableDesign: true,
       users: true,
       binlog: false,
-      slowQuery: false,
+      slowQuery: true,
       createDatabase: true,
       dropTable: true,
       cloneTable: true,
@@ -150,25 +150,26 @@ export function hostCapabilities(dbType: string): HostCapabilities {
   if (sqlserver) {
     return {
       tableDesign: true,
-      users: false,
+      users: true,
       binlog: false,
-      slowQuery: false,
-      createDatabase: false,
-      dropTable: false,
-      cloneTable: false,
-      connectionInfoExtra: false,
+      slowQuery: true,
+      createDatabase: true,
+      dropTable: true,
+      cloneTable: true,
+      connectionInfoExtra: true,
     };
   }
 
+  const sidecarSql = family === "oracleLike" || family === "postgresLike" || family === "mysqlLike";
   return {
     tableDesign: sql,
     users: sidecarUsers,
     binlog: false,
-    slowQuery: false,
-    createDatabase: false,
+    slowQuery: sidecarSql,
+    createDatabase: sidecarSql,
     dropTable: sql,
     cloneTable: sql,
-    connectionInfoExtra: false,
+    connectionInfoExtra: sidecarSql,
   };
 }
 

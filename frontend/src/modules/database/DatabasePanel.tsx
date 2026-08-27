@@ -23,6 +23,7 @@ import {
 } from "./ai";
 import { DatabaseTablesPanel } from "./workspace/DatabaseTablesPanel";
 import { DatabaseSlowQueryLogPanel } from "./workspace/DatabaseSlowQueryLogPanel";
+import { DialectSlowQueryPanel } from "./workspace/DialectSlowQueryPanel";
 import { DatabaseBinlogPanel } from "./workspace/DatabaseBinlogPanel";
 import { RedisQueryPanel } from "./redis/RedisQueryPanel";
 import { ConnectionInfoSlot } from "./workbench/ConnectionInfoSlot";
@@ -96,6 +97,7 @@ import {
   type DbConnectionConfig,
 } from "./api";
 import { hostCapabilities } from "./hostCapabilities";
+import { ensureCatalogEngines } from "./ensureCatalogEngines";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./sqlEditor/language/completionItems";
 import { formatSql } from "./sqlIntel/sqlFormat";
 import {
@@ -1020,6 +1022,10 @@ export function DatabasePanel() {
   useEffect(() => {
     void refreshConnections();
   }, [schemaRefreshToken, refreshConnections]);
+
+  useEffect(() => {
+    void ensureCatalogEngines();
+  }, []);
 
   useEffect(() => {
     const onSynced = () => {
@@ -3565,6 +3571,32 @@ export function DatabasePanel() {
     [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
   );
 
+  const openDialectSlowQueryTab = useCallback(
+    (connection: DbConnectionConfig) => {
+      setActiveConnIdIfChanged(connection.id);
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const existingTabId = findTabIdForSlowQueryLog(moduleTabs, connection.id);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+      const tabId = makeSlowQueryLogTabId();
+      const tab: SlowQueryLogWorkspaceTab = {
+        id: tabId,
+        kind: "slow-query",
+        label: makeConnectionScopedTabLabel(
+          t("database.workspace.tabAction.slowQuery"),
+          connection.name,
+        ),
+        connId: connection.id,
+        dialect: true,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
+  );
+
   const openBinlogTab = useCallback(
     (connection: DbConnectionConfig, availability: BinlogAvailability) => {
       if (!availability.enabled || !availability.sshConnectionId) {
@@ -4099,6 +4131,17 @@ export function DatabasePanel() {
               })();
             },
           });
+        } else if (hostCapabilities(connection.db_type).slowQuery) {
+          slowLogItems.push({
+            id: "slow-query-dialect",
+            label: t("database.workspace.tabAction.slowQuery"),
+            icon: slowLogIcon,
+            disabled: !connEnabled,
+            disabledReason: !connEnabled
+              ? t("database.contextMenu.slowQueryLogDisabled.connectionDisabled")
+              : undefined,
+            onClick: () => openDialectSlowQueryTab(connection),
+          });
         }
         return [
           {
@@ -4169,6 +4212,7 @@ export function DatabasePanel() {
       handleExportDatabase,
       handleOpenImportDatabase,
       openSlowQueryLogTab,
+      openDialectSlowQueryTab,
       openBinlogTab,
       ensureSlowLogAvailability,
       ensureBinlogAvailability,
@@ -6004,16 +6048,20 @@ export function DatabasePanel() {
             {(connection) => (
               <div className="db-workspace-pane db-dock-pane db-workspace-pane--slow-log">
                 <DbDockTabActive tabId={tab.id}>
-                  {(active) => (
-                    <DatabaseSlowQueryLogPanel
-                      connection={connection}
-                      sshConnectionId={tab.sshConnectionId}
-                      logFilePath={tab.logFilePath}
-                      deploymentKind={tab.deploymentKind}
-                      containerId={tab.containerId}
-                      active={active}
-                    />
-                  )}
+                  {(active) =>
+                    tab.dialect || !tab.logFilePath ? (
+                      <DialectSlowQueryPanel connection={connection} active={active} />
+                    ) : (
+                      <DatabaseSlowQueryLogPanel
+                        connection={connection}
+                        sshConnectionId={tab.sshConnectionId ?? ""}
+                        logFilePath={tab.logFilePath}
+                        deploymentKind={tab.deploymentKind}
+                        containerId={tab.containerId}
+                        active={active}
+                      />
+                    )
+                  }
                 </DbDockTabActive>
               </div>
             )}

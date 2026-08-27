@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::introspect::{
-    db_introspect_table, db_list_connection_users, db_list_databases, list_database_objects_shallow,
-    DbRoutineMeta, DbTableSchema, DbUserMeta,
+    DbRoutineMeta, DbTableSchema, DbUserMeta, db_introspect_table, db_list_connection_users,
+    db_list_databases, list_database_objects_shallow,
 };
-use crate::{redis_list_databases_with_key_counts, DbParams};
+use crate::{DbParams, redis_list_databases_with_key_counts};
 use omnipanel_store::DbConnectionConfig;
 
 fn to_params(c: &DbConnectionConfig) -> DbParams {
@@ -135,9 +135,10 @@ pub async fn refresh_connection_payload(
     connection: &DbConnectionConfig,
 ) -> Result<SchemaConnectionRefreshPayload, String> {
     if connection.db_type.to_lowercase() == "redis" {
-        let infos = redis_list_databases_with_key_counts(&to_params(connection), &connection.database)
-            .await
-            .map_err(err_msg)?;
+        let infos =
+            redis_list_databases_with_key_counts(&to_params(connection), &connection.database)
+                .await
+                .map_err(err_msg)?;
         let databases = infos
             .into_iter()
             .map(|info| SchemaCacheDatabasePayload {
@@ -207,8 +208,9 @@ pub async fn db_refresh_schema_node(
             refresh_connection_payload(connection).await?,
         )),
         "database" => {
-            let (_, db_name) = parse_conn_db_from_rest(id.strip_prefix("db:").ok_or("无效的数据库节点")?)
-                .ok_or_else(|| "无法解析数据库节点".to_string())?;
+            let (_, db_name) =
+                parse_conn_db_from_rest(id.strip_prefix("db:").ok_or("无效的数据库节点")?)
+                    .ok_or_else(|| "无法解析数据库节点".to_string())?;
             Ok(SchemaNodeRefreshResult::Database(
                 refresh_database_payload(connection, &db_name).await?,
             ))
@@ -251,15 +253,15 @@ pub async fn db_refresh_schema_node(
             Err(format!("不支持的文件夹节点：{id}"))
         }
         "table" => {
-            let (_, db_name, table_name) = parse_object_node_id(id, "tbl:")
-                .ok_or_else(|| "无法解析表节点".to_string())?;
+            let (_, db_name, table_name) =
+                parse_object_node_id(id, "tbl:").ok_or_else(|| "无法解析表节点".to_string())?;
             Ok(SchemaNodeRefreshResult::Table(
                 refresh_table_payload(connection, &db_name, &table_name, "table").await?,
             ))
         }
         "view" => {
-            let (_, db_name, view_name) = parse_object_node_id(id, "view:")
-                .ok_or_else(|| "无法解析视图节点".to_string())?;
+            let (_, db_name, view_name) =
+                parse_object_node_id(id, "view:").ok_or_else(|| "无法解析视图节点".to_string())?;
             Ok(SchemaNodeRefreshResult::Table(
                 refresh_table_payload(connection, &db_name, &view_name, "view").await?,
             ))

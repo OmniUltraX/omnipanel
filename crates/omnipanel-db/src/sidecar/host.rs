@@ -8,21 +8,20 @@ use std::time::{Duration, Instant, SystemTime};
 
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 use crate::sidecar::dbx_dialect::{
-    count_sql, dbx_open_session_params, decode_columns, decode_dbx_query_result, decode_ddl,
-    decode_table_names, decode_version, extract_count, parse_jsonrpc_line, preview_sql,
-    AgentDialect,
+    AgentDialect, count_sql, dbx_open_session_params, decode_columns, decode_dbx_query_result,
+    decode_ddl, decode_table_names, decode_version, extract_count, parse_jsonrpc_line, preview_sql,
 };
 use crate::sidecar::engine::{EngineKind, EngineLaunch};
 use crate::sidecar::protocol::{
-    decode_query_result, ConnectParams, CountParams, CreateDatabaseParams, ExecuteParams,
-    HandshakeResult, PreviewParams, RpcRequest, PROTOCOL_VERSION,
+    ConnectParams, CountParams, CreateDatabaseParams, ExecuteParams, HandshakeResult,
+    PROTOCOL_VERSION, PreviewParams, RpcRequest, decode_query_result,
 };
 use crate::{DbDriver, DbParams, QueryResult};
 
@@ -133,18 +132,15 @@ impl SidecarDriver {
     }
 
     pub async fn spawn_cmd(program: &Path, args: &[String], params: &DbParams) -> OmniResult<Self> {
-        if args.first().map(String::as_str) == Some("-jar") {
+        if args.iter().any(|arg| arg == "-jar") {
             if !program.is_file() {
-                return Err(OmniError::not_found(
-                    "未找到捆绑 JRE，请重新安装该引擎",
-                ));
+                return Err(OmniError::not_found("未找到捆绑 JRE，请重新安装该引擎"));
             }
             let java = program.to_path_buf();
-            let healthy = tokio::task::spawn_blocking(move || {
-                crate::sidecar::engine::java_version_ok(&java)
-            })
-            .await
-            .unwrap_or(false);
+            let healthy =
+                tokio::task::spawn_blocking(move || crate::sidecar::engine::java_version_ok(&java))
+                    .await
+                    .unwrap_or(false);
             if !healthy {
                 return Err(OmniError::connection(
                     "捆绑 JRE 无法执行 java -version，请重新安装该引擎",
@@ -155,7 +151,9 @@ impl SidecarDriver {
         cmd.args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            // inherit 会让控制台子系统进程（java.exe / dbx-agent.exe）弹出可见 cmd。
+            // 改成 piped 并在后台排空，既不弹窗也不会因缓冲区满而卡住。
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
         #[cfg(windows)]
         {
@@ -163,17 +161,35 @@ impl SidecarDriver {
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
         let mut child = cmd.spawn().map_err(|e| {
-            OmniError::connection(format!(
-                "无法启动数据库 sidecar {}: {e}",
-                program.display()
-            ))
+            OmniError::connection(format!("无法启动数据库 sidecar {}: {e}", program.display()))
         })?;
-        let stdin = child.stdin.take().ok_or_else(|| {
-            OmniError::internal("sidecar stdin 不可用")
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            OmniError::internal("sidecar stdout 不可用")
-        })?;
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr);
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    match reader.read_until(b'\n', &mut buf).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let line = sidecar_line_to_string(&buf);
+                            if !line.is_empty() {
+                                tracing::debug!(target: "omnipanel_db::sidecar", "{line}");
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| OmniError::internal("sidecar stdin 不可用"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| OmniError::internal("sidecar stdout 不可用"))?;
         let driver = Self {
             inner: Arc::new(SidecarInner {
                 child: Mutex::new(child),
@@ -284,8 +300,9 @@ impl SidecarDriver {
         params: Value,
     ) -> OmniResult<T> {
         let value = self.rpc(method, params).await?;
-        serde_json::from_value(value)
-            .map_err(|e| OmniError::database(format!("{method} 返回非法")).with_cause(e.to_string()))
+        serde_json::from_value(value).map_err(|e| {
+            OmniError::database(format!("{method} 返回非法")).with_cause(e.to_string())
+        })
     }
 
     async fn rpc(&self, method: &str, params: Value) -> OmniResult<Value> {
@@ -299,12 +316,14 @@ impl SidecarDriver {
             OmniError::internal("序列化 sidecar 请求失败").with_cause(e.to_string())
         })?;
         line.push('\n');
-        io.stdin.write_all(line.as_bytes()).await.map_err(|e| {
-            OmniError::connection("写入 sidecar 失败").with_cause(e.to_string())
-        })?;
-        io.stdin.flush().await.map_err(|e| {
-            OmniError::connection("flush sidecar 失败").with_cause(e.to_string())
-        })?;
+        io.stdin
+            .write_all(line.as_bytes())
+            .await
+            .map_err(|e| OmniError::connection("写入 sidecar 失败").with_cause(e.to_string()))?;
+        io.stdin
+            .flush()
+            .await
+            .map_err(|e| OmniError::connection("flush sidecar 失败").with_cause(e.to_string()))?;
 
         let deadline = Instant::now() + RPC_TIMEOUT;
         loop {
@@ -312,8 +331,8 @@ impl SidecarDriver {
             if remaining.is_zero() {
                 return Err(OmniError::new(ErrorCode::Timeout, "sidecar 响应超时"));
             }
-            let mut response_line = String::new();
-            let read = timeout(remaining, io.stdout.read_line(&mut response_line))
+            let mut response_line = Vec::new();
+            let read = timeout(remaining, io.stdout.read_until(b'\n', &mut response_line))
                 .await
                 .map_err(|_| OmniError::new(ErrorCode::Timeout, "sidecar 响应超时"))?
                 .map_err(|e| {
@@ -322,15 +341,67 @@ impl SidecarDriver {
             if read == 0 {
                 return Err(OmniError::connection("sidecar 已退出"));
             }
-            let Some(response) = parse_jsonrpc_line(&response_line) else {
+            let response_text = sidecar_line_to_string(&response_line);
+            let Some(response) = parse_jsonrpc_line(&response_text) else {
                 continue;
             };
             if let Some(err) = response.error {
-                return Err(OmniError::database(err.message));
+                return Err(OmniError::database(repair_rpc_error_message(
+                    &response_line,
+                    &err.message,
+                )));
             }
             return Ok(response.result.unwrap_or(Value::Null));
         }
     }
+}
+
+fn strip_sidecar_line_bytes(buf: &[u8]) -> &[u8] {
+    let mut line = buf;
+    if let Some(b'\n') = line.last() {
+        line = &line[..line.len() - 1];
+        if let Some(b'\r') = line.last() {
+            line = &line[..line.len() - 1];
+        }
+    }
+    line
+}
+
+/// JDBC / 中文 Windows 下 sidecar 可能往 stdout 写非 UTF-8 banner；非法 UTF-8 再按 GB18030 解。
+fn sidecar_line_to_string(buf: &[u8]) -> String {
+    let line = strip_sidecar_line_bytes(buf);
+    match std::str::from_utf8(line) {
+        Ok(s) => s.to_string(),
+        Err(_) => encoding_rs::GB18030.decode(line).0.into_owned(),
+    }
+}
+
+fn looks_garbled_error_message(message: &str) -> bool {
+    let chars: Vec<char> = message.chars().collect();
+    if chars.is_empty() {
+        return false;
+    }
+    let fffd = chars.iter().filter(|c| **c == '\u{FFFD}').count();
+    fffd >= 2 || (fffd > 0 && fffd * 4 >= chars.len())
+}
+
+/// JSON-RPC `error.message` 含大量 U+FFFD 时按 GB18030 再解一行，不改查询结果。
+fn repair_rpc_error_message(raw: &[u8], utf8_message: &str) -> String {
+    if !looks_garbled_error_message(utf8_message) {
+        return utf8_message.to_string();
+    }
+    let (decoded, _, had_errors) = encoding_rs::GB18030.decode(strip_sidecar_line_bytes(raw));
+    if had_errors {
+        return utf8_message.to_string();
+    }
+    if let Some(parsed) = parse_jsonrpc_line(&decoded) {
+        if let Some(err) = parsed.error {
+            if !looks_garbled_error_message(&err.message) {
+                return err.message;
+            }
+        }
+    }
+    utf8_message.to_string()
 }
 
 impl Drop for SidecarInner {
@@ -448,12 +519,17 @@ pub fn resolve_sidecar(kind: EngineKind, plugins_root: Option<&Path>) -> OmniRes
         )));
     }
 
-    if cfg!(debug_assertions) && running_as_host_app() {
-        ensure_dev_sidecar_built(kind);
-    }
-
     if let Some(found) = search_sidecar_binary(kind, plugins_root) {
         return Ok(found);
+    }
+
+    // 热路径禁止同步 cargo build：会和 `tauri dev` 抢 target 锁，把整个 IPC 卡住。
+    // 找不到二进制时才尝试编译一次，失败则把错误留给调用方。
+    if cfg!(debug_assertions) && running_as_host_app() {
+        ensure_dev_sidecar_built(kind);
+        if let Some(found) = search_sidecar_binary(kind, plugins_root) {
+            return Ok(found);
+        }
     }
 
     let file_name = sidecar_file_name(kind.bin_stem());
@@ -666,7 +742,11 @@ fn dev_sidecar_needs_rebuild(kind: EngineKind) -> bool {
         return true;
     };
     let engine_crate = format!("crates/{}", kind.crate_name());
-    for rel in ["crates/omnipanel-db", "crates/omnipanel-error", &engine_crate] {
+    for rel in [
+        "crates/omnipanel-db",
+        "crates/omnipanel-error",
+        &engine_crate,
+    ] {
         let dir = workspace.join(rel);
         if let Some(src_mtime) = newest_source_mtime(&dir) {
             if src_mtime > bin_mtime {
@@ -721,17 +801,29 @@ fn try_build_dev_sidecar(kind: EngineKind) -> OmniResult<()> {
     };
     let package = kind.crate_name();
     tracing::info!("正在编译 sidecar {package}");
-    let status = std::process::Command::new("cargo")
-        .current_dir(&workspace)
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.current_dir(&workspace)
         .args(["build", "-p", package])
-        .status()
-        .map_err(|e| {
-            OmniError::connection(format!("无法启动 cargo 编译 {package}")).with_cause(e.to_string())
-        })?;
-    if !status.success() {
-        return Err(OmniError::connection(format!(
-            "编译 sidecar 失败（cargo build -p {package}）"
-        )));
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd.output().map_err(|e| {
+        OmniError::connection(format!("无法启动 cargo 编译 {package}")).with_cause(e.to_string())
+    })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        return Err(OmniError::connection(if detail.is_empty() {
+            format!("编译 sidecar 失败（cargo build -p {package}）")
+        } else {
+            format!("编译 sidecar 失败（cargo build -p {package}）: {detail}")
+        }));
     }
     Ok(())
 }
@@ -801,5 +893,44 @@ fn cargo_target_dir(workspace: &Path) -> PathBuf {
             }
         }
         _ => workspace.join("target"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{looks_garbled_error_message, repair_rpc_error_message, sidecar_line_to_string};
+
+    #[test]
+    fn sidecar_line_strips_crlf_and_accepts_invalid_utf8() {
+        let mut buf = b"ok".to_vec();
+        buf.push(0xff);
+        buf.extend_from_slice(b"\r\n");
+        let line = sidecar_line_to_string(&buf);
+        assert!(line.starts_with("ok"));
+        assert!(!line.contains('\n'));
+        assert!(!line.contains('\r'));
+    }
+
+    #[test]
+    fn sidecar_line_decodes_gb18030_json() {
+        let (encoded, _, _) = encoding_rs::GB18030.encode("尝试连接失败");
+        let mut gbk = encoded.into_owned();
+        gbk.extend_from_slice(b"\n");
+        let line = sidecar_line_to_string(&gbk);
+        assert!(line.contains("尝试连接失败"), "{line}");
+    }
+
+    #[test]
+    fn repair_error_message_uses_gb18030_when_utf8_lossy() {
+        let (encoded, _, _) = encoding_rs::GB18030
+            .encode(r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"尝试连接失败"}}"#);
+        let raw = encoded.into_owned();
+        let lossy = sidecar_line_to_string(&raw);
+        assert!(
+            looks_garbled_error_message(&lossy) || lossy.contains("尝试连接失败"),
+            "{lossy}"
+        );
+        let repaired = repair_rpc_error_message(&raw, "\u{FFFD}\u{FFFD}乱码");
+        assert!(repaired.contains("尝试连接失败"), "{repaired}");
     }
 }

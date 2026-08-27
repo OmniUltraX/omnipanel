@@ -364,5 +364,8 @@ export async function loadGrantSummary(
   if (engine === "oracle") {
     return { engine, lines: await loadOracleGrants(connection, user) };
   }
+  if (engine === "mssql") {
+    return { engine, lines: [] };
+  }
   return { engine, lines: await loadPgGrants(connection, user) };
 }

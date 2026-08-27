@@ -2,11 +2,8 @@
   "id": "omni.engine.redis",
   "version": "0.1.0",
   "kind": "engine",
-  "runtime": "sidecar",
+  "runtime": "inproc",
   "permissions": ["net:connect"],
-  "entry": {
-    "driver": "bin/omnipanel-engine-redis"
-  },
   "contributes": {
     "ui": {
       "connectionForm": {

@@ -334,10 +334,7 @@ fn mysql_bit_bytes_to_value(bytes: &[u8]) -> Value {
 }
 
 fn is_mysql_blob_type(type_name: &str) -> bool {
-    matches!(
-        type_name,
-        "blob" | "tinyblob" | "mediumblob" | "longblob"
-    )
+    matches!(type_name, "blob" | "tinyblob" | "mediumblob" | "longblob")
 }
 
 fn is_mysql_binary_type(type_name: &str) -> bool {
@@ -372,13 +369,11 @@ fn decode_text_column<I>(row: &MySqlRow, index: I) -> Option<String>
 where
     I: sqlx::ColumnIndex<MySqlRow>,
 {
-    row.try_get::<String, _>(&index)
-        .ok()
-        .or_else(|| {
-            row.try_get::<Vec<u8>, _>(&index)
-                .ok()
-                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        })
+    row.try_get::<String, _>(&index).ok().or_else(|| {
+        row.try_get::<Vec<u8>, _>(&index)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    })
 }
 
 #[cfg(test)]

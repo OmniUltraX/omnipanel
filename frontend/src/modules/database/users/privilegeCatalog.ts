@@ -95,6 +95,12 @@ export function scopeOptionsForEngine(engine: UserEngine): ScopeOption[] {
       { id: "table", labelKey: "scopeTable" },
     ];
   }
+  if (engine === "mssql") {
+    return [
+      { id: "global", labelKey: "scopeGlobal" },
+      { id: "table", labelKey: "scopeTable" },
+    ];
+  }
   return [
     { id: "database", labelKey: "scopeDatabase" },
     { id: "schema", labelKey: "scopeSchema" },
@@ -112,6 +118,9 @@ export function privilegeChipsFor(
   if (engine === "oracle") {
     return scopeKind === "table" ? ORACLE_TABLE_PRIVS : ORACLE_SYS_PRIVS;
   }
+  if (engine === "mssql") {
+    return scopeKind === "table" ? ORACLE_TABLE_PRIVS : [{ id: "CONNECT SQL", label: "CONNECT SQL" }, { id: "VIEW SERVER STATE", label: "VIEW SERVER STATE" }];
+  }
   if (scopeKind === "database") return PG_DB_PRIVS;
   if (scopeKind === "schema") return PG_SCHEMA_PRIVS;
   return PG_TABLE_PRIVS;
@@ -119,5 +128,6 @@ export function privilegeChipsFor(
 
 export function defaultScopeKind(engine: UserEngine): GrantScopeKind {
   if (engine === "oracle") return "schema";
+  if (engine === "mssql") return "global";
   return "database";
 }

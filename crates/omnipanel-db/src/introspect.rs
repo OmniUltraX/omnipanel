@@ -5,8 +5,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::{
-    clickhouse_list_databases, mongodb_list_databases, mysql_connect_options, qdrant_list_databases,
-    DbDriver, DbParams, QueryResult,
+    DbDriver, DbParams, QueryResult, clickhouse_list_databases, mongodb_list_databases,
+    mysql_connect_options, postgres_connect_options, qdrant_list_databases,
 };
 use omnipanel_error::OmniError;
 use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault};
@@ -16,7 +16,9 @@ use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tokio::sync::Mutex;
 
-fn err_msg(e: OmniError) -> String { e.user_message() }
+fn err_msg(e: OmniError) -> String {
+    e.user_message()
+}
 
 /// 进程内复用 sqlx 连接池：避免每次查询都 TCP+认证+close（重启后首次点库会卡数秒）。
 struct SqlxPoolCache {
@@ -557,6 +559,43 @@ async fn pg_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta
         })
         .collect())
 }
+
+async fn sqlserver_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
+    let driver = crate::sqlserver::SqlServerDriver::connect(&to_params(connection))
+        .await
+        .map_err(err_msg)?;
+    let result = driver
+        .execute(crate::sidecar_catalog::SQLSERVER_USERS_SQL)
+        .await
+        .map_err(err_msg)?;
+    Ok(result
+        .rows
+        .into_iter()
+        .filter_map(|row| {
+            let name = match row.first() {
+                Some(serde_json::Value::String(s)) if !s.is_empty() => s.clone(),
+                Some(other) => other.to_string(),
+                None => return None,
+            };
+            let disabled = match row.get(1) {
+                Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+                Some(serde_json::Value::Bool(b)) => *b,
+                Some(serde_json::Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
+                _ => false,
+            };
+            Some(DbUserMeta {
+                name,
+                host: None,
+                can_login: !disabled,
+                is_superuser: false,
+                can_create_db: false,
+                is_role: false,
+                account_locked: Some(disabled),
+            })
+        })
+        .collect())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DbColumnMeta {
@@ -701,9 +740,8 @@ async fn connect_sidecar(
     if let Some(db) = database.map(str::trim).filter(|name| !name.is_empty()) {
         params.database = db.to_string();
     }
-    let launch = crate::sidecar::launch_for_params(&params).ok_or_else(|| {
-        format!("不支持的数据库类型: {}", connection.db_type)
-    })?;
+    let launch = crate::sidecar::launch_for_params(&params)
+        .ok_or_else(|| format!("不支持的数据库类型: {}", connection.db_type))?;
     crate::sidecar::connect_launch(&launch, &params)
         .await
         .map_err(err_msg)
@@ -764,12 +802,16 @@ async fn sidecar_list_databases_with_stats(
     connection: DbConnectionConfig,
 ) -> Result<Vec<DbDatabaseMeta>, String> {
     use crate::sidecar_catalog::{
-        catalog_family, charset_sqls, collation_sqls, merge_schema_sizes, parse_name_size_map,
-        parse_scalar, parse_schema_stats, schema_size_sql, schema_stats_sqls, CatalogFamily,
+        CatalogFamily, catalog_family, charset_sqls, collation_sqls, merge_schema_sizes,
+        parse_name_size_map, parse_scalar, parse_schema_stats, schema_size_sql, schema_stats_sqls,
     };
 
     let family = catalog_family(&connection.db_type);
-    let names_only = names_only_databases(db_list_databases(connection.clone()).await.unwrap_or_default());
+    let names_only = names_only_databases(
+        db_list_databases(connection.clone())
+            .await
+            .unwrap_or_default(),
+    );
 
     if family == CatalogFamily::NonSql {
         return Ok(names_only);
@@ -851,14 +893,15 @@ async fn sidecar_list_table_details(
     schema: &str,
 ) -> Result<Vec<DbNamedTableDetails>, String> {
     use crate::sidecar_catalog::{
-        catalog_family, merge_table_sizes, parse_name_size_map, parse_table_details,
-        table_details_sqls, table_size_sql, CatalogFamily,
+        CatalogFamily, catalog_family, merge_table_sizes, parse_name_size_map, parse_table_details,
+        table_details_sqls, table_size_sql,
     };
 
     let family = catalog_family(&connection.db_type);
     let mut tables = if family != CatalogFamily::NonSql {
         if let Some(result) =
-            sidecar_execute_first(connection, Some(schema), table_details_sqls(family, schema)).await
+            sidecar_execute_first(connection, Some(schema), table_details_sqls(family, schema))
+                .await
         {
             parse_table_details(&result)
         } else {
@@ -929,7 +972,7 @@ async fn sidecar_table_ddl(
 }
 
 async fn sidecar_list_users(connection: &DbConnectionConfig) -> Result<Vec<DbUserMeta>, String> {
-    use crate::sidecar_catalog::{catalog_family, parse_users, users_sqls, CatalogFamily};
+    use crate::sidecar_catalog::{CatalogFamily, catalog_family, parse_users, users_sqls};
 
     let family = catalog_family(&connection.db_type);
     if matches!(
@@ -1058,12 +1101,7 @@ async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
     }
 
     let p = to_params(connection);
-    let opts = sqlx::postgres::PgConnectOptions::new()
-        .host(&p.host)
-        .port(p.port)
-        .username(&p.user)
-        .password(&p.password)
-        .database(&p.database);
+    let opts = postgres_connect_options(&p);
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(30))
@@ -1153,13 +1191,9 @@ async fn pg_pool_for_db(connection: &DbConnectionConfig, db_name: &str) -> Resul
         }
     }
 
-    let p = to_params(connection);
-    let opts = sqlx::postgres::PgConnectOptions::new()
-        .host(&p.host)
-        .port(p.port)
-        .username(&p.user)
-        .password(&p.password)
-        .database(trimmed);
+    let mut p = to_params(connection);
+    p.database = trimmed.to_string();
+    let opts = postgres_connect_options(&p);
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(30))
@@ -1309,15 +1343,27 @@ pub async fn db_list_databases_with_stats(
                     // 用字符串解析兼容 DECIMAL / BIGINT / INT 等各种返回类型
                     let table_count = {
                         let s = mysql_row_string(&row, 3);
-                        if s.is_empty() { None } else { s.parse::<i32>().ok() }
+                        if s.is_empty() {
+                            None
+                        } else {
+                            s.parse::<i32>().ok()
+                        }
                     };
                     let size_bytes = {
                         let s = mysql_row_string(&row, 4);
-                        if s.is_empty() { None } else { s.parse::<f64>().ok() }
+                        if s.is_empty() {
+                            None
+                        } else {
+                            s.parse::<f64>().ok()
+                        }
                     };
                     let rows_estimate = {
                         let s = mysql_row_string(&row, 5);
-                        if s.is_empty() { None } else { s.parse::<f64>().ok() }
+                        if s.is_empty() {
+                            None
+                        } else {
+                            s.parse::<f64>().ok()
+                        }
                     };
                     DbDatabaseMeta {
                         name,
@@ -1377,12 +1423,10 @@ pub async fn db_list_databases_with_stats(
         }
         "redis" => {
             let preset = connection.database.clone();
-            let infos = crate::redis_list_databases_with_key_counts(
-                &to_params(&connection),
-                &preset,
-            )
-            .await
-            .map_err(err_msg)?;
+            let infos =
+                crate::redis_list_databases_with_key_counts(&to_params(&connection), &preset)
+                    .await
+                    .map_err(err_msg)?;
             Ok(infos
                 .into_iter()
                 .map(|info| DbDatabaseMeta {
@@ -1410,9 +1454,7 @@ pub async fn db_list_databases_with_stats(
                 rows_estimate: Some(points_estimate),
             }])
         }
-        _ if sidecar_available(&connection) => {
-            sidecar_list_databases_with_stats(connection).await
-        }
+        _ if sidecar_available(&connection) => sidecar_list_databases_with_stats(connection).await,
         _ => Ok(names_only_databases(
             db_list_databases(connection).await.unwrap_or_default(),
         )),
@@ -1556,6 +1598,7 @@ fn validate_database_name(name: &str) -> Result<String, String> {
 }
 
 pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, String> {
+    use crate::sidecar_catalog::{CatalogFamily, catalog_family};
     let name = validate_database_name(&args.name)?;
     match args.connection.db_type.to_lowercase().as_str() {
         "mysql" | "mariadb" => {
@@ -1624,7 +1667,8 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 }
                 None => String::new(),
             };
-            let sql = format!("CREATE DATABASE \"{escaped_name}\"{encoding_clause}{collation_clause}");
+            let sql =
+                format!("CREATE DATABASE \"{escaped_name}\"{encoding_clause}{collation_clause}");
             sqlx::query(&sql)
                 .execute(&pool)
                 .await
@@ -1637,6 +1681,27 @@ pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, Stri
                 .map_err(err_msg)?;
             driver.create_database(&name).await.map_err(err_msg)?;
             Ok(name)
+        }
+        "sqlserver" | "mssql" | "sql server" => {
+            let escaped = crate::sqlserver::quote_ident(&name);
+            let sql = format!("CREATE DATABASE {escaped}");
+            let driver = crate::sqlserver::SqlServerDriver::connect(&to_params(&args.connection))
+                .await
+                .map_err(err_msg)?;
+            driver.execute(&sql).await.map_err(err_msg)?;
+            Ok(name)
+        }
+        _ if sidecar_available(&args.connection) => {
+            let family = catalog_family(&args.connection.db_type);
+            let driver = connect_sidecar(&args.connection, None).await?;
+            match driver.create_database(&name).await {
+                Ok(()) => Ok(name),
+                Err(err) if family == CatalogFamily::OracleLike => Err(format!(
+                    "创建数据库失败：{}。Oracle 系可能是用户/模式而非库",
+                    err_msg(err)
+                )),
+                Err(err) => Err(format!("创建数据库失败：{}", err_msg(err))),
+            }
         }
         _ => Err(format!(
             "暂不支持在 {} 引擎上创建数据库",
@@ -1689,6 +1754,7 @@ pub async fn db_list_connection_users(
     match connection.db_type.to_lowercase().as_str() {
         "mysql" | "mariadb" => mysql_list_users(&connection).await,
         "postgresql" | "postgres" => pg_list_users(&connection).await,
+        "sqlserver" | "mssql" | "sql server" => sqlserver_list_users(&connection).await,
         _ if sidecar_available(&connection) => sidecar_list_users(&connection).await,
         _ => Ok(Vec::new()),
     }
@@ -2583,15 +2649,10 @@ async fn introspect_pg_schema(
                 .ok()
                 .flatten()
                 .and_then(|c| normalize_table_comment(&c));
-            let raw_default: Option<String> = row
-                .try_get::<Option<String>, _>(7)
-                .ok()
-                .flatten();
-            let default_value = normalize_pg_column_default(raw_default.as_deref(), is_auto_increment);
-            let length: Option<i32> = row
-                .try_get::<Option<i32>, _>(8)
-                .ok()
-                .flatten();
+            let raw_default: Option<String> = row.try_get::<Option<String>, _>(7).ok().flatten();
+            let default_value =
+                normalize_pg_column_default(raw_default.as_deref(), is_auto_increment);
+            let length: Option<i32> = row.try_get::<Option<i32>, _>(8).ok().flatten();
 
             let display = pg_resolve_table_display(schema_name, &table_name);
             if let Some(table) = all_objects.iter_mut().find(|t| t.name == display) {
@@ -2743,15 +2804,10 @@ async fn introspect_pg_table(
         .iter()
         .map(|row| {
             let is_auto_increment: bool = row.try_get(4).unwrap_or(false);
-            let raw_default: Option<String> = row
-                .try_get::<Option<String>, _>(6)
-                .ok()
-                .flatten();
-            let default_value = normalize_pg_column_default(raw_default.as_deref(), is_auto_increment);
-            let length: Option<i32> = row
-                .try_get::<Option<i32>, _>(7)
-                .ok()
-                .flatten();
+            let raw_default: Option<String> = row.try_get::<Option<String>, _>(6).ok().flatten();
+            let default_value =
+                normalize_pg_column_default(raw_default.as_deref(), is_auto_increment);
+            let length: Option<i32> = row.try_get::<Option<i32>, _>(7).ok().flatten();
             DbColumnMeta {
                 name: row.try_get(0).unwrap_or_default(),
                 column_type: row.try_get(1).unwrap_or_default(),
@@ -3087,10 +3143,7 @@ async fn introspect_clickhouse_schema(
         let Some(name) = name else {
             continue;
         };
-        let engine = row
-            .get(1)
-            .and_then(json_cell_string)
-            .unwrap_or_default();
+        let engine = row.get(1).and_then(json_cell_string).unwrap_or_default();
         let columns = driver.describe_table(&name).await.map_err(err_msg)?;
         if columns.is_empty() {
             return Err(format!("无法读取表 `{name}` 的列信息"));

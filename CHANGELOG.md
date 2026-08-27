@@ -6,8 +6,15 @@
 
 ### 新增
 
-- **数据库 · sidecar 引擎**：ClickHouse / MongoDB / Redis / SQL Server 走独立 sidecar；DBX 插件（Oracle、达梦、Hive 等）可装即用
+- **数据库 · sidecar 引擎**：ClickHouse / MongoDB / SQL Server 走独立 sidecar；Redis 走进程内；DBX 插件（Oracle、达梦、Hive 等）可装即用
 - **数据库 · 方言家族工作台**：Oracle 系 / PG 系 / MySQL 系 / Hive 系补齐库列表统计、表详情、用户与表设计，不再因「不支持的数据库类型」残缺工作区
+- **数据库 · 瀚高身份**：已激活瀚高插件时把历史 `ys-highgo4.5` 纠正为 `highgo`；有插件则禁止静默回退 PostgreSQL
+- **数据库 · JDBC 编码**：sidecar JVM UTF-8；错误文案按 GB18030 回退，避免中文乱码
+- **数据库 · SQL Server 工作台**：建库、删表、克隆、用户，以及会话 / 配置只读
+- **数据库 · sidecar 建库与会话**：PG / 达梦等按家族打开建库与连接信息；慢查询走方言视图（Binlog 仍仅 MySQL）
+- **数据库 · Neo4j / Cassandra**：树分别为 graph / keyspace，编辑器接 Cypher / CQL
+- **数据库 · 目录引擎**：可安装金仓 / Vastbase / UXDB / GaussDB / OceanBase / TiDB
+- **数据库 · Docker 本地种子**：幂等写入本机 9 条测试连接（密码进 Vault，列表不落明文）
 
 ## [0.8.8] - 2026-08-25
 
