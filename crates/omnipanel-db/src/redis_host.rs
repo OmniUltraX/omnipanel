@@ -1,10 +1,11 @@
-//! 宿主侧 Redis API：全部转发到常驻 sidecar（redis_ops 只活在客体进程）。
+//! 宿主侧 Redis API：进程内 `RedisDriver`。
+//!
+//! sidecar 仍可用于隔离部署；热路径走本进程，避免旧 sidecar 二进制把
+//! `default` 用户名编进 URL 后出现 NOAUTH，也避免连库时同步 cargo build。
 
 use omnipanel_error::OmniResult;
-use serde::de::DeserializeOwned;
-use serde_json::{json, Value};
 
-use crate::sidecar::{self, EngineKind};
+use crate::redis::RedisDriver;
 use crate::{
     DbParams, QueryResult, RedisAclUser, RedisDatabaseInfo, RedisInfoResult, RedisKeyDetail,
     RedisMemoryStats, RedisSearchKeysResult, RedisSlowLogEntry, RedisStreamConsumer,
@@ -12,35 +13,23 @@ use crate::{
     RedisStreamPendingEntry, RedisStreamRangeResult,
 };
 
-const KIND: EngineKind = EngineKind::Redis;
-
-async fn rpc<T: DeserializeOwned>(
-    params: &DbParams,
-    method: &str,
-    args: Value,
-) -> OmniResult<T> {
-    sidecar::invoke_json(KIND, params, method, args).await
-}
-
-async fn rpc_ok(params: &DbParams, method: &str, args: Value) -> OmniResult<()> {
-    let _: Value = rpc(params, method, args).await?;
-    Ok(())
-}
-
-async fn rpc_query(params: &DbParams, method: &str, args: Value) -> OmniResult<QueryResult> {
-    sidecar::invoke_query(KIND, params, method, args).await
+async fn driver(params: &DbParams) -> OmniResult<RedisDriver> {
+    RedisDriver::connect(params).await
 }
 
 pub async fn redis_config_get_all(params: &DbParams) -> OmniResult<QueryResult> {
-    rpc_query(params, "redis_config_get_all", json!({})).await
+    driver(params).await?.config_get_all().await
 }
 
-pub async fn redis_config_get(params: &DbParams, pattern: &str) -> OmniResult<Vec<(String, String)>> {
-    rpc(params, "redis_config_get", json!({ "pattern": pattern })).await
+pub async fn redis_config_get(
+    params: &DbParams,
+    pattern: &str,
+) -> OmniResult<Vec<(String, String)>> {
+    driver(params).await?.config_get(pattern).await
 }
 
 pub async fn redis_client_list(params: &DbParams) -> OmniResult<QueryResult> {
-    rpc_query(params, "redis_client_list", json!({})).await
+    driver(params).await?.client_list().await
 }
 
 pub async fn redis_search_keys(
@@ -51,50 +40,35 @@ pub async fn redis_search_keys(
     cursor: u64,
     include_value_preview: bool,
 ) -> OmniResult<RedisSearchKeysResult> {
-    rpc(
-        params,
-        "redis_search_keys",
-        json!({
-            "pattern": pattern,
-            "types": types,
-            "limit": limit,
-            "cursor": cursor,
-            "includeValuePreview": include_value_preview,
-        }),
-    )
-    .await
+    driver(params)
+        .await?
+        .search_keys(pattern, types, limit, cursor, include_value_preview)
+        .await
 }
 
 pub async fn redis_list_databases(
     params: &DbParams,
     preset_database: &str,
 ) -> OmniResult<Vec<String>> {
-    rpc(
-        params,
-        "redis_list_databases",
-        json!({ "presetDatabase": preset_database }),
-    )
-    .await
+    driver(params).await?.list_databases(preset_database).await
 }
 
 pub async fn redis_list_databases_with_key_counts(
     params: &DbParams,
     preset_database: &str,
 ) -> OmniResult<Vec<RedisDatabaseInfo>> {
-    rpc(
-        params,
-        "redis_list_databases_with_key_counts",
-        json!({ "presetDatabase": preset_database }),
-    )
-    .await
+    driver(params)
+        .await?
+        .list_databases_with_key_counts(preset_database)
+        .await
 }
 
 pub async fn redis_dbsize(params: &DbParams) -> OmniResult<u64> {
-    rpc(params, "redis_dbsize", json!({})).await
+    driver(params).await?.dbsize().await
 }
 
 pub async fn redis_key_detail(params: &DbParams, key: &str) -> OmniResult<RedisKeyDetail> {
-    rpc(params, "redis_key_detail", json!({ "key": key })).await
+    driver(params).await?.key_detail(key).await
 }
 
 pub async fn redis_set_key(
@@ -103,61 +77,51 @@ pub async fn redis_set_key(
     value: &str,
     key_type: &str,
 ) -> OmniResult<()> {
-    rpc_ok(
-        params,
-        "redis_set_key",
-        json!({ "key": key, "value": value, "keyType": key_type }),
-    )
-    .await
+    driver(params).await?.set_key(key, value, key_type).await
 }
 
 pub async fn redis_delete_key(params: &DbParams, key: &str) -> OmniResult<u64> {
-    rpc(params, "redis_delete_key", json!({ "key": key })).await
+    driver(params).await?.delete_key(key).await
 }
 
 pub async fn redis_slowlog(params: &DbParams, count: usize) -> OmniResult<Vec<RedisSlowLogEntry>> {
-    rpc(params, "redis_slowlog", json!({ "count": count })).await
+    driver(params).await?.slowlog(count).await
 }
 
 pub async fn redis_client_kill_addr(params: &DbParams, addr: &str) -> OmniResult<u64> {
-    rpc(params, "redis_client_kill_addr", json!({ "addr": addr })).await
+    driver(params).await?.client_kill_addr(addr).await
 }
 
 pub async fn redis_info(params: &DbParams, section: Option<&str>) -> OmniResult<RedisInfoResult> {
-    rpc(params, "redis_info", json!({ "section": section })).await
+    driver(params).await?.info(section).await
 }
 
 pub async fn redis_memory_stats(params: &DbParams) -> OmniResult<RedisMemoryStats> {
-    rpc(params, "redis_memory_stats", json!({})).await
+    driver(params).await?.memory_stats().await
 }
 
 pub async fn redis_memory_doctor(params: &DbParams) -> OmniResult<String> {
-    rpc(params, "redis_memory_doctor", json!({})).await
+    driver(params).await?.memory_doctor().await
 }
 
 pub async fn redis_memory_purge(params: &DbParams) -> OmniResult<u64> {
-    rpc(params, "redis_memory_purge", json!({})).await
+    driver(params).await?.memory_purge().await
 }
 
 pub async fn redis_config_set(params: &DbParams, parameter: &str, value: &str) -> OmniResult<()> {
-    rpc_ok(
-        params,
-        "redis_config_set",
-        json!({ "parameter": parameter, "value": value }),
-    )
-    .await
+    driver(params).await?.config_set(parameter, value).await
 }
 
 pub async fn redis_config_rewrite(params: &DbParams) -> OmniResult<()> {
-    rpc_ok(params, "redis_config_rewrite", json!({})).await
+    driver(params).await?.config_rewrite().await
 }
 
 pub async fn redis_flush_db(params: &DbParams, r#async: bool) -> OmniResult<()> {
-    rpc_ok(params, "redis_flush_db", json!({ "async": r#async })).await
+    driver(params).await?.flush_db(r#async).await
 }
 
 pub async fn redis_flush_all(params: &DbParams, r#async: bool) -> OmniResult<()> {
-    rpc_ok(params, "redis_flush_all", json!({ "async": r#async })).await
+    driver(params).await?.flush_all(r#async).await
 }
 
 pub async fn redis_stream_range(
@@ -168,22 +132,17 @@ pub async fn redis_stream_range(
     count: Option<usize>,
     reverse: bool,
 ) -> OmniResult<RedisStreamRangeResult> {
-    rpc(
-        params,
-        "redis_stream_range",
-        json!({
-            "key": key,
-            "start": start,
-            "end": end,
-            "count": count,
-            "reverse": reverse,
-        }),
-    )
-    .await
+    driver(params)
+        .await?
+        .stream_range(key, start, end, count, reverse)
+        .await
 }
 
-pub async fn redis_stream_groups(params: &DbParams, key: &str) -> OmniResult<Vec<RedisStreamGroup>> {
-    rpc(params, "redis_stream_groups", json!({ "key": key })).await
+pub async fn redis_stream_groups(
+    params: &DbParams,
+    key: &str,
+) -> OmniResult<Vec<RedisStreamGroup>> {
+    driver(params).await?.stream_groups(key).await
 }
 
 pub async fn redis_stream_consumers(
@@ -191,12 +150,7 @@ pub async fn redis_stream_consumers(
     key: &str,
     group: &str,
 ) -> OmniResult<Vec<RedisStreamConsumer>> {
-    rpc(
-        params,
-        "redis_stream_consumers",
-        json!({ "key": key, "group": group }),
-    )
-    .await
+    driver(params).await?.stream_consumers(key, group).await
 }
 
 pub async fn redis_stream_pending(
@@ -207,18 +161,10 @@ pub async fn redis_stream_pending(
     end: Option<&str>,
     count: Option<usize>,
 ) -> OmniResult<Vec<RedisStreamPendingEntry>> {
-    rpc(
-        params,
-        "redis_stream_pending",
-        json!({
-            "key": key,
-            "group": group,
-            "start": start,
-            "end": end,
-            "count": count,
-        }),
-    )
-    .await
+    driver(params)
+        .await?
+        .stream_pending(key, group, start, end, count)
+        .await
 }
 
 pub async fn redis_stream_monitor(
@@ -226,12 +172,7 @@ pub async fn redis_stream_monitor(
     key: &str,
     group: Option<&str>,
 ) -> OmniResult<RedisStreamMonitorSnapshot> {
-    rpc(
-        params,
-        "redis_stream_monitor",
-        json!({ "key": key, "group": group }),
-    )
-    .await
+    driver(params).await?.stream_monitor(key, group).await
 }
 
 pub async fn redis_stream_ack(
@@ -240,12 +181,7 @@ pub async fn redis_stream_ack(
     group: &str,
     ids: &[String],
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_stream_ack",
-        json!({ "key": key, "group": group, "ids": ids }),
-    )
-    .await
+    driver(params).await?.stream_ack(key, group, ids).await
 }
 
 pub async fn redis_stream_claim(
@@ -257,19 +193,10 @@ pub async fn redis_stream_claim(
     start_id: &str,
     count: Option<u64>,
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_stream_claim",
-        json!({
-            "key": key,
-            "group": group,
-            "consumer": consumer,
-            "minIdleMs": min_idle_ms,
-            "startId": start_id,
-            "count": count,
-        }),
-    )
-    .await
+    driver(params)
+        .await?
+        .stream_claim(key, group, consumer, min_idle_ms, start_id, count)
+        .await
 }
 
 pub async fn redis_stream_group_create(
@@ -279,21 +206,18 @@ pub async fn redis_stream_group_create(
     id: &str,
     mkstream: bool,
 ) -> OmniResult<()> {
-    rpc_ok(
-        params,
-        "redis_stream_group_create",
-        json!({ "key": key, "group": group, "id": id, "mkstream": mkstream }),
-    )
-    .await
+    driver(params)
+        .await?
+        .stream_group_create(key, group, id, mkstream)
+        .await
 }
 
-pub async fn redis_stream_group_destroy(params: &DbParams, key: &str, group: &str) -> OmniResult<()> {
-    rpc_ok(
-        params,
-        "redis_stream_group_destroy",
-        json!({ "key": key, "group": group }),
-    )
-    .await
+pub async fn redis_stream_group_destroy(
+    params: &DbParams,
+    key: &str,
+    group: &str,
+) -> OmniResult<()> {
+    driver(params).await?.stream_group_destroy(key, group).await
 }
 
 pub async fn redis_stream_trim(
@@ -302,12 +226,10 @@ pub async fn redis_stream_trim(
     maxlen: u64,
     approximate: bool,
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_stream_trim",
-        json!({ "key": key, "maxlen": maxlen, "approximate": approximate }),
-    )
-    .await
+    driver(params)
+        .await?
+        .stream_trim(key, maxlen, approximate)
+        .await
 }
 
 pub async fn redis_stream_cleanup_inactive_consumers(
@@ -317,38 +239,26 @@ pub async fn redis_stream_cleanup_inactive_consumers(
     idle_threshold_ms: u64,
     target_consumer: Option<&str>,
 ) -> OmniResult<RedisStreamConsumerCleanupResult> {
-    rpc(
-        params,
-        "redis_stream_cleanup_inactive_consumers",
-        json!({
-            "key": key,
-            "group": group,
-            "idleThresholdMs": idle_threshold_ms,
-            "targetConsumer": target_consumer,
-        }),
-    )
-    .await
+    driver(params)
+        .await?
+        .stream_cleanup_inactive_consumers(key, group, idle_threshold_ms, target_consumer)
+        .await
 }
 
 pub async fn redis_acl_list(params: &DbParams) -> OmniResult<Vec<RedisAclUser>> {
-    rpc(params, "redis_acl_list", json!({})).await
+    driver(params).await?.acl_list().await
 }
 
 pub async fn redis_acl_getuser(params: &DbParams, username: &str) -> OmniResult<RedisAclUser> {
-    rpc(params, "redis_acl_getuser", json!({ "username": username })).await
+    driver(params).await?.acl_getuser(username).await
 }
 
 pub async fn redis_acl_setuser(params: &DbParams, username: &str, rule: &str) -> OmniResult<()> {
-    rpc_ok(
-        params,
-        "redis_acl_setuser",
-        json!({ "username": username, "rule": rule }),
-    )
-    .await
+    driver(params).await?.acl_setuser(username, rule).await
 }
 
 pub async fn redis_acl_deluser(params: &DbParams, username: &str) -> OmniResult<u64> {
-    rpc(params, "redis_acl_deluser", json!({ "username": username })).await
+    driver(params).await?.acl_deluser(username).await
 }
 
 pub async fn redis_hash_set_field(
@@ -357,12 +267,10 @@ pub async fn redis_hash_set_field(
     field: &str,
     value: &str,
 ) -> OmniResult<()> {
-    rpc_ok(
-        params,
-        "redis_hash_set_field",
-        json!({ "key": key, "field": field, "value": value }),
-    )
-    .await
+    driver(params)
+        .await?
+        .hash_set_field(key, field, value)
+        .await
 }
 
 pub async fn redis_hash_del_fields(
@@ -370,12 +278,7 @@ pub async fn redis_hash_del_fields(
     key: &str,
     fields: &[String],
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_hash_del_fields",
-        json!({ "key": key, "fields": fields }),
-    )
-    .await
+    driver(params).await?.hash_del_fields(key, fields).await
 }
 
 pub async fn redis_list_push(
@@ -384,12 +287,7 @@ pub async fn redis_list_push(
     side: &str,
     values: &[String],
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_list_push",
-        json!({ "key": key, "side": side, "values": values }),
-    )
-    .await
+    driver(params).await?.list_push(key, side, values).await
 }
 
 pub async fn redis_list_remove(
@@ -398,30 +296,15 @@ pub async fn redis_list_remove(
     count: i64,
     value: &str,
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_list_remove",
-        json!({ "key": key, "count": count, "value": value }),
-    )
-    .await
+    driver(params).await?.list_remove(key, count, value).await
 }
 
 pub async fn redis_set_add(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_set_add",
-        json!({ "key": key, "members": members }),
-    )
-    .await
+    driver(params).await?.set_add(key, members).await
 }
 
 pub async fn redis_set_remove(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_set_remove",
-        json!({ "key": key, "members": members }),
-    )
-    .await
+    driver(params).await?.set_remove(key, members).await
 }
 
 pub async fn redis_zset_add(
@@ -430,28 +313,17 @@ pub async fn redis_zset_add(
     member: &str,
     score: f64,
 ) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_zset_add",
-        json!({ "key": key, "member": member, "score": score }),
-    )
-    .await
+    driver(params).await?.zset_add(key, member, score).await
 }
 
-pub async fn redis_zset_remove(params: &DbParams, key: &str, members: &[String]) -> OmniResult<u64> {
-    rpc(
-        params,
-        "redis_zset_remove",
-        json!({ "key": key, "members": members }),
-    )
-    .await
+pub async fn redis_zset_remove(
+    params: &DbParams,
+    key: &str,
+    members: &[String],
+) -> OmniResult<u64> {
+    driver(params).await?.zset_remove(key, members).await
 }
 
 pub async fn redis_expire_key(params: &DbParams, key: &str, seconds: i64) -> OmniResult<bool> {
-    rpc(
-        params,
-        "redis_expire_key",
-        json!({ "key": key, "seconds": seconds }),
-    )
-    .await
+    driver(params).await?.expire_key(key, seconds).await
 }

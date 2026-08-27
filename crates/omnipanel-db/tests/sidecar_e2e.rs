@@ -6,10 +6,13 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use omnipanel_db::sidecar::{
-    connect_launch, launch_for_params, launch_from_driver_file, set_plugin_engine_launches,
-    EngineKind, EngineLaunch, SidecarDriver,
+    EngineKind, EngineLaunch, SidecarDriver, connect_launch, launch_for_params,
+    launch_from_driver_file, set_plugin_engine_launches,
 };
-use omnipanel_db::{connect, DbDriver, DbParams};
+use omnipanel_db::{
+    CreateDatabaseArgs, DbDriver, DbParams, connect, db_create_database, db_list_connection_users,
+};
+use omnipanel_store::DbConnectionConfig;
 use serde_json::json;
 
 fn params(
@@ -30,6 +33,34 @@ fn params(
         ssl: false,
         sid: String::new(),
         sysdba: false,
+    }
+}
+
+fn store_conn(
+    db_type: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    database: &str,
+    ssl: bool,
+    sysdba: bool,
+) -> DbConnectionConfig {
+    DbConnectionConfig {
+        id: format!("e2e-{db_type}"),
+        name: format!("e2e-{db_type}"),
+        db_type: db_type.into(),
+        host: "127.0.0.1".into(),
+        port,
+        user: user.into(),
+        password: password.into(),
+        database: database.into(),
+        ssl,
+        sid: String::new(),
+        sysdba,
+        status: "unknown".into(),
+        enabled: true,
+        has_password: !password.is_empty(),
+        tags: Vec::new(),
     }
 }
 
@@ -63,7 +94,9 @@ fn engine_bin(stem: &str) -> Option<PathBuf> {
             }
         }
     }
-    dirs.into_iter().map(|d| d.join(&file)).find(|p| p.is_file())
+    dirs.into_iter()
+        .map(|d| d.join(&file))
+        .find(|p| p.is_file())
 }
 
 fn port_open(host: &str, port: u16) -> bool {
@@ -127,6 +160,11 @@ async fn sidecar_live_and_dbx() {
     test_plugin_driver_file().await;
     test_sql_sidecar_flag();
     test_sqlserver_tiberius().await;
+    if wait_port("127.0.0.1", 16379, 5).await {
+        test_redis_inproc().await;
+    } else {
+        eprintln!("skip redis inproc：127.0.0.1:16379 未监听");
+    }
 
     if let Some(bin) = engine_bin("omnipanel-engine-redis") {
         if wait_port("127.0.0.1", 16379, 90).await {
@@ -178,7 +216,8 @@ async fn sidecar_live_and_dbx() {
 }
 
 async fn test_dbx_java_jar_style_args() {
-    let node = resolve_on_path("node").or_else(|| resolve_on_path("node.exe"))
+    let node = resolve_on_path("node")
+        .or_else(|| resolve_on_path("node.exe"))
         .expect("PATH 上需要 node，才能模拟 java -jar 形态的外部 agent");
     let script = workspace_root().join("scripts/mock-dbx-agent.mjs");
     assert!(script.is_file(), "缺少 {}", script.display());
@@ -213,10 +252,7 @@ async fn test_dbx_java_jar_style_args() {
     assert_eq!(cols[0].0, "ID");
 
     let via_alias = driver
-        .invoke(
-            "executeQuery",
-            json!({ "sql": "SELECT 1 FROM dual" }),
-        )
+        .invoke("executeQuery", json!({ "sql": "SELECT 1 FROM dual" }))
         .await
         .expect("executeQuery 别名");
     assert_eq!(via_alias["columns"][0], "X");
@@ -270,7 +306,9 @@ async fn test_sidecar_crash_single_respawn() {
 }
 
 async fn test_dbx_cmd_whitespace() {
-    let node = resolve_on_path("node").or_else(|| resolve_on_path("node.exe")).unwrap();
+    let node = resolve_on_path("node")
+        .or_else(|| resolve_on_path("node.exe"))
+        .unwrap();
     let script = workspace_root().join("scripts/mock-dbx-agent.mjs");
     set_env(
         "OMNIPANEL_DBX_CMD",
@@ -297,7 +335,9 @@ async fn test_plugin_driver_file() {
     match &resolved {
         EngineLaunch::External { args, .. } => {
             assert!(
-                args.iter().any(|a| a.replace('\\', "/").ends_with("plugins-samples/dbx-oracle/bin/agent.mjs")),
+                args.iter().any(|a| a
+                    .replace('\\', "/")
+                    .ends_with("plugins-samples/dbx-oracle/bin/agent.mjs")),
                 "args={args:?}"
             );
         }
@@ -418,7 +458,15 @@ async fn neo4j_cassandra_live() {
     test_cassandra_live().await;
     test_dameng_live().await;
     test_optional_engine_live("hive", 10000, "", "", "", "SELECT 1").await;
-    test_optional_engine_live("firebird", 3050, "SYSDBA", "masterkey", "", "SELECT 1 FROM RDB$DATABASE").await;
+    test_optional_engine_live(
+        "firebird",
+        3050,
+        "SYSDBA",
+        "masterkey",
+        "",
+        "SELECT 1 FROM RDB$DATABASE",
+    )
+    .await;
     test_optional_engine_live("ignite", 10800, "", "", "", "SELECT 1").await;
     test_optional_engine_live("spanner", 443, "", "", "", "SELECT 1").await;
     test_optional_engine_live("kingbase", 54321, "system", "omni", "test", "SELECT 1").await;
@@ -453,7 +501,9 @@ async fn test_neo4j_live() {
         .expect("neo4j create");
     let tables = driver.list_tables().await.expect("neo4j list_tables");
     assert!(
-        tables.iter().any(|name| name == "E2EPerson" || name == "Person"),
+        tables
+            .iter()
+            .any(|name| name == "E2EPerson" || name == "Person"),
         "neo4j labels={tables:?}"
     );
     let preview = driver
@@ -486,7 +536,8 @@ async fn test_cassandra_live() {
         .await
         .expect("cassandra list_databases");
     assert!(
-        dbs.iter().any(|name| name == "system" || name == "omni_test"),
+        dbs.iter()
+            .any(|name| name == "system" || name == "omni_test"),
         "cassandra keyspaces={dbs:?}"
     );
     evict(&launch, &empty).await;
@@ -572,6 +623,43 @@ async fn test_dameng_live() {
         !q.rows.is_empty() || !q.columns.is_empty(),
         "dameng select empty: {q:?}"
     );
+    match driver
+        .execute("SELECT SESS_ID AS Id, USER_NAME AS \"User\" FROM V$SESSIONS WHERE USER_NAME IS NOT NULL")
+        .await
+    {
+        Ok(sessions) => {
+            assert!(
+                !sessions.columns.is_empty() || !sessions.rows.is_empty(),
+                "dameng sessions empty: {sessions:?}"
+            );
+        }
+        Err(err) => match driver
+            .execute("SELECT SID AS Id FROM V$SESSION WHERE USERNAME IS NOT NULL")
+            .await
+        {
+            Ok(_) => {}
+            Err(err2) => eprintln!("skip dameng sessions: {err}; {err2}"),
+        },
+    }
+    match db_create_database(CreateDatabaseArgs {
+        connection: store_conn(
+            "dameng",
+            15236,
+            "SYSDBA",
+            "SYSDBA_dm001",
+            "SYSDBA",
+            false,
+            true,
+        ),
+        name: "OMNI_WB_E2E".into(),
+        charset: None,
+        collation: None,
+    })
+    .await
+    {
+        Ok(_) => {}
+        Err(err) => eprintln!("skip dameng create database: {err}"),
+    }
     evict(&launch, &p).await;
 }
 
@@ -656,16 +744,66 @@ async fn test_sqlserver_tiberius() {
         dbs.iter().any(|name| name.eq_ignore_ascii_case("master")),
         "{dbs:?}"
     );
+
+    let cfg = store_conn(
+        "sqlserver",
+        11433,
+        "sa",
+        "Omni_Test_123",
+        "master",
+        true,
+        false,
+    );
+    let users = db_list_connection_users(cfg.clone())
+        .await
+        .expect("sqlserver users");
+    assert!(
+        users
+            .iter()
+            .any(|user| user.name.eq_ignore_ascii_case("sa")),
+        "{users:?}"
+    );
+
+    let _ = driver
+        .execute(
+            "IF OBJECT_ID(N'dbo.omni_e2e_drop', N'U') IS NOT NULL DROP TABLE dbo.omni_e2e_drop",
+        )
+        .await;
+    driver
+        .execute("CREATE TABLE dbo.omni_e2e_drop (id INT)")
+        .await
+        .expect("sqlserver create table");
+    driver
+        .execute("DROP TABLE dbo.omni_e2e_drop")
+        .await
+        .expect("sqlserver drop table");
+
+    let sessions = driver
+        .execute("SELECT session_id AS Id FROM sys.dm_exec_sessions WHERE is_user_process = 1")
+        .await
+        .expect("sqlserver sessions");
+    assert!(!sessions.rows.is_empty(), "{sessions:?}");
+
+    match db_create_database(CreateDatabaseArgs {
+        connection: cfg,
+        name: "omni_wb_e2e".into(),
+        charset: None,
+        collation: None,
+    })
+    .await
+    {
+        Ok(_) => {
+            let _ = driver.execute("DROP DATABASE [omni_wb_e2e]").await;
+        }
+        Err(err) => eprintln!("skip sqlserver create database: {err}"),
+    }
 }
 
 fn test_sql_sidecar_flag() {
     remove_env("OMNIPANEL_ENGINE_SIDECAR_MYSQL");
     remove_env("OMNIPANEL_SQL_SIDECAR");
     let p = params("mysql", "127.0.0.1", 3306, "root", "x", "omni");
-    assert!(
-        launch_for_params(&p).is_none(),
-        "默认 MySQL 不应走 sidecar"
-    );
+    assert!(launch_for_params(&p).is_none(), "默认 MySQL 不应走 sidecar");
     set_env("OMNIPANEL_SQL_SIDECAR", "1");
     assert!(
         matches!(
@@ -682,13 +820,29 @@ fn test_sql_sidecar_flag() {
     remove_env("OMNIPANEL_SQL_SIDECAR");
 }
 
+async fn test_redis_inproc() {
+    let p = params("redis", "127.0.0.1", 16379, "", "", "0");
+    match connect(&p).await {
+        Ok(driver) => {
+            let ver = driver.version().await.expect("redis inproc version");
+            assert!(
+                ver.chars().any(|c| c.is_ascii_digit()),
+                "unexpected redis version: {ver}"
+            );
+        }
+        Err(err) => eprintln!("skip redis inproc：{err}"),
+    }
+}
+
 async fn test_redis(bin: &Path) {
     let p = params("redis", "127.0.0.1", 16379, "", "", "0");
     let launch = EngineLaunch::External {
         program: bin.to_path_buf(),
         args: Vec::new(),
     };
-    let driver = connect_launch(&launch, &p).await.expect("redis sidecar connect");
+    let driver = connect_launch(&launch, &p)
+        .await
+        .expect("redis sidecar connect");
     let ver = driver.version().await.expect("redis version");
     assert!(
         ver.chars().any(|c| c.is_ascii_digit()),
@@ -714,13 +868,16 @@ async fn test_mongo(bin: &Path) {
         program: bin.to_path_buf(),
         args: Vec::new(),
     };
-    let driver = connect_launch(&launch, &p).await.expect("mongo sidecar connect");
+    let driver = connect_launch(&launch, &p)
+        .await
+        .expect("mongo sidecar connect");
     let ver = driver.version().await.expect("mongo version");
     assert!(!ver.is_empty(), "{ver}");
     let _ = driver.list_tables().await.expect("collections");
     let dbs = driver.list_databases().await.expect("list_databases");
     assert!(
-        dbs.iter().any(|n| n == "omni_e2e" || n == "admin" || n == "local" || n == "config"),
+        dbs.iter()
+            .any(|n| n == "omni_e2e" || n == "admin" || n == "local" || n == "config"),
         "dbs={dbs:?}"
     );
     evict(&launch, &p).await;
@@ -799,7 +956,14 @@ async fn test_postgres(bin: &Path) {
 }
 
 async fn test_clickhouse(bin: &Path) {
-    let mut p = params("clickhouse", "127.0.0.1", 8123, "omni", "omni_test", "default");
+    let mut p = params(
+        "clickhouse",
+        "127.0.0.1",
+        8123,
+        "omni",
+        "omni_test",
+        "default",
+    );
     let launch = EngineLaunch::External {
         program: bin.to_path_buf(),
         args: Vec::new(),
@@ -817,6 +981,9 @@ async fn test_clickhouse(bin: &Path) {
     let ver = driver.version().await.expect("ch version");
     assert!(!ver.is_empty(), "{ver}");
     let dbs = driver.list_databases().await.expect("CH databases");
-    assert!(dbs.iter().any(|d| d == "default" || d == "system"), "{dbs:?}");
+    assert!(
+        dbs.iter().any(|d| d == "default" || d == "system"),
+        "{dbs:?}"
+    );
     evict(&launch, &p).await;
 }

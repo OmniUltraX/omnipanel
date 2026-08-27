@@ -289,7 +289,9 @@ export function sanitizeWorkspaceSession(
       return Boolean(tab.connId);
     }
     if (tab.kind === "slow-query") {
-      return Boolean(tab.connId && tab.sshConnectionId && tab.logFilePath);
+      return Boolean(
+        tab.connId && (tab.dialect || (tab.sshConnectionId && tab.logFilePath)),
+      );
     }
     if (tab.kind === "binlog") {
       return Boolean(tab.connId && tab.sshConnectionId);

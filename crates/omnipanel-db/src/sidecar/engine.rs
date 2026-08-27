@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
 use crate::DbParams;
@@ -108,7 +108,6 @@ impl EngineLaunch {
             }
         }
     }
-
 }
 
 pub fn sidecar_env_var(db_type: &str) -> String {
@@ -153,10 +152,57 @@ pub fn set_plugin_engine_launches(entries: impl IntoIterator<Item = (String, Eng
         .unwrap_or_else(|err| err.into_inner()) = map;
 }
 
+fn plugin_claims() -> &'static Mutex<HashMap<String, Option<String>>> {
+    static PLUGIN_CLAIMS: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    PLUGIN_CLAIMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 已激活引擎插件声明的 `db_type`：`None` 表示 sidecar 可启动，`Some` 为启动失败原因。
+/// 已声明则禁止再静默回退 sqlx 兼容驱动。
+pub fn set_plugin_engine_claims(entries: impl IntoIterator<Item = (String, Option<String>)>) {
+    let mut map = HashMap::new();
+    for (key, err) in entries {
+        let key = key.trim().to_ascii_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        map.insert(key, err);
+    }
+    *plugin_claims()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner()) = map;
+}
+
+#[cfg(test)]
+static PLUGIN_ENGINE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// 测试互斥：claims / launches 是进程全局状态，并行用例会互相清空。
+#[cfg(test)]
+pub fn lock_plugin_engine_for_test() -> std::sync::MutexGuard<'static, ()> {
+    PLUGIN_ENGINE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+}
+
+pub fn plugin_engine_claimed(db_type: &str) -> bool {
+    plugin_claims()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .contains_key(&db_type.trim().to_ascii_lowercase())
+}
+
+pub fn plugin_engine_claim_error(db_type: &str) -> Option<String> {
+    plugin_claims()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .get(&db_type.trim().to_ascii_lowercase())
+        .and_then(|err| err.clone())
+}
+
 fn plugin_launch_for_type(db_type: &str) -> Option<EngineLaunch> {
     plugin_launches()
         .lock()
-        .ok()?
+        .unwrap_or_else(|err| err.into_inner())
         .get(&db_type.trim().to_ascii_lowercase())
         .cloned()
 }
@@ -194,7 +240,12 @@ pub fn launch_from_driver_file_result(driver: &Path) -> Result<EngineLaunch, Str
             let java = resolve_java_for_jar(driver)?;
             Ok(EngineLaunch::External {
                 program: java,
-                args: vec!["-jar".into(), driver.to_string_lossy().into_owned()],
+                args: vec![
+                    "-Dfile.encoding=UTF-8".into(),
+                    "-Dsun.jnu.encoding=UTF-8".into(),
+                    "-jar".into(),
+                    driver.to_string_lossy().into_owned(),
+                ],
             })
         }
         _ => Ok(EngineLaunch::External {
@@ -233,10 +284,7 @@ pub fn find_java_binary(root: &Path) -> Option<PathBuf> {
     walk(root, expected, &mut found, 0);
     found.sort_by_key(|path| {
         let lower = path.to_string_lossy().to_ascii_lowercase();
-        (
-            !lower.replace('\\', "/").contains("/bin/"),
-            lower.len(),
-        )
+        (!lower.replace('\\', "/").contains("/bin/"), lower.len())
     });
     found.into_iter().next()
 }
@@ -265,14 +313,19 @@ pub fn java_version_ok(java: &Path) -> bool {
         return false;
     }
     let mut cmd = Command::new(java);
-    cmd.arg("-version");
+    cmd.arg("-version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    cmd.output().map(|out| out.status.success()).unwrap_or(false)
+    cmd.output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
 }
 
 fn resolve_on_path(name: &str) -> Option<PathBuf> {
@@ -301,12 +354,23 @@ pub fn launch_for_params(params: &DbParams) -> Option<EngineLaunch> {
         return Some(launch);
     }
     match EngineKind::from_db_type(&params.db_type) {
-        Some(EngineKind::MySql | EngineKind::Postgres) if !sql_sidecars_enabled() => None,
-        Some(kind) => Some(EngineLaunch::Builtin(kind)),
+        Some(kind) => builtin_launch(kind),
         None => plugin_launch_for_type(&params.db_type)
             .or_else(|| env_launch_for_type("DBX"))
             .or_else(env_dbx_cmd),
     }
+}
+
+fn builtin_launch(kind: EngineKind) -> Option<EngineLaunch> {
+    use crate::engine_contract::{FirstPartyEngine, FirstPartyRuntime};
+    let inproc = FirstPartyEngine::from_db_type(kind.as_str())
+        .is_some_and(|engine| engine.runtime() == FirstPartyRuntime::Inproc);
+    if inproc
+        && !(matches!(kind, EngineKind::MySql | EngineKind::Postgres) && sql_sidecars_enabled())
+    {
+        return None;
+    }
+    Some(EngineLaunch::Builtin(kind))
 }
 
 fn env_launch_for_type(db_type: &str) -> Option<EngineLaunch> {
@@ -366,7 +430,10 @@ mod tests {
     fn maps_aliases() {
         assert_eq!(EngineKind::from_db_type("ch"), Some(EngineKind::ClickHouse));
         assert_eq!(EngineKind::from_db_type("mongo"), Some(EngineKind::MongoDb));
-        assert_eq!(EngineKind::from_db_type("postgresql"), Some(EngineKind::Postgres));
+        assert_eq!(
+            EngineKind::from_db_type("postgresql"),
+            Some(EngineKind::Postgres)
+        );
         assert_eq!(EngineKind::from_db_type("oracle"), None);
         assert_eq!(
             EngineKind::from_plugin_id("omni.engine.mongodb"),
@@ -383,8 +450,14 @@ mod tests {
 
     #[test]
     fn sidecar_env_var_normalizes() {
-        assert_eq!(sidecar_env_var("clickhouse"), "OMNIPANEL_ENGINE_SIDECAR_CLICKHOUSE");
-        assert_eq!(sidecar_env_var("sql-server"), "OMNIPANEL_ENGINE_SIDECAR_SQL_SERVER");
+        assert_eq!(
+            sidecar_env_var("clickhouse"),
+            "OMNIPANEL_ENGINE_SIDECAR_CLICKHOUSE"
+        );
+        assert_eq!(
+            sidecar_env_var("sql-server"),
+            "OMNIPANEL_ENGINE_SIDECAR_SQL_SERVER"
+        );
     }
 
     fn dummy(db_type: &str) -> DbParams {
@@ -421,9 +494,16 @@ mod tests {
     }
 
     #[test]
-    fn redis_mongo_clickhouse_default_to_sidecar() {
+    fn redis_stays_in_process_by_default() {
+        if env_interferes(&["OMNIPANEL_ENGINE_SIDECAR_REDIS"]) {
+            return;
+        }
+        assert!(launch_for_params(&dummy("redis")).is_none());
+    }
+
+    #[test]
+    fn mongo_clickhouse_default_to_sidecar() {
         if env_interferes(&[
-            "OMNIPANEL_ENGINE_SIDECAR_REDIS",
             "OMNIPANEL_ENGINE_SIDECAR_MONGODB",
             "OMNIPANEL_ENGINE_SIDECAR_MONGO",
             "OMNIPANEL_ENGINE_SIDECAR_CLICKHOUSE",
@@ -431,10 +511,6 @@ mod tests {
         ]) {
             return;
         }
-        assert!(matches!(
-            launch_for_params(&dummy("redis")),
-            Some(EngineLaunch::Builtin(EngineKind::Redis))
-        ));
         assert!(matches!(
             launch_for_params(&dummy("mongodb")),
             Some(EngineLaunch::Builtin(EngineKind::MongoDb))
@@ -506,10 +582,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let plugin_bin = root
-            .join("plugins")
-            .join("omni.engine.dameng")
-            .join("bin");
+        let plugin_bin = root.join("plugins").join("omni.engine.dameng").join("bin");
         let java_dir = root
             .join("plugins")
             .join(".dbx-jre")
@@ -553,10 +626,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let plugin_bin = root
-            .join("plugins")
-            .join("omni.engine.hive")
-            .join("bin");
+        let plugin_bin = root.join("plugins").join("omni.engine.hive").join("bin");
         std::fs::create_dir_all(&plugin_bin).unwrap();
         let jar = plugin_bin.join("agent.jar");
         std::fs::write(&jar, b"pk").unwrap();
@@ -574,5 +644,64 @@ mod tests {
             None => unsafe { std::env::remove_var("OMNIPANEL_DBX_JAVA") },
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn jar_launch_injects_utf8_file_encoding() {
+        let root = std::env::temp_dir().join(format!(
+            "omni-jar-utf8-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let plugin_bin = root.join("plugins").join("omni.engine.highgo").join("bin");
+        std::fs::create_dir_all(&plugin_bin).unwrap();
+        let jar = plugin_bin.join("agent.jar");
+        std::fs::write(&jar, b"pk").unwrap();
+        let java = plugin_bin.join("java.exe");
+        std::fs::write(&java, b"dummy").unwrap();
+        let prev = std::env::var("OMNIPANEL_DBX_JAVA").ok();
+        unsafe { std::env::set_var("OMNIPANEL_DBX_JAVA", java.to_string_lossy().as_ref()) };
+
+        let launch = launch_from_driver_file_result(&jar).expect("应解析 jar 启动");
+        match launch {
+            EngineLaunch::External { args, .. } => {
+                assert!(
+                    args.iter().any(|a| a == "-Dfile.encoding=UTF-8"),
+                    "{args:?}"
+                );
+                assert!(
+                    args.iter().any(|a| a == "-Dsun.jnu.encoding=UTF-8"),
+                    "{args:?}"
+                );
+                assert!(args.iter().any(|a| a == "-jar"), "{args:?}");
+            }
+            other => panic!("应为 External，得到 {other:?}"),
+        }
+
+        match prev {
+            Some(v) => unsafe { std::env::set_var("OMNIPANEL_DBX_JAVA", v) },
+            None => unsafe { std::env::remove_var("OMNIPANEL_DBX_JAVA") },
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plugin_claims_block_lookup() {
+        let _guard = lock_plugin_engine_for_test();
+        set_plugin_engine_claims([(
+            "highgo".into(),
+            Some("未找到捆绑 JRE，请重新安装该引擎".into()),
+        )]);
+        assert!(plugin_engine_claimed("HighGo"));
+        assert!(
+            plugin_engine_claim_error("highgo")
+                .unwrap_or_default()
+                .contains("JRE")
+        );
+        set_plugin_engine_claims(Vec::<(String, Option<String>)>::new());
+        assert!(!plugin_engine_claimed("highgo"));
     }
 }

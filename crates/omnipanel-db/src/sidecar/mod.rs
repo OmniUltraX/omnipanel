@@ -15,22 +15,26 @@ mod serve;
 #[cfg(feature = "sidecar-serve")]
 mod serve_extra;
 
+#[cfg(all(test, feature = "sidecar-host"))]
+pub use engine::lock_plugin_engine_for_test;
 #[cfg(feature = "sidecar-host")]
 pub use engine::{
-    bundled_jre_java, find_java_binary, java_version_ok, launch_for_params, launch_from_driver_file,
-    launch_from_driver_file_result, resolve_java_for_jar, set_plugin_engine_launches, EngineKind,
-    EngineLaunch,
+    EngineKind, EngineLaunch, bundled_jre_java, find_java_binary, java_version_ok,
+    launch_for_params, launch_from_driver_file, launch_from_driver_file_result,
+    plugin_engine_claim_error, plugin_engine_claimed, resolve_java_for_jar,
+    set_plugin_engine_claims, set_plugin_engine_launches,
 };
 #[cfg(feature = "sidecar-host")]
 pub use host::{
-    connect_clickhouse, connect_engine, connect_launch, evict_all_external_launches,
+    SidecarDriver, connect_clickhouse, connect_engine, connect_launch, evict_all_external_launches,
     evict_all_of_kind, evict_clickhouse, evict_engine, evict_launch, invoke_json, invoke_query,
-    resolve_clickhouse_sidecar, resolve_sidecar, SidecarDriver,
+    resolve_clickhouse_sidecar, resolve_sidecar,
 };
 #[cfg(feature = "sidecar-host")]
 pub use plugin_gate::{
     engine_plugin_allowed, engine_plugin_allowed_in, gated_plugin_id,
-    reject_if_engine_plugin_disabled, reject_if_params_plugin_disabled, set_disabled_engine_plugins,
+    reject_if_engine_plugin_disabled, reject_if_params_plugin_disabled,
+    set_disabled_engine_plugins,
 };
 pub use protocol::{CLICKHOUSE_SIDECAR_BIN, PROTOCOL_VERSION};
 #[cfg(feature = "sidecar-serve")]
@@ -78,8 +82,8 @@ mod tests {
 
     #[test]
     fn query_result_json_roundtrip() {
-        use crate::sidecar::protocol::{decode_query_result, encode_query_result};
         use crate::QueryResult;
+        use crate::sidecar::protocol::{decode_query_result, encode_query_result};
         let original = QueryResult {
             columns: vec!["id".into()],
             rows: vec![vec![json!(1)]],
@@ -117,8 +121,7 @@ mod serve_tests {
         reader.read_line(&mut response_line).await.unwrap();
         let response: RpcResponse = serde_json::from_str(response_line.trim()).unwrap();
         assert!(response.error.is_none());
-        let handshake: HandshakeResult =
-            serde_json::from_value(response.result.unwrap()).unwrap();
+        let handshake: HandshakeResult = serde_json::from_value(response.result.unwrap()).unwrap();
         assert_eq!(handshake.protocol_version, PROTOCOL_VERSION);
         assert!(!handshake.engine.is_empty());
         assert!(handshake.capabilities.contains(&"connect".to_string()));
@@ -145,11 +148,13 @@ mod serve_tests {
         let mut response_line = String::new();
         reader.read_line(&mut response_line).await.unwrap();
         let response: RpcResponse = serde_json::from_str(response_line.trim()).unwrap();
-        assert!(response
-            .error
-            .as_ref()
-            .map(|e| e.message.contains("尚未 connect"))
-            .unwrap_or(false));
+        assert!(
+            response
+                .error
+                .as_ref()
+                .map(|e| e.message.contains("尚未 connect"))
+                .unwrap_or(false)
+        );
 
         drop(client_write);
         drop(reader);

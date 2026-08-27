@@ -1,7 +1,7 @@
 //! DBX Agent 方言：ready 横幅、协议 v2、方法名与结果形状适配。
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::sidecar::protocol::{ColumnInfo, HandshakeResult, RpcResponse};
 use crate::{DbParams, QueryResult};
@@ -105,10 +105,7 @@ pub fn dbx_open_session_params(params: &DbParams, session_id: &str) -> Value {
             if !params.sid.trim().is_empty() {
                 map.insert("sid".into(), Value::String(params.sid.clone()));
             }
-            map.insert(
-                "serviceName".into(),
-                Value::String(params.database.clone()),
-            );
+            map.insert("serviceName".into(), Value::String(params.database.clone()));
             map.insert("sysdba".into(), Value::Bool(params.sysdba));
         }
         if kind == "sqlserver" || kind == "neo4j" {
@@ -149,10 +146,7 @@ pub fn decode_table_names(value: Value) -> Result<Vec<String>, String> {
             .into_iter()
             .filter_map(|item| match item {
                 Value::String(name) => Some(name),
-                Value::Object(obj) => obj
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
+                Value::Object(obj) => obj.get("name").and_then(Value::as_str).map(str::to_string),
                 _ => None,
             })
             .collect()),
@@ -255,10 +249,7 @@ fn sql_ident(name: &str) -> String {
 }
 
 fn cypher_label(name: &str) -> String {
-    let ok = !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if ok {
         name.to_string()
     } else {
@@ -396,7 +387,10 @@ pub fn extract_count(result: &QueryResult) -> i64 {
         return result.rows_affected as i64;
     };
     match cell {
-        Value::Number(n) => n.as_i64().or_else(|| n.as_u64().map(|v| v as i64)).unwrap_or(0),
+        Value::Number(n) => n
+            .as_i64()
+            .or_else(|| n.as_u64().map(|v| v as i64))
+            .unwrap_or(0),
         Value::String(s) => s.parse().unwrap_or(0),
         _ => 0,
     }

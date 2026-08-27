@@ -17,15 +17,13 @@ pub enum CatalogFamily {
 pub fn catalog_family(db_type: &str) -> CatalogFamily {
     let engine = db_type.trim().to_ascii_lowercase();
     match engine.as_str() {
-        "oracle" | "orcl" | "dameng" | "dm" | "db2" | "oceanbase-oracle" | "gbase8s"
-        | "oscar" | "informix" | "iris" | "yashandb" | "xugu" => CatalogFamily::OracleLike,
-        "kingbase" | "kingbasees" | "vastbase" | "highgo" | "uxdb" | "cockroachdb"
-        | "gaussdb" | "opengauss" => CatalogFamily::PostgresLike,
+        "oracle" | "orcl" | "dameng" | "dm" | "db2" | "oceanbase-oracle" | "gbase8s" | "oscar"
+        | "informix" | "iris" | "yashandb" | "xugu" => CatalogFamily::OracleLike,
+        "kingbase" | "kingbasees" | "vastbase" | "highgo" | "uxdb" | "cockroachdb" | "gaussdb"
+        | "opengauss" => CatalogFamily::PostgresLike,
         "oceanbase" | "goldendb" | "gbase8a" | "tidb" | "mariadb" => CatalogFamily::MysqlLike,
         "hive" | "spark" | "databricks" | "kylin" => CatalogFamily::HiveLike,
-        "neo4j" | "cassandra" | "mongodb" | "mongo" | "redis" | "qdrant" => {
-            CatalogFamily::NonSql
-        }
+        "neo4j" | "cassandra" | "mongodb" | "mongo" | "redis" | "qdrant" => CatalogFamily::NonSql,
         _ => CatalogFamily::GenericSql,
     }
 }
@@ -68,17 +66,14 @@ pub fn schema_stats_sqls(family: CatalogFamily) -> &'static [&'static str] {
              FROM ALL_USERS u ORDER BY u.USERNAME",
             "SELECT USERNAME AS NAME FROM ALL_USERS ORDER BY USERNAME",
         ],
-        CatalogFamily::PostgresLike => &[
-            "SELECT d.datname AS NAME, \
+        CatalogFamily::PostgresLike => &["SELECT d.datname AS NAME, \
                pg_encoding_to_char(d.encoding) AS CHARSET, \
                d.datcollate AS COLLATION, \
                pg_database_size(d.datname) AS SIZE_BYTES \
              FROM pg_database d \
              WHERE NOT d.datistemplate \
-             ORDER BY d.datname",
-        ],
-        CatalogFamily::MysqlLike => &[
-            "SELECT s.SCHEMA_NAME AS NAME, \
+             ORDER BY d.datname"],
+        CatalogFamily::MysqlLike => &["SELECT s.SCHEMA_NAME AS NAME, \
                s.DEFAULT_CHARACTER_SET_NAME AS CHARSET, \
                s.DEFAULT_COLLATION_NAME AS COLLATION, \
                COUNT(t.TABLE_NAME) AS TABLE_COUNT, \
@@ -87,8 +82,7 @@ pub fn schema_stats_sqls(family: CatalogFamily) -> &'static [&'static str] {
              FROM information_schema.SCHEMATA s \
              LEFT JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = s.SCHEMA_NAME \
              GROUP BY s.SCHEMA_NAME, s.DEFAULT_CHARACTER_SET_NAME, s.DEFAULT_COLLATION_NAME \
-             ORDER BY s.SCHEMA_NAME",
-        ],
+             ORDER BY s.SCHEMA_NAME"],
         CatalogFamily::HiveLike => &["SHOW DATABASES"],
         _ => &[],
     }
@@ -188,6 +182,82 @@ pub fn users_sqls(family: CatalogFamily) -> &'static [&'static str] {
     }
 }
 
+pub fn process_sqls(family: CatalogFamily) -> &'static [&'static str] {
+    match family {
+        CatalogFamily::PostgresLike => &[
+            "SELECT pid AS Id, usename AS \"User\", client_addr AS Host, datname AS db, state AS State, query AS Query, \
+             EXTRACT(EPOCH FROM now() - query_start)::bigint AS Time \
+             FROM pg_stat_activity WHERE datname IS NOT NULL ORDER BY Time DESC",
+        ],
+        CatalogFamily::OracleLike => &[
+            "SELECT SID AS Id, USERNAME AS \"User\", MACHINE AS Host, SCHEMANAME AS db, STATUS AS State, \
+             SQL_ID AS Query, LAST_CALL_ET AS Time FROM v$session WHERE USERNAME IS NOT NULL",
+            "SELECT SESS_ID AS Id, USER_NAME AS \"User\", CLNT_HOST AS Host, CURR_SCH AS db, STATE AS State, \
+             SQL_TEXT AS Query FROM V$SESSIONS WHERE USER_NAME IS NOT NULL",
+        ],
+        CatalogFamily::MysqlLike => &["SHOW FULL PROCESSLIST"],
+        _ => &[],
+    }
+}
+
+pub fn settings_sqls(family: CatalogFamily) -> &'static [&'static str] {
+    match family {
+        CatalogFamily::PostgresLike => {
+            &["SELECT name, setting, source, context FROM pg_settings ORDER BY name"]
+        }
+        CatalogFamily::OracleLike => &[
+            "SELECT NAME, VALUE, ISDEFAULT AS source, DESCRIPTION AS context FROM v$parameter ORDER BY NAME",
+            "SELECT NAME, VALUE FROM V$PARAMETER ORDER BY NAME",
+        ],
+        CatalogFamily::MysqlLike => &["SHOW VARIABLES"],
+        _ => &[],
+    }
+}
+
+pub fn slow_query_sqls(family: CatalogFamily) -> &'static [&'static str] {
+    match family {
+        CatalogFamily::PostgresLike => &[
+            "SELECT query, calls, total_exec_time, mean_exec_time, rows \
+             FROM pg_stat_statements ORDER BY total_exec_time DESC NULLS LAST LIMIT 100",
+            "SELECT query, calls, total_time, mean_time, rows \
+             FROM pg_stat_statements ORDER BY total_time DESC NULLS LAST LIMIT 100",
+        ],
+        CatalogFamily::OracleLike => &[
+            "SELECT SQL_ID, SQL_TEXT, ELAPSED_TIME/1000000 AS elapsed_sec, EXECUTIONS, DISK_READS \
+             FROM v$sql WHERE ROWNUM <= 100 ORDER BY ELAPSED_TIME DESC",
+            "SELECT SQL_TEXT, EXECUTIONS, ELAPSED_TIME FROM V$SQL WHERE ROWNUM <= 100",
+        ],
+        CatalogFamily::MysqlLike => &["SELECT TRUNCATE(QUERY_TIME, 3) AS query_time, SQL_TEXT \
+             FROM mysql.slow_log ORDER BY start_time DESC LIMIT 100"],
+        _ => &[],
+    }
+}
+
+pub const SQLSERVER_PROCESS_SQL: &str = "SELECT session_id AS Id, login_name AS \"User\", host_name AS Host, \
+    DB_NAME(database_id) AS db, status AS State, \
+    DATEDIFF(second, login_time, GETDATE()) AS Time \
+    FROM sys.dm_exec_sessions WHERE is_user_process = 1 ORDER BY Time DESC";
+
+pub const SQLSERVER_SETTINGS_SQL: &str = "SELECT name, CAST(value AS nvarchar(max)) AS setting, \
+    CAST(value_in_use AS nvarchar(max)) AS source, description AS context \
+    FROM sys.configurations ORDER BY name";
+
+pub const SQLSERVER_SLOW_QUERY_SQL: &str = "SELECT TOP 100 \
+    qs.total_elapsed_time / 1000 AS elapsed_ms, qs.execution_count, \
+    SUBSTRING(qt.text, 1, 4000) AS query \
+    FROM sys.dm_exec_query_stats qs \
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt \
+    ORDER BY qs.total_elapsed_time DESC";
+
+pub const SQLSERVER_USERS_SQL: &str = "SELECT name AS NAME, is_disabled, type_desc \
+    FROM sys.server_principals \
+    WHERE type IN ('S', 'U', 'G') AND name NOT LIKE '##%' \
+    ORDER BY name";
+
+pub fn process_list_sqls(family: CatalogFamily) -> &'static [&'static str] {
+    process_sqls(family)
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CatalogDatabaseRow {
     pub name: String,
@@ -274,11 +344,11 @@ pub fn parse_name_size_map(result: &QueryResult) -> Vec<(String, f64)> {
 }
 
 pub fn parse_table_details(result: &QueryResult) -> Vec<CatalogTableRow> {
-    let name_i = col_index(
+    let name_i = col_index(result, &["NAME", "TABLE_NAME", "TAB_NAME", "RELNAME"]);
+    let rows_i = col_index(
         result,
-        &["NAME", "TABLE_NAME", "TAB_NAME", "RELNAME"],
+        &["ROW_COUNT", "NUM_ROWS", "TABLE_ROWS", "RELTUPLES"],
     );
-    let rows_i = col_index(result, &["ROW_COUNT", "NUM_ROWS", "TABLE_ROWS", "RELTUPLES"]);
     let size_i = col_index(result, &["DATA_LENGTH", "BYTES"]);
     let engine_i = col_index(result, &["ENGINE", "TABLESPACE_NAME"]);
     let comment_i = col_index(result, &["TABLE_COMMENT", "COMMENTS", "COMMENT"]);
@@ -399,7 +469,11 @@ fn parse_mysql_users(result: &QueryResult) -> Vec<CatalogUserRow> {
         .filter_map(|row| {
             let name = first_nonempty_cell(row, name_i)?;
             let host = nonempty(cell_named(row, host_i));
-            let yn = |value: String| value.eq_ignore_ascii_case("Y") || value == "1" || parse_bool(value).unwrap_or(false);
+            let yn = |value: String| {
+                value.eq_ignore_ascii_case("Y")
+                    || value == "1"
+                    || parse_bool(value).unwrap_or(false)
+            };
             Some(CatalogUserRow {
                 is_superuser: yn(cell_named(row, super_i)),
                 can_create_db: yn(cell_named(row, createdb_i)),
@@ -428,7 +502,10 @@ fn first_nonempty_cell(row: &[Value], named: Option<usize>) -> Option<String> {
 }
 
 fn cell_named(row: &[Value], index: Option<usize>) -> String {
-    index.and_then(|i| row.get(i)).map(value_text).unwrap_or_default()
+    index
+        .and_then(|i| row.get(i))
+        .map(value_text)
+        .unwrap_or_default()
 }
 
 fn cell_at(row: &[Value], index: usize) -> String {
@@ -502,6 +579,9 @@ mod tests {
         assert_eq!(catalog_family("hive"), CatalogFamily::HiveLike);
         assert_eq!(catalog_family("firebird"), CatalogFamily::GenericSql);
         assert_eq!(catalog_family("neo4j"), CatalogFamily::NonSql);
+        assert!(!process_sqls(CatalogFamily::PostgresLike).is_empty());
+        assert!(!settings_sqls(CatalogFamily::OracleLike).is_empty());
+        assert!(!slow_query_sqls(CatalogFamily::PostgresLike).is_empty());
     }
 
     #[test]
@@ -562,5 +642,21 @@ mod tests {
         );
         assert!(pg[0].can_create_db);
         assert!(!pg[0].is_superuser);
+    }
+
+    #[test]
+    fn process_and_slow_query_sqls_cover_families() {
+        assert!(!process_list_sqls(CatalogFamily::PostgresLike).is_empty());
+        assert!(!process_list_sqls(CatalogFamily::OracleLike).is_empty());
+        assert!(!settings_sqls(CatalogFamily::PostgresLike).is_empty());
+        assert!(slow_query_sqls(CatalogFamily::PostgresLike)[0].contains("pg_stat_statements"));
+        assert!(
+            slow_query_sqls(CatalogFamily::OracleLike)[0]
+                .to_ascii_uppercase()
+                .contains("SQL")
+        );
+        assert!(!SQLSERVER_PROCESS_SQL.is_empty());
+        assert!(SQLSERVER_SETTINGS_SQL.contains("sys.configurations"));
+        assert!(SQLSERVER_SLOW_QUERY_SQL.contains("dm_exec_query_stats"));
     }
 }

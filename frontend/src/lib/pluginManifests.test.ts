@@ -44,10 +44,10 @@ describe("pluginManifests 单源目录", () => {
     expect(ch?.entry?.driver).toBe("bin/omnipanel-engine-clickhouse");
   });
 
-  it("Redis 声明 T1 sidecar 运行时", () => {
+  it("Redis 声明进程内运行时", () => {
     const redis = getPluginManifest("omni.engine.redis");
-    expect(redis?.runtime).toBe("sidecar");
-    expect(redis?.entry?.driver).toBe("bin/omnipanel-engine-redis");
+    expect(redis?.runtime).toBe("inproc");
+    expect(redis?.entry?.driver).toBeUndefined();
   });
 
   it("MongoDB 声明 T1 sidecar 运行时", () => {

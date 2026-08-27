@@ -21,7 +21,8 @@ import {
   type DbConnectionConfig,
   type DbDatabaseMeta,
 } from "../api";
-import { hostCapabilities } from "../hostCapabilities";
+import { hostCapabilities, canonicalHostEngine } from "../hostCapabilities";
+import { processListSqls, settingsSqls } from "../dialectWorkbenchSql";
 import { getEngineWorkbench } from "../engineRegistry";
 import {
   probeMysqlDeployment,
@@ -52,17 +53,6 @@ import { ConnectionCliTabPanel } from "./ConnectionCliTabPanel";
 import { ConnectionUsersTabPanel } from "./ConnectionUsersTabPanel";
 import { useDbConnectionInfoNavStore } from "../stores/dbConnectionInfoNavStore";
 import { resolveUserEngine } from "../users/userEngine";
-
-const MYSQL_PROCESSLIST_SQL = "SHOW FULL PROCESSLIST;";
-const MYSQL_VARIABLES_SQL = "SHOW VARIABLES;";
-// PostgreSQL：进程列表来自 pg_stat_activity，变量来自 pg_settings
-// 列别名与 MySQL 的 User/Host/Time 对齐，复用 SORTABLE_COLUMN_CANDIDATES 排序逻辑
-const PG_PROCESSLIST_SQL =
-  "SELECT pid AS Id, usename AS User, client_addr AS Host, datname AS db, state AS State, query AS Query, " +
-  "EXTRACT(EPOCH FROM now() - query_start)::bigint AS Time " +
-  "FROM pg_stat_activity WHERE datname IS NOT NULL ORDER BY Time DESC";
-const PG_VARIABLES_SQL =
-  "SELECT name, setting, source, context FROM pg_settings ORDER BY name";
 
 /** localStorage 缓存 key：按 connection.id 持久化 databasesList，重开 tab 先用缓存 */
 const DATABASES_CACHE_PREFIX = "db-conn-info-databases-cache:";
@@ -319,6 +309,8 @@ export function DatabaseConnectionInfoPanel({
   const caps = hostCapabilities(connection.db_type);
   const extra = caps.connectionInfoExtra;
   const canCreateDb = caps.createDatabase;
+  const cliEngine = canonicalHostEngine(connection.db_type);
+  const showCli = extra && (cliEngine === "mysql" || cliEngine === "postgres");
   const showPanel =
     extra || getEngineWorkbench(connection.db_type).connectionInfo === "sql";
   const sshConnections = useConnectionStore(
@@ -470,12 +462,25 @@ export function DatabaseConnectionInfoPanel({
     }
     setConnectionsError(null);
     try {
-      const queryResult = await invoke<QueryResult>("db_execute_query", {
-        connection,
-        sql: isPostgres ? PG_PROCESSLIST_SQL : MYSQL_PROCESSLIST_SQL,
-        runId: makeQueryRunId(),
-      });
-      setConnectionsResult(queryResult);
+      let lastError = "";
+      let loaded = false;
+      for (const sql of processListSqls(connection.db_type)) {
+        try {
+          const queryResult = await invoke<QueryResult>("db_execute_query", {
+            connection,
+            sql,
+            runId: makeQueryRunId(),
+          });
+          setConnectionsResult(queryResult);
+          loaded = true;
+          break;
+        } catch (e) {
+          lastError = typeof e === "string" ? e : JSON.stringify(e);
+        }
+      }
+      if (!loaded) {
+        setConnectionsError(lastError || "查询进程列表失败");
+      }
     } catch (e) {
       setConnectionsError(typeof e === "string" ? e : JSON.stringify(e));
     } finally {
@@ -483,7 +488,7 @@ export function DatabaseConnectionInfoPanel({
         setConnectionsLoading(false);
       }
     }
-  }, [extra, connection, isPostgres]);
+  }, [extra, connection]);
 
   const refreshVariables = useCallback(async (options?: { silent?: boolean }) => {
     if (!extra) {
@@ -497,12 +502,25 @@ export function DatabaseConnectionInfoPanel({
     }
     setVariablesError(null);
     try {
-      const queryResult = await invoke<QueryResult>("db_execute_query", {
-        connection,
-        sql: isPostgres ? PG_VARIABLES_SQL : MYSQL_VARIABLES_SQL,
-        runId: makeQueryRunId(),
-      });
-      setVariablesResult(queryResult);
+      let lastError = "";
+      let loaded = false;
+      for (const sql of settingsSqls(connection.db_type)) {
+        try {
+          const queryResult = await invoke<QueryResult>("db_execute_query", {
+            connection,
+            sql,
+            runId: makeQueryRunId(),
+          });
+          setVariablesResult(queryResult);
+          loaded = true;
+          break;
+        } catch (e) {
+          lastError = typeof e === "string" ? e : JSON.stringify(e);
+        }
+      }
+      if (!loaded) {
+        setVariablesError(lastError || "查询配置失败");
+      }
     } catch (e) {
       setVariablesError(typeof e === "string" ? e : JSON.stringify(e));
     } finally {
@@ -510,7 +528,7 @@ export function DatabaseConnectionInfoPanel({
         setVariablesLoading(false);
       }
     }
-  }, [extra, connection, isPostgres]);
+  }, [extra, connection]);
 
   const refreshDeployment = useCallback(async (options?: { force?: boolean }) => {
     // 部署探测目前仅支持 MySQL；PG 跳过
@@ -630,6 +648,13 @@ export function DatabaseConnectionInfoPanel({
       setSearch("");
     }
   }, [usersAvailable, subTab]);
+
+  useEffect(() => {
+    if (!showCli && subTab === "cli") {
+      setSubTab("databases");
+      setSearch("");
+    }
+  }, [showCli, subTab]);
 
   // 默认 tab（库列表）加载数据：优先用 context 缓存，无缓存则拉取
   // schema cache 正在刷新该连接时，不重复调 listDatabases（刷新完成后 databasesByConnId 会自动更新）
@@ -1250,7 +1275,7 @@ export function DatabaseConnectionInfoPanel({
   const renderPanelMainContent = () => (
     <>
       {/* 保持挂载以保留命令行会话；仅用 visible/panelActive 控制展示与焦点 */}
-      {extra ? renderCliSession() : null}
+      {showCli ? renderCliSession() : null}
       {subTab === "databases"
         ? renderDatabasesList()
         : subTab === "users"
@@ -1440,6 +1465,7 @@ export function DatabaseConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.status")}
           </button>
+          {showCli ? (
           <button
             type="button"
             role="tab"
@@ -1452,6 +1478,7 @@ export function DatabaseConnectionInfoPanel({
           >
             {t("database.connectionInfo.tabs.cli")}
           </button>
+          ) : null}
             </>
           ) : null}
         </div>

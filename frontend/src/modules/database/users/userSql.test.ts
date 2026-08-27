@@ -34,6 +34,18 @@ describe("userSql", () => {
     );
   });
 
+  it("builds sqlserver create / password / lock", () => {
+    expect(buildCreateUserSql("sqlserver", "alice", "s3cret")).toBe(
+      "CREATE LOGIN [alice] WITH PASSWORD = 's3cret'; CREATE USER [alice] FOR LOGIN [alice]",
+    );
+    expect(buildChangePasswordSql("mssql", "alice", "n")).toBe(
+      "ALTER LOGIN [alice] WITH PASSWORD = 'n'",
+    );
+    expect(buildSetLoginEnabledSql("sqlserver", "alice", false)).toBe(
+      "ALTER LOGIN [alice] DISABLE",
+    );
+  });
+
   it("builds oracle / dameng create / password / lock", () => {
     expect(buildCreateUserSql("dameng", "APP", "s3cret")).toBe(
       'CREATE USER "APP" IDENTIFIED BY \'s3cret\'',

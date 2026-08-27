@@ -17,6 +17,8 @@ import {
   isRegisteredEngine,
   resolveEngineKey,
 } from "./engineRegistry";
+import { isSchemaLikeTree } from "./workbench/engineWorkbench";
+import { catalogFamily } from "./hostCapabilities";
 import type { SchemaFiltersSnapshot } from "./schema/schemaFilters";
 import type { SchemaTreeExpandedSnapshot } from "./schema/schemaTreeExpanded";
 
@@ -140,7 +142,7 @@ export function isSupportedEngine(engine: ConnectionFormData["engine"]): boolean
 export function connectionHasTableSchemaChildren(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  return getEngineWorkbench(connection.db_type).tree === "schema";
+  return isSchemaLikeTree(getEngineWorkbench(connection.db_type).tree);
 }
 
 /** 可在 SQL 编辑器中执行查询的连接（排除 Redis / MongoDB / Qdrant 等非 SQL 引擎）。 */
@@ -176,21 +178,35 @@ export function isMysqlConnectionInfoCapable(
   return engine === "mysql" || engine === "mariadb";
 }
 
-/** PostgreSQL 连接（连接信息面板支持：库列表 / pg_stat_activity / pg_settings / psql）。 */
+/** PostgreSQL 系连接（库列表 / 会话 / 参数）。 */
 export function isPostgresConnectionInfoCapable(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
-  const engine = connection.db_type.toLowerCase();
-  return engine === "postgresql" || engine === "postgres";
+  return catalogFamily(connection.db_type) === "postgresLike";
 }
 
-/** 连接信息面板是否支持该连接（MySQL/MariaDB 或 PostgreSQL）。 */
+export function isOracleLikeConnectionInfoCapable(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  return catalogFamily(connection.db_type) === "oracleLike";
+}
+
+export function isSqlServerConnectionInfoCapable(
+  connection: Pick<DbConnectionConfig, "db_type">,
+): boolean {
+  const engine = connection.db_type.toLowerCase();
+  return engine === "sqlserver" || engine === "mssql" || engine === "sql server";
+}
+
+/** 连接信息面板是否支持该连接。 */
 export function isConnectionInfoCapable(
   connection: Pick<DbConnectionConfig, "db_type">,
 ): boolean {
   return (
     isMysqlConnectionInfoCapable(connection) ||
-    isPostgresConnectionInfoCapable(connection)
+    isPostgresConnectionInfoCapable(connection) ||
+    isOracleLikeConnectionInfoCapable(connection) ||
+    isSqlServerConnectionInfoCapable(connection)
   );
 }
 

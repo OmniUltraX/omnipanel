@@ -3,17 +3,17 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_plugin::{PluginKind, PluginListItem};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use specta::Type;
 use tauri::State;
@@ -26,13 +26,7 @@ const REGISTRY_URL: &str =
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
 
 const WORKER_PROTOCOL: &[&str] = &["duckdb"];
-const QUEUE_OR_KV: &[&str] = &[
-    "kafka",
-    "etcd",
-    "rabbitmq",
-    "rocketmq",
-    "zookeeper",
-];
+const QUEUE_OR_KV: &[&str] = &["kafka", "etcd", "rabbitmq", "rocketmq", "zookeeper"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -127,6 +121,8 @@ fn default_port(key: &str) -> u16 {
     match key {
         "oracle" => 1521,
         "kingbase" | "vastbase" | "highgo" | "uxdb" => 54321,
+        "gaussdb" | "opengauss" => 5432,
+        "tidb" => 4000,
         "xugu" => 5138,
         "dameng" => 5236,
         "db2" => 50000,
@@ -152,15 +148,13 @@ fn aliases_for(key: &str) -> Vec<String> {
         "oracle" => vec!["oracle".into(), "orcl".into()],
         "dameng" => vec!["dameng".into(), "dm".into()],
         "kingbase" => vec!["kingbase".into(), "kingbasees".into()],
+        "gaussdb" => vec!["gaussdb".into(), "opengauss".into()],
         other => vec![other.to_string()],
     }
 }
 
 fn icon_for(key: &str) -> String {
-    key.chars()
-        .take(2)
-        .collect::<String>()
-        .to_ascii_uppercase()
+    key.chars().take(2).collect::<String>().to_ascii_uppercase()
 }
 
 fn reserved_engine_keys() -> HashSet<String> {
@@ -370,8 +364,7 @@ pub async fn plugin_dbx_catalog(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbxCatalogDriver>, OmniError> {
     let plugins_root = state.plugin_packages_dir.clone();
-    let registry =
-        registry_for_catalog(&state.plugin_http, plugins_root.as_deref()).await?;
+    let registry = registry_for_catalog(&state.plugin_http, plugins_root.as_deref()).await?;
     let installed = {
         let registry_guard = state.plugin_registry.lock().await;
         registry_guard
@@ -418,15 +411,14 @@ pub async fn plugin_dbx_install(
         .plugin_packages_dir
         .clone()
         .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
-    let registry =
-        registry_for_install(&state.plugin_http, Some(dest_root.as_path())).await?;
-    let entry = registry.drivers.get(&key).ok_or_else(|| {
-        OmniError::not_found(format!("DBX 目录没有 driver: {key}"))
-    })?;
+    let registry = registry_for_install(&state.plugin_http, Some(dest_root.as_path())).await?;
+    let entry = registry
+        .drivers
+        .get(&key)
+        .ok_or_else(|| OmniError::not_found(format!("DBX 目录没有 driver: {key}")))?;
     let platform = current_platform();
-    let (kind, artifact) = pick_artifact(entry, &platform).ok_or_else(|| {
-        OmniError::not_found(format!("DBX {key} 没有 {platform} native/JDBC 包"))
-    })?;
+    let (kind, artifact) = pick_artifact(entry, &platform)
+        .ok_or_else(|| OmniError::not_found(format!("DBX {key} 没有 {platform} native/JDBC 包")))?;
     if kind == ArtifactKind::Jar {
         ensure_jre(&state.plugin_http, &registry, &dest_root, &entry.jre).await?;
     }
@@ -441,11 +433,7 @@ pub async fn plugin_dbx_install(
 
     let version = entry.version.clone();
     let dest = dest_root.join(&plugin_id);
-    let work = std::env::temp_dir().join(format!(
-        "omni-dbx-{}-{}",
-        key,
-        std::process::id()
-    ));
+    let work = std::env::temp_dir().join(format!("omni-dbx-{}-{}", key, std::process::id()));
     tokio::task::spawn_blocking({
         let dest = dest.clone();
         let work = work.clone();
@@ -471,6 +459,62 @@ pub async fn plugin_dbx_install(
         source: entry.source,
         unsupported_reason: entry.unsupported_reason.clone(),
     })
+}
+
+const OPTIONAL_CATALOG_ENGINES: &[&str] = &[
+    "kingbase",
+    "vastbase",
+    "uxdb",
+    "gaussdb",
+    "oceanbase",
+    "tidb",
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DbxInstallAttempt {
+    pub key: String,
+    pub ok: bool,
+    pub message: String,
+}
+
+/// 安装金仓 / Vastbase / UXDB / GaussDB / OceanBase / TiDB；目录无包则记原因，不阻断其余项。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_dbx_install_catalog_engines(
+    state: State<'_, AppState>,
+) -> Result<Vec<DbxInstallAttempt>, OmniError> {
+    let mut out = Vec::new();
+    for key in OPTIONAL_CATALOG_ENGINES {
+        let plugin_id = plugin_id_for(key);
+        {
+            let registry = state.plugin_registry.lock().await;
+            if registry.is_installed(&plugin_id) {
+                out.push(DbxInstallAttempt {
+                    key: (*key).to_string(),
+                    ok: true,
+                    message: "already installed".into(),
+                });
+                continue;
+            }
+        }
+        match plugin_dbx_install(state.clone(), (*key).to_string()).await {
+            Ok(item) => out.push(DbxInstallAttempt {
+                key: (*key).to_string(),
+                ok: true,
+                message: format!("installed {}", item.version),
+            }),
+            Err(err) => {
+                tracing::warn!("安装 DBX {key} 失败: {err}");
+                out.push(DbxInstallAttempt {
+                    key: (*key).to_string(),
+                    ok: false,
+                    message: err.to_string(),
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, OmniError> {
@@ -512,13 +556,15 @@ async fn ensure_jre(
         }
         let _ = fs::remove_dir_all(&dest);
     }
-    let jre = registry.jres.get(key).ok_or_else(|| {
-        OmniError::not_found(format!("DBX 目录没有 JRE {key}"))
-    })?;
+    let jre = registry
+        .jres
+        .get(key)
+        .ok_or_else(|| OmniError::not_found(format!("DBX 目录没有 JRE {key}")))?;
     let platform = current_platform();
-    let artifact = jre.platforms.get(&platform).ok_or_else(|| {
-        OmniError::not_found(format!("DBX JRE {key} 没有 {platform} 包"))
-    })?;
+    let artifact = jre
+        .platforms
+        .get(&platform)
+        .ok_or_else(|| OmniError::not_found(format!("DBX JRE {key} 没有 {platform} 包")))?;
     if artifact.url.trim().is_empty() {
         return Err(OmniError::not_found(format!("DBX JRE {key} URL 为空")));
     }
@@ -611,9 +657,8 @@ fn install_extracted(
     let unpack = work.join("unpack");
     fs::create_dir_all(&unpack).map_err(|e| OmniError::internal(e.to_string()))?;
     extract_tar_zst(&archive, &unpack)?;
-    let payload = find_agent_payload(&unpack).ok_or_else(|| {
-        OmniError::not_found("DBX 包内没有 agent 可执行文件或 jar")
-    })?;
+    let payload = find_agent_payload(&unpack)
+        .ok_or_else(|| OmniError::not_found("DBX 包内没有 agent 可执行文件或 jar"))?;
     let file_name = payload
         .file_name()
         .and_then(|n| n.to_str())
@@ -655,28 +700,26 @@ fn extract_tar_zst(archive: &Path, dest: &Path) -> Result<(), OmniError> {
     match extract_tar_zst_in_process(archive, dest) {
         Ok(()) => Ok(()),
         Err(in_process) => extract_tar_zst_via_tar(archive, dest).map_err(|via_tar| {
-            OmniError::internal(format!(
-                "解压 DBX 包失败: {in_process}; tar: {via_tar}"
-            ))
+            OmniError::internal(format!("解压 DBX 包失败: {in_process}; tar: {via_tar}"))
         }),
     }
 }
 
 fn extract_tar_zst_in_process(archive: &Path, dest: &Path) -> Result<(), OmniError> {
-    let file = fs::File::open(archive).map_err(|e| {
-        OmniError::internal(format!("打开压缩包失败: {e}"))
-    })?;
-    let decoder = zstd::Decoder::new(file).map_err(|e| {
-        OmniError::internal(format!("zstd 解码失败: {e}"))
-    })?;
+    let file =
+        fs::File::open(archive).map_err(|e| OmniError::internal(format!("打开压缩包失败: {e}")))?;
+    let decoder =
+        zstd::Decoder::new(file).map_err(|e| OmniError::internal(format!("zstd 解码失败: {e}")))?;
     let mut tar = tar::Archive::new(decoder);
-    for entry in tar.entries().map_err(|e| {
-        OmniError::internal(format!("读取 tar 失败: {e}"))
-    })? {
-        let mut entry = entry.map_err(|e| {
-            OmniError::internal(format!("读取 tar 条目失败: {e}"))
-        })?;
-        let path = entry.path().map_err(|e| OmniError::internal(e.to_string()))?;
+    for entry in tar
+        .entries()
+        .map_err(|e| OmniError::internal(format!("读取 tar 失败: {e}")))?
+    {
+        let mut entry =
+            entry.map_err(|e| OmniError::internal(format!("读取 tar 条目失败: {e}")))?;
+        let path = entry
+            .path()
+            .map_err(|e| OmniError::internal(e.to_string()))?;
         if path.is_absolute()
             || path
                 .components()
@@ -684,16 +727,20 @@ fn extract_tar_zst_in_process(archive: &Path, dest: &Path) -> Result<(), OmniErr
         {
             continue;
         }
-        entry.unpack_in(dest).map_err(|e| {
-            OmniError::internal(format!("解压条目失败: {e}"))
-        })?;
+        entry
+            .unpack_in(dest)
+            .map_err(|e| OmniError::internal(format!("解压条目失败: {e}")))?;
     }
     Ok(())
 }
 
 fn extract_tar_zst_via_tar(archive: &Path, dest: &Path) -> Result<(), OmniError> {
     let mut cmd = Command::new("tar");
-    cmd.arg("-xf").arg(archive).arg("-C").arg(dest);
+    cmd.arg("-xf")
+        .arg(archive)
+        .arg("-C")
+        .arg(dest)
+        .stdin(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -730,9 +777,7 @@ fn find_agent_jar(root: &Path) -> Option<PathBuf> {
                 continue;
             };
             let lower = name.to_ascii_lowercase();
-            if lower.ends_with(".jar")
-                && (lower.starts_with("dbx-agent") || lower == "agent.jar")
-            {
+            if lower.ends_with(".jar") && (lower.starts_with("dbx-agent") || lower == "agent.jar") {
                 found.push(path);
             }
         }
@@ -779,6 +824,11 @@ fn plugin_manifest_json(key: &str, version: &str, driver_rel: &str) -> Value {
         "neo4j" => "cypher",
         "cassandra" => "cql",
         _ => "sql",
+    };
+    let tree = match key {
+        "neo4j" => "graph",
+        "cassandra" => "keyspace",
+        _ => "schema",
     };
     let database_label = match key {
         "oracle" => "服务名",
@@ -843,7 +893,7 @@ fn plugin_manifest_json(key: &str, version: &str, driver_rel: &str) -> Value {
                     "fields": fields
                 },
                 "workbench": {
-                    "tree": "schema",
+                    "tree": tree,
                     "editor": editor,
                     "preview": "grid",
                     "connectionInfo": "sql"
@@ -855,15 +905,13 @@ fn plugin_manifest_json(key: &str, version: &str, driver_rel: &str) -> Value {
 
 /// 启动时修补已装 DBX 引擎清单：旧包 `builtinLayout: true` 没有 SID / 模式字段。
 pub(crate) fn migrate_installed_engine_manifests(plugins_root: &Path) {
-    for key in ["oracle", "dameng"] {
+    for key in ["oracle", "dameng", "neo4j", "cassandra"] {
         migrate_engine_manifest(plugins_root, key);
     }
 }
 
 fn migrate_engine_manifest(plugins_root: &Path, key: &str) {
-    let path = plugins_root
-        .join(plugin_id_for(key))
-        .join("plugin.json");
+    let path = plugins_root.join(plugin_id_for(key)).join("plugin.json");
     let Ok(text) = fs::read_to_string(&path) else {
         return;
     };
@@ -880,9 +928,14 @@ fn migrate_engine_manifest(plugins_root: &Path, key: &str) {
             .any(|field| field.get("key").and_then(Value::as_str) == Some("sid"))
     });
     let builtin = form.get("builtinLayout").and_then(Value::as_bool) == Some(true);
+    let tree = value
+        .pointer("/contributes/ui/workbench/tree")
+        .and_then(Value::as_str);
     let needs = match key {
         "oracle" => builtin || !has_sid,
         "dameng" => builtin,
+        "neo4j" => tree != Some("graph"),
+        "cassandra" => tree != Some("keyspace"),
         _ => false,
     };
     if !needs {
@@ -995,6 +1048,10 @@ mod tests {
             .as_str()
             .unwrap();
         assert_eq!(editor, "cql");
+        assert_eq!(
+            value["contributes"]["ui"]["workbench"]["tree"].as_str(),
+            Some("keyspace")
+        );
         let manifest = omnipanel_plugin::PluginManifest::from_value(value).unwrap();
         manifest.validate().unwrap();
     }
@@ -1006,17 +1063,18 @@ mod tests {
             .as_str()
             .unwrap();
         assert_eq!(editor, "cypher");
+        assert_eq!(
+            value["contributes"]["ui"]["workbench"]["tree"].as_str(),
+            Some("graph")
+        );
         let manifest = omnipanel_plugin::PluginManifest::from_value(value).unwrap();
         manifest.validate().unwrap();
     }
 
     #[test]
     fn generated_manifest_validates() {
-        let value = plugin_manifest_json(
-            "oracle",
-            "0.1.55",
-            "bin/dbx-agent-oracle-windows-x64.exe",
-        );
+        let value =
+            plugin_manifest_json("oracle", "0.1.55", "bin/dbx-agent-oracle-windows-x64.exe");
         let manifest = omnipanel_plugin::PluginManifest::from_value(value.clone()).unwrap();
         manifest.validate().unwrap();
         assert_eq!(manifest.id, "omni.engine.oracle");
@@ -1057,10 +1115,7 @@ mod tests {
 
     #[test]
     fn migrate_rewrites_oracle_builtin_layout() {
-        let dir = std::env::temp_dir().join(format!(
-            "omni-oracle-migrate-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("omni-oracle-migrate-{}", std::process::id()));
         let plugin_dir = dir.join("omni.engine.oracle");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&plugin_dir).unwrap();
@@ -1119,10 +1174,8 @@ mod tests {
 
     #[test]
     fn extract_tar_zst_in_process_without_shell() {
-        let dir = std::env::temp_dir().join(format!(
-            "omni-dbx-extract-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("omni-dbx-extract-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("src").join("bin")).unwrap();
         fs::write(dir.join("src").join("bin").join("hello.txt"), b"dbx").unwrap();
@@ -1137,16 +1190,16 @@ mod tests {
         let dest = dir.join("out");
         fs::create_dir_all(&dest).unwrap();
         extract_tar_zst_in_process(&archive, &dest).unwrap();
-        assert_eq!(fs::read(dest.join("bin").join("hello.txt")).unwrap(), b"dbx");
+        assert_eq!(
+            fs::read(dest.join("bin").join("hello.txt")).unwrap(),
+            b"dbx"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn registry_disk_cache_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "omni-dbx-reg-cache-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("omni-dbx-reg-cache-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let registry: RegistryFile = serde_json::from_value(json!({
@@ -1204,16 +1257,43 @@ mod tests {
             .unwrap()
             .validate()
             .unwrap();
+
+        let gauss = plugin_manifest_json("gaussdb", "0.1.0", "bin/agent.jar");
+        let gauss_form = &gauss["contributes"]["ui"]["connectionForm"];
+        assert_eq!(gauss_form["defaultPort"], 5432);
+        let aliases: Vec<_> = gauss_form["aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(aliases.contains(&"opengauss"), "{aliases:?}");
+        omnipanel_plugin::PluginManifest::from_value(gauss)
+            .unwrap()
+            .validate()
+            .unwrap();
+
+        let tidb = plugin_manifest_json("tidb", "0.1.0", "bin/agent.jar");
+        assert_eq!(
+            tidb["contributes"]["ui"]["connectionForm"]["defaultPort"],
+            4000
+        );
+        omnipanel_plugin::PluginManifest::from_value(tidb)
+            .unwrap()
+            .validate()
+            .unwrap();
     }
 
     #[test]
     fn sha256_mismatch_is_fail_closed() {
         assert!(verify_sha256(b"hello", "").is_ok());
-        assert!(verify_sha256(
-            b"hello",
-            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-        )
-        .is_ok());
+        assert!(
+            verify_sha256(
+                b"hello",
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            )
+            .is_ok()
+        );
         let err = verify_sha256(b"hello", "deadbeef").unwrap_err();
         assert!(err.contains("校验失败"), "{err}");
         assert!(err.contains("sha256 不匹配"), "{err}");

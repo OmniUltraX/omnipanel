@@ -50,3 +50,4 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 tiberius = { version = "0.12", default-features = false, features = ["chrono", "tds73", "rustls", "tokio"], optional = true }
 tokio-util = { version = "0.7", features = ["compat"], optional = true }
 rustls = { workspace = true, optional = true }
+encoding_rs = "0.8"

@@ -93,7 +93,7 @@ export const pluginManifestSchema = z.object({
           commands: z.array(z.unknown()).optional(),
           workbench: z
             .object({
-              tree: z.enum(["schema", "kv", "collections", "documents", "none"]).optional(),
+              tree: z.enum(["schema", "graph", "keyspace", "kv", "collections", "documents", "none"]).optional(),
               editor: z.enum(["sql", "cypher", "cql", "redis", "none"]).optional(),
               preview: z.enum(["grid", "key", "points", "document", "none"]).optional(),
               connectionInfo: z.enum(["sql", "redis", "none"]).optional(),

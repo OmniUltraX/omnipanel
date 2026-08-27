@@ -221,7 +221,9 @@ pub async fn stream_range(
     count: Option<usize>,
     reverse: bool,
 ) -> OmniResult<RedisStreamRangeResult> {
-    let count = count.unwrap_or(STREAM_RANGE_DEFAULT).clamp(1, STREAM_RANGE_MAX);
+    let count = count
+        .unwrap_or(STREAM_RANGE_DEFAULT)
+        .clamp(1, STREAM_RANGE_MAX);
     let mut cmd = if reverse {
         redis::cmd("XREVRANGE")
     } else {
@@ -302,7 +304,10 @@ pub async fn stream_monitor(
     group: Option<&str>,
 ) -> OmniResult<RedisStreamMonitorSnapshot> {
     let newest_id = newest_stream_id(conn, key).await.ok();
-    let newest_ts_ms = newest_id.as_ref().map(|id| stream_id_to_ts_ms(id)).flatten();
+    let newest_ts_ms = newest_id
+        .as_ref()
+        .map(|id| stream_id_to_ts_ms(id))
+        .flatten();
     let mut groups = stream_groups(conn, key).await.unwrap_or_default();
     let consumers = if let Some(g) = group.filter(|s| !s.trim().is_empty()) {
         stream_consumers(conn, key, g).await.unwrap_or_default()
@@ -469,14 +474,12 @@ pub async fn stream_cleanup_inactive_consumers(
     target_consumer: Option<&str>,
 ) -> OmniResult<RedisStreamConsumerCleanupResult> {
     let consumers = stream_consumers(conn, key, group).await?;
-    let target = target_consumer
-        .map(|s| s.to_string())
-        .or_else(|| {
-            consumers
-                .iter()
-                .find(|c| c.idle_ms.map(|v| v < idle_threshold_ms).unwrap_or(true))
-                .map(|c| c.name.clone())
-        });
+    let target = target_consumer.map(|s| s.to_string()).or_else(|| {
+        consumers
+            .iter()
+            .find(|c| c.idle_ms.map(|v| v < idle_threshold_ms).unwrap_or(true))
+            .map(|c| c.name.clone())
+    });
 
     let mut removed_consumers = Vec::new();
     let mut failed = Vec::new();
@@ -579,10 +582,7 @@ pub async fn acl_setuser(
     Ok(())
 }
 
-pub async fn acl_deluser(
-    conn: &mut MultiplexedConnection,
-    username: &str,
-) -> OmniResult<u64> {
+pub async fn acl_deluser(conn: &mut MultiplexedConnection, username: &str) -> OmniResult<u64> {
     let n: u64 = redis::cmd("ACL")
         .arg("DELUSER")
         .arg(username)
@@ -666,7 +666,11 @@ pub async fn list_remove(
     Ok(n)
 }
 
-pub async fn set_add(conn: &mut MultiplexedConnection, key: &str, members: &[String]) -> OmniResult<u64> {
+pub async fn set_add(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    members: &[String],
+) -> OmniResult<u64> {
     if members.is_empty() {
         return Ok(0);
     }
@@ -749,7 +753,9 @@ fn map_redis_err(err: redis::RedisError) -> OmniError {
     OmniError::database("Redis 操作失败").with_cause(err.to_string())
 }
 
-pub fn parse_info_sections(text: &str) -> std::collections::HashMap<String, std::collections::HashMap<String, String>> {
+pub fn parse_info_sections(
+    text: &str,
+) -> std::collections::HashMap<String, std::collections::HashMap<String, String>> {
     let mut sections: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
         std::collections::HashMap::new();
     let mut current = "default".to_string();
@@ -801,10 +807,7 @@ fn redis_value_to_flat_map(value: redis::Value) -> std::collections::HashMap<Str
             })
             .collect(),
         redis::Value::Array(items) => {
-            let strings: Vec<String> = items
-                .into_iter()
-                .map(redis_value_to_string_owned)
-                .collect();
+            let strings: Vec<String> = items.into_iter().map(redis_value_to_string_owned).collect();
             let mut out = std::collections::HashMap::new();
             let mut i = 0;
             while i + 1 < strings.len() {
@@ -825,7 +828,12 @@ fn parse_stream_map(item: redis::Value) -> std::collections::HashMap<String, Str
     match item {
         redis::Value::Map(map) => map
             .into_iter()
-            .map(|(k, v)| (redis_value_to_string_owned(k), redis_value_to_string_owned(v)))
+            .map(|(k, v)| {
+                (
+                    redis_value_to_string_owned(k),
+                    redis_value_to_string_owned(v),
+                )
+            })
             .collect(),
         redis::Value::Array(items) => {
             let strings: Vec<String> = items.into_iter().map(redis_value_to_string_owned).collect();
@@ -851,10 +859,7 @@ fn parse_stream_groups(value: redis::Value) -> Vec<RedisStreamGroup> {
                     return None;
                 }
                 Some(RedisStreamGroup {
-                    name: map
-                        .get("name")
-                        .cloned()
-                        .unwrap_or_default(),
+                    name: map.get("name").cloned().unwrap_or_default(),
                     consumers: map.get("consumers").and_then(|v| v.parse().ok()),
                     pending: map.get("pending").and_then(|v| v.parse().ok()),
                     lag: map.get("lag").and_then(|v| v.parse().ok()),

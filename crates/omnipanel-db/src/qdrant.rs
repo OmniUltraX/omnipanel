@@ -146,15 +146,13 @@ impl QdrantDriver {
         let status = resp.status();
         let body = resp.text().await.map_err(map_reqwest)?;
         if !status.is_success() {
-            return Err(OmniError::connection(format!(
-                "Qdrant 请求失败 HTTP {}",
-                status.as_u16()
-            ))
-            .with_cause(body.chars().take(300).collect::<String>()));
+            return Err(
+                OmniError::connection(format!("Qdrant 请求失败 HTTP {}", status.as_u16()))
+                    .with_cause(body.chars().take(300).collect::<String>()),
+            );
         }
-        serde_json::from_str(&body).map_err(|e| {
-            OmniError::database("解析 Qdrant 响应失败").with_cause(e.to_string())
-        })
+        serde_json::from_str(&body)
+            .map_err(|e| OmniError::database("解析 Qdrant 响应失败").with_cause(e.to_string()))
     }
 
     async fn post_json<T: for<'de> Deserialize<'de>>(
@@ -173,15 +171,13 @@ impl QdrantDriver {
         let status = resp.status();
         let text = resp.text().await.map_err(map_reqwest)?;
         if !status.is_success() {
-            return Err(OmniError::connection(format!(
-                "Qdrant 请求失败 HTTP {}",
-                status.as_u16()
-            ))
-            .with_cause(text.chars().take(300).collect::<String>()));
+            return Err(
+                OmniError::connection(format!("Qdrant 请求失败 HTTP {}", status.as_u16()))
+                    .with_cause(text.chars().take(300).collect::<String>()),
+            );
         }
-        serde_json::from_str(&text).map_err(|e| {
-            OmniError::database("解析 Qdrant 响应失败").with_cause(e.to_string())
-        })
+        serde_json::from_str(&text)
+            .map_err(|e| OmniError::database("解析 Qdrant 响应失败").with_cause(e.to_string()))
     }
 
     pub async fn list_collection_infos(&self) -> OmniResult<Vec<QdrantCollectionInfo>> {

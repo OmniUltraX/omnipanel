@@ -5,15 +5,15 @@
 
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use crate::{
-    decode_text_as_json_or_string, encode_blob_value, is_query, safe_int_to_value,
-    sanitize_json_value_for_js, split_statements, DbDriver, DbParams, QueryResult,
+    DbDriver, DbParams, QueryResult, decode_text_as_json_or_string, encode_blob_value, is_query,
+    safe_int_to_value, sanitize_json_value_for_js, split_statements,
 };
 
 const DEFAULT_PORT: u16 = 1433;
@@ -26,7 +26,7 @@ fn ensure_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-fn quote_ident(name: &str) -> String {
+pub(crate) fn quote_ident(name: &str) -> String {
     name.split('.')
         .map(|part| format!("[{}]", part.replace(']', "]]")))
         .collect::<Vec<_>>()
@@ -39,10 +39,18 @@ fn map_tiberius(err: tiberius::error::Error) -> OmniError {
 
 fn cell_to_json(data: &ColumnData<'_>) -> Value {
     let value = match data {
-        ColumnData::U8(v) => v.map(|n| safe_int_to_value(n as i128)).unwrap_or(Value::Null),
-        ColumnData::I16(v) => v.map(|n| safe_int_to_value(n as i128)).unwrap_or(Value::Null),
-        ColumnData::I32(v) => v.map(|n| safe_int_to_value(n as i128)).unwrap_or(Value::Null),
-        ColumnData::I64(v) => v.map(|n| safe_int_to_value(n as i128)).unwrap_or(Value::Null),
+        ColumnData::U8(v) => v
+            .map(|n| safe_int_to_value(n as i128))
+            .unwrap_or(Value::Null),
+        ColumnData::I16(v) => v
+            .map(|n| safe_int_to_value(n as i128))
+            .unwrap_or(Value::Null),
+        ColumnData::I32(v) => v
+            .map(|n| safe_int_to_value(n as i128))
+            .unwrap_or(Value::Null),
+        ColumnData::I64(v) => v
+            .map(|n| safe_int_to_value(n as i128))
+            .unwrap_or(Value::Null),
         ColumnData::F32(v) => v.map(|n| json!(n)).unwrap_or(Value::Null),
         ColumnData::F64(v) => v.map(|n| json!(n)).unwrap_or(Value::Null),
         ColumnData::Bit(v) => v.map(Value::Bool).unwrap_or(Value::Null),
@@ -50,7 +58,9 @@ fn cell_to_json(data: &ColumnData<'_>) -> Value {
             .as_ref()
             .map(|s| decode_text_as_json_or_string(s.to_string()))
             .unwrap_or(Value::Null),
-        ColumnData::Guid(v) => v.map(|g| Value::String(g.to_string())).unwrap_or(Value::Null),
+        ColumnData::Guid(v) => v
+            .map(|g| Value::String(g.to_string()))
+            .unwrap_or(Value::Null),
         ColumnData::Binary(v) => v
             .as_ref()
             .map(|b| encode_blob_value(b.as_ref()))
@@ -62,16 +72,24 @@ fn cell_to_json(data: &ColumnData<'_>) -> Value {
             .as_ref()
             .map(|x| Value::String(x.to_string()))
             .unwrap_or(Value::Null),
-        ColumnData::DateTime(v) => v.map(|d| Value::String(format!("{d:?}"))).unwrap_or(Value::Null),
-        ColumnData::SmallDateTime(v) => {
-            v.map(|d| Value::String(format!("{d:?}"))).unwrap_or(Value::Null)
-        }
-        ColumnData::DateTime2(v) => v.map(|d| Value::String(format!("{d:?}"))).unwrap_or(Value::Null),
-        ColumnData::DateTimeOffset(v) => {
-            v.map(|d| Value::String(format!("{d:?}"))).unwrap_or(Value::Null)
-        }
-        ColumnData::Time(v) => v.map(|d| Value::String(format!("{d:?}"))).unwrap_or(Value::Null),
-        ColumnData::Date(v) => v.map(|d| Value::String(format!("{d:?}"))).unwrap_or(Value::Null),
+        ColumnData::DateTime(v) => v
+            .map(|d| Value::String(format!("{d:?}")))
+            .unwrap_or(Value::Null),
+        ColumnData::SmallDateTime(v) => v
+            .map(|d| Value::String(format!("{d:?}")))
+            .unwrap_or(Value::Null),
+        ColumnData::DateTime2(v) => v
+            .map(|d| Value::String(format!("{d:?}")))
+            .unwrap_or(Value::Null),
+        ColumnData::DateTimeOffset(v) => v
+            .map(|d| Value::String(format!("{d:?}")))
+            .unwrap_or(Value::Null),
+        ColumnData::Time(v) => v
+            .map(|d| Value::String(format!("{d:?}")))
+            .unwrap_or(Value::Null),
+        ColumnData::Date(v) => v
+            .map(|d| Value::String(format!("{d:?}")))
+            .unwrap_or(Value::Null),
     };
     sanitize_json_value_for_js(value)
 }
@@ -106,9 +124,9 @@ impl SqlServerDriver {
             EncryptionLevel::NotSupported
         });
 
-        let tcp = TcpStream::connect(config.get_addr()).await.map_err(|e| {
-            OmniError::connection("SQL Server 连接失败").with_cause(e.to_string())
-        })?;
+        let tcp = TcpStream::connect(config.get_addr())
+            .await
+            .map_err(|e| OmniError::connection("SQL Server 连接失败").with_cause(e.to_string()))?;
         tcp.set_nodelay(true).ok();
         let client = Client::connect(config, tcp.compat_write())
             .await
@@ -134,7 +152,10 @@ impl SqlServerDriver {
             .collect())
     }
 
-    async fn run_query(client: &mut Client<Compat<TcpStream>>, sql: &str) -> OmniResult<QueryResult> {
+    async fn run_query(
+        client: &mut Client<Compat<TcpStream>>,
+        sql: &str,
+    ) -> OmniResult<QueryResult> {
         let stream = client.query(sql, &[]).await.map_err(map_tiberius)?;
         let rows = stream.into_first_result().await.map_err(map_tiberius)?;
         let columns = rows

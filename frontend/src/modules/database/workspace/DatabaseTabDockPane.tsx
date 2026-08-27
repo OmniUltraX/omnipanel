@@ -10,6 +10,7 @@ import { DbTablePreviewSurface } from "./DbTablePreviewSurface";
 import { isTablePreviewTab } from "../../../stores/dbWorkspaceTabStore";
 import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./DatabaseSlowQueryLogPanel";
+import { DialectSlowQueryPanel } from "./DialectSlowQueryPanel";
 import { DatabaseBinlogPanel } from "./DatabaseBinlogPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import {
@@ -128,10 +129,12 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
             (() => {
               const connection = resolveConn(tab.connId);
               if (!connection) return <SnapshotMissingFallback tabId={tabId} />;
-              return (
+              return tab.dialect || !tab.logFilePath ? (
+                <DialectSlowQueryPanel connection={connection} active={_isActive} />
+              ) : (
                 <DatabaseSlowQueryLogPanel
                   connection={connection}
-                  sshConnectionId={tab.sshConnectionId}
+                  sshConnectionId={tab.sshConnectionId ?? ""}
                   logFilePath={tab.logFilePath}
                   deploymentKind={tab.deploymentKind}
                   containerId={tab.containerId}

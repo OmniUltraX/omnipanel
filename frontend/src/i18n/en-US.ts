@@ -2484,6 +2484,9 @@ export const enUS: TranslationDict = {
       filterMatchCount: "{matched} / {total} matched",
       filterSearching: "Expanding search range…",
       pageIndicator: "Page {page} / {total}",
+      dialectUnsupported: "This engine has no dialect slow-query view",
+      dialectEmpty: "No slow-query stats (extension such as pg_stat_statements may be missing)",
+      dialectMissing: "Could not load slow-query stats; showing an empty table",
     },
     binlog: {
       tabLabel: "Binary Log",

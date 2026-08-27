@@ -2477,6 +2477,9 @@ export const zhCN = {
       filterMatchCount: "匹配 {matched} / {total} 条",
       filterSearching: "正在扩大搜索范围…",
       pageIndicator: "第 {page} / {total} 页",
+      dialectUnsupported: "当前引擎没有方言慢查询视图",
+      dialectEmpty: "暂无慢查询统计（可能未安装 pg_stat_statements 等扩展）",
+      dialectMissing: "无法读取慢查询统计，已按空表展示",
     },
     binlog: {
       tabLabel: "二进制日志",

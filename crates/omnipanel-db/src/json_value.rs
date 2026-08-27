@@ -82,7 +82,10 @@ mod tests {
     #[test]
     fn safe_small_int_stays_number() {
         assert_eq!(safe_int_to_value(42), json!(42));
-        assert_eq!(safe_int_to_value((1i128 << 53) - 1), json!((1i64 << 53) - 1));
+        assert_eq!(
+            safe_int_to_value((1i128 << 53) - 1),
+            json!((1i64 << 53) - 1)
+        );
     }
 
     #[test]

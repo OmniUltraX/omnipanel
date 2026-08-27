@@ -92,10 +92,13 @@ impl FirstPartyEngine {
     /// 产品默认运行时。MySQL / PG 仍可用 `OMNIPANEL_SQL_SIDECAR=1` 临时切 sidecar。
     pub fn runtime(self) -> FirstPartyRuntime {
         match self {
-            Self::Redis | Self::MongoDb | Self::ClickHouse => FirstPartyRuntime::Sidecar,
-            Self::MySql | Self::Postgres | Self::Sqlite | Self::SqlServer | Self::Qdrant => {
-                FirstPartyRuntime::Inproc
-            }
+            Self::MongoDb | Self::ClickHouse => FirstPartyRuntime::Sidecar,
+            Self::MySql
+            | Self::Postgres
+            | Self::Sqlite
+            | Self::SqlServer
+            | Self::Redis
+            | Self::Qdrant => FirstPartyRuntime::Inproc,
         }
     }
 }
@@ -138,13 +141,19 @@ mod tests {
             FirstPartyEngine::Postgres.runtime(),
             FirstPartyRuntime::Inproc
         );
-        assert_eq!(FirstPartyEngine::Sqlite.runtime(), FirstPartyRuntime::Inproc);
+        assert_eq!(
+            FirstPartyEngine::Sqlite.runtime(),
+            FirstPartyRuntime::Inproc
+        );
         assert_eq!(
             FirstPartyEngine::SqlServer.runtime(),
             FirstPartyRuntime::Inproc
         );
-        assert_eq!(FirstPartyEngine::Qdrant.runtime(), FirstPartyRuntime::Inproc);
-        assert_eq!(FirstPartyEngine::Redis.runtime(), FirstPartyRuntime::Sidecar);
+        assert_eq!(
+            FirstPartyEngine::Qdrant.runtime(),
+            FirstPartyRuntime::Inproc
+        );
+        assert_eq!(FirstPartyEngine::Redis.runtime(), FirstPartyRuntime::Inproc);
         assert_eq!(
             FirstPartyEngine::MongoDb.runtime(),
             FirstPartyRuntime::Sidecar

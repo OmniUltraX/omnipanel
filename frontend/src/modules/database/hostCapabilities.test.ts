@@ -17,6 +17,7 @@ describe("hostCapabilities", () => {
     expect(pg.createDatabase).toBe(true);
     expect(pg.users).toBe(true);
     expect(pg.binlog).toBe(false);
+    expect(pg.slowQuery).toBe(true);
     expect(pg.connectionInfoExtra).toBe(true);
     expect(pg.tableDesign).toBe(true);
   });
@@ -40,24 +41,27 @@ describe("hostCapabilities", () => {
       expect(caps.dropTable, engine).toBe(true);
       expect(caps.cloneTable, engine).toBe(true);
       expect(caps.binlog, engine).toBe(false);
-      expect(caps.slowQuery, engine).toBe(false);
-      expect(caps.createDatabase, engine).toBe(false);
-      expect(caps.connectionInfoExtra, engine).toBe(false);
+      expect(caps.slowQuery, engine).toBe(true);
+      expect(caps.createDatabase, engine).toBe(true);
+      expect(caps.connectionInfoExtra, engine).toBe(true);
     }
   });
 
-  it("PG 系 / MySQL 系 sidecar 打开表设计与用户，不打开建库和 Binlog", () => {
+  it("PG 系 / MySQL 系 sidecar 打开建库、连接信息与慢查询，不打开 Binlog", () => {
     const kingbase = hostCapabilities("kingbase");
     expect(catalogFamily("kingbase")).toBe("postgresLike");
     expect(kingbase.tableDesign).toBe(true);
     expect(kingbase.users).toBe(true);
-    expect(kingbase.createDatabase).toBe(false);
-    expect(kingbase.connectionInfoExtra).toBe(false);
+    expect(kingbase.createDatabase).toBe(true);
+    expect(kingbase.connectionInfoExtra).toBe(true);
+    expect(kingbase.slowQuery).toBe(true);
+    expect(kingbase.binlog).toBe(false);
 
     const tidb = hostCapabilities("tidb");
     expect(catalogFamily("tidb")).toBe("mysqlLike");
     expect(tidb.tableDesign).toBe(true);
     expect(tidb.users).toBe(true);
+    expect(tidb.createDatabase).toBe(true);
     expect(tidb.binlog).toBe(false);
   });
 
@@ -82,12 +86,15 @@ describe("hostCapabilities", () => {
     }
   });
 
-  it("sqlserver 仅表设计，无建库克隆删表", () => {
+  it("sqlserver 打开建库、克隆、删表、用户与连接信息", () => {
     const mssql = hostCapabilities("mssql");
     expect(mssql.tableDesign).toBe(true);
-    expect(mssql.createDatabase).toBe(false);
-    expect(mssql.cloneTable).toBe(false);
-    expect(mssql.dropTable).toBe(false);
-    expect(mssql.connectionInfoExtra).toBe(false);
+    expect(mssql.createDatabase).toBe(true);
+    expect(mssql.cloneTable).toBe(true);
+    expect(mssql.dropTable).toBe(true);
+    expect(mssql.users).toBe(true);
+    expect(mssql.connectionInfoExtra).toBe(true);
+    expect(mssql.slowQuery).toBe(true);
+    expect(mssql.binlog).toBe(false);
   });
 });
