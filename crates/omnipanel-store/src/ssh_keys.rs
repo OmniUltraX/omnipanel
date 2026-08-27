@@ -186,6 +186,56 @@ impl Storage {
         self.delete_ssh_key(&record.id)
     }
 
+    pub fn rename_ssh_key(&self, id: &str, new_name: &str) -> OmniResult<SshKeyRecord> {
+        let id = id.trim();
+        let new_name = new_name.trim();
+        if id.is_empty() {
+            return Err(OmniError::new(ErrorCode::InvalidInput, "密钥 ID 不能为空"));
+        }
+        if new_name.is_empty() {
+            return Err(OmniError::new(ErrorCode::InvalidInput, "密钥名称不能为空"));
+        }
+        if new_name.contains('/') || new_name.contains('\\') {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "密钥名称不能包含路径分隔符",
+            ));
+        }
+        if new_name.ends_with(".pub") {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "密钥名称不能以 .pub 结尾",
+            ));
+        }
+        let Some(mut record) = self.get_ssh_key(id)? else {
+            return Err(OmniError::new(ErrorCode::NotFound, "密钥不存在"));
+        };
+        if record.name == new_name {
+            return Ok(record);
+        }
+        if self.get_ssh_key_by_name(new_name)?.is_some() {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("密钥 `{new_name}` 已存在"),
+            ));
+        }
+        record.name = new_name.to_string();
+        record.updated_at = now_secs();
+        self.save_ssh_key_record(&record)?;
+        Ok(record)
+    }
+
+    pub fn rename_ssh_key_by_name(&self, name: &str, new_name: &str) -> OmniResult<SshKeyRecord> {
+        let name = name.trim();
+        let Some(record) = self.get_ssh_key_by_name(name)? else {
+            return Err(OmniError::new(
+                ErrorCode::NotFound,
+                format!("密钥 `{name}` 不存在"),
+            ));
+        };
+        self.rename_ssh_key(&record.id, new_name)
+    }
+
     /// 写入密钥库；同名称或同指纹已存在则复用并更新 Vault。
     pub fn upsert_ssh_key_from_private_pem(
         &self,

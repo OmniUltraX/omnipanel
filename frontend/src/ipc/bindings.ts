@@ -723,6 +723,8 @@ export const commands = {
 	sshImportKey: (name: string, privateKey: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_import_key", { name, privateKey })),
 	/**  删除 OmniPanel 密钥库中的 SSH 密钥。 */
 	sshDeleteKey: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_delete_key", { name })),
+	/**  重命名 OmniPanel 密钥库中的 SSH 密钥。 */
+	sshRenameKey: (name: string, newName: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_rename_key", { name, newName })),
 	/**  读取密钥库中公钥内容。 */
 	sshReadKeyPublic: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_public", { name })),
 	/**  读取密钥库中私钥内容。 */
