@@ -36,8 +36,7 @@ pub struct ConfirmRequestPayload {
 /// 交互式确认器：emit 事件 + oneshot 回传；超时自动拒绝。
 pub struct TauriProdConfirmer {
     pub app: AppHandle,
-    pub pending:
-        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub pending: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 impl ProdConfirmer for TauriProdConfirmer {
@@ -91,9 +90,7 @@ fn uuid_v4() -> String {
     }
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
-    let hex = |slice: &[u8]| -> String {
-        slice.iter().map(|x| format!("{x:02x}")).collect()
-    };
+    let hex = |slice: &[u8]| -> String { slice.iter().map(|x| format!("{x:02x}")).collect() };
     format!(
         "{}-{}-{}-{}-{}",
         hex(&b[0..4]),
@@ -131,10 +128,7 @@ fn args_digest(payload: &str) -> String {
 }
 
 impl PluginBridge {
-    fn require(
-        &self,
-        permission: PluginPermission,
-    ) -> Result<(), PluginError> {
+    fn require(&self, permission: PluginPermission) -> Result<(), PluginError> {
         let rt = tokio::runtime::Handle::current();
         let registry = Arc::clone(&self.registry);
         rt.block_on(async move {
@@ -173,9 +167,9 @@ impl PluginBridge {
         let host = host.to_ascii_lowercase();
         rt.block_on(async move {
             let store = storage.lock().await;
-            let conns = store.list_connections().map_err(|e| {
-                PluginError::Invoke(format!("读取连接失败: {e}"))
-            })?;
+            let conns = store
+                .list_connections()
+                .map_err(|e| PluginError::Invoke(format!("读取连接失败: {e}")))?;
             Ok(conns.iter().any(|conn| {
                 conn.env_tag.eq_ignore_ascii_case("prod")
                     && config_hosts(&conn.config)
@@ -240,9 +234,9 @@ fn extract_host(target: &str) -> Option<String> {
         .next()
         .unwrap_or(after_scheme);
     let host = host_port.rsplit_once('@').map_or(host_port, |(_, h)| h);
-    let host = host.strip_prefix('[').map_or(host, |rest| {
-        rest.split(']').next().unwrap_or(rest)
-    });
+    let host = host
+        .strip_prefix('[')
+        .map_or(host, |rest| rest.split(']').next().unwrap_or(rest));
     let host = host.split(':').next().unwrap_or(host);
     if host.is_empty() {
         None
@@ -262,7 +256,8 @@ impl PluginHostBridge for PluginBridge {
     }
 
     fn net_fetch(&self, spec_json: &str) -> Result<String, String> {
-        self.require(PluginPermission::NetConnect).map_err(|e| e.to_string())?;
+        self.require(PluginPermission::NetConnect)
+            .map_err(|e| e.to_string())?;
         let spec: NetSpec = serde_json::from_str(spec_json)
             .map_err(|e| format!("netFetch 参数需为 {{url, headers?}} JSON: {e}"))?;
 
@@ -296,7 +291,8 @@ impl PluginHostBridge for PluginBridge {
     }
 
     fn fs_read(&self, path: &str) -> Result<String, String> {
-        self.require(PluginPermission::FsRead).map_err(|e| e.to_string())?;
+        self.require(PluginPermission::FsRead)
+            .map_err(|e| e.to_string())?;
         let root = self.fs_root.as_ref().ok_or("插件安装目录不可用")?;
         let requested = PathBuf::from(path);
         let canonical_requested = dedot(&requested);
@@ -305,8 +301,8 @@ impl PluginHostBridge for PluginBridge {
             self.audit("plugin.fs", "blocked", path.to_string());
             return Err(format!("fsRead 仅允许访问插件自身目录: {path}"));
         }
-        let text = std::fs::read_to_string(&canonical_requested)
-            .map_err(|e| format!("读取失败: {e}"))?;
+        let text =
+            std::fs::read_to_string(&canonical_requested).map_err(|e| format!("读取失败: {e}"))?;
         self.audit("plugin.fs", "success", args_digest(path));
         Ok(text)
     }
@@ -358,8 +354,8 @@ impl PluginHostBridge for PluginBridge {
             })
         }
         .map_err(|e| e.to_string())?;
-        let args: serde_json::Value = serde_json::from_str(args_json)
-            .map_err(|e| format!("args 非法 JSON: {e}"))?;
+        let args: serde_json::Value =
+            serde_json::from_str(args_json).map_err(|e| format!("args 非法 JSON: {e}"))?;
         let gateway = Arc::clone(&self.gateway);
         let pid = self.plugin_id.clone();
         let method = method.to_string();
@@ -405,9 +401,8 @@ fn save_candidate(
             .unwrap_or("")
             .to_string()
     };
-    let num_field = |key: &str, default: i64| {
-        cfg.get(key).and_then(|v| v.as_i64()).unwrap_or(default)
-    };
+    let num_field =
+        |key: &str, default: i64| cfg.get(key).and_then(|v| v.as_i64()).unwrap_or(default);
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -426,7 +421,7 @@ fn save_candidate(
         other => {
             return Err(omnipanel_error::OmniError::invalid_input(format!(
                 "不支持的导入类型: {other}"
-            )))
+            )));
         }
     };
 

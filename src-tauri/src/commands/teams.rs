@@ -240,9 +240,8 @@ async fn build_auth_client(
     url: &str,
 ) -> Result<reqwest::Client, OmniError> {
     let proxy_config = state.proxy_config.lock().await.clone();
-    build_http_client_for_url(url, &proxy_config, Duration::from_secs(30)).map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-    })
+    build_http_client_for_url(url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))
 }
 
 /// 当前用户加入的团队列表（GET /api/teams）。

@@ -1,4 +1,4 @@
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 use omnipanel_error::OmniResult;
 use serde::{Deserialize, Serialize};
 
@@ -180,14 +180,75 @@ impl Storage {
         Ok(out)
     }
 
-    /// 删除所有已完成 / 取消的任务。
+    /// 删除所有已结束任务（完成 / 失败 / 取消）。
+    ///
+    /// `error` 必须一并删：启动时 `list_active` 会把失败任务当可重试记录灌回内存，
+    /// 只清 `done`/`cancelled` 会导致「清了下次还来」。
     pub fn clear_finished_file_transfer_jobs(&self) -> OmniResult<()> {
         self.conn()
             .execute(
-                "DELETE FROM file_transfer_jobs WHERE state IN ('done', 'cancelled')",
+                "DELETE FROM file_transfer_jobs WHERE state IN ('done', 'cancelled', 'error')",
                 [],
             )
             .map_err(map_sqlite)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::Storage;
+
+    fn sample(id: &str, state: &str) -> FileTransferJobRecord {
+        FileTransferJobRecord {
+            id: id.into(),
+            batch_id: "batch-1".into(),
+            op: "move".into(),
+            src_connection_id: "ssh-1".into(),
+            src_path: "/tmp/demo-input-pack.json".into(),
+            src_kind: "file".into(),
+            src_name: "demo-input-pack.json".into(),
+            dst_connection_id: "ssh-1".into(),
+            dst_path: "/tmp/demo-input-pack.json".into(),
+            dst_kind: "file".into(),
+            dst_name: "demo-input-pack.json".into(),
+            route: "fastpath".into(),
+            route_reason: String::new(),
+            state: state.into(),
+            bytes_done: 0.0,
+            bytes_total: None,
+            speed_bps: None,
+            progress: 0.0,
+            error: if state == "error" {
+                Some("重命名失败: Failure: Failure".into())
+            } else {
+                None
+            },
+            source_fingerprint: None,
+            partial_path: None,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn clear_finished_deletes_error_jobs() {
+        let storage = Storage::open_in_memory().unwrap();
+        storage
+            .upsert_file_transfer_job(&sample("err", "error"))
+            .unwrap();
+        storage
+            .upsert_file_transfer_job(&sample("done", "done"))
+            .unwrap();
+        storage
+            .upsert_file_transfer_job(&sample("queued", "queued"))
+            .unwrap();
+
+        storage.clear_finished_file_transfer_jobs().unwrap();
+
+        let left = storage.list_active_file_transfer_jobs().unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, "queued");
     }
 }

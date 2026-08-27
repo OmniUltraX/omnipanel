@@ -4,10 +4,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 
+use crate::event::TransferEventSink;
 use crate::provider::{TransferHost, TransferProtocol};
 use crate::remote_direct::remote_direct_eligible;
 use crate::types::{FileTransferEndpoint, FileTransferJob, FileTransferRoute};
-use crate::event::TransferEventSink;
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -212,11 +212,7 @@ pub async fn decide_route(
         }
     }
 
-    (
-        FileTransferRoute::Relay,
-        "跨连接本机流式中继".into(),
-        false,
-    )
+    (FileTransferRoute::Relay, "跨连接本机流式中继".into(), false)
 }
 
 pub async fn open_sftp(

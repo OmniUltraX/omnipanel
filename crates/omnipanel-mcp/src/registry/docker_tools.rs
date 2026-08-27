@@ -23,8 +23,8 @@ use omnipanel_docker::{
     SshDockerAdapter,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_ssh::{ssh_config_from_json, SshConfig, SshSession};
-use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage};
+use omnipanel_ssh::{SshConfig, SshSession, ssh_config_from_json};
+use omnipanel_store::{ConnectionKind, Storage, inject_ssh_vault_into_config};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -115,8 +115,7 @@ fn load_docker_config(
     if conn.kind != ConnectionKind::Docker {
         return Err(format!("连接 {connection_id} 不是 Docker 类型"));
     }
-    let cfg: DockerConnectionConfig =
-        serde_json::from_str(&conn.config).unwrap_or_default();
+    let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
     let source = cfg
         .source
         .as_deref()
@@ -132,7 +131,11 @@ fn resolve_ssh_config_for_docker(
     storage: &Storage,
     cfg: &DockerConnectionConfig,
 ) -> Result<SshConfig, String> {
-    if let Some(bound_id) = cfg.bound_ssh_connection_id.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(bound_id) = cfg
+        .bound_ssh_connection_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         let ssh_conn = storage
             .get_connection(bound_id)
             .map_err(|e| e.to_string())?
@@ -169,10 +172,13 @@ async fn build_target(
             DockerTarget::Local(adapter)
         }
         DockerConnectionSource::RemoteEngine => {
-            let host = cfg.host.as_deref().ok_or_else(|| {
-                "remote-engine 类型缺少 Docker host 配置".to_string()
-            })?;
-            let port = cfg.port.unwrap_or(if cfg.tls.unwrap_or(true) { 2376 } else { 2375 });
+            let host = cfg
+                .host
+                .as_deref()
+                .ok_or_else(|| "remote-engine 类型缺少 Docker host 配置".to_string())?;
+            let port = cfg
+                .port
+                .unwrap_or(if cfg.tls.unwrap_or(true) { 2376 } else { 2375 });
             let adapter = if cfg.tls.unwrap_or(true) {
                 LocalDockerAdapter::connect_remote_https(
                     host,
@@ -183,8 +189,9 @@ async fn build_target(
                 )
                 .map_err(|e| format!("连接远程 Docker Engine (TLS) 失败: {}", e.user_message()))?
             } else {
-                LocalDockerAdapter::connect_remote_http(host, port)
-                    .map_err(|e| format!("连接远程 Docker Engine (HTTP) 失败: {}", e.user_message()))?
+                LocalDockerAdapter::connect_remote_http(host, port).map_err(|e| {
+                    format!("连接远程 Docker Engine (HTTP) 失败: {}", e.user_message())
+                })?
             };
             DockerTarget::Local(adapter)
         }
@@ -205,9 +212,10 @@ async fn build_target(
             DockerTarget::Ssh(adapter, session_arc)
         }
         DockerConnectionSource::OnePanel => {
-            let panel = cfg.onepanel.as_ref().ok_or_else(|| {
-                "onepanel 类型缺少 Docker 1Panel 配置".to_string()
-            })?;
+            let panel = cfg
+                .onepanel
+                .as_ref()
+                .ok_or_else(|| "onepanel 类型缺少 Docker 1Panel 配置".to_string())?;
             if cfg
                 .bound_ssh_connection_id
                 .as_deref()
@@ -232,14 +240,14 @@ async fn build_target(
             .map_err(|e| format!("SSH 连接失败: {}", e.user_message()))?;
             let session_arc = Arc::new(session);
             let client = OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
-            let adapter =
-                OnePanelAdapter::new(client, connection_id.to_string(), session_arc);
+            let adapter = OnePanelAdapter::new(client, connection_id.to_string(), session_arc);
             DockerTarget::OnePanel(adapter)
         }
         DockerConnectionSource::PanelAdapter => {
-            let mut panel = cfg.btpanel.clone().ok_or_else(|| {
-                "宝塔类型缺少 Docker 面板配置（btpanel / panel）".to_string()
-            })?;
+            let mut panel = cfg
+                .btpanel
+                .clone()
+                .ok_or_else(|| "宝塔类型缺少 Docker 面板配置（btpanel / panel）".to_string())?;
             if panel.api_key.trim().is_empty() {
                 if let Ok(key) =
                     omnipanel_store::Vault::get(&format!("docker-btpanel-{connection_id}"))
@@ -271,8 +279,7 @@ async fn build_target(
             .map_err(|e| format!("SSH 连接失败: {}", e.user_message()))?;
             let session_arc = Arc::new(session);
             let client = BtPanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
-            let adapter =
-                BtPanelAdapter::new(client, connection_id.to_string(), session_arc);
+            let adapter = BtPanelAdapter::new(client, connection_id.to_string(), session_arc);
             DockerTarget::BtPanel(adapter)
         }
     };
@@ -297,10 +304,7 @@ async fn resolve_target(
 }
 
 /// 列出指定 Docker 连接下的容器。
-pub async fn list_containers(
-    args: Value,
-    storage: Arc<Mutex<Storage>>,
-) -> Result<String, String> {
+pub async fn list_containers(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, String> {
     let connection_id = require_str(&args, "connection_id")?;
     let filter_str = optional_str(&args, "filter");
     if let Some(ref f) = filter_str {
@@ -317,7 +321,8 @@ pub async fn list_containers(
             with_timeout(adapter.list_containers(filter), DOCKER_OP_TIMEOUT_SECS).await?
         }
         DockerTarget::Ssh(adapter, session) => {
-            let result = with_timeout(adapter.list_containers(filter), DOCKER_OP_TIMEOUT_SECS).await;
+            let result =
+                with_timeout(adapter.list_containers(filter), DOCKER_OP_TIMEOUT_SECS).await;
             session.disconnect().await;
             result?
         }
@@ -365,10 +370,7 @@ pub async fn list_containers(
 }
 
 /// 拉取容器日志。
-pub async fn container_logs(
-    args: Value,
-    storage: Arc<Mutex<Storage>>,
-) -> Result<String, String> {
+pub async fn container_logs(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, String> {
     let connection_id = require_str(&args, "connection_id")?;
     let container_id = require_str(&args, "container_id")?;
     let tail = args
@@ -380,15 +382,15 @@ pub async fn container_logs(
 
     let (conn_name, target) = resolve_target(storage, &connection_id).await?;
 
-    let query = DockerLogQuery {
-        tail,
-        since,
-    };
+    let query = DockerLogQuery { tail, since };
 
     let logs = match target {
         DockerTarget::Local(adapter) => {
-            with_timeout(adapter.container_logs(&container_id, &query), DOCKER_OP_TIMEOUT_SECS)
-                .await?
+            with_timeout(
+                adapter.container_logs(&container_id, &query),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?
         }
         DockerTarget::Ssh(adapter, session) => {
             let result = with_timeout(
@@ -400,12 +402,18 @@ pub async fn container_logs(
             result?
         }
         DockerTarget::OnePanel(adapter) => {
-            with_timeout(adapter.container_logs(&container_id, &query), DOCKER_OP_TIMEOUT_SECS)
-                .await?
+            with_timeout(
+                adapter.container_logs(&container_id, &query),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?
         }
         DockerTarget::BtPanel(adapter) => {
-            with_timeout(adapter.container_logs(&container_id, &query), DOCKER_OP_TIMEOUT_SECS)
-                .await?
+            with_timeout(
+                adapter.container_logs(&container_id, &query),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?
         }
     };
 
@@ -432,20 +440,34 @@ pub async fn inspect_container(
 
     let detail = match target {
         DockerTarget::Local(adapter) => {
-            with_timeout(adapter.inspect_container(&container_id), DOCKER_OP_TIMEOUT_SECS).await?
+            with_timeout(
+                adapter.inspect_container(&container_id),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?
         }
         DockerTarget::Ssh(adapter, session) => {
-            let result =
-                with_timeout(adapter.inspect_container(&container_id), DOCKER_OP_TIMEOUT_SECS)
-                    .await;
+            let result = with_timeout(
+                adapter.inspect_container(&container_id),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await;
             session.disconnect().await;
             result?
         }
         DockerTarget::OnePanel(adapter) => {
-            with_timeout(adapter.inspect_container(&container_id), DOCKER_OP_TIMEOUT_SECS).await?
+            with_timeout(
+                adapter.inspect_container(&container_id),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?
         }
         DockerTarget::BtPanel(adapter) => {
-            with_timeout(adapter.inspect_container(&container_id), DOCKER_OP_TIMEOUT_SECS).await?
+            with_timeout(
+                adapter.inspect_container(&container_id),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?
         }
     };
 
@@ -469,38 +491,46 @@ pub async fn inspect_container(
 }
 
 /// 执行容器生命周期动作。
-pub async fn container_action(
-    args: Value,
-    storage: Arc<Mutex<Storage>>,
-) -> Result<String, String> {
+pub async fn container_action(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, String> {
     let connection_id = require_str(&args, "connection_id")?;
     let container_id = require_str(&args, "container_id")?;
     let action_str = require_str(&args, "action")?;
     let action = DockerContainerAction::parse(&action_str).ok_or_else(|| {
-        format!(
-            "未知 action: {action_str}（应为 start/stop/restart/kill/pause/unpause/remove）"
-        )
+        format!("未知 action: {action_str}（应为 start/stop/restart/kill/pause/unpause/remove）")
     })?;
 
     let (conn_name, target) = resolve_target(storage, &connection_id).await?;
 
     let result = match target {
         DockerTarget::Local(adapter) => {
-            with_timeout(adapter.container_action(&container_id, action), DOCKER_OP_TIMEOUT_SECS)
-                .await
+            with_timeout(
+                adapter.container_action(&container_id, action),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await
         }
         DockerTarget::Ssh(adapter, session) => {
-            let r = with_timeout(adapter.container_action(&container_id, action), DOCKER_OP_TIMEOUT_SECS).await;
+            let r = with_timeout(
+                adapter.container_action(&container_id, action),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await;
             session.disconnect().await;
             r
         }
         DockerTarget::OnePanel(adapter) => {
-            with_timeout(adapter.container_action(&container_id, action), DOCKER_OP_TIMEOUT_SECS)
-                .await
+            with_timeout(
+                adapter.container_action(&container_id, action),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await
         }
         DockerTarget::BtPanel(adapter) => {
-            with_timeout(adapter.container_action(&container_id, action), DOCKER_OP_TIMEOUT_SECS)
-                .await
+            with_timeout(
+                adapter.container_action(&container_id, action),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await
         }
     };
 
@@ -534,7 +564,9 @@ pub async fn exec(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, S
 
     // 简单 shell-injection 防护
     if command.contains("&&") || command.contains("||") || command.contains(';') {
-        return Err("command 不支持复合命令（; / && / ||），请单条执行或写入脚本后调用".to_string());
+        return Err(
+            "command 不支持复合命令（; / && / ||），请单条执行或写入脚本后调用".to_string(),
+        );
     }
 
     let (conn_name, target) = resolve_target(storage, &connection_id).await?;
@@ -542,8 +574,11 @@ pub async fn exec(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, S
     let (stdout, stderr, exit_code) = match target {
         DockerTarget::Local(adapter) => {
             let cmd = vec!["sh".to_string(), "-c".to_string(), command.clone()];
-            let out = with_timeout(adapter.exec_one_shot(&container_id, cmd), DOCKER_OP_TIMEOUT_SECS)
-                .await?;
+            let out = with_timeout(
+                adapter.exec_one_shot(&container_id, cmd),
+                DOCKER_OP_TIMEOUT_SECS,
+            )
+            .await?;
             (out.stdout, out.stderr, out.exit_code)
         }
         DockerTarget::Ssh(_adapter, session) => {
@@ -552,13 +587,15 @@ pub async fn exec(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, S
                 "docker exec --tty=false {container_id} sh -c {cmd:?}",
                 cmd = command
             );
-            let output = match with_timeout(session.exec_capture(&docker_cmd), DOCKER_OP_TIMEOUT_SECS).await {
-                Ok(o) => o,
-                Err(e) => {
-                    session.disconnect().await;
-                    return Err(e);
-                }
-            };
+            let output =
+                match with_timeout(session.exec_capture(&docker_cmd), DOCKER_OP_TIMEOUT_SECS).await
+                {
+                    Ok(o) => o,
+                    Err(e) => {
+                        session.disconnect().await;
+                        return Err(e);
+                    }
+                };
             session.disconnect().await;
             (output.stdout, output.stderr, output.exit_code as i64)
         }

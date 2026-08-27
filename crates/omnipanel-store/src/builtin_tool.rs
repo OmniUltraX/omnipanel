@@ -1,4 +1,4 @@
-﻿//! 内置工具注册表 — 持久化于 omnipanel.db 的 builtin_tools 表。
+//! 内置工具注册表 — 持久化于 omnipanel.db 的 builtin_tools 表。
 
 use std::collections::HashSet;
 
@@ -92,10 +92,7 @@ impl Storage {
                 )
                 .map_err(map_sqlite)?;
             self.conn()
-                .execute(
-                    "UPDATE builtin_tools SET internal_enabled = enabled",
-                    [],
-                )
+                .execute("UPDATE builtin_tools SET internal_enabled = enabled", [])
                 .ok();
         }
         if !cols.iter().any(|c| c == "external_exposed") {
@@ -227,7 +224,11 @@ impl Storage {
     }
 
     /// 设置内置工具启用状态（兼容旧 API，等同 internal_enabled）。
-    pub fn builtin_tool_set_enabled(&self, tool_name: &str, enabled: bool) -> OmniResult<BuiltinToolRecord> {
+    pub fn builtin_tool_set_enabled(
+        &self,
+        tool_name: &str,
+        enabled: bool,
+    ) -> OmniResult<BuiltinToolRecord> {
         self.builtin_tool_set_internal_enabled(tool_name, enabled)
     }
 
@@ -371,12 +372,8 @@ mod tests {
         storage
             .app_module_set_status("terminal", AppModuleStatus::Closed)
             .unwrap();
-        assert!(!storage
-            .builtin_tool_is_enabled("omni_ssh_exec")
-            .unwrap());
-        assert!(!storage
-            .builtin_tool_is_available("omni_ssh_exec")
-            .unwrap());
+        assert!(!storage.builtin_tool_is_enabled("omni_ssh_exec").unwrap());
+        assert!(!storage.builtin_tool_is_available("omni_ssh_exec").unwrap());
     }
 
     #[test]
@@ -394,7 +391,9 @@ mod tests {
         // list → repair 应清掉已从 BUILTIN_TOOL_SPECS 移除的幽灵行
         let list = storage.builtin_tool_list().unwrap();
         assert!(
-            !list.iter().any(|t| t.tool_name == "omni_ghost_removed_tool"),
+            !list
+                .iter()
+                .any(|t| t.tool_name == "omni_ghost_removed_tool"),
             "已移除的 catalog 工具不应再出现在列表中"
         );
     }
@@ -409,9 +408,7 @@ mod tests {
         storage
             .builtin_tool_set_enabled("omni_ssh_exec", false)
             .unwrap();
-        assert!(!storage
-            .builtin_tool_is_enabled("omni_ssh_exec")
-            .unwrap());
+        assert!(!storage.builtin_tool_is_enabled("omni_ssh_exec").unwrap());
 
         // 前端 catalog 不再覆盖内置工具描述：单一真相源以后端 spec 为准，
         // 且用户开关（internal_enabled=false）保留。
@@ -422,12 +419,8 @@ mod tests {
                 description: "updated desc".to_string(),
             }])
             .unwrap();
-        assert!(!storage
-            .builtin_tool_is_enabled("omni_ssh_exec")
-            .unwrap());
-        let tool = storage
-            .builtin_tool_get("omni_ssh_exec")
-            .unwrap();
+        assert!(!storage.builtin_tool_is_enabled("omni_ssh_exec").unwrap());
+        let tool = storage.builtin_tool_get("omni_ssh_exec").unwrap();
         assert_ne!(tool.description, "updated desc");
         assert!(!tool.input_schema.is_empty(), "内置工具应带 spec schema");
     }
@@ -448,12 +441,16 @@ mod tests {
     #[test]
     fn external_exposed_allows_all_builtin_tools_when_module_open() {
         let storage = Storage::open_in_memory().unwrap();
-        assert!(storage
-            .builtin_tool_set_external_exposed("omni_ssh_exec", true)
-            .is_ok());
-        assert!(storage
-            .builtin_tool_set_external_exposed("omni_database_list_connections", true)
-            .is_ok());
+        assert!(
+            storage
+                .builtin_tool_set_external_exposed("omni_ssh_exec", true)
+                .is_ok()
+        );
+        assert!(
+            storage
+                .builtin_tool_set_external_exposed("omni_database_list_connections", true)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -475,15 +472,19 @@ mod tests {
         storage
             .app_module_set_status("database", AppModuleStatus::Closed)
             .unwrap();
-        assert!(!storage
-            .builtin_tool_is_enabled("omni_database_execute_sql")
-            .unwrap());
+        assert!(
+            !storage
+                .builtin_tool_is_enabled("omni_database_execute_sql")
+                .unwrap()
+        );
         // 重新打开 → 工具恢复
         storage
             .app_module_set_status("database", AppModuleStatus::Open)
             .unwrap();
-        assert!(storage
-            .builtin_tool_is_enabled("omni_database_execute_sql")
-            .unwrap());
+        assert!(
+            storage
+                .builtin_tool_is_enabled("omni_database_execute_sql")
+                .unwrap()
+        );
     }
 }

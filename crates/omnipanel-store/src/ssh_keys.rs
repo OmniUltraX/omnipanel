@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 use crate::vault::Vault;
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -73,9 +73,7 @@ impl Storage {
                  FROM ssh_keys ORDER BY name COLLATE NOCASE",
             )
             .map_err(map_sqlite)?;
-        let rows = stmt
-            .query_map([], row_to_record)
-            .map_err(map_sqlite)?;
+        let rows = stmt.query_map([], row_to_record).map_err(map_sqlite)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(map_sqlite)
     }
 
@@ -117,7 +115,10 @@ impl Storage {
         Ok(None)
     }
 
-    pub fn find_ssh_key_by_fingerprint(&self, fingerprint: &str) -> OmniResult<Option<SshKeyRecord>> {
+    pub fn find_ssh_key_by_fingerprint(
+        &self,
+        fingerprint: &str,
+    ) -> OmniResult<Option<SshKeyRecord>> {
         let fingerprint = fingerprint.trim();
         if fingerprint.is_empty() {
             return Ok(None);
@@ -254,7 +255,10 @@ impl Storage {
         }
         let name = name.trim();
         if name.is_empty() {
-            return Err(OmniError::new(ErrorCode::InvalidInput, "SSH 密钥名称不能为空"));
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "SSH 密钥名称不能为空",
+            ));
         }
 
         let store_secrets = |id: &str| -> OmniResult<()> {

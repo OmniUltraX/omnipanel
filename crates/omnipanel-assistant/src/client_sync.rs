@@ -5,11 +5,11 @@
 use omnipanel_error::OmniResult;
 use reqwest::Client;
 
-use crate::error::{map_assistant_error, map_assistant_error_with_cause, AssistantErrorKind};
+use crate::error::{AssistantErrorKind, map_assistant_error, map_assistant_error_with_cause};
 use crate::oss::{
-    get_object_bytes_optional, strip_bucket_prefix, upload_object_bytes, OssUploadResult,
+    OssUploadResult, get_object_bytes_optional, strip_bucket_prefix, upload_object_bytes,
 };
-use crate::sts::{fetch_oss_sts, AuthContext};
+use crate::sts::{AuthContext, fetch_oss_sts};
 
 /// AI 会话 / 模块 bundle 共用 schema 上限。
 pub const CLIENT_SYNC_SCHEMA_VERSION: u32 = 1;

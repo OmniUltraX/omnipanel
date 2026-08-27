@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
@@ -83,7 +83,10 @@ pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
         .route("/ipc/events", get(ws::ws_events))
         .route("/ipc/status", get(status_handler))
         .route("/healthz", get(healthz))
-        .route("/media/{token}", get(media_handler).head(media_head_handler))
+        .route(
+            "/media/{token}",
+            get(media_handler).head(media_head_handler),
+        )
         .layer(cors)
         .with_state(app_ctx);
 
@@ -118,7 +121,10 @@ pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
 }
 
 /// 校验请求是否带有效 API Key（未配置时放行）。
-fn check_api_key(ctx: &AppCtx, headers: &axum::http::HeaderMap) -> Result<(), axum::response::Response> {
+fn check_api_key(
+    ctx: &AppCtx,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), axum::response::Response> {
     if let Some(ref expected) = ctx.api_key {
         let auth = headers
             .get("authorization")
@@ -199,10 +205,7 @@ fn apply_media_cors(headers: &mut HeaderMap) {
     );
 }
 
-async fn media_head_handler(
-    State(ctx): State<AppCtx>,
-    Path(token): Path<String>,
-) -> Response {
+async fn media_head_handler(State(ctx): State<AppCtx>, Path(token): Path<String>) -> Response {
     let entry = {
         let map = ctx.state.media_streams.lock().await;
         map.get(&token).cloned()

@@ -5,8 +5,8 @@ use reqwest::Client;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::error::{map_assistant_error_with_cause, AssistantErrorKind};
-use crate::sts::{host_from_endpoint, OssStsCredentials};
+use crate::error::{AssistantErrorKind, map_assistant_error_with_cause};
+use crate::sts::{OssStsCredentials, host_from_endpoint};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -113,8 +113,7 @@ pub async fn upload_object_bytes(
 }
 
 /// 空 body 的 SHA256（SigV4 GET / HEAD）。
-const EMPTY_PAYLOAD_HASH: &str =
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const EMPTY_PAYLOAD_HASH: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /// 按 object key 下载对象字节（SigV4 GET）。
 pub async fn get_object_bytes(
@@ -239,9 +238,8 @@ async fn put_s3_sig_v4(
         ),
     };
 
-    let canonical_request = format!(
-        "PUT\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
-    );
+    let canonical_request =
+        format!("PUT\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
     let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
     let credential_scope = format!("{date_stamp}/{}/s3/aws4_request", sts.region);
     let string_to_sign =
@@ -317,16 +315,13 @@ async fn get_s3_sig_v4(
         )
     } else {
         (
-            format!(
-                "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
-            ),
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"),
             "host;x-amz-content-sha256;x-amz-date",
         )
     };
 
-    let canonical_request = format!(
-        "GET\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
-    );
+    let canonical_request =
+        format!("GET\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
     let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
     let credential_scope = format!("{date_stamp}/{}/s3/aws4_request", sts.region);
     let string_to_sign =
@@ -354,7 +349,11 @@ async fn get_s3_sig_v4(
 
     let status = resp.status();
     let bytes = resp.bytes().await.map_err(|e| {
-        map_assistant_error_with_cause(AssistantErrorKind::Inbox, "读取 OSS 对象失败", e.to_string())
+        map_assistant_error_with_cause(
+            AssistantErrorKind::Inbox,
+            "读取 OSS 对象失败",
+            e.to_string(),
+        )
     })?;
     if !status.is_success() {
         let text = String::from_utf8_lossy(&bytes).into_owned();
@@ -423,14 +422,20 @@ mod tests {
             upload_url: None,
         };
         let (url, uri) = put_target(&sts, "k.json");
-        assert_eq!(url, "https://oss-cn-beijing.aliyuncs.com/omniminiapp/k.json");
+        assert_eq!(
+            url,
+            "https://oss-cn-beijing.aliyuncs.com/omniminiapp/k.json"
+        );
         assert_eq!(uri, "/omniminiapp/k.json");
     }
 
     #[test]
     fn strip_bucket_prefix_removes_leading_bucket() {
         assert_eq!(
-            strip_bucket_prefix("omniminiapp/agent_chat_message/u1/conv/0.txt", "omniminiapp"),
+            strip_bucket_prefix(
+                "omniminiapp/agent_chat_message/u1/conv/0.txt",
+                "omniminiapp"
+            ),
             "agent_chat_message/u1/conv/0.txt"
         );
         assert_eq!(

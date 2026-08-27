@@ -1,15 +1,15 @@
 //! tmux 相关 IPC 命令（对接 [`crate::ssh_tmux::TmuxManager`]）。
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::tmux::{self, TmuxSessionInfo, TmuxWindowInfo};
 use omnipanel_store::ConnectionKind;
 
 use crate::monitoring::ensure_ssh_session;
 use crate::ssh::connect_direct;
-use crate::ssh_tmux::{host_identity, AttachOutcome, SshTerminalInfo, TmuxTabStat};
-use crate::state::{resolve_ssh_config, ServerState};
+use crate::ssh_tmux::{AttachOutcome, SshTerminalInfo, TmuxTabStat, host_identity};
+use crate::state::{ServerState, resolve_ssh_config};
 
 pub async fn set_terminal_tmux_mode(state: &ServerState, mode: String) -> OmniResult<()> {
     let mode = mode.trim().to_lowercase();
@@ -42,9 +42,10 @@ pub async fn ssh_terminal_set_direct_mode(
     cols: u16,
     rows: u16,
 ) -> OmniResult<()> {
-    let config = state.tmux.config_of(&id).await.ok_or_else(|| {
-        OmniError::new(ErrorCode::NotFound, format!("会话 {id} 不在 tmux 模式"))
-    })?;
+    let config =
+        state.tmux.config_of(&id).await.ok_or_else(|| {
+            OmniError::new(ErrorCode::NotFound, format!("会话 {id} 不在 tmux 模式"))
+        })?;
     state.tmux.detach(&id).await;
     connect_direct(
         state,
@@ -113,10 +114,7 @@ pub async fn ssh_tmux_tab_stats(
             .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "SSH 连接不存在"))?
     };
     if conn.kind != ConnectionKind::Ssh {
-        return Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "连接不是 SSH 类型",
-        ));
+        return Err(OmniError::new(ErrorCode::InvalidInput, "连接不是 SSH 类型"));
     }
     let config = resolve_ssh_config(&conn)?;
     let host_key = host_identity(&config);
@@ -161,10 +159,7 @@ pub async fn ssh_tmux_attach_session(
             .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "SSH 连接不存在"))?
     };
     if conn.kind != ConnectionKind::Ssh {
-        return Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "连接不是 SSH 类型",
-        ));
+        return Err(OmniError::new(ErrorCode::InvalidInput, "连接不是 SSH 类型"));
     }
     let config = resolve_ssh_config(&conn)?;
     let id = format!(

@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use omnipanel_store::Storage;
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::commands::knowledge_vector::{
-    execute_knowledge_vectorize, KnowledgeVectorizeArgs, KnowledgeVectorizeResult,
+    KnowledgeVectorizeArgs, KnowledgeVectorizeResult, execute_knowledge_vectorize,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

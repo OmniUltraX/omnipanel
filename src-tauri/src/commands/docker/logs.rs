@@ -72,8 +72,15 @@ pub async fn docker_stream_container_logs(
                 .await
             }
             DockerTarget::OnePanel(adapter) => {
-                onepanel_poll_container_logs(adapter, &container_id_owned, &query, follow, stop, emit)
-                    .await
+                onepanel_poll_container_logs(
+                    adapter,
+                    &container_id_owned,
+                    &query,
+                    follow,
+                    stop,
+                    emit,
+                )
+                .await
             }
             DockerTarget::BtPanel(_) => Err(OmniError::new(
                 ErrorCode::InvalidInput,

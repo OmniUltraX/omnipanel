@@ -71,7 +71,9 @@ pub fn tokenize_docker_command(command: &str) -> Vec<String> {
 }
 
 fn command_needs_shell(command: &str) -> bool {
-    command.chars().any(|c| matches!(c, '|' | '&' | '>' | '<' | ';' | '\n'))
+    command
+        .chars()
+        .any(|c| matches!(c, '|' | '&' | '>' | '<' | ';' | '\n'))
         || command.contains("&&")
         || command.contains("||")
 }
@@ -190,7 +192,8 @@ pub async fn run_local_docker_cli(
             }
         }
         let status = child.wait().await.map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "等待 docker 命令结束失败").with_cause(e.to_string())
+            OmniError::new(ErrorCode::Internal, "等待 docker 命令结束失败")
+                .with_cause(e.to_string())
         })?;
         let _ = stdout_task.await;
         let _ = stderr_task.await;

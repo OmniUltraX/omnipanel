@@ -109,10 +109,7 @@ pub fn parse_cli_line(text: &str) -> Result<DockerContainerStats, serde_json::Er
     let (rx, tx) = parse_io_pair(&raw.net_io);
     let (blk_r, blk_w) = parse_io_pair(&raw.block_io);
     Ok(DockerContainerStats {
-        container_id: raw
-            .id
-            .or(raw.container)
-            .unwrap_or_default(),
+        container_id: raw.id.or(raw.container).unwrap_or_default(),
         name: raw
             .name
             .unwrap_or_default()
@@ -281,7 +278,9 @@ fn cpu_percent_from_engine(s: &bollard::models::ContainerStatsResponse) -> f64 {
     }
 }
 
-fn memory_stats_from_engine(s: &bollard::models::ContainerStatsResponse) -> (i64, Option<i64>, f64) {
+fn memory_stats_from_engine(
+    s: &bollard::models::ContainerStatsResponse,
+) -> (i64, Option<i64>, f64) {
     let m = match s.memory_stats.as_ref() {
         Some(m) => m,
         None => return (0, None, 0.0),

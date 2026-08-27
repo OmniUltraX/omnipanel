@@ -1,8 +1,8 @@
 //! ABI 管道自检：wat 客体导入 omni.ping、导出 call 返回固定 JSON。
 
 use omnipanel_plugin::{LogicPackage, PluginHostBridge, PluginLogicExecutor, PluginLogicInstance};
-use std::sync::Arc;
 use omnipanel_plugin_wasm::WasmExecutor;
+use std::sync::Arc;
 
 /// call() -> 返回 data 段里的 `{"ok":true}`（len=11, ptr=0），并调用一次 omni.ping
 const ECHO_GUEST_WAT: &str = r#"
@@ -22,7 +22,11 @@ const ECHO_GUEST_WAT: &str = r#"
 async fn abi_pipeline_roundtrip() {
     let executor = WasmExecutor::new();
     let mut instance = executor
-        .instantiate("omni.engine.l1-starter", &LogicPackage::Wasm(wat::parse_str(ECHO_GUEST_WAT).unwrap()), Arc::new(NullHost))
+        .instantiate(
+            "omni.engine.l1-starter",
+            &LogicPackage::Wasm(wat::parse_str(ECHO_GUEST_WAT).unwrap()),
+            Arc::new(NullHost),
+        )
         .expect("实例化失败");
     let result = instance.call("anything", "{}").await.expect("call 失败");
     assert_eq!(result, r#"{"ok":true}"#);
@@ -33,7 +37,11 @@ async fn abi_pipeline_roundtrip() {
 async fn invalid_wasm_fails_cleanly() {
     let executor = WasmExecutor::new();
     let err = executor
-        .instantiate("p", &LogicPackage::Wasm(b"not wasm".to_vec()), Arc::new(NullHost))
+        .instantiate(
+            "p",
+            &LogicPackage::Wasm(b"not wasm".to_vec()),
+            Arc::new(NullHost),
+        )
         .err()
         .expect("应编译失败");
     assert!(err.to_string().contains("逻辑包编译失败"));
@@ -69,7 +77,11 @@ const NET_GUEST_WAT: &str = r#"
 async fn host_bridge_error_roundtrip_via_alloc() {
     let executor = WasmExecutor::new();
     let mut instance = executor
-        .instantiate("p", &LogicPackage::Wasm(wat::parse_str(NET_GUEST_WAT).unwrap()), Arc::new(NullHost))
+        .instantiate(
+            "p",
+            &LogicPackage::Wasm(wat::parse_str(NET_GUEST_WAT).unwrap()),
+            Arc::new(NullHost),
+        )
         .expect("实例化失败");
     // NullBridge 的 net_fetch 返回 "net.fetch 未装配" —— 经 omni_alloc 回写、
     // 客体原样返回、宿主按错误标志解码

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use omnipanel_store::{builtin_tool_omnimcp_backend, load_http_proxy_config, Storage};
+use omnipanel_store::{Storage, builtin_tool_omnimcp_backend, load_http_proxy_config};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -97,9 +97,7 @@ pub async fn execute_omnimcp_tool(
         "omni_docker_inspect_container" => {
             docker_tools::inspect_container(arguments, storage).await
         }
-        "omni_docker_container_action" => {
-            docker_tools::container_action(arguments, storage).await
-        }
+        "omni_docker_container_action" => docker_tools::container_action(arguments, storage).await,
         "omni_docker_exec" => docker_tools::exec(arguments, storage).await,
         "omni_files_list" => files_tools::list(arguments, storage).await,
         "omni_files_read" => files_tools::read(arguments, storage).await,

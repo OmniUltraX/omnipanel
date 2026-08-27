@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use omnipanel_db::{
-    connect, db_introspect_table, db_table_ddl, DbDriver, DbParams, DbTableSchema, QueryResult,
+    DbDriver, DbParams, DbTableSchema, QueryResult, connect, db_introspect_table, db_table_ddl,
 };
 use omnipanel_error::OmniError;
-use omnipanel_store::{fill_db_password_from_vault, DbConnectionConfig};
+use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault};
 use serde::{Deserialize, Serialize};
 
 /// 前端预览表结构（列名 → 值的 map 行集）。
@@ -52,9 +52,7 @@ pub async fn open_db_driver(c: &DbConnectionConfig) -> Result<Box<dyn DbDriver>,
     connect(&to_params(&c)).await.map_err(err_msg)
 }
 
-pub fn query_result_to_row_maps(
-    result: QueryResult,
-) -> Vec<HashMap<String, serde_json::Value>> {
+pub fn query_result_to_row_maps(result: QueryResult) -> Vec<HashMap<String, serde_json::Value>> {
     let columns = result.columns;
     result
         .rows
@@ -100,9 +98,7 @@ pub async fn db_preview_table(
     order_by: Option<String>,
     where_clause: Option<String>,
 ) -> Result<TableInfo, String> {
-    let driver = connect(&to_params(&connection))
-        .await
-        .map_err(err_msg)?;
+    let driver = connect(&to_params(&connection)).await.map_err(err_msg)?;
     let result = driver
         .preview(
             &table,

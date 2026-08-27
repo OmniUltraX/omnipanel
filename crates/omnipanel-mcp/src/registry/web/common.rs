@@ -4,8 +4,8 @@ use std::fmt;
 use std::time::Duration;
 
 use omnipanel_store::{
-    exa_api_key_configured, jina_api_key_configured, load_exa_api_key, load_jina_api_key,
-    load_zhihu_secret, zhihu_secret_configured, HttpProxyConfig, JinaDomainMode,
+    HttpProxyConfig, JinaDomainMode, exa_api_key_configured, jina_api_key_configured,
+    load_exa_api_key, load_jina_api_key, load_zhihu_secret, zhihu_secret_configured,
 };
 use reqwest::Client;
 use serde::Serialize;
@@ -25,18 +25,10 @@ pub enum NetKind {
 
 #[derive(Debug, Clone)]
 pub enum BackendError {
-    Network {
-        kind: NetKind,
-        source: String,
-    },
-    Http {
-        status: u16,
-        body: String,
-    },
+    Network { kind: NetKind, source: String },
+    Http { status: u16, body: String },
     Auth(String),
-    RateLimit {
-        retry_after: Option<u64>,
-    },
+    RateLimit { retry_after: Option<u64> },
     Parse(String),
     Config(String),
 }
@@ -111,24 +103,15 @@ impl WebSecrets {
     }
 
     pub fn zhihu_configured(&self) -> bool {
-        self.zhihu
-            .as_ref()
-            .is_some_and(|s| !s.trim().is_empty())
-            || zhihu_secret_configured()
+        self.zhihu.as_ref().is_some_and(|s| !s.trim().is_empty()) || zhihu_secret_configured()
     }
 
     pub fn exa_configured(&self) -> bool {
-        self.exa
-            .as_ref()
-            .is_some_and(|s| !s.trim().is_empty())
-            || exa_api_key_configured()
+        self.exa.as_ref().is_some_and(|s| !s.trim().is_empty()) || exa_api_key_configured()
     }
 
     pub fn jina_configured(&self) -> bool {
-        self.jina
-            .as_ref()
-            .is_some_and(|s| !s.trim().is_empty())
-            || jina_api_key_configured()
+        self.jina.as_ref().is_some_and(|s| !s.trim().is_empty()) || jina_api_key_configured()
     }
 }
 
@@ -140,7 +123,12 @@ pub enum SearchScope {
 
 impl SearchScope {
     pub fn parse(s: Option<&str>) -> Self {
-        match s.map(str::trim).unwrap_or("web").to_ascii_lowercase().as_str() {
+        match s
+            .map(str::trim)
+            .unwrap_or("web")
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "zhihu" => Self::Zhihu,
             _ => Self::Web,
         }
@@ -264,7 +252,8 @@ pub fn build_http_client(
         builder = builder.no_proxy();
     } else {
         let proxy_url = format!("{}://{}:{}", proxy.protocol, proxy.host, proxy.port);
-        let mut p = reqwest::Proxy::all(&proxy_url).map_err(|e| BackendError::Config(e.to_string()))?;
+        let mut p =
+            reqwest::Proxy::all(&proxy_url).map_err(|e| BackendError::Config(e.to_string()))?;
         if !proxy.username.is_empty() {
             p = p.basic_auth(&proxy.username, &proxy.password);
         }

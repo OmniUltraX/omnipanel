@@ -3,7 +3,7 @@
 use omnipanel_error::OmniResult;
 use rusqlite::params;
 
-use super::storage::{map_sqlite, Storage};
+use super::storage::{Storage, map_sqlite};
 
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
@@ -111,9 +111,7 @@ mod tests {
         storage
             .plugin_enabled_set("omni.addon.demo", false)
             .unwrap();
-        storage
-            .plugin_enabled_set("omni.addon.keep", true)
-            .unwrap();
+        storage.plugin_enabled_set("omni.addon.keep", true).unwrap();
         storage.plugin_enabled_delete("omni.addon.demo").unwrap();
         // 重复删除幂等
         storage.plugin_enabled_delete("omni.addon.demo").unwrap();

@@ -26,8 +26,8 @@ pub mod files {
 
 /// 可配置的逻辑 Agent 提示词 id（与前端 `AgentId` 对齐）。
 pub const AGENT_PROMPT_IDS: &[&str] = &[
-    "plan", // AI 助手页 Plan：TodoList / 计划
-    "run",  // AI 助手页 Run：全工具执行
+    "plan",     // AI 助手页 Plan：TodoList / 计划
+    "run",      // AI 助手页 Run：全工具执行
     "terminal", // 含原 SSH（已并入终端模块）
     "database",
     "docker",
@@ -44,21 +44,15 @@ const DEFAULT_ROUTING_POLICY: &str = include_str!("../resources/prompts/routing-
 const DEFAULT_SERVER_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/server.md");
 const DEFAULT_KNOWLEDGE_AGENT_PROMPT: &str =
     include_str!("../resources/prompts/agents/knowledge.md");
-const DEFAULT_PROTOCOL_AGENT_PROMPT: &str =
-    include_str!("../resources/prompts/agents/protocol.md");
-const DEFAULT_WORKFLOW_AGENT_PROMPT: &str =
-    include_str!("../resources/prompts/agents/workflow.md");
+const DEFAULT_PROTOCOL_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/protocol.md");
+const DEFAULT_WORKFLOW_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/workflow.md");
 const DEFAULT_TASKS_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/tasks.md");
 const DEFAULT_PLAN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/plan.md");
 const DEFAULT_RUN_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/run.md");
-const DEFAULT_TERMINAL_AGENT_PROMPT: &str =
-    include_str!("../resources/prompts/agents/terminal.md");
-const DEFAULT_DATABASE_AGENT_PROMPT: &str =
-    include_str!("../resources/prompts/agents/database.md");
-const DEFAULT_DOCKER_AGENT_PROMPT: &str =
-    include_str!("../resources/prompts/agents/docker.md");
-const DEFAULT_FILES_AGENT_PROMPT: &str =
-    include_str!("../resources/prompts/agents/files.md");
+const DEFAULT_TERMINAL_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/terminal.md");
+const DEFAULT_DATABASE_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/database.md");
+const DEFAULT_DOCKER_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/docker.md");
+const DEFAULT_FILES_AGENT_PROMPT: &str = include_str!("../resources/prompts/agents/files.md");
 
 /// 历史短版 / 旧 chat 命名默认文案：仍等于这些内容时，启动时可升级（不覆盖用户自定义）。
 const LEGACY_PLAN_AGENT_PROMPTS: &[&str] = &[
@@ -72,17 +66,14 @@ const LEGACY_TERMINAL_AGENT_PROMPTS: &[&str] = &[
     "你是 OmniPanel 的「终端」Agent，覆盖本地终端与 SSH 远程会话、命令执行与主机相关操作；仅使用终端模块工具（含原 SSH 工具）。",
 ];
 
-const LEGACY_DATABASE_AGENT_PROMPTS: &[&str] = &[
-    "你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。",
-];
+const LEGACY_DATABASE_AGENT_PROMPTS: &[&str] =
+    &["你是 OmniPanel 的「数据库」Agent，专注连接、Schema 与 SQL；仅使用数据库相关工具。"];
 
-const LEGACY_DOCKER_AGENT_PROMPTS: &[&str] = &[
-    "你是 OmniPanel 的「Docker」Agent，专注容器/镜像/Compose；仅使用 Docker 相关工具。",
-];
+const LEGACY_DOCKER_AGENT_PROMPTS: &[&str] =
+    &["你是 OmniPanel 的「Docker」Agent，专注容器/镜像/Compose；仅使用 Docker 相关工具。"];
 
-const LEGACY_FILES_AGENT_PROMPTS: &[&str] = &[
-    "你是 OmniPanel 的「文件」Agent，专注文件浏览与读写；仅使用文件相关工具。",
-];
+const LEGACY_FILES_AGENT_PROMPTS: &[&str] =
+    &["你是 OmniPanel 的「文件」Agent，专注文件浏览与读写；仅使用文件相关工具。"];
 
 struct CachedFile {
     mtime: Option<SystemTime>,
@@ -106,15 +97,13 @@ fn default_agent_prompt(id: &str) -> &'static str {
         "protocol" => DEFAULT_PROTOCOL_AGENT_PROMPT,
         "workflow" => DEFAULT_WORKFLOW_AGENT_PROMPT,
         "tasks" => DEFAULT_TASKS_AGENT_PROMPT,
-        _ => "你是 OmniPanel 的助手 Agent，请按用户意图协助完成任务。多步骤用 omni_plan_create；独立并行子任务用 omni_spawn_sub_conversations。",
+        _ => {
+            "你是 OmniPanel 的助手 Agent，请按用户意图协助完成任务。多步骤用 omni_plan_create；独立并行子任务用 omni_spawn_sub_conversations。"
+        }
     }
 }
 
-fn upgrade_legacy_agent_prompt_if_needed(
-    id: &str,
-    legacy: &[&str],
-    next: &str,
-) -> OmniResult<()> {
+fn upgrade_legacy_agent_prompt_if_needed(id: &str, legacy: &[&str], next: &str) -> OmniResult<()> {
     let path = agent_prompt_path(id)?;
     if !path.exists() {
         return Ok(());
@@ -514,7 +503,10 @@ fn migrate_plan_todolist_tool_rename() -> OmniResult<()> {
     }
 
     let mut next = current.clone();
-    next = next.replace("omni_knowledge_create_todolist", "omni_knowledge_create_document");
+    next = next.replace(
+        "omni_knowledge_create_todolist",
+        "omni_knowledge_create_document",
+    );
     next = next.replace("omni_create_todolist", "omni_knowledge_create_document");
     next = next.replace(
         "最终交付物必须是 `omni_knowledge_save_todolist` 创建的执行计划。",
@@ -549,11 +541,7 @@ fn read_file_or_default(path: &PathBuf, default: &str) -> String {
     }
 }
 
-fn load_cached(
-    cache: &Mutex<Option<CachedFile>>,
-    path: &PathBuf,
-    default: &str,
-) -> String {
+fn load_cached(cache: &Mutex<Option<CachedFile>>, path: &PathBuf, default: &str) -> String {
     let meta_mtime = fs::metadata(path).ok().and_then(|m| m.modified().ok());
     if let Ok(guard) = cache.lock() {
         if let Some(cached) = guard.as_ref() {

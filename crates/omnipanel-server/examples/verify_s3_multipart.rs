@@ -14,8 +14,7 @@
 use std::sync::Arc;
 
 use omnipanel_server::files::{
-    file_download_s3_range_to_file, file_list_dir, file_read_file,
-    file_upload_local_path_multipart,
+    file_download_s3_range_to_file, file_list_dir, file_read_file, file_upload_local_path_multipart,
 };
 use omnipanel_server::state::ServerState;
 use omnipanel_store::{Connection, ConnectionKind};
@@ -77,13 +76,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let list = file_list_dir(&state, cid.clone(), "mp".to_string(), None, None)
         .await
         .map_err(|e| format!("list: {e}"))?;
-    assert!(list.entries.iter().any(|e| e.name == "big.bin"), "entries: {:?}", list.entries);
-    println!("OK list: {:?}", list.entries.iter().map(|e| (&e.name, e.size)).collect::<Vec<_>>());
+    assert!(
+        list.entries.iter().any(|e| e.name == "big.bin"),
+        "entries: {:?}",
+        list.entries
+    );
+    println!(
+        "OK list: {:?}",
+        list.entries
+            .iter()
+            .map(|e| (&e.name, e.size))
+            .collect::<Vec<_>>()
+    );
 
     // 4. 完整读回（验证对象内容）
-    let data = file_read_file(&state, cid.clone(), "mp/big.bin".to_string(), 64.0 * 1024.0 * 1024.0)
-        .await
-        .map_err(|e| format!("read: {e}"))?;
+    let data = file_read_file(
+        &state,
+        cid.clone(),
+        "mp/big.bin".to_string(),
+        64.0 * 1024.0 * 1024.0,
+    )
+    .await
+    .map_err(|e| format!("read: {e}"))?;
     assert_eq!(data.len(), payload.len(), "读回长度不一致");
     assert_eq!(data, payload, "读回内容不一致");
     println!("OK full read: {} bytes", data.len());
@@ -105,9 +119,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("OK range download: {downloaded} bytes");
 
     // 6. 清理
-    omnipanel_server::files::file_delete(&state, cid.clone(), "mp/big.bin".to_string(), Some("file".to_string()))
-        .await
-        .map_err(|e| format!("delete: {e}"))?;
+    omnipanel_server::files::file_delete(
+        &state,
+        cid.clone(),
+        "mp/big.bin".to_string(),
+        Some("file".to_string()),
+    )
+    .await
+    .map_err(|e| format!("delete: {e}"))?;
     let _ = tokio::fs::remove_file(&src).await;
     let _ = tokio::fs::remove_file(&dst).await;
 

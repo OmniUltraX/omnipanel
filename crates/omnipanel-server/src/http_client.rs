@@ -37,15 +37,14 @@ impl Default for ProxyConfig {
 }
 
 pub fn proxy_config() -> ProxyConfig {
-    PROXY_CONFIG
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default()
+    PROXY_CONFIG.lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 pub fn set_proxy_config_value(config: serde_json::Value) -> Result<(), String> {
     let cfg: ProxyConfig = serde_json::from_value(config).map_err(|e| e.to_string())?;
-    let mut guard = PROXY_CONFIG.lock().map_err(|_| "proxy lock poisoned".to_string())?;
+    let mut guard = PROXY_CONFIG
+        .lock()
+        .map_err(|_| "proxy lock poisoned".to_string())?;
     *guard = cfg;
     Ok(())
 }

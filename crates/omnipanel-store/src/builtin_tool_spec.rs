@@ -685,8 +685,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_terminal_exec",
         module_key: "terminal",
-        description:
-            "MUST: current-tab PTY exec; args=command (+optional session_id); never pass resource_id. \
+        description: "MUST: current-tab PTY exec; args=command (+optional session_id); never pass resource_id. \
              Live facts (time/files/process) use this tool. No TUI/streaming. Other SSH host → omni_ssh_exec.",
         input_schema: SCHEMA_TERMINAL_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
@@ -695,8 +694,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_ssh_exec",
         module_key: "terminal",
-        description:
-            "MUST: named SSH host via separate exec; required resource_id + command. \
+        description: "MUST: named SSH host via separate exec; required resource_id + command. \
              Does not use the current tab. Current-tab work → omni_terminal_exec. No TUI/streaming.",
         input_schema: SCHEMA_SSH_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
@@ -705,8 +703,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_ssh_create_run_script",
         module_key: "terminal",
-        description:
-            "在指定 SSH 主机上创建脚本并立即执行：写入连接用户家目录下的 ~/.omnipanel/scripts/<name>（同名覆盖），\
+        description: "在指定 SSH 主机上创建脚本并立即执行：写入连接用户家目录下的 ~/.omnipanel/scripts/<name>（同名覆盖），\
              chmod +x 后以 bash 运行，返回 remote_path/stdout/stderr/exit_code。\
              适合需要落盘复用或多行复杂逻辑的场景；简单一行命令优先用 omni_ssh_exec。危险内容进入用户确认流程。",
         input_schema: SCHEMA_SSH_CREATE_RUN_SCRIPT,
@@ -716,8 +713,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_ssh_get_stats",
         module_key: "terminal",
-        description:
-            "拉取指定 SSH 主机的实时系统指标快照（CPU/内存/磁盘/网络/负载/运行时长/OS 信息）。",
+        description: "拉取指定 SSH 主机的实时系统指标快照（CPU/内存/磁盘/网络/负载/运行时长/OS 信息）。",
         input_schema: SCHEMA_SSH_GET_STATS,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
@@ -733,8 +729,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_ssh_create_tunnel",
         module_key: "terminal",
-        description:
-            "在指定 SSH 连接上创建端口转发隧道（local/remote/dynamic）。\
+        description: "在指定 SSH 连接上创建端口转发隧道（local/remote/dynamic）。\
              dynamic 类型为 SOCKS 代理，可省略 remote_host/remote_port。",
         input_schema: SCHEMA_SSH_CREATE_TUNNEL,
         exec_kind: ToolExecKind::UiDelegated,
@@ -743,8 +738,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_docker_list_connections",
         module_key: "docker",
-        description:
-            "列出已保存的 Docker 连接（含本地 Engine / 远程 Engine / SSH Engine / 1Panel），\
+        description: "列出已保存的 Docker 连接（含本地 Engine / 远程 Engine / SSH Engine / 1Panel），\
              供外部 Agent 选择目标。本地 Engine 的 connection_id 固定为 'docker-local'。",
         input_schema: SCHEMA_DOCKER_LIST_CONNECTIONS,
         exec_kind: ToolExecKind::Native,
@@ -753,8 +747,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_docker_list_containers",
         module_key: "docker",
-        description:
-            "列出指定 Docker 连接下的容器（id/name/image/state/ports/networks）。\
+        description: "列出指定 Docker 连接下的容器（id/name/image/state/ports/networks）。\
              filter 支持 all / running / stopped，默认 all。",
         input_schema: SCHEMA_DOCKER_LIST_CONTAINERS,
         exec_kind: ToolExecKind::UiDelegated,
@@ -763,8 +756,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_docker_container_logs",
         module_key: "docker",
-        description:
-            "拉取容器最近日志（默认 tail=200），可选 since 时间范围。\
+        description: "拉取容器最近日志（默认 tail=200），可选 since 时间范围。\
              返回 {stream, message} 数组。",
         input_schema: SCHEMA_DOCKER_CONTAINER_LOGS,
         exec_kind: ToolExecKind::UiDelegated,
@@ -773,8 +765,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_docker_inspect_container",
         module_key: "docker",
-        description:
-            "查看容器详情（command/restart_policy/exit_code/env/mounts/networks 等）。\
+        description: "查看容器详情（command/restart_policy/exit_code/env/mounts/networks 等）。\
              仅 Local / Remote / SSH Engine 支持；1Panel 不支持。",
         input_schema: SCHEMA_DOCKER_INSPECT,
         exec_kind: ToolExecKind::UiDelegated,
@@ -783,8 +774,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_docker_container_action",
         module_key: "docker",
-        description:
-            "对容器执行生命周期动作（start/stop/restart/kill/pause/unpause/remove）。\
+        description: "对容器执行生命周期动作（start/stop/restart/kill/pause/unpause/remove）。\
              kill/remove 为危险动作，需用户确认。",
         input_schema: SCHEMA_DOCKER_CONTAINER_ACTION,
         exec_kind: ToolExecKind::UiDelegated,
@@ -793,8 +783,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_docker_exec",
         module_key: "docker",
-        description:
-            "在容器内执行非交互式命令（单条；不支持 ; / && / || 复合命令），返回 stdout/stderr/exit_code。\
+        description: "在容器内执行非交互式命令（单条；不支持 ; / && / || 复合命令），返回 stdout/stderr/exit_code。\
              1Panel 不支持此工具。",
         input_schema: SCHEMA_DOCKER_EXEC,
         exec_kind: ToolExecKind::UiDelegated,
@@ -803,8 +792,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_files_list_connections",
         module_key: "files",
-        description:
-            "列出已保存的文件管理器连接（含本机 / SFTP / FTP / S3）。本机连接 id 固定为 '__local__'。",
+        description: "列出已保存的文件管理器连接（含本机 / SFTP / FTP / S3）。本机连接 id 固定为 '__local__'。",
         input_schema: SCHEMA_FILES_LIST_CONNECTIONS,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -812,8 +800,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_files_list",
         module_key: "files",
-        description:
-            "列出指定目录下的文件与子目录（含大小/修改时间/权限）。可选 search 按文件名子串过滤。\
+        description: "列出指定目录下的文件与子目录（含大小/修改时间/权限）。可选 search 按文件名子串过滤。\
              本机空 path 表示用户主目录；Windows '\\\\' 表示此电脑根（盘符列表）。",
         input_schema: SCHEMA_FILES_LIST,
         exec_kind: ToolExecKind::UiDelegated,
@@ -822,8 +809,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_files_read",
         module_key: "files",
-        description:
-            "读取文件文本内容（UTF-8）。默认上限 512KB，最大 8MB。\
+        description: "读取文件文本内容（UTF-8）。默认上限 512KB，最大 8MB。\
              二进制文件会被解码为 UTF-8 替换字符（不影响 AI 阅读文本配置/日志）。",
         input_schema: SCHEMA_FILES_READ,
         exec_kind: ToolExecKind::UiDelegated,
@@ -832,8 +818,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_files_write",
         module_key: "files",
-        description:
-            "将文本内容写入文件（默认覆盖；append=true 追加）。父目录不存在会自动创建。\
+        description: "将文本内容写入文件（默认覆盖；append=true 追加）。父目录不存在会自动创建。\
              危险动作（覆盖关键系统文件）需用户确认。",
         input_schema: SCHEMA_FILES_WRITE,
         exec_kind: ToolExecKind::UiDelegated,
@@ -842,8 +827,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_files_search",
         module_key: "files",
-        description:
-            "按文件名子串搜索（忽略大小写）。S3 协议下含 '/' 时按 key 前缀查询。\
+        description: "按文件名子串搜索（忽略大小写）。S3 协议下含 '/' 时按 key 前缀查询。\
              仅返回当前目录一层匹配项，不递归（递归搜索请配合 SSH find / grep）。",
         input_schema: SCHEMA_FILES_SEARCH,
         exec_kind: ToolExecKind::UiDelegated,
@@ -892,8 +876,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_database_create_run_sql",
         module_key: "database",
-        description:
-            "创建 SQL 脚本并立即执行：写入数据库模块 SQL 文件树（同名自动去重），绑定连接/数据库后执行脚本正文。\
+        description: "创建 SQL 脚本并立即执行：写入数据库模块 SQL 文件树（同名自动去重），绑定连接/数据库后执行脚本正文。\
              适合多语句迁移、批处理或需落盘复用的复杂逻辑；简单单条查询优先用 omni_database_execute_sql。危险 SQL 进入用户确认流程。",
         input_schema: SCHEMA_DB_CREATE_RUN_SQL,
         exec_kind: ToolExecKind::UiDelegated,
@@ -950,8 +933,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_skill_recall",
         module_key: "web",
-        description:
-            "召回相关 skill：混合向量检索 + 关键词匹配已启用的 skill，返回正文与 application_id。\
+        description: "召回相关 skill：混合向量检索 + 关键词匹配已启用的 skill，返回正文与 application_id。\
              应用后务必调用 omni_skill_report_outcome 回写 success/failure。",
         input_schema: SCHEMA_SKILL_RECALL,
         exec_kind: ToolExecKind::Native,
@@ -960,8 +942,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_skill_extract_experience",
         module_key: "web",
-        description:
-            "从完成的任务中提取经验并创建 skill：生成 SKILL.md，可选关联资源/knowledge，\
+        description: "从完成的任务中提取经验并创建 skill：生成 SKILL.md，可选关联资源/knowledge，\
              并 best-effort 向量化以便后续召回。支持 parent_skill_id 创建新版本。",
         input_schema: SCHEMA_SKILL_EXTRACT_EXPERIENCE,
         exec_kind: ToolExecKind::Native,
@@ -970,8 +951,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_skill_refine",
         module_key: "web",
-        description:
-            "改进已有 skill：基于应用反馈创建新版本（原版本 enabled=0），复制 knowledge 关联并向量化。",
+        description: "改进已有 skill：基于应用反馈创建新版本（原版本 enabled=0），复制 knowledge 关联并向量化。",
         input_schema: SCHEMA_SKILL_REFINE,
         exec_kind: ToolExecKind::Native,
         omnimcp_backend: true,
@@ -979,8 +959,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_skill_report_outcome",
         module_key: "web",
-        description:
-            "回写 skill 应用结果（success/failure/partial），更新成功率统计。\
+        description: "回写 skill 应用结果（success/failure/partial），更新成功率统计。\
              在按 skill 完成任务后调用；application_id 来自 omni_skill_recall。",
         input_schema: SCHEMA_SKILL_REPORT_OUTCOME,
         exec_kind: ToolExecKind::Native,
@@ -1045,8 +1024,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_knowledge_save_todolist",
         module_key: "web",
-        description:
-            "将个人待办列表写入任务中心「我的待办」（本地持久化）。仅当用户明确要求「记待办」\
+        description: "将个人待办列表写入任务中心「我的待办」（本地持久化）。仅当用户明确要求「记待办」\
              「写到任务中心待办」时使用。制定执行计划请用 omni_knowledge_create_document；\
              会话内实时进度请用 omni_plan_create。不要作为 Plan Agent 的默认交付物。",
         input_schema: SCHEMA_CREATE_TODOLIST,
@@ -1080,8 +1058,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_workspace_create",
         module_key: "web",
-        description:
-            "创建业务工作区（可选纳入 resource_ids）。工作区非必选；仅当用户明确要求隔离/整理时调用。",
+        description: "创建业务工作区（可选纳入 resource_ids）。工作区非必选；仅当用户明确要求隔离/整理时调用。",
         input_schema: SCHEMA_WORKSPACE_CREATE,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: false,
@@ -1121,8 +1098,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_orchestration_ssh_fleet_health",
         module_key: "terminal",
-        description:
-            "对全部（或指定工作区内）SSH 主机扇出子会话体检：每台主机派发一个独立的 AI 子会话，\
+        description: "对全部（或指定工作区内）SSH 主机扇出子会话体检：每台主机派发一个独立的 AI 子会话，\
              自主调用 omni_ssh_get_stats 采集 CPU/内存/磁盘等指标并给出健康评估和优化建议。\
              适合「给所有 SSH 做体检」；会在对话流与任务中心显示集群进度卡片，每台主机可展开查看子会话。\
              主机数上限 20（超过时返回错误，建议缩小 workspace_id 范围）。\
@@ -1134,8 +1110,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_spawn_sub_conversations",
         module_key: "web",
-        description:
-            "派发多个独立的子会话（cursor sub-agent 范式），并发执行互不干扰。\
+        description: "派发多个独立的子会话（cursor sub-agent 范式），并发执行互不干扰。\
              适合需要同时进行多个独立 AI 子任务的场景，如「同时检查 3 台服务器的磁盘 / CPU / 内存」。\
              每个子会话继承父会话的模型 / Skill / 工作区上下文，独立完成后返回汇总。\
              会在对话流与任务中心显示集群进度卡片。",
@@ -1146,8 +1121,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_plan_create",
         module_key: "web",
-        description:
-            "创建会话级任务计划（todolist），在 AI 侧栏顶部实时显示可折叠的步骤列表。\
+        description: "创建会话级任务计划（todolist），在 AI 侧栏顶部实时显示可折叠的步骤列表。\
              这是执行多步骤任务时的首选计划工具：先创建计划，再逐步执行并更新状态。\
              返回值包含 plan_id 和每个步骤的 step_id，后续调用 omni_plan_update_step 时\
              必须使用返回的 step_id，不能自行编造。\
@@ -1160,8 +1134,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_plan_add_step",
         module_key: "web",
-        description:
-            "向已有会话级计划追加步骤（动态扩展 todolist）。\
+        description: "向已有会话级计划追加步骤（动态扩展 todolist）。\
              适合执行过程中发现需要额外步骤的场景。",
         input_schema: SCHEMA_PLAN_ADD_STEP,
         exec_kind: ToolExecKind::UiDelegated,
@@ -1170,8 +1143,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_plan_update_step",
         module_key: "web",
-        description:
-            "更新会话级计划步骤的状态（pending → in_progress → completed/failed/skipped）。\
+        description: "更新会话级计划步骤的状态（pending → in_progress → completed/failed/skipped）。\
              每个步骤执行前标记 in_progress，执行后根据结果标记 completed 或 failed。\
              可选 summary 填充执行摘要，error 填充失败原因。",
         input_schema: SCHEMA_PLAN_UPDATE_STEP,
@@ -1182,8 +1154,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         tool_name: "omni_ask_user",
         module_key: "web",
         // 描述前 140 字会进 ACP compact schema，MUST 语义放最前。
-        description:
-            "MUST：凡需用户选择/确认/补充关键参数时调用（单选/多选/填空，1～5题）。\
+        description: "MUST：凡需用户选择/确认/补充关键参数时调用（单选/多选/填空，1～5题）。\
              禁止正文纯文本列选项。提交或跳过后返回结构化答案。仅收集意图，不代替危险操作确认。",
         input_schema: SCHEMA_ASK_USER,
         exec_kind: ToolExecKind::UiDelegated,
@@ -1310,7 +1281,9 @@ mod tests {
             assert!(builtin_tool_is_cross_module(name), "{name}");
             assert!(!builtin_tool_is_native(name), "{name}");
         }
-        assert!(!builtin_tool_is_cross_module("omni_knowledge_save_todolist"));
+        assert!(!builtin_tool_is_cross_module(
+            "omni_knowledge_save_todolist"
+        ));
         assert!(builtin_tool_is_cross_module("load_skill"));
         assert!(builtin_tool_is_cross_module("omni_skill_recall"));
         for name in ["omni_web_search", "omni_zhihu_search", "omni_web_fetch"] {
@@ -1504,10 +1477,7 @@ mod tests {
         // append 应当是可选
         assert!(!required.iter().any(|x| x.as_str() == Some("append")));
         // append 是 boolean
-        assert_eq!(
-            v["properties"]["append"]["type"].as_str(),
-            Some("boolean")
-        );
+        assert_eq!(v["properties"]["append"]["type"].as_str(), Some("boolean"));
     }
 
     #[test]
@@ -1555,7 +1525,11 @@ mod tests {
         let spec = builtin_tool_spec("omni_database_show_processlist").unwrap();
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
-        assert!(required.iter().any(|x| x.as_str() == Some("connection_name")));
+        assert!(
+            required
+                .iter()
+                .any(|x| x.as_str() == Some("connection_name"))
+        );
         // database_name 应当可选
         assert!(!required.iter().any(|x| x.as_str() == Some("database_name")));
     }
@@ -1565,7 +1539,11 @@ mod tests {
         let spec = builtin_tool_spec("omni_database_kill_query").unwrap();
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
-        assert!(required.iter().any(|x| x.as_str() == Some("connection_name")));
+        assert!(
+            required
+                .iter()
+                .any(|x| x.as_str() == Some("connection_name"))
+        );
         assert!(required.iter().any(|x| x.as_str() == Some("query_id")));
         // query_id 为 string（兼容 Redis addr 与数值 id）
         assert_eq!(v["properties"]["query_id"]["type"].as_str(), Some("string"));
@@ -1576,7 +1554,11 @@ mod tests {
         let spec = builtin_tool_spec("omni_database_slow_log_summary").unwrap();
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
-        assert!(required.iter().any(|x| x.as_str() == Some("connection_name")));
+        assert!(
+            required
+                .iter()
+                .any(|x| x.as_str() == Some("connection_name"))
+        );
         assert!(!required.iter().any(|x| x.as_str() == Some("count")));
         assert_eq!(v["properties"]["count"]["default"].as_i64(), Some(10));
     }
@@ -1638,7 +1620,11 @@ mod tests {
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
         assert!(required.iter().any(|x| x.as_str() == Some("resource_type")));
         assert!(required.iter().any(|x| x.as_str() == Some("resource_id")));
-        assert!(required.iter().any(|x| x.as_str() == Some("observation_kind")));
+        assert!(
+            required
+                .iter()
+                .any(|x| x.as_str() == Some("observation_kind"))
+        );
         assert!(required.iter().any(|x| x.as_str() == Some("payload")));
         // observer 可选，默认 "ai"
         assert!(!required.iter().any(|x| x.as_str() == Some("observer")));
@@ -1662,7 +1648,11 @@ mod tests {
         let spec = builtin_tool_spec("omni_spawn_sub_conversations").unwrap();
         let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
         let required = v.get("required").and_then(|r| r.as_array()).unwrap();
-        assert!(required.iter().any(|x| x.as_str() == Some("sub_conversations")));
+        assert!(
+            required
+                .iter()
+                .any(|x| x.as_str() == Some("sub_conversations"))
+        );
         // title 可选
         assert!(!required.iter().any(|x| x.as_str() == Some("title")));
         // sub_conversations 是数组
@@ -1686,6 +1676,10 @@ mod tests {
         assert!(item_required.iter().any(|x| x.as_str() == Some("title")));
         assert!(item_required.iter().any(|x| x.as_str() == Some("task")));
         // resource_id 可选
-        assert!(!item_required.iter().any(|x| x.as_str() == Some("resource_id")));
+        assert!(
+            !item_required
+                .iter()
+                .any(|x| x.as_str() == Some("resource_id"))
+        );
     }
 }

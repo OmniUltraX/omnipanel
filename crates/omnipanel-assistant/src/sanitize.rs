@@ -64,7 +64,8 @@ pub fn sanitize_connection_meta(
     tags: &[String],
     config_json: &str,
 ) -> Value {
-    let mut config: Value = serde_json::from_str(config_json).unwrap_or_else(|_| Value::Object(Map::new()));
+    let mut config: Value =
+        serde_json::from_str(config_json).unwrap_or_else(|_| Value::Object(Map::new()));
     config = strip_secret_keys(&config);
     // 常见字段再保险剔除
     if let Some(obj) = config.as_object_mut() {

@@ -1,16 +1,16 @@
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use omnipanel_error::{ErrorCode, OmniError};
 
 use crate::engine::FileTransferEngine;
-use crate::event::{emit_job, TransferEventSink};
+use crate::event::{TransferEventSink, emit_job};
 use crate::provider::{TransferHost, TransferProtocol};
 use crate::rate_limit::RATE_LIMIT_BPS;
 use crate::resume::{
-    copy_local_resume, fingerprint_matches, local_partial_len, partial_dest_path,
-    sftp_partial_len, source_fingerprint,
+    copy_local_resume, fingerprint_matches, local_partial_len, partial_dest_path, sftp_partial_len,
+    source_fingerprint,
 };
 use crate::types::{FileTransferJob, FileTransferState};
 use crate::util::{check_cancel, open_sftp, resolve_protocol, set_progress, temp_transfer_path};
@@ -338,7 +338,10 @@ pub async fn run_relay_with_engine(
                 .map(|m| m.len() > 0)
                 .unwrap_or(false);
         let n = if temp_ok {
-            tokio::fs::metadata(&temp).await.map(|m| m.len()).unwrap_or(0)
+            tokio::fs::metadata(&temp)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0)
         } else {
             job.source_fingerprint = Some(cur_fp);
             let _ = tokio::fs::remove_file(&temp).await;
@@ -352,7 +355,14 @@ pub async fn run_relay_with_engine(
             .await?
         };
         set_progress_with_persist(sink, engine, job, n / 2, Some(n)).await;
-        upload_from_local(host, &job.dest.connection_id, &job.dest.path, &temp, &cancel).await?;
+        upload_from_local(
+            host,
+            &job.dest.connection_id,
+            &job.dest.path,
+            &temp,
+            &cancel,
+        )
+        .await?;
         set_progress_with_persist(sink, engine, job, n, Some(n)).await;
         Ok(())
     }
@@ -400,7 +410,9 @@ async fn download_to_local_resume(
             .append(true)
             .open(local_path)
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Io, "打开 partial 失败").with_cause(e.to_string()))?;
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, "打开 partial 失败").with_cause(e.to_string())
+            })?;
         let mut offset = start_offset;
         const CHUNK: u32 = 512 * 1024;
         while total == 0 || offset < total {

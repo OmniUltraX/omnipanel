@@ -98,12 +98,7 @@ impl JinaDomainMode {
 }
 
 pub fn default_auto_order() -> Vec<String> {
-    vec![
-        "zhihu".into(),
-        "exa".into(),
-        "ddg".into(),
-        "jina".into(),
-    ]
+    vec!["zhihu".into(), "exa".into(), "ddg".into(), "jina".into()]
 }
 
 fn default_search_backend() -> String {
@@ -252,7 +247,8 @@ pub fn load_web_search_config() -> OmniResult<WebSearchConfig> {
     if !path.exists() {
         return Ok(WebSearchConfig::default());
     }
-    let text = fs::read_to_string(&path).map_err(|e| OmniError::new(ErrorCode::Io, e.to_string()))?;
+    let text =
+        fs::read_to_string(&path).map_err(|e| OmniError::new(ErrorCode::Io, e.to_string()))?;
     let raw: RawWebSearchConfig = serde_json::from_str(&text)
         .map_err(|e| OmniError::new(ErrorCode::InvalidInput, e.to_string()))?;
     let cfg = normalize_config(raw);

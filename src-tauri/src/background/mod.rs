@@ -12,10 +12,10 @@ pub mod worker_pool;
 
 use std::sync::Arc;
 
+pub use omnipanel_ssh::HostSystemStats;
 use omnipanel_store::Storage;
 pub use ssh_pool::{PoolStatusEvent, SshHostOverview, SshPool};
 pub use worker_pool::{BackgroundWorkerPool, default_worker_count};
-pub use omnipanel_ssh::HostSystemStats;
 
 /// Background scheduler — SSH 连接池初始化。
 pub struct BackgroundScheduler;

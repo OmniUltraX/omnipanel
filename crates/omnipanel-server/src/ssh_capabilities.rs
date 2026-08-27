@@ -4,10 +4,10 @@ use crate::monitoring::ensure_ssh_session;
 use crate::terminal::ServerState;
 
 pub use omnipanel_ssh::capabilities::{
+    CapabilityCache, CapabilityProbeResult, EnablePanelApiResult, InstallMethod, InstallToolResult,
+    PanelProbeItem, PanelProbeResult, RemoteToolCapability, ToolCategory, ToolSpec, ToolState,
     download_install_binary, enable_panel_api, find_tool_spec, install_remote_tool,
-    probe_capabilities, probe_panels, CapabilityCache, CapabilityProbeResult,
-    EnablePanelApiResult, InstallMethod, InstallToolResult, PanelProbeItem, PanelProbeResult,
-    RemoteToolCapability, ToolCategory, ToolSpec, ToolState,
+    probe_capabilities, probe_panels,
 };
 
 /// 探测远端主机的能力（批量脚本 + 懒探测标记）。
@@ -25,7 +25,10 @@ pub async fn ssh_pool_probe_capabilities(
     let (session, _host_name) = ensure_ssh_session(state, &resource_id).await?;
     let result = probe_capabilities(&session, &resource_id).await?;
 
-    state.capability_cache.set(&resource_id, result.clone()).await;
+    state
+        .capability_cache
+        .set(&resource_id, result.clone())
+        .await;
 
     Ok(result)
 }

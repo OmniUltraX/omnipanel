@@ -123,9 +123,7 @@ mod tests {
     #[test]
     fn activated_installed_sidecar_is_collected() {
         let mut registry = PluginRegistry::new();
-        registry
-            .register_installed(oracle_manifest())
-            .unwrap();
+        registry.register_installed(oracle_manifest()).unwrap();
         registry
             .activate_on("omni.engine.oracle", PluginPlatform::current())
             .unwrap();
@@ -136,24 +134,22 @@ mod tests {
         assert_eq!(found[0].aliases, vec!["oracle", "orcl"]);
         assert_eq!(
             found[0].driver_path,
-            root.join("omni.engine.oracle").join("bin").join("agent.mjs")
+            root.join("omni.engine.oracle")
+                .join("bin")
+                .join("agent.mjs")
         );
     }
 
     #[test]
     fn disabled_installed_sidecar_is_skipped() {
         let mut registry = PluginRegistry::new();
-        registry
-            .register_installed(oracle_manifest())
-            .unwrap();
+        registry.register_installed(oracle_manifest()).unwrap();
         registry
             .activate_on("omni.engine.oracle", PluginPlatform::current())
             .unwrap();
         registry.set_enabled("omni.engine.oracle", false).unwrap();
-        let found = collect_activated_installed_engine_drivers(
-            &registry,
-            Path::new("/tmp/omni-plugins"),
-        );
+        let found =
+            collect_activated_installed_engine_drivers(&registry, Path::new("/tmp/omni-plugins"));
         assert!(found.is_empty());
     }
 }

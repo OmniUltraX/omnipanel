@@ -111,7 +111,8 @@ mod tests {
             "agentCapabilities": {}
         });
 
-        let result: InitializeResult = serde_json::from_value(json).expect("deserialize initialize");
+        let result: InitializeResult =
+            serde_json::from_value(json).expect("deserialize initialize");
         assert_eq!(result.agent_info.name, "");
         assert_eq!(result.protocol_version, 1);
     }
@@ -131,7 +132,8 @@ mod tests {
             "agentCapabilities": {}
         });
 
-        let result: InitializeResult = serde_json::from_value(json).expect("deserialize initialize");
+        let result: InitializeResult =
+            serde_json::from_value(json).expect("deserialize initialize");
         assert_eq!(result.agent_info.name, "opencode");
         assert_eq!(result.auth_methods.len(), 1);
         assert_eq!(result.auth_methods[0].auth_type, "agent");
@@ -272,7 +274,9 @@ pub struct RequestPermissionResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RequestPermissionOutcome {
-    Cancelled { outcome: String },
+    Cancelled {
+        outcome: String,
+    },
     Selected {
         outcome: String,
         #[serde(rename = "optionId")]

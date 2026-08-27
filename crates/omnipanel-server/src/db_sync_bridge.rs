@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use omnipanel_db_sync::{
     BgTaskDbEvent, BgTaskMysqlExportEvent, DbSyncEventSink, MysqlExportEventSink,
-    SyncExecResultEvent, SshSessionProvider,
+    SshSessionProvider, SyncExecResultEvent,
 };
 use omnipanel_ssh::SshSession;
 

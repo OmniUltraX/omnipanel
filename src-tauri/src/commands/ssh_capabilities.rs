@@ -3,8 +3,8 @@
 use tauri::State;
 
 use omnipanel_ssh::capabilities::{
-    enable_panel_api, install_remote_tool, probe_capabilities, probe_panels, CapabilityProbeResult,
-    EnablePanelApiResult, InstallToolResult, PanelProbeResult,
+    CapabilityProbeResult, EnablePanelApiResult, InstallToolResult, PanelProbeResult,
+    enable_panel_api, install_remote_tool, probe_capabilities, probe_panels,
 };
 
 use crate::state::AppState;

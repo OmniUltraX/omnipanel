@@ -223,10 +223,7 @@ fn resolve_default_agent_launch() -> Option<AgentLaunchSpec> {
             "index.ts".to_string(),
         ],
         cwd: Some(agent_dir.clone()),
-        display_command: format!(
-            "node --import tsx index.ts  (cwd: {})",
-            agent_dir.display()
-        ),
+        display_command: format!("node --import tsx index.ts  (cwd: {})", agent_dir.display()),
     })
 }
 
@@ -257,16 +254,22 @@ fn stream_event_to_acp(event: StreamEvent) -> Option<AcpStreamEvent> {
         StreamEvent::ContentDelta { text } if text.is_empty() => None,
         StreamEvent::ContentDelta { text } => Some(AcpStreamEvent::ContentDelta { text }),
         StreamEvent::ReasoningDelta { text } => Some(AcpStreamEvent::ReasoningDelta { text }),
-        StreamEvent::ToolCall { id, name, arguments } => Some(AcpStreamEvent::ToolCall {
+        StreamEvent::ToolCall {
+            id,
+            name,
+            arguments,
+        } => Some(AcpStreamEvent::ToolCall {
             id,
             name,
             arguments,
         }),
-        StreamEvent::ToolCallUpdate { id, status, result } => Some(AcpStreamEvent::ToolCallUpdate {
-            id,
-            status: tool_status_str(status),
-            result,
-        }),
+        StreamEvent::ToolCallUpdate { id, status, result } => {
+            Some(AcpStreamEvent::ToolCallUpdate {
+                id,
+                status: tool_status_str(status),
+                result,
+            })
+        }
         StreamEvent::PermissionRequest {
             request_id,
             tool_call_id,
@@ -494,7 +497,9 @@ pub async fn acp_prompt_inner(
     cwd: Option<String>,
     channel_id: Option<String>,
 ) -> Result<(), String> {
-    let cwd = cwd.filter(|s| !s.trim().is_empty()).unwrap_or_else(default_cwd);
+    let cwd = cwd
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(default_cwd);
     let mcp_servers: Vec<serde_json::Value> = Vec::new();
     let bus = state.bus.clone();
     let channel_ref = channel_id.as_deref();

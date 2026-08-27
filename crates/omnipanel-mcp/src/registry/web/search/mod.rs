@@ -7,14 +7,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use omnipanel_store::{load_web_search_config, WebSearchBackend};
+use omnipanel_store::{WebSearchBackend, load_web_search_config};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::info;
 
 use super::common::{
-    aggregate_errors, effective_proxy, BackendError, RequestCtx, SearchHit, SearchRequest,
-    SearchScope, WebSecrets,
+    BackendError, RequestCtx, SearchHit, SearchRequest, SearchScope, WebSecrets, aggregate_errors,
+    effective_proxy,
 };
 use omnipanel_store::{HttpProxyConfig, Storage};
 
@@ -110,7 +110,9 @@ async fn run_search(
     }
 
     match backend {
-        WebSearchBackend::Auto => search_auto(&req, &ctx, &secrets, &config.search.auto_order).await,
+        WebSearchBackend::Auto => {
+            search_auto(&req, &ctx, &secrets, &config.search.auto_order).await
+        }
         other => {
             let id = other.as_str();
             let Some(provider) = provider_by_id(id) else {
@@ -147,10 +149,7 @@ async fn search_auto(
         };
         if !provider.is_available(secrets) {
             info!(backend = id, "search auto: skip (unavailable)");
-            errors.push((
-                id.to_string(),
-                BackendError::Config("未配置凭据".into()),
-            ));
+            errors.push((id.to_string(), BackendError::Config("未配置凭据".into())));
             continue;
         }
         match provider.search(req, ctx, secrets).await {

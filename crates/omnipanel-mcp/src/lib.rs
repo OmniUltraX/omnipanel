@@ -11,11 +11,11 @@ mod types;
 
 pub use manager::{McpManager, SharedMcpManager};
 pub use registry::{
-    external, plugin_tools, web, web_tools, RegisteredTool, ToolExecutionKind, ToolRegistry,
+    RegisteredTool, ToolExecutionKind, ToolRegistry, external, plugin_tools, web, web_tools,
 };
 pub use types::{
-    builtin_mcp_endpoint, McpServiceConfig, McpServiceRuntimeStatus, McpServiceView,
-    McpServicesFile, McpSseTransport, McpStdioTransport, ToolCallResult, ToolInfo, McpTransport,
-    McpTransportKind, BUILTIN_MCP_ENDPOINT, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID,
-    BUILTIN_SERVICE_NAME, OMNI_MODULE_MASTER, X_OMNI_MODULE_HEADER,
+    BUILTIN_MCP_ENDPOINT, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
+    McpServiceConfig, McpServiceRuntimeStatus, McpServiceView, McpServicesFile, McpSseTransport,
+    McpStdioTransport, McpTransport, McpTransportKind, OMNI_MODULE_MASTER, ToolCallResult,
+    ToolInfo, X_OMNI_MODULE_HEADER, builtin_mcp_endpoint,
 };

@@ -1,8 +1,8 @@
 //! Tauri 后台任务池适配：事件经 `AppHandle::emit` 下发。
 
 use std::future::Future;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use omnipanel_bg::{BackgroundWorkerPool as InnerPool, TaskEventSink};
 use omnipanel_error::OmniError;
@@ -10,9 +10,7 @@ use omnipanel_store::Storage;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
-pub use omnipanel_bg::{
-    BackgroundTaskInfo, WorkerPoolSummary, default_worker_count,
-};
+pub use omnipanel_bg::{BackgroundTaskInfo, WorkerPoolSummary, default_worker_count};
 
 pub struct TauriTaskEventSink(pub AppHandle);
 

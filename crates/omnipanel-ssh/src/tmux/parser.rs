@@ -48,7 +48,10 @@ id_type!(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlEvent {
     /// `%output %<pane> <data>`，`data` 已完成八进制反转义。
-    Output { pane: PaneId, data: Vec<u8> },
+    Output {
+        pane: PaneId,
+        data: Vec<u8>,
+    },
     /// `%extended-output %<pane> <age> : <data>`（启用 pause-after 时出现）。
     ExtendedOutput {
         pane: PaneId,
@@ -61,19 +64,41 @@ pub enum ControlEvent {
     End(CommandTag),
     /// `%error <timestamp> <number> <flags>`，命令失败结束。
     Error(CommandTag),
-    WindowAdd { window: WindowId },
-    WindowClose { window: WindowId },
-    WindowRenamed { window: WindowId, name: String },
-    LayoutChange { window: WindowId, layout: String },
+    WindowAdd {
+        window: WindowId,
+    },
+    WindowClose {
+        window: WindowId,
+    },
+    WindowRenamed {
+        window: WindowId,
+        name: String,
+    },
+    LayoutChange {
+        window: WindowId,
+        layout: String,
+    },
     SessionsChanged,
-    SessionChanged { session: SessionId, name: String },
-    SessionWindowChanged { session: SessionId, window: WindowId },
+    SessionChanged {
+        session: SessionId,
+        name: String,
+    },
+    SessionWindowChanged {
+        session: SessionId,
+        window: WindowId,
+    },
     /// pane 输出被暂停（客户端落后于 pause-after 阈值）。
-    Pause { pane: PaneId },
+    Pause {
+        pane: PaneId,
+    },
     /// pane 输出恢复。
-    Continue { pane: PaneId },
+    Continue {
+        pane: PaneId,
+    },
     /// `%exit [reason]`，control 连接即将关闭。
-    Exit { reason: Option<String> },
+    Exit {
+        reason: Option<String>,
+    },
     /// 不以 `%` 开头的行：命令响应体，由调用方按 `%begin`/`%end` 区间归集。
     Raw(Vec<u8>),
     /// 未识别或当前无需处理的通知行。对未知通知保持宽容，避免新版本 tmux 引入
@@ -196,11 +221,11 @@ pub fn parse_line(line: &[u8]) -> ControlEvent {
         b"%begin" => parse_tag(rest).map_or(ControlEvent::Ignored, ControlEvent::Begin),
         b"%end" => parse_tag(rest).map_or(ControlEvent::Ignored, ControlEvent::End),
         b"%error" => parse_tag(rest).map_or(ControlEvent::Ignored, ControlEvent::Error),
-        b"%window-add" => parse_id(rest, b'@').map_or(ControlEvent::Ignored, |id| {
-            ControlEvent::WindowAdd {
+        b"%window-add" => {
+            parse_id(rest, b'@').map_or(ControlEvent::Ignored, |id| ControlEvent::WindowAdd {
                 window: WindowId(id),
-            }
-        }),
+            })
+        }
         b"%window-close" | b"%unlinked-window-close" => {
             parse_id(rest, b'@').map_or(ControlEvent::Ignored, |id| ControlEvent::WindowClose {
                 window: WindowId(id),
@@ -208,11 +233,9 @@ pub fn parse_line(line: &[u8]) -> ControlEvent {
         }
         b"%window-renamed" | b"%unlinked-window-renamed" => {
             let (window, name) = split_once(rest, b' ');
-            parse_id(window, b'@').map_or(ControlEvent::Ignored, |id| {
-                ControlEvent::WindowRenamed {
-                    window: WindowId(id),
-                    name: to_string(name),
-                }
+            parse_id(window, b'@').map_or(ControlEvent::Ignored, |id| ControlEvent::WindowRenamed {
+                window: WindowId(id),
+                name: to_string(name),
             })
         }
         b"%layout-change" => {
@@ -246,14 +269,12 @@ pub fn parse_line(line: &[u8]) -> ControlEvent {
                 _ => ControlEvent::Ignored,
             }
         }
-        b"%pause" => parse_id(rest, b'%')
-            .map_or(ControlEvent::Ignored, |id| ControlEvent::Pause {
-                pane: PaneId(id),
-            }),
-        b"%continue" => parse_id(rest, b'%')
-            .map_or(ControlEvent::Ignored, |id| ControlEvent::Continue {
-                pane: PaneId(id),
-            }),
+        b"%pause" => parse_id(rest, b'%').map_or(ControlEvent::Ignored, |id| ControlEvent::Pause {
+            pane: PaneId(id),
+        }),
+        b"%continue" => parse_id(rest, b'%').map_or(ControlEvent::Ignored, |id| {
+            ControlEvent::Continue { pane: PaneId(id) }
+        }),
         b"%exit" => ControlEvent::Exit {
             reason: if rest.is_empty() {
                 None
@@ -407,7 +428,10 @@ mod tests {
                 name: "my shell".to_string()
             }
         );
-        assert_eq!(parse_line(b"%sessions-changed"), ControlEvent::SessionsChanged);
+        assert_eq!(
+            parse_line(b"%sessions-changed"),
+            ControlEvent::SessionsChanged
+        );
         assert_eq!(
             parse_line(b"%session-changed $0 0"),
             ControlEvent::SessionChanged {
@@ -481,9 +505,18 @@ mod tests {
 
     #[test]
     fn unknown_notifications_are_ignored_not_errors() {
-        assert_eq!(parse_line(b"%subscription-changed foo"), ControlEvent::Ignored);
-        assert_eq!(parse_line(b"%client-detached client-1"), ControlEvent::Ignored);
-        assert_eq!(parse_line(b"%some-future-notification a b c"), ControlEvent::Ignored);
+        assert_eq!(
+            parse_line(b"%subscription-changed foo"),
+            ControlEvent::Ignored
+        );
+        assert_eq!(
+            parse_line(b"%client-detached client-1"),
+            ControlEvent::Ignored
+        );
+        assert_eq!(
+            parse_line(b"%some-future-notification a b c"),
+            ControlEvent::Ignored
+        );
     }
 
     #[test]
@@ -541,10 +574,7 @@ mod tests {
                 b"\x1b]7;file://host/tmp\x07",
             ),
             (b"%output %0 \\033]0;title\\007", b"\x1b]0;title\x07"),
-            (
-                b"%output %0 \\033]633;E;cmd\\007",
-                b"\x1b]633;E;cmd\x07",
-            ),
+            (b"%output %0 \\033]633;E;cmd\\007", b"\x1b]633;E;cmd\x07"),
         ] {
             match parse_line(raw) {
                 ControlEvent::Output { data, .. } => assert_eq!(data, want),

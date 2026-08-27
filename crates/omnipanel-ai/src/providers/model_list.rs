@@ -164,8 +164,8 @@ pub async fn fetch_provider_models(
         });
     }
 
-    let payload: Value = serde_json::from_str(&body)
-        .map_err(|e| FetchModelsError::Parse(e.to_string()))?;
+    let payload: Value =
+        serde_json::from_str(&body).map_err(|e| FetchModelsError::Parse(e.to_string()))?;
     Ok(parse_models_payload(&payload))
 }
 
@@ -224,6 +224,9 @@ mod tests {
     fn parse_top_level_array() {
         let payload = json!([{ "id": "a" }, { "id": "b" }]);
         let models = parse_models_payload(&payload);
-        assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
     }
 }

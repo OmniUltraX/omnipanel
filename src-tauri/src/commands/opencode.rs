@@ -14,6 +14,7 @@ pub struct OpenCodeInstallStatus {
 /// 检测本机是否已安装 OpenCode CLI。
 #[tauri::command]
 #[specta::specta]
-pub async fn detect_opencode_install() -> Result<OpenCodeInstallStatus, omnipanel_error::OmniError> {
+pub async fn detect_opencode_install() -> Result<OpenCodeInstallStatus, omnipanel_error::OmniError>
+{
     Ok(agents::detect_opencode_for_legacy())
 }

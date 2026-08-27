@@ -1,12 +1,12 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt;
 
 use crate::ir::{StopReason, StreamEvent, ToolStatus};
 use crate::prompts::tool_routing_policy;
 use crate::provider::AiProvider;
-use crate::routing::{parse_backend_id, BackendKind};
+use crate::routing::{BackendKind, parse_backend_id};
 use crate::types::{ChatMessage, ChatRequest, FunctionCall, Role, ToolCall, ToolDef};
 
 use super::tools::ToolExecutor;
@@ -39,11 +39,7 @@ impl InternalOrchestrator {
         });
 
         let tools_enabled = tools.is_some() && tool_executor.is_some();
-        let tools = if tools_enabled {
-            tools
-        } else {
-            None
-        };
+        let tools = if tools_enabled { tools } else { None };
         let has_ask_user = tools
             .as_ref()
             .is_some_and(|defs| defs.iter().any(|d| d.function.name == "omni_ask_user"));
@@ -95,8 +91,11 @@ impl InternalOrchestrator {
                             arguments,
                         } => {
                             if !name.is_empty() {
-                                accumulated_tool_calls
-                                    .push((id.clone(), name.clone(), arguments.clone()));
+                                accumulated_tool_calls.push((
+                                    id.clone(),
+                                    name.clone(),
+                                    arguments.clone(),
+                                ));
                                 on_event(evt);
                             } else if !arguments.is_empty() {
                                 if let Some(last) = accumulated_tool_calls.last_mut() {
@@ -145,7 +144,9 @@ impl InternalOrchestrator {
                     name: None,
                 });
 
-                let called_ask_user = tool_calls.iter().any(|tc| tc.function.name == "omni_ask_user");
+                let called_ask_user = tool_calls
+                    .iter()
+                    .any(|tc| tc.function.name == "omni_ask_user");
 
                 for tc in &tool_calls {
                     // 重新广播完整 arguments：流式分片可能被后端累积而未逐片转发，
@@ -244,7 +245,10 @@ fn build_messages(
     messages
 }
 
-pub(crate) fn build_system_message(context: &AiContextBundle, system_append: Option<&str>) -> Option<ChatMessage> {
+pub(crate) fn build_system_message(
+    context: &AiContextBundle,
+    system_append: Option<&str>,
+) -> Option<ChatMessage> {
     let mut lines = Vec::new();
 
     lines.push(tool_routing_policy());
@@ -268,10 +272,7 @@ pub(crate) fn build_system_message(context: &AiContextBundle, system_append: Opt
         lines.push(module_ctx.to_string());
     }
 
-    let terminal_ctx = context
-        .terminal_context_append
-        .as_deref()
-        .unwrap_or("");
+    let terminal_ctx = context.terminal_context_append.as_deref().unwrap_or("");
     let cwd_already_in_terminal = terminal_ctx.contains("Working directory:");
     if !cwd_already_in_terminal {
         if let Some(cwd) = context.cwd.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -380,9 +381,8 @@ mod tests {
     fn system_message_skips_cwd_when_terminal_context_has_it() {
         let mut context = empty_ctx();
         context.cwd = Some("C:\\\\Users\\\\me".into());
-        context.terminal_context_append = Some(
-            "[Terminal Context]\n- Working directory: /remote/app\n".into(),
-        );
+        context.terminal_context_append =
+            Some("[Terminal Context]\n- Working directory: /remote/app\n".into());
         let msg = build_system_message(&context, None).unwrap();
         assert!(msg.content.contains("Working directory: /remote/app"));
         assert!(!msg.content.contains("Current working directory"));
@@ -402,8 +402,10 @@ mod tests {
         let remote_msg = build_system_message(&remote, None).unwrap();
         assert!(remote_msg.content.contains("omni_ssh_* only"));
         assert!(remote_msg.content.contains("ssh-1"));
-        assert!(remote_msg
-            .content
-            .contains("never pass to omni_terminal_exec"));
+        assert!(
+            remote_msg
+                .content
+                .contains("never pass to omni_terminal_exec")
+        );
     }
 }

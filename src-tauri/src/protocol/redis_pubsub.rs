@@ -49,8 +49,7 @@ impl RedisPubSubSession {
         on_message: tokio_mpsc::UnboundedSender<RedisPubSubMessage>,
     ) -> Result<Self, String> {
         let url = build_redis_url(&config);
-        let client =
-            Client::open(url.as_str()).map_err(|e| format!("Invalid Redis URL: {e}"))?;
+        let client = Client::open(url.as_str()).map_err(|e| format!("Invalid Redis URL: {e}"))?;
 
         let publish_conn = client
             .get_multiplexed_tokio_connection()

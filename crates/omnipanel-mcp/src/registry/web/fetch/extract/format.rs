@@ -29,7 +29,13 @@ pub fn html_to_plain_text(html: &str) -> String {
 
 pub fn meaningful_text_len(s: &str) -> usize {
     s.chars()
-        .filter(|c| !c.is_whitespace() && !matches!(c, '#' | '*' | '_' | '`' | '|' | '>' | '-' | '[' | ']' | '(' | ')'))
+        .filter(|c| {
+            !c.is_whitespace()
+                && !matches!(
+                    c,
+                    '#' | '*' | '_' | '`' | '|' | '>' | '-' | '[' | ']' | '(' | ')'
+                )
+        })
         .count()
 }
 
@@ -41,7 +47,11 @@ pub fn format_json_body(body: &str) -> String {
 }
 
 pub fn looks_like_html(body: &str) -> bool {
-    let head = body.trim_start().get(..256).unwrap_or(body).to_ascii_lowercase();
+    let head = body
+        .trim_start()
+        .get(..256)
+        .unwrap_or(body)
+        .to_ascii_lowercase();
     head.contains("<html") || head.contains("<!doctype") || head.contains("<body")
 }
 

@@ -1,10 +1,10 @@
 //! 数据库 MCP 工具 — OmniMCP / 内部 Native 路径共用。
 
-use omnipanel_db::{connect, mysql_connect_options, DbParams, QueryResult};
-use omnipanel_store::{load_database_connections, DbConnectionConfig};
+use omnipanel_db::{DbParams, QueryResult, connect, mysql_connect_options};
+use omnipanel_store::{DbConnectionConfig, load_database_connections};
 use serde_json::Value;
-use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::Row;
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 
 fn require_str(args: &Value, key: &str) -> Result<String, String> {
     args.get(key)
@@ -92,7 +92,9 @@ async fn resolve_connection(connection_name: &str) -> Result<DbConnectionConfig,
     let conn = resolve_connection_any(connection_name).await?;
     let db_type = conn.db_type.to_ascii_lowercase();
     if db_type == "redis" {
-        return Err(format!("连接 {connection_name} 为 Redis，请使用 Redis 专用工具"));
+        return Err(format!(
+            "连接 {connection_name} 为 Redis，请使用 Redis 专用工具"
+        ));
     }
     Ok(conn)
 }
@@ -214,7 +216,10 @@ pub async fn execute_sql(args: Value) -> Result<String, String> {
     let params = with_database(&conn, &database_name);
     let wrapped = omnipanel_db::wrap_editor_query(&conn.db_type, &sql, 500, 0);
     let driver = connect(&params).await.map_err(|e| e.user_message())?;
-    let result = driver.execute(&wrapped).await.map_err(|e| e.user_message())?;
+    let result = driver
+        .execute(&wrapped)
+        .await
+        .map_err(|e| e.user_message())?;
     Ok(format_query_result(&result))
 }
 
@@ -296,8 +301,9 @@ pub async fn show_processlist(args: Value) -> Result<String, String> {
             Ok(format_query_result(&result))
         }
         "redis" => {
-            let result =
-                omnipanel_db::redis_client_list(&params).await.map_err(|e| e.user_message())?;
+            let result = omnipanel_db::redis_client_list(&params)
+                .await
+                .map_err(|e| e.user_message())?;
             Ok(format_query_result(&result))
         }
         other => Err(format!("暂不支持 {other} 的 show_processlist")),
@@ -500,12 +506,19 @@ mod tests {
         assert!(optional_str(&args, "database_name").is_none());
 
         let args = json!({ "database_name": "shop" });
-        assert_eq!(optional_str(&args, "database_name").as_deref(), Some("shop"));
+        assert_eq!(
+            optional_str(&args, "database_name").as_deref(),
+            Some("shop")
+        );
     }
 
     #[test]
     fn keyword_filter_case_insensitive() {
-        let items = vec!["Users".to_string(), "orders".to_string(), "Products".to_string()];
+        let items = vec![
+            "Users".to_string(),
+            "orders".to_string(),
+            "Products".to_string(),
+        ];
         let filtered = keyword_filter(&items, Some("ORD"));
         assert_eq!(filtered, vec!["orders".to_string()]);
 
@@ -529,22 +542,38 @@ mod tests {
     fn slow_log_summary_count_clamps_to_range() {
         // count 缺失 -> 默认 10
         let args = json!({ "connection_name": "x" });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 10);
 
         // count=0 -> 1
         let args = json!({ "count": 0 });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 1);
 
         // count=999 -> 100
         let args = json!({ "count": 999 });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 100);
 
         // count=50 -> 50
         let args = json!({ "count": 50 });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 50);
     }
 

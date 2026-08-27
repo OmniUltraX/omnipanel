@@ -128,9 +128,7 @@ impl PluginRegistry {
             .get(plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_string()))?;
         if !entry.activated {
-            return Err(PluginError::NotFound(format!(
-                "{plugin_id}（未激活）"
-            )));
+            return Err(PluginError::NotFound(format!("{plugin_id}（未激活）")));
         }
         if entry.manifest.permissions.contains(&permission) {
             Ok(())
@@ -371,7 +369,10 @@ mod tests {
         manifest.permissions = vec![PluginPermission::ConnectionsWrite];
         reg.register(manifest).unwrap();
         reg.activate("omni.panel.1panel").unwrap();
-        assert_eq!(reg.plugins_for_probe("ssh-panel"), vec!["omni.panel.1panel"]);
+        assert_eq!(
+            reg.plugins_for_probe("ssh-panel"),
+            vec!["omni.panel.1panel"]
+        );
         reg.set_enabled("omni.panel.1panel", false).unwrap();
         assert!(reg.plugins_for_probe("ssh-panel").is_empty());
     }
@@ -437,7 +438,8 @@ mod tests {
     #[test]
     fn declared_method_requires_activation_and_declaration() {
         let mut reg = PluginRegistry::new();
-        reg.register(method_manifest("omni.addon.demo", false)).unwrap();
+        reg.register(method_manifest("omni.addon.demo", false))
+            .unwrap();
 
         // 未激活：即使清单声明了 method 也按 UnknownMethod 拒绝
         let err = reg
@@ -447,15 +449,11 @@ mod tests {
 
         // 激活后命中声明并带出权限注解
         reg.activate("omni.addon.demo").unwrap();
-        let decl = reg
-            .declared_method("omni.addon.demo", "search")
-            .unwrap();
+        let decl = reg.declared_method("omni.addon.demo", "search").unwrap();
         assert_eq!(decl.permissions.len(), 2);
 
         // 未声明的 method 一律 UnknownMethod
-        let err = reg
-            .declared_method("omni.addon.demo", "nope")
-            .unwrap_err();
+        let err = reg.declared_method("omni.addon.demo", "nope").unwrap_err();
         assert!(matches!(err, PluginError::UnknownMethod { .. }));
 
         // 未知插件 NotFound
@@ -487,7 +485,8 @@ mod tests {
         assert!(matches!(err, PluginError::AlwaysOn(_)));
         assert!(reg.get(crate::PLUGIN_ID_ENGINE_MYSQL).unwrap().enabled);
         assert!(reg.get(crate::PLUGIN_ID_ENGINE_MYSQL).unwrap().always_on());
-        reg.set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, true).unwrap();
+        reg.set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, true)
+            .unwrap();
     }
 
     #[test]
@@ -495,7 +494,8 @@ mod tests {
         let mut reg = PluginRegistry::new();
         let manifest = crate::engine_mysql();
         reg.register_installed(manifest).unwrap();
-        reg.set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, false).unwrap();
+        reg.set_enabled(crate::PLUGIN_ID_ENGINE_MYSQL, false)
+            .unwrap();
         assert!(!reg.get(crate::PLUGIN_ID_ENGINE_MYSQL).unwrap().enabled);
     }
 }

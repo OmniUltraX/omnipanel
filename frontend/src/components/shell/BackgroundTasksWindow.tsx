@@ -7,6 +7,7 @@ import { Button } from "../ui/primitives/Button";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { IconClock, IconClose, IconCopy } from "../ui/icons/Icons";
 import { showToast } from "../../stores/toastStore";
+import { useFileManagerStore } from "../../stores/fileManagerStore";
 import {
   cancelAllRunningBackgroundTasks,
   cancelBackgroundTask,
@@ -239,6 +240,15 @@ export function BackgroundTasksWindow() {
     }
   }, []);
 
+  const handleDismiss = useCallback((id: string) => {
+    const task = useBackgroundTaskStore.getState().tasks[id];
+    if (task?.kind === "file-transfer") {
+      void useFileManagerStore.getState().dismissTransfer(id);
+      return;
+    }
+    removeTask(id);
+  }, [removeTask]);
+
   const openTaskCenter = useCallback(() => {
     setOpen(false);
     navigate(MODULE_PATHS.tasks);
@@ -294,7 +304,7 @@ export function BackgroundTasksWindow() {
                   key={task.id}
                   task={task}
                   onCancel={handleCancel}
-                  onDismiss={removeTask}
+                  onDismiss={handleDismiss}
                 />
               ))}
             </ul>

@@ -118,7 +118,7 @@ fn decode_base32_nopad(s: &str) -> OmniResult<Vec<u8>> {
                 return Err(OmniError::new(
                     ErrorCode::InvalidInput,
                     "SyncMasterKey contains invalid characters",
-                ))
+                ));
             }
         };
         buffer = (buffer << 5) | u64::from(val);
@@ -199,11 +199,7 @@ mod tests {
         assert!(is_valid_sync_master_key(&key));
         let bytes = decode_sync_master_key_bytes(&key).expect("decode");
         assert_eq!(bytes.len(), 32);
-        let again = format!(
-            "{}{}",
-            SYNC_MASTER_KEY_PREFIX,
-            encode_base32_nopad(&bytes)
-        );
+        let again = format!("{}{}", SYNC_MASTER_KEY_PREFIX, encode_base32_nopad(&bytes));
         assert_eq!(again, key);
     }
 

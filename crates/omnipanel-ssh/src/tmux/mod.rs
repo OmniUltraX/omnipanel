@@ -20,16 +20,16 @@ pub mod registry;
 pub mod session;
 
 pub use commands::{
-    control_mode_command, is_omnipanel_session, kill_session_shell, list_sessions_shell,
-    list_windows_shell, parse_session_line, parse_window_info_line, sanitize_session_name,
-    session_name_for_workspace, version_probe_command, TmuxSessionInfo, TmuxWindowInfo,
-    DEFAULT_HISTORY_LIMIT, SESSION_PREFIX,
+    DEFAULT_HISTORY_LIMIT, SESSION_PREFIX, TmuxSessionInfo, TmuxWindowInfo, control_mode_command,
+    is_omnipanel_session, kill_session_shell, list_sessions_shell, list_windows_shell,
+    parse_session_line, parse_window_info_line, sanitize_session_name, session_name_for_workspace,
+    version_probe_command,
 };
 pub use controller::{ControllerEvent, TmuxController};
 pub use line::LineAssembler;
-pub use session::{TmuxControl, TmuxSink};
 pub use parser::{
-    parse_line, unescape_octal, CommandTag, ControlEvent, PaneId, SessionId, WindowId,
+    CommandTag, ControlEvent, PaneId, SessionId, WindowId, parse_line, unescape_octal,
 };
-pub use probe::{evaluate, parse_version, TmuxCapability, TmuxVersion, MIN_SUPPORTED};
+pub use probe::{MIN_SUPPORTED, TmuxCapability, TmuxVersion, evaluate, parse_version};
 pub use registry::{PaneEntry, PaneRegistry};
+pub use session::{TmuxControl, TmuxSink};

@@ -4,10 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use omnipanel_store::{
-    chunk_text, list_all_skill_records, list_prompt_entries, load_skill_body, load_skill_record,
-    parse_skill_md, reset_prompt, save_prompt, sanitize_skill_id, skill_dir, skill_file_path,
-    write_skill, AgentPromptEntry, EmbeddingProviderConfig, SkillApplication, SkillDbRecord,
-    SkillFrontmatter, SkillRecord, SkillVectorStatus, SKILL_MD_FILENAME,
+    AgentPromptEntry, EmbeddingProviderConfig, SKILL_MD_FILENAME, SkillApplication, SkillDbRecord,
+    SkillFrontmatter, SkillRecord, SkillVectorStatus, chunk_text, list_all_skill_records,
+    list_prompt_entries, load_skill_body, load_skill_record, parse_skill_md, reset_prompt,
+    sanitize_skill_id, save_prompt, skill_dir, skill_file_path, write_skill,
 };
 use serde::{Deserialize, Serialize};
 
@@ -81,9 +81,7 @@ async fn ensure_skill_db_sync(state: &ServerState) -> Result<(), String> {
                 created_at: fr.created_at,
                 updated_at: fr.updated_at,
             };
-            storage
-                .save_skill_db(&db_rec)
-                .map_err(|e| e.to_string())?;
+            storage.save_skill_db(&db_rec).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -91,7 +89,9 @@ async fn ensure_skill_db_sync(state: &ServerState) -> Result<(), String> {
 
 async fn upsert_skill_db_v1(state: &ServerState, record: &SkillRecord) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    let existing = storage.get_skill_db(&record.id).map_err(|e| e.to_string())?;
+    let existing = storage
+        .get_skill_db(&record.id)
+        .map_err(|e| e.to_string())?;
     let db_rec = if let Some(mut existing) = existing {
         existing.name = record.name.clone();
         existing.description = record.description.clone();
@@ -474,7 +474,8 @@ fn cli_provider_overrides_path() -> Result<std::path::PathBuf, String> {
         .join("cli-provider-overrides.json"))
 }
 
-fn load_cli_provider_overrides() -> Result<std::collections::HashMap<String, CliProviderOverride>, String> {
+fn load_cli_provider_overrides()
+-> Result<std::collections::HashMap<String, CliProviderOverride>, String> {
     let path = cli_provider_overrides_path()?;
     if !path.exists() {
         return Ok(std::collections::HashMap::new());
@@ -1020,7 +1021,8 @@ async fn vectorize_one_skill(
     const BATCH: usize = 32;
     for batch in pieces.chunks(BATCH) {
         let batch_inputs: Vec<String> = batch.to_vec();
-        let vectors = crate::embedding_cmds::fetch_provider_embeddings(provider, &batch_inputs).await?;
+        let vectors =
+            crate::embedding_cmds::fetch_provider_embeddings(provider, &batch_inputs).await?;
         embeddings.extend(vectors);
     }
     let chunks: Vec<(String, String, Vec<f32>)> = pieces

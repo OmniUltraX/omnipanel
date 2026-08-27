@@ -765,6 +765,7 @@ export const commands = {
 	fileTransferCancel: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_cancel", { jobId })),
 	fileTransferRetry: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_retry", { jobId })),
 	fileTransferClearFinished: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_clear_finished")),
+	fileTransferDismiss: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_dismiss", { jobId })),
 	fileTransferSetConcurrency: (concurrency: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_set_concurrency", { concurrency })),
 	fileTransferSetRateLimit: (rateLimitBps: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_set_rate_limit", { rateLimitBps })),
 	/**  创建目录。 */

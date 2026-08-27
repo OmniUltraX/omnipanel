@@ -4,7 +4,7 @@ use omnipanel_error::OmniResult;
 use rusqlite::Connection as SqliteConnection;
 
 use crate::file_index::{
-    FileIndexBatchItem, FileIndexSearchResult, FileIndexStatus, FileIndexEntry,
+    FileIndexBatchItem, FileIndexEntry, FileIndexSearchResult, FileIndexStatus,
 };
 use crate::paths::{default_file_index_storage_dir, map_io};
 use crate::storage::{Storage, map_sqlite};
@@ -64,7 +64,10 @@ impl FileIndexStorage {
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(map_sqlite)?;
-        let mut storage = Self { conn, db_path: path };
+        let mut storage = Self {
+            conn,
+            db_path: path,
+        };
         storage.run_migrations()?;
         Ok(storage)
     }
@@ -93,11 +96,7 @@ impl FileIndexStorage {
     pub fn is_empty(&self) -> OmniResult<bool> {
         let count: i64 = self
             .conn
-            .query_row(
-                "SELECT COUNT(*) FROM file_index_meta",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM file_index_meta", [], |row| row.get(0))
             .map_err(map_sqlite)?;
         Ok(count == 0)
     }
@@ -349,7 +348,11 @@ impl FileIndexStorage {
             }
             result.score = s;
         }
-        results.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.entry.path.cmp(&b.entry.path)));
+        results.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| a.entry.path.cmp(&b.entry.path))
+        });
         Ok(results)
     }
 
@@ -393,7 +396,8 @@ fn meta_table_exists(meta: &Storage, table: &str) -> OmniResult<bool> {
 }
 
 fn meta_has_legacy_file_index(meta: &Storage) -> OmniResult<bool> {
-    Ok(meta_table_exists(meta, "file_index_meta")? && meta_table_exists(meta, "file_index_entries")?)
+    Ok(meta_table_exists(meta, "file_index_meta")?
+        && meta_table_exists(meta, "file_index_entries")?)
 }
 
 fn import_legacy_file_index(meta: &Storage, target: &FileIndexStorage) -> OmniResult<()> {
@@ -473,9 +477,7 @@ mod tests {
     #[test]
     fn file_index_storage_roundtrip() {
         let storage = FileIndexStorage::open_in_memory().unwrap();
-        storage
-            .begin_file_index("conn-1", "/home", 1_000)
-            .unwrap();
+        storage.begin_file_index("conn-1", "/home", 1_000).unwrap();
         storage
             .insert_file_index_batch(
                 "conn-1",
@@ -495,7 +497,9 @@ mod tests {
         assert_eq!(status.status, "ready");
         assert_eq!(status.indexed_count, 1);
 
-        let hits = storage.search_file_index("conn-1", "omnipanel", 10).unwrap();
+        let hits = storage
+            .search_file_index("conn-1", "omnipanel", 10)
+            .unwrap();
         assert_eq!(hits.len(), 1);
     }
 }

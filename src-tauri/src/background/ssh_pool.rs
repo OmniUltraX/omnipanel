@@ -7,12 +7,12 @@ use futures::future::join_all;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::attach_ports;
 use omnipanel_ssh::{
-    attach_process_gpu, parse_nvidia_process_gpu, parse_remote_stats_output, ssh_config_from_json,
-    CpuStats, DiskStats, GpuStats, HostSystemStats, MemoryStats, NetworkStats, SshAuth, SshConfig,
-    SshProcessInfo, SshSession, NVIDIA_PROCESS_GPU_QUERY,
+    CpuStats, DiskStats, GpuStats, HostSystemStats, MemoryStats, NVIDIA_PROCESS_GPU_QUERY,
+    NetworkStats, SshAuth, SshConfig, SshProcessInfo, SshSession, attach_process_gpu,
+    parse_nvidia_process_gpu, parse_remote_stats_output, ssh_config_from_json,
 };
 use omnipanel_store::Connection;
-use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage};
+use omnipanel_store::{ConnectionKind, Storage, inject_ssh_vault_into_config};
 use serde::Serialize;
 use serde_json;
 use specta::Type;
@@ -260,7 +260,11 @@ pub struct SshPool {
 
 #[allow(dead_code)]
 impl SshPool {
-    pub fn new(log: LogStore, pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>, storage: Arc<Mutex<Storage>>) -> Self {
+    pub fn new(
+        log: LogStore,
+        pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
+        storage: Arc<Mutex<Storage>>,
+    ) -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
             pool_sessions,
@@ -301,7 +305,12 @@ impl SshPool {
     /// 从持久化存储重新加载主机列表。
     /// `probe=true` 时会顺序探测每个主机的 SSH 端口（启动时使用）；
     /// 同步 ~/.ssh/config 时应传 `false` 避免阻塞。
-    pub async fn reload_hosts(&self, storage: Arc<Mutex<Storage>>, app_handle: tauri::AppHandle, probe: bool) {
+    pub async fn reload_hosts(
+        &self,
+        storage: Arc<Mutex<Storage>>,
+        app_handle: tauri::AppHandle,
+        probe: bool,
+    ) {
         let connections = {
             let guard = storage.lock().await;
             match guard.list_connections_by_kind(ConnectionKind::Ssh) {
@@ -831,12 +840,17 @@ impl SshPool {
             match session.exec_command("curl -s sb.ip").await {
                 Ok(output) => {
                     let public_ip = output.trim().to_string();
-                    if !public_ip.is_empty() && public_ip.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == ':') {
+                    if !public_ip.is_empty()
+                        && public_ip
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == ':')
+                    {
                         config.public_ip = Some(public_ip.clone());
                         self.log
                             .log("ssh-pool", "info", &format!("获取公网 IP: {public_ip}"))
                             .await;
-                        self.update_entry_public_ip(resource_id, Some(public_ip)).await;
+                        self.update_entry_public_ip(resource_id, Some(public_ip))
+                            .await;
                     }
                 }
                 Err(e) => {

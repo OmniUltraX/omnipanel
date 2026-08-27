@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use omnipanel_store::{Storage, BUILTIN_TOOL_SPECS};
+use omnipanel_store::{BUILTIN_TOOL_SPECS, Storage};
 use rmcp::model::Tool;
 
 use crate::registry::native;
@@ -26,11 +26,7 @@ pub fn merge_exposed_spec_tools(storage: &Storage, router_tools: Vec<Tool>) -> V
             continue;
         }
         let schema = resolve_tool_input_schema(storage, spec.tool_name, spec.input_schema);
-        out.push(Tool::new(
-            spec.tool_name,
-            spec.description,
-            schema,
-        ));
+        out.push(Tool::new(spec.tool_name, spec.description, schema));
     }
     out
 }
@@ -40,9 +36,8 @@ fn resolve_tool_input_schema(
     tool_name: &str,
     fallback_json: &str,
 ) -> Arc<serde_json::Map<String, serde_json::Value>> {
-    let value: serde_json::Value = serde_json::from_str(fallback_json).unwrap_or_else(|_| {
-        native::input_schema_for(tool_name)
-    });
+    let value: serde_json::Value =
+        serde_json::from_str(fallback_json).unwrap_or_else(|_| native::input_schema_for(tool_name));
     match value {
         serde_json::Value::Object(map) => Arc::new(map),
         _ => Arc::new(serde_json::Map::new()),

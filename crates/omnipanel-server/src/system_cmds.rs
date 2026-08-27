@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use omnipanel_error::OmniError;
 use serde::Serialize;
 
-use crate::agents_detect::{detect_all_agents_sync, AgentInstallStatus, AgentKind};
+use crate::agents_detect::{AgentInstallStatus, AgentKind, detect_all_agents_sync};
 
 fn collect_system_font_families(monospace_only: bool) -> Vec<String> {
     let mut db = fontdb::Database::new();

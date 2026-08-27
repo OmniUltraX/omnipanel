@@ -25,15 +25,15 @@ const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
 pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
-
-
 pub struct JsExecutor {
     call_timeout: Duration,
 }
 
 impl Default for JsExecutor {
     fn default() -> Self {
-        Self { call_timeout: DEFAULT_CALL_TIMEOUT }
+        Self {
+            call_timeout: DEFAULT_CALL_TIMEOUT,
+        }
     }
 }
 
@@ -44,7 +44,9 @@ impl JsExecutor {
 
     /// 自定义单次调用中断阈值（测试/长任务场景）。
     pub fn with_call_timeout(timeout: Duration) -> Self {
-        Self { call_timeout: timeout }
+        Self {
+            call_timeout: timeout,
+        }
     }
 }
 
@@ -127,24 +129,25 @@ impl JsInstanceInner {
                     let b = Arc::clone(&bridge);
                     move |json: String| -> rquickjs::Result<()> {
                         b.connection_upsert(&json).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.connectionUpsert", "void", msg)
+                            rquickjs::Error::new_from_js_message(
+                                "host.connectionUpsert",
+                                "void",
+                                msg,
+                            )
                         })
                     }
                 }),
             )?;
             host.set(
                 "invoke",
-                Function::new(
-                    ctx.clone(),
-                    {
-                        let b = Arc::clone(&bridge);
-                        move |method: String, args: String| -> rquickjs::Result<String> {
-                            b.invoke(&method, &args).map_err(|msg| {
-                                rquickjs::Error::new_from_js_message("host.invoke", "string", msg)
-                            })
-                        }
-                    },
-                ),
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |method: String, args: String| -> rquickjs::Result<String> {
+                        b.invoke(&method, &args).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.invoke", "string", msg)
+                        })
+                    }
+                }),
             )?;
 
             globals.set("host", host)?;
@@ -152,7 +155,11 @@ impl JsInstanceInner {
             ctx.eval::<(), _>(source)?;
             Ok::<(), rquickjs::Error>(())
         })?;
-        Ok(Self { runtime, context, call_timeout })
+        Ok(Self {
+            runtime,
+            context,
+            call_timeout,
+        })
     }
 
     fn call(&mut self, method: &str, args_json: &str) -> Result<String, String> {
@@ -160,9 +167,8 @@ impl JsInstanceInner {
         let call_timeout = self.call_timeout;
         let method = method.to_string();
         let args_json = args_json.to_string();
-        self.runtime.set_interrupt_handler(Some(Box::new(move || {
-            started.elapsed() >= call_timeout
-        })));
+        self.runtime
+            .set_interrupt_handler(Some(Box::new(move || started.elapsed() >= call_timeout)));
         let result: Result<String, String> = self.context.with(|ctx| {
             let func: Function = match ctx.globals().get("call") {
                 Ok(f) => f,

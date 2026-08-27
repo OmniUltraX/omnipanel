@@ -11,7 +11,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use omnipanel_core::output_buffer;
-use omnipanel_core::terminal::{list_available_shells, ShellInfo, ShellSpec, Terminal, TerminalConfig};
+use omnipanel_core::terminal::{
+    ShellInfo, ShellSpec, Terminal, TerminalConfig, list_available_shells,
+};
 use omnipanel_exec::ExecutionEngine;
 use omnipanel_ssh::capabilities::CapabilityCache;
 use omnipanel_store::FileIndexStorage;
@@ -45,7 +47,8 @@ pub struct ServerState {
     /// 活跃 Docker stats 流的停止句柄（按 streamId 索引）。
     pub docker_stats_streams: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 活跃 Docker 容器交互终端会话（按 sessionId 索引）。
-    pub docker_exec_sessions: Arc<Mutex<HashMap<String, crate::docker_ops::DockerExecSessionEntry>>>,
+    pub docker_exec_sessions:
+        Arc<Mutex<HashMap<String, crate::docker_ops::DockerExecSessionEntry>>>,
     /// 活跃 AI 对话流的取消标志（按 conversation_id）。
     pub ai_chat_cancel_flags: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// 文件管理器 SFTP 会话（按 file 连接 id，进程内缓存）。
@@ -61,8 +64,11 @@ pub struct ServerState {
     /// 外部 MCP 工具是否需审批（默认 true，与桌面端一致）。false 时服务端直接自执。
     pub mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
     /// 挂起等待审批/回传的外部工具结果通道（`conversation_id:tool_call_id` → oneshot）。
-    pub pending_internal_tool_results:
-        Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<(String, bool)>>>>,
+    pub pending_internal_tool_results: Arc<
+        tokio::sync::Mutex<
+            std::collections::HashMap<String, tokio::sync::oneshot::Sender<(String, bool)>>,
+        >,
+    >,
     /// SSH 隧道登记表（Web 端进程内元数据；真正端口转发后续可接）。
     pub ssh_tunnels: crate::store_bridge::SshTunnelMap,
     /// 后台任务池（Schema 缓存刷新 / DB 同步等）。
@@ -101,10 +107,9 @@ impl Default for ServerState {
 
 impl ServerState {
     pub fn new() -> Self {
-        let storage = crate::state::open_meta_storage()
-            .expect("打开 ~/.omnipd/store/omnipanel.db 失败");
-        let db_connections = crate::state::open_db_connections()
-            .expect("加载数据库连接配置失败");
+        let storage =
+            crate::state::open_meta_storage().expect("打开 ~/.omnipd/store/omnipanel.db 失败");
+        let db_connections = crate::state::open_db_connections().expect("加载数据库连接配置失败");
         let file_transfers = Arc::new(crate::file_transfer::FileTransferEngine::new());
         let transfer_cancel_flags = file_transfers.relay_cancel_flags.clone();
         let bus = EventBus::new();
@@ -220,7 +225,10 @@ impl ServerState {
             }
         });
 
-        self.terminal_sessions.lock().await.insert(id.clone(), session);
+        self.terminal_sessions
+            .lock()
+            .await
+            .insert(id.clone(), session);
         Ok(id)
     }
 

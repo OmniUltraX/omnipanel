@@ -122,7 +122,10 @@ pub async fn read_local_volume_file(
             .with_cause(format!("{}: {error}", file_path.display()))
     })?;
     if meta.is_dir() {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "目标路径是目录，无法预览"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "目标路径是目录，无法预览",
+        ));
     }
     if max_bytes > 0 && (meta.len() as i64) > max_bytes {
         return Err(OmniError::new(
@@ -180,10 +183,9 @@ pub async fn read_ssh_volume_file(
 ) -> OmniResult<Vec<u8>> {
     let full = resolve_volume_absolute_path(mountpoint, inner_path)?;
     let full_str = full.to_string_lossy().to_string();
-    let data = session
-        .sftp_download(&full_str)
-        .await
-        .map_err(|error| OmniError::new(ErrorCode::Internal, "读取卷内文件失败").with_cause(error.to_string()))?;
+    let data = session.sftp_download(&full_str).await.map_err(|error| {
+        OmniError::new(ErrorCode::Internal, "读取卷内文件失败").with_cause(error.to_string())
+    })?;
     if max_bytes > 0 && (data.len() as i64) > max_bytes {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,

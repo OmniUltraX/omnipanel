@@ -68,13 +68,13 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
     if c == "acp_connect"
         || c == "acp_connect_default"
         || c == "acp_disconnect"
-        || c == "acp_get_status" {
+        || c == "acp_get_status"
+    {
         // AcpStatus arrays=[]
         return serde_json::json!({ "connected": false, "agentName": null, "executable": null });
     }
 
-    if c == "agent_prompt_reset"
-        || c == "agent_prompt_save" {
+    if c == "agent_prompt_reset" || c == "agent_prompt_save" {
         // AgentPromptEntry arrays=[]
         return serde_json::json!({ "id": "", "content": "", "path": "" });
     }
@@ -124,21 +124,17 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "deviceId": "", "deviceName": "", "osType": "" });
     }
 
-    if c == "auth_link_email_send"
-        || c == "auth_login_email_send" {
+    if c == "auth_link_email_send" || c == "auth_login_email_send" {
         // AuthEmailCodeSent arrays=[]
         return serde_json::json!({ "email": "", "code": "", "expireInSec": 0, "hint": "" });
     }
 
-    if c == "auth_link_wechat_qrcode"
-        || c == "auth_login_qrcode" {
+    if c == "auth_link_wechat_qrcode" || c == "auth_login_qrcode" {
         // AuthLoginQrcode arrays=[]
         return serde_json::json!({ "loginId": "", "scene": "", "ticket": "", "qrcodeUrl": "", "expireInSec": 0 });
     }
 
-    if c == "auth_login_email"
-        || c == "auth_login_github"
-        || c == "auth_login_wait" {
+    if c == "auth_login_email" || c == "auth_login_github" || c == "auth_login_wait" {
         // AuthLoginSuccess arrays=[]
         return serde_json::json!({ "token": "", "openid": "" });
     }
@@ -158,7 +154,8 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         || c == "auth_unlink_email"
         || c == "auth_unlink_github"
         || c == "auth_unlink_wechat"
-        || c == "auth_update_profile" {
+        || c == "auth_update_profile"
+    {
         // AuthUserProfile arrays=[]
         return serde_json::json!({ "id": null, "openid": "", "nickname": "", "avatarUrl": "", "email": "", "githubId": "", "ossPath": "" });
     }
@@ -196,8 +193,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "objectKey": "", "etag": null, "bytes": null });
     }
 
-    if c == "cli_provider_patch_cmd"
-        || c == "cli_provider_upsert_cmd" {
+    if c == "cli_provider_patch_cmd" || c == "cli_provider_upsert_cmd" {
         // CliProviderRecord arrays=[args,staticModels,manualModelNames,disabledModelNames,modelDiscoveryArgs]
         return serde_json::json!({ "args": [], "staticModels": [], "manualModelNames": [], "disabledModelNames": [], "modelDiscoveryArgs": [], "id": "", "displayName": "", "protocol": "", "binary": null, "env": "", "cwd": null, "timeoutSecs": null, "enabled": false, "builtin": false, "modelDiscoveryCommand": null });
     }
@@ -242,8 +238,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "kind": "", "enabled": false, "apiKey": "", "message": "", "restarted": false });
     }
 
-    if c == "file_index_build"
-        || c == "file_index_status" {
+    if c == "file_index_build" || c == "file_index_status" {
         // FileIndexStatus arrays=[]
         return serde_json::json!({ "connectionId": "", "status": "", "rootPath": "", "indexedCount": null, "error": "", "startedAt": null, "finishedAt": null });
     }
@@ -288,8 +283,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "entryId": "", "deleted": null, "remaining": null });
     }
 
-    if c == "knowledge_import_pdf"
-        || c == "knowledge_restore_revision" {
+    if c == "knowledge_import_pdf" || c == "knowledge_restore_revision" {
         // KnowledgeEntry arrays=[tags]
         return serde_json::json!({ "tags": [], "id": "", "kind": "", "title": "", "content": "", "riskLevel": "", "source": "", "envTag": "", "language": "", "usageCount": null, "createdAt": null, "updatedAt": null, "parentId": "", "nodeType": "", "sortOrder": null, "resourceType": "", "resourceId": "" });
     }
@@ -304,20 +298,17 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "method": "", "started": false, "message": "", "manualUrl": "" });
     }
 
-    if c == "local_runtime_probe"
-        || c == "local_runtime_refresh_catalog" {
+    if c == "local_runtime_probe" || c == "local_runtime_refresh_catalog" {
         // LocalRuntimeProbeResult arrays=[recommendedModels]
         return serde_json::json!({ "recommendedModels": [], "ollama": null, "lmStudio": null, "hardware": null, "totalMemoryMb": null, "hardwareTier": "", "catalogSource": "" });
     }
 
-    if c == "local_log_open"
-        || c == "sftp_log_open" {
+    if c == "local_log_open" || c == "sftp_log_open" {
         // LogSessionInfo arrays=[]
         return serde_json::json!({ "sizeBytes": null, "totalLines": null, "linesEstimated": false });
     }
 
-    if c == "local_log_tail_start"
-        || c == "sftp_log_tail_start" {
+    if c == "local_log_tail_start" || c == "sftp_log_tail_start" {
         // LogTailHandle arrays=[]
         return serde_json::json!({ "token": "" });
     }
@@ -367,8 +358,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "entries": [], "nextCursor": null, "hasMore": false, "scanLimitHit": false });
     }
 
-    if c == "resource_collect_database_snapshot"
-        || c == "resource_collect_ssh_snapshot" {
+    if c == "resource_collect_database_snapshot" || c == "resource_collect_ssh_snapshot" {
         // ResourceSnapshotResult arrays=[savedKinds,errors]
         return serde_json::json!({ "savedKinds": [], "errors": [] });
     }
@@ -388,8 +378,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "objectKey": "", "secretCount": 0, "bytes": 0 });
     }
 
-    if c == "secrets_vault_status"
-        || c == "secrets_vault_unlock" {
+    if c == "secrets_vault_status" || c == "secrets_vault_unlock" {
         // SecretsVaultStatus arrays=[]
         return serde_json::json!({ "unlocked": false, "hasLocalSalt": false, "secretCount": 0 });
     }
@@ -425,10 +414,8 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "id": "", "name": "", "description": "", "enabled": false, "body": "" });
     }
 
-    if c == "skill_create"
-        || c == "skill_import"
-        || c == "skill_set_enabled"
-        || c == "skill_update" {
+    if c == "skill_create" || c == "skill_import" || c == "skill_set_enabled" || c == "skill_update"
+    {
         // SkillRecord arrays=[]
         return serde_json::json!({ "id": "", "name": "", "description": "", "enabled": false, "path": "", "createdAt": null, "updatedAt": null });
     }
@@ -453,14 +440,12 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "processes": [], "stats": null });
     }
 
-    if c == "ssh_generate_key"
-        || c == "ssh_import_key" {
+    if c == "ssh_generate_key" || c == "ssh_import_key" {
         // SshKeyInfo arrays=[]
         return serde_json::json!({ "name": "", "keyType": "", "path": "", "fingerprint": "", "comment": "" });
     }
 
-    if c == "local_process_detail"
-        || c == "ssh_pool_process_detail" {
+    if c == "local_process_detail" || c == "ssh_pool_process_detail" {
         // SshProcessDetail_Serialize arrays=[args,openFiles]
         return serde_json::json!({ "args": [], "openFiles": [], "pid": 0, "commandLine": null, "cwd": null, "exe": null, "root": null });
     }
@@ -470,17 +455,12 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "mode": null, "host": "", "tmuxVersion": null, "tmuxSession": null, "tmuxPaneId": null, "fallbackReason": null });
     }
 
-    if c == "tag_create"
-        || c == "tag_move"
-        || c == "tag_rename"
-        || c == "tag_set_color" {
+    if c == "tag_create" || c == "tag_move" || c == "tag_rename" || c == "tag_set_color" {
         // TagDto arrays=[]
         return serde_json::json!({ "id": "", "name": "", "parentId": null, "path": "", "color": null, "kind": "", "createdAt": null, "updatedAt": null, "resourceCount": null });
     }
 
-    if c == "task_get"
-        || c == "task_get_output"
-        || c == "task_save" {
+    if c == "task_get" || c == "task_get_output" || c == "task_save" {
         // Task arrays=[]
         return serde_json::json!({ "id": "", "task_type": null, "title": "", "description": "", "resource_id": "", "resource_name": "", "env_tag": "", "command": "", "risk": null, "status": null, "source": null, "output": "", "created_at": null, "updated_at": null, "started_at": null, "finished_at": null });
     }
@@ -505,8 +485,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "backend": "", "ok": false, "errorKind": null, "message": "", "sampleCount": 0 });
     }
 
-    if c == "workflow_get"
-        || c == "workflow_save" {
+    if c == "workflow_get" || c == "workflow_save" {
         // WorkflowDetail arrays=[steps]
         return serde_json::json!({ "steps": [], "workflow": null });
     }
@@ -602,8 +581,7 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
             | "todo_task_list"
             | "workflow_executions"
             | "workflow_list"
-    )
-        || c.contains("_list")
+    ) || c.contains("_list")
         || c.starts_with("list_")
         || c.ends_with("_counts")
         || (c.contains("_history") && !c.contains("_add_") && !c.contains("_clear_"))

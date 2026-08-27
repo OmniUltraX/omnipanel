@@ -159,17 +159,21 @@ impl Storage {
         resource_type: Option<&str>,
     ) -> OmniResult<Vec<ResourceProfileSummary>> {
         let sql = match resource_type {
-            Some(_) => "SELECT resource_type, resource_id, MAX(observed_at) AS latest_ts,
+            Some(_) => {
+                "SELECT resource_type, resource_id, MAX(observed_at) AS latest_ts,
                         COUNT(DISTINCT observation_kind) AS kinds
                         FROM resource_observations
                         WHERE resource_type = ?1
                         GROUP BY resource_type, resource_id
-                        ORDER BY latest_ts DESC",
-            None => "SELECT resource_type, resource_id, MAX(observed_at) AS latest_ts,
+                        ORDER BY latest_ts DESC"
+            }
+            None => {
+                "SELECT resource_type, resource_id, MAX(observed_at) AS latest_ts,
                      COUNT(DISTINCT observation_kind) AS kinds
                      FROM resource_observations
                      GROUP BY resource_type, resource_id
-                     ORDER BY latest_ts DESC",
+                     ORDER BY latest_ts DESC"
+            }
         };
         let mut stmt = self.conn().prepare(sql).map_err(map_sqlite)?;
 
@@ -185,7 +189,8 @@ impl Storage {
                         ))
                     })
                     .map_err(map_sqlite)?;
-                rows.collect::<rusqlite::Result<Vec<_>>>().map_err(map_sqlite)?
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(map_sqlite)?
             }
             None => {
                 let rows = stmt
@@ -198,7 +203,8 @@ impl Storage {
                         ))
                     })
                     .map_err(map_sqlite)?;
-                rows.collect::<rusqlite::Result<Vec<_>>>().map_err(map_sqlite)?
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(map_sqlite)?
             }
         };
 
@@ -246,8 +252,7 @@ impl Storage {
             return Ok(Vec::new());
         }
 
-        let candidates =
-            self.list_resources_with_profiles(Some(resource_type))?;
+        let candidates = self.list_resources_with_profiles(Some(resource_type))?;
         let mut scored: Vec<(ResourceProfileSummary, usize)> = Vec::new();
         for candidate in candidates {
             if candidate.resource_id == resource_id {
@@ -351,7 +356,8 @@ impl Storage {
         resource_id: &str,
         observation_kind: &str,
     ) -> OmniResult<Value> {
-        let obs = self.list_resource_observations(resource_type, resource_id, Some(observation_kind))?;
+        let obs =
+            self.list_resource_observations(resource_type, resource_id, Some(observation_kind))?;
         if obs.len() < 2 {
             return Ok(serde_json::json!({
                 "has_previous": false,
@@ -471,9 +477,14 @@ fn compute_fingerprint_similarity(target: &Value, candidate: &Value) -> usize {
     let mut score = 0;
     for (kind, target_kind_val) in target_obj {
         if let Some(candidate_kind_val) = candidate_obj.get(kind) {
-            let target_payload = target_kind_val.get("payload").cloned().unwrap_or(Value::Null);
-            let candidate_payload =
-                candidate_kind_val.get("payload").cloned().unwrap_or(Value::Null);
+            let target_payload = target_kind_val
+                .get("payload")
+                .cloned()
+                .unwrap_or(Value::Null);
+            let candidate_payload = candidate_kind_val
+                .get("payload")
+                .cloned()
+                .unwrap_or(Value::Null);
             if let Some(t) = target_payload.as_object() {
                 if let Some(c) = candidate_payload.as_object() {
                     for (key, t_val) in t {
@@ -619,10 +630,7 @@ mod tests {
         // 每类只保留最新一条
         let observations = profile["observations"].as_object().unwrap();
         assert_eq!(observations.len(), 2);
-        assert_eq!(
-            observations["hardware"]["payload"]["os"],
-            "Ubuntu 22.04"
-        );
+        assert_eq!(observations["hardware"]["payload"]["os"], "Ubuntu 22.04");
     }
 
     #[test]
@@ -679,7 +687,9 @@ mod tests {
         let ssh_only = storage.list_resources_with_profiles(Some("ssh")).unwrap();
         assert_eq!(ssh_only.len(), 2);
 
-        let db_only = storage.list_resources_with_profiles(Some("database")).unwrap();
+        let db_only = storage
+            .list_resources_with_profiles(Some("database"))
+            .unwrap();
         assert!(db_only.is_empty());
     }
 
@@ -763,7 +773,9 @@ mod tests {
             ))
             .unwrap();
 
-        storage.delete_resource_observations("ssh", "host-a").unwrap();
+        storage
+            .delete_resource_observations("ssh", "host-a")
+            .unwrap();
         let host_a = storage
             .list_resource_observations("ssh", "host-a", None)
             .unwrap();
@@ -800,18 +812,30 @@ mod tests {
     #[test]
     fn observation_diff_detects_added_removed_changed() {
         let storage = Storage::open_in_memory().unwrap();
-        storage.save_resource_observation(&sample_obs(
-            "obs1", "database", "conn1", "overview",
-            serde_json::json!({ "version": "8.0", "tables": 10 }),
-            1000,
-        )).unwrap();
-        storage.save_resource_observation(&sample_obs(
-            "obs2", "database", "conn1", "overview",
-            serde_json::json!({ "version": "8.1", "tables": 12, "new_key": "x" }),
-            2000,
-        )).unwrap();
+        storage
+            .save_resource_observation(&sample_obs(
+                "obs1",
+                "database",
+                "conn1",
+                "overview",
+                serde_json::json!({ "version": "8.0", "tables": 10 }),
+                1000,
+            ))
+            .unwrap();
+        storage
+            .save_resource_observation(&sample_obs(
+                "obs2",
+                "database",
+                "conn1",
+                "overview",
+                serde_json::json!({ "version": "8.1", "tables": 12, "new_key": "x" }),
+                2000,
+            ))
+            .unwrap();
 
-        let diff = storage.compute_observation_diff("database", "conn1", "overview").unwrap();
+        let diff = storage
+            .compute_observation_diff("database", "conn1", "overview")
+            .unwrap();
         assert_eq!(diff["has_previous"], Value::Bool(true));
         let added = diff["added_keys"].as_array().unwrap();
         assert_eq!(added.len(), 1);
@@ -825,15 +849,25 @@ mod tests {
     #[test]
     fn observation_diff_returns_no_previous_when_only_one_observation() {
         let storage = Storage::open_in_memory().unwrap();
-        storage.save_resource_observation(&sample_obs(
-            "obs1", "ssh", "host1", "hardware",
-            serde_json::json!({ "os": "Ubuntu" }),
-            1000,
-        )).unwrap();
+        storage
+            .save_resource_observation(&sample_obs(
+                "obs1",
+                "ssh",
+                "host1",
+                "hardware",
+                serde_json::json!({ "os": "Ubuntu" }),
+                1000,
+            ))
+            .unwrap();
 
-        let diff = storage.compute_observation_diff("ssh", "host1", "hardware").unwrap();
+        let diff = storage
+            .compute_observation_diff("ssh", "host1", "hardware")
+            .unwrap();
         assert_eq!(diff["has_previous"], Value::Bool(false));
-        assert_eq!(diff["current_observed_at"], Value::Number(serde_json::Number::from(1000)));
+        assert_eq!(
+            diff["current_observed_at"],
+            Value::Number(serde_json::Number::from(1000))
+        );
     }
 
     /// Phase 5 子任务 4：E2E 验证磁盘清理闭环。
@@ -949,7 +983,9 @@ mod tests {
         assert_eq!(p4_knowledge[0].resource_id, "p4-prod");
 
         // count_knowledge_for_resource 同步验证
-        let p4_count = storage.count_knowledge_for_resource("ssh", "p4-prod").unwrap();
+        let p4_count = storage
+            .count_knowledge_for_resource("ssh", "p4-prod")
+            .unwrap();
         assert_eq!(p4_count, 1);
 
         // ── 步骤 5：创建 skill-disk-cleanup 技能 DB 记录 ──
@@ -983,7 +1019,11 @@ mod tests {
         assert_eq!(skill_to_knowledge[0].link_kind, "case");
 
         let knowledge_to_skills = storage.list_skills_for_knowledge(case_id).unwrap();
-        assert_eq!(knowledge_to_skills.len(), 1, "knowledge 应被 1 个 skill 关联");
+        assert_eq!(
+            knowledge_to_skills.len(),
+            1,
+            "knowledge 应被 1 个 skill 关联"
+        );
         assert_eq!(knowledge_to_skills[0], skill_id.to_string());
 
         // ── 步骤 8：get_latest_resource_profile 闭环验证 ──
@@ -1008,21 +1048,31 @@ mod tests {
             .iter()
             .find(|s| s.resource_id == "p4-prod")
             .expect("p4-prod 应在资源摘要列表中");
-        assert_eq!(p4_summary.knowledge_count, 1, "p4-prod 的 knowledge_count 应为 1");
-        assert_eq!(p4_summary.observation_kinds, 1, "p4-prod 只有 hardware 一种观测");
-        assert!(
-            !p4_summary.fingerprint.is_null(),
-            "p4-prod 指纹不应为空"
+        assert_eq!(
+            p4_summary.knowledge_count, 1,
+            "p4-prod 的 knowledge_count 应为 1"
         );
+        assert_eq!(
+            p4_summary.observation_kinds, 1,
+            "p4-prod 只有 hardware 一种观测"
+        );
+        assert!(!p4_summary.fingerprint.is_null(), "p4-prod 指纹不应为空");
 
         // ── 步骤 10：unlink 后双向 link 应同步清空 ──
         storage.unlink_skill_knowledge(skill_id, case_id).unwrap();
         let after_unlink = storage.list_knowledge_for_skill(skill_id).unwrap();
-        assert!(after_unlink.is_empty(), "unlink 后 skill 不应再有 knowledge 关联");
+        assert!(
+            after_unlink.is_empty(),
+            "unlink 后 skill 不应再有 knowledge 关联"
+        );
         // knowledge 条目本身仍在
         let p4_knowledge_after = storage
             .list_knowledge_for_resource("ssh", "p4-prod")
             .unwrap();
-        assert_eq!(p4_knowledge_after.len(), 1, "unlink skill 不应删除 knowledge 条目本身");
+        assert_eq!(
+            p4_knowledge_after.len(),
+            1,
+            "unlink skill 不应删除 knowledge 条目本身"
+        );
     }
 }

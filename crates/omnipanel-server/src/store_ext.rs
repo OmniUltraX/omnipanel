@@ -4,15 +4,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use omnipanel_assistant::{fetch_oss_sts, get_object_bytes_optional, upload_object_bytes};
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_assistant::{
-    fetch_oss_sts, get_object_bytes_optional, upload_object_bytes,
-};
 use omnipanel_store::{
-    decode_salt_b64, derive_master_key, encrypt_vault_with_salt, generate_salt, AuditEntry,
-    ConnectionKind, decrypt_vault, MasterKey, SaveTaskRequest, SecretsVaultEnvelope,
-    SecretsVaultEntry, SecretsVaultPlaintext, Task, TaskStatus, ThirdPartyAccount,
-    UpsertThirdPartyAccountInput, Vault,
+    AuditEntry, ConnectionKind, MasterKey, SaveTaskRequest, SecretsVaultEntry,
+    SecretsVaultEnvelope, SecretsVaultPlaintext, Task, TaskStatus, ThirdPartyAccount,
+    UpsertThirdPartyAccountInput, Vault, decode_salt_b64, decrypt_vault, derive_master_key,
+    encrypt_vault_with_salt, generate_salt,
 };
 
 use crate::assistant_cmds::build_auth_context;
@@ -134,9 +132,8 @@ fn now_ms() -> i64 {
 }
 
 fn normalize_device_code(raw: &str) -> Result<String, OmniError> {
-    omnipanel_store::normalize_sync_master_key(raw).map_err(|_| {
-        OmniError::invalid_input("请输入 SyncMasterKey（opsk1_…）".to_string())
-    })
+    omnipanel_store::normalize_sync_master_key(raw)
+        .map_err(|_| OmniError::invalid_input("请输入 SyncMasterKey（opsk1_…）".to_string()))
 }
 
 fn vault_meta_dir() -> Result<PathBuf, OmniError> {
@@ -160,14 +157,13 @@ fn load_local_meta() -> Result<Option<LocalVaultMeta>, OmniError> {
     let raw = std::fs::read_to_string(&path).map_err(|e| {
         OmniError::new(ErrorCode::Io, "读取 secrets-vault meta 失败").with_cause(e.to_string())
     })?;
-    serde_json::from_str(&raw).map_err(|e| {
-        OmniError::invalid_input(format!("解析 secrets-vault meta 失败: {e}"))
-    })
+    serde_json::from_str(&raw)
+        .map_err(|e| OmniError::invalid_input(format!("解析 secrets-vault meta 失败: {e}")))
 }
 
 fn save_local_meta(salt: &[u8]) -> Result<(), OmniError> {
     use base64::Engine;
-        let meta = LocalVaultMeta {
+    let meta = LocalVaultMeta {
         salt_b64: base64::engine::general_purpose::STANDARD.encode(salt),
         updated_at: now_ms(),
     };
@@ -190,7 +186,10 @@ async fn count_vault_secrets(state: &ServerState) -> Result<usize, OmniError> {
         if reference.is_empty() || !seen.insert(reference.to_string()) {
             return;
         }
-        if Vault::get(reference).ok().is_some_and(|v| !v.trim().is_empty()) {
+        if Vault::get(reference)
+            .ok()
+            .is_some_and(|v| !v.trim().is_empty())
+        {
             count += 1;
         }
     };
@@ -322,18 +321,19 @@ async fn collect_secret_entries(state: &ServerState) -> Result<Vec<SecretsVaultE
         ssh_password_ref, ssh_pem_ref,
     };
     let mut entries = Vec::new();
-    let push_entry = |entries: &mut Vec<SecretsVaultEntry>, reference: String, kind: &str, label: &str| {
-        if let Ok(value) = Vault::get(&reference) {
-            if !value.is_empty() {
-                entries.push(SecretsVaultEntry {
-                    reference,
-                    value,
-                    kind: kind.to_string(),
-                    label: label.to_string(),
-                });
+    let push_entry =
+        |entries: &mut Vec<SecretsVaultEntry>, reference: String, kind: &str, label: &str| {
+            if let Ok(value) = Vault::get(&reference) {
+                if !value.is_empty() {
+                    entries.push(SecretsVaultEntry {
+                        reference,
+                        value,
+                        kind: kind.to_string(),
+                        label: label.to_string(),
+                    });
+                }
             }
-        }
-    };
+        };
     for conn in state.db_connections.list()? {
         push_entry(&mut entries, db_password_ref(&conn.id), "db", &conn.name);
     }
@@ -345,13 +345,33 @@ async fn collect_secret_entries(state: &ServerState) -> Result<Vec<SecretsVaultE
         let label = conn.name.clone();
         match conn.kind {
             ConnectionKind::Ssh => {
-                push_entry(&mut entries, ssh_password_ref(&conn.id), "ssh-password", &label);
+                push_entry(
+                    &mut entries,
+                    ssh_password_ref(&conn.id),
+                    "ssh-password",
+                    &label,
+                );
                 push_entry(&mut entries, ssh_pem_ref(&conn.id), "ssh-pem", &label);
-                push_entry(&mut entries, ssh_passphrase_ref(&conn.id), "ssh-passphrase", &label);
+                push_entry(
+                    &mut entries,
+                    ssh_passphrase_ref(&conn.id),
+                    "ssh-passphrase",
+                    &label,
+                );
             }
-            ConnectionKind::File => push_entry(&mut entries, format!("file-cred-{}", conn.id), "file", &label),
+            ConnectionKind::File => push_entry(
+                &mut entries,
+                format!("file-cred-{}", conn.id),
+                "file",
+                &label,
+            ),
             ConnectionKind::Panel => {
-                push_entry(&mut entries, format!("panel-key-{}", conn.id), "panel", &label);
+                push_entry(
+                    &mut entries,
+                    format!("panel-key-{}", conn.id),
+                    "panel",
+                    &label,
+                );
                 if let Some(r) = conn.credential_ref.as_deref() {
                     if !r.is_empty() {
                         push_entry(&mut entries, r.to_string(), "panel", &label);
@@ -364,15 +384,40 @@ async fn collect_secret_entries(state: &ServerState) -> Result<Vec<SecretsVaultE
                 }
             }
             ConnectionKind::Docker => {
-                push_entry(&mut entries, format!("docker-ssh-password-{}", conn.id), "docker-ssh", &label);
-                push_entry(&mut entries, format!("docker-ssh-pem-{}", conn.id), "docker-ssh-pem", &label);
-                push_entry(&mut entries, format!("docker-onepanel-{}", conn.id), "docker-panel", &label);
+                push_entry(
+                    &mut entries,
+                    format!("docker-ssh-password-{}", conn.id),
+                    "docker-ssh",
+                    &label,
+                );
+                push_entry(
+                    &mut entries,
+                    format!("docker-ssh-pem-{}", conn.id),
+                    "docker-ssh-pem",
+                    &label,
+                );
+                push_entry(
+                    &mut entries,
+                    format!("docker-onepanel-{}", conn.id),
+                    "docker-panel",
+                    &label,
+                );
             }
             _ => {}
         }
     }
-    push_entry(&mut entries, http_proxy_password_ref().to_string(), "http-proxy", "HTTP Proxy");
-    push_entry(&mut entries, embedding_api_key_ref().to_string(), "embedding", "Embedding API");
+    push_entry(
+        &mut entries,
+        http_proxy_password_ref().to_string(),
+        "http-proxy",
+        "HTTP Proxy",
+    );
+    push_entry(
+        &mut entries,
+        embedding_api_key_ref().to_string(),
+        "embedding",
+        "Embedding API",
+    );
     Ok(entries)
 }
 
@@ -403,7 +448,9 @@ pub async fn secrets_vault_push(
         return Err(OmniError::new(ErrorCode::Auth, "未登录，无法上传密文库"));
     }
     if request.oss_path.trim().is_empty() {
-        return Err(OmniError::invalid_input("缺少 OSS 路径，请先完成登录资料同步"));
+        return Err(OmniError::invalid_input(
+            "缺少 OSS 路径，请先完成登录资料同步",
+        ));
     }
     let (key, salt) = {
         let guard = VAULT_SESSION
@@ -429,14 +476,8 @@ pub async fn secrets_vault_push(
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
     let sts = fetch_oss_sts(&auth).await?;
     let object_key = object_key_for(&request.oss_path);
-    let uploaded = upload_object_bytes(
-        &auth.http,
-        &sts,
-        &object_key,
-        &body,
-        "application/json",
-    )
-    .await?;
+    let uploaded =
+        upload_object_bytes(&auth.http, &sts, &object_key, &body, "application/json").await?;
     Ok(SecretsVaultPushResult {
         object_key: uploaded.object_key,
         secret_count,
@@ -588,9 +629,8 @@ pub async fn sync_team_key_export_file(
     if team_id <= 0 {
         return Err(OmniError::invalid_input("团队 ID 无效"));
     }
-    let key = omnipanel_store::load_sync_team_key(team_id)?.ok_or_else(|| {
-        OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥，无法导出")
-    })?;
+    let key = omnipanel_store::load_sync_team_key(team_id)?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥，无法导出"))?;
     let json = omnipanel_store::export_sync_team_key_json(team_id, &key, passphrase.as_deref())?;
     std::fs::write(path.trim(), json).map_err(|e| {
         OmniError::new(ErrorCode::Storage, "写入同步密钥文件失败").with_cause(e.to_string())
@@ -641,7 +681,9 @@ pub struct WrapKeyResult {
     pub wrap_alg: String,
 }
 
-pub async fn sync_pairing_create_keypair(pairing_id: String) -> Result<PairingKeypairResult, OmniError> {
+pub async fn sync_pairing_create_keypair(
+    pairing_id: String,
+) -> Result<PairingKeypairResult, OmniError> {
     let mut guard = EPH
         .lock()
         .map_err(|_| OmniError::internal("pairing eph lock"))?;
@@ -663,12 +705,8 @@ pub async fn sync_pairing_create_keypair(pairing_id: String) -> Result<PairingKe
 }
 
 pub async fn sync_pairing_wrap_key(request: WrapKeyRequest) -> Result<WrapKeyResult, OmniError> {
-    let smk = omnipanel_store::load_stored_sync_master_key()?.ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::Auth,
-            "本机尚未解锁 SyncMasterKey，无法传钥",
-        )
-    })?;
+    let smk = omnipanel_store::load_stored_sync_master_key()?
+        .ok_or_else(|| OmniError::new(ErrorCode::Auth, "本机尚未解锁 SyncMasterKey，无法传钥"))?;
     let aad = format!("{}:{}", request.pairing_id, request.requester_device_id);
     let wrapped_key =
         omnipanel_store::wrap_sync_master_key(&smk, &request.requester_pubkey_b64, &aad)?;
@@ -687,12 +725,7 @@ pub async fn sync_pairing_unwrap_and_store(
         .lock()
         .map_err(|_| OmniError::internal("pairing eph lock"))?
         .take()
-        .ok_or_else(|| {
-            OmniError::new(
-                ErrorCode::InvalidInput,
-                "无本地临时密钥，请重新发起配对",
-            )
-        })?;
+        .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "无本地临时密钥，请重新发起配对"))?;
     if eph.pairing_id != pairing_id {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,

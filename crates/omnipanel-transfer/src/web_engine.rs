@@ -1,18 +1,18 @@
 //! Web 端文件传输引擎（薄封装 relay + 任务表）。
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use omnipanel_error::OmniError;
+use omnipanel_error::{ErrorCode, OmniError};
 use tokio::sync::{Mutex, Semaphore};
 
 pub use crate::relay::{
-    transfer_cancel as relay_transfer_cancel, transfer_start as relay_transfer_start,
-    TransferStartRequest, TransferState,
+    TransferStartRequest, TransferState, transfer_cancel as relay_transfer_cancel,
+    transfer_start as relay_transfer_start,
 };
 pub use crate::types::{
-    FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEndpoint,
+    FileTransferConflictPolicy, FileTransferEndpoint, FileTransferEnqueueRequest,
     FileTransferItemSpec, FileTransferJob, FileTransferListResult, FileTransferOp,
     FileTransferPlanRequest, FileTransferPlanResult, FileTransferRoute, FileTransferState,
     TRANSFER_PROGRESS_EVENT,
@@ -94,6 +94,23 @@ impl WebFileTransferEngine {
         });
     }
 
+    pub async fn dismiss_finished(&self, job_id: &str) -> Result<(), OmniError> {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(job) = jobs.get(job_id) {
+            if matches!(
+                job.state,
+                FileTransferState::Queued | FileTransferState::Probing | FileTransferState::Running
+            ) {
+                return Err(OmniError::new(
+                    ErrorCode::InvalidInput,
+                    "运行中的任务请先取消",
+                ));
+            }
+        }
+        jobs.remove(job_id);
+        Ok(())
+    }
+
     pub async fn cancel(&self, job_id: &str) -> Result<(), OmniError> {
         if let Some(flag) = self.cancel_flags.lock().await.get(job_id) {
             flag.store(true, Ordering::Relaxed);
@@ -126,7 +143,9 @@ impl WebFileTransferEngine {
                 req,
             )
             .await
-            .map_err(|e| omnipanel_error::OmniError::new(omnipanel_error::ErrorCode::Internal, e))?;
+            .map_err(|e| {
+                omnipanel_error::OmniError::new(omnipanel_error::ErrorCode::Internal, e)
+            })?;
             let job = FileTransferJob {
                 id: id.clone(),
                 batch_id: batch_id.clone(),

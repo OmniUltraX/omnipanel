@@ -163,10 +163,7 @@ pub fn redact_secrets_in_text(input: &str) -> String {
         .map(|line| {
             let t = line.trim();
             if let Some((k, _)) = t.split_once('=') {
-                if k.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    && !k.is_empty()
-                {
+                if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.is_empty() {
                     return redact_env_line(t);
                 }
             }

@@ -50,11 +50,8 @@ pub fn load_embedding_provider() -> OmniResult<Option<EmbeddingProviderConfig>> 
         return Ok(None);
     }
     let raw = fs::read_to_string(&path).map_err(|e| {
-        OmniError::new(
-            omnipanel_error::ErrorCode::Io,
-            "读取 embedding 配置失败",
-        )
-        .with_cause(e.to_string())
+        OmniError::new(omnipanel_error::ErrorCode::Io, "读取 embedding 配置失败")
+            .with_cause(e.to_string())
     })?;
     let mut cfg: EmbeddingProviderConfig = serde_json::from_str(&raw).map_err(|e| {
         OmniError::new(
@@ -112,11 +109,8 @@ pub fn save_embedding_provider(cfg: &EmbeddingProviderConfig) -> OmniResult<()> 
         .with_cause(e.to_string())
     })?;
     fs::write(&path, raw).map_err(|e| {
-        OmniError::new(
-            omnipanel_error::ErrorCode::Io,
-            "写入 embedding 配置失败",
-        )
-        .with_cause(e.to_string())
+        OmniError::new(omnipanel_error::ErrorCode::Io, "写入 embedding 配置失败")
+            .with_cause(e.to_string())
     })?;
     Ok(())
 }

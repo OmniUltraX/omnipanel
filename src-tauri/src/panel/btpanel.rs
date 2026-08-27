@@ -130,7 +130,9 @@ pub fn normalize_base_url(host: &str) -> Result<String, OmniError> {
     }
     let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
     let origin = match normalized[rest_start..].find('/') {
-        Some(i) => normalized[..rest_start + i].trim_end_matches('/').to_string(),
+        Some(i) => normalized[..rest_start + i]
+            .trim_end_matches('/')
+            .to_string(),
         None => normalized.trim_end_matches('/').to_string(),
     };
     Ok(origin)
@@ -284,7 +286,8 @@ async fn request_with_method(
     };
 
     let resp = req.send().await.map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "宝塔面板请求失败").with_cause(format_reqwest_error(&e))
+        OmniError::new(ErrorCode::Connection, "宝塔面板请求失败")
+            .with_cause(format_reqwest_error(&e))
     })?;
 
     let status = resp.status();
@@ -353,10 +356,7 @@ fn bytes_to_image_data_url(content_type: &str, bytes: &[u8]) -> Result<String, O
     }
     if looks_like_html(content_type, bytes) {
         return Err(OmniError::internal("宝塔图标返回了 HTML 而非图片")
-            .with_cause(truncate_text(
-                std::str::from_utf8(bytes).unwrap_or(""),
-                300,
-            )));
+            .with_cause(truncate_text(std::str::from_utf8(bytes).unwrap_or(""), 300)));
     }
     // JSON 错误包
     if bytes.first() == Some(&b'{') {
@@ -420,13 +420,14 @@ async fn fetch_static_bytes(host: &str, path: &str) -> Result<(String, Vec<u8>),
     let bytes = resp.bytes().await.unwrap_or_default().to_vec();
 
     if !status.is_success() {
-        return Err(
-            OmniError::new(ErrorCode::Connection, format!("宝塔静态资源错误 ({status})"))
-                .with_cause(truncate_text(
-                    std::str::from_utf8(&bytes).unwrap_or(""),
-                    300,
-                )),
-        );
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            format!("宝塔静态资源错误 ({status})"),
+        )
+        .with_cause(truncate_text(
+            std::str::from_utf8(&bytes).unwrap_or(""),
+            300,
+        )));
     }
     Ok((content_type, bytes))
 }

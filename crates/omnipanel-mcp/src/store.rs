@@ -4,7 +4,7 @@ use std::path::Path;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_store::mcp_services_path;
 
-use crate::types::{McpServiceConfig, McpServicesFile, BUILTIN_SERVICE_ID};
+use crate::types::{BUILTIN_SERVICE_ID, McpServiceConfig, McpServicesFile};
 
 pub fn load_services_file() -> OmniResult<McpServicesFile> {
     let path = mcp_services_path()?;
@@ -34,7 +34,8 @@ pub fn save_services_file(file: &McpServicesFile) -> OmniResult<()> {
 }
 
 fn normalize_file(mut file: McpServicesFile) -> McpServicesFile {
-    file.services.retain(|s| !s.builtin && s.id != BUILTIN_SERVICE_ID);
+    file.services
+        .retain(|s| !s.builtin && s.id != BUILTIN_SERVICE_ID);
     file
 }
 
@@ -43,8 +44,8 @@ fn write_json_atomic(path: &Path, file: &McpServicesFile) -> OmniResult<()> {
         fs::create_dir_all(parent).map_err(map_io)?;
     }
     let tmp = path.with_extension("json.tmp");
-    let json =
-        serde_json::to_string_pretty(file).map_err(|e| OmniError::new(ErrorCode::Internal, e.to_string()))?;
+    let json = serde_json::to_string_pretty(file)
+        .map_err(|e| OmniError::new(ErrorCode::Internal, e.to_string()))?;
     fs::write(&tmp, json.as_bytes()).map_err(map_io)?;
     if path.exists() {
         let _ = fs::remove_file(path);
@@ -119,7 +120,10 @@ fn validate_transport(transport: &crate::types::McpTransport) -> OmniResult<()> 
     match transport {
         McpTransport::Stdio { config } => {
             if config.command.trim().is_empty() {
-                return Err(OmniError::new(ErrorCode::InvalidInput, "stdio 命令不能为空"));
+                return Err(OmniError::new(
+                    ErrorCode::InvalidInput,
+                    "stdio 命令不能为空",
+                ));
             }
         }
         McpTransport::Sse { config } => {

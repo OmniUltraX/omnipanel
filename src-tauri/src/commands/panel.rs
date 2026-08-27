@@ -17,9 +17,9 @@ pub async fn panel_resolve_api_key(
     }
 
     let storage = state.storage.lock().await;
-    let conn = storage.get_connection(&connection_id)?.ok_or_else(|| {
-        OmniError::invalid_input(format!("面板连接不存在：{connection_id}"))
-    })?;
+    let conn = storage
+        .get_connection(&connection_id)?
+        .ok_or_else(|| OmniError::invalid_input(format!("面板连接不存在：{connection_id}")))?;
     drop(storage);
 
     if conn.kind != ConnectionKind::Panel {
@@ -39,7 +39,9 @@ pub async fn panel_resolve_api_key(
         .unwrap_or_default();
 
     if key.trim().is_empty() {
-        return Err(OmniError::invalid_input("未找到面板 API 密钥，请重新保存连接"));
+        return Err(OmniError::invalid_input(
+            "未找到面板 API 密钥，请重新保存连接",
+        ));
     }
     Ok(key.trim().to_string())
 }
@@ -208,7 +210,9 @@ pub async fn panel_bt_request_get(
                 Value::Object(map) => Some(map),
                 Value::Null => None,
                 _ => {
-                    return Err(OmniError::invalid_input("宝塔 API GET 参数必须是 JSON 对象"));
+                    return Err(OmniError::invalid_input(
+                        "宝塔 API GET 参数必须是 JSON 对象",
+                    ));
                 }
             }
         }
@@ -238,11 +242,6 @@ pub async fn panel_bt_app_icon(
     app_name: String,
     icon_file: Option<String>,
 ) -> Result<String, OmniError> {
-    crate::panel::btpanel::fetch_docker_app_icon(
-        &host,
-        &api_sk,
-        &app_name,
-        icon_file.as_deref(),
-    )
-    .await
+    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref())
+        .await
 }

@@ -7,7 +7,9 @@ use crate::state::AppState;
 /// 列出全部内置工具配置。
 #[tauri::command]
 #[specta::specta]
-pub async fn builtin_tool_list(state: State<'_, AppState>) -> Result<Vec<BuiltinToolRecord>, OmniError> {
+pub async fn builtin_tool_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<BuiltinToolRecord>, OmniError> {
     let storage = state.storage.lock().await;
     storage.builtin_tool_list()
 }

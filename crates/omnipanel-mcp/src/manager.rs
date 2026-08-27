@@ -2,11 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Context;
-use rmcp::transport::{
-    streamable_http_server::{
-        session::local::LocalSessionManager, tower::StreamableHttpService,
-        StreamableHttpServerConfig,
-    },
+use rmcp::transport::streamable_http_server::{
+    StreamableHttpServerConfig, session::local::LocalSessionManager, tower::StreamableHttpService,
 };
 use tokio::process::Child;
 use tokio::sync::Mutex;
@@ -16,14 +13,14 @@ use omnipanel_store::Storage;
 use crate::builtin::OmniMcpHandler;
 use crate::omni_module::omni_tool_module_key;
 use crate::process::stdio_command;
-use crate::registry::{external, native, RegisteredTool, ToolExecutionKind, ToolRegistry};
+use crate::registry::{RegisteredTool, ToolExecutionKind, ToolRegistry, external, native};
 use crate::store::{
     delete_custom_service, load_services_file, set_service_enabled, upsert_custom_service,
 };
 use crate::types::{
-    builtin_mcp_endpoint, McpServiceConfig, McpServiceRuntimeStatus, McpServiceView,
-    McpServicesFile, McpTransport, BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME,
-    OMNI_MODULE_MASTER,
+    BUILTIN_MCP_PORT, BUILTIN_SERVICE_ID, BUILTIN_SERVICE_NAME, McpServiceConfig,
+    McpServiceRuntimeStatus, McpServiceView, McpServicesFile, McpTransport, OMNI_MODULE_MASTER,
+    builtin_mcp_endpoint,
 };
 use omnipanel_ai::types::ToolDef;
 
@@ -118,10 +115,7 @@ impl McpManager {
         &self,
         module_filter: Option<&str>,
     ) -> Result<Vec<ToolDef>, String> {
-        let mut defs = self
-            .tool_registry
-            .to_tool_defs(module_filter)
-            .await?;
+        let mut defs = self.tool_registry.to_tool_defs(module_filter).await?;
         let include_external = match module_filter {
             None => true,
             Some("master") => true,
@@ -154,7 +148,10 @@ impl McpManager {
         }
     }
 
-    pub async fn upsert_service(&mut self, service: McpServiceConfig) -> anyhow::Result<McpServiceView> {
+    pub async fn upsert_service(
+        &mut self,
+        service: McpServiceConfig,
+    ) -> anyhow::Result<McpServiceView> {
         let saved = upsert_custom_service(&mut self.file, service)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         self.sync_custom_services().await?;
@@ -174,7 +171,11 @@ impl McpManager {
         Ok(self.custom_view(&saved))
     }
 
-    pub async fn set_service_running(&mut self, id: &str, running: bool) -> anyhow::Result<McpServiceView> {
+    pub async fn set_service_running(
+        &mut self,
+        id: &str,
+        running: bool,
+    ) -> anyhow::Result<McpServiceView> {
         if id == BUILTIN_SERVICE_ID {
             if running {
                 if self.builtin.is_none() {
@@ -229,7 +230,10 @@ impl McpManager {
         if id == BUILTIN_SERVICE_ID {
             {
                 let storage = self.storage.lock().await;
-                if !storage.builtin_tool_is_exposed_available(tool_name).unwrap_or(false) {
+                if !storage
+                    .builtin_tool_is_exposed_available(tool_name)
+                    .unwrap_or(false)
+                {
                     anyhow::bail!("MCP 工具不可用: {tool_name}");
                 }
             }
@@ -270,7 +274,10 @@ impl McpManager {
         }
     }
 
-    pub async fn list_service_tools(&self, id: &str) -> anyhow::Result<Vec<crate::types::ToolInfo>> {
+    pub async fn list_service_tools(
+        &self,
+        id: &str,
+    ) -> anyhow::Result<Vec<crate::types::ToolInfo>> {
         use crate::types::McpServiceRuntimeStatus;
 
         if id == BUILTIN_SERVICE_ID {
@@ -283,7 +290,11 @@ impl McpManager {
                 crate::client::list_tools_http_for_module(&endpoint, Some(OMNI_MODULE_MASTER))
                     .await?;
             let storage = self.storage.lock().await;
-            tools.retain(|tool| storage.builtin_tool_is_exposed_available(&tool.name).unwrap_or(false));
+            tools.retain(|tool| {
+                storage
+                    .builtin_tool_is_exposed_available(&tool.name)
+                    .unwrap_or(false)
+            });
             return Ok(tools);
         }
 
@@ -330,14 +341,12 @@ impl McpManager {
             LocalSessionManager::default().into(),
             StreamableHttpServerConfig::default(),
         );
-        let router = axum::Router::new()
-            .nest_service("/mcp", service)
-            .layer(
-                tower_http::cors::CorsLayer::new()
-                    .allow_origin(tower_http::cors::Any)
-                    .allow_methods(tower_http::cors::Any)
-                    .allow_headers(tower_http::cors::Any),
-            );
+        let router = axum::Router::new().nest_service("/mcp", service).layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any),
+        );
 
         let task = tokio::spawn(async move {
             let serve = axum::serve(listener, router);
@@ -482,7 +491,11 @@ impl McpManager {
             }
             McpTransport::Sse { config } => {
                 if !service.enabled {
-                    (McpServiceRuntimeStatus::Stopped, Some(config.url.clone()), None)
+                    (
+                        McpServiceRuntimeStatus::Stopped,
+                        Some(config.url.clone()),
+                        None,
+                    )
                 } else {
                     (
                         McpServiceRuntimeStatus::Running,

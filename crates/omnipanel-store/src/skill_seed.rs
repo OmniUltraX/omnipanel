@@ -5,7 +5,7 @@ use std::fs;
 use omnipanel_error::OmniResult;
 
 use crate::paths::map_io;
-use crate::skill::{parse_skill_md, skill_dir, skill_file_path, SKILL_MD_FILENAME};
+use crate::skill::{SKILL_MD_FILENAME, parse_skill_md, skill_dir, skill_file_path};
 
 const OPS_SKILL_SEEDS: &[(&str, &str)] = &[
     (
@@ -32,15 +32,13 @@ pub fn ensure_default_skills() -> OmniResult<()> {
                 format!("内置 Skill `{id}` 无效: {e}"),
             )
         })?;
-        let file = skill_file_path(id).map_err(|e| {
-            omnipanel_error::OmniError::new(omnipanel_error::ErrorCode::Io, e)
-        })?;
+        let file = skill_file_path(id)
+            .map_err(|e| omnipanel_error::OmniError::new(omnipanel_error::ErrorCode::Io, e))?;
         if file.exists() {
             continue;
         }
-        let dir = skill_dir(id).map_err(|e| {
-            omnipanel_error::OmniError::new(omnipanel_error::ErrorCode::Io, e)
-        })?;
+        let dir = skill_dir(id)
+            .map_err(|e| omnipanel_error::OmniError::new(omnipanel_error::ErrorCode::Io, e))?;
         fs::create_dir_all(&dir).map_err(map_io)?;
         // skill_file_path 已指向 SKILL.md；再确认文件名常量一致。
         let dest = dir.join(SKILL_MD_FILENAME);

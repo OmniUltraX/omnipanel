@@ -4,19 +4,19 @@
 //! 上传前整包端到端加密；拉取时解密（兼容历史明文）。
 
 use omnipanel_assistant::{
-    pull_team_sync_json, push_team_sync_json, validate_conversations_bundle_json,
-    TEAM_CONVERSATIONS_LATEST_LEAF,
+    TEAM_CONVERSATIONS_LATEST_LEAF, pull_team_sync_json, push_team_sync_json,
+    validate_conversations_bundle_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::SYNC_KIND_CONVERSATIONS;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::assistant_cmds::build_auth_context;
 use crate::auth_cmds::{
     auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
     resolve_sync_team,
 };
-use crate::assistant_cmds::build_auth_context;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

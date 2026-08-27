@@ -1,14 +1,14 @@
 //! Web / 服务端 relay 传输（local ↔ SFTP ↔ S3）。
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};
 
 use crate::event::TransferEventSink;
-use crate::provider::{TransferHost, TransferProtocol, LOCAL_CONNECTION_ID};
+use crate::provider::{LOCAL_CONNECTION_ID, TransferHost, TransferProtocol};
 use crate::types::TRANSFER_PROGRESS_EVENT;
 use crate::util::{join_posix, open_sftp, s3_key};
 
@@ -138,9 +138,9 @@ pub async fn relay_local_dest(
                 OmniError::new(ErrorCode::Io, "创建本地目标目录失败").with_cause(e.to_string())
             })?;
         }
-        tokio::fs::copy(&src, dest_path).await.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "本地复制失败").with_cause(e.to_string())
-        })?;
+        tokio::fs::copy(&src, dest_path)
+            .await
+            .map_err(|e| OmniError::new(ErrorCode::Io, "本地复制失败").with_cause(e.to_string()))?;
         let meta = tokio::fs::metadata(dest_path).await.ok();
         Ok(meta.map(|m| m.len()).unwrap_or(0))
     } else {
@@ -219,7 +219,9 @@ pub async fn relay_sftp_sftp(
         if cancel.load(Ordering::Relaxed) {
             return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
         }
-        let data = src.sftp_read_range(source_path, offset, CHUNK as u32).await?;
+        let data = src
+            .sftp_read_range(source_path, offset, CHUNK as u32)
+            .await?;
         if data.is_empty() {
             break;
         }
@@ -253,20 +255,24 @@ pub async fn source_to_local_temp(
             if !src.exists() {
                 return Err(OmniError::new(ErrorCode::NotFound, "源文件不存在"));
             }
-            let len = tokio::fs::metadata(&src).await.map(|m| m.len()).unwrap_or(0);
+            let len = tokio::fs::metadata(&src)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0);
             Ok((src, len))
         }
         TransferProtocol::Sftp => {
             let session = open_sftp(host, source_connection_id).await?;
             let temp = std::env::temp_dir().join(format!("{job_id}.src"));
-            session
-                .sftp_download_to_file(source_path, &temp)
-                .await?;
+            session.sftp_download_to_file(source_path, &temp).await?;
             if cancel.load(Ordering::Relaxed) {
                 let _ = tokio::fs::remove_file(&temp).await;
                 return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
             }
-            let len = tokio::fs::metadata(&temp).await.map(|m| m.len()).unwrap_or(0);
+            let len = tokio::fs::metadata(&temp)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0);
             Ok((temp, len))
         }
         TransferProtocol::S3 => {
@@ -278,7 +284,10 @@ pub async fn source_to_local_temp(
                 let _ = tokio::fs::remove_file(&temp).await;
                 return Err(OmniError::new(ErrorCode::Internal, "传输已取消"));
             }
-            let len = tokio::fs::metadata(&temp).await.map(|m| m.len()).unwrap_or(written);
+            let len = tokio::fs::metadata(&temp)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(written);
             Ok((temp, len))
         }
         _ => Err(OmniError::invalid_input(format!(
@@ -439,7 +448,15 @@ pub async fn transfer_start(
     let flags = cancel_flags.clone();
 
     tokio::spawn(async move {
-        emit_relay_progress(sink_ref.as_ref(), &job_id, TransferState::Running, 0.0, None, None).await;
+        emit_relay_progress(
+            sink_ref.as_ref(),
+            &job_id,
+            TransferState::Running,
+            0.0,
+            None,
+            None,
+        )
+        .await;
         let result: Result<u64, OmniError> = async {
             let dest_proto = host_ref.connection_protocol(&dest_connection_id).await?;
             let source_proto = host_ref.connection_protocol(&source_connection_id).await?;

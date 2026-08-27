@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use omnipanel_transfer::{
-    rate_limit::{rate_limit_bps, set_rate_limit_bps},
-    FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEndpoint,
+    FileTransferConflictPolicy, FileTransferEndpoint, FileTransferEnqueueRequest,
     FileTransferItemSpec, FileTransferJob, FileTransferListResult, FileTransferOp,
     FileTransferPlanRequest, FileTransferPlanResult, FileTransferRoute, FileTransferState,
-    WebFileTransferEngine, TRANSFER_PROGRESS_EVENT,
+    TRANSFER_PROGRESS_EVENT, WebFileTransferEngine,
+    rate_limit::{rate_limit_bps, set_rate_limit_bps},
 };
 
 use crate::files::LOCAL_CONNECTION_ID;
@@ -45,7 +45,9 @@ pub async fn file_transfer_enqueue(
         .map_err(|e| e.user_message())
 }
 
-pub async fn file_transfer_list(state: &Arc<ServerState>) -> Result<FileTransferListResult, String> {
+pub async fn file_transfer_list(
+    state: &Arc<ServerState>,
+) -> Result<FileTransferListResult, String> {
     Ok(state.file_transfers.list().await)
 }
 
@@ -57,13 +59,12 @@ pub async fn file_transfer_cancel(state: &Arc<ServerState>, job_id: String) -> R
         .map_err(|e| e.user_message())
 }
 
-pub async fn file_transfer_retry(
-    state: Arc<ServerState>,
-    job_id: String,
-) -> Result<(), String> {
+pub async fn file_transfer_retry(state: Arc<ServerState>, job_id: String) -> Result<(), String> {
     let job = {
         let jobs = state.file_transfers.jobs.lock().await;
-        jobs.get(&job_id).cloned().ok_or_else(|| "任务不存在".to_string())?
+        jobs.get(&job_id)
+            .cloned()
+            .ok_or_else(|| "任务不存在".to_string())?
     };
     if !matches!(
         job.state,
@@ -96,6 +97,14 @@ pub async fn file_transfer_retry(
 pub async fn file_transfer_clear_finished(state: &Arc<ServerState>) -> Result<(), String> {
     state.file_transfers.clear_finished().await;
     Ok(())
+}
+
+pub async fn file_transfer_dismiss(state: &Arc<ServerState>, job_id: String) -> Result<(), String> {
+    state
+        .file_transfers
+        .dismiss_finished(&job_id)
+        .await
+        .map_err(|e| e.user_message())
 }
 
 pub async fn file_transfer_set_concurrency(

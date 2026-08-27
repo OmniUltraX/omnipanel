@@ -86,7 +86,9 @@ mod tests {
         let mut asm = LineAssembler::new();
         let mut lines = Vec::new();
         for chunk in chunks {
-            asm.push(chunk, |l| lines.push(String::from_utf8_lossy(l).into_owned()));
+            asm.push(chunk, |l| {
+                lines.push(String::from_utf8_lossy(l).into_owned())
+            });
         }
         lines
     }
@@ -98,7 +100,10 @@ mod tests {
 
     #[test]
     fn strips_cr_from_pty_line_endings() {
-        assert_eq!(collect(&[b"%begin 1 1 1\r\n%end 1 1 1\r\n"]), vec!["%begin 1 1 1", "%end 1 1 1"]);
+        assert_eq!(
+            collect(&[b"%begin 1 1 1\r\n%end 1 1 1\r\n"]),
+            vec!["%begin 1 1 1", "%end 1 1 1"]
+        );
     }
 
     #[test]
@@ -152,7 +157,9 @@ mod tests {
         let mut asm = LineAssembler::new();
         let mut lines = Vec::new();
         for b in input {
-            asm.push(&[*b], |l| lines.push(String::from_utf8_lossy(l).into_owned()));
+            asm.push(&[*b], |l| {
+                lines.push(String::from_utf8_lossy(l).into_owned())
+            });
         }
         assert_eq!(lines, vec!["%output %0 x", "%end 1 1 1"]);
     }

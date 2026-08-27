@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use omnipanel_store::WebSearchBackend;
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, BackendError, RequestCtx, SearchHit, SearchRequest,
-    WebSecrets,
+    BackendError, RequestCtx, SearchHit, SearchRequest, WebSecrets, build_http_client,
+    classify_reqwest_error,
 };
 use super::SearchProvider;
 

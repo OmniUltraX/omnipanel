@@ -150,13 +150,25 @@ pub fn seed_catalog() -> Vec<LibraryModelEntry> {
         LibraryModelEntry {
             name: "qwen2.5".into(),
             pulls: 35_000_000,
-            tags: vec!["0.5b".into(), "1.5b".into(), "3b".into(), "7b".into(), "14b".into()],
+            tags: vec![
+                "0.5b".into(),
+                "1.5b".into(),
+                "3b".into(),
+                "7b".into(),
+                "14b".into(),
+            ],
             description: "中文友好通用对话".into(),
         },
         LibraryModelEntry {
             name: "qwen3".into(),
             pulls: 32_000_000,
-            tags: vec!["0.6b".into(), "1.7b".into(), "4b".into(), "8b".into(), "14b".into()],
+            tags: vec![
+                "0.6b".into(),
+                "1.7b".into(),
+                "4b".into(),
+                "8b".into(),
+                "14b".into(),
+            ],
             description: "Qwen3 通用 / 思考".into(),
         },
         LibraryModelEntry {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
@@ -9,9 +9,7 @@ use omnipanel_store::Storage;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 
-use crate::types::{
-    BackgroundTaskInfo, BackgroundTaskStatus, WorkerPoolSummary, is_terminal,
-};
+use crate::types::{BackgroundTaskInfo, BackgroundTaskStatus, WorkerPoolSummary, is_terminal};
 
 pub use crate::types::default_worker_count;
 

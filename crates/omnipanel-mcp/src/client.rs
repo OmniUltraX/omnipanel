@@ -1,18 +1,18 @@
 use anyhow::Context;
 use http::{HeaderName, HeaderValue};
 use rmcp::{
+    ClientHandler, RoleClient, ServiceExt,
     model::CallToolRequestParams,
     service::RunningService,
     transport::{
-        streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
-        TokioChildProcess,
+        StreamableHttpClientTransport, TokioChildProcess,
+        streamable_http_client::StreamableHttpClientTransportConfig,
     },
-    ClientHandler, RoleClient, ServiceExt,
 };
 use std::collections::HashMap;
 
-use crate::types::{McpStdioTransport, ToolCallResult, ToolInfo, X_OMNI_MODULE_HEADER};
 use crate::process::stdio_command;
+use crate::types::{McpStdioTransport, ToolCallResult, ToolInfo, X_OMNI_MODULE_HEADER};
 
 #[derive(Clone, Default)]
 struct ToolListClient;
@@ -61,7 +61,9 @@ pub async fn list_tools_stdio(config: &McpStdioTransport) -> anyhow::Result<Vec<
     collect_tools(&mut client).await
 }
 
-async fn collect_tools(client: &mut RunningService<RoleClient, ToolListClient>) -> anyhow::Result<Vec<ToolInfo>> {
+async fn collect_tools(
+    client: &mut RunningService<RoleClient, ToolListClient>,
+) -> anyhow::Result<Vec<ToolInfo>> {
     let tools = client
         .list_all_tools()
         .await
@@ -140,9 +142,7 @@ async fn invoke_tool(
         }
     };
     let result = client
-        .call_tool(
-            CallToolRequestParams::new(tool_name.to_string()).with_arguments(args),
-        )
+        .call_tool(CallToolRequestParams::new(tool_name.to_string()).with_arguments(args))
         .await
         .context("调用 MCP 工具失败")?;
     Ok(format_call_tool_result(result))

@@ -52,8 +52,7 @@ pub async fn docker_get_connection_secret(
     }
     // 仅接受面板 API Key 引用；勿回退到 docker-ssh-password（会把 SSH 密码当成 API Key）
     if let Some(r) = conn.credential_ref.as_deref() {
-        if r == vault_key || r.starts_with("docker-btpanel-") || r.starts_with("docker-onepanel-")
-        {
+        if r == vault_key || r.starts_with("docker-btpanel-") || r.starts_with("docker-onepanel-") {
             if let Ok(key) = Vault::get(r) {
                 let key = key.trim();
                 if !key.is_empty() {
@@ -247,12 +246,8 @@ pub(crate) async fn connection_is_remote_engine(
         )
     })?;
     let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
-    Ok(
-        cfg.source
-            .as_deref()
-            .map(DockerConnectionSource::parse)
-            == Some(DockerConnectionSource::RemoteEngine),
-    )
+    Ok(cfg.source.as_deref().map(DockerConnectionSource::parse)
+        == Some(DockerConnectionSource::RemoteEngine))
 }
 
 /// 读取 Docker daemon.json 配置。

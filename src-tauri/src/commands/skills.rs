@@ -17,12 +17,12 @@ use tauri::State;
 use crate::state::AppState;
 
 use omnipanel_store::{
-    chunk_text, list_all_skill_records, load_skill_body, load_skill_record, parse_skill_md,
-    sanitize_skill_id, skill_dir, skill_file_path, write_skill, SkillApplication, SkillDbRecord,
-    SkillFrontmatter, SkillRecord, SkillVectorStatus,
+    SkillApplication, SkillDbRecord, SkillFrontmatter, SkillRecord, SkillVectorStatus, chunk_text,
+    list_all_skill_records, load_skill_body, load_skill_record, parse_skill_md, sanitize_skill_id,
+    skill_dir, skill_file_path, write_skill,
 };
 
-use crate::commands::knowledge_vector::{fetch_provider_embeddings, EmbeddingProviderConfig};
+use crate::commands::knowledge_vector::{EmbeddingProviderConfig, fetch_provider_embeddings};
 
 const SKILL_FILE: &str = "SKILL.md";
 
@@ -32,8 +32,7 @@ const SKILL_FILE: &str = "SKILL.md";
 /// 必须使用 `.lock().await`：在 async 命令里对 `tokio::sync::Mutex` 调 `blocking_lock`
 /// 会卡住运行时，导致前端一直停在「正在加载 Skills…」。
 async fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
-    let file_records =
-        list_all_skill_records().map_err(|e| format!("列出 skills 失败: {e}"))?;
+    let file_records = list_all_skill_records().map_err(|e| format!("列出 skills 失败: {e}"))?;
     let storage = state.storage.lock().await;
     for fr in file_records {
         if storage
@@ -56,9 +55,7 @@ async fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
                 created_at: fr.created_at,
                 updated_at: fr.updated_at,
             };
-            storage
-                .save_skill_db(&db_rec)
-                .map_err(|e| e.to_string())?;
+            storage.save_skill_db(&db_rec).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -68,7 +65,9 @@ async fn ensure_skill_db_sync(state: &AppState) -> Result<(), String> {
 /// 用于 skill_create / skill_import：新 skill 总是 v1。
 async fn upsert_skill_db_v1(state: &AppState, record: &SkillRecord) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    let existing = storage.get_skill_db(&record.id).map_err(|e| e.to_string())?;
+    let existing = storage
+        .get_skill_db(&record.id)
+        .map_err(|e| e.to_string())?;
     let db_rec = if let Some(mut existing) = existing {
         // 已有 DB 记录：保留 version / parent_version_id / 统计字段，只更新基础字段
         existing.name = record.name.clone();
@@ -425,7 +424,10 @@ pub async fn skill_update_application_outcome(
     feedback: Option<String>,
 ) -> Result<(), String> {
     let outcome_trim = outcome.trim();
-    if !matches!(outcome_trim, "success" | "failure" | "partial" | "pending" | "refined") {
+    if !matches!(
+        outcome_trim,
+        "success" | "failure" | "partial" | "pending" | "refined"
+    ) {
         return Err(format!(
             "outcome 非法：{outcome_trim}（应为 success / failure / partial / pending / refined）"
         ));

@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::http::{header, Response};
+use axum::http::{Response, header};
 use futures::StreamExt;
 use omnipanel_ai::ir::{StopReason, StreamEvent};
 use omnipanel_ai::provider::AiProviderRegistry;
 use omnipanel_ai::providers::acp::{
-    build_client_tools_prompt, format_client_tool_result_prompt, looks_like_pending_tool_calls_json,
-    parse_client_tool_calls, AcpRoundRunner,
+    AcpRoundRunner, build_client_tools_prompt, format_client_tool_result_prompt,
+    looks_like_pending_tool_calls_json, parse_client_tool_calls,
 };
-use omnipanel_ai::routing::{parse_backend_id, BackendKind};
+use omnipanel_ai::routing::{BackendKind, parse_backend_id};
 use omnipanel_ai::types::{ChatMessage, ChatRequest, Role, ToolCall, ToolDef};
 use omnipanel_store::{AiSessionRecord, Storage};
 use serde_json::json;
@@ -120,7 +120,14 @@ impl GatewayRouter {
         // ---- CLI backend path (Cursor / OpenCode / Qwen / OmniAgent) ----
         if parsed.kind == BackendKind::Cli {
             return self
-                .chat_completions_cli(&parsed.provider_id, &parsed.model_id, messages, tools, conversation_id, backend_id)
+                .chat_completions_cli(
+                    &parsed.provider_id,
+                    &parsed.model_id,
+                    messages,
+                    tools,
+                    conversation_id,
+                    backend_id,
+                )
                 .await;
         }
 
@@ -234,7 +241,8 @@ impl GatewayRouter {
             }
         });
 
-        let body = Body::from_stream(ReceiverStream::new(rx).map(Ok::<_, std::convert::Infallible>));
+        let body =
+            Body::from_stream(ReceiverStream::new(rx).map(Ok::<_, std::convert::Infallible>));
 
         Ok(Response::builder()
             .header(header::CONTENT_TYPE, "text/event-stream")
@@ -274,7 +282,8 @@ impl GatewayRouter {
         let has_tools = !tool_defs.is_empty();
 
         // Fold messages into a single prompt text
-        let (prompt_text, _is_tool_continuation) = fold_messages_to_cli_prompt(&messages, has_tools);
+        let (prompt_text, _is_tool_continuation) =
+            fold_messages_to_cli_prompt(&messages, has_tools);
 
         // Resolve ACP manager + session
         let cwd = std::env::current_dir()
@@ -342,9 +351,7 @@ impl GatewayRouter {
                 };
 
                 let (delta, finish_reason): (serde_json::Value, Option<&str>) = match event {
-                    StreamEvent::ContentDelta { text } => {
-                        (json!({ "content": text }), None)
-                    }
+                    StreamEvent::ContentDelta { text } => (json!({ "content": text }), None),
                     StreamEvent::ReasoningDelta { text } => {
                         (json!({ "reasoning_content": text }), None)
                     }
@@ -422,7 +429,10 @@ impl GatewayRouter {
                                     call.insert("id".to_string(), json!(tc.id));
                                     call.insert("type".to_string(), json!("function"));
                                 }
-                                call.insert("function".to_string(), serde_json::Value::Object(func));
+                                call.insert(
+                                    "function".to_string(),
+                                    serde_json::Value::Object(func),
+                                );
                                 let chunk = json!({
                                     "id": format!("chatcmpl-{index}"),
                                     "object": "chat.completion.chunk",
@@ -481,7 +491,8 @@ impl GatewayRouter {
             let _ = tx.send("data: [DONE]\n\n".to_string()).await;
         });
 
-        let body = Body::from_stream(ReceiverStream::new(rx_sse).map(Ok::<_, std::convert::Infallible>));
+        let body =
+            Body::from_stream(ReceiverStream::new(rx_sse).map(Ok::<_, std::convert::Infallible>));
 
         Ok(Response::builder()
             .header(header::CONTENT_TYPE, "text/event-stream")
@@ -495,10 +506,7 @@ impl GatewayRouter {
 fn parse_openai_messages(raw: Vec<serde_json::Value>) -> Result<Vec<ChatMessage>, String> {
     let mut out = Vec::new();
     for item in raw {
-        let role = item
-            .get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("user");
+        let role = item.get("role").and_then(|v| v.as_str()).unwrap_or("user");
         let content = extract_message_content(&item);
         let tool_call_id = item
             .get("tool_call_id")
@@ -549,7 +557,10 @@ fn extract_message_content(item: &serde_json::Value) -> String {
             .iter()
             .filter_map(|block| {
                 if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                    block.get("text").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    block
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 }
@@ -567,18 +578,12 @@ fn extract_message_content(item: &serde_json::Value) -> String {
 /// when the external client (cline/aider) sends the entire message history.
 ///
 /// Returns `(prompt_text, is_tool_continuation)`.
-fn fold_messages_to_cli_prompt(
-    messages: &[serde_json::Value],
-    has_tools: bool,
-) -> (String, bool) {
+fn fold_messages_to_cli_prompt(messages: &[serde_json::Value], has_tools: bool) -> (String, bool) {
     let mut blocks = Vec::new();
     let mut is_tool_continuation = false;
 
     for msg in messages {
-        let role = msg
-            .get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("user");
+        let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
         match role {
             "system" => {
@@ -611,16 +616,11 @@ fn fold_messages_to_cli_prompt(
                                 .pointer("/function/arguments")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("{}");
-                            Some(format!(
-                                "  - {name}({args})"
-                            ))
+                            Some(format!("  - {name}({args})"))
                         })
                         .collect();
                     if !tc_text.is_empty() {
-                        blocks.push(format!(
-                            "[Assistant — tool_calls]\n{}",
-                            tc_text.join("\n")
-                        ));
+                        blocks.push(format!("[Assistant — tool_calls]\n{}", tc_text.join("\n")));
                     }
                 }
 
@@ -631,10 +631,7 @@ fn fold_messages_to_cli_prompt(
             "tool" => {
                 // Tool result messages → [Tool Result] blocks
                 let content = extract_message_content(msg);
-                let name = msg
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("tool");
+                let name = msg.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
                 is_tool_continuation = true;
                 blocks.push(format_client_tool_result_prompt(name, &content, true));
             }

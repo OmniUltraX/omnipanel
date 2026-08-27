@@ -10,10 +10,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use omnipanel_docker::{
-    ContainerFilter, DockerAdapter, DockerConnectionInfo, DockerConnectionSource,
-    DockerConnectionStatus, DockerContainerSummary, DockerOverview, DockerProbe,
-    BtPanelAdapter, BtPanelClient, LocalDockerAdapter, OnePanelAdapter, OnePanelClient,
-    SshDockerAdapter, local_engine_status,
+    BtPanelAdapter, BtPanelClient, ContainerFilter, DockerAdapter, DockerConnectionInfo,
+    DockerConnectionSource, DockerConnectionStatus, DockerContainerSummary, DockerOverview,
+    DockerProbe, LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter,
+    local_engine_status,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::SshConfig;
@@ -106,8 +106,9 @@ pub async fn resolve_target(
 
     match cfg.source.as_deref().map(DockerConnectionSource::parse) {
         Some(DockerConnectionSource::SshEngine) => {
-            let session = ensure_docker_ssh(state, connection_id, cfg.ssh, cfg.bound_ssh_connection_id)
-                .await?;
+            let session =
+                ensure_docker_ssh(state, connection_id, cfg.ssh, cfg.bound_ssh_connection_id)
+                    .await?;
             Ok(DockerTarget::Ssh(session))
         }
         Some(DockerConnectionSource::RemoteEngine) => {
@@ -171,8 +172,7 @@ pub async fn resolve_target(
             }
             panel.api_key = panel.api_key.trim().to_string();
             let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "1Panel")?;
-            let session =
-                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
+            let session = ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
             let adapter = OnePanelAdapter::new(
                 OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure),
                 connection_id.to_string(),
@@ -217,8 +217,7 @@ pub async fn resolve_target(
             }
             panel.api_key = panel.api_key.trim().to_string();
             let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "宝塔")?;
-            let session =
-                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
+            let session = ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
             let client = BtPanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
             tracing::info!(
                 target: "btpanel",
@@ -236,10 +235,7 @@ pub async fn resolve_target(
 }
 
 /// 面板类 Docker 连接必须绑定 SSH（无面板 API 时回退）。
-fn require_bound_ssh_id(
-    bound: Option<String>,
-    panel_label: &str,
-) -> Result<String, OmniError> {
+fn require_bound_ssh_id(bound: Option<String>, panel_label: &str) -> Result<String, OmniError> {
     bound
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -365,11 +361,7 @@ where
             Ok(a) => a,
             Err(err) if attempt == 0 && is_ssh_recoverable(&err) => {
                 // SSH 会话不可用时先清缓存再试一次
-                state
-                    .docker_ssh_sessions
-                    .lock()
-                    .await
-                    .remove(connection_id);
+                state.docker_ssh_sessions.lock().await.remove(connection_id);
                 tracing::warn!("Docker adapter 解析失败（重试）: {err}");
                 continue;
             }
@@ -378,11 +370,7 @@ where
         match op(adapter).await {
             Ok(value) => return Ok(value),
             Err(err) if attempt == 0 && is_ssh_recoverable(&err) => {
-                state
-                    .docker_ssh_sessions
-                    .lock()
-                    .await
-                    .remove(connection_id);
+                state.docker_ssh_sessions.lock().await.remove(connection_id);
                 tracing::warn!("Docker 操作失败（重试）: {err}");
                 continue;
             }
@@ -594,7 +582,8 @@ pub async fn docker_list_containers(
 }
 
 /// 获取本地 Docker Engine 状态。
-pub async fn docker_get_local_engine_status() -> Result<omnipanel_docker::DockerLocalEngineStatus, String> {
+pub async fn docker_get_local_engine_status()
+-> Result<omnipanel_docker::DockerLocalEngineStatus, String> {
     Ok(local_engine_status().await)
 }
 

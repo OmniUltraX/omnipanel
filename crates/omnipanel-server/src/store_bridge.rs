@@ -11,9 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    ai_provider_key_ref, AppModule, AppModuleStatus, BuiltinToolCatalogEntry, BuiltinToolRecord,
-    Connection, ConnectionKind, HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest,
-    Vault,
+    AppModule, AppModuleStatus, BuiltinToolCatalogEntry, BuiltinToolRecord, Connection,
+    ConnectionKind, HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest, Vault,
+    ai_provider_key_ref,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -169,12 +169,16 @@ pub async fn http_list_collections(state: &ServerState) -> Result<Vec<HttpCollec
 
 pub async fn http_save_collection(state: &ServerState, col: HttpCollection) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage.http_save_collection(&col).map_err(|e| e.to_string())
+    storage
+        .http_save_collection(&col)
+        .map_err(|e| e.to_string())
 }
 
 pub async fn http_delete_collection(state: &ServerState, id: String) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage.http_delete_collection(&id).map_err(|e| e.to_string())
+    storage
+        .http_delete_collection(&id)
+        .map_err(|e| e.to_string())
 }
 
 pub async fn http_list_environments(state: &ServerState) -> Result<Vec<HttpEnvironment>, String> {
@@ -187,12 +191,16 @@ pub async fn http_save_environment(
     env: HttpEnvironment,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage.http_save_environment(&env).map_err(|e| e.to_string())
+    storage
+        .http_save_environment(&env)
+        .map_err(|e| e.to_string())
 }
 
 pub async fn http_delete_environment(state: &ServerState, id: String) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage.http_delete_environment(&id).map_err(|e| e.to_string())
+    storage
+        .http_delete_environment(&id)
+        .map_err(|e| e.to_string())
 }
 
 pub async fn http_list_history(
@@ -377,7 +385,9 @@ pub async fn ai_models_fetch_list(
                 }
             }
             omnipanel_ai::FetchModelsError::Network(message) => message,
-            omnipanel_ai::FetchModelsError::Parse(cause) => format!("模型列表响应无法解析: {cause}"),
+            omnipanel_ai::FetchModelsError::Parse(cause) => {
+                format!("模型列表响应无法解析: {cause}")
+            }
         })
 }
 
@@ -457,9 +467,8 @@ pub async fn ssh_list_keys() -> Result<Vec<SshKeyInfo>, OmniError> {
         return Ok(vec![]);
     }
     let mut out = Vec::new();
-    let entries = fs::read_dir(&ssh_dir).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取 ~/.ssh 失败").with_cause(e.to_string())
-    })?;
+    let entries = fs::read_dir(&ssh_dir)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取 ~/.ssh 失败").with_cause(e.to_string()))?;
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -541,8 +550,7 @@ pub async fn docker_load_sidebar_cache() -> Result<serde_json::Value, String> {
     if content.trim().is_empty() {
         return Ok(serde_json::json!({ "connections": {} }));
     }
-    let value: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
     if value.get("connections").is_some() {
         Ok(value)
     } else {
@@ -593,7 +601,6 @@ fn dirs_next_home() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
 }
-
 
 /* ==================== db_sql_files_load / db_sql_files_save ==================== */
 
@@ -732,10 +739,16 @@ fn tree_chart_write_document_to_disk(
     let path = tree_chart_content_file_path(content_dir, id);
     let tmp = path.with_extension("ctr.tmp");
     fs::write(&tmp, document).map_err(|e| {
-        OmniError::internal(format!("failed to write .ctr file ({}): {e}", path.display()))
+        OmniError::internal(format!(
+            "failed to write .ctr file ({}): {e}",
+            path.display()
+        ))
     })?;
     fs::rename(&tmp, &path).map_err(|e| {
-        OmniError::internal(format!("failed to replace .ctr file ({}): {e}", path.display()))
+        OmniError::internal(format!(
+            "failed to replace .ctr file ({}): {e}",
+            path.display()
+        ))
     })?;
     Ok(())
 }

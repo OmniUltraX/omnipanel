@@ -14,12 +14,12 @@
 
 use std::sync::Arc;
 
+use omnipanel_mcp::McpTransportKind;
 use omnipanel_server::mcp::{
-    mcp_call_tool, mcp_delete_service, mcp_list_service_tools, mcp_set_external_require_approval,
-    mcp_upsert_service, merge_external_tool_defs, UpsertMcpServiceInput,
+    UpsertMcpServiceInput, mcp_call_tool, mcp_delete_service, mcp_list_service_tools,
+    mcp_set_external_require_approval, mcp_upsert_service, merge_external_tool_defs,
 };
 use omnipanel_server::state::ServerState;
-use omnipanel_mcp::McpTransportKind;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -75,8 +75,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tools = mcp_list_service_tools(&state, service_id.clone())
         .await
         .map_err(|e| format!("list tools: {e}"))?;
-    println!("OK list tools: {:?}", tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
-    assert!(tools.iter().any(|t| t.name == "mock_echo"), "缺少 mock_echo");
+    println!(
+        "OK list tools: {:?}",
+        tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>()
+    );
+    assert!(
+        tools.iter().any(|t| t.name == "mock_echo"),
+        "缺少 mock_echo"
+    );
 
     // 3. 调用工具
     let result = mcp_call_tool(
@@ -87,9 +93,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await
     .map_err(|e| format!("call tool: {e}"))?;
-    println!("OK call tool: content={:?} is_error={}", result.content, result.is_error);
+    println!(
+        "OK call tool: content={:?} is_error={}",
+        result.content, result.is_error
+    );
     assert!(!result.is_error);
-    assert!(result.content.contains("echo:hello web mcp"), "echo 内容不符: {}", result.content);
+    assert!(
+        result.content.contains("echo:hello web mcp"),
+        "echo 内容不符: {}",
+        result.content
+    );
 
     // 4. AI 工具面并入（无模块过滤 → master 语义）
     let defs = merge_external_tool_defs(&state, None)
@@ -120,7 +133,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await;
         println!("OK executor bridge: success={success} content={content:?}");
         assert!(success, "executor 调用失败: {content}");
-        assert!(content.contains("echo:via executor"), "executor 内容不符: {content}");
+        assert!(
+            content.contains("echo:via executor"),
+            "executor 内容不符: {content}"
+        );
     }
 
     // 5. 清理

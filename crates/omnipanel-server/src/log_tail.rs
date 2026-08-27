@@ -5,34 +5,33 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::{
+    SshSession,
     log_tail::{
-        local_log_open as ssh_local_log_open,
+        LogLine, LogSessionInfo, LogTailChunk, LogTailEventSink, LogTailHandle,
+        SftpLogTailController, local_log_open as ssh_local_log_open,
         local_log_read_lines as ssh_local_log_read_lines,
         local_log_tail_initial as ssh_local_log_tail_initial,
         local_log_tail_start as ssh_local_log_tail_start,
-        local_log_tail_stop as ssh_local_log_tail_stop,
-        new_log_token, sftp_log_open as ssh_sftp_log_open,
-        sftp_log_read_lines as ssh_sftp_log_read_lines,
-        sftp_log_tail_initial as ssh_sftp_log_tail_initial, LogLine, LogSessionInfo,
-        LogTailChunk, LogTailEventSink, LogTailHandle, SftpLogTailController,
+        local_log_tail_stop as ssh_local_log_tail_stop, new_log_token,
+        sftp_log_open as ssh_sftp_log_open, sftp_log_read_lines as ssh_sftp_log_read_lines,
+        sftp_log_tail_initial as ssh_sftp_log_tail_initial,
     },
-    media::{guess_media_mime, probe_sftp_media, MediaStreamEntry, SftpMediaProbe, SftpMediaStream},
-    SshSession,
+    media::{
+        MediaStreamEntry, SftpMediaProbe, SftpMediaStream, guess_media_mime, probe_sftp_media,
+    },
 };
 
 use crate::bus::EventBus;
 use crate::files::{load_file_connection, parse_file_config, protocol_of, sftp_session_for};
-use crate::state::{resolve_ssh_config, ServerState};
+use crate::state::{ServerState, resolve_ssh_config};
 
 struct ServerLogTailSink(EventBus);
 
 #[async_trait]
 impl LogTailEventSink for ServerLogTailSink {
     async fn emit_log_tail(&self, event_name: &str, chunk: LogTailChunk) {
-        self.0.emit(
-            event_name,
-            serde_json::to_value(&chunk).unwrap_or_default(),
-        );
+        self.0
+            .emit(event_name, serde_json::to_value(&chunk).unwrap_or_default());
     }
 }
 
@@ -41,10 +40,7 @@ fn sftp_tail_controller() -> &'static SftpLogTailController {
     CTRL.get_or_init(SftpLogTailController::new)
 }
 
-async fn resolve_log_session(
-    state: &ServerState,
-    id: &str,
-) -> OmniResult<Arc<SshSession>> {
+async fn resolve_log_session(state: &ServerState, id: &str) -> OmniResult<Arc<SshSession>> {
     {
         let sessions = state.ssh_sessions.lock().await;
         if let Some(session) = sessions.get(id) {
@@ -69,11 +65,10 @@ async fn resolve_log_session(
         return sftp_session_for(state, id, &conn, &cfg).await;
     }
     let ssh_cfg = resolve_ssh_config(&conn)?;
-    let session = Arc::new(
-        SshSession::connect_no_shell(ssh_cfg)
-            .await
-            .map_err(|e| OmniError::new(ErrorCode::Ssh, "SSH 连接失败").with_cause(e.to_string()))?,
-    );
+    let session =
+        Arc::new(SshSession::connect_no_shell(ssh_cfg).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "SSH 连接失败").with_cause(e.to_string())
+        })?);
     state
         .ssh_sessions
         .lock()
@@ -195,11 +190,7 @@ pub async fn sftp_cache_for_preview(
     Ok(local.to_string_lossy().into_owned())
 }
 
-fn media_cache_path(
-    id: &str,
-    path: &str,
-    size: Option<u64>,
-) -> OmniResult<std::path::PathBuf> {
+fn media_cache_path(id: &str, path: &str, size: Option<u64>) -> OmniResult<std::path::PathBuf> {
     let base = std::env::temp_dir().join("omnipanel-media-cache");
     let safe_id: String = id
         .chars()

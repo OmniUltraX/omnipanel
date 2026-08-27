@@ -1,20 +1,20 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{FileTransferJobRecord, Storage};
 use tokio::sync::{Mutex, Semaphore};
 
-use crate::event::{emit_job, TransferEventSink};
+use crate::event::{TransferEventSink, emit_job};
 use crate::expand::expand_transfer_items;
 use crate::fastpath::run_fastpath;
 use crate::provider::TransferHost;
 use crate::remote_direct::run_remote_direct;
-use crate::resume::{load_jobs, normalize_after_load};
+use crate::resume::{delete_legacy_jobs_file, load_jobs, normalize_after_load};
 use crate::stream_relay::run_relay_with_engine;
 use crate::types::{
-    FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEndpoint, FileTransferJob,
+    FileTransferConflictPolicy, FileTransferEndpoint, FileTransferEnqueueRequest, FileTransferJob,
     FileTransferListResult, FileTransferOp, FileTransferPlanRequest, FileTransferPlanResult,
     FileTransferRoute, FileTransferState,
 };
@@ -28,6 +28,15 @@ static JOB_SEQ: AtomicU64 = AtomicU64::new(1);
 fn new_id(prefix: &str) -> String {
     let seq = JOB_SEQ.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}-{}-{seq}", now_ms())
+}
+
+fn same_transfer_path(a: &str, b: &str) -> bool {
+    let norm = |s: &str| {
+        s.replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    norm(a) == norm(b)
 }
 
 const PROGRESS_PERSIST_INTERVAL_MS: u64 = 1000;
@@ -74,7 +83,11 @@ impl FileTransferEngine {
                         tracing::warn!("迁移传输任务 {} 到 SQLite 失败：{e}", j.id);
                     }
                 }
-                tracing::info!("已从 jobs.json 迁移 {} 条传输任务到 SQLite", json_jobs.len());
+                tracing::info!(
+                    "已从 jobs.json 迁移 {} 条传输任务到 SQLite",
+                    json_jobs.len()
+                );
+                delete_legacy_jobs_file();
             }
             for j in json_jobs {
                 map.insert(j.id.clone(), j);
@@ -162,6 +175,34 @@ impl FileTransferEngine {
         if let Err(e) = s.clear_finished_file_transfer_jobs() {
             tracing::warn!("清理已完成传输任务失败：{e}");
         }
+        drop(s);
+        delete_legacy_jobs_file();
+    }
+
+    /// 从内存和 SQLite 移除一条已结束任务（完成 / 失败 / 取消）。
+    pub async fn dismiss_finished(&self, job_id: &str) -> Result<(), OmniError> {
+        {
+            let mut jobs = self.jobs.lock().await;
+            if let Some(job) = jobs.get(job_id) {
+                if matches!(
+                    job.state,
+                    FileTransferState::Queued
+                        | FileTransferState::Probing
+                        | FileTransferState::Running
+                ) {
+                    return Err(OmniError::new(
+                        ErrorCode::InvalidInput,
+                        "运行中的任务请先取消",
+                    ));
+                }
+            }
+            jobs.remove(job_id);
+        }
+        let s = self.storage.lock().await;
+        s.delete_file_transfer_job(job_id).map_err(|e| {
+            OmniError::new(ErrorCode::Storage, "删除传输记录失败").with_cause(e.to_string())
+        })?;
+        Ok(())
     }
 
     pub async fn cancel(&self, job_id: &str) -> Result<(), OmniError> {
@@ -201,7 +242,8 @@ impl FileTransferEngine {
         let dest_dir = if request.dest_connection_id == host.local_connection_id()
             && request.dest_dir.trim().is_empty()
         {
-            host.local_home().unwrap_or_else(|_| request.dest_dir.clone())
+            host.local_home()
+                .unwrap_or_else(|_| request.dest_dir.clone())
         } else {
             request.dest_dir.clone()
         };
@@ -253,6 +295,11 @@ impl FileTransferEngine {
             }
 
             let final_path = join_dest(&dest_dir, &dest_rel);
+            if item.connection_id == request.dest_connection_id
+                && same_transfer_path(&item.path, &final_path)
+            {
+                continue;
+            }
             let job_id = new_id("xfer");
             let job = FileTransferJob {
                 id: job_id.clone(),
@@ -290,7 +337,7 @@ impl FileTransferEngine {
         if created.is_empty() {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
-                "全部目标已存在且策略为跳过",
+                "没有可传输的文件（目标已存在、策略为跳过，或源与目标相同）",
             ));
         }
         self.persist().await;

@@ -12,16 +12,16 @@ use base64::engine::general_purpose::STANDARD;
 use omnipanel_core::output_buffer;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{
-    find_ssh_config_entry, load_ssh_config_hosts, ssh_config_to_connect_config, SshConfig,
-    SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink,
+    SshConfig, SshConfigEntry, SshEvent, SshProcessInfo, SshSession, SshSink,
+    find_ssh_config_entry, load_ssh_config_hosts, ssh_config_to_connect_config,
 };
 use omnipanel_store::ConnectionKind;
 use serde::Serialize;
 
 use crate::bus::SessionEvent;
 use crate::monitoring::ensure_ssh_session;
-use crate::ssh_tmux::{host_identity, AttachOutcome};
-use crate::state::{resolve_ssh_config, ServerState};
+use crate::ssh_tmux::{AttachOutcome, host_identity};
+use crate::state::{ServerState, resolve_ssh_config};
 
 static SSH_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -144,21 +144,14 @@ pub async fn ssh_connect_connection(
             .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "SSH 连接不存在"))?
     };
     if conn.kind != ConnectionKind::Ssh {
-        return Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "连接不是 SSH 类型",
-        ));
+        return Err(OmniError::new(ErrorCode::InvalidInput, "连接不是 SSH 类型"));
     }
     let config = resolve_ssh_config(&conn)?;
     ssh_connect(state, config, cols, rows, pane_id).await
 }
 
 /// 写入远端 shell。
-pub async fn ssh_write(
-    state: &ServerState,
-    id: String,
-    data: Vec<u8>,
-) -> Result<(), OmniError> {
+pub async fn ssh_write(state: &ServerState, id: String, data: Vec<u8>) -> Result<(), OmniError> {
     if let Some(result) = state.tmux.write(&id, &data).await {
         return result;
     }

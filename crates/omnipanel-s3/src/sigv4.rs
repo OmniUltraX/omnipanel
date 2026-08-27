@@ -9,7 +9,7 @@
 
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 
@@ -485,10 +485,7 @@ impl SigV4Client {
         continuation_token: Option<String>,
         max_keys: Option<usize>,
     ) -> Result<S3ListPage, OmniError> {
-        let mut pairs = vec![
-            ("list-type".into(), "2".into()),
-            ("prefix".into(), prefix),
-        ];
+        let mut pairs = vec![("list-type".into(), "2".into()), ("prefix".into(), prefix)];
         if let Some(d) = delimiter {
             pairs.push(("delimiter".into(), d));
         }
@@ -572,11 +569,18 @@ impl SigV4Client {
     pub async fn initiate_multipart_upload(&self, key: &str) -> Result<String, OmniError> {
         let uri = canonical_object_uri(key);
         let (resp, sig_debug) = self
-            .signed_request("POST", &uri, &[("uploads".to_string(), String::new())], &[], &[])
+            .signed_request(
+                "POST",
+                &uri,
+                &[("uploads".to_string(), String::new())],
+                &[],
+                &[],
+            )
             .await?;
         let status = resp.status().as_u16();
         let body = resp.bytes().await.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "读取 OSS 分块上传初始化响应失败").with_cause(e.to_string())
+            OmniError::new(ErrorCode::Io, "读取 OSS 分块上传初始化响应失败")
+                .with_cause(e.to_string())
         })?;
         if !(200..300).contains(&status) {
             let text = String::from_utf8_lossy(&body);
@@ -591,7 +595,8 @@ impl SigV4Client {
         xml_tag(&text, "UploadId")
             .map(|s| s.to_string())
             .ok_or_else(|| {
-                OmniError::new(ErrorCode::Io, "OSS 分块上传初始化响应缺少 UploadId").with_cause(text.into_owned())
+                OmniError::new(ErrorCode::Io, "OSS 分块上传初始化响应缺少 UploadId")
+                    .with_cause(text.into_owned())
             })
     }
 
@@ -657,7 +662,9 @@ impl SigV4Client {
             headers.push(("x-amz-copy-source-range", range));
         }
         // UploadPartCopy 无请求体：SHA256 为空串
-        let (resp, sig_debug) = self.signed_request("PUT", &uri, &pairs, &[], &headers).await?;
+        let (resp, sig_debug) = self
+            .signed_request("PUT", &uri, &pairs, &[], &headers)
+            .await?;
         let status = resp.status().as_u16();
         let body = resp.bytes().await.map_err(|e| {
             OmniError::new(ErrorCode::Io, "读取分片复制响应失败").with_cause(e.to_string())
@@ -676,7 +683,8 @@ impl SigV4Client {
         xml_tag(&text, "ETag")
             .map(|s| s.to_string())
             .ok_or_else(|| {
-                OmniError::new(ErrorCode::Io, "OSS 分片复制响应缺少 ETag").with_cause(text.into_owned())
+                OmniError::new(ErrorCode::Io, "OSS 分片复制响应缺少 ETag")
+                    .with_cause(text.into_owned())
             })
     }
 
@@ -720,10 +728,16 @@ impl SigV4Client {
     }
 
     /// 中止分块上传（`DELETE ?uploadId=`）。
-    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), OmniError> {
+    pub async fn abort_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(), OmniError> {
         let uri = canonical_object_uri(key);
         let pairs = vec![("uploadId".to_string(), upload_id.to_string())];
-        let (resp, sig_debug) = self.signed_request("DELETE", &uri, &pairs, &[], &[]).await?;
+        let (resp, sig_debug) = self
+            .signed_request("DELETE", &uri, &pairs, &[], &[])
+            .await?;
         let status = resp.status().as_u16();
         if !(200..300).contains(&status) && status != 404 {
             let text = resp.text().await.unwrap_or_default();
@@ -782,7 +796,12 @@ impl SigV4Client {
         let status = resp.status().as_u16();
         if !(200..300).contains(&status) {
             let text = resp.text().await.unwrap_or_default();
-            return Err(http_error_with_sig_debug("headObject", status, &text, &sig_debug));
+            return Err(http_error_with_sig_debug(
+                "headObject",
+                status,
+                &text,
+                &sig_debug,
+            ));
         }
         let len = resp
             .headers()

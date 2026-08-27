@@ -1,8 +1,8 @@
-﻿//! 本地模型推荐：硬件探测 + Library 热度 + 场景分栏。
+//! 本地模型推荐：硬件探测 + Library 热度 + 场景分栏。
 
 use crate::background::gpu_local::collect_local_gpu;
 use crate::commands::ollama_catalog::{
-    catalog_source_label, load_library_catalog, LibraryModelEntry,
+    LibraryModelEntry, catalog_source_label, load_library_catalog,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -217,9 +217,9 @@ fn build_pull_name(entry: &LibraryModelEntry, size: Option<&str>, _quant: &str) 
 
 fn quant_hint_text(quant: &str, size: Option<&str>) -> String {
     match (quant, size) {
-        ("Q5_K_M", Some(sz)) => format!(
-            "建议 {quant}；可试 `{sz}-q5_K_M`，失败则用 `:{sz}`（默认多为 Q4_K_M）"
-        ),
+        ("Q5_K_M", Some(sz)) => {
+            format!("建议 {quant}；可试 `{sz}-q5_K_M`，失败则用 `:{sz}`（默认多为 Q4_K_M）")
+        }
         ("Q5_K_M", None) => format!("建议 {quant}；可试 `:q5_K_M`"),
         (_, Some(_)) => format!("{quant}（Ollama 默认尺寸 tag 常见为此量化）"),
         _ => quant.to_string(),

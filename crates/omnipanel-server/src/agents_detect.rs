@@ -206,11 +206,7 @@ fn detect_from_candidates(candidates: Vec<PathBuf>) -> (bool, Option<String>, Op
         }
     }
     if let Some(path) = fallback {
-        return (
-            true,
-            Some(path.to_string_lossy().to_string()),
-            None,
-        );
+        return (true, Some(path.to_string_lossy().to_string()), None);
     }
     (false, None, None)
 }
@@ -234,7 +230,11 @@ fn collect_opencode_candidates() -> Vec<PathBuf> {
         );
         #[cfg(not(windows))]
         {
-            push_candidate(&mut candidates, &mut seen, home.join(".opencode/bin/opencode"));
+            push_candidate(
+                &mut candidates,
+                &mut seen,
+                home.join(".opencode/bin/opencode"),
+            );
             push_candidate(&mut candidates, &mut seen, home.join("bin/opencode"));
         }
     }
@@ -258,7 +258,11 @@ fn collect_cursor_candidates() -> Vec<PathBuf> {
     }
     if let Some(home) = home_dir() {
         push_candidate(&mut candidates, &mut seen, home.join(".local/bin/agent"));
-        push_candidate(&mut candidates, &mut seen, home.join(".local/bin/agent.exe"));
+        push_candidate(
+            &mut candidates,
+            &mut seen,
+            home.join(".local/bin/agent.exe"),
+        );
     }
     #[cfg(windows)]
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
@@ -317,15 +321,33 @@ pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
         detect_omniagent_sync(),
         {
             let (installed, path, version) = detect_from_candidates(collect_cursor_candidates());
-            AgentInstallStatus::from_detection(AgentKind::Cursor, vec!["acp"], installed, path, version)
+            AgentInstallStatus::from_detection(
+                AgentKind::Cursor,
+                vec!["acp"],
+                installed,
+                path,
+                version,
+            )
         },
         {
             let (installed, path, version) = detect_from_candidates(collect_opencode_candidates());
-            AgentInstallStatus::from_detection(AgentKind::Opencode, vec!["acp"], installed, path, version)
+            AgentInstallStatus::from_detection(
+                AgentKind::Opencode,
+                vec!["acp"],
+                installed,
+                path,
+                version,
+            )
         },
         {
             let (installed, path, version) = detect_from_candidates(collect_qwen_candidates());
-            AgentInstallStatus::from_detection(AgentKind::Qwen, vec!["--acp"], installed, path, version)
+            AgentInstallStatus::from_detection(
+                AgentKind::Qwen,
+                vec!["--acp"],
+                installed,
+                path,
+                version,
+            )
         },
     ]
 }

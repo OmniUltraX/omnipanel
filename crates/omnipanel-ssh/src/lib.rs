@@ -5,57 +5,56 @@
 //! - shell 输出通过 [`SshSink`] 抽象回流，crate 不依赖 Tauri；事件桥接由 `src-tauri` 提供。
 //! - SFTP 在独立 channel 上按需打开。
 
+pub mod capabilities;
 mod connection_config;
 mod gpu;
+pub mod log_tail;
+pub mod media;
 mod openssh_config;
 mod process;
 mod pty_utf8;
 mod stats;
-pub mod capabilities;
-pub mod log_tail;
-pub mod media;
 pub mod tmux;
 
 pub use capabilities::{
-    assert_allowed_binary_download_url, download_install_binary, enable_panel_api,
-    find_tool_spec, install_remote_tool, is_manifest_download_url, probe_capabilities,
-    probe_panels, CapabilityCache, CapabilityProbeResult, EnablePanelApiResult, InstallMethod,
-    InstallToolResult, PanelProbeItem, PanelProbeResult, RemoteToolCapability, ToolCategory,
-    ToolSpec, ToolState,
+    CapabilityCache, CapabilityProbeResult, EnablePanelApiResult, InstallMethod, InstallToolResult,
+    PanelProbeItem, PanelProbeResult, RemoteToolCapability, ToolCategory, ToolSpec, ToolState,
+    assert_allowed_binary_download_url, download_install_binary, enable_panel_api, find_tool_spec,
+    install_remote_tool, is_manifest_download_url, probe_capabilities, probe_panels,
 };
 
+pub use connection_config::ssh_config_from_json;
 pub use gpu::{
-    attach_process_gpu, parse_intel_lspci_output, parse_nvidia_gpu_output, parse_nvidia_process_gpu,
-    parse_remote_gpu_sections, parse_rocm_smi_output, INTEL_GPU_QUERY, NVIDIA_GPU_QUERY,
-    NVIDIA_PROCESS_GPU_QUERY, ROCM_SMI_QUERY,
+    INTEL_GPU_QUERY, NVIDIA_GPU_QUERY, NVIDIA_PROCESS_GPU_QUERY, ROCM_SMI_QUERY,
+    attach_process_gpu, parse_intel_lspci_output, parse_nvidia_gpu_output,
+    parse_nvidia_process_gpu, parse_remote_gpu_sections, parse_rocm_smi_output,
 };
 pub use log_tail::{
-    local_log_open, local_log_read_lines, local_log_tail_initial, local_log_tail_start,
-    local_log_tail_stop, new_log_token, sftp_log_open, sftp_log_read_lines, sftp_log_tail_initial,
     LogLine, LogSearchHit, LogSearchOptions, LogSessionInfo, LogTailChunk, LogTailEventSink,
-    LogTailHandle, SftpLogTailController,
+    LogTailHandle, SftpLogTailController, local_log_open, local_log_read_lines,
+    local_log_tail_initial, local_log_tail_start, local_log_tail_stop, new_log_token,
+    sftp_log_open, sftp_log_read_lines, sftp_log_tail_initial,
 };
 pub use media::{
-    guess_media_mime, parse_bytes_range_header, probe_sftp_media, read_media_range,
-    resolve_media_byte_range, sftp_read_bytes_range, MediaRangeResponse, MediaSessionProvider,
-    MediaStreamEntry, SftpMediaProbe, SftpMediaStream, MEDIA_MAX_CHUNK, MEDIA_MAX_FULL_GET,
+    MEDIA_MAX_CHUNK, MEDIA_MAX_FULL_GET, MediaRangeResponse, MediaSessionProvider,
+    MediaStreamEntry, SftpMediaProbe, SftpMediaStream, guess_media_mime, parse_bytes_range_header,
+    probe_sftp_media, read_media_range, resolve_media_byte_range, sftp_read_bytes_range,
 };
-pub use connection_config::ssh_config_from_json;
 pub use openssh_config::{
     SshConfigEntry, default_ssh_config_path, default_ssh_dir, discover_ssh_identity_file,
-    discover_ssh_identity_file_in, find_ssh_config_entry, list_ssh_private_key_paths,
-    list_ssh_private_key_paths_in, load_ssh_config_hosts, load_ssh_config_hosts_from,
-    is_private_key_pem_content, ssh_config_to_connect_config, ssh_public_key_meta,
+    discover_ssh_identity_file_in, find_ssh_config_entry, is_private_key_pem_content,
+    list_ssh_private_key_paths, list_ssh_private_key_paths_in, load_ssh_config_hosts,
+    load_ssh_config_hosts_from, ssh_config_to_connect_config, ssh_public_key_meta,
 };
 pub use process::{
-    attach_ports, merge_ports, parse_netstat_ports, parse_ss_ports, parse_windows_netstat_ports,
-    SshProcessDetail, SshProcessInfo, SshProcessPort,
+    SshProcessDetail, SshProcessInfo, SshProcessPort, attach_ports, merge_ports,
+    parse_netstat_ports, parse_ss_ports, parse_windows_netstat_ports,
 };
 pub use stats::{
-    aggregate_disk_stats, build_memory_stats, compute_cpu_stats, format_load, is_pseudo_filesystem,
-    parse_disk_line, parse_disk_lines, parse_memory_triplet, parse_network, parse_proc_stat_sample,
-    parse_remote_stats_output, CpuStats, DiskDeviceStats, DiskStats, GpuDeviceStats, GpuStats,
-    HostSystemStats, MemoryStats, NetworkStats,
+    CpuStats, DiskDeviceStats, DiskStats, GpuDeviceStats, GpuStats, HostSystemStats, MemoryStats,
+    NetworkStats, aggregate_disk_stats, build_memory_stats, compute_cpu_stats, format_load,
+    is_pseudo_filesystem, parse_disk_line, parse_disk_lines, parse_memory_triplet, parse_network,
+    parse_proc_stat_sample, parse_remote_stats_output,
 };
 
 use std::sync::Arc;
@@ -760,7 +759,8 @@ impl SshSession {
         }
 
         let closed = Arc::new(AtomicBool::new(false));
-        let mut channel = open_session_channel_retry(&session, CHANNEL_OPEN_ATTEMPTS, &closed).await?;
+        let mut channel =
+            open_session_channel_retry(&session, CHANNEL_OPEN_ATTEMPTS, &closed).await?;
         channel
             .request_pty(
                 false,
@@ -907,9 +907,10 @@ impl SshSession {
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
         // 与 exec_stream / exec_pty 一致：走带退避的 open，避免瞬时抖动直接打到前端
-        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
-            .await
-            .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
+        let mut channel =
+            open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
+                .await
+                .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
 
         let result: OmniResult<ExecOutput> = async {
             channel.exec(true, command).await.map_err(|e| {
@@ -966,9 +967,10 @@ impl SshSession {
             .await
             .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
-            .await
-            .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
+        let mut channel =
+            open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
+                .await
+                .map_err(|e| e.or_ssh_context("打开 SSH exec 通道失败"))?;
         if let Err(e) = channel.exec(true, command).await {
             close_exec_channel(&mut channel).await;
             return Err(
@@ -1008,17 +1010,13 @@ impl SshSession {
             self.exec_gate.clone().acquire_owned(),
         )
         .await
-        .map_err(|_| {
-            OmniError::new(
-                ErrorCode::Ssh,
-                "等待 SSH exec 资源超时，请稍后重试",
-            )
-        })?
+        .map_err(|_| OmniError::new(ErrorCode::Ssh, "等待 SSH exec 资源超时，请稍后重试"))?
         .map_err(|_| OmniError::new(ErrorCode::Ssh, "SSH exec 资源不可用"))?;
 
-        let mut channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
-            .await
-            .map_err(|e| e.or_ssh_context("打开 SSH PTY 通道失败"))?;
+        let mut channel =
+            open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
+                .await
+                .map_err(|e| e.or_ssh_context("打开 SSH PTY 通道失败"))?;
         if let Err(e) = channel
             .request_pty(
                 true,
@@ -1081,9 +1079,10 @@ impl SshSession {
     }
 
     async fn open_sftp_inner(&self) -> OmniResult<SftpSession> {
-        let channel = open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
-            .await
-            .map_err(|e| e.or_ssh_context("打开 SFTP 通道失败"))?;
+        let channel =
+            open_session_channel_retry(&self.session, CHANNEL_OPEN_ATTEMPTS, &self.closed)
+                .await
+                .map_err(|e| e.or_ssh_context("打开 SFTP 通道失败"))?;
         channel.request_subsystem(true, "sftp").await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "请求 SFTP 子系统失败").with_cause(e.to_string())
         })?;
@@ -1221,9 +1220,11 @@ impl SshSession {
         let mut local = tokio::fs::File::create(local_path).await.map_err(|e| {
             OmniError::new(ErrorCode::Io, "创建本地缓存文件失败").with_cause(e.to_string())
         })?;
-        tokio::io::copy(&mut remote, &mut local).await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "下载文件失败").with_cause(e.to_string())
-        })?;
+        tokio::io::copy(&mut remote, &mut local)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "下载文件失败").with_cause(e.to_string())
+            })?;
         local.flush().await.map_err(|e| {
             OmniError::new(ErrorCode::Io, "写入本地缓存失败").with_cause(e.to_string())
         })?;
@@ -1332,9 +1333,11 @@ impl SshSession {
         let mut remote = sftp.create(remote_path).await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "创建远端文件失败").with_cause(e.to_string())
         })?;
-        tokio::io::copy(&mut local, &mut remote).await.map_err(|e| {
-            OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string())
-        })?;
+        tokio::io::copy(&mut local, &mut remote)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Ssh, "上传文件失败").with_cause(e.to_string())
+            })?;
         remote.flush().await.map_err(|e| {
             OmniError::new(ErrorCode::Ssh, "刷新远端文件失败").with_cause(e.to_string())
         })?;
@@ -1602,7 +1605,7 @@ impl SshSession {
 
     /// 仅拉取进程列表（不采集端口，用于快速刷新）。
     pub async fn process_list_fast(&self) -> OmniResult<Vec<SshProcessInfo>> {
-        use crate::process::{parse_ps_output, PS_LIST_SCRIPT, PS_AUX_CMD, PS_EO_CMD};
+        use crate::process::{PS_AUX_CMD, PS_EO_CMD, PS_LIST_SCRIPT, parse_ps_output};
 
         if let Ok(output) = self.exec_capture(PS_LIST_SCRIPT).await {
             if !output.stdout.trim().is_empty() {
@@ -1773,7 +1776,12 @@ mod tests {
         };
         let err = retry_with_backoff(&mut op, 3).await.unwrap_err();
         assert_eq!(calls, 3);
-        assert!(err.cause.as_deref().unwrap_or("").contains("always-fail #3"));
+        assert!(
+            err.cause
+                .as_deref()
+                .unwrap_or("")
+                .contains("always-fail #3")
+        );
     }
 
     #[test]

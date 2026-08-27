@@ -9,13 +9,13 @@
 
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 
 use omnipanel_error::{ErrorCode, OmniError};
 
-use super::s3_list_compat::{parse_list_bucket_xml, S3ListPage};
+use super::s3_list_compat::{S3ListPage, parse_list_bucket_xml};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -224,12 +224,7 @@ impl SigDebug {
     }
 }
 
-fn http_error_with_sig_debug(
-    op: &str,
-    status: u16,
-    body: &str,
-    sig: &SigDebug,
-) -> OmniError {
+fn http_error_with_sig_debug(op: &str, status: u16, body: &str, sig: &SigDebug) -> OmniError {
     let server = summarize_server_error(body);
     let client = sig.format_block();
     let server_sts = xml_tag(body, "StringToSign").unwrap_or("");
@@ -483,10 +478,7 @@ impl AliyunOssClient {
         continuation_token: Option<String>,
         max_keys: Option<usize>,
     ) -> Result<S3ListPage, OmniError> {
-        let mut pairs = vec![
-            ("list-type".into(), "2".into()),
-            ("prefix".into(), prefix),
-        ];
+        let mut pairs = vec![("list-type".into(), "2".into()), ("prefix".into(), prefix)];
         if let Some(d) = delimiter {
             pairs.push(("delimiter".into(), d));
         }

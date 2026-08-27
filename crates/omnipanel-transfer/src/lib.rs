@@ -15,14 +15,14 @@ pub mod util;
 pub mod web_engine;
 
 pub use engine::FileTransferEngine;
-pub use event::{emit_job, TransferEventSink};
+pub use event::{TransferEventSink, emit_job};
 pub use provider::{
-    SessionProvider, SftpEndpointInfo, TransferDirEntry, TransferHost, TransferProtocol,
-    LOCAL_CONNECTION_ID,
+    LOCAL_CONNECTION_ID, SessionProvider, SftpEndpointInfo, TransferDirEntry, TransferHost,
+    TransferProtocol,
 };
 pub use relay::{
-    dest_final_path, relay_local_dest, relay_sftp_dest, relay_sftp_sftp, transfer_cancel,
-    transfer_start, TransferJob as RelayTransferJob, TransferStartRequest, TransferState,
+    TransferJob as RelayTransferJob, TransferStartRequest, TransferState, dest_final_path,
+    relay_local_dest, relay_sftp_dest, relay_sftp_sftp, transfer_cancel, transfer_start,
 };
 pub use types::{
     FileTransferConflictPolicy, FileTransferEndpoint, FileTransferEnqueueRequest,

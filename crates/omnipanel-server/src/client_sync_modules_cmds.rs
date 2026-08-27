@@ -1,26 +1,27 @@
-﻿//! 客户端选定团队「各业务模块」同步。
+//! 客户端选定团队「各业务模块」同步。
 //! 路径：团队 OSS `modules/latest.json`；上传前端到端加密（sync_key_v2），凭据随快照一并同步。
 
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omnipanel_assistant::{
-    pull_team_sync_json, push_team_sync_json, validate_modules_bundle_json, TEAM_MODULES_LATEST_LEAF,
-};
-use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{
-    db_password_ref, load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref,
-    ssh_passphrase_ref, ssh_pem_ref, ssh_password_ref, Connection, ConnectionKind, DbConnectionConfig,
-    HttpCollection, HttpEnvironment, KnowledgeEntry, SavedHttpRequest, SshKeyRecord, Vault,
-    SYNC_KIND_MODULES,
-};
-use serde::{Deserialize, Deserializer, Serialize};
-use specta::Type;
+use crate::assistant_cmds::build_auth_context;
 use crate::auth_cmds::{
     auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
     resolve_sync_team,
 };
-use crate::assistant_cmds::build_auth_context;
+use omnipanel_assistant::{
+    TEAM_MODULES_LATEST_LEAF, pull_team_sync_json, push_team_sync_json,
+    validate_modules_bundle_json,
+};
+use omnipanel_error::{ErrorCode, OmniError};
+use omnipanel_store::{
+    Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment,
+    KnowledgeEntry, SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Vault, db_password_ref,
+    load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref, ssh_passphrase_ref,
+    ssh_password_ref, ssh_pem_ref,
+};
+use serde::{Deserialize, Deserializer, Serialize};
+use specta::Type;
 
 const MODULES_KIND: &str = "workspace-modules";
 const SCHEMA_VERSION: u32 = 1;
@@ -502,7 +503,19 @@ fn tombstone_ids(list: &[ClientSyncTombstone]) -> HashSet<String> {
 async fn apply_modules_bundle(
     state: &crate::state::ServerState,
     bundle: &ClientSyncModulesBundle,
-) -> Result<(usize, usize, usize, usize, usize, Option<String>, Option<String>, Option<String>), OmniError> {
+) -> Result<
+    (
+        usize,
+        usize,
+        usize,
+        usize,
+        usize,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
+    OmniError,
+> {
     let remote_conn_ids: HashSet<String> = bundle
         .connections
         .iter()
@@ -514,7 +527,8 @@ async fn apply_modules_bundle(
         .map(|c| c.connection.id.clone())
         .collect();
     let remote_kn_ids: HashSet<String> = bundle.knowledge.iter().map(|k| k.id.clone()).collect();
-    let remote_req_ids: HashSet<String> = bundle.http_requests.iter().map(|r| r.id.clone()).collect();
+    let remote_req_ids: HashSet<String> =
+        bundle.http_requests.iter().map(|r| r.id.clone()).collect();
     let remote_col_ids: HashSet<String> = bundle
         .http_collections
         .iter()

@@ -4,7 +4,7 @@
 //! bash/readline 会打开 `convert-meta`：汉字 UTF-8 的高位字节被当成 Meta 前缀。
 //! 「间」的第三字节是 `0xB4`，即 Meta-4，屏幕上出现 `(arg: 4)`。
 
-use russh::{client, Channel, Pty};
+use russh::{Channel, Pty, client};
 
 /// glibc 内置 UTF-8 locale，不依赖 `locale-gen` / `zh_CN.UTF-8`。
 pub const SSH_UTF8_LOCALE: &str = "C.UTF-8";

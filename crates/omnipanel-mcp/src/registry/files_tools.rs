@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_ssh::{ssh_config_from_json, SshConfig, SshSession};
-use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage, Vault};
+use omnipanel_ssh::{SshConfig, SshSession, ssh_config_from_json};
+use omnipanel_store::{ConnectionKind, Storage, Vault, inject_ssh_vault_into_config};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -127,8 +127,7 @@ fn load_file_config(
     if conn.kind != ConnectionKind::File {
         return Err(format!("连接 {connection_id} 不是 File 类型"));
     }
-    let cfg: FileConnConfig =
-        serde_json::from_str(&conn.config).unwrap_or_default();
+    let cfg: FileConnConfig = serde_json::from_str(&conn.config).unwrap_or_default();
     let protocol = protocol_of(&cfg);
     Ok((conn.name, cfg, protocol))
 }
@@ -196,10 +195,7 @@ async fn resolve_target(
     connection_id: &str,
 ) -> Result<(String, FileTarget), String> {
     if connection_id == FILES_LOCAL_CONNECTION_ID {
-        return Ok((
-            "本机文件系统".to_string(),
-            FileTarget::Local,
-        ));
+        return Ok(("本机文件系统".to_string(), FileTarget::Local));
     }
     let (conn_name, cfg, protocol) = {
         let storage = storage.lock().await;
@@ -373,7 +369,8 @@ fn local_write(path: &str, data: &[u8], append: bool) -> Result<(), String> {
             .append(true)
             .open(path)
             .map_err(|e| format!("打开文件失败（append）: {e}"))?;
-        f.write_all(data).map_err(|e| format!("追加写入失败: {e}"))?;
+        f.write_all(data)
+            .map_err(|e| format!("追加写入失败: {e}"))?;
     } else {
         std::fs::write(path, data).map_err(|e| format!("写入文件失败: {e}"))?;
     }
@@ -402,10 +399,7 @@ fn sftp_remote_path(path: &str, cfg: &FileConnConfig) -> String {
     }
 }
 
-fn sftp_entry_to_out(
-    entry: &omnipanel_ssh::SftpEntry,
-    base: &str,
-) -> FileEntryOut {
+fn sftp_entry_to_out(entry: &omnipanel_ssh::SftpEntry, base: &str) -> FileEntryOut {
     FileEntryOut {
         name: entry.name.clone(),
         path: join_posix(base, &entry.name),
@@ -436,8 +430,7 @@ pub async fn list(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, S
         FileTarget::Local => list_local_dir(&path)?,
         FileTarget::Sftp(session, cfg) => {
             let remote = sftp_remote_path(&path, &cfg);
-            let list = with_timeout(session.sftp_list(&remote), FILES_OP_TIMEOUT_SECS)
-                .await?;
+            let list = with_timeout(session.sftp_list(&remote), FILES_OP_TIMEOUT_SECS).await?;
             session.disconnect().await;
             list.iter().map(|e| sftp_entry_to_out(e, &remote)).collect()
         }
@@ -511,7 +504,10 @@ pub async fn write(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, 
     let connection_id = require_str(&args, "connection_id")?;
     let path = require_str(&args, "path")?;
     let content = require_str(&args, "content")?;
-    let append = args.get("append").and_then(|v| v.as_bool()).unwrap_or(false);
+    let append = args
+        .get("append")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let data = content.into_bytes();
 
     let (conn_name, target) = resolve_target(storage, &connection_id).await?;
@@ -533,7 +529,11 @@ pub async fn write(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, 
             } else {
                 data
             };
-            let result = with_timeout(session.sftp_upload(&remote, &to_upload), FILES_OP_TIMEOUT_SECS).await;
+            let result = with_timeout(
+                session.sftp_upload(&remote, &to_upload),
+                FILES_OP_TIMEOUT_SECS,
+            )
+            .await;
             session.disconnect().await;
             result?;
         }

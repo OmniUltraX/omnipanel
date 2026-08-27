@@ -343,7 +343,9 @@ fn map_request(row: &rusqlite::Row) -> rusqlite::Result<SavedHttpRequest> {
 
 /// 解析 tags 列：NULL / 空 / 非法 JSON 均回退为空数组。
 fn parse_tags_col(raw: Option<String>) -> Vec<String> {
-    let Some(text) = raw else { return Vec::new(); };
+    let Some(text) = raw else {
+        return Vec::new();
+    };
     if text.trim().is_empty() {
         return Vec::new();
     }

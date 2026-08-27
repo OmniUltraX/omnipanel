@@ -107,7 +107,10 @@ fn agent_config_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 static AGENT_CONFIG_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-fn write_agent_config_file(app: &AppHandle, config: &AcpAgentConfigFile) -> Result<PathBuf, String> {
+fn write_agent_config_file(
+    app: &AppHandle,
+    config: &AcpAgentConfigFile,
+) -> Result<PathBuf, String> {
     let _guard = AGENT_CONFIG_WRITE_LOCK
         .lock()
         .map_err(|e| format!("配置写入锁异常: {e}"))?;
@@ -153,8 +156,7 @@ fn parse_command_line(command_line: &str) -> Result<(String, Vec<String>), Strin
         return Err("ACP 可执行命令不能为空".to_string());
     }
     // 用 shell-words 解析，支持引号包裹的参数（如 "C:\Program Files\agent.exe" --flag "value with space"）。
-    let parts = shell_words::split(trimmed)
-        .map_err(|e| format!("解析 ACP 命令行失败: {e}"))?;
+    let parts = shell_words::split(trimmed).map_err(|e| format!("解析 ACP 命令行失败: {e}"))?;
     if parts.is_empty() {
         return Err("ACP 可执行命令不能为空".to_string());
     }
@@ -193,10 +195,7 @@ fn resolve_default_agent_launch(app: &AppHandle) -> Option<AgentLaunchSpec> {
             "index.ts".to_string(),
         ],
         cwd: Some(agent_dir.clone()),
-        display_command: format!(
-            "node --import tsx index.ts  (cwd: {})",
-            agent_dir.display()
-        ),
+        display_command: format!("node --import tsx index.ts  (cwd: {})", agent_dir.display()),
     })
 }
 
@@ -227,16 +226,22 @@ fn stream_event_to_acp(event: StreamEvent) -> Option<AcpStreamEvent> {
         StreamEvent::ContentDelta { text } if text.is_empty() => None,
         StreamEvent::ContentDelta { text } => Some(AcpStreamEvent::ContentDelta { text }),
         StreamEvent::ReasoningDelta { text } => Some(AcpStreamEvent::ReasoningDelta { text }),
-        StreamEvent::ToolCall { id, name, arguments } => Some(AcpStreamEvent::ToolCall {
+        StreamEvent::ToolCall {
+            id,
+            name,
+            arguments,
+        } => Some(AcpStreamEvent::ToolCall {
             id,
             name,
             arguments,
         }),
-        StreamEvent::ToolCallUpdate { id, status, result } => Some(AcpStreamEvent::ToolCallUpdate {
-            id,
-            status: tool_status_str(status),
-            result,
-        }),
+        StreamEvent::ToolCallUpdate { id, status, result } => {
+            Some(AcpStreamEvent::ToolCallUpdate {
+                id,
+                status: tool_status_str(status),
+                result,
+            })
+        }
         StreamEvent::PermissionRequest {
             request_id,
             tool_call_id,
@@ -410,8 +415,7 @@ pub async fn acp_connect_default(
 #[tauri::command]
 #[specta::specta]
 pub fn acp_get_default_command(app: AppHandle) -> Result<String, String> {
-    resolve_default_agent_command(&app)
-        .ok_or_else(|| "未找到内置 agent/index.ts".to_string())
+    resolve_default_agent_command(&app).ok_or_else(|| "未找到内置 agent/index.ts".to_string())
 }
 
 #[tauri::command]
@@ -452,7 +456,9 @@ pub async fn acp_prompt(
     cwd: Option<String>,
     on_event: Channel<AcpStreamEvent>,
 ) -> Result<(), String> {
-    let cwd = cwd.filter(|s| !s.trim().is_empty()).unwrap_or_else(default_cwd);
+    let cwd = cwd
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(default_cwd);
     let mcp_servers: Vec<serde_json::Value> = Vec::new();
 
     let session_id = {
@@ -510,10 +516,7 @@ pub async fn acp_prompt(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn acp_cancel(
-    state: State<'_, AppState>,
-    conversation_id: String,
-) -> Result<(), String> {
+pub async fn acp_cancel(state: State<'_, AppState>, conversation_id: String) -> Result<(), String> {
     let acp = state.acp_state.lock().await;
     let manager = acp
         .manager

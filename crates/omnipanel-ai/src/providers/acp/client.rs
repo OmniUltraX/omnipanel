@@ -170,10 +170,7 @@ impl AcpClient {
                     if let Some(id) = extract_server_request_id(&line) {
                         let handler = req_handler.lock().await;
                         if let Some(ref h) = *handler {
-                            let params = notif
-                                .params
-                                .as_ref()
-                                .unwrap_or(&serde_json::Value::Null);
+                            let params = notif.params.as_ref().unwrap_or(&serde_json::Value::Null);
                             if let Some(result) = h(id, &notif.method, params) {
                                 let response = JsonRpcResponse {
                                     jsonrpc: "2.0".to_string(),

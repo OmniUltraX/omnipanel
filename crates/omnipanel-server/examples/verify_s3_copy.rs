@@ -84,9 +84,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("OK s3 copy big (multipart) copied={copied} bytes");
 
     // 4. 读回 dst 校验内容一致
-    let got = file_read_file(&state, cid.clone(), "copy-dst.bin".to_string(), (16 * 1024 * 1024) as f64)
-        .await
-        .map_err(|e| format!("read dst: {e}"))?;
+    let got = file_read_file(
+        &state,
+        cid.clone(),
+        "copy-dst.bin".to_string(),
+        (16 * 1024 * 1024) as f64,
+    )
+    .await
+    .map_err(|e| format!("read dst: {e}"))?;
     assert_eq!(got, payload, "dst content mismatch");
     println!("OK read dst content identical");
 

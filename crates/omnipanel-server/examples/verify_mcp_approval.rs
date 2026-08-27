@@ -18,14 +18,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use omnipanel_ai::ToolExecutor;
+use omnipanel_mcp::McpTransportKind;
 use omnipanel_server::ai::ai_chat_tool_result;
 use omnipanel_server::ai_tools::ServerToolExecutor;
 use omnipanel_server::mcp::{
-    mcp_delete_service, mcp_set_external_require_approval, mcp_upsert_service,
-    UpsertMcpServiceInput,
+    UpsertMcpServiceInput, mcp_delete_service, mcp_set_external_require_approval,
+    mcp_upsert_service,
 };
 use omnipanel_server::state::ServerState;
-use omnipanel_mcp::McpTransportKind;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -107,7 +107,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("OK approve ack: {r:?}");
         println!("OK executor after approve: success={success} content={content:?}");
         assert!(success, "审批通过后执行失败: {content}");
-        assert!(content.contains("echo:hello approve"), "内容不符: {content}");
+        assert!(
+            content.contains("echo:hello approve"),
+            "内容不符: {content}"
+        );
     }
 
     // 4. 触发另一次调用 → 浏览器拒绝

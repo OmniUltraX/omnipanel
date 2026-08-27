@@ -2,14 +2,14 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    default_file_index_storage_dir, FileIndexBatchItem, FileIndexProgress, FileIndexSearchResult,
-    FileIndexStatus, FileIndexStorage,
+    FileIndexBatchItem, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,
+    FileIndexStorage, default_file_index_storage_dir,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
 
-use super::file_manager::{local_home, local_read, resolve_local_path, LOCAL_CONNECTION_ID};
+use super::file_manager::{LOCAL_CONNECTION_ID, local_home, local_read, resolve_local_path};
 
 const MAX_INDEX_ENTRIES: usize = 200_000;
 const INDEX_BATCH_SIZE: usize = 400;
@@ -328,7 +328,9 @@ fn build_storage_info(
     storage: &FileIndexStorage,
 ) -> Result<FileIndexStorageInfo, OmniError> {
     let default_dir = default_file_index_storage_dir()
-        .map_err(|e| OmniError::new(ErrorCode::Storage, "无法解析默认索引目录").with_cause(e.to_string()))?
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Storage, "无法解析默认索引目录").with_cause(e.to_string())
+        })?
         .to_string_lossy()
         .into_owned();
     let database_path = storage.database_path().to_string_lossy().into_owned();

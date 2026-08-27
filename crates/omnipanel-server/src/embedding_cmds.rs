@@ -1,7 +1,7 @@
 //! Embedding 配置同步与向量请求（供 Skill 向量化使用）。
 
 use omnipanel_error::OmniError;
-use omnipanel_store::{load_embedding_provider, save_embedding_provider, EmbeddingProviderConfig};
+use omnipanel_store::{EmbeddingProviderConfig, load_embedding_provider, save_embedding_provider};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -119,7 +119,10 @@ async fn fetch_ollama_embeddings(
 
     let resp = client
         .post(&url)
-        .json(&Body { model, input: inputs })
+        .json(&Body {
+            model,
+            input: inputs,
+        })
         .send()
         .await
         .map_err(|e| format!("请求 Ollama embedding 接口失败 ({url}): {e}"))?;

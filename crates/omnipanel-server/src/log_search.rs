@@ -34,9 +34,8 @@ fn match_line(
 }
 
 fn open_file(path: &str) -> OmniResult<File> {
-    File::open(path).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "打开日志文件失败").with_cause(e.to_string())
-    })
+    File::open(path)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "打开日志文件失败").with_cause(e.to_string()))
 }
 
 pub async fn local_log_search(
@@ -85,9 +84,8 @@ fn local_log_search_sync(
     let need = skip + max;
 
     for line in reader.lines() {
-        let text = line.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "搜索日志失败").with_cause(e.to_string())
-        })?;
+        let text = line
+            .map_err(|e| OmniError::new(ErrorCode::Io, "搜索日志失败").with_cause(e.to_string()))?;
         line_no += 1;
         if let Some(b) = before {
             if line_no >= b {

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 
 use crate::commands::proxy::{build_http_client_for_url, normalize_localhost_url};
@@ -127,11 +127,13 @@ impl SseSession {
                         req = req.header("X-API-Key", auth_value);
                     }
                     "Authorization" | "OAuth 2.0" => {
-                        outgoing_headers.insert("Authorization".to_string(), auth_value.to_string());
+                        outgoing_headers
+                            .insert("Authorization".to_string(), auth_value.to_string());
                         req = req.header(reqwest::header::AUTHORIZATION, auth_value);
                     }
                     _ => {
-                        outgoing_headers.insert("Authorization".to_string(), auth_value.to_string());
+                        outgoing_headers
+                            .insert("Authorization".to_string(), auth_value.to_string());
                         req = req.header(reqwest::header::AUTHORIZATION, auth_value);
                     }
                 }
@@ -174,10 +176,7 @@ impl SseSession {
             "SSE connect: outgoing request"
         );
 
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("SSE 连接失败: {e}"))?;
+        let resp = req.send().await.map_err(|e| format!("SSE 连接失败: {e}"))?;
 
         tracing::info!(
             target: "protocol_sse",

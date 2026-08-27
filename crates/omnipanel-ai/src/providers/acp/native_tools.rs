@@ -25,10 +25,7 @@ pub struct NativeMapHints {
 }
 
 impl NativeMapHints {
-    pub fn from_tool_names<'a>(
-        names: impl IntoIterator<Item = &'a str>,
-        powershell: bool,
-    ) -> Self {
+    pub fn from_tool_names<'a>(names: impl IntoIterator<Item = &'a str>, powershell: bool) -> Self {
         let mut hints = Self {
             powershell,
             ..Self::default()
@@ -45,7 +42,9 @@ impl NativeMapHints {
     }
 
     pub fn powershell_from_terminal_context(ctx: Option<&str>) -> bool {
-        ctx.unwrap_or("").to_ascii_lowercase().contains("powershell")
+        ctx.unwrap_or("")
+            .to_ascii_lowercase()
+            .contains("powershell")
     }
 }
 
@@ -126,8 +125,8 @@ pub fn classify_native_tool(name: &str, title: &str) -> NativeToolKind {
             continue;
         }
         match key.as_str() {
-            "shell" | "bash" | "terminal" | "runterminalcmd" | "runcommand" | "run_shell_command"
-            | "powershell" | "pwsh" | "cmd" => return NativeToolKind::Shell,
+            "shell" | "bash" | "terminal" | "runterminalcmd" | "runcommand"
+            | "run_shell_command" | "powershell" | "pwsh" | "cmd" => return NativeToolKind::Shell,
             "websearch" | "web_search" | "searchweb" | "internetsearch" => {
                 return NativeToolKind::WebSearch;
             }
@@ -147,8 +146,7 @@ pub fn classify_native_tool(name: &str, title: &str) -> NativeToolKind {
                 return NativeToolKind::Grep;
             }
             _ => {
-                if key.contains("shell") || key.contains("terminal") || key.contains("powershell")
-                {
+                if key.contains("shell") || key.contains("terminal") || key.contains("powershell") {
                     return NativeToolKind::Shell;
                 }
                 if key.contains("websearch") || key.contains("web_search") {
@@ -173,7 +171,14 @@ fn extract_file_path(raw: &serde_json::Value) -> Option<String> {
     }
 
     if let Some(obj) = raw.as_object() {
-        for key in ["file_path", "path", "filePath", "filename", "file", "target"] {
+        for key in [
+            "file_path",
+            "path",
+            "filePath",
+            "filename",
+            "file",
+            "target",
+        ] {
             if let Some(v) = obj.get(key) {
                 if let Some(s) = v.as_str() {
                     let trimmed = s.trim();
@@ -198,7 +203,10 @@ fn extract_file_path(raw: &serde_json::Value) -> Option<String> {
 
 /// 对路径进行 POSIX shell 转义，防止注入。
 fn shell_escape(path: &str) -> String {
-    if path.chars().all(|c| c.is_alphanumeric() || c == '/' || c == '\\' || c == '.' || c == '-' || c == '_') {
+    if path
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '/' || c == '\\' || c == '.' || c == '-' || c == '_')
+    {
         path.to_string()
     } else {
         format!("'{}'", path.replace('\'', "'\"'\"'"))
@@ -536,9 +544,11 @@ mod tests {
         let raw = serde_json::json!({
             "script": "$lastYear = (Get-Date).AddYears(-1); Write-Output $lastYear"
         });
-        assert!(extract_native_shell_command(&raw)
-            .unwrap()
-            .contains("AddYears"));
+        assert!(
+            extract_native_shell_command(&raw)
+                .unwrap()
+                .contains("AddYears")
+        );
     }
 
     #[test]
@@ -548,8 +558,14 @@ mod tests {
 
     #[test]
     fn classifies_web_search() {
-        assert_eq!(classify_native_tool("WebSearch", ""), NativeToolKind::WebSearch);
-        assert_eq!(classify_native_tool("", "web_search"), NativeToolKind::WebSearch);
+        assert_eq!(
+            classify_native_tool("WebSearch", ""),
+            NativeToolKind::WebSearch
+        );
+        assert_eq!(
+            classify_native_tool("", "web_search"),
+            NativeToolKind::WebSearch
+        );
     }
 
     #[test]
@@ -561,7 +577,10 @@ mod tests {
     #[test]
     fn classifies_edit() {
         assert_eq!(classify_native_tool("Edit", ""), NativeToolKind::Edit);
-        assert_eq!(classify_native_tool("str_replace", ""), NativeToolKind::Edit);
+        assert_eq!(
+            classify_native_tool("str_replace", ""),
+            NativeToolKind::Edit
+        );
     }
 
     #[test]
@@ -623,7 +642,8 @@ mod tests {
             has_files_read: true,
             ..NativeMapHints::default()
         };
-        let (name, args) = map_native_tool_by_kind_with_hints(NativeToolKind::Read, &raw, hints).unwrap();
+        let (name, args) =
+            map_native_tool_by_kind_with_hints(NativeToolKind::Read, &raw, hints).unwrap();
         assert_eq!(name, FILES_READ_CLIENT_TOOL);
         assert!(args.contains("__local__"));
         assert!(args.contains("/tmp/test.txt"));
@@ -637,7 +657,8 @@ mod tests {
             has_files_write: true,
             ..NativeMapHints::default()
         };
-        let (name, args) = map_native_tool_by_kind_with_hints(NativeToolKind::Write, &raw, hints).unwrap();
+        let (name, args) =
+            map_native_tool_by_kind_with_hints(NativeToolKind::Write, &raw, hints).unwrap();
         assert_eq!(name, FILES_WRITE_CLIENT_TOOL);
         assert!(args.contains("hi"));
         assert!(args.contains("__local__"));
@@ -650,7 +671,8 @@ mod tests {
             powershell: true,
             ..NativeMapHints::default()
         };
-        let (name, args) = map_native_tool_by_kind_with_hints(NativeToolKind::Read, &raw, hints).unwrap();
+        let (name, args) =
+            map_native_tool_by_kind_with_hints(NativeToolKind::Read, &raw, hints).unwrap();
         assert_eq!(name, TERMINAL_CLIENT_TOOL);
         assert!(args.contains("Get-Content"));
         assert!(!args.contains("cat "));
@@ -663,7 +685,8 @@ mod tests {
             has_files_search: true,
             ..NativeMapHints::default()
         };
-        let (name, args) = map_native_tool_by_kind_with_hints(NativeToolKind::Find, &raw, hints).unwrap();
+        let (name, args) =
+            map_native_tool_by_kind_with_hints(NativeToolKind::Find, &raw, hints).unwrap();
         assert_eq!(name, FILES_SEARCH_CLIENT_TOOL);
         assert!(args.contains("*.rs"));
         assert!(args.contains("__local__"));

@@ -23,7 +23,7 @@
 //! - stdio 子进程在服务端机器上启动（Web「服务器版控制台」语义）。
 
 use omnipanel_mcp::{
-    McpServiceConfig, McpServiceView, McpTransport, McpTransportKind, BUILTIN_SERVICE_ID,
+    BUILTIN_SERVICE_ID, McpServiceConfig, McpServiceView, McpTransport, McpTransportKind,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -110,9 +110,7 @@ fn build_service_config(input: UpsertMcpServiceInput) -> Result<McpServiceConfig
 }
 
 /// 获取 MCP 管理器共享句柄（懒初始化）。
-async fn shared_manager(
-    state: &ServerState,
-) -> Result<omnipanel_mcp::SharedMcpManager, String> {
+async fn shared_manager(state: &ServerState) -> Result<omnipanel_mcp::SharedMcpManager, String> {
     state
         .ensure_mcp_manager()
         .await
@@ -144,10 +142,7 @@ pub async fn mcp_delete_service(state: &ServerState, id: String) -> Result<(), S
     }
     let shared = shared_manager(state).await?;
     let mut manager = shared.lock().await;
-    manager
-        .delete_service(&id)
-        .await
-        .map_err(|e| e.to_string())
+    manager.delete_service(&id).await.map_err(|e| e.to_string())
 }
 
 pub async fn mcp_set_service_enabled(
@@ -194,8 +189,8 @@ pub async fn mcp_call_tool(
     tool_name: String,
     tool_arguments: String,
 ) -> Result<omnipanel_mcp::ToolCallResult, String> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(&tool_arguments).unwrap_or(serde_json::Value::Object(Default::default()));
+    let parsed: serde_json::Value = serde_json::from_str(&tool_arguments)
+        .unwrap_or(serde_json::Value::Object(Default::default()));
     let shared = shared_manager(state).await?;
     let manager = shared.lock().await;
     manager
@@ -247,7 +242,10 @@ mod tests {
             transport_kind: McpTransportKind::Stdio,
             command: Some("npx".to_string()),
             args: vec!["-y".to_string(), "some-mcp".to_string()],
-            env: vec![McpEnvEntry { key: "FOO".to_string(), value: "bar".to_string() }],
+            env: vec![McpEnvEntry {
+                key: "FOO".to_string(),
+                value: "bar".to_string(),
+            }],
             cwd: None,
             url: None,
         }

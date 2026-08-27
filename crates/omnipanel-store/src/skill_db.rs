@@ -392,7 +392,11 @@ impl Storage {
     // ── skill_chunks 表 ────────────────────────────────────────────
 
     /// 保存（覆盖）skill 的向量分块（embedding 为 JSON 字符串，兼容旧调用）。
-    pub fn save_skill_chunks(&self, skill_id: &str, chunks: &[(String, String, String)]) -> OmniResult<()> {
+    pub fn save_skill_chunks(
+        &self,
+        skill_id: &str,
+        chunks: &[(String, String, String)],
+    ) -> OmniResult<()> {
         let conn = self.conn();
         let tx = conn.unchecked_transaction().map_err(map_sqlite)?;
         tx.execute("DELETE FROM skill_chunks WHERE skill_id = ?1", [skill_id])
@@ -454,7 +458,11 @@ impl Storage {
             .map_err(map_sqlite)?;
         let rows = stmt
             .query_map([skill_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(map_sqlite)?;
         let mut out = Vec::new();
@@ -769,9 +777,7 @@ mod tests {
             )
             .unwrap();
 
-        storage
-            .link_skill_knowledge("s1", "k1", "related")
-            .unwrap();
+        storage.link_skill_knowledge("s1", "k1", "related").unwrap();
         let links = storage.list_knowledge_for_skill("s1").unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].knowledge_id, "k1");
@@ -791,8 +797,16 @@ mod tests {
         storage.save_skill_db(&skill).unwrap();
 
         let chunks = vec![
-            ("c1".to_string(), "chunk 1 content".to_string(), "[0.1, 0.2]".to_string()),
-            ("c2".to_string(), "chunk 2 content".to_string(), "[0.3, 0.4]".to_string()),
+            (
+                "c1".to_string(),
+                "chunk 1 content".to_string(),
+                "[0.1, 0.2]".to_string(),
+            ),
+            (
+                "c2".to_string(),
+                "chunk 2 content".to_string(),
+                "[0.3, 0.4]".to_string(),
+            ),
         ];
         storage.save_skill_chunks("s1", &chunks).unwrap();
 
@@ -806,7 +820,11 @@ mod tests {
         assert_eq!(with_emb[0].2, "[0.1, 0.2]");
 
         // 重新保存覆盖旧分块
-        let chunks2 = vec![("c3".to_string(), "new chunk".to_string(), "[0.5]".to_string())];
+        let chunks2 = vec![(
+            "c3".to_string(),
+            "new chunk".to_string(),
+            "[0.5]".to_string(),
+        )];
         storage.save_skill_chunks("s1", &chunks2).unwrap();
         let listed2 = storage.list_skill_chunks("s1").unwrap();
         assert_eq!(listed2.len(), 1);
@@ -820,11 +838,7 @@ mod tests {
         storage
             .replace_skill_chunks(
                 "s1",
-                &[(
-                    "c1".to_string(),
-                    "disk cleanup".to_string(),
-                    vec![1.0, 0.0],
-                )],
+                &[("c1".to_string(), "disk cleanup".to_string(), vec![1.0, 0.0])],
             )
             .unwrap();
         storage

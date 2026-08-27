@@ -48,9 +48,8 @@ pub fn file_read_file_sync_local(path: &str, max_bytes: u64) -> Result<Vec<u8>, 
     if meta.len() > max_bytes {
         return Err(OmniError::invalid_input("文件过大，跳过索引"));
     }
-    std::fs::read(&pb).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string())
-    })
+    std::fs::read(&pb)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取文件失败").with_cause(e.to_string()))
 }
 
 pub(crate) fn resolve_local_path(path: &str) -> Result<PathBuf, OmniError> {
@@ -77,12 +76,14 @@ pub struct FileEntry {
 }
 
 /// FTP 连接建立（同步客户端，spawn_blocking 内使用）。
-pub(crate) fn ftp_connect_sync(cfg: &FileConnConfig, secret: &str) -> Result<suppaftp::FtpStream, String> {
+pub(crate) fn ftp_connect_sync(
+    cfg: &FileConnConfig,
+    secret: &str,
+) -> Result<suppaftp::FtpStream, String> {
     use suppaftp::FtpStream;
     let port = cfg.port.unwrap_or(21);
     let addr = format!("{}:{}", cfg.host, port);
-    let mut ftp = FtpStream::connect(&addr)
-        .map_err(|e| format!("FTP 连接失败: {e}"))?;
+    let mut ftp = FtpStream::connect(&addr).map_err(|e| format!("FTP 连接失败: {e}"))?;
     if !cfg.user.is_empty() {
         ftp.login(&cfg.user, &secret.to_string())
             .map_err(|e| format!("FTP 登录失败: {e}"))?;
@@ -119,7 +120,9 @@ fn list_ftp_dir(
         let remote = ftp_remote_path(&path, &cfg);
         ftp.cwd(&remote)
             .map_err(|e| format!("切换 FTP 目录失败: {e}"))?;
-        let list = ftp.list(None).map_err(|e| format!("列出 FTP 目录失败: {e}"))?;
+        let list = ftp
+            .list(None)
+            .map_err(|e| format!("列出 FTP 目录失败: {e}"))?;
         let _ = ftp.quit();
         let mut entries = Vec::new();
         for line in list {
@@ -166,7 +169,9 @@ fn read_ftp_file(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<Vec<u
             .retr_as_stream(&path)
             .map_err(|e| format!("FTP 下载失败: {e}"))?;
         let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).map_err(|e| format!("读取 FTP 数据失败: {e}"))?;
+        reader
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("读取 FTP 数据失败: {e}"))?;
         let _ = ftp.quit();
         Ok(buf)
     })
@@ -175,7 +180,12 @@ fn read_ftp_file(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<Vec<u
 }
 
 /// FTP 写入文件（同步 + spawn_blocking）。
-fn write_ftp_file(cfg: &FileConnConfig, secret: &str, path: &str, data: &[u8]) -> Result<(), String> {
+fn write_ftp_file(
+    cfg: &FileConnConfig,
+    secret: &str,
+    path: &str,
+    data: &[u8],
+) -> Result<(), String> {
     use std::io::Cursor;
     let cfg = cfg.clone();
     let secret = secret.to_string();
@@ -208,7 +218,8 @@ fn mkdir_ftp(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<(), Strin
     let path = path.to_string();
     std::thread::spawn(move || -> Result<(), String> {
         let mut ftp = ftp_connect_sync(&cfg, &secret)?;
-        ftp.mkdir(&path).map_err(|e| format!("FTP 创建目录失败: {e}"))?;
+        ftp.mkdir(&path)
+            .map_err(|e| format!("FTP 创建目录失败: {e}"))?;
         let _ = ftp.quit();
         Ok(())
     })
@@ -217,7 +228,12 @@ fn mkdir_ftp(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<(), Strin
 }
 
 /// FTP 重命名（同步 + spawn_blocking）。
-fn rename_ftp(cfg: &FileConnConfig, secret: &str, old_path: &str, new_path: &str) -> Result<(), String> {
+fn rename_ftp(
+    cfg: &FileConnConfig,
+    secret: &str,
+    old_path: &str,
+    new_path: &str,
+) -> Result<(), String> {
     let cfg = cfg.clone();
     let secret = secret.to_string();
     let old_path = old_path.to_string();
@@ -241,9 +257,11 @@ fn delete_ftp(cfg: &FileConnConfig, secret: &str, path: &str) -> Result<(), Stri
     std::thread::spawn(move || -> Result<(), String> {
         let mut ftp = ftp_connect_sync(&cfg, &secret)?;
         if path.ends_with('/') {
-            ftp.rmdir(&path).map_err(|e| format!("FTP 删除目录失败: {e}"))?;
+            ftp.rmdir(&path)
+                .map_err(|e| format!("FTP 删除目录失败: {e}"))?;
         } else {
-            ftp.rm(&path).map_err(|e| format!("FTP 删除文件失败: {e}"))?;
+            ftp.rm(&path)
+                .map_err(|e| format!("FTP 删除文件失败: {e}"))?;
         }
         let _ = ftp.quit();
         Ok(())
@@ -311,11 +329,7 @@ pub(crate) fn parse_file_config(conn: &Connection) -> Result<FileConnConfig, Omn
 
 pub(crate) fn protocol_of(cfg: &FileConnConfig) -> &str {
     let p = cfg.protocol.to_lowercase();
-    if p.is_empty() {
-        "sftp"
-    } else {
-        &cfg.protocol
-    }
+    if p.is_empty() { "sftp" } else { &cfg.protocol }
 }
 
 /// 构造 S3 客户端（凭据走 Vault 注入）。
@@ -392,7 +406,10 @@ async fn list_s3_dir(
     for cp in &page.common_prefixes {
         let key = cp.trim_end_matches('/');
         let name = key.rsplit('/').next().unwrap_or(key).to_string();
-        if search_q.as_ref().map_or(true, |q| name.to_lowercase().contains(q)) {
+        if search_q
+            .as_ref()
+            .map_or(true, |q| name.to_lowercase().contains(q))
+        {
             entries.push(s3_entry_to_file(&name, cp, true, 0));
         }
     }
@@ -407,7 +424,10 @@ async fn list_s3_dir(
             .next()
             .unwrap_or(&obj.key)
             .to_string();
-        if search_q.as_ref().map_or(true, |q| name.to_lowercase().contains(q)) {
+        if search_q
+            .as_ref()
+            .map_or(true, |q| name.to_lowercase().contains(q))
+        {
             entries.push(s3_entry_to_file(&name, &obj.key, false, obj.size));
         }
     }
@@ -438,7 +458,10 @@ async fn delete_s3_prefix_recursive(
             .await
             .map_err(|e| e.user_message())?;
         for obj in &page.contents {
-            client.delete_object(&obj.key).await.map_err(|e| e.user_message())?;
+            client
+                .delete_object(&obj.key)
+                .await
+                .map_err(|e| e.user_message())?;
         }
         if !page.is_truncated {
             break;
@@ -774,9 +797,11 @@ pub async fn file_list_dir(
     continuation_token: Option<String>,
 ) -> Result<FileListDirResult, String> {
     if connection_id == LOCAL_CONNECTION_ID {
-        let entries =
-            filter_file_entries(list_local_dir(&path).map_err(|e| e.to_string())?, search.as_deref())
-                .map_err(|e| e.to_string())?;
+        let entries = filter_file_entries(
+            list_local_dir(&path).map_err(|e| e.to_string())?,
+            search.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
         return Ok(FileListDirResult {
             entries,
             truncated: false,
@@ -790,8 +815,11 @@ pub async fn file_list_dir(
     let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
     match protocol_of(&cfg) {
         "local" => {
-            let entries = filter_file_entries(list_local_dir(&path).map_err(|e| e.to_string())?, search.as_deref())
-                .map_err(|e| e.to_string())?;
+            let entries = filter_file_entries(
+                list_local_dir(&path).map_err(|e| e.to_string())?,
+                search.as_deref(),
+            )
+            .map_err(|e| e.to_string())?;
             Ok(FileListDirResult {
                 entries,
                 truncated: false,
@@ -811,14 +839,17 @@ pub async fn file_list_dir(
             } else {
                 path.clone()
             };
-            let list = session.sftp_list(&remote).await.map_err(|e| e.to_string())?;
+            let list = session
+                .sftp_list(&remote)
+                .await
+                .map_err(|e| e.to_string())?;
             let mut entries: Vec<FileEntry> = list
                 .iter()
                 .map(|e| sftp_entry_to_file(e, &remote))
                 .collect();
             sort_file_entries(&mut entries);
-            let entries = filter_file_entries(entries, search.as_deref())
-                .map_err(|e| e.to_string())?;
+            let entries =
+                filter_file_entries(entries, search.as_deref()).map_err(|e| e.to_string())?;
             Ok(FileListDirResult {
                 entries,
                 truncated: false,
@@ -827,8 +858,8 @@ pub async fn file_list_dir(
         }
         "ftp" => {
             let secret = resolve_secret(&conn).unwrap_or_default();
-            let entries = list_ftp_dir(&cfg, &secret, &path, search.as_deref())
-                .map_err(|e| e.to_string())?;
+            let entries =
+                list_ftp_dir(&cfg, &secret, &path, search.as_deref()).map_err(|e| e.to_string())?;
             Ok(FileListDirResult {
                 entries,
                 truncated: false,
@@ -843,7 +874,9 @@ pub async fn file_list_dir(
                 .map(str::to_string);
             list_s3_dir(&cfg, &secret, &path, search.as_deref(), token).await
         }
-        proto => Err(format!("Web 端暂不支持文件协议: {proto}（当前支持 local / sftp / ftp / s3）")),
+        proto => Err(format!(
+            "Web 端暂不支持文件协议: {proto}（当前支持 local / sftp / ftp / s3）"
+        )),
     }
 }
 
@@ -989,7 +1022,10 @@ pub async fn file_read_file(
             let session = sftp_session_for(state, &connection_id, &conn, &cfg)
                 .await
                 .map_err(|e| e.to_string())?;
-            let data = session.sftp_download(&path).await.map_err(|e| e.to_string())?;
+            let data = session
+                .sftp_download(&path)
+                .await
+                .map_err(|e| e.to_string())?;
             if data.len() as u64 > max_bytes {
                 return Err("文件过大".to_string());
             }
@@ -1007,7 +1043,10 @@ pub async fn file_read_file(
             let secret = resolve_secret(&conn).unwrap_or_default();
             let client = s3_client_for(&cfg, &secret)?;
             let key = s3_object_key(&path);
-            let data = client.get_object(&key).await.map_err(|e| e.user_message())?;
+            let data = client
+                .get_object(&key)
+                .await
+                .map_err(|e| e.user_message())?;
             if data.len() as u64 > max_bytes {
                 return Err("文件过大".to_string());
             }
@@ -1037,7 +1076,10 @@ pub async fn file_upload_file(
             let session = sftp_session_for(state, &connection_id, &conn, &cfg)
                 .await
                 .map_err(|e| e.to_string())?;
-            session.sftp_upload(&path, &data).await.map_err(|e| e.to_string())
+            session
+                .sftp_upload(&path, &data)
+                .await
+                .map_err(|e| e.to_string())
         }
         "ftp" => {
             let secret = resolve_secret(&conn).unwrap_or_default();
@@ -1055,7 +1097,10 @@ pub async fn file_upload_file(
                     .await
                     .map_err(|e| e.user_message())?;
             } else {
-                client.put_object(&key, &data).await.map_err(|e| e.user_message())?;
+                client
+                    .put_object(&key, &data)
+                    .await
+                    .map_err(|e| e.user_message())?;
             }
             Ok(())
         }
@@ -1083,16 +1128,21 @@ pub async fn file_upload_local_path_multipart(
         .ok_or_else(|| format!("连接不存在: {connection_id}"))?;
     let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
     if protocol_of(&cfg) != "s3" {
-        return Err(format!("仅 S3 连接支持分块上传，当前协议: {}", protocol_of(&cfg)));
+        return Err(format!(
+            "仅 S3 连接支持分块上传，当前协议: {}",
+            protocol_of(&cfg)
+        ));
     }
     let secret = resolve_secret(&conn).unwrap_or_default();
     let client = s3_client_for(&cfg, &secret)?;
     let key = s3_object_key(&dest_path);
-    let chunk_size = chunk_size.unwrap_or(8 * 1024 * 1024).clamp(5 * 1024 * 1024, 64 * 1024 * 1024);
+    let chunk_size = chunk_size
+        .unwrap_or(8 * 1024 * 1024)
+        .clamp(5 * 1024 * 1024, 64 * 1024 * 1024);
 
     // 分块读本地文件（不整载进内存）
-    let mut file = std::fs::File::open(&local_path)
-        .map_err(|e| format!("打开本地文件失败: {e}"))?;
+    let mut file =
+        std::fs::File::open(&local_path).map_err(|e| format!("打开本地文件失败: {e}"))?;
     use std::io::Read;
     let mut buf = vec![0u8; chunk_size];
     let mut parts: Vec<(u32, String)> = Vec::new();
@@ -1104,7 +1154,9 @@ pub async fn file_upload_local_path_multipart(
     let result = (async || -> Result<u64, String> {
         let mut total: u64 = 0;
         loop {
-            let n = file.read(&mut buf).map_err(|e| format!("读取本地文件失败: {e}"))?;
+            let n = file
+                .read(&mut buf)
+                .map_err(|e| format!("读取本地文件失败: {e}"))?;
             if n == 0 {
                 break;
             }
@@ -1143,7 +1195,10 @@ pub async fn file_download_s3_range_to_file(
         .ok_or_else(|| format!("连接不存在: {connection_id}"))?;
     let cfg = parse_file_config(&conn).map_err(|e| e.to_string())?;
     if protocol_of(&cfg) != "s3" {
-        return Err(format!("仅 S3 连接支持 Range 下载，当前协议: {}", protocol_of(&cfg)));
+        return Err(format!(
+            "仅 S3 连接支持 Range 下载，当前协议: {}",
+            protocol_of(&cfg)
+        ));
     }
     let secret = resolve_secret(&conn).unwrap_or_default();
     let client = s3_client_for(&cfg, &secret)?;
@@ -1152,7 +1207,10 @@ pub async fn file_download_s3_range_to_file(
 
     // HEAD 拿对象总长（失败时按 0 处理，之后逐块读到空）
     let total = {
-        let status = client.head_object(&key).await.map_err(|e| e.user_message())?;
+        let status = client
+            .head_object(&key)
+            .await
+            .map_err(|e| e.user_message())?;
         if status == 200 {
             // rust-s3 HEAD 不返回 Content-Length（仅状态码），用 0 表示未知，逐块读
             0
@@ -1166,8 +1224,8 @@ pub async fn file_download_s3_range_to_file(
         std::fs::create_dir_all(parent).ok();
     }
     use std::io::Write;
-    let mut file = std::fs::File::create(&local_path)
-        .map_err(|e| format!("创建本地文件失败: {e}"))?;
+    let mut file =
+        std::fs::File::create(&local_path).map_err(|e| format!("创建本地文件失败: {e}"))?;
     let mut offset: u64 = 0;
     let mut written: u64 = 0;
     loop {
@@ -1178,7 +1236,8 @@ pub async fn file_download_s3_range_to_file(
         if data.is_empty() {
             break;
         }
-        file.write_all(&data).map_err(|e| format!("写入本地文件失败: {e}"))?;
+        file.write_all(&data)
+            .map_err(|e| format!("写入本地文件失败: {e}"))?;
         written += data.len() as u64;
         offset += data.len() as u64;
         if (data.len() as u64) < chunk_size {
@@ -1221,7 +1280,10 @@ pub async fn file_mkdir(
             if !key.ends_with('/') {
                 key.push('/');
             }
-            client.put_object(&key, &[]).await.map_err(|e| e.user_message())
+            client
+                .put_object(&key, &[])
+                .await
+                .map_err(|e| e.user_message())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
     }
@@ -1247,7 +1309,10 @@ pub async fn file_rename(
             let session = sftp_session_for(state, &connection_id, &conn, &cfg)
                 .await
                 .map_err(|e| e.to_string())?;
-            session.sftp_rename(&old_path, &new_path).await.map_err(|e| e.to_string())
+            session
+                .sftp_rename(&old_path, &new_path)
+                .await
+                .map_err(|e| e.to_string())
         }
         "ftp" => {
             let secret = resolve_secret(&conn).unwrap_or_default();
@@ -1258,9 +1323,18 @@ pub async fn file_rename(
             let client = s3_client_for(&cfg, &secret)?;
             let old_key = s3_object_key(&old_path);
             let new_key = s3_object_key(&new_path);
-            let bytes = client.get_object(&old_key).await.map_err(|e| e.user_message())?;
-            client.put_object(&new_key, &bytes).await.map_err(|e| e.user_message())?;
-            client.delete_object(&old_key).await.map_err(|e| e.user_message())?;
+            let bytes = client
+                .get_object(&old_key)
+                .await
+                .map_err(|e| e.user_message())?;
+            client
+                .put_object(&new_key, &bytes)
+                .await
+                .map_err(|e| e.user_message())?;
+            client
+                .delete_object(&old_key)
+                .await
+                .map_err(|e| e.user_message())?;
             Ok(())
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
@@ -1298,10 +1372,7 @@ pub async fn file_s3_copy_object(
     // SigV4 路径（阿里云/七牛）单次 CopyObject 本身不支持，直接走 multipart。
     let object_size = {
         // HEAD 获取源对象大小；拿不到时按 multipart 兜底（5MB 片）。
-        let size = client
-            .head_object_size(&from_key)
-            .await
-            .ok();
+        let size = client.head_object_size(&from_key).await.ok();
         match size {
             Some(sz) => sz,
             None => {
@@ -1388,7 +1459,10 @@ pub async fn file_delete(
                 };
                 delete_s3_prefix_recursive(&cfg, &secret, &prefix).await?;
             } else {
-                client.delete_object(&key).await.map_err(|e| e.user_message())?;
+                client
+                    .delete_object(&key)
+                    .await
+                    .map_err(|e| e.user_message())?;
             }
             Ok(())
         }
@@ -1490,7 +1564,10 @@ pub async fn file_upload_local_bytes(
             let session = sftp_session_for(state, &dest_connection_id, &conn, &cfg)
                 .await
                 .map_err(|e| e.to_string())?;
-            session.sftp_upload(&dest_path, &data).await.map_err(|e| e.to_string())?;
+            session
+                .sftp_upload(&dest_path, &data)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(dest_connection_id)
         }
         "ftp" => {
@@ -1502,7 +1579,10 @@ pub async fn file_upload_local_bytes(
             let secret = resolve_secret(&conn).unwrap_or_default();
             let client = s3_client_for(&cfg, &secret)?;
             let key = s3_object_key(&dest_path);
-            client.put_object(&key, &data).await.map_err(|e| e.user_message())?;
+            client
+                .put_object(&key, &data)
+                .await
+                .map_err(|e| e.user_message())?;
             Ok(dest_connection_id)
         }
         proto => Err(format!("Web 端暂不支持文件协议: {proto}")),
@@ -1516,7 +1596,12 @@ pub async fn file_download_file(
     remote_path: String,
     local_path: String,
 ) -> Result<(), String> {
-    let data = file_read_file(state, connection_id, remote_path, (512 * 1024 * 1024) as f64)
-        .await?;
+    let data = file_read_file(
+        state,
+        connection_id,
+        remote_path,
+        (512 * 1024 * 1024) as f64,
+    )
+    .await?;
     local_write(&local_path, &data).map_err(|e| e.to_string())
 }

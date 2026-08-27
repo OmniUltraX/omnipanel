@@ -143,10 +143,7 @@ pub fn write_workspace_window_handoff(
 ) -> Result<(), String> {
     let path = handoff_path(&app, &workspace_id)?;
     std::fs::write(&path, handoff_json).map_err(|e| format!("写入 handoff 失败: {e}"))?;
-    append_log(
-        &app,
-        &format!("handoff written {}", path.display()),
-    );
+    append_log(&app, &format!("handoff written {}", path.display()));
     Ok(())
 }
 
@@ -165,10 +162,7 @@ pub fn read_workspace_window_handoff(
 }
 
 #[tauri::command]
-pub fn clear_workspace_window_handoff(
-    app: AppHandle,
-    workspace_id: String,
-) -> Result<(), String> {
+pub fn clear_workspace_window_handoff(app: AppHandle, workspace_id: String) -> Result<(), String> {
     let path = handoff_path(&app, &workspace_id)?;
     if path.is_file() {
         let _ = std::fs::remove_file(path);
@@ -324,11 +318,11 @@ pub fn window_z_order(app: AppHandle) -> Vec<String> {
 
 #[cfg(windows)]
 fn window_z_order_impl(app: &AppHandle) -> Vec<String> {
-    use std::collections::HashMap;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use windows::core::BOOL;
+    use std::collections::HashMap;
     use windows::Win32::Foundation::{HWND, LPARAM};
     use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
+    use windows::core::BOOL;
 
     // 收集所有 Tauri webview 窗口的 HWND → label 映射
     let mut hwnd_to_label: HashMap<isize, String> = HashMap::new();
@@ -427,7 +421,8 @@ fn read_window_bounds_store(app: &AppHandle) -> WindowBoundsStoreFile {
 
 fn write_window_bounds_store(app: &AppHandle, store: &WindowBoundsStoreFile) -> Result<(), String> {
     let path = window_bounds_store_path(app)?;
-    let raw = serde_json::to_string_pretty(store).map_err(|e| format!("序列化窗口几何失败: {e}"))?;
+    let raw =
+        serde_json::to_string_pretty(store).map_err(|e| format!("序列化窗口几何失败: {e}"))?;
     std::fs::write(&path, raw).map_err(|e| format!("写入窗口几何失败: {e}"))
 }
 
@@ -496,7 +491,10 @@ fn pick_target_monitor<'a>(
     py: i32,
 ) -> Option<&'a tauri::Monitor> {
     if let Some(name) = bounds.monitor_name.as_deref() {
-        if let Some(m) = monitors.iter().find(|m| m.name().map(|n| n.as_str()) == Some(name)) {
+        if let Some(m) = monitors
+            .iter()
+            .find(|m| m.name().map(|n| n.as_str()) == Some(name))
+        {
             return Some(m);
         }
     }
@@ -669,7 +667,11 @@ fn pick_target_monitor_for_splash<'a>(
         .or_else(|| monitors.first())
 }
 
-fn center_rect_on_monitor(mon: &tauri::Monitor, width_logical: f64, height_logical: f64) -> (i32, i32) {
+fn center_rect_on_monitor(
+    mon: &tauri::Monitor,
+    width_logical: f64,
+    height_logical: f64,
+) -> (i32, i32) {
     let scale = mon.scale_factor().max(0.1);
     let ww = (width_logical * scale).round() as i32;
     let wh = (height_logical * scale).round() as i32;
@@ -698,13 +700,10 @@ fn center_window_on_cursor_monitor(app: &AppHandle, window: &tauri::WebviewWindo
         .iter()
         .find(|m| monitor_contains_point(m, cx, cy))
         .or_else(|| {
-            app.primary_monitor()
-                .ok()
-                .flatten()
-                .and_then(|p| {
-                    let name = p.name().cloned();
-                    name.and_then(|n| monitors.iter().find(|m| m.name() == Some(&n)))
-                })
+            app.primary_monitor().ok().flatten().and_then(|p| {
+                let name = p.name().cloned();
+                name.and_then(|n| monitors.iter().find(|m| m.name() == Some(&n)))
+            })
         })
         .or_else(|| monitors.first());
 
@@ -739,7 +738,11 @@ fn splash_center_position(app: &AppHandle, resolved: Option<&WindowBounds>) -> (
 ///
 /// 注意：不要用 (-32000,-32000) 屏外坐标。Windows 会把任务栏按钮绑到
 /// 首次 show 所在的显示器（通常是主屏），导致副屏窗口最小化动画/按钮跑到主屏。
-fn place_main_for_boot(app: &AppHandle, window: &tauri::WebviewWindow, resolved: Option<&WindowBounds>) {
+fn place_main_for_boot(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    resolved: Option<&WindowBounds>,
+) {
     let _ = window.set_background_color(Some(tauri::window::Color(14, 20, 25, 255)));
     if let Some(b) = resolved {
         MAIN_PENDING_MAXIMIZE.store(b.maximized, Ordering::SeqCst);
@@ -1003,10 +1006,7 @@ pub async fn open_workspace_window(
     handoff_json: Option<String>,
     bounds: Option<WindowBounds>,
 ) -> Result<String, String> {
-    append_log(
-        &app,
-        &format!("open begin id={workspace_id} title={title}"),
-    );
+    append_log(&app, &format!("open begin id={workspace_id} title={title}"));
 
     if workspace_id.trim().is_empty() {
         return Err("workspace_id 不能为空".into());
@@ -1030,10 +1030,7 @@ pub async fn open_workspace_window(
     }
 
     let data_dir = webview_data_directory(&app, &label)?;
-    append_log(
-        &app,
-        &format!("data_directory={}", data_dir.display()),
-    );
+    append_log(&app, &format!("data_directory={}", data_dir.display()));
 
     let injected = serde_json::to_string(&workspace_id)
         .map_err(|e| format!("序列化 workspace_id 失败: {e}"))?;
@@ -1086,22 +1083,16 @@ pub async fn open_workspace_window(
         .map(|b| resolve_bounds_for_current_displays(&app, &b));
 
     if let Some(ref b) = restored {
-        builder = builder
-            .inner_size(b.width, b.height)
-            .position(b.x, b.y);
+        builder = builder.inner_size(b.width, b.height).position(b.x, b.y);
     } else {
-        builder = builder
-            .inner_size(1100.0, 720.0)
-            .center();
+        builder = builder.inner_size(1100.0, 720.0).center();
     }
 
-    let window = builder
-        .build()
-        .map_err(|e| {
-            let msg = format!("创建工作区窗口失败: {e}");
-            append_log(&app, &msg);
-            msg
-        })?;
+    let window = builder.build().map_err(|e| {
+        let msg = format!("创建工作区窗口失败: {e}");
+        append_log(&app, &msg);
+        msg
+    })?;
 
     // 用物理坐标再落一次，确保多屏/混合 DPI 下回到记忆屏幕
     if let Some(ref b) = restored {

@@ -169,10 +169,7 @@ pub fn evaluate(exit_code: Option<i32>, stdout: &str, stderr: &str) -> TmuxCapab
     match parse_version(combined) {
         Some(v) if v.is_supported() => TmuxCapability::Supported(v),
         Some(v) => TmuxCapability::TooOld(v),
-        None => TmuxCapability::Unavailable(format!(
-            "无法识别 tmux 版本号: {}",
-            combined.trim()
-        )),
+        None => TmuxCapability::Unavailable(format!("无法识别 tmux 版本号: {}", combined.trim())),
     }
 }
 

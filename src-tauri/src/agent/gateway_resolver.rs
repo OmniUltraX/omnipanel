@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::agent::AgentRegistry;
 use crate::commands::acp::AcpState;
-use crate::commands::agents::{agent_kind_key, detect_all_agents_sync, AgentKind};
+use crate::commands::agents::{AgentKind, agent_kind_key, detect_all_agents_sync};
 
 /// Concrete `AcpResolver` backed by the Tauri `AgentRegistry` + `AcpState`.
 ///

@@ -4,11 +4,11 @@ use reqwest::Client;
 use serde::Serialize;
 use specta::Type;
 
-use crate::collect::{assemble_modules, default_collectors, CollectContext};
-use crate::error::{map_assistant_error_with_cause, AssistantErrorKind};
-use crate::notify::{normalize_snapshot_dir, notify_snapshot_uploaded, SnapshotNotifyRequest};
+use crate::collect::{CollectContext, assemble_modules, default_collectors};
+use crate::error::{AssistantErrorKind, map_assistant_error_with_cause};
+use crate::notify::{SnapshotNotifyRequest, normalize_snapshot_dir, notify_snapshot_uploaded};
 use crate::oss::upload_snapshot_json;
-use crate::sts::{fetch_oss_sts, AuthContext};
+use crate::sts::{AuthContext, fetch_oss_sts};
 use crate::types::build_snapshot_bundle;
 
 #[derive(Debug, Clone, Default)]

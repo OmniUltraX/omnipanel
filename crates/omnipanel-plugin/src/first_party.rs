@@ -147,7 +147,10 @@ mod tests {
             .iter()
             .find(|f| f.get("key").and_then(|k| k.as_str()) == Some("database"))
             .expect("database field");
-        assert_eq!(database.get("optional").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            database.get("optional").and_then(|v| v.as_bool()),
+            Some(true)
+        );
     }
 
     #[test]
@@ -158,18 +161,17 @@ mod tests {
             manifest.driver_entry(),
             Some("bin/omnipanel-engine-clickhouse")
         );
-        manifest.validate().expect("clickhouse sidecar 清单应通过校验");
+        manifest
+            .validate()
+            .expect("clickhouse sidecar 清单应通过校验");
     }
 
     #[test]
-    fn redis_declares_sidecar_runtime() {
+    fn redis_declares_inproc_runtime() {
         let manifest = engine_redis();
-        assert_eq!(manifest.runtime, Some(crate::PluginRuntime::Sidecar));
-        assert_eq!(
-            manifest.driver_entry(),
-            Some("bin/omnipanel-engine-redis")
-        );
-        manifest.validate().expect("redis sidecar 清单应通过校验");
+        assert_eq!(manifest.runtime, Some(crate::PluginRuntime::Inproc));
+        assert_eq!(manifest.driver_entry(), None);
+        manifest.validate().expect("redis inproc 清单应通过校验");
     }
 
     #[test]

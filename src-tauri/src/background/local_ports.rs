@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use omnipanel_ssh::{merge_ports, SshProcessPort};
+use omnipanel_ssh::{SshProcessPort, merge_ports};
 
 #[cfg(windows)]
 use omnipanel_ssh::parse_windows_netstat_ports;
@@ -54,7 +54,10 @@ fn collect_local_listen_ports_uncached() -> HashMap<u32, Vec<SshProcessPort>> {
 
     #[cfg(unix)]
     {
-        for cmd in ["ss -H -lntipe 2>/dev/null", "ss -lntipe 2>/dev/null | tail -n +2"] {
+        for cmd in [
+            "ss -H -lntipe 2>/dev/null",
+            "ss -lntipe 2>/dev/null | tail -n +2",
+        ] {
             if let Some(out) = run_shell(cmd) {
                 merge_ports(&mut map, parse_ss_ports(&out));
             }
@@ -93,11 +96,7 @@ fn run_command(program: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    if text.is_empty() { None } else { Some(text) }
 }
 
 #[cfg(windows)]

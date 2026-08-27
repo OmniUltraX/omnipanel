@@ -6,14 +6,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use omnipanel_store::{load_web_search_config, FetchConfig, WebFetchBackend};
+use omnipanel_store::{FetchConfig, WebFetchBackend, load_web_search_config};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::info;
 
 use super::common::{
-    aggregate_errors, effective_proxy, BackendError, FetchRequest, FetchResult, RequestCtx,
-    WebSecrets,
+    BackendError, FetchRequest, FetchResult, RequestCtx, WebSecrets, aggregate_errors,
+    effective_proxy,
 };
 use omnipanel_store::{HttpProxyConfig, Storage};
 
@@ -85,7 +85,10 @@ async fn run_fetch_auto(
         }
     }
 
-    Err(BackendError::Config(aggregate_errors("网页抓取失败", &errors)))
+    Err(BackendError::Config(aggregate_errors(
+        "网页抓取失败",
+        &errors,
+    )))
 }
 
 pub async fn dispatch(
@@ -105,9 +108,11 @@ pub async fn dispatch(
 
     let result = match backend {
         WebFetchBackend::Auto => run_fetch_auto(&req, &ctx, &secrets, &config.fetch).await,
-        WebFetchBackend::Local => local::LocalFetch
-            .fetch(&req, &ctx, &secrets, &config.fetch)
-            .await,
+        WebFetchBackend::Local => {
+            local::LocalFetch
+                .fetch(&req, &ctx, &secrets, &config.fetch)
+                .await
+        }
         WebFetchBackend::Jina => match provider_by_id("jina") {
             Some(provider) => provider.fetch(&req, &ctx, &secrets, &config.fetch).await,
             None => Err(BackendError::Config("未知抓取后端".into())),
@@ -122,10 +127,7 @@ pub async fn dispatch(
     ))
 }
 
-pub async fn test_fetch(
-    url: &str,
-    proxy: &HttpProxyConfig,
-) -> Result<FetchResult, BackendError> {
+pub async fn test_fetch(url: &str, proxy: &HttpProxyConfig) -> Result<FetchResult, BackendError> {
     let config = load_web_search_config().map_err(|e| BackendError::Config(e.to_string()))?;
     let ctx = RequestCtx {
         proxy,

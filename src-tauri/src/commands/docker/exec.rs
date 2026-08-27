@@ -187,22 +187,18 @@ pub(crate) async fn create_exec_with_shell_probe(
     ),
     OmniError,
 > {
-    let (session, mut output) = create_exec_for_target(target, container_id, shell, cols, rows).await?;
+    let (session, mut output) =
+        create_exec_for_target(target, container_id, shell, cols, rows).await?;
 
-    let peek = tokio::time::timeout(
-        std::time::Duration::from_millis(1200),
-        output.next(),
-    )
-    .await;
+    let peek = tokio::time::timeout(std::time::Duration::from_millis(1200), output.next()).await;
 
     match peek {
         Ok(Some(Ok(bytes))) if is_exec_shell_missing_text(&String::from_utf8_lossy(&bytes)) => {
             close_exec_session(session).await;
-            Err(OmniError::new(
-                ErrorCode::Internal,
-                format!("容器内不存在 shell：{shell}"),
+            Err(
+                OmniError::new(ErrorCode::Internal, format!("容器内不存在 shell：{shell}"))
+                    .with_cause(String::from_utf8_lossy(&bytes).into_owned()),
             )
-            .with_cause(String::from_utf8_lossy(&bytes).into_owned()))
         }
         Ok(Some(Ok(bytes))) => Ok((session, prepend_exec_output(bytes, output))),
         Ok(Some(Err(err))) => {
@@ -331,8 +327,9 @@ pub async fn docker_create_exec_session(
     }
 
     let (session, mut output) = exec_pair.ok_or_else(|| {
-        last_err
-            .unwrap_or_else(|| OmniError::new(ErrorCode::Ssh, "无法在容器内启动交互 shell，请尝试 bash/sh"))
+        last_err.unwrap_or_else(|| {
+            OmniError::new(ErrorCode::Ssh, "无法在容器内启动交互 shell，请尝试 bash/sh")
+        })
     })?;
 
     let session_id = format!(
@@ -495,9 +492,12 @@ pub async fn docker_exec_write(
     data: Vec<u8>,
 ) -> Result<(), OmniError> {
     let sessions = state.docker_exec_sessions.lock().await;
-    let entry = sessions
-        .get(&session_id)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("容器终端会话 {session_id} 不存在")))?;
+    let entry = sessions.get(&session_id).ok_or_else(|| {
+        OmniError::new(
+            ErrorCode::NotFound,
+            format!("容器终端会话 {session_id} 不存在"),
+        )
+    })?;
     entry.session.write(&data).await
 }
 

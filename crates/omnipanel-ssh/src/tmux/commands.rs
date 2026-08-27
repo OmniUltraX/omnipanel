@@ -5,8 +5,8 @@
 
 use serde::Serialize;
 
-use crate::pty_utf8::SSH_UTF8_LOCALE;
 use super::parser::{PaneId, WindowId};
+use crate::pty_utf8::SSH_UTF8_LOCALE;
 
 /// 远端 tmux 会话概要，用于 `/server` 的会话治理视图。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
@@ -63,8 +63,14 @@ pub fn parse_session_line(line: &[u8]) -> Option<TmuxSessionInfo> {
     Some(TmuxSessionInfo {
         managed: is_omnipanel_session(&name),
         name,
-        windows: parts.next().and_then(|v| v.trim().parse().ok()).unwrap_or(0),
-        created: parts.next().and_then(|v| v.trim().parse().ok()).unwrap_or(0),
+        windows: parts
+            .next()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0),
+        created: parts
+            .next()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0),
         attached: parts.next().map(|v| v.trim() != "0").unwrap_or(false),
     })
 }
@@ -172,8 +178,7 @@ pub fn ensure_utf8_env() -> Vec<String> {
 pub fn bootstrap_readline_utf8(pane: PaneId) -> Vec<String> {
     send_keys_batches(
         pane,
-        format!("\x15export LC_CTYPE={SSH_UTF8_LOCALE}; bind 'set convert-meta off'\r")
-            .as_bytes(),
+        format!("\x15export LC_CTYPE={SSH_UTF8_LOCALE}; bind 'set convert-meta off'\r").as_bytes(),
     )
 }
 
@@ -386,7 +391,10 @@ mod tests {
     #[test]
     fn control_command_quotes_session_name() {
         let cmd = control_mode_command("it's", 80, 24);
-        assert!(cmd.contains(r"'it'\''s'"), "单引号需按 POSIX 规则转义: {cmd}");
+        assert!(
+            cmd.contains(r"'it'\''s'"),
+            "单引号需按 POSIX 规则转义: {cmd}"
+        );
     }
 
     #[test]
@@ -405,13 +413,19 @@ mod tests {
     fn capture_pane_keeps_escape_sequences() {
         let cmd = capture_pane(PaneId(4), 2000);
         assert_eq!(cmd, "capture-pane -p -e -J -t %4 -S -2000");
-        assert!(cmd.contains("-e"), "必须保留 SGR 序列，否则恢复内容会丢失颜色");
+        assert!(
+            cmd.contains("-e"),
+            "必须保留 SGR 序列，否则恢复内容会丢失颜色"
+        );
     }
 
     #[test]
     fn kill_commands_target_correct_scope() {
         assert_eq!(kill_window(WindowId(1)), "kill-window -t @1");
-        assert_eq!(kill_session("omnipanel-ws"), "kill-session -t \"omnipanel-ws\"");
+        assert_eq!(
+            kill_session("omnipanel-ws"),
+            "kill-session -t \"omnipanel-ws\""
+        );
     }
 
     #[test]

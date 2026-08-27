@@ -241,7 +241,10 @@ impl Storage {
     }
 
     /// 按版本 id 获取快照。
-    pub fn get_knowledge_revision(&self, revision_id: &str) -> OmniResult<Option<KnowledgeRevision>> {
+    pub fn get_knowledge_revision(
+        &self,
+        revision_id: &str,
+    ) -> OmniResult<Option<KnowledgeRevision>> {
         let mut stmt = self
             .conn()
             .prepare(
@@ -473,10 +476,15 @@ impl Storage {
         if s.is_empty() {
             return None;
         }
-        if s.chars().all(|c| matches!(c, '[' | ']' | '{' | '}' | ',' | ':' | '"' | '\'')) {
+        if s.chars()
+            .all(|c| matches!(c, '[' | ']' | '{' | '}' | ',' | ':' | '"' | '\''))
+        {
             return None;
         }
-        if !s.chars().any(|c| c.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c)) {
+        if !s
+            .chars()
+            .any(|c| c.is_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(&c))
+        {
             return None;
         }
         Some(s)

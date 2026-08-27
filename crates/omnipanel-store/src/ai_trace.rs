@@ -1,4 +1,4 @@
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 use omnipanel_error::OmniResult;
 use serde::{Deserialize, Serialize};
 

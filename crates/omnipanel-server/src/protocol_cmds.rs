@@ -9,7 +9,10 @@ use crate::state::ServerState;
 static GRPC_COUNTER: AtomicU64 = AtomicU64::new(1);
 static MODBUS_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-pub async fn grpc_connect(state: &ServerState, config: GrpcConnectionConfig) -> Result<String, String> {
+pub async fn grpc_connect(
+    state: &ServerState,
+    config: GrpcConnectionConfig,
+) -> Result<String, String> {
     let id = format!("grpc-{}", GRPC_COUNTER.fetch_add(1, Ordering::Relaxed));
     let session = GrpcSession::connect(config).map_err(|e| e.to_string())?;
     state.grpc_sessions.lock().await.insert(id.clone(), session);
@@ -41,7 +44,11 @@ pub async fn grpc_list_connections(state: &ServerState) -> Result<Vec<String>, S
 pub async fn modbus_connect(state: &ServerState, config: ModbusConfig) -> Result<String, String> {
     let id = format!("modbus-{}", MODBUS_COUNTER.fetch_add(1, Ordering::Relaxed));
     let session = crate::protocol::modbus::ModbusSession::connect(config)?;
-    state.modbus_sessions.lock().await.insert(id.clone(), session);
+    state
+        .modbus_sessions
+        .lock()
+        .await
+        .insert(id.clone(), session);
     Ok(id)
 }
 

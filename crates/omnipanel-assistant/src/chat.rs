@@ -33,11 +33,7 @@ pub struct ChatLatestIndex {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChatLatestIndexRaw {
-    #[serde(
-        default,
-        alias = "user_id",
-        deserialize_with = "deserialize_stringish"
-    )]
+    #[serde(default, alias = "user_id", deserialize_with = "deserialize_stringish")]
     user_id: String,
     #[serde(alias = "object_key")]
     object_key: String,
@@ -199,7 +195,9 @@ pub fn set_model_from_notify_json(raw: &str) -> Result<ChatSetModelNotify, serde
     let env: Envelope = serde_json::from_str(raw)?;
     let event = env.event.trim();
     if event != "assistant.chat.setModel" {
-        return Err(serde::de::Error::custom(format!("unexpected event: {event}")));
+        return Err(serde::de::Error::custom(format!(
+            "unexpected event: {event}"
+        )));
     }
     let p = &env.payload;
     let session_id = p
@@ -329,7 +327,10 @@ pub fn parse_inbound_chat_message(raw: &str) -> InboundChatMessage {
         if let Some(parts) = v.get("parts").and_then(|x| x.as_array()) {
             let mut out = String::new();
             for p in parts {
-                let t = p.get("t").or_else(|| p.get("type")).and_then(|x| x.as_str());
+                let t = p
+                    .get("t")
+                    .or_else(|| p.get("type"))
+                    .and_then(|x| x.as_str());
                 let text = p.get("text").and_then(|x| x.as_str()).unwrap_or("");
                 if text.is_empty() {
                     continue;
@@ -584,10 +585,7 @@ mod tests {
 
     #[test]
     fn extract_json_text_field() {
-        assert_eq!(
-            extract_inbound_message_text(r#"{"text":"hello"}"#),
-            "hello"
-        );
+        assert_eq!(extract_inbound_message_text(r#"{"text":"hello"}"#), "hello");
         assert_eq!(
             extract_inbound_message_text(r#"{"content":"world"}"#),
             "world"
@@ -642,10 +640,7 @@ mod tests {
 ----------------
 回复正文
 "#;
-        assert_eq!(
-            extract_inbound_message_text(raw),
-            "来自助手端\n回复正文"
-        );
+        assert_eq!(extract_inbound_message_text(raw), "来自助手端\n回复正文");
     }
 
     #[test]

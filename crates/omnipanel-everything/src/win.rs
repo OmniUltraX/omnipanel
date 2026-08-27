@@ -9,24 +9,26 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, WPARAM,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, WriteFile, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, ReadFile, WriteFile,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Pipes::{SetNamedPipeHandleState, WaitNamedPipeW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW,
-    GetWindowLongPtrW, PeekMessageW, RegisterClassExW, SendMessageW, SetWindowLongPtrW,
-    TranslateMessage, UnregisterClassW, GWLP_USERDATA, PM_REMOVE, WM_COPYDATA, WM_NCCREATE,
-    WNDCLASSEXW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW, GWLP_USERDATA,
+    GetWindowLongPtrW, PM_REMOVE, PeekMessageW, RegisterClassExW, SendMessageW, SetWindowLongPtrW,
+    TranslateMessage, UnregisterClassW, WM_COPYDATA, WM_NCCREATE, WNDCLASSEXW,
 };
 
 use crate::ipc::{
-    build_query2, build_queryw, hits_look_valid, parse_list2, parse_listw, strip_pipe_length_prefix,
-    QUERY2W, QUERYW,
+    QUERY2W, QUERYW, build_query2, build_queryw, hits_look_valid, parse_list2, parse_listw,
+    strip_pipe_length_prefix,
 };
 use crate::{EverythingError, EverythingHit};
 
-const PIPE_NAMES: &[&str] = &[r"\\.\PIPE\Everything IPC", r"\\.\PIPE\Everything IPC (1.5a)"];
+const PIPE_NAMES: &[&str] = &[
+    r"\\.\PIPE\Everything IPC",
+    r"\\.\PIPE\Everything IPC (1.5a)",
+];
 const EVERYTHING_WNDCLASS: &str = "EVERYTHING_TASKBAR_NOTIFICATION";
 const GENERIC_READ: u32 = 0x8000_0000;
 const GENERIC_WRITE: u32 = 0x4000_0000;
@@ -68,7 +70,8 @@ fn try_open_pipe() -> Option<HANDLE> {
             );
             if handle != INVALID_HANDLE_VALUE && !handle.is_null() {
                 let mut mode = PIPE_READMODE_MESSAGE;
-                let _ = SetNamedPipeHandleState(handle, &mut mode, ptr::null_mut(), ptr::null_mut());
+                let _ =
+                    SetNamedPipeHandleState(handle, &mut mode, ptr::null_mut(), ptr::null_mut());
                 return Some(handle);
             }
         }
@@ -76,7 +79,11 @@ fn try_open_pipe() -> Option<HANDLE> {
     None
 }
 
-fn query_via_pipe(handle: HANDLE, query: &str, max_results: u32) -> Result<Vec<EverythingHit>, EverythingError> {
+fn query_via_pipe(
+    handle: HANDLE,
+    query: &str,
+    max_results: u32,
+) -> Result<Vec<EverythingHit>, EverythingError> {
     let payload = build_query2(query, max_results, 0);
     let mut framed = Vec::with_capacity(4 + payload.len());
     framed.extend_from_slice(&(payload.len() as u32).to_le_bytes());
@@ -92,7 +99,10 @@ fn query_via_pipe(handle: HANDLE, query: &str, max_results: u32) -> Result<Vec<E
         );
         if ok == 0 {
             let _ = CloseHandle(handle);
-            return Err(EverythingError::Query(format!("管道写入失败 {}", GetLastError())));
+            return Err(EverythingError::Query(format!(
+                "管道写入失败 {}",
+                GetLastError()
+            )));
         }
         let mut buf = vec![0u8; 1024 * 256];
         let mut read = 0u32;
@@ -122,39 +132,47 @@ struct ReplySlot {
     bytes: Vec<u8>,
 }
 
-unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     unsafe {
-    if msg == WM_NCCREATE {
-        let cs = lparam as *const CreateStructW;
-        if !cs.is_null() {
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*cs).lp_create_params as isize);
+        if msg == WM_NCCREATE {
+            let cs = lparam as *const CreateStructW;
+            if !cs.is_null() {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*cs).lp_create_params as isize);
+            }
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
         }
-        return DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-    if msg == WM_COPYDATA {
-        let slot = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ReplySlot;
-        let cds = lparam as *const CopyDataStruct;
-        if !slot.is_null() && !cds.is_null() && !(*cds).lp_data.is_null() && (*cds).cb_data > 0 {
-            let src = std::slice::from_raw_parts((*cds).lp_data as *const u8, (*cds).cb_data as usize);
-            (*slot).bytes.extend_from_slice(src);
+        if msg == WM_COPYDATA {
+            let slot = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut ReplySlot;
+            let cds = lparam as *const CopyDataStruct;
+            if !slot.is_null() && !cds.is_null() && !(*cds).lp_data.is_null() && (*cds).cb_data > 0
+            {
+                let src = std::slice::from_raw_parts(
+                    (*cds).lp_data as *const u8,
+                    (*cds).cb_data as usize,
+                );
+                (*slot).bytes.extend_from_slice(src);
+            }
+            return 1;
         }
-        return 1;
-    }
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+        DefWindowProcW(hwnd, msg, wparam, lparam)
     }
 }
 
 fn everything_window() -> Option<HWND> {
     let class = to_wide(EVERYTHING_WNDCLASS);
     let hwnd = unsafe { FindWindowW(class.as_ptr(), ptr::null()) };
-    if hwnd.is_null() {
-        None
-    } else {
-        Some(hwnd)
-    }
+    if hwnd.is_null() { None } else { Some(hwnd) }
 }
 
-fn query_via_copydata(query: &str, max_results: u32) -> Result<Vec<EverythingHit>, EverythingError> {
+fn query_via_copydata(
+    query: &str,
+    max_results: u32,
+) -> Result<Vec<EverythingHit>, EverythingError> {
     let everything = everything_window().ok_or(EverythingError::NotRunning)?;
     let class_name = to_wide("OmniPanelEverythingReply");
     let mut cls = unsafe { mem::zeroed::<WNDCLASSEXW>() };

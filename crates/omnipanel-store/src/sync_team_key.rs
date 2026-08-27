@@ -2,8 +2,8 @@
 //!
 //! 按 `team_id` 存于本机 Vault；可导出 `.omnipanel-sync.key` 备份。
 
-use getrandom::getrandom;
 use base64::Engine;
+use getrandom::getrandom;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,22 +20,15 @@ fn vault_ref(team_id: i64) -> String {
 /// 生成新的 32 字节团队同步密钥。
 pub fn generate_sync_team_key() -> OmniResult<[u8; SYNC_TEAM_KEY_BYTES]> {
     let mut raw = [0u8; SYNC_TEAM_KEY_BYTES];
-    getrandom(&mut raw).map_err(|e| {
-        OmniError::new(
-            ErrorCode::Internal,
-            format!("生成团队同步密钥失败: {e}"),
-        )
-    })?;
+    getrandom(&mut raw)
+        .map_err(|e| OmniError::new(ErrorCode::Internal, format!("生成团队同步密钥失败: {e}")))?;
     Ok(raw)
 }
 
 /// SHA-256 前 8 字节 hex，用于 UI 展示指纹。
 pub fn sync_team_key_fingerprint(key: &[u8; SYNC_TEAM_KEY_BYTES]) -> String {
     let digest = Sha256::digest(key);
-    digest[..4]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    digest[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub fn load_sync_team_key(team_id: i64) -> OmniResult<Option<[u8; SYNC_TEAM_KEY_BYTES]>> {
@@ -73,7 +66,9 @@ pub fn get_or_create_sync_team_key(team_id: i64) -> OmniResult<([u8; SYNC_TEAM_K
 fn decode_key_b64(raw: &str) -> OmniResult<[u8; SYNC_TEAM_KEY_BYTES]> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(raw.trim())
-        .map_err(|e| OmniError::new(ErrorCode::InvalidInput, "同步密钥格式无效").with_cause(e.to_string()))?;
+        .map_err(|e| {
+            OmniError::new(ErrorCode::InvalidInput, "同步密钥格式无效").with_cause(e.to_string())
+        })?;
     if bytes.len() != SYNC_TEAM_KEY_BYTES {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
@@ -180,34 +175,37 @@ pub fn import_sync_team_key_json(
         ));
     }
     let mut key = if file.encrypted {
-        let pass = passphrase.filter(|p| !p.is_empty()).ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "该密钥文件需要口令才能导入")
-        })?;
-        let salt_b64 = file.salt_b64.as_deref().ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少 salt")
-        })?;
-        let nonce_b64 = file.nonce_b64.as_deref().ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少 nonce")
-        })?;
-        let ct_b64 = file.ciphertext_b64.as_deref().ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少密文")
-        })?;
-        let plain = crate::secrets_crypto::decrypt_with_passphrase(
-            pass,
-            salt_b64,
-            nonce_b64,
-            ct_b64,
-        )?;
+        let pass = passphrase
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "该密钥文件需要口令才能导入"))?;
+        let salt_b64 = file
+            .salt_b64
+            .as_deref()
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少 salt"))?;
+        let nonce_b64 = file
+            .nonce_b64
+            .as_deref()
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少 nonce"))?;
+        let ct_b64 = file
+            .ciphertext_b64
+            .as_deref()
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少密文"))?;
+        let plain =
+            crate::secrets_crypto::decrypt_with_passphrase(pass, salt_b64, nonce_b64, ct_b64)?;
         if plain.len() != SYNC_TEAM_KEY_BYTES {
-            return Err(OmniError::new(ErrorCode::InvalidInput, "解密后的密钥长度无效"));
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "解密后的密钥长度无效",
+            ));
         }
         let mut arr = [0u8; SYNC_TEAM_KEY_BYTES];
         arr.copy_from_slice(&plain);
         arr
     } else {
-        let key_b64 = file.key_b64.as_deref().ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少 keyB64")
-        })?;
+        let key_b64 = file
+            .key_b64
+            .as_deref()
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "密钥文件缺少 keyB64"))?;
         decode_key_b64(key_b64)?
     };
     let fp = sync_team_key_fingerprint(&key);

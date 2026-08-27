@@ -123,9 +123,7 @@ fn find_docker_by_bound_ssh(
         .iter()
         .find(|conn| {
             let cfg: serde_json::Value = serde_json::from_str(&conn.config).unwrap_or_default();
-            cfg.get("boundSshConnectionId")
-                .and_then(|v| v.as_str())
-                == Some(ssh_id)
+            cfg.get("boundSshConnectionId").and_then(|v| v.as_str()) == Some(ssh_id)
         })
         .cloned()
 }

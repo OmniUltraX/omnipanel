@@ -3,8 +3,8 @@ use omnipanel_store::{FetchConfig, JinaDomainMode};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, map_http_status, BackendError,
-    FetchRequest, FetchResult, RequestCtx, WebSecrets,
+    BackendError, FetchRequest, FetchResult, RequestCtx, WebSecrets, build_http_client,
+    classify_reqwest_error, map_http_status,
 };
 use super::FetchProvider;
 
@@ -62,14 +62,10 @@ async fn fetch_on_host(
     let mut headers = HeaderMap::new();
     headers.insert(
         "x-return-format",
-        HeaderValue::from_str(return_format)
-            .map_err(|e| BackendError::Config(e.to_string()))?,
+        HeaderValue::from_str(return_format).map_err(|e| BackendError::Config(e.to_string()))?,
     );
     if fetch_cfg.jina.no_cache {
-        headers.insert(
-            "x-no-cache",
-            HeaderValue::from_static("true"),
-        );
+        headers.insert("x-no-cache", HeaderValue::from_static("true"));
     }
     if let Some(key) = secrets.jina.as_ref().filter(|k| !k.trim().is_empty()) {
         headers.insert(
@@ -93,9 +89,7 @@ async fn fetch_on_host(
 
     let content = if req.format.eq_ignore_ascii_case("text") {
         body.lines()
-            .skip_while(|l| {
-                l.starts_with("Title:") || l.starts_with("URL:") || l.trim().is_empty()
-            })
+            .skip_while(|l| l.starts_with("Title:") || l.starts_with("URL:") || l.trim().is_empty())
             .collect::<Vec<_>>()
             .join("\n")
     } else {

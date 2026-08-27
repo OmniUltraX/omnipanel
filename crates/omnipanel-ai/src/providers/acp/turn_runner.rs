@@ -1,4 +1,4 @@
-﻿//! Reusable ACP turn-running primitives.
+//! Reusable ACP turn-running primitives.
 //!
 //! Extracted from the Tauri command layer (`run_acp_internal_turn`) so that
 //! both the internal chat (multi-round tool loop in `ai_chat.rs`) and the
@@ -38,7 +38,10 @@ pub struct AcpRoundRunner {
 
 impl AcpRoundRunner {
     pub fn new(manager: Arc<AcpManager>, session_id: String) -> Self {
-        Self { manager, session_id }
+        Self {
+            manager,
+            session_id,
+        }
     }
 
     pub fn manager(&self) -> &Arc<AcpManager> {
@@ -154,11 +157,7 @@ impl AcpRoundRunner {
             *guard = json.unwrap_or_default();
         }
         let plain = plain.trim().to_string();
-        if plain.is_empty() {
-            None
-        } else {
-            Some(plain)
-        }
+        if plain.is_empty() { None } else { Some(plain) }
     }
 }
 
@@ -181,7 +180,8 @@ mod tests {
     #[test]
     fn drain_held_content_skips_tool_json() {
         let buf = Arc::new(StdMutex::new(
-            r#"{"tool_calls":[{"id":"tc1","name":"terminal","arguments":{"command":"ls"}}]}"#.to_string(),
+            r#"{"tool_calls":[{"id":"tc1","name":"terminal","arguments":{"command":"ls"}}]}"#
+                .to_string(),
         ));
         assert!(AcpRoundRunner::drain_held_content(&buf).is_none());
     }

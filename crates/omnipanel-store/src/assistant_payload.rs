@@ -4,7 +4,7 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::sync_key_wrap::{encrypt_assistant_payload, WRAP_ALG};
+use crate::sync_key_wrap::{WRAP_ALG, encrypt_assistant_payload};
 
 pub const ASSISTANT_PAYLOAD_KIND: &str = "assistant-payload";
 

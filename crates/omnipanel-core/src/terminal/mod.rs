@@ -248,11 +248,7 @@ fn resolve_shell(spec: Option<&ShellSpec>) -> (String, ShellKind) {
 }
 
 /// 按 shell 种类构造启动命令。WSL 需要附加发行版参数。
-fn build_shell_command(
-    kind: ShellKind,
-    shell: &str,
-    spec: Option<&ShellSpec>,
-) -> CommandBuilder {
+fn build_shell_command(kind: ShellKind, shell: &str, spec: Option<&ShellSpec>) -> CommandBuilder {
     let mut cmd = CommandBuilder::new(shell);
     if kind == ShellKind::Wsl {
         // wsl.exe -d <distro> ...

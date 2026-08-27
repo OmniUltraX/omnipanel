@@ -27,7 +27,10 @@ impl ImportCandidate {
 }
 
 /// 按三元组去重，后出现的覆盖先前（用于 upsert 预览）。
-pub fn upsert_candidates(existing: &[ImportCandidate], incoming: &[ImportCandidate]) -> Vec<ImportCandidate> {
+pub fn upsert_candidates(
+    existing: &[ImportCandidate],
+    incoming: &[ImportCandidate],
+) -> Vec<ImportCandidate> {
     let mut out: Vec<ImportCandidate> = existing.to_vec();
     for item in incoming {
         let key = item.dedupe_key();

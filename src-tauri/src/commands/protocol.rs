@@ -608,17 +608,18 @@ pub async fn http_save_environment(
     env: HttpEnvironment,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage.http_save_environment(&env).map_err(|e| e.to_string())
+    storage
+        .http_save_environment(&env)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn http_delete_environment(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn http_delete_environment(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage.http_delete_environment(&id).map_err(|e| e.to_string())
+    storage
+        .http_delete_environment(&id)
+        .map_err(|e| e.to_string())
 }
 
 // ──────────────────────────────────────────────

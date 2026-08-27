@@ -335,8 +335,10 @@ impl AnthropicStreamParser {
             "message_start" => {
                 if let Some(message) = evt.get("message") {
                     if let Some(usage) = message.get("usage") {
-                        let input =
-                            usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let input = usage
+                            .get("input_tokens")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32;
                         self.input_tokens = input;
                         results.push(Ok(StreamEvent::Usage {
                             input_tokens: input,

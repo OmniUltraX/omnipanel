@@ -11,9 +11,9 @@
 //! 详见 `docs/web-p1.md`。
 
 pub mod acp_cmds;
+pub mod agents_detect;
 pub mod ai;
 pub mod ai_tools;
-pub mod agents_detect;
 pub mod assistant_cmds;
 pub mod auth_cmds;
 pub mod bg_task_cmds;
@@ -28,12 +28,12 @@ pub mod db_mysql_export;
 pub mod db_sync;
 pub mod db_sync_bridge;
 pub mod db_sync_diff;
+pub mod defer_cmds;
 pub mod docker;
 pub mod docker_ops;
 pub mod docker_ssh_detect;
 pub mod docker_swarm;
 pub mod embedding_cmds;
-pub mod defer_cmds;
 pub mod exec_cmds;
 pub mod file_index;
 pub mod file_transfer;
@@ -78,4 +78,4 @@ pub mod workflow_cmds;
 pub mod ws;
 
 pub use bus::{EventBus, EventPayload, SessionEvent};
-pub use server::{run_server, ServerConfig, ServerHandle};
+pub use server::{ServerConfig, ServerHandle, run_server};

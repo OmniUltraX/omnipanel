@@ -1,14 +1,16 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use omnipanel_error::{ErrorCode, OmniError};
 
 use crate::event::TransferEventSink;
+use crate::event::emit_job;
 use crate::provider::{TransferHost, TransferProtocol};
 use crate::stream_relay::run_relay;
 use crate::types::{FileTransferJob, FileTransferOp, FileTransferRoute, FileTransferState};
-use crate::util::{open_sftp, resolve_protocol, set_progress, s3_key, temp_transfer_path, check_cancel};
-use crate::event::emit_job;
+use crate::util::{
+    check_cancel, open_sftp, resolve_protocol, s3_key, set_progress, temp_transfer_path,
+};
 
 /// 同连接 FastPath。
 pub async fn run_fastpath(
@@ -42,6 +44,10 @@ pub async fn run_fastpath(
         set_progress(sink, job, 0, total).await;
         match job.op {
             FileTransferOp::Move => {
+                if src == dest {
+                    set_progress(sink, job, total.unwrap_or(0), total).await;
+                    return Ok(());
+                }
                 if tokio::fs::rename(&src, &dest).await.is_err() {
                     tokio::fs::copy(&src, &dest).await.map_err(|e| {
                         OmniError::new(ErrorCode::Io, "本地移动失败").with_cause(e.to_string())
@@ -64,6 +70,10 @@ pub async fn run_fastpath(
     let proto = resolve_protocol(host, &job.source.connection_id).await?;
     match proto {
         TransferProtocol::Sftp if matches!(job.op, FileTransferOp::Move) => {
+            if job.source.path == job.dest.path {
+                set_progress(sink, job, 1, Some(1)).await;
+                return Ok(());
+            }
             let session = open_sftp(host, &job.source.connection_id).await?;
             session
                 .sftp_rename(&job.source.path, &job.dest.path)
@@ -81,9 +91,7 @@ pub async fn run_fastpath(
                 .sftp_download_to_file(&job.source.path, &temp)
                 .await?;
             check_cancel(&cancel)?;
-            session
-                .sftp_upload_from_file(&job.dest.path, &temp)
-                .await?;
+            session.sftp_upload_from_file(&job.dest.path, &temp).await?;
             let _ = tokio::fs::remove_file(&temp).await;
             set_progress(sink, job, 1, Some(1)).await;
             Ok(())

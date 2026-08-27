@@ -2,12 +2,13 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rmcp::{
-    handler::server::{
-        tool::ToolCallContext,
-        wrapper::Parameters,
+    ErrorData, ServerHandler,
+    handler::server::{tool::ToolCallContext, wrapper::Parameters},
+    model::{
+        CallToolResult, Content, ListToolsResult, PaginatedRequestParams, ServerCapabilities,
+        ServerInfo,
     },
-    model::{CallToolResult, Content, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo},
-    schemars, tool, tool_handler, tool_router, ErrorData, ServerHandler,
+    schemars, tool, tool_handler, tool_router,
 };
 use tokio::sync::Mutex;
 
@@ -170,11 +171,11 @@ impl ServerHandler for OmniMcpHandler {
         let storage = self.storage.lock().await;
         let router_tools = self.tool_router.list_all();
         let merged = merge_exposed_spec_tools(&storage, router_tools);
-        let tools = filter_tools_for_request(
-            merged,
-            &scope,
-            |name| storage.builtin_tool_is_exposed_available(name).unwrap_or(false),
-        );
+        let tools = filter_tools_for_request(merged, &scope, |name| {
+            storage
+                .builtin_tool_is_exposed_available(name)
+                .unwrap_or(false)
+        });
         Ok(ListToolsResult {
             tools,
             ..Default::default()
@@ -193,7 +194,10 @@ impl ServerHandler for OmniMcpHandler {
 
         {
             let storage = self.storage.lock().await;
-            if !storage.builtin_tool_is_exposed_available(tool_name).unwrap_or(false) {
+            if !storage
+                .builtin_tool_is_exposed_available(tool_name)
+                .unwrap_or(false)
+            {
                 return Err(ErrorData::invalid_params(
                     format!("MCP 工具不可用: {tool_name}"),
                     None,

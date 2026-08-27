@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_ssh::{ssh_config_from_json, SshAuth, SshConfig, SshSession};
-use omnipanel_store::{inject_ssh_vault_into_config, Connection, ConnectionKind, Vault};
+use omnipanel_ssh::{SshAuth, SshConfig, SshSession, ssh_config_from_json};
+use omnipanel_store::{Connection, ConnectionKind, Vault, inject_ssh_vault_into_config};
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
@@ -16,7 +16,7 @@ use suppaftp::FtpStream;
 use tauri::State;
 
 use crate::commands::aliyun_oss::AliyunOssClient;
-use crate::commands::s3_list_compat::{s3_list_page, S3ListPage};
+use crate::commands::s3_list_compat::{S3ListPage, s3_list_page};
 use crate::state::AppState;
 
 /// 内置本地文件连接 id。
@@ -823,7 +823,9 @@ pub(crate) fn s3_bucket(cfg: &FileConnConfig, secret: &str) -> Result<Box<Bucket
 fn sigv4_compat_client(cfg: &FileConnConfig, secret: &str) -> Result<AliyunOssClient, OmniError> {
     let provider = s3_provider_of(cfg);
     if !matches!(provider, S3ProviderKind::Aliyun | S3ProviderKind::Qiniu) {
-        return Err(OmniError::invalid_input("当前供应商不使用 SigV4 兼容客户端"));
+        return Err(OmniError::invalid_input(
+            "当前供应商不使用 SigV4 兼容客户端",
+        ));
     }
     validate_s3_credentials_for_provider(provider, &cfg.access_key, secret)?;
 
@@ -930,9 +932,7 @@ async fn s3_list_page_cfg(
 ) -> Result<S3ListPage, OmniError> {
     let provider = s3_provider_of(cfg);
     let provider_field = cfg.provider.trim();
-    if provider == S3ProviderKind::Qiniu
-        && provider_field.eq_ignore_ascii_case("aliyun")
-    {
+    if provider == S3ProviderKind::Qiniu && provider_field.eq_ignore_ascii_case("aliyun") {
         tracing::warn!(
             target: "aliyun_oss_sig",
             endpoint = %cfg.endpoint,
@@ -965,10 +965,7 @@ async fn s3_list_page_cfg(
 
 fn endpoint_host_of(endpoint: &str) -> String {
     let raw = endpoint.trim();
-    let after_scheme = raw
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(raw);
+    let after_scheme = raw.split_once("://").map(|(_, rest)| rest).unwrap_or(raw);
     let host_port = after_scheme.split('/').next().unwrap_or(after_scheme);
     host_port
         .rsplit_once(':')
@@ -1198,9 +1195,7 @@ async fn list_s3_prefix_page(
         Some(S3_PAGE_SIZE),
     )
     .await
-    .map_err(|e| {
-        OmniError::new(ErrorCode::Io, "S3 前缀搜索失败").with_cause(e.to_string())
-    })?;
+    .map_err(|e| OmniError::new(ErrorCode::Io, "S3 前缀搜索失败").with_cause(e.to_string()))?;
     let mut entries = Vec::new();
     push_s3_list_page_entries(&page, &mut entries, None);
     sort_s3_entries(&mut entries);
@@ -1353,10 +1348,7 @@ mod s3_search_tests {
 
     #[test]
     fn normalize_search_key_prefix_preserves_trailing_slash() {
-        assert_eq!(
-            normalize_s3_search_key_prefix("foo/", &cfg("")),
-            "foo/"
-        );
+        assert_eq!(normalize_s3_search_key_prefix("foo/", &cfg("")), "foo/");
         assert_eq!(
             normalize_s3_search_key_prefix("foo/", &cfg("root")),
             "root/foo/"
@@ -1556,9 +1548,7 @@ async fn delete_s3_prefix_recursive(
             Some(S3_DELETE_PAGE_SIZE),
         )
         .await
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string())
-        })?;
+        .map_err(|e| OmniError::new(ErrorCode::Io, "列出 S3 对象失败").with_cause(e.to_string()))?;
         for obj in &page.contents {
             s3_delete_object(cfg, secret, &obj.key).await?;
         }
@@ -1584,9 +1574,10 @@ pub(crate) async fn s3_delete_object(
         return client.delete_object(key).await;
     }
     let bucket = s3_bucket(cfg, secret)?;
-    bucket.delete_object(key).await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "S3 删除对象失败").with_cause(e.to_string())
-    })?;
+    bucket
+        .delete_object(key)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "S3 删除对象失败").with_cause(e.to_string()))?;
     Ok(())
 }
 
@@ -1600,9 +1591,10 @@ pub(crate) async fn s3_get_object_bytes(
         return client.get_object(key).await;
     }
     let bucket = s3_bucket(cfg, secret)?;
-    let response = bucket.get_object(key).await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string())
-    })?;
+    let response = bucket
+        .get_object(key)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string()))?;
     Ok(response.bytes().to_vec())
 }
 
@@ -1617,9 +1609,10 @@ pub(crate) async fn s3_put_object_bytes(
         return client.put_object(key, data).await;
     }
     let bucket = s3_bucket(cfg, secret)?;
-    bucket.put_object(key, data).await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
-    })?;
+    bucket
+        .put_object(key, data)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string()))?;
     Ok(())
 }
 
@@ -1667,8 +1660,8 @@ pub(crate) async fn s3_copy_object_from_bucket(
         ));
     }
     use s3::command::Command;
-    use s3::request::tokio_backend::HyperRequest;
     use s3::request::Request;
+    use s3::request::tokio_backend::HyperRequest;
 
     let bucket = s3_bucket(dest_cfg, dest_secret)?;
     let from = format!(
@@ -1676,15 +1669,18 @@ pub(crate) async fn s3_copy_object_from_bucket(
         source_bucket.trim_matches('/'),
         source_key.trim_start_matches('/')
     );
-    let command = Command::CopyObject { from: from.as_str() };
+    let command = Command::CopyObject {
+        from: from.as_str(),
+    };
     let request = HyperRequest::new(bucket.as_ref(), dest_key, command)
         .await
         .map_err(|e| {
             OmniError::new(ErrorCode::Io, "S3 跨桶拷贝请求失败").with_cause(e.to_string())
         })?;
-    let response = request.response_data(false).await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "S3 跨桶拷贝失败").with_cause(e.to_string())
-    })?;
+    let response = request
+        .response_data(false)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "S3 跨桶拷贝失败").with_cause(e.to_string()))?;
     let code = response.status_code();
     if !(200..300).contains(&code) {
         return Err(OmniError::new(
@@ -1740,7 +1736,10 @@ mod s3_delete_tests {
         assert!(is_s3_prefix_delete_path("foo/bar", Some("dir")));
         assert!(!is_s3_prefix_delete_path("foo/bar.txt", None));
         assert!(!is_s3_prefix_delete_path("/object.key", None));
-        assert_eq!(normalize_s3_delete_prefix("foo/bar", Some("dir")), "foo/bar/");
+        assert_eq!(
+            normalize_s3_delete_prefix("foo/bar", Some("dir")),
+            "foo/bar/"
+        );
     }
 }
 
@@ -1749,8 +1748,8 @@ mod file_credential_binding_tests {
     use omnipanel_store::{Connection, ConnectionKind};
 
     use super::{
-        ensure_file_connection_id, file_credential_ref_for, is_shared_file_credential_ref,
-        bind_file_connection_secret,
+        bind_file_connection_secret, ensure_file_connection_id, file_credential_ref_for,
+        is_shared_file_credential_ref,
     };
 
     fn blank_file_conn() -> Connection {
@@ -1783,7 +1782,9 @@ mod file_credential_binding_tests {
         );
         // 专属 key 绝不是空 id 的共享槽
         assert_ne!(file_credential_ref_for(&a.id), "file-cred-");
-        assert!(!is_shared_file_credential_ref(&file_credential_ref_for(&a.id)));
+        assert!(!is_shared_file_credential_ref(&file_credential_ref_for(
+            &a.id
+        )));
     }
 
     #[test]
@@ -2060,9 +2061,7 @@ pub async fn file_list_dir(
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
     let cfg = parse_file_config(&conn)?;
     let secret = resolve_secret(&conn).unwrap_or_default();
-    let token = continuation_token
-        .as_deref()
-        .filter(|t| !t.is_empty());
+    let token = continuation_token.as_deref().filter(|t| !t.is_empty());
     let (entries, truncated, next_continuation_token) = match protocol_of(&cfg) {
         FileProtocol::Local => {
             let entries = filter_file_entries(list_local_dir(&path)?, search.as_deref())?;
@@ -2076,15 +2075,11 @@ pub async fn file_list_dir(
             (entries, false, None)
         }
         FileProtocol::Ftp => {
-            let entries = filter_file_entries(
-                list_ftp_dir(&cfg, &secret, &path).await?,
-                search.as_deref(),
-            )?;
+            let entries =
+                filter_file_entries(list_ftp_dir(&cfg, &secret, &path).await?, search.as_deref())?;
             (entries, false, None)
         }
-        FileProtocol::S3 => {
-            list_s3_dir(&cfg, &secret, &path, search.as_deref(), token).await?
-        }
+        FileProtocol::S3 => list_s3_dir(&cfg, &secret, &path, search.as_deref(), token).await?,
     };
     mark_file_connection_online(&state, &connection_id);
     Ok(FileListDirResult {
@@ -2108,12 +2103,13 @@ pub async fn file_s3_search(
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "连接不存在"))?;
     let cfg = parse_file_config(&conn)?;
     if protocol_of(&cfg) != FileProtocol::S3 {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "仅 S3 连接支持此搜索"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "仅 S3 连接支持此搜索",
+        ));
     }
     let secret = resolve_secret(&conn).unwrap_or_default();
-    let token = continuation_token
-        .as_deref()
-        .filter(|t| !t.is_empty());
+    let token = continuation_token.as_deref().filter(|t| !t.is_empty());
     let (entries, truncated, next_continuation_token) =
         search_s3(&cfg, &secret, &query, token).await?;
     mark_file_connection_online(&state, &connection_id);
@@ -2327,9 +2323,11 @@ pub async fn file_mkdir(
             if !key.ends_with('/') {
                 key.push('/');
             }
-            s3_put_object_bytes(&cfg, &secret, &key, &[]).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 创建目录失败").with_cause(e.to_string())
-            })
+            s3_put_object_bytes(&cfg, &secret, &key, &[])
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "S3 创建目录失败").with_cause(e.to_string())
+                })
         }
     }
 }
@@ -2388,9 +2386,11 @@ pub async fn file_rename(
                 .map_err(|e| {
                     OmniError::new(ErrorCode::Io, "S3 写入对象失败").with_cause(e.to_string())
                 })?;
-            s3_delete_object(&cfg, &secret, &old_key).await.map_err(|e| {
-                OmniError::new(ErrorCode::Io, "S3 删除旧对象失败").with_cause(e.to_string())
-            })?;
+            s3_delete_object(&cfg, &secret, &old_key)
+                .await
+                .map_err(|e| {
+                    OmniError::new(ErrorCode::Io, "S3 删除旧对象失败").with_cause(e.to_string())
+                })?;
             Ok(())
         }
     }
@@ -2442,7 +2442,7 @@ pub async fn file_delete(
                 OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
             })?
         }
-        FileProtocol::S3 => delete_s3_path(&cfg, &secret, &path, entry_kind.as_deref()).await
+        FileProtocol::S3 => delete_s3_path(&cfg, &secret, &path, entry_kind.as_deref()).await,
     }
 }
 

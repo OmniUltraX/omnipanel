@@ -1,6 +1,6 @@
 use aes::cipher::{BlockDecryptMut, KeyIvInit};
-use blowfish::cipher::{BlockDecrypt, BlockEncrypt, KeyInit, generic_array::GenericArray};
 use blowfish::Blowfish;
+use blowfish::cipher::{BlockDecrypt, BlockEncrypt, KeyInit, generic_array::GenericArray};
 use cbc::Decryptor;
 use sha1::{Digest, Sha1};
 
@@ -10,10 +10,7 @@ const NAVICAT12_AES_KEY: &[u8; 16] = b"libcckeylibcckey";
 const NAVICAT12_AES_IV: &[u8; 16] = b"libcciv libcciv ";
 
 fn xor_bytes(a: &[u8], b: &[u8]) -> Vec<u8> {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| x ^ y)
-        .collect()
+    a.iter().zip(b.iter()).map(|(x, y)| x ^ y).collect()
 }
 
 fn navicat11_blowfish() -> Blowfish {
@@ -132,8 +129,7 @@ mod tests {
 
     #[test]
     fn decrypt_navicat11_sample() {
-        let plain =
-            decrypt_navicat11("0EA71F51DD37BFB60CCBA219BE3A").expect("decrypt navicat11");
+        let plain = decrypt_navicat11("0EA71F51DD37BFB60CCBA219BE3A").expect("decrypt navicat11");
         assert_eq!(plain, "This is a test");
     }
 }

@@ -134,11 +134,15 @@ mod tests {
 
     #[test]
     fn zhihu_rule_extracts_rich_content() {
-        let body = "这是一段足够长的知乎正文内容，用于验证站点规则能够正确抽取 RichContent 区域里的文字。".repeat(6);
-        let html = format!(r#"<html><body>
+        let body =
+            "这是一段足够长的知乎正文内容，用于验证站点规则能够正确抽取 RichContent 区域里的文字。"
+                .repeat(6);
+        let html = format!(
+            r#"<html><body>
             <h1 class="QuestionHeader-title">测试问题</h1>
             <div class="RichContent"><p>{body}</p></div>
-        </body></html>"#);
+        </body></html>"#
+        );
         let out = extract_by_site_rule(&html, "https://www.zhihu.com/question/123", "markdown")
             .expect("should extract");
         assert!(out.content.contains("测试问题"));
@@ -147,11 +151,14 @@ mod tests {
 
     #[test]
     fn weixin_rule_extracts_js_content() {
-        let body = "微信公众号正文段落，内容需要超过最小长度阈值才能被认定为有效抽取结果。".repeat(7);
-        let html = format!(r#"<html><body>
+        let body =
+            "微信公众号正文段落，内容需要超过最小长度阈值才能被认定为有效抽取结果。".repeat(7);
+        let html = format!(
+            r#"<html><body>
             <h1 id="activity_name">微信标题</h1>
             <div id="js_content"><p>{body}</p></div>
-        </body></html>"#);
+        </body></html>"#
+        );
         let out = extract_by_site_rule(&html, "https://mp.weixin.qq.com/s/abc", "markdown")
             .expect("should extract");
         assert!(out.content.contains("微信标题"));

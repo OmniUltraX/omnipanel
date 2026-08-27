@@ -5,11 +5,7 @@ use crate::model::DockerFileEntry;
 /// 规范化容器内路径；空串视为根目录。
 pub fn normalize_container_dir_path(path: &str) -> &str {
     let trimmed = path.trim();
-    if trimmed.is_empty() {
-        "/"
-    } else {
-        trimmed
-    }
+    if trimmed.is_empty() { "/" } else { trimmed }
 }
 
 /// 解析 `ls -lan` 标准输出为文件条目（忽略 `.` / `..` / total）。

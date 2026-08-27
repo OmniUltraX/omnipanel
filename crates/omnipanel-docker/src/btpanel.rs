@@ -20,18 +20,19 @@ use serde_json::{Map, Value};
 
 use crate::ssh::SshDockerAdapter;
 use crate::{
-    short_id, ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult,
-    DockerComposeAction, DockerComposeProject, DockerComposeProjectFiles,
-    DockerComposeReadFilesRequest, DockerComposeRequest, DockerComposeResult, DockerComposeService,
-    DockerContainerAction, DockerContainerDetail, DockerContainerLogInfo, DockerContainerStats,
-    DockerContainerSummary, DockerCreateContainerRequest, DockerCreateNetworkRequest,
-    DockerCreateServiceRequest, DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail,
-    DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchPage, DockerImageSummary,
-    DockerKeyValue, DockerLogLine, DockerLogQuery, DockerNetworkDetail, DockerNetworkSummary,
-    DockerNodeSummary, DockerOverview, DockerPort, DockerProbe, DockerPruneResult,
-    DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
-    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary,
+    ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
+    DockerComposeProject, DockerComposeProjectFiles, DockerComposeReadFilesRequest,
+    DockerComposeRequest, DockerComposeResult, DockerComposeService, DockerContainerAction,
+    DockerContainerDetail, DockerContainerLogInfo, DockerContainerStats, DockerContainerSummary,
+    DockerCreateContainerRequest, DockerCreateNetworkRequest, DockerCreateServiceRequest,
+    DockerCreateVolumeRequest, DockerFileEntry, DockerImageDetail, DockerImageHistoryLayer,
+    DockerImageProgress, DockerImageSearchPage, DockerImageSummary, DockerKeyValue, DockerLogLine,
+    DockerLogQuery, DockerNetworkDetail, DockerNetworkSummary, DockerNodeSummary, DockerOverview,
+    DockerPort, DockerProbe, DockerPruneResult, DockerPruneVolumesResult, DockerPullResult,
+    DockerServiceSummary, DockerStackSummary, DockerSystemDiskUsage, DockerVolumeDetail,
+    DockerVolumeSummary,
     model::{DockerCapabilities, DockerConnectionStatus},
+    short_id,
 };
 
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -844,9 +845,7 @@ fn parse_image_item(v: &Value) -> Option<DockerImageSummary> {
             if let Some(s) = n.as_str() {
                 Some(s.to_string())
             } else if let Some(arr) = n.as_array() {
-                arr.first()
-                    .and_then(|x| x.as_str())
-                    .map(str::to_string)
+                arr.first().and_then(|x| x.as_str()).map(str::to_string)
             } else {
                 None
             }
@@ -1086,11 +1085,7 @@ fn parse_compose_project(v: &Value) -> Option<DockerComposeProject> {
                         .to_string();
                     Some(DockerComposeService {
                         name: svc_name,
-                        image: s
-                            .get("image")
-                            .and_then(json_str)
-                            .unwrap_or("")
-                            .to_string(),
+                        image: s.get("image").and_then(json_str).unwrap_or("").to_string(),
                         container_count: 1,
                         running_container_count: 0,
                     })
@@ -1362,12 +1357,7 @@ impl DockerAdapter for BtPanelAdapter {
                             e2.message
                         ),
                     )
-                    .with_cause(
-                        first
-                            .err()
-                            .map(|e| e.message)
-                            .unwrap_or_default(),
-                    )),
+                    .with_cause(first.err().map(|e| e.message).unwrap_or_default())),
                 };
             }
             DockerContainerAction::Kill
@@ -1432,11 +1422,7 @@ impl DockerAdapter for BtPanelAdapter {
         self.ssh().prune_images().await
     }
 
-    async fn search_images(
-        &self,
-        term: &str,
-        limit: u32,
-    ) -> OmniResult<DockerImageSearchPage> {
+    async fn search_images(&self, term: &str, limit: u32) -> OmniResult<DockerImageSearchPage> {
         self.ssh().search_images(term, limit).await
     }
 
@@ -1738,9 +1724,7 @@ impl DockerAdapter for BtPanelAdapter {
         compose_content: &str,
         env: Option<Vec<String>>,
     ) -> OmniResult<()> {
-        self.ssh()
-            .stack_deploy(name, compose_content, env)
-            .await
+        self.ssh().stack_deploy(name, compose_content, env).await
     }
 
     async fn stack_list(&self) -> OmniResult<Vec<DockerStackSummary>> {

@@ -12,8 +12,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use omnipanel_ssh::{ssh_config_from_json, ExecOutput, SshSession};
-use omnipanel_store::{inject_ssh_vault_into_config, ConnectionKind, Storage};
+use omnipanel_ssh::{ExecOutput, SshSession, ssh_config_from_json};
+use omnipanel_store::{ConnectionKind, Storage, inject_ssh_vault_into_config};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -30,7 +30,10 @@ fn require_str(args: &Value, key: &str) -> Result<String, String> {
 }
 
 /// 按 resource_id 从 storage 加载 SSH 连接配置并解析为 SshConfig。
-fn resolve_ssh_config(storage: &Storage, resource_id: &str) -> Result<(String, omnipanel_ssh::SshConfig), String> {
+fn resolve_ssh_config(
+    storage: &Storage,
+    resource_id: &str,
+) -> Result<(String, omnipanel_ssh::SshConfig), String> {
     let conn = storage
         .get_connection(resource_id)
         .map_err(|e| e.to_string())?
@@ -38,12 +41,9 @@ fn resolve_ssh_config(storage: &Storage, resource_id: &str) -> Result<(String, o
     if conn.kind != ConnectionKind::Ssh {
         return Err(format!("连接 {resource_id} 不是 SSH 类型"));
     }
-    let (patched, secret) = inject_ssh_vault_into_config(
-        &conn.config,
-        &conn.id,
-        conn.credential_ref.as_deref(),
-    )
-    .map_err(|e| e.to_string())?;
+    let (patched, secret) =
+        inject_ssh_vault_into_config(&conn.config, &conn.id, conn.credential_ref.as_deref())
+            .map_err(|e| e.to_string())?;
     let config = ssh_config_from_json(&patched, secret.as_deref())
         .map_err(|e| format!("SSH 配置解析失败: {}", e.user_message()))?;
     Ok((conn.name, config))
@@ -116,7 +116,10 @@ fn timeout_secs(args: &Value, default: u64) -> u64 {
 }
 
 /// 在远端 `~/.omnipanel/scripts/<name>` 创建脚本并执行（同名覆盖）。
-pub async fn create_run_script(args: Value, storage: Arc<Mutex<Storage>>) -> Result<String, String> {
+pub async fn create_run_script(
+    args: Value,
+    storage: Arc<Mutex<Storage>>,
+) -> Result<String, String> {
     let resource_id = require_str(&args, "resource_id")?;
     let name = require_str(&args, "name")?;
     let content = require_content(&args)?;

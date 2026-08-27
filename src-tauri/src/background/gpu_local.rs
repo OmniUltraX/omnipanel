@@ -3,12 +3,12 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use omnipanel_ssh::{
-    attach_process_gpu, parse_nvidia_gpu_output, parse_nvidia_process_gpu, parse_rocm_smi_output,
-    GpuDeviceStats, GpuStats, SshProcessInfo, NVIDIA_GPU_QUERY, ROCM_SMI_QUERY,
-};
 #[cfg(all(not(windows), not(target_os = "macos")))]
 use omnipanel_ssh::parse_intel_lspci_output;
+use omnipanel_ssh::{
+    GpuDeviceStats, GpuStats, NVIDIA_GPU_QUERY, ROCM_SMI_QUERY, SshProcessInfo, attach_process_gpu,
+    parse_nvidia_gpu_output, parse_nvidia_process_gpu, parse_rocm_smi_output,
+};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -116,9 +116,12 @@ pub fn enrich_local_process_gpu(processes: &mut [SshProcessInfo]) {
 }
 
 fn fetch_process_gpu_map() -> HashMap<u32, f64> {
-    run_nvidia_smi(&["--query-compute-apps=pid,utilization.gpu", "--format=csv,noheader,nounits"])
-        .map(|out| parse_nvidia_process_gpu(&out))
-        .unwrap_or_default()
+    run_nvidia_smi(&[
+        "--query-compute-apps=pid,utilization.gpu",
+        "--format=csv,noheader,nounits",
+    ])
+    .map(|out| parse_nvidia_process_gpu(&out))
+    .unwrap_or_default()
 }
 
 /// Windows 上 nvidia-smi 常不在 PATH，需解析标准安装路径。
@@ -207,11 +210,7 @@ fn run_command(program: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    if text.is_empty() { None } else { Some(text) }
 }
 
 #[cfg(windows)]

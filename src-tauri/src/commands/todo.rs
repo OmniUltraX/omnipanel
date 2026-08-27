@@ -16,10 +16,7 @@ pub async fn todo_list_list(state: State<'_, AppState>) -> Result<Vec<TodoList>,
 
 #[tauri::command]
 #[specta::specta]
-pub async fn todo_list_save(
-    state: State<'_, AppState>,
-    list: TodoList,
-) -> Result<(), OmniError> {
+pub async fn todo_list_save(state: State<'_, AppState>, list: TodoList) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
     storage.save_todo_list(&list)
 }

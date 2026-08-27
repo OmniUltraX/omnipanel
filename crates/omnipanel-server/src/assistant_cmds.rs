@@ -6,15 +6,15 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use omnipanel_assistant::{
+    AuthContext, ChatLatestIndex, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
     assemble_modules, chat_index_from_notify_json, default_collectors, fetch_chat_latest,
     fetch_oss_sts, get_object_bytes, parse_inbound_chat_message, push_snapshot,
     sanitize_assistant_conversation_meta, sanitize_connection_meta, sanitize_db_connection_meta,
     sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta,
-    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json, AuthContext,
-    ChatLatestIndex, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
+    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{load_database_connections, ConnectionKind};
+use omnipanel_store::{ConnectionKind, load_database_connections};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -163,17 +163,15 @@ pub async fn assistant_push_snapshot(
     request: AssistantPushRequest,
 ) -> Result<PushSnapshotResult, OmniError> {
     if request.token.trim().is_empty() && !request.dry_run {
-        return Err(OmniError::new(
-            ErrorCode::Auth,
-            "未登录，无法同步到助手端",
-        ));
+        return Err(OmniError::new(ErrorCode::Auth, "未登录，无法同步到助手端"));
     }
 
     let identity = auth_device_identity().await?;
     let user_id = if request.token.trim().is_empty() {
         None
     } else {
-        auth_get_me(request.token.clone()).await
+        auth_get_me(request.token.clone())
+            .await
             .ok()
             .map(|me| me.id.to_string())
     };
@@ -225,10 +223,7 @@ pub async fn assistant_upload_oss_text(
     request: AssistantUploadTextRequest,
 ) -> Result<AssistantUploadTextResult, OmniError> {
     if request.token.trim().is_empty() {
-        return Err(OmniError::new(
-            ErrorCode::Auth,
-            "未登录，无法上传到 OSS",
-        ));
+        return Err(OmniError::new(ErrorCode::Auth, "未登录，无法上传到 OSS"));
     }
     if request.object_key.trim().is_empty() {
         return Err(OmniError::new(
@@ -278,7 +273,10 @@ pub async fn assistant_chat_fetch_object(
         return Err(OmniError::new(ErrorCode::Auth, "未登录"));
     }
     if object_key.trim().is_empty() {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "object_key 不能为空"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "object_key 不能为空",
+        ));
     }
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&token, &identity.device_id).await?;
@@ -350,9 +348,8 @@ pub(crate) async fn build_auth_context(
 
 async fn build_auth_long(token: &str, device_id: &str) -> Result<AuthContext, OmniError> {
     let proxy = proxy_config();
-    let http = build_http_client_for_url(AUTH_API_BASE, &proxy, SSE_HTTP_TIMEOUT).map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-    })?;
+    let http = build_http_client_for_url(AUTH_API_BASE, &proxy, SSE_HTTP_TIMEOUT)
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     Ok(AuthContext {
         api_base: AUTH_API_BASE.to_string(),
         access_token: token.to_string(),
@@ -903,7 +900,12 @@ async fn upload_encrypted_assistant_payload_if_bound(
     ctx: &CollectContext,
     auth: &AuthContext,
 ) -> Result<(), OmniError> {
-    let Some(bind_id) = ctx.bind_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+    let Some(bind_id) = ctx
+        .bind_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
         return Ok(());
     };
     let Some(pk) = omnipanel_store::load_assistant_binding_pubkey(bind_id)? else {

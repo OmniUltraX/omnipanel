@@ -14,8 +14,8 @@
 //! - MCP 工具执行依赖桌面端 `ToolExecutor`，Web 端暂不注入工具（`tools_mode` 被忽略，
 //!   以 `pure_text` 语义直接推理），工具面能力在后续版本接入。
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use omnipanel_ai::{
     AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalOrchestrator,
@@ -236,10 +236,7 @@ fn build_http_provider(
 }
 
 /// `ai_chat_stream`：流式对话，事件经 Channel 帧回传。
-pub async fn ai_chat_stream(
-    state: &ServerState,
-    args: AiChatStreamArgs,
-) -> Result<(), String> {
+pub async fn ai_chat_stream(state: &ServerState, args: AiChatStreamArgs) -> Result<(), String> {
     let channel_id = args
         .channel_id
         .clone()
@@ -283,17 +280,15 @@ pub async fn ai_chat_stream(
                 .map(|list| list.iter().any(|n| n == "load_skill"))
                 .unwrap_or(true),
         };
-        if let Ok(skills_text) = omnipanel_store::build_skills_system_append_filtered(
-            load_skill_available,
-            &skill_ids,
-        ) {
+        if let Ok(skills_text) =
+            omnipanel_store::build_skills_system_append_filtered(load_skill_available, &skill_ids)
+        {
             if !skills_text.is_empty() {
                 append_parts.push(skills_text);
             }
         }
         if !skill_ids.is_empty() {
-            if let Ok(selected) = omnipanel_store::build_selected_skills_bodies_append(&skill_ids)
-            {
+            if let Ok(selected) = omnipanel_store::build_selected_skills_bodies_append(&skill_ids) {
                 if !selected.is_empty() {
                     append_parts.push(selected);
                 }
@@ -382,10 +377,7 @@ pub async fn ai_chat_stream(
 }
 
 /// `ai_chat_cancel`：置位取消标志。
-pub async fn ai_chat_cancel(
-    state: &ServerState,
-    conversation_id: String,
-) -> Result<(), String> {
+pub async fn ai_chat_cancel(state: &ServerState, conversation_id: String) -> Result<(), String> {
     let flags = state.ai_chat_cancel_flags.lock().await;
     if let Some(flag) = flags.get(&conversation_id) {
         flag.store(true, Ordering::Relaxed);
@@ -450,7 +442,9 @@ pub async fn ai_http_stream_post(
         .ok_or_else(|| "缺少 onEvent".to_string())?;
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(req.timeout_ms.unwrap_or(120_000)))
+        .timeout(std::time::Duration::from_millis(
+            req.timeout_ms.unwrap_or(120_000),
+        ))
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
@@ -494,7 +488,10 @@ pub async fn ai_http_stream_post(
             }
         }
     }
-    bus.emit_channel(&channel_id, serde_json::json!({ "kind": "done", "status": status }));
+    bus.emit_channel(
+        &channel_id,
+        serde_json::json!({ "kind": "done", "status": status }),
+    );
     Ok(())
 }
 
