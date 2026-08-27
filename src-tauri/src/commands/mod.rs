@@ -51,6 +51,7 @@ pub mod pool;
 pub mod protocol;
 pub mod proxy;
 pub mod resource_profile;
+pub mod spring_boot_admin;
 pub mod ssh;
 pub mod ssh_capabilities;
 pub mod system;

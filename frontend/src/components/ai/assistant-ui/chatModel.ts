@@ -223,7 +223,7 @@ export async function* streamOpenAI(
   options?: { signal?: AbortSignal; reasoningEffort?: string },
 ): AsyncGenerator<StreamChunk> {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
-  const url = baseUrl.includes("/v1") ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
+  const url = `${baseUrl}/chat/completions`;
 
   const body: Record<string, unknown> = {
     model: config.name,
@@ -263,7 +263,7 @@ export async function* streamAnthropic(
   options?: { signal?: AbortSignal },
 ): AsyncGenerator<StreamChunk> {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
-  const url = `${baseUrl}/v1/messages`;
+  const url = `${baseUrl}/messages`;
 
   const body: Record<string, unknown> = {
     model: config.name,

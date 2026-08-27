@@ -16,6 +16,7 @@ import {
   BtJavaProjectTargetSelect,
   DatabaseSchemaTargetSelect,
   DockerTargetSelect,
+  SpringBootAdminTargetSelect,
   getSmallComponent,
   listSmallComponents,
   SmallComponentDataSourceSelect,
@@ -435,6 +436,13 @@ function CustomPanelWidgetChrome({
     }
     if (target.kind === "database-schema") return target.database;
     if (target.kind === "bt-java-project") return target.projectName;
+    if (target.kind === "spring-boot-admin") {
+      return (
+        target.application ||
+        target.instanceId.slice(0, 8) ||
+        target.adminUrl
+      );
+    }
     return null;
   }, [liveWidget.target]);
   const displayName = useMemo(() => {
@@ -568,7 +576,17 @@ function CustomPanelWidgetChrome({
             />
           </FormField>
         ) : null}
-        {targetKind ? (
+        {targetKind === "spring-boot-admin" ? (
+          <FormField label={t("homeWorkspace.customPanel.target.springBootAdmin")}>
+            <SpringBootAdminTargetSelect
+              value={liveWidget.target}
+              className="home-custom-panel-widget-edit__control"
+              onChange={(target) =>
+                setCustomPanelWidgetTarget(panelId, liveWidget.id, target)
+              }
+            />
+          </FormField>
+        ) : targetKind ? (
           <FormField
             label={
               targetKind === "docker-container"
@@ -601,7 +619,11 @@ function CustomPanelWidgetChrome({
             ) : (
               <DockerTargetSelect
                 connectionId={liveWidget.dataSourceId ?? null}
-                targetKind={targetKind}
+                targetKind={
+                  targetKind === "docker-compose"
+                    ? "docker-compose"
+                    : "docker-container"
+                }
                 value={liveWidget.target}
                 className="home-custom-panel-widget-edit__control"
                 onChange={(target) =>

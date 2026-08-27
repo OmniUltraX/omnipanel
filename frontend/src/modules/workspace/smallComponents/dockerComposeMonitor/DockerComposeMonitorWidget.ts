@@ -12,6 +12,7 @@ import { DockerComposeMonitorView } from "./DockerComposeMonitorView";
 
 /**
  * Docker Compose 监控：项目内各容器状态 / CPU / 内存。
+ * 尺寸 2x2 一列、4x4 两列；行高随容器数量自动扩展。
  * 数据源：Docker 连接；二级目标：Compose 项目。
  */
 export class DockerComposeMonitorWidget extends SmallComponentBase {

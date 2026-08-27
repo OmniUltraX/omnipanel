@@ -46,6 +46,9 @@ pub struct AiModelProvider {
     pub disabled_model_names: Vec<String>,
     #[serde(default)]
     pub api_model_meta: HashMap<String, ApiModelMeta>,
+    /// 请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。
+    #[serde(default = "default_append_v1")]
+    pub append_v1: bool,
     // 毫秒级时间戳：i64 存储，但 specta 导出为 number（远小于 2^53，无精度损失）
     #[specta(type = f64)]
     pub created_at: i64,
@@ -63,6 +66,10 @@ pub struct AiModelsFile {
 
 fn default_version() -> u32 {
     1
+}
+
+fn default_append_v1() -> bool {
+    true
 }
 
 fn models_file_path(app: &AppHandle) -> Result<PathBuf, String> {

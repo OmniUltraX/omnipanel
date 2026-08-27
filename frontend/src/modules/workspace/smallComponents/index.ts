@@ -65,6 +65,10 @@ export {
   DockerTargetSelect,
   type DockerTargetSelectProps,
 } from "./DockerTargetSelect";
+export {
+  SpringBootAdminTargetSelect,
+  type SpringBootAdminTargetSelectProps,
+} from "./SpringBootAdminTargetSelect";
 
 // 侧效注册内置小组件
 import "./serverResourceMonitor/ServerResourceMonitorWidget";
@@ -73,3 +77,4 @@ import "./dockerComposeMonitor/DockerComposeMonitorWidget";
 import "./mysqlOverview/MysqlOverviewWidget";
 import "./redisOverview/RedisOverviewWidget";
 import "./btJavaWebsiteMonitor/BtJavaWebsiteMonitorWidget";
+import "./springBootAdmin/SpringBootAdminWidget";

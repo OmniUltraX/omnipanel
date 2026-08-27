@@ -1,5 +1,6 @@
 import { commands } from "../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../ipc/result";
+import { resolveApiBaseUrl } from "./ai/resolveApiBaseUrl";
 import { canUseIpcBackend } from "./isTauriRuntime";
 import { withOptionalBearerAuth } from "./fetchHeaders";
 
@@ -22,10 +23,6 @@ export interface ApiModelInfo {
 export interface ApiModelMeta {
   created?: number;
   ownedBy?: string;
-}
-
-function normalizeBaseUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "");
 }
 
 function toApiModelInfo(id: string, created?: number | null, ownedBy?: string | null): ApiModelInfo {
@@ -64,8 +61,9 @@ export async function fetchProviderModelList(
   baseUrl: string,
   apiKey: string,
   apiStandard?: string,
+  appendV1?: boolean,
 ): Promise<{ ok: true; models: ApiModelInfo[] } | { ok: false; error: string }> {
-  const root = normalizeBaseUrl(baseUrl);
+  const root = resolveApiBaseUrl(baseUrl, appendV1 !== false);
   if (!root) {
     return { ok: false, error: "invalid_base_url" };
   }

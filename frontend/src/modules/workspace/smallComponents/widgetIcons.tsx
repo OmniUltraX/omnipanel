@@ -54,6 +54,9 @@ export const RedisOverviewIcon = makeAssetIcon(redisIcon);
 /** 宝塔 Java 网站监控 */
 export const BtJavaWebsiteMonitorIcon = makeAssetIcon(javaIcon);
 
+/** Spring Boot Admin JVM 监控 */
+export const SpringBootAdminIcon = makeAssetIcon(javaIcon);
+
 /** MySQL：随主题切换 light / dark logo */
 export const MysqlOverviewIcon: SmallComponentIcon = function MysqlOverviewIcon({
   size = 18,
