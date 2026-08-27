@@ -1784,6 +1784,9 @@ pub async fn db_introspect_table(
         "clickhouse" | "ch" => {
             introspect_clickhouse_table(&connection, &db_name, table.trim()).await
         }
+        "sqlserver" | "mssql" | "sql server" => {
+            introspect_sqlserver_table(&connection, &db_name, table.trim()).await
+        }
         _ if crate::sidecar::launch_for_params(&with_schema(
             &connection,
             Some(db_name.clone()),
@@ -3163,6 +3166,64 @@ async fn introspect_clickhouse_schema(
         tables,
         views,
         routines: Vec::new(),
+    })
+}
+
+async fn introspect_sqlserver_table(
+    connection: &DbConnectionConfig,
+    db_name: &str,
+    table: &str,
+) -> Result<DbTableSchema, String> {
+    let params = with_schema(connection, Some(db_name.to_string()));
+    let driver = crate::connect(&params).await.map_err(err_msg)?;
+    let safe = table.replace('\'', "''");
+    let sql = format!(
+        "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT \
+         FROM INFORMATION_SCHEMA.COLUMNS \
+         WHERE TABLE_NAME = N'{safe}' \
+         ORDER BY ORDINAL_POSITION"
+    );
+    let result = driver.execute(&sql).await.map_err(err_msg)?;
+    let columns = result
+        .rows
+        .into_iter()
+        .filter_map(|row| {
+            let name = row.first()?.as_str()?.to_string();
+            if name.is_empty() {
+                return None;
+            }
+            let column_type = row
+                .get(1)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let nullable = row
+                .get(2)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|s| s.eq_ignore_ascii_case("YES"));
+            let default_value = row.get(3).and_then(|v| match v {
+                serde_json::Value::Null => None,
+                serde_json::Value::String(s) => Some(s.clone()),
+                other => Some(other.to_string()),
+            });
+            Some(DbColumnMeta {
+                name,
+                column_type,
+                is_pk: false,
+                is_fk: false,
+                nullable,
+                is_auto_increment: false,
+                comment: None,
+                length: None,
+                default_value,
+            })
+        })
+        .collect();
+    Ok(DbTableSchema {
+        name: table.to_string(),
+        columns,
+        indexes: Vec::new(),
+        comment: None,
     })
 }
 

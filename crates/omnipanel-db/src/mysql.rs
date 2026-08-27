@@ -8,7 +8,8 @@ use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{
     DbDriver, DbParams, QueryResult, decode_text_as_json_or_string, encode_blob_value, is_query,
-    map_sqlx_err, safe_int_to_value, sanitize_json_value_for_js, split_statements,
+    map_sqlx_err, numeric_string_to_value, safe_int_to_value, sanitize_json_value_for_js,
+    split_statements,
 };
 
 pub struct MySqlDriver {
@@ -210,6 +211,29 @@ async fn run(pool: &MySqlPool, sql: &str) -> OmniResult<QueryResult> {
     Ok(result)
 }
 
+fn decode_mysql_decimal(row: &MySqlRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<f64, _>(index) {
+        return serde_json::json!(v);
+    }
+    if let Ok(v) = row.try_get::<f32, _>(index) {
+        return serde_json::json!(v);
+    }
+    if let Ok(s) = row.try_get::<String, _>(index) {
+        return numeric_string_to_value(&s);
+    }
+    if let Ok(bytes) = row.try_get::<Vec<u8>, _>(index) {
+        if let Ok(s) = String::from_utf8(bytes) {
+            return numeric_string_to_value(&s);
+        }
+    }
+    if let Ok(bytes) = row.try_get_unchecked::<Vec<u8>, _>(index) {
+        if let Ok(s) = String::from_utf8(bytes) {
+            return numeric_string_to_value(&s);
+        }
+    }
+    Value::Null
+}
+
 fn decode_json_column(row: &MySqlRow, index: usize) -> Option<Value> {
     row.try_get::<Json<Value>, _>(index)
         .ok()
@@ -241,20 +265,22 @@ fn extract(row: &MySqlRow, index: usize) -> Value {
             return safe_int_to_value(v as i128);
         }
     }
-    if (type_name.contains("float")
+    if type_name.contains("float")
         || type_name.contains("double")
-        || type_name.contains("decimal"))
-        && let Ok(v) = row.try_get::<f64, _>(index)
+        || type_name.contains("decimal")
+        || type_name.contains("numeric")
     {
-        return serde_json::json!(v);
+        return decode_mysql_decimal(row, index);
     }
     // 仅真正的 BLOB 类型走二进制编码。不可用 contains("binary")：会误伤 VARBINARY，
     // 以及 Activiti 等历史表里的 VARCHAR BINARY（线上常以 VARBINARY 上报）。
+    // TEXT 在 MySQL 协议里常报成 BLOB；DESC / information_schema 的 Type 列也会走这里。
+    // 可打印 UTF-8 按文本返回，真二进制才编成 blob 结构。
+    if is_mysql_text_type(&type_name) {
+        return decode_binary_or_text_column(row, index);
+    }
     if is_mysql_blob_type(&type_name) {
-        return row
-            .try_get::<Vec<u8>, _>(index)
-            .map(|bytes| encode_blob_value(&bytes))
-            .unwrap_or_else(|_| Value::String("[BLOB]".to_string()));
+        return decode_binary_or_text_column(row, index);
     }
     if is_mysql_binary_type(&type_name) {
         return decode_binary_or_text_column(row, index);
@@ -333,6 +359,13 @@ fn mysql_bit_bytes_to_value(bytes: &[u8]) -> Value {
     }
 }
 
+fn is_mysql_text_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "text" | "tinytext" | "mediumtext" | "longtext"
+    )
+}
+
 fn is_mysql_blob_type(type_name: &str) -> bool {
     matches!(type_name, "blob" | "tinyblob" | "mediumblob" | "longblob")
 }
@@ -378,7 +411,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{is_mysql_text_protocol_only, mysql_bit_bytes_to_value};
+    use super::{
+        is_mysql_blob_type, is_mysql_text_protocol_only, is_mysql_text_type, mysql_bit_bytes_to_value,
+    };
     use serde_json::json;
 
     #[test]
@@ -398,6 +433,15 @@ mod tests {
     #[test]
     fn empty_bit_bytes_are_null() {
         assert_eq!(mysql_bit_bytes_to_value(&[]), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn text_and_blob_type_names() {
+        assert!(is_mysql_text_type("text"));
+        assert!(is_mysql_text_type("longtext"));
+        assert!(!is_mysql_text_type("blob"));
+        assert!(is_mysql_blob_type("blob"));
+        assert!(!is_mysql_blob_type("text"));
     }
 
     #[test]

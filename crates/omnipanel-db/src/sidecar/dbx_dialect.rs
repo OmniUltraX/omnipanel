@@ -190,9 +190,45 @@ pub fn decode_dbx_query_result(value: Value) -> Result<QueryResult, String> {
         serde_json::from_value(value).map_err(|e| format!("QueryResult 非法: {e}"))?;
     Ok(QueryResult {
         columns: parsed.columns,
-        rows: parsed.rows,
+        rows: parsed
+            .rows
+            .into_iter()
+            .map(|row| row.into_iter().map(coerce_dbx_cell).collect())
+            .collect(),
         rows_affected: parsed.rows_affected,
     })
+}
+
+fn coerce_dbx_cell(value: Value) -> Value {
+    match value {
+        Value::String(s) if looks_like_json_number(&s) => crate::numeric_string_to_value(&s),
+        Value::Array(items) => Value::Array(items.into_iter().map(coerce_dbx_cell).collect()),
+        other => other,
+    }
+}
+
+fn looks_like_json_number(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let mut chars = t.chars().peekable();
+    if matches!(chars.peek(), Some('+' | '-')) {
+        chars.next();
+    }
+    let mut saw_digit = false;
+    let mut saw_dot = false;
+    let mut saw_exp = false;
+    for c in chars {
+        match c {
+            '0'..='9' => saw_digit = true,
+            '.' if !saw_dot && !saw_exp => saw_dot = true,
+            'e' | 'E' if saw_digit && !saw_exp => saw_exp = true,
+            '+' | '-' if saw_exp => {}
+            _ => return false,
+        }
+    }
+    saw_digit
 }
 
 pub fn decode_version(value: Value) -> String {
@@ -427,6 +463,17 @@ mod tests {
         let result = decode_dbx_query_result(value).unwrap();
         assert_eq!(result.columns, vec!["X"]);
         assert_eq!(result.rows_affected, 0);
+    }
+
+    #[test]
+    fn query_result_coerces_numeric_strings() {
+        let value = json!({
+            "columns": ["v"],
+            "rows": [["1"], ["neo4j"]],
+        });
+        let result = decode_dbx_query_result(value).unwrap();
+        assert_eq!(result.rows[0][0], json!(1));
+        assert_eq!(result.rows[1][0], json!("neo4j"));
     }
 
     #[test]

@@ -1,10 +1,11 @@
 //! 数据库 MCP 工具 — OmniMCP / 内部 Native 路径共用。
 
-use omnipanel_db::{DbParams, QueryResult, connect, mysql_connect_options};
+use omnipanel_db::{
+    DbParams, QueryResult, connect, db_introspect_table, db_list_databases, mysql_connect_options,
+};
 use omnipanel_store::{DbConnectionConfig, load_database_connections};
 use serde_json::Value;
-use sqlx::Row;
-use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 
 fn require_str(args: &Value, key: &str) -> Result<String, String> {
     args.get(key)
@@ -66,19 +67,6 @@ fn with_database(c: &DbConnectionConfig, database_name: &str) -> DbParams {
     params
 }
 
-fn mysql_row_string(row: &MySqlRow, index: usize) -> String {
-    if let Ok(v) = row.try_get::<String, _>(index) {
-        return v;
-    }
-    if let Ok(Some(v)) = row.try_get::<Option<String>, _>(index) {
-        return v;
-    }
-    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
-        return String::from_utf8_lossy(&v).into_owned();
-    }
-    String::new()
-}
-
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
     let opts = mysql_connect_options(&to_params(connection));
     MySqlPoolOptions::new()
@@ -88,23 +76,11 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
         .map_err(|e| format!("MySQL 连接失败: {e}"))
 }
 
-async fn resolve_connection(connection_name: &str) -> Result<DbConnectionConfig, String> {
-    let conn = resolve_connection_any(connection_name).await?;
-    let db_type = conn.db_type.to_ascii_lowercase();
-    if db_type == "redis" {
-        return Err(format!(
-            "连接 {connection_name} 为 Redis，请使用 Redis 专用工具"
-        ));
-    }
-    Ok(conn)
-}
-
-/// 与 `resolve_connection` 相同，但不拒绝 Redis（processlist / kill / slow_log 支持 Redis）。
 async fn resolve_connection_any(connection_name: &str) -> Result<DbConnectionConfig, String> {
     let connections = load_database_connections().map_err(|e| e.to_string())?;
     let mut conn = connections
         .into_iter()
-        .find(|c| c.name == connection_name)
+        .find(|c| c.name == connection_name || c.id == connection_name)
         .ok_or_else(|| format!("连接不存在：{connection_name}"))?;
     if !conn.enabled {
         return Err(format!("连接已禁用：{connection_name}"));
@@ -129,33 +105,8 @@ fn format_query_result(result: &QueryResult) -> String {
 pub async fn get_databases_from_connection(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let keyword = optional_str(&args, "keyword");
-    let conn = resolve_connection(&connection_name).await?;
-
-    let databases = match conn.db_type.to_ascii_lowercase().as_str() {
-        "mysql" | "mariadb" => {
-            let pool = mysql_pool(&conn).await?;
-            let rows = sqlx::query(
-                "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA ORDER BY SCHEMA_NAME",
-            )
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| format!("Query failed: {e}"))?;
-            let list: Vec<String> = rows.iter().map(|r| mysql_row_string(r, 0)).collect();
-            pool.close().await;
-            list
-        }
-        "redis" => {
-            let preset = conn.database.trim();
-            if preset.is_empty() {
-                (0..16).map(|n| n.to_string()).collect()
-            } else {
-                vec![preset.to_string()]
-            }
-        }
-        _ if !conn.database.trim().is_empty() => vec![conn.database.clone()],
-        _ => vec![],
-    };
-
+    let conn = resolve_connection_any(&connection_name).await?;
+    let databases = db_list_databases(conn).await?;
     let filtered = keyword_filter(&databases, keyword.as_deref());
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "connection": connection_name,
@@ -168,7 +119,7 @@ pub async fn get_tables_from_database(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let database_name = require_str(&args, "database_name")?;
     let keyword = optional_str(&args, "keyword");
-    let conn = resolve_connection(&connection_name).await?;
+    let conn = resolve_connection_any(&connection_name).await?;
     let params = with_database(&conn, &database_name);
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
@@ -188,31 +139,40 @@ pub async fn get_table_info(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let database_name = require_str(&args, "database_name")?;
     let table_name = assert_sql_identifier(&require_str(&args, "table_name")?, "表名")?;
-    let conn = resolve_connection(&connection_name).await?;
-    let params = with_database(&conn, &database_name);
-    let engine = conn.db_type.to_ascii_lowercase();
-
-    let driver = connect(&params).await.map_err(|e| e.user_message())?;
-    let sql = match engine.as_str() {
-        "mysql" | "mariadb" => format!("DESC `{table_name}`"),
-        "sqlite" | "sqlite3" => format!("PRAGMA table_info('{table_name}')"),
-        "postgres" | "postgresql" | "pg" => format!(
-            "SELECT column_name, data_type, is_nullable, column_default \
-             FROM information_schema.columns \
-             WHERE table_schema = current_schema() AND table_name = '{table_name}' \
-             ORDER BY ordinal_position"
-        ),
-        other => return Err(format!("暂不支持 {other} 的表结构 introspect")),
-    };
-    let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
-    Ok(format_query_result(&result))
+    let conn = resolve_connection_any(&connection_name).await?;
+    let schema = db_introspect_table(conn, Some(database_name.clone()), table_name.clone()).await?;
+    let columns = vec![
+        "name".to_string(),
+        "type".to_string(),
+        "nullable".to_string(),
+        "pk".to_string(),
+        "default".to_string(),
+    ];
+    let rows: Vec<Vec<Value>> = schema
+        .columns
+        .into_iter()
+        .map(|col| {
+            vec![
+                Value::String(col.name),
+                Value::String(col.column_type),
+                Value::Bool(col.nullable),
+                Value::Bool(col.is_pk),
+                col.default_value.map(Value::String).unwrap_or(Value::Null),
+            ]
+        })
+        .collect();
+    Ok(format_query_result(&QueryResult {
+        columns,
+        rows,
+        rows_affected: 0,
+    }))
 }
 
 pub async fn execute_sql(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let database_name = require_str(&args, "database_name")?;
     let sql = require_str(&args, "sql")?;
-    let conn = resolve_connection(&connection_name).await?;
+    let conn = resolve_connection_any(&connection_name).await?;
     let params = with_database(&conn, &database_name);
     let wrapped = omnipanel_db::wrap_editor_query(&conn.db_type, &sql, 500, 0);
     let driver = connect(&params).await.map_err(|e| e.user_message())?;
@@ -250,7 +210,7 @@ pub async fn create_run_sql(args: Value) -> Result<String, String> {
     let database_name = require_str(&args, "database_name")?;
     let name = assert_sql_script_name(&require_str(&args, "name")?)?;
     let sql = require_str(&args, "sql")?;
-    let conn = resolve_connection(&connection_name).await?;
+    let conn = resolve_connection_any(&connection_name).await?;
     let params = with_database(&conn, &database_name);
     // 复杂脚本可能含多语句；不对整段做 SELECT limit 包裹，由驱动按语句拆分执行。
     let driver = connect(&params).await.map_err(|e| e.user_message())?;
@@ -304,6 +264,15 @@ pub async fn show_processlist(args: Value) -> Result<String, String> {
             let result = omnipanel_db::redis_client_list(&params)
                 .await
                 .map_err(|e| e.user_message())?;
+            Ok(format_query_result(&result))
+        }
+        "sqlserver" | "mssql" | "sql server" => {
+            let driver = connect(&params).await.map_err(|e| e.user_message())?;
+            let sql = "SELECT session_id AS Id, login_name AS [User], host_name AS Host, \
+                       DB_NAME(database_id) AS db, status AS State, \
+                       DATEDIFF(second, login_time, GETDATE()) AS Time \
+                       FROM sys.dm_exec_sessions WHERE is_user_process = 1 ORDER BY Time DESC";
+            let result = driver.execute(sql).await.map_err(|e| e.user_message())?;
             Ok(format_query_result(&result))
         }
         other => Err(format!("暂不支持 {other} 的 show_processlist")),
@@ -447,16 +416,48 @@ pub async fn slow_log_summary(args: Value) -> Result<String, String> {
                  FROM pg_stat_statements \
                  ORDER BY mean_exec_time DESC LIMIT {count}"
             );
-            let result = driver.execute(&sql).await.map_err(|e| {
-                let msg = e.user_message();
-                if msg.contains("pg_stat_statements") || msg.contains("does not exist") {
-                    format!(
-                        "pg_stat_statements 扩展未启用：{msg}。请在目标库执行 `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` 并在 postgresql.conf 添加 `shared_preload_libraries = 'pg_stat_statements'`"
-                    )
-                } else {
-                    msg
+            let result = driver.execute(&sql).await;
+            match result {
+                Ok(r) => Ok(format_query_result(&r)),
+                Err(e) => {
+                    let msg = e.user_message();
+                    if msg.contains("pg_stat_statements") || msg.contains("does not exist") {
+                        let fallback = format!(
+                            "SELECT query, state, query_start, wait_event_type, wait_event \
+                             FROM pg_stat_activity \
+                             WHERE query IS NOT NULL AND query <> '<IDLE>' \
+                             ORDER BY query_start DESC NULLS LAST LIMIT {count}"
+                        );
+                        let r2 = driver.execute(&fallback).await.map_err(|e2| {
+                            format!(
+                                "pg_stat_statements 未启用（{msg}），回退 pg_stat_activity 也失败：{}",
+                                e2.user_message()
+                            )
+                        })?;
+                        Ok(serde_json::to_string_pretty(&serde_json::json!({
+                            "connection": connection_name,
+                            "source": "pg_stat_activity",
+                            "note": "未启用 pg_stat_statements，已回退当前会话查询",
+                            "result": serde_json::from_str::<Value>(&format_query_result(&r2))
+                                .unwrap_or(Value::Null),
+                        }))
+                        .unwrap_or_else(|_| "{}".to_string()))
+                    } else {
+                        Err(msg)
+                    }
                 }
-            })?;
+            }
+        }
+        "sqlserver" | "mssql" | "sql server" => {
+            let driver = connect(&params).await.map_err(|e| e.user_message())?;
+            let sql = format!(
+                "SELECT TOP {count} qs.total_elapsed_time / 1000 AS elapsed_ms, \
+                 qs.execution_count, SUBSTRING(qt.text, 1, 4000) AS query \
+                 FROM sys.dm_exec_query_stats qs \
+                 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt \
+                 ORDER BY qs.total_elapsed_time DESC"
+            );
+            let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
             Ok(format_query_result(&result))
         }
         "redis" => {

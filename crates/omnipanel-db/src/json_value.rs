@@ -4,6 +4,23 @@
 
 use serde_json::{Map, Value};
 
+/// DECIMAL / NUMERIC 文本：整数走安全 Number，小数优先 JSON number，否则保留字符串。
+pub fn numeric_string_to_value(s: &str) -> Value {
+    let s = s.trim();
+    if matches!(s, "NaN" | "Infinity" | "-Infinity") {
+        return Value::String(s.to_string());
+    }
+    if !s.contains('.') && !s.contains('e') && !s.contains('E') {
+        if let Ok(i) = s.parse::<i128>() {
+            return safe_int_to_value(i);
+        }
+    }
+    if let Ok(f) = s.parse::<f64>() {
+        return serde_json::json!(f);
+    }
+    Value::String(s.to_string())
+}
+
 /// 整数若落在 JS Number 安全区间（±2^53）内返回 number，否则返回字符串以保留精度。
 pub fn safe_int_to_value(v: i128) -> Value {
     const SAFE_MAX: i128 = 1i128 << 53;
