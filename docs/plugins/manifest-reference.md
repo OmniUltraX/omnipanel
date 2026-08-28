@@ -26,10 +26,11 @@
 | `ui.panelTabs` | panel | Tab id 数组（`overview/websites/apps/certificates/cronjobs/databases`），与宿主插槽取交集 |
 | `ui.sidebar` + `ui.moduleKey` | module | 侧栏入口；模块默认 closed |
 | `overlays[]` | addon 等 | `{ id, title(i18n key), entry }` → 设置页「打开面板」，L3 沙箱渲染 |
+| `ui.home` | 有独立界面、能调起的插件 | `{ show, title, icon, open:{ kind: overlay\|importer\|module, id } }` → 首页启动条资格；钉选由用户决定。`icon` 仅包内相对路径 svg/png |
 | `menus[]` | addon | 菜单贡献（`when.hasSelection` 控制显隐） |
 | `launcher.prefix` | addon | 快捷启动前缀（如 Everything 的 `es`） |
 | `discovery[]` | panel/module | 发现 probe 归属声明 `{ probeId }` |
-| `importers[]` | importer | `{ id, entry: "commandPalette" }` 导入向导入口 |
+| `importers[]` | importer | `{ id, title, hint?, fetchMethod, defaultGroup?, defaultTag?, sshAuth?, note?, fields[{key,kind: text\|url\|secret\|checkbox,label,placeholder?,savedHint?,required?,defaultValue?,secretKeyPrefix?}], entry? }`。宿主按此泛化渲染向导；L2 `fetchMethod` 拉目标。`netFetch` 可带 `insecure` 放宽自签证书。样板：`plugins/importer-warpgate/plugin.json` |
 | `themes.tokens` | theme | 公开 token 合同；**theme 禁止 JS**，permissions 必须为空 |
 | `ai.tools[]` | 任意 | `{ name, description, execKind, moduleKey, crossModule, externalExposed, inputSchema }` |
 

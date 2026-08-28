@@ -1,8 +1,9 @@
 import type { ImportCandidate, PluginHost } from "@omnipanel/plugin-sdk";
-import { commands, type Connection } from "../ipc/bindings";
-import { unwrapCommand } from "../ipc/result";
+import { commands, type Connection, type DbConnectionConfig } from "../ipc/bindings";
+import { formatIpcError, unwrapCommand } from "../ipc/result";
 import { getHostSelection } from "./hostSelection";
 import { useConnectionStore } from "../stores/connectionStore";
+import { useDbConnectionListStore } from "../stores/dbConnectionListStore";
 import { usePluginOverlayStore } from "../stores/pluginOverlayStore";
 import { candidateDedupeKey } from "./importCandidates";
 import { panelCandidateMatches } from "../modules/server/panel/panelPlugin";
@@ -84,11 +85,92 @@ function withExternalSource(
   };
 }
 
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function sshAuthFromCandidate(cfg: Record<string, unknown>): Record<string, unknown> {
+  const keyId = asString(cfg.keyId);
+  if (keyId) {
+    return {
+      type: "privateKey",
+      keyPath: "auto",
+      pem: null,
+      keyId,
+      passphrase: asString(cfg.passphrase) || null,
+    };
+  }
+  const password = asString(cfg.password);
+  return { type: "password", password };
+}
+
 async function saveConnection(draft: Connection): Promise<void> {
   const saved = await useConnectionStore.getState().save(draft);
-  if (!saved?.id) {
-    throw new Error("保存连接失败");
-  }
+  if (saved?.id) return;
+  const detail = useConnectionStore.getState().error;
+  throw new Error(detail ? formatIpcError(detail) : "保存连接失败");
+}
+
+export function importExtTag(candidate: ImportCandidate): string {
+  return `ext:${candidate.pluginId}:${candidate.accountId ?? ""}:${candidate.remoteId}`;
+}
+
+function findExistingDbConnection(
+  list: DbConnectionConfig[],
+  candidate: ImportCandidate,
+  host: string,
+  port: number,
+  user: string,
+  dbType: string,
+): DbConnectionConfig | undefined {
+  const ext = importExtTag(candidate);
+  return (
+    list.find((item) => (item.tags ?? []).includes(ext)) ??
+    list.find(
+      (item) =>
+        item.db_type === dbType &&
+        item.host === host &&
+        item.port === port &&
+        item.user === user &&
+        item.name === candidate.name,
+    )
+  );
+}
+
+async function upsertDbCandidate(
+  candidate: ImportCandidate,
+  cfg: Record<string, unknown>,
+): Promise<void> {
+  const dbType = candidate.remoteKind === "postgres" ? "postgresql" : "mysql";
+  const host = asString(cfg.host);
+  const port = asNumber(cfg.port, candidate.remoteKind === "postgres" ? 5432 : 3306);
+  const user = asString(cfg.user);
+  const password = asString(cfg.password);
+  const group = asString(cfg.importGroup) || "默认";
+  const list = await unwrapCommand(commands.dbListConnections());
+  const existing = findExistingDbConnection(list, candidate, host, port, user, dbType);
+  const tags = Array.from(
+    new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags), importExtTag(candidate)]),
+  );
+  await unwrapCommand(
+    commands.dbSaveConnection({
+      id: existing?.id ?? "",
+      name: candidate.name,
+      db_type: dbType,
+      host,
+      port,
+      user,
+      ...(password ? { password } : {}),
+      database: asString(cfg.database) || existing?.database || "",
+      ssl: existing?.ssl ?? false,
+      status: existing?.status ?? "unknown",
+      enabled: existing?.enabled ?? true,
+      tags,
+      group: existing?.group || group,
+    }),
+  );
+  void useDbConnectionListStore.getState().refresh();
 }
 
 async function upsertCandidateConnection(candidate: ImportCandidate): Promise<void> {
@@ -101,16 +183,16 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       id: existing?.id ?? "",
       kind: "ssh",
       name: candidate.name,
-      group: existing?.group || "Warpgate",
+      group: existing?.group || asString(cfg.importGroup) || "默认",
       envTag: existing?.envTag || "unknown",
-      tags: existing?.tags ?? [],
+      tags: Array.from(new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags)])),
       config: JSON.stringify(
         withExternalSource(
           {
             host: asString(cfg.host),
             port: asNumber(cfg.port, 22),
             user: asString(cfg.user, "root"),
-            auth: { type: "password", password: asString(cfg.password) },
+            auth: sshAuthFromCandidate(cfg),
           },
           candidate,
         ),
@@ -126,9 +208,9 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       id: existing?.id ?? "",
       kind: "panel",
       name: candidate.name,
-      group: existing?.group || "默认",
+      group: existing?.group || asString(cfg.importGroup, "默认") || "默认",
       envTag: existing?.envTag || "dev",
-      tags: existing?.tags ?? [],
+      tags: Array.from(new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags)])),
       config: JSON.stringify(
         withExternalSource(
           {
@@ -153,9 +235,9 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       id: existing?.id || asString(cfg.id, `docker-bound-${candidate.accountId ?? candidate.remoteId}`),
       kind: "docker",
       name: candidate.name,
-      group: existing?.group || "默认",
+      group: existing?.group || asString(cfg.importGroup, "默认") || "默认",
       envTag: existing?.envTag || "unknown",
-      tags: existing?.tags ?? [],
+      tags: Array.from(new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags)])),
       config: JSON.stringify(withExternalSource({ ...dockerCfg }, candidate)),
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
@@ -164,21 +246,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
   }
 
   if (candidate.remoteKind === "mysql" || candidate.remoteKind === "postgres") {
-    await unwrapCommand(
-      commands.dbSaveConnection({
-        id: "",
-        name: candidate.name,
-        db_type: candidate.remoteKind === "postgres" ? "postgresql" : "mysql",
-        host: asString(cfg.host),
-        port: asNumber(cfg.port, candidate.remoteKind === "postgres" ? 5432 : 3306),
-        user: asString(cfg.user),
-        password: asString(cfg.password),
-        database: asString(cfg.database),
-        ssl: false,
-        status: "unknown",
-        enabled: true,
-      }),
-    );
+    await upsertDbCandidate(candidate, cfg);
     return;
   }
 

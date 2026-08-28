@@ -1,7 +1,6 @@
 import type { PluginHost, PluginModule } from "@omnipanel/plugin-sdk";
 import { getPluginManifest } from "./pluginManifests";
 import everythingAddon from "../../../plugins/addon-everything/src/index";
-import importerWarpgate from "../../../plugins/importer-warpgate/src/index";
 import panel1Panel from "../../../plugins/panel-1panel/src/index";
 import panelBt from "../../../plugins/panel-bt/src/index";
 
@@ -10,14 +9,14 @@ import panelBt from "../../../plugins/panel-bt/src/index";
  * 唯一允许 import `plugins/*` 逻辑源的宿主模块；阶段 B 换磁盘包/WASM 装载时仅替换本文件，合同不变。
  *
  * 生命周期：`syncPluginLifecycles` 按 enabled+activated 差量驱动
- * activate/deactivate（先卸后启）；贡献点登记全部发生在插件 activate 内。
+ * activate/deactivate（先卸后启）。需要 TS 登记的贡献（面板探测等）在 activate 内完成；
+ * importer 只读清单 `contributes.importers[]`，不必进入本表。
  */
 
 type LifecycleItem = { id: string; enabled: boolean; activated: boolean };
 
 const PLUGIN_MODULES: Record<string, PluginModule> = {
   "omni.addon.everything": everythingAddon,
-  "omni.importer.warpgate": importerWarpgate,
   "omni.panel.1panel": panel1Panel,
   "omni.panel.bt": panelBt,
 };

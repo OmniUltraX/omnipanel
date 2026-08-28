@@ -18,12 +18,15 @@ function isSystemTag(tag: string): boolean {
 type Props = {
   tags: string[];
   onChange: (tags: string[]) => void;
+  /** 不可删除的默认标签 */
+  lockedTags?: string[];
 };
 
-export function ResourceTagEditor({ tags, onChange }: Props) {
+export function ResourceTagEditor({ tags, onChange, lockedTags = [] }: Props) {
   const { t } = useI18n();
   const [draft, setDraft] = useState("");
 
+  const locked = new Set(lockedTags);
   const systemTags = sortTagsForDisplay(tags.filter(isSystemTag));
   const customTags = sortTagsForDisplay(tags.filter((t) => !isSystemTag(t)));
 
@@ -45,6 +48,7 @@ export function ResourceTagEditor({ tags, onChange }: Props) {
   };
 
   const removeTag = (tag: string) => {
+    if (locked.has(tag)) return;
     onChange(tags.filter((t) => t !== tag));
   };
 
@@ -71,14 +75,16 @@ export function ResourceTagEditor({ tags, onChange }: Props) {
                   <span className="resource-tag-editor-chip-text" title={tag}>
                     {value}
                   </span>
-                  <button
-                    type="button"
-                    className="resource-tag-editor-chip-remove"
-                    onClick={() => removeTag(tag)}
-                    aria-label={t("resourceTags.remove")}
-                  >
-                    ×
-                  </button>
+                  {locked.has(tag) ? null : (
+                    <button
+                      type="button"
+                      className="resource-tag-editor-chip-remove"
+                      onClick={() => removeTag(tag)}
+                      aria-label={t("resourceTags.remove")}
+                    >
+                      ×
+                    </button>
+                  )}
                 </span>
               );
             })}

@@ -18,7 +18,7 @@ import { NotificationDrawer } from "./components/shell/NotificationDrawer";
 import { AiDrawer } from "./components/ai/AiDrawer";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
-import { WarpgateImportDialog } from "./modules/importer/WarpgateImportDialog";
+import { ImporterWizardDialog } from "./modules/importer/ImporterWizardDialog";
 import { TeamShareDialogConnected } from "./components/share/TeamShareDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { PluginOverlayHost } from "./components/ui/overlay/PluginOverlayHost";
@@ -738,7 +738,7 @@ function AppShell() {
       <SubWindowMinimizedStack />
       <ResourceProfileSubWindow />
       <ApprovalDialog />
-      <WarpgateImportDialog />
+      <ImporterWizardDialog />
       <TeamShareDialogConnected />
       </div>
     </AiRuntimeProvider>

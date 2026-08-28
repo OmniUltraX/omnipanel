@@ -169,6 +169,9 @@ impl PluginManifest {
                 )));
             }
         }
+        if let Some(home) = &self.contributes.ui.home {
+            home.validate()?;
+        }
         Ok(())
     }
 

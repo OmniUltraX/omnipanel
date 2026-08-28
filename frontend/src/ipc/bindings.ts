@@ -1044,6 +1044,12 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
+	pluginStateGet: (pluginId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_get", { pluginId })),
+	pluginStateSet: (pluginId: string, payload: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_set", { pluginId, payload })),
+	pluginSecretPut: (pluginId: string, key: string, secret: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_put", { pluginId, key, secret })),
+	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
+	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
+	pluginSecretDelete: (pluginId: string, key: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_delete", { pluginId, key })),
 	/**  列出当前平台可安装的 DBX SQL / CQL / Cypher agent（不含第一方引擎 / DuckDB worker / 队列）。 */
 	pluginDbxCatalog: () => typedError<DbxCatalogDriver[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_catalog")),
 	/**  从 DBX 官方目录下载 native 或 JDBC agent，写入 `app_data/plugins/omni.engine.<key>/`。 */

@@ -21,6 +21,10 @@
 L2 调用的 method 未出现在清单 `methods[]`，或插件处于未激活状态。
 → 检查白名单声明；确认设置页该插件为启用且已激活。
 
+### 「逻辑包未实例化」/「插件逻辑执行器未启用」
+默认构建已开启 `plugin-js`。示例导入器（`importer-warpgate`）的 `logic.js` 嵌入二进制，启动时 `sync_plugin_logic` 装载，不必先安装到 `app_data/plugins/`。
+→ 确认 `src-tauri` 的 default feature 含 `plugin-js`；看主进程 `[plugin-logic]` 日志。
+
 ### `缺少权限 <perm>`
 能力调用超出 `permissions` 声明。
 → 补声明后重新打包安装（权限收紧方向无需用户确认，放宽需重装）。

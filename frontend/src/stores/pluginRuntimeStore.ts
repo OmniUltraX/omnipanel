@@ -11,7 +11,6 @@ import { setInstalledPluginManifests } from "../lib/pluginManifests";
 import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk";
 
 export const PLUGIN_ID_EVERYTHING = "omni.addon.everything";
-export const PLUGIN_ID_WARPGATE = "omni.importer.warpgate";
 
 interface PluginRuntimeStore {
   items: PluginListItem[];

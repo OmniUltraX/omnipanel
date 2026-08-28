@@ -4,14 +4,16 @@ import { useI18n } from "../../i18n";
 import { commands, type DbxCatalogDriver, type PluginListItem } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { Button } from "../ui/primitives/Button";
-import { openWarpgateImport } from "../../modules/importer/WarpgateImportDialog";
+import { openImporter } from "../../modules/importer/ImporterWizardDialog";
 import {
   PLUGIN_ID_EVERYTHING,
-  PLUGIN_ID_WARPGATE,
   usePluginRuntimeStore,
 } from "../../stores/pluginRuntimeStore";
 import { getPluginManifest } from "../../lib/pluginManifests";
-import { usePluginOverlayStore } from "../../stores/pluginOverlayStore";
+import { importerEntries, listActiveImporters, resolveImporterText } from "../../lib/importerCatalog";
+import { parsePluginHomeContribution } from "../../lib/pluginHomeContribution";
+import { openPluginOverlay } from "../../lib/pluginHomeLaunch";
+import { usePluginHomePinStore } from "../../stores/pluginHomePinStore";
 import { useDbxCatalogStore } from "../../stores/dbxCatalogStore";
 
 const PLUGIN_NAME_KEYS: Record<string, string> = {
@@ -26,7 +28,7 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.engine.sqlserver": "plugins.names.sqlserver",
   "omni.engine.redis": "plugins.names.redis",
   "omni.module.nacos": "plugins.names.nacos",
-  [PLUGIN_ID_WARPGATE]: "plugins.names.warpgate",
+  "omni.importer.warpgate": "plugins.names.warpgate",
   "omni.panel.1panel": "plugins.names.onepanel",
   "omni.panel.bt": "plugins.names.bt",
   "omni.theme.default": "plugins.names.themeDefault",
@@ -59,6 +61,8 @@ export function PluginsSettingsSection() {
   const catalogLoading = catalogRefreshing && catalog.length === 0;
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const syncRuntime = usePluginRuntimeStore((s) => s.reload);
+  const homeHiddenIds = usePluginHomePinStore((s) => s.hiddenIds);
+  const setHomePinned = usePluginHomePinStore((s) => s.setPinned);
 
   const reload = useCallback(async () => {
     try {
@@ -108,21 +112,9 @@ export function PluginsSettingsSection() {
     }
   };
 
-  const openPluginOverlay = async (item: PluginListItem) => {
+  const openOverlay = async (item: PluginListItem) => {
     try {
-      const manifest = getPluginManifest(item.id);
-      const overlay = manifest?.contributes.overlays?.[0] as
-        | { id?: string; title?: string; entry?: string }
-        | undefined;
-      const entry = overlay?.entry ?? "ui/index.html";
-      const html = await unwrapCommand(commands.pluginReadAsset(item.id, entry));
-      usePluginOverlayStore.getState().show({
-        id: `${item.id}:overlay`,
-        pluginId: item.id,
-        title: overlay?.title ? t(overlay.title) : item.id,
-        body: "",
-        sandboxHtml: html,
-      });
+      await openPluginOverlay(item.id);
     } catch (err) {
       setError(String(err));
     }
@@ -160,8 +152,8 @@ export function PluginsSettingsSection() {
     }
   };
 
-  const warpgateOn = items.some(
-    (item) => item.id === PLUGIN_ID_WARPGATE && item.enabled && item.activated,
+  const settingsImporters = listActiveImporters(items).filter((entry) =>
+    importerEntries(entry.importer).includes("settings"),
   );
 
   return (
@@ -198,10 +190,23 @@ export function PluginsSettingsSection() {
                 size="sm"
                 variant="primary"
                 disabled={busyId === item.id}
-                onClick={() => void openPluginOverlay(item)}
+                onClick={() => void openOverlay(item)}
               >
                 {t("plugins.openOverlay")}
               </Button>
+            ) : null}
+            {parsePluginHomeContribution(getPluginManifest(item.id)) &&
+            item.enabled &&
+            item.activated ? (
+              <label className="form-check">
+                <input
+                  type="checkbox"
+                  checked={!homeHiddenIds.includes(item.id)}
+                  disabled={busyId === item.id}
+                  onChange={(event) => setHomePinned(item.id, event.target.checked)}
+                />
+                <span>{t("plugins.homePin")}</span>
+              </label>
             ) : null}
             {item.source === "installed" ? (
               <Button
@@ -306,17 +311,21 @@ export function PluginsSettingsSection() {
           {t("plugins.install.action")}
         </Button>
       </div>
-      {warpgateOn ? (
-        <div className="setting-row">
+      {settingsImporters.map((entry) => (
+        <div key={`${entry.pluginId}:${entry.importer.id}`} className="setting-row">
           <div className="setting-label">
-            <h4>{t("plugins.warpgate.title")}</h4>
-            <p>{t("plugins.warpgate.hint")}</p>
+            <h4>{resolveImporterText(entry.importer.title, t)}</h4>
+            <p>{resolveImporterText(entry.importer.hint, t)}</p>
           </div>
-          <Button type="button" size="sm" onClick={() => openWarpgateImport()}>
-            {t("plugins.warpgate.open")}
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => openImporter(entry.pluginId, entry.importer.id)}
+          >
+            {t("plugins.importer.open")}
           </Button>
         </div>
-      ) : null}
+      ))}
     </div>
   );
 }

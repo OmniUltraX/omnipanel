@@ -95,6 +95,24 @@ pub trait PluginHostBridge: Send + Sync {
     fn invoke(&self, _method: &str, _args_json: &str) -> Result<String, String> {
         Err("invoke 未装配".into())
     }
+    fn vault_get(&self, _key: &str) -> Result<String, String> {
+        Err("vault.get 未装配".into())
+    }
+    fn vault_has(&self, _key: &str) -> Result<bool, String> {
+        Err("vault.has 未装配".into())
+    }
+    fn vault_put(&self, _key: &str, _secret: &str) -> Result<(), String> {
+        Err("vault.put 未装配".into())
+    }
+    fn vault_delete(&self, _key: &str) -> Result<(), String> {
+        Err("vault.delete 未装配".into())
+    }
+    fn state_get(&self) -> Result<String, String> {
+        Err("state.get 未装配".into())
+    }
+    fn state_set(&self, _payload: &str) -> Result<(), String> {
+        Err("state.set 未装配".into())
+    }
 }
 
 /// 按逻辑包类型路由到对应引擎的组合执行器。

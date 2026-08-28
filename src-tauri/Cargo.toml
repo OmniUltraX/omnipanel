@@ -14,8 +14,9 @@ path = "src/main.rs"
 
 [features]
 plugin-wasm = ["dep:omnipanel-plugin-wasm"]
-plugin-js = ["dep:omnipanel-plugin-js"]
-default = []
+# 兼容旧命令行。Tauri CLI 固定 `--no-default-features`，L2 JS 已改为硬依赖，
+# 不能再靠 default= ["plugin-js"]（`tauri dev --features dev-mcp` 会把 default 剥掉）。
+plugin-js = []
 # 仅用于排查打包问题；正式发布勿启用（macOS 使用私有 API，无法上架 App Store）。
 debug-inspector = ["tauri/devtools"]
 # 开发期 MCP Bridge（UI 自动化 / IPC 监控 / 日志抓取）。
@@ -54,7 +55,7 @@ omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 omnipanel-plugin = { path = "../crates/omnipanel-plugin" }
 omnipanel-plugin-pkg = { path = "../crates/omnipanel-plugin-pkg" }
 omnipanel-plugin-wasm = { path = "../crates/omnipanel-plugin-wasm", optional = true }
-omnipanel-plugin-js = { path = "../crates/omnipanel-plugin-js", optional = true }
+omnipanel-plugin-js = { path = "../crates/omnipanel-plugin-js" }
 omnipanel-everything = { path = "../crates/omnipanel-everything" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
 omnipanel-transfer = { path = "../crates/omnipanel-transfer", features = ["specta"] }

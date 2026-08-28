@@ -2208,6 +2208,82 @@ select,
     overflow: hidden;
 }
 
+.home-board-launch {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+    padding: var(--sp-3) var(--sp-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.home-board-launch__item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 88px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.home-board-launch__item:hover .home-board-launch__icon {
+    outline: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+    outline-offset: 1px;
+}
+
+.home-board-launch__item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--r-md);
+}
+
+.home-board-launch__icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r-md);
+    border: none;
+    background: #0b1220;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 0;
+}
+
+.home-board-launch__icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.home-board-launch__letter {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1;
+}
+
+.home-board-launch__label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--meta);
+    text-align: center;
+}
+
 .home-board-ai {
     position: relative;
     flex: 0 0 auto;
@@ -28372,6 +28448,143 @@ body.quick-launcher-body {
   vertical-align: middle;
   background: var(--color-accent-soft, rgba(59, 130, 246, 0.15));
   color: var(--color-accent, #3b82f6);
+}
+
+.form-dialog.importer-wizard-dialog {
+  width: min(1080px, 96vw);
+  height: min(640px, 90vh);
+}
+
+.form-dialog.importer-wizard-dialog .modal-header {
+  gap: 4px;
+}
+
+.importer-wizard-body {
+  padding: 0 !important;
+  overflow: hidden !important;
+  min-height: 0;
+  flex: 1;
+  display: flex !important;
+}
+
+.importer-wizard {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.importer-wizard__rail {
+  width: 280px;
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+.importer-wizard__rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted, var(--fg));
+}
+
+.importer-wizard__update {
+  width: 100%;
+}
+
+.importer-wizard__main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  overflow: auto;
+}
+
+.importer-wizard__editor,
+.importer-wizard__resources {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+
+.importer-wizard__resources-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.importer-wizard__pane-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.importer-wizard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.importer-wizard__empty {
+  margin: 8px 0 0;
+}
+
+.importer-wizard__auth {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.importer-wizard__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.importer-wizard__gear.is-active {
+  color: var(--accent);
+}
+
+.importer-wizard-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.importer-wizard-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.importer-wizard-source-row .btn {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.importer-wizard-source-row .btn.is-active {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
+}
+
+.importer-wizard-source-row .btn-ghost:nth-last-child(-n + 2) {
+  flex: 0 0 auto;
 }
 
 .settings-plugins-actions {

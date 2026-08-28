@@ -89,6 +89,23 @@ describe("pluginManifests 单源目录", () => {
     expect(manifestPanelTabIds(null)).toEqual([]);
   });
 
+  it("示例 importer 用清单声明向导与首页入口", () => {
+    const manifest = getPluginManifest("omni.importer.warpgate");
+    const home = manifest?.contributes.ui?.home;
+    const importer = manifest?.contributes.importers?.[0];
+    expect(home?.show).toBe(true);
+    expect(home?.open).toEqual({ kind: "importer", id: "warpgate" });
+    expect(home?.icon).toBe("icon.svg");
+    expect(importer?.id).toBe("warpgate");
+    expect(importer?.fetchMethod).toBe("fetchTargets");
+    expect(importer?.fields.some((field) => field.key === "token" && field.secretKeyPrefix === "src")).toBe(
+      true,
+    );
+    expect(importer?.fields.some((field) => field.key === "insecureTls" && field.kind === "checkbox")).toBe(
+      true,
+    );
+  });
+
   it("legacy 别名解析到插件 id", () => {
     expect(resolveLegacyPluginId("aliyun")).toBe("omni.cloud.aliyun");
     expect(resolveLegacyPluginId(" omni.cloud.aliyun ")).toBe("omni.cloud.aliyun");

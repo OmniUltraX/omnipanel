@@ -707,6 +707,14 @@ const MIGRATIONS: &[&str] = &[
     UPDATE app_modules SET sort_order = 9 WHERE module_key = 'web';
     UPDATE app_modules SET sort_order = 10 WHERE module_key = 'cloud';
     "#,
+    // v36 — 插件非敏感状态（JSON）；敏感值走 Vault `plugin:{id}:{key}`
+    r#"
+    CREATE TABLE IF NOT EXISTS plugin_state (
+        plugin_id  TEXT PRIMARY KEY,
+        payload    TEXT NOT NULL DEFAULT '{}',
+        updated_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

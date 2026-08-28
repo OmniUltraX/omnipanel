@@ -71,6 +71,70 @@ export const pluginEntrySchema = z
 
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 
+/** 首页启动条调起方式：对齐现有 overlay / 导入向导 / 模块路由。 */
+export const pluginHomeOpenKindSchema = z.enum(["overlay", "importer", "module"]);
+
+export type PluginHomeOpenKind = z.infer<typeof pluginHomeOpenKindSchema>;
+
+function isPackageIconPath(path: string): boolean {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed.startsWith("/") || trimmed.startsWith("\\") || trimmed.includes("://")) {
+    return false;
+  }
+  if (trimmed.split(/[\\/]/).includes("..")) return false;
+  return /\.(svg|png)$/i.test(trimmed);
+}
+
+export const pluginHomeOpenSchema = z.object({
+  kind: pluginHomeOpenKindSchema,
+  id: z.string().min(1),
+});
+
+export const pluginHomeContributionSchema = z.object({
+  show: z.boolean().default(true),
+  title: z.string().min(1),
+  icon: z
+    .string()
+    .refine(isPackageIconPath, "home.icon 仅允许包内相对路径的 svg/png")
+    .optional(),
+  open: pluginHomeOpenSchema,
+});
+
+export const importerFieldKindSchema = z.enum(["text", "url", "secret", "checkbox"]);
+
+export const importerFieldSchema = z.object({
+  key: z.string().min(1),
+  kind: importerFieldKindSchema,
+  label: z.string().min(1),
+  placeholder: z.string().optional(),
+  savedHint: z.string().optional(),
+  required: z.boolean().optional(),
+  /** 非 secret 字段的初始值（checkbox 用 "true" / "false"） */
+  defaultValue: z.string().optional(),
+  /** 钥匙串 key 前缀，默认用 field.key；完整 key 为 `{prefix}-{sourceId}` */
+  secretKeyPrefix: z.string().min(1).optional(),
+});
+
+export const importerEntrySchema = z.enum(["commandPalette", "settings", "home"]);
+
+export const importerContributionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  hint: z.string().optional(),
+  fetchMethod: z.string().min(1),
+  defaultGroup: z.string().optional(),
+  defaultTag: z.string().optional(),
+  sshAuth: z.boolean().optional(),
+  note: z.string().optional(),
+  fields: z.array(importerFieldSchema).default([]),
+  entry: z.union([importerEntrySchema, z.array(importerEntrySchema)]).optional(),
+});
+
+export type ImporterField = z.infer<typeof importerFieldSchema>;
+export type ImporterContribution = z.infer<typeof importerContributionSchema>;
+
+export type PluginHomeContribution = z.infer<typeof pluginHomeContributionSchema>;
+
 export const pluginManifestSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
@@ -99,13 +163,14 @@ export const pluginManifestSchema = z.object({
               connectionInfo: z.enum(["sql", "redis", "none"]).optional(),
             })
             .optional(),
+          home: pluginHomeContributionSchema.optional(),
         })
         .optional(),
       menus: z.array(z.unknown()).optional(),
       overlays: z.array(z.unknown()).optional(),
       launcher: z.object({ prefix: z.string().min(1) }).nullable().optional(),
       discovery: z.array(z.object({ probeId: z.string() })).optional(),
-      importers: z.array(z.unknown()).optional(),
+      importers: z.array(importerContributionSchema).optional(),
       themes: z.object({ tokens: z.unknown().optional() }).nullable().optional(),
       ai: z.object({ tools: z.array(aiToolContributionSchema).optional() }).nullable().optional(),
       workspace: z.unknown().nullable().optional(),

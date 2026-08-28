@@ -16,7 +16,8 @@ use omnipanel_plugin::{
     ConfirmFuture, ConfirmRequest, InvokeGateway, PluginError, PluginHostBridge, PluginPermission,
     PluginRegistry, ProdConfirmer,
 };
-use omnipanel_store::{AuditEntry, Storage};
+use omnipanel_error::ErrorCode;
+use omnipanel_store::{plugin_secret_ref, AuditEntry, Storage, Vault};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
@@ -119,6 +120,38 @@ struct NetSpec {
     url: String,
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// 自签证书常见于堡垒 / 面板；仅当插件显式请求时放宽校验。
+    #[serde(default)]
+    insecure: bool,
+}
+
+fn format_net_error(err: reqwest::Error) -> String {
+    let msg = err.to_string();
+    let lower = msg.to_lowercase();
+    if lower.contains("certificate")
+        || lower.contains("cert")
+        || lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("unknown issuer")
+        || lower.contains("self signed")
+        || lower.contains("self-signed")
+    {
+        format!(
+            "TLS 证书不受信任。若目标使用自签证书，请勾选「允许自签证书」后重试。{msg}"
+        )
+    } else {
+        format!("请求失败: {msg}")
+    }
+}
+
+fn http_client_for(shared: &reqwest::Client, insecure: bool) -> Result<reqwest::Client, String> {
+    if !insecure {
+        return Ok(shared.clone());
+    }
+    reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))
 }
 
 fn args_digest(payload: &str) -> String {
@@ -127,23 +160,35 @@ fn args_digest(payload: &str) -> String {
     format!("sha256:{:x} len={}", hasher.finalize(), payload.len())
 }
 
+/// 同步桥里不能 `Handle::block_on`：当前线程若已在驱动 async（含 spawn_blocking
+/// 里再 block_on 一个 Future），Tokio 会 panic「Cannot start a runtime from within a runtime」。
+fn block_on_detached<T: Send + 'static>(
+    fut: impl std::future::Future<Output = T> + Send + 'static,
+) -> T {
+    let handle = tokio::runtime::Handle::current();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    handle.spawn(async move {
+        let _ = tx.send(fut.await);
+    });
+    rx.recv().expect("plugin bridge 异步任务已取消")
+}
+
 impl PluginBridge {
     fn require(&self, permission: PluginPermission) -> Result<(), PluginError> {
-        let rt = tokio::runtime::Handle::current();
         let registry = Arc::clone(&self.registry);
-        rt.block_on(async move {
+        let plugin_id = self.plugin_id.clone();
+        block_on_detached(async move {
             let guard = registry.lock().await;
-            guard.require_permission(&self.plugin_id, permission)
+            guard.require_permission(&plugin_id, permission)
         })
     }
 
     fn audit(&self, action: &str, status: &str, detail: String) {
-        let rt = tokio::runtime::Handle::current();
         let storage = Arc::clone(&self.storage);
         let plugin_id = self.plugin_id.clone();
         let action = action.to_string();
         let status = status.to_string();
-        rt.block_on(async move {
+        block_on_detached(async move {
             let store = storage.lock().await;
             let _ = store.append_audit(&AuditEntry {
                 ts: std::time::SystemTime::now()
@@ -160,30 +205,26 @@ impl PluginBridge {
         });
     }
 
-    /// URL 是否命中 prod 标记的连接目标主机。
-    fn is_prod_target(&self, host: &str) -> Result<bool, PluginError> {
-        let rt = tokio::runtime::Handle::current();
-        let storage = Arc::clone(&self.storage);
+    /// URL 是否命中 prod 标记的连接目标主机。必须 async，避免在 worker 上再 `recv`。
+    async fn is_prod_target(&self, host: &str) -> Result<bool, PluginError> {
+        let store = self.storage.lock().await;
         let host = host.to_ascii_lowercase();
-        rt.block_on(async move {
-            let store = storage.lock().await;
-            let conns = store
-                .list_connections()
-                .map_err(|e| PluginError::Invoke(format!("读取连接失败: {e}")))?;
-            Ok(conns.iter().any(|conn| {
-                conn.env_tag.eq_ignore_ascii_case("prod")
-                    && config_hosts(&conn.config)
-                        .into_iter()
-                        .any(|h| h.eq_ignore_ascii_case(&host))
-            }))
-        })
+        let conns = store
+            .list_connections()
+            .map_err(|e| PluginError::Invoke(format!("读取连接失败: {e}")))?;
+        Ok(conns.iter().any(|conn| {
+            conn.env_tag.eq_ignore_ascii_case("prod")
+                && config_hosts(&conn.config)
+                    .into_iter()
+                    .any(|h| h.eq_ignore_ascii_case(&host))
+        }))
     }
 
     async fn prod_gate(&self, action: &str, target: &str) -> Result<(), PluginError> {
         let Some(host) = extract_host(target) else {
             return Ok(());
         };
-        if !self.is_prod_target(&host)? {
+        if !self.is_prod_target(&host).await? {
             return Ok(());
         }
         let allowed = self
@@ -272,19 +313,17 @@ impl PluginHostBridge for PluginBridge {
             confirmer: Arc::clone(&self.confirmer),
         };
         let gate_target = spec.url.clone();
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(gate_bridge.prod_gate("net.fetch", &gate_target))
+        block_on_detached(async move { gate_bridge.prod_gate("net.fetch", &gate_target).await })
             .map_err(|e| e.to_string())?;
 
-        let mut request = self.http.get(&spec.url);
+        let client = http_client_for(&self.http, spec.insecure)?;
+        let mut request = client.get(&spec.url).timeout(Duration::from_secs(20));
         for (key, value) in &spec.headers {
             request = request.header(key, value);
         }
-        let response = rt
-            .block_on(async move { request.send().await?.error_for_status() })
-            .map_err(|e| format!("请求失败: {e}"))?;
-        let body = rt
-            .block_on(async move { response.text().await })
+        let response = block_on_detached(async move { request.send().await?.error_for_status() })
+            .map_err(format_net_error)?;
+        let body = block_on_detached(async move { response.text().await })
             .map_err(|e| format!("读取响应失败: {e}"))?;
         self.audit("plugin.net", "success", args_digest(spec_json));
         Ok(body)
@@ -315,10 +354,9 @@ impl PluginHostBridge for PluginBridge {
         if candidate.plugin_id != self.plugin_id {
             return Err("候选 pluginId 与当前插件不一致".into());
         }
-        let rt = tokio::runtime::Handle::current();
         let storage = Arc::clone(&self.storage);
         let dedupe = candidate.dedupe_key().0;
-        rt.block_on(async move {
+        block_on_detached(async move {
             let store = storage.lock().await;
             save_candidate(&store, &candidate)
         })
@@ -330,22 +368,20 @@ impl PluginHostBridge for PluginBridge {
     fn invoke(&self, method: &str, args_json: &str) -> Result<String, String> {
         // 与 plugin_invoke 命令同源的白名单+权限强制
         let decl = {
-            let rt = tokio::runtime::Handle::current();
             let registry = Arc::clone(&self.registry);
             let method = method.to_string();
             let pid = self.plugin_id.clone();
-            rt.block_on(async move {
+            block_on_detached(async move {
                 let guard = registry.lock().await;
                 guard.declared_method(&pid, &method)
             })
         }
         .map_err(|e| e.to_string())?;
         {
-            let rt = tokio::runtime::Handle::current();
             let registry = Arc::clone(&self.registry);
             let pid = self.plugin_id.clone();
             let perms = decl.permissions.clone();
-            rt.block_on(async move {
+            block_on_detached(async move {
                 let guard = registry.lock().await;
                 for permission in perms {
                     guard.require_permission(&pid, permission)?;
@@ -359,12 +395,76 @@ impl PluginHostBridge for PluginBridge {
         let gateway = Arc::clone(&self.gateway);
         let pid = self.plugin_id.clone();
         let method = method.to_string();
-        let rt = tokio::runtime::Handle::current();
         let result: Result<serde_json::Value, PluginError> =
-            rt.block_on(gateway.invoke(&pid, &method, args));
+            block_on_detached(async move { gateway.invoke(&pid, &method, args).await });
         result
             .map(|value| value.to_string())
             .map_err(|e: PluginError| e.to_string())
+    }
+
+    fn vault_get(&self, key: &str) -> Result<String, String> {
+        self.require(PluginPermission::VaultRead)
+            .map_err(|e| e.to_string())?;
+        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
+        let secret = Vault::get(&reference).map_err(|e| e.to_string())?;
+        self.audit("plugin.secret", "success", format!("get {key}"));
+        Ok(secret)
+    }
+
+    fn vault_has(&self, key: &str) -> Result<bool, String> {
+        self.require(PluginPermission::VaultRead)
+            .map_err(|e| e.to_string())?;
+        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
+        match Vault::get(&reference) {
+            Ok(_) => Ok(true),
+            Err(err) if err.code == ErrorCode::NotFound => Ok(false),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
+    fn vault_put(&self, key: &str, secret: &str) -> Result<(), String> {
+        self.require(PluginPermission::VaultRead)
+            .map_err(|e| e.to_string())?;
+        if secret.is_empty() {
+            return Err("凭据不能为空".into());
+        }
+        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
+        Vault::store(&reference, secret).map_err(|e| e.to_string())?;
+        self.audit("plugin.secret", "success", format!("put {key}"));
+        Ok(())
+    }
+
+    fn vault_delete(&self, key: &str) -> Result<(), String> {
+        self.require(PluginPermission::VaultRead)
+            .map_err(|e| e.to_string())?;
+        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
+        Vault::delete(&reference).map_err(|e| e.to_string())?;
+        self.audit("plugin.secret", "success", format!("delete {key}"));
+        Ok(())
+    }
+
+    fn state_get(&self) -> Result<String, String> {
+        let storage = Arc::clone(&self.storage);
+        let plugin_id = self.plugin_id.clone();
+        block_on_detached(async move {
+            let store = storage.lock().await;
+            store.plugin_state_get(&plugin_id)
+        })
+        .map_err(|e| e.to_string())
+    }
+
+    fn state_set(&self, payload: &str) -> Result<(), String> {
+        let digest = args_digest(payload);
+        let storage = Arc::clone(&self.storage);
+        let plugin_id = self.plugin_id.clone();
+        let payload = payload.to_string();
+        block_on_detached(async move {
+            let store = storage.lock().await;
+            store.plugin_state_set(&plugin_id, &payload)
+        })
+        .map_err(|e| e.to_string())?;
+        self.audit("plugin.state", "success", digest);
+        Ok(())
     }
 }
 
@@ -433,6 +533,32 @@ fn save_candidate(
             "database": str_field("database"),
             "db_type": remote_kind,
         }),
+        ConnectionKind::Ssh => {
+            let password = str_field("password");
+            let auth = if password.is_empty() {
+                serde_json::json!({
+                    "type": "privateKey",
+                    "keyPath": "auto",
+                    "pem": null,
+                    "keyId": null,
+                    "passphrase": null
+                })
+            } else {
+                serde_json::json!({ "type": "password", "password": password })
+            };
+            serde_json::json!({
+                "host": str_field("host"),
+                "port": num_field("port", 22),
+                "user": str_field("user"),
+                "auth": auth,
+                "externalSource": {
+                    "pluginId": candidate.plugin_id,
+                    "accountId": candidate.account_id,
+                    "remoteId": candidate.remote_id,
+                    "remoteKind": candidate.remote_kind,
+                },
+            })
+        }
         _ => serde_json::json!({
             "host": str_field("host"),
             "port": num_field("port", 22),
@@ -450,7 +576,10 @@ fn save_candidate(
     };
 
     let conn = Connection {
-        id: String::new(),
+        id: format!(
+            "conn-import-{:x}",
+            now.wrapping_mul(0x9E37) ^ (candidate.remote_id.len() as i64)
+        ),
         kind,
         name: candidate.name.clone(),
         group: "插件导入".into(),

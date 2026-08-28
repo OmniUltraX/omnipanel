@@ -22,6 +22,25 @@ const FILE_SECRETS_DIR: &str = "omnipd/secrets";
 /// - `NoEntry` 不算后端不可用：它表示后端正常只是没有这条凭据，读操作返回 NotFound。
 pub struct Vault;
 
+/// 插件私密凭据引用：`plugin:{plugin_id}:{key}`，禁止跨插件读写。
+pub fn plugin_secret_ref(plugin_id: &str, key: &str) -> OmniResult<String> {
+    let plugin_id = plugin_id.trim();
+    let key = key.trim();
+    if plugin_id.is_empty() {
+        return Err(OmniError::invalid_input("插件 id 不能为空"));
+    }
+    if key.is_empty()
+        || key.len() > 64
+        || key.contains("..")
+        || !key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+    {
+        return Err(OmniError::invalid_input("非法凭据键"));
+    }
+    Ok(format!("plugin:{plugin_id}:{key}"))
+}
+
 impl Vault {
     /// 写入/更新一条凭据。
     pub fn store(reference: &str, secret: &str) -> OmniResult<()> {
@@ -184,6 +203,13 @@ mod tests {
     #[test]
     fn two_generated_keys_differ() {
         assert_ne!(generate_key().unwrap(), generate_key().unwrap());
+    }
+
+    #[test]
+    fn plugin_secret_ref_rejects_traversal() {
+        assert!(plugin_secret_ref("omni.importer.warpgate", "src-1").is_ok());
+        assert!(plugin_secret_ref("omni.importer.warpgate", "../etc").is_err());
+        assert!(plugin_secret_ref("", "src-1").is_err());
     }
 
     #[test]

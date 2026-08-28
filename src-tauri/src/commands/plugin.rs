@@ -9,7 +9,7 @@ use omnipanel_plugin::{
     InvokeGateway, PluginKind, PluginListItem, PluginLogicExecutor, PluginMethodDecl,
     PluginPermission, PluginPlatform, PluginRegistry, PluginSource, load_installed,
 };
-use omnipanel_store::{AuditEntry, Storage};
+use omnipanel_store::{plugin_secret_ref, AuditEntry, Storage, Vault};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -86,11 +86,8 @@ pub fn make_logic_executor() -> Option<Arc<dyn PluginLogicExecutor>> {
     #[cfg(not(feature = "plugin-wasm"))]
     let wasm: Option<Arc<dyn PluginLogicExecutor>> = None;
 
-    #[cfg(feature = "plugin-js")]
     let js: Option<Arc<dyn PluginLogicExecutor>> =
         Some(Arc::new(omnipanel_plugin_js::JsExecutor::new()));
-    #[cfg(not(feature = "plugin-js"))]
-    let js: Option<Arc<dyn PluginLogicExecutor>> = None;
 
     if wasm.is_none() && js.is_none() {
         None
@@ -295,16 +292,24 @@ pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
         let Some(executor) = state.plugin_logic_executor.as_ref() else {
             continue; // feature 未启用：静默跳过（L2 调用时给出可读错误）
         };
-        let Some(root) = state.plugin_packages_dir.clone() else {
-            continue;
+        let disk = state
+            .plugin_packages_dir
+            .as_ref()
+            .map(|root| root.join(&plugin_id).join(&logic_rel));
+        let bytes = match disk.as_ref() {
+            Some(path) => match tokio::fs::read(path).await {
+                Ok(bytes) => Some(bytes),
+                Err(_) => omnipanel_plugin::first_party_logic_bytes(&plugin_id, &logic_rel),
+            },
+            None => omnipanel_plugin::first_party_logic_bytes(&plugin_id, &logic_rel),
         };
-        let path = root.join(&plugin_id).join(&logic_rel);
-        let bytes = match tokio::fs::read(&path).await {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                eprintln!("[plugin-logic] 读取逻辑包失败 {}: {err}", path.display());
-                continue;
+        let Some(bytes) = bytes else {
+            if let Some(path) = disk {
+                eprintln!("[plugin-logic] 读取逻辑包失败 {}", path.display());
+            } else {
+                eprintln!("[plugin-logic] 无安装目录且无嵌入逻辑包 {plugin_id}");
             }
+            continue;
         };
         let executor = Arc::clone(executor);
         let pid = plugin_id.clone();
@@ -445,6 +450,7 @@ pub async fn plugin_uninstall(
     {
         let store = state.storage.lock().await;
         store.plugin_enabled_delete(&plugin_id)?;
+        store.plugin_state_delete(&plugin_id)?;
     }
     audit_plugin_action(
         &state,
@@ -688,10 +694,14 @@ pub async fn plugin_invoke(
                         })
                     })
                 }
-                None => Err(omnipanel_plugin::PluginError::UnknownMethod {
-                    plugin_id: plugin_id.clone(),
-                    method: method.clone(),
-                }),
+                None => {
+                    let msg = if state.plugin_logic_executor.is_none() {
+                        "插件逻辑执行器未启用（构建未包含 plugin-js）".into()
+                    } else {
+                        format!("逻辑包未实例化: {plugin_id}（查看启动日志 [plugin-logic]）")
+                    };
+                    Err(omnipanel_plugin::PluginError::Invoke(msg))
+                }
             }
         }
         other => other,
@@ -822,7 +832,51 @@ pub async fn plugin_confirm_resolve(
         ))),
     }
 }
-/// 读取已安装插件的文本资产（L3 沙箱 UI 用）。仅限包目录内、文本类扩展、≤512KB。
+const PLUGIN_ASSET_MAX_BYTES: u64 = 512 * 1024;
+
+fn plugin_asset_ext_allowed(rel_path: &str) -> bool {
+    Path::new(rel_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "html" | "htm" | "css" | "txt" | "json" | "svg" | "png"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn plugin_rel_path_ok(rel_path: &str) -> bool {
+    let trimmed = rel_path.trim();
+    !trimmed.is_empty()
+        && !trimmed.starts_with('/')
+        && !trimmed.starts_with('\\')
+        && !trimmed.contains("://")
+        && !trimmed.split(['/', '\\']).any(|seg| seg == "..")
+}
+
+fn encode_plugin_asset(rel_path: &str, bytes: &[u8]) -> Result<String, OmniError> {
+    if bytes.len() as u64 > PLUGIN_ASSET_MAX_BYTES {
+        return Err(OmniError::invalid_input("资产超过 512KB 上限"));
+    }
+    let lower = rel_path.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        use base64::Engine;
+        return Ok(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ));
+    }
+    let text = String::from_utf8(bytes.to_vec())
+        .map_err(|_| OmniError::invalid_input(format!("资产不是合法文本: {rel_path}")))?;
+    if lower.ends_with(".svg") && text.to_ascii_lowercase().contains("<script") {
+        return Err(OmniError::invalid_input("图标不得包含脚本"));
+    }
+    Ok(text)
+}
+
+/// 读取插件包内资产（L3 沙箱 UI / 首页图标）。仅限包目录或第一方嵌入、允许扩展、≤512KB。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_read_asset(
@@ -830,36 +884,36 @@ pub async fn plugin_read_asset(
     plugin_id: String,
     rel_path: String,
 ) -> Result<String, OmniError> {
+    if !plugin_rel_path_ok(&rel_path) {
+        return Err(OmniError::invalid_input("路径越界"));
+    }
+    if !plugin_asset_ext_allowed(&rel_path) {
+        return Err(OmniError::invalid_input(format!(
+            "不支持的资产类型: {rel_path}"
+        )));
+    }
+    if let Some(bytes) = omnipanel_plugin::first_party_asset_bytes(&plugin_id, &rel_path) {
+        return encode_plugin_asset(&rel_path, &bytes);
+    }
     let root = state
         .plugin_packages_dir
         .clone()
         .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
     let base = root.join(&plugin_id);
     let target = base.join(&rel_path);
-    let lower = rel_path.to_ascii_lowercase();
-    let allowed_ext = ["html", "htm", "css", "txt", "json"];
-    if !lower
-        .rsplit('.')
-        .next()
-        .map_or(false, |ext| allowed_ext.contains(&ext))
-    {
-        return Err(OmniError::invalid_input(format!(
-            "不支持的资产类型: {rel_path}"
-        )));
-    }
     if !target.starts_with(&base) {
         return Err(OmniError::invalid_input("路径越界"));
     }
     let meta = tokio::fs::metadata(&target)
         .await
         .map_err(|_| OmniError::not_found(format!("资产不存在: {rel_path}")))?;
-    if meta.len() > 512 * 1024 {
+    if meta.len() > PLUGIN_ASSET_MAX_BYTES {
         return Err(OmniError::invalid_input("资产超过 512KB 上限"));
     }
-    let text = tokio::fs::read_to_string(&target)
+    let bytes = tokio::fs::read(&target)
         .await
         .map_err(|e| OmniError::internal(e.to_string()))?;
-    Ok(text)
+    encode_plugin_asset(&rel_path, &bytes)
 }
 
 /// 沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。
@@ -893,4 +947,118 @@ pub async fn plugin_sandbox_net_fetch(
         .await
         .map_err(|e: tokio::task::JoinError| OmniError::internal(e.to_string()))?
         .map_err(OmniError::invalid_input)
+}
+
+async fn require_registered_plugin(
+    state: &State<'_, AppState>,
+    plugin_id: &str,
+) -> Result<(), OmniError> {
+    let registry = state.plugin_registry.lock().await;
+    if registry.get(plugin_id).is_none() {
+        return Err(OmniError::not_found(format!("插件不存在: {plugin_id}")));
+    }
+    Ok(())
+}
+
+async fn require_plugin_vault(
+    state: &State<'_, AppState>,
+    plugin_id: &str,
+) -> Result<(), OmniError> {
+    require_registered_plugin(state, plugin_id).await?;
+    let registry = state.plugin_registry.lock().await;
+    registry.require_permission(plugin_id, PluginPermission::VaultRead)?;
+    Ok(())
+}
+
+/// 插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_state_get(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<String, OmniError> {
+    require_registered_plugin(&state, &plugin_id).await?;
+    let store = state.storage.lock().await;
+    store.plugin_state_get(&plugin_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_state_set(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    payload: String,
+) -> Result<(), OmniError> {
+    require_registered_plugin(&state, &plugin_id).await?;
+    let store = state.storage.lock().await;
+    store.plugin_state_set(&plugin_id, &payload)
+}
+
+/// 插件私密凭据：系统钥匙串（或降级文件），命名空间 `plugin:{id}:{key}`。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_secret_put(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    key: String,
+    secret: String,
+) -> Result<(), OmniError> {
+    require_plugin_vault(&state, &plugin_id).await?;
+    if secret.is_empty() {
+        return Err(OmniError::invalid_input("凭据不能为空"));
+    }
+    let reference = plugin_secret_ref(&plugin_id, &key)?;
+    Vault::store(&reference, &secret)?;
+    audit_plugin_action(&state, "plugin.secret", &plugin_id, "success", format!("put {key}"));
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_secret_has(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    key: String,
+) -> Result<bool, OmniError> {
+    require_plugin_vault(&state, &plugin_id).await?;
+    let reference = plugin_secret_ref(&plugin_id, &key)?;
+    match Vault::get(&reference) {
+        Ok(_) => Ok(true),
+        Err(err) if err.code == ErrorCode::NotFound => Ok(false),
+        Err(err) => Err(err),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_secret_get(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    key: String,
+) -> Result<String, OmniError> {
+    require_plugin_vault(&state, &plugin_id).await?;
+    let reference = plugin_secret_ref(&plugin_id, &key)?;
+    let secret = Vault::get(&reference)?;
+    audit_plugin_action(&state, "plugin.secret", &plugin_id, "success", format!("get {key}"));
+    Ok(secret)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_secret_delete(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    key: String,
+) -> Result<(), OmniError> {
+    require_plugin_vault(&state, &plugin_id).await?;
+    let reference = plugin_secret_ref(&plugin_id, &key)?;
+    Vault::delete(&reference)?;
+    audit_plugin_action(
+        &state,
+        "plugin.secret",
+        &plugin_id,
+        "success",
+        format!("delete {key}"),
+    );
+    Ok(())
 }

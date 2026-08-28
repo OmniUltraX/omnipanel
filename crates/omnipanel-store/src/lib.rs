@@ -189,7 +189,7 @@ pub use third_party_account::{
     ThirdPartyAccount, ThirdPartyAuthMethod, ThirdPartyPlatform, UpsertThirdPartyAccountInput,
 };
 pub use todo::{TodoList, TodoRecurrence, TodoStep, TodoTask, TodoTaskQuery};
-pub use vault::Vault;
+pub use vault::{plugin_secret_ref, Vault};
 pub use web_search::{
     FetchConfig, JinaDomainMode, JinaOpts, SearchConfig, WEB_SEARCH_CONFIG_VERSION,
     WEB_SEARCH_EXA_KEY_REF, WEB_SEARCH_JINA_KEY_REF, WEB_SEARCH_ZHIHU_SECRET_REF, WebFetchBackend,

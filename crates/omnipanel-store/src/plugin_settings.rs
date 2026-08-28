@@ -1,7 +1,7 @@
 //! 第一方插件启用状态 — 持久化于 omnipanel.db 的 plugin_settings 表。
 
 use omnipanel_error::OmniResult;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use super::storage::{Storage, map_sqlite};
 
@@ -53,6 +53,46 @@ impl Storage {
         self.conn()
             .execute(
                 "DELETE FROM plugin_settings WHERE plugin_id = ?1",
+                params![plugin_id],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    /// 插件非敏感状态 JSON；未写入时返回 `{}`。
+    pub fn plugin_state_get(&self, plugin_id: &str) -> OmniResult<String> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT payload FROM plugin_state WHERE plugin_id = ?1")
+            .map_err(map_sqlite)?;
+        let payload: Option<String> = stmt
+            .query_row(params![plugin_id], |row| row.get(0))
+            .optional()
+            .map_err(map_sqlite)?;
+        Ok(payload.unwrap_or_else(|| "{}".into()))
+    }
+
+    pub fn plugin_state_set(&self, plugin_id: &str, payload: &str) -> OmniResult<()> {
+        let _: serde_json::Value = serde_json::from_str(payload).map_err(|e| {
+            omnipanel_error::OmniError::invalid_input(format!("插件状态必须是 JSON: {e}"))
+        })?;
+        self.conn()
+            .execute(
+                "INSERT INTO plugin_state (plugin_id, payload, updated_at)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(plugin_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at",
+                params![plugin_id, payload, now_secs()],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    pub fn plugin_state_delete(&self, plugin_id: &str) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "DELETE FROM plugin_state WHERE plugin_id = ?1",
                 params![plugin_id],
             )
             .map_err(map_sqlite)?;
@@ -117,5 +157,20 @@ mod tests {
         storage.plugin_enabled_delete("omni.addon.demo").unwrap();
         let listed = storage.plugin_enabled_list().unwrap();
         assert_eq!(listed, vec![("omni.addon.keep".into(), true)]);
+    }
+
+    #[test]
+    fn plugin_state_roundtrip_and_default() {
+        let storage = Storage::open_in_memory().unwrap();
+        assert_eq!(storage.plugin_state_get("omni.importer.warpgate").unwrap(), "{}");
+        storage
+            .plugin_state_set("omni.importer.warpgate", r#"{"sources":[]}"#)
+            .unwrap();
+        assert_eq!(
+            storage.plugin_state_get("omni.importer.warpgate").unwrap(),
+            r#"{"sources":[]}"#
+        );
+        storage.plugin_state_delete("omni.importer.warpgate").unwrap();
+        assert_eq!(storage.plugin_state_get("omni.importer.warpgate").unwrap(), "{}");
     }
 }

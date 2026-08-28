@@ -18,6 +18,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { showToast } from "../../stores/toastStore";
 import { errorToString } from "../../lib/errorToString";
 import { DashboardIcon } from "./DashboardIcon";
+import { PluginHomeLaunchStrip } from "./PluginHomeLaunchStrip";
 import { useDashboardData } from "./useDashboardData";
 
 function SectionChevron() {
@@ -412,6 +413,7 @@ export function HomeBoardView() {
             </section>
           </div>
         </div>
+        <PluginHomeLaunchStrip />
         <section className="home-board-ai" aria-label={t("ai.surfaces.askAi")}>
           {drawerOpen ? (
             <button
