@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 import type { ModuleRouteSnapshot } from "../lib/workspaceModuleRoutes";
 import type { ComponentSnapshot } from "../lib/workspaceComponentTypes";
@@ -111,7 +112,7 @@ export const useWorkspaceTabStore = create<WorkspaceTabState>()(
     {
       name: "omnipanel-workspace-tabs",
       version: 2,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       migrate: () => ({ tabsByWorkspace: {} }),
     },
   ),

@@ -378,7 +378,6 @@ fn export_ipc_bindings() {
         commands::file_transfer::file_transfer_cancel,
         commands::file_transfer::file_transfer_retry,
         commands::file_transfer::file_transfer_clear_finished,
-        commands::file_transfer::file_transfer_dismiss,
         commands::file_transfer::file_transfer_set_concurrency,
         commands::file_transfer::file_transfer_set_rate_limit,
         commands::file_manager::file_mkdir,
@@ -615,6 +614,7 @@ fn export_ipc_bindings() {
         commands::client_sync::client_sync_pull_conversations,
         commands::client_sync_modules::client_sync_push_modules,
         commands::client_sync_modules::client_sync_pull_modules,
+        commands::storage_team::storage_switch_team,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
         commands::mcp::mcp_upsert_service,
@@ -785,6 +785,7 @@ fn build_and_run_tauri() {
             // 必须先 manage(AppState)，再创建任何会加载前端的 WebView。
             // release 本地资源加载极快，窗先建会导致首屏 IPC（如 auth_login_qrcode）
             // 在 State 注册前到达，报 "state not managed"。
+            let _ = omnipanel_store::init_team_storage();
             let db_path =
                 omnipanel_store::meta_db_path().expect("无法定位 ~/.omnipd/store/omnipanel.db");
             if let Some(parent) = db_path.parent() {
@@ -1322,7 +1323,6 @@ fn build_and_run_tauri() {
             commands::file_transfer::file_transfer_cancel,
             commands::file_transfer::file_transfer_retry,
             commands::file_transfer::file_transfer_clear_finished,
-            commands::file_transfer::file_transfer_dismiss,
             commands::file_transfer::file_transfer_set_concurrency,
             commands::file_transfer::file_transfer_set_rate_limit,
             commands::file_manager::file_mkdir,
@@ -1562,6 +1562,7 @@ fn build_and_run_tauri() {
             commands::client_sync::client_sync_pull_conversations,
             commands::client_sync_modules::client_sync_push_modules,
             commands::client_sync_modules::client_sync_pull_modules,
+            commands::storage_team::storage_switch_team,
             // MCP 服务管理
             commands::mcp::mcp_list_services,
             commands::mcp::mcp_upsert_service,

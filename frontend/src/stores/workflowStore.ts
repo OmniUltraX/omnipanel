@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import {
   commands,
   type Workflow,
@@ -141,6 +142,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
     }),
     {
       name: "omnipanel-workflow-store",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         selectedWorkflowId: state.selectedWorkflowId,
       }),

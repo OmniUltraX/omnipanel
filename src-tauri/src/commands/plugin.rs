@@ -6,7 +6,7 @@ use omnipanel_everything::EverythingError;
 use omnipanel_mcp::plugin_tools::PluginNativeTool;
 use omnipanel_mcp::{ToolExecutionKind, ToolRegistry};
 use omnipanel_plugin::{
-    InvokeGateway, LogicPackage, PluginKind, PluginListItem, PluginLogicExecutor, PluginMethodDecl,
+    InvokeGateway, PluginKind, PluginListItem, PluginLogicExecutor, PluginMethodDecl,
     PluginPermission, PluginPlatform, PluginRegistry, PluginSource, load_installed,
 };
 use omnipanel_store::{AuditEntry, Storage};
@@ -676,7 +676,7 @@ pub async fn plugin_invoke(
                     let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
                     let method = method.clone();
                     tokio::task::spawn_blocking(move || {
-                        let mut guard = instance.lock().unwrap();
+                        let guard = instance.lock().unwrap();
                         let rt = tokio::runtime::Handle::current();
                         rt.block_on(guard.call(&method, &args_json))
                     })

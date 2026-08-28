@@ -27,7 +27,8 @@ describe("niceAxisMax", () => {
 });
 
 describe("springBootAdminChartLayout", () => {
-  it("uses a row of three charts for 4x6", () => {
+  it("uses a row of three charts for 4x7", () => {
+    expect(springBootAdminChartLayout("4x7")).toBe("row");
     expect(springBootAdminChartLayout("4x6")).toBe("row");
     expect(springBootAdminChartLayout("6x4")).toBe("col");
     expect(springBootAdminChartLayout(undefined)).toBe("col");

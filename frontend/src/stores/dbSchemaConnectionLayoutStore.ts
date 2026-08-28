@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
 
 export type SchemaConnectionFolder = {
@@ -155,7 +156,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         folders: state.folders,
         connectionParents: state.connectionParents,

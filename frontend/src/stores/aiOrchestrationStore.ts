@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type {
   PlanData,
   PlanStep,
@@ -306,7 +307,7 @@ export const useAiOrchestrationStore = create<AiOrchestrationState>()(
     }),
     {
       name: "omnipanel-ai-orchestration.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       // 持久化 plans/tasks/clusters；但 loop kind 的 task 不持久化——它由 loopRunner
       // 的模块级 timer 驱动，timer 本身不持久化，task 持久化会造成重启后僵尸态。
       partialize: (s) => ({

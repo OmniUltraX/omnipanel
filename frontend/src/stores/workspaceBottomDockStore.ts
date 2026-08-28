@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type { SerializedDockview } from "dockview-core";
 import {
   removePanelFromLayout,
@@ -319,7 +320,7 @@ export const useWorkspaceBottomDockStore = create<WorkspaceBottomDockState>()(
     {
       name: "omnipanel.workspace-bottom-dock.v3",
       version: 6,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         tabsByWorkspace: state.tabsByWorkspace,
         layoutByWorkspace: state.layoutByWorkspace,

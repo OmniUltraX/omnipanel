@@ -142,6 +142,11 @@ export function Bootstrap() {
           } catch {
           }
           try {
+            const { alignLocalStorageTeam } = await import("./lib/applyLocalTeamScope");
+            await alignLocalStorageTeam();
+          } catch {
+          }
+          try {
             const { pullCloudSnapshot } = await import("./modules/clientSync");
             await pullCloudSnapshot();
           } catch {

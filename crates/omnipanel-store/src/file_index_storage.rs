@@ -373,7 +373,7 @@ pub fn resolve_file_index_db_path(configured_dir: &str) -> OmniResult<PathBuf> {
     let storage_dir = if dir.is_empty() {
         default_file_index_storage_dir()?
     } else {
-        let path = PathBuf::from(dir);
+        let path = PathBuf::from(dir).join(crate::team_layout::active_team_scope());
         std::fs::create_dir_all(&path).map_err(map_io)?;
         path
     };

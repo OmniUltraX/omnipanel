@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../../../../lib/zustandPersistStorage";
 
 export type SshWorkspaceSection = "hosts" | "tunnels" | "keys";
 
@@ -24,6 +25,9 @@ export const useSshWorkspaceNavStore = create<State>()(
       selectKey: (activeKeyName) => set({ activeKeyName }),
       selectHost: () => set({ section: "hosts", activeTunnelId: null, activeKeyName: null }),
     }),
-    { name: "omnipanel-ssh-workspace-nav" },
+    {
+      name: "omnipanel-ssh-workspace-nav",
+      storage: createJSONStorage(createSafeLocalStorage),
+    },
   ),
 );

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import {
   DB_RECENT_CLOSED_PANEL_LIMIT,
   sanitizeWorkspaceSession,
@@ -43,7 +44,7 @@ export const useDbWorkspaceSessionStore = create<DbWorkspaceSessionState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         session: state.session,
         recentClosedPanels: state.recentClosedPanels,

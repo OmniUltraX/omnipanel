@@ -22,7 +22,7 @@ pub use contribution::{
 };
 pub use error::PluginError;
 pub use executor::{
-    AutoAllow, AutoDeny, ConfirmFuture, ConfirmRequest, ProdConfirmer, LogicFuture, LogicPackage, PluginHostBridge, PluginLogicExecutor,
+    AutoAllow, AutoDeny, ConfirmFuture, ConfirmRequest, DisabledExecutor, ProdConfirmer, LogicFuture, LogicPackage, PluginHostBridge, PluginLogicExecutor,
     PluginLogicInstance, RouterExecutor,
 };
 pub use first_party::{

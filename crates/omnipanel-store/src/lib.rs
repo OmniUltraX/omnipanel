@@ -21,6 +21,7 @@ mod todo;
 mod embedding_config;
 mod host_resolve_cache;
 mod paths;
+mod team_layout;
 mod plugin_settings;
 mod resource_profile;
 mod skill;
@@ -120,6 +121,11 @@ pub use paths::{
     database_schema_tree_expanded_path, http_proxy_config_path, knowledge_assets_root,
     knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir, omnipd_root,
     prompts_root, skills_root, web_search_config_path,
+};
+pub use team_layout::{
+    active_team_scope, init_team_storage, meta_db_exists_on_disk, normalize_team_scope,
+    persist_active_team_scope, promote_local_dir_to_team, set_active_team_scope, team_data_dir,
+    LOCAL_TEAM_SCOPE,
 };
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,

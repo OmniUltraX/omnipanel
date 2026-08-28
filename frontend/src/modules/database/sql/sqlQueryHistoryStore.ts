@@ -2,6 +2,7 @@ import {
   classifySqlHistoryKind,
   type SqlHistoryKind,
 } from "./classifySqlHistoryKind";
+import { readTeamLocalStorage, writeTeamLocalStorage } from "../../../lib/teamPersist";
 
 const STORAGE_KEY = "omnipanel.sqlQueryHistory.v1";
 const MAX_ENTRIES = 50;
@@ -22,7 +23,7 @@ type HistoryMap = Record<string, SqlQueryHistoryEntry[]>;
 
 function readAll(): HistoryMap {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readTeamLocalStorage(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as HistoryMap;
     return parsed && typeof parsed === "object" ? parsed : {};
@@ -33,7 +34,7 @@ function readAll(): HistoryMap {
 
 function writeAll(map: HistoryMap): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    writeTeamLocalStorage(STORAGE_KEY, JSON.stringify(map));
   } catch {
     // ignore quota
   }

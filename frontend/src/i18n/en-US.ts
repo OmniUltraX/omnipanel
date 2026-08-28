@@ -7719,6 +7719,7 @@ export const enUS: TranslationDict = {
         knowledge: "Knowledge base",
         http: "HTTP",
         workspaces: "Workspaces",
+        customPanels: "Custom panels",
       },
       membersLoading: "Loading members…",
       membersEmpty: "No members yet",

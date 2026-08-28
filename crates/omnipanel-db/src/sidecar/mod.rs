@@ -1,5 +1,6 @@
 //! 数据库引擎 sidecar：进程外驱动 + JSON-RPC EngineSession 协议。
 
+#[cfg_attr(not(feature = "sidecar-serve"), allow(dead_code))]
 mod protocol;
 
 #[cfg(feature = "sidecar-host")]
@@ -27,7 +28,8 @@ pub use engine::{
 #[cfg(feature = "sidecar-host")]
 pub use host::{
     SidecarDriver, connect_clickhouse, connect_engine, connect_launch, evict_all_external_launches,
-    evict_all_of_kind, evict_clickhouse, evict_engine, evict_launch, invoke_json, invoke_query,
+    evict_all_launches, evict_all_of_kind, evict_clickhouse, evict_engine, evict_launch, invoke_json,
+    invoke_query,
     resolve_clickhouse_sidecar, resolve_sidecar,
 };
 #[cfg(feature = "sidecar-host")]

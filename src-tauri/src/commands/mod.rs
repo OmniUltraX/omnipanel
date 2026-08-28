@@ -9,6 +9,7 @@ pub mod assistant_chat;
 pub mod assistant_remote_cmd;
 pub mod client_sync;
 pub mod client_sync_modules;
+pub mod storage_team;
 pub mod bg_task;
 pub mod agents;
 #[allow(dead_code)]

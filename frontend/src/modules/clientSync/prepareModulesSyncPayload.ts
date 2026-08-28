@@ -7,6 +7,7 @@ import {
 } from "../../stores/sshSidebarTreeStore";
 import { collectFolderTreesJson } from "./folderTrees";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
+import { serializeCustomPanelsJson } from "../workspace/useDashboardStore";
 
 /** 上传前对齐各模块侧栏布局与本机连接列表，避免快照与 UI 不一致。 */
 export function prepareLayoutStoresForModuleSync(): void {
@@ -46,6 +47,7 @@ function deletedPayload() {
     deletedHttpCollections: toIpcTombstones(store.listByKind("httpCollection")),
     deletedHttpEnvironments: toIpcTombstones(store.listByKind("httpEnvironment")),
     deletedWorkspaces: toIpcTombstones(store.listByKind("workspace")),
+    deletedCustomPanels: toIpcTombstones(store.listByKind("customPanel")),
   };
 }
 
@@ -59,6 +61,7 @@ export function collectModulesSyncPayload() {
     workspacesJson: collectWorkspacesJson(),
     sshSidebarTreeJson: serializeSshSidebarTree(),
     folderTreesJson: collectFolderTreesJson(),
+    customPanelsJson: serializeCustomPanelsJson(),
     ...deletedPayload(),
   };
 }

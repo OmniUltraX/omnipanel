@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 import { commands } from "../ipc/bindings";
 import { canUseIpcBackend } from "../lib/isTauriRuntime";
@@ -416,7 +417,7 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
 }),
     {
       name: "omnipanel-db-sql-files",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({ nodes: state.nodes }),
       migrate: (persisted) => persisted as { nodes: DbSqlFileNode[] },
     },

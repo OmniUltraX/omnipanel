@@ -111,6 +111,11 @@ pub async fn evict_all_external_launches() {
         .retain(|key, _| !key.starts_with("ext:"));
 }
 
+/// 进程内换库时丢掉全部 sidecar，避免跨团队复用旧连接进程。
+pub async fn evict_all_launches() {
+    engine_agents().lock().await.clear();
+}
+
 fn is_sidecar_dead_error(err: &OmniError) -> bool {
     let text = err.to_string();
     text.contains("已退出")

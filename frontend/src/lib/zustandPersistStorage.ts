@@ -1,4 +1,5 @@
 import type { StateStorage } from "zustand/middleware";
+import { wrapTeamScopedStorage } from "./teamPersist";
 
 /**
  * 包装 localStorage 为 zustand persist 的 StateStorage，提供：
@@ -63,7 +64,7 @@ function logQuotaErrorThrottled(key: string, err: unknown): void {
 }
 
 export function createSafeLocalStorage(): StateStorage {
-  return {
+  return wrapTeamScopedStorage({
     getItem(name: string): string | null {
       try {
         return localStorage.getItem(name);
@@ -84,5 +85,5 @@ export function createSafeLocalStorage(): StateStorage {
         // ignore
       }
     },
-  };
+  });
 }

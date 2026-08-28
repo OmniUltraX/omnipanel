@@ -1,6 +1,7 @@
 import type { SerializedDockview } from "dockview-core";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 type RecentClosedEntry = {
   requestId: string;
@@ -81,7 +82,7 @@ export const useProtocolHttpDockStore = create<ProtocolHttpDockState>()(
     }),
     {
       name: "omnipanel-protocol-http-dock.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         openTabIds: state.openTabIds,
         activeTabId: state.activeTabId,

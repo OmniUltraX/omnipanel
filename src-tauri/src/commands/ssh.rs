@@ -29,15 +29,6 @@ use omnipanel_ssh::tmux::{self, TmuxSessionInfo, TmuxWindowInfo};
 
 static SSH_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// 获取用户主目录。
-fn home_dir() -> Result<std::path::PathBuf, OmniError> {
-    if let Ok(p) = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
-        Ok(std::path::PathBuf::from(p))
-    } else {
-        Err(OmniError::new(ErrorCode::Internal, "无法获取用户主目录"))
-    }
-}
-
 /// 建立 SSH 连接并请求交互式 shell。返回会话 id；
 /// shell 输出复用 `terminal-output` 事件，前端 xterm 无需区分本地/远程。
 #[tauri::command]

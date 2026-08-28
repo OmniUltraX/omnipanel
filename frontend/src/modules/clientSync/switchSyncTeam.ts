@@ -1,3 +1,4 @@
+import { applyLocalTeamScope } from "../../lib/applyLocalTeamScope";
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
@@ -5,6 +6,7 @@ import { useAiStore, type AiConversation } from "../../stores/aiStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { applySshSidebarTreeJson } from "../../stores/sshSidebarTreeStore";
 import { applyFolderTreesJson } from "./folderTrees";
+import { applyCustomPanelsJson } from "../workspace/useDashboardStore";
 import {
   getCurrentSyncTeamId,
   useCurrentSyncTeamStore,
@@ -130,8 +132,9 @@ async function refreshLocalModuleUi(): Promise<void> {
 /**
  * 切换数据快照来源团队：
  * 1. 把本机当前数据推回旧团队（避免丢失）
- * 2. 写入新 teamId，清空本团队无关的 tombstone
- * 3. 从新团队拉取快照并替换本机（有快照则整表替换；无快照则保留本机以便首次播种）
+ * 2. 进程内换到新团队本地库，并按 teamId 换 persist 桶
+ * 3. 确保目标团队同步密钥
+ * 4. 仅当目标本机目录原先为空时拉取云端快照（本机已有数据以本机为准）
  */
 export async function switchSyncTeam(
   teamId: number,
@@ -159,9 +162,9 @@ export async function switchSyncTeam(
       await flushClientConversationSync(prevTeamId);
     }
 
-    // 2) 切换指针；tombstone 按团队语义隔离，避免旧删除标记误伤新团队资源
+    // 2) 换本机目录 + persist 桶；tombstone 已按团队分桶，随 rehydrate 加载
+    const switched = await applyLocalTeamScope(String(teamId));
     useCurrentSyncTeamStore.getState().setTeamId(teamId);
-    useClientSyncTombstoneStore.getState().clearAll();
     useSyncDeviceAuthStore.getState().clearDismissed();
 
     // 3) 确保目标团队同步密钥：先向组织内在线设备中继，失败则强制引导导入
@@ -179,9 +182,10 @@ export async function switchSyncTeam(
       throw new TeamSyncKeyRequiredError();
     }
 
-    // 临时关闭云端拉取时：只切团队指针，不拉快照覆盖本机
+    // 临时关闭云端拉取时：只切本地库与 persist，不拉快照覆盖本机
     if (CLOUD_PULL_DISABLED) {
       console.warn("[client-sync] switchSyncTeam pull skipped (CLOUD_PULL_DISABLED)");
+      await refreshLocalModuleUi();
       return {
         switched: true,
         keyReady: true,
@@ -190,31 +194,34 @@ export async function switchSyncTeam(
       };
     }
 
-    // 4) 拉取并替换为目标数据源
+    // 4) 仅空目录才拉云端；本机已有该团队数据则以本机为准
     let pulledModules = false;
     let pulledConversations = false;
 
-    const modulesResult = await unwrapCommand(
-      commands.clientSyncPullModules({ token, teamId }),
-      { quiet: true },
-    );
-    if (modulesResult.found) {
-      // 后端 apply 已按快照整表替换连接/库/知识库/HTTP；前端补工作区与 UI 刷新
-      replaceWorkspacesJson(modulesResult.workspacesJson);
-      applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
-      applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
-      await refreshLocalModuleUi();
-      pulledModules = true;
+    if (switched.empty) {
+      const modulesResult = await unwrapCommand(
+        commands.clientSyncPullModules({ token, teamId }),
+        { quiet: true },
+      );
+      if (modulesResult.found) {
+        replaceWorkspacesJson(modulesResult.workspacesJson);
+        applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
+        applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
+        applyCustomPanelsJson(modulesResult.customPanelsJson, "replace");
+        pulledModules = true;
+      }
+
+      const convResult = await unwrapCommand(
+        commands.clientSyncPullConversations({ token, teamId }),
+        { quiet: true },
+      );
+      if (convResult.found && convResult.bodyJson?.trim()) {
+        replaceConversationsBundle(convResult.bodyJson);
+        pulledConversations = true;
+      }
     }
 
-    const convResult = await unwrapCommand(
-      commands.clientSyncPullConversations({ token, teamId }),
-      { quiet: true },
-    );
-    if (convResult.found && convResult.bodyJson?.trim()) {
-      replaceConversationsBundle(convResult.bodyJson);
-      pulledConversations = true;
-    }
+    await refreshLocalModuleUi();
 
     return {
       switched: true,

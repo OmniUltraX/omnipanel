@@ -1,10 +1,15 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  readTeamLocalStorage,
+  TEAM_PERSIST_SCOPE_CHANGED_EVENT,
+  writeTeamLocalStorage,
+} from "../../../lib/teamPersist";
 
 const STORAGE_KEY = "omnipanel-ssh-tree-expanded.v1";
 
 function readExpanded(): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readTeamLocalStorage(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return {};
@@ -15,11 +20,17 @@ function readExpanded(): Record<string, boolean> {
 }
 
 function writeExpanded(next: Record<string, boolean>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  writeTeamLocalStorage(STORAGE_KEY, JSON.stringify(next));
 }
 
 export function usePersistedSshTreeExpanded() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>(readExpanded);
+
+  useEffect(() => {
+    const onScopeChange = () => setExpanded(readExpanded());
+    window.addEventListener(TEAM_PERSIST_SCOPE_CHANGED_EVENT, onScopeChange);
+    return () => window.removeEventListener(TEAM_PERSIST_SCOPE_CHANGED_EVENT, onScopeChange);
+  }, []);
 
   const isExpanded = useCallback(
     (key: string, defaultExpanded = false) => expanded[key] ?? defaultExpanded,

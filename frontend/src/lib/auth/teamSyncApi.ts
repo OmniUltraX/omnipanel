@@ -11,6 +11,7 @@ import {
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
 import { collectModulesSyncPayload } from "../../modules/clientSync/prepareModulesSyncPayload";
+import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
 
 export type {
   TeamSharePushResult,
@@ -74,6 +75,7 @@ export async function peekTeamModules(
       token,
       teamId,
       ...collectModulesSyncPayload(),
+      ...teamSyncExclusionsForIpc(teamId),
       afterUpload: options?.afterUpload ?? false,
     }),
     { quiet: true, logLabel: "[team-sync:peek]" },

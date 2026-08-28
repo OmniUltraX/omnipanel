@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { commands, type DbxCatalogDriver } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
 
@@ -69,7 +70,7 @@ export const useDbxCatalogStore = create<DbxCatalogState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         drivers: state.drivers,
         fetchedAt: state.fetchedAt,

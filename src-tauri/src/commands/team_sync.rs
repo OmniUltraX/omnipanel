@@ -82,6 +82,8 @@ pub struct TeamSyncPushModulesRequest {
     #[serde(default)]
     pub folder_trees_json: Option<String>,
     #[serde(default)]
+    pub custom_panels_json: Option<String>,
+    #[serde(default)]
     pub deleted_connections: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
     #[serde(default)]
     pub deleted_databases: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
@@ -96,6 +98,8 @@ pub struct TeamSyncPushModulesRequest {
     #[serde(default)]
     pub deleted_workspaces: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
     #[serde(default)]
+    pub deleted_custom_panels: Vec<crate::commands::client_sync_modules::ClientSyncTombstone>,
+    #[serde(default)]
     pub excluded_connections: Vec<String>,
     #[serde(default)]
     pub excluded_databases: Vec<String>,
@@ -107,6 +111,8 @@ pub struct TeamSyncPushModulesRequest {
     pub excluded_http_collections: Vec<String>,
     #[serde(default)]
     pub excluded_workspaces: Vec<String>,
+    #[serde(default)]
+    pub excluded_custom_panels: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -145,6 +151,8 @@ pub struct TeamSyncPeekModulesRequest {
     #[serde(default)]
     pub folder_trees_json: Option<String>,
     #[serde(default)]
+    pub custom_panels_json: Option<String>,
+    #[serde(default)]
     pub excluded_connections: Vec<String>,
     #[serde(default)]
     pub excluded_databases: Vec<String>,
@@ -156,6 +164,8 @@ pub struct TeamSyncPeekModulesRequest {
     pub excluded_http_collections: Vec<String>,
     #[serde(default)]
     pub excluded_workspaces: Vec<String>,
+    #[serde(default)]
+    pub excluded_custom_panels: Vec<String>,
     /// 上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。
     #[serde(default)]
     pub after_upload: bool,
@@ -237,6 +247,7 @@ fn to_modules_push_request(request: &TeamSyncPushModulesRequest) -> ClientSyncPu
         workspaces_json: request.workspaces_json.clone(),
         ssh_sidebar_tree_json: request.ssh_sidebar_tree_json.clone(),
         folder_trees_json: request.folder_trees_json.clone(),
+        custom_panels_json: request.custom_panels_json.clone(),
         deleted_connections: request.deleted_connections.clone(),
         deleted_databases: request.deleted_databases.clone(),
         deleted_knowledge: request.deleted_knowledge.clone(),
@@ -244,6 +255,7 @@ fn to_modules_push_request(request: &TeamSyncPushModulesRequest) -> ClientSyncPu
         deleted_http_collections: request.deleted_http_collections.clone(),
         deleted_http_environments: request.deleted_http_environments.clone(),
         deleted_workspaces: request.deleted_workspaces.clone(),
+        deleted_custom_panels: request.deleted_custom_panels.clone(),
         team_id: None,
     }
 }
@@ -254,6 +266,7 @@ fn to_peek_modules_request(request: &TeamSyncPeekModulesRequest) -> ClientSyncPu
         workspaces_json: request.workspaces_json.clone(),
         ssh_sidebar_tree_json: request.ssh_sidebar_tree_json.clone(),
         folder_trees_json: request.folder_trees_json.clone(),
+        custom_panels_json: request.custom_panels_json.clone(),
         deleted_connections: Vec::new(),
         deleted_databases: Vec::new(),
         deleted_knowledge: Vec::new(),
@@ -261,6 +274,7 @@ fn to_peek_modules_request(request: &TeamSyncPeekModulesRequest) -> ClientSyncPu
         deleted_http_collections: Vec::new(),
         deleted_http_environments: Vec::new(),
         deleted_workspaces: Vec::new(),
+        deleted_custom_panels: Vec::new(),
         team_id: None,
     }
 }
@@ -280,6 +294,7 @@ struct TeamSyncExclusionSets {
     http_requests: HashSet<String>,
     http_collections: HashSet<String>,
     workspaces: HashSet<String>,
+    custom_panels: HashSet<String>,
 }
 
 fn parse_exclusions(
@@ -289,6 +304,7 @@ fn parse_exclusions(
     excluded_http_requests: &[String],
     excluded_http_collections: &[String],
     excluded_workspaces: &[String],
+    excluded_custom_panels: &[String],
 ) -> TeamSyncExclusionSets {
     TeamSyncExclusionSets {
         connections: parse_id_set(excluded_connections),
@@ -297,6 +313,7 @@ fn parse_exclusions(
         http_requests: parse_id_set(excluded_http_requests),
         http_collections: parse_id_set(excluded_http_collections),
         workspaces: parse_id_set(excluded_workspaces),
+        custom_panels: parse_id_set(excluded_custom_panels),
     }
 }
 
@@ -308,6 +325,7 @@ fn exclusions_from_peek(request: &TeamSyncPeekModulesRequest) -> TeamSyncExclusi
         &request.excluded_http_requests,
         &request.excluded_http_collections,
         &request.excluded_workspaces,
+        &request.excluded_custom_panels,
     )
 }
 
@@ -714,6 +732,7 @@ fn is_peek_item_excluded(
             }
         }
         "workspaces" => ex.workspaces.contains(&item.id),
+        "customPanels" => ex.custom_panels.contains(&item.id),
         _ => false,
     }
 }
@@ -782,6 +801,10 @@ fn build_team_peek_modules(
     let remote_workspaces = remote_peek
         .as_ref()
         .map(|peek| peek.workspaces.clone())
+        .unwrap_or_default();
+    let remote_custom_panels = remote_peek
+        .as_ref()
+        .map(|peek| peek.custom_panels.clone())
         .unwrap_or_default();
     let remote_http: Vec<ClientSyncPeekItem> = remote_peek
         .map(|peek| {
@@ -863,6 +886,19 @@ fn build_team_peek_modules(
                     "workspaces",
                     local_peek.workspaces,
                     remote_workspaces,
+                    ex,
+                    &knowledge_excluded,
+                ),
+            ),
+        },
+        TeamSyncPeekModule {
+            key: "customPanels".to_string(),
+            items: nest_items_under_module(
+                "customPanels",
+                merge_peek_items(
+                    "customPanels",
+                    local_peek.custom_panels,
+                    remote_custom_panels,
                     ex,
                     &knowledge_excluded,
                 ),

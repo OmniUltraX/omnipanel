@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type { ProtocolTabKey } from "../lib/protocolLabConfig";
 
 export interface ProtocolLabEntry {
@@ -65,7 +66,7 @@ export const useProtocolLabEntryStore = create<ProtocolLabEntryState>()(
     }),
     {
       name: "omnipanel-protocol-lab-entries.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
     },
   ),
 );

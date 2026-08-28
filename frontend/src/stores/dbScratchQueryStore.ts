@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 /** 侧栏「查询」入口的单例 SQL 草稿（不落文件，关闭后再打开可恢复）。 */
 export type DbScratchQueryDraft = {
@@ -30,6 +31,7 @@ export const useDbScratchQueryStore = create<DbScratchQueryState>()(
     }),
     {
       name: "omnipanel-db-scratch-query",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         sql: state.sql,
         connId: state.connId,

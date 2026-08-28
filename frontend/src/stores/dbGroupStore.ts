@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 export interface DbConnectionGroup {
   id: string;
@@ -55,6 +56,7 @@ export const useDbGroupStore = create<DbGroupState>()(
     }),
     {
       name: "omnipanel-db-groups",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         groups: state.groups,
         activeGroupId: state.activeGroupId,

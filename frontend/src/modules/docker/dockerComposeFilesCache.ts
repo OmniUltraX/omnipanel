@@ -1,4 +1,5 @@
 import type { DockerComposeProjectFiles } from "../../ipc/bindings";
+import { readTeamLocalStorage, writeTeamLocalStorage } from "../../lib/teamPersist";
 import { debugCompose } from "./dockerComposeDebug";
 
 /** 按「连接 + 项目」持久化的 compose/.env 内容缓存（SWR 用）。 */
@@ -31,7 +32,7 @@ function hydrateFromStorage(): void {
   if (storageHydrated) return;
   storageHydrated = true;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readTeamLocalStorage(STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as { entries?: ComposeFilesCacheEntry[] };
     const now = Date.now();
@@ -51,7 +52,7 @@ function persistToStorage(): void {
     const entries = [...memoryCache.values()]
       .sort((a, b) => b.fetchedAt - a.fetchedAt)
       .slice(0, MAX_ENTRIES);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ entries }));
+    writeTeamLocalStorage(STORAGE_KEY, JSON.stringify({ entries }));
   } catch {
     // quota / private mode：忽略，内存缓存仍可用
   }
@@ -59,6 +60,11 @@ function persistToStorage(): void {
 
 function contentTooLarge(files: DockerComposeProjectFiles): boolean {
   return files.composeContent.length + files.envContent.length > MAX_CONTENT_CHARS;
+}
+
+export function resetComposeFilesCacheForTeamSwitch(): void {
+  memoryCache.clear();
+  storageHydrated = false;
 }
 
 export function isComposeFilesCacheFresh(entry: ComposeFilesCacheEntry, now = Date.now()): boolean {

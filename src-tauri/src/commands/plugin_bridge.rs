@@ -395,7 +395,6 @@ fn save_candidate(
     store: &Storage,
     candidate: &omnipanel_plugin::ImportCandidate,
 ) -> Result<(), omnipanel_error::OmniError> {
-    use omnipanel_plugin::ImportCandidate as C;
     use omnipanel_store::{Connection, ConnectionKind};
 
     let cfg = candidate.config.as_object().cloned().unwrap_or_default();

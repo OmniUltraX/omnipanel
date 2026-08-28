@@ -15,13 +15,13 @@ export const SBA_CHART_COLORS = {
 } as const;
 
 /**
- * 4×6 三列（与 SBA 性能页一致），6×4 纵向堆叠。
+ * 4×7 三列（与 SBA 性能页一致），6×4 纵向堆叠。
  * id = `${h}x${w}`
  */
 export const SPRING_BOOT_ADMIN_SIZES: readonly SmallComponentSize[] = [
   {
-    id: "4x6",
-    w: 6,
+    id: "4x7",
+    w: 7,
     h: 4,
     minW: 4,
     minH: 3,
@@ -41,8 +41,17 @@ export const SPRING_BOOT_ADMIN_SIZES: readonly SmallComponentSize[] = [
   },
 ];
 
+/** 旧 4×6 横向预设并入 4×7 */
+export function migrateSpringBootAdminSizeId(
+  sizeId: string | undefined,
+): string | undefined {
+  if (sizeId === "4x6") return "4x7";
+  return sizeId;
+}
+
 export function springBootAdminChartLayout(
   sizeId: string | undefined,
 ): "row" | "col" {
-  return sizeId === "4x6" ? "row" : "col";
+  const id = migrateSpringBootAdminSizeId(sizeId);
+  return id === "4x7" ? "row" : "col";
 }
