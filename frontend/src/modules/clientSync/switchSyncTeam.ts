@@ -29,6 +29,7 @@ import {
   TeamSyncKeyRequiredError,
 } from "../../lib/auth/ensureTeamSyncKey";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
+import { startTeamMesh } from "../../lib/auth/teamMesh";
 
 export { TeamSyncKeyRequiredError };
 
@@ -167,7 +168,10 @@ export async function switchSyncTeam(
     useCurrentSyncTeamStore.getState().setTeamId(teamId);
     useSyncDeviceAuthStore.getState().clearDismissed();
 
-    // 3) 确保目标团队同步密钥：先向组织内在线设备中继，失败则强制引导导入
+    // 换网后再传钥：旧团队节点先掉，再加入新团队 mesh
+    await startTeamMesh();
+
+    // 3) 确保目标团队同步密钥：先 mesh TCP，失败再 HTTP 中继，再失败则强制引导导入
     setSkipPullAfterTeamKey(true);
     let keyReady = false;
     try {

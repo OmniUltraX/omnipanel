@@ -46,6 +46,11 @@ export const useAuthStore = create<AuthState>()(
         void stopAssistantTerminalCmdInbox();
         // 清空当前同步团队，避免下次登录串到上一个账号的团队
         useCurrentSyncTeamStore.getState().resetCurrentSyncTeam();
+        void import("../lib/auth/teamMesh")
+          .then((m) => m.stopTeamMesh())
+          .catch(() => {
+            /* mesh 未启动时停止可忽略 */
+          });
         void import("../lib/applyLocalTeamScope")
           .then((m) => m.applyLocalTeamScope("local", { quiet: true }))
           .catch(() => {

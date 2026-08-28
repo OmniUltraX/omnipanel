@@ -167,6 +167,8 @@ pub struct AppState {
             >,
         >,
     >,
+    /// 团队 mesh（tailscale-rs Device）；登出 / 切团队时停止。
+    pub mesh: Arc<Mutex<Option<crate::commands::mesh::MeshHandle>>>,
     /// 终端 tmux 模式偏好：auto / always / never，由前端设置同步。
     pub terminal_tmux_mode: Arc<std::sync::Mutex<String>>,
 }
@@ -296,6 +298,7 @@ impl AppState {
                 .unwrap_or_else(|_| reqwest::Client::new()),
             plugin_logic_executor: crate::commands::plugin::make_logic_executor(),
             plugin_logic_instances: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            mesh: Arc::new(Mutex::new(None)),
             terminal_tmux_mode: Arc::new(std::sync::Mutex::new("auto".to_string())),
         }
     }

@@ -37,6 +37,7 @@ pub mod local_file_log;
 pub mod local_runtime;
 pub mod log;
 pub mod mcp;
+pub mod mesh;
 pub mod module_window;
 pub mod navicat;
 pub mod ollama_catalog;

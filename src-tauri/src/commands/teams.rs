@@ -55,6 +55,16 @@ pub struct TeamMember {
     pub updated_at: String,
 }
 
+/// 管理员生成的一次性 6 位数字邀请码。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamInvite {
+    pub code: String,
+    /// ISO-8601 过期时间；空表示服务端未返回（仍一次性失效）。
+    #[serde(default)]
+    pub expires_at: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct ApiErrorBody {
     error: Option<String>,
@@ -130,6 +140,38 @@ struct ApiTeamUpdateMemberBody<'a> {
     user_team_name: Option<&'a str>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ApiTeamInviteResponse {
+    code: Option<serde_json::Value>,
+    #[serde(alias = "inviteCode")]
+    invite_code: Option<serde_json::Value>,
+    #[serde(alias = "expiresAt")]
+    expires_at: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiTeamJoinBody<'a> {
+    code: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiTeamJoinResponse {
+    id: Option<i64>,
+    name: Option<String>,
+    creator: Option<String>,
+    role_code: Option<String>,
+    user_team_name: Option<String>,
+    team_oss_key: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+    error: Option<String>,
+    team: Option<ApiMyTeamItem>,
+    item: Option<ApiMyTeamItem>,
+}
+
 fn auth_url(path: &str) -> String {
     format!("{}{}", AUTH_API_BASE.trim_end_matches('/'), path)
 }
@@ -196,6 +238,37 @@ fn normalize_email(email: &str) -> Result<String, OmniError> {
         return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
     }
     Ok(email)
+}
+
+fn digits_from_json(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(s)) => s.chars().filter(|c| c.is_ascii_digit()).collect(),
+        Some(serde_json::Value::Number(n)) => n
+            .to_string()
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .collect(),
+        _ => String::new(),
+    }
+}
+
+fn json_to_expires_at(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(s)) => s.trim().to_string(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn normalize_invite_code(code: &str) -> Result<String, OmniError> {
+    let digits: String = code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() != 6 {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "请输入 6 位数字邀请码",
+        ));
+    }
+    Ok(digits)
 }
 
 fn map_team_summary(item: ApiMyTeamItem) -> TeamSummary {
@@ -588,4 +661,244 @@ pub async fn team_remove_member(
     }
 
     Ok(())
+}
+
+/// 生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。
+/// 同一团队再次生成会使尚未使用的旧码失效；兑换成功后立即作废。
+#[tauri::command]
+#[specta::specta]
+pub async fn team_create_invite(
+    state: State<'_, AppState>,
+    token: String,
+    team_id: i64,
+) -> Result<TeamInvite, OmniError> {
+    let token = require_token(&token)?;
+    if team_id <= 0 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "团队 ID 无效"));
+    }
+
+    let url = auth_url(&format!("/api/teams/{team_id}/invites"));
+    let client = build_auth_client(&state, &url).await?;
+
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "生成邀请码失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取邀请码响应失败").with_cause(e.to_string())
+    })?;
+
+    if !status.is_success() {
+        return Err(parse_api_error(&body, status, "生成邀请码失败"));
+    }
+
+    let parsed: ApiTeamInviteResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析邀请码响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error));
+    }
+
+    let raw = digits_from_json(parsed.code.as_ref());
+    let code = if raw.len() == 6 {
+        raw
+    } else {
+        digits_from_json(parsed.invite_code.as_ref())
+    };
+    if code.len() != 6 {
+        return Err(OmniError::new(ErrorCode::Internal, "邀请码响应无效")
+            .with_cause(body));
+    }
+
+    let expires_at = json_to_expires_at(parsed.expires_at.as_ref());
+
+    Ok(TeamInvite { code, expires_at })
+}
+
+/// 凭邀请码加入团队（POST /api/teams/join）。码被使用后立即失效。
+#[tauri::command]
+#[specta::specta]
+pub async fn team_join_by_invite(
+    state: State<'_, AppState>,
+    token: String,
+    code: String,
+) -> Result<TeamSummary, OmniError> {
+    let token = require_token(&token)?;
+    let code = normalize_invite_code(&code)?;
+
+    let url = auth_url("/api/teams/join");
+    let client = build_auth_client(&state, &url).await?;
+    let payload = ApiTeamJoinBody { code: &code };
+
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "加入团队失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取加入团队响应失败").with_cause(e.to_string())
+    })?;
+
+    if !status.is_success() {
+        return Err(parse_api_error(&body, status, "加入团队失败"));
+    }
+
+    let parsed: ApiTeamJoinResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析加入团队响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Internal, error));
+    }
+
+    let nested = parsed.team.or(parsed.item);
+    Ok(TeamSummary {
+        id: parsed.id.or_else(|| nested.as_ref().and_then(|t| t.id)).unwrap_or(0),
+        name: parsed
+            .name
+            .or_else(|| nested.as_ref().and_then(|t| t.name.clone()))
+            .unwrap_or_default(),
+        creator: parsed
+            .creator
+            .or_else(|| nested.as_ref().and_then(|t| t.creator.clone()))
+            .unwrap_or_default(),
+        kind: parsed
+            .kind
+            .or_else(|| nested.as_ref().and_then(|t| t.kind.clone()))
+            .unwrap_or_default(),
+        role_code: parsed
+            .role_code
+            .or_else(|| nested.as_ref().and_then(|t| t.role_code.clone()))
+            .unwrap_or_default(),
+        user_team_name: parsed
+            .user_team_name
+            .or_else(|| nested.as_ref().and_then(|t| t.user_team_name.clone()))
+            .unwrap_or_default(),
+        team_oss_key: parsed
+            .team_oss_key
+            .or_else(|| nested.as_ref().and_then(|t| t.team_oss_key.clone()))
+            .unwrap_or_default(),
+        created_at: parsed
+            .created_at
+            .or_else(|| nested.as_ref().and_then(|t| t.created_at.clone()))
+            .unwrap_or_default(),
+        updated_at: parsed
+            .updated_at
+            .or_else(|| nested.as_ref().and_then(|t| t.updated_at.clone()))
+            .unwrap_or_default(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMeshAuth {
+    pub auth_key: String,
+    pub control_server_url: String,
+    pub hostname: String,
+    pub listen_port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApiTeamMeshAuthResponse {
+    auth_key: Option<String>,
+    control_server_url: Option<String>,
+    hostname: Option<String>,
+    listen_port: Option<u16>,
+    error: Option<String>,
+    code: Option<String>,
+}
+
+/// 向 omniserver 申请当前团队的 Headscale preauth key。
+#[tauri::command]
+#[specta::specta]
+pub async fn team_mesh_auth_key(
+    state: State<'_, AppState>,
+    token: String,
+    team_id: i64,
+) -> Result<TeamMeshAuth, OmniError> {
+    let token = require_token(&token)?;
+    if team_id <= 0 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "团队 ID 无效"));
+    }
+
+    let url = auth_url(&format!("/api/teams/{team_id}/mesh/auth-key"));
+    let client = build_auth_client(&state, &url).await?;
+    let identity = crate::commands::auth::auth_device_identity().await?;
+
+    let resp = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .header("X-App-Id", "omni-client")
+        .header("X-Device-Id", identity.device_id)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "申请 mesh 入网凭证失败")
+                .with_cause(format_reqwest_error(&e))
+        })?;
+
+    let status = resp.status();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取 mesh 凭证响应失败").with_cause(e.to_string())
+    })?;
+
+    if !status.is_success() {
+        let parsed: Result<ApiTeamMeshAuthResponse, _> = serde_json::from_str(&body);
+        if status.as_u16() == 503
+            || parsed
+                .as_ref()
+                .ok()
+                .and_then(|p| p.code.as_deref())
+                .is_some_and(|c| c.eq_ignore_ascii_case("mesh_unavailable"))
+        {
+            return Err(OmniError::new(ErrorCode::Connection, "团队 mesh 暂不可用")
+                .with_cause(body));
+        }
+        return Err(parse_api_error(&body, status, "申请 mesh 入网凭证失败"));
+    }
+
+    let parsed: ApiTeamMeshAuthResponse = serde_json::from_str(&body).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析 mesh 凭证响应失败")
+            .with_cause(format!("{e}; body={body}"))
+    })?;
+    if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
+        return Err(OmniError::new(ErrorCode::Connection, error));
+    }
+    let auth_key = parsed.auth_key.unwrap_or_default().trim().to_string();
+    let control_server_url = parsed
+        .control_server_url
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let hostname = parsed.hostname.unwrap_or_default().trim().to_string();
+    if auth_key.is_empty() || control_server_url.is_empty() {
+        return Err(OmniError::new(ErrorCode::Internal, "mesh 凭证响应不完整")
+            .with_cause(body));
+    }
+    Ok(TeamMeshAuth {
+        auth_key,
+        control_server_url,
+        hostname,
+        listen_port: parsed.listen_port.unwrap_or(42424),
+    })
 }

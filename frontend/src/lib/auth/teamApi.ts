@@ -1,7 +1,7 @@
-import { commands, type TeamCreated, type TeamMember, type TeamSummary } from "../../ipc/bindings";
+import { commands, type TeamCreated, type TeamInvite, type TeamMember, type TeamSummary } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 
-export type { TeamCreated, TeamMember, TeamSummary };
+export type { TeamCreated, TeamInvite, TeamMember, TeamSummary };
 
 export function isPersonalTeam(team: { kind?: string } | null | undefined): boolean {
   return (team?.kind ?? "").trim().toLowerCase() === "personal";
@@ -82,6 +82,14 @@ export async function removeTeamMember(
   email: string,
 ): Promise<void> {
   await unwrapCommand(commands.teamRemoveMember(token, teamId, email));
+}
+
+export async function createTeamInvite(token: string, teamId: number): Promise<TeamInvite> {
+  return unwrapCommand(commands.teamCreateInvite(token, teamId));
+}
+
+export async function joinTeamByInvite(token: string, code: string): Promise<TeamSummary> {
+  return unwrapCommand(commands.teamJoinByInvite(token, code));
 }
 
 export function formatTeamError(error: unknown): string {

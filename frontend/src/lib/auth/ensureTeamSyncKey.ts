@@ -1,5 +1,5 @@
 /**
- * 确保本机拥有指定团队的同步密钥：先查本地，再向组织内在线设备中继，失败则强制引导导入。
+ * 确保本机拥有指定团队的同步密钥：先查本地，再走团队 mesh TCP，失败则 HTTP 中继，再失败则强制引导导入。
  */
 
 import { commands } from "../../ipc/bindings";
@@ -7,7 +7,8 @@ import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
 import { getSyncTeamKeyStatus } from "./syncTeamKeyApi";
-import { requestTeamSyncKeyFromRelay, SyncKeyRelayError } from "./syncKeyRelayApi";
+import { requestTeamSyncKeyFromRelay, SyncKeyRelayError, listOnlineSyncPeers } from "./syncKeyRelayApi";
+import { meshHostname } from "./teamMesh";
 
 export class TeamSyncKeyRequiredError extends Error {
   constructor(message = "需要团队同步密钥") {
@@ -55,6 +56,58 @@ export async function hasTeamSyncKey(teamId: number): Promise<boolean> {
   try {
     const status = await getSyncTeamKeyStatus(teamId);
     return status.hasKey;
+  } catch {
+    return false;
+  }
+}
+
+async function tryMeshTeamSyncKey(teamId: number, timeoutMs: number): Promise<boolean> {
+  const token = useAuthStore.getState().token?.trim();
+  if (!token) return false;
+  try {
+    const deviceId = await resolveDeviceId();
+    if (!deviceId) return false;
+    const peers = await listOnlineSyncPeers(token, teamId);
+    const others = peers.filter((p) => p.deviceId.trim() && p.deviceId.trim() !== deviceId);
+    if (others.length === 0) return false;
+
+    const eph = await unwrapCommand(commands.syncTeamKeyGenerateEphemeralKeypair(), {
+      quiet: true,
+    });
+    const requestId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `mesh-${Date.now()}`;
+    const deadline = Date.now() + timeoutMs;
+    for (const peer of others) {
+      if (Date.now() > deadline) break;
+      try {
+        const wrapped = await unwrapCommand(
+          commands.meshRequestSyncKey(
+            teamId,
+            meshHostname(peer.deviceId),
+            eph.publicKeyB64,
+            requestId,
+            deviceId,
+          ),
+          { quiet: true },
+        );
+        await unwrapCommand(
+          commands.syncTeamKeyUnwrapFromRelay(
+            teamId,
+            wrapped,
+            eph.secretKeyB64,
+            requestId,
+            deviceId,
+          ),
+          { quiet: true },
+        );
+        return true;
+      } catch {
+        /* 下一台对端或回退 HTTP 中继 */
+      }
+    }
+    return false;
   } catch {
     return false;
   }
@@ -114,6 +167,10 @@ export async function ensureTeamSyncKeyForTeam(
   }
 
   const relayTimeoutMs = options?.relayTimeoutMs ?? 60_000;
+  if (await tryMeshTeamSyncKey(teamId, Math.min(relayTimeoutMs, 25_000))) {
+    useSyncDeviceAuthStore.getState().closeDialog();
+    return true;
+  }
   if (await tryRelayTeamSyncKey(teamId, relayTimeoutMs)) {
     useSyncDeviceAuthStore.getState().closeDialog();
     return true;
