@@ -289,6 +289,25 @@ describe("shellAgentGeometry", () => {
     expect(getShellAgentGeometry(SID)?.rows).toBe(2);
   });
 
+  it("思考卡归档钉结果卡：中间留一行，避免贴死", () => {
+    const term = createFakeTerm();
+    registerXterm(SID, term as unknown as Terminal);
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "q",
+    });
+    setShellAgentThinkingFull(SID, "先看时间");
+
+    term.writes.length = 0;
+    reanchorShellAgentCard(SID, "final");
+    const newlines = (term.writes.join("").match(/\r\n/g) ?? []).length;
+
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("final");
+    expect(newlines).toBeGreaterThanOrEqual(2);
+  });
+
   it("思考卡换确认卡：先撑到确认卡最小占位", () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);

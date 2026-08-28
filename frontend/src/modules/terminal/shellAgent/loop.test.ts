@@ -305,6 +305,22 @@ describe("startOrContinueShellAgent busy follow-up", () => {
     expect(submitInlineFollowUp).not.toHaveBeenCalled();
   });
 
+  it("上一轮 429/失败后继续仍 follow-up，不新开空会话", async () => {
+    findBlockById.mockImplementation((id: string) =>
+      id === "block-busy" ? { id, kind: "ai", status: "failed" } : null,
+    );
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setBlockId(SID, "block-busy");
+    useShellAgentStore.getState().bumpTurn(SID);
+    useShellAgentStore.getState().setPhase(SID, "idle");
+
+    const id = await startOrContinueShellAgent(SID, "继续");
+
+    expect(id).toBe("block-busy");
+    expect(submitInlineFollowUp).toHaveBeenCalledWith(SID, "block-busy", "继续", "/tmp");
+    expect(submitInlineNaturalLanguage).not.toHaveBeenCalled();
+  });
+
   it("cancelled 后 start 用新 thread，勿 ensure 僵尸", async () => {
     const created = useShellAgentStore.getState().ensure(SID);
     const oldThread = created.agentThreadId;

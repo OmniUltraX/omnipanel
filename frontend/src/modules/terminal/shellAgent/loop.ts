@@ -1204,10 +1204,10 @@ export async function startOrContinueShellAgent(
     ? useBlocksStore.getState().findBlockById(session.blockId)
     : null;
 
+  // 429 / 失败也续同一张卡：否则「继续」会新开空会话，模型看不到上面的历史
   const canContinue =
     Boolean(existingBlock) &&
     existingBlock?.kind === "ai" &&
-    existingBlock.status !== "failed" &&
     session.turn > 0 &&
     session.turn < session.maxTurns;
 

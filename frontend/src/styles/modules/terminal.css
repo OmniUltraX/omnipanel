@@ -1902,6 +1902,11 @@
         margin: 0;
         height: 100%;
     }
+    /* 已归档「思考完成」不要铺满 2 行占位，底下留一点缝给结果卡 */
+    .term-shell-agent-deco-card--frozen .term-shell-agent-card--note.is-done {
+        height: auto;
+        max-height: calc(100% - 8px);
+    }
     .term-shell-agent-deco-card .term-shell-agent-card--final {
         /* 铺满 decoration：底边框画在占位内侧，避免 1px 被 overflow 裁掉 */
         margin: 0;
