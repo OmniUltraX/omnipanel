@@ -680,8 +680,15 @@ pub async fn plugin_invoke(
             match instance {
                 Some(instance) => {
                     let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
-                    let fut = instance.lock().unwrap().call(&method, &args_json);
-                    fut.await.and_then(|text| {
+                    let method = method.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let guard = instance.lock().unwrap();
+                        let rt = tokio::runtime::Handle::current();
+                        rt.block_on(guard.call(&method, &args_json))
+                    })
+                    .await
+                    .map_err(|e| OmniError::internal(e.to_string()))?
+                    .and_then(|text| {
                         serde_json::from_str::<Value>(&text).map_err(|e| {
                             omnipanel_plugin::PluginError::Invoke(format!("L2 结果非 JSON: {e}"))
                         })

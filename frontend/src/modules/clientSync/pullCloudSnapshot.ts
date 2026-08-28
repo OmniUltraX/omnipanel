@@ -7,6 +7,7 @@ import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
 import { applySshSidebarTreeJson } from "../../stores/sshSidebarTreeStore";
 import { applyFolderTreesJson } from "./folderTrees";
+import { applyCustomPanelsJson } from "../workspace/useDashboardStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import {
   setClientConversationSyncSuppressed,
@@ -180,6 +181,7 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
       mergeWorkspacesJson(modulesResult.workspacesJson);
       applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "merge");
       applyFolderTreesJson(modulesResult.folderTreesJson, "merge");
+      applyCustomPanelsJson(modulesResult.customPanelsJson, "merge");
       await refreshLocalModuleUi();
     }
 

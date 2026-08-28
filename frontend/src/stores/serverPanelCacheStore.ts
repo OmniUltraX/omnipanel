@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type { Connection } from "../ipc/bindings";
 import { connectionToServerEntry } from "../modules/server/panel/panelConnection";
 import { isOnePanelService } from "../modules/server/panel/panelPlugin";
@@ -242,7 +243,7 @@ export const useServerPanelCacheStore = create<ServerPanelCacheState>()(
     }),
     {
       name: "omnipanel-server-panel-cache.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         panelServers: state.panelServers.map((s) => ({ ...s, key: "" })),
         resourcesByServerId: state.resourcesByServerId,

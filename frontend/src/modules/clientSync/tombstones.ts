@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../../lib/zustandPersistStorage";
 
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -11,7 +12,8 @@ export type ClientSyncTombstoneKind =
   | "httpRequest"
   | "httpCollection"
   | "httpEnvironment"
-  | "workspace";
+  | "workspace"
+  | "customPanel";
 
 export interface ClientSyncTombstone {
   id: string;
@@ -119,6 +121,7 @@ export const useClientSyncTombstoneStore = create<ClientSyncTombstoneState>()(
     }),
     {
       name: "omnipanel-client-sync-tombstones.v1",
+      storage: createJSONStorage(createSafeLocalStorage),
       version: 2,
       migrate: (persisted, fromVersion) => {
         const raw = (persisted ?? {}) as { deleted?: Record<string, number> };

@@ -3,6 +3,8 @@
  * 数组为「新→旧」：index 0 为最近一次提交。
  */
 
+import { readTeamLocalStorage, writeTeamLocalStorage } from "../../../lib/teamPersist";
+
 export type TablePreviewQueryHistoryMode = "where" | "order";
 
 const STORAGE_KEY = "omnipanel.db.table-query.history.v1";
@@ -36,7 +38,7 @@ function normalizeList(raw: unknown): string[] {
 
 function readAll(): HistoryMap {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readTeamLocalStorage(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as HistoryMap;
     if (!parsed || typeof parsed !== "object") return {};
@@ -56,7 +58,7 @@ function readAll(): HistoryMap {
 
 function writeAll(map: HistoryMap): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    writeTeamLocalStorage(STORAGE_KEY, JSON.stringify(map));
   } catch {
     // ignore quota / private mode
   }

@@ -23,6 +23,7 @@ mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
 mod paths;
+mod team_layout;
 mod plugin_settings;
 mod resource_profile;
 mod schema_cache;
@@ -112,6 +113,11 @@ pub use paths::{
     omnipd_root, prompts_root, skills_root, web_search_config_path,
 };
 pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
+pub use team_layout::{
+    active_team_scope, init_team_storage, meta_db_exists_on_disk, normalize_team_scope,
+    persist_active_team_scope, promote_local_dir_to_team, set_active_team_scope, team_data_dir,
+    LOCAL_TEAM_SCOPE,
+};
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
     SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser, load_schema_cache,

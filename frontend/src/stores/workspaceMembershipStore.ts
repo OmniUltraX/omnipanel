@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 /** 工作区可选资源 membership（未列入 = 不限制，全局可用） */
 interface WorkspaceMembershipState {
@@ -46,6 +47,9 @@ export const useWorkspaceMembershipStore = create<WorkspaceMembershipState>()(
       getWorkspaceResourceIds: (workspaceId) =>
         get().resourceIdsByWorkspace[workspaceId] ?? [],
     }),
-    { name: "omnipanel-workspace-membership" },
+    {
+      name: "omnipanel-workspace-membership",
+      storage: createJSONStorage(createSafeLocalStorage),
+    },
   ),
 );

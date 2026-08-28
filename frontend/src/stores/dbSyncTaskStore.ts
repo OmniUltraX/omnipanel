@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 import type {
   SyncTask,
@@ -185,7 +186,7 @@ export const useDbSyncTaskStore = create<DbSyncTaskState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         tasks: state.tasks,
         runHistory: state.runHistory,

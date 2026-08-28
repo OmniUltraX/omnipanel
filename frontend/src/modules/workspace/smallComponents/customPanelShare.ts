@@ -57,5 +57,8 @@ export function importCustomPanelShareSnapshot(
       },
     };
   });
+  void import("../../clientSync/moduleSync").then((mod) => {
+    mod.scheduleClientModuleSync();
+  });
   return panelId;
 }

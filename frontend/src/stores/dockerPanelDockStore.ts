@@ -1,6 +1,7 @@
 import type { SerializedDockview } from "dockview-core";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import {
   findPreviewDockTab,
   findTabIdForCompose,
@@ -637,7 +638,7 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
     {
       name: "omnipanel-docker-panel-dock.v1",
       version: 5,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       migrate: (persisted) => {
         if (!persisted || typeof persisted !== "object") {
           return persisted as DockerPanelDockState;

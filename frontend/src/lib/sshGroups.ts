@@ -1,4 +1,5 @@
 import type { Connection } from "../ipc/bindings";
+import { readTeamLocalStorage, writeTeamLocalStorage } from "./teamPersist";
 
 /** OpenSSH 配置导入主机的分组标识（展示文案走 i18n）。 */
 export const OPENSSH_CONFIG_GROUP = "~/.ssh/config";
@@ -10,7 +11,7 @@ const MANUAL_GROUPS_STORAGE_KEY = "omnipanel.ssh.manualGroups.v1";
 /** 从 localStorage 读取手动新建的空分组列表。 */
 export function loadManualEmptyGroups(): string[] {
   try {
-    const raw = localStorage.getItem(MANUAL_GROUPS_STORAGE_KEY);
+    const raw = readTeamLocalStorage(MANUAL_GROUPS_STORAGE_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
@@ -24,7 +25,7 @@ export function loadManualEmptyGroups(): string[] {
 export function saveManualEmptyGroups(groups: string[]): void {
   try {
     const normalized = Array.from(new Set(groups.map(normalizeSshGroup).filter(Boolean)));
-    localStorage.setItem(MANUAL_GROUPS_STORAGE_KEY, JSON.stringify(normalized));
+    writeTeamLocalStorage(MANUAL_GROUPS_STORAGE_KEY, JSON.stringify(normalized));
   } catch {
     /* ignore */
   }

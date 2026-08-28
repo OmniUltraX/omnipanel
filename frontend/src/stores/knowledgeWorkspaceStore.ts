@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type { SerializedDockview } from "dockview-core";
 import type { KnowledgeWorkspaceTab } from "../modules/knowledge/knowledgeWorkspaceTabs";
 import type { KnowledgeRightRailTab } from "../modules/knowledge/KnowledgeNoteRightRail";
@@ -60,6 +61,7 @@ export const useKnowledgeWorkspaceStore = create<KnowledgeWorkspaceStore>()(
     }),
     {
       name: "omnipanel-knowledge-workspace",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         workspaceTabs: state.workspaceTabs.filter((tab) => !tab.preview),
         activeTabId: state.activeTabId,

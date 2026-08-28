@@ -7673,6 +7673,7 @@ export const zhCN = {
         knowledge: "知识库",
         http: "HTTP",
         workspaces: "工作区",
+        customPanels: "自定义面板",
       },
       membersLoading: "正在加载成员…",
       membersEmpty: "暂无成员",

@@ -134,7 +134,7 @@ pub fn save_database_connections_to(
 
 /// 运行期连接仓库：启动时加载，变更后写回磁盘。
 pub struct DatabaseConnectionStore {
-    path: std::path::PathBuf,
+    path: std::sync::Mutex<PathBuf>,
     inner: std::sync::Mutex<HashMap<String, DbConnectionConfig>>,
 }
 
@@ -168,14 +168,39 @@ impl DatabaseConnectionStore {
             .map(|conn| (conn.id.clone(), conn))
             .collect();
         Ok(Self {
-            path: path.to_path_buf(),
+            path: std::sync::Mutex::new(path.to_path_buf()),
             inner: std::sync::Mutex::new(map),
         })
     }
 
+    fn storage_path(&self) -> OmniResult<PathBuf> {
+        Ok(self
+            .path
+            .lock()
+            .map_err(|_| lock_err())?
+            .clone())
+    }
+
+    /// 按当前团队路径重新从磁盘加载（进程内换库）。
+    pub fn reload_from_disk(&self) -> OmniResult<()> {
+        let path = paths::database_connections_path()?;
+        let fresh = Self::open_at(&path)?;
+        fresh.ensure_builtin_demos()?;
+        {
+            let mut dest = self.path.lock().map_err(|_| lock_err())?;
+            *dest = path;
+        }
+        {
+            let mut dest = self.inner.lock().map_err(|_| lock_err())?;
+            let mut src = fresh.inner.lock().map_err(|_| lock_err())?;
+            *dest = std::mem::take(&mut *src);
+        }
+        Ok(())
+    }
+
     /// 注入内置演示 SQLite 连接（仅正式 `open()` 路径调用，避免测试污染）。
     fn ensure_builtin_demos(&self) -> OmniResult<()> {
-        let tombstone_dir = self.path.parent().map(|p| p.to_path_buf());
+        let tombstone_dir = self.storage_path()?.parent().map(|p| p.to_path_buf());
         let mut store = self.inner.lock().map_err(|_| lock_err())?;
         let mut list: Vec<_> = store.values().cloned().collect();
         if !ensure_builtin_demo_connections(&mut list, tombstone_dir.as_deref()) {
@@ -187,7 +212,7 @@ impl DatabaseConnectionStore {
         }
         let snapshot: Vec<_> = store.values().cloned().collect();
         drop(store);
-        save_database_connections_to(&self.path, &snapshot)
+        save_database_connections_to(&self.storage_path()?, &snapshot)
     }
 
     pub fn list(&self) -> OmniResult<Vec<DbConnectionConfig>> {
@@ -239,7 +264,7 @@ impl DatabaseConnectionStore {
         store.insert(connection.id.clone(), connection.clone());
         let snapshot: Vec<_> = store.values().cloned().collect();
         drop(store);
-        save_database_connections_to(&self.path, &snapshot)?;
+        save_database_connections_to(&self.storage_path()?, &snapshot)?;
         Ok(connection)
     }
 
@@ -258,7 +283,7 @@ impl DatabaseConnectionStore {
         }
         let snapshot: Vec<_> = store.values().cloned().collect();
         drop(store);
-        save_database_connections_to(&self.path, &snapshot)?;
+        save_database_connections_to(&self.storage_path()?, &snapshot)?;
         Ok(removed)
     }
 
@@ -267,10 +292,10 @@ impl DatabaseConnectionStore {
         store.remove(id);
         let snapshot: Vec<_> = store.values().cloned().collect();
         drop(store);
-        save_database_connections_to(&self.path, &snapshot)?;
+        save_database_connections_to(&self.storage_path()?, &snapshot)?;
         let _ = Vault::delete(&db_password_ref(id));
         // 内置演示：删除后写 tombstone，避免下次启动再次注入
-        if let Some(dir) = self.path.parent() {
+        if let Some(dir) = self.storage_path()?.parent() {
             let _ = mark_seed_connection_removed(dir, id);
         }
         Ok(())

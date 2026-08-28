@@ -54,34 +54,36 @@ pub fn module_dir(module: &str) -> OmniResult<PathBuf> {
     Ok(dir)
 }
 
-/// 元数据 SQLite 库：`~/.omnipd/store/omnipanel.db`（连接模型、审计日志等）。
+/// 元数据 SQLite 库：`~/.omnipd/store/teams/{scope}/omnipanel.db`。
 pub fn meta_db_path() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::STORE)?.join("omnipanel.db"))
+    Ok(crate::team_layout::team_data_dir()?.join("omnipanel.db"))
 }
 
-/// 数据库模块连接列表：`~/.omnipd/database/connections.json`。
+/// 数据库模块连接列表：`~/.omnipd/store/teams/{scope}/database/connections.json`。
 pub fn database_connections_path() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::DATABASE)?.join("connections.json"))
+    Ok(crate::team_layout::team_database_dir()?.join("connections.json"))
 }
 
-/// Schema 树过滤显示：`~/.omnipd/database/schema-filters.json`。
+/// Schema 树过滤显示：当前团队 `database/schema-filters.json`。
 pub fn database_schema_filters_path() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::DATABASE)?.join("schema-filters.json"))
+    Ok(crate::team_layout::team_database_dir()?.join("schema-filters.json"))
 }
 
-/// Schema 树展开状态：`~/.omnipd/database/schema-tree-expanded.json`。
+/// Schema 树展开状态：当前团队 `database/schema-tree-expanded.json`。
 pub fn database_schema_tree_expanded_path() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::DATABASE)?.join("schema-tree-expanded.json"))
+    Ok(crate::team_layout::team_database_dir()?.join("schema-tree-expanded.json"))
 }
 
-/// Schema 树节点缓存：`~/.omnipd/database/schema-cache.json`。
+/// Schema 树节点缓存：当前团队 `database/schema-cache.json`。
 pub fn database_schema_cache_path() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::DATABASE)?.join("schema-cache.json"))
+    Ok(crate::team_layout::team_database_dir()?.join("schema-cache.json"))
 }
 
-/// Docker 侧栏资源缓存：`~/.omnipd/docker/sidebar-cache.json`。
+/// Docker 侧栏资源缓存：当前团队 `docker/sidebar-cache.json`。
 pub fn docker_sidebar_cache_path() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::DOCKER)?.join("sidebar-cache.json"))
+    let dir = crate::team_layout::team_data_dir()?.join(modules::DOCKER);
+    std::fs::create_dir_all(&dir).map_err(map_io)?;
+    Ok(dir.join("sidebar-cache.json"))
 }
 
 /// MCP 服务配置：`~/.omnipd/mcp/services.json`。
@@ -104,9 +106,11 @@ pub fn ai_config_dir() -> OmniResult<PathBuf> {
     module_dir(modules::AI)
 }
 
-/// 知识库附件根目录：`~/.omnipd/knowledge/assets/`。
+/// 知识库附件根目录：当前团队 `knowledge/assets/`。
 pub fn knowledge_assets_root() -> OmniResult<PathBuf> {
-    let dir = module_dir(modules::KNOWLEDGE)?.join("assets");
+    let dir = crate::team_layout::team_data_dir()?
+        .join(modules::KNOWLEDGE)
+        .join("assets");
     std::fs::create_dir_all(&dir).map_err(map_io)?;
     Ok(dir)
 }
@@ -138,9 +142,11 @@ pub fn http_proxy_config_path() -> OmniResult<PathBuf> {
     Ok(ai_config_dir()?.join("http-proxy.json"))
 }
 
-/// 默认文件索引存储目录：`~/.omnipd/files/index`。
+/// 默认文件索引存储目录：当前团队 `files-index/`。
 pub fn default_file_index_storage_dir() -> OmniResult<PathBuf> {
-    Ok(module_dir(modules::FILES)?.join("index"))
+    let dir = crate::team_layout::team_data_dir()?.join("files-index");
+    std::fs::create_dir_all(&dir).map_err(map_io)?;
+    Ok(dir)
 }
 
 /// 域名→IP 解析缓存：`~/.omnipd/database/host-resolve-cache.json`。

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 /**
  * Skill 自我进化 — 主动提醒机制
@@ -238,7 +239,7 @@ export const useSkillPromptStore = create<SkillPromptState>()(
     }),
     {
       name: "omnipanel.skill-prompt.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (s) => ({
         weekKey: s.weekKey,
         dismissCount: s.dismissCount,

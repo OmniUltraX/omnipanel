@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 import { detectAllAgents } from "../lib/agents/detect";
 import type { AgentInstallStatus, AgentKind } from "../lib/agents/types";
@@ -169,7 +170,7 @@ export const useAcpServicesStore = create<AcpServicesState>()(
     }),
     {
       name: "omnipanel-acp-services",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         services: state.services.map((s) => ({
           id: s.id,

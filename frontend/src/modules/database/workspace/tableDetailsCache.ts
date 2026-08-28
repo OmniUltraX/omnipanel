@@ -1,4 +1,5 @@
 import type { DbConnectionConfig, DbTableDetails } from "../api";
+import { readTeamLocalStorage, writeTeamLocalStorage } from "../../../lib/teamPersist";
 
 const STORAGE_KEY = "omnipanel-table-details-cache.v1";
 
@@ -40,7 +41,7 @@ function loadFromLocalStorage(): TableDetailsCacheStore {
     return {};
   }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readTeamLocalStorage(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as TableDetailsCacheStore;
     return parsed && typeof parsed === "object" ? parsed : {};
@@ -66,7 +67,7 @@ function scheduleFlush(): void {
     if (memoryStore === null) return;
     trimToMaxEntries();
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryStore));
+      writeTeamLocalStorage(STORAGE_KEY, JSON.stringify(memoryStore));
     } catch {
       // ignore quota / private mode errors
     }
@@ -102,6 +103,12 @@ function isEntryValid(
     entry.dbName === dbName &&
     entry.tableName === tableName
   );
+}
+
+/** 切换团队 persist 桶时丢掉内存，避免旧团队数据写进新桶。 */
+export function resetTableDetailsCacheForTeamSwitch(): void {
+  writeScheduled = false;
+  memoryStore = null;
 }
 
 /** 读取单表详情缓存。 */

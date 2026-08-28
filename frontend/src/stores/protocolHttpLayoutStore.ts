@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
 
 export type ProtocolHttpFolder = {
@@ -340,7 +341,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         folders: state.folders,
         collectionParents: state.collectionParents,

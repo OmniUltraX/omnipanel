@@ -182,6 +182,7 @@ pub fn users_sqls(family: CatalogFamily) -> &'static [&'static str] {
     }
 }
 
+#[allow(dead_code)] // 进程列表 SQL；introspect 尚未接入口，单测覆盖模板
 pub fn process_sqls(family: CatalogFamily) -> &'static [&'static str] {
     match family {
         CatalogFamily::PostgresLike => &[
@@ -200,6 +201,7 @@ pub fn process_sqls(family: CatalogFamily) -> &'static [&'static str] {
     }
 }
 
+#[allow(dead_code)] // 参数/变量 SQL；introspect 尚未接入口，单测覆盖模板
 pub fn settings_sqls(family: CatalogFamily) -> &'static [&'static str] {
     match family {
         CatalogFamily::PostgresLike => {
@@ -214,6 +216,7 @@ pub fn settings_sqls(family: CatalogFamily) -> &'static [&'static str] {
     }
 }
 
+#[allow(dead_code)] // 慢查询 SQL；introspect 尚未接入口，单测覆盖模板
 pub fn slow_query_sqls(family: CatalogFamily) -> &'static [&'static str] {
     match family {
         CatalogFamily::PostgresLike => &[
@@ -233,15 +236,18 @@ pub fn slow_query_sqls(family: CatalogFamily) -> &'static [&'static str] {
     }
 }
 
+#[allow(dead_code)] // SQL Server 进程列表；introspect 尚未接入口，单测覆盖模板
 pub const SQLSERVER_PROCESS_SQL: &str = "SELECT session_id AS Id, login_name AS \"User\", host_name AS Host, \
     DB_NAME(database_id) AS db, status AS State, \
     DATEDIFF(second, login_time, GETDATE()) AS Time \
     FROM sys.dm_exec_sessions WHERE is_user_process = 1 ORDER BY Time DESC";
 
+#[allow(dead_code)] // SQL Server 参数；introspect 尚未接入口，单测覆盖模板
 pub const SQLSERVER_SETTINGS_SQL: &str = "SELECT name, CAST(value AS nvarchar(max)) AS setting, \
     CAST(value_in_use AS nvarchar(max)) AS source, description AS context \
     FROM sys.configurations ORDER BY name";
 
+#[allow(dead_code)] // SQL Server 慢查询；introspect 尚未接入口，单测覆盖模板
 pub const SQLSERVER_SLOW_QUERY_SQL: &str = "SELECT TOP 100 \
     qs.total_elapsed_time / 1000 AS elapsed_ms, qs.execution_count, \
     SUBSTRING(qt.text, 1, 4000) AS query \
@@ -254,6 +260,7 @@ pub const SQLSERVER_USERS_SQL: &str = "SELECT name AS NAME, is_disabled, type_de
     WHERE type IN ('S', 'U', 'G') AND name NOT LIKE '##%' \
     ORDER BY name";
 
+#[allow(dead_code)] // process_sqls 别名，供后续进程面板与单测使用
 pub fn process_list_sqls(family: CatalogFamily) -> &'static [&'static str] {
     process_sqls(family)
 }

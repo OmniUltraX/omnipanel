@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { commands } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from "./backgroundTaskStore";
@@ -82,7 +83,7 @@ export const useBgTaskHistoryStore = create<BgTaskHistoryState>()(
     }),
     {
       name: "omnipanel-bg-task-history.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (s) => ({ history: s.history }),
     },
   ),

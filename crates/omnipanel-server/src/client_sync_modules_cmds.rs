@@ -1,4 +1,4 @@
-//! 客户端选定团队「各业务模块」同步。
+﻿//! 客户端选定团队「各业务模块」同步。
 //! 路径：团队 OSS `modules/latest.json`；上传前端到端加密（sync_key_v2），凭据随快照一并同步。
 
 use std::collections::HashSet;
@@ -143,6 +143,12 @@ pub struct ClientSyncModulesBundle {
     /// 其他模块侧栏文件夹布局 JSON：`{ docker, database, protocol }`。旧快照缺此字段则为空。
     #[serde(default)]
     pub folder_trees_json: Option<String>,
+    /// 首页自定义面板 JSON：`{ customPanels, deletedIds }`。旧快照缺此字段则为空。
+    #[serde(default)]
+    pub custom_panels_json: Option<String>,
+    /// 已删除的自定义面板（前端 tombstone）。
+    #[serde(default)]
+    pub deleted_custom_panels: Vec<ClientSyncTombstone>,
     /// 连接相关 Vault 凭据（团队 sync_key_v2 加密后随快照同步）。
     #[serde(default)]
     pub vault_secrets: Vec<ClientSyncVaultSecret>,
@@ -162,6 +168,9 @@ pub struct ClientSyncPushModulesRequest {
     /// 其他模块侧栏文件夹布局 JSON；由前端从 Docker/数据库/协议 store 序列化。
     #[serde(default)]
     pub folder_trees_json: Option<String>,
+    /// 首页自定义面板 JSON；由前端从 dashboardStore 序列化。
+    #[serde(default)]
+    pub custom_panels_json: Option<String>,
     #[serde(default)]
     pub deleted_connections: Vec<ClientSyncTombstone>,
     #[serde(default)]
@@ -176,6 +185,8 @@ pub struct ClientSyncPushModulesRequest {
     pub deleted_http_environments: Vec<ClientSyncTombstone>,
     #[serde(default)]
     pub deleted_workspaces: Vec<ClientSyncTombstone>,
+    #[serde(default)]
+    pub deleted_custom_panels: Vec<ClientSyncTombstone>,
     /// 可选团队 ID；缺省回退到默认个人团队。
     #[serde(default)]
     pub team_id: Option<i64>,
@@ -197,6 +208,8 @@ fn bundle_is_vacuous_empty(bundle: &ClientSyncModulesBundle) -> bool {
         && bundle.deleted_http_collections.is_empty()
         && bundle.deleted_http_environments.is_empty()
         && bundle.deleted_workspaces.is_empty()
+        && bundle.deleted_custom_panels.is_empty()
+        && !custom_panels_bundle_nonempty(bundle)
 }
 
 fn bundle_has_resources(bundle: &ClientSyncModulesBundle) -> bool {
@@ -206,6 +219,35 @@ fn bundle_has_resources(bundle: &ClientSyncModulesBundle) -> bool {
         || !bundle.http_collections.is_empty()
         || !bundle.http_environments.is_empty()
         || !bundle.http_requests.is_empty()
+        || custom_panels_bundle_nonempty(bundle)
+}
+
+fn custom_panels_bundle_nonempty(bundle: &ClientSyncModulesBundle) -> bool {
+    if !bundle.deleted_custom_panels.is_empty() {
+        return true;
+    }
+    let Some(raw) = bundle
+        .custom_panels_json
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return false;
+    };
+    let has_panels = value
+        .get("customPanels")
+        .and_then(|v| v.as_object())
+        .map(|m| !m.is_empty())
+        .unwrap_or(false);
+    let has_deleted = value
+        .get("deletedIds")
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+    has_panels || has_deleted
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -366,6 +408,8 @@ fn collect_local_bundle(
         deleted_workspaces: request.deleted_workspaces.clone(),
         ssh_sidebar_tree_json: parse_json_object_string(request.ssh_sidebar_tree_json.as_deref()),
         folder_trees_json: parse_json_object_string(request.folder_trees_json.as_deref()),
+        custom_panels_json: parse_json_object_string(request.custom_panels_json.as_deref()),
+        deleted_custom_panels: request.deleted_custom_panels.clone(),
         vault_secrets,
         ssh_keys,
     })
@@ -482,6 +526,8 @@ pub struct ClientSyncPullModulesResult {
     pub ssh_sidebar_tree_json: Option<String>,
     /// 其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据库/协议 store。
     pub folder_trees_json: Option<String>,
+    /// 首页自定义面板 JSON，由前端写入 dashboardStore。
+    pub custom_panels_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -510,6 +556,7 @@ async fn apply_modules_bundle(
         usize,
         usize,
         usize,
+        Option<String>,
         Option<String>,
         Option<String>,
         Option<String>,
@@ -683,6 +730,7 @@ async fn apply_modules_bundle(
     let workspaces_json = serde_json::to_string(&bundle.workspaces).ok();
     let ssh_sidebar_tree_json = bundle.ssh_sidebar_tree_json.clone();
     let folder_trees_json = bundle.folder_trees_json.clone();
+    let custom_panels_json = bundle.custom_panels_json.clone();
 
     Ok((
         applied_connections,
@@ -693,6 +741,7 @@ async fn apply_modules_bundle(
         workspaces_json,
         ssh_sidebar_tree_json,
         folder_trees_json,
+        custom_panels_json,
     ))
 }
 
@@ -729,6 +778,7 @@ pub async fn client_sync_pull_modules(
             workspaces_json: None,
             ssh_sidebar_tree_json: None,
             folder_trees_json: None,
+            custom_panels_json: None,
         });
     };
 
@@ -752,6 +802,7 @@ pub async fn client_sync_pull_modules(
             workspaces_json: None,
             ssh_sidebar_tree_json: None,
             folder_trees_json: None,
+            custom_panels_json: None,
         });
     }
 
@@ -764,6 +815,7 @@ pub async fn client_sync_pull_modules(
         workspaces_json,
         ssh_sidebar_tree_json,
         folder_trees_json,
+        custom_panels_json,
     ) = apply_modules_bundle(state, &bundle).await?;
 
     Ok(ClientSyncPullModulesResult {
@@ -778,5 +830,6 @@ pub async fn client_sync_pull_modules(
         workspaces_json,
         ssh_sidebar_tree_json,
         folder_trees_json,
+        custom_panels_json,
     })
 }

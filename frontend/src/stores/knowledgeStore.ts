@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { commands, type KnowledgeEntry } from "../ipc/bindings";
 import {
   collectDescendantIds,
@@ -258,6 +259,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
     }),
     {
       name: "omnipanel-knowledge-store",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
         expandedIds: state.expandedIds,
         selectedEntryId: state.selectedEntryId,

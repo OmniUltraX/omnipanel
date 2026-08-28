@@ -26,7 +26,7 @@ pub use engine_sidecar::{
 };
 pub use error::PluginError;
 pub use executor::{
-    AutoAllow, AutoDeny, ConfirmFuture, ConfirmRequest, LogicFuture, LogicPackage,
+    AutoAllow, AutoDeny, ConfirmFuture, ConfirmRequest, DisabledExecutor, LogicFuture, LogicPackage,
     PluginHostBridge, PluginLogicExecutor, PluginLogicInstance, ProdConfirmer, RouterExecutor,
 };
 pub use first_party::{

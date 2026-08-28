@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../../lib/zustandPersistStorage";
 
 export type TeamSyncModuleKey =
   | "connections"
   | "databases"
   | "knowledge"
   | "http"
-  | "workspaces";
+  | "workspaces"
+  | "customPanels";
 
 type TeamSyncExclusionKind =
   | "connections"
@@ -14,7 +16,8 @@ type TeamSyncExclusionKind =
   | "knowledge"
   | "httpCollection"
   | "httpRequest"
-  | "workspaces";
+  | "workspaces"
+  | "customPanels";
 
 export type TeamSyncExclusionPayload = {
   excludedConnections: string[];
@@ -23,6 +26,7 @@ export type TeamSyncExclusionPayload = {
   excludedHttpRequests: string[];
   excludedHttpCollections: string[];
   excludedWorkspaces: string[];
+  excludedCustomPanels: string[];
 };
 
 function keyOf(teamId: number, kind: TeamSyncExclusionKind, itemId: string): string {
@@ -103,6 +107,7 @@ export const useTeamSyncExclusionStore = create<TeamSyncExclusionState>()(
         const httpRequests: string[] = [];
         const httpCollections: string[] = [];
         const workspaces: string[] = [];
+        const customPanels: string[] = [];
 
         for (const key of Object.keys(get().excluded)) {
           const parsed = parseKey(key);
@@ -126,6 +131,9 @@ export const useTeamSyncExclusionStore = create<TeamSyncExclusionState>()(
             case "workspaces":
               workspaces.push(parsed.itemId);
               break;
+            case "customPanels":
+              customPanels.push(parsed.itemId);
+              break;
             default:
               break;
           }
@@ -138,11 +146,13 @@ export const useTeamSyncExclusionStore = create<TeamSyncExclusionState>()(
           excludedHttpRequests: httpRequests,
           excludedHttpCollections: httpCollections,
           excludedWorkspaces: workspaces,
+          excludedCustomPanels: customPanels,
         };
       },
     }),
     {
       name: "omnipanel-team-sync-exclusions.v1",
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({ excluded: state.excluded }),
     },
   ),

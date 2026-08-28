@@ -1266,6 +1266,8 @@ export const commands = {
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
 	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
+	/**  按团队切换本机 SQLite / 连接 JSON / 文件索引（进程内换库）。 */
+	storageSwitchTeam: (teamScope: string) => typedError<StorageSwitchTeamResult, OmniError_Serialize>(__TAURI_INVOKE("storage_switch_team", { teamScope })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
 	mcpDeleteService: (id: string) => typedError<null, string>(__TAURI_INVOKE("mcp_delete_service", { id })),
@@ -2112,6 +2114,14 @@ export type ClientSyncPullModulesResult = {
 	sshSidebarTreeJson: string | null,
 	/**  其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据库/协议 store。 */
 	folderTreesJson: string | null,
+	/**  首页自定义面板 JSON，由前端写入 dashboardStore。 */
+	customPanelsJson: string | null,
+};
+
+export type StorageSwitchTeamResult = {
+	teamScope: string,
+	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照。 */
+	empty: boolean,
 };
 
 export type ClientSyncPushConversationsRequest = {
@@ -2135,6 +2145,8 @@ export type ClientSyncPushModulesRequest = {
 	sshSidebarTreeJson?: string | null,
 	/**  其他模块侧栏文件夹布局 JSON；由前端从 Docker/数据库/协议 store 序列化。 */
 	folderTreesJson?: string | null,
+	/**  首页自定义面板 JSON；由前端从 dashboardStore 序列化。 */
+	customPanelsJson?: string | null,
 	deletedConnections?: ClientSyncTombstone[],
 	deletedDatabases?: ClientSyncTombstone[],
 	deletedKnowledge?: ClientSyncTombstone[],
@@ -2142,6 +2154,7 @@ export type ClientSyncPushModulesRequest = {
 	deletedHttpCollections?: ClientSyncTombstone[],
 	deletedHttpEnvironments?: ClientSyncTombstone[],
 	deletedWorkspaces?: ClientSyncTombstone[],
+	deletedCustomPanels?: ClientSyncTombstone[],
 	/**  可选团队 ID；缺省回退到默认个人团队。 */
 	teamId?: number | null,
 };
@@ -5588,12 +5601,14 @@ export type TeamSyncPeekModulesRequest = {
 	workspacesJson?: string | null,
 	sshSidebarTreeJson?: string | null,
 	folderTreesJson?: string | null,
+	customPanelsJson?: string | null,
 	excludedConnections?: string[],
 	excludedDatabases?: string[],
 	excludedKnowledge?: string[],
 	excludedHttpRequests?: string[],
 	excludedHttpCollections?: string[],
 	excludedWorkspaces?: string[],
+	excludedCustomPanels?: string[],
 	/**  上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。 */
 	afterUpload?: boolean,
 };
@@ -5628,6 +5643,7 @@ export type TeamSyncPushModulesRequest = {
 	workspacesJson?: string | null,
 	sshSidebarTreeJson?: string | null,
 	folderTreesJson?: string | null,
+	customPanelsJson?: string | null,
 	deletedConnections?: ClientSyncTombstone[],
 	deletedDatabases?: ClientSyncTombstone[],
 	deletedKnowledge?: ClientSyncTombstone[],
@@ -5635,12 +5651,14 @@ export type TeamSyncPushModulesRequest = {
 	deletedHttpCollections?: ClientSyncTombstone[],
 	deletedHttpEnvironments?: ClientSyncTombstone[],
 	deletedWorkspaces?: ClientSyncTombstone[],
+	deletedCustomPanels?: ClientSyncTombstone[],
 	excludedConnections?: string[],
 	excludedDatabases?: string[],
 	excludedKnowledge?: string[],
 	excludedHttpRequests?: string[],
 	excludedHttpCollections?: string[],
 	excludedWorkspaces?: string[],
+	excludedCustomPanels?: string[],
 };
 
 export type TeamSyncPushModulesResult = {

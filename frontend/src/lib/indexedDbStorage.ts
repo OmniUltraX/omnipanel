@@ -1,4 +1,5 @@
 import type { StateStorage } from "zustand/middleware";
+import { wrapTeamScopedStorage } from "./teamPersist";
 
 /**
  * zustand persist 兼容的 IndexedDB storage adapter。
@@ -62,7 +63,7 @@ function txDelete(db: IDBDatabase, key: string): Promise<void> {
 }
 
 export function createIndexedDBStorage(): StateStorage {
-  return {
+  return wrapTeamScopedStorage({
     async getItem(name: string): Promise<string | null> {
       // 1. 先查 IndexedDB
       try {
@@ -121,5 +122,5 @@ export function createIndexedDBStorage(): StateStorage {
         // ignore
       }
     },
-  };
+  });
 }

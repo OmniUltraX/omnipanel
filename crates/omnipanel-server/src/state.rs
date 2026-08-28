@@ -16,8 +16,9 @@ use omnipanel_store::DbConnectionConfig;
 /// `ServerState` 定义在 [`crate::terminal`]（P0 遗留），这里 re-export 供 P1 模块统一引用。
 pub use crate::terminal::ServerState;
 
-/// 元数据库根（`~/.omnipd/store/omnipanel.db`）。桌面端/Web 端共用同一份数据。
+/// 元数据库根（当前团队 `~/.omnipd/store/teams/{scope}/omnipanel.db`）。
 pub fn open_meta_storage() -> OmniResult<Arc<Mutex<omnipanel_store::Storage>>> {
+    let _ = omnipanel_store::init_team_storage();
     let db_path = omnipanel_store::meta_db_path()?;
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).ok();

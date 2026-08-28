@@ -1,6 +1,7 @@
 ﻿import { create } from "zustand";
 
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 
 
@@ -659,7 +660,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
       name: "omnipanel-cli-providers",
 
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
 
       partialize: (state) => ({
 

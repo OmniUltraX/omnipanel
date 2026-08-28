@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 interface ModuleTabState {
   byModule: Record<string, string>;
@@ -8,7 +9,7 @@ interface ModuleTabState {
   resetAll: () => void;
 }
 
-const useModuleTabStore = create<ModuleTabState>()(
+export const useModuleTabStore = create<ModuleTabState>()(
   persist(
     (set) => ({
       byModule: {},
@@ -20,7 +21,7 @@ const useModuleTabStore = create<ModuleTabState>()(
     }),
     {
       name: "omnipanel-module-tabs.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({ byModule: state.byModule }),
     },
   ),

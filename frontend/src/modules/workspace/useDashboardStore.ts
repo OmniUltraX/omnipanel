@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../../lib/zustandPersistStorage";
 import type { Layout } from "react-grid-layout";
 import type { DockerContainerSummary } from "../../ipc/bindings";
 import { CUSTOM_PANEL_GRID_COLS } from "./customPanelGrid";
@@ -22,6 +23,10 @@ import {
   migrateComposeMonitorSizeId,
 } from "./smallComponents/dockerMonitorShared/sizes";
 import {
+  migrateSpringBootAdminSizeId,
+  SPRING_BOOT_ADMIN_TYPE,
+} from "./smallComponents/springBootAdmin/layout";
+import {
   applyComposeRglPosition,
   COMPOSE_MONITOR_MAX_GRID_H,
 } from "./smallComponents/dockerMonitorShared/composeMonitorLayout";
@@ -39,6 +44,10 @@ import {
   type HomeCustomPanelWidget,
   type HomeCustomPanelWidgetTarget,
 } from "./smallComponents/types";
+import {
+  recordModuleTombstones,
+  useClientSyncTombstoneStore,
+} from "../clientSync/tombstones";
 
 /** 首页内置单例页面 */
 export type HomeBuiltinPageId = "board";
@@ -215,6 +224,11 @@ function sanitizeWidgets(raw: unknown): HomeCustomPanelWidget[] {
       sizeId = migrateComposeMonitorSizeId(sizeId);
     }
 
+    // Spring Boot 监控：旧 4×6 并入 4×7
+    if (rec.type === SPRING_BOOT_ADMIN_TYPE) {
+      sizeId = migrateSpringBootAdminSizeId(sizeId);
+    }
+
     // MySQL 概览：统一固定为 4×3 基座
     if (rec.type === MYSQL_OVERVIEW_TYPE) {
       const preset = MYSQL_OVERVIEW_SIZES[0];
@@ -311,6 +325,12 @@ function sanitizeCustomPanels(raw: unknown): Record<string, HomeCustomPanelMeta>
     };
   }
   return next;
+}
+
+function bumpCustomPanelSync(): void {
+  void import("../clientSync/moduleSync").then((mod) => {
+    mod.scheduleClientModuleSync();
+  });
 }
 
 function pickActiveAfterClose(
@@ -435,7 +455,7 @@ const EMPTY: DashboardContainerState = {
 
 export const useDashboardStore = create<DashboardState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...EMPTY,
       homeTabId: "board",
       openTabIds: [...DEFAULT_OPEN_TABS],
@@ -479,9 +499,10 @@ export const useDashboardStore = create<DashboardState>()(
           openTabIds: [...state.openTabIds, id],
           homeTabId: id,
         }));
+        bumpCustomPanelSync();
         return id;
       },
-      renameCustomPanel: (tabId, label) =>
+      renameCustomPanel: (tabId, label) => {
         set((state) => {
           const prev = state.customPanels[tabId];
           if (!prev) return state;
@@ -493,8 +514,11 @@ export const useDashboardStore = create<DashboardState>()(
               [tabId]: { ...prev, label: trimmed },
             },
           };
-        }),
-      deleteCustomPanel: (tabId) =>
+        });
+        bumpCustomPanelSync();
+      },
+      deleteCustomPanel: (tabId) => {
+        if (!get().customPanels[tabId]) return;
         set((state) => {
           if (!state.customPanels[tabId]) return state;
           const { [tabId]: _removed, ...customPanels } = state.customPanels;
@@ -506,8 +530,11 @@ export const useDashboardStore = create<DashboardState>()(
             openTabIds: state.openTabIds.filter((id) => id !== tabId),
             homeTabId: nextActive ?? state.homeTabId,
           };
-        }),
-      setCustomPanelLayout: (panelId, layout) =>
+        });
+        recordModuleTombstones("customPanel", [tabId]);
+        bumpCustomPanelSync();
+      },
+      setCustomPanelLayout: (panelId, layout) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -583,7 +610,9 @@ export const useDashboardStore = create<DashboardState>()(
               [panelId]: { ...panel, widgets },
             },
           };
-        }),
+        });
+        bumpCustomPanelSync();
+      },
       addCustomPanelWidget: (panelId, type) => {
         const def = getSmallComponent(type);
         if (!def) return null;
@@ -622,9 +651,10 @@ export const useDashboardStore = create<DashboardState>()(
             },
           };
         });
+        bumpCustomPanelSync();
         return id;
       },
-      setCustomPanelWidgetSize: (panelId, widgetId, sizeId) =>
+      setCustomPanelWidgetSize: (panelId, widgetId, sizeId) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -668,8 +698,10 @@ export const useDashboardStore = create<DashboardState>()(
               [panelId]: { ...panel, widgets },
             },
           };
-        }),
-      setCustomPanelWidgetScale: (panelId, widgetId, scale) =>
+        });
+        bumpCustomPanelSync();
+      },
+      setCustomPanelWidgetScale: (panelId, widgetId, scale) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -703,8 +735,10 @@ export const useDashboardStore = create<DashboardState>()(
               [panelId]: { ...panel, widgets },
             },
           };
-        }),
-      setCustomPanelWidgetDataSource: (panelId, widgetId, dataSourceId) =>
+        });
+        bumpCustomPanelSync();
+      },
+      setCustomPanelWidgetDataSource: (panelId, widgetId, dataSourceId) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -726,8 +760,10 @@ export const useDashboardStore = create<DashboardState>()(
               [panelId]: { ...panel, widgets },
             },
           };
-        }),
-      setCustomPanelWidgetTarget: (panelId, widgetId, target) =>
+        });
+        bumpCustomPanelSync();
+      },
+      setCustomPanelWidgetTarget: (panelId, widgetId, target) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -763,8 +799,10 @@ export const useDashboardStore = create<DashboardState>()(
               [panelId]: { ...panel, widgets },
             },
           };
-        }),
-      setCustomPanelWidgetLayoutHeight: (panelId, widgetId, h) =>
+        });
+        bumpCustomPanelSync();
+      },
+      setCustomPanelWidgetLayoutHeight: (panelId, widgetId, h) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -790,8 +828,10 @@ export const useDashboardStore = create<DashboardState>()(
               [panelId]: { ...panel, widgets },
             },
           };
-        }),
-      removeCustomPanelWidget: (panelId, widgetId) =>
+        });
+        bumpCustomPanelSync();
+      },
+      removeCustomPanelWidget: (panelId, widgetId) => {
         set((state) => {
           const panel = state.customPanels[panelId];
           if (!panel) return state;
@@ -805,7 +845,9 @@ export const useDashboardStore = create<DashboardState>()(
               },
             },
           };
-        }),
+        });
+        bumpCustomPanelSync();
+      },
       closeHomeTab: (tabId) =>
         set((state) => {
           if (!state.openTabIds.includes(tabId)) return state;
@@ -833,6 +875,7 @@ export const useDashboardStore = create<DashboardState>()(
     }),
     {
       name: "omnipanel.dashboard.home-tab",
+      storage: createJSONStorage(createSafeLocalStorage),
       // v9：移除内置「资源监控」页签（改由自定义面板小组件承担）
       // v10：MySQL 概览强制 5×3（高×宽），纠正早期误存的 w×h
       // v11：MySQL 概览改为 4×3
@@ -896,6 +939,104 @@ export const useDashboardStore = create<DashboardState>()(
     },
   ),
 );
+
+function applyCustomPanelsState(
+  customPanels: Record<string, HomeCustomPanelMeta>,
+  mode: "merge" | "replace",
+): void {
+  const current = useDashboardStore.getState();
+  const openTabIds =
+    mode === "replace"
+      ? sanitizeOpenTabs(
+          ["board", ...Object.keys(customPanels).filter(isHomeCustomPanelId)],
+          customPanels,
+        )
+      : sanitizeOpenTabs(current.openTabIds, customPanels);
+  const homeTabId =
+    openTabIds.includes(current.homeTabId)
+      ? current.homeTabId
+      : (openTabIds[0] ?? current.homeTabId ?? "board");
+  useDashboardStore.setState({ customPanels, openTabIds, homeTabId });
+}
+
+/** 模块快照：只同步面板定义与小组件，不含当前打开的页签。 */
+export function serializeCustomPanelsJson(): string {
+  const customPanels = useDashboardStore.getState().customPanels;
+  const deletedIds = useClientSyncTombstoneStore
+    .getState()
+    .listByKind("customPanel")
+    .map((t) => t.id);
+  return JSON.stringify({ customPanels, deletedIds });
+}
+
+/**
+ * 云端拉取后写入自定义面板。
+ * merge：按 id 覆盖，deletedIds 且不在 incoming 中的本机面板删除（incoming 有则复活）。
+ * replace：整表替换（切换空团队库时用）。
+ */
+export function applyCustomPanelsJson(
+  raw: string | null | undefined,
+  mode: "merge" | "replace" = "merge",
+): void {
+  const tomb = useClientSyncTombstoneStore.getState();
+  const applyIncoming = (
+    incoming: Record<string, HomeCustomPanelMeta>,
+    deletedIds: string[],
+  ) => {
+    for (const id of Object.keys(incoming)) {
+      tomb.clearIfResurrected("customPanel", id, Number.MAX_SAFE_INTEGER);
+    }
+    const stillDeleted = deletedIds.filter(
+      (id) => isHomeCustomPanelId(id) && !(id in incoming),
+    );
+    if (stillDeleted.length > 0) {
+      tomb.mergeRemote(
+        "customPanel",
+        stillDeleted.map((id) => ({ id, deletedAt: Date.now() })),
+      );
+    }
+
+    if (mode === "replace") {
+      applyCustomPanelsState(incoming, "replace");
+      return;
+    }
+
+    const current = useDashboardStore.getState().customPanels;
+    const next = { ...current };
+    for (const [id, panel] of Object.entries(incoming)) {
+      next[id] = panel;
+    }
+    for (const id of stillDeleted) {
+      delete next[id];
+    }
+    applyCustomPanelsState(next, "merge");
+  };
+
+  if (!raw?.trim()) {
+    if (mode === "replace") applyIncoming({}, []);
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      customPanels?: unknown;
+      deletedIds?: unknown;
+    };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      if (mode === "replace") applyIncoming({}, []);
+      return;
+    }
+    const incoming = sanitizeCustomPanels(parsed.customPanels);
+    const deletedIds = Array.isArray(parsed.deletedIds)
+      ? parsed.deletedIds.filter(
+          (id): id is string => typeof id === "string" && isHomeCustomPanelId(id),
+        )
+      : [];
+    applyIncoming(incoming, deletedIds);
+  } catch {
+    if (mode === "replace") applyIncoming({}, []);
+  }
+}
 
 /** 纯读容器快照（无订阅），给非组件上下文用 */
 export function getDashboardContainerSnapshot(): DashboardContainerState {

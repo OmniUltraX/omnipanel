@@ -17,6 +17,7 @@
  */
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { createSafeLocalStorage } from "../../../lib/zustandPersistStorage";
 import type { FollowModuleKey, UiFollowIntent } from "./types";
 
 interface PendingEntry {
@@ -80,7 +81,7 @@ export const usePendingFollowIntentsStore = create<PendingFollowIntentsState>()(
     }),
     {
       name: "omnipanel-pending-follow-intents.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(createSafeLocalStorage),
       partialize: (s) => ({ buckets: s.buckets }),
     },
   ),
