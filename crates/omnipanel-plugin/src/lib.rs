@@ -17,8 +17,9 @@ mod source;
 
 pub use candidate::{ImportCandidate, upsert_candidates};
 pub use contribution::{
-    AiContributes, AiToolContribution, AiToolExecKind, DiscoveryContribution, LauncherContribution,
-    PluginContributes, ThemeContribution, UiContributes,
+    AiContributes, AiToolContribution, AiToolExecKind, DiscoveryContribution, HomeContribution,
+    HomeOpenContribution, LauncherContribution, PluginContributes, ThemeContribution,
+    UiContributes,
 };
 pub use engine_sidecar::{
     InstalledEngineDriver, collect_activated_installed_engine_drivers, connection_form_engine_keys,
@@ -35,7 +36,9 @@ pub use first_party::{
     PLUGIN_ID_ENGINE_SQLSERVER, PLUGIN_ID_IMPORTER_WARPGATE, PLUGIN_ID_MODULE_NACOS,
     PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT, PLUGIN_ID_THEME_DEFAULT, addon_everything,
     cloud_aliyun, engine_clickhouse, engine_mongodb, engine_mysql, engine_postgres, engine_qdrant,
-    engine_redis, engine_sqlite, engine_sqlserver, first_party_manifests, importer_warpgate,
+    engine_redis, engine_sqlite, engine_sqlserver, first_party_asset_bytes, first_party_logic_bytes,
+    first_party_manifests,
+    importer_warpgate,
     module_nacos, panel_1panel, panel_bt, theme_default,
 };
 pub use installed::{InstalledPlugin, load_installed};

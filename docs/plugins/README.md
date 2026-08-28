@@ -26,7 +26,8 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/my-first-engine m
 
 - **L1（零代码）**：数据库引擎连接表单、workbench 插槽、主题 token、菜单项、AI 工具元数据、Overlay 面板声明 —— 写一个 `plugin.json` 即可上架。
 - **L2（逻辑包）**：`entry.logic = "logic.wasm" | "logic.js"`，实现全局 `call(method, argsJson)`；
-  通过宿主注入的 `host.*`（netFetch / fsRead / connectionUpsert / invoke）访问受权限闸保护的能力。
+  通过宿主注入的 `host.*`（netFetch / fsRead / connectionUpsert / invoke / vault* / state*）访问受权限闸保护的能力。
+  L2 JS（QuickJS）是宿主硬依赖，不靠 Cargo default（Tauri CLI 会 `--no-default-features`）。`plugin-wasm` 仍按需 `--features`。示例导入器（`importer-warpgate`）的 `logic.js` 嵌入二进制，启动时装载；宿主不按插件 ID 特判。
 - **L3（沙箱 UI）**：`contributes.overlays[].entry` 指向 HTML 页面，
   运行于不透明 origin 的 iframe（CSP 默认拒外联），经 postMessage 白名单桥访问选区与受限网络。
 

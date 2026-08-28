@@ -290,6 +290,8 @@ impl AppState {
             plugin_packages_dir,
             plugin_pending_confirms: Arc::new(Mutex::new(HashMap::new())),
             plugin_http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(20))
+                .connect_timeout(std::time::Duration::from_secs(8))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             plugin_logic_executor: crate::commands::plugin::make_logic_executor(),

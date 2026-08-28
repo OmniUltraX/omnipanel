@@ -13,6 +13,7 @@ export type WarpgateTarget = {
   bastionHost: string;
   bastionPort: number;
   username?: string;
+  password?: string;
   /** 仅作展示，不得写入连接 host */
   internalHost?: string;
 };
@@ -38,22 +39,40 @@ export const MOCK_WARPGATE_TARGETS: WarpgateTarget[] = [
   },
 ];
 
+export function protocolUser(
+  loginUser: string,
+  targetName: string,
+  kind: WarpgateTargetKind,
+): string {
+  const user = loginUser.trim();
+  const target = targetName.trim();
+  if (user && (user.includes(":") || user.includes("#"))) return user;
+  if (user && target) {
+    return kind === "mysql" || kind === "postgres" ? `${user}#${target}` : `${user}:${target}`;
+  }
+  return user || target;
+}
+
 export function targetsToCandidates(
   accountId: string | undefined,
   targets: WarpgateTarget[],
+  pluginId = WARPGATE_PLUGIN_ID,
 ): ImportCandidate[] {
-  return targets.map((target) => ({
-    pluginId: WARPGATE_PLUGIN_ID,
-    accountId,
-    remoteId: target.id,
-    remoteKind: target.kind,
-    name: target.name,
-    config: {
+  return targets.map((target) => {
+    const config: Record<string, unknown> = {
       host: target.bastionHost,
       port: target.bastionPort,
-      user: target.username ?? "",
-      // 明确不把内网 IP 当作连接入口
+      user: protocolUser(target.username ?? "", target.name, target.kind),
       via: "warpgate-bastion",
-    },
-  }));
+    };
+    if (target.password) config.password = target.password;
+    return {
+      pluginId,
+      accountId,
+      remoteId: target.id,
+      remoteKind: target.kind,
+      name: target.name,
+      config,
+    };
+  });
 }

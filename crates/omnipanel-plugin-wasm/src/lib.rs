@@ -11,6 +11,7 @@
 //!   `fs_read(path_ptr, path_len) -> i64`
 //!   `connection_upsert(json_ptr, json_len) -> i64`
 //!   `invoke(m_ptr, m_len, a_ptr, a_len) -> i64`
+//!   `vault_get/has/put/delete`、`state_get/set`（i64 打包，同 net_fetch）
 //!
 //! 权限不在本 crate：[`PluginHostBridge`] 由装配层实现并包裹
 //! 权限闸 / prod 确认 / 审计；本 crate 只做引擎与 ABI。
@@ -248,6 +249,99 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
                     .bridge
                     .invoke(&method, &args)
                     .map(String::into_bytes);
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
+            "vault_get",
+            |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
+                let key = read_guest_str(&mut caller, ptr, len);
+                let payload = caller.data().bridge.vault_get(&key).map(String::into_bytes);
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
+            "vault_has",
+            |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
+                let key = read_guest_str(&mut caller, ptr, len);
+                let payload = caller
+                    .data()
+                    .bridge
+                    .vault_has(&key)
+                    .map(|has| if has { b"true".to_vec() } else { b"false".to_vec() });
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
+            "vault_put",
+            |mut caller: Caller<'_, BridgeCtx<'_>>,
+             k_ptr: i32,
+             k_len: i32,
+             s_ptr: i32,
+             s_len: i32|
+             -> i64 {
+                let key = read_guest_str(&mut caller, k_ptr, k_len);
+                let secret = read_guest_str(&mut caller, s_ptr, s_len);
+                let payload = caller
+                    .data()
+                    .bridge
+                    .vault_put(&key, &secret)
+                    .map(|_| Vec::new());
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
+            "vault_delete",
+            |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
+                let key = read_guest_str(&mut caller, ptr, len);
+                let payload = caller
+                    .data()
+                    .bridge
+                    .vault_delete(&key)
+                    .map(|_| Vec::new());
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
+            "state_get",
+            |caller: Caller<'_, BridgeCtx<'_>>| -> i64 {
+                let payload = caller.data().bridge.state_get().map(String::into_bytes);
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
+            "state_set",
+            |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
+                let payload_text = read_guest_str(&mut caller, ptr, len);
+                let payload = caller
+                    .data()
+                    .bridge
+                    .state_set(&payload_text)
+                    .map(|_| Vec::new());
                 return_to_guest(caller, payload)
             },
         )

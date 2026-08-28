@@ -89,6 +89,45 @@ pub fn importer_warpgate() -> PluginManifest {
     first_party_manifest!("importer-warpgate")
 }
 
+/// 第一方 L2 逻辑包（内置插件不落盘时由宿主嵌入装载）。
+pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u8>> {
+    let rel = logic_rel.trim().replace('\\', "/");
+    match (plugin_id, rel.as_str()) {
+        (PLUGIN_ID_IMPORTER_WARPGATE, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/importer-warpgate/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        _ => None,
+    }
+}
+
+/// 第一方包内资产（首页图标等）；路径须相对且禁止 `..`。
+pub fn first_party_asset_bytes(plugin_id: &str, rel: &str) -> Option<Vec<u8>> {
+    let rel = rel.trim().replace('\\', "/");
+    if rel.is_empty()
+        || rel.starts_with('/')
+        || rel.contains("://")
+        || rel.split('/').any(|seg| seg == "..")
+    {
+        return None;
+    }
+    match (plugin_id, rel.as_str()) {
+        (PLUGIN_ID_IMPORTER_WARPGATE, "icon.svg") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/importer-warpgate/icon.svg"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        _ => None,
+    }
+}
+
 pub fn first_party_manifests() -> Vec<PluginManifest> {
     vec![
         theme_default(),
@@ -233,5 +272,50 @@ mod tests {
             .and_then(|v| v.as_bool());
         assert_eq!(supported, Some(true));
         manifest.validate().expect("sqlserver 清单应通过校验");
+    }
+
+    #[test]
+    fn warpgate_embeds_logic_js() {
+        let bytes = first_party_logic_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "logic.js")
+            .expect("应嵌入 warpgate logic.js");
+        let src = String::from_utf8(bytes).unwrap();
+        assert!(src.contains("fetchTargets"));
+        assert!(src.contains("@warpgate/admin/api/targets"));
+        assert!(first_party_logic_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "other.js").is_none());
+    }
+
+    #[test]
+    fn warpgate_declares_home_and_embeds_icon() {
+        let manifest = importer_warpgate();
+        let home = manifest
+            .contributes
+            .ui
+            .home
+            .as_ref()
+            .expect("Warpgate 应声明 ui.home");
+        assert!(home.show);
+        assert_eq!(home.open.kind, "importer");
+        assert_eq!(home.open.id, "warpgate");
+        assert_eq!(home.icon, "icon.svg");
+        assert_eq!(home.title, "plugins.names.warpgate");
+        let importer = manifest
+            .contributes
+            .importers
+            .first()
+            .expect("示例 importer 应声明 contributes.importers");
+        assert_eq!(importer.get("id").and_then(|v| v.as_str()), Some("warpgate"));
+        assert_eq!(
+            importer.get("fetchMethod").and_then(|v| v.as_str()),
+            Some("fetchTargets")
+        );
+        assert!(importer
+            .get("fields")
+            .and_then(|v| v.as_array())
+            .is_some_and(|fields| !fields.is_empty()));
+        manifest.validate().expect("Warpgate 清单应通过校验");
+        let icon = first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "icon.svg")
+            .expect("应嵌入 warpgate icon.svg");
+        assert!(String::from_utf8(icon).unwrap().contains("<svg"));
+        assert!(first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "../icon.svg").is_none());
     }
 }

@@ -20,7 +20,14 @@ globalThis.call = function (_method, _args) {
   } catch (e) {
     msg = String(e);
   }
-  return JSON.stringify({ ping: host.ping(), msg });
+  let vaultMsg;
+  try {
+    host.vaultGet("k");
+    vaultMsg = "unexpected-vault";
+  } catch (e) {
+    vaultMsg = String(e);
+  }
+  return JSON.stringify({ ping: host.ping(), msg: msg, vault: vaultMsg });
 };
 "#;
 
@@ -57,6 +64,61 @@ async fn host_object_injected_and_errors_surface() {
     let out = inst.call("x", "{}").await.expect("call 失败");
     assert!(out.contains(r#""ping":0"#), "actual: {out}");
     assert!(out.contains("未装配"), "actual: {out}");
+    assert!(out.contains("vault.get"), "actual: {out}");
+}
+
+const VAULT_HOST_JS: &[u8] = br#"
+globalThis.call = function () {
+  host.vaultPut("k1", "secret");
+  return JSON.stringify({
+    has: host.vaultHas("k1"),
+    val: host.vaultGet("k1"),
+    state: host.stateGet()
+  });
+};
+"#;
+
+struct MemoryHost {
+    secret: std::sync::Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl PluginHostBridge for MemoryHost {
+    fn vault_get(&self, key: &str) -> Result<String, String> {
+        self.secret
+            .lock()
+            .unwrap()
+            .get(key)
+            .cloned()
+            .ok_or_else(|| "missing".into())
+    }
+    fn vault_has(&self, key: &str) -> Result<bool, String> {
+        Ok(self.secret.lock().unwrap().contains_key(key))
+    }
+    fn vault_put(&self, key: &str, secret: &str) -> Result<(), String> {
+        self.secret.lock().unwrap().insert(key.to_string(), secret.to_string());
+        Ok(())
+    }
+    fn state_get(&self) -> Result<String, String> {
+        Ok("ready".into())
+    }
+}
+
+#[tokio::test]
+async fn host_vault_and_state_roundtrip() {
+    let executor = JsExecutor::new();
+    let mut inst = executor
+        .instantiate(
+            "omni.addon.demo",
+            &LogicPackage::Js(VAULT_HOST_JS.to_vec()),
+            Arc::new(MemoryHost {
+                secret: std::sync::Mutex::new(std::collections::HashMap::new()),
+            }),
+        )
+        .expect("实例化失败");
+    let out = inst.call("x", "{}").await.expect("call 失败");
+    assert!(out.contains(r#""has":true"#), "actual: {out}");
+    assert!(out.contains(r#""val":"secret""#), "actual: {out}");
+    assert!(out.contains(r#""state":"ready""#), "actual: {out}");
 }
 
 #[tokio::test]

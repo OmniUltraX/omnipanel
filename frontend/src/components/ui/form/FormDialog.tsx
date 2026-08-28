@@ -30,6 +30,8 @@ export interface FormDialogProps {
   subtitle?: ReactNode;
   titleId?: string;
   children: ReactNode;
+  /** 标题栏右侧、关闭按钮左侧的附加操作 */
+  headerExtra?: ReactNode;
   /** 介于 header 与 body 之间的附加区域（如单元格编辑元信息） */
   beforeBody?: ReactNode;
   className?: string;
@@ -72,6 +74,7 @@ export function FormDialog({
   subtitle,
   titleId,
   children,
+  headerExtra,
   beforeBody,
   className,
   bodyClassName,
@@ -151,6 +154,7 @@ export function FormDialog({
             <h3 id={titleId}>{title}</h3>
             {subtitle ? <p className="modal-subtitle">{subtitle}</p> : null}
           </div>
+          {headerExtra}
           {showCloseButton ? (
             <Button
               type="button"

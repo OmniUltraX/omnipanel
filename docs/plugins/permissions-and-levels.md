@@ -8,7 +8,7 @@
 | `fs:read` | 文件读取（**仅限插件自身安装目录**，越界即拒） |
 | `connections:write` | 写入连接（`host.connectionUpsert`；候选 pluginId 必须与当前插件一致） |
 | `ssh:exec` | SSH 探测类操作（生产主机走确认） |
-| `vault:read` | 读取自己创建的凭据引用 |
+| `vault:read` | 插件私密凭据：`plugin_secret_*` 与 L2 `host.vaultGet/Has/Put/Delete`，仅本插件命名空间 `plugin:{id}:{key}`，走系统钥匙串 |
 | `ai:tools` | 向 OmniMCP 登记 AI 工具 |
 | `ui:selection` | 读取宿主选区总线（终端/编辑器/DOM） |
 | `ui:sidebar` | 占用侧栏入口 |
@@ -41,6 +41,7 @@
 globalThis.call = function (method, argsJson) {
   // host.netFetch({url, headers}) / host.fsRead(path)
   // host.connectionUpsert(candidateJson) / host.invoke(method, argsJson)
+  // host.vaultGet/Has/Put/Delete(key) / host.stateGet() / host.stateSet(json)
   return JSON.stringify({ /* 结果 */ });
 };
 ```

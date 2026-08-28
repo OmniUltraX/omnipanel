@@ -153,7 +153,44 @@ for (const dir of dirs) {
   }
   if (raw.minHostApi != null && (!Number.isInteger(raw.minHostApi) || raw.minHostApi < 1)) {
     errors.push("minHostApi must be a positive integer");
-  }  if (raw.kind === "theme") {
+  }
+  const home = raw.contributes?.ui?.home;
+  if (home != null) {
+    if (typeof home !== "object" || Array.isArray(home)) {
+      errors.push("ui.home must be an object");
+    } else {
+      if (home.show != null && typeof home.show !== "boolean") {
+        errors.push("ui.home.show must be boolean");
+      }
+      if (typeof home.title !== "string" || !home.title.trim()) {
+        errors.push("ui.home.title required");
+      }
+      if (home.icon != null) {
+        if (typeof home.icon !== "string" || !home.icon.trim()) {
+          errors.push("ui.home.icon must be a relative svg/png path");
+        } else if (
+          home.icon.startsWith("/") ||
+          home.icon.includes("://") ||
+          home.icon.split(/[\\/]/).includes("..") ||
+          !/\.(svg|png)$/i.test(home.icon)
+        ) {
+          errors.push("ui.home.icon must be a relative svg/png path without '..'");
+        }
+      }
+      const open = home.open;
+      if (!open || typeof open !== "object") {
+        errors.push("ui.home.open required");
+      } else {
+        if (!["overlay", "importer", "module"].includes(open.kind)) {
+          errors.push("ui.home.open.kind must be overlay | importer | module");
+        }
+        if (typeof open.id !== "string" || !open.id.trim()) {
+          errors.push("ui.home.open.id required");
+        }
+      }
+    }
+  }
+  if (raw.kind === "theme") {
     const js = raw.contributes?.themes?.tokens?.js ?? raw.contributes?.themes?.js;
     if (js === true) errors.push("theme packs must not ship JS (js: true)");
   }

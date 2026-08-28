@@ -5,7 +5,8 @@
 //!   `call(method: string, argsJson: string): string`（返回 JSON 字符串）；
 //! - 宿主注入全局只读对象 `host`：
 //!   `ping(): number`、`netFetch(url): string`、`fsRead(path): string`、
-//!   `connectionUpsert(candidateJson): void`、`invoke(method, argsJson): string`；
+//!   `connectionUpsert(candidateJson): void`、`invoke(method, argsJson): string`、
+//!   `vaultGet/Has/Put/Delete`、`stateGet/Set`；
 //!   失败以 JS 异常抛出。
 //!
 //! 资源限制：内存 64MB、栈 1MB、单次调用默认 10s 中断阈值（防死循环）。
@@ -145,6 +146,72 @@ impl JsInstanceInner {
                     move |method: String, args: String| -> rquickjs::Result<String> {
                         b.invoke(&method, &args).map_err(|msg| {
                             rquickjs::Error::new_from_js_message("host.invoke", "string", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "vaultGet",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |key: String| -> rquickjs::Result<String> {
+                        b.vault_get(&key).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.vaultGet", "string", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "vaultHas",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |key: String| -> rquickjs::Result<bool> {
+                        b.vault_has(&key).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.vaultHas", "boolean", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "vaultPut",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |key: String, secret: String| -> rquickjs::Result<()> {
+                        b.vault_put(&key, &secret).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.vaultPut", "void", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "vaultDelete",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |key: String| -> rquickjs::Result<()> {
+                        b.vault_delete(&key).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.vaultDelete", "void", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "stateGet",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move || -> rquickjs::Result<String> {
+                        b.state_get().map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.stateGet", "string", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "stateSet",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |payload: String| -> rquickjs::Result<()> {
+                        b.state_set(&payload).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.stateSet", "void", msg)
                         })
                     }
                 }),

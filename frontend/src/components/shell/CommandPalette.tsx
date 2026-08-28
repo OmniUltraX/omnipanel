@@ -4,11 +4,9 @@ import { useActionStore } from "../../stores/actionStore";
 import { goWorkspaceHome, navigateToFeature, navigateToSshManagement } from "../../lib/workspaceNavigation";
 import { MODULE_PATHS } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
-import {
-  isPluginActivated,
-  PLUGIN_ID_WARPGATE,
-  usePluginRuntimeStore,
-} from "../../stores/pluginRuntimeStore";
+import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { importerEntries, listActiveImporters, resolveImporterText } from "../../lib/importerCatalog";
+import { openImporter } from "../../modules/importer/ImporterWizardDialog";
 import { useI18n } from "../../i18n";
 import { TextInput } from "../ui/form/TextInput";
 import {
@@ -39,11 +37,21 @@ function useRegisterBuiltinCommands() {
   const registerAll = useCommandRegistry((s) => s.registerAll);
   const modules = useAppModuleStore((s) => s.modules);
   const recordUse = useRecentCommands((s) => s.recordUse);
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
 
   const commands = useMemo(() => {
     const nav = t("shell.commandPalette.categories.nav");
     const action = t("shell.commandPalette.categories.action");
     const ai = t("shell.commandPalette.categories.ai");
+    const importerCommands = listActiveImporters(pluginItems)
+      .filter((entry) => importerEntries(entry.importer).includes("commandPalette"))
+      .map((entry) => ({
+        id: `import:${entry.pluginId}:${entry.importer.id}`,
+        label: resolveImporterText(entry.importer.title, t),
+        category: action,
+        run: () => openImporter(entry.pluginId, entry.importer.id),
+        source: "plugin" as const,
+      }));
 
     return [
       { id: "workspace", label: t("shell.commandPalette.commands.workspace"), shortcutLabel: "⌘1", category: nav, run: () => goWorkspaceHome(), source: "builtin" },
@@ -60,15 +68,7 @@ function useRegisterBuiltinCommands() {
       { id: "new-terminal", label: t("shell.commandPalette.commands.newTerminal"), shortcutId: "new-terminal", category: action, run: () => useNewTerminal(), source: "builtin" },
       { id: "new-ssh", label: t("shell.commandPalette.commands.newSsh"), shortcutId: "new-ssh", category: action, run: () => navigateToSshManagement(navigate), source: "builtin" },
       { id: "new-query", label: t("shell.commandPalette.commands.newQuery"), category: action, run: () => navigateToFeature(MODULE_PATHS.database, navigate), source: "builtin" },
-      {
-        id: "import-warpgate",
-        label: t("plugins.warpgate.title"),
-        category: action,
-        run: () => {
-          void import("../../modules/importer/WarpgateImportDialog").then((m) => m.openWarpgateImport());
-        },
-        source: "builtin",
-      },
+      ...importerCommands,
       { id: "open-ai", label: t("shell.commandPalette.commands.openAi"), shortcutId: "toggle-ai", category: ai, run: () => useAiOpen(), source: "builtin" },
       { id: "new-ai-conv", label: t("shell.commandPalette.commands.newAiConv"), category: ai, run: () => useAiNewConv(), source: "builtin" },
       {
@@ -89,25 +89,20 @@ function useRegisterBuiltinCommands() {
         source: "builtin",
       },
     ] satisfies CommandItem[];
-  }, [t, navigate]);
+  }, [t, navigate, pluginItems]);
 
   // 注册到 registry
   useEffect(() => {
     registerAll(commands);
   }, [registerAll, commands]);
 
-  const pluginItems = usePluginRuntimeStore((s) => s.items);
-
   // 按模块开放状态过滤
   const visibleCommands = useMemo(() => {
     return commands.filter((cmd) => {
-      if (cmd.id === "import-warpgate") {
-        return isPluginActivated(PLUGIN_ID_WARPGATE);
-      }
       if (!(cmd.id in MODULE_PATHS)) return true;
       return isModuleOpen(cmd.id as keyof typeof MODULE_PATHS);
     });
-  }, [commands, modules, pluginItems]);
+  }, [commands, modules]);
 
   return { visibleCommands, recordUse };
 }

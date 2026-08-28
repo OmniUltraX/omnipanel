@@ -1,6 +1,6 @@
 {
   "id": "omni.importer.warpgate",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "kind": "importer",
   "permissions": ["connections:write", "net:connect", "vault:read"],
   "entry": {
@@ -9,10 +9,74 @@
   "methods": [
     {
       "name": "fetchTargets",
-      "permissions": ["net:connect"]
+      "permissions": ["net:connect", "vault:read"]
     }
   ],
   "contributes": {
-    "importers": [{ "id": "warpgate", "entry": "commandPalette" }]
+    "ui": {
+      "home": {
+        "show": true,
+        "title": "plugins.names.warpgate",
+        "icon": "icon.svg",
+        "open": { "kind": "importer", "id": "warpgate" }
+      }
+    },
+    "importers": [
+      {
+        "id": "warpgate",
+        "title": "plugins.samples.warpgate.title",
+        "hint": "plugins.samples.warpgate.hint",
+        "fetchMethod": "fetchTargets",
+        "defaultGroup": "Warpgate",
+        "defaultTag": "warpgate",
+        "sshAuth": true,
+        "note": "plugins.samples.warpgate.note",
+        "fields": [
+          {
+            "key": "name",
+            "kind": "text",
+            "label": "plugins.samples.warpgate.fieldName",
+            "placeholder": "plugins.samples.warpgate.fieldName"
+          },
+          {
+            "key": "baseUrl",
+            "kind": "url",
+            "label": "plugins.samples.warpgate.baseUrl",
+            "placeholder": "plugins.samples.warpgate.baseUrlPlaceholder",
+            "required": true
+          },
+          {
+            "key": "token",
+            "kind": "secret",
+            "label": "plugins.samples.warpgate.token",
+            "placeholder": "plugins.samples.warpgate.tokenPlaceholder",
+            "savedHint": "plugins.samples.warpgate.savedTokenHint",
+            "required": true,
+            "secretKeyPrefix": "src"
+          },
+          {
+            "key": "loginUser",
+            "kind": "text",
+            "label": "plugins.samples.warpgate.loginUser",
+            "placeholder": "plugins.samples.warpgate.loginUserPlaceholder"
+          },
+          {
+            "key": "password",
+            "kind": "secret",
+            "label": "plugins.samples.warpgate.password",
+            "placeholder": "plugins.samples.warpgate.passwordPlaceholder",
+            "savedHint": "plugins.samples.warpgate.savedPasswordHint",
+            "secretKeyPrefix": "login"
+          },
+          {
+            "key": "insecureTls",
+            "kind": "checkbox",
+            "label": "plugins.samples.warpgate.insecureTls",
+            "defaultValue": "true"
+          }
+        ],
+        "entry": ["commandPalette", "settings", "home"]
+      }
+    ]
   }
 }

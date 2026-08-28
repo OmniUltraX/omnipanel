@@ -10,11 +10,25 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 
-// `tauri:dev` 默认开启 MCP Bridge（feature:dev-mcp）；显式传 --features 时不覆盖。
-const hasFeatures =
-  args.includes("--features") || args.some((a) => a.startsWith("--features="));
-if (args[0] === "dev" && !hasFeatures) {
-  args.splice(1, 0, "--features", "dev-mcp");
+/** 把 extra 合并进已有 --features，避免显式传 dev-mcp 时丢掉 plugin-js。 */
+function ensureFeatures(argv, extra) {
+  const extras = extra.split(",").map((s) => s.trim()).filter(Boolean);
+  const idx = argv.findIndex((a) => a === "--features" || a.startsWith("--features="));
+  if (idx === -1) {
+    argv.splice(1, 0, "--features", extras.join(","));
+    return;
+  }
+  const raw = argv[idx] === "--features" ? (argv[idx + 1] ?? "") : argv[idx].slice("--features=".length);
+  const set = new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  for (const feat of extras) set.add(feat);
+  const merged = [...set].join(",");
+  if (argv[idx] === "--features") argv[idx + 1] = merged;
+  else argv[idx] = `--features=${merged}`;
+}
+
+// Tauri CLI 会 `--no-default-features`；dev 必须显式带上 MCP + L2。
+if (args[0] === "dev") {
+  ensureFeatures(args, "dev-mcp,plugin-js");
 }
 
 // 开发构建使用独立 identifier / 产品名 / 带 DEV 角标图标，可与正式安装版并存。

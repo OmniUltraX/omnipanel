@@ -482,6 +482,12 @@ fn export_ipc_bindings() {
         commands::plugin::plugin_sandbox_net_fetch,
         commands::plugin::plugin_install_from_file,
         commands::plugin::plugin_uninstall,
+        commands::plugin::plugin_state_get,
+        commands::plugin::plugin_state_set,
+        commands::plugin::plugin_secret_put,
+        commands::plugin::plugin_secret_has,
+        commands::plugin::plugin_secret_get,
+        commands::plugin::plugin_secret_delete,
         commands::dbx_catalog::plugin_dbx_catalog,
         commands::dbx_catalog::plugin_dbx_install,
         commands::dbx_catalog::plugin_dbx_install_catalog_engines,
@@ -824,6 +830,10 @@ fn build_and_run_tauri() {
             let ssh_pool = app_state.ssh_pool.clone();
             let ai_registry = app_state.ai_registry.clone();
             app.manage(app_state);
+            {
+                let state = app.state::<crate::state::AppState>();
+                tauri::async_runtime::block_on(commands::plugin::sync_plugin_logic(&state));
+            }
 
             let catalog_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -1429,6 +1439,12 @@ fn build_and_run_tauri() {
             commands::plugin::plugin_sandbox_net_fetch,
             commands::plugin::plugin_install_from_file,
             commands::plugin::plugin_uninstall,
+            commands::plugin::plugin_state_get,
+            commands::plugin::plugin_state_set,
+            commands::plugin::plugin_secret_put,
+            commands::plugin::plugin_secret_has,
+            commands::plugin::plugin_secret_get,
+            commands::plugin::plugin_secret_delete,
             commands::dbx_catalog::plugin_dbx_catalog,
             commands::dbx_catalog::plugin_dbx_install,
             commands::dbx_catalog::plugin_dbx_install_catalog_engines,
