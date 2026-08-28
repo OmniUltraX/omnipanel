@@ -1218,6 +1218,17 @@ export const commands = {
 	teamUpdateMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, email, roleCode, userTeamName })),
 	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）。 */
 	teamRemoveMember: (token: string, teamId: number, email: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, email })),
+	/**  生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。 */
+	teamCreateInvite: (token: string, teamId: number) => typedError<TeamInvite, OmniError_Serialize>(__TAURI_INVOKE("team_create_invite", { token, teamId })),
+	/**  凭邀请码加入团队（POST /api/teams/join）。码被使用后立即失效。 */
+	teamJoinByInvite: (token: string, code: string) => typedError<TeamSummary, OmniError_Serialize>(__TAURI_INVOKE("team_join_by_invite", { token, code })),
+	/**  向 omniserver 申请当前团队的 Headscale preauth key。 */
+	teamMeshAuthKey: (token: string, teamId: number) => typedError<TeamMeshAuth, OmniError_Serialize>(__TAURI_INVOKE("team_mesh_auth_key", { token, teamId })),
+	meshStart: (teamId: number, authKey: string, controlServerUrl: string, hostname: string) => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_start", { teamId, authKey, controlServerUrl, hostname })),
+	meshStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("mesh_stop")),
+	meshStatus: () => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_status")),
+	/**  向对端 hostname 请求封装后的团队同步密钥。 */
+	meshRequestSyncKey: (teamId: number, peerHostname: string, ephemeralPubkey: string, requestId: string, requesterDeviceId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("mesh_request_sync_key", { teamId, peerHostname, ephemeralPubkey, requestId, requesterDeviceId })),
 	/**  将自定义面板分享给团队成员（写入团队 OSS + 更新索引 + 通知）。 */
 	teamSharePush: (request: TeamSharePushRequest) => typedError<TeamSharePushResult, OmniError_Serialize>(__TAURI_INVOKE("team_share_push", { request })),
 	/**  列出团队 OSS 中的自定义面板分享索引。 */
@@ -5491,6 +5502,28 @@ export type TeamCreated = {
 	teamOssKey: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/** 管理员生成的一次性 6 位数字邀请码。 */
+export type TeamInvite = {
+	code: string,
+	/**  ISO-8601 过期时间；空表示服务端未返回（仍一次性失效）。 */
+	expiresAt: string,
+};
+
+export type TeamMeshAuth = {
+	authKey: string,
+	controlServerUrl: string,
+	hostname: string,
+	listenPort: number,
+};
+
+export type MeshStatus = {
+	online: boolean,
+	teamId: number | null,
+	hostname: string,
+	ipv4: string,
+	listenPort: number,
 };
 
 export type TeamMember = {

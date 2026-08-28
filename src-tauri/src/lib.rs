@@ -597,6 +597,13 @@ fn export_ipc_bindings() {
         commands::teams::team_add_member,
         commands::teams::team_update_member,
         commands::teams::team_remove_member,
+        commands::teams::team_create_invite,
+        commands::teams::team_join_by_invite,
+        commands::teams::team_mesh_auth_key,
+        commands::mesh::mesh_start,
+        commands::mesh::mesh_stop,
+        commands::mesh::mesh_status,
+        commands::mesh::mesh_request_sync_key,
         commands::team_sync::team_share_push,
         commands::team_sync::team_sync_list_shares,
         commands::team_sync::team_sync_fetch_share,
@@ -709,6 +716,7 @@ fn try_migrate_legacy_storage(target: &std::path::Path, app: &tauri::App) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     ensure_rustls_crypto_provider();
+    commands::mesh::ensure_tailscale_experiment();
     tracing_subscriber::fmt::init();
 
     // Windows + 大量 invoke_handler 命令注册时，main 线程默认 1MB 栈会溢出
@@ -1545,6 +1553,13 @@ fn build_and_run_tauri() {
             commands::teams::team_add_member,
             commands::teams::team_update_member,
             commands::teams::team_remove_member,
+            commands::teams::team_create_invite,
+            commands::teams::team_join_by_invite,
+            commands::teams::team_mesh_auth_key,
+            commands::mesh::mesh_start,
+            commands::mesh::mesh_stop,
+            commands::mesh::mesh_status,
+            commands::mesh::mesh_request_sync_key,
             commands::team_sync::team_share_push,
             commands::team_sync::team_sync_list_shares,
             commands::team_sync::team_sync_fetch_share,

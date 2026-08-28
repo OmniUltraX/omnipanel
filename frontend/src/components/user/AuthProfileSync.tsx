@@ -9,6 +9,7 @@ import {
   startSyncKeyRelayAutoWrap,
   stopSyncKeyRelayAutoWrap,
 } from "../../lib/auth/syncKeyRelayAutoWrap";
+import { startTeamMesh, stopTeamMesh } from "../../lib/auth/teamMesh";
 import {
   scheduleAssistantSnapshotSync,
   startAssistantChatInbox,
@@ -41,6 +42,7 @@ export function AuthProfileSync() {
     }
     void (async () => {
       await syncAuthProfile();
+      await startTeamMesh();
       try {
         const { pullCloudSnapshot } = await import("../../modules/clientSync");
         await pullCloudSnapshot();
@@ -59,6 +61,7 @@ export function AuthProfileSync() {
     if (!authHydrated || !token) {
       stopPresenceHeartbeat();
       stopSyncKeyRelayAutoWrap();
+      void stopTeamMesh();
       return;
     }
     startPresenceHeartbeat({

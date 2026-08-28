@@ -113,6 +113,8 @@ percent-encoding = "2"
 tar = "0.4"
 zstd = "0.13"
 tauri-plugin-notification = "2"
+# Headscale userspace 客户端（实验库；运行前需 TS_RS_EXPERIMENT）
+tailscale = "0.5"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

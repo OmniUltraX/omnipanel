@@ -4,10 +4,12 @@ import { appConfirm } from "../../lib/appConfirm";
 import {
   addTeamMember,
   createTeam,
+  createTeamInvite,
   dissolveTeam,
   fetchTeamMembers,
   fetchTeams,
   formatTeamError,
+  joinTeamByInvite,
   removeTeamMember,
   updateTeamMember,
   isPersonalTeam,
@@ -29,6 +31,7 @@ import {
   type CustomPanelShareSnapshot,
 } from "../../modules/workspace/smallComponents/customPanelShare";
 import { isAuthSessionError } from "../../lib/auth/loginApi";
+import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 import { quickInput } from "../../lib/quickInput";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
@@ -37,7 +40,7 @@ import { Button } from "../ui/Button";
 import { FormDialog, FormField } from "../ui/form/FormDialog";
 import { TextInput } from "../ui/form/TextInput";
 import { Select } from "../ui/form/Select";
-import { IconChevronRight, IconPlus, IconTrash, IconUsers } from "../ui/icons/Icons";
+import { IconChevronRight, IconCopy, IconPlus, IconRefresh, IconTrash, IconUsers } from "../ui/icons/Icons";
 import { TeamDataTree } from "./TeamDataTree";
 
 type TeamRoleCode = "creator" | "manager" | "user";
@@ -76,6 +79,16 @@ function maskUnionId(value: string): string {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 }
 
+function digitsOnlyInviteCode(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 6);
+}
+
+function formatInviteCodeDisplay(code: string): string {
+  const digits = digitsOnlyInviteCode(code);
+  if (digits.length <= 3) return digits;
+  return `${digits.slice(0, 3)} ${digits.slice(3)}`;
+}
+
 export function UserCenterTeams({
   initialTeamId = null,
 }: {
@@ -107,6 +120,14 @@ export function UserCenterTeams({
   const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
   const [memberSearchDone, setMemberSearchDone] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteExpiresAt, setInviteExpiresAt] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
 
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [editDisplayName, setEditDisplayName] = useState("");
@@ -312,18 +333,92 @@ export function UserCenterTeams({
     setMemberSearchLoading(false);
     setMemberSearchError(null);
     setMemberSearchDone(false);
+    setInviteCode("");
+    setInviteExpiresAt("");
+    setInviteError(null);
   }, []);
+
+  const generateInvite = useCallback(async () => {
+    const teamId = numericTeamId(selectedTeam);
+    if (!token || teamId === null) return;
+    setInviteLoading(true);
+    setInviteError(null);
+    try {
+      const invite = await createTeamInvite(token, teamId);
+      setInviteCode(digitsOnlyInviteCode(invite.code));
+      setInviteExpiresAt(invite.expiresAt ?? "");
+    } catch (e) {
+      setInviteCode("");
+      setInviteExpiresAt("");
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        setInviteError(formatTeamError(e));
+      }
+    } finally {
+      setInviteLoading(false);
+    }
+  }, [handleSessionExpired, selectedTeam, token]);
 
   const openAddMemberDialog = useCallback(() => {
     resetAddMemberDialog();
     setAddMemberOpen(true);
-  }, [resetAddMemberDialog]);
+    void generateInvite();
+  }, [generateInvite, resetAddMemberDialog]);
 
   const closeAddMemberDialog = useCallback(() => {
     if (addingMember) return;
     setAddMemberOpen(false);
     resetAddMemberDialog();
   }, [addingMember, resetAddMemberDialog]);
+
+  const handleCopyInviteCode = useCallback(async () => {
+    const code = digitsOnlyInviteCode(inviteCode);
+    if (code.length !== 6) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast(t("userCenter.teams.inviteCopied"));
+    } catch {
+      showToast(t("userCenter.teams.inviteCopyFailed"));
+    }
+  }, [inviteCode, t]);
+
+  const closeJoinDialog = useCallback(() => {
+    if (joining) return;
+    setJoinOpen(false);
+    setJoinCode("");
+  }, [joining]);
+
+  const handleJoinTeam = useCallback(async () => {
+    if (!token || joining) return;
+    const code = digitsOnlyInviteCode(joinCode);
+    if (code.length !== 6) {
+      showToast(t("userCenter.teams.inviteCodeInvalid"));
+      return;
+    }
+    setJoining(true);
+    try {
+      const joined = await joinTeamByInvite(token, code);
+      const name = joined.name.trim();
+      showToast(
+        name
+          ? t("userCenter.teams.joinSuccess", { name })
+          : t("userCenter.teams.joinSuccessGeneric"),
+      );
+      setJoinOpen(false);
+      setJoinCode("");
+      await loadTeams();
+      void syncAuthProfile();
+    } catch (e) {
+      if (isAuthSessionError(e)) {
+        handleSessionExpired();
+      } else {
+        showToast(formatTeamError(e));
+      }
+    } finally {
+      setJoining(false);
+    }
+  }, [handleSessionExpired, joinCode, joining, loadTeams, t, token]);
 
   const handleSearchMemberByEmail = () => {
     if (!selectedTeam || memberSearchLoading) return;
@@ -570,9 +665,58 @@ export function UserCenterTeams({
       onClose={closeAddMemberDialog}
       title={t("userCenter.teams.addMemberTitle")}
       subtitle={t("userCenter.teams.addMemberSubtitle")}
-      cancelDisabled={addingMember || memberSearchLoading}
+      cancelDisabled={addingMember || memberSearchLoading || inviteLoading}
       primaryAction={undefined}
     >
+      <div className="user-center-team-invite">
+        <div className="user-center-team-invite__head">
+          <span className="user-center-team-invite__label">{t("userCenter.teams.inviteSectionTitle")}</span>
+          <div className="user-center-team-invite__actions">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={inviteLoading || digitsOnlyInviteCode(inviteCode).length !== 6}
+              onClick={() => void handleCopyInviteCode()}
+            >
+              <IconCopy size={14} />
+              {t("userCenter.teams.inviteCopy")}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={inviteLoading}
+              onClick={() => void generateInvite()}
+            >
+              <IconRefresh size={14} />
+              {inviteLoading
+                ? t("userCenter.teams.inviteGenerating")
+                : t("userCenter.teams.inviteRegenerate")}
+            </Button>
+          </div>
+        </div>
+        {inviteLoading && !inviteCode ? (
+          <p className="user-center-team-invite__status">{t("userCenter.teams.inviteGenerating")}</p>
+        ) : inviteError ? (
+          <p className="user-center-team-add-member__error">{inviteError}</p>
+        ) : inviteCode ? (
+          <p className="user-center-team-invite__code" aria-live="polite">
+            {formatInviteCodeDisplay(inviteCode)}
+          </p>
+        ) : null}
+        <p className="user-center-team-invite__hint">{t("userCenter.teams.inviteHint")}</p>
+        {inviteExpiresAt.trim() ? (
+          <p className="user-center-team-invite__meta">
+            {t("userCenter.teams.inviteExpires", { time: formatTime(inviteExpiresAt, locale) })}
+          </p>
+        ) : inviteCode ? (
+          <p className="user-center-team-invite__meta">{t("userCenter.teams.inviteOnce")}</p>
+        ) : null}
+      </div>
+
+      <p className="user-center-team-invite__divider">{t("userCenter.teams.inviteOrEmail")}</p>
+
       <FormField label={t("userCenter.teams.memberEmail")}>
         <TextInput
           className="input"
@@ -618,6 +762,40 @@ export function UserCenterTeams({
           ))}
         </ul>
       ) : null}
+    </FormDialog>
+  );
+
+  const renderJoinDialog = () => (
+    <FormDialog
+      open={joinOpen}
+      onClose={closeJoinDialog}
+      title={t("userCenter.teams.joinTitle")}
+      subtitle={t("userCenter.teams.joinSubtitle")}
+      cancelDisabled={joining}
+      primaryAction={{
+        label: joining ? t("userCenter.teams.joining") : t("userCenter.teams.join"),
+        disabled: joining || digitsOnlyInviteCode(joinCode).length !== 6,
+        onClick: () => void handleJoinTeam(),
+      }}
+    >
+      <FormField label={t("userCenter.teams.joinCode")}>
+        <TextInput
+          className="input user-center-team-join__input"
+          value={formatInviteCodeDisplay(joinCode)}
+          onChange={(value) => setJoinCode(digitsOnlyInviteCode(value))}
+          disabled={joining}
+          placeholder={t("userCenter.teams.joinCodePlaceholder")}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          copyable={false}
+          maxLength={7}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            void handleJoinTeam();
+          }}
+        />
+      </FormField>
     </FormDialog>
   );
 
@@ -939,6 +1117,7 @@ export function UserCenterTeams({
 
         {renderAddMemberDialog()}
         {renderEditMemberDialog()}
+        {renderJoinDialog()}
       </div>
     );
   }
@@ -954,6 +1133,18 @@ export function UserCenterTeams({
           <div className="user-center-devices__header-actions">
             <Button type="button" variant="secondary" size="sm" onClick={() => void loadTeams()} disabled={loading}>
               {t("userCenter.teams.refresh")}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={joining}
+              onClick={() => {
+                setJoinCode("");
+                setJoinOpen(true);
+              }}
+            >
+              {t("userCenter.teams.join")}
             </Button>
             <Button
               type="button"
@@ -986,15 +1177,29 @@ export function UserCenterTeams({
             </div>
             <p className="user-center-teams-empty__title">{t("userCenter.teams.emptyTitle")}</p>
             <p className="user-center-teams-empty__desc">{t("userCenter.teams.emptyDesc")}</p>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={creating}
-              onClick={() => void handleCreateTeam()}
-            >
-              {creating ? t("userCenter.teams.creating") : t("userCenter.teams.create")}
-            </Button>
+            <div className="user-center-teams-empty__actions">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={joining}
+                onClick={() => {
+                  setJoinCode("");
+                  setJoinOpen(true);
+                }}
+              >
+                {t("userCenter.teams.join")}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={creating}
+                onClick={() => void handleCreateTeam()}
+              >
+                {creating ? t("userCenter.teams.creating") : t("userCenter.teams.create")}
+              </Button>
+            </div>
           </div>
         ) : (
           <ul className="user-center-team-grid">
@@ -1024,6 +1229,7 @@ export function UserCenterTeams({
           </ul>
         )}
       </section>
+      {renderJoinDialog()}
     </div>
   );
 }
