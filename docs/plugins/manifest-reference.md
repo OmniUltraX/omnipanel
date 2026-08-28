@@ -30,7 +30,7 @@
 | `menus[]` | addon | 菜单贡献（`when.hasSelection` 控制显隐） |
 | `launcher.prefix` | addon | 快捷启动前缀（如 Everything 的 `es`） |
 | `discovery[]` | panel/module | 发现 probe 归属声明 `{ probeId }` |
-| `importers[]` | importer | `{ id, title, hint?, fetchMethod, defaultGroup?, defaultTag?, sshAuth?, note?, fields[{key,kind: text\|url\|secret\|checkbox,label,placeholder?,savedHint?,required?,defaultValue?,secretKeyPrefix?}], entry? }`。宿主按此泛化渲染向导；L2 `fetchMethod` 拉目标。`netFetch` 可带 `insecure` 放宽自签证书。样板：`plugins/importer-warpgate/plugin.json` |
+| `importers[]` | importer | `{ id, title, hint?, sourceKind?: instances\|dockerConnections, fetchMethod?, scanners?, defaultGroup?, resourceKinds?, defaultTag?, sshAuth?, note?, fields[…], entry? }`。`instances`（默认）由宿主画实例表单，L2 `fetchMethod` 拉目标；`dockerConnections` 左侧列出已有 Docker 连接，宿主按 `scanners[]` 扫描。`resourceKinds` 声明会写入的资源类型，设置里按类型各选分组。样板：`plugins/importer-warpgate`、`plugins/importer-docker-db` |
 | `themes.tokens` | theme | 公开 token 合同；**theme 禁止 JS**，permissions 必须为空 |
 | `ai.tools[]` | 任意 | `{ name, description, execKind, moduleKey, crossModule, externalExposed, inputSchema }` |
 

@@ -2,6 +2,9 @@ import { create } from "zustand";
 
 import type { DbConnectionConfig } from "../modules/database/api";
 
+/** 数据库连接列表刷新后通知侧栏等本地 state 同步（非 Tauri 事件）。 */
+export const DB_CONNECTIONS_CHANGED_EVENT = "omnipanel:db-connections-changed";
+
 function isEnabled(connection: Pick<DbConnectionConfig, "enabled">): boolean {
   return connection.enabled !== false;
 }
@@ -42,6 +45,7 @@ export const useDbConnectionListStore = create<DbConnectionListState>((set, get)
       const list = await listConnections();
       const enabled = list.filter(isEnabled);
       set({ connections: enabled, loaded: true, loading: false });
+      window.dispatchEvent(new Event(DB_CONNECTIONS_CHANGED_EVENT));
       return enabled;
     } catch {
       set({ loaded: true, loading: false });

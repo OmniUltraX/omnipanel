@@ -69,6 +69,7 @@ export function DiscoveryImportDialog({
       <ImportPreview
         items={rows}
         selectedIds={selectedIds}
+        selectAllLabel={t("plugins.importer.selectAll")}
         onToggle={(id, next) => {
           setSelectedIds((prev) => {
             const copy = new Set(prev);

@@ -117,18 +117,58 @@ export const importerFieldSchema = z.object({
 
 export const importerEntrySchema = z.enum(["commandPalette", "settings", "home"]);
 
-export const importerContributionSchema = z.object({
+export const importerSourceKindSchema = z.enum(["instances", "dockerConnections"]);
+
+export const importerScannerRuleSchema = z.object({
   id: z.string().min(1),
-  title: z.string().min(1),
-  hint: z.string().optional(),
-  fetchMethod: z.string().min(1),
-  defaultGroup: z.string().optional(),
-  defaultTag: z.string().optional(),
-  sshAuth: z.boolean().optional(),
-  note: z.string().optional(),
-  fields: z.array(importerFieldSchema).default([]),
-  entry: z.union([importerEntrySchema, z.array(importerEntrySchema)]).optional(),
+  /** 镜像名子串，大小写不敏感 */
+  images: z.array(z.string().min(1)).min(1),
+  dbType: z.string().min(1),
+  defaultPort: z.number().int().positive(),
+  userEnv: z.array(z.string().min(1)).default([]),
+  passwordEnv: z.array(z.string().min(1)).default([]),
+  databaseEnv: z.array(z.string().min(1)).default([]),
+  defaultUser: z.string().optional(),
+  defaultPassword: z.string().optional(),
 });
+
+export const importerContributionSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    hint: z.string().optional(),
+    fetchMethod: z.string().min(1).optional(),
+    sourceKind: importerSourceKindSchema.optional(),
+    scanners: z.array(importerScannerRuleSchema).optional(),
+    defaultGroup: z.string().optional(),
+    /** 会写入的资源类型，宿主按类型各给一个导入分组。 */
+    resourceKinds: z.array(z.string().min(1)).optional(),
+    defaultTag: z.string().optional(),
+    sshAuth: z.boolean().optional(),
+    note: z.string().optional(),
+    fields: z.array(importerFieldSchema).default([]),
+    entry: z.union([importerEntrySchema, z.array(importerEntrySchema)]).optional(),
+  })
+  .superRefine((val, ctx) => {
+    const kind = val.sourceKind ?? "instances";
+    if (kind === "instances" && !val.fetchMethod?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "sourceKind=instances 必须声明 fetchMethod",
+        path: ["fetchMethod"],
+      });
+    }
+    if (kind === "dockerConnections" && (!val.scanners || val.scanners.length === 0)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "sourceKind=dockerConnections 必须声明 scanners",
+        path: ["scanners"],
+      });
+    }
+  });
+
+export type ImporterScannerRule = z.infer<typeof importerScannerRuleSchema>;
+export type ImporterSourceKind = z.infer<typeof importerSourceKindSchema>;
 
 export type ImporterField = z.infer<typeof importerFieldSchema>;
 export type ImporterContribution = z.infer<typeof importerContributionSchema>;

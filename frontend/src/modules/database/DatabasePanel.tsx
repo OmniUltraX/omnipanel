@@ -44,7 +44,6 @@ import {
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useActionStore } from "../../stores/actionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useDbGroupStore } from "../../stores/dbGroupStore";
 import { getShortcutKeys, matchesShortcut } from "../../stores/shortcutsStore";
 import { useDbSchemaFilterStore } from "../../stores/dbSchemaFilterStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
@@ -72,8 +71,6 @@ import {
 import { useDbScratchQueryStore } from "../../stores/dbScratchQueryStore";
 import { DockTabIcon } from "../../components/dock/DockTabIcon";
 import {
-  connectionMatchesGroup,
-  normalizeConnectionGroup,
   countTable,
   fetchTableDdl,
   introspectTable,
@@ -97,7 +94,8 @@ import {
   type DbConnectionConfig,
 } from "./api";
 import { hostCapabilities } from "./hostCapabilities";
-import { ensureCatalogEngines } from "./ensureCatalogEngines";
+import { ensureCatalogEngines, ensureEngineForDbType } from "./ensureCatalogEngines";
+import { isEngineReady } from "./engineRegistry";
 import { buildDatabaseSchema, introspectToTableSchemas } from "./sqlEditor/language/completionItems";
 import { formatSql } from "./sqlIntel/sqlFormat";
 import {
@@ -115,6 +113,7 @@ import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schema/s
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../clientSync";
+import { DB_CONNECTIONS_CHANGED_EVENT } from "../../stores/dbConnectionListStore";
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
 import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
@@ -392,10 +391,6 @@ export function DatabasePanel() {
     }
   }, [setModuleTab]);
   const enqueueAction = useActionStore((s) => s.enqueueAction);
-  const groups = useDbGroupStore((s) => s.groups);
-  const activeGroupId = useDbGroupStore((s) => s.activeGroupId);
-  const setActiveGroupId = useDbGroupStore((s) => s.setActiveGroupId);
-  const getGroupName = useDbGroupStore((s) => s.getGroupName);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<{
     fileName: string;
@@ -717,16 +712,6 @@ export function DatabasePanel() {
     ],
   );
 
-  const activeGroupNameFromStore = useMemo(
-    () => getGroupName(activeGroupId),
-    [activeGroupId, getGroupName],
-  );
-
-  const groupConnections = useMemo(
-    () => connections.filter((conn) => connectionMatchesGroup(conn, activeGroupNameFromStore)),
-    [connections, activeGroupNameFromStore],
-  );
-
   const sqlConnections = useMemo(
     () =>
       connections.filter(
@@ -744,21 +729,13 @@ export function DatabasePanel() {
   );
 
   const activeConn = useMemo(
-    () => groupConnections.find((c) => c.id === activeConnId) ?? groupConnections[0] ?? null,
-    [groupConnections, activeConnId],
+    () => connections.find((c) => c.id === activeConnId) ?? connections[0] ?? null,
+    [connections, activeConnId],
   );
 
   const dbPoolKind: PoolKind =
     activeConn?.db_type?.toLowerCase() === "redis" ? "redis" : "database";
   usePoolConnectionRegistration(dbPoolKind, moduleLive ? activeConn?.id ?? null : null);
-
-  const activeGroupName = useMemo(
-    () =>
-      activeConn
-        ? normalizeConnectionGroup(activeConn.group)
-        : activeGroupNameFromStore,
-    [activeConn, activeGroupNameFromStore],
-  );
 
   const activeWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null,
@@ -991,17 +968,14 @@ export function DatabasePanel() {
             return prev;
           }
         }
-        const inGroup = list.find(
-          (item) => connectionMatchesGroup(item, activeGroupName) && isConnectionEnabled(item),
-        );
-        return inGroup?.id ?? pickEnabled(list)?.id ?? null;
+        return pickEnabled(list)?.id ?? null;
       });
     } catch {
       // 连接列表加载失败时保留当前状态
     } finally {
       setConnectionsLoading(false);
     }
-  }, [activeGroupName, connections.length]);
+  }, [connections.length]);
 
   const handleImportConnections = useCallback(async () => {
     try {
@@ -1028,11 +1002,15 @@ export function DatabasePanel() {
   }, []);
 
   useEffect(() => {
-    const onSynced = () => {
+    const onChanged = () => {
       void refreshConnections();
     };
-    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
-    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onChanged);
+    window.addEventListener(DB_CONNECTIONS_CHANGED_EVENT, onChanged);
+    return () => {
+      window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onChanged);
+      window.removeEventListener(DB_CONNECTIONS_CHANGED_EVENT, onChanged);
+    };
   }, [refreshConnections]);
 
   const resolveSlowLogDisabledReason = useCallback(
@@ -1492,12 +1470,12 @@ export function DatabasePanel() {
 
   useEffect(() => {
     setActiveConnId((prev) => {
-      if (prev && groupConnections.some((item) => item.id === prev)) {
+      if (prev && connections.some((item) => item.id === prev)) {
         return prev;
       }
-      return groupConnections[0]?.id ?? null;
+      return connections[0]?.id ?? null;
     });
-  }, [activeGroupId, groupConnections]);
+  }, [connections]);
 
   const activeSqlTabId =
     activeWorkspaceTab?.kind === "sql" ? activeWorkspaceTab.id : null;
@@ -5061,18 +5039,27 @@ export function DatabasePanel() {
           isRedisConnection(conn) &&
           (!entry?.databases || entry.databases.length === 0);
         if ((!isSchemaCacheEntryOk(entry) || redisNeedsDbList) && !refreshing) {
-          void submitSchemaCacheRefresh([connId], schemaCacheReporter).catch((err) => {
-            schemaCacheReporter.onError?.(String(err));
-          });
+          const loadSchema = () => {
+            void submitSchemaCacheRefresh([connId], schemaCacheReporter).catch((err) => {
+              schemaCacheReporter.onError?.(String(err));
+            });
+          };
+          if (isEngineReady(conn.db_type)) {
+            loadSchema();
+          } else {
+            void ensureEngineForDbType(conn.db_type).then((result) => {
+              if (
+                result.status === "ready" ||
+                result.status === "installed" ||
+                result.status === "enabled"
+              ) {
+                loadSchema();
+              }
+            });
+          }
         }
       } else {
         useDbConnectionRuntimeStore.getState().syncEnabled(connId, false);
-      }
-
-      const normalized = normalizeConnectionGroup(conn.group);
-      const group = groups.find((item) => item.name === normalized);
-      if (group) {
-        setActiveGroupId(group.id);
       }
 
       if (isRedisConnection(conn)) {
@@ -5170,8 +5157,6 @@ export function DatabasePanel() {
     },
     [
       connections,
-      groups,
-      setActiveGroupId,
       activateExistingDockTab,
       activateWorkspaceTab,
       promotePreviewTab,
@@ -5711,7 +5696,7 @@ export function DatabasePanel() {
         openExportMenu: (x: number, y: number, tabId: string, sessionId?: string) =>
           setExportMenu({ x, y, tabId, sessionId }),
         sqlConnections,
-        groupConnections,
+        groupConnections: connections,
         databasesByConnId,
         schemaByKey,
         schemaLoadingKey,
@@ -5757,7 +5742,7 @@ export function DatabasePanel() {
     undoTabDirty,
     redoTabDirty,
     sqlConnections,
-    groupConnections,
+    connections,
     databasesByConnId,
     schemaByKey,
     schemaLoadingKey,
@@ -6308,12 +6293,11 @@ export function DatabasePanel() {
 
   const schemaContextValue = useMemo(
     () => ({
-      groupConnections,
       databasesByConnId,
       schemaByKey,
       schemaLoadingKey,
     }),
-    [groupConnections, databasesByConnId, schemaByKey, schemaLoadingKey],
+    [databasesByConnId, schemaByKey, schemaLoadingKey],
   );
 
   const databaseModuleContext = useMemo(() => {

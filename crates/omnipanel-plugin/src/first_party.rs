@@ -15,6 +15,7 @@ pub const PLUGIN_ID_ENGINE_SQLITE: &str = "omni.engine.sqlite";
 pub const PLUGIN_ID_ENGINE_SQLSERVER: &str = "omni.engine.sqlserver";
 pub const PLUGIN_ID_MODULE_NACOS: &str = "omni.module.nacos";
 pub const PLUGIN_ID_IMPORTER_WARPGATE: &str = "omni.importer.warpgate";
+pub const PLUGIN_ID_IMPORTER_DOCKER_DB: &str = "omni.importer.docker-db";
 
 /// 仓库 `plugins/<dir>/plugin.json` 是第一方清单唯一事实源。
 macro_rules! first_party_manifest {
@@ -89,6 +90,10 @@ pub fn importer_warpgate() -> PluginManifest {
     first_party_manifest!("importer-warpgate")
 }
 
+pub fn importer_docker_db() -> PluginManifest {
+    first_party_manifest!("importer-docker-db")
+}
+
 /// 第一方 L2 逻辑包（内置插件不落盘时由宿主嵌入装载）。
 pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u8>> {
     let rel = logic_rel.trim().replace('\\', "/");
@@ -124,6 +129,14 @@ pub fn first_party_asset_bytes(plugin_id: &str, rel: &str) -> Option<Vec<u8>> {
             .as_bytes()
             .to_vec(),
         ),
+        (PLUGIN_ID_IMPORTER_DOCKER_DB, "icon.svg") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/importer-docker-db/icon.svg"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         _ => None,
     }
 }
@@ -145,6 +158,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         engine_sqlserver(),
         module_nacos(),
         importer_warpgate(),
+        importer_docker_db(),
     ]
 }
 
@@ -169,6 +183,7 @@ mod tests {
         assert_eq!(engine_sqlserver().id, PLUGIN_ID_ENGINE_SQLSERVER);
         assert_eq!(module_nacos().id, PLUGIN_ID_MODULE_NACOS);
         assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
+        assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
     }
 
     #[test]
@@ -303,19 +318,63 @@ mod tests {
             .importers
             .first()
             .expect("示例 importer 应声明 contributes.importers");
-        assert_eq!(importer.get("id").and_then(|v| v.as_str()), Some("warpgate"));
+        assert_eq!(
+            importer.get("id").and_then(|v| v.as_str()),
+            Some("warpgate")
+        );
         assert_eq!(
             importer.get("fetchMethod").and_then(|v| v.as_str()),
             Some("fetchTargets")
         );
-        assert!(importer
-            .get("fields")
-            .and_then(|v| v.as_array())
-            .is_some_and(|fields| !fields.is_empty()));
+        assert!(
+            importer
+                .get("fields")
+                .and_then(|v| v.as_array())
+                .is_some_and(|fields| !fields.is_empty())
+        );
         manifest.validate().expect("Warpgate 清单应通过校验");
         let icon = first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "icon.svg")
             .expect("应嵌入 warpgate icon.svg");
         assert!(String::from_utf8(icon).unwrap().contains("<svg"));
         assert!(first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "../icon.svg").is_none());
+    }
+
+    #[test]
+    fn docker_db_declares_home_and_scanners() {
+        let manifest = importer_docker_db();
+        let home = manifest
+            .contributes
+            .ui
+            .home
+            .as_ref()
+            .expect("Docker 库扫描应声明 ui.home");
+        assert!(home.show);
+        assert_eq!(home.open.kind, "importer");
+        assert_eq!(home.open.id, "docker-db");
+        assert_eq!(home.icon, "icon.svg");
+        assert_eq!(home.title, "plugins.names.dockerDb");
+        let importer = manifest
+            .contributes
+            .importers
+            .first()
+            .expect("应声明 contributes.importers");
+        assert_eq!(
+            importer.get("id").and_then(|v| v.as_str()),
+            Some("docker-db")
+        );
+        assert_eq!(
+            importer.get("sourceKind").and_then(|v| v.as_str()),
+            Some("dockerConnections")
+        );
+        assert!(importer.get("fetchMethod").is_none());
+        let scanners = importer
+            .get("scanners")
+            .and_then(|v| v.as_array())
+            .expect("dockerConnections 必须声明 scanners");
+        assert_eq!(scanners.len(), 10);
+        manifest.validate().expect("Docker 库扫描清单应通过校验");
+        let icon = first_party_asset_bytes(PLUGIN_ID_IMPORTER_DOCKER_DB, "icon.svg")
+            .expect("应嵌入 docker-db icon.svg");
+        assert!(String::from_utf8(icon).unwrap().contains("<svg"));
     }
 }

@@ -13,6 +13,7 @@ import dbQdrantJson from "../../../plugins/db-qdrant/plugin.json";
 import dbRedisJson from "../../../plugins/db-redis/plugin.json";
 import dbSqliteJson from "../../../plugins/db-sqlite/plugin.json";
 import dbSqlserverJson from "../../../plugins/db-sqlserver/plugin.json";
+import importerDockerDbJson from "../../../plugins/importer-docker-db/plugin.json";
 import importerWarpgateJson from "../../../plugins/importer-warpgate/plugin.json";
 import moduleNacosJson from "../../../plugins/module-nacos/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
@@ -35,6 +36,7 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(dbRedisJson),
   parsePluginManifest(dbSqliteJson),
   parsePluginManifest(dbSqlserverJson),
+  parsePluginManifest(importerDockerDbJson),
   parsePluginManifest(importerWarpgateJson),
   parsePluginManifest(moduleNacosJson),
   parsePluginManifest(panel1panelJson),

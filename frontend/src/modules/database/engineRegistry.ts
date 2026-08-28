@@ -157,3 +157,15 @@ export function isRegisteredEngine(engine: string): boolean {
   const desc = getEngineDescriptor(engine);
   return Boolean(desc?.supported);
 }
+
+/** 工作台能用：已激活，或第一方引擎尚未 hydrate 时按可用处理。 */
+export function isEngineReady(raw: string | null | undefined): boolean {
+  const desc = getEngineDescriptor(raw);
+  if (!desc?.pluginId) return false;
+  if (FIRST_PARTY_ENGINE_IDS.has(desc.pluginId)) {
+    const item = usePluginRuntimeStore.getState().items.find((entry) => entry.id === desc.pluginId);
+    if (!item) return true;
+    return Boolean(item.enabled && item.activated);
+  }
+  return isPluginActivated(desc.pluginId);
+}

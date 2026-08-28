@@ -20,7 +20,6 @@ const TEAM_SCOPED_NAMES = new Set<string>([
   "omnipanel-protocol-lab-entries.v1",
   "omnipanel-protocol-http-dock.v1",
   "omnipanel-protocol-http-layout.v1",
-  "omnipanel-db-groups",
   "omnipanel-db-scratch-query",
   "omnipanel-db-sql-files",
   "omnipanel-db-schema-connection-layout.v1",

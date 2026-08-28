@@ -28,6 +28,7 @@
         "hint": "plugins.samples.warpgate.hint",
         "fetchMethod": "fetchTargets",
         "defaultGroup": "Warpgate",
+        "resourceKinds": ["ssh", "mysql", "postgres"],
         "defaultTag": "warpgate",
         "sshAuth": true,
         "note": "plugins.samples.warpgate.note",

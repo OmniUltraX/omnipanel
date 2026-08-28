@@ -222,6 +222,9 @@ export function ConnectionImportPreviewDialog({
           };
         })}
         selectedIds={selectedIds}
+        selectAllLabel={t("database.connectionImport.selectAllImportable", {
+          count: importableItems.length,
+        })}
         onToggle={(id, next) => toggleItem(id, next)}
         columns={[
           {

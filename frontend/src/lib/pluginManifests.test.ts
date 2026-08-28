@@ -10,8 +10,8 @@ import {
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(15);
-    expect(new Set(ids).size).toBe(15);
+    expect(ids).toHaveLength(16);
+    expect(new Set(ids).size).toBe(16);
   });
 
   it("kind 分布与仓库样板一致", () => {
@@ -30,7 +30,7 @@ describe("pluginManifests 单源目录", () => {
     expect(listPluginManifests("cloud")).toHaveLength(1);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
-    expect(listPluginManifests("importer")).toHaveLength(1);
+    expect(listPluginManifests("importer")).toHaveLength(2);
   });
 
   it("getPluginManifest 命中与未命中", () => {
@@ -98,12 +98,37 @@ describe("pluginManifests 单源目录", () => {
     expect(home?.icon).toBe("icon.svg");
     expect(importer?.id).toBe("warpgate");
     expect(importer?.fetchMethod).toBe("fetchTargets");
+    expect(importer?.resourceKinds).toEqual(["ssh", "mysql", "postgres"]);
     expect(importer?.fields.some((field) => field.key === "token" && field.secretKeyPrefix === "src")).toBe(
       true,
     );
     expect(importer?.fields.some((field) => field.key === "insecureTls" && field.kind === "checkbox")).toBe(
       true,
     );
+  });
+
+  it("Docker 库扫描器声明 sourceKind 与 scanners，无 L2", () => {
+    const manifest = getPluginManifest("omni.importer.docker-db");
+    const home = manifest?.contributes.ui?.home;
+    const importer = manifest?.contributes.importers?.[0];
+    expect(manifest?.entry?.logic).toBeUndefined();
+    expect(home?.open).toEqual({ kind: "importer", id: "docker-db" });
+    expect(home?.icon).toBe("icon.svg");
+    expect(importer?.id).toBe("docker-db");
+    expect(importer?.sourceKind).toBe("dockerConnections");
+    expect(importer?.fetchMethod).toBeUndefined();
+    expect(importer?.scanners?.map((rule) => rule.id)).toEqual([
+      "mysql",
+      "postgres",
+      "redis",
+      "mongodb",
+      "clickhouse",
+      "sqlserver",
+      "qdrant",
+      "dameng",
+      "cassandra",
+      "neo4j",
+    ]);
   });
 
   it("legacy 别名解析到插件 id", () => {

@@ -12,11 +12,23 @@ import { useI18n } from "../../i18n";
 import { createPluginHost } from "../../lib/pluginHost";
 import { upsertImportCandidates } from "../../lib/importCandidates";
 import { findImporter, resolveImporterText, secretKeyFor } from "../../lib/importerCatalog";
-import { collectSshGroupSuggestions, sanitizeSshGroupInput } from "../../lib/sshGroups";
+import {
+  collectImportGroupSuggestions,
+  defaultImportGroups,
+  groupForImporter,
+  listSidebarFolderPaths,
+  mergeImportGroups,
+  resolveImportGroupFields,
+  sanitizeImportGroupInput,
+  type ImportGroupDest,
+} from "../../lib/importGroups";
 import { isPluginActivated } from "../../stores/pluginRuntimeStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { commands, type SshKeyInfo } from "../../ipc/bindings";
+import { useDbSchemaConnectionLayoutStore } from "../../stores/dbSchemaConnectionLayoutStore";
+import { useSshSidebarTreeStore } from "../../stores/sshSidebarTreeStore";
+import { commands, type DockerConnectionInfo, type SshKeyInfo } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { scanDockerDatabases } from "../../lib/dockerDbScan";
 import {
   deleteImporterSource,
   loadImporterState,
@@ -78,6 +90,7 @@ export function ImporterWizardDialog() {
   const [pluginId, setPluginId] = useState("");
   const [importerId, setImporterId] = useState("");
   const [sources, setSources] = useState<ImporterSource[]>([]);
+  const [dockerConnections, setDockerConnections] = useState<DockerConnectionInfo[]>([]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pane, setPane] = useState<RightPane>("edit");
@@ -85,7 +98,7 @@ export function ImporterWizardDialog() {
   const [authMode, setAuthMode] = useState<ImporterAuthMode>("password");
   const [keyId, setKeyId] = useState("");
   const [keys, setKeys] = useState<SshKeyInfo[]>([]);
-  const [importGroup, setImportGroup] = useState("");
+  const [importGroups, setImportGroups] = useState<Record<string, string>>({});
   const [importTags, setImportTags] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
@@ -97,15 +110,43 @@ export function ImporterWizardDialog() {
 
   const active = useMemo(() => findImporter(pluginId, importerId), [pluginId, importerId]);
   const importer = active?.importer;
+  const dockerMode = (importer?.sourceKind ?? "instances") === "dockerConnections";
   const fields = importer?.fields ?? [];
   const defaultGroup = importer?.defaultGroup?.trim() || "默认";
   const lockedTag = importer ? defaultTagFor(importer) : "";
 
   const connections = useConnectionStore((s) => s.connections);
-  const groupOptions = useMemo(
-    () => collectSshGroupSuggestions(connections, importGroup || defaultGroup),
-    [connections, defaultGroup, importGroup],
+  const dbTreeFolders = useDbSchemaConnectionLayoutStore((s) => s.folders);
+  const sshTreeFolders = useSshSidebarTreeStore((s) => s.folders);
+  const groupFields = useMemo(
+    () =>
+      resolveImportGroupFields({
+        sourceKind: importer?.sourceKind,
+        resourceKinds: importer?.resourceKinds,
+        candidateKinds: candidates.map((item) => item.remoteKind),
+      }),
+    [candidates, importer],
   );
+  const groupOptionsByDest = useMemo(() => {
+    const byKind = (kind: string) => connections.filter((conn) => conn.kind === kind).map((conn) => conn.group);
+    return {
+      ssh: listSidebarFolderPaths(sshTreeFolders),
+      database: listSidebarFolderPaths(dbTreeFolders),
+      docker: collectImportGroupSuggestions(byKind("docker")),
+      panel: collectImportGroupSuggestions(byKind("panel")),
+    } satisfies Record<ImportGroupDest, string[]>;
+  }, [connections, dbTreeFolders, sshTreeFolders]);
+
+  useEffect(() => {
+    const defaults = defaultImportGroups(groupFields, { defaultGroup });
+    setImportGroups((prev) => mergeImportGroups(prev, groupFields, defaults));
+  }, [defaultGroup, groupFields]);
+
+  const groupKindLabel = (kind: string) => {
+    const key = `plugins.importer.groupKinds.${kind}`;
+    const label = t(key);
+    return label === key ? kind : label;
+  };
   const keyOptions = useMemo(() => {
     const options = keys.map((key) => ({
       value: key.id,
@@ -131,7 +172,7 @@ export function ImporterWizardDialog() {
         item.config && typeof item.config === "object" && !Array.isArray(item.config)
           ? { ...(item.config as Record<string, unknown>) }
           : {};
-      prev.importGroup = sanitizeSshGroupInput(importGroup || defaultGroup) || defaultGroup;
+      prev.importGroup = groupForImporter(importer, importGroups, item.remoteKind);
       prev.importTags = importer ? withDefaultTags(importer, importTags) : importTags;
       if (mode === "key" && selectedKey) {
         prev.keyId = selectedKey;
@@ -141,7 +182,7 @@ export function ImporterWizardDialog() {
       }
       return { ...item, config: prev };
     },
-    [authMode, defaultGroup, editingId, importGroup, importTags, importer, keyId],
+    [authMode, editingId, importGroups, importTags, importer, keyId],
   );
 
   const refreshSources = useCallback(async () => {
@@ -159,7 +200,7 @@ export function ImporterWizardDialog() {
     setCandidates([]);
     setSelectedIds(new Set());
     setSettingsOpen(false);
-    setPane("edit");
+    setPane(dockerMode ? "resources" : "edit");
   };
 
   const applySource = (source: ImporterSource, nextPane: RightPane) => {
@@ -197,8 +238,42 @@ export function ImporterWizardDialog() {
       setSelectedIds(new Set());
       setSettingsOpen(false);
       const found = findImporter(nextPluginId, nextImporterId);
-      setImportGroup(found?.importer.defaultGroup?.trim() || "默认");
+      const nextDocker = (found?.importer.sourceKind ?? "instances") === "dockerConnections";
+      const fields = resolveImportGroupFields({
+        sourceKind: found?.importer.sourceKind,
+        resourceKinds: found?.importer.resourceKinds,
+      });
+      setImportGroups(
+        defaultImportGroups(fields, {
+          defaultGroup: found?.importer.defaultGroup?.trim() || "",
+        }),
+      );
       setImportTags(found ? withDefaultTags(found.importer, []) : []);
+      setValues(emptyValues(found?.importer.fields ?? []));
+      setAuthMode("password");
+      setKeyId("");
+      if (nextDocker) {
+        setSources([]);
+        setPane("resources");
+        void unwrapCommand(commands.dockerListConnections())
+          .then((list) => {
+            setDockerConnections(list);
+            if (list[0]) {
+              setEditingId(list[0].connectionId);
+              setSelectedSourceIds((prev) => (prev.size > 0 ? prev : new Set([list[0].connectionId])));
+            } else {
+              setEditingId(null);
+              setSelectedSourceIds(new Set());
+            }
+          })
+          .catch(() => {
+            setDockerConnections([]);
+            setEditingId(null);
+            setSelectedSourceIds(new Set());
+          });
+        return;
+      }
+      setDockerConnections([]);
       void loadImporterState(nextPluginId).then((state) => {
         setSources(state.sources);
         if (state.sources[0]) {
@@ -215,9 +290,6 @@ export function ImporterWizardDialog() {
           setSelectedSourceIds((prev) => (prev.size > 0 ? prev : new Set([source.id])));
         } else {
           setEditingId(null);
-          setValues(emptyValues(found?.importer.fields ?? []));
-          setAuthMode("password");
-          setKeyId("");
           setPane("edit");
         }
       });
@@ -229,7 +301,7 @@ export function ImporterWizardDialog() {
     source: ImporterSource | undefined,
     fieldValues: Record<string, string>,
   ): Promise<{ candidates: ImportCandidate[]; loginUser: string; skipped: number }> => {
-    if (!importer || !isPluginActivated(pluginId)) {
+    if (!importer || !isPluginActivated(pluginId) || !importer.fetchMethod) {
       throw new Error(t("plugins.importer.contributionMissing"));
     }
     const args: Record<string, unknown> = { ...fieldValues };
@@ -293,13 +365,51 @@ export function ImporterWizardDialog() {
     }
   }, [authMode, editingId, fields, importer, keyId, pluginId, refreshSources, t, values]);
 
+  const scanDocker = useCallback(
+    async (targets: DockerConnectionInfo[]) => {
+      if (!importer) throw new Error(t("plugins.importer.contributionMissing"));
+      let merged: ImportCandidate[] = [];
+      let skipped = 0;
+      for (const docker of targets) {
+        const fetched = await scanDockerDatabases({
+          pluginId,
+          importer,
+          docker,
+          connections,
+        });
+        merged = upsertImportCandidates(merged, fetched.candidates);
+        skipped += fetched.skipped;
+      }
+      return { merged, skipped };
+    },
+    [connections, importer, pluginId, t],
+  );
+
   const loadCandidates = useCallback(async () => {
     if (!importer) return;
     setPane("resources");
     setSettingsOpen(false);
-    setStatus({ kind: "info", message: t("plugins.importer.fetching") });
+    setStatus({
+      kind: "info",
+      message: t(dockerMode ? "plugins.importer.scanning" : "plugins.importer.fetching"),
+    });
     try {
       setBusy(true);
+      if (dockerMode) {
+        const docker = dockerConnections.find((item) => item.connectionId === editingId);
+        if (!docker) {
+          setStatus({ kind: "error", message: t("plugins.importer.selectDocker") });
+          return;
+        }
+        const fetched = await scanDocker([docker]);
+        setCandidates(fetched.merged);
+        setSelectedIds(new Set(fetched.merged.map((item) => item.remoteId)));
+        setStatus({
+          kind: fetched.merged.length > 0 ? "success" : "info",
+          message: fetchStatusMessage(t, fetched.merged.length, fetched.skipped),
+        });
+        return;
+      }
       const source = editingId ? sources.find((item) => item.id === editingId) : undefined;
       const fetched = await fetchFrom(source, values);
       if (source && fetched.loginUser && fetched.loginUser !== source.values.loginUser) {
@@ -324,10 +434,53 @@ export function ImporterWizardDialog() {
     } finally {
       setBusy(false);
     }
-  }, [editingId, fields, importer, pluginId, refreshSources, sources, t, values]);
+  }, [
+    connections,
+    dockerConnections,
+    dockerMode,
+    editingId,
+    fields,
+    importer,
+    pluginId,
+    refreshSources,
+    scanDocker,
+    sources,
+    t,
+    values,
+  ]);
 
   const updateChecked = useCallback(async () => {
     if (!importer) return;
+    if (dockerMode) {
+      const chosen = dockerConnections.filter((item) => selectedSourceIds.has(item.connectionId));
+      if (chosen.length === 0) {
+        setStatus({ kind: "error", message: t("plugins.importer.selectDocker") });
+        return;
+      }
+      setBusy(true);
+      setPane("resources");
+      setSettingsOpen(false);
+      setStatus({ kind: "info", message: t("plugins.importer.scanning") });
+      try {
+        const fetched = await scanDocker(chosen);
+        setCandidates(fetched.merged);
+        setSelectedIds(new Set(fetched.merged.map((item) => item.remoteId)));
+        setEditingId(chosen[0]?.connectionId ?? null);
+        setStatus({
+          kind: "success",
+          message: t("plugins.importer.refetched", {
+            count: chosen.length,
+            loaded: fetched.merged.length,
+            skipped: fetched.skipped,
+          }),
+        });
+      } catch (err) {
+        setStatus({ kind: "error", message: formatIpcError(err) });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const chosen = sources.filter((item) => selectedSourceIds.has(item.id));
     if (chosen.length === 0) {
       setStatus({ kind: "error", message: t("plugins.importer.selectSource") });
@@ -362,7 +515,18 @@ export function ImporterWizardDialog() {
     } finally {
       setBusy(false);
     }
-  }, [importer, pluginId, refreshSources, selectedSourceIds, sources, t]);
+  }, [
+    connections,
+    dockerConnections,
+    dockerMode,
+    importer,
+    pluginId,
+    refreshSources,
+    scanDocker,
+    selectedSourceIds,
+    sources,
+    t,
+  ]);
 
   const handleImport = useCallback(async () => {
     const chosen = candidates.filter((item) => selectedIds.has(item.remoteId));
@@ -409,6 +573,12 @@ export function ImporterWizardDialog() {
   };
 
   const activeSource = editingId ? sources.find((item) => item.id === editingId) : undefined;
+  const activeDocker = editingId
+    ? dockerConnections.find((item) => item.connectionId === editingId)
+    : undefined;
+  const resourcesTitle = dockerMode
+    ? activeDocker?.name || t("plugins.importer.resourcesTitle")
+    : activeSource?.name || t("plugins.importer.resourcesTitle");
   const title = importer ? resolveImporterText(importer.title, t) : t("plugins.importer.unknown");
   const subtitle = importer ? resolveImporterText(importer.hint, t) : "";
 
@@ -483,12 +653,52 @@ export function ImporterWizardDialog() {
       <div className="importer-wizard">
         <aside className="importer-wizard__rail">
           <div className="importer-wizard__rail-head">
-            <span>{t("plugins.importer.sources")}</span>
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={resetEditor}>
-              {t("plugins.importer.newSource")}
-            </button>
+            <span>{t(dockerMode ? "plugins.importer.dockerSources" : "plugins.importer.sources")}</span>
+            {dockerMode ? null : (
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={resetEditor}>
+                {t("plugins.importer.newSource")}
+              </button>
+            )}
           </div>
-          {sources.length === 0 ? (
+          {dockerMode ? (
+            dockerConnections.length === 0 ? (
+              <p className="setting-hint importer-wizard__empty">{t("plugins.importer.emptyDocker")}</p>
+            ) : (
+              <div className="importer-wizard-source-list" role="list" aria-label={t("plugins.importer.dockerSources")}>
+                {dockerConnections.map((docker) => (
+                  <div key={docker.connectionId} className="importer-wizard-source-row" role="listitem">
+                    <input
+                      type="checkbox"
+                      checked={selectedSourceIds.has(docker.connectionId)}
+                      onChange={(event) => {
+                        setSelectedSourceIds((prev) => {
+                          const next = new Set(prev);
+                          if (event.target.checked) next.add(docker.connectionId);
+                          else next.delete(docker.connectionId);
+                          return next;
+                        });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className={
+                        editingId === docker.connectionId && pane === "resources"
+                          ? "btn btn-ghost is-active"
+                          : "btn btn-ghost"
+                      }
+                      onClick={() => {
+                        setEditingId(docker.connectionId);
+                        setPane("resources");
+                        setSettingsOpen(false);
+                      }}
+                    >
+                      {docker.name}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : sources.length === 0 ? (
             <p className="setting-hint importer-wizard__empty">{t("plugins.importer.emptySources")}</p>
           ) : (
             <div className="importer-wizard-source-list" role="list" aria-label={t("plugins.importer.sources")}>
@@ -547,7 +757,7 @@ export function ImporterWizardDialog() {
             disabled={busy || selectedSourceIds.size === 0}
             onClick={() => void updateChecked()}
           >
-            {t("plugins.importer.updateSelected")}
+            {t(dockerMode ? "plugins.importer.scanSelected" : "plugins.importer.updateSelected")}
           </button>
         </aside>
 
@@ -555,20 +765,41 @@ export function ImporterWizardDialog() {
           {settingsOpen ? (
             <div className="importer-wizard__editor">
               <h4 className="importer-wizard__pane-title">{t("plugins.importer.importMeta")}</h4>
-              <div className="form-field">
-                <label className="form-label">{t("plugins.importer.importGroup")}</label>
-                <Select
-                  value={importGroup || defaultGroup}
-                  onChange={(value) => setImportGroup(sanitizeSshGroupInput(value) || defaultGroup)}
-                  options={groupOptions}
-                  searchable
-                  allowCustom
-                  formatCustomOption={(name) => name}
-                  placeholder={t("ssh.dialog.groupPlaceholder")}
-                  style={{ width: "100%" }}
-                />
-                <p className="form-hint">{t("plugins.importer.importGroupHint")}</p>
-              </div>
+              {groupFields.map((field) => {
+                const value = importGroups[field.kind] ?? "";
+                const label =
+                  groupFields.length === 1
+                    ? t("plugins.importer.importGroup")
+                    : t("plugins.importer.groupKind", { kind: groupKindLabel(field.kind) });
+                const folderOptions = collectImportGroupSuggestions(
+                  groupOptionsByDest[field.dest],
+                  value,
+                );
+                return (
+                  <div className="form-field" key={field.kind}>
+                    <label className="form-label">{label}</label>
+                    <Select
+                      value={value}
+                      onChange={(next) =>
+                        setImportGroups((prev) => ({
+                          ...prev,
+                          [field.kind]: sanitizeImportGroupInput(next),
+                        }))
+                      }
+                      options={[
+                        { value: "", label: t("plugins.importer.importGroupRoot") },
+                        ...folderOptions.map((name) => ({ value: name, label: name })),
+                      ]}
+                      searchable
+                      allowCustom
+                      formatCustomOption={(name) => name}
+                      placeholder={t("plugins.importer.importGroupPlaceholder")}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                );
+              })}
+              <p className="form-hint">{t("plugins.importer.importGroupHint")}</p>
               <div className="form-field">
                 <label className="form-label">{t("plugins.importer.importTags")}</label>
                 <ResourceTagEditor
@@ -578,7 +809,7 @@ export function ImporterWizardDialog() {
                 />
               </div>
             </div>
-          ) : pane === "edit" ? (
+          ) : !dockerMode && pane === "edit" ? (
             <div className="importer-wizard__editor">
               <h4 className="importer-wizard__pane-title">
                 {editingId ? t("plugins.importer.editSource") : t("plugins.importer.newSource")}
@@ -634,33 +865,35 @@ export function ImporterWizardDialog() {
           ) : (
             <div className="importer-wizard__resources">
               <div className="importer-wizard__resources-head">
-                <h4 className="importer-wizard__pane-title">
-                  {activeSource?.name || t("plugins.importer.resourcesTitle")}
-                </h4>
+                <h4 className="importer-wizard__pane-title">{resourcesTitle}</h4>
                 <div className="importer-wizard__actions">
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    disabled={busy || !editingId}
-                    onClick={() => {
-                      if (activeSource) applySource(activeSource, "edit");
-                    }}
-                  >
-                    {t("plugins.importer.editSource")}
-                  </button>
+                  {dockerMode ? null : (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={busy || !editingId}
+                      onClick={() => {
+                        if (activeSource) applySource(activeSource, "edit");
+                      }}
+                    >
+                      {t("plugins.importer.editSource")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    disabled={busy}
+                    disabled={busy || (dockerMode && !editingId)}
                     onClick={() => void loadCandidates()}
                   >
-                    {t("plugins.importer.load")}
+                    {t(dockerMode ? "plugins.importer.scan" : "plugins.importer.load")}
                   </button>
                 </div>
               </div>
               {candidates.length === 0 ? (
                 <p className="setting-hint importer-wizard__empty">
-                  {busy ? t("plugins.importer.fetching") : t("plugins.importer.paneResourcesEmpty")}
+                  {busy
+                    ? t(dockerMode ? "plugins.importer.scanning" : "plugins.importer.fetching")
+                    : t(dockerMode ? "plugins.importer.paneScanEmpty" : "plugins.importer.paneResourcesEmpty")}
                 </p>
               ) : (
                 <ImportPreview
@@ -671,6 +904,7 @@ export function ImporterWizardDialog() {
                     kind: item.remoteKind,
                   }))}
                   selectedIds={selectedIds}
+                  selectAllLabel={t("plugins.importer.selectAll")}
                   onToggle={(id, next) => {
                     setSelectedIds((prev) => {
                       const copy = new Set(prev);
